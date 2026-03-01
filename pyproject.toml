@@ -1,0 +1,117 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gleplot"
+version = "0.0.1"
+description = "Matplotlib-like plotting library for GLE (Graphics Layout Engine)"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "GPL-2.0+"}
+authors = [
+    {name = "gleplot contributors"},
+]
+keywords = ["plotting", "graphics", "GLE", "scientific-visualization", "publication-quality"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+dependencies = [
+    "numpy>=1.16.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0",
+    "black>=21.0",
+    "flake8>=3.9",
+    "mypy>=0.900",
+    "python-semantic-release>=8.0",
+]
+docs = [
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=1.0",
+    "sphinx-autodoc-typehints>=1.10",
+]
+gle = [
+    # GLE must be installed separately from system package manager
+    # macOS: brew install gle
+    # Linux: apt-get install gle (or yum/dnf)
+]
+
+[project.urls]
+Homepage = "https://github.com/vlabella/GLE"
+Documentation = "https://yourusername.github.io/gleplot"
+Repository = "https://github.com/yourusername/gleplot"
+"Bug Tracker" = "https://github.com/yourusername/gleplot/issues"
+
+[tool.setuptools]
+packages = ["gleplot"]
+package-dir = {"" = "src"}
+
+[tool.black]
+line-length = 88
+target-version = ['py37', 'py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.7"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = ["src/gleplot/__init__.py:__version__"]
+branch = "main"
+upload_to_vcs_release = true
+upload_to_pypi = false
+build_command = "pip install build && python -m build"
+commit_message = "chore: release version {version}"
+
+[tool.semantic_release.changelog]
+template_dir = "templates"
+changelog_file = "CHANGELOG.md"
+exclude_commit_patterns = []
+
+[tool.semantic_release.changelog.environment]
+block_start_string = "{%"
+block_end_string = "%}"
+variable_start_string = "{{"
+variable_end_string = "}}"
+comment_start_string = "{#"
+comment_end_string = "#}"
+trim_blocks = false
+lstrip_blocks = false
+newline_sequence = "\n"
+keep_trailing_newline = false
+
+[tool.semantic_release.branches.main]
+match = "(main|master)"
+prerelease_token = "rc"
+prerelease = false
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = ["feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert"]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]

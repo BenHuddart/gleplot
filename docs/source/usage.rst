@@ -1,0 +1,176 @@
+Usage Guide
+===========
+
+Creating Figures
+----------------
+
+Creating a new figure:
+
+.. code-block:: python
+
+   import gleplot as glp
+
+   fig = glp.figure(figsize=(10, 6))
+   ax = fig.add_subplot(111)
+
+You can specify the figure size in inches:
+
+.. code-block:: python
+
+   fig = glp.figure(figsize=(8, 6))  # 8 inches wide, 6 inches tall
+
+Creating Multiple Subplots
+----------------------------
+
+For multiple subplots, use the standard matplotlib approach:
+
+.. code-block:: python
+
+   fig = glp.figure(figsize=(12, 8))
+   
+   ax1 = fig.add_subplot(2, 2, 1)
+   ax1.plot(x, y1)
+   ax1.set_title('Plot 1')
+   
+   ax2 = fig.add_subplot(2, 2, 2)
+   ax2.plot(x, y2)
+   ax2.set_title('Plot 2')
+   
+   ax3 = fig.add_subplot(2, 2, 3)
+   ax3.plot(x, y3)
+   ax3.set_title('Plot 3')
+   
+   ax4 = fig.add_subplot(2, 2, 4)
+   ax4.plot(x, y4)
+   ax4.set_title('Plot 4')
+
+Plotting Data
+-------------
+
+Line Plots
+~~~~~~~~~~
+
+.. code-block:: python
+
+   ax.plot(x, y, label='data', color='blue', linestyle='-', linewidth=2)
+
+Scatter Plots
+~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ax.scatter(x, y, s=50, color='red', marker='o', alpha=0.6)
+
+Bar Plots
+~~~~~~~~~
+
+.. code-block:: python
+
+   ax.bar(x, y, width=0.8, color='green', label='bars')
+
+Fill Between
+~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ax.fill_between(x, y1, y2, alpha=0.3, color='blue')
+
+Customizing Axes
+----------------
+
+Axis Labels and Title
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ax.set_xlabel('X Axis Label')
+   ax.set_ylabel('Y Axis Label')
+   ax.set_title('Plot Title')
+
+Axis Limits
+~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ax.set_xlim(0, 10)
+   ax.set_ylim(-1, 1)
+
+Axis Scale
+~~~~~~~~~~~
+
+.. code-block:: python
+
+   ax.set_xscale('log')   # Logarithmic scale
+   ax.set_yscale('log')
+
+Grid
+~~~~~
+
+.. code-block:: python
+
+   ax.grid(True)          # Show grid
+   ax.grid(True, which='both')  # Show both major and minor grid
+
+Legends
+-------
+
+.. code-block:: python
+
+   ax.plot(x, y1, label='Series 1')
+   ax.plot(x, y2, label='Series 2')
+   ax.legend()           # Show legend with default location
+   ax.legend(loc='upper right')  # Custom location
+
+Line Styles and Colors
+----------------------
+
+Available line styles:
+
+- ``'-'`` : solid line (default)
+- ``'--'`` : dashed line
+- ``'-.'`` : dash-dot line
+- ``':'`` : dotted line
+
+Available colors:
+
+- Named colors: ``'red'``, ``'blue'``, ``'green'``, ``'black'``, etc.
+- Hex colors: ``'#FF0000'``
+- RGB tuples: ``(0.5, 0.5, 0.5)``
+
+.. code-block:: python
+
+   ax.plot(x, y, color='red', linestyle='--', linewidth=2)
+   ax.scatter(x, y, color='#0000FF', s=100)
+
+Saving Figures
+--------------
+
+Save as PDF (requires GLE):
+
+.. code-block:: python
+
+   fig.savefig('plot.pdf')
+
+Save as PNG (requires GLE):
+
+.. code-block:: python
+
+   fig.savefig('plot.png', dpi=300)
+
+Save as GLE script (for manual editing or compilation):
+
+.. code-block:: python
+
+   fig.savefig('plot.gle')
+
+Save as EPS:
+
+.. code-block:: python
+
+   fig.savefig('plot.eps')
+
+You can also specify output directory:
+
+.. code-block:: python
+
+   fig.savefig('/path/to/output/plot.pdf')
