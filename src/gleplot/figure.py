@@ -7,24 +7,39 @@ from .axes import Axes
 from .writer import GLEWriter
 from .compiler import GLECompiler
 from .colors import rgb_to_gle
+from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
 
 
 class Figure:
-    """Matplotlib-like figure for GLE plotting."""
+    """Matplotlib-like figure for GLE plotting.
     
-    def __init__(self, figsize: Tuple[float, float] = (8, 6), dpi: int = 100):
-        """
-        Initialize figure.
-        
-        Parameters
-        ----------
-        figsize : tuple
-            Figure size (width, height) in inches
-        dpi : int
-            Dots per inch
-        """
+    Parameters
+    ----------
+    figsize : tuple, optional
+        Figure size (width, height) in inches. Default: (8, 6)
+    dpi : int, optional
+        Dots per inch. Default: 100
+    style : GLEStyleConfig, optional
+        Style configuration. If None, uses global default.
+    graph : GLEGraphConfig, optional
+        Graph configuration. If None, uses global default.
+    marker : GLEMarkerConfig, optional
+        Marker configuration. If None, uses global default.
+    """
+    
+    def __init__(self, figsize: Tuple[float, float] = (8, 6), dpi: int = 100,
+                 style: Optional[GLEStyleConfig] = None,
+                 graph: Optional[GLEGraphConfig] = None,
+                 marker: Optional[GLEMarkerConfig] = None):
+        """Initialize figure with optional configuration objects."""
         self.figsize = figsize
         self.dpi = dpi
+        
+        # Store configuration for passing to writer
+        self.style = style or GlobalConfig.get_style()
+        self.graph = graph or GlobalConfig.get_graph()
+        self.marker_config = marker or GlobalConfig.get_marker()
+        
         self.axes_list = []  # List of Axes objects
         self._current_axes = None  # Current working axes
         
@@ -210,15 +225,22 @@ class Figure:
         """
         Generate complete GLE script content with data files.
         
+        Uses figure's configured style, graph, and marker settings.
+        
         Returns
         -------
         tuple
             (gle_content, data_files_dict)
         """
-        writer = GLEWriter(self.figsize, self.dpi)
+        # Pass configuration to writer
+        writer = GLEWriter(self.figsize, self.dpi,
+                          style=self.style,
+                          graph=self.graph,
+                          marker=self.marker_config)
         
         writer.add_preamble()
-        writer.add_graph_size(width_cm=12, height_cm=8)
+        # Use auto-calculated graph size based on figure size
+        writer.add_graph_size()
         
         # Add first axes (multi-axis support for future)
         if self.axes_list:

@@ -79,12 +79,13 @@ class GLECompiler:
         # Determine output file
         output_path = input_path.with_suffix(f'.{output_format}')
         
-        # Build command
-        cmd = [self.gle_path, input_path]
-        cmd.extend([f'-d {output_format.upper()}'])
+        # Build command (all options must come before filename)
+        cmd = [self.gle_path, '-d', output_format.upper()]
         
         if output_format == 'png':
-            cmd.extend([f'-r {dpi}'])
+            cmd.extend(['-r', str(dpi)])
+        
+        cmd.append(str(input_path))
         
         try:
             result = subprocess.run(

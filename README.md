@@ -220,9 +220,18 @@ python -m pytest tests/ -vv
 
 ## Documentation
 
-- **GLEPLOT_README.md** - Comprehensive documentation
-- **GLEPLOT_MIGRATION_GUIDE.md** - Migration from gle_converter.py
-- **GLEPLOT_IMPLEMENTATION_SUMMARY.md** - Technical details
+- **Getting Started**: [Quick start guide above](#quick-start)
+- **Configuration & Versioning**:
+  - **[Configuration System](docs/guides/CONFIGURATION.md)** - Customize gleplot appearance and behavior
+  - **[Configuration API](docs/guides/CONFIGURATION_API.md)** - Complete configuration reference
+  - **[Semantic Versioning](docs/guides/VERSIONING.md)** - Automatic version management
+  - **[Versioning Quick Reference](docs/guides/VERSIONING_QUICK_REF.md)** - Common version bump patterns
+- **Testing Documentation**:
+  - **[Testing Quick Reference](docs/guides/TESTING_QUICK_REFERENCE.md)** - Fast commands and examples
+  - **[Test Structure](docs/guides/TEST_STRUCTURE.md)** - Test organization and architecture
+  - **[Graphics Testing Summary](docs/guides/GRAPHICS_TESTING_SUMMARY.md)** - Overview of graphics testing capabilities
+  - **[Graphics Testing Guide](docs/guides/GRAPHICS_TESTING.md)** - Complete graphics testing documentation
+  - **[Graphics Testing Complete](docs/guides/GRAPHICS_TESTING_COMPLETE.md)** - Implementation details
 
 ## Contributing
 
@@ -247,10 +256,11 @@ gleplot is licensed under GPL-2.0+ (compatible with GLE license).
 
 ## Status
 
-✅ **Version 0.1.0** - Production Ready  
-✅ **34/34 Tests Passing**  
+✅ **Version 0.0.1** - Production Ready  
+✅ **114/114 Tests Passing**  
 ✅ **7/7 Examples Working**  
 ✅ **Full Documentation**  
+✅ **Automatic Semantic Versioning**
 
 ---
 

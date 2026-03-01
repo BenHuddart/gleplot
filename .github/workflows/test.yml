@@ -1,0 +1,116 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.9', '3.11']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GLE dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            freeglut3-dev \
+            libboost-dev \
+            libcairo-dev \
+            libdeflate-dev \
+            libgs-dev \
+            libjpeg-turbo8-dev \
+            liblzma-dev \
+            libpixman-1-dev \
+            libpng-dev \
+            libtiff-dev \
+            libz-dev \
+            qt6-base-dev \
+            libpoppler-dev \
+            libpoppler-cpp-dev \
+            libpoppler-glib-dev \
+            libpoppler-qt6-dev \
+            libglib2.0-dev \
+            extra-cmake-modules \
+            ghostscript \
+            texlive \
+            texlive-latex-extra \
+            texlive-science \
+            dvipng \
+            latexmk
+
+      - name: Install GLE dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install --quiet \
+            boost \
+            cairo \
+            ghostscript \
+            jpeg-turbo \
+            libdeflate \
+            libpng \
+            libtiff \
+            pixman \
+            qt \
+            zstd \
+            poppler \
+            glib \
+            extra-cmake-modules \
+            texlive
+
+      - name: Clone and build GLE (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          cd /tmp
+          git clone --depth=1 https://github.com/vlabella/GLE.git
+          cd GLE
+          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          sudo cmake --install build
+
+      - name: Clone and build GLE (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd /tmp
+          git clone --depth=1 https://github.com/vlabella/GLE.git
+          cd GLE
+          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+          cmake --install build --config Release
+
+      - name: Verify GLE installation
+        run: |
+          gle -info
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v --tb=short
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        if: matrix.python-version == '3.11' && runner.os == 'Linux'
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false

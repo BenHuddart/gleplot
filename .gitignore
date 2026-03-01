@@ -130,3 +130,11 @@ dmypy.json
 *.swo
 *~
 .DS_Store
+
+# Generated output files from examples and tests
+*.gle
+*.pdf
+*.eps
+*.png
+examples/output/
+tests/output/

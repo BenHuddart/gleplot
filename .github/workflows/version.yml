@@ -1,0 +1,71 @@
+name: Semantic Versioning
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git log analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Run version bump script
+        id: version
+        run: |
+          cd ${{ github.workspace }}
+          
+          # Determine bump type
+          if [ "${{ github.event.inputs.bump }}" != "" ] && [ "${{ github.event.inputs.bump }}" != "auto" ]; then
+            BUMP_TYPE="--${{ github.event.inputs.bump }}"
+          else
+            BUMP_TYPE=""
+          fi
+          
+          # Run script with appropriate flags
+          python scripts/bump_version.py $BUMP_TYPE --dry-run > /tmp/version_output.txt 2>&1
+          
+          # Check if version was actually bumped
+          if grep -q "No version bump needed" /tmp/version_output.txt; then
+            echo "Version bump: none"
+            exit 0
+          fi
+          
+          # Run actual version bump
+          python scripts/bump_version.py $BUMP_TYPE
+
+      - name: Push version bump
+        if: success()
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          # Check if there are changes to push
+          if [ -n "$(git status --porcelain)" ]; then
+            git push origin main --follow-tags
+            echo "Version bump and tag pushed successfully"
+          else
+            echo "No changes to push"
+          fi
