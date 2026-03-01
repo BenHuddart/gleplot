@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gleplot"
-version = "0.0.1"
+version = "0.1.0"
 description = "Matplotlib-like plotting library for GLE (Graphics Layout Engine)"
 readme = "README.md"
 requires-python = ">=3.7"
@@ -70,7 +70,7 @@ profile = "black"
 line_length = 88
 
 [tool.mypy]
-python_version = "3.7"
+python_version = "0.1.0"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
@@ -91,7 +91,7 @@ commit_message = "chore: release version {version}"
 
 [tool.semantic_release.changelog]
 template_dir = "templates"
-changelog_file = "CHANGELOG.md"
+changelog_file = "docs/CHANGELOG.md"
 exclude_commit_patterns = []
 
 [tool.semantic_release.changelog.environment]

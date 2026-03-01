@@ -45,7 +45,7 @@ figure(figsize=(8, 6), dpi=100)
     Create a new figure
 """
 
-__version__ = '0.0.1'
+__version__ = '0.1.0'
 __author__ = 'gleplot contributors'
 
 from .figure import Figure
@@ -53,30 +53,58 @@ from .axes import Axes
 from .colors import rgb_to_gle, get_color_palette
 from .markers import get_gle_marker
 from .compiler import GLECompiler
+from .config import (
+    GLEStyleConfig,
+    GLEGraphConfig,
+    GLEMarkerConfig,
+    GlobalConfig,
+)
 
 # Module-level convenience functions (for matplotlib compatibility)
 
 _current_figure = None
 
 
-def figure(figsize=(8, 6), dpi=100) -> Figure:
+def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None) -> Figure:
     """
     Create a new figure.
     
     Parameters
     ----------
-    figsize : tuple
-        Figure size (width, height) in inches
-    dpi : int
-        Dots per inch
+    figsize : tuple, optional
+        Figure size (width, height) in inches. Default: (8, 6)
+    dpi : int, optional
+        Dots per inch. Default: 100
+    style : GLEStyleConfig, optional
+        Style configuration. If None, uses global default.
+    graph : GLEGraphConfig, optional
+        Graph configuration. If None, uses global default.
+    marker : GLEMarkerConfig, optional
+        Marker configuration. If None, uses global default.
         
     Returns
     -------
     Figure
         New figure object
+        
+    Examples
+    --------
+    Create a figure with default settings:
+    
+    >>> fig = glp.figure()
+    
+    Create a figure with custom style:
+    
+    >>> style = glp.GLEStyleConfig(font='helvetica', fontsize=12)
+    >>> fig = glp.figure(style=style)
+    
+    Or modify global defaults:
+    
+    >>> glp.GlobalConfig.style.font = 'helvetica'
+    >>> fig = glp.figure()  # Will use helvetica font
     """
     global _current_figure
-    _current_figure = Figure(figsize=figsize, dpi=dpi)
+    _current_figure = Figure(figsize=figsize, dpi=dpi, style=style, graph=graph, marker=marker)
     return _current_figure
 
 
@@ -176,4 +204,8 @@ __all__ = [
     'get_color_palette',
     'get_gle_marker',
     'GLECompiler',
+    'GLEStyleConfig',
+    'GLEGraphConfig',
+    'GLEMarkerConfig',
+    'GlobalConfig',
 ]
