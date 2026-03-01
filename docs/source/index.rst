@@ -3,6 +3,13 @@ gleplot Documentation
 
 A Python library that provides a **matplotlib-compatible API** for creating scientific plots that directly generate GLE (Graphics Layout Engine) scripts for publication-quality vector graphics.
 
+Live Documentation
+------------------
+
+View the published documentation at:
+
+https://benhuddart.github.io/gleplot/
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents:

@@ -103,6 +103,10 @@ class Figure:
         """Fill between on current axes."""
         return self.gca().fill_between(x, y1, y2, **kwargs)
     
+    def errorbar(self, x, y, **kwargs):
+        """Error bar plot on current axes."""
+        return self.gca().errorbar(x, y, **kwargs)
+    
     def xlabel(self, label: str):
         """Set x label on current axes."""
         return self.gca().set_xlabel(label)
@@ -225,6 +229,11 @@ class Figure:
         """
         Generate complete GLE script content with data files.
         
+        Supports both single-plot and multi-subplot layouts.
+        For a single axes (1,1,1), generates a simple graph block.
+        For multiple axes, positions each graph using ``amove`` and
+        explicit ``size`` commands based on the subplot grid.
+        
         Uses figure's configured style, graph, and marker settings.
         
         Returns
@@ -238,79 +247,156 @@ class Figure:
                           graph=self.graph,
                           marker=self.marker_config)
         
-        writer.add_preamble()
-        # Use auto-calculated graph size based on figure size
-        writer.add_graph_size()
+        is_single = (len(self.axes_list) <= 1)
         
-        # Add first axes (multi-axis support for future)
-        if self.axes_list:
-            ax = self.axes_list[0]
+        if is_single:
+            # Single plot — backward-compatible simple layout
+            writer.add_preamble(include_graph_begin=True)
+            writer.add_graph_size()
             
-            # Axis properties
-            writer.add_axes(
-                xlabel=ax.xlabel_text or None,
-                ylabel=ax.ylabel_text or None,
-                title=ax.title_text or None,
-                xlog=(ax.xscale == 'log'),
-                ylog=(ax.yscale == 'log'),
-                xmin=ax.xmin,
-                xmax=ax.xmax,
-                ymin=ax.ymin,
-                ymax=ax.ymax,
-            )
+            if self.axes_list:
+                self._write_axes_content(writer, self.axes_list[0])
             
-            # Add fill regions (background)
-            for fill_data in ax.fills:
-                writer.add_fill_between(
-                    fill_data['x'],
-                    fill_data['y1'],
-                    fill_data['y2'],
-                    fill_data['data_file'],
-                    fill_data['color'],
-                    fill_data['alpha']
-                )
+            writer.finalize(include_graph_end=True)
+        else:
+            # Multi-subplot layout
+            writer.add_preamble(include_graph_begin=False)
             
-            # Add bar charts
-            for bar_data in ax.bars:
-                writer.add_bar_chart(
-                    bar_data['x'],
-                    bar_data['height'],
-                    bar_data['data_file'],
-                    bar_data['colors'],
-                    bar_data['label']
-                )
+            # Determine grid dimensions from axes positions
+            max_rows = max(ax.position[0] for ax in self.axes_list)
+            max_cols = max(ax.position[1] for ax in self.axes_list)
             
-            # Add line plots
-            for line_data in ax.lines:
-                writer.add_plot_line(
-                    line_data['x'],
-                    line_data['y'],
-                    line_data['data_file'],
-                    color=line_data['color'],
-                    linestyle=line_data['linestyle'],
-                    linewidth=line_data['linewidth'],
-                    label=line_data['label'],
-                )
+            # Calculate per-subplot dimensions in cm
+            # Page margins (cm)
+            margin_x = 1.0
+            margin_y = 1.0
+            # Spacing between subplots (cm)
+            hspace = 1.5
+            vspace = 2.0
             
-            # Add scatter plots
-            for scatter_data in ax.scatters:
-                writer.add_plot_line(
-                    scatter_data['x'],
-                    scatter_data['y'],
-                    scatter_data['data_file'],
-                    color=scatter_data['color'],
-                    marker=scatter_data['marker'],
-                    markersize=scatter_data['markersize'],
-                    label=scatter_data['label'],
-                )
+            usable_w = writer.width_cm - 2 * margin_x - (max_cols - 1) * hspace
+            usable_h = writer.height_cm - 2 * margin_y - (max_rows - 1) * vspace
             
-            # Add legend if needed
-            if ax.legend_on or any(l.get('label') for l in ax.lines + ax.scatters + ax.bars):
-                writer.add_legend(ax.legend_pos)
-        
-        writer.finalize()
+            cell_w = usable_w / max_cols
+            cell_h = usable_h / max_rows
+            
+            for ax in self.axes_list:
+                rows, cols, idx = ax.position
+                # Convert 1-based index to row/col (row-major, top-to-bottom)
+                row = (idx - 1) // cols   # 0-based, 0 = top row
+                col = (idx - 1) % cols    # 0-based, 0 = left col
+                
+                # GLE coordinates: origin is bottom-left, y increases upward
+                x_pos = margin_x + col * (cell_w + hspace)
+                y_pos = writer.height_cm - margin_y - (row + 1) * cell_h - row * vspace
+                
+                writer.add_amove(x_pos, y_pos)
+                writer.begin_graph()
+                writer.add_graph_size(width_cm=cell_w, height_cm=cell_h,
+                                      force_size=True)
+                
+                self._write_axes_content(writer, ax)
+                
+                writer.end_graph()
+                writer.lines_gle.append('')  # Blank line between subplots
+            
+            writer.finalize(include_graph_end=False)
         
         return writer.get_gle_content(), writer.data_files
+    
+    def _write_axes_content(self, writer: GLEWriter, ax: Axes):
+        """
+        Write all plot content for a single Axes into the current graph block.
+        
+        This method is shared between single-plot and multi-subplot paths.
+        
+        Parameters
+        ----------
+        writer : GLEWriter
+            The GLE writer to append commands to.
+        ax : Axes
+            The axes whose content should be written.
+        """
+        # Axis properties
+        writer.add_axes(
+            xlabel=ax.xlabel_text or None,
+            ylabel=ax.ylabel_text or None,
+            title=ax.title_text or None,
+            xlog=(ax.xscale == 'log'),
+            ylog=(ax.yscale == 'log'),
+            xmin=ax.xmin,
+            xmax=ax.xmax,
+            ymin=ax.ymin,
+            ymax=ax.ymax,
+        )
+        
+        # Add fill regions (background)
+        for fill_data in ax.fills:
+            writer.add_fill_between(
+                fill_data['x'],
+                fill_data['y1'],
+                fill_data['y2'],
+                fill_data['data_file'],
+                fill_data['color'],
+                fill_data['alpha']
+            )
+        
+        # Add bar charts
+        for bar_data in ax.bars:
+            writer.add_bar_chart(
+                bar_data['x'],
+                bar_data['height'],
+                bar_data['data_file'],
+                bar_data['colors'],
+                bar_data['label']
+            )
+        
+        # Add line plots
+        for line_data in ax.lines:
+            writer.add_plot_line(
+                line_data['x'],
+                line_data['y'],
+                line_data['data_file'],
+                color=line_data['color'],
+                linestyle=line_data['linestyle'],
+                linewidth=line_data['linewidth'],
+                label=line_data['label'],
+            )
+        
+        # Add scatter plots
+        for scatter_data in ax.scatters:
+            writer.add_plot_line(
+                scatter_data['x'],
+                scatter_data['y'],
+                scatter_data['data_file'],
+                color=scatter_data['color'],
+                marker=scatter_data['marker'],
+                markersize=scatter_data['markersize'],
+                label=scatter_data['label'],
+            )
+        
+        # Add errorbar plots
+        for eb_data in ax.errorbars:
+            writer.add_errorbar(
+                eb_data['x'],
+                eb_data['y'],
+                eb_data['data_file'],
+                color=eb_data['color'],
+                linestyle=eb_data['linestyle'],
+                linewidth=eb_data['linewidth'],
+                label=eb_data['label'],
+                marker=eb_data['marker'],
+                markersize=eb_data['markersize'],
+                yerr_up=eb_data['yerr_up'],
+                yerr_down=eb_data['yerr_down'],
+                xerr_left=eb_data['xerr_left'],
+                xerr_right=eb_data['xerr_right'],
+                capsize=eb_data['capsize'],
+            )
+        
+        # Add legend if needed
+        if ax.legend_on or any(l.get('label') for l in ax.lines + ax.scatters + ax.bars + ax.errorbars):
+            writer.add_legend(ax.legend_pos)
     
     def close(self):
         """Close figure."""

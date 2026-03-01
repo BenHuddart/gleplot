@@ -169,5 +169,137 @@ class TestFillBetween(unittest.TestCase):
         self.assertEqual(self.ax.fills[0]['color'], 'LIGHTBLUE')
 
 
+class TestErrorBars(unittest.TestCase):
+    """Test error bar functionality."""
+    
+    def setUp(self):
+        """Create fresh figure for each test."""
+        glp.close()
+        self.fig = glp.figure()
+        self.ax = self.fig.add_subplot(111)
+    
+    def tearDown(self):
+        """Clean up after each test."""
+        glp.close()
+    
+    def test_symmetric_yerr_scalar(self):
+        """Test symmetric vertical error bars with scalar value."""
+        x = [1, 2, 3]
+        y = [10, 20, 30]
+        self.ax.errorbar(x, y, yerr=0.5, marker='o')
+        
+        self.assertEqual(len(self.ax.errorbars), 1)
+        eb = self.ax.errorbars[0]
+        np.testing.assert_array_equal(eb['yerr_up'], [0.5, 0.5, 0.5])
+        np.testing.assert_array_equal(eb['yerr_down'], [0.5, 0.5, 0.5])
+    
+    def test_symmetric_yerr_array(self):
+        """Test symmetric vertical error bars with array."""
+        x = [1, 2, 3]
+        y = [10, 20, 30]
+        yerr = [0.3, 0.5, 0.4]
+        self.ax.errorbar(x, y, yerr=yerr, marker='o')
+        
+        eb = self.ax.errorbars[0]
+        np.testing.assert_array_almost_equal(eb['yerr_up'], [0.3, 0.5, 0.4])
+        np.testing.assert_array_almost_equal(eb['yerr_down'], [0.3, 0.5, 0.4])
+    
+    def test_asymmetric_yerr(self):
+        """Test asymmetric vertical error bars."""
+        x = [1, 2, 3]
+        y = [10, 20, 30]
+        yerr = ([1, 2, 3], [3, 2, 1])
+        self.ax.errorbar(x, y, yerr=yerr, marker='o')
+        
+        eb = self.ax.errorbars[0]
+        np.testing.assert_array_almost_equal(eb['yerr_down'], [1, 2, 3])
+        np.testing.assert_array_almost_equal(eb['yerr_up'], [3, 2, 1])
+    
+    def test_horizontal_error_bars(self):
+        """Test horizontal error bars."""
+        x = [1, 2, 3]
+        y = [10, 20, 30]
+        self.ax.errorbar(x, y, xerr=0.2, marker='o')
+        
+        eb = self.ax.errorbars[0]
+        np.testing.assert_array_equal(eb['xerr_left'], [0.2, 0.2, 0.2])
+        np.testing.assert_array_equal(eb['xerr_right'], [0.2, 0.2, 0.2])
+    
+    def test_both_xerr_and_yerr(self):
+        """Test vertical and horizontal error bars together."""
+        x = [1, 2, 3]
+        y = [10, 20, 30]
+        self.ax.errorbar(x, y, yerr=0.5, xerr=0.3, marker='o')
+        
+        eb = self.ax.errorbars[0]
+        self.assertIsNotNone(eb['yerr_up'])
+        self.assertIsNotNone(eb['xerr_left'])
+    
+    def test_errorbar_with_capsize(self):
+        """Test error bar cap width."""
+        self.ax.errorbar([1, 2, 3], [10, 20, 30], yerr=0.5, capsize=0.2)
+        
+        eb = self.ax.errorbars[0]
+        self.assertEqual(eb['capsize'], 0.2)
+    
+    def test_errorbar_with_label(self):
+        """Test error bar with legend label."""
+        self.ax.errorbar([1, 2, 3], [10, 20, 30], yerr=0.5, label='Data')
+        
+        eb = self.ax.errorbars[0]
+        self.assertEqual(eb['label'], 'Data')
+    
+    def test_errorbar_with_color(self):
+        """Test error bar with custom color."""
+        self.ax.errorbar([1, 2, 3], [10, 20, 30], yerr=0.5, color='red')
+        
+        eb = self.ax.errorbars[0]
+        self.assertEqual(eb['color'], 'RED')
+    
+    def test_errorbar_has_plots(self):
+        """Test that errorbar counts in has_plots()."""
+        self.assertFalse(self.ax.has_plots())
+        self.ax.errorbar([1, 2, 3], [10, 20, 30], yerr=0.5)
+        self.assertTrue(self.ax.has_plots())
+    
+    def test_errorbar_gle_generation(self):
+        """Test GLE script generation for error bars."""
+        x = np.array([1, 2, 3])
+        y = np.array([10, 20, 30])
+        self.ax.errorbar(x, y, yerr=0.5, marker='o', color='blue', label='Test')
+        
+        gle = self.fig._generate_gle()
+        self.assertIn('err d2', gle)
+        self.assertIn('marker FCIRCLE', gle)
+        self.assertIn('key "Test"', gle)
+    
+    def test_errorbar_asymmetric_gle(self):
+        """Test GLE generation for asymmetric error bars."""
+        x = np.array([1, 2, 3])
+        y = np.array([10, 20, 30])
+        self.ax.errorbar(x, y, yerr=([1, 2, 3], [3, 2, 1]), marker='s',
+                        fmt='none', color='red')
+        
+        gle = self.fig._generate_gle()
+        self.assertIn('errup', gle)
+        self.assertIn('errdown', gle)
+    
+    def test_errorbar_horizontal_gle(self):
+        """Test GLE generation for horizontal error bars."""
+        x = np.array([1, 2, 3])
+        y = np.array([10, 20, 30])
+        self.ax.errorbar(x, y, xerr=0.3, marker='o', fmt='none')
+        
+        gle = self.fig._generate_gle()
+        self.assertIn('herr', gle)
+    
+    def test_figure_errorbar_method(self):
+        """Test Figure-level errorbar convenience method."""
+        self.fig.errorbar([1, 2, 3], [10, 20, 30], yerr=0.5)
+        
+        ax = self.fig.gca()
+        self.assertEqual(len(ax.errorbars), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

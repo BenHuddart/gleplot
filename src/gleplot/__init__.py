@@ -7,9 +7,11 @@ quality vector graphics.
 
 Features
 --------
-- Matplotlib-compatible API (plot, scatter, bar, fill_between)
+- Matplotlib-compatible API (plot, scatter, bar, fill_between, errorbar)
+- Subplots with flexible grid layouts (subplots, add_subplot)
 - Native vector graphics output (PDF, PNG, EPS)
 - Support for line styles, markers, and colors
+- Error bars (symmetric, asymmetric, horizontal)
 - Logarithmic scales
 - Legend and axis labels
 - Direct GLE script generation
@@ -142,6 +144,77 @@ def fill_between(*args, **kwargs):
     return gca().fill_between(*args, **kwargs)
 
 
+def errorbar(*args, **kwargs):
+    """Error bar plot on current axes."""
+    return gca().errorbar(*args, **kwargs)
+
+
+def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
+             style=None, graph=None, marker=None):
+    """
+    Create a figure and a set of subplots.
+    
+    Convenience function matching ``matplotlib.pyplot.subplots()``.
+    
+    Parameters
+    ----------
+    nrows : int, optional
+        Number of rows of subplots. Default: 1
+    ncols : int, optional
+        Number of columns of subplots. Default: 1
+    figsize : tuple, optional
+        Figure size (width, height) in inches. If None, auto-scales
+        based on grid size (6 inches per column, 4 inches per row).
+    dpi : int, optional
+        Dots per inch. Default: 100
+    style : GLEStyleConfig, optional
+        Style configuration.
+    graph : GLEGraphConfig, optional
+        Graph configuration.
+    marker : GLEMarkerConfig, optional
+        Marker configuration.
+    
+    Returns
+    -------
+    fig : Figure
+        The figure object.
+    axes : Axes or list of Axes
+        A single Axes if nrows*ncols == 1, otherwise a list of Axes
+        arranged in row-major order.
+    
+    Examples
+    --------
+    Single plot:
+    
+    >>> fig, ax = glp.subplots()
+    >>> ax.plot(x, y)
+    
+    2x2 grid:
+    
+    >>> fig, axes = glp.subplots(2, 2, figsize=(12, 10))
+    >>> axes[0].plot(x, y1)   # top-left
+    >>> axes[1].scatter(x, y2)  # top-right
+    >>> axes[2].bar(x, y3)      # bottom-left
+    >>> axes[3].plot(x, y4)     # bottom-right
+    """
+    global _current_figure
+    
+    if figsize is None:
+        figsize = (max(6, 6 * ncols), max(4, 4 * nrows))
+    
+    fig = Figure(figsize=figsize, dpi=dpi, style=style, graph=graph, marker=marker)
+    _current_figure = fig
+    
+    axes_list = []
+    for idx in range(1, nrows * ncols + 1):
+        ax = fig.add_subplot(nrows, ncols, idx)
+        axes_list.append(ax)
+    
+    if len(axes_list) == 1:
+        return fig, axes_list[0]
+    return fig, axes_list
+
+
 def xlabel(label: str):
     """Set x label on current axes."""
     return gca().set_xlabel(label)
@@ -193,6 +266,8 @@ __all__ = [
     'scatter',
     'bar',
     'fill_between',
+    'errorbar',
+    'subplots',
     'xlabel',
     'ylabel',
     'title',

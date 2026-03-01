@@ -50,6 +50,8 @@ Multiple Series
 Subplots
 --------
 
+Using ``add_subplot(rows, cols, index)``:
+
 .. code-block:: python
 
    import numpy as np
@@ -84,6 +86,31 @@ Subplots
    ax4.legend()
 
    fig.savefig('subplots.pdf')
+
+Using the ``subplots()`` convenience function:
+
+.. code-block:: python
+
+   import numpy as np
+   import gleplot as glp
+
+   fig, axes = glp.subplots(1, 3, figsize=(18, 5))
+
+   x = np.linspace(0, 2*np.pi, 80)
+   axes[0].plot(x, np.sin(x), color='blue')
+   axes[0].set_title('sin(x)')
+
+   axes[1].plot(x, np.cos(x), color='red')
+   axes[1].set_title('cos(x)')
+
+   axes[2].plot(x, np.tan(x), color='green')
+   axes[2].set_title('tan(x)')
+   axes[2].set_ylim(-5, 5)
+
+   fig.savefig('trig_panels.pdf')
+
+Each subplot generates its own ``begin graph`` / ``end graph`` block
+in the GLE script, positioned via ``amove`` with computed coordinates.
 
 Scatter with Different Sizes
 -----------------------------
@@ -148,3 +175,40 @@ Logarithmic Scale
    ax.set_title('Power Law on Log-Log Plot')
    ax.grid(True, which='both')
    fig.savefig('loglog.pdf')
+
+Error Bars
+----------
+
+Symmetric vertical error bars with a constant value:
+
+.. code-block:: python
+
+   import numpy as np
+   import gleplot as glp
+
+   x = np.array([1, 2, 3, 4, 5, 6, 7, 8])
+   y = np.array([2.1, 3.9, 6.2, 7.8, 10.1, 12.3, 13.8, 16.2])
+
+   fig = glp.figure(figsize=(8, 6))
+   ax = fig.add_subplot(111)
+   ax.errorbar(x, y, yerr=0.5, marker='o', fmt='-', color='blue',
+              label='Measurement')
+   ax.set_xlabel('Time (s)')
+   ax.set_ylabel('Distance (m)')
+   ax.set_title('Symmetric Error Bars')
+   ax.legend()
+   fig.savefig('errorbars.pdf')
+
+Asymmetric error bars (different up/down magnitudes):
+
+.. code-block:: python
+
+   ax.errorbar(x, y, yerr=([2, 3, 4, 5, 3], [5, 4, 6, 3, 7]),
+              marker='s', fmt='none', color='red', capsize=0.15)
+
+Both vertical and horizontal error bars:
+
+.. code-block:: python
+
+   ax.errorbar(x, y, yerr=yerr_array, xerr=xerr_array,
+              marker='o', fmt='none', color='blue', capsize=0.1)

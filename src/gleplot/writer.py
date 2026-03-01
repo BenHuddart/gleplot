@@ -43,13 +43,19 @@ class GLEWriter:
         self.data_files = {}  # {filename: data_content}
         self.dataset_index = 1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
     
-    def add_preamble(self):
+    def add_preamble(self, include_graph_begin: bool = True):
         """Add GLE preamble.
         
         Includes:
         - Page size setup
         - Font configuration (from style config)
-        - Graph block initialization
+        - Optionally begins the first graph block
+        
+        Parameters
+        ----------
+        include_graph_begin : bool
+            If True (default), appends 'begin graph' for single-plot
+            backward compatibility. Set False for multi-subplot layout.
         """
         self.lines_gle.extend([
             '! GLE graphics file',
@@ -59,10 +65,41 @@ class GLEWriter:
             f'set font {self.style.font}',
             f'set hei {self._format_number(self.style.fontsize / 28.35)}',  # Convert points to cm
             '',
-            'begin graph',
         ])
+        if include_graph_begin:
+            self.lines_gle.append('begin graph')
     
-    def add_graph_size(self, width_cm: Optional[float] = None, height_cm: Optional[float] = None):
+    def begin_graph(self):
+        """Open a new graph block.
+        
+        Used in multi-subplot layouts. Each graph block must be closed
+        with end_graph().
+        """
+        self.lines_gle.append('begin graph')
+    
+    def end_graph(self):
+        """Close the current graph block."""
+        self.lines_gle.append('end graph')
+    
+    def add_amove(self, x_cm: float, y_cm: float):
+        """Add absolute move command to position the next graph.
+        
+        In GLE, 'amove x y' positions the drawing cursor at absolute
+        coordinates (in cm) from the bottom-left of the page.
+        
+        Parameters
+        ----------
+        x_cm : float
+            X position in cm from the left edge of the page.
+        y_cm : float
+            Y position in cm from the bottom edge of the page.
+        """
+        self.lines_gle.append(
+            f'amove {self._format_number(x_cm)} {self._format_number(y_cm)}'
+        )
+    
+    def add_graph_size(self, width_cm: Optional[float] = None, height_cm: Optional[float] = None,
+                        force_size: bool = False):
         """Set graph dimensions and scaling.
         
         Uses the configured scale_mode (auto, fixed, or fullsize).
@@ -70,11 +107,17 @@ class GLEWriter:
         Parameters
         ----------
         width_cm : float, optional
-            Graph width in cm. Only used if scale_mode is 'fixed'.
+            Graph width in cm. Used if scale_mode is 'fixed' or force_size is True.
         height_cm : float, optional
-            Graph height in cm. Only used if scale_mode is 'fixed'.
+            Graph height in cm. Used if scale_mode is 'fixed' or force_size is True.
+        force_size : bool
+            If True, always emit the size command regardless of scale_mode.
+            Used for subplot layouts where each graph needs an explicit size.
         """
-        if self.graph.scale_mode == 'fixed' and width_cm is not None and height_cm is not None:
+        if force_size and width_cm is not None and height_cm is not None:
+            self.lines_gle.append(f'    size {self._format_number(width_cm)} {self._format_number(height_cm)}')
+            self.lines_gle.append('    scale auto')
+        elif self.graph.scale_mode == 'fixed' and width_cm is not None and height_cm is not None:
             self.lines_gle.append(f'    size {self._format_number(width_cm)} {self._format_number(height_cm)}')
             self.lines_gle.append('    scale 1 1')
         elif self.graph.scale_mode == 'fullsize':
@@ -260,6 +303,234 @@ class GLEWriter:
         
         self.lines_gle.append(bar_cmd)
     
+    def add_errorbar(self, x: np.ndarray, y: np.ndarray, data_file: str,
+                     color: str = 'BLUE', linestyle: str = '-',
+                     linewidth: float = 1.0, label: Optional[str] = None,
+                     marker: Optional[str] = None, markersize: float = 0.1,
+                     yerr_up: Optional[np.ndarray] = None,
+                     yerr_down: Optional[np.ndarray] = None,
+                     xerr_left: Optional[np.ndarray] = None,
+                     xerr_right: Optional[np.ndarray] = None,
+                     capsize: Optional[float] = None):
+        """
+        Add plot with error bars to graph.
+        
+        Generates GLE error bar syntax using datasets for error values.
+        
+        GLE error bar syntax reference (from GLE manual):
+        - ``dn err <value|percent|dataset>`` — symmetric vertical errors
+        - ``dn errup <value|percent|dataset>`` — upper vertical error
+        - ``dn errdown <value|percent|dataset>`` — lower vertical error
+        - ``dn errwidth <width>`` — vertical error bar cap width
+        - ``dn herr <value|percent|dataset>`` — symmetric horizontal errors
+        - ``dn herrleft <value|percent|dataset>`` — left horizontal error
+        - ``dn herrright <value|percent|dataset>`` — right horizontal error
+        - ``dn herrwidth <width>`` — horizontal error bar cap width
+        
+        Parameters
+        ----------
+        x, y : arrays
+            Data coordinates
+        data_file : str
+            External data file name
+        color : str
+            GLE color name
+        linestyle : str
+            Matplotlib linestyle ('-', '--', ':', '-.')
+        linewidth : float
+            Line width
+        label : str, optional
+            Legend label
+        marker : str, optional
+            GLE marker name
+        markersize : float
+            Marker size for GLE (msize)
+        yerr_up : array, optional
+            Upward vertical error bar magnitudes
+        yerr_down : array, optional
+            Downward vertical error bar magnitudes
+        xerr_left : array, optional
+            Leftward horizontal error bar magnitudes
+        xerr_right : array, optional
+            Rightward horizontal error bar magnitudes
+        capsize : float, optional
+            Width of error bar caps in cm
+        """
+        # Sort data by x values
+        x_array = np.asarray(x)
+        y_array = np.asarray(y)
+        sorted_indices = np.argsort(x_array)
+        x_sorted = x_array[sorted_indices]
+        y_sorted = y_array[sorted_indices]
+        
+        # Build columns list: x, y, then error columns
+        columns = [x_sorted, y_sorted]
+        col_idx = 3  # Next column index (c1=x, c2=y, c3=...)
+        
+        # Track which columns hold error data
+        yerr_up_col = None
+        yerr_down_col = None
+        xerr_left_col = None
+        xerr_right_col = None
+        
+        has_yerr = yerr_up is not None or yerr_down is not None
+        has_xerr = xerr_left is not None or xerr_right is not None
+        
+        # Check if vertical errors are symmetric (same arrays)
+        yerr_symmetric = (has_yerr and yerr_up is not None and yerr_down is not None
+                         and np.array_equal(yerr_up, yerr_down))
+        # Check if horizontal errors are symmetric
+        xerr_symmetric = (has_xerr and xerr_left is not None and xerr_right is not None
+                         and np.array_equal(xerr_left, xerr_right))
+        
+        if has_yerr:
+            if yerr_symmetric:
+                # Single column for symmetric error
+                columns.append(np.asarray(yerr_up)[sorted_indices])
+                yerr_up_col = col_idx
+                yerr_down_col = col_idx  # Same column
+                col_idx += 1
+            else:
+                if yerr_up is not None:
+                    columns.append(np.asarray(yerr_up)[sorted_indices])
+                    yerr_up_col = col_idx
+                    col_idx += 1
+                if yerr_down is not None:
+                    columns.append(np.asarray(yerr_down)[sorted_indices])
+                    yerr_down_col = col_idx
+                    col_idx += 1
+        
+        if has_xerr:
+            if xerr_symmetric:
+                columns.append(np.asarray(xerr_left)[sorted_indices])
+                xerr_left_col = col_idx
+                xerr_right_col = col_idx
+                col_idx += 1
+            else:
+                if xerr_left is not None:
+                    columns.append(np.asarray(xerr_left)[sorted_indices])
+                    xerr_left_col = col_idx
+                    col_idx += 1
+                if xerr_right is not None:
+                    columns.append(np.asarray(xerr_right)[sorted_indices])
+                    xerr_right_col = col_idx
+                    col_idx += 1
+        
+        # Write data file with all columns
+        self.add_data_file(data_file, columns)
+        
+        # Generate dataset name for main data
+        d_main = f'd{self.dataset_index}'
+        self.dataset_index += 1
+        
+        # Build data command with all dataset references
+        data_cmd = f'    data {data_file} {d_main}=c1,c2'
+        
+        # Create error datasets referencing the same file columns
+        err_datasets = {}
+        
+        if has_yerr:
+            if yerr_symmetric:
+                d_yerr = f'd{self.dataset_index}'
+                self.dataset_index += 1
+                data_cmd += f' {d_yerr}=c1,c{yerr_up_col}'
+                err_datasets['yerr'] = d_yerr
+            else:
+                if yerr_up_col is not None:
+                    d_yerr_up = f'd{self.dataset_index}'
+                    self.dataset_index += 1
+                    data_cmd += f' {d_yerr_up}=c1,c{yerr_up_col}'
+                    err_datasets['yerr_up'] = d_yerr_up
+                if yerr_down_col is not None:
+                    d_yerr_down = f'd{self.dataset_index}'
+                    self.dataset_index += 1
+                    data_cmd += f' {d_yerr_down}=c1,c{yerr_down_col}'
+                    err_datasets['yerr_down'] = d_yerr_down
+        
+        if has_xerr:
+            if xerr_symmetric:
+                d_xerr = f'd{self.dataset_index}'
+                self.dataset_index += 1
+                data_cmd += f' {d_xerr}=c1,c{xerr_left_col}'
+                err_datasets['xerr'] = d_xerr
+            else:
+                if xerr_left_col is not None:
+                    d_xerr_left = f'd{self.dataset_index}'
+                    self.dataset_index += 1
+                    data_cmd += f' {d_xerr_left}=c1,c{xerr_left_col}'
+                    err_datasets['xerr_left'] = d_xerr_left
+                if xerr_right_col is not None:
+                    d_xerr_right = f'd{self.dataset_index}'
+                    self.dataset_index += 1
+                    data_cmd += f' {d_xerr_right}=c1,c{xerr_right_col}'
+                    err_datasets['xerr_right'] = d_xerr_right
+        
+        self.lines_gle.append(data_cmd)
+        
+        # Build the main dataset display command
+        line_cmd = f'    {d_main}'
+        
+        # Convert linewidth
+        if linewidth == 0 or linewidth == 1:
+            gle_lwidth = self.style.default_linewidth * 0.03528
+        else:
+            gle_lwidth = linewidth * 0.03528
+        
+        # Add line/marker styling
+        if marker:
+            line_cmd += f' marker {marker} msize {self._format_number(markersize)} color {color}'
+            # Also add line if linestyle is not 'none'
+            if linestyle not in ('', 'none', ' ', 'None'):
+                line_cmd += f' line lwidth {self._format_number(gle_lwidth)}'
+                if linestyle == '--':
+                    line_cmd += f' lstyle {self.style.line_style_dashed}'
+                elif linestyle == ':':
+                    line_cmd += f' lstyle {self.style.line_style_dotted}'
+                elif linestyle == '-.':
+                    line_cmd += f' lstyle {self.style.line_style_dashdot}'
+        else:
+            if linestyle not in ('', 'none', ' ', 'None'):
+                if self.graph.smooth_curves:
+                    line_cmd += ' line smooth'
+                else:
+                    line_cmd += ' line'
+                line_cmd += f' color {color} lwidth {self._format_number(gle_lwidth)}'
+                if linestyle == '--':
+                    line_cmd += f' lstyle {self.style.line_style_dashed}'
+                elif linestyle == ':':
+                    line_cmd += f' lstyle {self.style.line_style_dotted}'
+                elif linestyle == '-.':
+                    line_cmd += f' lstyle {self.style.line_style_dashdot}'
+        
+        # Add vertical error bar commands
+        if 'yerr' in err_datasets:
+            line_cmd += f' err {err_datasets["yerr"]}'
+        else:
+            if 'yerr_up' in err_datasets:
+                line_cmd += f' errup {err_datasets["yerr_up"]}'
+            if 'yerr_down' in err_datasets:
+                line_cmd += f' errdown {err_datasets["yerr_down"]}'
+        
+        if capsize is not None and has_yerr:
+            line_cmd += f' errwidth {self._format_number(capsize)}'
+        
+        # Add horizontal error bar commands
+        if 'xerr' in err_datasets:
+            line_cmd += f' herr {err_datasets["xerr"]}'
+        else:
+            if 'xerr_left' in err_datasets:
+                line_cmd += f' herrleft {err_datasets["xerr_left"]}'
+            if 'xerr_right' in err_datasets:
+                line_cmd += f' herrright {err_datasets["xerr_right"]}'
+        
+        if capsize is not None and has_xerr:
+            line_cmd += f' herrwidth {self._format_number(capsize)}'
+        
+        if label:
+            line_cmd += f' key "{label}"'
+        
+        self.lines_gle.append(line_cmd)
+    
     def add_fill_between(self, x: np.ndarray, y1: np.ndarray, y2: np.ndarray,
                          data_file: str, color: str = 'LIGHTBLUE', alpha: float = 1.0):
         """
@@ -312,11 +583,19 @@ class GLEWriter:
         gle_pos = pos_map.get(pos, pos)  # Try long form, else use as-is (short form)
         self.lines_gle.append(f'    key pos {gle_pos}')
     
-    def finalize(self):
-        """Add closing statements."""
-        self.lines_gle.extend([
-            'end graph',
-        ])
+    def finalize(self, include_graph_end: bool = True):
+        """Add closing statements.
+        
+        Parameters
+        ----------
+        include_graph_end : bool
+            If True (default), appends 'end graph' for single-plot
+            backward compatibility. Set False for multi-subplot layout.
+        """
+        if include_graph_end:
+            self.lines_gle.extend([
+                'end graph',
+            ])
     
     def get_gle_content(self) -> str:
         """Get complete GLE script content."""

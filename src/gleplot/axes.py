@@ -41,6 +41,7 @@ class Axes:
         self.scatters = []  # List of scatter plot data
         self.bars = []  # List of bar chart data
         self.fills = []  # List of fill_between data
+        self.errorbars = []  # List of errorbar plot data
         
         self._line_counter = 0
     
@@ -118,6 +119,168 @@ class Axes:
         
         return self  # Return self for method chaining
     
+    def errorbar(self, x, y, yerr=None, xerr=None, fmt: str = '-',
+                 color: Optional[str] = None, marker: Optional[str] = None,
+                 markersize: float = 6, linewidth: float = 1,
+                 label: Optional[str] = None, capsize: Optional[float] = None,
+                 **kwargs):
+        """
+        Plot data with error bars.
+
+        Parameters
+        ----------
+        x, y : array-like
+            Data coordinates
+        yerr : scalar, array-like, or tuple of (lower, upper), optional
+            Vertical error bar sizes. Can be:
+            - scalar: constant symmetric error for all points
+            - 1D array: per-point symmetric error
+            - tuple (lower, upper): per-point asymmetric error bars
+        xerr : scalar, array-like, or tuple of (left, right), optional
+            Horizontal error bar sizes. Same format as yerr.
+        fmt : str
+            Format string for the line/marker (e.g., '-o', '--s', 'none')
+        color : str, optional
+            Color name or code
+        marker : str, optional
+            Marker symbol ('o', 's', '^', etc.)
+        markersize : float
+            Marker size (matplotlib convention)
+        linewidth : float
+            Line width
+        label : str, optional
+            Legend label
+        capsize : float, optional
+            Width of error bar caps in GLE units (cm). Default: None (GLE default)
+        **kwargs
+            Additional arguments
+
+        Returns
+        -------
+        self
+
+        Examples
+        --------
+        Symmetric vertical error bars:
+
+        >>> ax.errorbar(x, y, yerr=0.5)
+
+        Asymmetric vertical error bars:
+
+        >>> ax.errorbar(x, y, yerr=([0.2, 0.3], [0.5, 0.4]))
+
+        Both vertical and horizontal error bars:
+
+        >>> ax.errorbar(x, y, yerr=0.5, xerr=0.3)
+        """
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+
+        # Handle color
+        if color is None:
+            color = 'BLUE'
+        else:
+            color = rgb_to_gle(color)
+
+        # Parse fmt string for marker/linestyle
+        # Simple parsing: check for marker chars and line styles
+        parsed_marker = marker
+        parsed_linestyle = fmt
+        if fmt in ('', 'none', ' ', 'None'):
+            parsed_linestyle = 'none'
+        elif fmt == '-o' or fmt == 'o-':
+            parsed_marker = parsed_marker or 'o'
+            parsed_linestyle = '-'
+        elif fmt == '-s' or fmt == 's-':
+            parsed_marker = parsed_marker or 's'
+            parsed_linestyle = '-'
+        elif fmt in ('-', '--', ':', '-.'):
+            parsed_linestyle = fmt
+        elif len(fmt) == 1 and fmt in 'os^vD+x':
+            parsed_marker = parsed_marker or fmt
+            parsed_linestyle = 'none'
+
+        # Determine GLE marker
+        gle_marker = None
+        if parsed_marker is not None:
+            gle_marker = get_gle_marker(parsed_marker)
+
+        # Scale markersize from matplotlib to GLE msize
+        gle_markersize = markersize / 100 * 0.3
+
+        # Process yerr
+        yerr_up = None
+        yerr_down = None
+        if yerr is not None:
+            if isinstance(yerr, (int, float)):
+                # Scalar: constant symmetric error
+                yerr_up = np.full(len(x), float(yerr))
+                yerr_down = np.full(len(x), float(yerr))
+            elif isinstance(yerr, (list, tuple)) and len(yerr) == 2:
+                lower, upper = yerr
+                lower = np.asarray(lower, dtype=float)
+                upper = np.asarray(upper, dtype=float)
+                if lower.ndim == 0:
+                    yerr_down = np.full(len(x), float(lower))
+                else:
+                    yerr_down = lower
+                if upper.ndim == 0:
+                    yerr_up = np.full(len(x), float(upper))
+                else:
+                    yerr_up = upper
+            else:
+                # 1D array: symmetric error
+                err_arr = np.asarray(yerr, dtype=float)
+                yerr_up = err_arr
+                yerr_down = err_arr
+
+        # Process xerr
+        xerr_left = None
+        xerr_right = None
+        if xerr is not None:
+            if isinstance(xerr, (int, float)):
+                xerr_left = np.full(len(x), float(xerr))
+                xerr_right = np.full(len(x), float(xerr))
+            elif isinstance(xerr, (list, tuple)) and len(xerr) == 2:
+                left, right = xerr
+                left = np.asarray(left, dtype=float)
+                right = np.asarray(right, dtype=float)
+                if left.ndim == 0:
+                    xerr_left = np.full(len(x), float(left))
+                else:
+                    xerr_left = left
+                if right.ndim == 0:
+                    xerr_right = np.full(len(x), float(right))
+                else:
+                    xerr_right = right
+            else:
+                err_arr = np.asarray(xerr, dtype=float)
+                xerr_left = err_arr
+                xerr_right = err_arr
+
+        errbar_data = {
+            'type': 'errorbar',
+            'x': x,
+            'y': y,
+            'yerr_up': yerr_up,
+            'yerr_down': yerr_down,
+            'xerr_left': xerr_left,
+            'xerr_right': xerr_right,
+            'color': color,
+            'marker': gle_marker,
+            'markersize': gle_markersize,
+            'linestyle': parsed_linestyle,
+            'linewidth': linewidth,
+            'label': label,
+            'capsize': capsize,
+            'data_file': f'data_{self._line_counter}.dat',
+        }
+
+        self._line_counter += 1
+        self.errorbars.append(errbar_data)
+
+        return self
+
     def scatter(self, x, y, color: Optional[str] = None, s: float = 20,
                 marker: str = 'o', label: Optional[str] = None, **kwargs):
         """
@@ -308,4 +471,4 @@ class Axes:
     
     def has_plots(self) -> bool:
         """Check if axes has any plots."""
-        return bool(self.lines or self.scatters or self.bars or self.fills)
+        return bool(self.lines or self.scatters or self.bars or self.fills or self.errorbars)

@@ -35,7 +35,9 @@ fig.savefig('trig.gle')
 ✨ **Matplotlib-Compatible API** - All familiar functions work identically  
 ✨ **Direct GLE Generation** - Optimized script output (1-2 KB)  
 ✨ **Vector Graphics** - PDF, PNG, EPS export with publication quality  
-✨ **Full Plotting Support** - Lines, scatter, bars, fill_between  
+✨ **Full Plotting Support** - Lines, scatter, bars, fill_between, errorbar  
+✨ **Error Bars** - Symmetric, asymmetric, vertical and horizontal  
+✨ **Subplots** - Multi-panel figures with flexible grid layouts  
 ✨ **Publication Ready** - Suitable for all major academic journals  
 ✨ **Lightweight** - Pure Python, minimal dependencies  
 
@@ -114,6 +116,34 @@ ax.bar([1, 2, 3], [10, 20, 30], color=['red', 'green', 'blue'])
 ### Fill Between
 ```python
 ax.fill_between(x, y1, y2, color='lightblue', alpha=0.3)
+```
+
+### Error Bars
+```python
+# Symmetric vertical error bars
+ax.errorbar(x, y, yerr=0.5, marker='o', color='blue', label='Data')
+
+# Asymmetric vertical error bars
+ax.errorbar(x, y, yerr=([lower_arr], [upper_arr]), marker='s', fmt='none')
+
+# Both vertical and horizontal error bars
+ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', capsize=0.1)
+```
+
+### Subplots
+```python
+# Using subplots() convenience function
+fig, axes = glp.subplots(2, 2, figsize=(12, 10))
+axes[0].plot(x, y1)        # top-left
+axes[1].scatter(x, y2)     # top-right
+axes[2].bar(x, y3)         # bottom-left
+axes[3].errorbar(x, y4, yerr=err)  # bottom-right
+fig.savefig('grid.pdf')
+
+# Using add_subplot() method
+fig = glp.figure(figsize=(14, 6))
+ax1 = fig.add_subplot(1, 2, 1)  # left panel
+ax2 = fig.add_subplot(1, 2, 2)  # right panel
 ```
 
 ### Axis Control
@@ -221,6 +251,7 @@ python -m pytest tests/ -vv
 ## Documentation
 
 - **Getting Started**: [Quick start guide above](#quick-start)
+- **Live Sphinx Docs**: https://benhuddart.github.io/gleplot/
 - **Configuration & Versioning**:
   - **[Configuration System](docs/guides/CONFIGURATION.md)** - Customize gleplot appearance and behavior
   - **[Configuration API](docs/guides/CONFIGURATION_API.md)** - Complete configuration reference
