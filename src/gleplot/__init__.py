@@ -85,7 +85,7 @@ def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None, data_pr
         Marker configuration. If None, uses global default.
     data_prefix : str, optional
         Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
-        If None, uses global counter with 'data_' prefix.
+        If None, uses global counter with ``data_`` prefix.
         
     Returns
     -------
@@ -186,7 +186,7 @@ def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
         will show y-axis labels and ticks. Default: False
     data_prefix : str, optional
         Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
-        If None, uses global counter with 'data_' prefix.
+        If None, uses global counter with ``data_`` prefix.
     
     Returns
     -------

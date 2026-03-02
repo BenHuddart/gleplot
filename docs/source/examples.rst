@@ -112,6 +112,64 @@ Using the ``subplots()`` convenience function:
 Each subplot generates its own ``begin graph`` / ``end graph`` block
 in the GLE script, positioned via ``amove`` with computed coordinates.
 
+Shared Axes Layouts
+-------------------
+
+Stacked plots with a shared x-axis:
+
+.. code-block:: python
+
+   import numpy as np
+   import gleplot as glp
+
+   x = np.linspace(0, 10, 200)
+   fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 10))
+
+   axes[0].plot(x, np.sin(x), color='blue')
+   axes[0].set_title('Signal A')
+
+   axes[1].plot(x, np.cos(x), color='red')
+   axes[1].set_title('Signal B')
+
+   axes[2].plot(x, np.sin(x) + np.cos(x), color='green')
+   axes[2].set_title('Combined')
+   axes[2].set_xlabel('Time')
+
+   fig.savefig('shared_x_stack.gle')
+
+Side-by-side plots with a shared y-axis:
+
+.. code-block:: python
+
+   fig, axes = glp.subplots(1, 3, sharey=True, figsize=(16, 5))
+   axes[0].scatter(x[::8], np.sin(x[::8]))
+   axes[1].scatter(x[::8], np.cos(x[::8]))
+   axes[2].scatter(x[::8], np.sin(x[::8]) + np.cos(x[::8]))
+   axes[0].set_ylabel('Amplitude')
+   fig.savefig('shared_y_panels.gle')
+
+Custom Data File Prefix
+-----------------------
+
+Use ``data_prefix`` to control sidecar ``.dat`` names written next to your GLE file.
+
+.. code-block:: python
+
+   import numpy as np
+   import gleplot as glp
+
+   x = np.linspace(0, 1, 50)
+
+   fig = glp.figure(figsize=(8, 5), data_prefix='calibration')
+   ax = fig.add_subplot(111)
+   ax.plot(x, x, label='linear')
+   ax.plot(x, x**2, label='quadratic')
+   ax.legend()
+
+   fig.savefig('calibration_curves.gle')
+
+This writes files such as ``calibration_0.dat`` and ``calibration_1.dat``.
+
 Scatter with Different Sizes
 -----------------------------
 

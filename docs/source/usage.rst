@@ -1,6 +1,13 @@
 Usage Guide
 ===========
 
+This guide focuses on practical patterns you will reuse often:
+
+- Start with single-axis plots
+- Scale to subplot layouts
+- Use shared axes for clean comparative panels
+- Use custom data file prefixes for reproducible outputs
+
 Creating Figures
 ----------------
 
@@ -43,6 +50,37 @@ For multiple subplots, use the standard matplotlib approach:
    ax4 = fig.add_subplot(2, 2, 4)
    ax4.plot(x, y4)
    ax4.set_title('Plot 4')
+
+Shared Axes
+-----------
+
+Shared axes are useful when panels should be compared directly.
+
+Shared x-axis (stacked plots):
+
+.. code-block:: python
+
+   fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 10))
+   axes[0].plot(x, y_top)
+   axes[1].plot(x, y_mid)
+   axes[2].plot(x, y_bottom)
+   axes[2].set_xlabel('Time')
+
+Shared y-axis (side-by-side plots):
+
+.. code-block:: python
+
+   fig, axes = glp.subplots(1, 3, sharey=True, figsize=(14, 4))
+   axes[0].scatter(x1, y1)
+   axes[1].scatter(x2, y2)
+   axes[2].scatter(x3, y3)
+   axes[0].set_ylabel('Response')
+
+Behavior summary:
+
+- ``sharex=True``: only bottom row shows x-axis labels/ticks
+- ``sharey=True``: only leftmost column shows y-axis labels/ticks
+- Axis limits are synchronized across shared dimensions
 
 Plotting Data
 -------------
@@ -174,3 +212,30 @@ You can also specify output directory:
 .. code-block:: python
 
    fig.savefig('/path/to/output/plot.pdf')
+
+Custom Data File Naming
+-----------------------
+
+Each saved figure writes one ``.gle`` script plus one or more external ``.dat`` files.
+To make data-file names easier to trace in batch workflows, pass ``data_prefix``.
+
+.. code-block:: python
+
+   fig = glp.figure(data_prefix='run42')
+   ax = fig.add_subplot(111)
+   ax.plot(x, y)
+   fig.savefig('run42_result.gle')
+
+Expected side files include:
+
+- ``run42_0.dat``
+- ``run42_1.dat`` (if additional plot series are written)
+
+You can also combine this with subplots:
+
+.. code-block:: python
+
+   fig, axes = glp.subplots(2, 1, sharex=True, data_prefix='experimentB')
+   axes[0].plot(x, y1)
+   axes[1].plot(x, y2)
+   fig.savefig('experimentB_summary.gle')
