@@ -80,13 +80,22 @@ jobs:
 
       - name: Generate gallery images
         run: |
+          # Build gleplot package first
+          python -m pip install -e .
+          
+          # Generate the test .gle files and data files using Python
+          python generate_test_graphics.py
+          
+          # Now compile .gle files to PDFs using GLE
           cd test_graphics_output
           mkdir -p ../docs/source/_static/gallery
           for f in test_*.gle; do
             base="${f%.gle}"
             echo "Processing $base..."
-            gle "$f"
-            convert -density 150 "${base}.pdf" "../docs/source/_static/gallery/${base}.png"
+            gle "$f" || echo "Skipping ${base} - GLE compilation failed"
+            if [ -f "${base}.pdf" ]; then
+              convert -density 150 "${base}.pdf" "../docs/source/_static/gallery/${base}.png"
+            fi
           done
 
       - name: Build documentation
