@@ -11,7 +11,7 @@ Tests run against your local code and can generate output files for inspection:
 pytest tests/ -v
 
 # Run test validation graphics (for visual inspection)
-python generate_test_graphics.py
+python tests/generate_test_graphics.py
 # Outputs: test_graphics_output/*.gle, test_graphics_output/*.dat, etc.
 ```
 
