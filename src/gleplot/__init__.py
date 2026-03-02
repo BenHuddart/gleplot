@@ -47,7 +47,7 @@ figure(figsize=(8, 6), dpi=100)
     Create a new figure
 """
 
-__version__ = '0.1.5'
+__version__ = '0.1.6'
 __author__ = 'gleplot contributors'
 
 from .figure import Figure
