@@ -67,7 +67,7 @@ jobs:
       - name: Install GLE for gallery generation
         run: |
           sudo apt-get update
-          sudo apt-get install -y imagemagick
+          sudo apt-get install -y imagemagick libpoppler-glib8t64 libglu1-mesa
           wget https://github.com/vlabella/GLE/releases/download/v4.3.9/gle-graphics-4.3.9-Linux.tar.gz
           tar -xzf gle-graphics-4.3.9-Linux.tar.gz
           # Find the extracted directory
