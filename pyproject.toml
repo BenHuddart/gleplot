@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gleplot"
-version = "0.1.1"
+version = "0.1.2"
 description = "Matplotlib-like plotting library for GLE (Graphics Layout Engine)"
 readme = "README.md"
 requires-python = ">=3.7"
@@ -70,7 +70,7 @@ profile = "black"
 line_length = 88
 
 [tool.mypy]
-python_version = "0.1.1"
+python_version = "0.1.2"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
