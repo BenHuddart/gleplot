@@ -4,7 +4,12 @@ This project uses [Python Semantic Release](https://python-semantic-release.read
 
 ## How It Works
 
-The version number is automatically updated based on your commit messages using the [Conventional Commits](https://www.conventionalcommits.org/) specification.
+The version number is automatically updated using a two-stage strategy:
+
+1. **Conventional Commits first** (recommended)
+2. **File-change fallback heuristics** when commit messages do not include semantic prefixes
+
+This makes releases more robust when commits are valid but not perfectly formatted.
 
 ## Commit Message Format
 
@@ -29,6 +34,16 @@ The version number is automatically updated based on your commit messages using 
 - **ci**: Changes to CI configuration files
 - **chore**: Other changes that don't modify src or test files
 - **revert**: Reverts a previous commit
+
+### Intelligent Fallback (when commit prefixes are missing)
+
+If no `feat:`, `fix:`, `perf:`, or breaking-change marker is found, the version script inspects changed files since the last tag:
+
+- **MINOR bump**: New Python module added under `src/gleplot/`
+- **PATCH bump**: Existing source changes under `src/gleplot/`, or packaging/runtime script changes (`pyproject.toml`, `scripts/`)
+- **NO bump**: Documentation/tests/examples/output-only changes (`docs/`, `tests/`, `examples/`, markdown/rst/text files, generated graphics output folders)
+
+This fallback is conservative and avoids silent missed releases for source code changes.
 
 ### Breaking Changes
 

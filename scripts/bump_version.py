@@ -15,7 +15,7 @@ import re
 import sys
 import subprocess
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List, Dict
 import argparse
 
 
@@ -50,6 +50,30 @@ class SemanticVersioner:
                     parts = version_str.split('.')
                     return tuple(int(p) for p in parts[:3])
         raise ValueError("Could not find version in pyproject.toml")
+
+    def _get_last_tag(self) -> Optional[str]:
+        """Get most recent git tag, if any."""
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--abbrev=0'],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    def _get_range_since_last_tag(self) -> Optional[str]:
+        """Get git revision range from last tag to HEAD.
+
+        Returns
+        -------
+        str or None
+            Revision range string (e.g. v1.2.3..HEAD), or None if no tag exists.
+        """
+        last_tag = self._get_last_tag()
+        if last_tag:
+            return f'{last_tag}..HEAD'
+        return None
     
     def _get_commits_since_last_tag(self) -> list:
         """Get commit messages since last tag.
@@ -60,19 +84,11 @@ class SemanticVersioner:
             List of commit messages and bodies
         """
         try:
-            # Get last tag
-            result = subprocess.run(
-                ['git', 'describe', '--tags', '--abbrev=0'],
-                cwd=self.root,
-                capture_output=True,
-                text=True,
-                check=False
-            )
-            last_tag = result.stdout.strip() if result.returncode == 0 else None
-            
-            if last_tag:
+            range_spec = self._get_range_since_last_tag()
+
+            if range_spec:
                 # Get commits since tag
-                cmd = ['git', 'log', f'{last_tag}..HEAD', '--format=%B%x00']
+                cmd = ['git', 'log', range_spec, '--format=%B%x00']
             else:
                 # Get all commits (first time)
                 cmd = ['git', 'log', '--format=%B%x00']
@@ -92,6 +108,47 @@ class SemanticVersioner:
         except subprocess.CalledProcessError as e:
             print(f"Error getting commits: {e}", file=sys.stderr)
             return []
+
+    def _get_changed_files_since_last_tag(self) -> List[Dict[str, str]]:
+        """Get changed files since last tag.
+
+        Returns
+        -------
+        list of dict
+            Items with keys: status, path
+        """
+        try:
+            range_spec = self._get_range_since_last_tag()
+            if range_spec:
+                cmd = ['git', 'diff', '--name-status', range_spec]
+            else:
+                cmd = ['git', 'log', '--name-status', '--pretty=format:', 'HEAD']
+
+            result = subprocess.run(
+                cmd,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            changed_files: List[Dict[str, str]] = []
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+
+                parts = line.split('\t', 1)
+                if len(parts) != 2:
+                    continue
+
+                status, path = parts
+                changed_files.append({'status': status, 'path': path})
+
+            return changed_files
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting changed files: {e}", file=sys.stderr)
+            return []
     
     def _analyze_commits(self, commits: list) -> str:
         """Analyze commits and determine version bump.
@@ -109,6 +166,7 @@ class SemanticVersioner:
         has_breaking = False
         has_feature = False
         has_fix = False
+        has_perf = False
         
         for commit in commits:
             # Check for breaking change
@@ -120,15 +178,87 @@ class SemanticVersioner:
             # Check for fix
             elif re.search(r'^fix(\(.+\))?!?:', commit, re.MULTILINE):
                 has_fix = True
+            # Check for performance improvements
+            elif re.search(r'^perf(\(.+\))?!?:', commit, re.MULTILINE):
+                has_perf = True
         
         if has_breaking:
             return 'major'
         elif has_feature:
             return 'minor'
-        elif has_fix:
+        elif has_fix or has_perf:
             return 'patch'
         else:
             return 'none'
+
+    def _is_non_functional_change(self, path: str) -> bool:
+        """Determine if file change is non-functional for release bumping."""
+        non_functional_prefixes = (
+            'docs/',
+            'tests/',
+            'examples/',
+            '.github/',
+            'test_graphics_output/',
+            'test_custom_prefix_output/',
+            '__pycache__/',
+        )
+        non_functional_suffixes = ('.md', '.rst', '.txt')
+
+        if path.startswith(non_functional_prefixes):
+            return True
+        if path.endswith(non_functional_suffixes):
+            return True
+        if '__pycache__' in path:
+            return True
+        return False
+
+    def _analyze_changed_files(self, changed_files: List[Dict[str, str]]) -> str:
+        """Infer version bump from changed files when commit messages are inconclusive.
+
+        Rules:
+        - Added source module under src/gleplot/*.py -> minor
+        - Modified/deleted source under src/gleplot/* -> patch
+        - Packaging/runtime config changes (pyproject.toml, scripts/*.py) -> patch
+        - Docs/tests/examples/output-only changes -> none
+        - Any other non-trivial change -> patch (conservative default)
+        """
+        if not changed_files:
+            return 'none'
+
+        meaningful = [
+            change for change in changed_files
+            if not self._is_non_functional_change(change['path'])
+        ]
+
+        if not meaningful:
+            return 'none'
+
+        has_added_source_module = any(
+            change['status'].startswith('A')
+            and change['path'].startswith('src/gleplot/')
+            and change['path'].endswith('.py')
+            and change['path'] != 'src/gleplot/__init__.py'
+            for change in meaningful
+        )
+        if has_added_source_module:
+            return 'minor'
+
+        has_source_change = any(
+            change['path'].startswith('src/gleplot/')
+            for change in meaningful
+        )
+        if has_source_change:
+            return 'patch'
+
+        has_packaging_or_runtime_change = any(
+            change['path'] == 'pyproject.toml'
+            or change['path'].startswith('scripts/')
+            for change in meaningful
+        )
+        if has_packaging_or_runtime_change:
+            return 'patch'
+
+        return 'patch'
     
     def determine_version_bump(self) -> str:
         """Determine what version bump is needed.
@@ -145,6 +275,13 @@ class SemanticVersioner:
             return 'none'
         
         bump = self._analyze_commits(commits)
+        if bump == 'none':
+            changed_files = self._get_changed_files_since_last_tag()
+            fallback_bump = self._analyze_changed_files(changed_files)
+            if fallback_bump != 'none':
+                bump = fallback_bump
+                print("Commit messages did not request a bump; using file-change fallback")
+
         print(f"Found {len(commits)} commits")
         print(f"Version bump needed: {bump.upper()}")
         return bump
