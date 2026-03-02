@@ -2,8 +2,8 @@ name: Build and Publish Documentation
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -16,10 +16,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.tag_check.outputs.should_deploy }}
+      release_tag: ${{ steps.tag_check.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for release tag on HEAD
+        id: tag_check
+        run: |
+          TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+          if [ -n "$TAG" ]; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+            echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "Deploying docs for tag: $TAG"
+          else
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "release_tag=" >> "$GITHUB_OUTPUT"
+            echo "No release tag on HEAD; skipping docs deploy"
+          fi
+
   build:
+    needs: precheck
+    if: needs.precheck.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -48,11 +76,12 @@ jobs:
           path: 'docs/build/html'
 
   deploy:
+    needs: [precheck, build]
+    if: needs.precheck.outputs.should_deploy == 'true'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
