@@ -41,11 +41,15 @@ class TestGraphicsCompilation(unittest.TestCase):
     def tearDown(self):
         """Clean up after each test."""
         glp.close()
-        # Clean up temp files
-        if self.tempdir.exists():
-            for f in self.tempdir.glob('*'):
-                f.unlink()
-            self.tempdir.rmdir()
+        # Clean up temp files (skip if KEEP_TEST_FILES is set)
+        import os
+        if not os.environ.get('KEEP_TEST_FILES'):
+            if self.tempdir.exists():
+                for f in self.tempdir.glob('*'):
+                    f.unlink()
+                self.tempdir.rmdir()
+        else:
+            print(f"\nTest files preserved in: {self.tempdir}")
     
     def test_save_gle_script(self):
         """Test saving GLE script file."""
@@ -197,10 +201,14 @@ class TestImageProperties(unittest.TestCase):
     def tearDown(self):
         """Clean up after each test."""
         glp.close()
-        if self.tempdir.exists():
-            for f in self.tempdir.glob('*'):
-                f.unlink()
-            self.tempdir.rmdir()
+        import os
+        if not os.environ.get('KEEP_TEST_FILES'):
+            if self.tempdir.exists():
+                for f in self.tempdir.glob('*'):
+                    f.unlink()
+                self.tempdir.rmdir()
+        else:
+            print(f"\nTest files preserved in: {self.tempdir}")
     
     def test_pdf_file_size_reasonable(self):
         """Test that PDF file size is reasonable."""
@@ -277,10 +285,14 @@ class TestGraphicsWithAdvancedFeatures(unittest.TestCase):
     def tearDown(self):
         """Clean up after each test."""
         glp.close()
-        if self.tempdir.exists():
-            for f in self.tempdir.glob('*'):
-                f.unlink()
-            self.tempdir.rmdir()
+        import os
+        if not os.environ.get('KEEP_TEST_FILES'):
+            if self.tempdir.exists():
+                for f in self.tempdir.glob('*'):
+                    f.unlink()
+                self.tempdir.rmdir()
+        else:
+            print(f"\nTest files preserved in: {self.tempdir}")
     
     def test_compile_with_fill_between(self):
         """Test compiling plot with fill_between to PDF."""

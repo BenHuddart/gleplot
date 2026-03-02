@@ -52,7 +52,7 @@ def example_asymmetric_error_bars():
     yerr_upper = np.array([5, 4, 6, 3, 7])
 
     ax.errorbar(x, y, yerr=(yerr_lower, yerr_upper), marker='s',
-                fmt='none', color='red', capsize=0.15, label='Asymmetric')
+                fmt='none', color='red', capsize=4, label='Asymmetric')
 
     ax.set_xlabel('Category')
     ax.set_ylabel('Value')
@@ -79,7 +79,7 @@ def example_horizontal_error_bars():
     xerr = np.array([0.2, 0.3, 0.15, 0.25, 0.2])
 
     ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', fmt='none',
-                color='blue', capsize=0.1, label='Data ± σ')
+                color='blue', capsize=3, label='Data ± σ')
 
     ax.set_xlabel('X measurement')
     ax.set_ylabel('Y measurement')
@@ -104,7 +104,7 @@ def example_errorbar_with_line():
     yerr = 0.1 + 0.1 * np.abs(np.cos(x))
 
     ax.errorbar(x, y, yerr=yerr, marker='o', fmt='-', color='green',
-                capsize=0.1, label='sin(x) ± δ')
+                capsize=3, label='sin(x) ± δ')
 
     ax.set_xlabel('x (radians)')
     ax.set_ylabel('sin(x)')

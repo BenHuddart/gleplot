@@ -41,10 +41,14 @@ class TestGraphicsValidation(unittest.TestCase):
     def tearDown(self):
         """Clean up after each test."""
         glp.close()
-        if self.tempdir.exists():
-            for f in self.tempdir.glob('*'):
-                f.unlink()
-            self.tempdir.rmdir()
+        import os
+        if not os.environ.get('KEEP_TEST_FILES'):
+            if self.tempdir.exists():
+                for f in self.tempdir.glob('*'):
+                    f.unlink()
+                self.tempdir.rmdir()
+        else:
+            print(f"\nTest files preserved in: {self.tempdir}")
     
     def test_validate_pdf_structure(self):
         """Test PDF structure validation."""
@@ -210,10 +214,14 @@ class TestGraphicsFormattingConsistency(unittest.TestCase):
     def tearDown(self):
         """Clean up after each test."""
         glp.close()
-        if self.tempdir.exists():
-            for f in self.tempdir.glob('*'):
-                f.unlink()
-            self.tempdir.rmdir()
+        import os
+        if not os.environ.get('KEEP_TEST_FILES'):
+            if self.tempdir.exists():
+                for f in self.tempdir.glob('*'):
+                    f.unlink()
+                self.tempdir.rmdir()
+        else:
+            print(f"\nTest files preserved in: {self.tempdir}")
     
     def test_same_figure_multiple_formats(self):
         """Test that same figure can be compiled to multiple formats."""

@@ -67,7 +67,7 @@ from .config import (
 _current_figure = None
 
 
-def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None) -> Figure:
+def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None, data_prefix=None) -> Figure:
     """
     Create a new figure.
     
@@ -83,6 +83,9 @@ def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None) -> Figu
         Graph configuration. If None, uses global default.
     marker : GLEMarkerConfig, optional
         Marker configuration. If None, uses global default.
+    data_prefix : str, optional
+        Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
+        If None, uses global counter with 'data_' prefix.
         
     Returns
     -------
@@ -106,7 +109,7 @@ def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None) -> Figu
     >>> fig = glp.figure()  # Will use helvetica font
     """
     global _current_figure
-    _current_figure = Figure(figsize=figsize, dpi=dpi, style=style, graph=graph, marker=marker)
+    _current_figure = Figure(figsize=figsize, dpi=dpi, style=style, graph=graph, marker=marker, data_prefix=data_prefix)
     return _current_figure
 
 
@@ -150,7 +153,9 @@ def errorbar(*args, **kwargs):
 
 
 def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
-             style=None, graph=None, marker=None):
+             style=None, graph=None, marker=None,
+             sharex: bool = False, sharey: bool = False,
+             data_prefix=None):
     """
     Create a figure and a set of subplots.
     
@@ -173,6 +178,15 @@ def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
         Graph configuration.
     marker : GLEMarkerConfig, optional
         Marker configuration.
+    sharex : bool, optional
+        If True, all subplots share the same x-axis. Only the bottom row
+        will show x-axis labels and ticks. Default: False
+    sharey : bool, optional
+        If True, all subplots share the same y-axis. Only the leftmost column
+        will show y-axis labels and ticks. Default: False
+    data_prefix : str, optional
+        Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
+        If None, uses global counter with 'data_' prefix.
     
     Returns
     -------
@@ -196,13 +210,19 @@ def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
     >>> axes[1].scatter(x, y2)  # top-right
     >>> axes[2].bar(x, y3)      # bottom-left
     >>> axes[3].plot(x, y4)     # bottom-right
+    
+    Shared x-axis (stacked plots):
+    
+    >>> fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 12))
+    >>> # Only bottom subplot shows x-axis label and ticks
     """
     global _current_figure
     
     if figsize is None:
         figsize = (max(6, 6 * ncols), max(4, 4 * nrows))
     
-    fig = Figure(figsize=figsize, dpi=dpi, style=style, graph=graph, marker=marker)
+    fig = Figure(figsize=figsize, dpi=dpi, style=style, graph=graph, marker=marker,
+                 sharex=sharex, sharey=sharey, data_prefix=data_prefix)
     _current_figure = fig
     
     axes_list = []

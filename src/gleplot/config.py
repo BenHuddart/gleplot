@@ -10,16 +10,16 @@ class GLEStyleConfig:
     
     Attributes
     ----------
-    font : str
-        GLE font name (e.g., 'texcmr', 'timesroman', 'helvetica').
-        Default: 'texcmr' (TeX Computer Modern Roman font)
+    font : str or None
+        GLE font name (e.g., 'times8', 'psagb', 'plti').
+        If None or empty string, uses GLE's default font. Default: None
     
     fontsize : float
-        Font size in points. Default: 10
+        Font size in points. Default: 12 (optimized for GLE/PDF readability)
     
     default_linewidth : float
         Default line width in points (unit: 1/72 inch).
-        Default: 1.0 point ≈ 0.035 cm
+        Default: 1.5 points ≈ 0.053 cm (increased for visibility in PDFs)
     
     default_color : str
         Default line/plot color (GLE color name). Default: 'BLUE'
@@ -39,9 +39,9 @@ class GLEStyleConfig:
     line_style_dashdot : int
         GLE line style for dash-dot lines (-.). Default: 4
     """
-    font: str = 'texcmr'
-    fontsize: float = 10
-    default_linewidth: float = 1.0
+    font: str = ''  # Empty string = GLE default font
+    fontsize: float = 12  # Increased from 10 for better readability in GLE/PDF output
+    default_linewidth: float = 1.5  # Increased from 1.0 for visibility
     default_color: str = 'BLUE'
     default_marker_color: str = 'BLUE'
     line_style_solid: int = 1

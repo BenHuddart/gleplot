@@ -50,14 +50,30 @@ fig.savefig('trig.gle')
 ### Optional
 - GLE 4.3+ (for PDF/PNG/EPS compilation)
   ```bash
-  # macOS
-  brew install gle
-  
-  # Linux (Ubuntu/Debian)
-  sudo apt-get install gle
-  
-  # Windows
-  Download from https://glx.sourceforge.io/
+  # Verify installation
+  gle -info
+  ```
+
+  Install GLE from the official upstream sources:
+  - **Preferred (all platforms):** Download prebuilt releases from https://github.com/vlabella/GLE/releases/latest
+    - Windows: `.exe` installer
+    - macOS: `.dmg`
+    - Linux: `.zip`
+  - **Alternative:** Download from the official GLE site: https://glx.sourceforge.io/download/
+  - **Build from source:** Follow the platform-specific build instructions in the upstream README:
+    https://github.com/vlabella/GLE/blob/main/README.md
+
+  GLE upstream also recommends installing runtime dependencies:
+  - Ghostscript
+  - LaTeX distribution (e.g., TeX Live or MiKTeX)
+
+  Quick first-time verification:
+  ```bash
+  # Locate Ghostscript/LaTeX and other runtime dependencies
+  gle -finddeps
+
+  # Confirm GLE is installed and discover paths
+  gle -info
   ```
 
 ### Install gleplot
@@ -127,7 +143,7 @@ ax.errorbar(x, y, yerr=0.5, marker='o', color='blue', label='Data')
 ax.errorbar(x, y, yerr=([lower_arr], [upper_arr]), marker='s', fmt='none')
 
 # Both vertical and horizontal error bars
-ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', capsize=0.1)
+ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', capsize=3)
 ```
 
 ### Subplots
@@ -144,6 +160,22 @@ fig.savefig('grid.pdf')
 fig = glp.figure(figsize=(14, 6))
 ax1 = fig.add_subplot(1, 2, 1)  # left panel
 ax2 = fig.add_subplot(1, 2, 2)  # right panel
+
+# Shared axes for tighter layouts (stacked plots)
+fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 10))
+# Only bottom subplot shows x-axis label and ticks
+axes[0].plot(x, signal)
+axes[1].plot(x, noise)
+axes[2].plot(x, combined)
+axes[2].set_xlabel('Time')  # Only need to label bottom
+
+# Shared axes for side-by-side comparisons
+fig, axes = glp.subplots(1, 3, sharey=True, figsize=(18, 5))
+# Only leftmost subplot shows y-axis label and ticks
+axes[0].scatter(x1, y1)
+axes[0].set_ylabel('Response')  # Only need to label left
+axes[1].scatter(x2, y2)
+axes[2].scatter(x3, y3)
 ```
 
 ### Axis Control

@@ -108,7 +108,7 @@ def example_2x2_grid():
     xm = np.array([1, 2, 3, 4, 5])
     ym = np.array([10, 18, 25, 35, 42])
     axes[3].errorbar(xm, ym, yerr=([2, 3, 2, 4, 3], [3, 2, 4, 3, 5]),
-                     marker='s', fmt='none', color='red', capsize=0.12,
+                     marker='s', fmt='none', color='red', capsize=3,
                      label='±err')
     axes[3].set_title('Error Bars')
     axes[3].set_xlabel('x')

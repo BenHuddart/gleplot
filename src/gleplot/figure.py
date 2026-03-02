@@ -30,8 +30,18 @@ class Figure:
     def __init__(self, figsize: Tuple[float, float] = (8, 6), dpi: int = 100,
                  style: Optional[GLEStyleConfig] = None,
                  graph: Optional[GLEGraphConfig] = None,
-                 marker: Optional[GLEMarkerConfig] = None):
-        """Initialize figure with optional configuration objects."""
+                 marker: Optional[GLEMarkerConfig] = None,
+                 sharex: bool = False,
+                 sharey: bool = False,
+                 data_prefix: Optional[str] = None):
+        """Initialize figure with optional configuration objects.
+        
+        Parameters
+        ----------
+        data_prefix : str, optional
+            Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
+            If None, uses global counter with 'data_' prefix.
+        """
         self.figsize = figsize
         self.dpi = dpi
         
@@ -39,6 +49,14 @@ class Figure:
         self.style = style or GlobalConfig.get_style()
         self.graph = graph or GlobalConfig.get_graph()
         self.marker_config = marker or GlobalConfig.get_marker()
+        
+        # Shared axes configuration
+        self.sharex = sharex
+        self.sharey = sharey
+        
+        # Custom data file naming
+        self.data_prefix = data_prefix
+        self._local_data_counter = 0  # Local counter when using custom prefix
         
         self.axes_list = []  # List of Axes objects
         self._current_axes = None  # Current working axes
@@ -75,6 +93,53 @@ class Figure:
             rows, cols, idx = args
         
         ax = Axes(self, (rows, cols, idx))
+        
+        # Configure shared axes visibility
+        # Convert 1-based index to row/col
+        row = (idx - 1) // cols   # 0-based, 0 = top row
+        col = (idx - 1) % cols    # 0-based, 0 = left col
+        
+        if self.sharex:
+            # Only show x-axis labels/ticks on bottom row
+            ax._show_xlabel = (row == rows - 1)
+            ax._show_xticks = (row == rows - 1)
+            # Remove last x-tick label if not the bottom row (to prevent overlap when subplots touch)
+            ax._remove_last_xtick = (row < rows - 1)
+            ax._remove_first_xtick = False
+            # When sharing x, y-axes touch vertically - remove last y-label from all but top row
+            ax._remove_last_ytick = (row < rows - 1)
+            ax._remove_first_ytick = False
+        else:
+            ax._show_xlabel = True
+            ax._show_xticks = True
+            ax._remove_last_xtick = False
+            ax._remove_first_xtick = False
+            ax._remove_last_ytick = False
+            ax._remove_first_ytick = False
+        
+        if self.sharey:
+            # Only show y-axis labels/ticks on leftmost column
+            ax._show_ylabel = (col == 0)
+            ax._show_yticks = (col == 0)
+            # When sharing y, x-axes touch horizontally - remove last x-label from all but rightmost
+            ax._remove_last_xtick = (col < cols - 1)
+            ax._remove_first_xtick = False
+            # Y-axis labels don't overlap in horizontal arrangement (only shown on leftmost)
+            # No need to remove first/last y-labels when plots are side-by-side
+            if not self.sharex:  # Only set if not already set by sharex logic
+                ax._remove_last_ytick = False
+                ax._remove_first_ytick = False
+        else:
+            ax._show_ylabel = True
+            ax._show_yticks = True
+            if not self.sharex:  # Only set if not already set by sharex logic
+                ax._remove_last_ytick = False
+                ax._remove_first_ytick = False
+            if not self.sharex:
+                ax._remove_last_xtick = False
+                ax._remove_first_xtick = False
+                ax._remove_first_xtick = False
+        
         self.axes_list.append(ax)
         self._current_axes = ax
         return ax
@@ -266,16 +331,47 @@ class Figure:
             max_rows = max(ax.position[0] for ax in self.axes_list)
             max_cols = max(ax.position[1] for ax in self.axes_list)
             
-            # Calculate per-subplot dimensions in cm
-            # Page margins (cm)
-            margin_x = 1.0
-            margin_y = 1.0
-            # Spacing between subplots (cm)
-            hspace = 1.5
-            vspace = 2.0
+            # Synchronize axis limits for shared axes
+            if self.sharex:
+                self._synchronize_x_limits()
+            if self.sharey:
+                self._synchronize_y_limits()
             
-            usable_w = writer.width_cm - 2 * margin_x - (max_cols - 1) * hspace
-            usable_h = writer.height_cm - 2 * margin_y - (max_rows - 1) * vspace
+            # Calculate per-subplot dimensions in cm
+            # Smart margins based on what labels are shown and subplot content
+            
+            # Check if any subplot has a title
+            has_titles = any(ax.title_text for ax in self.axes_list)
+            
+            if self.sharex or self.sharey:
+                # Top margin: more room needed if subplots have titles
+                margin_top = 1.2 if has_titles else 0.5
+                margin_right = 0.5
+                # Bottom needs room for x-axis labels (when showing them)
+                margin_bottom = 1.5 if self.sharex else 1.0
+                # Left always needs room for y-axis labels in multi-subplot layouts
+                margin_left = 1.5
+            else:
+                # Normal margins for non-shared layouts
+                margin_top = 1.5 if has_titles else 1.0
+                margin_bottom = 1.0
+                margin_left = 1.0
+                margin_right = 1.0
+            
+            # Spacing between subplots (cm) - zero when axes are shared (subplots touch)
+            # When subplots touch, we use GLE commands like 'nolast' to remove overlapping labels
+            if self.sharey:
+                hspace = 0.0  # No gap - subplots touch when sharing y-axis
+            else:
+                hspace = 1.5
+            
+            if self.sharex:
+                vspace = 0.0  # No gap - subplots touch when sharing x-axis
+            else:
+                vspace = 2.0
+            
+            usable_w = writer.width_cm - margin_left - margin_right - (max_cols - 1) * hspace
+            usable_h = writer.height_cm - margin_bottom - margin_top - (max_rows - 1) * vspace
             
             cell_w = usable_w / max_cols
             cell_h = usable_h / max_rows
@@ -287,8 +383,8 @@ class Figure:
                 col = (idx - 1) % cols    # 0-based, 0 = left col
                 
                 # GLE coordinates: origin is bottom-left, y increases upward
-                x_pos = margin_x + col * (cell_w + hspace)
-                y_pos = writer.height_cm - margin_y - (row + 1) * cell_h - row * vspace
+                x_pos = margin_left + col * (cell_w + hspace)
+                y_pos = writer.height_cm - margin_top - (row + 1) * cell_h - row * vspace
                 
                 writer.add_amove(x_pos, y_pos)
                 writer.begin_graph()
@@ -328,6 +424,14 @@ class Figure:
             xmax=ax.xmax,
             ymin=ax.ymin,
             ymax=ax.ymax,
+            show_xlabel=ax._show_xlabel,
+            show_ylabel=ax._show_ylabel,
+            show_xticks=ax._show_xticks,
+            show_yticks=ax._show_yticks,
+            remove_last_xtick=getattr(ax, '_remove_last_xtick', False),
+            remove_last_ytick=getattr(ax, '_remove_last_ytick', False),
+            remove_first_xtick=getattr(ax, '_remove_first_xtick', False),
+            remove_first_ytick=getattr(ax, '_remove_first_ytick', False),
         )
         
         # Add fill regions (background)
@@ -391,12 +495,145 @@ class Figure:
                 yerr_down=eb_data['yerr_down'],
                 xerr_left=eb_data['xerr_left'],
                 xerr_right=eb_data['xerr_right'],
-                capsize=eb_data['capsize'],
+                capsize=eb_data.get('gle_capsize', eb_data.get('capsize')),
             )
         
         # Add legend if needed
         if ax.legend_on or any(l.get('label') for l in ax.lines + ax.scatters + ax.bars + ax.errorbars):
             writer.add_legend(ax.legend_pos)
+    
+    def _synchronize_x_limits(self):
+        """Synchronize x-axis limits across all axes when sharex is enabled."""
+        # Find global x-axis limits
+        xmin_global = None
+        xmax_global = None
+        
+        for ax in self.axes_list:
+            # Calculate data limits if not explicitly set
+            if ax.xmin is None or ax.xmax is None:
+                data_xmin, data_xmax = self._get_data_xlim(ax)
+                if ax.xmin is None:
+                    ax.xmin = data_xmin
+                if ax.xmax is None:
+                    ax.xmax = data_xmax
+            
+            # Track global limits
+            if ax.xmin is not None:
+                if xmin_global is None or ax.xmin < xmin_global:
+                    xmin_global = ax.xmin
+            if ax.xmax is not None:
+                if xmax_global is None or ax.xmax > xmax_global:
+                    xmax_global = ax.xmax
+        
+        # Apply global limits to all axes
+        for ax in self.axes_list:
+            ax.xmin = xmin_global
+            ax.xmax = xmax_global
+    
+    def _synchronize_y_limits(self):
+        """Synchronize y-axis limits across all axes when sharey is enabled."""
+        # Find global y-axis limits
+        ymin_global = None
+        ymax_global = None
+        
+        for ax in self.axes_list:
+            # Calculate data limits if not explicitly set
+            if ax.ymin is None or ax.ymax is None:
+                data_ymin, data_ymax = self._get_data_ylim(ax)
+                if ax.ymin is None:
+                    ax.ymin = data_ymin
+                if ax.ymax is None:
+                    ax.ymax = data_ymax
+            
+            # Track global limits
+            if ax.ymin is not None:
+                if ymin_global is None or ax.ymin < ymin_global:
+                    ymin_global = ax.ymin
+            if ax.ymax is not None:
+                if ymax_global is None or ax.ymax > ymax_global:
+                    ymax_global = ax.ymax
+        
+        # Apply global limits to all axes
+        for ax in self.axes_list:
+            ax.ymin = ymin_global
+            ax.ymax = ymax_global
+    
+    def _get_data_xlim(self, ax: Axes) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate x-axis limits from data."""
+        xmin, xmax = None, None
+        
+        for data_list in [ax.lines, ax.scatters, ax.bars, ax.errorbars]:
+            for data in data_list:
+                x = np.asarray(data['x'])
+                if len(x) > 0:
+                    if xmin is None or x.min() < xmin:
+                        xmin = float(x.min())
+                    if xmax is None or x.max() > xmax:
+                        xmax = float(x.max())
+        
+        for fill_data in ax.fills:
+            x = np.asarray(fill_data['x'])
+            if len(x) > 0:
+                if xmin is None or x.min() < xmin:
+                    xmin = float(x.min())
+                if xmax is None or x.max() > xmax:
+                    xmax = float(x.max())
+        
+        return xmin, xmax
+    
+    def _get_data_ylim(self, ax: Axes) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate y-axis limits from data."""
+        ymin, ymax = None, None
+        
+        for data_list in [ax.lines, ax.scatters]:
+            for data in data_list:
+                y = np.asarray(data['y'])
+                if len(y) > 0:
+                    if ymin is None or y.min() < ymin:
+                        ymin = float(y.min())
+                    if ymax is None or y.max() > ymax:
+                        ymax = float(y.max())
+        
+        for bar_data in ax.bars:
+            height = np.asarray(bar_data['height'])
+            if len(height) > 0:
+                if ymin is None or height.min() < ymin:
+                    ymin = float(min(0, height.min()))
+                if ymax is None or height.max() > ymax:
+                    ymax = float(height.max())
+        
+        for fill_data in ax.fills:
+            y1 = np.asarray(fill_data['y1'])
+            y2 = np.asarray(fill_data['y2'])
+            all_y = np.concatenate([y1, y2])
+            if len(all_y) > 0:
+                if ymin is None or all_y.min() < ymin:
+                    ymin = float(all_y.min())
+                if ymax is None or all_y.max() > ymax:
+                    ymax = float(all_y.max())
+        
+        for eb_data in ax.errorbars:
+            y = np.asarray(eb_data['y'])
+            yerr_up = eb_data.get('yerr_up')
+            yerr_down = eb_data.get('yerr_down')
+            
+            if len(y) > 0:
+                y_with_err = y.copy()
+                if yerr_up is not None:
+                    y_with_err_up = y + np.asarray(yerr_up)
+                    if ymax is None or y_with_err_up.max() > ymax:
+                        ymax = float(y_with_err_up.max())
+                if yerr_down is not None:
+                    y_with_err_down = y - np.asarray(yerr_down)
+                    if ymin is None or y_with_err_down.min() < ymin:
+                        ymin = float(y_with_err_down.min())
+                
+                if ymin is None or y.min() < ymin:
+                    ymin = float(y.min())
+                if ymax is None or y.max() > ymax:
+                    ymax = float(y.max())
+        
+        return ymin, ymax
     
     def close(self):
         """Close figure."""

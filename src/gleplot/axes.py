@@ -6,6 +6,34 @@ from .colors import rgb_to_gle
 from .markers import get_gle_marker
 
 
+# Global counter for unique data file names across all figures in a session
+_global_data_file_counter = 0
+
+
+def _get_next_data_file(figure=None):
+    """Get next unique data file name.
+    
+    Parameters
+    ----------
+    figure : Figure, optional
+        If provided and has a custom data_prefix, uses figure's local counter.
+        Otherwise uses global counter.
+    
+    Returns
+    -------
+    str
+        Data filename (e.g., 'data_5.dat' or 'mytest_2.dat')
+    """
+    if figure and figure.data_prefix:
+        filename = f'{figure.data_prefix}_{figure._local_data_counter}.dat'
+        figure._local_data_counter += 1
+    else:
+        global _global_data_file_counter
+        filename = f'data_{_global_data_file_counter}.dat'
+        _global_data_file_counter += 1
+    return filename
+
+
 class Axes:
     """Matplotlib-like axes for plotting."""
     
@@ -36,14 +64,18 @@ class Axes:
         self.legend_on = False
         self.legend_pos = 'top right'
         
+        # Shared axes visibility control
+        self._show_xlabel = True
+        self._show_ylabel = True
+        self._show_xticks = True
+        self._show_yticks = True
+        
         # Plot data storage
         self.lines = []  # List of line plot data
         self.scatters = []  # List of scatter plot data
         self.bars = []  # List of bar chart data
         self.fills = []  # List of fill_between data
         self.errorbars = []  # List of errorbar plot data
-        
-        self._line_counter = 0
     
     def plot(self, x, y, linestyle: str = '-', color: Optional[str] = None,
              marker: Optional[str] = None, markersize: float = 6,
@@ -94,8 +126,10 @@ class Axes:
             gle_marker = None
             plot_type = 'line'
         
-        # Scale markersize from matplotlib (1-100) to GLE msize (0.05-0.5)
-        gle_markersize = markersize / 100 * 0.3
+        # Scale markersize from matplotlib (typical 1-20, default 6) to GLE msize (0.05-0.5)
+        # Formula: msize = markersize * 0.025 * scale_factor
+        # Examples: markersize 6 → 0.15, markersize 10 → 0.25, markersize 20 → 0.5
+        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
         
         line_data = {
             'type': plot_type,
@@ -107,10 +141,8 @@ class Axes:
             'linestyle': linestyle,
             'linewidth': linewidth,
             'label': label,
-            'data_file': f'data_{self._line_counter}.dat',
+            'data_file': _get_next_data_file(self.figure),
         }
-        
-        self._line_counter += 1
         
         if is_scatter:
             self.scatters.append(line_data)
@@ -123,6 +155,7 @@ class Axes:
                  color: Optional[str] = None, marker: Optional[str] = None,
                  markersize: float = 6, linewidth: float = 1,
                  label: Optional[str] = None, capsize: Optional[float] = None,
+                 capsize_cm: Optional[float] = None,
                  **kwargs):
         """
         Plot data with error bars.
@@ -145,13 +178,18 @@ class Axes:
         marker : str, optional
             Marker symbol ('o', 's', '^', etc.)
         markersize : float
-            Marker size (matplotlib convention)
+            Marker size (matplotlib convention, 1-100)
         linewidth : float
             Line width
         label : str, optional
             Legend label
         capsize : float, optional
-            Width of error bar caps in GLE units (cm). Default: None (GLE default)
+            Width of error bar caps in matplotlib points (typical: 3-5).
+            Automatically converted to GLE cm units (points * 0.0353).
+            Default: None (no caps)
+        capsize_cm : float, optional
+            Width of error bar caps directly in GLE cm units (typical: 0.05-0.15).
+            If specified, this overrides `capsize`. Use this for direct control.
         **kwargs
             Additional arguments
 
@@ -205,8 +243,22 @@ class Axes:
         if parsed_marker is not None:
             gle_marker = get_gle_marker(parsed_marker)
 
-        # Scale markersize from matplotlib to GLE msize
-        gle_markersize = markersize / 100 * 0.3
+        # Scale markersize from matplotlib to GLE msize (with config scaling)
+        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
+
+        # Convert capsize from matplotlib points to GLE cm
+        # 1 point = 1/72 inch = 2.54/72 cm ≈ 0.0353 cm
+        # Store the original capsize for the data structure, convert for GLE output
+        gle_capsize = None
+        stored_capsize = None
+        if capsize_cm is not None:
+            # Direct specification in cm takes precedence
+            gle_capsize = capsize_cm
+            stored_capsize = capsize_cm  # Store the cm value
+        elif capsize is not None:
+            # Convert from matplotlib points to cm for GLE
+            gle_capsize = capsize * 0.0353
+            stored_capsize = capsize  # Store original matplotlib value
 
         # Process yerr
         yerr_up = None
@@ -272,11 +324,10 @@ class Axes:
             'linestyle': parsed_linestyle,
             'linewidth': linewidth,
             'label': label,
-            'capsize': capsize,
-            'data_file': f'data_{self._line_counter}.dat',
+            'capsize': stored_capsize,
+            'gle_capsize': gle_capsize,  # Separate field for the GLE-converted value
+            'data_file': _get_next_data_file(self.figure),
         }
-
-        self._line_counter += 1
         self.errorbars.append(errbar_data)
 
         return self
@@ -306,7 +357,10 @@ class Axes:
         self
         """
         # scatter() uses 's' instead of markersize
-        markersize = np.sqrt(s) * 2  # Rough conversion
+        # matplotlib scatter s is area in points^2, typical range 10-100, default ~36
+        # Convert to markersize: since area ~ size^2, markersize ~ sqrt(s)
+        # Use factor of 1.2 for better visibility
+        markersize = np.sqrt(s) * 1.2
         return self.plot(x, y, linestyle='none', color=color, marker=marker,
                         markersize=markersize, label=label)
     
@@ -348,10 +402,8 @@ class Axes:
             'height': height,
             'colors': colors,
             'label': label,
-            'data_file': f'data_{self._line_counter}.dat',
+            'data_file': _get_next_data_file(self.figure),
         }
-        
-        self._line_counter += 1
         self.bars.append(bar_data)
         
         return self
@@ -396,10 +448,8 @@ class Axes:
             'color': color,
             'alpha': alpha,
             'label': label,
-            'data_file': f'data_{self._line_counter}.dat',
+            'data_file': _get_next_data_file(self.figure),
         }
-        
-        self._line_counter += 1
         self.fills.append(fill_data)
         
         return self
