@@ -64,6 +64,25 @@ jobs:
           pip install -e ".[dev]"
           pip install sphinx sphinx-rtd-theme
 
+      - name: Install GLE for gallery generation
+        run: |
+          wget https://github.com/vlabella/GLE/releases/download/v4.3.4/gle-graphics-4.3.4-exe-x64-linux.tar.gz
+          tar -xzf gle-graphics-4.3.4-exe-x64-linux.tar.gz
+          sudo mv gle-graphics-4.3.4/bin/gle /usr/local/bin/
+          sudo chmod +x /usr/local/bin/gle
+          gle -v
+
+      - name: Generate gallery images
+        run: |
+          cd test_graphics_output
+          mkdir -p ../docs/source/_static/gallery
+          for f in test_*.gle; do
+            base="${f%.gle}"
+            echo "Processing $base..."
+            gle "$f"
+            convert -density 150 "${base}.pdf" "../docs/source/_static/gallery/${base}.png"
+          done
+
       - name: Build documentation
         run: |
           cd docs

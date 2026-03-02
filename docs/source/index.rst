@@ -16,6 +16,7 @@ https://benhuddart.github.io/gleplot/
 
    getting_started
    usage
+   gallery
    api
    examples
    contributing
