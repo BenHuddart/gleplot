@@ -38,8 +38,32 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
+      - name: Detect manual version update
+        id: manual_version
+        run: |
+          VERSION_CHANGED="false"
+
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            if git diff --name-only HEAD^ HEAD | grep -qE '^(pyproject.toml|src/gleplot/__init__.py)$'; then
+              VERSION_CHANGED="true"
+            fi
+          fi
+
+          VERSION=$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          with open(Path('pyproject.toml'), 'rb') as f:
+              data = tomllib.load(f)
+          print(data['project']['version'])
+          PY
+          )
+
+          echo "changed=${VERSION_CHANGED}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Run version bump script
         id: version
+        if: steps.manual_version.outputs.changed != 'true'
         run: |
           cd ${{ github.workspace }}
           
@@ -62,8 +86,21 @@ jobs:
           # Run actual version bump
           python scripts/bump_version.py $BUMP_TYPE
 
+      - name: Tag manual version update
+        if: steps.manual_version.outputs.changed == 'true'
+        run: |
+          TAG="v${{ steps.manual_version.outputs.version }}"
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; skipping"
+            exit 0
+          fi
+
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
+          echo "Manual version update tagged: ${TAG}"
+
       - name: Push version bump
-        if: success()
+        if: steps.manual_version.outputs.changed != 'true' && success()
         run: |
           # Check if there are changes to push
           if [ -n "$(git status --porcelain)" ]; then
