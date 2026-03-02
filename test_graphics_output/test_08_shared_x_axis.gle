@@ -12,7 +12,6 @@ begin graph
     ytitle "Amplitude"
     xaxis min 0 max 10 nolast
     xlabels off
-    yaxis nolast
     data data_12.dat d1=c1,c2
     d1 line smooth color BLUE lwidth 0.05292 key "Signal A"
     key pos tr
@@ -38,6 +37,7 @@ begin graph
     xtitle "Time (s)"
     ytitle "Amplitude"
     xaxis min 0 max 10
+    yaxis nolast
     data data_14.dat d3=c1,c2
     d3 line smooth color GREEN lwidth 0.05292 key "Combined"
     key pos tr

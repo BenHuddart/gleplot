@@ -106,8 +106,9 @@ class Figure:
             # Remove last x-tick label if not the bottom row (to prevent overlap when subplots touch)
             ax._remove_last_xtick = (row < rows - 1)
             ax._remove_first_xtick = False
-            # When sharing x, y-axes touch vertically - remove last y-label from all but top row
-            ax._remove_last_ytick = (row < rows - 1)
+            # When sharing x, y-axes touch vertically - remove last (top) y-label from all but top row
+            # (highest y-label of lower plots could overlap upward into the plot above)
+            ax._remove_last_ytick = (row > 0)
             ax._remove_first_ytick = False
         else:
             ax._show_xlabel = True

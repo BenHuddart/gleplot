@@ -12,7 +12,7 @@ begin graph
     ytitle "y"
     xaxis min -3 max 3 nolast
     xlabels off
-    yaxis min -8.1 max 8.1 nolast
+    yaxis min -8.1 max 8.1
     data data_18.dat d1=c1,c2
     d1 line smooth color BLUE lwidth 0.05292 key "y=x"
     key pos tr
@@ -25,7 +25,7 @@ begin graph
     title "Quadratic"
     xaxis min -3 max 3
     xlabels off
-    yaxis min -8.1 max 8.1 nolast
+    yaxis min -8.1 max 8.1
     ylabels off
     data data_19.dat d2=c1,c2
     d2 line smooth color RED lwidth 0.05292 key "y=x²-5"
@@ -40,7 +40,7 @@ begin graph
     xtitle "x"
     ytitle "y"
     xaxis min -3 max 3 nolast
-    yaxis min -8.1 max 8.1
+    yaxis min -8.1 max 8.1 nolast
     data data_20.dat d3=c1,c2
     d3 line smooth color GREEN lwidth 0.05292 key "y=0.3x³"
     key pos tr
@@ -53,7 +53,7 @@ begin graph
     title "Sine"
     xtitle "x"
     xaxis min -3 max 3
-    yaxis min -8.1 max 8.1
+    yaxis min -8.1 max 8.1 nolast
     ylabels off
     data data_21.dat d4=c1,c2
     d4 line smooth color PURPLE lwidth 0.05292 key "y=8sin(x)"
