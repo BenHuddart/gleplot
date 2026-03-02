@@ -5,11 +5,11 @@ import sys
 from pathlib import Path
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
 import gleplot as glp
 
-output_dir = Path(__file__).parent / 'test_custom_prefix_output'
+output_dir = Path(__file__).parent.parent.parent / 'test_custom_prefix_output'
 output_dir.mkdir(exist_ok=True)
 
 print("Testing custom data file prefix feature...\n")

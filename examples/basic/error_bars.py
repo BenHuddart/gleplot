@@ -33,8 +33,8 @@ def example_symmetric_error_bars():
     ax.set_title('Symmetric Error Bars')
     ax.legend()
 
-    fig.savefig('example_symmetric_errorbars.gle')
-    print("  ✓ Saved to example_symmetric_errorbars.gle")
+    fig.savefig('example_symmetric_error_bars.gle')
+    print("  ✓ Saved to example_symmetric_error_bars.gle")
 
 
 def example_asymmetric_error_bars():
@@ -59,8 +59,8 @@ def example_asymmetric_error_bars():
     ax.set_title('Asymmetric Error Bars')
     ax.legend()
 
-    fig.savefig('example_asymmetric_errorbars.gle')
-    print("  ✓ Saved to example_asymmetric_errorbars.gle")
+    fig.savefig('example_asymmetric_error_bars.gle')
+    print("  ✓ Saved to example_asymmetric_error_bars.gle")
 
 
 def example_horizontal_error_bars():
@@ -86,8 +86,8 @@ def example_horizontal_error_bars():
     ax.set_title('Horizontal and Vertical Error Bars')
     ax.legend()
 
-    fig.savefig('example_hv_errorbars.gle')
-    print("  ✓ Saved to example_hv_errorbars.gle")
+    fig.savefig('example_horizontal_error_bars.gle')
+    print("  ✓ Saved to example_horizontal_error_bars.gle")
 
 
 def example_errorbar_with_line():

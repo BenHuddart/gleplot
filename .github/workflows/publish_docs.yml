@@ -78,25 +78,31 @@ jobs:
           export PATH="/usr/local/bin:$PATH"
           gle -v
 
-      - name: Generate gallery images
+      - name: Generate example gallery for documentation
         run: |
           # Build gleplot package first
           python -m pip install -e .
           
-          # Generate the test .gle files and data files using Python
-          python generate_test_graphics.py
+          mkdir -p docs/source/_static/gallery
           
-          # Now compile .gle files to PDFs using GLE
-          cd test_graphics_output
-          mkdir -p ../docs/source/_static/gallery
-          for f in test_*.gle; do
-            base="${f%.gle}"
-            echo "Processing $base..."
-            gle "$f" || echo "Skipping ${base} - GLE compilation failed"
-            if [ -f "${base}.pdf" ]; then
-              convert -density 150 "${base}.pdf" "../docs/source/_static/gallery/${base}.png"
-            fi
-          done
+          # Generate example outputs for documentation gallery
+          echo "=== Generating example outputs for gallery ==="
+          cd examples
+          python run_and_compile.py
+          
+          # Copy example PDF outputs and convert to PNG for gallery
+          if [ -d outputs ]; then
+            for f in outputs/example_*.pdf; do
+              if [ -f "$f" ]; then
+                base=$(basename "$f" .pdf)
+                echo "Converting $base to PNG..."
+                convert -density 150 "$f" "../docs/source/_static/gallery/${base}.png" 2>/dev/null || echo "Could not convert $base"
+              fi
+            done
+          fi
+          cd ..
+          
+          echo "Gallery images prepared in docs/source/_static/gallery/"
 
       - name: Build documentation
         run: |

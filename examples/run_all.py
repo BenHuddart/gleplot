@@ -10,12 +10,20 @@ from basic import (
     example_basic_line_plot,
     example_scatter_plot,
     example_bar_chart,
+    example_symmetric_error_bars,
+    example_asymmetric_error_bars,
+    example_horizontal_error_bars,
 )
 from advanced import (
     example_fill_between,
     example_log_scale,
     example_combined_plot,
     example_multiple_styles,
+    example_sharex_stacked,
+    example_sharey_sidebyside,
+    example_both_shared,
+    example_residual_plot,
+    example_comparison_with_without,
 )
 
 
@@ -29,10 +37,18 @@ def main():
         ("Basic Line Plot", example_basic_line_plot),
         ("Scatter Plot", example_scatter_plot),
         ("Bar Chart", example_bar_chart),
+        ("Symmetric Error Bars", example_symmetric_error_bars),
+        ("Asymmetric Error Bars", example_asymmetric_error_bars),
+        ("Horizontal Error Bars", example_horizontal_error_bars),
         ("Fill Between", example_fill_between),
         ("Log Scale", example_log_scale),
         ("Combined Plot", example_combined_plot),
         ("Multiple Styles", example_multiple_styles),
+        ("Shared X-Axis (Stacked)", example_sharex_stacked),
+        ("Shared Y-Axis (Side-by-side)", example_sharey_sidebyside),
+        ("Both Axes Shared (2x2 Grid)", example_both_shared),
+        ("Residual Plot Analysis", example_residual_plot),
+        ("Comparison: Shared vs Non-shared", example_comparison_with_without),
     ]
     
     for name, example_func in examples:

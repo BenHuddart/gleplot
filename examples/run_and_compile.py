@@ -11,12 +11,20 @@ from basic import (
     example_basic_line_plot,
     example_scatter_plot,
     example_bar_chart,
+    example_symmetric_error_bars,
+    example_asymmetric_error_bars,
+    example_horizontal_error_bars,
 )
 from advanced import (
     example_fill_between,
     example_log_scale,
     example_combined_plot,
     example_multiple_styles,
+    example_sharex_stacked,
+    example_sharey_sidebyside,
+    example_both_shared,
+    example_residual_plot,
+    example_comparison_with_without,
 )
 import gleplot as glp
 
@@ -24,7 +32,7 @@ import gleplot as glp
 def main():
     """Run all examples and compile to PDF, EPS, and PNG."""
     # Change to output directory
-    output_dir = Path(__file__).parent / 'output'
+    output_dir = Path(__file__).parent / 'outputs'
     output_dir.mkdir(exist_ok=True)
     os.chdir(output_dir)
     
@@ -36,10 +44,18 @@ def main():
         ("Basic Line Plot", example_basic_line_plot, "example_basic_line_plot"),
         ("Scatter Plot", example_scatter_plot, "example_scatter_plot"),
         ("Bar Chart", example_bar_chart, "example_bar_chart"),
+        ("Symmetric Error Bars", example_symmetric_error_bars, "example_symmetric_error_bars"),
+        ("Asymmetric Error Bars", example_asymmetric_error_bars, "example_asymmetric_error_bars"),
+        ("Horizontal Error Bars", example_horizontal_error_bars, "example_horizontal_error_bars"),
         ("Fill Between", example_fill_between, "example_fill_between"),
         ("Log Scale", example_log_scale, "example_log_scale"),
         ("Combined Plot", example_combined_plot, "example_combined_plot"),
         ("Multiple Styles", example_multiple_styles, "example_multiple_styles"),
+        ("Shared X-Axis (Stacked)", example_sharex_stacked, "example_shared_x_axis"),
+        ("Shared Y-Axis (Side-by-side)", example_sharey_sidebyside, "example_shared_y_axis"),
+        ("Both Axes Shared (2x2 Grid)", example_both_shared, "example_shared_both_axes"),
+        ("Residual Plot Analysis", example_residual_plot, "example_residual_plot"),
+        ("Comparison: Shared vs Non-shared", example_comparison_with_without, "example_shared_comparison"),
     ]
     
     # Check if GLE is available

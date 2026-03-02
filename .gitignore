@@ -137,10 +137,7 @@ dmypy.json
 *.eps
 *.png
 data_*.dat
-test_graphics_output/data_*.dat
-test_custom_prefix_output/*.dat
-examples/output/
+test_graphics_output/
+test_custom_prefix_output/
+examples/outputs/
 tests/output/
-
-# Exceptions: track specific test files for documentation
-!test_graphics_output/test_*.gle
