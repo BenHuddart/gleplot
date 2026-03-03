@@ -115,9 +115,38 @@ def example_errorbar_with_line():
     print("  ✓ Saved to example_errorbars_line.gle")
 
 
+def example_combined_errorbars():
+    """Example: Simultaneous horizontal and vertical error bars."""
+    print("Creating example: Combined X and Y error bars...")
+
+    fig = glp.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111)
+
+    # Calibration data with uncertainty in both axes
+    x = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    y = np.array([1.8, 4.2, 9.1, 16.3, 24.8])
+    xerr = np.array([0.15, 0.20, 0.10, 0.25, 0.18])
+    yerr = np.array([0.3, 0.5, 0.6, 0.8, 1.0])
+
+    ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', fmt='none',
+                color='blue', capsize=4, label='Measured')
+
+    x_fit = np.linspace(0.5, 5.5, 100)
+    ax.plot(x_fit, x_fit**2, color='red', linestyle='--', label='y = x\u00b2')
+
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title('Combined X and Y Error Bars')
+    ax.legend()
+
+    fig.savefig('example_combined_errorbars.gle')
+    print("  ✓ Saved to example_combined_errorbars.gle")
+
+
 if __name__ == '__main__':
     example_symmetric_error_bars()
     example_asymmetric_error_bars()
     example_horizontal_error_bars()
     example_errorbar_with_line()
+    example_combined_errorbars()
     print("\nAll error bar examples created.")

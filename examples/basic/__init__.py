@@ -7,6 +7,8 @@ from .error_bars import (
     example_symmetric_error_bars,
     example_asymmetric_error_bars,
     example_horizontal_error_bars,
+    example_errorbar_with_line,
+    example_combined_errorbars,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     'example_symmetric_error_bars',
     'example_asymmetric_error_bars',
     'example_horizontal_error_bars',
+    'example_errorbar_with_line',
+    'example_combined_errorbars',
 ]

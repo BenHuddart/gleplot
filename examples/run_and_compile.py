@@ -14,9 +14,12 @@ from basic import (
     example_symmetric_error_bars,
     example_asymmetric_error_bars,
     example_horizontal_error_bars,
+    example_errorbar_with_line,
+    example_combined_errorbars,
 )
 from advanced import (
     example_fill_between,
+    example_fill_between_conditional,
     example_log_scale,
     example_combined_plot,
     example_multiple_styles,
@@ -25,6 +28,10 @@ from advanced import (
     example_both_shared,
     example_residual_plot,
     example_comparison_with_without,
+    example_side_by_side,
+    example_stacked,
+    example_2x2_grid,
+    example_1x3_comparison,
 )
 import gleplot as glp
 
@@ -47,10 +54,17 @@ def main():
         ("Symmetric Error Bars", example_symmetric_error_bars, "example_symmetric_error_bars"),
         ("Asymmetric Error Bars", example_asymmetric_error_bars, "example_asymmetric_error_bars"),
         ("Horizontal Error Bars", example_horizontal_error_bars, "example_horizontal_error_bars"),
+        ("Error Bars on Line", example_errorbar_with_line, "example_errorbars_line"),
+        ("Combined X+Y Error Bars", example_combined_errorbars, "example_combined_errorbars"),
         ("Fill Between", example_fill_between, "example_fill_between"),
+        ("Conditional Fill Between", example_fill_between_conditional, "example_fill_between_conditional"),
         ("Log Scale", example_log_scale, "example_log_scale"),
         ("Combined Plot", example_combined_plot, "example_combined_plot"),
         ("Multiple Styles", example_multiple_styles, "example_multiple_styles"),
+        ("Side-by-Side Subplots", example_side_by_side, "example_subplots_1x2"),
+        ("Stacked Subplots", example_stacked, "example_subplots_2x1"),
+        ("2x2 Subplot Grid", example_2x2_grid, "example_subplots_2x2"),
+        ("1x3 Comparison", example_1x3_comparison, "example_subplots_1x3"),
         ("Shared X-Axis (Stacked)", example_sharex_stacked, "example_shared_x_axis"),
         ("Shared Y-Axis (Side-by-side)", example_sharey_sidebyside, "example_shared_y_axis"),
         ("Both Axes Shared (2x2 Grid)", example_both_shared, "example_shared_both_axes"),

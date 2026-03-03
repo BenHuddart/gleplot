@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v1.0.1 (2026-03-03)
+
+### Improvements
+
+- Gallery updated to use example outputs instead of test suite outputs
+- All gallery code snippets now match the actual example source files
+- New examples added: conditional `fill_between` (with `where=`), combined X+Y error bars,
+  side-by-side subplots (1×2), stacked subplots (2×1), 2×2 mixed-type subplot grid, 1×3 comparison
+- Documentation homepage now includes prominent links to the GitHub repository
+- GitHub Pages deployment workflow fixed (`fetch-tags: true`)
+
 ## v0.0.1 (2026-03-01)
 
 ### Features
