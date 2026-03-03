@@ -10,6 +10,12 @@ View the published documentation at:
 
 https://benhuddart.github.io/gleplot/
 
+**Explore the Project**
+
+- 🧑‍💻 `View the GitHub Repository <https://github.com/BenHuddart/gleplot>`_
+- 📝 `Report Issues or Request Features <https://github.com/BenHuddart/gleplot/issues>`_
+- 🤝 `Contribute to gleplot <https://github.com/BenHuddart/gleplot>`_
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents:

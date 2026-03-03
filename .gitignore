@@ -141,3 +141,4 @@ test_graphics_output/
 test_custom_prefix_output/
 examples/outputs/
 tests/output/
+docs/source/_static/gallery/

@@ -92,15 +92,12 @@ jobs:
           cd examples
           python run_and_compile.py
           
-          # Copy example PDF outputs and convert to PNG for gallery
+          # Copy generated PNG files to docs gallery directory
           if [ -d outputs ]; then
-            for f in outputs/example_*.pdf; do
-              if [ -f "$f" ]; then
-                base=$(basename "$f" .pdf)
-                echo "Converting $base to PNG..."
-                convert -density 150 "$f" "../docs/source/_static/gallery/${base}.png" 2>/dev/null || echo "Could not convert $base"
-              fi
-            done
+            echo "Copying PNG files to docs gallery..."
+            cp outputs/example_*.png ../docs/source/_static/gallery/ 2>/dev/null || echo "No PNG files found to copy"
+            echo "PNG files copied:"
+            ls -lh ../docs/source/_static/gallery/*.png 2>/dev/null || echo "No PNG files in gallery"
           fi
           cd ..
           

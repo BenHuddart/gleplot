@@ -51,6 +51,15 @@ html_theme_options = {
     "style_nav_header_background": "#1a1a1a",
 }
 
+# HTML context for repository links
+html_context = {
+    "github_user": "BenHuddart",
+    "github_repo": "gleplot",
+    "github_version": "main",
+    "conf_py_path": "/docs/source/",
+    "display_github": True,
+}
+
 # -- Options for intersphinx --
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
