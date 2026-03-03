@@ -2,6 +2,18 @@
 
 This directory contains detailed guides and documentation for various aspects of gleplot.
 
+## API and Usage Documentation
+
+### [VIEW_FUNCTION.md](VIEW_FUNCTION.md)
+Complete guide for the `view()` function for inline display in Jupyter notebooks.
+
+**Contents:**
+- Usage examples
+- Parameters and options
+- Jupyter integration
+- Comparison with savefig()
+- Tips and best practices
+
 ## Testing Documentation
 
 ### [TESTING_QUICK_REFERENCE.md](TESTING_QUICK_REFERENCE.md)

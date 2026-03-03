@@ -4,6 +4,14 @@ import sys
 import numpy as np
 from pathlib import Path
 import unittest
+from unittest.mock import Mock, patch
+
+# Check if IPython is available for conditional testing
+try:
+    import IPython
+    IPYTHON_AVAILABLE = True
+except ImportError:
+    IPYTHON_AVAILABLE = False
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
@@ -299,6 +307,56 @@ class TestErrorBars(unittest.TestCase):
         
         ax = self.fig.gca()
         self.assertEqual(len(ax.errorbars), 1)
+
+
+@unittest.skipUnless(IPYTHON_AVAILABLE, "IPython not installed")
+class TestViewDisplay(unittest.TestCase):
+    """Test figure view behavior across environments."""
+
+    def setUp(self):
+        """Create fresh figure for each test."""
+        glp.close()
+        self.fig = glp.figure()
+        self.fig.add_subplot(111).plot([1, 2, 3], [1, 4, 9])
+
+    def tearDown(self):
+        """Clean up after each test."""
+        glp.close()
+
+    @patch('IPython.display.display')
+    @patch('IPython.display.Image')
+    @patch('IPython.get_ipython')
+    @patch.object(glp.Figure, 'savefig')
+    def test_view_notebook_png_displays_once_and_returns_none(
+        self,
+        mock_savefig,
+        mock_get_ipython,
+        mock_image,
+        mock_display,
+    ):
+        """Notebook PNG view should display once and not return a rich object."""
+        mock_get_ipython.return_value = Mock(config={'IPKernelApp': True})
+        image_obj = object()
+        mock_image.return_value = image_obj
+
+        result = self.fig.view(format='png')
+
+        self.assertIsNone(result)
+        mock_savefig.assert_called_once()
+        mock_image.assert_called_once()
+        mock_display.assert_called_once_with(image_obj)
+
+    @patch('IPython.get_ipython')
+    @patch.object(glp.Figure, 'savefig')
+    def test_view_non_notebook_returns_temp_path(self, mock_savefig, mock_get_ipython):
+        """Non-notebook view should return temp file path."""
+        mock_get_ipython.return_value = None
+
+        result = self.fig.view(format='png')
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.suffix, '.png')
+        mock_savefig.assert_called_once()
 
 
 if __name__ == '__main__':

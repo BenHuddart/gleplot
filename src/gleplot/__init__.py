@@ -10,6 +10,7 @@ Features
 - Matplotlib-compatible API (plot, scatter, bar, fill_between, errorbar)
 - Subplots with flexible grid layouts (subplots, add_subplot)
 - Native vector graphics output (PDF, PNG, EPS)
+- Inline display in Jupyter notebooks (view)
 - Support for line styles, markers, and colors
 - Error bars (symmetric, asymmetric, horizontal)
 - Logarithmic scales
@@ -33,6 +34,7 @@ Usage
     
     fig.savefig('output.pdf')  # Saves as PDF
     fig.savefig('output.gle')  # Saves as GLE script only
+    fig.view()  # Display inline in Jupyter notebook
 
 Classes
 -------
@@ -265,6 +267,32 @@ def show():
     print(f"Figure saved to {gcf().figsize}")
 
 
+def view(dpi=None, format='png'):
+    """Display current figure inline (in Jupyter notebooks).
+    
+    Parameters
+    ----------
+    dpi : int, optional
+        Resolution in dots per inch. If None, uses figure's dpi setting.
+    format : {'png', 'pdf'}, optional
+        Output format. Default is 'png' for inline display.
+    
+    Returns
+    -------
+    Path or None
+        Path to the generated file, or None when displayed inline in Jupyter.
+        
+    Examples
+    --------
+    >>> import gleplot as glp
+    >>> fig = glp.figure()
+    >>> ax = fig.add_subplot(111)
+    >>> ax.plot([1, 2, 3], [1, 4, 9])
+    >>> glp.view()  # Display in notebook
+    """
+    return gcf().view(dpi=dpi, format=format)
+
+
 def close(fig=None):
     """Close figure."""
     global _current_figure
@@ -293,6 +321,7 @@ __all__ = [
     'title',
     'legend',
     'savefig',
+    'view',
     'show',
     'close',
     'rgb_to_gle',

@@ -636,6 +636,94 @@ class Figure:
         
         return ymin, ymax
     
+    def view(self, dpi: Optional[int] = None, format: str = 'png') -> Optional[object]:
+        """
+        Display the figure inline (in Jupyter notebooks) or save to a temporary file.
+        
+        This method renders the figure to an image format and displays it if running
+        in a Jupyter notebook or IPython environment. Otherwise, it saves to a
+        temporary file and returns the path.
+        
+        Parameters
+        ----------
+        dpi : int, optional
+            Resolution in dots per inch. If None, uses figure's dpi setting.
+        format : {'png', 'pdf'}, optional
+            Output format. Default is 'png' for inline display.
+            
+        Returns
+        -------
+        Path or None
+            Path to the generated file, or None when displayed inline in Jupyter.
+            
+        Raises
+        ------
+        RuntimeError
+            If GLE compiler is not available.
+            
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig = glp.figure()
+        >>> ax = fig.add_subplot(111)
+        >>> ax.plot([1, 2, 3], [1, 4, 9])
+        >>> fig.view()  # Display in notebook
+        
+        Notes
+        -----
+        Requires GLE to be installed for compilation.
+        In non-Jupyter environments, saves to a temporary file instead.
+        """
+        import tempfile
+        
+        if not self.compiler:
+            raise RuntimeError(
+                "GLE compiler not available. Install GLE to use view()."
+            )
+        
+        output_dpi = dpi or self.dpi
+        
+        # Try to detect Jupyter/IPython environment
+        try:
+            from IPython import get_ipython
+            from IPython.display import Image, display
+            
+            ipython = get_ipython()
+            in_notebook = ipython is not None and 'IPKernelApp' in get_ipython().config
+        except ImportError:
+            in_notebook = False
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(suffix=f'.{format}', delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        
+        try:
+            # Save to temporary file
+            self.savefig(str(tmp_path), format=format, dpi=output_dpi)
+            
+            if in_notebook:
+                # Display inline in Jupyter
+                if format == 'png':
+                    img = Image(filename=str(tmp_path))
+                    display(img)
+                    return None
+                elif format == 'pdf':
+                    # For PDF, try to display or provide a link
+                    print(f"PDF saved to: {tmp_path}")
+                    print("Note: PDF inline display limited in Jupyter. Consider using 'png' format.")
+                    return tmp_path
+            else:
+                # Not in notebook - inform user of temp file location
+                print(f"Plot saved to temporary file: {tmp_path}")
+                print(f"Open this file to view the plot.")
+                return tmp_path
+                
+        except Exception as e:
+            # Clean up on error
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise e
+    
     def close(self):
         """Close figure."""
         self.axes_list.clear()
