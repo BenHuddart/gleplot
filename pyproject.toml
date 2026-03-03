@@ -51,10 +51,10 @@ gle = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/vlabella/GLE"
-Documentation = "https://yourusername.github.io/gleplot"
-Repository = "https://github.com/yourusername/gleplot"
-"Bug Tracker" = "https://github.com/yourusername/gleplot/issues"
+Homepage = "https://github.com/benhuddart/gleplot"
+Documentation = "https://benhuddart.github.io/gleplot"
+Repository = "https://github.com/benhuddart/gleplot"
+"Bug Tracker" = "https://github.com/benhuddart/gleplot/issues"
 
 [tool.setuptools]
 packages = ["gleplot"]

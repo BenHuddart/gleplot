@@ -41,6 +41,19 @@ fig.savefig('trig.gle')
 ✨ **Publication Ready** - Suitable for all major academic journals  
 ✨ **Lightweight** - Pure Python, minimal dependencies  
 
+## Documentation
+
+📚 **[Live Sphinx Documentation](https://benhuddart.github.io/gleplot/)** - Complete API reference and guides
+
+**Key Documentation Resources:**
+- **[Configuration System](docs/guides/CONFIGURATION.md)** - Customize gleplot appearance and behavior
+- **[Configuration API](docs/guides/CONFIGURATION_API.md)** - Complete configuration reference  
+- **[Semantic Versioning](docs/guides/VERSIONING.md)** - Automatic version management
+- **[Versioning Quick Reference](docs/guides/VERSIONING_QUICK_REF.md)** - Common version bump patterns
+- **[Testing Quick Reference](docs/guides/TESTING_QUICK_REFERENCE.md)** - Fast commands and examples
+- **[Test Structure](docs/guides/TEST_STRUCTURE.md)** - Test organization and architecture
+- **[Graphics Testing](docs/guides/GRAPHICS_TESTING.md)** - Complete graphics testing documentation
+
 ## Installation
 
 ### Requirements
@@ -97,15 +110,34 @@ gleplot/
 │   ├── colors.py                  # Color utilities
 │   ├── markers.py                 # Marker definitions
 │   ├── writer.py                  # GLE script writer
-│   └── compiler.py                # GLE compiler wrapper
+│   ├── compiler.py                # GLE compiler wrapper
+│   └── config.py                  # Configuration system
 │
-├── tests/                          # Test suite
-│   ├── __init__.py
-│   └── test_gleplot.py            # 34 tests, all passing
+├── tests/                          # Test suite (140 tests)
+│   ├── unit/                      # Unit tests
+│   ├── integration/               # Integration tests
+│   ├── agent/                     # Agent tests
+│   ├── test_gleplot.py            # Core test suite
+│   └── generate_test_graphics.py  # Graphics generation tests
 │
 ├── examples/                       # Example scripts
-│   ├── examples.py                # 7 complete examples
-│   └── *.gle / *.pdf              # Generated outputs
+│   ├── basic/                     # Basic plotting examples
+│   │   ├── line_plots.py
+│   │   ├── scatter_plots.py
+│   │   ├── bar_charts.py
+│   │   └── error_bars.py
+│   ├── advanced/                  # Advanced examples
+│   │   ├── subplots.py
+│   │   ├── shared_axes.py
+│   │   ├── fill_between.py
+│   │   ├── log_scale.py
+│   │   └── combined_plots.py
+│   └── gleplot_examples.py        # Main examples runner
+│
+├── docs/                           # Documentation
+│   ├── guides/                    # User guides
+│   ├── agent/                     # Development notes
+│   └── source/                    # Sphinx source files
 │
 ├── pyproject.toml                 # Package configuration
 ├── README.md                       # This file
@@ -203,25 +235,34 @@ Or run directly:
 python test_gleplot.py
 ```
 
-**Expected output**: 34 tests, all passing
+**Expected output**: 140 tests, all passing
 
 ## Examples
 
 Run the example scripts:
 ```bash
 cd examples
-python examples.py
+python gleplot_examples.py
 ```
 
-This generates 7 example GLE files and optionally compiles them to PDFs:
+Or run specific example categories:
+```bash
+# Basic examples
+python basic/line_plots.py
+python basic/scatter_plots.py
+python basic/bar_charts.py
+python basic/error_bars.py
 
-1. **example_1_lines.gle** - Basic line plots
-2. **example_2_scatter.gle** - Scatter with trend line
-3. **example_3_bars.gle** - Multi-color bar chart
-4. **example_4_fill.gle** - Fill between curves
-5. **example_5_loglog.gle** - Logarithmic scales
-6. **example_6_combined.gle** - Mixed plot types
-7. **example_7_styles.gle** - Line styles and markers
+# Advanced examples
+python advanced/subplots.py
+python advanced/shared_axes.py
+python advanced/fill_between.py
+python advanced/log_scale.py
+python advanced/combined_plots.py
+python advanced/multiple_styles.py
+```
+
+Each example generates GLE script files and optionally compiles them to PDFs.
 
 ## API Reference
 
@@ -280,22 +321,6 @@ Run tests with verbose output:
 python -m pytest tests/ -vv
 ```
 
-## Documentation
-
-- **Getting Started**: [Quick start guide above](#quick-start)
-- **Live Sphinx Docs**: https://benhuddart.github.io/gleplot/
-- **Configuration & Versioning**:
-  - **[Configuration System](docs/guides/CONFIGURATION.md)** - Customize gleplot appearance and behavior
-  - **[Configuration API](docs/guides/CONFIGURATION_API.md)** - Complete configuration reference
-  - **[Semantic Versioning](docs/guides/VERSIONING.md)** - Automatic version management
-  - **[Versioning Quick Reference](docs/guides/VERSIONING_QUICK_REF.md)** - Common version bump patterns
-- **Testing Documentation**:
-  - **[Testing Quick Reference](docs/guides/TESTING_QUICK_REFERENCE.md)** - Fast commands and examples
-  - **[Test Structure](docs/guides/TEST_STRUCTURE.md)** - Test organization and architecture
-  - **[Graphics Testing Summary](docs/guides/GRAPHICS_TESTING_SUMMARY.md)** - Overview of graphics testing capabilities
-  - **[Graphics Testing Guide](docs/guides/GRAPHICS_TESTING.md)** - Complete graphics testing documentation
-  - **[Graphics Testing Complete](docs/guides/GRAPHICS_TESTING_COMPLETE.md)** - Implementation details
-
 ## Contributing
 
 Contributions welcome! Please:
@@ -319,14 +344,20 @@ gleplot is licensed under GPL-2.0+ (compatible with GLE license).
 
 ## Status
 
-✅ **Version 0.0.1** - Production Ready  
-✅ **114/114 Tests Passing**  
-✅ **7/7 Examples Working**  
+✅ **Production Ready**  
+✅ **140/140 Tests Passing**  
+✅ **Multiple Example Categories**  
 ✅ **Full Documentation**  
 ✅ **Automatic Semantic Versioning**
 
+## Repository
+
+- **GitHub**: https://github.com/benhuddart/gleplot
+- **Issues**: https://github.com/benhuddart/gleplot/issues
+- **Documentation**: https://benhuddart.github.io/gleplot/
+
 ---
 
-For questions, issues, or feature requests, please open an issue on GitHub.
+For questions, issues, or feature requests, please [open an issue on GitHub](https://github.com/benhuddart/gleplot/issues).
 
 Happy plotting! 📊
