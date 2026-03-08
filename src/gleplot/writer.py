@@ -344,20 +344,45 @@ class GLEWriter:
         label : str, optional
             Legend label
         """
-        self.add_data_file(data_file, [x, heights])
+        x = np.asarray(x, dtype=float)
+        heights = np.asarray(heights, dtype=float)
         
-        d_name = f'd{self.dataset_index}'
-        self.dataset_index += 1
+        # Default to RED if no colors provided
+        if colors is None:
+            colors = ['RED'] * len(heights)
         
-        cmd = f'    data {data_file} {d_name}=c1,c2'
-        self.lines_gle.append(cmd)
-        
-        # GLE bar syntax: bar d1 fill color [width w]
-        # Note: 'fill' sets the fill color, 'color' sets the outline
-        fill_color = colors[0] if colors else 'RED'
-        bar_cmd = f'    bar {d_name} fill {fill_color}'
-        
-        self.lines_gle.append(bar_cmd)
+        # Create separate bars for each data point with its own color
+        # This allows each bar to have a different fill color
+        for i, (xi, height, color) in enumerate(zip(x, heights, colors)):
+            # Create individual data file entry for this bar
+            if len(x) == 1:
+                # Single bar - use the provided data_file name
+                bar_data_file = data_file
+            else:
+                # Multiple bars - generate unique data file for each bar
+                # Extract base name and add index
+                base_name = data_file.rsplit('.', 1)[0] if '.' in data_file else data_file
+                bar_data_file = f'{base_name}_{i}.dat'
+            
+            # Create data for single bar
+            self.add_data_file(bar_data_file, [np.array([xi]), np.array([height])])
+            
+            # Add data command
+            d_name = f'd{self.dataset_index}'
+            self.dataset_index += 1
+            
+            cmd = f'    data {bar_data_file} {d_name}=c1,c2'
+            self.lines_gle.append(cmd)
+            
+            # GLE bar syntax: bar d1 fill color [width w]
+            # Note: 'fill' sets the fill color, 'color' sets the outline
+            bar_cmd = f'    bar {d_name} fill {color}'
+            
+            # Add label only to first bar to avoid redundant legend entries
+            if label and i == 0:
+                bar_cmd += f' key "{label}"'
+            
+            self.lines_gle.append(bar_cmd)
     
     def add_errorbar(self, x: np.ndarray, y: np.ndarray, data_file: str,
                      color: str = 'BLUE', linestyle: str = '-',
