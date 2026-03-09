@@ -138,13 +138,13 @@ class TestBarCharts(unittest.TestCase):
         self.assertEqual(self.ax.bars[0]['colors'][0], 'RED')
     
     def test_bar_with_multiple_colors(self):
-        """Test bar with per-bar colors."""
+        """Test bar with multiple colors falls back to first color."""
         self.ax.bar([1, 2, 3], [10, 20, 30], color=['red', 'green', 'blue'])
         
         colors = self.ax.bars[0]['colors']
         self.assertEqual(colors[0], 'RED')
-        self.assertEqual(colors[1], 'GREEN')
-        self.assertEqual(colors[2], 'BLUE')
+        self.assertEqual(colors[1], 'RED')
+        self.assertEqual(colors[2], 'RED')
 
 
 class TestFillBetween(unittest.TestCase):

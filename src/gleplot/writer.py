@@ -363,8 +363,8 @@ class GLEWriter:
         """
         Add bar chart to graph.
         
-        Supports per-bar colors by creating separate datasets for bars of
-        different colors.
+        Uses a single fill color for all bars due to GLE bar rendering
+        limitations in downstream format conversion.
         
         Parameters
         ----------
@@ -375,8 +375,8 @@ class GLEWriter:
         data_file : str
             Data file name
         colors : list of str, optional
-            GLE color names for each bar. If not provided, all bars are RED.
-            Per-bar colors are supported by creating separate datasets.
+            GLE color names for each bar. If multiple colors are provided,
+            the first color is used for all bars.
         label : str, optional
             Legend label (not currently supported by GLE for bar charts)
         """
@@ -387,51 +387,19 @@ class GLEWriter:
         if colors is None:
             colors = ['RED'] * len(x)
         
-        # Create single data file with all bars (multiple rows)
+        # GLE reliably supports one fill color per bar dataset.
+        bar_color = colors[0]
+
+        # Create single data file with all bars
         self.add_data_file(data_file, [x, heights])
-        
-        # Group consecutive bars with same color for efficiency
-        color_groups = []
-        current_color = None
-        current_indices = []
-        
-        for i, color in enumerate(colors):
-            if color != current_color:
-                if current_indices:
-                    color_groups.append((current_color, current_indices))
-                current_color = color
-                current_indices = [i]
-            else:
-                current_indices.append(i)
-        
-        # Add final group
-        if current_indices:
-            color_groups.append((current_color, current_indices))
-        
-        # Create datasets and bar commands for each color group
-        for color, indices in color_groups:
-            d_name = f'd{self.dataset_index}'
-            self.dataset_index += 1
-            
-            # Build data selector for rows in this color group
-            # GLE uses 1-based indexing for rows
-            if len(indices) == 1:
-                # Single bar: d1=c1:row,c2:row
-                row = indices[0] + 1  # Convert to 1-based
-                cmd = f'    data {data_file} {d_name}=c1:{row},c2:{row}'
-            else:
-                # Multiple bars with same color: select range or individual rows
-                # For simplicity, we'll create individual references
-                # GLE syntax: d1=c1:1,c2:1;c1:2,c2:2;c1:3,c2:3
-                row_selectors = [f'c1:{i+1},c2:{i+1}' for i in indices]
-                selector = ';'.join(row_selectors)
-                cmd = f'    data {data_file} {d_name}={selector}'
-            
-            self.lines_gle.append(cmd)
-            
-            # Add bar command for this color group
-            bar_cmd = f'    bar {d_name} fill {color}'
-            self.lines_gle.append(bar_cmd)
+
+        d_name = f'd{self.dataset_index}'
+        self.dataset_index += 1
+        cmd = f'    data {data_file} {d_name}=c1,c2'
+        self.lines_gle.append(cmd)
+
+        bar_cmd = f'    bar {d_name} fill {bar_color}'
+        self.lines_gle.append(bar_cmd)
     
     def add_errorbar(self, x: np.ndarray, y: np.ndarray, data_file: str,
                      color: str = 'BLUE', linestyle: str = '-',
