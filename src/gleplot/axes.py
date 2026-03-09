@@ -432,6 +432,9 @@ class Axes:
         """
         Create bar chart.
         
+        Note: Due to GLE limitations, all bars in a chart use the same color.
+        If a list of colors is provided, only the first color is used.
+        
         Parameters
         ----------
         x : array-like
@@ -439,26 +442,37 @@ class Axes:
         height : array-like
             Bar heights
         color : str or list of str, optional
-            Bar colors
+            Bar color. If a list is provided, only the first color is used
+            due to GLE limitations. Default is 'red'.
         label : str, optional
-            Legend label
+            Legend label (currently not supported by GLE for bar charts)
         **kwargs
             Additional arguments
             
         Returns
         -------
         self
+        
+        Examples
+        --------
+        >>> fig = glp.figure()
+        >>> ax = fig.add_subplot(111)
+        >>> categories = np.array([1, 2, 3, 4, 5])
+        >>> values = np.array([10, 24, 36, 18, 7])
+        >>> ax.bar(categories, values, color='blue')
+        >>> fig.savefig('bar_chart.pdf')
         """
         x = np.asarray(x, dtype=float)
         height = np.asarray(height, dtype=float)
         
-        # Handle color
+        # Handle color - only first color is used due to GLE limitation
         if color is None:
             colors = ['RED'] * len(height)
         elif isinstance(color, str):
             colors = [rgb_to_gle(color)] * len(height)
         else:
-            colors = [rgb_to_gle(c) for c in color]
+            # Take first color only
+            colors = [rgb_to_gle(color[0])] * len(height)
         
         bar_data = {
             'x': x,

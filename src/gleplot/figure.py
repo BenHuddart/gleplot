@@ -329,7 +329,23 @@ class Figure:
             writer.add_graph_size()
             
             if self.axes_list:
-                self._write_axes_content(writer, self.axes_list[0])
+                ax = self.axes_list[0]
+                # Calculate axis limits from data if not explicitly set
+                # This is especially important for bar charts which need explicit x-axis limits
+                if ax.xmin is None or ax.xmax is None:
+                    data_xmin, data_xmax = self._get_data_xlim(ax)
+                    if ax.xmin is None:
+                        ax.xmin = data_xmin
+                    if ax.xmax is None:
+                        ax.xmax = data_xmax
+                if ax.ymin is None or ax.ymax is None:
+                    data_ymin, data_ymax = self._get_data_ylim(ax)
+                    if ax.ymin is None:
+                        ax.ymin = data_ymin
+                    if ax.ymax is None:
+                        ax.ymax = data_ymax
+                
+                self._write_axes_content(writer, ax)
             
             writer.finalize(include_graph_end=True)
         else:
@@ -345,6 +361,22 @@ class Figure:
                 self._synchronize_x_limits()
             if self.sharey:
                 self._synchronize_y_limits()
+            
+            # Calculate axis limits from data for any axes without explicit limits
+            # This is especially important for bar charts
+            for ax in self.axes_list:
+                if ax.xmin is None or ax.xmax is None:
+                    data_xmin, data_xmax = self._get_data_xlim(ax)
+                    if ax.xmin is None:
+                        ax.xmin = data_xmin
+                    if ax.xmax is None:
+                        ax.xmax = data_xmax
+                if ax.ymin is None or ax.ymax is None:
+                    data_ymin, data_ymax = self._get_data_ylim(ax)
+                    if ax.ymin is None:
+                        ax.ymin = data_ymin
+                    if ax.ymax is None:
+                        ax.ymax = data_ymax
             
             # Calculate per-subplot dimensions in cm
             # Smart margins based on what labels are shown and subplot content

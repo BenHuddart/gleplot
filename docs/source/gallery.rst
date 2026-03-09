@@ -587,6 +587,135 @@ and the bottom row shows x-tick labels.
 
    fig.savefig('example_shared_both_axes.pdf')
 
+Working with Data Files
+------------------------
+
+Error Bars from File
+~~~~~~~~~~~~~~~~~~~~
+
+Plot error bars by referencing columns directly from an existing data file,
+avoiding the need to generate additional temporary data files.
+
+.. image:: _static/gallery/example_errorbar_from_file.png
+   :width: 600px
+   :align: center
+
+.. code-block:: python
+
+   import numpy as np
+   import gleplot as glp
+   from pathlib import Path
+
+   # Create experimental data file
+   data_file = Path('experimental_data.dat')
+   
+   with open(data_file, 'w') as f:
+       f.write("! Temp   Resistance  R_Error  Voltage  V_Error\n")
+       np.random.seed(42)
+       temps = np.linspace(100, 400, 10)
+       for T in temps:
+           R = 50 + 0.2 * T + np.random.randn() * 2
+           R_err = 0.5 + np.random.rand() * 0.3
+           V = 2.0 + 0.005 * T + np.random.randn() * 0.1
+           V_err = 0.05 + np.random.rand() * 0.02
+           f.write(f"{T:8.1f} {R:12.3f} {R_err:10.3f} {V:10.3f} {V_err:10.3f}\n")
+   
+   # Create figure with two subplots
+   fig, axes = glp.subplots(2, 1, figsize=(8, 10), sharex=True)
+   
+   # Top: Resistance vs Temperature
+   axes[0].errorbar_from_file(
+       str(data_file),
+       x_col=1,        # Temperature
+       y_col=2,        # Resistance
+       yerr_col=3,     # Error
+       color='blue',
+       marker='o',
+       capsize=3,
+       label='Resistance'
+   )
+   axes[0].set_ylabel('Resistance (Ω)')
+   axes[0].set_title('Experimental Data from File')
+   axes[0].legend()
+   
+   # Bottom: Voltage vs Temperature
+   axes[1].errorbar_from_file(
+       str(data_file),
+       x_col=1,        # Temperature
+       y_col=4,        # Voltage
+       yerr_col=5,     # Error
+       color='red',
+       marker='s',
+       capsize=3,
+       label='Voltage'
+   )
+   axes[1].set_xlabel('Temperature (K)')
+   axes[1].set_ylabel('Voltage (V)')
+   axes[1].legend()
+   
+   fig.savefig('example_errorbar_from_file.pdf')
+
+Dual Y-Axis from File
+~~~~~~~~~~~~~~~~~~~~~~
+
+Dual y-axis plot using data file column references, perfect for plotting
+variables with different scales from the same dataset.
+
+.. image:: _static/gallery/example_dual_axis_from_file.png
+   :width: 600px
+   :align: center
+
+.. code-block:: python
+
+   import numpy as np
+   import gleplot as glp
+   from pathlib import Path
+
+   # Create climate data file
+   data_file = Path('climate_data.dat')
+   
+   with open(data_file, 'w') as f:
+       f.write("! Month  Temp(C)  T_err  Humidity(%)  H_err\n")
+       np.random.seed(123)
+       for month in range(1, 13):
+           temp = 15 + 10 * np.sin((month - 4) * np.pi / 6) + np.random.randn()
+           t_err = 0.5 + np.random.rand() * 0.3
+           humidity = 65 + 15 * np.cos((month - 1) * np.pi / 6) + np.random.randn() * 2
+           h_err = 2 + np.random.rand()
+           f.write(f"{month:4.0f} {temp:10.2f} {t_err:8.2f} {humidity:12.1f} {h_err:8.2f}\n")
+   
+   # Create figure with dual y-axis
+   fig = glp.figure(figsize=(10, 6))
+   ax = fig.add_subplot(111)
+   
+   # Temperature on left axis
+   ax.errorbar_from_file(
+       str(data_file),
+       x_col=1, y_col=2, yerr_col=3,
+       color='blue',
+       marker='o',
+       yaxis='y',
+       label='Temperature'
+   )
+   
+   # Humidity on right axis
+   ax.errorbar_from_file(
+       str(data_file),
+       x_col=1, y_col=4, yerr_col=5,
+       color='red',
+       marker='s',
+       yaxis='y2',
+       label='Humidity'
+   )
+   
+   ax.set_xlabel('Month')
+   ax.set_ylabel('Temperature (°C)', axis='y')
+   ax.set_ylabel('Humidity (%)', axis='y2')
+   ax.set_title('Climate Data - Dual Axis from File')
+   ax.legend()
+   
+   fig.savefig('example_dual_axis_from_file.pdf')
+
 Generating Your Own Gallery
 ----------------------------
 

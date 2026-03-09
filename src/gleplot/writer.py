@@ -269,7 +269,8 @@ class GLEWriter:
             line = ' '.join(self._format_number(val) for val in row)
             lines.append(line)
         
-        self.data_files[filename] = '\n'.join(lines)
+        # Add trailing newline for GLE compatibility
+        self.data_files[filename] = '\n'.join(lines) + '\n'
     
     def add_plot_line(self, x: np.ndarray, y: np.ndarray, data_file: str,
                       color: str = 'BLUE', linestyle: str = '-',
@@ -362,6 +363,9 @@ class GLEWriter:
         """
         Add bar chart to graph.
         
+        GLE bar chart implementation uses a single dataset with multiple rows.
+        All bars use the same color due to GLE limitations.
+        
         Parameters
         ----------
         x : array
@@ -369,51 +373,40 @@ class GLEWriter:
         heights : array
             Bar heights
         data_file : str
-            External data file name
+            Data file name
         colors : list of str, optional
-            GLE color names for each bar
+            GLE color names. Only the first color is used; all bars will
+            have the same color due to GLE limitations.
         label : str, optional
-            Legend label
+            Legend label (not currently supported by GLE for bar charts)
         """
         x = np.asarray(x, dtype=float)
         heights = np.asarray(heights, dtype=float)
         
         # Default to RED if no colors provided
         if colors is None:
-            colors = ['RED'] * len(heights)
+            bar_color = 'RED'
+        else:
+            # Use first color only - GLE doesn't support per-bar coloring in single dataset
+            bar_color = colors[0]
         
-        # Create separate bars for each data point with its own color
-        # This allows each bar to have a different fill color
-        for i, (xi, height, color) in enumerate(zip(x, heights, colors)):
-            # Create individual data file entry for this bar
-            if len(x) == 1:
-                # Single bar - use the provided data_file name
-                bar_data_file = data_file
-            else:
-                # Multiple bars - generate unique data file for each bar
-                # Extract base name and add index
-                base_name = data_file.rsplit('.', 1)[0] if '.' in data_file else data_file
-                bar_data_file = f'{base_name}_{i}.dat'
-            
-            # Create data for single bar
-            self.add_data_file(bar_data_file, [np.array([xi]), np.array([height])])
-            
-            # Add data command
-            d_name = f'd{self.dataset_index}'
-            self.dataset_index += 1
-            
-            cmd = f'    data {bar_data_file} {d_name}=c1,c2'
-            self.lines_gle.append(cmd)
-            
-            # GLE bar syntax: bar d1 fill color [width w]
-            # Note: 'fill' sets the fill color, 'color' sets the outline
-            bar_cmd = f'    bar {d_name} fill {color}'
-            
-            # Add label only to first bar to avoid redundant legend entries
-            if label and i == 0:
-                bar_cmd += f' key "{label}"'
-            
-            self.lines_gle.append(bar_cmd)
+        # Create single data file with all bars (multiple rows)
+        self.add_data_file(data_file, [x, heights])
+        
+        # Add data command
+        d_name = f'd{self.dataset_index}'
+        self.dataset_index += 1
+        
+        cmd = f'    data {data_file} {d_name}=c1,c2'
+        self.lines_gle.append(cmd)
+        
+        # GLE bar syntax for single dataset: bar d1 fill color
+        bar_cmd = f'    bar {d_name} fill {bar_color}'
+        
+        # Note: GLE does not support 'key' parameter on bar commands
+        # Legend entries for bar charts need alternative implementation
+        
+        self.lines_gle.append(bar_cmd)
     
     def add_errorbar(self, x: np.ndarray, y: np.ndarray, data_file: str,
                      color: str = 'BLUE', linestyle: str = '-',
