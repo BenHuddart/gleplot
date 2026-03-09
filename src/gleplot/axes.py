@@ -54,13 +54,17 @@ class Axes:
         # Axis properties
         self.xlabel_text = ''
         self.ylabel_text = ''
+        self.y2label_text = ''  # Secondary y-axis label
         self.title_text = ''
         self.xscale = 'linear'
         self.yscale = 'linear'
+        self.y2scale = 'linear'  # Secondary y-axis scale
         self.xmin = None
         self.xmax = None
         self.ymin = None
         self.ymax = None
+        self.y2min = None  # Secondary y-axis limits
+        self.y2max = None
         self.legend_on = False
         self.legend_pos = 'top right'
         
@@ -79,7 +83,8 @@ class Axes:
     
     def plot(self, x, y, linestyle: str = '-', color: Optional[str] = None,
              marker: Optional[str] = None, markersize: float = 6,
-             linewidth: float = 1, label: Optional[str] = None, **kwargs):
+             linewidth: float = 1, label: Optional[str] = None,
+             yaxis: str = 'y', **kwargs):
         """
         Plot line or scatter plot (if marker without line).
         
@@ -99,6 +104,8 @@ class Axes:
             Line width
         label : str, optional
             Legend label
+        yaxis : str, optional
+            Which y-axis to use: 'y' (left, default) or 'y2' (right)
         **kwargs
             Additional matplotlib-compatible arguments
         
@@ -141,6 +148,7 @@ class Axes:
             'linestyle': linestyle,
             'linewidth': linewidth,
             'label': label,
+            'yaxis': yaxis,  # 'y' or 'y2'
             'data_file': _get_next_data_file(self.figure),
         }
         
@@ -156,6 +164,7 @@ class Axes:
                  markersize: float = 6, linewidth: float = 1,
                  label: Optional[str] = None, capsize: Optional[float] = None,
                  capsize_cm: Optional[float] = None,
+                 yaxis: str = 'y',
                  **kwargs):
         """
         Plot data with error bars.
@@ -190,6 +199,8 @@ class Axes:
         capsize_cm : float, optional
             Width of error bar caps directly in GLE cm units (typical: 0.05-0.15).
             If specified, this overrides `capsize`. Use this for direct control.
+        yaxis : str, optional
+            Which y-axis to use: 'y' (left, default) or 'y2' (right)
         **kwargs
             Additional arguments
 
@@ -326,6 +337,7 @@ class Axes:
             'label': label,
             'capsize': stored_capsize,
             'gle_capsize': gle_capsize,  # Separate field for the GLE-converted value
+            'yaxis': yaxis,  # 'y' or 'y2'
             'data_file': _get_next_data_file(self.figure),
         }
         self.errorbars.append(errbar_data)
@@ -333,7 +345,8 @@ class Axes:
         return self
 
     def scatter(self, x, y, color: Optional[str] = None, s: float = 20,
-                marker: str = 'o', label: Optional[str] = None, **kwargs):
+                marker: str = 'o', label: Optional[str] = None,
+                yaxis: str = 'y', **kwargs):
         """
         Create scatter plot.
         
@@ -349,6 +362,8 @@ class Axes:
             Marker symbol
         label : str, optional
             Legend label
+        yaxis : str, optional
+            Which y-axis to use: 'y' (left, default) or 'y2' (right)
         **kwargs
             Additional arguments
             
@@ -362,7 +377,7 @@ class Axes:
         # Use factor of 1.2 for better visibility
         markersize = np.sqrt(s) * 1.2
         return self.plot(x, y, linestyle='none', color=color, marker=marker,
-                        markersize=markersize, label=label)
+                        markersize=markersize, label=label, yaxis=yaxis)
     
     def bar(self, x, height, color: Optional[Union[str, List[str]]] = None,
             label: Optional[str] = None, **kwargs):
@@ -459,9 +474,20 @@ class Axes:
         self.xlabel_text = label
         return self
     
-    def set_ylabel(self, label: str):
-        """Set y-axis label."""
-        self.ylabel_text = label
+    def set_ylabel(self, label: str, axis: str = 'y'):
+        """Set y-axis label.
+        
+        Parameters
+        ----------
+        label : str
+            Axis label text
+        axis : str, optional
+            Which axis: 'y' (left, default) or 'y2' (right)
+        """
+        if axis == 'y2':
+            self.y2label_text = label
+        else:
+            self.ylabel_text = label
         return self
     
     def set_title(self, label: str):
@@ -474,9 +500,20 @@ class Axes:
         self.xscale = scale
         return self
     
-    def set_yscale(self, scale: str):
-        """Set y-axis scale ('linear' or 'log')."""
-        self.yscale = scale
+    def set_yscale(self, scale: str, axis: str = 'y'):
+        """Set y-axis scale.
+        
+        Parameters
+        ----------
+        scale : str
+            Scale type: 'linear' or 'log'
+        axis : str, optional
+            Which axis: 'y' (left, default) or 'y2' (right)
+        """
+        if axis == 'y2':
+            self.y2scale = scale
+        else:
+            self.yscale = scale
         return self
     
     def set_xlim(self, xmin: float, xmax: float):
@@ -485,10 +522,22 @@ class Axes:
         self.xmax = xmax
         return self
     
-    def set_ylim(self, ymin: float, ymax: float):
-        """Set y-axis limits."""
-        self.ymin = ymin
-        self.ymax = ymax
+    def set_ylim(self, ymin: float, ymax: float, axis: str = 'y'):
+        """Set y-axis limits.
+        
+        Parameters
+        ----------
+        ymin, ymax : float
+            Axis limits
+        axis : str, optional
+            Which axis: 'y' (left, default) or 'y2' (right)
+        """
+        if axis == 'y2':
+            self.y2min = ymin
+            self.y2max = ymax
+        else:
+            self.ymin = ymin
+            self.ymax = ymax
         return self
     
     def legend(self, loc: str = 'best', **kwargs):
@@ -515,10 +564,27 @@ class Axes:
         """Get x-axis limits."""
         return self.xmin, self.xmax
     
-    def get_ylim(self) -> Tuple[float, float]:
-        """Get y-axis limits."""
-        return self.ymin, self.ymax
+    def get_ylim(self, axis: str = 'y') -> Tuple[float, float]:
+        """Get y-axis limits.
+        
+        Parameters
+        ----------
+        axis : str, optional
+            Which axis: 'y' (left, default) or 'y2' (right)
+        """
+        if axis == 'y2':
+            return self.y2min, self.y2max
+        else:
+            return self.ymin, self.ymax
     
     def has_plots(self) -> bool:
         """Check if axes has any plots."""
         return bool(self.lines or self.scatters or self.bars or self.fills or self.errorbars)
+    
+    def has_y2_plots(self) -> bool:
+        """Check if axes has any plots using the y2 axis."""
+        for plot_list in [self.lines, self.scatters, self.errorbars]:
+            for plot_data in plot_list:
+                if plot_data.get('yaxis') == 'y2':
+                    return True
+        return False

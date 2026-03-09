@@ -177,9 +177,17 @@ class Figure:
         """Set x label on current axes."""
         return self.gca().set_xlabel(label)
     
-    def ylabel(self, label: str):
-        """Set y label on current axes."""
-        return self.gca().set_ylabel(label)
+    def ylabel(self, label: str, axis: str = 'y'):
+        """Set y label on current axes.
+        
+        Parameters
+        ----------
+        label : str
+            Axis label text
+        axis : str, optional
+            Which axis: 'y' (left, default) or 'y2' (right)
+        """
+        return self.gca().set_ylabel(label, axis=axis)
     
     def title(self, label: str):
         """Set title on current axes."""
@@ -418,13 +426,17 @@ class Figure:
         writer.add_axes(
             xlabel=ax.xlabel_text or None,
             ylabel=ax.ylabel_text or None,
+            y2label=ax.y2label_text or None,
             title=ax.title_text or None,
             xlog=(ax.xscale == 'log'),
             ylog=(ax.yscale == 'log'),
+            y2log=(ax.y2scale == 'log'),
             xmin=ax.xmin,
             xmax=ax.xmax,
             ymin=ax.ymin,
             ymax=ax.ymax,
+            y2min=ax.y2min,
+            y2max=ax.y2max,
             show_xlabel=ax._show_xlabel,
             show_ylabel=ax._show_ylabel,
             show_xticks=ax._show_xticks,
@@ -466,6 +478,7 @@ class Figure:
                 linestyle=line_data['linestyle'],
                 linewidth=line_data['linewidth'],
                 label=line_data['label'],
+                yaxis=line_data.get('yaxis', 'y'),
             )
         
         # Add scatter plots
@@ -478,6 +491,7 @@ class Figure:
                 marker=scatter_data['marker'],
                 markersize=scatter_data['markersize'],
                 label=scatter_data['label'],
+                yaxis=scatter_data.get('yaxis', 'y'),
             )
         
         # Add errorbar plots
@@ -497,6 +511,7 @@ class Figure:
                 xerr_left=eb_data['xerr_left'],
                 xerr_right=eb_data['xerr_right'],
                 capsize=eb_data.get('gle_capsize', eb_data.get('capsize')),
+                yaxis=eb_data.get('yaxis', 'y'),
             )
         
         # Add legend if needed

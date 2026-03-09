@@ -222,5 +222,155 @@ class TestSubplots(unittest.TestCase):
             self.assertEqual(content.count('begin graph'), 2)
 
 
+class TestSecondaryYAxis(unittest.TestCase):
+    """Test secondary y-axis (y2axis) functionality."""
+    
+    def setUp(self):
+        """Create fresh figure for each test."""
+        glp.close()
+        self.fig = glp.figure()
+        self.ax = self.fig.add_subplot(111)
+    
+    def tearDown(self):
+        """Clean up after each test."""
+        glp.close()
+    
+    def test_y2_label(self):
+        """Test setting y2axis label."""
+        self.ax.set_ylabel('Primary Y', axis='y')
+        self.ax.set_ylabel('Secondary Y', axis='y2')
+        
+        self.assertEqual(self.ax.ylabel_text, 'Primary Y')
+        self.assertEqual(self.ax.y2label_text, 'Secondary Y')
+    
+    def test_y2_limits(self):
+        """Test setting y2axis limits."""
+        self.ax.set_ylim(0, 100, axis='y')
+        self.ax.set_ylim(0, 1000, axis='y2')
+        
+        self.assertEqual(self.ax.ymin, 0)
+        self.assertEqual(self.ax.ymax, 100)
+        self.assertEqual(self.ax.y2min, 0)
+        self.assertEqual(self.ax.y2max, 1000)
+    
+    def test_y2_scale(self):
+        """Test setting y2axis scale."""
+        self.ax.set_yscale('linear', axis='y')
+        self.ax.set_yscale('log', axis='y2')
+        
+        self.assertEqual(self.ax.yscale, 'linear')
+        self.assertEqual(self.ax.y2scale, 'log')
+    
+    def test_get_y2_limits(self):
+        """Test getting y2axis limits."""
+        self.ax.set_ylim(10, 20, axis='y2')
+        
+        y2min, y2max = self.ax.get_ylim(axis='y2')
+        self.assertEqual(y2min, 10)
+        self.assertEqual(y2max, 20)
+    
+    def test_plot_on_y2axis(self):
+        """Test plotting on y2axis."""
+        import numpy as np
+        x = np.array([1, 2, 3])
+        y = np.array([10, 20, 30])
+        
+        self.ax.plot(x, y, yaxis='y2', label='Y2 Data')
+        
+        self.assertEqual(len(self.ax.lines), 1)
+        self.assertEqual(self.ax.lines[0]['yaxis'], 'y2')
+    
+    def test_scatter_on_y2axis(self):
+        """Test scatter plot on y2axis."""
+        import numpy as np
+        x = np.array([1, 2, 3])
+        y = np.array([100, 200, 300])
+        
+        self.ax.scatter(x, y, yaxis='y2', label='Y2 Scatter')
+        
+        self.assertEqual(len(self.ax.scatters), 1)
+        self.assertEqual(self.ax.scatters[0]['yaxis'], 'y2')
+    
+    def test_errorbar_on_y2axis(self):
+        """Test errorbar plot on y2axis."""
+        import numpy as np
+        x = np.array([1, 2, 3])
+        y = np.array([50, 100, 150])
+        yerr = np.array([5, 10, 15])
+        
+        self.ax.errorbar(x, y, yerr=yerr, yaxis='y2', label='Y2 Error')
+        
+        self.assertEqual(len(self.ax.errorbars), 1)
+        self.assertEqual(self.ax.errorbars[0]['yaxis'], 'y2')
+    
+    def test_mixed_y_and_y2_plots(self):
+        """Test mixing plots on y and y2 axes."""
+        import numpy as np
+        x = np.array([1, 2, 3])
+        
+        self.ax.plot(x, x**2, yaxis='y', label='Y Data')
+        self.ax.plot(x, x**3, yaxis='y2', label='Y2 Data')
+        
+        self.assertEqual(len(self.ax.lines), 2)
+        self.assertEqual(self.ax.lines[0]['yaxis'], 'y')
+        self.assertEqual(self.ax.lines[1]['yaxis'], 'y2')
+    
+    def test_has_y2_plots(self):
+        """Test has_y2_plots helper method."""
+        import numpy as np
+        x = np.array([1, 2, 3])
+        
+        # Initially no y2 plots
+        self.assertFalse(self.ax.has_y2_plots())
+        
+        # Add plot on y axis
+        self.ax.plot(x, x**2, yaxis='y')
+        self.assertFalse(self.ax.has_y2_plots())
+        
+        # Add plot on y2 axis
+        self.ax.plot(x, x**3, yaxis='y2')
+        self.assertTrue(self.ax.has_y2_plots())
+    
+    def test_y2_gle_generation(self):
+        """Test that y2axis generates correct GLE code."""
+        import numpy as np
+        x = np.array([1, 2, 3])
+        
+        self.ax.plot(x, x**2, color='red', label='Y1', yaxis='y')
+        self.ax.plot(x, x**3, color='blue', label='Y2', yaxis='y2')
+        self.ax.set_ylabel('Primary', axis='y')
+        self.ax.set_ylabel('Secondary', axis='y2')
+        self.ax.set_ylim(0, 10, axis='y')
+        self.ax.set_ylim(0, 30, axis='y2')
+        
+        gle = self.fig._generate_gle()
+        
+        # Check for y2axis directives
+        self.assertIn('y2title "Secondary"', gle)
+        self.assertIn('y2axis min 0 max 30', gle)
+        self.assertIn('y2axis', gle)  # y2axis keyword on plot command
+    
+    def test_y2_log_scale_gle(self):
+        """Test that y2axis log scale generates correct GLE code."""
+        import numpy as np
+        x = np.array([1, 2, 3, 4])
+        y = np.array([10, 100, 1000, 10000])
+        
+        self.ax.plot(x, y, yaxis='y2')
+        self.ax.set_yscale('log', axis='y2')
+        
+        gle = self.fig._generate_gle()
+        self.assertIn('y2axis log', gle)
+    
+    def test_y2_with_figure_convenience_methods(self):
+        """Test y2axis with figure-level ylabel convenience method."""
+        self.fig.ylabel('Primary Y', axis='y')
+        self.fig.ylabel('Secondary Y', axis='y2')
+        
+        ax = self.fig.gca()
+        self.assertEqual(ax.ylabel_text, 'Primary Y')
+        self.assertEqual(ax.y2label_text, 'Secondary Y')
+
+
 if __name__ == '__main__':
     unittest.main()

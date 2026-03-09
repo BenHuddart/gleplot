@@ -178,6 +178,29 @@ ax.errorbar(x, y, yerr=([lower_arr], [upper_arr]), marker='s', fmt='none')
 ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', capsize=3)
 ```
 
+### Secondary Y-Axis
+```python
+# Plot data with different scales on same graph
+fig = glp.figure()
+ax = fig.add_subplot(111)
+
+# Plot on left y-axis (default)
+ax.plot(days, temperature, color='red', label='Temperature', yaxis='y')
+ax.set_ylabel('Temperature (°C)', axis='y')
+ax.set_ylim(10, 30, axis='y')
+
+# Plot on right y-axis
+ax.plot(days, humidity, color='blue', label='Humidity', yaxis='y2')
+ax.set_ylabel('Humidity (%)', axis='y2')
+ax.set_ylim(30, 90, axis='y2')
+
+# Log scale on secondary axis
+ax.set_yscale('log', axis='y2')
+
+ax.legend()
+fig.savefig('dual_axis.pdf')
+```
+
 ### Subplots
 ```python
 # Using subplots() convenience function
@@ -256,6 +279,7 @@ python basic/error_bars.py
 # Advanced examples
 python advanced/subplots.py
 python advanced/shared_axes.py
+python advanced/secondary_yaxis.py
 python advanced/fill_between.py
 python advanced/log_scale.py
 python advanced/combined_plots.py

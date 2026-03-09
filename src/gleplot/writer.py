@@ -133,9 +133,12 @@ class GLEWriter:
             self.lines_gle.append('    scale auto')
     
     def add_axes(self, xlabel: Optional[str] = None, ylabel: Optional[str] = None,
+                 y2label: Optional[str] = None,
                  title: Optional[str] = None, xlog: bool = False, ylog: bool = False,
+                 y2log: bool = False,
                  xmin: Optional[float] = None, xmax: Optional[float] = None,
                  ymin: Optional[float] = None, ymax: Optional[float] = None,
+                 y2min: Optional[float] = None, y2max: Optional[float] = None,
                  show_xlabel: bool = True, show_ylabel: bool = True,
                  show_xticks: bool = True, show_yticks: bool = True,
                  remove_last_xtick: bool = False, remove_last_ytick: bool = False,
@@ -146,12 +149,18 @@ class GLEWriter:
         ----------
         xlabel, ylabel : str, optional
             Axis labels
+        y2label : str, optional
+            Secondary y-axis (right) label
         title : str, optional
             Plot title
         xlog, ylog : bool
             Whether to use logarithmic scale
+        y2log : bool
+            Whether to use logarithmic scale for y2axis
         xmin, xmax, ymin, ymax : float, optional
             Axis limits
+        y2min, y2max : float, optional
+            Secondary y-axis limits
         show_xlabel, show_ylabel : bool
             Whether to display axis TITLES (for shared axes)
         show_xticks, show_yticks : bool
@@ -173,6 +182,10 @@ class GLEWriter:
         
         if ylabel and show_ylabel:
             self.lines_gle.append(f'    ytitle "{ylabel}"')
+        
+        # Add y2axis title if provided
+        if y2label:
+            self.lines_gle.append(f'    y2title "{y2label}"')
         
         # Handle axis ranges and tick labels
         # Note: We keep the axis and ticks visible but can hide the tick labels
@@ -216,6 +229,17 @@ class GLEWriter:
         # Hide y-axis tick labels if requested (but keep the ticks themselves)
         if not show_yticks:
             self.lines_gle.append('    ylabels off')
+        
+        # Handle y2axis (secondary y-axis) if limits or log scale specified
+        if y2min is not None or y2max is not None or y2log:
+            y2_cmd = '    y2axis'
+            if y2min is not None:
+                y2_cmd += f' min {self._format_number(y2min)}'
+            if y2max is not None:
+                y2_cmd += f' max {self._format_number(y2max)}'
+            if y2log:
+                y2_cmd += ' log'
+            self.lines_gle.append(y2_cmd)
     
     def add_data_file(self, filename: str, columns: List[np.ndarray],
                       column_names: Optional[List[str]] = None):
@@ -250,7 +274,8 @@ class GLEWriter:
     def add_plot_line(self, x: np.ndarray, y: np.ndarray, data_file: str,
                       color: str = 'BLUE', linestyle: str = '-',
                       linewidth: float = 1.0, label: Optional[str] = None,
-                      marker: Optional[str] = None, markersize: float = 0.1):
+                      marker: Optional[str] = None, markersize: float = 0.1,
+                      yaxis: str = 'y'):
         """
         Add line plot to graph.
         
@@ -272,6 +297,8 @@ class GLEWriter:
             GLE marker name
         markersize : float
             Marker size for GLE (msize)
+        yaxis : str
+            Which y-axis to use: 'y' (left, default) or 'y2' (right)
         """
         # Sort data by x values (required for GLE smooth lines)
         # Reference: GLE manual - smooth requires sorted x values
@@ -320,6 +347,10 @@ class GLEWriter:
             elif linestyle == '-.':
                 line_cmd += f' lstyle {self.style.line_style_dashdot}'
                 line_cmd += ' lstyle 4'
+        
+        # Add y2axis directive if using secondary y-axis
+        if yaxis == 'y2':
+            line_cmd += ' y2axis'
         
         if label:
             line_cmd += f' key "{label}"'
@@ -392,7 +423,8 @@ class GLEWriter:
                      yerr_down: Optional[np.ndarray] = None,
                      xerr_left: Optional[np.ndarray] = None,
                      xerr_right: Optional[np.ndarray] = None,
-                     capsize: Optional[float] = None):
+                     capsize: Optional[float] = None,
+                     yaxis: str = 'y'):
         """
         Add plot with error bars to graph.
         
@@ -436,6 +468,8 @@ class GLEWriter:
             Rightward horizontal error bar magnitudes
         capsize : float, optional
             Width of error bar caps in cm
+        yaxis : str
+            Which y-axis to use: 'y' (left, default) or 'y2' (right)
         """
         # Sort data by x values
         x_array = np.asarray(x)
@@ -606,6 +640,10 @@ class GLEWriter:
         
         if capsize is not None and has_xerr:
             line_cmd += f' herrwidth {self._format_number(capsize)}'
+        
+        # Add y2axis directive if using secondary y-axis
+        if yaxis == 'y2':
+            line_cmd += ' y2axis'
         
         if label:
             line_cmd += f' key "{label}"'
