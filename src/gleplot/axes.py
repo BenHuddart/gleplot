@@ -80,6 +80,7 @@ class Axes:
         self.bars = []  # List of bar chart data
         self.fills = []  # List of fill_between data
         self.errorbars = []  # List of errorbar plot data
+        self.file_series = []  # External-file series definitions (column references)
     
     def plot(self, x, y, linestyle: str = '-', color: Optional[str] = None,
              marker: Optional[str] = None, markersize: float = 6,
@@ -344,6 +345,53 @@ class Axes:
 
         return self
 
+    def errorbar_from_file(
+        self,
+        data_file: str,
+        x_col: int,
+        y_col: int,
+        yerr_col: Optional[int] = None,
+        color: Optional[str] = None,
+        marker: Optional[str] = 'o',
+        markersize: float = 6,
+        label: Optional[str] = None,
+        capsize: Optional[float] = None,
+        yaxis: str = 'y',
+    ):
+        """Plot by referencing columns in an existing external data file.
+
+        This avoids writing generated ``data_*.dat`` files. Column indices are
+        1-based to match GLE conventions.
+        """
+        if x_col < 1 or y_col < 1 or (yerr_col is not None and yerr_col < 1):
+            raise ValueError("Column indices must be >= 1")
+
+        if color is None:
+            gle_color = 'BLUE'
+        else:
+            gle_color = rgb_to_gle(color)
+
+        gle_marker = get_gle_marker(marker) if marker else None
+        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
+        gle_capsize = capsize * 0.0353 if capsize is not None else None
+
+        self.file_series.append(
+            {
+                'data_file': data_file,
+                'x_col': int(x_col),
+                'y_col': int(y_col),
+                'yerr_col': int(yerr_col) if yerr_col is not None else None,
+                'color': gle_color,
+                'marker': gle_marker,
+                'markersize': gle_markersize,
+                'label': label,
+                'capsize': gle_capsize,
+                'yaxis': yaxis,
+            }
+        )
+
+        return self
+
     def scatter(self, x, y, color: Optional[str] = None, s: float = 20,
                 marker: str = 'o', label: Optional[str] = None,
                 yaxis: str = 'y', **kwargs):
@@ -579,7 +627,7 @@ class Axes:
     
     def has_plots(self) -> bool:
         """Check if axes has any plots."""
-        return bool(self.lines or self.scatters or self.bars or self.fills or self.errorbars)
+        return bool(self.lines or self.scatters or self.bars or self.fills or self.errorbars or self.file_series)
     
     def has_y2_plots(self) -> bool:
         """Check if axes has any plots using the y2 axis."""

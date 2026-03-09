@@ -649,6 +649,50 @@ class GLEWriter:
             line_cmd += f' key "{label}"'
         
         self.lines_gle.append(line_cmd)
+
+    def add_errorbar_from_file(
+        self,
+        data_file: str,
+        x_col: int,
+        y_col: int,
+        yerr_col: Optional[int] = None,
+        color: str = 'BLUE',
+        marker: Optional[str] = None,
+        markersize: float = 0.1,
+        label: Optional[str] = None,
+        capsize: Optional[float] = None,
+        yaxis: str = 'y',
+    ):
+        """Add a marker/errorbar series that references columns in an external data file."""
+        d_main = f'd{self.dataset_index}'
+        self.dataset_index += 1
+
+        data_cmd = f'    data {data_file} {d_main}=c{x_col},c{y_col}'
+        d_yerr = None
+        if yerr_col is not None:
+            d_yerr = f'd{self.dataset_index}'
+            self.dataset_index += 1
+            data_cmd += f' {d_yerr}=c{x_col},c{yerr_col}'
+        self.lines_gle.append(data_cmd)
+
+        line_cmd = f'    {d_main}'
+        if marker:
+            line_cmd += f' marker {marker} msize {self._format_number(markersize)} color {color}'
+        else:
+            line_cmd += f' color {color}'
+
+        if d_yerr is not None:
+            line_cmd += f' err {d_yerr}'
+            if capsize is not None:
+                line_cmd += f' errwidth {self._format_number(capsize)}'
+
+        if yaxis == 'y2':
+            line_cmd += ' y2axis'
+
+        if label:
+            line_cmd += f' key "{label}"'
+
+        self.lines_gle.append(line_cmd)
     
     def add_fill_between(self, x: np.ndarray, y1: np.ndarray, y2: np.ndarray,
                          data_file: str, color: str = 'LIGHTBLUE', alpha: float = 1.0):

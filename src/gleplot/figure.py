@@ -513,9 +513,25 @@ class Figure:
                 capsize=eb_data.get('gle_capsize', eb_data.get('capsize')),
                 yaxis=eb_data.get('yaxis', 'y'),
             )
+
+        # Add external-file series (no generated data files).
+        for fs_data in ax.file_series:
+            writer.add_errorbar_from_file(
+                fs_data['data_file'],
+                fs_data['x_col'],
+                fs_data['y_col'],
+                yerr_col=fs_data.get('yerr_col'),
+                color=fs_data['color'],
+                marker=fs_data.get('marker'),
+                markersize=fs_data.get('markersize', 0.1),
+                label=fs_data.get('label'),
+                capsize=fs_data.get('capsize'),
+                yaxis=fs_data.get('yaxis', 'y'),
+            )
         
         # Add legend if needed
-        if ax.legend_on or any(l.get('label') for l in ax.lines + ax.scatters + ax.bars + ax.errorbars):
+        legend_sources = ax.lines + ax.scatters + ax.bars + ax.errorbars + ax.file_series
+        if ax.legend_on or any(series.get('label') for series in legend_sources):
             writer.add_legend(ax.legend_pos)
     
     def _synchronize_x_limits(self):

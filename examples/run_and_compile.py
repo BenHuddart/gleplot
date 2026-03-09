@@ -32,6 +32,8 @@ from advanced import (
     example_stacked,
     example_2x2_grid,
     example_1x3_comparison,
+    example_errorbar_from_file,
+    example_dual_axis_from_file,
 )
 import gleplot as glp
 
@@ -70,6 +72,8 @@ def main():
         ("Both Axes Shared (2x2 Grid)", example_both_shared, "example_shared_both_axes"),
         ("Residual Plot Analysis", example_residual_plot, "example_residual_plot"),
         ("Comparison: Shared vs Non-shared", example_comparison_with_without, "example_shared_comparison"),
+        ("Error bars from file", example_errorbar_from_file, "example_errorbar_from_file"),
+        ("Dual axis from file", example_dual_axis_from_file, "example_dual_axis_from_file"),
     ]
     
     # Check if GLE is available

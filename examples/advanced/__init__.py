@@ -17,6 +17,10 @@ from .subplots import (
     example_2x2_grid,
     example_1x3_comparison,
 )
+from .errorbar_from_file import (
+    example_errorbar_from_file,
+    example_dual_axis_from_file,
+)
 
 __all__ = [
     'example_fill_between',
@@ -33,4 +37,6 @@ __all__ = [
     'example_stacked',
     'example_2x2_grid',
     'example_1x3_comparison',
+    'example_errorbar_from_file',
+    'example_dual_axis_from_file',
 ]

@@ -309,6 +309,145 @@ class TestErrorBars(unittest.TestCase):
         self.assertEqual(len(ax.errorbars), 1)
 
 
+class TestErrorbarFromFile(unittest.TestCase):
+    """Test errorbar_from_file functionality for direct column references."""
+    
+    def setUp(self):
+        """Create fresh figure and test data file for each test."""
+        glp.close()
+        self.fig = glp.figure()
+        self.ax = self.fig.add_subplot(111)
+        
+        # Create a temporary data file
+        import tempfile
+        self.temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.dat', delete=False)
+        self.data_path = Path(self.temp_file.name)
+        
+        # Write test data: x, y, yerr
+        self.temp_file.write("! Test data file\n")
+        self.temp_file.write("! x  y  yerr\n")
+        self.temp_file.write("1.0  10.0  0.5\n")
+        self.temp_file.write("2.0  20.0  0.8\n")
+        self.temp_file.write("3.0  30.0  0.6\n")
+        self.temp_file.write("4.0  40.0  0.7\n")
+        self.temp_file.close()
+    
+    def tearDown(self):
+        """Clean up after each test."""
+        glp.close()
+        # Remove temp file
+        if self.data_path.exists():
+            self.data_path.unlink()
+    
+    def test_errorbar_from_file_basic(self):
+        """Test basic errorbar_from_file with column references."""
+        self.ax.errorbar_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            yerr_col=3,
+            marker='o',
+            color='blue'
+        )
+        
+        self.assertEqual(len(self.ax.file_series), 1)
+        series = self.ax.file_series[0]
+        self.assertEqual(series['data_file'], str(self.data_path))
+        self.assertEqual(series['x_col'], 1)
+        self.assertEqual(series['y_col'], 2)
+        self.assertEqual(series['yerr_col'], 3)
+        self.assertEqual(series['marker'], 'FCIRCLE')  # 'o' -> 'FCIRCLE'
+        self.assertEqual(series['color'], 'BLUE')
+    
+    def test_errorbar_from_file_without_errors(self):
+        """Test errorbar_from_file without error column."""
+        self.ax.errorbar_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            yerr_col=None,
+            marker='s',
+            color='red'
+        )
+        
+        series = self.ax.file_series[0]
+        self.assertIsNone(series['yerr_col'])
+    
+    def test_errorbar_from_file_with_label(self):
+        """Test errorbar_from_file with legend label."""
+        self.ax.errorbar_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            yerr_col=3,
+            label='Test Data',
+            marker='o'
+        )
+        
+        series = self.ax.file_series[0]
+        self.assertEqual(series['label'], 'Test Data')
+    
+    def test_errorbar_from_file_y2axis(self):
+        """Test errorbar_from_file on secondary y-axis."""
+        self.ax.errorbar_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            yerr_col=3,
+            yaxis='y2',
+            marker='o',
+            color='green'
+        )
+        
+        series = self.ax.file_series[0]
+        self.assertEqual(series['yaxis'], 'y2')
+    
+    def test_errorbar_from_file_with_capsize(self):
+        """Test errorbar_from_file with capsize parameter."""
+        self.ax.errorbar_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            yerr_col=3,
+            capsize=4,
+            marker='o'
+        )
+        
+        series = self.ax.file_series[0]
+        # Capsize is converted: capsize * 0.0353
+        self.assertAlmostEqual(series['capsize'], 0.1412, places=4)
+    
+    def test_errorbar_from_file_gle_generation(self):
+        """Test GLE script generation for errorbar_from_file."""
+        self.ax.errorbar_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            yerr_col=3,
+            marker='o',
+            color='blue',
+            label='File Data'
+        )
+        
+        gle = self.fig._generate_gle()
+        # Check for data command with column references
+        self.assertIn('data', gle)
+        self.assertIn('d1=c1,c2', gle)  # x_col=1, y_col=2
+        self.assertIn('d2=c1,c3', gle)   # yerr includes x_col
+        self.assertIn('key "File Data"', gle)
+    
+    def test_errorbar_from_file_has_plots(self):
+        """Test that errorbar_from_file counts in has_plots()."""
+        self.assertFalse(self.ax.has_plots())
+        self.ax.errorbar_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            yerr_col=3
+        )
+        self.assertTrue(self.ax.has_plots())
+
+
 @unittest.skipUnless(IPYTHON_AVAILABLE, "IPython not installed")
 class TestViewDisplay(unittest.TestCase):
     """Test figure view behavior across environments."""
