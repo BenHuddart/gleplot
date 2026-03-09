@@ -105,7 +105,15 @@ class TestGLEGeneration(unittest.TestCase):
         
         gle = self.fig._generate_gle()
         
-        self.assertIn('xaxis log', gle)
+        # Check that xaxis has log keyword (format: "xaxis min X max Y log")
+        self.assertIn('xaxis', gle)
+        self.assertIn('log', gle)
+        # Verify log appears on an xaxis line
+        for line in gle.split('\n'):
+            if 'xaxis' in line and 'log' in line:
+                break
+        else:
+            self.fail('xaxis with log scale not found in GLE output')
 
 
 if __name__ == '__main__':
