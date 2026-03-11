@@ -448,6 +448,70 @@ class TestErrorbarFromFile(unittest.TestCase):
         self.assertTrue(self.ax.has_plots())
 
 
+class TestLineFromFile(unittest.TestCase):
+    """Test line_from_file functionality for direct file-based line overlays."""
+
+    def setUp(self):
+        """Create fresh figure and test data file for each test."""
+        glp.close()
+        self.fig = glp.figure()
+        self.ax = self.fig.add_subplot(111)
+
+        import tempfile
+        self.temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.fit', delete=False)
+        self.data_path = Path(self.temp_file.name)
+        self.temp_file.write("! Model fit curve\n")
+        self.temp_file.write("1.0  10.0\n")
+        self.temp_file.write("2.0  12.0\n")
+        self.temp_file.write("3.0  13.0\n")
+        self.temp_file.close()
+
+    def tearDown(self):
+        """Clean up after each test."""
+        glp.close()
+        if self.data_path.exists():
+            self.data_path.unlink()
+
+    def test_line_from_file_basic(self):
+        """Test basic line_from_file column references."""
+        self.ax.line_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            color='red',
+            linewidth=2,
+            label='Fit',
+        )
+
+        self.assertEqual(len(self.ax.file_series), 1)
+        series = self.ax.file_series[0]
+        self.assertEqual(series['series_type'], 'line')
+        self.assertEqual(series['data_file'], str(self.data_path))
+        self.assertEqual(series['x_col'], 1)
+        self.assertEqual(series['y_col'], 2)
+        self.assertEqual(series['color'], 'RED')
+        self.assertEqual(series['linewidth'], 2.0)
+        self.assertEqual(series['label'], 'Fit')
+
+    def test_line_from_file_gle_generation(self):
+        """Test GLE script generation for line_from_file."""
+        self.ax.line_from_file(
+            str(self.data_path),
+            x_col=1,
+            y_col=2,
+            color='red',
+            linestyle='-',
+            linewidth=1,
+            label='Fit line',
+        )
+
+        gle = self.fig._generate_gle()
+        self.assertIn('data', gle)
+        self.assertIn('d1=c1,c2', gle)
+        self.assertIn('line color RED', gle)
+        self.assertIn('key "Fit line"', gle)
+
+
 @unittest.skipUnless(IPYTHON_AVAILABLE, "IPython not installed")
 class TestViewDisplay(unittest.TestCase):
     """Test figure view behavior across environments."""

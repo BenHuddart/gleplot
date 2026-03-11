@@ -37,6 +37,7 @@ fig.savefig('trig.gle')
 ✨ **Vector Graphics** - PDF, PNG, EPS export with publication quality  
 ✨ **Full Plotting Support** - Lines, scatter, bars, fill_between, errorbar  
 ✨ **Error Bars** - Symmetric, asymmetric, vertical and horizontal  
+✨ **File-Based Series** - Plot directly from existing data columns (no extra sidecar files)  
 ✨ **Subplots** - Multi-panel figures with flexible grid layouts  
 ✨ **Publication Ready** - Suitable for all major academic journals  
 ✨ **Lightweight** - Pure Python, minimal dependencies  
@@ -176,6 +177,31 @@ ax.errorbar(x, y, yerr=([lower_arr], [upper_arr]), marker='s', fmt='none')
 
 # Both vertical and horizontal error bars
 ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', capsize=3)
+```
+
+### File-Based Series
+```python
+# Error bars from existing file columns (1-based column indices)
+ax.errorbar_from_file(
+  'experiment.dat',
+  x_col=1,
+  y_col=2,
+  yerr_col=3,
+  marker='o',
+  color='blue',
+  label='Measurement'
+)
+
+# Overlay fit/model line from the same file without creating data_*.dat
+ax.line_from_file(
+  'experiment.dat',
+  x_col=1,
+  y_col=4,
+  color='red',
+  linestyle='--',
+  linewidth=2,
+  label='Model fit'
+)
 ```
 
 ### Secondary Y-Axis

@@ -679,6 +679,44 @@ class GLEWriter:
             line_cmd += f' key "{label}"'
 
         self.lines_gle.append(line_cmd)
+
+    def add_plot_line_from_file(
+        self,
+        data_file: str,
+        x_col: int,
+        y_col: int,
+        color: str = 'BLUE',
+        linestyle: str = '-',
+        linewidth: float = 1.0,
+        label: Optional[str] = None,
+        yaxis: str = 'y',
+    ):
+        """Add a line series that references columns in an external data file."""
+        d_main = f'd{self.dataset_index}'
+        self.dataset_index += 1
+
+        self.lines_gle.append(f'    data {data_file} {d_main}=c{x_col},c{y_col}')
+
+        if linewidth == 0 or linewidth == 1:
+            gle_lwidth = self.style.default_linewidth * 0.03528
+        else:
+            gle_lwidth = linewidth * 0.03528
+
+        line_cmd = f'    {d_main} line color {color} lwidth {self._format_number(gle_lwidth)}'
+        if linestyle == '--':
+            line_cmd += f' lstyle {self.style.line_style_dashed}'
+        elif linestyle == ':':
+            line_cmd += f' lstyle {self.style.line_style_dotted}'
+        elif linestyle == '-.':
+            line_cmd += f' lstyle {self.style.line_style_dashdot}'
+
+        if yaxis == 'y2':
+            line_cmd += ' y2axis'
+
+        if label:
+            line_cmd += f' key "{label}"'
+
+        self.lines_gle.append(line_cmd)
     
     def add_fill_between(self, x: np.ndarray, y1: np.ndarray, y2: np.ndarray,
                          data_file: str, color: str = 'LIGHTBLUE', alpha: float = 1.0):

@@ -377,6 +377,7 @@ class Axes:
 
         self.file_series.append(
             {
+                'series_type': 'errorbar',
                 'data_file': data_file,
                 'x_col': int(x_col),
                 'y_col': int(y_col),
@@ -386,6 +387,46 @@ class Axes:
                 'markersize': gle_markersize,
                 'label': label,
                 'capsize': gle_capsize,
+                'yaxis': yaxis,
+            }
+        )
+
+        return self
+
+    def line_from_file(
+        self,
+        data_file: str,
+        x_col: int,
+        y_col: int,
+        color: Optional[str] = None,
+        linestyle: str = '-',
+        linewidth: float = 1,
+        label: Optional[str] = None,
+        yaxis: str = 'y',
+    ):
+        """Plot a line by referencing columns in an external data file.
+
+        This avoids creating generated ``data_*.dat`` files for overlay lines.
+        Column indices are 1-based to match GLE conventions.
+        """
+        if x_col < 1 or y_col < 1:
+            raise ValueError("Column indices must be >= 1")
+
+        if color is None:
+            gle_color = 'BLUE'
+        else:
+            gle_color = rgb_to_gle(color)
+
+        self.file_series.append(
+            {
+                'series_type': 'line',
+                'data_file': data_file,
+                'x_col': int(x_col),
+                'y_col': int(y_col),
+                'color': gle_color,
+                'linestyle': linestyle,
+                'linewidth': float(linewidth),
+                'label': label,
                 'yaxis': yaxis,
             }
         )

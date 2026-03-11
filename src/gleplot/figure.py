@@ -548,18 +548,31 @@ class Figure:
 
         # Add external-file series (no generated data files).
         for fs_data in ax.file_series:
-            writer.add_errorbar_from_file(
-                fs_data['data_file'],
-                fs_data['x_col'],
-                fs_data['y_col'],
-                yerr_col=fs_data.get('yerr_col'),
-                color=fs_data['color'],
-                marker=fs_data.get('marker'),
-                markersize=fs_data.get('markersize', 0.1),
-                label=fs_data.get('label'),
-                capsize=fs_data.get('capsize'),
-                yaxis=fs_data.get('yaxis', 'y'),
-            )
+            series_type = fs_data.get('series_type', 'errorbar')
+            if series_type == 'line':
+                writer.add_plot_line_from_file(
+                    fs_data['data_file'],
+                    fs_data['x_col'],
+                    fs_data['y_col'],
+                    color=fs_data.get('color', 'BLUE'),
+                    linestyle=fs_data.get('linestyle', '-'),
+                    linewidth=fs_data.get('linewidth', 1.0),
+                    label=fs_data.get('label'),
+                    yaxis=fs_data.get('yaxis', 'y'),
+                )
+            else:
+                writer.add_errorbar_from_file(
+                    fs_data['data_file'],
+                    fs_data['x_col'],
+                    fs_data['y_col'],
+                    yerr_col=fs_data.get('yerr_col'),
+                    color=fs_data['color'],
+                    marker=fs_data.get('marker'),
+                    markersize=fs_data.get('markersize', 0.1),
+                    label=fs_data.get('label'),
+                    capsize=fs_data.get('capsize'),
+                    yaxis=fs_data.get('yaxis', 'y'),
+                )
         
         # Add legend if needed
         legend_sources = ax.lines + ax.scatters + ax.bars + ax.errorbars + ax.file_series

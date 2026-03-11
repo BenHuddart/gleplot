@@ -148,7 +148,64 @@ def example_dual_axis_from_file():
     print(f"  ✓ Data file: {data_file}")
 
 
+def example_line_overlay_from_file():
+    """Example: Overlay measured points and fit line from one file."""
+    print("Creating example: Line overlay from file...")
+
+    data_file = Path('fit_results.dat')
+
+    with open(data_file, 'w') as f:
+        f.write("! Fit results\n")
+        f.write("! c1=x  c2=y_measured  c3=y_err  c4=y_fit\n")
+        f.write("!\n")
+
+        np.random.seed(7)
+        x = np.linspace(0.0, 10.0, 16)
+        y_fit = 1.5 + 0.7 * x
+        y_measured = y_fit + np.random.randn(len(x)) * 0.35
+        y_err = 0.2 + np.random.rand(len(x)) * 0.08
+
+        for xi, yi, ei, fi in zip(x, y_measured, y_err, y_fit):
+            f.write(f"{xi:8.3f} {yi:10.4f} {ei:8.4f} {fi:10.4f}\n")
+
+    fig = glp.figure(figsize=(9, 6))
+    ax = fig.add_subplot(111)
+
+    ax.errorbar_from_file(
+        str(data_file),
+        x_col=1,
+        y_col=2,
+        yerr_col=3,
+        color='blue',
+        marker='o',
+        markersize=5,
+        capsize=3,
+        label='Measured'
+    )
+
+    ax.line_from_file(
+        str(data_file),
+        x_col=1,
+        y_col=4,
+        color='red',
+        linestyle='--',
+        linewidth=2,
+        label='Linear fit'
+    )
+
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_title('Measured Data with File-Based Fit Overlay')
+    ax.legend()
+
+    fig.savefig('example_line_overlay_from_file.gle')
+    print("  ✓ Saved to example_line_overlay_from_file.gle")
+    print(f"  ✓ Data file: {data_file}")
+
+
 if __name__ == '__main__':
     example_errorbar_from_file()
     print()
     example_dual_axis_from_file()
+    print()
+    example_line_overlay_from_file()

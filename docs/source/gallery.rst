@@ -655,6 +655,48 @@ avoiding the need to generate additional temporary data files.
    
    fig.savefig('example_errorbar_from_file.pdf')
 
+Line Overlay from File
+~~~~~~~~~~~~~~~~~~~~~~
+
+Overlay a smooth model/fit line from file columns directly on top of measured
+points, without writing generated ``data_*.dat`` line files.
+
+.. code-block:: python
+
+   import gleplot as glp
+
+   fig = glp.figure(figsize=(8, 6))
+   ax = fig.add_subplot(111)
+
+   # data columns: c1=x, c2=y, c3=yerr, c4=fit
+   ax.errorbar_from_file(
+      'fit_results.dat',
+      x_col=1,
+      y_col=2,
+      yerr_col=3,
+      color='blue',
+      marker='o',
+      capsize=3,
+      label='Data'
+   )
+
+   ax.line_from_file(
+      'fit_results.dat',
+      x_col=1,
+      y_col=4,
+      color='red',
+      linestyle='--',
+      linewidth=2,
+      label='Fit'
+   )
+
+   ax.set_xlabel('x')
+   ax.set_ylabel('y')
+   ax.set_title('Data + Fit Overlay from File')
+   ax.legend()
+
+   fig.savefig('example_line_from_file_overlay.pdf')
+
 Dual Y-Axis from File
 ~~~~~~~~~~~~~~~~~~~~~~
 

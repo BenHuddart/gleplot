@@ -113,6 +113,36 @@ Fill Between
 
    ax.fill_between(x, y1, y2, alpha=0.3, color='blue')
 
+   File-Based Series
+   ~~~~~~~~~~~~~~~~~
+
+   Use existing data files directly when you already have tabular outputs from
+   an external pipeline. Column indices are 1-based, matching GLE syntax.
+
+   .. code-block:: python
+
+      # Data columns: c1=time, c2=signal, c3=sigma, c4=model
+      ax.errorbar_from_file(
+         'results.dat',
+         x_col=1,
+         y_col=2,
+         yerr_col=3,
+         color='blue',
+         marker='o',
+         label='Measured'
+      )
+
+      # Overlay model/fit curve from the same file without generating data_*.dat
+      ax.line_from_file(
+         'results.dat',
+         x_col=1,
+         y_col=4,
+         color='red',
+         linestyle='--',
+         linewidth=2,
+         label='Fit'
+      )
+
 Customizing Axes
 ----------------
 
