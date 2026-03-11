@@ -69,6 +69,11 @@ class TestBasicPlotting(unittest.TestCase):
         
         self.assertEqual(len(self.ax.lines), 2)
 
+    def test_line_with_data_name(self):
+        """Test semantic data file naming for line plots."""
+        self.ax.plot([1, 2, 3], [3, 2, 1], data_name='Observed Signal')
+        self.assertEqual(self.ax.lines[0]['data_file'], 'observed_signal.dat')
+
 
 class TestScatterPlots(unittest.TestCase):
     """Test scatter plot functionality."""
@@ -146,6 +151,11 @@ class TestBarCharts(unittest.TestCase):
         self.assertEqual(colors[1], 'RED')
         self.assertEqual(colors[2], 'RED')
 
+    def test_bar_with_data_name(self):
+        """Test semantic data file naming for bar plots."""
+        self.ax.bar([1, 2, 3], [10, 20, 30], data_name='Bar Data #1')
+        self.assertEqual(self.ax.bars[0]['data_file'], 'bar_data_1.dat')
+
 
 class TestFillBetween(unittest.TestCase):
     """Test fill_between functionality."""
@@ -175,6 +185,19 @@ class TestFillBetween(unittest.TestCase):
         self.ax.fill_between([1, 2, 3], [1, 2, 3], [2, 4, 6], color='lightblue')
         
         self.assertEqual(self.ax.fills[0]['color'], 'LIGHTBLUE')
+
+    def test_fill_with_data_name(self):
+        """Test semantic data file naming for generated fill data."""
+        self.ax.fill_between([1, 2, 3], [1, 2, 3], [2, 4, 6], data_name='Component Lambda 2D Fill')
+        self.assertEqual(self.ax.fills[0]['data_file'], 'component_lambda_2d_fill.dat')
+
+    def test_data_name_collision_is_disambiguated(self):
+        """Test that duplicate custom names are made unique automatically."""
+        self.ax.plot([1, 2], [1, 2], data_name='model-range')
+        self.ax.plot([1, 2], [2, 3], data_name='model-range')
+
+        self.assertEqual(self.ax.lines[0]['data_file'], 'model-range.dat')
+        self.assertEqual(self.ax.lines[1]['data_file'], 'model-range_1.dat')
 
 
 class TestErrorBars(unittest.TestCase):

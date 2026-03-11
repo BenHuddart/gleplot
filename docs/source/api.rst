@@ -5,18 +5,15 @@ Module: gleplot
 ---------------
 
 .. automodule:: gleplot
-   :members:
-   :undoc-members:
-   :inherited-members:
-   :show-inheritance:
+   :no-members:
 
 Core Classes
 ~~~~~~~~~~~~
 
-figure
+Figure
 ^^^^^^
 
-.. autoclass:: gleplot.figure
+.. autoclass:: gleplot.Figure
    :members:
    :undoc-members:
 
@@ -32,8 +29,30 @@ Functions
 
 .. autofunction:: gleplot.figure
 
+.. autofunction:: gleplot.subplots
+
 .. autofunction:: gleplot.plot
 
 .. autofunction:: gleplot.scatter
 
 .. autofunction:: gleplot.bar
+
+.. autofunction:: gleplot.fill_between
+
+.. autofunction:: gleplot.errorbar
+
+.. autofunction:: gleplot.text
+
+.. autofunction:: gleplot.xlabel
+
+.. autofunction:: gleplot.ylabel
+
+.. autofunction:: gleplot.title
+
+.. autofunction:: gleplot.legend
+
+.. autofunction:: gleplot.savefig
+
+.. autofunction:: gleplot.view
+
+.. autofunction:: gleplot.close

@@ -57,6 +57,7 @@ class Figure:
         # Custom data file naming
         self.data_prefix = data_prefix
         self._local_data_counter = 0  # Local counter when using custom prefix
+        self._used_data_files: set[str] = set()
         
         self.axes_list = []  # List of Axes objects
         self._current_axes = None  # Current working axes
@@ -172,6 +173,10 @@ class Figure:
     def errorbar(self, x, y, **kwargs):
         """Error bar plot on current axes."""
         return self.gca().errorbar(x, y, **kwargs)
+
+    def text(self, x, y, s, **kwargs):
+        """Add text on current axes."""
+        return self.gca().text(x, y, s, **kwargs)
     
     def xlabel(self, label: str):
         """Set x label on current axes."""
@@ -573,6 +578,18 @@ class Figure:
                     capsize=fs_data.get('capsize'),
                     yaxis=fs_data.get('yaxis', 'y'),
                 )
+
+        # Add text annotations.
+        for text_data in ax.texts:
+            writer.add_text(
+                x=text_data['x'],
+                y=text_data['y'],
+                text=text_data['text'],
+                color=text_data.get('color', 'BLACK'),
+                fontsize=text_data.get('fontsize'),
+                halign=text_data.get('ha', 'left'),
+                box_color=text_data.get('box_color'),
+            )
         
         # Add legend if needed
         legend_sources = ax.lines + ax.scatters + ax.bars + ax.errorbars + ax.file_series

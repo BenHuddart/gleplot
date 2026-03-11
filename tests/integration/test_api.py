@@ -53,6 +53,7 @@ class TestFigureAPI(unittest.TestCase):
         glp.plot([1, 2, 3], [1, 2, 3])
         glp.scatter([1, 2, 3], [1, 2, 3])
         glp.bar([1, 2, 3], [10, 20, 30])
+        glp.text(2, 2, 'A')
         
         fig = glp.gcf()
         ax = fig.gca()
@@ -60,6 +61,7 @@ class TestFigureAPI(unittest.TestCase):
         self.assertEqual(len(ax.lines), 1)
         self.assertEqual(len(ax.scatters), 1)
         self.assertEqual(len(ax.bars), 1)
+        self.assertEqual(len(ax.texts), 1)
 
 
 class TestGLEGeneration(unittest.TestCase):

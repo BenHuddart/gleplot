@@ -42,6 +42,7 @@ class GLEWriter:
         self.lines_gle = []  # GLE script lines
         self.data_files = {}  # {filename: data_content}
         self.dataset_index = 1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
+        self._pending_graph_text_lines: List[str] = []
     
     def add_preamble(self, include_graph_begin: bool = True):
         """Add GLE preamble.
@@ -84,6 +85,9 @@ class GLEWriter:
     def end_graph(self):
         """Close the current graph block."""
         self.lines_gle.append('end graph')
+        if self._pending_graph_text_lines:
+            self.lines_gle.extend(self._pending_graph_text_lines)
+            self._pending_graph_text_lines = []
     
     def add_amove(self, x_cm: float, y_cm: float):
         """Add absolute move command to position the next graph.
@@ -746,6 +750,46 @@ class GLEWriter:
         
         # GLE fill between two datasets: fill d1,d2 color X
         self.lines_gle.append(f'    fill {d1_name},{d2_name} color {color}')
+
+    def add_text(
+        self,
+        x: float,
+        y: float,
+        text: str,
+        color: str = 'BLACK',
+        fontsize: Optional[float] = None,
+        halign: str = 'left',
+        box_color: Optional[str] = None,
+    ):
+        """Add text annotation in graph data coordinates."""
+        escaped_text = self._escape_gle_string(text)
+
+        if fontsize is not None:
+            self._pending_graph_text_lines.append(
+                f'set hei {self._format_number(float(fontsize) / 28.35)}'
+            )
+
+        if color:
+            self._pending_graph_text_lines.append(f'set color {color}')
+
+        just_map = {
+            'left': 'left',
+            'center': 'center',
+            'right': 'right',
+        }
+        just = just_map.get(str(halign).lower(), 'left')
+        self._pending_graph_text_lines.append(f'set just {just}')
+
+        # Boxed text in graph-data coordinates can produce invalid bounds in
+        # some GLE versions; keep label export robust by emitting plain text.
+        # box_color is currently accepted for API compatibility but ignored.
+        _ = box_color
+        self._pending_graph_text_lines.append(
+            f'amove xg({self._format_number(x)}) yg({self._format_number(y)})'
+        )
+        self._pending_graph_text_lines.append(
+            f'write "{escaped_text}"'
+        )
     
     def add_legend(self, position: Optional[str] = None):
         """Add legend configuration.
@@ -780,9 +824,7 @@ class GLEWriter:
             backward compatibility. Set False for multi-subplot layout.
         """
         if include_graph_end:
-            self.lines_gle.extend([
-                'end graph',
-            ])
+            self.end_graph()
     
     def get_gle_content(self) -> str:
         """Get complete GLE script content."""
@@ -834,3 +876,8 @@ class GLEWriter:
             formatted = f'{val:.{precision}g}'
             return formatted
         return str(val)
+
+    @staticmethod
+    def _escape_gle_string(value: str) -> str:
+        """Escape string for inclusion in GLE quoted text."""
+        return str(value).replace('"', '\\"')

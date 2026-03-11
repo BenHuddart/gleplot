@@ -113,35 +113,49 @@ Fill Between
 
    ax.fill_between(x, y1, y2, alpha=0.3, color='blue')
 
-   File-Based Series
-   ~~~~~~~~~~~~~~~~~
+File-Based Series
+~~~~~~~~~~~~~~~~~
 
-   Use existing data files directly when you already have tabular outputs from
-   an external pipeline. Column indices are 1-based, matching GLE syntax.
+Use existing data files directly when you already have tabular outputs from
+an external pipeline. Column indices are 1-based, matching GLE syntax.
 
-   .. code-block:: python
+.. code-block:: python
 
-      # Data columns: c1=time, c2=signal, c3=sigma, c4=model
-      ax.errorbar_from_file(
-         'results.dat',
-         x_col=1,
-         y_col=2,
-         yerr_col=3,
-         color='blue',
-         marker='o',
-         label='Measured'
-      )
+   # Data columns: c1=time, c2=signal, c3=sigma, c4=model
+   ax.errorbar_from_file(
+      'results.dat',
+      x_col=1,
+      y_col=2,
+      yerr_col=3,
+      color='blue',
+      marker='o',
+      label='Measured'
+   )
 
-      # Overlay model/fit curve from the same file without generating data_*.dat
-      ax.line_from_file(
-         'results.dat',
-         x_col=1,
-         y_col=4,
-         color='red',
-         linestyle='--',
-         linewidth=2,
-         label='Fit'
-      )
+   # Overlay model/fit curve from the same file without generating data_*.dat
+   ax.line_from_file(
+      'results.dat',
+      x_col=1,
+      y_col=4,
+      color='red',
+      linestyle='--',
+      linewidth=2,
+      label='Fit'
+   )
+
+Text Annotations
+~~~~~~~~~~~~~~~~
+
+Add labels directly in data coordinates.
+
+.. code-block:: python
+
+   ax.plot(x, y)
+   ax.text(3.2, 1.5, 'Peak A', color='black', fontsize=11, ha='center')
+
+   # pyplot-style convenience
+   import gleplot as glp
+   glp.text(1.0, 0.5, 'Reference')
 
 Customizing Axes
 ----------------
@@ -260,6 +274,21 @@ Expected side files include:
 
 - ``run42_0.dat``
 - ``run42_1.dat`` (if additional plot series are written)
+
+For per-series naming, pass ``data_name`` to generated-data plot methods:
+
+.. code-block:: python
+
+   ax.plot(x, y_obs, data_name='Observed Signal')
+   ax.fill_between(x, y_lo, y_hi, data_name='Confidence Band 95')
+
+These names are sanitized to safe filenames, for example:
+
+- ``Observed Signal`` -> ``observed_signal.dat``
+- ``Confidence Band 95`` -> ``confidence_band_95.dat``
+
+If a name is reused, gleplot automatically disambiguates it by suffixing
+``_1``, ``_2``, and so on.
 
 You can also combine this with subplots:
 

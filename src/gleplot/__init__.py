@@ -8,6 +8,7 @@ quality vector graphics.
 Features
 --------
 - Matplotlib-compatible API (plot, scatter, bar, fill_between, errorbar)
+- Text annotations in data coordinates (text)
 - Subplots with flexible grid layouts (subplots, add_subplot)
 - Native vector graphics output (PDF, PNG, EPS)
 - Inline display in Jupyter notebooks (view)
@@ -15,6 +16,7 @@ Features
 - Error bars (symmetric, asymmetric, horizontal)
 - Logarithmic scales
 - Legend and axis labels
+- Semantic per-series data file naming (data_name) and figure-level prefixes (data_prefix)
 - Direct GLE script generation
 
 Usage
@@ -152,6 +154,11 @@ def fill_between(*args, **kwargs):
 def errorbar(*args, **kwargs):
     """Error bar plot on current axes."""
     return gca().errorbar(*args, **kwargs)
+
+
+def text(*args, **kwargs):
+    """Add text annotation on current axes."""
+    return gca().text(*args, **kwargs)
 
 
 def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
@@ -315,6 +322,7 @@ __all__ = [
     'bar',
     'fill_between',
     'errorbar',
+    'text',
     'subplots',
     'xlabel',
     'ylabel',

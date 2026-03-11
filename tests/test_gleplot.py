@@ -29,6 +29,7 @@ from .unit.test_plotting import (
     TestFillBetween,
 )
 from .unit.test_axes import TestAxisProperties
+from .unit.test_text import TestTextAnnotations
 from .unit.test_utilities import TestColorMapping, TestMarkerMapping
 from .integration.test_file_io import TestFileIO
 from .integration.test_api import TestFigureAPI, TestGLEGeneration
@@ -48,6 +49,7 @@ __all__ = [
     'TestBarCharts',
     'TestFillBetween',
     'TestAxisProperties',
+    'TestTextAnnotations',
     'TestColorMapping',
     'TestMarkerMapping',
     'TestFileIO',

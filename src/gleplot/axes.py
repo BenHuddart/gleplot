@@ -1,6 +1,7 @@
 """Axes class for gleplot."""
 
 import numpy as np
+import re
 from typing import Optional, List, Union, Tuple
 from .colors import rgb_to_gle
 from .markers import get_gle_marker
@@ -8,6 +9,40 @@ from .markers import get_gle_marker
 
 # Global counter for unique data file names across all figures in a session
 _global_data_file_counter = 0
+
+
+def _sanitize_data_stem(name: object) -> str:
+    """Convert an arbitrary data name to a safe filename stem."""
+    text = re.sub(r"[^A-Za-z0-9_-]+", "_", str(name).strip().lower())
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text or "data"
+
+
+def _reserve_data_filename(filename: str, figure=None) -> str:
+    """Reserve a data filename and avoid collisions within a figure."""
+    if not filename.endswith(".dat"):
+        filename = f"{filename}.dat"
+
+    if figure is None:
+        return filename
+
+    used = getattr(figure, "_used_data_files", None)
+    if used is None:
+        used = set()
+        figure._used_data_files = used
+
+    if filename not in used:
+        used.add(filename)
+        return filename
+
+    stem = filename[:-4]
+    suffix_idx = 1
+    while True:
+        candidate = f"{stem}_{suffix_idx}.dat"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        suffix_idx += 1
 
 
 def _get_next_data_file(figure=None):
@@ -31,7 +66,14 @@ def _get_next_data_file(figure=None):
         global _global_data_file_counter
         filename = f'data_{_global_data_file_counter}.dat'
         _global_data_file_counter += 1
-    return filename
+    return _reserve_data_filename(filename, figure)
+
+
+def _resolve_data_file(figure=None, data_name: object = None) -> str:
+    """Resolve a data filename from an optional user-provided name."""
+    if data_name is None:
+        return _get_next_data_file(figure)
+    return _reserve_data_filename(_sanitize_data_stem(data_name), figure)
 
 
 class Axes:
@@ -81,6 +123,7 @@ class Axes:
         self.fills = []  # List of fill_between data
         self.errorbars = []  # List of errorbar plot data
         self.file_series = []  # External-file series definitions (column references)
+        self.texts = []  # In-plot text annotations
     
     def plot(self, x, y, linestyle: str = '-', color: Optional[str] = None,
              marker: Optional[str] = None, markersize: float = 6,
@@ -115,6 +158,8 @@ class Axes:
         Line2D
             Line object (for compatibility)
         """
+        data_name = kwargs.pop('data_name', None)
+
         x = np.asarray(x)
         y = np.asarray(y)
         
@@ -150,7 +195,7 @@ class Axes:
             'linewidth': linewidth,
             'label': label,
             'yaxis': yaxis,  # 'y' or 'y2'
-            'data_file': _get_next_data_file(self.figure),
+            'data_file': _resolve_data_file(self.figure, data_name),
         }
         
         if is_scatter:
@@ -503,6 +548,8 @@ class Axes:
         >>> ax.bar(categories, values, color='blue')
         >>> fig.savefig('bar_chart.pdf')
         """
+        data_name = kwargs.pop('data_name', None)
+
         x = np.asarray(x, dtype=float)
         height = np.asarray(height, dtype=float)
 
@@ -520,7 +567,7 @@ class Axes:
             'height': height,
             'colors': colors,
             'label': label,
-            'data_file': _get_next_data_file(self.figure),
+            'data_file': _resolve_data_file(self.figure, data_name),
         }
         self.bars.append(bar_data)
         
@@ -550,6 +597,8 @@ class Axes:
         -------
         self
         """
+        data_name = kwargs.pop('data_name', None)
+
         x = np.asarray(x)
         y1 = np.asarray(y1)
         y2 = np.asarray(y2)
@@ -566,10 +615,66 @@ class Axes:
             'color': color,
             'alpha': alpha,
             'label': label,
-            'data_file': _get_next_data_file(self.figure),
+            'data_file': _resolve_data_file(self.figure, data_name),
         }
         self.fills.append(fill_data)
         
+        return self
+
+    def text(
+        self,
+        x: float,
+        y: float,
+        s: str,
+        color: Optional[str] = None,
+        fontsize: Optional[float] = None,
+        ha: str = 'left',
+        va: str = 'center',
+        bbox: Optional[dict] = None,
+        **kwargs,
+    ):
+        """Add free-form text annotation in data coordinates.
+
+        Parameters
+        ----------
+        x, y : float
+            Data coordinates.
+        s : str
+            Text to render.
+        color : str, optional
+            Text color.
+        fontsize : float, optional
+            Font size in points.
+        ha : str, optional
+            Horizontal alignment: 'left', 'center', or 'right'.
+        va : str, optional
+            Vertical alignment placeholder for API compatibility.
+        bbox : dict, optional
+            Optional text box settings. Supported key: ``facecolor``.
+        """
+        if color is None:
+            gle_color = 'BLACK'
+        else:
+            gle_color = rgb_to_gle(color)
+
+        box_color = None
+        if isinstance(bbox, dict):
+            facecolor = bbox.get('facecolor')
+            if facecolor is not None:
+                box_color = rgb_to_gle(facecolor)
+
+        self.texts.append(
+            {
+                'x': float(x),
+                'y': float(y),
+                'text': str(s),
+                'color': gle_color,
+                'fontsize': float(fontsize) if fontsize is not None else None,
+                'ha': str(ha),
+                'va': str(va),
+                'box_color': box_color,
+            }
+        )
         return self
     
     def set_xlabel(self, label: str):
