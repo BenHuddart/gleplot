@@ -82,6 +82,39 @@ Behavior summary:
 - ``sharey=True``: only leftmost column shows y-axis labels/ticks
 - Axis limits are synchronized across shared dimensions
 
+Adjusting Subplot Layout
+------------------------
+
+Use ``Figure.subplots_adjust(...)`` to fine-tune subplot margins and spacing
+when default panel geometry needs more room for labels, titles, or annotations.
+
+- ``left``, ``right``, ``bottom``, ``top`` are normalized figure fractions in ``[0, 1]``
+- ``wspace`` and ``hspace`` follow matplotlib semantics (fraction of average panel size)
+
+.. code-block:: python
+
+   fig, axes = glp.subplots(2, 2, figsize=(10, 8))
+
+   axes[0].plot(x, y_a)
+   axes[1].plot(x, y_b)
+   axes[2].plot(x, y_c)
+   axes[3].plot(x, y_d)
+
+   # Increase outer margins and panel spacing.
+   fig.subplots_adjust(
+      left=0.12,
+      right=0.98,
+      bottom=0.1,
+      top=0.92,
+      wspace=0.35,
+      hspace=0.4,
+   )
+
+Validation rules match expected matplotlib-style constraints:
+
+- ``left < right`` and ``bottom < top``
+- ``wspace >= 0`` and ``hspace >= 0``
+
 Plotting Data
 -------------
 

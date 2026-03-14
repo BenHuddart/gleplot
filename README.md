@@ -39,6 +39,7 @@ fig.savefig('trig.gle')
 ✨ **Error Bars** - Symmetric, asymmetric, vertical and horizontal  
 ✨ **File-Based Series** - Plot directly from existing data columns (no extra sidecar files)  
 ✨ **Subplots** - Multi-panel figures with flexible grid layouts  
+✨ **Subplot Layout Control** - Fine-tune margins and inter-panel spacing with `subplots_adjust`  
 ✨ **Publication Ready** - Suitable for all major academic journals  
 ✨ **Lightweight** - Pure Python, minimal dependencies  
 
@@ -257,6 +258,16 @@ axes[0].scatter(x1, y1)
 axes[0].set_ylabel('Response')  # Only need to label left
 axes[1].scatter(x2, y2)
 axes[2].scatter(x3, y3)
+
+# Fine-tune multi-panel layout (matplotlib-compatible)
+fig.subplots_adjust(
+  left=0.12,
+  right=0.98,
+  bottom=0.1,
+  top=0.92,
+  wspace=0.35,
+  hspace=0.4,
+)
 ```
 
 ### Axis Control

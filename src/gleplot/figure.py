@@ -58,6 +58,7 @@ class Figure:
         self.data_prefix = data_prefix
         self._local_data_counter = 0  # Local counter when using custom prefix
         self._used_data_files: set[str] = set()
+        self._subplot_adjust: dict[str, float] = {}
         
         self.axes_list = []  # List of Axes objects
         self._current_axes = None  # Current working axes
@@ -67,6 +68,54 @@ class Figure:
             self.compiler = GLECompiler()
         except RuntimeError:
             pass  # GLE not available, but can still write scripts
+
+    def subplots_adjust(
+        self,
+        *,
+        left: Optional[float] = None,
+        right: Optional[float] = None,
+        bottom: Optional[float] = None,
+        top: Optional[float] = None,
+        wspace: Optional[float] = None,
+        hspace: Optional[float] = None,
+    ) -> None:
+        """Store subplot layout overrides (matplotlib-compatible API).
+
+        Parameters are normalized figure fractions except `wspace`/`hspace`,
+        which follow matplotlib semantics (fraction of average subplot width/height).
+        """
+        candidate = dict(self._subplot_adjust)
+        updates = {
+            'left': left,
+            'right': right,
+            'bottom': bottom,
+            'top': top,
+            'wspace': wspace,
+            'hspace': hspace,
+        }
+        for key, value in updates.items():
+            if value is None:
+                continue
+            val = float(value)
+            if key in {'left', 'right', 'bottom', 'top'}:
+                if not (0.0 <= val <= 1.0):
+                    raise ValueError(f"{key} must be within [0, 1], got {val}")
+            else:
+                if val < 0.0:
+                    raise ValueError(f"{key} must be >= 0, got {val}")
+            candidate[key] = val
+
+        left_val = candidate.get('left')
+        right_val = candidate.get('right')
+        if left_val is not None and right_val is not None and left_val >= right_val:
+            raise ValueError('left must be less than right')
+
+        bottom_val = candidate.get('bottom')
+        top_val = candidate.get('top')
+        if bottom_val is not None and top_val is not None and bottom_val >= top_val:
+            raise ValueError('bottom must be less than top')
+
+        self._subplot_adjust = candidate
     
     def add_subplot(self, *args) -> Axes:
         """
@@ -383,8 +432,9 @@ class Figure:
                     if ax.ymax is None:
                         ax.ymax = data_ymax
             
-            # Calculate per-subplot dimensions in cm
-            # Smart margins based on what labels are shown and subplot content
+            # Calculate per-subplot dimensions in cm.
+            # Default margins/spacing are heuristic, but can be overridden via
+            # subplots_adjust(left=..., right=..., top=..., bottom=..., wspace=..., hspace=...).
             
             # Check if any subplot has a title
             has_titles = any(ax.title_text for ax in self.axes_list)
@@ -404,23 +454,42 @@ class Figure:
                 margin_left = 1.0
                 margin_right = 1.0
             
-            # Spacing between subplots (cm) - zero when axes are shared (subplots touch)
-            # When subplots touch, we use GLE commands like 'nolast' to remove overlapping labels
-            if self.sharey:
-                hspace = 0.0  # No gap - subplots touch when sharing y-axis
+            # Convert margin overrides from normalized figure fractions to cm.
+            if 'left' in self._subplot_adjust:
+                margin_left = self._subplot_adjust['left'] * writer.width_cm
+            if 'right' in self._subplot_adjust:
+                margin_right = (1.0 - self._subplot_adjust['right']) * writer.width_cm
+            if 'bottom' in self._subplot_adjust:
+                margin_bottom = self._subplot_adjust['bottom'] * writer.height_cm
+            if 'top' in self._subplot_adjust:
+                margin_top = (1.0 - self._subplot_adjust['top']) * writer.height_cm
+
+            avail_w = writer.width_cm - margin_left - margin_right
+            avail_h = writer.height_cm - margin_bottom - margin_top
+
+            # Spacing between subplots; defaults preserve existing behavior.
+            default_hspace_cm = 0.0 if self.sharey else 1.5
+            default_vspace_cm = 0.0 if self.sharex else 2.0
+            wspace_frac = self._subplot_adjust.get('wspace')
+            hspace_frac = self._subplot_adjust.get('hspace')
+
+            if max_cols > 1 and wspace_frac is not None:
+                denom = max_cols + wspace_frac * (max_cols - 1)
+                cell_w = avail_w / denom if denom > 0 else avail_w / max_cols
+                hspace = wspace_frac * cell_w
             else:
-                hspace = 1.5
-            
-            if self.sharex:
-                vspace = 0.0  # No gap - subplots touch when sharing x-axis
+                hspace = default_hspace_cm
+                usable_w = avail_w - (max_cols - 1) * hspace
+                cell_w = usable_w / max_cols
+
+            if max_rows > 1 and hspace_frac is not None:
+                denom = max_rows + hspace_frac * (max_rows - 1)
+                cell_h = avail_h / denom if denom > 0 else avail_h / max_rows
+                vspace = hspace_frac * cell_h
             else:
-                vspace = 2.0
-            
-            usable_w = writer.width_cm - margin_left - margin_right - (max_cols - 1) * hspace
-            usable_h = writer.height_cm - margin_bottom - margin_top - (max_rows - 1) * vspace
-            
-            cell_w = usable_w / max_cols
-            cell_h = usable_h / max_rows
+                vspace = default_vspace_cm
+                usable_h = avail_h - (max_rows - 1) * vspace
+                cell_h = usable_h / max_rows
             
             for ax in self.axes_list:
                 rows, cols, idx = ax.position

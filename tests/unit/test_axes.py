@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+import re
 import unittest
 
 # Add src to path
@@ -69,6 +70,22 @@ class TestSubplots(unittest.TestCase):
     def tearDown(self):
         """Clean up after each test."""
         glp.close()
+
+    @staticmethod
+    def _extract_amove_points(gle):
+        """Return all amove coordinates as (x, y) float tuples."""
+        return [
+            (float(x), float(y))
+            for x, y in re.findall(r'^amove\s+([0-9.]+)\s+([0-9.]+)$', gle, re.MULTILINE)
+        ]
+
+    @staticmethod
+    def _extract_sizes(gle):
+        """Return all graph size commands as (width, height) float tuples."""
+        return [
+            (float(w), float(h))
+            for w, h in re.findall(r'^\s*size\s+([0-9.]+)\s+([0-9.]+)$', gle, re.MULTILINE)
+        ]
     
     def test_add_subplot_three_args(self):
         """Test add_subplot with three separate arguments."""
@@ -186,6 +203,74 @@ class TestSubplots(unittest.TestCase):
             self.assertIn(f'title "Plot {i}"', gle)
         # Should have explicit size for each subplot
         self.assertIn('size', gle)
+
+    def test_subplots_adjust_changes_multiplot_geometry(self):
+        """subplots_adjust should alter amove geometry in generated GLE."""
+        fig, axes = glp.subplots(3, 1, figsize=(8, 9))
+        for idx, ax in enumerate(axes):
+            ax.plot([1, 2, 3], [idx + 1, idx + 2, idx + 3])
+
+        gle_default = fig._generate_gle()
+        default_points = self._extract_amove_points(gle_default)
+        self.assertEqual(len(default_points), 3)
+        default_x = default_points[0][0]
+
+        fig.subplots_adjust(left=0.2, right=0.98, bottom=0.12, top=0.95, hspace=0.45)
+        gle_adjusted = fig._generate_gle()
+        adjusted_points = self._extract_amove_points(gle_adjusted)
+        self.assertEqual(len(adjusted_points), 3)
+        adjusted_x = adjusted_points[0][0]
+
+        # Increased normalized left margin should shift all subplots right.
+        self.assertGreater(adjusted_x, default_x)
+
+    def test_subplots_adjust_wspace_hspace_reduce_cell_size(self):
+        """Positive wspace/hspace should reduce per-panel graph size."""
+        fig, axes = glp.subplots(2, 2, figsize=(10, 8))
+        for idx, ax in enumerate(axes):
+            ax.plot([1, 2, 3], [idx + 1, idx + 2, idx + 3])
+
+        default_sizes = self._extract_sizes(fig._generate_gle())
+        # First size command is global canvas size; subsequent entries are subplot sizes.
+        default_subplot_sizes = default_sizes[1:]
+        self.assertEqual(len(default_subplot_sizes), 4)
+
+        fig.subplots_adjust(wspace=0.6, hspace=0.5)
+        adjusted_sizes = self._extract_sizes(fig._generate_gle())
+        adjusted_subplot_sizes = adjusted_sizes[1:]
+        self.assertEqual(len(adjusted_subplot_sizes), 4)
+
+        self.assertLess(adjusted_subplot_sizes[0][0], default_subplot_sizes[0][0])
+        self.assertLess(adjusted_subplot_sizes[0][1], default_subplot_sizes[0][1])
+
+    def test_subplots_adjust_validation_errors(self):
+        """subplots_adjust should validate bounds and axis ordering."""
+        fig = glp.figure()
+
+        with self.assertRaisesRegex(ValueError, r'left must be within \[0, 1\]'):
+            fig.subplots_adjust(left=-0.01)
+
+        with self.assertRaisesRegex(ValueError, r'wspace must be >= 0'):
+            fig.subplots_adjust(wspace=-0.5)
+
+        with self.assertRaisesRegex(ValueError, 'left must be less than right'):
+            fig.subplots_adjust(left=0.8, right=0.3)
+
+        with self.assertRaisesRegex(ValueError, 'bottom must be less than top'):
+            fig.subplots_adjust(bottom=0.7, top=0.2)
+
+    def test_subplots_adjust_invalid_update_does_not_mutate_state(self):
+        """Invalid updates should not partially overwrite previous settings."""
+        fig = glp.figure()
+        fig.subplots_adjust(left=0.15, right=0.9, top=0.95, bottom=0.1)
+
+        with self.assertRaisesRegex(ValueError, 'left must be less than right'):
+            fig.subplots_adjust(right=0.1)
+
+        self.assertEqual(fig._subplot_adjust['left'], 0.15)
+        self.assertEqual(fig._subplot_adjust['right'], 0.9)
+        self.assertEqual(fig._subplot_adjust['top'], 0.95)
+        self.assertEqual(fig._subplot_adjust['bottom'], 0.1)
     
     def test_subplot_mixed_types(self):
         """Test subplots with different plot types."""
