@@ -270,3 +270,22 @@ Both vertical and horizontal error bars:
 
    ax.errorbar(x, y, yerr=yerr_array, xerr=xerr_array,
               marker='o', fmt='none', color='blue', capsize=0.1)
+
+Additional Advanced Example Scripts
+-----------------------------------
+
+The repository includes additional runnable scripts under ``examples/advanced``
+for focused workflows:
+
+- ``text_annotations.py`` - annotation alignment and boxed labels
+- ``per_element_styling.py`` - different style choices per element
+- ``batch_figures.py`` - loop-based generation of many figures
+- ``line_from_file.py`` - model overlays from existing data files
+- ``data_prefix.py`` - deterministic sidecar file naming patterns
+
+Run the full suite from the repository root:
+
+.. code-block:: bash
+
+   cd examples
+   python run_all.py

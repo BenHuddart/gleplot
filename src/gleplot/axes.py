@@ -367,6 +367,8 @@ class Axes:
                 xerr_left = err_arr
                 xerr_right = err_arr
 
+        data_name = kwargs.pop('data_name', None)
+
         errbar_data = {
             'type': 'errorbar',
             'x': x,
@@ -384,7 +386,7 @@ class Axes:
             'capsize': stored_capsize,
             'gle_capsize': gle_capsize,  # Separate field for the GLE-converted value
             'yaxis': yaxis,  # 'y' or 'y2'
-            'data_file': _get_next_data_file(self.figure),
+            'data_file': _resolve_data_file(self.figure, data_name),
         }
         self.errorbars.append(errbar_data)
 

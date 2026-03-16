@@ -14,6 +14,51 @@ Complete guide for the `view()` function for inline display in Jupyter notebooks
 - Comparison with savefig()
 - Tips and best practices
 
+### [TEXT_ANNOTATIONS.md](TEXT_ANNOTATIONS.md)
+Guide for data-coordinate text labels, alignment controls, and callout boxes.
+
+**Contents:**
+- Basic `text()` usage
+- Alignment (`ha`/`va`) options
+- Boxed annotations
+- Convenience API patterns
+
+### [FILE_BASED_SERIES.md](FILE_BASED_SERIES.md)
+Guide for plotting directly from existing data files.
+
+**Contents:**
+- `errorbar_from_file()` patterns
+- `line_from_file()` overlays
+- 1-based column indexing
+- Data format and workflow notes
+
+### [COLORS_AND_MARKERS.md](COLORS_AND_MARKERS.md)
+Reference for accepted color and marker mappings.
+
+**Contents:**
+- Matplotlib-to-GLE color mapping
+- Supported named colors
+- Marker symbol mapping
+- Native GLE marker names
+
+### [MATPLOTLIB_MIGRATION.md](MATPLOTLIB_MIGRATION.md)
+Quick-start migration guide from matplotlib plotting code.
+
+**Contents:**
+- API mapping table
+- Porting examples
+- Behavioral differences
+- Migration strategy
+
+### [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+Common issues and practical fixes for save/compile/layout workflows.
+
+**Contents:**
+- Missing GLE executable
+- Compilation failures
+- Sidecar naming issues
+- Shared-axis and layout behavior
+
 ## Testing Documentation
 
 ### [TESTING_QUICK_REFERENCE.md](TESTING_QUICK_REFERENCE.md)

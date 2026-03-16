@@ -227,6 +227,61 @@ Get the current configuration of a figure:
     # Access marker config
     print(f"Default marker: {fig.marker_config.default_marker}")
 
+## Layout and Output Naming Configuration
+
+### Subplot Layout Tuning with `subplots_adjust`
+
+Use `Figure.subplots_adjust(...)` to control margins and spacing when subplot
+labels, legends, or titles need extra room.
+
+    import gleplot as glp
+    import numpy as np
+
+    fig, axes = glp.subplots(2, 2, figsize=(10, 8))
+    x = np.linspace(0, 10, 100)
+
+    for i, ax in enumerate(axes, start=1):
+        ax.plot(x, np.sin(x + i), label=f'Panel {i}')
+        ax.legend()
+
+    fig.subplots_adjust(
+        left=0.12,
+        right=0.98,
+        bottom=0.10,
+        top=0.93,
+        wspace=0.35,
+        hspace=0.40,
+    )
+
+Validation rules follow matplotlib conventions:
+
+- `left < right`
+- `bottom < top`
+- `wspace >= 0`
+- `hspace >= 0`
+
+### Data Sidecar Naming with `data_prefix`
+
+Set a figure-level `data_prefix` for deterministic sidecar `.dat` filenames in
+batch workflows.
+
+    import gleplot as glp
+    import numpy as np
+
+    x = np.linspace(0, 1, 50)
+    fig = glp.figure(data_prefix='run42')
+    ax = fig.add_subplot(111)
+    ax.plot(x, x**2)
+    fig.savefig('run42_result.gle')
+
+Typical side files:
+
+- `run42_0.dat`
+- `run42_1.dat` (if additional series are generated)
+
+For semantic per-series names, use the `data_name` keyword in generated-data
+methods such as `plot()` and `fill_between()`.
+
 ## Resetting to Defaults
 
 Reset all global configurations to defaults:

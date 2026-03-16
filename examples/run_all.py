@@ -24,6 +24,12 @@ from advanced import (
     example_both_shared,
     example_residual_plot,
     example_comparison_with_without,
+    example_text_annotations,
+    example_per_element_styling,
+    example_batch_figures,
+    example_line_from_file,
+    example_data_prefix,
+    example_line_overlay_from_file,
 )
 
 
@@ -49,6 +55,12 @@ def main():
         ("Both Axes Shared (2x2 Grid)", example_both_shared),
         ("Residual Plot Analysis", example_residual_plot),
         ("Comparison: Shared vs Non-shared", example_comparison_with_without),
+        ("Text Annotations", example_text_annotations),
+        ("Per-Element Styling", example_per_element_styling),
+        ("Batch Figure Generation", example_batch_figures),
+        ("Line From File", example_line_from_file),
+        ("Data Prefix Naming", example_data_prefix),
+        ("Line Overlay From File", example_line_overlay_from_file),
     ]
     
     for name, example_func in examples:

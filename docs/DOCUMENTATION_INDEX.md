@@ -41,6 +41,53 @@ Complete API reference for all configuration options.
 - Default values documented
 - Usage examples
 
+## Plotting and Migration Guides
+
+### [TEXT_ANNOTATIONS.md](guides/TEXT_ANNOTATIONS.md)
+Guide for placing text labels in data coordinates with alignment and callout boxes.
+
+**Contains:**
+- Basic annotation usage
+- Horizontal/vertical alignment options
+- Font and color examples
+- Boxed annotation patterns
+
+### [FILE_BASED_SERIES.md](guides/FILE_BASED_SERIES.md)
+Guide for plotting directly from existing tabular data files.
+
+**Contains:**
+- `errorbar_from_file()` usage
+- `line_from_file()` usage
+- 1-based column indexing and data format
+- End-to-end workflow patterns
+
+### [COLORS_AND_MARKERS.md](guides/COLORS_AND_MARKERS.md)
+Reference for accepted color and marker mappings.
+
+**Contains:**
+- Matplotlib color-code mappings
+- Supported named colors
+- Marker symbol mappings
+- Native GLE marker names
+
+### [MATPLOTLIB_MIGRATION.md](guides/MATPLOTLIB_MIGRATION.md)
+Quick migration guide for porting matplotlib code to gleplot.
+
+**Contains:**
+- API mapping table
+- Side-by-side minimal examples
+- Key behavior differences
+- Recommended migration workflow
+
+### [TROUBLESHOOTING.md](guides/TROUBLESHOOTING.md)
+Common runtime and output issues with practical fixes.
+
+**Contains:**
+- Missing GLE executable
+- Format compilation failures
+- Sidecar file naming issues
+- Shared-axis and layout surprises
+
 ## Semantic Versioning Documentation
 
 ### [VERSIONING.md](guides/VERSIONING.md)
@@ -149,6 +196,14 @@ Demonstrations of configuration system usage with 5 scenarios.
 ### run_and_compile.py
 Script to run and compile all basic examples.
 
+### Advanced plotting examples (examples/advanced/)
+
+- `text_annotations.py` - Text placement, alignment, and boxed callouts
+- `per_element_styling.py` - Different styles per line/scatter/fill element
+- `batch_figures.py` - Generating many figures programmatically
+- `line_from_file.py` - Overlay model lines from existing data files
+- `data_prefix.py` - Deterministic sidecar data file naming
+
 ## File Structure
 
 ```
@@ -159,6 +214,11 @@ gleplot/
 │   └── guides/
 │       ├── CONFIGURATION.md
 │       ├── CONFIGURATION_API.md
+│       ├── TEXT_ANNOTATIONS.md
+│       ├── FILE_BASED_SERIES.md
+│       ├── COLORS_AND_MARKERS.md
+│       ├── MATPLOTLIB_MIGRATION.md
+│       ├── TROUBLESHOOTING.md
 │       ├── VERSIONING.md
 │       ├── VERSIONING_QUICK_REF.md
 │       ├── DEVELOPMENT_WORKFLOW.md
@@ -171,7 +231,13 @@ gleplot/
 │   ├── example_configuration.py
 │   ├── example_versioning_workflow.py
 │   ├── run_and_compile.py
-│   └── gleplot_examples.py
+│   ├── gleplot_examples.py
+│   └── advanced/
+│       ├── text_annotations.py
+│       ├── per_element_styling.py
+│       ├── batch_figures.py
+│       ├── line_from_file.py
+│       └── data_prefix.py
 └── scripts/
     └── bump_version.py               # Semantic versioning automation
 ```
@@ -203,6 +269,12 @@ gleplot/
 
 **Understand implementation**
 → Read [SEMANTIC_VERSIONING_IMPLEMENTATION.md](SEMANTIC_VERSIONING_IMPLEMENTATION.md)
+
+**Use text annotations or file-backed data**
+→ Read [TEXT_ANNOTATIONS.md](guides/TEXT_ANNOTATIONS.md) and [FILE_BASED_SERIES.md](guides/FILE_BASED_SERIES.md)
+
+**Migrate existing matplotlib scripts**
+→ Read [MATPLOTLIB_MIGRATION.md](guides/MATPLOTLIB_MIGRATION.md)
 
 ## Documentation Standards
 

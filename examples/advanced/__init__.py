@@ -20,7 +20,13 @@ from .subplots import (
 from .errorbar_from_file import (
     example_errorbar_from_file,
     example_dual_axis_from_file,
+    example_line_overlay_from_file,
 )
+from .text_annotations import example_text_annotations
+from .per_element_styling import example_per_element_styling
+from .batch_figures import example_batch_figures
+from .line_from_file import example_line_from_file
+from .data_prefix import example_data_prefix
 
 __all__ = [
     'example_fill_between',
@@ -39,4 +45,10 @@ __all__ = [
     'example_1x3_comparison',
     'example_errorbar_from_file',
     'example_dual_axis_from_file',
+    'example_line_overlay_from_file',
+    'example_text_annotations',
+    'example_per_element_styling',
+    'example_batch_figures',
+    'example_line_from_file',
+    'example_data_prefix',
 ]
