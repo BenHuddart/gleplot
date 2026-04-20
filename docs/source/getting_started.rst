@@ -87,6 +87,11 @@ When you call ``savefig``, gleplot writes:
 
 By default, data files use a global pattern like ``data_0.dat``, ``data_1.dat``, etc.
 
+If you want to keep each export self-contained, pass ``folder=True`` to ``savefig``.
+For example, ``fig.savefig('first_plot.pdf', folder=True)`` creates a
+``first_plot.gleplot`` directory containing the compiled output, the
+intermediate ``.gle`` script, and the generated ``.dat`` files.
+
 New: Custom Data File Names
 ---------------------------
 

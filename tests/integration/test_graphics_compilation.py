@@ -1,8 +1,8 @@
 """Integration tests for graphics file generation and validation."""
 
+import shutil
 import sys
 from pathlib import Path
-import tempfile
 import unittest
 
 # Add src to path
@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
 import gleplot as glp
 from gleplot.compiler import GLECompiler
+from tests._tempdir import make_tempdir
 
 
 class TestGraphicsCompilation(unittest.TestCase):
@@ -29,7 +30,7 @@ class TestGraphicsCompilation(unittest.TestCase):
         self.ax.set_title('Test Plot for Graphics Compilation')
         self.ax.legend()
         
-        self.tempdir = Path(tempfile.mkdtemp())
+        self.tempdir = make_tempdir()
         
         # Initialize compiler
         try:
@@ -44,10 +45,7 @@ class TestGraphicsCompilation(unittest.TestCase):
         # Clean up temp files (skip if KEEP_TEST_FILES is set)
         import os
         if not os.environ.get('KEEP_TEST_FILES'):
-            if self.tempdir.exists():
-                for f in self.tempdir.glob('*'):
-                    f.unlink()
-                self.tempdir.rmdir()
+            shutil.rmtree(self.tempdir, ignore_errors=True)
         else:
             print(f"\nTest files preserved in: {self.tempdir}")
     
@@ -120,6 +118,21 @@ class TestGraphicsCompilation(unittest.TestCase):
         self.assertTrue(result.exists())
         self.assertEqual(result.suffix, '.png')
         self.assertTrue(result.stat().st_size > 0)
+
+    def test_save_pdf_in_folder(self):
+        """Test compiled exports keep all generated files in a dedicated folder."""
+        if not self.gle_available:
+            self.skipTest("GLE compiler not available")
+
+        pdf_file = self.tempdir / 'test.pdf'
+        result = self.fig.savefig(str(pdf_file), folder=True)
+
+        export_dir = self.tempdir / 'test.gleplot'
+        self.assertEqual(result, export_dir / 'test.pdf')
+        self.assertTrue(result.exists())
+        self.assertTrue((export_dir / 'test.gle').exists())
+        self.assertGreaterEqual(len(list(export_dir.glob('*.dat'))), 1)
+        self.assertFalse(pdf_file.exists())
     
     def test_pdf_contains_elements(self):
         """Test that PDF contains expected text elements."""
@@ -189,7 +202,7 @@ class TestImageProperties(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         glp.close()
-        self.tempdir = Path(tempfile.mkdtemp())
+        self.tempdir = make_tempdir()
         
         # Initialize compiler
         try:
@@ -203,10 +216,7 @@ class TestImageProperties(unittest.TestCase):
         glp.close()
         import os
         if not os.environ.get('KEEP_TEST_FILES'):
-            if self.tempdir.exists():
-                for f in self.tempdir.glob('*'):
-                    f.unlink()
-                self.tempdir.rmdir()
+            shutil.rmtree(self.tempdir, ignore_errors=True)
         else:
             print(f"\nTest files preserved in: {self.tempdir}")
     
@@ -274,7 +284,7 @@ class TestGraphicsWithAdvancedFeatures(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         glp.close()
-        self.tempdir = Path(tempfile.mkdtemp())
+        self.tempdir = make_tempdir()
         
         try:
             self.compiler = GLECompiler()
@@ -287,10 +297,7 @@ class TestGraphicsWithAdvancedFeatures(unittest.TestCase):
         glp.close()
         import os
         if not os.environ.get('KEEP_TEST_FILES'):
-            if self.tempdir.exists():
-                for f in self.tempdir.glob('*'):
-                    f.unlink()
-                self.tempdir.rmdir()
+            shutil.rmtree(self.tempdir, ignore_errors=True)
         else:
             print(f"\nTest files preserved in: {self.tempdir}")
     

@@ -278,6 +278,18 @@ Save as GLE script (for manual editing or compilation):
 
    fig.savefig('plot.gle')
 
+Save into a dedicated export folder to keep the workspace tidy:
+
+.. code-block:: python
+
+   fig.savefig('plot.pdf', folder=True)
+
+This creates a sibling directory named ``plot.gleplot`` containing:
+
+- ``plot.pdf``
+- ``plot.gle``
+- generated ``.dat`` sidecar files
+
 Save as EPS:
 
 .. code-block:: python

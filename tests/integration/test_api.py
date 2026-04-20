@@ -8,6 +8,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
 import gleplot as glp
+from tests._tempdir import make_tempdir
 
 
 class TestFigureAPI(unittest.TestCase):
@@ -62,6 +63,18 @@ class TestFigureAPI(unittest.TestCase):
         self.assertEqual(len(ax.scatters), 1)
         self.assertEqual(len(ax.bars), 1)
         self.assertEqual(len(ax.texts), 1)
+
+    def test_module_savefig_supports_folder_option(self):
+        """Test top-level savefig forwards the folder option."""
+        tempdir = make_tempdir()
+
+        glp.plot([1, 2, 3], [1, 4, 9])
+        result = glp.savefig(str(tempdir / 'api_plot.gle'), folder=True)
+
+        export_dir = tempdir / 'api_plot.gleplot'
+        self.assertEqual(result, export_dir / 'api_plot.gle')
+        self.assertTrue(result.exists())
+        self.assertGreaterEqual(len(list(export_dir.glob('*.dat'))), 1)
 
 
 class TestGLEGeneration(unittest.TestCase):

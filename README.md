@@ -28,6 +28,9 @@ fig.savefig('trig.pdf')
 
 # Or save as GLE script for manual editing
 fig.savefig('trig.gle')
+
+# Keep the script, compiled output, and data sidecars together
+fig.savefig('trig.pdf', folder=True)
 ```
 
 ## Features
@@ -203,6 +206,12 @@ ax.line_from_file(
   linewidth=2,
   label='Model fit'
 )
+```
+
+### Foldered Exports
+```python
+# Creates trig.gleplot/trig.pdf, trig.gleplot/trig.gle, and data files
+fig.savefig('trig.pdf', folder=True)
 ```
 
 ### Secondary Y-Axis

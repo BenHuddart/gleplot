@@ -261,6 +261,9 @@ class Figure:
         ----------
         filepath : str
             Output file path
+        folder : bool, optional
+            If True, place the ``.gle`` script and generated data files
+            in a sibling ``<name>.gleplot`` directory.
         **kwargs
             Additional options
             
@@ -269,21 +272,24 @@ class Figure:
         Path
             Path to created GLE file
         """
-        filepath = Path(filepath)
-        filepath.parent.mkdir(parents=True, exist_ok=True)
+        output_path, export_dir = self._resolve_export_paths(
+            filepath,
+            folder=kwargs.pop('folder', False),
+        )
+        export_dir.mkdir(parents=True, exist_ok=True)
         
         # Generate and save GLE content with data files
         gle_content, data_content = self._generate_gle_with_files()
         
         # Write script
-        filepath.write_text(gle_content)
+        output_path.write_text(gle_content, encoding='utf-8')
         
         # Write data files in same directory
         for filename, content in data_content.items():
-            data_file = filepath.parent / filename
-            data_file.write_text(content)
+            data_file = export_dir / filename
+            data_file.write_text(content, encoding='utf-8')
         
-        return filepath
+        return output_path
     
     def savefig(self, filepath: str, format: Optional[str] = None,
                 dpi: Optional[int] = None, **kwargs) -> Path:
@@ -299,6 +305,10 @@ class Figure:
             If format given but file ext different, uses format.
         dpi : int, optional
             DPI for raster formats
+        folder : bool, optional
+            If True, place the exported file, the intermediate ``.gle``
+            script, and generated data files in a sibling
+            ``<name>.gleplot`` directory.
         **kwargs
             Additional arguments
             
@@ -307,31 +317,34 @@ class Figure:
         Path
             Path to output file (GLE script or compiled output)
         """
-        filepath = Path(filepath)
-        filepath.parent.mkdir(parents=True, exist_ok=True)
+        output_path, export_dir = self._resolve_export_paths(
+            filepath,
+            folder=kwargs.pop('folder', False),
+        )
+        export_dir.mkdir(parents=True, exist_ok=True)
         
         # Determine output format
         if format is None:
-            if filepath.suffix == '.gle':
+            if output_path.suffix == '.gle':
                 format = 'gle'
-            elif filepath.suffix == '.pdf':
+            elif output_path.suffix == '.pdf':
                 format = 'pdf'
-            elif filepath.suffix == '.png':
+            elif output_path.suffix == '.png':
                 format = 'png'
-            elif filepath.suffix == '.eps':
+            elif output_path.suffix == '.eps':
                 format = 'eps'
             else:
                 format = 'gle'  # Default
         
         # Write GLE script and data files
-        base_path = filepath.with_suffix('.gle')
+        base_path = output_path.with_suffix('.gle')
         gle_content, data_files = self._generate_gle_with_files()
-        base_path.write_text(gle_content)
+        base_path.write_text(gle_content, encoding='utf-8')
         
         # Write data files in same directory
         for filename, content in data_files.items():
-            data_file = base_path.parent / filename
-            data_file.write_text(content)
+            data_file = export_dir / filename
+            data_file.write_text(content, encoding='utf-8')
         
         # Compile if needed
         if format != 'gle':
@@ -342,11 +355,22 @@ class Figure:
                 )
             
             output_dpi = dpi or self.dpi
-            output_path = filepath.with_suffix(f'.{format}')
             self.compiler.compile(str(base_path), format, dpi=output_dpi)
-            return output_path
+            return output_path.with_suffix(f'.{format}')
         
         return base_path
+
+    @staticmethod
+    def _resolve_export_paths(filepath: str, folder: bool = False) -> Tuple[Path, Path]:
+        """Resolve output and export directory paths for save operations."""
+        output_path = Path(filepath)
+        export_dir = output_path.parent
+
+        if folder:
+            export_dir = output_path.parent / f'{output_path.stem}.gleplot'
+            output_path = export_dir / output_path.name
+
+        return output_path, export_dir
     
     def _generate_gle(self) -> str:
         """Generate complete GLE script content."""

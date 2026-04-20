@@ -853,13 +853,13 @@ class GLEWriter:
         
         # Write GLE script
         gle_file = output_dir / f'{base_filename}.gle'
-        gle_file.write_text(self.get_gle_content())
+        gle_file.write_text(self.get_gle_content(), encoding='utf-8')
         files['script'] = gle_file
         
         # Write data files
         for data_file, content in self.data_files.items():
             data_path = output_dir / data_file
-            data_path.write_text(content)
+            data_path.write_text(content, encoding='utf-8')
             files[data_file] = data_path
         
         return files
