@@ -95,7 +95,11 @@ class RawGlePanel(QWidget):
         self._section_widgets: list[QWidget] = []
 
     def _connect_signals(self) -> None:
-        self._document.figure_changed.connect(self.refresh)
+        # Passthrough content only changes when a different figure is
+        # installed (Open/New/undo-restore), never from in-session property
+        # edits — so refresh on figure_replaced only. Rebuilding the section
+        # widgets on every figure_changed would redo work proportional to the
+        # preserved raw-GLE size on every keystroke-level edit.
         self._document.figure_replaced.connect(self.refresh)
 
     # ------------------------------------------------------------------

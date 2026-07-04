@@ -574,6 +574,9 @@ class MainWindow(QMainWindow):
             return
         if file_ops.save_project_current(self, self.document, settings=self._settings):
             self.undo_stack.mark_saved()
+            # A save resolves the session's open-time warnings (file_ops
+            # clears document.open_warnings); keep the Output dock in sync.
+            self.error_panel.clear_warnings()
 
     def _on_save_as(self) -> None:
         """File ▸ Save As: save to a newly chosen project path."""
@@ -581,6 +584,7 @@ class MainWindow(QMainWindow):
             return
         if file_ops.save_project_as(self, self.document, settings=self._settings):
             self.undo_stack.mark_saved()
+            self.error_panel.clear_warnings()
 
     def _on_export(self) -> None:
         """File ▸ Export: export the document, or the previewed ``.gle``."""

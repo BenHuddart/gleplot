@@ -91,13 +91,13 @@ Shrinking the grid or reshaping it (e.g. 2x3 to 3x2) refuses to relocate a popul
 
 Opening is deliberately *tolerant*: a file gleplot wrote round-trips exactly, and a hand-edited or exotic `.gle` still opens -- anything the recognizer can't map onto the object model is preserved verbatim as **raw GLE** (shown, read-only, in the Properties dock's **Raw GLE** tab) and re-emitted unchanged on the next save, so no content is silently dropped.
 
-Because GLE is a richer format than the object model, opening can apply a few user-visible normalizations. Each one appends a note to the **Output** dock's warnings list on open:
+Because GLE is a richer format than the object model, opening can apply a few user-visible normalizations. The lossy or behavior-changing ones append a note to the **Output** dock's warnings list on open; the two purely cosmetic ones are silent:
 
-- **Explicit-on legends collapse to auto.** An explicit `legend()`/`key pos` with labeled series comes back as an automatic legend (identical rendering).
-- **Custom subplot spacing resets to defaults.** A multi-subplot figure that used a non-default `subplots_adjust` re-saves with default spacing (the baked-in cm geometry isn't uniquely invertible).
-- **Constant/percentage error bars become data columns.** A `dN ... err 0.5` (constant) or `err 10%` (percentage) is expanded into a concrete per-point error column, which re-saves as a real `.dat` column.
-- **Unsupported `title`/`key` options are kept raw.** A `title`/`key` line carrying modifiers the model can't represent is preserved verbatim (Raw GLE tab) rather than rewritten.
-- **Programmatic files prompt for read-only.** A file using GLE programming constructs (`sub`/`if`/`for`/...) offers a read-only preview instead of editing (see below).
+- **Constant/percentage error bars become data columns** *(warns)*. A `dN ... err 0.5` (constant) or `err 10%` (percentage) is expanded into a concrete per-point error column, which re-saves as a real `.dat` column.
+- **Unsupported `title`/`key` options are kept raw** *(warns)*. A `title`/`key` line carrying modifiers the model can't represent is preserved verbatim (Raw GLE tab) rather than rewritten.
+- **Programmatic files prompt for read-only** *(prompts on open)*. A file using GLE programming constructs (`sub`/`if`/`for`/...) offers a read-only preview instead of editing (see below).
+- **Explicit-on legends collapse to auto** *(silent)*. An explicit `legend()`/`key pos` with labeled series comes back as an automatic legend — the rendering is identical, so no warning is raised.
+- **Custom subplot spacing resets to defaults** *(silent)*. A multi-subplot figure that used a non-default `subplots_adjust` re-saves with default spacing (the baked-in cm geometry isn't uniquely invertible). Check multi-panel layouts after an open-and-save cycle.
 
 Missing `.dat` sidecars don't fail the open: the referencing series is marked broken (a `data:` warning plus a ⚠ marker in the Series tab), and you can repoint it at a real file with **Locate file...**.
 

@@ -380,9 +380,11 @@ def test_gle_native_workflow(qapp, tmp_path):
         # 5) State restored + clean, and a render lands for the reopened figure.
         assert window.is_gle_preview_mode is False
         reopened_ax = window.document.figure.gca()
-        # The imported line comes back as a reference-mode file_series.
-        n_series = len(reopened_ax.lines) + len(reopened_ax.file_series)
-        assert n_series >= 1
+        # Import-mode series must come back as array-backed lines (NOT as
+        # reference-mode file_series) so the Series panel can edit them.
+        assert len(reopened_ax.lines) == 1
+        assert len(reopened_ax.file_series) == 0
+        assert reopened_ax.lines[0]['x'] is not None
         assert window.document.is_dirty is False
         assert window.document.project_path == gle_path
         assert _wait_until(lambda: recorder.succeeded or recorder.failed)
