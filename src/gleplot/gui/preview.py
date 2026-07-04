@@ -182,6 +182,21 @@ class ViewMapping(Protocol):
         """Inverse of :meth:`cm_to_view`."""
         ...
 
+    def fingerprint(self) -> tuple:
+        """A hashable identity of this mapping's concrete class + scale params.
+
+        The annotation overlay captures a mapping's fingerprint when an
+        interaction (drag/edit) starts and compares it on each rebuild. A
+        change means the ``cm <-> scene`` relationship shifted underneath an
+        in-flight gesture -- e.g. a PNG<->SVG format switch, or a DPI change --
+        so decoding the stale scene position with the new mapping would
+        silently corrupt the committed coordinates. The overlay aborts the
+        interaction (reverting to the model position) when the fingerprint
+        changes rather than preserving the stale scene position. Two mappings
+        that decode a scene point identically compare equal.
+        """
+        ...
+
 
 @dataclass
 class RasterViewMapping:
@@ -200,6 +215,17 @@ class RasterViewMapping:
 
     def view_to_cm(self, vx: float, vy: float):
         return self.geometry.px_to_cm(vx, vy)
+
+    def fingerprint(self) -> tuple:
+        """Identity for the raster ``cm <-> px`` mapping.
+
+        The raster mapping is fully determined by the render DPI and the page
+        height in cm (the only inputs to :meth:`PreviewGeometry.cm_to_px` /
+        ``px_to_cm``). A change in either shifts the scene<->cm relationship,
+        so both go into the fingerprint. Page width does not affect the
+        mapping, so it is deliberately omitted.
+        """
+        return ("raster", self.geometry.dpi, self.geometry.page_size_cm[1])
 
 
 @dataclass
@@ -239,6 +265,17 @@ class SvgViewMapping:
         cx = (vx - _SVG_MARGIN_PT) / _PT_PER_CM
         cy = ((viewbox_h - _SVG_MARGIN_PT) - vy) / _PT_PER_CM
         return cx, cy
+
+    def fingerprint(self) -> tuple:
+        """Identity for the vector ``cm <-> svg-unit`` mapping.
+
+        The SVG mapping is DPI-independent and fully determined by the page
+        size in cm (both dimensions feed the viewBox transform). The leading
+        tag differs from :meth:`RasterViewMapping.fingerprint` so a PNG<->SVG
+        format switch always registers as a change even in the unlikely event
+        the numeric params coincide.
+        """
+        return ("svg", self.page_size_cm[0], self.page_size_cm[1])
 
 
 class PreviewController(QObject):

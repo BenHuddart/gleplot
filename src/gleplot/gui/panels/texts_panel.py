@@ -42,6 +42,7 @@ Mutations follow the standard panel pattern (see ``axes_panel.py`` /
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from PySide6.QtCore import Signal
@@ -390,16 +391,32 @@ class TextsPanel(QWidget):
         try:
             if entry is None:
                 self._set_editor_enabled(False)
-                self.text_edit.setPlainText("")
-                self.x_edit.setText("")
-                self.y_edit.setText("")
+                # Preserve an in-progress edit: a focused editor must not be
+                # clobbered by an external refresh (e.g. a canvas drag commit
+                # firing figure_changed while the user is mid-type). This
+                # normally only fires when there is genuinely no selection, but
+                # guarding keeps the discipline uniform.
+                if not self.text_edit.hasFocus():
+                    self.text_edit.setPlainText("")
+                if not self.x_edit.hasFocus():
+                    self.x_edit.setText("")
+                if not self.y_edit.hasFocus():
+                    self.y_edit.setText("")
                 return
 
             self._set_editor_enabled(True)
 
-            self.text_edit.setPlainText(entry.get("text", "") or "")
-            self.x_edit.setText(_format_coord(entry.get("x", 0.0)))
-            self.y_edit.setText(_format_coord(entry.get("y", 0.0)))
+            # Skip overwriting any editor the user is currently editing: a
+            # refresh triggered externally (canvas drag commit -> figure_changed)
+            # must not discard uncommitted typed text. The list and all
+            # non-focused fields still refresh. The focused field commits
+            # normally on blur via its editingFinished/focus-out path.
+            if not self.text_edit.hasFocus():
+                self.text_edit.setPlainText(entry.get("text", "") or "")
+            if not self.x_edit.hasFocus():
+                self.x_edit.setText(_format_coord(entry.get("x", 0.0)))
+            if not self.y_edit.hasFocus():
+                self.y_edit.setText(_format_coord(entry.get("y", 0.0)))
 
             color_value = entry.get("color") or "BLACK"
             rgb = _GLE_COLOR_TO_RGB.get(str(color_value).upper(), (0, 0, 0))
@@ -525,6 +542,10 @@ class TextsPanel(QWidget):
         try:
             value = float(text)
         except ValueError:
+            value = None
+        # Reject non-finite coordinates (nan/inf, incl. overflow like 1e400):
+        # they would produce corrupted GLE output and NaN geometry downstream.
+        if value is None or not math.isfinite(value):
             # Invalid text: revert the field to the current model value.
             self._updating = True
             try:

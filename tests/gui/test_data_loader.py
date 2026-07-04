@@ -196,3 +196,81 @@ def test_numeric_header_row_not_misdetected(tmp_path):
     table = load_data_file(p)
     assert table.has_header is False
     assert table.n_rows == 2
+
+
+# ---------------------------------------------------------------------------
+# Finding 2: an all-missing first row is DATA (all-NaN), not a header.
+# ---------------------------------------------------------------------------
+
+
+def test_all_missing_first_row_is_data_not_header(tmp_path):
+    # First row '* * *' is entirely missing-value tokens -> it must be kept as
+    # an all-NaN DATA row, NOT consumed as a header (regression: missing tokens
+    # fail float conversion, but a missing token is not a real label).
+    p = _write(tmp_path, "a.dat", "* * *\n1 2 3\n4 5 6\n")
+    table = load_data_file(p)
+    assert table.has_header is False
+    assert table.n_rows == 3
+    assert table.n_cols == 3
+    # First row is all NaN, preserved as data.
+    for col in table.columns:
+        assert np.isnan(col[0])
+    np.testing.assert_allclose(table.columns[0][1:], [1.0, 4.0])
+
+
+def test_real_header_still_detected_alongside_finding2(tmp_path):
+    # A genuine text header must still be detected as a header (the Finding 2
+    # fix only excludes all-missing rows, not real labels).
+    p = _write(tmp_path, "a.dat", "x y z\n1 2 3\n4 5 6\n")
+    table = load_data_file(p)
+    assert table.has_header is True
+    assert table.column_names == ["x", "y", "z"]
+    assert table.n_rows == 2
+
+
+def test_partially_missing_first_row_with_label_is_header(tmp_path):
+    # A row mixing a real label with missing tokens ('name * *') still counts
+    # as a header (at least one field is a genuine non-numeric label).
+    p = _write(tmp_path, "a.dat", "name * *\n1 2 3\n")
+    table = load_data_file(p)
+    assert table.has_header is True
+    assert table.n_rows == 1
+
+
+# ---------------------------------------------------------------------------
+# Finding 3: multi-word header token count mismatch -> positional names + warn.
+# ---------------------------------------------------------------------------
+
+
+def test_whitespace_multiword_header_mismatch_uses_positional_names(tmp_path):
+    # Whitespace-delimited header 'Temperature (K) Resistance (Ohm)' splits
+    # into 4 tokens over 2 data columns -> the row is still skipped as a
+    # header, but positional names are synthesized and a warning is recorded.
+    content = "Temperature (K) Resistance (Ohm)\n1.0 100.0\n2.0 200.0\n"
+    p = _write(tmp_path, "a.dat", content)
+    table = load_data_file(p)
+    assert table.has_header is True
+    assert table.n_cols == 2
+    assert table.column_names == ["col1", "col2"]
+    # The two data rows survive (header consumed, not treated as data).
+    assert table.n_rows == 2
+    np.testing.assert_allclose(table.columns[0], [1.0, 2.0])
+    np.testing.assert_allclose(table.columns[1], [100.0, 200.0])
+    assert any(
+        "does not align" in w or "positional" in w for w in table.warnings
+    )
+
+
+def test_delimited_multiword_header_unaffected(tmp_path):
+    # For a COMMA-delimited file the same multi-word names are single fields,
+    # so the header aligns 1:1 with the columns and is used verbatim (no
+    # positional fallback, no mismatch warning).
+    content = "Temperature (K),Resistance (Ohm)\n1.0,100.0\n2.0,200.0\n"
+    p = _write(tmp_path, "a.csv", content)
+    table = load_data_file(p)
+    assert table.delimiter == ","
+    assert table.has_header is True
+    assert table.column_names == ["Temperature (K)", "Resistance (Ohm)"]
+    assert not any(
+        "does not align" in w or "positional" in w for w in table.warnings
+    )

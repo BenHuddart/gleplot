@@ -7,8 +7,10 @@ Covers:
   gleplot.gui.
 - resolve_data_reference: relative/absolute/missing/unreadable/malformed.
 - extract_columns: happy path, out-of-bounds, non-numeric.
-- classify_data_file: metadata-list-driven and heuristic-driven
-  (including the documented false-positive case).
+- classify_data_file: metadata-list-driven only. With no metadata block
+  (import_list is None) every reference is conservatively classified
+  'reference' -- the old filename heuristic (and its user-data-overwrite
+  false positive) has been removed (Finding 1).
 
 tests/gui/test_data_loader.py and tests/gui/test_data_panel.py are run
 unmodified elsewhere to prove the shim in the GUI context; this file
@@ -286,57 +288,52 @@ def test_classify_with_import_list_empty_list_means_reference(tmp_path):
     assert classify_data_file(gle_path, "anything_1.dat", import_list=[]) == "reference"
 
 
-def test_classify_heuristic_sidecar_pattern_is_import(tmp_path):
-    gle_path = tmp_path / "plot.gle"
-
-    assert classify_data_file(gle_path, "data_1.dat", import_list=None) == "import"
-    assert classify_data_file(gle_path, "mystudy_42.dat", import_list=None) == "import"
-
-
-def test_classify_heuristic_non_matching_name_is_reference(tmp_path):
-    gle_path = tmp_path / "plot.gle"
-
-    assert classify_data_file(gle_path, "readings.dat", import_list=None) == "reference"
-    assert classify_data_file(gle_path, "data.dat", import_list=None) == "reference"
-
-
-def test_classify_heuristic_subdirectory_is_reference(tmp_path):
-    gle_path = tmp_path / "plot.gle"
-
-    # Even a name matching the sidecar pattern is 'reference' if it's not
-    # in the same directory as the .gle file -- gleplot always writes
-    # sidecars alongside the script.
-    assert classify_data_file(gle_path, "sub/data_1.dat", import_list=None) == "reference"
-
-
-def test_classify_heuristic_absolute_path_is_reference(tmp_path):
-    gle_path = tmp_path / "plot.gle"
-    absolute = tmp_path / "data_1.dat"
-
-    assert classify_data_file(gle_path, str(absolute), import_list=None) == "reference"
-
-
-def test_classify_heuristic_false_positive_documented_case(tmp_path):
-    """Documented false-positive: an ordinary user file that happens to
-    match '<prefix>_<digits>.dat' in the same directory as the script is
-    misclassified as 'import' by the heuristic. This is expected/known
-    behavior (see classify_data_file's docstring) -- callers should
-    prefer passing import_list when available to avoid it.
+def test_classify_no_metadata_is_always_reference(tmp_path):
+    """Finding 1: with no metadata block (import_list is None) EVERY
+    reference is classified 'reference' -- conservative by design so a
+    hand-authored .gle can never cause gleplot to adopt and rewrite a
+    user's data file. The old filename heuristic is gone.
     """
     gle_path = tmp_path / "plot.gle"
 
-    assert classify_data_file(gle_path, "results_2024.dat", import_list=None) == "import"
+    # Names that used to match the sidecar heuristic are now 'reference'.
+    assert classify_data_file(gle_path, "data_1.dat", import_list=None) == "reference"
+    assert classify_data_file(gle_path, "mystudy_42.dat", import_list=None) == "reference"
+    # Ordinary names were always 'reference'; still are.
+    assert classify_data_file(gle_path, "readings.dat", import_list=None) == "reference"
+    assert classify_data_file(gle_path, "data.dat", import_list=None) == "reference"
+    # Subdirectory / absolute references -- still 'reference'.
+    assert classify_data_file(gle_path, "sub/data_1.dat", import_list=None) == "reference"
+    absolute = tmp_path / "data_1.dat"
+    assert classify_data_file(gle_path, str(absolute), import_list=None) == "reference"
 
 
-def test_classify_heuristic_false_positive_avoided_with_import_list(tmp_path):
-    """The same false-positive-prone name is correctly classified as
-    'reference' once the caller supplies the authoritative import_list.
+def test_classify_no_metadata_ordinary_user_file_not_overwritten(tmp_path):
+    """Finding 1 root fix: an ordinary user file whose name happens to
+    look like a sidecar (results_2024.dat) sitting next to a
+    metadata-less .gle is classified 'reference', NOT 'import'. This is
+    the eliminated silent-user-data-overwrite false positive.
+    """
+    gle_path = tmp_path / "plot.gle"
+
+    assert classify_data_file(gle_path, "results_2024.dat", import_list=None) == "reference"
+
+
+def test_classify_vouched_by_import_list_is_import(tmp_path):
+    """A file is 'import' iff the metadata block's import-data list vouches
+    for it (the sole source of truth after Finding 1).
     """
     gle_path = tmp_path / "plot.gle"
 
     assert (
-        classify_data_file(gle_path, "results_2024.dat", import_list=["data_1.dat"])
-        == "reference"
+        classify_data_file(gle_path, "results_2024.dat", import_list=["results_2024.dat"])
+        == "import"
+    )
+    # A vouched name is import even where the heuristic never would have
+    # matched (no digits suffix), proving the list -- not the name -- decides.
+    assert (
+        classify_data_file(gle_path, "readings.dat", import_list=["readings.dat"])
+        == "import"
     )
 
 

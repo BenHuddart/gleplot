@@ -1596,6 +1596,23 @@ class _Recognizer:
             the default a fresh ``ax.plot`` would assign -- since there is
             no header cell to read for a column that doesn't exist in the
             file.
+
+        Invariant (post Finding-1)
+        --------------------------
+        This copies the sidecar's header text VERBATIM into
+        ``column_names`` (no re-sanitization). That is only reached for
+        *import* series, and after the Finding-1 conservative
+        classification a file is only ever an import when the ``.gle``
+        metadata block's ``import-data`` list vouches for it -- i.e. it
+        is a sidecar gleplot itself wrote, whose header was already
+        sanitized by the writer at export time. So verbatim copy is
+        exactly what preserves byte-identity on re-save: even a
+        hand-edited (unsanitary) header in a vouched sidecar round-trips
+        byte-for-byte, because the recovered ``column_names`` re-emit the
+        same header the file already holds. Hand-authored data files with
+        no metadata vouch are classified ``reference`` and never reach
+        this code, so an unsanitized user header can never be adopted and
+        rewritten here.
         """
         resolved = self._resolve_table(data_file)
         if resolved.error is not None or resolved.table is None:

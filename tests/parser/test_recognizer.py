@@ -368,10 +368,13 @@ def test_opaque_block_inside_graph_becomes_axes_passthrough(tmp_path):
     assert "raw line two" in text
 
 
-def test_no_metadata_block_uses_heuristics(tmp_path):
-    # No '! gleplot' metadata at all -> import/reference decided by heuristic.
-    # 'data_5.dat' matches the sidecar naming pattern -> import (loaded).
-    # 'other.csv' does not -> reference (file_series).
+def test_no_metadata_block_all_references(tmp_path):
+    # Finding 1: with NO '! gleplot' metadata block, classification is
+    # conservative -- EVERY data reference is treated as an external
+    # 'reference' (file_series), regardless of filename. A sidecar-looking
+    # name like 'data_5.dat' is NOT adopted as an import (which would let a
+    # later save rewrite a user's file). Both files land in file_series and
+    # nothing is loaded into ax.lines.
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -388,11 +391,9 @@ def test_no_metadata_block_uses_heuristics(tmp_path):
     )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
-    # data_5.dat imported (arrays loaded into lines), other.csv referenced.
-    assert len(ax.lines) == 1
-    assert ax.lines[0]["data_file"] == "data_5.dat"
-    assert len(ax.file_series) == 1
-    assert ax.file_series[0]["data_file"] == "other.csv"
+    assert ax.lines == []
+    referenced = {fs["data_file"] for fs in ax.file_series}
+    assert referenced == {"data_5.dat", "other.csv"}
 
 
 def test_missing_grid_multigraph_falls_back(tmp_path):

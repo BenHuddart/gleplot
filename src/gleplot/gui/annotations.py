@@ -67,6 +67,7 @@ between axes is deferred.
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
@@ -81,6 +82,8 @@ from PySide6.QtWidgets import (
 from gleplot.gui.geometry import CM_PER_INCH, AxesCalibration, PreviewGeometry
 
 __all__ = ["AnnotationItem", "AnnotationOverlay"]
+
+_log = logging.getLogger(__name__)
 
 #: Points per centimetre (72pt per inch). Used to translate a font's point
 #: size into the cm-then-scene scale so a hit-rect roughly matches the baked
@@ -142,6 +145,13 @@ class AnnotationItem(QGraphicsRectItem):
         self._editor: Optional[QGraphicsTextItem] = None
         self._dragging = False
         self._editing = False
+        # Fingerprint of the ViewMapping active when the current interaction
+        # (drag/edit) began. Compared on rebuild: if it changed the cm<->scene
+        # relationship shifted underneath the gesture (e.g. PNG<->SVG switch),
+        # so the stale scene position must not be decoded with the new mapping
+        # -- the overlay aborts the interaction instead (see
+        # AnnotationOverlay.rebuild / Finding 4). None when not interacting.
+        self._interaction_fingerprint: Optional[tuple] = None
         # Guards itemChange during programmatic setPos in sync_position().
         self._syncing = False
         # Guards itemChange during programmatic setSelected() in
@@ -322,6 +332,7 @@ class AnnotationItem(QGraphicsRectItem):
 
     def _begin_drag(self) -> None:
         self._dragging = True
+        self._interaction_fingerprint = self._overlay.current_mapping_fingerprint()
         self.setCursor(Qt.CursorShape.ClosedHandCursor)
         self._show_ghost()
 
@@ -329,6 +340,7 @@ class AnnotationItem(QGraphicsRectItem):
         super().mouseReleaseEvent(event)
         if self._dragging:
             self._dragging = False
+            self._interaction_fingerprint = None
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             self._commit_drag()
             # The cursor may have left the (old) rect during the drag; if it is
@@ -355,6 +367,7 @@ class AnnotationItem(QGraphicsRectItem):
         if self._editing:
             return
         self._editing = True
+        self._interaction_fingerprint = self._overlay.current_mapping_fingerprint()
         self.setSelected(True)
         self._clear_ghost()
         editor = QGraphicsTextItem(self)
@@ -406,6 +419,7 @@ class AnnotationItem(QGraphicsRectItem):
 
     def _teardown_editor(self) -> None:
         self._editing = False
+        self._interaction_fingerprint = None
         if self._editor is not None:
             self._editor.removeSceneEventFilter(self)
             scene = self.scene()
@@ -456,6 +470,23 @@ class AnnotationItem(QGraphicsRectItem):
         """Drop any ghost/editor children (called on teardown/rebuild)."""
         self._clear_ghost()
         self._teardown_editor()
+
+    def abort_interaction(self) -> None:
+        """Cancel any in-progress drag/edit WITHOUT writing to the model.
+
+        Used when the interaction must be discarded rather than committed:
+        an undo/redo (``figure_replaced``) landing mid-gesture (Finding 3) or a
+        mapping change (format switch) invalidating the held scene position
+        (Finding 4). A drag discards its ghost and never commits; an edit
+        discards its editor buffer. The item is left non-interacting so the
+        next rebuild re-syncs it (or removes it) from the model cleanly.
+        """
+        self._dragging = False
+        self._interaction_fingerprint = None
+        # cancel_edit()/_teardown_editor() reset the editing flag + editor.
+        self.cancel_edit()
+        self._clear_ghost()
+        self._overlay.set_pan_suspended(False)
 
     # ------------------------------------------------------------------
     # Delete key
@@ -527,6 +558,15 @@ class AnnotationOverlay(QObject):
         self._items: List[AnnotationItem] = []
         self._enabled = False
 
+        # Hard-disabled state (Finding 1): while entering the read-only
+        # GLE-preview mode the overlay must go completely inert -- items cleared,
+        # add-mode/interactions cancelled, and every model-mutation commit path a
+        # no-op -- so a stray drag/click cannot mutate the hidden document
+        # figure. This survives across renders (which never happen in preview
+        # mode) until set_disabled(False) is called on returning to document
+        # mode; the next document render then re-enables via geometry_ready.
+        self._disabled = False
+
         # Add-text mode: while active, the next click on the preview places a
         # new annotation. Driven by begin_add_text()/cancel_add_text().
         self._add_mode = False
@@ -578,12 +618,40 @@ class AnnotationOverlay(QObject):
         ``render_succeeded`` does (so items land on the fresh image with a valid
         ``view_mapping``). Geometry arrives *before* ``render_succeeded`` per the
         controller contract, so storing it here is enough.
+
+        A valid geometry also lifts the hard-disabled state (Finding 1): a
+        document-mode render is the signal that we have left GLE-preview mode,
+        so the overlay may operate again once the paired render rebuilds it.
         """
         self._geometry = geometry
         if geometry is None:
             self._set_enabled(False)
             self._clear_items()
             self.cancel_add_text()
+        elif self._disabled:
+            self._disabled = False
+
+    def set_disabled(self, disabled: bool) -> None:
+        """Hard-disable (or re-enable) the whole overlay (Finding 1).
+
+        Entering GLE-preview mode calls ``set_disabled(True)``: the overlay
+        clears its items, cancels add-mode, aborts any active interaction, and
+        every model-mutation commit path becomes a logged no-op -- so no stray
+        drag/click on the read-only preview can mutate the hidden document
+        figure. The disabled state survives across the (non-existent) preview
+        renders; it is lifted either by ``set_disabled(False)`` on returning to
+        document mode or automatically by the next valid ``set_geometry`` from a
+        document render (whichever comes first).
+        """
+        if disabled == self._disabled:
+            return
+        self._disabled = disabled
+        if disabled:
+            self.cancel_add_text()
+            for it in list(self._items):
+                it.abort_interaction()
+            self._set_enabled(False)
+            self._clear_items()
 
     def on_render_succeeded(self, _path: str = "") -> None:
         """Rebuild item positions against the freshly rendered image.
@@ -595,12 +663,49 @@ class AnnotationOverlay(QObject):
         """
         self.rebuild()
 
+    def on_figure_replaced(self) -> None:
+        """Abort all active interactions and clear items (Finding 3).
+
+        Connect to ``FigureDocument.figure_replaced`` (fires on New/Open and
+        every undo/redo). A brand-new figure object replaces the one every
+        ``text_dict`` was captured from, so any item mid-drag/edit now points at
+        an orphaned dict; committing on release would mutate a dead object and
+        leave a phantom item stuck ``is_interacting``. We therefore ABORT every
+        active interaction (discard the drag ghost with no commit; discard the
+        editor buffer) and drop all items now. They are rebuilt against the new
+        figure by the ``render_succeeded`` that follows the replacement's
+        re-render; until then the overlay simply has no items.
+        """
+        for it in list(self._items):
+            it.abort_interaction()
+        self._clear_items()
+
     # ------------------------------------------------------------------
     # Rebuild
     # ------------------------------------------------------------------
     def _mapping(self):
         """Refetch the active ``cm <-> scene`` mapping (never cached)."""
         return self._view.view_mapping()
+
+    def current_mapping_fingerprint(self) -> Optional[tuple]:
+        """Fingerprint of the active mapping, or ``None`` if none/unsupported.
+
+        Captured by an :class:`AnnotationItem` when a drag/edit begins so a
+        later rebuild can detect a mapping change (format switch, DPI change)
+        that would corrupt a stale scene position (Finding 4). Tolerant of a
+        mapping object without ``fingerprint()`` (returns ``None`` -> the
+        abort check is simply skipped, preserving prior behaviour).
+        """
+        mapping = self._mapping()
+        if mapping is None:
+            return None
+        fp = getattr(mapping, "fingerprint", None)
+        if not callable(fp):
+            return None
+        try:
+            return fp()
+        except Exception:  # noqa: BLE001 - never let a fingerprint crash a gesture
+            return None
 
     def _cm_per_scene_unit(self, mapping) -> float:
         """Measure page-cm spanned by one scene unit along x (uniform scale)."""
@@ -619,6 +724,11 @@ class AnnotationOverlay(QObject):
         edited); every other item is rebuilt from scratch so identity stays
         simple.
         """
+        if self._disabled:
+            # Hard-disabled (GLE-preview mode): stay inert until re-enabled.
+            self._set_enabled(False)
+            self._clear_items()
+            return
         mapping = self._mapping()
         fig = self._document.figure
         if self._geometry is None or mapping is None or fig is None:
@@ -628,10 +738,39 @@ class AnnotationOverlay(QObject):
 
         cm_per_scene = self._cm_per_scene_unit(mapping)
 
+        # Determine the current mapping fingerprint once so preserved items can
+        # be checked for a mapping change that happened mid-gesture (Finding 4).
+        current_fp = self.current_mapping_fingerprint()
+
         # Preserve items currently being interacted with (drag/edit); rebuild
         # everything else. Dropped ghosts from a just-committed drag are cleared
         # here because the fresh render now bakes the text at the new position.
-        preserved = [it for it in self._items if it.is_interacting]
+        #
+        # Finding 4: if the mapping fingerprint changed since an interaction
+        # began (e.g. a PNG<->SVG format switch or DPI change), the held scene
+        # position no longer decodes correctly under the new mapping. Aborting
+        # the interaction reverts the item to its model position (it is then
+        # rebuilt from scratch below) instead of silently committing a jumped
+        # coordinate on release.
+        preserved: List[AnnotationItem] = []
+        for it in self._items:
+            if not it.is_interacting:
+                continue
+            started_fp = it._interaction_fingerprint
+            if (
+                current_fp is not None
+                and started_fp is not None
+                and started_fp != current_fp
+            ):
+                _log.debug(
+                    "annotation overlay: mapping changed mid-interaction; "
+                    "aborting to avoid a corrupted commit"
+                )
+                it.abort_interaction()
+                # No longer interacting -> falls through to full rebuild below.
+                continue
+            preserved.append(it)
+
         for it in self._items:
             if it not in preserved:
                 it.clear_transients()
@@ -700,6 +839,40 @@ class AnnotationOverlay(QObject):
     # ------------------------------------------------------------------
     # Model mutations (called by AnnotationItem)
     # ------------------------------------------------------------------
+    def _dict_is_live(self, text_dict: dict) -> bool:
+        """True if ``text_dict`` (by identity) still lives in some axes' texts.
+
+        A commit path must verify this before mutating (Finding 8): an inline
+        edit can be open on an annotation that is meanwhile removed via the
+        Texts panel's Remove button, leaving the item's ``text_dict`` orphaned.
+        Mutating the orphan would corrupt state and burn an undo step, so the
+        caller drops the item silently instead.
+        """
+        fig = self._document.figure
+        if fig is None:
+            return False
+        for ax in list(getattr(fig, "axes_list", []) or []):
+            texts = getattr(ax, "texts", None)
+            if texts is None:
+                continue
+            for td in texts:
+                if td is text_dict:
+                    return True
+        return False
+
+    def _drop_orphaned_item(self, item: AnnotationItem) -> None:
+        """Silently discard an item whose dict is no longer in the model.
+
+        No ``notify_changed`` (nothing was mutated): the model already reflects
+        the removal that orphaned this item.
+        """
+        item.clear_transients()
+        self._remove_item(item)
+        if item in self._items:
+            self._items.remove(item)
+        if self._selected_dict is item.text_dict:
+            self._selected_dict = None
+
     def commit_item_move(self, item: AnnotationItem) -> None:
         """Write ``item``'s dropped scene position into its model dict as data.
 
@@ -708,6 +881,13 @@ class AnnotationOverlay(QObject):
         transform regardless (see module docstring). Keeps the ghost visible so
         the baked-pixel lag until the next render is not seen as a snap-back.
         """
+        if self._disabled:
+            _log.debug("annotation overlay disabled: commit_item_move no-op")
+            return
+        if not self._dict_is_live(item.text_dict):
+            _log.debug("commit_item_move: item dict orphaned; dropping item")
+            self._drop_orphaned_item(item)
+            return
         mapping = self._mapping()
         if mapping is None:
             return
@@ -721,6 +901,13 @@ class AnnotationOverlay(QObject):
 
     def commit_item_text(self, item: AnnotationItem, new_text: str) -> None:
         """Commit an inline-edit result; empty text deletes the annotation."""
+        if self._disabled:
+            _log.debug("annotation overlay disabled: commit_item_text no-op")
+            return
+        if not self._dict_is_live(item.text_dict):
+            _log.debug("commit_item_text: item dict orphaned; dropping item")
+            self._drop_orphaned_item(item)
+            return
         stripped = new_text.strip()
         if stripped == "":
             self.delete_item(item)
@@ -734,7 +921,15 @@ class AnnotationOverlay(QObject):
         self._document.notify_changed()
 
     def delete_item(self, item: AnnotationItem) -> None:
-        """Remove ``item``'s dict from its axes' ``texts`` list + notify."""
+        """Remove ``item``'s dict from its axes' ``texts`` list + notify.
+
+        If the dict is already gone (orphaned via the Texts panel Remove, say),
+        the item is dropped silently with no ``notify_changed`` -- there is
+        nothing to mutate and no undo step should be burned (Finding 8).
+        """
+        if self._disabled:
+            _log.debug("annotation overlay disabled: delete_item no-op")
+            return
         fig = self._document.figure
         removed = False
         if fig is not None:
@@ -816,7 +1011,7 @@ class AnnotationOverlay(QObject):
     # ------------------------------------------------------------------
     def begin_add_text(self) -> None:
         """Arm add-text mode: the next preview click places a new annotation."""
-        if not self._enabled:
+        if self._disabled or not self._enabled:
             return
         self._add_mode = True
 
@@ -833,6 +1028,9 @@ class AnnotationOverlay(QObject):
         fallback). Uses the public ``Axes.text`` API so the appended dict schema
         matches exactly. Returns True if an annotation was added.
         """
+        if self._disabled:
+            _log.debug("annotation overlay disabled: add-placement no-op")
+            return False
         mapping = self._mapping()
         fig = self._document.figure
         if not self._enabled or mapping is None or fig is None or self._geometry is None:

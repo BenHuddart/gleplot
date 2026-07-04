@@ -379,6 +379,125 @@ class TestHeaderDoubleClickEntryPoint:
 
 
 # ----------------------------------------------------------------------
+# Findings 4 & 5: ownership resolution by basename (Save-As staleness /
+# project_path None) so a rename still propagates to series column_names.
+# ----------------------------------------------------------------------
+class TestOwnershipResolution:
+    def test_rename_after_save_as_propagates_to_series_column_names(
+        self, qapp, tmp_path
+    ):
+        """Finding 4: after Save As to a NEW directory, the document's
+        project_path moves but the already-loaded table key (resolved at
+        load time) does not. The owning import series must still be found
+        (by basename -- sidecars live beside the .gle), so the rename
+        propagates instead of being silently lost.
+        """
+        doc, gle_path = _opened_document_with_sidecar(tmp_path)
+        panel = DataPanel(doc)
+        panel.populate_from_figure()
+        _select_only_item(panel)
+
+        table = panel._current_table
+        key = panel._current_key  # resolved at load time in the ORIGINAL dir
+
+        # Simulate File > Save As into a fresh directory: project_path moves.
+        new_dir = tmp_path / "moved"
+        new_dir.mkdir()
+        doc.project_path = new_dir / "ownfig.gle"
+
+        # The table key is now stale relative to project_path, but ownership
+        # still resolves via the sidecar basename.
+        owners = panel._owning_series_for_key(key)
+        assert len(owners) == 1
+
+        panel._rename_column(key, table, 1, "Renamed After SaveAs")
+        assert owners[0]["column_names"][1] == "renamed_after_saveas"
+
+    def test_ownership_resolves_with_project_path_none(self, qapp, tmp_path):
+        """Finding 5: with project_path None (before the first save there is
+        no directory to resolve relative sidecar names against), ownership
+        must still resolve by basename rather than always returning [].
+        """
+        doc, gle_path = _opened_document_with_sidecar(tmp_path)
+        panel = DataPanel(doc)
+        panel.populate_from_figure()
+        _select_only_item(panel)
+
+        table = panel._current_table
+        key = panel._current_key
+
+        # Drop the project path entirely (e.g. an unsaved re-parented doc).
+        doc.project_path = None
+
+        owners = panel._owning_series_for_key(key)
+        assert len(owners) == 1
+
+        panel._rename_column(key, table, 1, "NoProjectPath")
+        assert owners[0]["column_names"][1] == "noprojectpath"
+
+    def test_external_reference_priority_still_wins(self, qapp, document, tmp_path):
+        """The external-reference priority rule stays intact: a file_series
+        (Reference file) entry makes the table non-editable even though the
+        basename fallback might otherwise flag it as owned.
+        """
+        panel = DataPanel(document)
+        csv_path = _write_csv(tmp_path)
+        panel.load_file(str(csv_path))
+        _select_only_item(panel)
+
+        panel.mode_combo.setCurrentText("Reference file")
+        panel.plot_type_combo.setCurrentText("Line")
+        panel.x_combo.setCurrentIndex(panel.x_combo.findText("x"))
+        panel.y_combo.setCurrentIndex(panel.y_combo.findText("y"))
+        panel.add_series()
+
+        assert panel._is_referenced_externally(panel._current_key) is True
+        assert panel._is_editable_table(panel._current_key) is False
+
+
+# ----------------------------------------------------------------------
+# Finding 7: _rename_column guards against a length-mismatched owner entry.
+# ----------------------------------------------------------------------
+class TestRenameLengthGuard:
+    def test_rename_skips_owner_with_mismatched_column_names_length(
+        self, qapp, tmp_path
+    ):
+        """A basename-matched owner whose column_names length differs from the
+        previewed table's column count must be SKIPPED (not blindly written),
+        so a stale/foreign entry cannot be corrupted or raise IndexError.
+        """
+        doc, gle_path = _opened_document_with_sidecar(tmp_path)
+        panel = DataPanel(doc)
+        panel.populate_from_figure()
+        _select_only_item(panel)
+
+        table = panel._current_table
+        key = panel._current_key
+
+        # Craft a second owning entry for the same sidecar basename but with a
+        # deliberately wrong-length column_names (3 names; table has 2 cols).
+        # col_idx 0 is IN RANGE for the mismatched list, so only the Finding 7
+        # length guard -- not the pre-existing bounds check -- prevents the
+        # wrong column from being clobbered.
+        ax = doc.figure.axes_list[0]
+        good_entry = ax.lines[0]
+        mismatched = dict(good_entry)
+        mismatched["column_names"] = ["foo", "bar", "baz"]  # wrong length (3 != 2)
+        ax.lines.append(mismatched)
+
+        assert table.n_cols == 2
+        # Both entries basename-match the loaded sidecar.
+        assert len(panel._owning_series_for_key(key)) == 2
+
+        panel._rename_column(key, table, 0, "Guarded")
+
+        # The aligned entry is updated; the mismatched one is left untouched
+        # (its in-range index 0 would have been overwritten without the guard).
+        assert good_entry["column_names"][0] == "guarded"
+        assert mismatched["column_names"] == ["foo", "bar", "baz"]
+
+
+# ----------------------------------------------------------------------
 # Persistence through save + reopen
 # ----------------------------------------------------------------------
 class TestPersistence:

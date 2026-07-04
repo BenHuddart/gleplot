@@ -309,3 +309,100 @@ def test_parse_scientific_notation():
     cals, warnings = parse_calibration_lines(text, [(False, False)])
     assert len(cals) == 1
     assert cals[0].x_range == pytest.approx((1e-3, 150.0))
+
+
+# --------------------------------------------------------------------------- #
+# Invalid-calibration rejection (Finding 5)
+# --------------------------------------------------------------------------- #
+
+def test_invalid_reason_valid_axes():
+    assert _lin_cal().invalid_reason() is None
+    assert _lin_cal().is_valid() is True
+
+
+def test_invalid_reason_log_nonpositive_bound():
+    # x is log but its min is <= 0 -> undefined log space.
+    cal = AxesCalibration(
+        index=0,
+        x_range=(0.0, 100.0),
+        y_range=(0.1, 1000.0),
+        x_log=True,
+        y_log=True,
+        cm_rect=(1.0, 1.0, 4.0, 6.0),
+    )
+    assert not cal.is_valid()
+    assert "log" in cal.invalid_reason()
+
+    # negative bound on a log y axis.
+    cal_y = AxesCalibration(
+        index=0,
+        x_range=(1.0, 100.0),
+        y_range=(-5.0, 1000.0),
+        x_log=False,
+        y_log=True,
+        cm_rect=(1.0, 1.0, 4.0, 6.0),
+    )
+    assert not cal_y.is_valid()
+
+
+def test_invalid_reason_min_equals_max():
+    cal = AxesCalibration(
+        index=0,
+        x_range=(5.0, 5.0),
+        y_range=(1.0, 3.0),
+        x_log=False,
+        y_log=False,
+        cm_rect=(1.0, 1.0, 4.0, 6.0),
+    )
+    assert not cal.is_valid()
+    assert "degenerate" in cal.invalid_reason()
+
+
+def test_invalid_reason_degenerate_cm_rect():
+    cal = AxesCalibration(
+        index=0,
+        x_range=(2.0, 12.0),
+        y_range=(-1.0, 1.0),
+        x_log=False,
+        y_log=False,
+        cm_rect=(1.0, 1.0, 1.0, 6.0),  # zero width
+    )
+    assert not cal.is_valid()
+    assert "width" in cal.invalid_reason()
+
+
+def test_parse_log_nonpositive_bound_skipped_with_warning():
+    # A log axis (meta True/True) whose printed x-min is 0 must be skipped.
+    text = "gleplot-cal 0  0 100 0.1 1000 5.83 1 9.16 6.62\n"
+    cals, warnings = parse_calibration_lines(text, [(True, True)])
+    assert cals == []
+    assert any("skipped" in w and "log" in w for w in warnings)
+    # Not also reported as "missing" (it was seen, just rejected).
+    assert not any("missing" in w for w in warnings)
+
+
+def test_parse_min_equals_max_skipped_with_warning():
+    text = "gleplot-cal 0  5 5 -1 1 1 1 4.33 6.62\n"
+    cals, warnings = parse_calibration_lines(text, [(False, False)])
+    assert cals == []
+    assert any("skipped" in w and "degenerate" in w for w in warnings)
+
+
+def test_parse_degenerate_cm_rect_skipped_with_warning():
+    # cm corners give zero height (cy0 == cy1).
+    text = "gleplot-cal 0  2 12 -1 1 1 3 4.33 3\n"
+    cals, warnings = parse_calibration_lines(text, [(False, False)])
+    assert cals == []
+    assert any("skipped" in w and "height" in w for w in warnings)
+
+
+def test_parse_valid_axes_unaffected_by_validation():
+    # A mix: axes 0 valid, axes 1 invalid (log with non-positive bound).
+    text = (
+        "gleplot-cal 0  2 12 -1 1 1 1 4.33 6.62\n"
+        "gleplot-cal 1  0 100 0.1 1000 5.83 1 9.16 6.62\n"
+    )
+    cals, warnings = parse_calibration_lines(text, [(False, False), (True, True)])
+    assert len(cals) == 1
+    assert cals[0].index == 0
+    assert any("skipped" in w for w in warnings)

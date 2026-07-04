@@ -166,6 +166,8 @@ Because GLE is a richer format than the object model, opening can apply a few us
 
 Missing `.dat` sidecars don't fail the open: the referencing series is marked broken (a `data:` warning plus a ⚠ marker in the Series tab), and you can repoint it at a real file with **Locate file...**.
 
+On open, gleplot decides whether each `data` reference is one of its own imported sidecars (pulled in as editable series data) or an external file (referenced in place, read-only) **solely from the `! gleplot` metadata block** that gleplot writes into every file it saves. A hand-authored or third-party `.gle` has no such block, so *all* of its data references are treated as external references — gleplot never adopts and rewrites a file it can't prove it authored, even if the filename happens to look like one of its own `name_N.dat` sidecars.
+
 ### Named headers and column names in the Data dock
 
 Sidecars gleplot writes carry the named header row described in [step 5](#5-save-the-figure) above, and both the loader and **File ▸ Open** read it back: the Data dock's preview table and any column-picking combo show the real names (`x`, `y_measured`, ...) instead of anonymous `col1`/`col2` placeholders, and re-saving a round-tripped figure reproduces the same names.

@@ -481,6 +481,22 @@ class DataPanel(QWidget):
         than one series entry (e.g. a fill built from two datasets that
         happen to share a file); all matching entries are returned so a
         rename can be propagated to every one of them.
+
+        Matching (Findings 4 & 5)
+        -------------------------
+        A relative import ``data_file`` is resolved against
+        ``project_path`` AT RENAME TIME, while the table ``key`` was
+        resolved AT LOAD TIME. After a *Save As* to a new directory the
+        UI's ``project_path`` moves but the still-in-memory table key does
+        not, so a purely path-based match goes stale and silently drops the
+        rename. Because import sidecars are ALWAYS written beside the
+        ``.gle`` (their relative ``data_file`` is a bare filename), the
+        sidecar's *basename* is a stable identity independent of which
+        directory the project currently lives in. So a match succeeds when
+        EITHER the resolved absolute paths agree OR the basenames agree.
+        When ``project_path`` is ``None`` (before the first save there is
+        no directory to resolve against) the basename comparison is the
+        only signal available, and it is sufficient.
         """
         fig = getattr(self._document, "figure", None)
         if fig is None:
@@ -489,19 +505,31 @@ class DataPanel(QWidget):
         project_path = getattr(self._document, "project_path", None)
         base = Path(project_path).parent if project_path else None
 
+        key_base = os.path.normcase(Path(key).name)
+        key_norm = os.path.normcase(key)
+
         owners = []
         for entry in self._import_entries(fig):
             name = entry.get("data_file")
             if not name or "column_names" not in entry:
                 continue
             path = Path(name)
+            # Basename fallback: import sidecars live beside the .gle, so a
+            # relative data_file's basename is its stable identity.
+            if os.path.normcase(path.name) == key_base:
+                owners.append(entry)
+                continue
+            # Path match (absolute entries, or relative resolved against the
+            # current project dir when one is known).
             if not path.is_absolute():
                 if base is None:
                     continue
                 path = base / path
-            if not path.exists():
+            try:
+                resolved = os.path.normcase(str(path.resolve()))
+            except OSError:
                 continue
-            if os.path.normcase(str(path.resolve())) == os.path.normcase(key):
+            if resolved == key_norm:
                 owners.append(entry)
         return owners
 
@@ -639,7 +667,17 @@ class DataPanel(QWidget):
 
         for entry in self._owning_series_for_key(key):
             names = entry.get("column_names")
-            if names is not None and col_idx < len(names):
+            # Finding 7 guard: only propagate into an owner whose
+            # column_names is index-aligned with THIS table (same column
+            # count). A mismatched-length list means the entry's columns do
+            # not correspond 1:1 to the previewed table (a stale/foreign
+            # entry that basename-matched), so writing names[col_idx] would
+            # corrupt the wrong column or raise. Skip it defensively.
+            if names is None:
+                continue
+            if len(names) != table.n_cols:
+                continue
+            if col_idx < len(names):
                 names[col_idx] = final_name
 
         self._document.notify_changed()

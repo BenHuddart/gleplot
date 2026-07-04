@@ -215,6 +215,20 @@ class TestEdits:
         assert panel.x_edit.text() == "3.1"
         assert document.notify_count == before
 
+    @pytest.mark.parametrize("bad", ["nan", "inf", "-inf", "1e400"])
+    def test_edit_nonfinite_coord_reverts(self, document, bad):
+        # Finding 6: nan/inf/overflow parse as floats but are non-finite; they
+        # must be rejected like any other invalid input (revert, no notify).
+        panel = TextsPanel(document)
+        panel.text_list.setCurrentRow(0)
+        before = document.notify_count
+        panel.x_edit.setText(bad)
+        panel.x_edit.editingFinished.emit()
+        ax = document.figure.gca()
+        assert ax.texts[0]["x"] == pytest.approx(3.1)
+        assert panel.x_edit.text() == "3.1"
+        assert document.notify_count == before
+
     def test_edit_color_stores_gle_name(self, document):
         panel = TextsPanel(document)
         panel.text_list.setCurrentRow(0)
@@ -343,6 +357,45 @@ class TestGuards:
         before = document.notify_count
         panel.set_axes(ax)
         assert document.notify_count == before
+
+
+# ------------------------------------------------------------------
+# Finding 7: an external refresh must not clobber a focused, in-progress edit
+# ------------------------------------------------------------------
+class TestFocusedEditPreserved:
+    def test_focused_x_edit_not_clobbered_by_external_refresh(self, document):
+        panel = TextsPanel(document)
+        panel.text_list.setCurrentRow(0)
+
+        # User types a new value into x_edit but has NOT committed
+        # (editingFinished not emitted yet -> the field still has focus).
+        panel.x_edit.setText("9.99")
+        # Simulate the field being focused (offscreen focus is unreliable, so
+        # force hasFocus() to report True for the widget under test).
+        panel.x_edit.hasFocus = lambda: True
+
+        # An external change (e.g. a canvas drag commit) fires figure_changed,
+        # which drives refresh() -> _populate_editor. The typed-but-uncommitted
+        # text must survive.
+        document.notify_changed()
+        assert panel.x_edit.text() == "9.99"
+
+        # Other, non-focused fields still refresh normally (texts[0] y == 0.98).
+        assert panel.y_edit.text() == "0.98"
+
+        # After blur, committing works and writes the model.
+        del panel.x_edit.hasFocus  # restore real hasFocus (returns False)
+        panel.x_edit.editingFinished.emit()
+        assert document.figure.gca().texts[0]["x"] == pytest.approx(9.99)
+
+    def test_focused_text_edit_not_clobbered_by_external_refresh(self, document):
+        panel = TextsPanel(document)
+        panel.text_list.setCurrentRow(0)
+        panel.text_edit.setPlainText("half-typed annotation")
+        panel.text_edit.hasFocus = lambda: True
+
+        document.notify_changed()
+        assert panel.text_edit.toPlainText() == "half-typed annotation"
 
 
 # ------------------------------------------------------------------

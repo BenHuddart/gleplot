@@ -29,10 +29,19 @@ Format handling (loading layer)
 - Comment lines (leading ``#`` or ``!``, ignoring leading whitespace) are
   skipped entirely and never considered for header/data detection.
 - Header detection: the first non-comment, non-blank row is treated as a
-  header if and only if at least one of its fields fails float
-  conversion (after missing-value normalization the missing tokens count
-  as "not a float" too, so a header row of plain names is always
-  detected as a header).
+  header if and only if at least one of its fields is a genuine
+  non-numeric *label* -- i.e. it fails float conversion AND is not a
+  missing-value token. A first data row consisting entirely of missing
+  tokens (e.g. ``* * *``) is therefore kept as an all-NaN DATA row, not
+  mistaken for a header.
+- Header/column alignment: if a detected header's token count does not
+  match the data column count (e.g. a whitespace-split multi-word header
+  like ``Temperature (K) Resistance (Ohm)`` yielding 4 tokens over 2
+  data columns), the row is still skipped as a header, but its tokens are
+  not used to name columns; positional names (``col1``..``colN``) are
+  synthesized and a warning is recorded on ``DataTable.warnings``.
+  Delimited files (comma/tab/semicolon) split multi-word names correctly,
+  so their headers align and are used verbatim.
 - Missing values: empty fields and the GLE-convention tokens ``*``,
   ``?``, ``-``, ``.`` (only when they are the *entire* field, not part
   of a longer token) as well as ``nan``/``NaN`` (case-insensitive) become
@@ -52,7 +61,6 @@ from __future__ import annotations
 
 import csv
 import io
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Union
@@ -273,11 +281,16 @@ def load_data_file(
 
     split_rows = [_split_line(line, delimiter) for line in content_lines]
 
-    # Header detection: the first row is a header iff at least one field
-    # fails float conversion after missing-value normalization.
+    # Header detection: the first row is a header iff at least one field is a
+    # genuine non-numeric label -- i.e. it fails float conversion AND is not a
+    # missing-value token. A missing token ('*', '?', '-', '.', '', 'nan')
+    # also "fails float conversion", but a first data row consisting entirely
+    # of missing values (e.g. '* * *') is real DATA (all-NaN), not a header;
+    # only a field that is a real word/label marks the row as a header.
     first_row = split_rows[0]
     first_row_is_header = any(
-        _try_float(_normalize_token(tok)) is None for tok in first_row
+        _normalize_token(tok) is not None and _try_float(_normalize_token(tok)) is None
+        for tok in first_row
     )
 
     has_header = first_row_is_header
@@ -294,11 +307,27 @@ def load_data_file(
     if not data_rows:
         raise ValueError(f"No data rows found in {path}")
 
-    max_cols = max(len(row) for row in data_rows)
-    if header_fields is not None:
-        max_cols = max(max_cols, len(header_fields))
-
     warnings: List[str] = []
+
+    # Column count is determined by the DATA rows, not the header. A header
+    # whose token count differs from the data column count is a *misalignment*
+    # (typically a whitespace-split multi-word header, e.g. header
+    # 'Temperature (K) Resistance (Ohm)' = 4 tokens over 2 data columns): we
+    # still skip the row as a header (it is not data), but we cannot trust its
+    # tokens to name columns 1:1, so we synthesize positional names and warn.
+    data_col_count = max(len(row) for row in data_rows)
+    header_mismatch = (
+        header_fields is not None and len(header_fields) != data_col_count
+    )
+    if header_mismatch:
+        warnings.append(
+            f"Header row has {len(header_fields)} field(s) but the data has "
+            f"{data_col_count} column(s); the header does not align with the "
+            "columns (e.g. multi-word names split on whitespace). Using "
+            "positional column names (col1..colN) instead."
+        )
+    max_cols = data_col_count
+
     padded_rows: List[List[str]] = []
     for row_idx, row in enumerate(data_rows):
         if len(row) < max_cols:
@@ -309,8 +338,8 @@ def load_data_file(
             )
             row = row + [""] * pad_count
         elif len(row) > max_cols:
-            # Shouldn't normally happen since max_cols is the max, but
-            # guard defensively in case header_fields was shorter.
+            # Shouldn't normally happen since max_cols is the max data-row
+            # width, but guard defensively.
             warnings.append(
                 f"Row {row_idx + 1} has {len(row)} field(s), expected "
                 f"{max_cols}; extra field(s) truncated."
@@ -318,7 +347,8 @@ def load_data_file(
             row = row[:max_cols]
         padded_rows.append(row)
 
-    if header_fields is None:
+    if header_fields is None or header_mismatch:
+        # No header, or a header that doesn't align 1:1 with the columns.
         column_names = [f"col{i + 1}" for i in range(max_cols)]
     else:
         column_names = list(header_fields)
@@ -571,26 +601,6 @@ def extract_columns(
     return result
 
 
-#: Sidecar-naming heuristic: matches gleplot's own export naming
-#: convention, ``{prefix}_{N}.dat`` where ``{prefix}`` is either the
-#: literal default prefix ``"data"`` or a user-chosen
-#: ``Figure.data_prefix``, and ``{N}`` is the (non-negative) integer
-#: counter from ``gleplot.axes._get_next_data_file`` /
-#: ``_reserve_data_filename``. See ``gleplot.axes`` for the writer side.
-#:
-#: CAUTION -- false positives: this is a syntactic heuristic only. Any
-#: user-supplied data file that happens to be named
-#: ``<anything>_<digits>.dat`` in the same directory as the ``.gle``
-#: script -- e.g. a perfectly ordinary ``results_2024.dat`` -- matches
-#: this pattern and would be misclassified as a gleplot-generated
-#: "import" sidecar rather than a user "reference". Prefer supplying
-#: ``import_list`` (parsed from the ``.gle`` metadata comment block, if
-#: gleplot wrote one) whenever available; the heuristic is a best-effort
-#: fallback only for files gleplot didn't author metadata for (e.g.
-#: hand-edited or third-party-generated ``.gle`` scripts).
-_SIDECAR_NAME_RE = re.compile(r"^.+_\d+\.dat$", re.IGNORECASE)
-
-
 def classify_data_file(
     gle_path: Union[str, Path],
     referenced_name: str,
@@ -609,20 +619,20 @@ def classify_data_file(
     Parameters
     ----------
     gle_path : str or pathlib.Path
-        Path to the ``.gle`` file doing the referencing (only its parent
-        directory matters, for the same-directory heuristic check).
+        Path to the ``.gle`` file doing the referencing (unused since the
+        filename heuristic was removed; retained for API stability).
     referenced_name : str
         The file name/path as written in the GLE ``data`` command.
     import_list : list of str, optional
         Authoritative list of file names/paths that gleplot's own writer
-        recorded as "imported" (copied) data files, typically parsed
-        from a metadata comment block gleplot itself wrote into the
-        ``.gle`` file when exporting. When this is not ``None``,
+        recorded as "imported" (copied) data files, parsed from the
+        ``! gleplot`` metadata comment block gleplot itself wrote into
+        the ``.gle`` file when exporting. When this is not ``None``,
         membership in this list (matched against ``referenced_name``,
         both as given and as a bare filename) *fully decides* the
-        classification -- the heuristic below is not consulted at all.
-        Pass ``None`` only when no such metadata is available (e.g. a
-        hand-authored or third-party ``.gle`` script).
+        classification. When it is ``None`` (no metadata block present --
+        e.g. a hand-authored or third-party ``.gle`` script), the
+        reference is ALWAYS classified ``"reference"``.
 
     Returns
     -------
@@ -631,40 +641,32 @@ def classify_data_file(
 
     Notes
     -----
-    Heuristic (only used when ``import_list is None``): a reference is
-    classified ``"import"`` iff *both*:
+    **Only the metadata block's import-data list can vouch a file as
+    gleplot-owned.** Every ``.gle`` gleplot itself saves carries the
+    ``! gleplot`` metadata block naming its import sidecars, so genuine
+    gleplot-authored sidecars are always vouched via ``import_list`` and
+    correctly classified ``"import"``.
 
-    1. It resolves to the *same directory* as ``gle_path`` (no
-       subdirectory, no ``..``, not absolute-elsewhere) -- gleplot always
-       writes sidecars next to the script.
-    2. Its filename matches ``^.+_\\d+\\.dat$`` (case-insensitive) --
-       i.e. some prefix, an underscore, one or more digits, then
-       ``.dat`` -- gleplot's own ``{prefix}_{N}.dat`` naming from
-       ``gleplot.axes._get_next_data_file``.
+    When ``import_list is None`` there is no authoritative signal that
+    gleplot owns any referenced file, so classification is conservative:
+    every reference is treated as an external ``"reference"``. This is a
+    deliberate safety property -- classifying a file as ``"import"``
+    causes gleplot to adopt (and, on the next ``savefig_gle``, REWRITE)
+    that file. A hand-authored ``.gle`` sitting next to an ordinary
+    user data file whose name happens to look like a sidecar (e.g.
+    ``results_2024.dat``) must NEVER have its data silently overwritten.
+    Such files remain read-only references: still plottable and
+    editable-in-style, but never rewritten.
 
-    Otherwise the reference is classified ``"reference"``.
-
-    See the ``_SIDECAR_NAME_RE`` module-level docstring comment above for
-    a discussion of this heuristic's false-positive risk (e.g. a
-    plain user file named ``results_2024.dat`` sitting next to the
-    script matches the pattern and would be misclassified as
-    ``"import"``). **Prefer passing ``import_list`` whenever the
-    metadata block is available** -- the heuristic is a fallback of
-    last resort.
+    (Historically a filename heuristic -- ``<prefix>_<digits>.dat`` in
+    the same directory -- classified such files as ``"import"``; that
+    produced a silent user-data-overwrite false positive and has been
+    removed. The metadata block is now the sole source of truth.)
     """
-    if import_list is not None:
-        candidates = {referenced_name, Path(referenced_name).name}
-        imported = {str(n) for n in import_list} | {
-            Path(str(n)).name for n in import_list
-        }
-        return "import" if candidates & imported else "reference"
-
-    ref = Path(referenced_name)
-    if ref.is_absolute():
+    if import_list is None:
         return "reference"
-    # Same-directory only: no subdirectory components, no parent traversal.
-    if len(ref.parts) != 1:
-        return "reference"
-    if _SIDECAR_NAME_RE.match(ref.name):
-        return "import"
-    return "reference"
+    candidates = {referenced_name, Path(referenced_name).name}
+    imported = {str(n) for n in import_list} | {
+        Path(str(n)).name for n in import_list
+    }
+    return "import" if candidates & imported else "reference"

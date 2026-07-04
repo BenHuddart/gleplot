@@ -421,3 +421,141 @@ def test_overlay_disabled_without_geometry(qapp):
     # begin_add_text is a no-op while disabled.
     overlay.begin_add_text()
     assert overlay.add_mode is False
+
+
+# ----------------------------------------------------------------------
+# Finding 3: figure_replaced (undo) mid-drag must not leave a phantom item
+# ----------------------------------------------------------------------
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_figure_replaced_midgesture_aborts_and_no_phantom(qapp):
+    doc = _doc_with_annotation(x=6.0, y=0.0, text="phantom")
+    h = _Harness(doc)
+    # Wire figure_replaced -> overlay abort slot, as the main window does.
+    doc.figure_replaced.connect(h.overlay.on_figure_replaced)
+    try:
+        assert h.render_and_wait()
+        assert len(h.overlay.items) == 1
+        item = h.overlay.items[0]
+
+        # Begin a drag: mark interacting and move to a scene pos the model does
+        # not reflect (mid-gesture, no commit yet).
+        item._dragging = True
+        item._interaction_fingerprint = h.overlay.current_mapping_fingerprint()
+        item.sync_position(QPointF(37.0, 42.0))
+        assert item.is_interacting
+
+        # An undo lands mid-drag: figure_replaced fires. The overlay must ABORT
+        # the interaction (discard ghost, no commit) and clear all items.
+        doc.figure_replaced.emit()
+        assert item.is_interacting is False
+        assert h.overlay.items == []
+
+        # The follow-up render rebuilds against the (unchanged) model: exactly
+        # one item, none interacting, no phantom.
+        n_before = len(h.renders)
+        doc.notify_changed()
+        assert _wait_until(lambda: len(h.renders) > n_before)
+        assert len(h.overlay.items) == 1
+        assert not any(it.is_interacting for it in h.overlay.items)
+
+        # A further clean render still yields exactly one item (no accumulation).
+        n_before = len(h.renders)
+        doc.notify_changed()
+        assert _wait_until(lambda: len(h.renders) > n_before)
+        assert len(h.overlay.items) == 1
+    finally:
+        h.shutdown()
+
+
+# ----------------------------------------------------------------------
+# Finding 4: a mapping change mid-drag aborts the interaction (no jumped commit)
+# ----------------------------------------------------------------------
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_mapping_change_midgesture_aborts_no_committed_jump(qapp):
+    doc = _doc_with_annotation(x=6.0, y=0.0, text="fmt")
+    h = _Harness(doc)
+    try:
+        assert h.render_and_wait()
+        item = h.overlay.items[0]
+        model_x0 = doc.figure.axes_list[0].texts[0]["x"]
+        model_y0 = doc.figure.axes_list[0].texts[0]["y"]
+
+        # Begin a drag under the current mapping; move somewhere arbitrary.
+        item._dragging = True
+        item._interaction_fingerprint = h.overlay.current_mapping_fingerprint()
+        assert item._interaction_fingerprint is not None
+        item.sync_position(QPointF(11.0, 13.0))
+
+        # Simulate a format/scale change: install a geometry with a DIFFERENT
+        # dpi so the RasterViewMapping fingerprint changes underneath the drag.
+        from gleplot.gui.geometry import PreviewGeometry
+
+        geom = h.ctrl.last_geometry
+        changed = PreviewGeometry(
+            page_size_cm=geom.page_size_cm, dpi=geom.dpi + 37, axes=geom.axes
+        )
+        h.view.set_geometry(changed)
+        assert h.overlay.current_mapping_fingerprint() != item._interaction_fingerprint
+
+        # A rebuild now (as a render would trigger) must ABORT the interaction
+        # rather than preserve the stale scene position.
+        h.overlay.set_geometry(changed)  # keep overlay geometry consistent
+        h.overlay.rebuild()
+        assert item.is_interacting is False
+
+        # Release after the abort must commit NO change: the item is no longer
+        # dragging, and the model coords are exactly what they were.
+        rebuilt = h.overlay.items[0]
+        h.overlay.commit_item_move(rebuilt)  # rebuilt sits at model position
+        assert doc.figure.axes_list[0].texts[0]["x"] == pytest.approx(model_x0)
+        assert doc.figure.axes_list[0].texts[0]["y"] == pytest.approx(model_y0)
+    finally:
+        item._dragging = False
+        h.shutdown()
+
+
+# ----------------------------------------------------------------------
+# Finding 8: committing an item whose dict was removed elsewhere is a no-op
+# ----------------------------------------------------------------------
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_commit_on_orphaned_dict_drops_item_no_notify(qapp):
+    doc = _doc_with_annotation(text="orphan")
+    h = _Harness(doc)
+    notify_count = {"n": 0}
+    doc.figure_changed.connect(
+        lambda: notify_count.__setitem__("n", notify_count["n"] + 1)
+    )
+    try:
+        assert h.render_and_wait()
+        item = h.overlay.items[0]
+        td = item.text_dict
+
+        # The annotation is removed via a different path (e.g. the Texts panel
+        # Remove button): its dict leaves the model while the overlay item and
+        # any open inline edit still reference it.
+        doc.figure.axes_list[0].texts.remove(td)
+        assert td not in doc.figure.axes_list[0].texts
+
+        n0 = notify_count["n"]
+        # A pending commit on the now-orphaned item must be a silent no-op:
+        # no mutation, no notify (no undo step burned), and the item is dropped.
+        h.overlay.commit_item_text(item, "late edit")
+        assert notify_count["n"] == n0
+        assert item not in h.overlay.items
+
+        # commit_item_move on an orphan is likewise inert.
+        item2 = None
+        # Re-add a fresh annotation + item to exercise move-on-orphan too.
+        doc.figure.axes_list[0].texts.append(dict(td, text="second"))
+        td2 = doc.figure.axes_list[0].texts[-1]
+        from gleplot.gui.annotations import AnnotationItem
+
+        item2 = AnnotationItem(h.overlay, td2, item.cal)
+        h.overlay._items.append(item2)
+        doc.figure.axes_list[0].texts.remove(td2)
+        n1 = notify_count["n"]
+        h.overlay.commit_item_move(item2)
+        assert notify_count["n"] == n1
+        assert item2 not in h.overlay.items
+    finally:
+        h.shutdown()

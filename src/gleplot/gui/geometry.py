@@ -49,13 +49,19 @@ and the inverse, when the user drops the handle at raster ``(px, py)``::
 Log-axis edge case
 ------------------
 On a log axis the mapping is affine in ``log10(value)``, which is undefined for
-non-positive values. :meth:`AxesCalibration.data_to_cm` **clamps** a
-non-positive coordinate on a log axis to a tiny positive epsilon (so a handle
-never vanishes to NaN and stays pinned at the axis edge), while
-:meth:`AxesCalibration.cm_to_data` can always produce a valid positive value.
-The inverse never yields non-positive data on a log axis, so ``cm_to_data``
-returns finite floats; callers that need to reject out-of-range results should
-use :meth:`AxesCalibration.contains_cm`.
+non-positive values. A log axis whose *range* has a non-positive bound cannot be
+calibrated at all, so :func:`parse_calibration_lines` rejects such an axes up
+front (see :meth:`AxesCalibration.is_valid`); the range bounds fed to the
+interpolation are therefore always strictly positive on a log axis.
+
+Only *point inputs* to :meth:`AxesCalibration.data_to_cm` are still clamped: a
+caller may ask for the cm position of a data point that happens to be
+non-positive on a log axis (e.g. an annotation the user dragged to the edge),
+and clamping it to a tiny positive epsilon keeps the handle pinned at the axis
+edge instead of vanishing to NaN. :meth:`AxesCalibration.cm_to_data` can always
+produce a valid positive value; the inverse never yields non-positive data on a
+log axis, so it returns finite floats. Callers that need to reject out-of-range
+results should use :meth:`AxesCalibration.contains_cm`.
 """
 
 from __future__ import annotations
@@ -81,15 +87,21 @@ CM_PER_INCH = 2.54
 _LOG_EPS = 1e-300
 
 
-def _to_log_space(value: float, is_log: bool) -> float:
+def _to_log_space(value: float, is_log: bool, *, clamp: bool = False) -> float:
     """Map ``value`` into the space the axis is affine in.
 
-    Linear axis -> value unchanged. Log axis -> ``log10(value)`` with a clamp of
-    non-positive values to :data:`_LOG_EPS` so the result is always finite.
+    Linear axis -> value unchanged. Log axis -> ``log10(value)``.
+
+    ``clamp`` controls the non-positive-input case, which only arises for *point
+    inputs* to :meth:`AxesCalibration.data_to_cm` (a valid axes' *range* bounds
+    are guaranteed positive on a log axis by :func:`parse_calibration_lines`, so
+    they are mapped with ``clamp=False``). When ``clamp`` is true a non-positive
+    value is pinned to :data:`_LOG_EPS` so the result stays finite (a handle
+    dragged past the axis edge sticks at the edge instead of vanishing to NaN).
     """
     if not is_log:
         return value
-    if value <= 0.0:
+    if clamp and value <= 0.0:
         value = _LOG_EPS
     return math.log10(value)
 
@@ -175,6 +187,45 @@ class AxesCalibration:
         ylo, yhi = (y0, y1) if y0 <= y1 else (y1, y0)
         return xlo <= cx <= xhi and ylo <= cy <= yhi
 
+    def invalid_reason(self) -> Optional[str]:
+        """Return why this calibration is unusable, or ``None`` if it is valid.
+
+        A calibration is *invalid* (and produces corrupted math if used) when:
+
+        * a log axis has a non-positive range bound (``log10`` is undefined, so
+          the affine-in-log-space mapping cannot be built);
+        * either axis has a degenerate range (``min == max``), which collapses
+          the whole axis to a single cm edge and makes ``cm_to_data`` ambiguous;
+        * the cm rectangle is degenerate (zero width or height), which makes the
+          inverse ``cm -> data`` mapping divide by zero.
+
+        :func:`parse_calibration_lines` calls this to skip a bad axes with a
+        warning rather than silently emitting NaN/garbage coordinates.
+        """
+        x0d, x1d = self.x_range
+        y0d, y1d = self.y_range
+        if self.x_log and (x0d <= 0.0 or x1d <= 0.0):
+            return "x is a log axis but its range has a non-positive bound"
+        if self.y_log and (y0d <= 0.0 or y1d <= 0.0):
+            return "y is a log axis but its range has a non-positive bound"
+        if x0d == x1d:
+            return "x range is degenerate (min == max)"
+        if y0d == y1d:
+            return "y range is degenerate (min == max)"
+        cx0, cy0, cx1, cy1 = self.cm_rect
+        if cx0 == cx1:
+            return "cm rectangle has zero width"
+        if cy0 == cy1:
+            return "cm rectangle has zero height"
+        return None
+
+    def is_valid(self) -> bool:
+        """True if this calibration can be used without corrupted math.
+
+        Convenience wrapper over :meth:`invalid_reason`.
+        """
+        return self.invalid_reason() is None
+
     # -- internals ----------------------------------------------------------
     @staticmethod
     def _interp(
@@ -185,7 +236,10 @@ class AxesCalibration:
     ) -> float:
         d0 = _to_log_space(data_range[0], is_log)
         d1 = _to_log_space(data_range[1], is_log)
-        v = _to_log_space(value, is_log)
+        # ``value`` is a point input (an annotation coord), which may legitimately
+        # be non-positive on a log axis (dragged past the edge): clamp it so the
+        # result is finite. The range bounds are validated positive up front.
+        v = _to_log_space(value, is_log, clamp=True)
         span = d1 - d0
         if span == 0.0:
             # Degenerate axis range: collapse to the low cm edge.
@@ -344,17 +398,26 @@ def parse_calibration_lines(
             continue
 
         x_log, y_log = axes_meta[idx]
-        seen_indices.add(idx)
-        calibrations.append(
-            AxesCalibration(
-                index=idx,
-                x_range=(xgmin, xgmax),
-                y_range=(ygmin, ygmax),
-                x_log=bool(x_log),
-                y_log=bool(y_log),
-                cm_rect=(cx0, cy0, cx1, cy1),
-            )
+        cal = AxesCalibration(
+            index=idx,
+            x_range=(xgmin, xgmax),
+            y_range=(ygmin, ygmax),
+            x_log=bool(x_log),
+            y_log=bool(y_log),
+            cm_rect=(cx0, cy0, cx1, cy1),
         )
+        reason = cal.invalid_reason()
+        if reason is not None:
+            # Mark the index seen so it is not also flagged "missing" below, but
+            # skip it: an invalid calibration would emit corrupted coordinates.
+            # The overlay simply has no items for this axes.
+            seen_indices.add(idx)
+            warnings.append(
+                f"gleplot-cal index {idx} skipped ({reason}): {raw_line.strip()!r}"
+            )
+            continue
+        seen_indices.add(idx)
+        calibrations.append(cal)
 
     calibrations.sort(key=lambda c: c.index)
 

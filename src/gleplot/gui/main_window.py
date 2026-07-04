@@ -394,6 +394,13 @@ class MainWindow(QMainWindow):
         # overlay items on the fresh render. Both connections are kept explicit.
         pc.geometry_ready.connect(self.annotation_overlay.set_geometry)
         pc.render_succeeded.connect(self.annotation_overlay.on_render_succeeded)
+        # figure_replaced (New/Open/undo/redo) can land mid-drag/mid-edit: the
+        # new figure orphans every text_dict, so the overlay aborts any active
+        # interaction and clears items, pending the follow-up render's rebuild
+        # (Finding 3 -- no phantom mid-drag item survives an undo).
+        self.document.figure_replaced.connect(
+            self.annotation_overlay.on_figure_replaced
+        )
         self.annotation_overlay.overlay_enabled_changed.connect(
             self._on_overlay_enabled_changed
         )
@@ -414,11 +421,34 @@ class MainWindow(QMainWindow):
 
     def _connect_undo_signals(self) -> None:
         us = self.undo_stack
-        us.can_undo_changed.connect(self.action_undo.setEnabled)
-        us.can_redo_changed.connect(self.action_redo.setEnabled)
+        # Route through mode-aware slots rather than wiring
+        # can_undo_changed/can_redo_changed straight to action.setEnabled:
+        # while in GLE-preview mode the Undo/Redo actions must stay disabled
+        # regardless of the (still-live) document undo stack's transitions
+        # (Finding 2). _update_gle_mode_actions remains the single authority for
+        # the enabled state; these slots simply defer to it in preview mode.
+        us.can_undo_changed.connect(self._on_can_undo_changed)
+        us.can_redo_changed.connect(self._on_can_redo_changed)
         # Seed initial enabled state (signals only fire on transitions).
         self.action_undo.setEnabled(us.can_undo)
         self.action_redo.setEnabled(us.can_redo)
+
+    def _on_can_undo_changed(self, can_undo: bool) -> None:
+        """Undo-availability changed on the document stack (Finding 2).
+
+        Honoured only in document mode; in GLE-preview mode the action stays
+        disabled (the stack keeps ticking underneath, but Undo is meaningless
+        for a read-only ``.gle`` preview).
+        """
+        if self.is_gle_preview_mode:
+            return
+        self.action_undo.setEnabled(can_undo)
+
+    def _on_can_redo_changed(self, can_redo: bool) -> None:
+        """Redo-availability changed on the document stack (Finding 2)."""
+        if self.is_gle_preview_mode:
+            return
+        self.action_redo.setEnabled(can_redo)
 
     # ------------------------------------------------------------------
     # Preview slots
@@ -859,6 +889,13 @@ class MainWindow(QMainWindow):
         self._cleanup_gle_temp_dirs()
         self._gle_preview_path = gle_path
         self._set_document_widgets_enabled(False)
+        # Hard-disable the annotation overlay before the read-only image lands
+        # (Finding 1): the preview is a static compile of a *file*, not the
+        # document, but overlay items from the previous document render are
+        # still live in the scene. Disabling clears them, cancels add-mode, and
+        # makes every commit path a no-op so a stray drag/click cannot mutate
+        # the hidden document figure while it is not on screen.
+        self.annotation_overlay.set_disabled(True)
         self._update_gle_mode_actions()
 
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
@@ -904,6 +941,12 @@ class MainWindow(QMainWindow):
         self._gle_preview_path = None
         self._cleanup_gle_temp_dirs()
         self._set_document_widgets_enabled(True)
+        # Lift the overlay's hard-disabled state (Finding 1). It stays cleared
+        # (no items) until the next *document* render rebuilds it via
+        # geometry_ready/render_succeeded -- which the caller's figure_replaced
+        # re-render triggers. set_geometry would also lift this, but doing it
+        # here makes the mode transition authoritative even if no render follows.
+        self.annotation_overlay.set_disabled(False)
         self._update_gle_mode_actions()
         self.statusBar().clearMessage()
         self._update_window_title()
