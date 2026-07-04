@@ -181,6 +181,14 @@ class DataPanel(QWidget):
             # files it references so users can immediately add more series
             # from the same data.
             figure_replaced.connect(self.populate_from_figure)
+        # CRITICAL ordering: file_ops installs the figure FIRST (set_figure
+        # emits figure_replaced with project_path still None, so relative
+        # sidecar names cannot resolve yet) and assigns project_path AFTER.
+        # Re-run population when the path lands so referenced files resolve
+        # against the .gle's directory.
+        project_path_changed = getattr(self._document, "project_path_changed", None)
+        if project_path_changed is not None:
+            project_path_changed.connect(self.populate_from_figure)
 
     # ------------------------------------------------------------------
     # File loading
@@ -225,7 +233,7 @@ class DataPanel(QWidget):
         self.file_list.setCurrentItem(item)
         return table
 
-    def populate_from_figure(self) -> None:
+    def populate_from_figure(self, *_signal_args) -> None:
         """Add the current figure's referenced data files to the file list.
 
         Called on ``figure_replaced`` (File > Open installs a parsed

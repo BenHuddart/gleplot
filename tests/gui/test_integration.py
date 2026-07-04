@@ -387,6 +387,10 @@ def test_gle_native_workflow(qapp, tmp_path):
         assert reopened_ax.lines[0]['x'] is not None
         assert window.document.is_dirty is False
         assert window.document.project_path == gle_path
+        # The Data dock must surface the opened figure's data files THROUGH
+        # THE REAL OPEN FLOW (set_figure fires before project_path is
+        # assigned; population must still resolve the sidecars).
+        assert window.data_panel.file_list.count() >= 1
         assert _wait_until(lambda: recorder.succeeded or recorder.failed)
         assert not recorder.failed, recorder.failed
 
