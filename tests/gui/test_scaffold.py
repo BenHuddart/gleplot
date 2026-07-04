@@ -36,10 +36,14 @@ def qapp():
 
 
 def test_main_window_constructs(qapp):
-    """MainWindow should construct without error and set a sensible title."""
+    """MainWindow should construct without error and set a sensible title.
+
+    A never-saved, clean document shows the "untitled" project name with no
+    dirty marker.
+    """
     window = MainWindow()
     try:
-        assert window.windowTitle() == "gleplot editor"
+        assert window.windowTitle() == "gleplot editor — untitled"
     finally:
         window.close()
 

@@ -26,6 +26,25 @@ from PySide6.QtWidgets import (
 from gleplot.compiler import GLEError
 
 
+def format_gle_error(err: GLEError) -> str:
+    """Render a single :class:`GLEError` as a one-line label.
+
+    This is the *canonical* one-line rendering of a GLE error used across the
+    GUI (the error list and the export dialog both call it, so their formatting
+    stays consistent). Format:
+
+    * ``"line L, col C: message"`` when both line and column are known;
+    * ``"line L: message"`` when only the line is known;
+    * ``"message"`` when neither is known.
+    """
+    location = ""
+    if err.line is not None and err.column is not None:
+        location = f"line {err.line}, col {err.column}: "
+    elif err.line is not None:
+        location = f"line {err.line}: "
+    return f"{location}{err.message}"
+
+
 class ErrorPanel(QWidget):
     """List GLE compile errors plus a collapsible raw-output view.
 
@@ -96,13 +115,12 @@ class ErrorPanel(QWidget):
     # ------------------------------------------------------------------
     @staticmethod
     def _format_error(err: GLEError) -> str:
-        """Render a single :class:`GLEError` as a one-line label."""
-        location = ""
-        if err.line is not None and err.column is not None:
-            location = f"line {err.line}, col {err.column}: "
-        elif err.line is not None:
-            location = f"line {err.line}: "
-        return f"{location}{err.message}"
+        """Render a single :class:`GLEError` as a one-line label.
+
+        Thin wrapper over the module-level :func:`format_gle_error` (the shared
+        canonical formatter) kept for internal call-site brevity.
+        """
+        return format_gle_error(err)
 
     def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
         line = item.data(_LINE_ROLE)

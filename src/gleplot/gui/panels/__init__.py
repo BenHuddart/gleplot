@@ -9,6 +9,7 @@ the parallel document/preview development track.
 
 from .axes_panel import AxesPanel
 from .figure_panel import FigurePanel
+from .layout_panel import LayoutPanel
 from .series_panel import SeriesPanel
 
-__all__ = ["FigurePanel", "AxesPanel", "SeriesPanel"]
+__all__ = ["FigurePanel", "AxesPanel", "SeriesPanel", "LayoutPanel"]

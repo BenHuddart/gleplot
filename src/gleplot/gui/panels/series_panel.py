@@ -247,7 +247,7 @@ class SeriesPanel(QWidget):
 
     def _connect_signals(self) -> None:
         self._document.figure_changed.connect(self.refresh)
-        self._document.figure_replaced.connect(self.refresh)
+        self._document.figure_replaced.connect(self._on_figure_replaced)
 
         self.series_list.currentRowChanged.connect(self._on_selection_changed)
         self.remove_button.clicked.connect(self._on_remove_clicked)
@@ -260,6 +260,17 @@ class SeriesPanel(QWidget):
         self.marker_combo.currentTextChanged.connect(self._on_marker_changed)
         self.linewidth_spin.editingFinished.connect(self._on_linewidth_edited)
         self.markersize_spin.editingFinished.connect(self._on_markersize_edited)
+
+    def _on_figure_replaced(self) -> None:
+        """Handle a brand-new figure being installed (New/Open/undo/redo).
+
+        Mirrors :meth:`AxesPanel._on_figure_replaced`: the ``_axes`` override
+        points at the old figure's (now dead) Axes, so drop it and fall back to
+        the live ``document.figure.gca()``. LayoutPanel re-emits
+        ``axes_selected`` afterwards to re-target the correct slot.
+        """
+        self._axes = None
+        self.refresh()
 
     # ------------------------------------------------------------------
     # Model -> UI: list population

@@ -119,3 +119,39 @@ def test_set_figure_resets_dirty(qapp):
 
     doc.set_figure(glp.Figure())
     assert doc.is_dirty is False
+
+
+def test_set_figure_clears_project_path(qapp):
+    """FIX 1: set_figure must reset project_path so File>New after editing a
+    saved project does not keep the old .glep as the Save target."""
+    doc = FigureDocument(glp.Figure())
+    doc.project_path = "foo.glep"
+    assert doc.project_path is not None
+
+    path_changed = _Counter()
+    doc.project_path_changed.connect(path_changed)
+
+    # File>New (via new_figure -> set_figure) must clear the stale path.
+    doc.new_figure()
+
+    assert doc.project_path is None
+    # project_path_changed emitted with empty string on clear.
+    assert path_changed.count == 1
+    assert path_changed.args[-1] == ("",)
+
+
+def test_open_project_ordering_preserves_path(qapp, tmp_path):
+    """FIX 1 regression guard: open_project calls set_figure THEN assigns
+    project_path, so the new clearing behaviour must not wipe the loaded path."""
+    from gleplot.gui import file_ops
+    from gleplot.project import save_project
+
+    src = tmp_path / "proj.glep"
+    fig = glp.Figure()
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4], label="s")
+    save_project(fig, src)
+
+    doc = FigureDocument()
+    assert file_ops.open_project(None, doc, path=src) is True
+    assert doc.project_path == src

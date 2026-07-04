@@ -164,7 +164,7 @@ class AxesPanel(QWidget):
 
     def _connect_signals(self) -> None:
         self._document.figure_changed.connect(self.refresh)
-        self._document.figure_replaced.connect(self.refresh)
+        self._document.figure_replaced.connect(self._on_figure_replaced)
 
         self.title_edit.editingFinished.connect(self._on_title_edited)
         self.xlabel_edit.editingFinished.connect(self._on_xlabel_edited)
@@ -182,6 +182,19 @@ class AxesPanel(QWidget):
 
         self.legend_enabled_check.toggled.connect(self._on_legend_enabled_toggled)
         self.legend_loc_combo.currentTextChanged.connect(self._on_legend_loc_changed)
+
+    def _on_figure_replaced(self) -> None:
+        """Handle a brand-new figure being installed (New/Open/undo/redo).
+
+        The previously-selected Axes (stored in ``self._axes`` via
+        :meth:`set_axes`) belongs to the *old* figure and is now a dead object;
+        continuing to edit it would silently lose changes. Drop the override so
+        :meth:`_current_axes` falls back to the live ``document.figure.gca()``.
+        LayoutPanel re-emits ``axes_selected`` right after this to re-target the
+        panel onto the corresponding slot of the new figure when applicable.
+        """
+        self._axes = None
+        self.refresh()
 
     # ------------------------------------------------------------------
     # Model -> UI

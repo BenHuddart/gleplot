@@ -161,12 +161,35 @@ class Figure:
             rows, cols, idx = args
         
         ax = Axes(self, (rows, cols, idx))
-        
-        # Configure shared axes visibility
-        # Convert 1-based index to row/col
-        row = (idx - 1) // cols   # 0-based, 0 = top row
-        col = (idx - 1) % cols    # 0-based, 0 = left col
-        
+
+        # Derive shared-axes tick/label visibility flags from this figure's
+        # current sharex/sharey settings. Kept as a separate method so the GUI
+        # layout panel can re-apply the identical derivation after the fact
+        # (grid resize / sharing toggle) instead of duplicating the logic.
+        self._apply_shared_axes_flags(ax)
+
+        self.axes_list.append(ax)
+        self._current_axes = ax
+        return ax
+
+    def _apply_shared_axes_flags(self, ax: Axes) -> None:
+        """Set ``ax``'s shared-axes tick/label visibility flags.
+
+        Reads ``ax.position`` (a ``(rows, cols, idx)`` tuple) together with this
+        figure's ``sharex``/``sharey`` flags and writes the ``_show_xlabel`` /
+        ``_show_xticks`` / ``_remove_*`` visibility flags on ``ax`` accordingly.
+
+        This is the single source of truth for that derivation: ``add_subplot``
+        calls it for every new axes, and callers that mutate an axes' position
+        or the figure's sharing after axes already exist (e.g. the GUI layout
+        panel) call it to re-sync the flags to what a fresh ``add_subplot``
+        would have produced. Changing the rules here changes them everywhere.
+        """
+        rows, cols, idx = ax.position
+        # Convert 1-based index to 0-based row/col.
+        row = (idx - 1) // cols   # 0 = top row
+        col = (idx - 1) % cols    # 0 = left col
+
         if self.sharex:
             # Only show x-axis labels/ticks on bottom row
             ax._show_xlabel = (row == rows - 1)
@@ -185,7 +208,7 @@ class Figure:
             ax._remove_first_xtick = False
             ax._remove_last_ytick = False
             ax._remove_first_ytick = False
-        
+
         if self.sharey:
             # Only show y-axis labels/ticks on leftmost column
             ax._show_ylabel = (col == 0)
@@ -208,10 +231,6 @@ class Figure:
                 ax._remove_last_xtick = False
                 ax._remove_first_xtick = False
                 ax._remove_first_xtick = False
-        
-        self.axes_list.append(ax)
-        self._current_axes = ax
-        return ax
     
     def gca(self) -> Axes:
         """Get current axes (or create if needed)."""

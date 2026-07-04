@@ -24,7 +24,8 @@ kinds of change:
 
 from __future__ import annotations
 
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 from PySide6.QtCore import QObject, Signal
 
@@ -52,16 +53,22 @@ class FigureDocument(QObject):
     dirty_changed(bool)
         Emitted whenever the dirty flag transitions. ``True`` means there are
         unsaved changes; ``False`` means the document is clean.
+    project_path_changed(str)
+        Emitted whenever :attr:`project_path` changes, e.g. after File ▸ Open
+        or the first File ▸ Save As of a new document. The argument is the
+        string form of the new path (empty string when cleared to ``None``).
     """
 
     figure_changed = Signal()
     figure_replaced = Signal()
     dirty_changed = Signal(bool)
+    project_path_changed = Signal(str)
 
     def __init__(self, figure: Optional[Figure] = None) -> None:
         super().__init__()
         self._figure: Optional[Figure] = figure
         self._dirty: bool = False
+        self._project_path: Optional[Path] = None
 
     # ------------------------------------------------------------------
     # Figure access
@@ -76,11 +83,20 @@ class FigureDocument(QObject):
 
         Installing a document is treated as a clean starting point: the dirty
         flag is reset to ``False`` (emitting :data:`dirty_changed` if it was
-        previously dirty). Use this for File ▸ New and File ▸ Open. Panels
-        that mutate the *existing* figure should call :meth:`notify_changed`
-        instead.
+        previously dirty) and the project path is cleared to ``None`` (emitting
+        :data:`project_path_changed`). Use this for File ▸ New and File ▸ Open.
+        Panels that mutate the *existing* figure should call
+        :meth:`notify_changed` instead.
+
+        Clearing the project path here is what makes File ▸ New after editing a
+        saved project route the next Save to Save-As instead of silently
+        overwriting the old ``.glep``. Loaders that install a figure and then
+        assign a real path (e.g. :func:`gleplot.gui.file_ops.open_project`)
+        must call ``set_figure`` *before* setting ``project_path`` -- the order
+        already used -- so the freshly loaded path survives.
         """
         self._figure = fig
+        self.project_path = None
         self.figure_replaced.emit()
         self._set_dirty(False)
 
@@ -106,6 +122,22 @@ class FigureDocument(QObject):
         """
         self.figure_changed.emit()
         self._set_dirty(True)
+
+    # ------------------------------------------------------------------
+    # Project path tracking
+    # ------------------------------------------------------------------
+    @property
+    def project_path(self) -> Optional[Path]:
+        """Filesystem path of the ``.glep`` project this document was loaded
+        from or last saved to, or ``None`` for a not-yet-saved document."""
+        return self._project_path
+
+    @project_path.setter
+    def project_path(self, value: Optional[Union[str, Path]]) -> None:
+        new_path = Path(value) if value is not None else None
+        if new_path != self._project_path:
+            self._project_path = new_path
+            self.project_path_changed.emit(str(new_path) if new_path else "")
 
     # ------------------------------------------------------------------
     # Dirty tracking
