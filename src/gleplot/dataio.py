@@ -163,25 +163,38 @@ def _sniff_delimiter(sample_lines: List[str]) -> Optional[str]:
 
     # Sniffer failed (e.g. single column, ambiguous, or ragged rows with
     # inconsistent field counts). Fall back to counting occurrences of
-    # each candidate delimiter across the sample lines; pick the one that
-    # appears on every non-empty line (count > 0), even if the exact
-    # count varies row-to-row (ragged data), since that's still a strong
-    # signal of a real field separator rather than incidental
-    # punctuation. Prefer the delimiter with the most consistent counts
-    # when more than one candidate qualifies.
+    # each candidate delimiter across the sample lines; accept the one
+    # that appears on *most* non-empty lines (count > 0), even if the
+    # exact count varies row-to-row (ragged data) and even if a minority
+    # of rows lack it entirely (e.g. a single-field ragged row like a
+    # lone ``2`` in an otherwise comma-delimited file). A separator that
+    # is present on the majority of rows is a strong signal of a real
+    # field delimiter rather than incidental punctuation; the minority of
+    # rows that lack it are handled as ragged rows (right-padded with NaN)
+    # downstream. Prefer the delimiter present on the most rows, breaking
+    # ties by the most consistent per-row counts, then by candidate order.
     non_empty = [l for l in sample_lines if l.strip()]
     if not non_empty:
         return None
     best_delim = None
-    best_variety = None
+    best_key = None
     for delim in _CANDIDATE_DELIMITERS:
         counts = [l.count(delim) for l in non_empty]
-        if not all(c > 0 for c in counts):
+        present = [c for c in counts if c > 0]
+        # Require a strict majority of rows to contain the delimiter, so a
+        # stray comma in one row of a whitespace file doesn't hijack it.
+        if len(present) * 2 <= len(non_empty):
             continue
-        variety = len(set(counts))
-        if best_variety is None or variety < best_variety:
+        # Consistency measured over the rows that actually have the
+        # delimiter; ragged single-field rows (count 0) don't count
+        # against it. Fewer distinct counts == more consistent.
+        variety = len(set(present))
+        # Higher presence first (negate for a min-style comparison), then
+        # lower variety. Candidate order breaks any remaining tie.
+        key = (-len(present), variety)
+        if best_key is None or key < best_key:
             best_delim = delim
-            best_variety = variety
+            best_key = key
     return best_delim
 
 
