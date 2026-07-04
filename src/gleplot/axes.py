@@ -5,6 +5,7 @@ import re
 from typing import Optional, List, Union, Tuple
 from .colors import rgb_to_gle
 from .markers import get_gle_marker
+from .parser.units import markersize_to_msize, capsize_pt_to_cm
 
 
 # Global counter for unique data file names across all figures in a session
@@ -226,9 +227,8 @@ class Axes:
         plot_type = 'scatter' if is_scatter else 'line'
         
         # Scale markersize from matplotlib (typical 1-20, default 6) to GLE msize (0.05-0.5)
-        # Formula: msize = markersize * 0.025 * scale_factor
         # Examples: markersize 6 → 0.15, markersize 10 → 0.25, markersize 20 → 0.5
-        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
+        gle_markersize = markersize_to_msize(markersize, self.figure.marker_config.msize_scale)
         
         line_data = {
             'type': plot_type,
@@ -286,8 +286,8 @@ class Axes:
             Legend label
         capsize : float, optional
             Width of error bar caps in matplotlib points (typical: 3-5).
-            Automatically converted to GLE cm units (points * 0.0353).
-            Default: None (no caps)
+            Automatically converted to GLE cm units via
+            ``parser.units.capsize_pt_to_cm``. Default: None (no caps)
         capsize_cm : float, optional
             Width of error bar caps directly in GLE cm units (typical: 0.05-0.15).
             If specified, this overrides `capsize`. Use this for direct control.
@@ -347,10 +347,9 @@ class Axes:
             gle_marker = get_gle_marker(parsed_marker)
 
         # Scale markersize from matplotlib to GLE msize (with config scaling)
-        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
+        gle_markersize = markersize_to_msize(markersize, self.figure.marker_config.msize_scale)
 
-        # Convert capsize from matplotlib points to GLE cm
-        # 1 point = 1/72 inch = 2.54/72 cm ≈ 0.0353 cm
+        # Convert capsize from matplotlib points to GLE cm.
         # Store the original capsize for the data structure, convert for GLE output
         gle_capsize = None
         stored_capsize = None
@@ -360,7 +359,7 @@ class Axes:
             stored_capsize = capsize_cm  # Store the cm value
         elif capsize is not None:
             # Convert from matplotlib points to cm for GLE
-            gle_capsize = capsize * 0.0353
+            gle_capsize = capsize_pt_to_cm(capsize)
             stored_capsize = capsize  # Store original matplotlib value
 
         # Process yerr
@@ -465,8 +464,8 @@ class Axes:
             gle_color = rgb_to_gle(color)
 
         gle_marker = get_gle_marker(marker) if marker else None
-        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
-        gle_capsize = capsize * 0.0353 if capsize is not None else None
+        gle_markersize = markersize_to_msize(markersize, self.figure.marker_config.msize_scale)
+        gle_capsize = capsize_pt_to_cm(capsize) if capsize is not None else None
 
         self.file_series.append(
             {

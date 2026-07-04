@@ -4,6 +4,12 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
+from .parser.units import (
+    inches_to_cm,
+    linewidth_pt_to_cm,
+    fontsize_pt_to_cm,
+)
+from .parser.tables import KEY_POSITIONS_LONG_TO_SHORT
 
 
 class GLEWriter:
@@ -31,8 +37,8 @@ class GLEWriter:
         self.figsize = figsize
         self.dpi = dpi
         # Convert inches to cm (GLE uses cm)
-        self.width_cm = figsize[0] * 2.54
-        self.height_cm = figsize[1] * 2.54
+        self.width_cm = inches_to_cm(figsize[0])
+        self.height_cm = inches_to_cm(figsize[1])
         
         # Get configuration (fall back to global defaults)
         self.style = style or GlobalConfig.get_style()
@@ -68,7 +74,7 @@ class GLEWriter:
         if self.style.font:
             self.lines_gle.append(f'set font {self.style.font}')
         self.lines_gle.extend([
-            f'set hei {self._format_number(self.style.fontsize / 28.35)}',  # Convert points to cm
+            f'set hei {self._format_number(fontsize_pt_to_cm(self.style.fontsize))}',
             '',
         ])
         if include_graph_begin:
@@ -329,9 +335,9 @@ class GLEWriter:
         # Convert matplotlib linewidth (points) to GLE lwidth (cm)
         # If linewidth is 0 or 1, use default from style config
         if linewidth == 0 or linewidth == 1:
-            gle_lwidth = self.style.default_linewidth * 0.03528  # pt to cm
+            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
         else:
-            gle_lwidth = linewidth * 0.03528  # 1 point = 1/72 inch = 0.03528 cm
+            gle_lwidth = linewidth_pt_to_cm(linewidth)
         
         # A "no line" state is signalled by a linestyle of none/empty. GLE
         # supports markers on line datasets natively (``d1 line marker circle
@@ -587,9 +593,9 @@ class GLEWriter:
         
         # Convert linewidth
         if linewidth == 0 or linewidth == 1:
-            gle_lwidth = self.style.default_linewidth * 0.03528
+            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
         else:
-            gle_lwidth = linewidth * 0.03528
+            gle_lwidth = linewidth_pt_to_cm(linewidth)
         
         # Add line/marker styling
         if marker:
@@ -712,9 +718,9 @@ class GLEWriter:
         self.lines_gle.append(f'    data {data_file} {d_main}=c{x_col},c{y_col}')
 
         if linewidth == 0 or linewidth == 1:
-            gle_lwidth = self.style.default_linewidth * 0.03528
+            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
         else:
-            gle_lwidth = linewidth * 0.03528
+            gle_lwidth = linewidth_pt_to_cm(linewidth)
 
         line_cmd = f'    {d_main} line color {color} lwidth {self._format_number(gle_lwidth)}'
         if linestyle == '--':
@@ -776,7 +782,7 @@ class GLEWriter:
 
         if fontsize is not None:
             self._pending_graph_text_lines.append(
-                f'set hei {self._format_number(float(fontsize) / 28.35)}'
+                f'set hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}'
             )
 
         if color:
@@ -813,15 +819,9 @@ class GLEWriter:
         """
         # Use provided position or fall back to configured default
         pos = position if position is not None else self.graph.legend_position
-        
-        pos_map = {
-            'top right': 'tr',
-            'top left': 'tl',
-            'bottom right': 'br',
-            'bottom left': 'bl',
-            'center': 'cc',
-        }
-        gle_pos = pos_map.get(pos, pos)  # Try long form, else use as-is (short form)
+
+        # Try long form, else use as-is (short form)
+        gle_pos = KEY_POSITIONS_LONG_TO_SHORT.get(pos, pos)
         self.lines_gle.append(f'    key pos {gle_pos}')
 
     def add_key_off(self):
