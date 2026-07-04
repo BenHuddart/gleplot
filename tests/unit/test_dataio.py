@@ -256,6 +256,54 @@ def test_extract_columns_missing_values_are_nan(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Delimiter sniffing: ragged rows must not defeat detection
+# ---------------------------------------------------------------------------
+
+
+def test_load_comma_file_with_ragged_single_field_row(tmp_path):
+    """A comma-delimited file containing a ragged row with a single field
+    (no comma) must still be detected as comma-delimited.
+
+    The csv.Sniffer fails on inconsistent field counts, and the count-based
+    fallback previously required *every* non-empty row to contain the
+    delimiter -- so the lone ``2`` row (no comma) defeated detection, column
+    1 loaded as the string 'x,y', and extract_columns then raised
+    "not numeric". Now the fallback accepts a delimiter present on the
+    majority of rows; the ragged row is right-padded downstream.
+    """
+    p = _write(tmp_path, "ragged.csv", "# a comment\nx,y\n0,0\n1,2\n2\n")
+
+    table = load_data_file(p)
+
+    assert table.delimiter == ","
+    assert table.has_header is True
+    assert table.column_names == ["x", "y"]
+    assert table.n_cols == 2
+    assert table.is_numeric == [True, True]
+    # The lone '2' row was right-padded: x=[0,1,2], y=[0,2,nan].
+    np.testing.assert_allclose(table.columns[0], [0.0, 1.0, 2.0])
+    np.testing.assert_allclose(
+        table.columns[1], [0.0, 2.0, np.nan], equal_nan=True
+    )
+
+    # And the columns are extractable as numeric plot data.
+    result = extract_columns(table, x_col_1based=1, y_col_1based=2)
+    np.testing.assert_allclose(result["x"], [0.0, 1.0, 2.0])
+
+
+def test_load_whitespace_file_not_hijacked_by_stray_comma(tmp_path):
+    """A whitespace-delimited file with a stray comma on a single row must
+    not be misdetected as comma-delimited -- the majority of rows lack the
+    comma, so it fails the strict-majority test in the fallback.
+    """
+    p = _write(tmp_path, "ws.dat", "x y\n1 2\n3 4\n5, 6\n7 8\n")
+
+    table = load_data_file(p)
+
+    assert table.delimiter == r"\s+"
+
+
+# ---------------------------------------------------------------------------
 # classify_data_file
 # ---------------------------------------------------------------------------
 
