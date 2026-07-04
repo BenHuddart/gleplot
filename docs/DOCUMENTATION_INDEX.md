@@ -16,6 +16,26 @@ Main project file with overview, quick start, and links to all documentation.
 - Contributing guidelines
 - License information
 
+## Desktop GUI Editor
+
+### [GUI_EDITOR.md](guides/GUI_EDITOR.md)
+Walkthrough of the `gleplot-gui` PySide6 desktop editor.
+
+**Contains:**
+- Installing and launching the editor (`pip install "gleplot[gui]"`, `gleplot-gui`)
+- Loading data, picking columns, and styling series
+- Live preview and the `.gle` native file format
+- Undo/redo, export dialog, and troubleshooting (including GLE-not-found)
+
+## Packaging and Desktop Builds
+
+Standalone desktop binaries are built from the specs and helpers in the
+repository's `packaging/` directory. The release workflows produce a Windows
+`.exe` installer and a macOS `.dmg`, which are attached to each
+[GitHub Release](https://github.com/benhuddart/gleplot/releases). The build
+tooling is captured by the `packaging` optional-dependency group in
+`pyproject.toml` (`pip install -e ".[packaging]"`).
+
 ## Configuration System Documentation
 
 ### [CONFIGURATION.md](guides/CONFIGURATION.md)

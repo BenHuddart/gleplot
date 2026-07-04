@@ -3,6 +3,8 @@ gleplot Documentation
 
 A Python library that provides a **matplotlib-compatible API** for creating scientific plots that directly generate GLE (Graphics Layout Engine) scripts for publication-quality vector graphics.
 
+gleplot also ships an optional **desktop editor** for building figures interactively -- load data, style series from dockable panels, arrange subplots, and export, all with a live preview. Prebuilt Windows and macOS binaries are available from the `GitHub Releases page <https://github.com/benhuddart/gleplot/releases>`_, or install it with ``pip install "gleplot[gui]"``. See :doc:`gui` for details.
+
 Live Documentation
 ------------------
 

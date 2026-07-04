@@ -6,16 +6,42 @@ interactively -- load data, map columns to series, style everything from
 dockable property panels, arrange subplots, and export -- all with a live
 preview that recompiles as you edit.
 
-Installation
-------------
+Downloads
+---------
 
-.. code-block:: bash
+Two ways to get the editor:
 
-   pip install "gleplot[gui]"
+- **Prebuilt desktop app** (no Python needed) -- download the Windows
+  ``.exe`` installer or the macOS (Apple silicon / arm64) ``.dmg`` from the
+  `GitHub Releases page <https://github.com/benhuddart/gleplot/releases>`_.
+  The macOS build is unsigned, so the first launch needs a right-click
+  |menu| **Open** (or ``xattr -dr com.apple.quarantine`` on the ``.app``).
 
-This adds ``PySide6>=6.5`` on top of gleplot's core dependencies. Importing
-the base ``gleplot`` package never pulls in Qt -- only ``gleplot.gui`` does --
-so scripts that only generate GLE output are unaffected either way.
+- **From pip** -- install into a Python environment:
+
+  .. code-block:: bash
+
+     pip install "gleplot[gui]"
+
+Either way, GLE 4.3+ is a separate prerequisite (see below).
+
+The pip extra adds ``PySide6>=6.5`` on top of gleplot's core dependencies.
+Importing the base ``gleplot`` package never pulls in Qt -- only
+``gleplot.gui`` does -- so scripts that only generate GLE output are
+unaffected either way.
+
+GLE prerequisite
+----------------
+
+The editor needs **GLE 4.3 or newer** for the live preview and for exporting
+any compiled format (PDF/PNG/EPS/SVG/JPG). GLE is a separate program: install
+it from the `GLE releases page
+<https://github.com/vlabella/GLE/releases/latest>`_ and make it discoverable
+on ``PATH`` or via the ``GLE_PATH`` environment variable. The status bar shows
+the detected GLE path or ``GLE: not found``. Without GLE the object-model
+editing still works (load data, add and style series, arrange subplots, Save
+and Open native ``.gle`` files) -- only the live preview and compiled exports
+are unavailable; the raw ``.gle``-script export still works.
 
 Launching
 ---------
