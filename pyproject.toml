@@ -54,7 +54,8 @@ gui = [
 ]
 packaging = [
     "pyinstaller>=6.0",
-    "Pillow>=9.0",
+    # 9.1 introduced Image.Resampling, used by packaging/macos_icon.py.
+    "Pillow>=9.1",
     "dmgbuild>=1.6; sys_platform == 'darwin'",
 ]
 

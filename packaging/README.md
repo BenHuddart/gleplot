@@ -45,7 +45,7 @@ iscc /DAppVersion=1.2.0 `
      packaging/windows/gleplot.iss
 ```
 
-This produces `dist\gleplot-v1.2.0-windows-x64.exe`. Override the installer
+This produces `dist\gleplot-1.2.0-windows-x64.exe`. Override the installer
 base name with `/DOutputName=<name>`.
 
 ## macOS (arm64)
@@ -70,7 +70,7 @@ python scripts/build_dmg_background.py --output build/dmg/background.png
 # 6. Build the .dmg
 export GLEPLOT_APP_BUNDLE="$PWD/dist/gleplot.app"
 export GLEPLOT_DMG_BACKGROUND="$PWD/build/dmg/background.png"
-dmgbuild -s packaging/macos/dmg_settings.py gleplot dist/gleplot-v1.2.0-macos-arm64.dmg
+dmgbuild -s packaging/macos/dmg_settings.py gleplot dist/gleplot-1.2.0-macos-arm64.dmg
 ```
 
 ## Environment variables

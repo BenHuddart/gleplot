@@ -12,9 +12,9 @@ main window without a display.
 
 from __future__ import annotations
 
-import importlib.resources
 import os
 import sys
+from pathlib import Path
 from typing import Optional, Sequence
 
 from PySide6.QtGui import QIcon
@@ -26,16 +26,16 @@ from gleplot.gui.main_window import MainWindow
 def _set_window_icon(app: QApplication) -> None:
     """Set the application/window icon from the bundled PNG asset.
 
-    Defensive: any failure to locate or load the asset is ignored so a
-    missing icon never breaks startup.
+    Resolves the asset relative to this package's directory (works on all
+    supported Python versions -- ``importlib.resources.files`` is 3.9+ -- and
+    inside the PyInstaller onedir bundle, where the spec ships the PNG to
+    ``gleplot/gui/assets/``). Defensive: any failure to locate or load the
+    asset is ignored so a missing icon never breaks startup.
     """
     try:
-        icon_path = importlib.resources.files("gleplot.gui").joinpath(
-            "assets/gleplot.png"
-        )
-        with importlib.resources.as_file(icon_path) as path:
-            if path.is_file():
-                app.setWindowIcon(QIcon(str(path)))
+        icon_path = Path(__file__).resolve().parent / "assets" / "gleplot.png"
+        if icon_path.is_file():
+            app.setWindowIcon(QIcon(str(icon_path)))
     except Exception:
         pass
 
