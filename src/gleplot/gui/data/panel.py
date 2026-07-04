@@ -21,6 +21,7 @@ for a minimal local stub satisfying this contract.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -176,6 +177,10 @@ class DataPanel(QWidget):
         figure_replaced = getattr(self._document, "figure_replaced", None)
         if figure_replaced is not None:
             figure_replaced.connect(self._update_add_button_state)
+            # When a figure is installed (File > Open), surface the data
+            # files it references so users can immediately add more series
+            # from the same data.
+            figure_replaced.connect(self.populate_from_figure)
 
     # ------------------------------------------------------------------
     # File loading
@@ -219,6 +224,53 @@ class DataPanel(QWidget):
         self.file_list.addItem(item)
         self.file_list.setCurrentItem(item)
         return table
+
+    def populate_from_figure(self) -> None:
+        """Add the current figure's referenced data files to the file list.
+
+        Called on ``figure_replaced`` (File > Open installs a parsed
+        figure). Additive by design: files already listed are left alone
+        (so undo/redo restores neither clear the list nor re-read files),
+        and user-loaded files are never removed. Relative references are
+        resolved against the document's ``project_path`` directory; files
+        that do not exist on disk are skipped (broken references already
+        surface in the Series tab with a Locate-file flow).
+        """
+        fig = getattr(self._document, "figure", None)
+        if fig is None:
+            return
+
+        base: Optional[Path] = None
+        project_path = getattr(self._document, "project_path", None)
+        if project_path:
+            base = Path(project_path).parent
+
+        listed = {os.path.normcase(key) for key in self._tables}
+        first_added: Optional[str] = None
+        for ax in getattr(fig, "axes_list", []):
+            entries = (
+                ax.lines + ax.scatters + ax.bars + ax.fills
+                + ax.errorbars + ax.file_series
+            )
+            for entry in entries:
+                name = entry.get("data_file")
+                if not name:
+                    continue
+                path = Path(name)
+                if not path.is_absolute():
+                    if base is None:
+                        continue  # unsaved in-memory sidecar; nothing on disk
+                    path = base / path
+                if not path.exists():
+                    continue
+                key = os.path.normcase(str(path.resolve()))
+                if key in listed:
+                    continue
+                listed.add(key)
+                if self.load_file(str(path)) is not None and first_added is None:
+                    first_added = key
+        if first_added is not None and self.file_list.count():
+            self.file_list.setCurrentRow(0)
 
     # ------------------------------------------------------------------
     # Preview / selection

@@ -342,3 +342,52 @@ def test_load_bad_file_does_not_crash(qapp, document, tmp_path):
     assert result is None
     assert panel.file_list.count() == 1
     assert "failed to load" in panel.file_list.item(0).text()
+
+
+class TestPopulateFromFigure:
+    """Opened figures surface their referenced data files in the panel."""
+
+    def _opened_document(self, tmp_path, qapp):
+        from gleplot.parser.recognizer import parse_gle_figure
+
+        fig = glp.figure(data_prefix="popfig")
+        ax = fig.add_subplot(1, 1, 1)
+        ax.plot([0.0, 1.0, 2.0], [0.0, 1.0, 4.0], label="squares")
+        gle_path = tmp_path / "popfig.gle"
+        fig.savefig_gle(str(gle_path))
+        rec = parse_gle_figure(gle_path)
+        doc = StubDocument(rec.figure)
+        doc.project_path = gle_path
+        return doc, gle_path
+
+    def test_populate_adds_referenced_sidecars(self, qapp, tmp_path):
+        doc, gle_path = self._opened_document(tmp_path, qapp)
+        panel = DataPanel(doc)
+        assert panel.file_list.count() == 0
+        panel.populate_from_figure()
+        assert panel.file_list.count() == 1
+        assert "popfig_0.dat" in panel.file_list.item(0).text()
+        # Columns become available for adding further series.
+        assert panel.x_combo.count() > 0
+
+    def test_populate_is_additive_and_idempotent(self, qapp, tmp_path):
+        doc, gle_path = self._opened_document(tmp_path, qapp)
+        panel = DataPanel(doc)
+        panel.populate_from_figure()
+        count = panel.file_list.count()
+        panel.populate_from_figure()
+        assert panel.file_list.count() == count
+
+    def test_populate_skips_missing_files(self, qapp, tmp_path):
+        doc, gle_path = self._opened_document(tmp_path, qapp)
+        (tmp_path / "popfig_0.dat").unlink()
+        panel = DataPanel(doc)
+        panel.populate_from_figure()
+        assert panel.file_list.count() == 0
+
+    def test_populate_runs_on_figure_replaced(self, qapp, tmp_path):
+        doc, gle_path = self._opened_document(tmp_path, qapp)
+        panel = DataPanel(doc)
+        # Simulate the open flow: installing a figure emits figure_replaced.
+        doc.figure_replaced.emit()
+        assert panel.file_list.count() == 1
