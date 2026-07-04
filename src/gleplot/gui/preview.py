@@ -990,6 +990,15 @@ class PreviewView(QGraphicsView):
         self._current_format: Optional[str] = None
         self._geometry: Optional[PreviewGeometry] = None
 
+        # Annotation-overlay coordination (Track F1). The overlay sets
+        # ``annotations_enabled`` for status/UI, and suspends drag-panning
+        # while the cursor is over an annotation item so item dragging is not
+        # swallowed by ScrollHandDrag panning (the two fight -- see
+        # suspend_pan()). ``_pan_mode`` remembers the drag mode to restore.
+        self._annotations_enabled = False
+        self._pan_mode = QGraphicsView.DragMode.ScrollHandDrag
+        self._pan_suspended = False
+
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
@@ -1003,6 +1012,52 @@ class PreviewView(QGraphicsView):
     def last_good_path(self) -> Optional[str]:
         """Path of the most recently shown image, or ``None``."""
         return self._last_good_path
+
+    @property
+    def annotations_enabled(self) -> bool:
+        """Whether the annotation overlay is active over this view.
+
+        Driven by :class:`~gleplot.gui.annotations.AnnotationOverlay` (it sets
+        this from its ``overlay_enabled_changed`` signal). Purely informational
+        for the view/UI; the overlay owns the items and their behaviour.
+        """
+        return self._annotations_enabled
+
+    @annotations_enabled.setter
+    def annotations_enabled(self, value: bool) -> None:
+        self._annotations_enabled = bool(value)
+
+    def suspend_pan(self, suspend: bool) -> None:
+        """Suspend (or restore) drag-panning so item dragging isn't swallowed.
+
+        In :attr:`QGraphicsView.DragMode.ScrollHandDrag` the viewport grabs a
+        left-drag for panning *before* it ever reaches a movable
+        :class:`~gleplot.gui.annotations.AnnotationItem`, so the two fight and
+        the item never moves. The overlay calls ``suspend_pan(True)`` while the
+        cursor is over an annotation item (on hover-enter) and
+        ``suspend_pan(False)`` on hover-leave, temporarily switching the view to
+        :attr:`~QGraphicsView.DragMode.NoDrag` so the item receives the drag.
+        The previous mode is captured once and restored on un-suspend, so this
+        composes with any future drag-mode changes.
+        """
+        if suspend:
+            if not self._pan_suspended:
+                self._pan_mode = self.dragMode()
+                self._pan_suspended = True
+                super().setDragMode(QGraphicsView.DragMode.NoDrag)
+        else:
+            if self._pan_suspended:
+                self._pan_suspended = False
+                super().setDragMode(self._pan_mode)
+
+    def setDragMode(self, mode) -> None:  # noqa: N802 - Qt override
+        """Track the pan drag-mode so :meth:`suspend_pan` restores it correctly."""
+        if self._pan_suspended:
+            # Remember the requested mode; it becomes active on un-suspend.
+            self._pan_mode = mode
+            return
+        self._pan_mode = mode
+        super().setDragMode(mode)
 
     def set_geometry(self, geometry: Optional[PreviewGeometry]) -> None:
         """Install the calibration geometry for the *raster* mapping.
