@@ -16,12 +16,18 @@ loop:
   errors.
 
 File ▸ New/Open/Save/Save As/Export and Edit ▸ Undo/Redo are all functional
-(Phase 2, M2). The window supports two modes:
+(Phase 2, M2). ``.gle`` is the native, editable on-disk format: File ▸ Open
+parses a ``.gle`` file through :func:`gleplot.parser.recognizer.parse_gle_figure`
+(tolerantly, preserving any unrecognized content as raw GLE) and installs it as
+an editable figure. The window supports two modes:
 
 * **document mode** -- the normal editable-figure workflow, driven by the
   :class:`FigureDocument` / :class:`PreviewController` loop;
-* **GLE-preview mode** -- a read-only view of a hand-written ``.gle`` script
-  opened via File ▸ Open (compiled once with :mod:`gleplot.gui.gle_viewer`).
+* **GLE-preview mode** -- a read-only view compiled once with
+  :mod:`gleplot.gui.gle_viewer`. This is now a *fallback*, offered when a
+  ``.gle`` uses GLE programming constructs (a ``programmatic:`` recognizer
+  warning) that editing might restructure, or when a file cannot be opened as
+  an editable figure at all.
 """
 
 from __future__ import annotations
@@ -50,9 +56,16 @@ from gleplot.gui.data.panel import DataPanel
 from gleplot.gui.document import FigureDocument
 from gleplot.gui.error_panel import ErrorPanel
 from gleplot.gui.export_dialog import run_export_dialog
-from gleplot.gui.panels import AxesPanel, FigurePanel, LayoutPanel, SeriesPanel
+from gleplot.gui.panels import (
+    AxesPanel,
+    FigurePanel,
+    LayoutPanel,
+    RawGlePanel,
+    SeriesPanel,
+)
 from gleplot.gui.preview import PreviewController, PreviewView
 from gleplot.gui.undo import UndoStack
+from gleplot.parser.recognizer import parse_gle_figure
 
 #: Placeholder shown in the preview before any renderable figure exists.
 _EMPTY_PREVIEW_TEXT = "Nothing to render yet — load data and add a series"
@@ -63,8 +76,8 @@ _STATUS_MS = 4000
 #: Base window title prefix.
 _BASE_TITLE = "gleplot editor"
 
-#: Filter for the File ▸ Open dialog (both project and raw-GLE files).
-_OPEN_FILTER = "gleplot project (*.glep);;GLE script (*.gle);;All files (*)"
+#: Filter for the File ▸ Open dialog. ``.gle`` is the native editable format.
+_OPEN_FILTER = "GLE figure (*.gle);;All files (*)"
 
 #: Export formats recognised (by suffix) in GLE-preview mode.
 _GLE_EXPORT_SUFFIXES = {"pdf", "png", "eps", "svg", "jpg"}
@@ -186,10 +199,12 @@ class MainWindow(QMainWindow):
         self.figure_panel = FigurePanel(self.document)
         self.axes_panel = AxesPanel(self.document)
         self.series_panel = SeriesPanel(self.document)
+        self.raw_gle_panel = RawGlePanel(self.document)
         self.properties_tabs.addTab(self.layout_panel, "Layout")
         self.properties_tabs.addTab(self.figure_panel, "Figure")
         self.properties_tabs.addTab(self.axes_panel, "Axes")
         self.properties_tabs.addTab(self.series_panel, "Series")
+        self.properties_tabs.addTab(self.raw_gle_panel, "Raw GLE")
         self.properties_dock.setWidget(self.properties_tabs)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.properties_dock)
 
@@ -325,6 +340,8 @@ class MainWindow(QMainWindow):
         # Layout tab drives which axes the Axes/Series property panels edit.
         self.layout_panel.axes_selected.connect(self.axes_panel.set_axes)
         self.layout_panel.axes_selected.connect(self.series_panel.set_axes)
+        # A broken series repointed at a real data file: confirm via status bar.
+        self.series_panel.series_repointed.connect(self._on_series_repointed)
 
     def _connect_preview_signals(self) -> None:
         pc = self.preview_controller
@@ -379,6 +396,11 @@ class MainWindow(QMainWindow):
     def _on_series_added(self, label: str) -> None:
         self.statusBar().showMessage(f"Added series: {label}", _STATUS_MS)
 
+    def _on_series_repointed(self, path: str) -> None:
+        self.statusBar().showMessage(
+            f"Relinked series data to {Path(path).name}", _STATUS_MS
+        )
+
     def _update_window_title(self) -> None:
         """Recompute the window title from the current mode/document state.
 
@@ -418,15 +440,19 @@ class MainWindow(QMainWindow):
             return
         self._leave_gle_preview_mode()
         self.document.new_figure()
+        # A fresh figure carries no recovery warnings from a prior Open.
+        self.error_panel.clear_warnings()
         # A genuinely new document: frame it fresh (FIX 10). set_figure alone no
         # longer resets the view, so do it explicitly here.
         self.preview_view.reset_view()
 
     def _on_open(self) -> None:
-        """File ▸ Open: pick a ``.glep`` project or a hand-written ``.gle``.
+        """File ▸ Open: pick a ``.gle`` figure and open it as an editable figure.
 
-        A ``.glep`` file loads into the document (editable); a ``.gle`` file
-        enters read-only GLE-preview mode. Dirty documents are confirmed first.
+        ``.gle`` is the native, editable format: the chosen file is parsed and
+        installed into the document. Files using GLE programming constructs
+        offer a read-only-preview fallback instead (see :meth:`_dispatch_open`).
+        Dirty documents are confirmed first.
         """
         if not self._confirm_discard_if_dirty("Open a file"):
             return
@@ -438,20 +464,109 @@ class MainWindow(QMainWindow):
         self._dispatch_open(chosen)
 
     def _dispatch_open(self, path_str: str) -> None:
-        """Route an already-chosen path to the project or GLE-preview loader."""
+        """Open ``path_str`` as an editable ``.gle`` figure (native format).
+
+        Design (single-parse probe)
+        ---------------------------
+        ``.gle`` is now the native editable format, but a file that uses GLE
+        *programming* constructs (``sub``/``if``/``for``/...) is flagged by the
+        recognizer with a ``programmatic:`` warning -- editing it may
+        restructure those constructs, so we offer a read-only preview first.
+        Deciding between edit and read-only preview needs the recognizer's
+        warnings, which means running the parse. To avoid parsing twice, this
+        method runs :func:`parse_gle_figure` **once** as a probe *without*
+        touching the document, inspects the warnings, then commits to exactly
+        one mode:
+
+        * *programmatic file* -> ask (default: read-only preview). Read-only
+          discards the probed figure and enters GLE-preview mode; the document
+          is never mutated, so it keeps its prior (sane) state.
+        * *editable* -> install the already-parsed figure via
+          :func:`file_ops.install_recognized` (no re-parse), reset the view,
+          surface the recognizer warnings in the Output dock, and update the
+          status bar.
+        * *parse raised* (unexpected failure / legacy ``.glep``) -> offer the
+          read-only GLE preview as a fallback.
+        """
         path = Path(path_str)
-        if path.suffix.lower() == ".gle":
-            self._enter_gle_preview_mode(path)
-        else:
-            # All recent entries and .glep choices go through open_project.
-            # Pass the resolved path so no second dialog is shown.
+
+        # Legacy .glep is no longer editable; route it straight to open_project
+        # (which rejects it with a clear message) then offer a preview fallback.
+        if path.suffix.lower() == ".glep":
             self._leave_gle_preview_mode()
-            if file_ops.open_project(
+            if not file_ops.open_project(
                 self, self.document, path=path, settings=self._settings
             ):
-                # A genuinely different document arrived: frame it fresh
-                # (FIX 10). set_figure no longer resets the view on its own.
+                self._offer_preview_fallback(path)
+            else:
                 self.preview_view.reset_view()
+            return
+
+        # Probe: parse ONCE without mutating the document.
+        try:
+            rec = parse_gle_figure(path)
+        except Exception as exc:  # noqa: BLE001 - unexpected recognizer failure
+            QMessageBox.critical(self, "Open Failed", str(exc))
+            self._offer_preview_fallback(path)
+            return
+
+        programmatic = any(w.startswith("programmatic:") for w in rec.warnings)
+        if programmatic:
+            reply = QMessageBox.question(
+                self,
+                "Programmatic GLE file",
+                f"'{path.name}' contains GLE programming constructs "
+                "(sub/if/for/...).\n\n"
+                "Editing it in the figure editor may restructure those "
+                "constructs. Open a read-only preview instead, or edit anyway?",
+                QMessageBox.StandardButton.Open | QMessageBox.StandardButton.Yes,
+                QMessageBox.StandardButton.Open,
+            )
+            # 'Open' button = read-only preview (default); 'Yes' = edit anyway.
+            if reply != QMessageBox.StandardButton.Yes:
+                # Read-only: discard the probed figure, leave the document as-is.
+                self._enter_gle_preview_mode(path)
+                return
+
+        # Editable open: commit the already-parsed figure (no second parse).
+        self._leave_gle_preview_mode()
+        file_ops.install_recognized(
+            self.document, rec, path, settings=self._settings
+        )
+        # A genuinely different document arrived: frame it fresh (FIX 10).
+        self.preview_view.reset_view()
+        self._surface_open_warnings(path)
+
+    def _surface_open_warnings(self, path: Path) -> None:
+        """Show recovery warnings in the Output dock + a status-bar summary."""
+        warnings = self.document.open_warnings
+        self.error_panel.set_warnings(warnings)
+        if warnings:
+            self.statusBar().showMessage(
+                f"Opened {path.name} ({len(warnings)} warnings)", _STATUS_MS
+            )
+        else:
+            self.statusBar().showMessage(f"Opened {path.name}", _STATUS_MS)
+
+    def _offer_preview_fallback(self, path: Path) -> None:
+        """Offer a read-only GLE preview after an editable open failed.
+
+        Only meaningful for ``.gle`` files (a legacy ``.glep`` cannot be
+        compiled as a GLE script). Asks the user, and enters GLE-preview mode
+        on confirmation.
+        """
+        if path.suffix.lower() != ".gle":
+            return
+        reply = QMessageBox.question(
+            self,
+            "Open read-only preview?",
+            f"'{path.name}' could not be opened as an editable figure.\n\n"
+            "Open it as a read-only GLE preview instead?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._enter_gle_preview_mode(path)
 
     def _on_save(self) -> None:
         """File ▸ Save: save to the current project path (prompting if unset)."""
@@ -526,7 +641,7 @@ class MainWindow(QMainWindow):
             )
 
     def _on_recent_chosen(self, path_str: str) -> None:
-        """Open a recent-file entry (all recents are ``.glep`` projects)."""
+        """Open a recent-file entry (native ``.gle`` figures)."""
         if not self._confirm_discard_if_dirty("Open a file"):
             return
         self._dispatch_open(path_str)
@@ -544,7 +659,7 @@ class MainWindow(QMainWindow):
     # GLE-preview mode
     # ------------------------------------------------------------------
     def _enter_gle_preview_mode(self, gle_path: Path) -> None:
-        """Compile ``gle_path`` and show it read-only (TASK 2).
+        """Compile ``gle_path`` and show it read-only (fallback preview mode).
 
         Compiles synchronously (~300ms) under a wait cursor. On success the
         rendered PNG replaces the preview; on failure the errors are listed and

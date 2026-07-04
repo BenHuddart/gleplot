@@ -64,10 +64,10 @@ gleplot-gui
 ✨ **Live Preview** - Debounced, async GLE compile-to-PNG as you edit  
 ✨ **Data Manager** - Load CSV/`.dat` files, pick columns, import data or reference the file in place  
 ✨ **Property Panels** - Layout, Figure, Axes, and Series tabs for point-and-click styling  
-✨ **Project Files** - Save/load your work as `.glep` (versioned JSON) via File ▸ Save / Open  
+✨ **Native `.gle` Files** - Save and open your work directly as `.gle` (the same format GLE renders) via File ▸ Save / Open -- unrecognized content is preserved as raw GLE  
 ✨ **Export Dialog** - PDF, PNG, EPS, SVG, JPG, or raw GLE script, with an optional folder bundle  
 ✨ **Undo/Redo** - Full editing history  
-✨ **Hand-Written `.gle` Preview** - Open an existing script for a read-only render + export  
+✨ **Programmatic-`.gle` Preview** - Files using GLE programming constructs open as a read-only render + export  
 
 ### Requirements
 The editor needs GLE 4.3+ installed and discoverable (via `GLE_PATH` or `PATH`) to render the live preview and export non-`.gle` formats -- see [Installation](#installation) above. The status bar shows the detected GLE path (or "not found").

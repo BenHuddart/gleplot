@@ -1,10 +1,10 @@
 """Preview/export support for hand-written ``.gle`` files.
 
-This module is the counterpart to :mod:`gleplot.gui.preview` for the "File ▸
-Open" path where the opened file is a hand-written GLE script rather than a
-gleplot ``.glep`` project: there is no :class:`~gleplot.figure.Figure` to
-snapshot, so we simply run the file through :class:`~gleplot.compiler.GLECompiler`
-as-is and report a structured result.
+This module is the counterpart to :mod:`gleplot.gui.preview` for the read-only
+GLE-preview fallback (a ``.gle`` that uses programming constructs, or one that
+could not be recognized as an editable figure): rather than reconstruct a
+:class:`~gleplot.figure.Figure`, we simply run the file through
+:class:`~gleplot.compiler.GLECompiler` as-is and report a structured result.
 
 Both functions here are pure logic -- no Qt widgets or signals -- so they can
 be driven synchronously from a worker thread or a ``QProcess``-based caller

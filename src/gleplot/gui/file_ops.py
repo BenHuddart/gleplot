@@ -29,10 +29,11 @@ from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 from gleplot.gui.document import FigureDocument
-from gleplot.parser.recognizer import parse_gle_figure
+from gleplot.parser.recognizer import RecognizedFigure, parse_gle_figure
 
 __all__ = [
     'open_project',
+    'install_recognized',
     'save_project_current',
     'save_project_as',
     'add_recent_file',
@@ -153,6 +154,42 @@ def open_project(
         _show_error(parent, "Open Failed", str(exc))
         return False
 
+    install_recognized(document, rec, path, settings=settings)
+    return True
+
+
+def install_recognized(
+    document: FigureDocument,
+    rec: RecognizedFigure,
+    path: Union[str, Path],
+    settings: Optional[QSettings] = None,
+) -> None:
+    """Install an already-parsed :class:`RecognizedFigure` into ``document``.
+
+    Split out of :func:`open_project` so a caller that has *already* run the
+    recognizer (e.g. the main window probes ``.gle`` warnings to decide between
+    editable and read-only-preview modes) can commit the parse result without
+    re-parsing the file. Performs exactly the document-side work
+    ``open_project`` does after a successful parse: installs the figure
+    (``set_figure`` first, which resets ``project_path``/``open_warnings``),
+    then assigns the real path and recognizer warnings, marks the document
+    clean, and records the file in the last-dir / recent-files stores.
+
+    Parameters
+    ----------
+    document : FigureDocument
+        Document to install the recognized figure into.
+    rec : RecognizedFigure
+        The parse result (``rec.figure`` + ``rec.warnings``).
+    path : str or Path
+        The ``.gle`` file the figure was parsed from (used for the project
+        path and recent-files tracking).
+    settings : QSettings, optional
+        Settings store; defaults to ``QSettings("gleplot", "gleplot")``.
+    """
+    settings = settings or _default_settings()
+    path = Path(path)
+
     document.set_figure(rec.figure)
     document.project_path = path
     document.open_warnings = rec.warnings
@@ -160,7 +197,6 @@ def open_project(
 
     _remember_dir(settings, path)
     add_recent_file(path, settings=settings)
-    return True
 
 
 # ----------------------------------------------------------------------

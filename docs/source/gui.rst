@@ -38,21 +38,25 @@ What it provides
 - A **Properties** dock with **Layout**, **Figure**, **Axes**, and **Series**
   tabs for point-and-click styling and subplot arrangement.
 - An **Output** dock listing structured compile errors with line/column
-  information when GLE reports it.
-- **Project files** (``.glep``, versioned JSON) via File |menu| Save / Open,
-  built on the same ``Figure.to_dict()`` / ``Figure.from_dict()``
-  serialization used elsewhere in gleplot.
+  information when GLE reports it, plus any recovery warnings raised when a
+  ``.gle`` file is opened.
+- **Native ``.gle`` files** via File |menu| Save / Open: Save writes a plain
+  GLE script (``Figure.savefig_gle``, with imported data as ``.dat``
+  sidecars) and Open parses it back into the editor
+  (``gleplot.parser.recognizer.parse_gle_figure``), tolerantly preserving any
+  unrecognized content as raw GLE (a read-only **Raw GLE** tab).
 - An **export dialog** producing PDF, PNG, EPS, SVG, JPG, or a raw ``.gle``
   script, optionally bundled into a folder with its data files.
-- **Undo/redo** and a read-only preview mode for opening hand-written
-  ``.gle`` scripts.
+- **Undo/redo** and a read-only preview mode for ``.gle`` files that use GLE
+  programming constructs.
 
 .. |menu| unicode:: U+25B8 .. black right-pointing small triangle
 
 For a full walkthrough -- loading data, picking columns, styling series,
-arranging subplots, saving a project, and exporting -- along with the
-``.glep`` format, GLE-discovery behavior, and current limitations, see the
+arranging subplots, saving a figure, and exporting -- along with the native
+``.gle`` format (open-time normalizations and raw-GLE preservation),
+GLE-discovery behavior, and current limitations, see the
 `GUI Editor Guide
 <https://github.com/benhuddart/gleplot/blob/main/docs/guides/GUI_EDITOR.md>`_.
-A ready-to-open example project lives in ``examples/gui/`` in the source
+A ready-to-open example figure lives in ``examples/gui/`` in the source
 repository.

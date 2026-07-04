@@ -140,17 +140,11 @@ def test_file_new_resets_preview_view(qapp):
 
 
 def test_open_project_resets_preview_view(qapp, tmp_path):
-    # NOTE (Track C1 / native-.gle rewiring): this test exercises
-    # MainWindow._dispatch_open, which currently routes any ".gle" suffix to
-    # the READ-ONLY GLE-preview path (see main_window.py's _OPEN_FILTER /
-    # _dispatch_open) and only sends non-".gle" paths (formerly ".glep"
-    # projects) through file_ops.open_project. Now that .glep has been
-    # removed and .gle is the native editable format, _dispatch_open's
-    # suffix-based routing needs updating -- that is main_window.py's job in
-    # a later integration track, not this one (file_ops.py / document.py
-    # only). This test is left pointed at open_project's intended behavior
-    # (opening a .gle should reset the preview view) and will fail until
-    # _dispatch_open is updated to route .gle through open_project.
+    # Track C3 (native-.gle rewiring): _dispatch_open now parses a .gle as the
+    # native editable format and installs it into the document. A genuinely
+    # different document arriving must reset the preview view (so the reopened
+    # figure starts framed). This .gle has no programmatic constructs, so it
+    # opens editable with no read-only-preview prompt.
     from gleplot.figure import Figure
 
     src = tmp_path / "proj.gle"
