@@ -484,12 +484,28 @@ class Figure:
         
         is_single = (len(self.axes_list) <= 1)
 
-        if is_single:
+        # A figure with NO axes that carries passthrough (e.g. a graph the
+        # recognizer swallowed into an opaque 'begin translate/scale' wrapper,
+        # preserved wholesale as header+trailer) must not fabricate a spurious
+        # empty 'begin graph ... end graph'. Emit only the passthrough. A
+        # genuinely empty figure with no passthrough keeps the historical
+        # default empty graph block (existing tests rely on it).
+        no_fabricate = (
+            not self.axes_list
+            and (self.passthrough_header or self.passthrough_trailer)
+        )
+
+        if is_single and no_fabricate:
+            writer.add_preamble(include_graph_begin=False,
+                                 passthrough_header=self.passthrough_header)
+            writer.finalize(include_graph_end=False,
+                            passthrough_trailer=self.passthrough_trailer)
+        elif is_single:
             # Single plot — backward-compatible simple layout
             writer.add_preamble(include_graph_begin=True,
                                  passthrough_header=self.passthrough_header)
             writer.add_graph_size()
-            
+
             if self.axes_list:
                 ax = self.axes_list[0]
                 # Calculate axis limits from data if not explicitly set

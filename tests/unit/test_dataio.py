@@ -207,8 +207,20 @@ def test_extract_columns_with_extra_cols(tmp_path):
 def test_extract_columns_out_of_bounds_low_raises(tmp_path):
     table = _make_table(tmp_path)
 
+    # A negative column index is still out of bounds. (Column 0 is now valid --
+    # it is GLE's synthesized point index; see the dedicated test below.)
     with pytest.raises(ColumnExtractionError):
-        extract_columns(table, x_col_1based=0, y_col_1based=2)
+        extract_columns(table, x_col_1based=-1, y_col_1based=2)
+
+
+def test_extract_columns_column_zero_is_point_index(tmp_path):
+    # GLE column 0 denotes the synthesized 1-based point index (used when a
+    # data command has no x column, e.g. a single-column file / NOX).
+    table = _make_table(tmp_path)
+
+    result = extract_columns(table, x_col_1based=0, y_col_1based=2)
+
+    np.testing.assert_allclose(result["x"], np.arange(1, table.n_rows + 1))
 
 
 def test_extract_columns_out_of_bounds_high_raises(tmp_path):

@@ -542,6 +542,11 @@ def extract_columns(
     """
 
     def _get(col_1based: int, key: str) -> np.ndarray:
+        # GLE column 0 is the synthesized point index (1, 2, 3, ...), used when
+        # a data command has no x column (single-column file / NOX). Mirror
+        # GLE's ``data_command`` (graph.cpp: ``column == 0`` -> ``j + 1``).
+        if col_1based == 0:
+            return np.arange(1, table.n_rows + 1, dtype=np.float64)
         if col_1based < 1 or col_1based > table.n_cols:
             raise ColumnExtractionError(
                 f"Column {col_1based} ({key}) out of bounds: table "

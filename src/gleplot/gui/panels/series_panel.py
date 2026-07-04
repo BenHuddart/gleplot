@@ -53,15 +53,19 @@ mirroring ``Axes.line_from_file``/``Axes.errorbar_from_file``.
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -72,6 +76,11 @@ from PySide6.QtWidgets import (
 
 from gleplot.colors import rgb_to_gle
 from gleplot.markers import get_gle_marker
+
+#: Marker prefixed onto the label of a ``file_series`` entry carrying a
+#: ``data_error`` (broken data reference), both in the aggregated list and
+#: in the tooltip lead-in.
+_BROKEN_MARKER = "⚠"  # warning sign
 
 #: Stable iteration order for aggregating series across an axes. Must match
 #: Axes._SERIES_ATTRS (writer emission order) so list positions stay
@@ -156,7 +165,26 @@ class SeriesPanel(QWidget):
     The relative draw order *between* kinds (lines, then scatters, then
     bars, ...) is fixed by ``Axes._SERIES_ATTRS`` / the GLEWriter emission
     order and cannot be changed from this panel.
+
+    Broken ``file_series`` entries (a ``data`` reference whose file was
+    missing/unreadable when the ``.gle`` was parsed -- see
+    ``gleplot.parser.recognizer``) carry a ``'data_error'`` key. Such an
+    entry renders in the list with a warning marker and a tooltip holding
+    the error text; when selected, an error strip and a "Locate file..."
+    button appear above the style form so the user can repoint the
+    ``'data_file'`` key at a real file. Style controls that only affect
+    regeneration (color, label) stay enabled; the rest follow the normal
+    per-kind applicability rules.
+
+    Signals
+    -------
+    series_repointed(str)
+        Emitted with the new absolute file path after a broken
+        ``file_series`` entry has been successfully repointed via the
+        "Locate file..." flow.
     """
+
+    series_repointed = Signal(str)
 
     def __init__(self, document, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -202,6 +230,20 @@ class SeriesPanel(QWidget):
         buttons_row.addWidget(self.up_button)
         buttons_row.addWidget(self.down_button)
         outer.addLayout(buttons_row)
+
+        # Error strip + "Locate file..." button, shown only when the
+        # selected series is a broken file_series entry (carries
+        # 'data_error'). Lives above the style form so it reads as part of
+        # the style-editor area for the selected series.
+        self.error_label = QLabel(self)
+        self.error_label.setWordWrap(True)
+        self.error_label.setStyleSheet("color: red;")
+        self.error_label.setVisible(False)
+        outer.addWidget(self.error_label)
+
+        self.locate_button = QPushButton("Locate file...", self)
+        self.locate_button.setVisible(False)
+        outer.addWidget(self.locate_button)
 
         form = QFormLayout()
 
@@ -260,6 +302,7 @@ class SeriesPanel(QWidget):
         self.marker_combo.currentTextChanged.connect(self._on_marker_changed)
         self.linewidth_spin.editingFinished.connect(self._on_linewidth_edited)
         self.markersize_spin.editingFinished.connect(self._on_markersize_edited)
+        self.locate_button.clicked.connect(self._on_locate_clicked)
 
     def _on_figure_replaced(self) -> None:
         """Handle a brand-new figure being installed (New/Open/undo/redo).
@@ -290,8 +333,10 @@ class SeriesPanel(QWidget):
                 for kind, attr in _KIND_ATTRS:
                     series_list = getattr(ax, attr)
                     for index, series in enumerate(series_list):
-                        label = series.get("label") or f"series {index}"
-                        item = QListWidgetItem(f"{kind}: {label}")
+                        text, tooltip = _format_entry(kind, series, index)
+                        item = QListWidgetItem(text)
+                        if tooltip:
+                            item.setToolTip(tooltip)
                         self.series_list.addItem(item)
                         self._entries.append((kind, series_list, index))
 
@@ -341,7 +386,11 @@ class SeriesPanel(QWidget):
         try:
             if kind is None or series is None:
                 self._set_style_controls_enabled(False)
+                self._set_error_strip_visible(False)
                 return
+
+            data_error = series.get("data_error")
+            self._set_error_strip_visible(bool(data_error), str(data_error) if data_error else "")
 
             applicable = _applicable_controls(kind, series)
             self._set_style_controls_enabled(True, applicable)
@@ -384,6 +433,14 @@ class SeriesPanel(QWidget):
             colors = series.get("colors") or []
             return colors[0] if colors else "BLACK"
         return series.get("color", "BLACK")
+
+    def _set_error_strip_visible(self, visible: bool, message: str = "") -> None:
+        """Show/hide the broken-series error strip + "Locate file..." button."""
+        self.error_label.setVisible(visible)
+        self.locate_button.setVisible(visible)
+        if visible:
+            self.error_label.setText(message)
+            self.error_label.setToolTip(message)
 
     def _set_style_controls_enabled(self, enabled: bool, applicable: Optional[dict] = None) -> None:
         applicable = applicable or {}
@@ -481,10 +538,12 @@ class SeriesPanel(QWidget):
             return
         kind, series_list, index = entry
         series = series_list[index]
-        label = series.get("label") or f"series {index}"
+        text, tooltip = _format_entry(kind, series, index)
         self._updating = True
         try:
-            self.series_list.item(row).setText(f"{kind}: {label}")
+            item = self.series_list.item(row)
+            item.setText(text)
+            item.setToolTip(tooltip or "")
         finally:
             self._updating = False
 
@@ -555,6 +614,70 @@ class SeriesPanel(QWidget):
         series["markersize"] = mpl_value * _MSIZE_PER_MPL_UNIT * scale
         self._document.notify_changed()
 
+    def _on_locate_clicked(self) -> None:
+        """Repoint a broken ``file_series`` entry at a real file on disk.
+
+        Only meaningful for the currently-selected series, and only while it
+        actually carries a ``data_error``. Updates the ``'data_file'`` key to
+        the chosen file's *absolute* path, drops ``'data_error'``, notifies
+        the document, and emits :data:`series_repointed`. Deliberately does
+        not attempt to re-load the array data here: ``file_series`` entries
+        are reference-mode (the writer regenerates a ``data`` command from
+        ``'data_file'`` directly -- see ``Figure._render_axes`` /
+        ``GLEWriter.add_plot_line_from_file``/``add_errorbar_from_file``), so
+        the next preview compile validates the new path naturally. If the
+        chosen path is still wrong, GLE's own compile error will surface in
+        the Output dock.
+        """
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or "data_error" not in series:
+            return
+
+        start_dir = ""
+        existing = series.get("data_file")
+        if existing:
+            start_dir = os.path.dirname(os.path.abspath(str(existing)))
+
+        path, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Locate data file",
+            start_dir,
+            "Data files (*.dat *.csv *.txt);;All files (*)",
+        )
+        if not path:
+            return
+
+        abs_path = os.path.abspath(path)
+        series["data_file"] = abs_path
+        series.pop("data_error", None)
+        self._document.notify_changed()
+        self.refresh()
+        self.series_repointed.emit(abs_path)
+
+
+def _format_entry(kind: str, series: dict, index: int) -> tuple[str, Optional[str]]:
+    """Return ``(list_item_text, tooltip_or_None)`` for one aggregated entry.
+
+    A ``file_series`` entry carrying ``'data_error'`` (broken data
+    reference -- see ``gleplot.parser.recognizer``) renders with a leading
+    warning marker and a "(missing data)" suffix; the tooltip carries the
+    full error text. Everything else renders as before (``"kind: label"``,
+    no tooltip).
+    """
+    data_error = series.get("data_error")
+    if data_error:
+        file_label = (
+            series.get("label")
+            or series.get("data_file")
+            or f"series {index}"
+        )
+        text = f"{_BROKEN_MARKER} {kind}: {file_label} (missing data)"
+        return text, str(data_error)
+    label = series.get("label") or f"series {index}"
+    return f"{kind}: {label}", None
+
 
 def _applicable_controls(kind: str, series: dict) -> dict:
     """Return which style controls apply to a series of the given kind.
@@ -581,6 +704,16 @@ def _applicable_controls(kind: str, series: dict) -> dict:
         return {"color": True, "marker": False, "linestyle": False,
                 "linewidth": False, "markersize": False}
     if kind == "file_series":
+        if series.get("data_error"):
+            # Broken reference: the file couldn't be read, so there is no
+            # basis for showing/editing marker, linestyle, linewidth, or
+            # markersize (several of those depend on series_type, which is
+            # still known, but "meaningful" here means "backed by real
+            # data"). Color and label are metadata only and always safe to
+            # edit -- they affect regeneration regardless of whether the
+            # data loads.
+            return {"color": True, "marker": False, "linestyle": False,
+                    "linewidth": False, "markersize": False}
         series_type = series.get("series_type")
         if series_type == "errorbar":
             return {"color": True, "marker": True, "linestyle": False,

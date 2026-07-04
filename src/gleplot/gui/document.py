@@ -69,6 +69,26 @@ class FigureDocument(QObject):
         self._figure: Optional[Figure] = figure
         self._dirty: bool = False
         self._project_path: Optional[Path] = None
+        #: Recovery warnings from the most recent File ▸ Open (see
+        #: :func:`gleplot.parser.recognizer.parse_gle_figure`), one string per
+        #: warning, each prefixed by its category (``structure:``,
+        #: ``metadata:``, ``data:``, ``legend:``, ``smooth:``, ``layout:``).
+        #: Plain attribute -- no signal is emitted when it changes.
+        #:
+        #: Ordering contract with :mod:`gleplot.gui.file_ops`: :meth:`set_figure`
+        #: unconditionally RESETS this to ``[]`` (a freshly installed figure,
+        #: whether from ``new_figure()`` or a not-yet-classified ``Open``, starts
+        #: with no open-warnings). ``file_ops.open_project`` then calls
+        #: ``set_figure`` first and assigns the recognizer's ``warnings`` list
+        #: to this attribute AFTER, so the reset doesn't wipe the real warnings.
+        #: A successful save (``file_ops.save_project_current`` /
+        #: ``save_project_as``) clears it back to ``[]``, since a save resolves
+        #: the session's open-time warnings (the just-written ``.gle`` is exactly
+        #: what's in memory, warnings and all, so there is nothing left to warn
+        #: about until the next Open). The main window reads this list after
+        #: ``figure_replaced`` fires to decide whether to show a recovery-warnings
+        #: banner/dialog.
+        self.open_warnings: list[str] = []
 
     # ------------------------------------------------------------------
     # Figure access
@@ -83,20 +103,23 @@ class FigureDocument(QObject):
 
         Installing a document is treated as a clean starting point: the dirty
         flag is reset to ``False`` (emitting :data:`dirty_changed` if it was
-        previously dirty) and the project path is cleared to ``None`` (emitting
-        :data:`project_path_changed`). Use this for File ▸ New and File ▸ Open.
-        Panels that mutate the *existing* figure should call
-        :meth:`notify_changed` instead.
+        previously dirty), the project path is cleared to ``None`` (emitting
+        :data:`project_path_changed`), and :attr:`open_warnings` is reset to
+        ``[]``. Use this for File ▸ New and File ▸ Open. Panels that mutate the
+        *existing* figure should call :meth:`notify_changed` instead.
 
         Clearing the project path here is what makes File ▸ New after editing a
         saved project route the next Save to Save-As instead of silently
-        overwriting the old ``.glep``. Loaders that install a figure and then
-        assign a real path (e.g. :func:`gleplot.gui.file_ops.open_project`)
-        must call ``set_figure`` *before* setting ``project_path`` -- the order
-        already used -- so the freshly loaded path survives.
+        overwriting the old ``.gle``. Loaders that install a figure and then
+        assign a real path and warnings (e.g.
+        :func:`gleplot.gui.file_ops.open_project`) must call ``set_figure``
+        *before* setting ``project_path`` / ``open_warnings`` -- the order
+        already used -- so the freshly loaded path and recognizer warnings
+        survive the reset performed here.
         """
         self._figure = fig
         self.project_path = None
+        self.open_warnings = []
         self.figure_replaced.emit()
         self._set_dirty(False)
 
@@ -128,7 +151,7 @@ class FigureDocument(QObject):
     # ------------------------------------------------------------------
     @property
     def project_path(self) -> Optional[Path]:
-        """Filesystem path of the ``.glep`` project this document was loaded
+        """Filesystem path of the ``.gle`` file this document was loaded
         from or last saved to, or ``None`` for a not-yet-saved document."""
         return self._project_path
 

@@ -63,6 +63,40 @@ for rendering, applied by the test-side ``normalize()`` helper)
    datasets ``smooth`` and some not, the recovered figure sets
    ``smooth_curves=True`` (the default) and warns; re-save then applies smooth
    to all line datasets.
+8. **Constant / percentage error -> data column (hand-written only).** A
+   ``dN ... err 0.5`` (constant) or ``dN ... err 10%`` (percentage) carries no
+   error data column; GLE synthesizes the error at draw time. The recognizer
+   converts it to a concrete per-point error array on the model (constant:
+   value at every point; percentage: ``value/100 * abs(y)`` for vertical error,
+   ``* abs(x)`` for horizontal -- matching ``graph2.cpp`` ``getErrorBarData``),
+   which re-saves as a real ``.dat`` error column, and warns. If the referencing
+   series cannot be loaded (broken ref), the original ``dN`` line is kept in the
+   axes passthrough instead and a ``data:`` warning is emitted.
+9. **Axis-remainder passthrough (hand-written only).** Unrecognized ``xaxis``/
+   ``yaxis``/``y2axis`` sub-tokens (``off``/``grid``/``dticks``/``dsubticks``/
+   ``nticks``/``format "..."``/...) are peeled off the recognized
+   ``min``/``max``/``log``/``nofirst``/``nolast`` (which populate the model) and
+   re-emitted as a *supplementary* axis line in the axes passthrough. GLE axis
+   lines are cumulative, so the model-emitted axis line + the passthrough line
+   together reproduce the intended result. ``STRING`` options keep their quotes.
+   Original source spacing is preserved (so ``dticks pi/2`` stays valid). A
+   ``structure:`` warning is emitted.
+10. **title/key with unsupported options kept raw (hand-written only).** A
+    ``title "T" hei 0.6 font roman`` or ``key pos tr hei 0.3 nobox offset ...``
+    carries modifiers that cannot be modeled and for which cumulative
+    re-emission would produce a *competing* title/key line. The WHOLE original
+    line is preserved in the axes passthrough, the model field is left unset
+    (so the writer emits no competing line), and a ``structure:`` warning fires.
+11. **Empty-axes no-fabrication.** A parse that yields zero axes but non-empty
+    passthrough (e.g. a graph swallowed into an opaque ``begin translate/scale``
+    wrapper) re-saves with ONLY the passthrough -- no spurious empty
+    ``begin graph ... end graph`` is fabricated. A genuinely empty figure with
+    no passthrough keeps the historical default empty graph block.
+12. **Programmatic-file warning.** A file using GLE programming constructs
+    (top-level ``sub``/``if``/``for``/``while``/``until``/``next``/``else``/
+    ``return``) is flagged with a ``programmatic:`` warning -- the syntax parser
+    has no control-flow awareness, so editing may restructure such files. Parse
+    behavior is unchanged; this is advisory only.
 
 Tolerances for hand-written input
 ---------------------------------
@@ -89,6 +123,9 @@ Every recovered ambiguity or loss appends a human-readable string to
 - ``"layout: ..."``             -- multi-graph grid could not be inferred
                                    cleanly (n x 1 fallback) or share flags
                                    were guessed.
+- ``"programmatic: ..."``       -- the file uses GLE programming constructs
+                                   (sub/if/for/...); editing may restructure
+                                   them (advisory; parse unchanged).
 """
 
 from __future__ import annotations
@@ -97,6 +134,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
 
 from ..axes import Axes
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
@@ -266,6 +305,15 @@ class _Recognizer:
         for w in doc.warnings:
             self.warnings.append(f"structure: {w}")
 
+        # 1-based line numbers spanned by the '! gleplot' metadata block; these
+        # lines carry parsed values and must be dropped wherever they appear
+        # (including inside a graph body) so they never leak into passthrough
+        # and re-emit as a stale duplicate block.
+        self._meta_lines = self._metadata_line_numbers()
+
+        # Guard: files using GLE programming constructs are not safe to edit.
+        self._check_programmatic_constructs(doc.nodes)
+
         # Metadata block (parsed from the whole file, tolerantly).
         meta, meta_warnings = _metadata.parse_metadata(self.text.splitlines())
         for w in meta_warnings:
@@ -286,6 +334,12 @@ class _Recognizer:
         # Walk the top-level nodes, splitting into preamble / graph blocks /
         # deferred-text clusters / trailer.
         nodes = list(doc.nodes)
+
+        # Detect a graph swallowed into an opaque transform wrapper (begin
+        # translate/scale/rotate/origin ... begin graph ...). We do NOT descend
+        # into transform wrappers (documented limitation) -- the whole wrapper is
+        # preserved as raw GLE -- but we warn so the editor can flag it.
+        self._warn_graph_in_transform(nodes)
 
         # Locate graph blocks and the amove that precedes each (multi-plot).
         graph_indices = [i for i, n in enumerate(nodes) if isinstance(n, GraphBlock)]
@@ -377,6 +431,48 @@ class _Recognizer:
 
         return RecognizedFigure(figure=fig, warnings=self.warnings)
 
+    # -- programmatic-construct guard -----------------------------------
+
+    #: Top-level statement keywords that mark a GLE *programmatic* file (control
+    #: flow / subroutines). The syntax parser has no awareness of these, so a
+    #: graph inside such a construct parses as a top-level graph and editing it
+    #: would restructure the file. We only *warn*; parse behavior is unchanged.
+    _PROGRAMMATIC_KEYWORDS = frozenset({
+        "sub", "if", "for", "while", "until", "next", "else", "return",
+    })
+
+    #: Opaque wrapper block types that establish a coordinate transform. A
+    #: graph nested inside one of these is preserved wholesale as raw GLE.
+    _TRANSFORM_WRAPPERS = frozenset({"translate", "scale", "rotate", "origin"})
+
+    def _warn_graph_in_transform(self, nodes) -> None:
+        for node in nodes:
+            if not isinstance(node, OpaqueBlock):
+                continue
+            if node.block_type not in self._TRANSFORM_WRAPPERS:
+                continue
+            for sl in node.inner_lines:
+                stripped = sl.text.strip().lower()
+                if stripped.startswith("begin graph"):
+                    self.warnings.append(
+                        "structure: graph inside begin translate/scale is "
+                        "preserved as raw GLE, not editable"
+                    )
+                    break
+
+    def _check_programmatic_constructs(self, nodes) -> None:
+        for node in nodes:
+            if not isinstance(node, Statement):
+                continue
+            kw = node.keyword
+            if kw is not None and kw in self._PROGRAMMATIC_KEYWORDS:
+                self.warnings.append(
+                    "programmatic: file contains GLE programming constructs "
+                    "(sub/if/for); opening for editing may restructure them -- "
+                    "consider read-only preview"
+                )
+                return
+
     # -- preamble --------------------------------------------------------
 
     def _first_graph_region_start(self, nodes, graph_indices) -> int:
@@ -406,7 +502,7 @@ class _Recognizer:
         passthrough: List[str] = []
 
         # Track which lines belong to the metadata block so we drop them.
-        meta_line_nos = self._metadata_line_numbers()
+        meta_line_nos = self._meta_lines
 
         for node in pre_nodes:
             if isinstance(node, BlankOrComment):
@@ -496,6 +592,37 @@ class _Recognizer:
         # Local dataset map for THIS block (dataset refs are graph-local).
         datasets: Dict[str, Tuple[str, int, int]] = {}
 
+        # --- Pass 1: collect data commands and merge per-dataset attribute
+        # tokens across multiple 'dN ...' lines. This fixes forward references
+        # ('d1 line ...' appearing before its 'data' command) and multi-line
+        # attribute accumulation ('d1 line' / 'd1 lwidth X' / 'd1 key "A"' on
+        # separate lines are ONE series, not three).
+        #
+        # merged_attr_toks: name(lower) -> flat token list (attributes only,
+        # excluding the leading 'dN'), in first-appearance order.
+        merged_attr_toks: Dict[str, List[Token]] = {}
+        dataset_order: List[str] = []
+
+        for child in block.body:
+            if isinstance(child, Statement):
+                if self._skip_meta_stmt(child):
+                    continue
+                kw = child.keyword
+                if kw == "data":
+                    self._parse_data_command(_words_and_values(child), datasets)
+                    continue
+                if kw is not None and _DATASET_RE.match(kw):
+                    name = kw
+                    if name not in merged_attr_toks:
+                        merged_attr_toks[name] = []
+                        dataset_order.append(name)
+                    merged_attr_toks[name].extend(_words_and_values(child)[1:])
+                    continue
+
+        # --- Pass 2: walk the body in order, dispatching non-dN statements
+        # (axis/title/key/bar/fill/passthrough) and emitting exactly one series
+        # per merged dataset the first time that dataset name is encountered.
+        emitted: set = set()
         for child in block.body:
             if isinstance(child, OpaqueBlock):
                 info["passthrough"].extend(self._raw_lines(child))
@@ -504,20 +631,42 @@ class _Recognizer:
                 # Blank/comment inside a graph block that the writer never
                 # emits -> preserve as axes passthrough (hand-written).
                 stmt = child.statement
+                if self._skip_meta_stmt(stmt):
+                    continue
                 text = stmt.source_line.text if stmt.source_line else stmt.raw
-                if text.strip() == "":
-                    # A bare blank line inside a graph: keep it verbatim so
-                    # hand-written spacing survives.
-                    info["passthrough"].append(text)
-                else:
-                    info["passthrough"].append(text)
+                info["passthrough"].append(text)
                 continue
             if not isinstance(child, Statement):
+                continue
+            if self._skip_meta_stmt(child):
+                continue
+
+            kw = child.keyword
+            if kw == "data":
+                continue  # already handled in pass 1
+            if kw is not None and _DATASET_RE.match(kw):
+                name = kw
+                if name in emitted:
+                    continue
+                emitted.add(name)
+                merged = [Token(TokenType.WORD, name, (0, 0))] + merged_attr_toks.get(name, [])
+                self._build_series_from_attrs(
+                    name, merged, datasets, info, marker_cfg, smooth_flags
+                )
                 continue
 
             self._dispatch_graph_statement(child, info, datasets, marker_cfg, smooth_flags)
 
         return info
+
+    def _skip_meta_stmt(self, stmt) -> bool:
+        """True if this statement's physical line is inside the metadata block."""
+        return stmt.source_line is not None and stmt.line_no in self._meta_lines
+
+    def _build_series_from_attrs(self, name, merged_toks, datasets, info,
+                                 marker_cfg, smooth_flags):
+        """Build one series from a dataset's merged attribute tokens."""
+        self._parse_series_command(merged_toks, datasets, info, marker_cfg, smooth_flags)
 
     def _dispatch_graph_statement(self, stmt, info, datasets, marker_cfg, smooth_flags):
         kw = stmt.keyword
@@ -542,7 +691,18 @@ class _Recognizer:
             info["scale_mode"] = "fullsize"
             return
         if kw == "title":
-            info["title"] = self._first_string(toks)
+            if self._title_has_unsupported_options(toks):
+                # 'title "T" hei 0.6 font roman' -- trailing modifiers cannot be
+                # represented on the model and a cumulative re-emit would produce
+                # a competing 'title' line. Keep the WHOLE original line as raw
+                # GLE (title_text stays unset) and warn.
+                info["passthrough"].append(self._stmt_text(stmt))
+                self.warnings.append(
+                    "structure: title has unsupported options; kept as raw GLE, "
+                    "not editable"
+                )
+            else:
+                info["title"] = self._first_string(toks)
             return
         if kw == "xtitle":
             info["xlabel"] = self._first_string(toks)
@@ -554,7 +714,7 @@ class _Recognizer:
             info["y2label"] = self._first_string(toks)
             return
         if kw in ("xaxis", "yaxis", "y2axis"):
-            self._parse_axis_line(kw, toks, info)
+            self._parse_axis_line(kw, toks, info, stmt)
             return
         if kw in ("xlabels", "ylabels"):
             # 'xlabels off'
@@ -563,9 +723,8 @@ class _Recognizer:
             else:
                 info["passthrough"].append(self._stmt_text(stmt))
             return
-        if kw == "data":
-            self._parse_data_command(toks, datasets)
-            return
+        # NOTE: 'data' and 'dN' statements are handled by the two-pass driver
+        # in _parse_graph_block, not here.
         if kw == "bar":
             self._parse_bar_command(toks, datasets, info)
             return
@@ -573,10 +732,7 @@ class _Recognizer:
             self._parse_fill_command(toks, datasets, info)
             return
         if kw == "key":
-            self._parse_key_command(toks, info)
-            return
-        if kw is not None and _DATASET_RE.match(kw):
-            self._parse_series_command(toks, datasets, info, marker_cfg, smooth_flags)
+            self._parse_key_command(toks, info, stmt)
             return
 
         # Unrecognized statement inside a graph block -> axes passthrough.
@@ -584,8 +740,9 @@ class _Recognizer:
 
     # -- axis line parsing ----------------------------------------------
 
-    def _parse_axis_line(self, kw, toks, info):
+    def _parse_axis_line(self, kw, toks, info, stmt=None):
         prefix = {"xaxis": "x", "yaxis": "y", "y2axis": "y2"}[kw]
+        remainder: List[Token] = []
         i = 1
         m = len(toks)
         while i < m:
@@ -618,27 +775,94 @@ class _Recognizer:
                 info[f"nolast_{prefix}"] = True
                 i += 1
                 continue
-            # Unknown axis sub-token (hand-written extras) -> ignore token but
-            # keep the line effect; do not passthrough (would duplicate axis).
+            # Unrecognized axis sub-token (off/grid/dticks/dsubticks/nticks/
+            # format/hei/...). GLE axis lines are cumulative, so we peel the
+            # recognized min/max/log/nofirst/nolast into the model and re-emit
+            # the UNRECOGNIZED remainder as a supplementary axis line in
+            # passthrough. e.g. 'xaxis min 0 max 2*pi dticks pi/2 grid' ->
+            # model gets min/max; passthrough gets 'xaxis dticks pi/2 grid'.
+            remainder.append(toks[i])
+            # A recognized keyword may take a value; unrecognized ones we cannot
+            # know the arity of, so we copy tokens verbatim one at a time (their
+            # own values ride along as further 'remainder' tokens).
             i += 1
+
+        if remainder:
+            rendered = self._render_remainder(remainder, stmt)
+            info["passthrough"].append(f"    {kw} {rendered}")
+            self.warnings.append(
+                f"structure: unrecognized {kw} options ({rendered}) preserved as "
+                "a supplementary axis line (cumulative); not editable"
+            )
+
+    def _render_remainder(self, remainder, stmt) -> str:
+        """Reconstruct remainder tokens preserving original source spacing.
+
+        Slicing contiguous runs of remainder tokens straight from the source
+        segment keeps ``pi/2`` intact (rendering token-by-token would insert
+        spaces around the ``/`` and GLE would reject ``pi / 2`` after
+        ``dticks``). Non-contiguous runs are joined with a single space.
+        """
+        raw = stmt.raw if stmt is not None and stmt.raw else None
+        if raw is None:
+            return " ".join(self._token_text(t) for t in remainder)
+        runs: List[str] = []
+        run_start = remainder[0].start
+        run_end = remainder[0].end
+        for t in remainder[1:]:
+            if t.start == run_end:  # directly adjacent (no gap)
+                run_end = t.end
+            else:
+                runs.append(raw[run_start:run_end])
+                run_start, run_end = t.start, t.end
+        runs.append(raw[run_start:run_end])
+        return " ".join(s.strip() for s in runs if s.strip())
+
+    def _token_text(self, tok) -> str:
+        """Source-faithful text for a single token (STRING keeps its quotes)."""
+        if tok.type is TokenType.STRING:
+            q = tok.quote or '"'
+            inner = _string_value(tok)
+            esc = inner.replace(q, "\\" + q)
+            return f"{q}{esc}{q}"
+        return tok.value
 
     # -- data command ----------------------------------------------------
 
     def _parse_data_command(self, toks, datasets):
-        """``data FILE d1=c1,c2 d2=c1,c3 ...`` -> register datasets."""
+        """``data FILE d1=c1,c2 d2=c1,c3 ...`` -> register datasets.
+
+        Handles three GLE forms (semantics verified against
+        ``GLE/src/gle/graph.cpp`` ``data_command`` / ``read_data_description``):
+
+        * **Explicit** ``d1=c1,c2`` -- x/y columns given verbatim.
+        * **Positional** ``data f.dat d1 d3`` -- dataset names with no ``=``:
+          each ``!xygiven`` dataset gets x = c1 and y assigned by its *position*
+          among the given datasets (``d1`` -> c2, ``d3`` -> c3), NOT by dataset
+          number.  A single-column file switches to index-x (``nox``).
+        * **Auto** ``data f.dat`` -- no dataset clauses: register d1=c1,c2,
+          d2=c1,c3, ... one per column past the x column (up to the file's
+          column count), when the file resolves.  Single-column file -> d1 =
+          index,c1.
+
+        The filename token is *unwrapped* (STRING tokens have their quotes
+        stripped) so ``data "wave.dat"`` registers ``wave.dat`` rather than the
+        quote-embedded literal (which would never resolve).
+        """
         if len(toks) < 2:
             return
-        data_file = toks[1].value
-        i = 2
+        data_file = self._token_filename(toks[1])
         m = len(toks)
+
+        # Collect dataset clauses in the order given: (name, explicit_cols|None).
+        given: List[Tuple[str, Optional[Tuple[int, int]]]] = []
+        i = 2
         while i < m:
-            # Expect: dNAME = cX , cY
             name_tok = toks[i]
             if name_tok.type is not TokenType.WORD or not _DATASET_RE.match(name_tok.value):
                 i += 1
                 continue
             name = name_tok.value.lower()
-            # find '=' then cX , cY
             if i + 1 < m and toks[i + 1].value == "=":
                 cols = []
                 j = i + 2
@@ -654,11 +878,75 @@ class _Recognizer:
                     else:
                         break
                 if len(cols) >= 2:
-                    datasets[name] = (data_file, cols[0], cols[1])
-                    self._datasets[name] = (data_file, cols[0], cols[1])
+                    given.append((name, (cols[0], cols[1])))
                 i = j
             else:
+                # Positional dataset name (no '=').
+                given.append((name, None))
                 i += 1
+
+        # Warn (last-wins) about a redefinition of an already-registered name.
+        for name, _cols in given:
+            if name in datasets:
+                self.warnings.append(
+                    f"data: dataset {name} redefined by a later 'data' command; "
+                    "using the last definition"
+                )
+
+        need_auto = not given or any(c is None for _n, c in given)
+        ncols = self._file_column_count(data_file) if need_auto else None
+
+        # x column / y offset per GLE: single-column file uses index x.
+        if ncols is not None and ncols <= 1:
+            cx, cy_first = 0, 1  # x = point index, y = c1
+        else:
+            cx, cy_first = 1, 2  # x = c1, y starts at c2
+
+        if not given:
+            # Auto-mapping: one dataset per column past the x column.
+            if ncols is None:
+                # File unresolved: cannot auto-map. Record a broken reference
+                # so referencing is not silently dropped.
+                self.warnings.append(
+                    f"data: '{data_file}' could not be resolved; auto column "
+                    "mapping (data with no dN clauses) skipped"
+                )
+                return
+            if ncols <= 1:
+                self._register_dataset("d1", data_file, 0, 1, datasets)
+            else:
+                for k in range(ncols - 1):
+                    self._register_dataset(
+                        f"d{k + 1}", data_file, 1, k + 2, datasets
+                    )
+            return
+
+        # Explicit and/or positional clauses.
+        for pos, (name, cols) in enumerate(given):
+            if cols is not None:
+                self._register_dataset(name, data_file, cols[0], cols[1], datasets)
+            else:
+                # Positional: y column follows GLE's position-based assignment.
+                ycol = pos + cy_first
+                self._register_dataset(name, data_file, cx, ycol, datasets)
+
+    def _register_dataset(self, name, data_file, xcol, ycol, datasets):
+        datasets[name] = (data_file, xcol, ycol)
+        self._datasets[name] = (data_file, xcol, ycol)
+
+    @staticmethod
+    def _token_filename(tok) -> str:
+        """Filename from a data-command token: unwrap STRING quotes."""
+        if tok.type is TokenType.STRING:
+            return _string_value(tok)
+        return tok.value
+
+    def _file_column_count(self, data_file) -> Optional[int]:
+        """Number of columns in the resolved data file, or None if unresolved."""
+        resolved = self._resolve_table(data_file)
+        if resolved.error is not None or resolved.table is None:
+            return None
+        return resolved.table.n_cols
 
     # -- bar / fill ------------------------------------------------------
 
@@ -749,16 +1037,28 @@ class _Recognizer:
 
     # -- key -------------------------------------------------------------
 
-    def _parse_key_command(self, toks, info):
+    def _parse_key_command(self, toks, info, stmt=None):
         rest = [t.value.lower() for t in toks[1:]]
-        if rest and rest[0] == "off":
+        # Exactly 'key off' -> recognized.
+        if rest == ["off"]:
             info["key_off"] = True
             return
-        if rest and rest[0] == "pos" and len(rest) >= 2:
+        # Exactly 'key pos P' -> recognized.
+        if len(rest) == 2 and rest[0] == "pos":
             info["key_pos"] = rest[1]
             return
-        # Unknown key form -> passthrough (rare).
-        info["passthrough"].append("    " + " ".join(t.value for t in toks))
+        # Any richer form ('key pos tr hei 0.3 nobox offset ...') carries options
+        # we cannot model; a cumulative re-emit would produce a competing 'key'
+        # line. Keep the WHOLE original line as raw GLE (legend untouched) and
+        # warn.
+        line = self._stmt_text(stmt) if stmt is not None else (
+            "    " + " ".join(t.value for t in toks)
+        )
+        info["passthrough"].append(line)
+        self.warnings.append(
+            "structure: key has unsupported options; kept as raw GLE, "
+            "not editable"
+        )
 
     # -- series command --------------------------------------------------
 
@@ -777,14 +1077,15 @@ class _Recognizer:
 
         has_line = attrs["has_line"]
         has_marker = attrs["marker"] is not None
-        is_errorbar = bool(attrs["err_refs"])
+        is_errorbar = bool(attrs["err_refs"]) or bool(attrs["err_consts"])
 
         # Determine import vs reference for THIS data_file.
         is_import = self._is_import(data_file)
 
         if is_errorbar:
             self._build_errorbar(
-                info, datasets, data_file, xcol, ycol, attrs, is_import
+                info, datasets, data_file, xcol, ycol, attrs, is_import,
+                orig_toks=toks,
             )
             return
 
@@ -845,6 +1146,7 @@ class _Recognizer:
             "y2axis": False,
             "label": None,
             "err_refs": {},   # kind -> dataset name (err/errup/errdown/herr/herrleft/herrright)
+            "err_consts": {}, # kind -> (value: float, is_percent: bool) for literals
             "errwidth": None,
             "herrwidth": None,
         }
@@ -889,7 +1191,22 @@ class _Recognizer:
                 i = nxt if v is not None else i + 2
                 continue
             if w in ("err", "errup", "errdown", "herr", "herrleft", "herrright") and i + 1 < m:
-                a["err_refs"][w] = toks[i + 1].value.lower()
+                nxt_tok = toks[i + 1]
+                nxt_val = nxt_tok.value.lower()
+                if nxt_tok.type is TokenType.WORD and _DATASET_RE.match(nxt_val):
+                    # Reference to another dataset's y column.
+                    a["err_refs"][w] = nxt_val
+                    i += 2
+                    continue
+                # Literal constant or percentage: 'err 0.5' or 'err 10%'.
+                val, nxt = _collect_value(toks, i + 1)
+                if val is not None:
+                    is_percent = nxt < m and toks[nxt].value == "%"
+                    if is_percent:
+                        nxt += 1
+                    a["err_consts"][w] = (val, is_percent)
+                    i = nxt
+                    continue
                 i += 2
                 continue
             if w == "errwidth" and i + 1 < m:
@@ -913,10 +1230,25 @@ class _Recognizer:
             i += 1
         return a
 
-    def _build_errorbar(self, info, datasets, data_file, xcol, ycol, attrs, is_import):
+    def _build_errorbar(self, info, datasets, data_file, xcol, ycol, attrs,
+                        is_import, orig_toks=None):
         """Reconstruct an errorbar entry, matching Axes.errorbar's dict schema."""
         # Resolve error column indices from referenced datasets.
         err = attrs["err_refs"]
+        err_consts = attrs["err_consts"]
+
+        # Constant / percentage errors ('err 0.5', 'err 10%') carry no data
+        # column; GLE synthesizes the error at draw time. We convert them to a
+        # concrete data column on save. This requires the y (and, for herr, x)
+        # arrays, so it only works when the referencing series can be loaded.
+        if err_consts and (not is_import):
+            # File reference we won't load -> keep the ORIGINAL dN line raw.
+            self._passthrough_original_dn(info, orig_toks)
+            self.warnings.append(
+                "data: constant error on an unresolved file reference; original "
+                "'dN ... err' line kept as raw GLE"
+            )
+            return
 
         def col_of(ref_name):
             ref = ref_name.lower()
@@ -982,6 +1314,14 @@ class _Recognizer:
                  if c is not None]
         loaded = self._load_series(data_file, xcol, ycol, extra_cols=extra)
         if loaded is None or loaded.get("error"):
+            if err_consts:
+                # Cannot synthesize a constant-error column without the y data.
+                self._passthrough_original_dn(info, orig_toks)
+                self.warnings.append(
+                    "data: constant error but the dataset could not be loaded; "
+                    "original 'dN ... err' line kept as raw GLE"
+                )
+                return
             yerr_col = yerr_up_col if yerr_up_col is not None else None
             info["file_series"].append({
                 "series_type": "errorbar",
@@ -1006,6 +1346,47 @@ class _Recognizer:
         xerr_left = col_arr(xerr_left_col)
         xerr_right = col_arr(xerr_right_col)
 
+        # Synthesize constant / percentage error arrays. GLE semantics
+        # (graph2.cpp setupdown/getErrorBarData): a literal value is a constant
+        # per-point error; 'N%' is N/100 * abs(value along the error dimension)
+        # -- for vertical err the value dimension is y, for horizontal it is x.
+        if err_consts:
+            self.warnings.append(
+                "data: constant error expression converted to a data column on "
+                "save"
+            )
+            y_arr = loaded["y"]
+            x_arr = loaded["x"]
+
+            def const_arr(value, is_percent, horizontal):
+                base = x_arr if horizontal else y_arr
+                if is_percent:
+                    return (value / 100.0) * np.abs(base)
+                return np.full(len(base), float(value))
+
+            if "err" in err_consts:
+                v, p = err_consts["err"]
+                yerr_up = const_arr(v, p, False)
+                yerr_down = yerr_up
+            else:
+                if "errup" in err_consts:
+                    v, p = err_consts["errup"]
+                    yerr_up = const_arr(v, p, False)
+                if "errdown" in err_consts:
+                    v, p = err_consts["errdown"]
+                    yerr_down = const_arr(v, p, False)
+            if "herr" in err_consts:
+                v, p = err_consts["herr"]
+                xerr_left = const_arr(v, p, True)
+                xerr_right = xerr_left
+            else:
+                if "herrleft" in err_consts:
+                    v, p = err_consts["herrleft"]
+                    xerr_left = const_arr(v, p, True)
+                if "herrright" in err_consts:
+                    v, p = err_consts["herrright"]
+                    xerr_right = const_arr(v, p, True)
+
         entry = {
             "type": "errorbar",
             "x": loaded["x"], "y": loaded["y"],
@@ -1024,9 +1405,26 @@ class _Recognizer:
         }
         info["errorbars"].append(entry)
 
+    def _passthrough_original_dn(self, info, orig_toks):
+        """Keep a dataset display line as raw GLE in axes passthrough.
+
+        Used when a ``dN ... err <literal>`` cannot be converted (broken /
+        unresolved data): rather than silently dropping the error bars we
+        re-emit the original line verbatim so GLE still draws it.
+        """
+        if not orig_toks:
+            return
+        rendered = " ".join(self._token_text(t) for t in orig_toks)
+        info["passthrough"].append("    " + rendered)
+
     def _build_file_series(self, info, data_file, xcol, ycol, attrs, has_line, error=None):
         markersize = attrs["msize"] if attrs["msize"] is not None else 0.15
-        if has_line and attrs["marker"] is None:
+        # Branch on has_line ALONE: a 'd1 line marker circle lwidth X' reference
+        # is a line (carrying line/lwidth/linestyle) that ALSO has a marker --
+        # not an errorbar. Losing the line/lwidth/linestyle by classifying it as
+        # an errorbar (the old behavior) drops the whole styled line. Keep the
+        # marker as an additional field so it survives on the model.
+        if has_line:
             entry = {
                 "series_type": "line",
                 "data_file": data_file,
@@ -1039,7 +1437,12 @@ class _Recognizer:
                 "label": attrs["label"],
                 "yaxis": "y2" if attrs["y2axis"] else "y",
             }
+            if attrs["marker"] is not None:
+                entry["marker"] = attrs["marker"]
+                entry["markersize"] = markersize
         else:
+            # Marker-only (or bare) reference -> errorbar-style entry (which the
+            # writer emits as a marker-only dataset).
             entry = {
                 "series_type": "errorbar",
                 "data_file": data_file,
@@ -1433,6 +1836,25 @@ class _Recognizer:
             if t.type is TokenType.STRING:
                 return _string_value(t)
         return None
+
+    @staticmethod
+    def _title_has_unsupported_options(toks) -> bool:
+        """True if a ``title`` line carries tokens beyond ``title "T"``.
+
+        The only recognized form is the keyword followed by exactly one string
+        literal. Trailing modifiers (``hei 0.6``, ``font roman``, ``dist ...``)
+        cannot be represented on the model, so the whole line is preserved raw.
+        """
+        # toks[0] is 'title'. The recognized form is exactly one string and
+        # nothing after it. Any token after that first string is unsupported.
+        seen_string = False
+        for t in toks[1:]:
+            if t.type is TokenType.STRING and not seen_string:
+                seen_string = True
+                continue
+            # Any further token (word/number/op/second string) is unsupported.
+            return True
+        return False
 
     @staticmethod
     def _stmt_text(stmt) -> str:

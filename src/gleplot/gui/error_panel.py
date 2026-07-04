@@ -7,6 +7,16 @@ pure view: it holds no document state and only emits
 :data:`ErrorPanel.error_activated` when the user double-clicks an error that
 carries a source line number (a future code view will use this to jump to the
 offending line).
+
+It also renders **recognizer warnings** -- the ``list[str]`` recovery notes
+produced by :func:`gleplot.parser.recognizer.parse_gle_figure` when opening a
+``.gle`` file (prefixed ``structure:``/``metadata:``/``data:``/``legend:``/
+``smooth:``/``layout:``; see that module's "Warnings taxonomy"). These are
+informational, not compile failures, so they render in a visually distinct
+section (a ``⚠``-prefixed list, styled differently from the error list) via
+:meth:`set_warnings`/:meth:`clear_warnings` -- separate from, and unaffected
+by, :meth:`set_errors`/:meth:`clear`. Purely for display: double-clicking a
+warning does nothing (no line numbers are attached to recognizer warnings).
 """
 
 from __future__ import annotations
@@ -61,6 +71,15 @@ class ErrorPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
+        # Recognizer warnings (informational; see module docstring), shown
+        # above the error list in their own visually-distinct list widget.
+        # Hidden whenever there are no warnings to show.
+        self._warnings_list = QListWidget(self)
+        self._warnings_list.setStyleSheet(
+            "QListWidget { color: #8a6d3b; background-color: #fff8e6; }"
+        )
+        self._warnings_list.setVisible(False)
+
         self._list = QListWidget(self)
         self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
 
@@ -74,6 +93,7 @@ class ErrorPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._warnings_list)
         layout.addWidget(self._list)
         layout.addWidget(self._details_toggle)
         layout.addWidget(self._details)
@@ -109,6 +129,33 @@ class ErrorPanel(QWidget):
         """Remove all listed errors and clear the raw-output area."""
         self._list.clear()
         self._details.clear()
+
+    def set_warnings(self, warnings: List[str]) -> None:
+        """Populate the panel with recognizer warnings.
+
+        Parameters
+        ----------
+        warnings : list of str
+            Recovery notes as returned on
+            ``RecognizedFigure.warnings``/``document.open_warnings``
+            (prefixed ``structure:``/``metadata:``/``data:``/``legend:``/
+            ``smooth:``/``layout:``). Each becomes one ``⚠``-prefixed list
+            row. Independent of :meth:`set_errors`/:meth:`clear` -- calling
+            this does not touch the error list, and calling those does not
+            touch the warnings list.
+
+        An empty list hides the warnings section entirely (same as
+        :meth:`clear_warnings`).
+        """
+        self._warnings_list.clear()
+        for warning in warnings:
+            self._warnings_list.addItem(QListWidgetItem(f"⚠ {warning}"))
+        self._warnings_list.setVisible(bool(warnings))
+
+    def clear_warnings(self) -> None:
+        """Remove all listed warnings and hide the warnings section."""
+        self._warnings_list.clear()
+        self._warnings_list.setVisible(False)
 
     # ------------------------------------------------------------------
     # Internals

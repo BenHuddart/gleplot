@@ -1,9 +1,14 @@
-"""Integration tests for lossless figure serialization and project I/O.
+"""Integration tests for lossless figure model serialization (``to_dict``).
 
 The key guarantee under test: for a battery of figures exercising every
 plotting feature, ``fig.to_dict() -> from_dict() -> to_dict()`` is an equal
 dictionary, and the generated GLE script (plus every emitted data file) is
-byte-identical before and after a round-trip.
+byte-identical before and after a round-trip. These are format-independent
+model guarantees -- they hold regardless of what's written to disk. (The
+on-disk project format is ``.gle`` itself; see
+:mod:`gleplot.parser.recognizer` / :meth:`~gleplot.figure.Figure.savefig_gle`
+and ``tests/gui/test_file_ops.py`` for the actual file-open/save round-trip.
+The legacy JSON ``.glep`` project format has been removed.)
 
 Each figure is described by a zero-argument *builder* so it can be
 constructed twice from a pristine state. A fixed ``data_prefix`` makes the
@@ -15,7 +20,7 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot import Figure, save_project, load_project
+from gleplot import Figure
 
 
 # -- Figure builders (one per feature area) ---------------------------------
@@ -259,39 +264,9 @@ def test_gle_byte_identical_after_round_trip(builder):
     assert data_after == data_before
 
 
-@pytest.mark.parametrize('builder', BUILDERS, ids=BUILDER_IDS)
-def test_project_file_round_trip(builder, tmp_path):
-    """save_project/load_project preserve the figure losslessly and produce
-    identical GLE, and the file is valid indented UTF-8 JSON."""
-    fig = builder()
-    path = tmp_path / 'project.glep'
-    returned = save_project(fig, path)
-    assert returned == path
-    assert path.exists()
-
-    # Human-readable, UTF-8, indented.
-    text = path.read_text(encoding='utf-8')
-    assert '\n  ' in text  # indent=2 produced nested indentation
-
-    loaded = load_project(path)
-    assert loaded.to_dict() == fig.to_dict()
-
-    gle_reference, data_reference = builder()._generate_gle_with_files()
-    gle_loaded, data_loaded = loaded._generate_gle_with_files()
-    assert gle_loaded == gle_reference
-    assert data_loaded == data_reference
-
-
-def test_load_project_rejects_bad_envelope(tmp_path):
-    bad = tmp_path / 'bad.glep'
-    bad.write_text('{"format": "something-else", "version": 1}', encoding='utf-8')
-    with pytest.raises(ValueError):
-        load_project(bad)
-
-
 def test_gui_workflow_empty_mutate_serialize(tmp_path):
     """Mirrors the GUI lifecycle: create empty figure, add axes + series,
-    serialize, reload, and mutate again -- all lossless."""
+    serialize (to_dict/from_dict), and mutate again -- all lossless."""
     # Construct an empty figure.
     fig = glp.figure(data_prefix='gui')
     assert fig.axes_list == []
@@ -300,15 +275,14 @@ def test_gui_workflow_empty_mutate_serialize(tmp_path):
     ax = fig.add_subplot(111)
     ax.plot([1, 2, 3], [1, 2, 3], color='blue', label='v1')
 
-    # Serialize / reload.
-    path = tmp_path / 's.glep'
-    save_project(fig, path)
-    fig2 = load_project(path)
+    # Serialize / reload via the format-independent model round-trip.
+    d = fig.to_dict()
+    fig2 = Figure.from_dict(d)
 
     # Mutate the reloaded model further.
     fig2.axes_list[0].plot([1, 2, 3], [3, 2, 1], color='red', label='v2')
     assert len(fig2.axes_list[0].lines) == 2
 
     # Re-serialization is still lossless.
-    d = fig2.to_dict()
-    assert Figure.from_dict(d).to_dict() == d
+    d2 = fig2.to_dict()
+    assert Figure.from_dict(d2).to_dict() == d2

@@ -210,13 +210,13 @@ def test_full_m2_workflow(qapp, tmp_path):
         assert window.undo_stack.redo() is True
         assert window.document.figure.to_dict() == state_after_edit
 
-        # 6) Save to a tmp .glep via file_ops (explicit path, scratch settings).
-        glep_path = tmp_path / "project.glep"
+        # 6) Save to a tmp .gle via file_ops (explicit path, scratch settings).
+        gle_path = tmp_path / "project.gle"
         assert file_ops.save_project_current(
-            window, window.document, path=glep_path, settings=settings,
+            window, window.document, path=gle_path, settings=settings,
         ) is True
         window.undo_stack.mark_saved()
-        assert glep_path.exists()
+        assert gle_path.exists()
         assert window.document.is_dirty is False
         assert window.undo_stack.is_saved_position is True
 
@@ -236,7 +236,7 @@ def test_full_m2_workflow(qapp, tmp_path):
         recorder.failed.clear()
 
         assert file_ops.open_project(
-            window, window.document, path=glep_path, settings=settings,
+            window, window.document, path=gle_path, settings=settings,
         ) is True
         # Restored series present + a render lands for the reopened figure.
         reopened_ax = window.document.figure.gca()
