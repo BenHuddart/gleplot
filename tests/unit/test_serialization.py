@@ -284,6 +284,7 @@ _AXES_SERIALIZED_ATTRS = {
     '_remove_last_xtick', '_remove_last_ytick',
     '_remove_first_xtick', '_remove_first_ytick',
     'lines', 'scatters', 'bars', 'fills', 'errorbars', 'file_series', 'texts',
+    'passthrough',
 }
 
 # Figure attributes that are intentionally NOT part of the serialized
@@ -302,6 +303,7 @@ _FIGURE_SERIALIZED_ATTRS = {
     'figsize', 'dpi', 'sharex', 'sharey', 'data_prefix',
     '_local_data_counter', '_used_data_files', '_subplot_adjust',
     'style', 'graph', 'marker_config', 'axes_list',
+    'passthrough_header', 'passthrough_trailer', 'metadata_extra',
 }
 
 

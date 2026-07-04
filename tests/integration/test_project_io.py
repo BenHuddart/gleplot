@@ -192,6 +192,21 @@ def _data_prefix_multi():
     return fig
 
 
+def _passthrough_and_metadata():
+    """Exercises all four Track B2 passthrough/metadata buckets at once:
+    Figure.passthrough_header, Figure.passthrough_trailer, Axes.passthrough,
+    and Figure.metadata_extra. Guards that to_dict/from_dict round-trips
+    every bucket and that regenerated GLE stays byte-identical."""
+    fig = glp.figure(data_prefix='fig')
+    fig.passthrough_header = ['! recovered header comment', 'set some_directive 1']
+    fig.passthrough_trailer = ['! recovered trailer comment']
+    fig.metadata_extra = {'future_key': 'future_value'}
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3, 4], [1, 4, 9, 16], color='blue', label='quad')
+    ax.passthrough = ['! recovered axes-local comment', 'amove 1 1']
+    return fig
+
+
 BUILDERS = [
     _single_line,
     _multi_series_styles,
@@ -211,6 +226,7 @@ BUILDERS = [
     _subplots_grid,
     _file_series,
     _data_prefix_multi,
+    _passthrough_and_metadata,
 ]
 
 BUILDER_IDS = [b.__name__.lstrip('_') for b in BUILDERS]

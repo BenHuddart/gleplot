@@ -54,4 +54,17 @@ __all__ = [
     "parse_gle_source",
     "emit",
     "split_statements",
+    # recognizer (Track B1) -- lazily loaded (see __getattr__) to avoid a
+    # circular import: the recognizer depends on gleplot.figure/axes, which in
+    # turn import gleplot.parser.units at package-init time.
+    "RecognizedFigure",
+    "parse_gle_figure",
 ]
+
+
+def __getattr__(name):
+    """Lazily expose the recognizer symbols without an import cycle."""
+    if name in ("RecognizedFigure", "parse_gle_figure"):
+        from . import recognizer
+        return getattr(recognizer, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

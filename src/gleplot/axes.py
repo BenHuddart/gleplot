@@ -172,6 +172,12 @@ class Axes:
         self.errorbars = []  # List of errorbar plot data
         self.file_series = []  # External-file series definitions (column references)
         self.texts = []  # In-plot text annotations
+
+        # Raw GLE lines recovered from a parsed .gle file that the recognizer
+        # could not map onto the object model. Emitted verbatim inside this
+        # axes' graph block, immediately before 'end graph'. One entry per
+        # source line, no trailing newline. Default: empty (nothing to emit).
+        self.passthrough: list = []
     
     def plot(self, x, y, linestyle: str = '-', color: Optional[str] = None,
              marker: Optional[str] = None, markersize: float = 6,
@@ -909,6 +915,7 @@ class Axes:
             'errorbars': [_to_jsonable(d) for d in self.errorbars],
             'file_series': [_to_jsonable(d) for d in self.file_series],
             'texts': [_to_jsonable(d) for d in self.texts],
+            'passthrough': list(self.passthrough),
         }
 
     @classmethod
@@ -967,5 +974,7 @@ class Axes:
                     item[key] = _to_float_array(item.get(key))
                 restored.append(item)
             setattr(ax, attr, restored)
+
+        ax.passthrough = list(d.get('passthrough', []))
 
         return ax

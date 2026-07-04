@@ -8,6 +8,7 @@ from .writer import GLEWriter
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .colors import rgb_to_gle
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
+from .parser import metadata as _gle_metadata
 
 
 #: Envelope identifiers for the gleplot project-file format.
@@ -80,7 +81,24 @@ class Figure:
         
         self.axes_list = []  # List of Axes objects
         self._current_axes = None  # Current working axes
-        
+
+        # Raw GLE lines recovered from a parsed .gle file that the recognizer
+        # could not map onto the object model, split into two buckets by
+        # where they sit relative to the graph block(s):
+        #   passthrough_header: emitted right after the standard preamble
+        #     (after 'set hei ...' + blank line), before the first graph
+        #     block/amove.
+        #   passthrough_trailer: emitted at the very end of the script, after
+        #     all graph blocks and deferred text annotations.
+        # One entry per source line, no trailing newline. Default: empty.
+        self.passthrough_header: list = []
+        self.passthrough_trailer: list = []
+
+        # Unknown keys recovered from a parsed '! gleplot:' metadata block,
+        # re-emitted verbatim in the metadata block on regeneration. Default:
+        # empty (no extra keys).
+        self.metadata_extra: dict = {}
+
         self.compiler = None
         try:
             self.compiler = GLECompiler()
@@ -409,7 +427,39 @@ class Figure:
         """Generate complete GLE script content."""
         content, _ = self._generate_gle_with_files()
         return content
-    
+
+    def _build_metadata_dict(self, data_files: dict) -> dict:
+        """Assemble the ``! gleplot:`` metadata payload for this save.
+
+        Parameters
+        ----------
+        data_files : dict
+            The ``{filename: content}`` mapping the writer produced for this
+            save -- i.e. every data sidecar the figure itself generated.
+            Series added via ``*_from_file`` reference external files and
+            never appear here, so they are correctly excluded from
+            ``import-data``.
+
+        Returns
+        -------
+        dict
+            Suitable for :func:`gleplot.parser.metadata.emit_metadata`. Always
+            includes ``dpi`` and ``import-data`` (per that function's
+            ALWAYS_EMIT contract); ``sharex``/``sharey``/``msize_scale`` are
+            included too but only rendered by ``emit_metadata`` when they
+            differ from the documented defaults. Any ``metadata_extra`` keys
+            recovered from a parsed file are passed through verbatim.
+        """
+        data = {
+            'dpi': self.dpi,
+            'sharex': self.sharex,
+            'sharey': self.sharey,
+            'msize_scale': self.marker_config.msize_scale,
+            'import-data': sorted(data_files.keys()),
+        }
+        data.update(self.metadata_extra)
+        return data
+
     def _generate_gle_with_files(self) -> tuple:
         """
         Generate complete GLE script content with data files.
@@ -433,10 +483,11 @@ class Figure:
                           marker=self.marker_config)
         
         is_single = (len(self.axes_list) <= 1)
-        
+
         if is_single:
             # Single plot — backward-compatible simple layout
-            writer.add_preamble(include_graph_begin=True)
+            writer.add_preamble(include_graph_begin=True,
+                                 passthrough_header=self.passthrough_header)
             writer.add_graph_size()
             
             if self.axes_list:
@@ -457,11 +508,17 @@ class Figure:
                         ax.ymax = data_ymax
                 
                 self._write_axes_content(writer, ax)
-            
-            writer.finalize(include_graph_end=True)
+                graph_passthrough = ax.passthrough
+            else:
+                graph_passthrough = None
+
+            writer.finalize(include_graph_end=True,
+                             graph_passthrough=graph_passthrough,
+                             passthrough_trailer=self.passthrough_trailer)
         else:
             # Multi-subplot layout
-            writer.add_preamble(include_graph_begin=False)
+            writer.add_preamble(include_graph_begin=False,
+                                 passthrough_header=self.passthrough_header)
             
             # Determine grid dimensions from axes positions
             max_rows = max(ax.position[0] for ax in self.axes_list)
@@ -564,12 +621,22 @@ class Figure:
                                       force_size=True)
                 
                 self._write_axes_content(writer, ax)
-                
-                writer.end_graph()
+
+                writer.end_graph(passthrough=ax.passthrough)
                 writer.lines_gle.append('')  # Blank line between subplots
-            
-            writer.finalize(include_graph_end=False)
-        
+
+            writer.finalize(include_graph_end=False,
+                             passthrough_trailer=self.passthrough_trailer)
+
+        # Splice the metadata block in after the two header comment lines
+        # ('! GLE graphics file' / '! Generated by gleplot') and before the
+        # 'size ...' line -- add_preamble always emits exactly those two
+        # lines first, so index 2 is the fixed, stable insertion point.
+        metadata_dict = self._build_metadata_dict(writer.data_files)
+        metadata_lines = _gle_metadata.emit_metadata(metadata_dict)
+        if metadata_lines:
+            writer.lines_gle[2:2] = metadata_lines
+
         return writer.get_gle_content(), writer.data_files
     
     def _write_axes_content(self, writer: GLEWriter, ax: Axes):
@@ -971,9 +1038,12 @@ class Figure:
 
         The ``figure`` block captures figure-level parameters (``figsize``,
         ``dpi``, ``sharex``, ``sharey``, ``data_prefix``), the data-file
-        naming state, subplot layout overrides, the per-figure style / graph /
-        marker configuration overrides (serialized via each config's own
-        ``to_dict``), and every axes with all of its series and state via
+        naming state, subplot layout overrides, unrecognized-content
+        passthrough buckets (``passthrough_header``, ``passthrough_trailer``)
+        and metadata-block passthrough (``metadata_extra``), the per-figure
+        style / graph / marker configuration overrides (serialized via each
+        config's own ``to_dict``), and every axes with all of its series and
+        state (including its own ``passthrough`` bucket) via
         :meth:`Axes.to_dict`.
 
         Only authoritative state is serialized. Axis limits are serialized as
@@ -1009,6 +1079,9 @@ class Figure:
             'global_data_counter': _axes_module._global_data_file_counter,
             'used_data_files': sorted(self._used_data_files),
             'subplot_adjust': {k: float(v) for k, v in self._subplot_adjust.items()},
+            'passthrough_header': list(self.passthrough_header),
+            'passthrough_trailer': list(self.passthrough_trailer),
+            'metadata_extra': dict(self.metadata_extra),
             'config': {
                 'style': self.style.to_dict(),
                 'graph': self.graph.to_dict(),
@@ -1111,6 +1184,9 @@ class Figure:
         fig._subplot_adjust = {
             k: float(v) for k, v in (fig_block.get('subplot_adjust') or {}).items()
         }
+        fig.passthrough_header = list(fig_block.get('passthrough_header', []))
+        fig.passthrough_trailer = list(fig_block.get('passthrough_trailer', []))
+        fig.metadata_extra = dict(fig_block.get('metadata_extra', {}))
 
         saved_counter = fig_block.get('global_data_counter', 0)
         _axes_module._global_data_file_counter = max(
