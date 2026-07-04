@@ -40,7 +40,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -116,10 +115,10 @@ class DataPanel(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        # Toolbar
-        toolbar = QToolBar(self)
-        self.action_load = toolbar.addAction("Load data file…")
-        layout.addWidget(toolbar)
+        # A plain QPushButton (not a QToolBar action): toolbar buttons render
+        # flat/borderless on Windows and don't read as clickable.
+        self.load_button = QPushButton("Load data file…", self)
+        layout.addWidget(self.load_button)
 
         # Loaded-files list
         self.file_list = QListWidget(self)
@@ -167,7 +166,7 @@ class DataPanel(QWidget):
         self._label_user_edited = False
 
     def _connect_signals(self) -> None:
-        self.action_load.triggered.connect(self._on_load_file_clicked)
+        self.load_button.clicked.connect(self._on_load_file_clicked)
         self.file_list.currentItemChanged.connect(self._on_file_selected)
         self.y_combo.currentIndexChanged.connect(self._on_y_column_changed)
         self.label_edit.textEdited.connect(self._on_label_edited)
