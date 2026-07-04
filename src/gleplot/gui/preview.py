@@ -502,7 +502,11 @@ class PreviewView(QGraphicsView):
         else:
             self._placeholder_item.setPlainText(text)
         self._scene.setSceneRect(self._placeholder_item.boundingRect())
-        self.fit_to_window()
+        # Never fitInView on the text: before the window is first shown the
+        # viewport is tiny, which would bake in a microscopic scale. Show the
+        # placeholder at its natural size instead.
+        self.resetTransform()
+        self.centerOn(self._placeholder_item)
 
     def reset_view(self) -> None:
         """Forget saved zoom/size so the next image is fit-to-window.

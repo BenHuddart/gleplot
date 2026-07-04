@@ -149,6 +149,11 @@ class MainWindow(QMainWindow):
         self._apply_default_dock_layout()
         self._update_window_title()
 
+        # Start with an editable figure so first-run users can add series
+        # immediately instead of having to discover File > New (the document
+        # starts clean; the preview shows its empty-state placeholder).
+        self.document.new_figure()
+
     # ------------------------------------------------------------------
     # Central widget / preview
     # ------------------------------------------------------------------

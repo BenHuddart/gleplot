@@ -39,7 +39,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     app.setApplicationName("gleplot")
     app.setOrganizationName("gleplot")
-    app.setApplicationDisplayName("gleplot editor")
+    # Note: no setApplicationDisplayName — Qt appends it to every window
+    # title, which duplicates MainWindow's own "gleplot editor — ..." prefix.
 
     window = MainWindow()
     window.show()
