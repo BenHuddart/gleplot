@@ -139,6 +139,12 @@ dmypy.json
 data_*.dat
 test_graphics_output/
 test_custom_prefix_output/
+
+# ... but shipped example figures ARE tracked (the GUI guide references
+# them; without these negations the example .gle/.dat silently never
+# reached the repository).
+!examples/**/*.gle
+!examples/**/data_*.dat
 examples/outputs/
 tests/output/
 docs/source/_static/gallery/
