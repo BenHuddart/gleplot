@@ -214,15 +214,14 @@ class Axes:
         else:
             color = rgb_to_gle(color)
         
-        # Handle marker
+        # Handle marker. GLE supports markers on line datasets natively, so a
+        # marker requested alongside a solid/dashed line must be preserved
+        # (not silently dropped). Only when there is *no* line is the series a
+        # true scatter.
         is_scatter = marker is not None and linestyle in ('', 'none', ' ', 'None')
-        
-        if is_scatter:
-            gle_marker = get_gle_marker(marker)
-            plot_type = 'scatter'
-        else:
-            gle_marker = None
-            plot_type = 'line'
+
+        gle_marker = get_gle_marker(marker) if marker is not None else None
+        plot_type = 'scatter' if is_scatter else 'line'
         
         # Scale markersize from matplotlib (typical 1-20, default 6) to GLE msize (0.05-0.5)
         # Formula: msize = markersize * 0.025 * scale_factor

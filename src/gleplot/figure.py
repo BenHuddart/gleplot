@@ -622,9 +622,11 @@ class Figure:
                 linestyle=line_data['linestyle'],
                 linewidth=line_data['linewidth'],
                 label=line_data['label'],
+                marker=line_data.get('marker'),
+                markersize=line_data.get('markersize', 0.1),
                 yaxis=line_data.get('yaxis', 'y'),
             )
-        
+
         # Add scatter plots
         for scatter_data in ax.scatters:
             writer.add_plot_line(
@@ -632,6 +634,7 @@ class Figure:
                 scatter_data['y'],
                 scatter_data['data_file'],
                 color=scatter_data['color'],
+                linestyle=scatter_data.get('linestyle', 'none'),
                 marker=scatter_data['marker'],
                 markersize=scatter_data['markersize'],
                 label=scatter_data['label'],

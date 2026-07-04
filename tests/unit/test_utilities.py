@@ -53,6 +53,24 @@ class TestMarkerMapping(unittest.TestCase):
         result = get_gle_marker('INVALID')
         self.assertEqual(result, 'FCIRCLE')  # Default
 
+    def test_case_significant_markers(self):
+        """Case-significant matplotlib codes must map to distinct GLE markers.
+
+        Regression: get_gle_marker() previously lowercased its input before the
+        dict lookup, so 'D' (diamond) collapsed to a missing 'd' key and fell
+        back to the default FCIRCLE, and 'P'/'H' were similarly mismapped.
+        """
+        self.assertEqual(get_gle_marker('D'), 'FDIAMOND')  # Diamond, not default
+        self.assertEqual(get_gle_marker('P'), 'PLUS')      # Filled plus
+        self.assertEqual(get_gle_marker('H'), 'HEART')     # Distinct from 'h'
+        # Lowercase counterparts remain their own mappings.
+        self.assertEqual(get_gle_marker('h'), 'DIAMOND')
+
+    def test_common_lowercase_markers(self):
+        """Common lowercase codes are unchanged by the case fix."""
+        self.assertEqual(get_gle_marker('o'), 'FCIRCLE')
+        self.assertEqual(get_gle_marker('s'), 'FSQUARE')
+
 
 if __name__ == '__main__':
     unittest.main()

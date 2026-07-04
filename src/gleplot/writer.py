@@ -333,17 +333,19 @@ class GLEWriter:
         else:
             gle_lwidth = linewidth * 0.03528  # 1 point = 1/72 inch = 0.03528 cm
         
-        if marker:
-            # Scatter plot (no line)
-            line_cmd += f' marker {marker} msize {self._format_number(markersize)} color {color}'
-        else:
+        # A "no line" state is signalled by a linestyle of none/empty. GLE
+        # supports markers on line datasets natively (``d1 line marker circle
+        # msize 0.2``), so a series may carry a line, a marker, or both.
+        has_line = linestyle not in ('none', 'None', '', ' ', None)
+
+        if has_line:
             # Line plot with optional smooth curves (configured via graph.smooth_curves)
             if self.graph.smooth_curves:
                 line_cmd += ' line smooth'
             else:
                 line_cmd += ' line'
             line_cmd += f' color {color} lwidth {self._format_number(gle_lwidth)}'
-            
+
             # Use configured line styles from style config
             if linestyle == '--':
                 line_cmd += f' lstyle {self.style.line_style_dashed}'
@@ -352,7 +354,15 @@ class GLEWriter:
             elif linestyle == '-.':
                 line_cmd += f' lstyle {self.style.line_style_dashdot}'
                 line_cmd += ' lstyle 4'
-        
+
+            if marker:
+                # Marker overlaid on the line (line+markers).
+                line_cmd += f' marker {marker} msize {self._format_number(markersize)}'
+        else:
+            # No line: marker-only (scatter). Preserve the historical token
+            # order ``marker <name> msize <size> color <color>``.
+            line_cmd += f' marker {marker} msize {self._format_number(markersize)} color {color}'
+
         # Add y2axis directive if using secondary y-axis
         if yaxis == 'y2':
             line_cmd += ' y2axis'

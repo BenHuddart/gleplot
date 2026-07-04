@@ -1,9 +1,14 @@
-"""
-gleplot.gui.panels - Property and data panels for the gleplot GUI editor.
+"""gleplot.gui.panels - Property panels for the gleplot GUI editor.
 
-This subpackage is a placeholder reserved for later development tracks
-(data manager, property panels, preview engine integration). It currently
-contains no public API.
+Exposes the figure/axes/series property panels used by the "Properties"
+dock. Each panel binds to a duck-typed ``document`` object (see
+``figure_panel.py`` for the exact contract) rather than importing
+``gleplot.gui.document`` directly, so this subpackage has no dependency on
+the parallel document/preview development track.
 """
 
-__all__: list = []
+from .axes_panel import AxesPanel
+from .figure_panel import FigurePanel
+from .series_panel import SeriesPanel
+
+__all__ = ["FigurePanel", "AxesPanel", "SeriesPanel"]

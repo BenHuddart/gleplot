@@ -74,9 +74,17 @@ def get_gle_marker(matplotlib_marker: str, default: str = 'FCIRCLE') -> str:
     """
     if not matplotlib_marker or matplotlib_marker == 'None':
         return None
-    
-    marker_lower = str(matplotlib_marker).lower().strip()
-    return MATPLOTLIB_TO_GLE_MARKERS.get(marker_lower, default)
+
+    marker = str(matplotlib_marker).strip()
+
+    # Matplotlib marker codes are case-significant: 'D' (diamond) vs 'd'
+    # (thin diamond), 'P' (filled plus) vs 'p' (pentagon), 'H' (hexagon2) vs
+    # 'h' (hexagon1), 'X' vs 'x'. Try the exact code first so these map
+    # correctly, then fall back to a case-insensitive lookup for robustness
+    # against stray capitalization of unambiguous codes.
+    if marker in MATPLOTLIB_TO_GLE_MARKERS:
+        return MATPLOTLIB_TO_GLE_MARKERS[marker]
+    return MATPLOTLIB_TO_GLE_MARKERS.get(marker.lower(), default)
 
 
 def is_valid_gle_marker(marker: str) -> bool:

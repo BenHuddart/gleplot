@@ -74,6 +74,38 @@ class TestBasicPlotting(unittest.TestCase):
         self.ax.plot([1, 2, 3], [3, 2, 1], data_name='Observed Signal')
         self.assertEqual(self.ax.lines[0]['data_file'], 'observed_signal.dat')
 
+    def test_line_with_marker_stays_a_line(self):
+        """plot() with a marker AND a solid line keeps it a line series.
+
+        Regression: previously a marker requested alongside the default solid
+        linestyle was silently dropped (the line branch forced marker=None).
+        """
+        self.ax.plot([1, 2, 3], [1, 2, 3], marker='o')
+
+        self.assertEqual(len(self.ax.lines), 1)
+        self.assertEqual(len(self.ax.scatters), 0)
+        self.assertEqual(self.ax.lines[0]['marker'], 'FCIRCLE')
+
+    def test_line_without_marker_stores_none(self):
+        """A plain line still stores marker=None (schema unchanged)."""
+        self.ax.plot([1, 2, 3], [1, 2, 3])
+        self.assertIn('marker', self.ax.lines[0])
+        self.assertIsNone(self.ax.lines[0]['marker'])
+
+    def test_line_with_marker_emits_line_and_marker_gle(self):
+        """Generated GLE for a line+marker series contains both tokens."""
+        self.ax.plot([1, 2, 3], [1, 2, 3], marker='o', label='pts')
+        gle = self.fig._generate_gle()
+        # The dataset draw command must carry a line AND a marker directive.
+        draw_lines = [
+            ln for ln in gle.splitlines()
+            if ' line' in ln and 'marker' in ln
+        ]
+        self.assertTrue(
+            draw_lines,
+            f"Expected a draw command with both 'line' and 'marker'.\n{gle}",
+        )
+
 
 class TestScatterPlots(unittest.TestCase):
     """Test scatter plot functionality."""
