@@ -166,3 +166,147 @@ def test_open_project_resets_preview_view(qapp, tmp_path):
     finally:
         window.preview_controller.shutdown()
         window.deleteLater()
+
+
+# ----------------------------------------------------------------------
+# Finding 1: entering GLE-preview mode hard-disables the annotation overlay so
+# a stray drag/click cannot mutate the hidden document figure.
+# ----------------------------------------------------------------------
+def _enter_preview_stubbed(window, monkeypatch, path):
+    """Enter GLE-preview mode without a real GLE compile."""
+    from gleplot.gui import gle_viewer
+    from gleplot.gui.gle_viewer import GlePreviewResult
+
+    monkeypatch.setattr(
+        gle_viewer,
+        "compile_gle_preview",
+        lambda p, **kw: GlePreviewResult(
+            png_path=None, errors=[], raw_output="", success=False, work_dir=None
+        ),
+    )
+    window._enter_gle_preview_mode(Path(path))
+
+
+def test_enter_gle_preview_disables_overlay(qapp, monkeypatch):
+    window = MainWindow()
+    try:
+        overlay = window.annotation_overlay
+        # Pretend a prior document render left the overlay live.
+        overlay._enabled = True
+        overlay._add_mode = True
+
+        _enter_preview_stubbed(window, monkeypatch, "hand.gle")
+
+        assert window.is_gle_preview_mode is True
+        # Overlay hard-disabled: no items, add-mode cancelled, disabled flag set.
+        assert overlay._disabled is True
+        assert overlay.enabled is False
+        assert overlay.add_mode is False
+        assert overlay.items == []
+    finally:
+        window._gle_preview_path = None
+        window.preview_controller.shutdown()
+        window.deleteLater()
+
+
+def test_overlay_commit_paths_noop_while_disabled(qapp, monkeypatch):
+    """Belt-and-braces: disabled commit paths mutate nothing and never notify."""
+    window = MainWindow()
+    try:
+        # Build a document with one annotation and a live overlay item.
+        fig = window.document.new_figure()
+        ax = fig.gca()
+        ax.plot([0, 1], [0, 1], label="s")
+        ax.text(0.5, 0.5, "keepme")
+
+        from gleplot.gui.annotations import AnnotationItem
+        from gleplot.gui.geometry import AxesCalibration
+
+        cal = AxesCalibration(0, (0, 1), (0, 1), False, False, (1.0, 1.0, 4.0, 4.0))
+        overlay = window.annotation_overlay
+        item = AnnotationItem(overlay, ax.texts[0], cal)
+        overlay._items = [item]
+
+        _enter_preview_stubbed(window, monkeypatch, "hand.gle")
+        assert overlay._disabled is True
+
+        notified = {"n": 0}
+        window.document.figure_changed.connect(
+            lambda: notified.__setitem__("n", notified["n"] + 1)
+        )
+        # All commit paths must be inert while disabled.
+        overlay.commit_item_move(item)
+        overlay.commit_item_text(item, "changed")
+        overlay.delete_item(item)
+        assert notified["n"] == 0
+        # The annotation dict is untouched.
+        assert ax.texts[0]["text"] == "keepme"
+        assert ax.texts[0]["x"] == pytest.approx(0.5)
+    finally:
+        window._gle_preview_path = None
+        window.preview_controller.shutdown()
+        window.deleteLater()
+
+
+def test_leave_gle_preview_reenables_overlay(qapp, monkeypatch):
+    window = MainWindow()
+    try:
+        _enter_preview_stubbed(window, monkeypatch, "hand.gle")
+        assert window.annotation_overlay._disabled is True
+
+        window._leave_gle_preview_mode()
+        assert window.is_gle_preview_mode is False
+        # Disabled state lifted; overlay is free to rebuild on the next render.
+        assert window.annotation_overlay._disabled is False
+    finally:
+        window.preview_controller.shutdown()
+        window.deleteLater()
+
+
+# ----------------------------------------------------------------------
+# Finding 2: while in GLE-preview mode, can_undo/redo transitions must NOT
+# re-enable the Undo/Redo actions; _update_gle_mode_actions is authoritative.
+# ----------------------------------------------------------------------
+def test_undo_action_stays_disabled_in_preview_mode(qapp, monkeypatch):
+    window = MainWindow()
+    try:
+        _enter_preview_stubbed(window, monkeypatch, "hand.gle")
+        # _update_gle_mode_actions ran on enter: both actions disabled.
+        assert window.action_undo.isEnabled() is False
+        assert window.action_redo.isEnabled() is False
+
+        # A can_undo_changed(True) landing while in preview mode (the underlying
+        # document stack keeps ticking) must NOT re-enable the action.
+        window.undo_stack.can_undo_changed.emit(True)
+        window.undo_stack.can_redo_changed.emit(True)
+        assert window.action_undo.isEnabled() is False
+        assert window.action_redo.isEnabled() is False
+    finally:
+        window._gle_preview_path = None
+        window.preview_controller.shutdown()
+        window.deleteLater()
+
+
+def test_undo_action_restored_on_leaving_preview_mode(qapp, monkeypatch):
+    window = MainWindow()
+    try:
+        # Create a real undo step so the stack reports can_undo True.
+        fig = window.document.new_figure()
+        fig.gca().plot([0, 1], [0, 1], label="s")
+        window.document.notify_changed()
+        assert window.undo_stack.can_undo is True
+        assert window.action_undo.isEnabled() is True
+
+        _enter_preview_stubbed(window, monkeypatch, "hand.gle")
+        assert window.action_undo.isEnabled() is False
+
+        window._leave_gle_preview_mode()
+        # Back in document mode, the action reflects the live stack again.
+        assert window.action_undo.isEnabled() is True
+
+        # And a subsequent transition once again drives the action.
+        window.undo_stack.can_undo_changed.emit(False)
+        assert window.action_undo.isEnabled() is False
+    finally:
+        window.preview_controller.shutdown()
+        window.deleteLater()

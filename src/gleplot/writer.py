@@ -63,6 +63,21 @@ class GLEWriter:
         self.data_files = {}  # {filename: data_content}
         self.dataset_index = 1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         self._pending_graph_text_lines: List[str] = []
+        # Sticky GLE interpreter state as far as add_text is concerned: 'set
+        # hei'/'set color'/'set just' persist across `write` statements until
+        # changed again (real GLE semantics -- see recognizer._try_one_text,
+        # the read-side counterpart). Tracking the currently-active emitted
+        # value here lets add_text skip a redundant 'set ...' line when a
+        # later text asks for the same value already in effect, instead of
+        # restating it. Seeded with the preamble's 'set hei' (already emitted
+        # unconditionally by add_preamble) so the first add_text call also
+        # skips a redundant 'set hei' when its fontsize matches the style
+        # default.
+        self._text_state_hei_cm: Optional[str] = self._format_number(
+            fontsize_pt_to_cm(self.style.fontsize)
+        )
+        self._text_state_color: str = 'BLACK'
+        self._text_state_just: str = 'left'
     
     def add_preamble(self, include_graph_begin: bool = True,
                       metadata_lines: Optional[List[str]] = None,
@@ -298,7 +313,7 @@ class GLEWriter:
                       column_names: Optional[List[str]] = None):
         """
         Add external data file.
-        
+
         Parameters
         ----------
         filename : str
@@ -306,22 +321,39 @@ class GLEWriter:
         columns : list of arrays
             Column data
         column_names : list of str, optional
-            Column names/headers
+            Column names/headers, one per entry in ``columns`` (same order).
+            When given, emitted as a single space-separated header line
+            before the data rows. Column INDICES used by ``dN=cX,cY``
+            references are unaffected by this header -- GLE auto-detects and
+            skips a non-numeric first row (see ``auto_has_header`` in the
+            GLE source), so ``c1`` etc. still address the first DATA column.
+
+        Raises
+        ------
+        ValueError
+            If ``column_names`` is given and its length does not match
+            ``len(columns)``.
         """
+        if column_names and len(column_names) != len(columns):
+            raise ValueError(
+                f"column_names has {len(column_names)} entries but there are "
+                f"{len(columns)} columns for {filename!r}"
+            )
+
         lines = []
-        
+
         # Write header if provided
         if column_names:
             lines.append(' '.join(column_names))
-        
+
         # Convert columns to 2D array
         data = np.column_stack(columns)
-        
+
         # Write data rows
         for row in data:
             line = ' '.join(self._format_number(val) for val in row)
             lines.append(line)
-        
+
         # Add trailing newline for GLE compatibility
         self.data_files[filename] = '\n'.join(lines) + '\n'
     
@@ -329,10 +361,11 @@ class GLEWriter:
                       color: str = 'BLUE', linestyle: str = '-',
                       linewidth: float = 1.0, label: Optional[str] = None,
                       marker: Optional[str] = None, markersize: float = 0.1,
-                      yaxis: str = 'y'):
+                      yaxis: str = 'y',
+                      column_names: Optional[List[str]] = None):
         """
         Add line plot to graph.
-        
+
         Parameters
         ----------
         x, y : arrays
@@ -353,6 +386,11 @@ class GLEWriter:
             Marker size for GLE (msize)
         yaxis : str
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        column_names : list of str, optional
+            Sidecar header row (e.g. ``['x', 'signal']``). When given, an
+            explicit ``key`` clause is always emitted (the real label, or
+            ``key ""`` when unlabeled) to neutralize GLE's auto-key-from-
+            header behavior -- see :meth:`_key_clause`.
         """
         # Sort data by x values (required for GLE smooth lines)
         # Reference: GLE manual - smooth requires sorted x values
@@ -361,9 +399,9 @@ class GLEWriter:
         sorted_indices = np.argsort(x_array)
         x_sorted = x_array[sorted_indices]
         y_sorted = y_array[sorted_indices]
-        
+
         # Add data file with sorted data
-        self.add_data_file(data_file, [x_sorted, y_sorted])
+        self.add_data_file(data_file, [x_sorted, y_sorted], column_names)
         
         # Generate plot command with unique dataset name
         d_name = f'd{self.dataset_index}'
@@ -415,20 +453,20 @@ class GLEWriter:
         # Add y2axis directive if using secondary y-axis
         if yaxis == 'y2':
             line_cmd += ' y2axis'
-        
-        if label:
-            line_cmd += f' key "{label}"'
-        
+
+        line_cmd += self._key_clause(label, bool(column_names))
+
         self.lines_gle.append(line_cmd)
-    
+
     def add_bar_chart(self, x: np.ndarray, heights: np.ndarray, data_file: str,
-                      colors: Optional[List[str]] = None, label: Optional[str] = None):
+                      colors: Optional[List[str]] = None, label: Optional[str] = None,
+                      column_names: Optional[List[str]] = None):
         """
         Add bar chart to graph.
-        
+
         Uses a single fill color for all bars due to GLE bar rendering
         limitations in downstream format conversion.
-        
+
         Parameters
         ----------
         x : array
@@ -442,19 +480,29 @@ class GLEWriter:
             the first color is used for all bars.
         label : str, optional
             Legend label (not currently supported by GLE for bar charts)
+        column_names : list of str, optional
+            Sidecar header row (e.g. ``['x', 'height']``). Unlike the
+            ``dN ... key "..."`` dataset-display commands, GLE's ``bar``
+            command has its own restricted sub-grammar with NO ``key``
+            option at all (``bar dN fill COLOR key ""`` is a parse error).
+            So when a header row is present, an explicit standalone
+            ``dN key ""`` statement is emitted right after the ``bar``
+            command to neutralize GLE's auto-key-from-header behavior
+            (verified empirically: this statement alone draws nothing, and
+            makes rendering byte-identical to the headerless case).
         """
         x = np.asarray(x, dtype=float)
         heights = np.asarray(heights, dtype=float)
-        
+
         # Default to RED if no colors provided
         if colors is None:
             colors = ['RED'] * len(x)
-        
+
         # GLE reliably supports one fill color per bar dataset.
         bar_color = colors[0]
 
         # Create single data file with all bars
-        self.add_data_file(data_file, [x, heights])
+        self.add_data_file(data_file, [x, heights], column_names)
 
         d_name = f'd{self.dataset_index}'
         self.dataset_index += 1
@@ -463,6 +511,9 @@ class GLEWriter:
 
         bar_cmd = f'    bar {d_name} fill {bar_color}'
         self.lines_gle.append(bar_cmd)
+
+        if column_names and not label:
+            self.lines_gle.append(f'    {d_name} key ""')
     
     def add_errorbar(self, x: np.ndarray, y: np.ndarray, data_file: str,
                      color: str = 'BLUE', linestyle: str = '-',
@@ -473,7 +524,8 @@ class GLEWriter:
                      xerr_left: Optional[np.ndarray] = None,
                      xerr_right: Optional[np.ndarray] = None,
                      capsize: Optional[float] = None,
-                     yaxis: str = 'y'):
+                     yaxis: str = 'y',
+                     column_names: Optional[List[str]] = None):
         """
         Add plot with error bars to graph.
         
@@ -519,6 +571,14 @@ class GLEWriter:
             Width of error bar caps in cm
         yaxis : str
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        column_names : list of str, optional
+            Sidecar header row (e.g. ``['x', 'signal', 'err']``). Only the
+            MAIN dataset's ``key`` clause needs suppressing when unlabeled
+            (see :meth:`_key_clause`) -- error sub-datasets (``d{n}=c1,cN``
+            referenced via ``err``/``errup``/``herr``/...) are never added
+            to GLE's key-rendering "used dataset" order on their own, so
+            they never draw an auto-key regardless of any header-derived
+            name on their column (verified empirically).
         """
         # Sort data by x values
         x_array = np.asarray(x)
@@ -581,8 +641,8 @@ class GLEWriter:
                     col_idx += 1
         
         # Write data file with all columns
-        self.add_data_file(data_file, columns)
-        
+        self.add_data_file(data_file, columns, column_names)
+
         # Generate dataset name for main data
         d_main = f'd{self.dataset_index}'
         self.dataset_index += 1
@@ -693,10 +753,9 @@ class GLEWriter:
         # Add y2axis directive if using secondary y-axis
         if yaxis == 'y2':
             line_cmd += ' y2axis'
-        
-        if label:
-            line_cmd += f' key "{label}"'
-        
+
+        line_cmd += self._key_clause(label, bool(column_names))
+
         self.lines_gle.append(line_cmd)
 
     def add_errorbar_from_file(
@@ -782,10 +841,11 @@ class GLEWriter:
         self.lines_gle.append(line_cmd)
     
     def add_fill_between(self, x: np.ndarray, y1: np.ndarray, y2: np.ndarray,
-                         data_file: str, color: str = 'LIGHTBLUE', alpha: float = 1.0):
+                         data_file: str, color: str = 'LIGHTBLUE', alpha: float = 1.0,
+                         column_names: Optional[List[str]] = None):
         """
         Add fill between two curves.
-        
+
         Parameters
         ----------
         x, y1, y2 : arrays
@@ -796,19 +856,33 @@ class GLEWriter:
             GLE fill color
         alpha : float
             Transparency (not directly supported in GLE, but stored)
+        column_names : list of str, optional
+            Sidecar header row (e.g. ``['x', 'upper', 'lower']``). GLE's
+            ``fill dA,dB color X`` command (like ``bar``) has no ``key``
+            option of its own, but the two datasets it references still go
+            through the generic dataset-key mechanism (they're registered
+            via the same "used dataset" bookkeeping as any ``dN`` display
+            command), so a header row would still risk an auto-key on
+            either one. Neutralize both with standalone ``dN key ""``
+            statements when a header row is present (verified empirically
+            byte-identical to the headerless case).
         """
-        self.add_data_file(data_file, [x, y1, y2])
-        
+        self.add_data_file(data_file, [x, y1, y2], column_names)
+
         # Create two unique dataset names for the fill between operation
         d1_name = f'd{self.dataset_index}'
         d2_name = f'd{self.dataset_index + 1}'
         self.dataset_index += 2
-        
+
         cmd = f'    data {_format_data_filename(data_file)} {d1_name}=c1,c2 {d2_name}=c1,c3'
         self.lines_gle.append(cmd)
-        
+
         # GLE fill between two datasets: fill d1,d2 color X
         self.lines_gle.append(f'    fill {d1_name},{d2_name} color {color}')
+
+        if column_names:
+            self.lines_gle.append(f'    {d1_name} key ""')
+            self.lines_gle.append(f'    {d2_name} key ""')
 
     def add_text(
         self,
@@ -824,12 +898,14 @@ class GLEWriter:
         escaped_text = self._escape_gle_string(text)
 
         if fontsize is not None:
-            self._pending_graph_text_lines.append(
-                f'set hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}'
-            )
+            hei_cm = self._format_number(fontsize_pt_to_cm(float(fontsize)))
+            if hei_cm != self._text_state_hei_cm:
+                self._pending_graph_text_lines.append(f'set hei {hei_cm}')
+                self._text_state_hei_cm = hei_cm
 
-        if color:
+        if color and color != self._text_state_color:
             self._pending_graph_text_lines.append(f'set color {color}')
+            self._text_state_color = color
 
         just_map = {
             'left': 'left',
@@ -837,7 +913,9 @@ class GLEWriter:
             'right': 'right',
         }
         just = just_map.get(str(halign).lower(), 'left')
-        self._pending_graph_text_lines.append(f'set just {just}')
+        if just != self._text_state_just:
+            self._pending_graph_text_lines.append(f'set just {just}')
+            self._text_state_just = just
 
         # Boxed text in graph-data coordinates can produce invalid bounds in
         # some GLE versions; keep label export robust by emitting plain text.
@@ -956,3 +1034,36 @@ class GLEWriter:
     def _escape_gle_string(value: str) -> str:
         """Escape string for inclusion in GLE quoted text."""
         return str(value).replace('"', '\\"')
+
+    @staticmethod
+    def _key_clause(label: Optional[str], has_header: bool) -> str:
+        """Build the trailing ``key "..."`` token for a dataset display line.
+
+        GLE auto-detects a non-numeric first row of a data file as a column
+        header (``auto_has_header`` in the GLE source) and, when it finds
+        one, copies the header cell for a dataset's own column straight into
+        that dataset's legend text -- even if the script never writes a
+        ``key`` clause at all. An explicit ``key "..."`` (including the empty
+        string ``key ""``) on the ``dN ...`` display line always overrides
+        that auto-derived text, because GLE parses the ``data`` command
+        first (setting the auto key) and the dataset's own attribute line
+        second (whatever it sets wins). Verified empirically: rendering a
+        labeled dataset is byte-identical with/without a header row, and an
+        unlabeled dataset with an explicit ``key ""`` also renders
+        byte-identical with/without a header row (both match the historical
+        headerless-and-unlabeled rendering); only an unlabeled dataset with
+        NO explicit key clause changes rendering when a header row is
+        present (GLE silently invents a legend entry from the header text).
+
+        So: whenever a header row is emitted for this series' data file,
+        this ALWAYS returns a non-empty clause -- real label if given, else
+        ``key ""`` to neutralize the auto-key -- to guarantee unchanged
+        rendering regardless of header presence. When there is no header
+        row, the historical behavior is preserved exactly: omit the clause
+        entirely for an unlabeled series (empty string).
+        """
+        if label:
+            return f' key "{label}"'
+        if has_header:
+            return ' key ""'
+        return ''

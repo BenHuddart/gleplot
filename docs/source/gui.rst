@@ -30,23 +30,34 @@ the main editor window and runs the Qt event loop.
 What it provides
 -----------------
 
-- A central **live preview** that recompiles the figure to PNG via GLE as you
-  edit, debounced so rapid edits don't trigger a compile per keystroke.
+- A central **live preview** that recompiles the figure via GLE as you edit,
+  debounced so rapid edits don't trigger a compile per keystroke. It renders
+  as a vector **SVG** by default, with an automatic, sticky fallback to PNG
+  for the rest of the session if SVG output isn't usable (a **View ▸ Vector
+  preview (SVG)** toggle switches between the two manually).
+- **On-canvas text annotations**: add, drag, double-click-edit, and delete
+  free-form text labels directly on the preview, in sync both ways with a
+  dedicated **Texts** tab in the Properties dock.
 - A **Data** dock for loading delimited data files (CSV/``.dat``/``.txt``)
   and creating series by mapping columns, either importing the data or
-  referencing the file in place.
-- A **Properties** dock with **Layout**, **Figure**, **Axes**, and **Series**
-  tabs for point-and-click styling and subplot arrangement.
+  referencing the file in place. Generated ``.dat`` sidecars carry a named
+  header row (derived from each series' label) instead of anonymous column
+  numbers.
+- A **Properties** dock with **Layout**, **Figure**, **Axes**, **Series**,
+  and **Texts** tabs for point-and-click styling, subplot arrangement, and
+  annotation editing.
 - An **Output** dock listing structured compile errors with line/column
   information when GLE reports it, plus any recovery warnings raised when a
   ``.gle`` file is opened.
 - **Native ``.gle`` files** via File |menu| Save / Open: Save writes a plain
-  GLE script (``Figure.savefig_gle``, with imported data as ``.dat``
+  GLE script (``Figure.savefig_gle``, with imported data as named ``.dat``
   sidecars) and Open parses it back into the editor
   (``gleplot.parser.recognizer.parse_gle_figure``), tolerantly preserving any
   unrecognized content as raw GLE (a read-only **Raw GLE** tab).
 - An **export dialog** producing PDF, PNG, EPS, SVG, JPG, or a raw ``.gle``
-  script, optionally bundled into a folder with its data files.
+  script, optionally bundled into a folder with its data files. Exports
+  always compile the figure exactly as saved, independent of anything the
+  live preview substitutes for on-screen rendering.
 - **Undo/redo** and a read-only preview mode for ``.gle`` files that use GLE
   programming constructs.
 

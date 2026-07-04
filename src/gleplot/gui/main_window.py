@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 import gleplot
 from gleplot.compiler import GLEError
 from gleplot.gui import file_ops, gle_viewer
+from gleplot.gui.annotations import AnnotationOverlay
 from gleplot.gui.data.panel import DataPanel
 from gleplot.gui.document import FigureDocument
 from gleplot.gui.error_panel import ErrorPanel
@@ -62,6 +63,7 @@ from gleplot.gui.panels import (
     LayoutPanel,
     RawGlePanel,
     SeriesPanel,
+    TextsPanel,
 )
 from gleplot.gui.preview import PreviewController, PreviewView
 from gleplot.gui.undo import UndoStack
@@ -116,7 +118,7 @@ class MainWindow(QMainWindow):
         Debounced async GLE render engine driving ``preview_view``.
     data_panel : DataPanel
         Data-loading / series-creation panel (Data dock).
-    figure_panel, axes_panel, series_panel : QWidget
+    figure_panel, axes_panel, series_panel, texts_panel : QWidget
         Property panels hosted in the Properties dock's tab widget.
     error_panel : ErrorPanel
         Compile-error list (Output dock).
@@ -178,6 +180,14 @@ class MainWindow(QMainWindow):
 
         self.preview_controller = PreviewController(self.document, parent=self)
 
+        # Interactive annotation overlay (Track F1): draggable/editable text
+        # annotations on the live preview. Coupling is explicit -- the overlay
+        # exposes public slots the window connects to the controller's geometry
+        # and render signals (see _connect_preview_signals).
+        self.annotation_overlay = AnnotationOverlay(
+            self.document, self.preview_view, parent=self
+        )
+
     # ------------------------------------------------------------------
     # Dock widgets
     # ------------------------------------------------------------------
@@ -199,11 +209,13 @@ class MainWindow(QMainWindow):
         self.figure_panel = FigurePanel(self.document)
         self.axes_panel = AxesPanel(self.document)
         self.series_panel = SeriesPanel(self.document)
+        self.texts_panel = TextsPanel(self.document)
         self.raw_gle_panel = RawGlePanel(self.document)
         self.properties_tabs.addTab(self.layout_panel, "Layout")
         self.properties_tabs.addTab(self.figure_panel, "Figure")
         self.properties_tabs.addTab(self.axes_panel, "Axes")
         self.properties_tabs.addTab(self.series_panel, "Series")
+        self.properties_tabs.addTab(self.texts_panel, "Texts")
         self.properties_tabs.addTab(self.raw_gle_panel, "Raw GLE")
         self.properties_dock.setWidget(self.properties_tabs)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.properties_dock)
@@ -262,6 +274,14 @@ class MainWindow(QMainWindow):
         self.action_redo.setEnabled(False)
         self.action_redo.triggered.connect(self._on_redo)
 
+        # Add text annotation: arms the overlay so the next preview click
+        # places a new text. Enabled only while the overlay is active (valid
+        # calibration geometry + a rendered image, i.e. document mode).
+        self.action_add_text = QAction("Add &text annotation", self)
+        self.action_add_text.setShortcut(QKeySequence("T"))
+        self.action_add_text.setEnabled(False)
+        self.action_add_text.triggered.connect(self._on_add_text_annotation)
+
         # View menu (preview zoom + dock toggles)
         self.action_fit_window = QAction("&Fit to window", self)
         self.action_fit_window.setShortcut(QKeySequence("Ctrl+0"))
@@ -270,6 +290,18 @@ class MainWindow(QMainWindow):
         self.action_actual_size = QAction("&Actual size", self)
         self.action_actual_size.setShortcut(QKeySequence("Ctrl+1"))
         self.action_actual_size.triggered.connect(self.preview_view.zoom_actual_size)
+
+        self.action_vector_preview = QAction("&Vector preview (SVG)", self)
+        self.action_vector_preview.setCheckable(True)
+        self.action_vector_preview.setChecked(
+            self.preview_controller.render_format == "svg"
+        )
+        self.action_vector_preview.setEnabled(self.preview_controller.svg_available)
+        if not self.preview_controller.svg_available:
+            self.action_vector_preview.setToolTip(
+                "SVG preview is unavailable in this session; showing PNG."
+            )
+        self.action_vector_preview.toggled.connect(self._on_toggle_vector_preview)
 
         self.action_toggle_data = self.data_dock.toggleViewAction()
         self.action_toggle_properties = self.properties_dock.toggleViewAction()
@@ -301,10 +333,14 @@ class MainWindow(QMainWindow):
         edit_menu = menu_bar.addMenu("&Edit")
         edit_menu.addAction(self.action_undo)
         edit_menu.addAction(self.action_redo)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self.action_add_text)
 
         view_menu = menu_bar.addMenu("&View")
         view_menu.addAction(self.action_fit_window)
         view_menu.addAction(self.action_actual_size)
+        view_menu.addSeparator()
+        view_menu.addAction(self.action_vector_preview)
         view_menu.addSeparator()
         view_menu.addAction(self.action_toggle_data)
         view_menu.addAction(self.action_toggle_properties)
@@ -337,9 +373,10 @@ class MainWindow(QMainWindow):
         # entering/leaving GLE-preview mode. Undo/redo then preserves zoom via
         # PreviewView's same-size fast path.
         self.data_panel.series_added.connect(self._on_series_added)
-        # Layout tab drives which axes the Axes/Series property panels edit.
+        # Layout tab drives which axes the Axes/Series/Texts property panels edit.
         self.layout_panel.axes_selected.connect(self.axes_panel.set_axes)
         self.layout_panel.axes_selected.connect(self.series_panel.set_axes)
+        self.layout_panel.axes_selected.connect(self.texts_panel.set_axes)
         # A broken series repointed at a real data file: confirm via status bar.
         self.series_panel.series_repointed.connect(self._on_series_repointed)
 
@@ -349,14 +386,69 @@ class MainWindow(QMainWindow):
         pc.render_succeeded.connect(self._on_render_succeeded)
         pc.render_failed.connect(self._on_render_failed)
         pc.render_skipped_empty.connect(self._on_render_skipped_empty)
+        pc.geometry_ready.connect(self.preview_view.set_geometry)
+        pc.fallback_activated.connect(self._on_svg_fallback_activated)
+
+        # Annotation overlay: geometry_ready installs calibration BEFORE the
+        # image lands (controller contract), then render_succeeded rebuilds the
+        # overlay items on the fresh render. Both connections are kept explicit.
+        pc.geometry_ready.connect(self.annotation_overlay.set_geometry)
+        pc.render_succeeded.connect(self.annotation_overlay.on_render_succeeded)
+        # figure_replaced (New/Open/undo/redo) can land mid-drag/mid-edit: the
+        # new figure orphans every text_dict, so the overlay aborts any active
+        # interaction and clears items, pending the follow-up render's rebuild
+        # (Finding 3 -- no phantom mid-drag item survives an undo).
+        self.document.figure_replaced.connect(
+            self.annotation_overlay.on_figure_replaced
+        )
+        self.annotation_overlay.overlay_enabled_changed.connect(
+            self._on_overlay_enabled_changed
+        )
+        self.annotation_overlay.add_text_placed.connect(
+            lambda: self.statusBar().showMessage("Text annotation added", _STATUS_MS)
+        )
+
+        # Texts panel <-> annotation overlay selection sync (F1/F2 contract).
+        # Both directions use each side's no-emit programmatic path
+        # (texts_panel.select_text / annotation_overlay.select_annotation), so
+        # this can never loop: a panel-driven overlay selection does not
+        # re-emit selection_changed, and an overlay-driven panel selection
+        # does not re-emit text_selected.
+        self.texts_panel.text_selected.connect(self._on_texts_panel_selected)
+        self.annotation_overlay.selection_changed.connect(
+            self._on_overlay_selection_changed
+        )
 
     def _connect_undo_signals(self) -> None:
         us = self.undo_stack
-        us.can_undo_changed.connect(self.action_undo.setEnabled)
-        us.can_redo_changed.connect(self.action_redo.setEnabled)
+        # Route through mode-aware slots rather than wiring
+        # can_undo_changed/can_redo_changed straight to action.setEnabled:
+        # while in GLE-preview mode the Undo/Redo actions must stay disabled
+        # regardless of the (still-live) document undo stack's transitions
+        # (Finding 2). _update_gle_mode_actions remains the single authority for
+        # the enabled state; these slots simply defer to it in preview mode.
+        us.can_undo_changed.connect(self._on_can_undo_changed)
+        us.can_redo_changed.connect(self._on_can_redo_changed)
         # Seed initial enabled state (signals only fire on transitions).
         self.action_undo.setEnabled(us.can_undo)
         self.action_redo.setEnabled(us.can_redo)
+
+    def _on_can_undo_changed(self, can_undo: bool) -> None:
+        """Undo-availability changed on the document stack (Finding 2).
+
+        Honoured only in document mode; in GLE-preview mode the action stays
+        disabled (the stack keeps ticking underneath, but Undo is meaningless
+        for a read-only ``.gle`` preview).
+        """
+        if self.is_gle_preview_mode:
+            return
+        self.action_undo.setEnabled(can_undo)
+
+    def _on_can_redo_changed(self, can_redo: bool) -> None:
+        """Redo-availability changed on the document stack (Finding 2)."""
+        if self.is_gle_preview_mode:
+            return
+        self.action_redo.setEnabled(can_redo)
 
     # ------------------------------------------------------------------
     # Preview slots
@@ -383,6 +475,129 @@ class MainWindow(QMainWindow):
             return
         self.error_panel.clear()
         self.preview_view.show_placeholder(_EMPTY_PREVIEW_TEXT)
+
+    def _on_toggle_vector_preview(self, checked: bool) -> None:
+        """View ▸ Vector preview (SVG): switch ``render_format`` on toggle."""
+        self.preview_controller.render_format = "svg" if checked else "png"
+
+    def _on_svg_fallback_activated(self, reason: str) -> None:
+        """SVG rendering failed permanently this session; reflect it in the UI.
+
+        Unchecks and disables the toggle (with a tooltip explaining why) and
+        shows a status-bar message. The controller has already scheduled an
+        automatic PNG re-render, so no further action is needed here.
+        """
+        self.action_vector_preview.blockSignals(True)
+        self.action_vector_preview.setChecked(False)
+        self.action_vector_preview.blockSignals(False)
+        self.action_vector_preview.setEnabled(False)
+        self.action_vector_preview.setToolTip(
+            f"SVG preview disabled for this session: {reason}"
+        )
+        self.statusBar().showMessage(
+            "Vector preview unavailable; showing PNG instead.", _STATUS_MS
+        )
+
+    # ------------------------------------------------------------------
+    # Annotation overlay slots
+    # ------------------------------------------------------------------
+    def _on_overlay_enabled_changed(self, enabled: bool) -> None:
+        """Enable/disable the Add-text action with the overlay's availability.
+
+        The overlay is enabled only when a valid calibration geometry and view
+        mapping exist -- i.e. document mode with a successful render. It is
+        automatically disabled in GLE-preview mode (no document renders occur
+        there, so ``geometry_ready`` never fires with a geometry).
+        """
+        self.action_add_text.setEnabled(enabled)
+        if not enabled and self.annotation_overlay.add_mode:
+            self._cancel_add_text_mode()
+
+    def _on_add_text_annotation(self) -> None:
+        """Edit ▸ Add text annotation: arm the next-click placement."""
+        if not self.annotation_overlay.enabled:
+            return
+        self.annotation_overlay.begin_add_text()
+        self.statusBar().showMessage(
+            "Click on the plot to place text — Esc to cancel", 0
+        )
+
+    def _cancel_add_text_mode(self) -> None:
+        """Cancel add-text mode and clear its status hint."""
+        if self.annotation_overlay.add_mode:
+            self.annotation_overlay.cancel_add_text()
+            self.statusBar().clearMessage()
+
+    # ------------------------------------------------------------------
+    # Texts panel <-> annotation overlay selection sync
+    # ------------------------------------------------------------------
+    def _on_texts_panel_selected(self, index: int) -> None:
+        """User selected a row in the Texts panel: highlight it on canvas.
+
+        Resolves ``index`` to the dict on the panel's *current target* axes
+        (``texts_panel.current_axes()``) and forwards it to the overlay via
+        the no-emit :meth:`AnnotationOverlay.select_annotation` path -- this
+        is a panel-driven selection, so it must not bounce back through
+        :data:`AnnotationOverlay.selection_changed`.
+        """
+        ax = self.texts_panel.current_axes()
+        if ax is None:
+            return
+        texts = list(getattr(ax, "texts", []) or [])
+        text_dict = texts[index] if 0 <= index < len(texts) else None
+        self.annotation_overlay.select_annotation(text_dict)
+
+    def _on_overlay_selection_changed(self, text_dict: Optional[dict]) -> None:
+        """User selected/deselected an item on canvas: reflect it in the panel.
+
+        Finds ``text_dict``'s owning axes and index within that axes' texts.
+        If the owning axes differs from the panel's current target, retarget
+        the panel first (``set_axes``) so cross-axes canvas selection follows
+        the click to whichever axes it belongs to; then select the row via
+        the no-emit :meth:`TextsPanel.select_text` path (this is an
+        overlay-driven selection, so it must not bounce back through
+        :data:`TextsPanel.text_selected`).
+
+        ``text_dict is None`` (selection cleared) deselects in the panel
+        without retargeting it.
+        """
+        if text_dict is None:
+            self.texts_panel.select_text(-1)
+            return
+
+        owning_ax, index = self._find_text_owner(text_dict)
+        if owning_ax is None:
+            return
+
+        if self.texts_panel.current_axes() is not owning_ax:
+            self.texts_panel.set_axes(owning_ax)
+        self.texts_panel.select_text(index)
+
+    def _find_text_owner(self, text_dict: dict):
+        """Return ``(axes, index)`` of the axes whose ``texts`` list contains
+        ``text_dict`` by identity, or ``(None, -1)`` if not found (e.g. the
+        figure has since changed underneath the overlay).
+        """
+        figure = self.document.figure
+        if figure is None:
+            return None, -1
+        for ax in list(getattr(figure, "axes_list", []) or []):
+            texts = getattr(ax, "texts", None) or []
+            for i, td in enumerate(texts):
+                if td is text_dict:
+                    return ax, i
+        return None, -1
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt override
+        """Esc cancels an armed add-text mode; otherwise defer to the base."""
+        if (
+            event.key() == Qt.Key.Key_Escape
+            and self.annotation_overlay.add_mode
+        ):
+            self._cancel_add_text_mode()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     # ------------------------------------------------------------------
     # Document slots
@@ -674,6 +889,13 @@ class MainWindow(QMainWindow):
         self._cleanup_gle_temp_dirs()
         self._gle_preview_path = gle_path
         self._set_document_widgets_enabled(False)
+        # Hard-disable the annotation overlay before the read-only image lands
+        # (Finding 1): the preview is a static compile of a *file*, not the
+        # document, but overlay items from the previous document render are
+        # still live in the scene. Disabling clears them, cancels add-mode, and
+        # makes every commit path a no-op so a stray drag/click cannot mutate
+        # the hidden document figure while it is not on screen.
+        self.annotation_overlay.set_disabled(True)
         self._update_gle_mode_actions()
 
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
@@ -719,6 +941,12 @@ class MainWindow(QMainWindow):
         self._gle_preview_path = None
         self._cleanup_gle_temp_dirs()
         self._set_document_widgets_enabled(True)
+        # Lift the overlay's hard-disabled state (Finding 1). It stays cleared
+        # (no items) until the next *document* render rebuilds it via
+        # geometry_ready/render_succeeded -- which the caller's figure_replaced
+        # re-render triggers. set_geometry would also lift this, but doing it
+        # here makes the mode transition authoritative even if no render follows.
+        self.annotation_overlay.set_disabled(False)
         self._update_gle_mode_actions()
         self.statusBar().clearMessage()
         self._update_window_title()

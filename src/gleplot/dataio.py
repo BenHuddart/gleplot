@@ -27,12 +27,58 @@ Format handling (loading layer)
   the sniffed delimiter doesn't actually separate the row into multiple
   fields.
 - Comment lines (leading ``#`` or ``!``, ignoring leading whitespace) are
-  skipped entirely and never considered for header/data detection.
+  skipped entirely and never considered for header/data detection, EXCEPT
+  for two narrow, conservative cases (tried in this order) when the file
+  has no inline header row at all:
+
+  1. **Indexed block** -- an instrument/export-style comment block with one
+     ``c <int> = <name>`` line per column (case-insensitive, whitespace
+     around ``=`` tolerated), e.g.::
+
+         ! some prose header
+         !   c 1 = run_id
+         !   c 2 = field_strength (G)
+         !   c 7 = err_rate (unit-1)
+         !
+         !   run_id   field_strength(G) ...   (aligned prose row, ignored)
+         1  2.5  ...
+
+     The WHOLE comment block preceding the first data row is scanned (not
+     just the last line); accepted only if the discovered indices are
+     EXACTLY ``1..n_cols`` -- full coverage, no gaps/duplicates/out-of-range
+     (no partial adoption). Names may contain unicode and internal
+     whitespace verbatim (no tokenization: each line is matched whole).
+     Unambiguous, so it is tried FIRST and takes precedence over case 2
+     below. See :func:`_recover_indexed_comment_header`.
+  2. **Last-line heuristic** -- the LAST comment line immediately preceding
+     the first data row (blank lines tolerated in between) is checked as a
+     possible comment-embedded column-name line -- e.g. a GLE-style
+     fit-parameter export ending in ``! x y`` right before the numeric
+     data. Accepted as column names only if, once the comment marker is
+     stripped and the remainder tokenized with the same delimiter as the
+     data, the token count matches the data column count AND at least one
+     token is a genuine non-numeric label (same rule as header detection
+     below). See :func:`_recover_comment_header`.
+
+  On acceptance (either case) ``DataTable.column_names`` gets the recovered
+  names and ``DataTable.header_source`` is set to ``"comment"``, but
+  ``DataTable.has_header`` stays ``False`` -- the line(s) are still
+  comments, so data-row indexing and any round-trip are unaffected; this
+  is display-name recovery only.
 - Header detection: the first non-comment, non-blank row is treated as a
-  header if and only if at least one of its fields fails float
-  conversion (after missing-value normalization the missing tokens count
-  as "not a float" too, so a header row of plain names is always
-  detected as a header).
+  header if and only if at least one of its fields is a genuine
+  non-numeric *label* -- i.e. it fails float conversion AND is not a
+  missing-value token. A first data row consisting entirely of missing
+  tokens (e.g. ``* * *``) is therefore kept as an all-NaN DATA row, not
+  mistaken for a header.
+- Header/column alignment: if a detected header's token count does not
+  match the data column count (e.g. a whitespace-split multi-word header
+  like ``Temperature (K) Resistance (Ohm)`` yielding 4 tokens over 2
+  data columns), the row is still skipped as a header, but its tokens are
+  not used to name columns; positional names (``col1``..``colN``) are
+  synthesized and a warning is recorded on ``DataTable.warnings``.
+  Delimited files (comma/tab/semicolon) split multi-word names correctly,
+  so their headers align and are used verbatim.
 - Missing values: empty fields and the GLE-convention tokens ``*``,
   ``?``, ``-``, ``.`` (only when they are the *entire* field, not part
   of a longer token) as well as ``nan``/``NaN`` (case-insensitive) become
@@ -107,6 +153,15 @@ class DataTable:
         Whether the first non-comment row was consumed as a header.
     warnings : list of str
         Human-readable warnings, e.g. about ragged rows that were padded.
+    header_source : str or None
+        Where ``column_names`` came from: ``"row"`` when an inline header
+        row was consumed (``has_header`` is ``True``), ``"comment"`` when
+        no inline header row exists but names were recovered from a
+        trailing comment line (see :func:`load_data_file`'s comment-header
+        recovery; ``has_header`` stays ``False`` in this case -- the line
+        is still a comment, data-row indexing is unaffected), or ``None``
+        when ``column_names`` are the synthesized positional
+        ``col1``..``colN`` placeholders.
     """
 
     column_names: List[str]
@@ -117,6 +172,7 @@ class DataTable:
     has_header: bool
     is_numeric: List[bool] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    header_source: Optional[str] = None
 
     @property
     def n_cols(self) -> int:
@@ -220,6 +276,225 @@ def _try_float(token: Optional[str]) -> Optional[float]:
         return None
 
 
+def _strip_comment_marker(line: str) -> str:
+    """Strip a leading comment marker (``#`` or ``!``) and whitespace."""
+    stripped = line.lstrip()
+    if stripped.startswith("#") or stripped.startswith("!"):
+        stripped = stripped[1:]
+    return stripped.strip()
+
+
+def _find_last_comment_before_first_data_row(raw_lines: List[str]) -> Optional[str]:
+    """Return the comment line immediately preceding the first data row.
+
+    "Immediately preceding" tolerates intervening blank lines (walking
+    backward from the first content line, skipping blanks) but stops as
+    soon as a non-blank, non-comment line is encountered first -- that
+    would mean there is no comment line directly above the first data row
+    (just more data / an earlier blank-separated block), so we
+    conservatively give up rather than risk grabbing an unrelated comment
+    from earlier in the file.
+    """
+    # Find the raw-line index of the first content line (same predicate
+    # used to build content_lines: non-blank and not a comment).
+    first_idx = None
+    for i, line in enumerate(raw_lines):
+        if line.strip() and not _is_comment(line):
+            first_idx = i
+            break
+    if first_idx is None or first_idx == 0:
+        return None
+
+    for i in range(first_idx - 1, -1, -1):
+        line = raw_lines[i]
+        if not line.strip():
+            continue
+        if _is_comment(line):
+            return line
+        # Hit a non-comment, non-blank line before any comment -- no
+        # comment line is "immediately preceding" the first data row.
+        return None
+    return None
+
+
+#: Matches a comment-body line of the form ``c <int> = <name>`` (case-
+#: insensitive, whitespace-tolerant around the ``=``). Group 1 is the 1-based
+#: column index, group 2 is everything after ``=`` (stripped once by the
+#: caller; internal whitespace in the name is preserved verbatim).
+_INDEXED_COMMENT_HEADER_RE = re.compile(
+    r"^c\s*(\d+)\s*=\s*(.*)$", re.IGNORECASE
+)
+
+
+def _comment_block_before_first_data_row(raw_lines: List[str]) -> List[str]:
+    """Return every comment/blank line before the first data row, in order.
+
+    Unlike :func:`_find_last_comment_before_first_data_row` (which returns
+    only the single nearest comment line), this collects the WHOLE run of
+    comment lines preceding the first data row -- needed to scan a multi-line
+    ``! c N = name`` block where the column-naming lines are not necessarily
+    the very last comment line (a trailing ``!`` separator or an aligned
+    prose row -- see ``_recover_indexed_comment_header`` -- often follows
+    them). Blank lines are included (as empty strings) so ordering/spacing
+    is preserved for callers that care, but they never match the ``c N =``
+    pattern so they are harmless filler.
+
+    Stops (returns only what was collected so far) as soon as a non-blank,
+    non-comment line is reached while scanning backward from the first data
+    row -- i.e. only an unbroken run of comments/blanks immediately above
+    the data counts as "the comment block".
+    """
+    first_idx = None
+    for i, line in enumerate(raw_lines):
+        if line.strip() and not _is_comment(line):
+            first_idx = i
+            break
+    if first_idx is None or first_idx == 0:
+        return []
+
+    block: List[str] = []
+    for i in range(first_idx - 1, -1, -1):
+        line = raw_lines[i]
+        if not line.strip():
+            block.append(line)
+            continue
+        if _is_comment(line):
+            block.append(line)
+            continue
+        break
+    block.reverse()
+    return block
+
+
+def _recover_indexed_comment_header(
+    raw_lines: List[str],
+    data_col_count: int,
+) -> Optional[List[str]]:
+    """Recover column names from a ``! c N = name`` comment block, if present.
+
+    Real-world shape (e.g. an instrument export with a prose preamble)::
+
+        ! some prose header
+        !   c 1 = run_id
+        !   c 2 = field_strength (G)
+        ...
+        !   c 7 = err_rate (unit-1)
+        !
+        !   run_id   field_strength(G) ...
+        1  2.5  ...
+
+    Scans the WHOLE comment block preceding the first data row (not just the
+    last line) for lines matching, case-insensitively and whitespace-
+    tolerantly, ``c <int> = <name>`` once the comment marker is stripped.
+    Everything after ``=`` becomes the column name, stripped only at the
+    ends (internal whitespace, and non-ASCII characters such as ``mu`` or
+    superscript ``-1``, are preserved verbatim -- multi-word names are fine
+    here since each line is matched whole, not tokenized).
+
+    This is unambiguous (each column index is explicitly named), so it takes
+    PRECEDENCE over the last-comment-line positional heuristic
+    (:func:`_recover_comment_header`) -- callers should try this function
+    FIRST and only fall back to the positional heuristic if it returns
+    ``None``.
+
+    Accepted only when the discovered indices are EXACTLY ``{1, ..., n_cols}``
+    -- full coverage, no gaps, no duplicates, no out-of-range indices. This
+    is deliberately strict (no partial/subset adoption): an incomplete or
+    ambiguous match is much more likely to be a coincidental line (e.g. a
+    sentence containing "c 2 = ...") than a genuine column-naming block, and
+    a wrong-but-plausible mapping silently mislabels data. Any duplicate
+    index, any index outside ``1..n_cols``, or missing coverage rejects the
+    WHOLE block (returns ``None``) rather than guessing.
+
+    A trailing aligned "prose name row" (e.g. a human-readable column
+    header whose whitespace-split token count does not match
+    ``data_col_count``) commonly follows the ``c N =`` lines in this file
+    shape; it is irrelevant here since this function only reads ``c N =``
+    lines and ignores everything else in the block.
+    """
+    block = _comment_block_before_first_data_row(raw_lines)
+    if not block:
+        return None
+
+    names_by_index: dict = {}
+    for line in block:
+        if not _is_comment(line):
+            continue
+        candidate = _strip_comment_marker(line)
+        if not candidate:
+            continue
+        m = _INDEXED_COMMENT_HEADER_RE.match(candidate.strip())
+        if not m:
+            continue
+        idx = int(m.group(1))
+        name = m.group(2).strip()
+        if not name:
+            continue
+        if idx in names_by_index:
+            # Duplicate index -- ambiguous, reject the whole block.
+            return None
+        names_by_index[idx] = name
+
+    if not names_by_index:
+        return None
+
+    found = set(names_by_index)
+    expected = set(range(1, data_col_count + 1))
+    if found != expected:
+        # Incomplete coverage, gap, or an out-of-range index -- reject
+        # rather than guess (see docstring: no partial adoption).
+        return None
+
+    return [names_by_index[i] for i in range(1, data_col_count + 1)]
+
+
+def _recover_comment_header(
+    raw_lines: List[str],
+    delimiter: Optional[str],
+    data_col_count: int,
+) -> Optional[List[str]]:
+    """Recover column names from a trailing comment line, if it qualifies.
+
+    Only called when the file has no inline header row. Looks at the
+    LAST comment line immediately preceding the first data row (tolerating
+    intervening blank lines), strips the comment marker, and tokenizes it
+    with the same delimiter used for the data. The candidate is accepted
+    as column names ONLY IF:
+
+    - its token count equals the data column count, AND
+    - at least one token is a genuine non-numeric label (fails float
+      conversion AND is not a missing-value token) -- the same rule
+      ``load_data_file`` uses to decide a row is a real header rather
+      than data, reused here so an all-numeric comment (e.g. a stray
+      results line someone commented out) is never mistaken for names.
+
+    Returns ``None`` when no comment line qualifies, leaving
+    ``column_names``/``has_header`` untouched by this feature entirely.
+    """
+    comment_line = _find_last_comment_before_first_data_row(raw_lines)
+    if comment_line is None:
+        return None
+
+    candidate_text = _strip_comment_marker(comment_line)
+    if not candidate_text:
+        return None
+
+    tokens = _split_line(candidate_text, delimiter)
+    tokens = [t.strip() for t in tokens]
+
+    if len(tokens) != data_col_count:
+        return None
+
+    has_label = any(
+        _normalize_token(tok) is not None and _try_float(_normalize_token(tok)) is None
+        for tok in tokens
+    )
+    if not has_label:
+        return None
+
+    return tokens
+
+
 def load_data_file(
     path: Union[str, Path], max_preview_rows: Optional[int] = None
 ) -> DataTable:
@@ -273,11 +548,16 @@ def load_data_file(
 
     split_rows = [_split_line(line, delimiter) for line in content_lines]
 
-    # Header detection: the first row is a header iff at least one field
-    # fails float conversion after missing-value normalization.
+    # Header detection: the first row is a header iff at least one field is a
+    # genuine non-numeric label -- i.e. it fails float conversion AND is not a
+    # missing-value token. A missing token ('*', '?', '-', '.', '', 'nan')
+    # also "fails float conversion", but a first data row consisting entirely
+    # of missing values (e.g. '* * *') is real DATA (all-NaN), not a header;
+    # only a field that is a real word/label marks the row as a header.
     first_row = split_rows[0]
     first_row_is_header = any(
-        _try_float(_normalize_token(tok)) is None for tok in first_row
+        _normalize_token(tok) is not None and _try_float(_normalize_token(tok)) is None
+        for tok in first_row
     )
 
     has_header = first_row_is_header
@@ -294,11 +574,27 @@ def load_data_file(
     if not data_rows:
         raise ValueError(f"No data rows found in {path}")
 
-    max_cols = max(len(row) for row in data_rows)
-    if header_fields is not None:
-        max_cols = max(max_cols, len(header_fields))
-
     warnings: List[str] = []
+
+    # Column count is determined by the DATA rows, not the header. A header
+    # whose token count differs from the data column count is a *misalignment*
+    # (typically a whitespace-split multi-word header, e.g. header
+    # 'Temperature (K) Resistance (Ohm)' = 4 tokens over 2 data columns): we
+    # still skip the row as a header (it is not data), but we cannot trust its
+    # tokens to name columns 1:1, so we synthesize positional names and warn.
+    data_col_count = max(len(row) for row in data_rows)
+    header_mismatch = (
+        header_fields is not None and len(header_fields) != data_col_count
+    )
+    if header_mismatch:
+        warnings.append(
+            f"Header row has {len(header_fields)} field(s) but the data has "
+            f"{data_col_count} column(s); the header does not align with the "
+            "columns (e.g. multi-word names split on whitespace). Using "
+            "positional column names (col1..colN) instead."
+        )
+    max_cols = data_col_count
+
     padded_rows: List[List[str]] = []
     for row_idx, row in enumerate(data_rows):
         if len(row) < max_cols:
@@ -309,8 +605,8 @@ def load_data_file(
             )
             row = row + [""] * pad_count
         elif len(row) > max_cols:
-            # Shouldn't normally happen since max_cols is the max, but
-            # guard defensively in case header_fields was shorter.
+            # Shouldn't normally happen since max_cols is the max data-row
+            # width, but guard defensively.
             warnings.append(
                 f"Row {row_idx + 1} has {len(row)} field(s), expected "
                 f"{max_cols}; extra field(s) truncated."
@@ -318,8 +614,59 @@ def load_data_file(
             row = row[:max_cols]
         padded_rows.append(row)
 
-    if header_fields is None:
+    header_source: Optional[str] = None
+    if header_fields is None or header_mismatch:
+        # No header, or a header that doesn't align 1:1 with the columns.
         column_names = [f"col{i + 1}" for i in range(max_cols)]
+        if header_mismatch:
+            # The row WAS consumed as a header (has_header is True) even
+            # though its tokens couldn't be trusted to name columns 1:1;
+            # header_source still reflects that an inline row was found.
+            header_source = "row"
+
+        # Comment-header recovery: real-world .dat files (e.g. GLE-style
+        # fit-parameter exports) sometimes carry column names in a COMMENT
+        # line rather than an inline header row -- e.g.
+        #     ! Fit parameter data for GLE export
+        #     ! Global fitting parameters:
+        #     !   A_1 (%) = 11.8654 +/- 0.0543966
+        #     ! x y
+        #     1.0 2.0
+        # Only attempted when there is no inline header at all (a header
+        # row, even a mismatched one, always wins -- see the recognizer's
+        # `_recovered_column_names`, which only ever reads `column_names`
+        # when `has_header` is True, so this path can never be mistaken
+        # for a real header there). Deliberately conservative: most
+        # comment lines are NOT headers, so only the LAST comment line
+        # immediately before the first data row is even considered, and
+        # only accepted if its token count matches the data columns AND
+        # it contains a genuine non-numeric label (same rule as normal
+        # header detection above) -- see _recover_comment_header.
+        #
+        # `not header_mismatch` here means genuinely `has_header is False`
+        # (not just "mismatched"): we are inside the
+        # `header_fields is None or header_mismatch` branch, so if
+        # `header_mismatch` is False then `header_fields is None` must be
+        # the reason we're here -- i.e. there was no inline header row at
+        # all. A mismatched inline header (has_header True, tokens
+        # misaligned) is still a real header row and must NOT be
+        # second-guessed by a comment line.
+        if not header_mismatch:
+            # Indexed '! c N = name' block (see _recover_indexed_comment_header)
+            # is unambiguous -- every column is explicitly named by number --
+            # so it takes PRECEDENCE over the positional last-comment-line
+            # heuristic below. Only fall back to the positional heuristic
+            # when no indexed block is found (or it doesn't achieve full
+            # 1..n_cols coverage).
+            recovered = _recover_indexed_comment_header(raw_lines, max_cols)
+            if recovered is not None:
+                column_names = recovered
+                header_source = "comment"
+            else:
+                recovered = _recover_comment_header(raw_lines, delimiter, max_cols)
+                if recovered is not None:
+                    column_names = recovered
+                    header_source = "comment"
     else:
         column_names = list(header_fields)
         # Pad header names if the header row itself was short.
@@ -329,6 +676,7 @@ def load_data_file(
         column_names = [
             name if name else f"col{i + 1}" for i, name in enumerate(column_names)
         ]
+        header_source = "row"
 
     # Build columns.
     columns: List[np.ndarray] = []
@@ -368,6 +716,7 @@ def load_data_file(
         has_header=has_header,
         is_numeric=is_numeric,
         warnings=warnings,
+        header_source=header_source,
     )
 
 
@@ -571,26 +920,6 @@ def extract_columns(
     return result
 
 
-#: Sidecar-naming heuristic: matches gleplot's own export naming
-#: convention, ``{prefix}_{N}.dat`` where ``{prefix}`` is either the
-#: literal default prefix ``"data"`` or a user-chosen
-#: ``Figure.data_prefix``, and ``{N}`` is the (non-negative) integer
-#: counter from ``gleplot.axes._get_next_data_file`` /
-#: ``_reserve_data_filename``. See ``gleplot.axes`` for the writer side.
-#:
-#: CAUTION -- false positives: this is a syntactic heuristic only. Any
-#: user-supplied data file that happens to be named
-#: ``<anything>_<digits>.dat`` in the same directory as the ``.gle``
-#: script -- e.g. a perfectly ordinary ``results_2024.dat`` -- matches
-#: this pattern and would be misclassified as a gleplot-generated
-#: "import" sidecar rather than a user "reference". Prefer supplying
-#: ``import_list`` (parsed from the ``.gle`` metadata comment block, if
-#: gleplot wrote one) whenever available; the heuristic is a best-effort
-#: fallback only for files gleplot didn't author metadata for (e.g.
-#: hand-edited or third-party-generated ``.gle`` scripts).
-_SIDECAR_NAME_RE = re.compile(r"^.+_\d+\.dat$", re.IGNORECASE)
-
-
 def classify_data_file(
     gle_path: Union[str, Path],
     referenced_name: str,
@@ -609,20 +938,20 @@ def classify_data_file(
     Parameters
     ----------
     gle_path : str or pathlib.Path
-        Path to the ``.gle`` file doing the referencing (only its parent
-        directory matters, for the same-directory heuristic check).
+        Path to the ``.gle`` file doing the referencing (unused since the
+        filename heuristic was removed; retained for API stability).
     referenced_name : str
         The file name/path as written in the GLE ``data`` command.
     import_list : list of str, optional
         Authoritative list of file names/paths that gleplot's own writer
-        recorded as "imported" (copied) data files, typically parsed
-        from a metadata comment block gleplot itself wrote into the
-        ``.gle`` file when exporting. When this is not ``None``,
+        recorded as "imported" (copied) data files, parsed from the
+        ``! gleplot`` metadata comment block gleplot itself wrote into
+        the ``.gle`` file when exporting. When this is not ``None``,
         membership in this list (matched against ``referenced_name``,
         both as given and as a bare filename) *fully decides* the
-        classification -- the heuristic below is not consulted at all.
-        Pass ``None`` only when no such metadata is available (e.g. a
-        hand-authored or third-party ``.gle`` script).
+        classification. When it is ``None`` (no metadata block present --
+        e.g. a hand-authored or third-party ``.gle`` script), the
+        reference is ALWAYS classified ``"reference"``.
 
     Returns
     -------
@@ -631,40 +960,32 @@ def classify_data_file(
 
     Notes
     -----
-    Heuristic (only used when ``import_list is None``): a reference is
-    classified ``"import"`` iff *both*:
+    **Only the metadata block's import-data list can vouch a file as
+    gleplot-owned.** Every ``.gle`` gleplot itself saves carries the
+    ``! gleplot`` metadata block naming its import sidecars, so genuine
+    gleplot-authored sidecars are always vouched via ``import_list`` and
+    correctly classified ``"import"``.
 
-    1. It resolves to the *same directory* as ``gle_path`` (no
-       subdirectory, no ``..``, not absolute-elsewhere) -- gleplot always
-       writes sidecars next to the script.
-    2. Its filename matches ``^.+_\\d+\\.dat$`` (case-insensitive) --
-       i.e. some prefix, an underscore, one or more digits, then
-       ``.dat`` -- gleplot's own ``{prefix}_{N}.dat`` naming from
-       ``gleplot.axes._get_next_data_file``.
+    When ``import_list is None`` there is no authoritative signal that
+    gleplot owns any referenced file, so classification is conservative:
+    every reference is treated as an external ``"reference"``. This is a
+    deliberate safety property -- classifying a file as ``"import"``
+    causes gleplot to adopt (and, on the next ``savefig_gle``, REWRITE)
+    that file. A hand-authored ``.gle`` sitting next to an ordinary
+    user data file whose name happens to look like a sidecar (e.g.
+    ``results_2024.dat``) must NEVER have its data silently overwritten.
+    Such files remain read-only references: still plottable and
+    editable-in-style, but never rewritten.
 
-    Otherwise the reference is classified ``"reference"``.
-
-    See the ``_SIDECAR_NAME_RE`` module-level docstring comment above for
-    a discussion of this heuristic's false-positive risk (e.g. a
-    plain user file named ``results_2024.dat`` sitting next to the
-    script matches the pattern and would be misclassified as
-    ``"import"``). **Prefer passing ``import_list`` whenever the
-    metadata block is available** -- the heuristic is a fallback of
-    last resort.
+    (Historically a filename heuristic -- ``<prefix>_<digits>.dat`` in
+    the same directory -- classified such files as ``"import"``; that
+    produced a silent user-data-overwrite false positive and has been
+    removed. The metadata block is now the sole source of truth.)
     """
-    if import_list is not None:
-        candidates = {referenced_name, Path(referenced_name).name}
-        imported = {str(n) for n in import_list} | {
-            Path(str(n)).name for n in import_list
-        }
-        return "import" if candidates & imported else "reference"
-
-    ref = Path(referenced_name)
-    if ref.is_absolute():
+    if import_list is None:
         return "reference"
-    # Same-directory only: no subdirectory components, no parent traversal.
-    if len(ref.parts) != 1:
-        return "reference"
-    if _SIDECAR_NAME_RE.match(ref.name):
-        return "import"
-    return "reference"
+    candidates = {referenced_name, Path(referenced_name).name}
+    imported = {str(n) for n in import_list} | {
+        Path(str(n)).name for n in import_list
+    }
+    return "import" if candidates & imported else "reference"
