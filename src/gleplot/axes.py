@@ -152,7 +152,9 @@ class Axes:
         self.ymax = None
         self.y2min = None  # Secondary y-axis limits
         self.y2max = None
-        self.legend_on = False
+        # Tri-state: None = auto (show a legend iff any series has a label),
+        # True/False = explicit user choice (the GUI toggle writes these).
+        self.legend_on = None
         self.legend_pos = 'top right'
         
         # Shared axes visibility control
@@ -945,7 +947,7 @@ class Axes:
         ax.ymax = d.get('ymax')
         ax.y2min = d.get('y2min')
         ax.y2max = d.get('y2max')
-        ax.legend_on = d.get('legend_on', False)
+        ax.legend_on = d.get('legend_on')  # tri-state; missing key = auto
         ax.legend_pos = d.get('legend_pos', 'top right')
 
         ax._show_xlabel = d.get('show_xlabel', True)

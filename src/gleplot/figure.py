@@ -720,10 +720,17 @@ class Figure:
                 box_color=text_data.get('box_color'),
             )
         
-        # Add legend if needed
+        # Add legend if needed. legend_on is tri-state: None means auto
+        # (show iff labels exist); True/False is an explicit user choice.
         legend_sources = ax.lines + ax.scatters + ax.bars + ax.errorbars + ax.file_series
-        if ax.legend_on or any(series.get('label') for series in legend_sources):
+        labels_present = any(series.get('label') for series in legend_sources)
+        show_legend = ax.legend_on if ax.legend_on is not None else labels_present
+        if show_legend:
             writer.add_legend(ax.legend_pos)
+        elif labels_present:
+            # GLE draws an implicit key from per-dataset key "label" tokens;
+            # it must be switched off explicitly.
+            writer.add_key_off()
     
     def _synchronize_x_limits(self):
         """Synchronize x-axis limits across all axes when sharex is enabled."""

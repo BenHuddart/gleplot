@@ -823,6 +823,15 @@ class GLEWriter:
         }
         gle_pos = pos_map.get(pos, pos)  # Try long form, else use as-is (short form)
         self.lines_gle.append(f'    key pos {gle_pos}')
+
+    def add_key_off(self):
+        """Suppress the graph key entirely.
+
+        GLE draws a key whenever any dataset carries a ``key "label"``
+        attribute, even without a ``key pos`` command, so an explicit
+        ``key off`` is required to hide the legend for labeled series.
+        """
+        self.lines_gle.append('    key off')
     
     def finalize(self, include_graph_end: bool = True):
         """Add closing statements.
