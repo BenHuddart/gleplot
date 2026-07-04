@@ -161,8 +161,8 @@ def test_render_failure_parses_structured_errors(qapp, monkeypatch):
     # with a structured, line-numbered error.
     original = ctrl._write_script
 
-    def broken_write(work_fig, session):
-        original(work_fig, session)
+    def broken_write(work_fig, session, fmt="png"):
+        original(work_fig, session, fmt)
         script = session / "preview.gle"
         text = script.read_text(encoding="utf-8")
         script.write_text(text + "\nthis_is_not_valid_gle @@@\n", encoding="utf-8")
@@ -299,3 +299,52 @@ def test_view_placeholder_hidden_when_image_present(qapp, tmp_path):
     view.show_placeholder("compile error")
     assert view._placeholder_item is None
     assert view.last_good_path == str(p)
+
+
+# ----------------------------------------------------------------------
+# Calibration geometry (Track E1) -- additive coverage
+# ----------------------------------------------------------------------
+def test_geometry_not_emitted_on_empty_document(qapp):
+    """An empty document skips the render; geometry_ready must not fire and
+    last_geometry stays None."""
+    doc = FigureDocument()
+    doc.new_figure()  # one empty subplot, no series
+    ctrl = PreviewController(doc, debounce_ms=20)
+    geoms = []
+    ctrl.geometry_ready.connect(geoms.append)
+    try:
+        ctrl.request_render()
+        assert not geoms
+        assert ctrl.last_geometry is None
+    finally:
+        ctrl.shutdown()
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_failed_render_resets_geometry_to_none(qapp, monkeypatch):
+    """A render failure clears any geometry and does not emit a stale one."""
+    doc = _make_sin_document()
+    ctrl = PreviewController(doc, debounce_ms=50)
+    rec = SignalRecorder(ctrl)
+    geoms = []
+    ctrl.geometry_ready.connect(geoms.append)
+
+    original = ctrl._write_script
+
+    def broken_write(work_fig, session, fmt="png"):
+        original(work_fig, session, fmt)
+        script = session / "preview.gle"
+        text = script.read_text(encoding="utf-8")
+        script.write_text(text + "\nthis_is_not_valid_gle @@@\n", encoding="utf-8")
+
+    monkeypatch.setattr(ctrl, "_write_script", broken_write)
+
+    try:
+        ctrl.request_render()
+        assert _wait_until(lambda: rec.failed or rec.succeeded, 10000)
+        assert rec.failed
+        # No successful geometry was emitted; last_geometry cleared to None.
+        assert ctrl.last_geometry is None
+        assert all(g is None for g in geoms)
+    finally:
+        ctrl.shutdown()

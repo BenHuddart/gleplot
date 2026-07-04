@@ -587,6 +587,16 @@ class _Recognizer:
             "file_series": [],
             "passthrough": [],
             "series_order": [],     # to preserve ordering info if needed
+            # Dataset names (e.g. 'd1') consumed by a 'bar'/'fill' command.
+            # The writer emits a standalone 'dN key ""' statement right after
+            # 'bar'/'fill' to neutralize GLE's auto-key-from-header behavior
+            # (bar/fill have no 'key' sub-option of their own -- see
+            # gleplot.writer.GLEWriter.add_bar_chart/add_fill_between). That
+            # bare 'dN key ""' would otherwise look like a brand-new,
+            # unlabeled line/scatter series to the generic dN-dispatch below;
+            # this set lets pass 2 recognize and skip it as a suppression
+            # marker instead of fabricating a phantom series.
+            "_key_suppress_datasets": set(),
         }
 
         # Local dataset map for THIS block (dataset refs are graph-local).
@@ -648,8 +658,20 @@ class _Recognizer:
                 name = kw
                 if name in emitted:
                     continue
+                attr_toks = merged_attr_toks.get(name, [])
+                if name in info["_key_suppress_datasets"] and self._is_bare_key_suppression(attr_toks):
+                    # 'dN key ""' with no other attributes, following a
+                    # 'bar'/'fill' command that already consumed this
+                    # dataset -- the writer's auto-key-from-header
+                    # suppression marker (see writer.add_bar_chart /
+                    # add_fill_between), not a real second series. Consume
+                    # silently: no series, no passthrough (matches what the
+                    # writer will regenerate from the bar/fill entry's
+                    # column_names on next save).
+                    emitted.add(name)
+                    continue
                 emitted.add(name)
-                merged = [Token(TokenType.WORD, name, (0, 0))] + merged_attr_toks.get(name, [])
+                merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
                 self._build_series_from_attrs(
                     name, merged, datasets, info, marker_cfg, smooth_flags
                 )
@@ -662,6 +684,26 @@ class _Recognizer:
     def _skip_meta_stmt(self, stmt) -> bool:
         """True if this statement's physical line is inside the metadata block."""
         return stmt.source_line is not None and stmt.line_no in self._meta_lines
+
+    @staticmethod
+    def _is_bare_key_suppression(attr_toks: List[Token]) -> bool:
+        """True if a dataset's merged attribute tokens are exactly ``key ""``.
+
+        Used to recognize the writer's auto-key-from-header suppression
+        marker (a standalone ``dN key ""`` statement emitted after a
+        ``bar``/``fill`` command -- see ``writer.add_bar_chart`` /
+        ``add_fill_between``) so it isn't mistaken for a real second series
+        on that dataset. Exactly 2 tokens: the ``key`` keyword and an empty
+        string literal.
+        """
+        if len(attr_toks) != 2:
+            return False
+        kw_tok, val_tok = attr_toks
+        if kw_tok.value.lower() != "key":
+            return False
+        if val_tok.type is not TokenType.STRING:
+            return False
+        return _string_value(val_tok) == ""
 
     def _build_series_from_attrs(self, name, merged_toks, datasets, info,
                                  marker_cfg, smooth_flags):
@@ -969,6 +1011,7 @@ class _Recognizer:
         if d_name is None or d_name not in datasets:
             info["passthrough"].append("    " + " ".join(t.value for t in toks))
             return
+        info["_key_suppress_datasets"].add(d_name)
         data_file, xcol, ycol = datasets[d_name]
         loaded = self._load_series(data_file, xcol, ycol)
         entry = {
@@ -991,6 +1034,9 @@ class _Recognizer:
         entry["x"] = x
         entry["height"] = height
         entry["colors"] = [color] * len(height)
+        column_names = self._recovered_column_names(data_file, [xcol, ycol])
+        if column_names is not None:
+            entry["column_names"] = column_names
         info["bars"].append(entry)
 
     def _parse_fill_command(self, toks, datasets, info):
@@ -1013,6 +1059,8 @@ class _Recognizer:
         if len(d_names) < 2 or d_names[0] not in datasets or d_names[1] not in datasets:
             info["passthrough"].append("    " + " ".join(t.value for t in toks))
             return
+        info["_key_suppress_datasets"].add(d_names[0])
+        info["_key_suppress_datasets"].add(d_names[1])
         f1, xc1, yc1 = datasets[d_names[0]]
         f2, xc2, yc2 = datasets[d_names[1]]
         # fill data file has c1=x, c2=y1, c3=y2. d1=c1,c2 ; d2=c1,c3.
@@ -1029,11 +1077,15 @@ class _Recognizer:
         x = loaded["x"]
         y1 = loaded["y"]
         y2 = loaded.get(f"c{yc2}")
-        info["fills"].append({
+        fill_entry = {
             "x": x, "y1": y1, "y2": y2,
             "color": color, "alpha": 0.3, "label": None,
             "data_file": f1,
-        })
+        }
+        column_names = self._recovered_column_names(f1, [xc1, yc1, yc2])
+        if column_names is not None:
+            fill_entry["column_names"] = column_names
+        info["fills"].append(fill_entry)
 
     # -- key -------------------------------------------------------------
 
@@ -1126,6 +1178,9 @@ class _Recognizer:
             "yaxis": "y2" if attrs["y2axis"] else "y",
             "data_file": data_file,
         }
+        column_names = self._recovered_column_names(data_file, [xcol, ycol])
+        if column_names is not None:
+            entry["column_names"] = column_names
         if has_marker and not has_line:
             info["scatters"].append(entry)
         else:
@@ -1224,7 +1279,14 @@ class _Recognizer:
                 i += 1
                 continue
             if w == "key" and i + 1 < m and toks[i + 1].type is TokenType.STRING:
-                a["label"] = _string_value(toks[i + 1])
+                # 'key ""' is never a real user label -- the writer only ever
+                # emits it as an auto-key-from-header suppression marker
+                # (see writer._key_clause), for a series whose label is
+                # None. Recover it as None (not '') so the object model
+                # round-trips exactly; the writer regenerates the same
+                # 'key ""' from column_names + no label on next save.
+                label_value = _string_value(toks[i + 1])
+                a["label"] = label_value if label_value != "" else None
                 i += 2
                 continue
             i += 1
@@ -1403,6 +1465,24 @@ class _Recognizer:
             "yaxis": "y2" if attrs["y2axis"] else "y",
             "data_file": data_file,
         }
+        if not err_consts:
+            # Column indices in the SAME order the writer emits them (x, y,
+            # then y-error column(s) collapsed to one when symmetric i.e.
+            # yerr_up_col == yerr_down_col, then x-error likewise) -- see
+            # gleplot.writer.GLEWriter.add_errorbar. Constant/percentage
+            # errors (err_consts) have no backing file column at all (the
+            # array was synthesized above), so column_names is left absent
+            # and regenerated from stable defaults on next save, same as any
+            # pre-Track-E3 project.
+            cols = [xcol, ycol]
+            seen_err_cols = []
+            for c in (yerr_up_col, yerr_down_col, xerr_left_col, xerr_right_col):
+                if c is not None and c not in seen_err_cols:
+                    seen_err_cols.append(c)
+            cols.extend(seen_err_cols)
+            column_names = self._recovered_column_names(data_file, cols)
+            if column_names is not None:
+                entry["column_names"] = column_names
         info["errorbars"].append(entry)
 
     def _passthrough_original_dn(self, info, orig_toks):
@@ -1484,6 +1564,54 @@ class _Recognizer:
     def _is_import(self, data_file) -> bool:
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
+
+    def _recovered_column_names(self, data_file, cols_1based) -> Optional[List[str]]:
+        """Recover a series' ``column_names`` from its sidecar's header row.
+
+        Parameters
+        ----------
+        data_file : str
+            The sidecar file name (an "import" series' data file).
+        cols_1based : list of int
+            1-based column indices in the SAME order the object model's
+            ``column_names`` list expects them (x, then y, then any error/
+            extra columns) -- matching how :mod:`gleplot.axes` builds
+            ``column_names`` and how :mod:`gleplot.writer` writes the
+            header row (one name per array passed to ``add_data_file``, in
+            that same order).
+
+        Returns
+        -------
+        list of str, or None
+            ``None`` when the table couldn't be resolved, or has no real
+            header row (:attr:`DataTable.has_header` is ``False`` --
+            e.g. a hand-written headerless ``.dat``): in that case
+            ``column_names`` is left absent on the recovered series and
+            ``Axes.from_dict``-style default regeneration (mirrored here at
+            series-build time, see ``_default_column_names_like``) fills it
+            in on next save, same as any pre-Track-E3 project.
+
+            A column index of ``0`` (GLE's synthesized point-index column,
+            no real file column behind it) recovers as ``'x'`` -- matching
+            the default a fresh ``ax.plot`` would assign -- since there is
+            no header cell to read for a column that doesn't exist in the
+            file.
+        """
+        resolved = self._resolve_table(data_file)
+        if resolved.error is not None or resolved.table is None:
+            return None
+        table = resolved.table
+        if not table.has_header:
+            return None
+        names = []
+        for col in cols_1based:
+            if col == 0:
+                names.append("x")
+                continue
+            if col < 1 or col > table.n_cols:
+                return None
+            names.append(table.column_names[col - 1])
+        return names
 
     # -- amove / text cluster / trailer ---------------------------------
 
@@ -1700,6 +1828,18 @@ class _Recognizer:
         ax.file_series = info["file_series"]
         ax.texts = info["texts"]
         ax.passthrough = info["passthrough"]
+
+        # A series whose sidecar had no real header row (hand-written .dat,
+        # or a headerless import from an older gleplot version) has no
+        # 'column_names' recovered above. Regenerate the same stable
+        # defaults Axes.from_dict falls back to for pre-Track-E3 projects,
+        # so the next save still gets a named header row.
+        for attr in ("lines", "scatters", "bars", "fills", "errorbars"):
+            for item in getattr(ax, attr):
+                if "column_names" not in item:
+                    defaults = Axes._default_column_names(attr, item)
+                    if defaults is not None:
+                        item["column_names"] = defaults
 
         # Legend tri-state recovery.
         labels_present = self._labels_present(info)

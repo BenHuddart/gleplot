@@ -338,3 +338,65 @@ def test_classify_heuristic_false_positive_avoided_with_import_list(tmp_path):
         classify_data_file(gle_path, "results_2024.dat", import_list=["data_1.dat"])
         == "reference"
     )
+
+
+# ---------------------------------------------------------------------------
+# Track E3: named column headers in generated sidecars -- data-dock benefit
+# ---------------------------------------------------------------------------
+#
+# gleplot's own generated sidecars now carry a header row by default (see
+# gleplot.axes.sanitize_column_name / gleplot.writer.GLEWriter.add_data_file).
+# These tests prove load_data_file (the function the GUI's data dock combo
+# boxes are built on -- see gleplot.gui.data.panel) surfaces the REAL column
+# names for such a sidecar with ZERO changes needed on the GUI side: the dock
+# already renders whatever load_data_file().column_names contains.
+
+
+def test_load_data_file_surfaces_gleplot_header_names(tmp_path):
+    """A gleplot-generated sidecar's header row becomes DataTable.column_names
+    verbatim (not the synthesized 'col1'/'col2' placeholders), so a GUI data
+    dock built on load_data_file shows the real names automatically.
+    """
+    p = _write(tmp_path, "series.dat", "x signal\n1 2\n2 4\n3 6\n")
+
+    table = load_data_file(p)
+
+    assert table.has_header is True
+    assert table.column_names == ["x", "signal"]
+    assert table.numeric_column_names() == ["x", "signal"]
+
+
+def test_load_data_file_surfaces_gleplot_writer_output_end_to_end(tmp_path):
+    """End-to-end: gleplot.writer.GLEWriter.add_data_file's own header-row
+    output, round-tripped through load_data_file, yields the exact names
+    that were passed in -- proving the writer and the loader agree on
+    format with no adapter needed.
+    """
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    writer.add_data_file(
+        "series.dat",
+        [np.array([1.0, 2.0, 3.0]), np.array([2.0, 4.0, 6.0]), np.array([0.1, 0.2, 0.3])],
+        column_names=["x", "signal", "err"],
+    )
+    p = tmp_path / "series.dat"
+    p.write_text(writer.data_files["series.dat"], encoding="utf-8")
+
+    table = load_data_file(p)
+
+    assert table.column_names == ["x", "signal", "err"]
+    assert table.n_rows == 3
+    assert table.numeric_column_names() == ["x", "signal", "err"]
+
+
+def test_load_data_file_renamed_column_survives(tmp_path):
+    """A user-renamed column header (as it would be after an edit + resave)
+    is exactly what the dock sees -- sanitized names are not re-derived on
+    load, the header row is authoritative.
+    """
+    p = _write(tmp_path, "series.dat", "time amplitude_mv\n0 1\n1 2\n")
+
+    table = load_data_file(p)
+
+    assert table.column_names == ["time", "amplitude_mv"]

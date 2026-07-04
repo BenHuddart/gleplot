@@ -271,6 +271,18 @@ class MainWindow(QMainWindow):
         self.action_actual_size.setShortcut(QKeySequence("Ctrl+1"))
         self.action_actual_size.triggered.connect(self.preview_view.zoom_actual_size)
 
+        self.action_vector_preview = QAction("&Vector preview (SVG)", self)
+        self.action_vector_preview.setCheckable(True)
+        self.action_vector_preview.setChecked(
+            self.preview_controller.render_format == "svg"
+        )
+        self.action_vector_preview.setEnabled(self.preview_controller.svg_available)
+        if not self.preview_controller.svg_available:
+            self.action_vector_preview.setToolTip(
+                "SVG preview is unavailable in this session; showing PNG."
+            )
+        self.action_vector_preview.toggled.connect(self._on_toggle_vector_preview)
+
         self.action_toggle_data = self.data_dock.toggleViewAction()
         self.action_toggle_properties = self.properties_dock.toggleViewAction()
         self.action_toggle_output = self.output_dock.toggleViewAction()
@@ -305,6 +317,8 @@ class MainWindow(QMainWindow):
         view_menu = menu_bar.addMenu("&View")
         view_menu.addAction(self.action_fit_window)
         view_menu.addAction(self.action_actual_size)
+        view_menu.addSeparator()
+        view_menu.addAction(self.action_vector_preview)
         view_menu.addSeparator()
         view_menu.addAction(self.action_toggle_data)
         view_menu.addAction(self.action_toggle_properties)
@@ -349,6 +363,8 @@ class MainWindow(QMainWindow):
         pc.render_succeeded.connect(self._on_render_succeeded)
         pc.render_failed.connect(self._on_render_failed)
         pc.render_skipped_empty.connect(self._on_render_skipped_empty)
+        pc.geometry_ready.connect(self.preview_view.set_geometry)
+        pc.fallback_activated.connect(self._on_svg_fallback_activated)
 
     def _connect_undo_signals(self) -> None:
         us = self.undo_stack
@@ -383,6 +399,28 @@ class MainWindow(QMainWindow):
             return
         self.error_panel.clear()
         self.preview_view.show_placeholder(_EMPTY_PREVIEW_TEXT)
+
+    def _on_toggle_vector_preview(self, checked: bool) -> None:
+        """View ▸ Vector preview (SVG): switch ``render_format`` on toggle."""
+        self.preview_controller.render_format = "svg" if checked else "png"
+
+    def _on_svg_fallback_activated(self, reason: str) -> None:
+        """SVG rendering failed permanently this session; reflect it in the UI.
+
+        Unchecks and disables the toggle (with a tooltip explaining why) and
+        shows a status-bar message. The controller has already scheduled an
+        automatic PNG re-render, so no further action is needed here.
+        """
+        self.action_vector_preview.blockSignals(True)
+        self.action_vector_preview.setChecked(False)
+        self.action_vector_preview.blockSignals(False)
+        self.action_vector_preview.setEnabled(False)
+        self.action_vector_preview.setToolTip(
+            f"SVG preview disabled for this session: {reason}"
+        )
+        self.statusBar().showMessage(
+            "Vector preview unavailable; showing PNG instead.", _STATUS_MS
+        )
 
     # ------------------------------------------------------------------
     # Document slots
