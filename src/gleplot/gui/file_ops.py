@@ -292,13 +292,19 @@ def save_project_as(
         _show_error(parent, "Save Failed", "No figure to save.")
         return False
 
+    path = Path(path)
+    # Saving to a different directory invalidates relative reference-mode
+    # data paths (they were relative to the previous project directory).
+    # Absolutize them on the live figure so the saved script stays valid.
+    old_path = document.project_path
+    if old_path is not None and Path(old_path).parent != path.parent:
+        document.figure.absolutize_file_references(Path(old_path).parent)
+
     try:
         document.figure.savefig_gle(str(path))
     except OSError as exc:
         _show_error(parent, "Save Failed", str(exc))
         return False
-
-    path = Path(path)
     document.project_path = path
     document.open_warnings = []
     document.mark_clean()

@@ -12,9 +12,23 @@ from .parser.units import (
 from .parser.tables import KEY_POSITIONS_LONG_TO_SHORT
 
 
+def _format_data_filename(name: str) -> str:
+    """Quote a data filename for a GLE ``data`` command when needed.
+
+    GLE requires quoting for paths containing whitespace (e.g. absolute
+    OneDrive paths). Names without whitespace or quote characters are
+    emitted bare, preserving byte-identical output for all previously
+    generated scripts.
+    """
+    name = str(name)
+    if any(ch in name for ch in ' \t"'):
+        return '"' + name.replace('"', '\\"') + '"'
+    return name
+
+
 class GLEWriter:
     """Writer for GLE script files.
-    
+
     Parameters
     ----------
     figsize : tuple, optional
@@ -355,7 +369,7 @@ class GLEWriter:
         d_name = f'd{self.dataset_index}'
         self.dataset_index += 1
         
-        cmd = f'    data {data_file} {d_name}=c1,c2'
+        cmd = f'    data {_format_data_filename(data_file)} {d_name}=c1,c2'
         self.lines_gle.append(cmd)
         
         # Generate line command
@@ -444,7 +458,7 @@ class GLEWriter:
 
         d_name = f'd{self.dataset_index}'
         self.dataset_index += 1
-        cmd = f'    data {data_file} {d_name}=c1,c2'
+        cmd = f'    data {_format_data_filename(data_file)} {d_name}=c1,c2'
         self.lines_gle.append(cmd)
 
         bar_cmd = f'    bar {d_name} fill {bar_color}'
@@ -574,7 +588,7 @@ class GLEWriter:
         self.dataset_index += 1
         
         # Build data command with all dataset references
-        data_cmd = f'    data {data_file} {d_main}=c1,c2'
+        data_cmd = f'    data {_format_data_filename(data_file)} {d_main}=c1,c2'
         
         # Create error datasets referencing the same file columns
         err_datasets = {}
@@ -702,7 +716,7 @@ class GLEWriter:
         d_main = f'd{self.dataset_index}'
         self.dataset_index += 1
 
-        data_cmd = f'    data {data_file} {d_main}=c{x_col},c{y_col}'
+        data_cmd = f'    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}'
         d_yerr = None
         if yerr_col is not None:
             d_yerr = f'd{self.dataset_index}'
@@ -744,7 +758,7 @@ class GLEWriter:
         d_main = f'd{self.dataset_index}'
         self.dataset_index += 1
 
-        self.lines_gle.append(f'    data {data_file} {d_main}=c{x_col},c{y_col}')
+        self.lines_gle.append(f'    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}')
 
         if linewidth == 0 or linewidth == 1:
             gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
@@ -790,7 +804,7 @@ class GLEWriter:
         d2_name = f'd{self.dataset_index + 1}'
         self.dataset_index += 2
         
-        cmd = f'    data {data_file} {d1_name}=c1,c2 {d2_name}=c1,c3'
+        cmd = f'    data {_format_data_filename(data_file)} {d1_name}=c1,c2 {d2_name}=c1,c3'
         self.lines_gle.append(cmd)
         
         # GLE fill between two datasets: fill d1,d2 color X

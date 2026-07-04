@@ -307,7 +307,30 @@ class Figure:
         return self.gca().legend(**kwargs)
     
     # File I/O methods
-    
+
+    def absolutize_file_references(self, base_dir) -> None:
+        """Rewrite relative reference-mode data paths to absolute paths.
+
+        Reference-mode series (``file_series``) carry their ``data_file``
+        verbatim into the generated ``data`` command, so a relative path is
+        only valid when GLE runs in the directory the reference is relative
+        to. Call this on a figure whose script will be generated or compiled
+        SOMEWHERE ELSE: the live preview's temp session dir, an export to a
+        different directory, or Save As across directories. Import-mode
+        series regenerate their sidecars next to the script and are
+        untouched. Paths are emitted in POSIX form (GLE accepts forward
+        slashes on Windows); the writer quotes names containing spaces.
+        """
+        base = Path(base_dir)
+        for ax in self.axes_list:
+            for fs in ax.file_series:
+                name = fs.get('data_file')
+                if not name:
+                    continue
+                ref = Path(name)
+                if not ref.is_absolute():
+                    fs['data_file'] = (base / ref).resolve().as_posix()
+
     def savefig_gle(self, filepath: str, **kwargs) -> Path:
         """
         Save figure as GLE script.

@@ -247,6 +247,12 @@ class PreviewController(QObject):
 
         try:
             work_fig = Figure.from_dict(snap)
+            # Reference-mode series carry paths relative to the .gle's
+            # directory; the preview compiles in a temp session dir, so
+            # they must be absolutized or GLE cannot find them.
+            project_path = getattr(self._document, "project_path", None)
+            if project_path:
+                work_fig.absolutize_file_references(Path(project_path).parent)
             self._write_script(work_fig, session)
         except Exception as exc:  # noqa: BLE001 - report, never crash the GUI
             err = GLEError(

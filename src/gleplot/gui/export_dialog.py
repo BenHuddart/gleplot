@@ -245,6 +245,12 @@ class ExportDialog(QDialog):
             # mutates unset axis limits in place. Snapshot + rebuild first.
             snap = fig.to_dict()
             work = Figure.from_dict(snap)
+            # Reference-mode series carry paths relative to the project's
+            # directory; the export may compile in a different directory,
+            # so absolutize them on the throwaway copy.
+            project_path = getattr(self._document, "project_path", None)
+            if project_path:
+                work.absolutize_file_references(Path(project_path).parent)
             work.savefig(
                 str(path),
                 format=self.selected_format,
