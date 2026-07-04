@@ -274,3 +274,44 @@ def test_delimited_multiword_header_unaffected(tmp_path):
     assert not any(
         "does not align" in w or "positional" in w for w in table.warnings
     )
+
+
+# ---------------------------------------------------------------------------
+# Comment-line column-header recovery (bug report): a real-world .dat file
+# with GLE-style comment-only metadata (fit parameters etc.) whose LAST
+# comment line before the data actually names the columns. The Data dock's
+# combo boxes are built directly on load_data_file().column_names (see
+# gleplot.gui.data.panel), so this is exactly the surface the reported bug
+# (dock showing col1/col2 instead of real names) is fixed through.
+# ---------------------------------------------------------------------------
+
+
+def test_comment_header_names_surface_for_data_dock(tmp_path):
+    content = (
+        "! Fit parameter data for GLE export\n"
+        "! Global fitting parameters:\n"
+        "!   A_1 (%) = 11.8654 +/- 0.0543966\n"
+        "! temperature resistance\n"
+        "1.0 2.0\n"
+        "2.0 4.0\n"
+    )
+    p = _write(tmp_path, "fit.dat", content)
+    table = load_data_file(p)
+    # The dock reads table.column_names directly and unconditionally --
+    # this is the exact fix for the reported "shows col1/col2" bug.
+    assert table.column_names == ["temperature", "resistance"]
+    assert table.has_header is False
+    assert table.header_source == "comment"
+    assert table.numeric_column_names() == ["temperature", "resistance"]
+
+
+def test_comment_header_rejected_mismatched_count_dock_sees_positional(tmp_path):
+    # A comment line with the wrong token count is rejected -- the dock
+    # falls back to the same positional col1/col2 names as any other
+    # headerless file, matching pre-fix behavior (no regression for
+    # genuinely non-header comment lines).
+    content = "! Global fitting parameters:\n1.0 2.0\n2.0 4.0\n"
+    p = _write(tmp_path, "fit.dat", content)
+    table = load_data_file(p)
+    assert table.column_names == ["col1", "col2"]
+    assert table.header_source is None

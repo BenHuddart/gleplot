@@ -106,7 +106,12 @@ cumulatively (multiple ``xaxis`` lines merge); numbers may be expressions
 are case-insensitive; single-quoted strings and ``;``-joined statements are
 accepted; British ``GREY`` colors are accepted. Anything not recognized is
 preserved verbatim in the appropriate passthrough bucket (header / trailer /
-axes) so it re-emits unchanged.
+axes) so it re-emits unchanged. A blank (or comment-only) line separating two
+post-graph text clusters, or between ``end graph`` and the first cluster, is
+tolerated by :meth:`_Recognizer._try_one_text` (:meth:`_Recognizer._skip_blanks`)
+-- the writer itself never emits such a blank line, but a human editing the
+file for readability may add one; recognition proceeds exactly as if it were
+absent, and re-emission is canonical (no blank line re-inserted).
 
 Warnings taxonomy
 -----------------
@@ -297,6 +302,14 @@ class _Recognizer:
         self._import_list: Optional[List[str]] = None
         self._used_prefix_indices: Dict[str, int] = {}  # prefix -> max index+1
         self._used_data_files: set = set()
+        # Sticky text-cluster state (GLE 'set hei'/'set color'/'set just' are
+        # interpreter-global and persist across clusters/graphs until changed
+        # -- see _try_one_text). fontsize stays None until a 'set hei' is
+        # actually seen, matching the writer (which only emits 'set hei' when
+        # a text's fontsize is not None).
+        self._text_fontsize: Optional[float] = None
+        self._text_color: str = "BLACK"
+        self._text_just: str = "left"
 
     # -- public driver ---------------------------------------------------
 
@@ -1652,12 +1665,19 @@ class _Recognizer:
     def _consume_text_cluster(self, nodes, start) -> Tuple[List[dict], int]:
         """Greedily match the writer's deferred-text pattern after end graph.
 
-        Pattern per text (in order):
+        Pattern per text (every ``set`` is optional, in any subset, in order):
             [set hei H]
-            set color C
-            set just J
+            [set color C]
+            [set just J]
             amove xg(X) yg(Y)
             write "T"
+
+        ``set hei``/``set color``/``set just`` are GLE *interpreter-global*
+        state: once set, they apply to every subsequent cluster (including
+        clusters in later graphs) until changed again -- mirroring GLE's own
+        stateful semantics. This lets a single ``set hei`` shared by multiple
+        clusters, or a cluster with no ``set just`` at all, still recover the
+        correct fontsize/color/ha via the sticky ``self._text_*`` state.
         Returns (texts, next_index).
         """
         texts: List[dict] = []
@@ -1673,70 +1693,103 @@ class _Recognizer:
         return texts, i
 
     def _try_one_text(self, nodes, i) -> Tuple[int, Optional[dict]]:
+        """Try to match one text cluster starting at ``i``.
+
+        On success returns ``(next_index, text_dict)``. On failure returns
+        ``(i, None)`` with the ORIGINAL ``i`` unchanged (never an
+        intermediate position), so the caller (:meth:`_consume_text_cluster`)
+        can safely discard partial progress and hand every skipped node back
+        to the ordinary passthrough walk untouched.
+
+        Blank/comment-only lines are tolerated *between* cluster elements
+        (a hand-edited file may have a blank line separating annotations for
+        readability) via :meth:`_skip_blanks`, but this skip is provisional:
+        it only survives if the pattern goes on to match a full cluster.
+        Nothing here treats a blank line as a hard stop -- a blank line
+        followed by an unrelated statement simply falls through to the
+        ``return i, None`` below, restoring the untouched original ``i``.
+        """
+        start = i
         n = len(nodes)
-        fontsize = None
-        color = "BLACK"
-        just = "left"
         x = y = None
         text_str = None
 
-        # Optional 'set hei H'
-        stmt = self._as_statement(nodes[i]) if i < n else None
-        if stmt is not None and stmt.keyword == "set":
+        # Optional 'set hei H' / 'set color C' / 'set just J', in any order,
+        # each independently optional. Every hit updates sticky state
+        # immediately so a later cluster with no 'set just' inherits the
+        # last-seen value (GLE semantics: 'set' is global interpreter state).
+        while True:
+            i = self._skip_blanks(nodes, i)
+            stmt = self._as_statement(nodes[i]) if i < n else None
+            if stmt is None or stmt.keyword != "set":
+                break
             toks = _words_and_values(stmt)
-            if len(toks) >= 3 and toks[1].value.lower() == "hei":
+            if len(toks) < 3:
+                break
+            sub = toks[1].value.lower()
+            if sub == "hei":
                 v = _num(toks[2])
-                if v is not None:
-                    fontsize = fontsize_cm_to_pt(v)
-                    i += 1
-                    stmt = self._as_statement(nodes[i]) if i < n else None
+                if v is None:
+                    break
+                self._text_fontsize = fontsize_cm_to_pt(v)
+                i += 1
+                continue
+            if sub == "color":
+                self._text_color = toks[2].value
+                i += 1
+                continue
+            if sub == "just":
+                just = toks[2].value.lower()
+                if just in ("left", "center", "right"):
+                    self._text_just = just
+                i += 1
+                continue
+            break
 
-        # 'set color C'
-        if stmt is None or stmt.keyword != "set":
-            return i, None
-        toks = _words_and_values(stmt)
-        if len(toks) >= 3 and toks[1].value.lower() == "color":
-            color = toks[2].value
-            i += 1
-        else:
-            return i, None
-
-        # 'set just J'
-        stmt = self._as_statement(nodes[i]) if i < n else None
-        if stmt is None or stmt.keyword != "set":
-            return i, None
-        toks = _words_and_values(stmt)
-        if len(toks) >= 3 and toks[1].value.lower() == "just":
-            just = toks[2].value.lower()
-            i += 1
-        else:
-            return i, None
-
-        # 'amove xg(X) yg(Y)'
+        # 'amove xg(X) yg(Y)' -- mandatory: this is what makes the run of
+        # 'set' statements above a text cluster rather than unrelated
+        # passthrough. If absent, nothing was consumed as a text cluster (any
+        # 'set' statements walked above are left for the caller/passthrough
+        # by returning the ORIGINAL start index).
+        i = self._skip_blanks(nodes, i)
         stmt = self._as_statement(nodes[i]) if i < n else None
         if stmt is None or stmt.keyword != "amove":
-            return i, None
+            return start, None
         x, y = self._parse_xg_yg(_words_and_values(stmt))
         if x is None or y is None:
-            return i, None
+            return start, None
         i += 1
 
-        # 'write "T"'
+        # 'write "T"' -- mandatory (a blank line may separate the amove from
+        # its write in a hand-edited file; tolerate it the same way).
+        i = self._skip_blanks(nodes, i)
         stmt = self._as_statement(nodes[i]) if i < n else None
         if stmt is None or stmt.keyword != "write":
-            return i, None
+            return start, None
         toks = _words_and_values(stmt)
         text_str = self._first_string(toks)
         if text_str is None:
-            return i, None
+            return start, None
         i += 1
 
-        just_norm = just if just in ("left", "center", "right") else "left"
         return i, {
             "x": x, "y": y, "text": text_str,
-            "color": color, "fontsize": fontsize,
-            "ha": just_norm, "va": "center", "box_color": None,
+            "color": self._text_color, "fontsize": self._text_fontsize,
+            "ha": self._text_just, "va": "center", "box_color": None,
         }
+
+    def _skip_blanks(self, nodes, i) -> int:
+        """Advance past any run of ``BlankOrComment`` nodes at ``i``.
+
+        Used by :meth:`_try_one_text` to tolerate a blank line separating
+        the elements of a hand-edited text cluster (e.g. between
+        ``end graph`` and the first cluster, or between two clusters).
+        Never looks past the end of ``nodes``.
+        """
+        n = len(nodes)
+        while i < n and isinstance(nodes[i], BlankOrComment):
+            i += 1
+        return i
 
     def _parse_xg_yg(self, toks) -> Tuple[Optional[float], Optional[float]]:
         """Parse ``amove xg(X) yg(Y)`` argument expressions."""

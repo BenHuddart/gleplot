@@ -160,10 +160,26 @@ def normalize(d: dict) -> dict:
 
         # Text annotations: fontsize round-trips through cm (snap); box_color
         # is accepted-but-ignored by the writer (never emitted) -> drop.
+        #
+        # Sticky-fontsize normalization: 'set hei' is GLE interpreter-global
+        # state (see recognizer._try_one_text / writer.add_text). The writer
+        # only emits 'set hei' when a text's fontsize DIFFERS from whatever is
+        # currently active -- so a text with fontsize=None (or one equal to
+        # the already-active height) genuinely renders in real GLE at the
+        # last-explicit height, not some independent default. The recognizer
+        # correctly resolves that inherited value on recovery (it cannot tell
+        # "no explicit set hei" apart from "same value restated"). Both sides
+        # are therefore normalized to the STICKY-RESOLVED height, seeded from
+        # the style default (the preamble's unconditional 'set hei'), matching
+        # the value real GLE would use when rendering each text in sequence.
+        sticky_fs = style.get("fontsize")
         for s in ax.get("texts", []):
-            if s.get("fontsize") is not None:
-                emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(s["fontsize"])))
-                s["fontsize"] = fontsize_cm_to_pt(float(emitted))
+            fs = s.get("fontsize")
+            if fs is None:
+                fs = sticky_fs
+            emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
+            s["fontsize"] = fontsize_cm_to_pt(float(emitted))
+            sticky_fs = s["fontsize"]
             s.pop("box_color", None)
 
     return d

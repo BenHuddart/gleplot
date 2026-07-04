@@ -397,3 +397,397 @@ def test_load_data_file_renamed_column_survives(tmp_path):
     table = load_data_file(p)
 
     assert table.column_names == ["time", "amplitude_mv"]
+
+
+# ---------------------------------------------------------------------------
+# Comment-line column-header recovery (bug report: GLE-style fit-parameter
+# exports carry column names in a trailing COMMENT line, not an inline
+# header row). See gleplot.dataio._recover_comment_header.
+# ---------------------------------------------------------------------------
+
+
+def test_comment_header_recovered_after_multi_comment_block(tmp_path):
+    """Real-world shape from the bug report: several prose/parameter
+    comment lines, then a final comment line naming the columns, then
+    numeric data with no inline header. The last comment line's tokens
+    become column_names; has_header stays False (still a comment) and
+    header_source records where the names came from.
+    """
+    content = (
+        "! Fit parameter data for GLE export\n"
+        "! Global fitting parameters:\n"
+        "!   A_1 (%) = 11.8654 +/- 0.0543966\n"
+        "! x y\n"
+        "1.0 2.0\n"
+        "2.0 4.0\n"
+        "3.0 6.0\n"
+    )
+    p = _write(tmp_path, "fit.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is False
+    assert table.column_names == ["x", "y"]
+    assert table.header_source == "comment"
+    assert table.n_rows == 3
+    np.testing.assert_allclose(table.columns[0], [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(table.columns[1], [2.0, 4.0, 6.0])
+
+
+def test_comment_header_rejected_trailing_prose_comment(tmp_path):
+    """The LAST comment line before the data is prose, not column names
+    ('Global fitting parameters:' -- one token, mismatched against 2 data
+    columns) -- rejected, positional col1/col2 names used instead.
+    """
+    content = (
+        "! Fit parameter data for GLE export\n"
+        "! Global fitting parameters:\n"
+        "1.0 2.0\n"
+        "2.0 4.0\n"
+    )
+    p = _write(tmp_path, "fit.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is False
+    assert table.column_names == ["col1", "col2"]
+    assert table.header_source is None
+
+
+def test_comment_header_rejected_mismatched_token_count(tmp_path):
+    """A comment line naming only 1 column above 2 data columns is
+    rejected (token count must equal the data column count exactly).
+    """
+    content = "! x\n1.0 2.0\n3.0 4.0\n"
+    p = _write(tmp_path, "fit.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is False
+    assert table.column_names == ["col1", "col2"]
+    assert table.header_source is None
+
+
+def test_comment_header_rejected_all_numeric_comment(tmp_path):
+    """A comment line that is itself all-numeric tokens (e.g. a stray
+    results line someone commented out) is not mistaken for column names
+    -- same 'genuine label' rule as ordinary header detection.
+    """
+    content = "! 9.9 8.8\n1.0 2.0\n3.0 4.0\n"
+    p = _write(tmp_path, "fit.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is False
+    assert table.column_names == ["col1", "col2"]
+    assert table.header_source is None
+
+
+def test_comment_header_inline_header_takes_precedence(tmp_path):
+    """When the file already HAS an inline header row, comment-header
+    recovery must never run at all -- the inline header always wins, even
+    if a preceding comment line also looks like plausible column names.
+    """
+    content = "! a b\nx y\n1.0 2.0\n3.0 4.0\n"
+    p = _write(tmp_path, "fit.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is True
+    assert table.column_names == ["x", "y"]
+    assert table.header_source == "row"
+
+
+def test_comment_header_not_attempted_when_inline_header_mismatched(tmp_path):
+    """A mismatched inline header (e.g. whitespace-split multi-word names)
+    is still a real header row -- comment-header recovery must not
+    second-guess it even though has_header ends up reporting True with
+    positional names.
+    """
+    content = "! p q\nTemperature (K) Resistance (Ohm)\n1.0 100.0\n2.0 200.0\n"
+    p = _write(tmp_path, "fit.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is True
+    assert table.column_names == ["col1", "col2"]
+    assert table.header_source == "row"
+
+
+def test_comment_header_blank_lines_tolerated_between_comment_and_data(tmp_path):
+    """Blank lines between the comment header and the first data row are
+    tolerated -- 'immediately preceding' walks back past blanks.
+    """
+    content = "! x y\n\n\n1.0 2.0\n3.0 4.0\n"
+    p = _write(tmp_path, "fit.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is False
+    assert table.column_names == ["x", "y"]
+    assert table.header_source == "comment"
+
+
+def test_comment_header_delimited_file(tmp_path):
+    """Comment-header recovery also applies to delimited (comma) files --
+    tokenization uses the SAME delimiter logic as the data rows.
+    """
+    content = "! x,signal\n1.0,2.0\n2.0,4.0\n"
+    p = _write(tmp_path, "fit.csv", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is False
+    assert table.delimiter == ","
+    assert table.column_names == ["x", "signal"]
+    assert table.header_source == "comment"
+
+
+def test_comment_header_no_comment_line_no_recovery(tmp_path):
+    """No comment line at all -- ordinary headerless file, unaffected."""
+    p = _write(tmp_path, "plain.dat", "1.0 2.0\n3.0 4.0\n")
+
+    table = load_data_file(p)
+
+    assert table.has_header is False
+    assert table.column_names == ["col1", "col2"]
+    assert table.header_source is None
+
+
+def test_comment_header_not_immediately_preceding_is_rejected(tmp_path):
+    """A comment line that is NOT immediately before the first data row
+    (something else -- here, more comments only, so this is somewhat
+    degenerate) -- specifically: a comment line separated from the first
+    data row by a non-comment/non-blank line never happens in practice
+    (that line would itself be data), so this test instead confirms that
+    only the LAST qualifying comment line (nearest the data) is used, not
+    an earlier one with a different, non-matching token count.
+    """
+    content = (
+        "! one\n"
+        "! x y\n"
+        "1.0 2.0\n"
+        "3.0 4.0\n"
+    )
+    p = _write(tmp_path, "fit.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.column_names == ["x", "y"]
+    assert table.header_source == "comment"
+
+
+# ---------------------------------------------------------------------------
+# Indexed comment-header recovery ('! c N = name' block): a stricter,
+# unambiguous sibling of the last-comment-line heuristic above. See
+# gleplot.dataio._recover_indexed_comment_header.
+# ---------------------------------------------------------------------------
+
+
+def test_indexed_comment_header_recovered(tmp_path):
+    """Real-world shape: a prose preamble, one 'c N = name' line per column,
+    a separator comment, then an aligned prose name row whose token count
+    does NOT match the column count (so it could never qualify under the
+    positional last-comment-line heuristic on its own) -- then numeric data.
+    The indexed block alone is sufficient to recover full column_names.
+    """
+    content = (
+        "! some prose header\n"
+        "!   c 1 = run_id\n"
+        "!   c 2 = field_strength (G)\n"
+        "!   c 3 = temperature (K)\n"
+        "!   c 4 = phase (rad)\n"
+        "!   c 5 = amplitude (mV)\n"
+        "!   c 6 = decay_rate\n"
+        "!   c 7 = err_rate (unit-1)\n"
+        "!\n"
+        "!   run_id   field_strength(G) temperature(K) phase(rad) amplitude(mV) decay_rate err_rate\n"
+        "1 100.0 0.1 0.5 1.2 0.02 0.001\n"
+        "2 200.0 0.2 0.6 1.3 0.03 0.002\n"
+        "3 300.0 0.3 0.7 1.4 0.04 0.003\n"
+    )
+    p = _write(tmp_path, "run.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is False
+    assert table.header_source == "comment"
+    assert table.column_names == [
+        "run_id",
+        "field_strength (G)",
+        "temperature (K)",
+        "phase (rad)",
+        "amplitude (mV)",
+        "decay_rate",
+        "err_rate (unit-1)",
+    ]
+    assert table.n_rows == 3
+
+
+def test_indexed_comment_header_unicode_name_preserved(tmp_path):
+    """A column name containing unicode (mu, superscript -1) survives intact
+    into DataTable.column_names -- exercises the utf-8-sig-first decode path
+    end to end.
+    """
+    content = (
+        "! c 1 = t\n"
+        "! c 2 = rate (μs⁻¹)\n"
+        "0.0 1.0\n"
+        "1.0 2.0\n"
+    )
+    p = _write(tmp_path, "unicode.dat", content, encoding="utf-8-sig")
+
+    table = load_data_file(p)
+
+    assert table.header_source == "comment"
+    assert table.column_names == ["t", "rate (μs⁻¹)"]
+
+
+def test_indexed_comment_header_case_and_whitespace_tolerant(tmp_path):
+    """'c'/'C', and arbitrary whitespace around the index and '=', are all
+    tolerated.
+    """
+    content = (
+        "!C1=alpha\n"
+        "!   c   2   =   beta  \n"
+        "1 2\n"
+        "3 4\n"
+    )
+    p = _write(tmp_path, "case.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.header_source == "comment"
+    # Trailing whitespace in 'beta  ' is stripped (name stripped at the ends
+    # only; see docstring -- internal whitespace would be preserved).
+    assert table.column_names == ["alpha", "beta"]
+
+
+def test_indexed_comment_header_precedence_over_last_line_heuristic(tmp_path):
+    """When BOTH an indexed 'c N = name' block and a qualifying last-comment
+    -line positional header are present, the indexed block wins -- it is
+    unambiguous, so it is tried FIRST regardless of what the last comment
+    line looks like.
+    """
+    content = (
+        "! c 1 = alpha\n"
+        "! c 2 = beta\n"
+        "! gamma delta\n"  # would qualify under the positional heuristic
+        "1.0 2.0\n"
+        "3.0 4.0\n"
+    )
+    p = _write(tmp_path, "precedence.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.header_source == "comment"
+    assert table.column_names == ["alpha", "beta"]
+
+
+def test_indexed_comment_header_rejected_incomplete_coverage(tmp_path):
+    """Only c2/c3 named for a 3-column file (c1 missing) -- coverage is not
+    exactly 1..n_cols, so the WHOLE indexed block is rejected (no partial
+    adoption); falls back to positional col1..col3.
+    """
+    content = "! c 2 = b\n! c 3 = c\n1 2 3\n4 5 6\n"
+    p = _write(tmp_path, "incomplete.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.header_source is None
+    assert table.column_names == ["col1", "col2", "col3"]
+
+
+def test_indexed_comment_header_rejected_duplicate_index(tmp_path):
+    """Two lines both naming column 1 -- ambiguous, whole block rejected."""
+    content = "! c 1 = a\n! c 1 = a2\n! c 2 = b\n1 2\n3 4\n"
+    p = _write(tmp_path, "dup.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.header_source is None
+    assert table.column_names == ["col1", "col2"]
+
+
+def test_indexed_comment_header_rejected_out_of_range_index(tmp_path):
+    """A named index beyond the data's column count -- coverage can never
+    be exactly 1..n_cols, so the whole block is rejected.
+    """
+    content = "! c 1 = a\n! c 2 = b\n! c 5 = ghost\n1 2\n3 4\n"
+    p = _write(tmp_path, "oor.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.header_source is None
+    assert table.column_names == ["col1", "col2"]
+
+
+def test_indexed_comment_header_inline_header_takes_precedence(tmp_path):
+    """An inline header row always wins over an indexed comment block too
+    (same rule as the positional heuristic) -- comment-header recovery of
+    either kind is only attempted when there is no inline header at all.
+    """
+    content = "! c 1 = a\n! c 2 = b\nx y\n1.0 2.0\n3.0 4.0\n"
+    p = _write(tmp_path, "inline_wins.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.has_header is True
+    assert table.column_names == ["x", "y"]
+    assert table.header_source == "row"
+
+
+def test_indexed_comment_header_leaves_has_header_false_for_vouch_safety(tmp_path):
+    """Same vouch-safety invariant as the positional heuristic: an indexed
+    comment-derived header must never flip has_header to True, or a vouched
+    sidecar would be adopted and rewritten with a new inline header line on
+    the next save (see gleplot.parser.recognizer._recovered_column_names,
+    which gates strictly on has_header).
+    """
+    content = "! c 1 = x\n! c 2 = y\n1.0 2.0\n3.0 4.0\n"
+    p = _write(tmp_path, "data_1.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.column_names == ["x", "y"]
+    assert table.header_source == "comment"
+    assert table.has_header is False, (
+        "indexed comment-derived column names must not be reported as an "
+        "inline header row, or a vouched sidecar would be rewritten with a "
+        "new header line on next save"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Vouched-sidecar round-trip safety (interaction with
+# gleplot.parser.recognizer._recovered_column_names): a sidecar whose ONLY
+# header is a comment-derived one must NOT be adopted as an inline header
+# by the recognizer's metadata-vouch path, because that would cause the
+# writer to rewrite the file with a NEW inline header line on next save,
+# changing its bytes. _recovered_column_names only reads column_names when
+# has_header is True, and comment-header recovery always leaves has_header
+# False, so this is a property test of that invariant at the dataio level
+# (the full recognizer round-trip is covered in
+# tests/parser/test_recognizer_adversarial.py).
+# ---------------------------------------------------------------------------
+
+
+def test_comment_header_leaves_has_header_false_for_vouch_safety(tmp_path):
+    """Direct dataio-level check of the interaction invariant: a
+    comment-derived header must never flip has_header to True, since
+    gleplot.parser.recognizer._recovered_column_names gates on has_header
+    (not on column_names being non-default) to decide whether a vouched
+    import series' column_names may be recovered and re-emitted as an
+    inline header on next save.
+    """
+    content = "! x y\n1.0 2.0\n3.0 4.0\n"
+    p = _write(tmp_path, "data_1.dat", content)
+
+    table = load_data_file(p)
+
+    assert table.column_names == ["x", "y"]
+    assert table.has_header is False, (
+        "comment-derived column names must not be reported as an inline "
+        "header row, or a vouched sidecar would be rewritten with a new "
+        "header line on next save"
+    )

@@ -430,3 +430,149 @@ class TestSelectionSignal:
         assert panel.current_index == 1
         panel.select_text(0)
         assert panel.current_index == 0
+
+
+# ------------------------------------------------------------------
+# Regression: toggling "custom size" (or any other field) must only ever
+# mutate the *currently selected* entry, never a neighbour.
+#
+# Root cause: _on_list_selection_changed unconditionally repopulated the
+# editor for every currentRowChanged delivery, including the *transient*
+# signals QListWidget.clear() fires while refresh() rebuilds the list (an
+# intermediate row before settling on -1, then the row refresh() restores).
+# That only avoided corrupting the model by accident of nesting inside
+# refresh()'s/select_text()'s own _updating window -- fragile, not a real
+# guard. _on_list_selection_changed now checks self._updating itself before
+# populating, the same way it already gated the text_selected emit.
+# ------------------------------------------------------------------
+@pytest.fixture
+def multi_document(qapp):
+    """Four annotations with distinct, easily-distinguished field values."""
+    fig = gleplot.figure(figsize=(8, 6), dpi=100)
+    ax = fig.gca()
+    ax.text(0.0, 0.0, "alpha", color="RED", fontsize=11.0, ha="left")
+    ax.text(1.0, 1.0, "bravo", color="BLUE", fontsize=None, ha="center")
+    ax.text(2.0, 2.0, "charlie", color="GREEN", fontsize=33.0, ha="right")
+    ax.text(3.0, 3.0, "delta", color="BLACK", fontsize=None, ha="left")
+    return StubDocument(fig)
+
+
+class TestCustomSizeToggleIsolation:
+    """The exact reported scenario: toggling custom-size must only touch the
+    selected entry, in both directions, and leave every other entry's
+    fontsize untouched."""
+
+    def test_toggle_off_only_changes_selected_entry(self, multi_document):
+        panel = TextsPanel(multi_document)
+        ax = multi_document.figure.gca()
+
+        panel.text_list.setCurrentRow(0)  # alpha, fontsize=11.0 (custom)
+        panel.custom_size_check.setChecked(False)
+
+        assert ax.texts[0]["fontsize"] is None
+        assert ax.texts[1]["fontsize"] is None  # bravo: untouched (was already None)
+        assert ax.texts[2]["fontsize"] == pytest.approx(33.0)  # charlie: untouched
+        assert ax.texts[3]["fontsize"] is None  # delta: untouched (was already None)
+
+    def test_toggle_on_only_changes_selected_entry(self, multi_document):
+        panel = TextsPanel(multi_document)
+        ax = multi_document.figure.gca()
+
+        panel.text_list.setCurrentRow(1)  # bravo, fontsize=None
+        panel.custom_size_check.setChecked(True)
+
+        assert ax.texts[1]["fontsize"] is not None
+        assert ax.texts[0]["fontsize"] == pytest.approx(11.0)  # alpha: untouched
+        assert ax.texts[2]["fontsize"] == pytest.approx(33.0)  # charlie: untouched
+        assert ax.texts[3]["fontsize"] is None  # delta: untouched
+
+    def test_toggle_off_on_selected_entry_with_all_neighbour_states(
+        self, multi_document
+    ):
+        """Toggle off on the one entry with a custom size while neighbours
+        span every other fontsize state (None and two distinct values) --
+        the exact "multiple annotations affected" complaint, both sides of
+        the selected entry."""
+        panel = TextsPanel(multi_document)
+        ax = multi_document.figure.gca()
+
+        panel.text_list.setCurrentRow(2)  # charlie, fontsize=33.0 (custom)
+        panel.custom_size_check.setChecked(False)
+
+        assert ax.texts[2]["fontsize"] is None
+        assert ax.texts[0]["fontsize"] == pytest.approx(11.0)
+        assert ax.texts[1]["fontsize"] is None
+        assert ax.texts[3]["fontsize"] is None
+
+    def test_selection_change_causes_zero_writes(self, multi_document):
+        """Merely changing the list selection (which drives refresh()'s
+        clear()/rebuild and its transient currentRowChanged signals) must
+        never itself write to the model -- only explicit user edits do."""
+        panel = TextsPanel(multi_document)
+        before = multi_document.notify_count
+
+        for row in [0, 1, 2, 3, 0, 3, 1, 2]:
+            panel.text_list.setCurrentRow(row)
+
+        assert multi_document.notify_count == before
+
+    def test_selection_change_causes_zero_writes_via_select_text(
+        self, multi_document
+    ):
+        """Same invariant via the overlay-sync (no-emit) selection path."""
+        panel = TextsPanel(multi_document)
+        before = multi_document.notify_count
+
+        for row in [0, 2, 1, 3, 0]:
+            panel.select_text(row)
+
+        assert multi_document.notify_count == before
+
+
+class TestFieldEditIsolation:
+    """Whole-field audit: changing selection across entries with differing
+    values for EVERY editable field must never mutate the model. Each
+    field's dedicated edit path is exercised elsewhere (TestEdits); this
+    class specifically guards against the selection-change class of bug
+    (mechanism (b) in the investigation) for every field, not just
+    "custom size"."""
+
+    @pytest.mark.parametrize(
+        "row_sequence",
+        [
+            [0, 1, 2, 3],
+            [3, 2, 1, 0],
+            [0, 3, 1, 2],
+            [1, 0, 2, 0, 3, 1],
+        ],
+    )
+    def test_selection_walk_mutates_nothing(self, multi_document, row_sequence):
+        panel = TextsPanel(multi_document)
+        ax = multi_document.figure.gca()
+        before_snapshot = [dict(e) for e in ax.texts]
+        before_notify = multi_document.notify_count
+
+        for row in row_sequence:
+            panel.text_list.setCurrentRow(row)
+
+        after_snapshot = [dict(e) for e in ax.texts]
+        assert after_snapshot == before_snapshot
+        assert multi_document.notify_count == before_notify
+
+    @pytest.mark.parametrize("selected_row", [0, 1, 2, 3])
+    def test_selecting_each_entry_in_turn_touches_no_field(
+        self, multi_document, selected_row
+    ):
+        """Selecting every entry in turn (exercising _populate_editor for
+        every field: text, x, y, color, fontsize/custom-size, ha) must
+        leave every entry -- selected or not -- byte-for-byte identical."""
+        panel = TextsPanel(multi_document)
+        ax = multi_document.figure.gca()
+        before_snapshot = [dict(e) for e in ax.texts]
+
+        panel.text_list.setCurrentRow(selected_row)
+        for row in range(len(ax.texts)):
+            panel.text_list.setCurrentRow(row)
+
+        after_snapshot = [dict(e) for e in ax.texts]
+        assert after_snapshot == before_snapshot

@@ -63,6 +63,21 @@ class GLEWriter:
         self.data_files = {}  # {filename: data_content}
         self.dataset_index = 1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         self._pending_graph_text_lines: List[str] = []
+        # Sticky GLE interpreter state as far as add_text is concerned: 'set
+        # hei'/'set color'/'set just' persist across `write` statements until
+        # changed again (real GLE semantics -- see recognizer._try_one_text,
+        # the read-side counterpart). Tracking the currently-active emitted
+        # value here lets add_text skip a redundant 'set ...' line when a
+        # later text asks for the same value already in effect, instead of
+        # restating it. Seeded with the preamble's 'set hei' (already emitted
+        # unconditionally by add_preamble) so the first add_text call also
+        # skips a redundant 'set hei' when its fontsize matches the style
+        # default.
+        self._text_state_hei_cm: Optional[str] = self._format_number(
+            fontsize_pt_to_cm(self.style.fontsize)
+        )
+        self._text_state_color: str = 'BLACK'
+        self._text_state_just: str = 'left'
     
     def add_preamble(self, include_graph_begin: bool = True,
                       metadata_lines: Optional[List[str]] = None,
@@ -883,12 +898,14 @@ class GLEWriter:
         escaped_text = self._escape_gle_string(text)
 
         if fontsize is not None:
-            self._pending_graph_text_lines.append(
-                f'set hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}'
-            )
+            hei_cm = self._format_number(fontsize_pt_to_cm(float(fontsize)))
+            if hei_cm != self._text_state_hei_cm:
+                self._pending_graph_text_lines.append(f'set hei {hei_cm}')
+                self._text_state_hei_cm = hei_cm
 
-        if color:
+        if color and color != self._text_state_color:
             self._pending_graph_text_lines.append(f'set color {color}')
+            self._text_state_color = color
 
         just_map = {
             'left': 'left',
@@ -896,7 +913,9 @@ class GLEWriter:
             'right': 'right',
         }
         just = just_map.get(str(halign).lower(), 'left')
-        self._pending_graph_text_lines.append(f'set just {just}')
+        if just != self._text_state_just:
+            self._pending_graph_text_lines.append(f'set just {just}')
+            self._text_state_just = just
 
         # Boxed text in graph-data coordinates can produce invalid bounds in
         # some GLE versions; keep label export robust by emitting plain text.

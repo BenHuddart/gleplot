@@ -378,9 +378,22 @@ class TextsPanel(QWidget):
         return None
 
     def _on_list_selection_changed(self, row: int) -> None:
+        # Guard, don't just gate the emit: QListWidget.clear() (used by
+        # refresh()) fires *transient* currentRowChanged signals as items are
+        # removed (e.g. an intermediate row before settling on -1, then the
+        # final restored row) -- all while self._updating is True. Populating
+        # the editor unconditionally for those transient rows used to be
+        # "safe" only by accident of nesting inside refresh()'s/select_text()'s
+        # own _updating window; relying on that incidental nesting is
+        # fragile (see the "custom size" checkbox cross-annotation bug). Both
+        # refresh() and select_text() already perform their own explicit,
+        # correctly-targeted _populate_editor call once the row has settled,
+        # so skipping here while a programmatic update is in flight is not a
+        # loss -- it removes the redundant/transient populate entirely.
+        if self._updating:
+            return
         self._populate_editor(self._selected_entry())
-        if not self._updating:
-            self.text_selected.emit(row)
+        self.text_selected.emit(row)
 
     # ------------------------------------------------------------------
     # Model -> UI: editor
@@ -659,4 +672,13 @@ class TextsPanel(QWidget):
         if 0 <= row < len(ax.texts):
             del ax.texts[row]
         self._document.notify_changed()
-        self.refresh()
+
+        # notify_changed() above already drove a reentrant refresh() via
+        # figure_changed (mirrors _on_add_clicked); guard this explicit call
+        # the same way so it isn't left running unguarded relative to the
+        # caller once _populate_editor's transient-row calls are gated above.
+        self._updating = True
+        try:
+            self.refresh()
+        finally:
+            self._updating = False
