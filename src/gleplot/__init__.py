@@ -71,6 +71,30 @@ from .config import (
 _current_figure = None
 
 
+def open_gle(path, *, base_dir=None) -> Figure:
+    """Open a ``.gle`` file (or GLE source text) as a gleplot :class:`Figure`.
+
+    Convenience wrapper around
+    :func:`gleplot.parser.recognizer.parse_gle_figure` that returns just the
+    reconstructed figure (discarding recovery warnings). Use
+    ``parse_gle_figure`` directly when you need the warnings list.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Path to a ``.gle`` file, or raw GLE source text.
+    base_dir : str or pathlib.Path, optional
+        Directory for resolving relative ``data`` references when ``path`` is
+        raw source text.
+
+    Returns
+    -------
+    Figure
+    """
+    from .parser.recognizer import parse_gle_figure
+    return parse_gle_figure(path, base_dir=base_dir).figure
+
+
 def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None, data_prefix=None) -> Figure:
     """
     Create a new figure.
@@ -340,4 +364,5 @@ __all__ = [
     'GLEGraphConfig',
     'GLEMarkerConfig',
     'GlobalConfig',
+    'open_gle',
 ]

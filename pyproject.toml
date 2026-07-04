@@ -49,6 +49,12 @@ gle = [
     # macOS: brew install gle
     # Linux: apt-get install gle (or yum/dnf)
 ]
+gui = [
+    "PySide6>=6.5",
+]
+
+[project.scripts]
+gleplot-gui = "gleplot.gui.app:main"
 
 [project.urls]
 Homepage = "https://github.com/benhuddart/gleplot"
@@ -57,7 +63,7 @@ Repository = "https://github.com/benhuddart/gleplot"
 "Bug Tracker" = "https://github.com/benhuddart/gleplot/issues"
 
 [tool.setuptools]
-packages = ["gleplot"]
+packages = ["gleplot", "gleplot.gui", "gleplot.gui.data", "gleplot.gui.panels"]
 package-dir = {"" = "src"}
 
 [tool.black]

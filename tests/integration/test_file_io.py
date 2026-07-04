@@ -94,6 +94,41 @@ class TestFileIO(unittest.TestCase):
         compiler.compile.assert_called_once_with(str(export_dir / 'report.gle'), 'pdf', dpi=self.fig.dpi)
         self.assertFalse(output_file.exists())
 
+    def test_savefig_auto_detects_jpg(self):
+        """savefig should auto-detect the 'jpg' format from a .jpg suffix."""
+        output_file = self.tempdir / 'test.jpg'
+        result = self.fig.savefig(str(output_file))
+
+        self.assertEqual(result.suffix, '.jpg')
+        self.assertTrue(result.exists())
+        self.assertGreater(result.stat().st_size, 0)
+
+    def test_savefig_auto_detects_jpeg_as_jpg(self):
+        """A .jpeg suffix should compile via GLE's 'jpg' device and produce a .jpg file."""
+        output_file = self.tempdir / 'test.jpeg'
+        result = self.fig.savefig(str(output_file))
+
+        self.assertEqual(result.suffix, '.jpg')
+        self.assertTrue(result.exists())
+        self.assertGreater(result.stat().st_size, 0)
+
+    def test_savefig_auto_detects_svg(self):
+        """savefig should auto-detect the 'svg' format from a .svg suffix."""
+        output_file = self.tempdir / 'test.svg'
+        result = self.fig.savefig(str(output_file))
+
+        self.assertEqual(result.suffix, '.svg')
+        self.assertTrue(result.exists())
+        self.assertGreater(result.stat().st_size, 0)
+
+    def test_savefig_unknown_suffix_defaults_to_gle(self):
+        """An unrecognized suffix should preserve the existing default: .gle only."""
+        output_file = self.tempdir / 'test.unknownext'
+        result = self.fig.savefig(str(output_file))
+
+        self.assertEqual(result.suffix, '.gle')
+        self.assertTrue(result.exists())
+
     def test_save_gle_script_uses_utf8_for_unicode_labels(self):
         """GLE scripts should preserve Unicode labels across platforms."""
         label = 'Time (\u03bcs)'

@@ -5,10 +5,56 @@ import re
 from typing import Optional, List, Union, Tuple
 from .colors import rgb_to_gle
 from .markers import get_gle_marker
+from .parser.units import markersize_to_msize, capsize_pt_to_cm
 
 
 # Global counter for unique data file names across all figures in a session
 _global_data_file_counter = 0
+
+
+def _to_jsonable(value):
+    """Recursively convert a value into a JSON-serializable form.
+
+    numpy arrays become lists, numpy scalars become native Python scalars,
+    and tuples become lists. Nested dicts/lists are converted element-wise.
+    ``None``, ``bool``, ``str`` and native numeric types pass through
+    unchanged. This is the single conversion used by all serialization so
+    that ``to_dict`` output is deterministic and ``json``-safe.
+    """
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, np.ndarray):
+        if value.dtype.kind in 'biufc':  # bool/int/uint/float/complex: numeric
+            # ndarray.tolist() already recursively converts numeric dtypes to
+            # native Python scalars (int/float/bool), so no need to re-wrap
+            # every element in a Python-level comprehension (avoids iterating
+            # large arrays twice).
+            return value.tolist()
+        # Object/other dtypes may hold values that aren't already
+        # JSON-serializable (e.g. nested numpy scalars); recurse per element.
+        return [_to_jsonable(v) for v in value.tolist()]
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (list, tuple)):
+        return [_to_jsonable(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (int, float)):
+        return value
+    # Fallback: represent anything else by its string form (should not occur
+    # for the authoritative state serialized here).
+    return value
+
+
+def _to_float_array(value):
+    """Restore a numeric array field from JSON data as a float ndarray.
+
+    Returns ``None`` when the incoming value is ``None`` so optional error
+    arrays round-trip exactly.
+    """
+    if value is None:
+        return None
+    return np.asarray(value, dtype=float)
 
 
 def _sanitize_data_stem(name: object) -> str:
@@ -107,7 +153,9 @@ class Axes:
         self.ymax = None
         self.y2min = None  # Secondary y-axis limits
         self.y2max = None
-        self.legend_on = False
+        # Tri-state: None = auto (show a legend iff any series has a label),
+        # True/False = explicit user choice (the GUI toggle writes these).
+        self.legend_on = None
         self.legend_pos = 'top right'
         
         # Shared axes visibility control
@@ -124,6 +172,12 @@ class Axes:
         self.errorbars = []  # List of errorbar plot data
         self.file_series = []  # External-file series definitions (column references)
         self.texts = []  # In-plot text annotations
+
+        # Raw GLE lines recovered from a parsed .gle file that the recognizer
+        # could not map onto the object model. Emitted verbatim inside this
+        # axes' graph block, immediately before 'end graph'. One entry per
+        # source line, no trailing newline. Default: empty (nothing to emit).
+        self.passthrough: list = []
     
     def plot(self, x, y, linestyle: str = '-', color: Optional[str] = None,
              marker: Optional[str] = None, markersize: float = 6,
@@ -169,20 +223,18 @@ class Axes:
         else:
             color = rgb_to_gle(color)
         
-        # Handle marker
+        # Handle marker. GLE supports markers on line datasets natively, so a
+        # marker requested alongside a solid/dashed line must be preserved
+        # (not silently dropped). Only when there is *no* line is the series a
+        # true scatter.
         is_scatter = marker is not None and linestyle in ('', 'none', ' ', 'None')
-        
-        if is_scatter:
-            gle_marker = get_gle_marker(marker)
-            plot_type = 'scatter'
-        else:
-            gle_marker = None
-            plot_type = 'line'
+
+        gle_marker = get_gle_marker(marker) if marker is not None else None
+        plot_type = 'scatter' if is_scatter else 'line'
         
         # Scale markersize from matplotlib (typical 1-20, default 6) to GLE msize (0.05-0.5)
-        # Formula: msize = markersize * 0.025 * scale_factor
         # Examples: markersize 6 → 0.15, markersize 10 → 0.25, markersize 20 → 0.5
-        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
+        gle_markersize = markersize_to_msize(markersize, self.figure.marker_config.msize_scale)
         
         line_data = {
             'type': plot_type,
@@ -240,8 +292,8 @@ class Axes:
             Legend label
         capsize : float, optional
             Width of error bar caps in matplotlib points (typical: 3-5).
-            Automatically converted to GLE cm units (points * 0.0353).
-            Default: None (no caps)
+            Automatically converted to GLE cm units via
+            ``parser.units.capsize_pt_to_cm``. Default: None (no caps)
         capsize_cm : float, optional
             Width of error bar caps directly in GLE cm units (typical: 0.05-0.15).
             If specified, this overrides `capsize`. Use this for direct control.
@@ -301,10 +353,9 @@ class Axes:
             gle_marker = get_gle_marker(parsed_marker)
 
         # Scale markersize from matplotlib to GLE msize (with config scaling)
-        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
+        gle_markersize = markersize_to_msize(markersize, self.figure.marker_config.msize_scale)
 
-        # Convert capsize from matplotlib points to GLE cm
-        # 1 point = 1/72 inch = 2.54/72 cm ≈ 0.0353 cm
+        # Convert capsize from matplotlib points to GLE cm.
         # Store the original capsize for the data structure, convert for GLE output
         gle_capsize = None
         stored_capsize = None
@@ -314,7 +365,7 @@ class Axes:
             stored_capsize = capsize_cm  # Store the cm value
         elif capsize is not None:
             # Convert from matplotlib points to cm for GLE
-            gle_capsize = capsize * 0.0353
+            gle_capsize = capsize_pt_to_cm(capsize)
             stored_capsize = capsize  # Store original matplotlib value
 
         # Process yerr
@@ -419,8 +470,8 @@ class Axes:
             gle_color = rgb_to_gle(color)
 
         gle_marker = get_gle_marker(marker) if marker else None
-        gle_markersize = markersize * 0.025 * self.figure.marker_config.msize_scale
-        gle_capsize = capsize * 0.0353 if capsize is not None else None
+        gle_markersize = markersize_to_msize(markersize, self.figure.marker_config.msize_scale)
+        gle_capsize = capsize_pt_to_cm(capsize) if capsize is not None else None
 
         self.file_series.append(
             {
@@ -798,3 +849,132 @@ class Axes:
                 if plot_data.get('yaxis') == 'y2':
                     return True
         return False
+
+    # -- Serialization ----------------------------------------------------
+    #
+    # Which keys in each series dict hold numeric arrays. ``from_dict`` uses
+    # this to restore ndarrays where the object model expects them; every
+    # other key is a JSON scalar/string/None and is restored verbatim.
+    _ARRAY_KEYS = {
+        'lines': ('x', 'y'),
+        'scatters': ('x', 'y'),
+        'bars': ('x', 'height'),
+        'fills': ('x', 'y1', 'y2'),
+        'errorbars': ('x', 'y', 'yerr_up', 'yerr_down', 'xerr_left', 'xerr_right'),
+        'file_series': (),
+        'texts': (),
+    }
+
+    # Series list attributes serialized on every axes, in a stable order.
+    _SERIES_ATTRS = ('lines', 'scatters', 'bars', 'fills', 'errorbars',
+                     'file_series', 'texts')
+
+    def to_dict(self) -> dict:
+        """Serialize this axes to a JSON-safe dictionary.
+
+        Captures the subplot position, all axis/scale/limit/legend state,
+        the shared-axes visibility flags, and every series list (lines,
+        scatters, bars, fills, errorbars, file_series, texts) with their
+        numeric data converted to plain Python lists. numpy arrays and
+        scalars are converted so the result is directly ``json``-safe and
+        deterministic.
+
+        The ``data_file`` name stored on each generated series is preserved
+        verbatim so that a round-trip produces byte-identical GLE regardless
+        of the module-global data-file counter state.
+        """
+        return {
+            'position': list(self.position) if self.position is not None else None,
+            'xlabel_text': self.xlabel_text,
+            'ylabel_text': self.ylabel_text,
+            'y2label_text': self.y2label_text,
+            'title_text': self.title_text,
+            'xscale': self.xscale,
+            'yscale': self.yscale,
+            'y2scale': self.y2scale,
+            'xmin': _to_jsonable(self.xmin),
+            'xmax': _to_jsonable(self.xmax),
+            'ymin': _to_jsonable(self.ymin),
+            'ymax': _to_jsonable(self.ymax),
+            'y2min': _to_jsonable(self.y2min),
+            'y2max': _to_jsonable(self.y2max),
+            'legend_on': self.legend_on,
+            'legend_pos': self.legend_pos,
+            'show_xlabel': self._show_xlabel,
+            'show_ylabel': self._show_ylabel,
+            'show_xticks': self._show_xticks,
+            'show_yticks': self._show_yticks,
+            'remove_last_xtick': getattr(self, '_remove_last_xtick', False),
+            'remove_last_ytick': getattr(self, '_remove_last_ytick', False),
+            'remove_first_xtick': getattr(self, '_remove_first_xtick', False),
+            'remove_first_ytick': getattr(self, '_remove_first_ytick', False),
+            'lines': [_to_jsonable(d) for d in self.lines],
+            'scatters': [_to_jsonable(d) for d in self.scatters],
+            'bars': [_to_jsonable(d) for d in self.bars],
+            'fills': [_to_jsonable(d) for d in self.fills],
+            'errorbars': [_to_jsonable(d) for d in self.errorbars],
+            'file_series': [_to_jsonable(d) for d in self.file_series],
+            'texts': [_to_jsonable(d) for d in self.texts],
+            'passthrough': list(self.passthrough),
+        }
+
+    @classmethod
+    def from_dict(cls, figure, d: dict) -> 'Axes':
+        """Reconstruct an :class:`Axes` from a :meth:`to_dict` payload.
+
+        Parameters
+        ----------
+        figure : Figure
+            Parent figure the new axes is attached to.
+        d : dict
+            Axes payload produced by :meth:`to_dict`. Unknown keys are
+            ignored for forward compatibility.
+
+        Numeric data in series is restored to ``float`` numpy arrays where the
+        object model expects arrays (see ``_ARRAY_KEYS``); optional error
+        arrays that were ``None`` stay ``None``. All style keys, labels and
+        the ``data_file`` names are restored verbatim.
+        """
+        position = d.get('position')
+        if position is not None:
+            position = tuple(position)
+        ax = cls(figure, position)
+
+        ax.xlabel_text = d.get('xlabel_text', '')
+        ax.ylabel_text = d.get('ylabel_text', '')
+        ax.y2label_text = d.get('y2label_text', '')
+        ax.title_text = d.get('title_text', '')
+        ax.xscale = d.get('xscale', 'linear')
+        ax.yscale = d.get('yscale', 'linear')
+        ax.y2scale = d.get('y2scale', 'linear')
+        ax.xmin = d.get('xmin')
+        ax.xmax = d.get('xmax')
+        ax.ymin = d.get('ymin')
+        ax.ymax = d.get('ymax')
+        ax.y2min = d.get('y2min')
+        ax.y2max = d.get('y2max')
+        ax.legend_on = d.get('legend_on')  # tri-state; missing key = auto
+        ax.legend_pos = d.get('legend_pos', 'top right')
+
+        ax._show_xlabel = d.get('show_xlabel', True)
+        ax._show_ylabel = d.get('show_ylabel', True)
+        ax._show_xticks = d.get('show_xticks', True)
+        ax._show_yticks = d.get('show_yticks', True)
+        ax._remove_last_xtick = d.get('remove_last_xtick', False)
+        ax._remove_last_ytick = d.get('remove_last_ytick', False)
+        ax._remove_first_xtick = d.get('remove_first_xtick', False)
+        ax._remove_first_ytick = d.get('remove_first_ytick', False)
+
+        for attr in cls._SERIES_ATTRS:
+            array_keys = cls._ARRAY_KEYS[attr]
+            restored = []
+            for series in d.get(attr, []):
+                item = dict(series)
+                for key in array_keys:
+                    item[key] = _to_float_array(item.get(key))
+                restored.append(item)
+            setattr(ax, attr, restored)
+
+        ax.passthrough = list(d.get('passthrough', []))
+
+        return ax

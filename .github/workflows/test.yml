@@ -69,13 +69,17 @@ jobs:
             extra-cmake-modules \
             texlive
 
+      # GLE is pinned to a release tag: building an unpinned upstream master
+      # broke CI when it grew a hard docbook-to-man requirement for man
+      # pages. Man pages and the QGLE GUI are disabled - the tests only need
+      # the gle CLI.
       - name: Clone and build GLE (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           cd /tmp
-          git clone --depth=1 https://github.com/vlabella/GLE.git
+          git clone --depth=1 --branch v4.3.9 https://github.com/vlabella/GLE.git
           cd GLE
-          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_MANPAGES=OFF -DBUILD_GUI=OFF
           cmake --build build
           sudo cmake --install build
 
@@ -83,9 +87,9 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           cd /tmp
-          git clone --depth=1 https://github.com/vlabella/GLE.git
+          git clone --depth=1 --branch v4.3.9 https://github.com/vlabella/GLE.git
           cd GLE
-          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_MANPAGES=OFF -DBUILD_GUI=OFF
           cmake --build build --config Release
           cmake --install build --config Release
 
