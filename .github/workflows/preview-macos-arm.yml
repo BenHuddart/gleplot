@@ -1,0 +1,91 @@
+name: Preview build (macOS arm64)
+
+# Manually-triggered preview build. Produces an unversioned-tag .dmg named after
+# the current pyproject version plus a short SHA, so testers can grab a build off
+# any branch without cutting a release. Mirrors release-binaries.yml's macOS job
+# but derives a "<base>-preview.<shortsha>" version instead of a tag.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-macos-arm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos-arm:
+    name: Build macOS DMG (arm64)
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Extract preview version
+        id: meta
+        shell: bash
+        run: |
+          BASE_VERSION=$(grep -E '^version = ' pyproject.toml | head -1 | sed 's/^version = "\(.*\)"/\1/')
+          SHORT_SHA="${GITHUB_SHA::7}"
+          PREVIEW_VERSION="${BASE_VERSION}-preview.${SHORT_SHA}"
+          echo "version=${PREVIEW_VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          # Editable install first so copy_metadata("gleplot") in the spec finds
+          # the dist-info. gui = PySide6; packaging = pyinstaller + Pillow +
+          # dmgbuild (the latter carries a sys_platform == 'darwin' marker).
+          pip install -e ".[gui,packaging]"
+
+      - name: Generate macOS icon (.icns)
+        shell: bash
+        run: python packaging/macos_icon.py --icns build/icons/gleplot.icns
+
+      - name: Build application with PyInstaller
+        env:
+          PYI_ICON_PATH: ${{ github.workspace }}/build/icons/gleplot.icns
+        shell: bash
+        run: pyinstaller --clean --noconfirm packaging/gleplot.spec
+
+      - name: Smoke-test packaged app
+        shell: bash
+        run: |
+          test -x dist/gleplot.app/Contents/MacOS/gleplot
+          dist/gleplot.app/Contents/MacOS/gleplot --smoke-test
+
+      - name: Generate DMG background
+        shell: bash
+        run: python scripts/build_dmg_background.py --output build/dmg-bg.png
+
+      - name: Build DMG
+        env:
+          GLEPLOT_APP_BUNDLE: ${{ github.workspace }}/dist/gleplot.app
+          GLEPLOT_DMG_BACKGROUND: ${{ github.workspace }}/build/dmg-bg.png
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          DMG_PATH="dist/gleplot-${VERSION}-macos-arm64.dmg"
+
+          test -d dist/gleplot.app
+
+          rm -f "$DMG_PATH"
+          dmgbuild -s packaging/macos/dmg_settings.py "gleplot" "$DMG_PATH"
+
+      - name: Upload macOS arm64 preview artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gleplot-macos-arm64-preview
+          path: dist/gleplot-${{ steps.meta.outputs.version }}-macos-arm64.dmg
+          if-no-files-found: error
+          # Preview builds are downloaded manually from the workflow run; a short
+          # retention keeps Actions storage use low (default is 90 days).
+          retention-days: 3

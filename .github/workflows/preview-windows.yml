@@ -1,0 +1,95 @@
+name: Preview build (Windows x64)
+
+# Manually-triggered preview build. Produces an unversioned-tag installer named
+# after the current pyproject version plus a short SHA, so testers can grab a
+# build off any branch without cutting a release. Mirrors release-binaries.yml's
+# Windows job but derives a "<base>-preview.<shortsha>" version instead of a tag.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Build Windows installer (x64)
+    runs-on: windows-2025
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Extract preview version
+        id: meta
+        shell: pwsh
+        run: |
+          $line = Select-String -Path pyproject.toml -Pattern '^version = "' | Select-Object -First 1
+          $baseVersion = $line.Line -replace '^version = "(.+)"', '$1'
+          $shortSha = $env:GITHUB_SHA.Substring(0, 7)
+          $previewVersion = "$baseVersion-preview.$shortSha"
+          "version=$previewVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          # Editable install first so copy_metadata("gleplot") in the spec finds
+          # the dist-info. gui = PySide6; packaging = pyinstaller + Pillow.
+          pip install -e ".[gui,packaging]"
+
+      - name: Generate Windows icon (.ico)
+        shell: pwsh
+        run: python packaging/macos_icon.py --ico build/icons/gleplot.ico
+
+      - name: Build application with PyInstaller
+        env:
+          PYI_ICON_PATH: ${{ github.workspace }}\build\icons\gleplot.ico
+        shell: pwsh
+        run: pyinstaller --clean --noconfirm packaging/gleplot.spec
+
+      - name: Smoke-test packaged app
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\gleplot\gleplot.exe")) {
+            throw "Packaged executable not found at dist\\gleplot\\gleplot.exe"
+          }
+          & "dist\gleplot\gleplot.exe" --smoke-test
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y
+
+      - name: Build EXE installer
+        shell: pwsh
+        run: |
+          $previewVersion = "${{ steps.meta.outputs.version }}"
+          $appDir = "$env:GITHUB_WORKSPACE\dist\gleplot"
+          $iconFile = "$env:GITHUB_WORKSPACE\build\icons\gleplot.ico"
+          $outputDir = "$env:GITHUB_WORKSPACE\dist"
+          $outputName = "gleplot-$previewVersion-windows-x64"
+          iscc `
+            "/DAppVersion=$previewVersion" `
+            "/DAppDir=$appDir" `
+            "/DIconFile=$iconFile" `
+            "/DOutputDir=$outputDir" `
+            "/DOutputName=$outputName" `
+            packaging\windows\gleplot.iss
+
+      - name: Upload Windows preview artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gleplot-windows-x64-preview
+          path: dist/gleplot-${{ steps.meta.outputs.version }}-windows-x64.exe
+          if-no-files-found: error
+          # Preview builds are downloaded manually from the workflow run; a short
+          # retention keeps Actions storage use low (default is 90 days).
+          retention-days: 3
