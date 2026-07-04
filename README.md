@@ -46,11 +46,40 @@ fig.savefig('trig.pdf', folder=True)
 ✨ **Publication Ready** - Suitable for all major academic journals  
 ✨ **Lightweight** - Pure Python, minimal dependencies  
 
+## GUI Editor
+
+gleplot also ships a desktop editor (PySide6) for building figures without writing code: load data, pick columns, style series, arrange subplots, and export -- all with a live preview.
+
+### Install
+```bash
+pip install "gleplot[gui]"
+```
+
+### Launch
+```bash
+gleplot-gui
+```
+
+### Features
+✨ **Live Preview** - Debounced, async GLE compile-to-PNG as you edit  
+✨ **Data Manager** - Load CSV/`.dat` files, pick columns, import data or reference the file in place  
+✨ **Property Panels** - Layout, Figure, Axes, and Series tabs for point-and-click styling  
+✨ **Project Files** - Save/load your work as `.glep` (versioned JSON) via File ▸ Save / Open  
+✨ **Export Dialog** - PDF, PNG, EPS, SVG, JPG, or raw GLE script, with an optional folder bundle  
+✨ **Undo/Redo** - Full editing history  
+✨ **Hand-Written `.gle` Preview** - Open an existing script for a read-only render + export  
+
+### Requirements
+The editor needs GLE 4.3+ installed and discoverable (via `GLE_PATH` or `PATH`) to render the live preview and export non-`.gle` formats -- see [Installation](#installation) above. The status bar shows the detected GLE path (or "not found").
+
+See the **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** for a full walkthrough, and `examples/gui/` for a ready-to-open sample project.
+
 ## Documentation
 
 📚 **[Live Sphinx Documentation](https://benhuddart.github.io/gleplot/)** - Complete API reference and guides
 
 **Key Documentation Resources:**
+- **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** - Desktop editor walkthrough, project files, troubleshooting
 - **[Configuration System](docs/guides/CONFIGURATION.md)** - Customize gleplot appearance and behavior
 - **[Configuration API](docs/guides/CONFIGURATION_API.md)** - Complete configuration reference  
 - **[Semantic Versioning](docs/guides/VERSIONING.md)** - Automatic version management

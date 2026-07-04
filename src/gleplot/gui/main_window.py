@@ -30,7 +30,7 @@ import shutil
 from pathlib import Path
 from typing import List, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QCloseEvent, QCursor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -109,8 +109,17 @@ class MainWindow(QMainWindow):
         Compile-error list (Output dock).
     """
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        settings: Optional[QSettings] = None,
+    ) -> None:
         super().__init__(parent)
+        #: Optional injected QSettings store, forwarded to file_ops calls so
+        #: tests/embedders can isolate recent-files/last-dir state from the
+        #: user's real settings. ``None`` preserves prior behavior (each
+        #: file_ops call falls back to QSettings("gleplot", "gleplot")).
+        self._settings = settings
         self.resize(1200, 800)
 
         # GLE-preview mode state. ``_gle_preview_path`` is the .gle file being
@@ -432,7 +441,9 @@ class MainWindow(QMainWindow):
             # All recent entries and .glep choices go through open_project.
             # Pass the resolved path so no second dialog is shown.
             self._leave_gle_preview_mode()
-            if file_ops.open_project(self, self.document, path=path):
+            if file_ops.open_project(
+                self, self.document, path=path, settings=self._settings
+            ):
                 # A genuinely different document arrived: frame it fresh
                 # (FIX 10). set_figure no longer resets the view on its own.
                 self.preview_view.reset_view()
@@ -441,14 +452,14 @@ class MainWindow(QMainWindow):
         """File ▸ Save: save to the current project path (prompting if unset)."""
         if self.is_gle_preview_mode:
             return
-        if file_ops.save_project_current(self, self.document):
+        if file_ops.save_project_current(self, self.document, settings=self._settings):
             self.undo_stack.mark_saved()
 
     def _on_save_as(self) -> None:
         """File ▸ Save As: save to a newly chosen project path."""
         if self.is_gle_preview_mode:
             return
-        if file_ops.save_project_as(self, self.document):
+        if file_ops.save_project_as(self, self.document, settings=self._settings):
             self.undo_stack.mark_saved()
 
     def _on_export(self) -> None:
@@ -456,7 +467,11 @@ class MainWindow(QMainWindow):
         if self.is_gle_preview_mode:
             self._export_gle_preview()
         else:
-            run_export_dialog(self.document, self)
+            exported_path = run_export_dialog(self.document, self)
+            if exported_path is not None:
+                self.statusBar().showMessage(
+                    f"Exported {exported_path}", _STATUS_MS
+                )
 
     def _export_gle_preview(self) -> None:
         """Export the currently-previewed ``.gle`` via a Save dialog."""
@@ -494,7 +509,7 @@ class MainWindow(QMainWindow):
     def _rebuild_recent_menu(self) -> None:
         """Repopulate the Open Recent submenu from persisted recent files."""
         self.recent_menu.clear()
-        recents = file_ops.get_recent_files()
+        recents = file_ops.get_recent_files(settings=self._settings)
         if not recents:
             empty = self.recent_menu.addAction("(none)")
             empty.setEnabled(False)

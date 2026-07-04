@@ -4,6 +4,18 @@ This directory contains detailed guides and documentation for various aspects of
 
 ## API and Usage Documentation
 
+### [GUI_EDITOR.md](GUI_EDITOR.md)
+Guide for the desktop GUI editor (`gleplot-gui`): installation, walkthrough, project files, and troubleshooting.
+
+**Contents:**
+- Installation and launching
+- Load data, style series, arrange subplots walkthrough
+- The `.glep` project format
+- Opening hand-written `.gle` files
+- Undo/redo behavior
+- GLE discovery and troubleshooting
+- Current limitations
+
 ### [VIEW_FUNCTION.md](VIEW_FUNCTION.md)
 Complete guide for the `view()` function for inline display in Jupyter notebooks.
 

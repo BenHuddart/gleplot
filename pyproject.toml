@@ -63,7 +63,7 @@ Repository = "https://github.com/benhuddart/gleplot"
 "Bug Tracker" = "https://github.com/benhuddart/gleplot/issues"
 
 [tool.setuptools]
-packages = ["gleplot", "gleplot.gui", "gleplot.gui.panels"]
+packages = ["gleplot", "gleplot.gui", "gleplot.gui.data", "gleplot.gui.panels"]
 package-dir = {"" = "src"}
 
 [tool.black]
