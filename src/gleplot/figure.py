@@ -5,9 +5,27 @@ from pathlib import Path
 from typing import Tuple, Optional, Literal
 from .axes import Axes
 from .writer import GLEWriter
-from .compiler import GLECompiler
+from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .colors import rgb_to_gle
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
+
+
+#: Envelope identifiers for the gleplot project-file format.
+PROJECT_FORMAT = 'gleplot-project'
+PROJECT_VERSION = 1
+
+
+def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
+    """Filter ``data`` down to the keys ``cls`` (a dataclass) accepts.
+
+    Used when reconstructing config dataclasses (:class:`GLEStyleConfig`,
+    :class:`GLEGraphConfig`, :class:`GLEMarkerConfig`) from a project dict, so
+    that unknown keys saved by a newer/older version of gleplot are ignored
+    instead of raising ``TypeError`` -- consistent with the forward-compat
+    guarantee documented on :meth:`Figure.from_dict`.
+    """
+    allowed = cls.__dataclass_fields__.keys()
+    return {k: v for k, v in data.items() if k in allowed}
 
 
 class Figure:
@@ -300,9 +318,11 @@ class Figure:
         ----------
         filepath : str
             Output file path
-        format : {'pdf', 'png', 'eps'}, optional
-            Output format. If None, saves as .gle script only.
-            If format given but file ext different, uses format.
+        format : {'pdf', 'png', 'eps', 'jpg', 'svg'}, optional
+            Output format. If None, the format is auto-detected from the
+            file suffix (``.jpeg`` maps to ``jpg``); an unrecognized or
+            missing suffix defaults to saving the ``.gle`` script only.
+            If format is given but the file extension differs, format wins.
         dpi : int, optional
             DPI for raster formats
         folder : bool, optional
@@ -323,18 +343,12 @@ class Figure:
         )
         export_dir.mkdir(parents=True, exist_ok=True)
         
-        # Determine output format
+        # Determine output format from the file suffix. Driven by
+        # SUFFIX_TO_COMPILE_FORMAT (shared with GLECompiler) so this can't
+        # silently drift out of sync with what the compiler supports.
+        # Unknown/missing suffixes (including '.gle') default to 'gle'.
         if format is None:
-            if output_path.suffix == '.gle':
-                format = 'gle'
-            elif output_path.suffix == '.pdf':
-                format = 'pdf'
-            elif output_path.suffix == '.png':
-                format = 'png'
-            elif output_path.suffix == '.eps':
-                format = 'eps'
-            else:
-                format = 'gle'  # Default
+            format = SUFFIX_TO_COMPILE_FORMAT.get(output_path.suffix.lower(), 'gle')
         
         # Write GLE script and data files
         base_path = output_path.with_suffix('.gle')
@@ -910,6 +924,175 @@ class Figure:
                 tmp_path.unlink()
             raise e
     
+    # -- Serialization ------------------------------------------------------
+
+    def to_dict(self) -> dict:
+        """Serialize the figure to a JSON-safe project dictionary.
+
+        Produces the full, lossless object-model representation used by the
+        project-file format and (later) undo/redo snapshots. The result is a
+        top-level envelope::
+
+            {
+                "format": "gleplot-project",
+                "version": 1,
+                "gleplot_version": <installed gleplot version>,
+                "figure": { ... }
+            }
+
+        The ``figure`` block captures figure-level parameters (``figsize``,
+        ``dpi``, ``sharex``, ``sharey``, ``data_prefix``), the data-file
+        naming state, subplot layout overrides, the per-figure style / graph /
+        marker configuration overrides (serialized via each config's own
+        ``to_dict``), and every axes with all of its series and state via
+        :meth:`Axes.to_dict`.
+
+        Only authoritative state is serialized. Axis limits are serialized as
+        they currently sit on each axes: limits explicitly set by the user are
+        captured, while limits left unset remain ``None`` and are re-derived
+        from data at GLE-generation time -- keeping the format independent of
+        that (order-dependent, potentially expensive) derivation. Calling
+        ``to_dict`` twice on an unchanged figure yields an identical dict.
+
+        The generated-series ``data_file`` names and the figure's set of used
+        data-file names are round-tripped exactly, so regenerated GLE does not
+        depend on the module-global data-file counter. The counter's current
+        value is nonetheless also saved (``global_data_counter``) so that
+        continued plotting after :meth:`from_dict` in a fresh process picks up
+        where the original session left off instead of restarting at 0 and
+        colliding with (or duplicating) previously used ``data_N.dat`` names.
+
+        Returns
+        -------
+        dict
+            JSON-serializable project dictionary.
+        """
+        from . import __version__
+        from . import axes as _axes_module
+
+        figure_block = {
+            'figsize': list(self.figsize),
+            'dpi': self.dpi,
+            'sharex': self.sharex,
+            'sharey': self.sharey,
+            'data_prefix': self.data_prefix,
+            'local_data_counter': self._local_data_counter,
+            'global_data_counter': _axes_module._global_data_file_counter,
+            'used_data_files': sorted(self._used_data_files),
+            'subplot_adjust': {k: float(v) for k, v in self._subplot_adjust.items()},
+            'config': {
+                'style': self.style.to_dict(),
+                'graph': self.graph.to_dict(),
+                'marker': self.marker_config.to_dict(),
+            },
+            'axes': [ax.to_dict() for ax in self.axes_list],
+        }
+
+        return {
+            'format': PROJECT_FORMAT,
+            'version': PROJECT_VERSION,
+            'gleplot_version': __version__,
+            'figure': figure_block,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Figure':
+        """Reconstruct an equivalent :class:`Figure` from a project dict.
+
+        Parameters
+        ----------
+        d : dict
+            A project dictionary as produced by :meth:`to_dict`.
+
+        Returns
+        -------
+        Figure
+            A figure equivalent to the one that was serialized: round-tripping
+            through :meth:`to_dict` reproduces an equal dictionary and
+            regenerated GLE (with the same ``data_prefix``) is byte-identical.
+
+        Raises
+        ------
+        ValueError
+            If the envelope ``format`` is missing/unrecognized or the
+            ``version`` is unsupported.
+
+        Notes
+        -----
+        Unknown keys inside the envelope, the ``figure`` block, and the
+        ``config`` sub-dicts (``style``/``graph``/``marker``) are ignored for
+        forward compatibility.
+
+        The module-global data-file counter (used to name auto-generated
+        ``data_N.dat`` series when a figure has no custom ``data_prefix``) is
+        restored to ``max(current in-process value, saved value)``. Taking
+        the max means that in a fresh process this simply continues the
+        saved sequence, while in a long-running process with other figures
+        already using the counter, it never rewinds and risks a future
+        collision.
+        """
+        from . import axes as _axes_module
+
+        fmt = d.get('format')
+        if fmt != PROJECT_FORMAT:
+            raise ValueError(
+                f"Unrecognized project format {fmt!r}; expected {PROJECT_FORMAT!r}"
+            )
+        version = d.get('version')
+        if version != PROJECT_VERSION:
+            raise ValueError(
+                f"Unsupported project version {version!r}; this build supports "
+                f"version {PROJECT_VERSION}"
+            )
+
+        fig_block = d.get('figure')
+        if not isinstance(fig_block, dict):
+            raise ValueError("Project envelope is missing a 'figure' object")
+
+        config = fig_block.get('config') or {}
+        style = (
+            GLEStyleConfig(**_filtered_dataclass_kwargs(GLEStyleConfig, config['style']))
+            if config.get('style') else None
+        )
+        graph = (
+            GLEGraphConfig(**_filtered_dataclass_kwargs(GLEGraphConfig, config['graph']))
+            if config.get('graph') else None
+        )
+        marker = (
+            GLEMarkerConfig(**_filtered_dataclass_kwargs(GLEMarkerConfig, config['marker']))
+            if config.get('marker') else None
+        )
+
+        figsize = fig_block.get('figsize', (8, 6))
+        figsize = tuple(figsize)
+
+        fig = cls(
+            figsize=figsize,
+            dpi=fig_block.get('dpi', 100),
+            style=style,
+            graph=graph,
+            marker=marker,
+            sharex=fig_block.get('sharex', False),
+            sharey=fig_block.get('sharey', False),
+            data_prefix=fig_block.get('data_prefix'),
+        )
+
+        fig._local_data_counter = fig_block.get('local_data_counter', 0)
+        fig._used_data_files = set(fig_block.get('used_data_files', []))
+        fig._subplot_adjust = {
+            k: float(v) for k, v in (fig_block.get('subplot_adjust') or {}).items()
+        }
+
+        saved_counter = fig_block.get('global_data_counter', 0)
+        _axes_module._global_data_file_counter = max(
+            _axes_module._global_data_file_counter, saved_counter
+        )
+
+        fig.axes_list = [Axes.from_dict(fig, ax_d) for ax_d in fig_block.get('axes', [])]
+        fig._current_axes = fig.axes_list[-1] if fig.axes_list else None
+
+        return fig
+
     def close(self):
         """Close figure."""
         self.axes_list.clear()

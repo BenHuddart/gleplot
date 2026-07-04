@@ -11,6 +11,51 @@ from .markers import get_gle_marker
 _global_data_file_counter = 0
 
 
+def _to_jsonable(value):
+    """Recursively convert a value into a JSON-serializable form.
+
+    numpy arrays become lists, numpy scalars become native Python scalars,
+    and tuples become lists. Nested dicts/lists are converted element-wise.
+    ``None``, ``bool``, ``str`` and native numeric types pass through
+    unchanged. This is the single conversion used by all serialization so
+    that ``to_dict`` output is deterministic and ``json``-safe.
+    """
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, np.ndarray):
+        if value.dtype.kind in 'biufc':  # bool/int/uint/float/complex: numeric
+            # ndarray.tolist() already recursively converts numeric dtypes to
+            # native Python scalars (int/float/bool), so no need to re-wrap
+            # every element in a Python-level comprehension (avoids iterating
+            # large arrays twice).
+            return value.tolist()
+        # Object/other dtypes may hold values that aren't already
+        # JSON-serializable (e.g. nested numpy scalars); recurse per element.
+        return [_to_jsonable(v) for v in value.tolist()]
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (list, tuple)):
+        return [_to_jsonable(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (int, float)):
+        return value
+    # Fallback: represent anything else by its string form (should not occur
+    # for the authoritative state serialized here).
+    return value
+
+
+def _to_float_array(value):
+    """Restore a numeric array field from JSON data as a float ndarray.
+
+    Returns ``None`` when the incoming value is ``None`` so optional error
+    arrays round-trip exactly.
+    """
+    if value is None:
+        return None
+    return np.asarray(value, dtype=float)
+
+
 def _sanitize_data_stem(name: object) -> str:
     """Convert an arbitrary data name to a safe filename stem."""
     text = re.sub(r"[^A-Za-z0-9_-]+", "_", str(name).strip().lower())
@@ -798,3 +843,129 @@ class Axes:
                 if plot_data.get('yaxis') == 'y2':
                     return True
         return False
+
+    # -- Serialization ----------------------------------------------------
+    #
+    # Which keys in each series dict hold numeric arrays. ``from_dict`` uses
+    # this to restore ndarrays where the object model expects them; every
+    # other key is a JSON scalar/string/None and is restored verbatim.
+    _ARRAY_KEYS = {
+        'lines': ('x', 'y'),
+        'scatters': ('x', 'y'),
+        'bars': ('x', 'height'),
+        'fills': ('x', 'y1', 'y2'),
+        'errorbars': ('x', 'y', 'yerr_up', 'yerr_down', 'xerr_left', 'xerr_right'),
+        'file_series': (),
+        'texts': (),
+    }
+
+    # Series list attributes serialized on every axes, in a stable order.
+    _SERIES_ATTRS = ('lines', 'scatters', 'bars', 'fills', 'errorbars',
+                     'file_series', 'texts')
+
+    def to_dict(self) -> dict:
+        """Serialize this axes to a JSON-safe dictionary.
+
+        Captures the subplot position, all axis/scale/limit/legend state,
+        the shared-axes visibility flags, and every series list (lines,
+        scatters, bars, fills, errorbars, file_series, texts) with their
+        numeric data converted to plain Python lists. numpy arrays and
+        scalars are converted so the result is directly ``json``-safe and
+        deterministic.
+
+        The ``data_file`` name stored on each generated series is preserved
+        verbatim so that a round-trip produces byte-identical GLE regardless
+        of the module-global data-file counter state.
+        """
+        return {
+            'position': list(self.position) if self.position is not None else None,
+            'xlabel_text': self.xlabel_text,
+            'ylabel_text': self.ylabel_text,
+            'y2label_text': self.y2label_text,
+            'title_text': self.title_text,
+            'xscale': self.xscale,
+            'yscale': self.yscale,
+            'y2scale': self.y2scale,
+            'xmin': _to_jsonable(self.xmin),
+            'xmax': _to_jsonable(self.xmax),
+            'ymin': _to_jsonable(self.ymin),
+            'ymax': _to_jsonable(self.ymax),
+            'y2min': _to_jsonable(self.y2min),
+            'y2max': _to_jsonable(self.y2max),
+            'legend_on': self.legend_on,
+            'legend_pos': self.legend_pos,
+            'show_xlabel': self._show_xlabel,
+            'show_ylabel': self._show_ylabel,
+            'show_xticks': self._show_xticks,
+            'show_yticks': self._show_yticks,
+            'remove_last_xtick': getattr(self, '_remove_last_xtick', False),
+            'remove_last_ytick': getattr(self, '_remove_last_ytick', False),
+            'remove_first_xtick': getattr(self, '_remove_first_xtick', False),
+            'remove_first_ytick': getattr(self, '_remove_first_ytick', False),
+            'lines': [_to_jsonable(d) for d in self.lines],
+            'scatters': [_to_jsonable(d) for d in self.scatters],
+            'bars': [_to_jsonable(d) for d in self.bars],
+            'fills': [_to_jsonable(d) for d in self.fills],
+            'errorbars': [_to_jsonable(d) for d in self.errorbars],
+            'file_series': [_to_jsonable(d) for d in self.file_series],
+            'texts': [_to_jsonable(d) for d in self.texts],
+        }
+
+    @classmethod
+    def from_dict(cls, figure, d: dict) -> 'Axes':
+        """Reconstruct an :class:`Axes` from a :meth:`to_dict` payload.
+
+        Parameters
+        ----------
+        figure : Figure
+            Parent figure the new axes is attached to.
+        d : dict
+            Axes payload produced by :meth:`to_dict`. Unknown keys are
+            ignored for forward compatibility.
+
+        Numeric data in series is restored to ``float`` numpy arrays where the
+        object model expects arrays (see ``_ARRAY_KEYS``); optional error
+        arrays that were ``None`` stay ``None``. All style keys, labels and
+        the ``data_file`` names are restored verbatim.
+        """
+        position = d.get('position')
+        if position is not None:
+            position = tuple(position)
+        ax = cls(figure, position)
+
+        ax.xlabel_text = d.get('xlabel_text', '')
+        ax.ylabel_text = d.get('ylabel_text', '')
+        ax.y2label_text = d.get('y2label_text', '')
+        ax.title_text = d.get('title_text', '')
+        ax.xscale = d.get('xscale', 'linear')
+        ax.yscale = d.get('yscale', 'linear')
+        ax.y2scale = d.get('y2scale', 'linear')
+        ax.xmin = d.get('xmin')
+        ax.xmax = d.get('xmax')
+        ax.ymin = d.get('ymin')
+        ax.ymax = d.get('ymax')
+        ax.y2min = d.get('y2min')
+        ax.y2max = d.get('y2max')
+        ax.legend_on = d.get('legend_on', False)
+        ax.legend_pos = d.get('legend_pos', 'top right')
+
+        ax._show_xlabel = d.get('show_xlabel', True)
+        ax._show_ylabel = d.get('show_ylabel', True)
+        ax._show_xticks = d.get('show_xticks', True)
+        ax._show_yticks = d.get('show_yticks', True)
+        ax._remove_last_xtick = d.get('remove_last_xtick', False)
+        ax._remove_last_ytick = d.get('remove_last_ytick', False)
+        ax._remove_first_xtick = d.get('remove_first_xtick', False)
+        ax._remove_first_ytick = d.get('remove_first_ytick', False)
+
+        for attr in cls._SERIES_ATTRS:
+            array_keys = cls._ARRAY_KEYS[attr]
+            restored = []
+            for series in d.get(attr, []):
+                item = dict(series)
+                for key in array_keys:
+                    item[key] = _to_float_array(item.get(key))
+                restored.append(item)
+            setattr(ax, attr, restored)
+
+        return ax

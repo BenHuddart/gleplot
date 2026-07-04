@@ -65,6 +65,7 @@ from .config import (
     GLEMarkerConfig,
     GlobalConfig,
 )
+from .project import save_project, load_project
 
 # Module-level convenience functions (for matplotlib compatibility)
 
@@ -340,4 +341,6 @@ __all__ = [
     'GLEGraphConfig',
     'GLEMarkerConfig',
     'GlobalConfig',
+    'save_project',
+    'load_project',
 ]
