@@ -321,3 +321,30 @@ class TestGLECompileErrorAttributes(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestAnsiColoredOutput(unittest.TestCase):
+    """Linux/macOS GLE builds wrap diagnostics in ANSI color escapes."""
+
+    def test_ansi_colored_error_block_parses_with_location(self):
+        from gleplot.compiler import parse_gle_errors
+        raw = (
+            "GLE 4.3.9[bad.gle]-C-R-\n"
+            "\x1b[0m\x1b[91m>> bad.gle (3) |let d1 = sin(x frum 0 to 2*pi|\n"
+            "\x1b[0m\x1b[91m>>                                           ^\n"
+            "\x1b[0m\x1b[91m>> Error: expected closing ')'\x1b[0m\n"
+        )
+        errors = parse_gle_errors(raw)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].line, 3)
+        self.assertEqual(errors[0].message, "expected closing ')'")
+        self.assertNotIn("\x1b", errors[0].source_line or "")
+
+    def test_plain_output_unaffected(self):
+        from gleplot.compiler import parse_gle_errors
+        raw = (
+            ">> bad.gle (3) |let d1 = sin(x frum 0|\n"
+            ">> Error: expected closing ')'\n"
+        )
+        errors = parse_gle_errors(raw)
+        self.assertEqual(errors[0].line, 3)

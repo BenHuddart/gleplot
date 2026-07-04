@@ -115,6 +115,10 @@ class GLECompileError(RuntimeError):
 
 # Matches the location/source line, e.g.:
 #   >> bad.gle (3) |let d1 = sin(x frum 0 to 2*pi|
+#: ANSI SGR color/style escape sequences (e.g. ``\x1b[91m``) emitted by
+#: GLE builds compiled with CONSOLE_COLORS=ON (the Linux/macOS default).
+_ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
+
 _LOCATION_RE = re.compile(
     r'^>>\s*(?P<file>.+?)\s*\((?P<line>\d+)\)\s*\|(?P<source>.*)\|\s*$'
 )
@@ -159,6 +163,12 @@ def parse_gle_errors(output: str) -> list:
     """
     if not output or not output.strip():
         return []
+
+    # Linux/macOS GLE builds (CONSOLE_COLORS=ON) wrap diagnostics in ANSI
+    # color escapes, which would defeat the location regex below and
+    # degrade every error to an unstructured raw-text fallback. Strip them
+    # up front; harmless on output that has none (Windows builds).
+    output = _ANSI_ESCAPE_RE.sub('', output)
 
     lines = output.splitlines()
     errors = []
