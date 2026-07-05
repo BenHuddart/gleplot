@@ -10,6 +10,9 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  # Needed by the "Build and attach desktop installers" step, which dispatches
+  # the release-binaries workflow via the GitHub API (gh workflow run).
+  actions: write
 
 jobs:
   release:
