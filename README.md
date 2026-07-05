@@ -72,6 +72,8 @@ gleplot-gui
 ### Requirements
 The editor needs GLE 4.3+ installed and discoverable (via `GLE_PATH` or `PATH`) to render the live preview and export non-`.gle` formats -- see [Installation](#installation) above. The status bar shows the detected GLE path (or "not found").
 
+Prebuilt Windows and macOS builds are attached to each [GitHub Release](https://github.com/benhuddart/gleplot/releases).
+
 See the **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** for a full walkthrough, and `examples/gui/` for a ready-to-open sample project.
 
 ## Documentation
@@ -143,13 +145,18 @@ gleplot/
 │   ├── axes.py                    # Axes class  
 │   ├── colors.py                  # Color utilities
 │   ├── markers.py                 # Marker definitions
+│   ├── dataio.py                  # Delimited data-file loading
 │   ├── writer.py                  # GLE script writer
 │   ├── compiler.py                # GLE compiler wrapper
-│   └── config.py                  # Configuration system
+│   ├── config.py                  # Configuration system
+│   ├── parser/                    # Parse existing .gle back into the object model
+│   └── gui/                       # PySide6 desktop editor
 │
-├── tests/                          # Test suite (140 tests)
+├── tests/                          # Test suite
 │   ├── unit/                      # Unit tests
 │   ├── integration/               # Integration tests
+│   ├── parser/                    # GLE parser tests
+│   ├── gui/                       # GUI editor tests
 │   ├── agent/                     # Agent tests
 │   ├── test_gleplot.py            # Core test suite
 │   └── generate_test_graphics.py  # Graphics generation tests
@@ -333,7 +340,7 @@ Or run directly:
 python test_gleplot.py
 ```
 
-**Expected output**: 140 tests, all passing
+**Expected output**: a comprehensive test suite (unit, integration, parser, and GUI tests), all passing
 
 ## Examples
 
@@ -444,7 +451,7 @@ gleplot is licensed under GPL-2.0+ (compatible with GLE license).
 ## Status
 
 ✅ **Production Ready**  
-✅ **140/140 Tests Passing**  
+✅ **All Tests Passing**  
 ✅ **Multiple Example Categories**  
 ✅ **Full Documentation**  
 ✅ **Automatic Semantic Versioning**

@@ -148,3 +148,7 @@ test_custom_prefix_output/
 examples/outputs/
 tests/output/
 docs/source/_static/gallery/
+
+# ... and the shipped GUI/app icon asset is tracked despite the *.png rule
+# above (it is the source of truth for the packaged .ico/.icns).
+!src/gleplot/gui/assets/*.png

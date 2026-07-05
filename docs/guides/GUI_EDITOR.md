@@ -19,13 +19,41 @@ It supports two modes:
 
 ## Installation
 
+There are two ways to get the editor: a **prebuilt desktop app** (no Python needed) or **`pip install`** into a Python environment. Either way, GLE itself is a separate prerequisite for live preview and compiled export -- see [Requirements / GLE prerequisite](#requirements--gle-prerequisite).
+
+### Option A: prebuilt desktop app
+
+Recommended for non-Python users. Download an installer for your platform from the project's [GitHub Releases](https://github.com/benhuddart/gleplot/releases):
+
+- **Windows** -- the `.exe` installer.
+- **macOS (Apple silicon / arm64)** -- the `.dmg`.
+
+Then install GLE 4.3+ separately from the [GLE releases page](https://github.com/vlabella/GLE/releases/latest) so the editor can render previews and export compiled formats.
+
+> **macOS Gatekeeper note.** The macOS app is currently **unsigned**, so the first launch is blocked by Gatekeeper. Either **right-click the app → Open** (then confirm) the first time, or clear the quarantine flag from a terminal:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/gleplot.app
+> ```
+
+### Option B: from pip
+
 ```bash
 pip install "gleplot[gui]"
+gleplot-gui
 ```
 
 This installs `PySide6>=6.5` in addition to gleplot's core dependencies. The base `gleplot` package (`import gleplot`) has no Qt dependency -- only the `gleplot.gui` subpackage does, so scripts that just generate GLE output are unaffected.
 
-You'll also need GLE itself installed and discoverable for the live preview and for exporting anything other than a raw `.gle` script -- see [GLE discovery](#gle-discovery) below and the main [README installation instructions](../../README.md#installation).
+You'll also need GLE itself installed and discoverable for the live preview and for exporting anything other than a raw `.gle` script -- see [Requirements / GLE prerequisite](#requirements--gle-prerequisite) below.
+
+## Requirements / GLE prerequisite
+
+The editor needs **GLE 4.3 or newer** for its two compiled features: the **live preview** (which compiles your figure to PNG) and **exporting** anything other than a raw `.gle` script (PDF/PNG/EPS/SVG/JPG). GLE is a separate program -- install it from the [GLE releases page](https://github.com/vlabella/GLE/releases/latest) and make it discoverable, either by putting it on your `PATH` or by setting the `GLE_PATH` environment variable to the executable (see [GLE discovery](#gle-discovery) for the exact search order).
+
+The **status bar** shows the detected GLE path (`GLE: <path>`) or `GLE: not found` if the editor couldn't locate it; the same status also appears in **Help ▸ About**.
+
+Without GLE installed, the editor still runs and **object-model editing still works** -- you can load data, add and style series, arrange subplots, and Save/Open native `.gle` files. Only the **live preview** and **compiled exports** are unavailable; the `.gle`-script export format still works, since it involves no compile step.
 
 ## Launching
 
@@ -65,9 +93,9 @@ Click **Add series**. It's added to the figure's current axes and the live previ
 
 ### 3. Style the series
 
-Switch to the **Properties** dock's **Series** tab, which lists every series on the current axes. Select one to edit its color, marker, linestyle, and line width (control availability depends on the series kind -- e.g. bar charts only expose color, since GLE only supports one color per bar chart, and scatter series have no linestyle/linewidth).
+Switch to the **Properties** dock's **Series** tab, which lists every series on the current axes. Select one to edit its label, color, line style, marker, line width, and marker size (control availability depends on the series kind -- e.g. bar charts only expose color, since GLE only supports one color per bar chart, and scatter series have no line style/line width). The Remove / Up / Down buttons delete or reorder the selected series (reordering only moves it within its own kind -- lines, then scatters, then bars, ... -- the between-kind draw order is fixed).
 
-The **Axes** tab covers axis labels, title, limits, scale (linear/log), and legend placement. The **Figure** tab covers figure-level settings (size, DPI).
+The **Axes** tab covers axis labels (title, X/Y/Y2), limits (leave a limit blank for "auto"), scale (linear/log per axis, including a secondary Y2 axis), and legend (on/off plus one of five placements). The legend checkbox reflects the *effective* state: with it left on auto, a legend appears automatically once any series has a label. The **Figure** tab covers figure-level settings: width and height (inches) and DPI.
 
 ### 4. Arrange subplots
 
@@ -138,7 +166,15 @@ The main window's status bar always shows the result as a permanent widget: `GLE
 
 ### GLE not found
 
-If the status bar reads "GLE: not found", the live preview and any export other than the raw `.gle` script will fail. Install GLE (see the [README](../../README.md#installation)) and either put it on `PATH` or set `GLE_PATH` to the executable, then restart the editor.
+If the status bar reads "GLE: not found", the live preview and any export other than the raw `.gle` script will fail. Install [GLE 4.3+](https://github.com/vlabella/GLE/releases/latest) and either put it on `PATH` or set `GLE_PATH` to the executable, then restart the editor (detection happens at startup). Object-model editing and native `.gle` Save/Open keep working regardless -- see [Requirements / GLE prerequisite](#requirements--gle-prerequisite).
+
+### Preview stays blank
+
+If the preview shows "Nothing to render yet -- load data and add a series", the figure has no renderable content yet: an empty figure (no axes, or axes with no series) is deliberately *not* compiled, so add at least one series. If instead you see a "GLE not found" error in the Output dock, resolve the GLE install as above. A blank preview that never updates while GLE *is* detected usually means every render is failing -- check the Output dock for compile errors (the preview keeps the last good image, so persistent errors leave a stale or empty canvas).
+
+### macOS app won't open ("unidentified developer")
+
+The macOS build is unsigned; Gatekeeper blocks the first launch. Right-click the app → **Open** and confirm, or run `xattr -dr com.apple.quarantine /Applications/gleplot.app` -- see [Installation](#option-a-prebuilt-desktop-app).
 
 ### Compile errors
 

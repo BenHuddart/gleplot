@@ -52,6 +52,12 @@ gle = [
 gui = [
     "PySide6>=6.5",
 ]
+packaging = [
+    "pyinstaller>=6.0",
+    # 9.1 introduced Image.Resampling, used by packaging/macos_icon.py.
+    "Pillow>=9.1",
+    "dmgbuild>=1.6; sys_platform == 'darwin'",
+]
 
 [project.scripts]
 gleplot-gui = "gleplot.gui.app:main"
@@ -63,8 +69,18 @@ Repository = "https://github.com/benhuddart/gleplot"
 "Bug Tracker" = "https://github.com/benhuddart/gleplot/issues"
 
 [tool.setuptools]
-packages = ["gleplot", "gleplot.gui", "gleplot.gui.data", "gleplot.gui.panels"]
 package-dir = {"" = "src"}
+
+# Discover every subpackage under src/gleplot automatically. The previous
+# explicit list silently omitted gleplot.parser (imported by the core __init__,
+# axes, figure, and writer modules), which broke non-editable installs.
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# Ship the app icon inside the wheel so `pip install gleplot[gui]` + gleplot-gui
+# can set its window icon at runtime (the PyInstaller spec bundles it separately).
+"gleplot.gui" = ["assets/*.png"]
 
 [tool.black]
 line-length = 88
@@ -76,7 +92,7 @@ profile = "black"
 line_length = 88
 
 [tool.mypy]
-python_version = "0.1.9"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
