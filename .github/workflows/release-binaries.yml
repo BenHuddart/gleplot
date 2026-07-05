@@ -207,9 +207,11 @@ jobs:
   release:
     name: Create GitHub release
     runs-on: ubuntu-latest
-    # Only publish a release on an actual tag push. A manual workflow_dispatch run
-    # (which has no ref_name tag) builds and uploads artifacts but skips this job.
-    if: github.event_name == 'push'
+    # Attach binaries when we have a tag to attach them to: either an actual
+    # `v*` tag push, OR a manual workflow_dispatch that supplied the `tag`
+    # input (used for the first-run / re-attach case). A dispatch with a blank
+    # tag is a build-only preview: it produces artifacts but skips this job.
+    if: github.event_name == 'push' || github.event.inputs.tag != ''
     needs:
       - build-macos-arm
       - build-windows
@@ -217,6 +219,19 @@ jobs:
       actions: write
       contents: write
     steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          # On a tag push GITHUB_REF_NAME is the tag; on a manual dispatch it is
+          # the branch (e.g. main), so fall back to the `tag` input there.
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          echo "name=${TAG}" >> "${GITHUB_OUTPUT}"
+
       - name: Download build artifacts
         uses: actions/download-artifact@v8
         with:
@@ -225,10 +240,10 @@ jobs:
       - name: Create release and upload assets
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.name }}
           generate_release_notes: true
           # A hyphen in the tag (e.g. v1.3.0-rc.1) marks a pre-release.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           # Append the GLE prerequisite note to the auto-generated notes rather
           # than replacing them.
           append_body: true

@@ -1,5 +1,6 @@
 """GLE compiler wrapper for gleplot."""
 
+import glob
 import os
 import re
 import shutil
@@ -11,18 +12,65 @@ from pathlib import Path
 from typing import Optional, Literal
 
 
-#: Well-known install locations to probe, keyed by `sys.platform` prefix.
+#: Well-known install locations to probe, keyed by ``sys.platform`` prefix.
+#: Entries may be literal paths *or* glob patterns (``*``/``**``): the desktop
+#: GUI ships to users who install GLE in a variety of locations and versioned
+#: directories, so :func:`autodetect_gle` expands every entry with
+#: :func:`glob.glob` and keeps the existing matches. Ordinary ``pip`` / library
+#: use is unaffected (the literal entries below match the common installs).
 _WELL_KNOWN_PATHS = {
     'win32': [
         r'C:\Program Files\GLE\bin\gle.exe',
         r'C:\Program Files (x86)\GLE\bin\gle.exe',
+        # Versioned / non-default install roots, e.g. "GLE-4.3.9".
+        r'C:\Program Files*\GLE*\bin\gle.exe',
+        r'C:\Program Files*\GLE*\gle.exe',
+        # Per-user installs (some installers / manual unzips land here).
+        os.path.join(
+            os.environ.get('LOCALAPPDATA', r'C:\Users\Default\AppData\Local'),
+            'Programs', 'GLE*', '**', 'gle.exe',
+        ),
+    ],
+    'darwin': [
+        '/usr/local/bin/gle',      # Homebrew (Intel)
+        '/opt/homebrew/bin/gle',   # Homebrew (Apple Silicon)
+        '/opt/local/bin/gle',      # MacPorts
+        '/usr/bin/gle',
+        '/Applications/GLE*/**/gle',
     ],
     'default': [
         '/usr/local/bin/gle',
         '/opt/homebrew/bin/gle',
         '/usr/bin/gle',
+        '/snap/bin/gle',           # snap
     ],
 }
+
+#: Process-global explicit override for the GLE executable, set via
+#: :func:`set_gle_path_override`. This is how the desktop GUI pins the binary
+#: the user chose in **Tools ▸ GLE Setup…**; it takes precedence over every
+#: other discovery source (see :func:`find_gle`). ``None`` means "not set"
+#: (library / CLI default), so nothing changes for non-GUI use.
+_gle_path_override: Optional[str] = None
+
+
+def set_gle_path_override(path: Optional[str]) -> None:
+    """Pin (or clear) the GLE executable used by :func:`find_gle`.
+
+    The GUI calls this with the user's configured path (persisted in
+    ``QSettings``) so that every component resolving GLE via :func:`find_gle`
+    -- live preview, export, the status bar -- honors the same choice. An
+    empty string is normalized to ``None`` (i.e. "clear the override and fall
+    back to auto-detection").
+
+    Parameters
+    ----------
+    path : str or None
+        Absolute path to a GLE executable, or ``None`` / ``""`` to clear the
+        override and revert to auto-detection.
+    """
+    global _gle_path_override
+    _gle_path_override = path or None
 
 #: Output formats (GLE ``-d`` device names, lowercased) that
 #: :meth:`GLECompiler.compile` accepts.
@@ -40,21 +88,46 @@ SUFFIX_TO_COMPILE_FORMAT = {
 SUFFIX_TO_COMPILE_FORMAT['.jpeg'] = 'jpg'
 
 
-def find_gle() -> Optional[str]:
+def _iter_well_known_gle_paths() -> "list[str]":
+    """Return existing GLE executables among the well-known locations.
+
+    Each entry in :data:`_WELL_KNOWN_PATHS` for the current platform is treated
+    as a :func:`glob.glob` pattern (a literal path is simply a pattern with no
+    wildcards), so versioned / non-standard install directories are matched
+    too. Results are de-duplicated while preserving discovery order.
     """
-    Locate the GLE executable on this system.
+    patterns = _WELL_KNOWN_PATHS.get(sys.platform, _WELL_KNOWN_PATHS['default'])
+    seen: set = set()
+    found: list = []
+    for pattern in patterns:
+        # recursive=True so a ``**`` segment spans nested directories.
+        for match in glob.glob(pattern, recursive=True):
+            if match not in seen and Path(match).exists():
+                seen.add(match)
+                found.append(match)
+    return found
+
+
+def autodetect_gle() -> Optional[str]:
+    """
+    Auto-detect the GLE executable, ignoring any explicit override.
+
+    This is the discovery used both as the fallback inside :func:`find_gle`
+    (when no override is set) and directly by the GUI's **GLE Setup** dialog to
+    propose a path regardless of what the user has currently pinned.
 
     Discovery precedence (first match wins):
 
     1. ``GLE_PATH`` environment variable -- the supported way to pin a
-       specific GLE binary (e.g. to select among several installed versions,
-       or to point at a non-standard install location). If ``GLE_PATH`` is
-       set but does not point at an existing path, a :class:`UserWarning` is
-       emitted and discovery falls through to the next step rather than
-       silently ignoring the misconfiguration.
+       specific GLE binary from the environment (e.g. to select among several
+       installed versions, or a non-standard install location). If ``GLE_PATH``
+       is set but does not point at an existing path, a :class:`UserWarning` is
+       emitted and discovery falls through rather than silently ignoring the
+       misconfiguration.
     2. ``shutil.which("gle")`` (searches ``PATH``, respecting ``PATHEXT`` on
        Windows)
-    3. Platform-specific well-known install locations
+    3. Platform-specific well-known install locations (:data:`_WELL_KNOWN_PATHS`,
+       expanded as globs so versioned install dirs are matched).
 
     Returns
     -------
@@ -75,12 +148,46 @@ def find_gle() -> Optional[str]:
     if which_path:
         return which_path
 
-    well_known = _WELL_KNOWN_PATHS.get(sys.platform, _WELL_KNOWN_PATHS['default'])
-    for path in well_known:
-        if Path(path).exists():
-            return path
+    well_known = _iter_well_known_gle_paths()
+    if well_known:
+        return well_known[0]
 
     return None
+
+
+def find_gle() -> Optional[str]:
+    """
+    Locate the GLE executable, honoring an explicit override first.
+
+    Discovery precedence (first match wins):
+
+    1. The explicit override set via :func:`set_gle_path_override` (how the
+       GUI pins the user's chosen binary). If the override is set but no longer
+       points at an existing path, a :class:`UserWarning` is emitted and
+       discovery falls through to auto-detection rather than failing outright.
+    2. Everything :func:`autodetect_gle` checks (``GLE_PATH`` env, then
+       ``PATH``, then well-known install locations).
+
+    The override deliberately outranks ``GLE_PATH``: it represents an explicit,
+    in-app choice by the user, which should win over an ambient environment
+    variable. With no override set (the library / CLI default) this is exactly
+    :func:`autodetect_gle`.
+
+    Returns
+    -------
+    str, optional
+        Path to the GLE executable, or None if it could not be found.
+    """
+    if _gle_path_override:
+        if Path(_gle_path_override).exists():
+            return _gle_path_override
+        warnings.warn(
+            f"Configured GLE path {_gle_path_override!r} does not exist; "
+            "falling back to auto-detection.",
+            stacklevel=2,
+        )
+
+    return autodetect_gle()
 
 
 @dataclass
