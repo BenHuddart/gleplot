@@ -30,6 +30,10 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
+# ... but our hand-authored, checked-in build spec IS tracked (the release CI
+# runs `pyinstaller packaging/gleplot.spec`; without this negation the *.spec
+# rule above silently kept it out of the repo, so CI builds could never start).
+!packaging/gleplot.spec
 
 # Installer logs
 pip-log.txt
