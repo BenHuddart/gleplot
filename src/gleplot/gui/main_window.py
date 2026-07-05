@@ -50,12 +50,14 @@ from PySide6.QtWidgets import (
 )
 
 import gleplot
+from gleplot import compiler
 from gleplot.compiler import GLEError
 from gleplot.gui import file_ops, gle_viewer
 from gleplot.gui.data.panel import DataPanel
 from gleplot.gui.document import FigureDocument
 from gleplot.gui.error_panel import ErrorPanel
 from gleplot.gui.export_dialog import run_export_dialog
+from gleplot.gui.gle_setup_dialog import run_gle_setup_dialog
 from gleplot.gui.panels import (
     AxesPanel,
     FigurePanel,
@@ -81,6 +83,12 @@ _OPEN_FILTER = "GLE figure (*.gle);;All files (*)"
 
 #: Export formats recognised (by suffix) in GLE-preview mode.
 _GLE_EXPORT_SUFFIXES = {"pdf", "png", "eps", "svg", "jpg"}
+
+#: QSettings key holding the user's explicit GLE executable override (empty
+#: string == auto-detect). Persisted/read through the window's ``_settings``
+#: (or the shared ``QSettings("gleplot", "gleplot")`` default) and pushed into
+#: :func:`gleplot.compiler.set_gle_path_override` at startup and on change.
+_GLE_PATH_KEY = "gle/path"
 
 
 def _detect_gle_status() -> str:
@@ -134,6 +142,12 @@ class MainWindow(QMainWindow):
         #: file_ops call falls back to QSettings("gleplot", "gleplot")).
         self._settings = settings
         self.resize(1200, 800)
+
+        # Apply the persisted GLE override BEFORE anything resolves GLE: the
+        # PreviewController caches find_gle() at construction, and the status
+        # bar reads it too. Reading settings here (not later) means the user's
+        # pinned binary is in effect for the very first render.
+        compiler.set_gle_path_override(self._read_gle_override())
 
         # GLE-preview mode state. ``_gle_preview_path`` is the .gle file being
         # previewed (None => document mode). ``_gle_temp_dirs`` accumulates the
@@ -275,6 +289,10 @@ class MainWindow(QMainWindow):
         self.action_toggle_properties = self.properties_dock.toggleViewAction()
         self.action_toggle_output = self.output_dock.toggleViewAction()
 
+        # Tools menu
+        self.action_gle_setup = QAction("&GLE Setup…", self)
+        self.action_gle_setup.triggered.connect(self._on_gle_setup)
+
         # Help menu
         self.action_about = QAction("&About", self)
         self.action_about.triggered.connect(self._show_about_dialog)
@@ -309,6 +327,9 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.action_toggle_data)
         view_menu.addAction(self.action_toggle_properties)
         view_menu.addAction(self.action_toggle_output)
+
+        tools_menu = menu_bar.addMenu("&Tools")
+        tools_menu.addAction(self.action_gle_setup)
 
         help_menu = menu_bar.addMenu("&Help")
         help_menu.addAction(self.action_about)
@@ -785,6 +806,57 @@ class MainWindow(QMainWindow):
         self._cleanup_gle_temp_dirs()
         self.preview_controller.shutdown()
         event.accept()
+
+    # ------------------------------------------------------------------
+    # GLE setup (executable configuration)
+    # ------------------------------------------------------------------
+    def _gle_settings(self) -> QSettings:
+        """Return the QSettings store for the GLE override.
+
+        Uses the injected ``_settings`` when present (tests/embedders isolate
+        state this way, exactly as ``file_ops`` does) and otherwise the shared
+        ``QSettings("gleplot", "gleplot")`` store.
+        """
+        return self._settings or QSettings("gleplot", "gleplot")
+
+    def _read_gle_override(self) -> str:
+        """Read the persisted GLE override (``""`` == auto-detect)."""
+        return self._gle_settings().value(_GLE_PATH_KEY, "", type=str) or ""
+
+    def _write_gle_override(self, path: str) -> None:
+        """Persist the GLE override string."""
+        self._gle_settings().setValue(_GLE_PATH_KEY, path or "")
+
+    def _on_gle_setup(self) -> None:
+        """Tools ▸ GLE Setup…: configure which GLE executable gleplot uses.
+
+        On accept, persist the choice, push it into
+        :func:`gleplot.compiler.set_gle_path_override`, refresh the cached path
+        in the preview controller and the status-bar label, and re-render so a
+        newly-available (or newly-changed) GLE takes effect immediately.
+        """
+        chosen = run_gle_setup_dialog(
+            current_override=self._read_gle_override(), parent=self,
+        )
+        if chosen is None:
+            return  # cancelled — leave the setting untouched
+
+        self._write_gle_override(chosen)
+        compiler.set_gle_path_override(chosen)
+
+        # Re-resolve and propagate: the preview controller caches the path.
+        resolved = compiler.find_gle()
+        self.preview_controller.set_gle_path(resolved)
+        self.gle_status_label.setText(_detect_gle_status())
+
+        # A different GLE may render (or fail) differently; refresh the view.
+        # request_render coalesces/skips when there's nothing renderable.
+        if not self.is_gle_preview_mode:
+            self.preview_controller.request_render()
+
+        self.statusBar().showMessage(
+            f"GLE: {resolved}" if resolved else "GLE: not found", _STATUS_MS,
+        )
 
     # ------------------------------------------------------------------
     # Dialogs

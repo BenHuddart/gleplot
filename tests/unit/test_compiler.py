@@ -15,8 +15,10 @@ from gleplot.compiler import (
     GLECompiler,
     GLECompileError,
     GLEError,
+    autodetect_gle,
     find_gle,
     parse_gle_errors,
+    set_gle_path_override,
 )
 from tests._tempdir import make_tempdir
 
@@ -130,6 +132,14 @@ class TestParseGleErrors(unittest.TestCase):
 class TestFindGle(unittest.TestCase):
     """Tests for find_gle() discovery order."""
 
+    def setUp(self):
+        # find_gle now consults a process-global override first; ensure a clean
+        # slate so these auto-detect tests aren't affected by an earlier one.
+        set_gle_path_override(None)
+
+    def tearDown(self):
+        set_gle_path_override(None)
+
     def test_env_var_takes_priority(self):
         with mock.patch.dict('os.environ', {'GLE_PATH': str(Path(__file__))}):
             with mock.patch('gleplot.compiler.shutil.which', return_value='/should/not/be/used'):
@@ -164,9 +174,17 @@ class TestFindGle(unittest.TestCase):
             _os.environ.pop('GLE_PATH', None)
             with mock.patch('gleplot.compiler.shutil.which', return_value=None):
                 with mock.patch('gleplot.compiler.sys.platform', 'win32'):
-                    with mock.patch('gleplot.compiler.Path.exists', return_value=True):
-                        result = find_gle()
-                        self.assertEqual(result, r'C:\Program Files\GLE\bin\gle.exe')
+                    # Well-known entries are now glob patterns expanded against
+                    # the real filesystem; make each pattern "match itself" so
+                    # the first (literal) win32 path is returned regardless of
+                    # the host OS running the test (e.g. Linux CI).
+                    with mock.patch(
+                        'gleplot.compiler.glob.glob',
+                        side_effect=lambda pat, recursive=False: [pat],
+                    ):
+                        with mock.patch('gleplot.compiler.Path.exists', return_value=True):
+                            result = find_gle()
+                            self.assertEqual(result, r'C:\Program Files\GLE\bin\gle.exe')
 
     def test_returns_none_when_nothing_found(self):
         with mock.patch.dict('os.environ', {}, clear=False):
@@ -182,6 +200,96 @@ class TestFindGle(unittest.TestCase):
             compiler = GLECompiler(gle_path='/explicit/path/to/gle')
             self.assertEqual(compiler.gle_path, '/explicit/path/to/gle')
             mock_find.assert_not_called()
+
+
+class TestGlePathOverride(unittest.TestCase):
+    """Tests for the explicit override consulted first by find_gle()."""
+
+    def tearDown(self):
+        set_gle_path_override(None)
+
+    def test_override_wins_over_env_and_path(self):
+        # The override represents an explicit in-app choice and must outrank
+        # GLE_PATH and PATH (an existing file is required).
+        override = str(Path(__file__))
+        set_gle_path_override(override)
+        with mock.patch.dict('os.environ', {'GLE_PATH': '/some/other/gle'}):
+            with mock.patch(
+                'gleplot.compiler.shutil.which', return_value='/on/path/gle'
+            ):
+                self.assertEqual(find_gle(), override)
+
+    def test_missing_override_warns_and_falls_through(self):
+        set_gle_path_override('C:/does/not/exist/gle.exe')
+        with mock.patch.dict('os.environ', {}, clear=False):
+            import os as _os
+            _os.environ.pop('GLE_PATH', None)
+            with mock.patch(
+                'gleplot.compiler.shutil.which', return_value='/usr/bin/gle'
+            ):
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter('always')
+                    result = find_gle()
+                self.assertEqual(result, '/usr/bin/gle')
+                self.assertTrue(
+                    any('does not exist' in str(w.message) for w in caught),
+                    f"expected a fall-through warning, got: "
+                    f"{[str(w.message) for w in caught]}",
+                )
+
+    def test_empty_string_clears_override(self):
+        set_gle_path_override(str(Path(__file__)))
+        set_gle_path_override('')  # normalized to "unset"
+        with mock.patch.dict('os.environ', {}, clear=False):
+            import os as _os
+            _os.environ.pop('GLE_PATH', None)
+            with mock.patch(
+                'gleplot.compiler.shutil.which', return_value='/usr/bin/gle'
+            ):
+                self.assertEqual(find_gle(), '/usr/bin/gle')
+
+    def test_autodetect_ignores_override(self):
+        # autodetect_gle() is what the GUI's "Auto-detect" button calls; it must
+        # bypass whatever the user has currently pinned.
+        set_gle_path_override(str(Path(__file__)))
+        with mock.patch.dict('os.environ', {}, clear=False):
+            import os as _os
+            _os.environ.pop('GLE_PATH', None)
+            with mock.patch(
+                'gleplot.compiler.shutil.which', return_value='/usr/bin/gle'
+            ):
+                self.assertEqual(autodetect_gle(), '/usr/bin/gle')
+
+
+class TestRobustWellKnownDetection(unittest.TestCase):
+    """The well-known fallback expands glob patterns for versioned installs."""
+
+    def tearDown(self):
+        set_gle_path_override(None)
+
+    def test_glob_matches_versioned_install_dir(self):
+        # A GLE installed under a versioned dir (e.g. "GLE-4.3.9") is only
+        # reachable via the glob patterns, not the two literal paths.
+        versioned = r'C:\Program Files\GLE-4.3.9\bin\gle.exe'
+
+        def fake_glob(pattern, recursive=False):
+            # Only the wildcard pattern matches the versioned install.
+            if '*' in pattern and pattern.startswith(r'C:\Program Files'):
+                return [versioned]
+            return []
+
+        with mock.patch.dict('os.environ', {}, clear=False):
+            import os as _os
+            _os.environ.pop('GLE_PATH', None)
+            with mock.patch('gleplot.compiler.shutil.which', return_value=None):
+                with mock.patch('gleplot.compiler.sys.platform', 'win32'):
+                    with mock.patch(
+                        'gleplot.compiler.glob.glob', side_effect=fake_glob
+                    ):
+                        with mock.patch(
+                            'gleplot.compiler.Path.exists', return_value=True
+                        ):
+                            self.assertEqual(find_gle(), versioned)
 
 
 def _real_gle_available():

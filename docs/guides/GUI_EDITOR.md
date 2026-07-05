@@ -49,7 +49,7 @@ You'll also need GLE itself installed and discoverable for the live preview and 
 
 ## Requirements / GLE prerequisite
 
-The editor needs **GLE 4.3 or newer** for its two compiled features: the **live preview** (which compiles your figure to PNG) and **exporting** anything other than a raw `.gle` script (PDF/PNG/EPS/SVG/JPG). GLE is a separate program -- install it from the [GLE releases page](https://github.com/vlabella/GLE/releases/latest) and make it discoverable, either by putting it on your `PATH` or by setting the `GLE_PATH` environment variable to the executable (see [GLE discovery](#gle-discovery) for the exact search order).
+The editor needs **GLE 4.3 or newer** for its two compiled features: the **live preview** (which compiles your figure to PNG) and **exporting** anything other than a raw `.gle` script (PDF/PNG/EPS/SVG/JPG). GLE is a separate program -- install it from the [GLE releases page](https://github.com/vlabella/GLE/releases/latest) and make it discoverable: point the editor at it via **Tools ▸ GLE Setup…**, put it on your `PATH`, or set the `GLE_PATH` environment variable to the executable (see [GLE discovery](#gle-discovery) for the exact search order).
 
 The **status bar** shows the detected GLE path (`GLE: <path>`) or `GLE: not found` if the editor couldn't locate it; the same status also appears in **Help ▸ About**.
 
@@ -156,17 +156,29 @@ Practical implications:
 
 The editor locates the GLE executable the same way the core library does (`gleplot.compiler.find_gle`), in this order:
 
-1. The **`GLE_PATH`** environment variable, if set and pointing at an existing path (a warning is emitted and discovery falls through if it's set but invalid).
-2. `PATH` (via `shutil.which("gle")`, respecting `PATHEXT` on Windows).
-3. A short list of well-known per-platform install locations.
+1. The path you pinned in **Tools ▸ GLE Setup…** (see below), if set and still pointing at an existing file. This explicit in-app choice deliberately outranks everything else; if the pinned path no longer exists, a warning is emitted and discovery falls through.
+2. The **`GLE_PATH`** environment variable, if set and pointing at an existing path (a warning is emitted and discovery falls through if it's set but invalid).
+3. `PATH` (via `shutil.which("gle")`, respecting `PATHEXT` on Windows).
+4. A list of well-known per-platform install locations, including versioned install directories (e.g. `GLE-4.3.9`), MacPorts/Homebrew prefixes, and snap.
 
 The main window's status bar always shows the result as a permanent widget: `GLE: <path>` or `GLE: not found`. The same status also appears in **Help ▸ About**. Detection failures never crash the GUI -- an unexpected exception during discovery degrades to "not found" rather than propagating.
+
+### Tools ▸ GLE Setup…
+
+Because the desktop app does **not** bundle GLE, the **Tools ▸ GLE Setup…** dialog lets you tell gleplot exactly which GLE executable to use -- useful when GLE is installed somewhere non-standard, or when you have several versions and want to pin one:
+
+- **Auto-detect** searches your system (the order above, ignoring any current pin) and fills in the best guess.
+- **Browse…** lets you pick the executable directly.
+- The status line validates the selection by reading GLE's reported version, so you get immediate confirmation it works.
+- Leaving the field **blank** means "auto-detect" (no pin).
+
+Your choice is saved (per user, via `QSettings`) and reapplied on the next launch, and takes effect immediately -- the live preview re-renders and the status bar updates without a restart.
 
 ## Troubleshooting
 
 ### GLE not found
 
-If the status bar reads "GLE: not found", the live preview and any export other than the raw `.gle` script will fail. Install [GLE 4.3+](https://github.com/vlabella/GLE/releases/latest) and either put it on `PATH` or set `GLE_PATH` to the executable, then restart the editor (detection happens at startup). Object-model editing and native `.gle` Save/Open keep working regardless -- see [Requirements / GLE prerequisite](#requirements--gle-prerequisite).
+If the status bar reads "GLE: not found", the live preview and any export other than the raw `.gle` script will fail. Install [GLE 4.3+](https://github.com/vlabella/GLE/releases/latest), then either point the editor at it via **Tools ▸ GLE Setup…** (takes effect immediately, no restart), put it on `PATH`, or set `GLE_PATH` to the executable. Object-model editing and native `.gle` Save/Open keep working regardless -- see [Requirements / GLE prerequisite](#requirements--gle-prerequisite).
 
 ### Preview stays blank
 

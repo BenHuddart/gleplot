@@ -46,7 +46,7 @@ Core design principle — **the `FigureDocument` object model is the single sour
 
 ## External dependency: GLE binary
 
-The GUI and compiler **shell out to an external `gle` binary (GLE 4.3+)**, discovered via `GLE_PATH` env var → `PATH` (`shutil.which`) → platform well-known locations (see `compiler.find_gle`). **GLE is NOT bundled.** The app degrades gracefully when GLE is absent: the status bar shows "not found", and features needing compilation are disabled while pure-`.gle` editing still works.
+The GUI and compiler **shell out to an external `gle` binary (GLE 4.3+)**, discovered via an explicit override (set in the GUI's **Tools ▸ GLE Setup…**, persisted in `QSettings` as `gle/path`, applied through `compiler.set_gle_path_override`) → `GLE_PATH` env var → `PATH` (`shutil.which`) → platform well-known locations, incl. globbed versioned install dirs (see `compiler.find_gle` / `compiler.autodetect_gle`). **GLE is NOT bundled.** The app degrades gracefully when GLE is absent: the status bar shows "not found", and features needing compilation are disabled while pure-`.gle` editing still works.
 
 ## How to
 

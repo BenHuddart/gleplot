@@ -45,3 +45,17 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ steps.release.outputs.tag }}
+
+      # The tag semantic-release just pushed will NOT itself trigger the
+      # tag-listening release-binaries workflow: GitHub deliberately does not
+      # fire workflows from GITHUB_TOKEN-pushed tags (recursion guard). So kick
+      # off the desktop-installer build explicitly here, passing the new tag as
+      # the workflow_dispatch input (release-binaries attaches to that tag).
+      # A workflow_dispatch invoked via the API *does* start a run, so no PAT is
+      # needed. If this ever stops chaining, the workflow can still be run by
+      # hand: `gh workflow run release-binaries.yml -f tag=<tag>`.
+      - name: Build and attach desktop installers
+        if: steps.release.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release-binaries.yml -f tag=${{ steps.release.outputs.tag }}

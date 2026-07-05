@@ -186,6 +186,19 @@ class PreviewController(QObject):
         self._debounce.stop()
         self._start_render()
 
+    def set_gle_path(self, path: Optional[str]) -> None:
+        """Update the GLE executable used to render previews.
+
+        The controller caches :func:`~gleplot.compiler.find_gle` at
+        construction time (locating GLE once is enough for the common case), so
+        when the user changes the configured GLE binary via **Tools ▸ GLE
+        Setup…** the main window calls this to refresh the cached path.
+        ``path`` is normally the freshly re-resolved :func:`find_gle` result
+        (``None`` if GLE is no longer locatable, which ``_launch`` handles by
+        surfacing a structured "GLE not found" error).
+        """
+        self._gle_path = path
+
     def _start_render(self) -> None:
         """Snapshot the document and launch a render, or coalesce/skip it."""
         snap = self._empty_check_and_snapshot()

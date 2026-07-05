@@ -36,8 +36,9 @@ GLE prerequisite
 The editor needs **GLE 4.3 or newer** for the live preview and for exporting
 any compiled format (PDF/PNG/EPS/SVG/JPG). GLE is a separate program: install
 it from the `GLE releases page
-<https://github.com/vlabella/GLE/releases/latest>`_ and make it discoverable
-on ``PATH`` or via the ``GLE_PATH`` environment variable. The status bar shows
+<https://github.com/vlabella/GLE/releases/latest>`_ and make it discoverable:
+point the editor at it via **Tools ▸ GLE Setup…**, put it on ``PATH``, or set
+the ``GLE_PATH`` environment variable. The status bar shows
 the detected GLE path or ``GLE: not found``. Without GLE the object-model
 editing still works (load data, add and style series, arrange subplots, Save
 and Open native ``.gle`` files) -- only the live preview and compiled exports
