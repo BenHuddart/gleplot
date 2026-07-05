@@ -106,7 +106,12 @@ cumulatively (multiple ``xaxis`` lines merge); numbers may be expressions
 are case-insensitive; single-quoted strings and ``;``-joined statements are
 accepted; British ``GREY`` colors are accepted. Anything not recognized is
 preserved verbatim in the appropriate passthrough bucket (header / trailer /
-axes) so it re-emits unchanged.
+axes) so it re-emits unchanged. A blank (or comment-only) line separating two
+post-graph text clusters, or between ``end graph`` and the first cluster, is
+tolerated by :meth:`_Recognizer._try_one_text` (:meth:`_Recognizer._skip_blanks`)
+-- the writer itself never emits such a blank line, but a human editing the
+file for readability may add one; recognition proceeds exactly as if it were
+absent, and re-emission is canonical (no blank line re-inserted).
 
 Warnings taxonomy
 -----------------
@@ -297,6 +302,14 @@ class _Recognizer:
         self._import_list: Optional[List[str]] = None
         self._used_prefix_indices: Dict[str, int] = {}  # prefix -> max index+1
         self._used_data_files: set = set()
+        # Sticky text-cluster state (GLE 'set hei'/'set color'/'set just' are
+        # interpreter-global and persist across clusters/graphs until changed
+        # -- see _try_one_text). fontsize stays None until a 'set hei' is
+        # actually seen, matching the writer (which only emits 'set hei' when
+        # a text's fontsize is not None).
+        self._text_fontsize: Optional[float] = None
+        self._text_color: str = "BLACK"
+        self._text_just: str = "left"
 
     # -- public driver ---------------------------------------------------
 
@@ -587,6 +600,16 @@ class _Recognizer:
             "file_series": [],
             "passthrough": [],
             "series_order": [],     # to preserve ordering info if needed
+            # Dataset names (e.g. 'd1') consumed by a 'bar'/'fill' command.
+            # The writer emits a standalone 'dN key ""' statement right after
+            # 'bar'/'fill' to neutralize GLE's auto-key-from-header behavior
+            # (bar/fill have no 'key' sub-option of their own -- see
+            # gleplot.writer.GLEWriter.add_bar_chart/add_fill_between). That
+            # bare 'dN key ""' would otherwise look like a brand-new,
+            # unlabeled line/scatter series to the generic dN-dispatch below;
+            # this set lets pass 2 recognize and skip it as a suppression
+            # marker instead of fabricating a phantom series.
+            "_key_suppress_datasets": set(),
         }
 
         # Local dataset map for THIS block (dataset refs are graph-local).
@@ -648,8 +671,20 @@ class _Recognizer:
                 name = kw
                 if name in emitted:
                     continue
+                attr_toks = merged_attr_toks.get(name, [])
+                if name in info["_key_suppress_datasets"] and self._is_bare_key_suppression(attr_toks):
+                    # 'dN key ""' with no other attributes, following a
+                    # 'bar'/'fill' command that already consumed this
+                    # dataset -- the writer's auto-key-from-header
+                    # suppression marker (see writer.add_bar_chart /
+                    # add_fill_between), not a real second series. Consume
+                    # silently: no series, no passthrough (matches what the
+                    # writer will regenerate from the bar/fill entry's
+                    # column_names on next save).
+                    emitted.add(name)
+                    continue
                 emitted.add(name)
-                merged = [Token(TokenType.WORD, name, (0, 0))] + merged_attr_toks.get(name, [])
+                merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
                 self._build_series_from_attrs(
                     name, merged, datasets, info, marker_cfg, smooth_flags
                 )
@@ -662,6 +697,26 @@ class _Recognizer:
     def _skip_meta_stmt(self, stmt) -> bool:
         """True if this statement's physical line is inside the metadata block."""
         return stmt.source_line is not None and stmt.line_no in self._meta_lines
+
+    @staticmethod
+    def _is_bare_key_suppression(attr_toks: List[Token]) -> bool:
+        """True if a dataset's merged attribute tokens are exactly ``key ""``.
+
+        Used to recognize the writer's auto-key-from-header suppression
+        marker (a standalone ``dN key ""`` statement emitted after a
+        ``bar``/``fill`` command -- see ``writer.add_bar_chart`` /
+        ``add_fill_between``) so it isn't mistaken for a real second series
+        on that dataset. Exactly 2 tokens: the ``key`` keyword and an empty
+        string literal.
+        """
+        if len(attr_toks) != 2:
+            return False
+        kw_tok, val_tok = attr_toks
+        if kw_tok.value.lower() != "key":
+            return False
+        if val_tok.type is not TokenType.STRING:
+            return False
+        return _string_value(val_tok) == ""
 
     def _build_series_from_attrs(self, name, merged_toks, datasets, info,
                                  marker_cfg, smooth_flags):
@@ -969,6 +1024,7 @@ class _Recognizer:
         if d_name is None or d_name not in datasets:
             info["passthrough"].append("    " + " ".join(t.value for t in toks))
             return
+        info["_key_suppress_datasets"].add(d_name)
         data_file, xcol, ycol = datasets[d_name]
         loaded = self._load_series(data_file, xcol, ycol)
         entry = {
@@ -991,6 +1047,9 @@ class _Recognizer:
         entry["x"] = x
         entry["height"] = height
         entry["colors"] = [color] * len(height)
+        column_names = self._recovered_column_names(data_file, [xcol, ycol])
+        if column_names is not None:
+            entry["column_names"] = column_names
         info["bars"].append(entry)
 
     def _parse_fill_command(self, toks, datasets, info):
@@ -1013,6 +1072,8 @@ class _Recognizer:
         if len(d_names) < 2 or d_names[0] not in datasets or d_names[1] not in datasets:
             info["passthrough"].append("    " + " ".join(t.value for t in toks))
             return
+        info["_key_suppress_datasets"].add(d_names[0])
+        info["_key_suppress_datasets"].add(d_names[1])
         f1, xc1, yc1 = datasets[d_names[0]]
         f2, xc2, yc2 = datasets[d_names[1]]
         # fill data file has c1=x, c2=y1, c3=y2. d1=c1,c2 ; d2=c1,c3.
@@ -1029,11 +1090,15 @@ class _Recognizer:
         x = loaded["x"]
         y1 = loaded["y"]
         y2 = loaded.get(f"c{yc2}")
-        info["fills"].append({
+        fill_entry = {
             "x": x, "y1": y1, "y2": y2,
             "color": color, "alpha": 0.3, "label": None,
             "data_file": f1,
-        })
+        }
+        column_names = self._recovered_column_names(f1, [xc1, yc1, yc2])
+        if column_names is not None:
+            fill_entry["column_names"] = column_names
+        info["fills"].append(fill_entry)
 
     # -- key -------------------------------------------------------------
 
@@ -1126,6 +1191,9 @@ class _Recognizer:
             "yaxis": "y2" if attrs["y2axis"] else "y",
             "data_file": data_file,
         }
+        column_names = self._recovered_column_names(data_file, [xcol, ycol])
+        if column_names is not None:
+            entry["column_names"] = column_names
         if has_marker and not has_line:
             info["scatters"].append(entry)
         else:
@@ -1224,7 +1292,14 @@ class _Recognizer:
                 i += 1
                 continue
             if w == "key" and i + 1 < m and toks[i + 1].type is TokenType.STRING:
-                a["label"] = _string_value(toks[i + 1])
+                # 'key ""' is never a real user label -- the writer only ever
+                # emits it as an auto-key-from-header suppression marker
+                # (see writer._key_clause), for a series whose label is
+                # None. Recover it as None (not '') so the object model
+                # round-trips exactly; the writer regenerates the same
+                # 'key ""' from column_names + no label on next save.
+                label_value = _string_value(toks[i + 1])
+                a["label"] = label_value if label_value != "" else None
                 i += 2
                 continue
             i += 1
@@ -1403,6 +1478,24 @@ class _Recognizer:
             "yaxis": "y2" if attrs["y2axis"] else "y",
             "data_file": data_file,
         }
+        if not err_consts:
+            # Column indices in the SAME order the writer emits them (x, y,
+            # then y-error column(s) collapsed to one when symmetric i.e.
+            # yerr_up_col == yerr_down_col, then x-error likewise) -- see
+            # gleplot.writer.GLEWriter.add_errorbar. Constant/percentage
+            # errors (err_consts) have no backing file column at all (the
+            # array was synthesized above), so column_names is left absent
+            # and regenerated from stable defaults on next save, same as any
+            # pre-Track-E3 project.
+            cols = [xcol, ycol]
+            seen_err_cols = []
+            for c in (yerr_up_col, yerr_down_col, xerr_left_col, xerr_right_col):
+                if c is not None and c not in seen_err_cols:
+                    seen_err_cols.append(c)
+            cols.extend(seen_err_cols)
+            column_names = self._recovered_column_names(data_file, cols)
+            if column_names is not None:
+                entry["column_names"] = column_names
         info["errorbars"].append(entry)
 
     def _passthrough_original_dn(self, info, orig_toks):
@@ -1485,6 +1578,71 @@ class _Recognizer:
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
 
+    def _recovered_column_names(self, data_file, cols_1based) -> Optional[List[str]]:
+        """Recover a series' ``column_names`` from its sidecar's header row.
+
+        Parameters
+        ----------
+        data_file : str
+            The sidecar file name (an "import" series' data file).
+        cols_1based : list of int
+            1-based column indices in the SAME order the object model's
+            ``column_names`` list expects them (x, then y, then any error/
+            extra columns) -- matching how :mod:`gleplot.axes` builds
+            ``column_names`` and how :mod:`gleplot.writer` writes the
+            header row (one name per array passed to ``add_data_file``, in
+            that same order).
+
+        Returns
+        -------
+        list of str, or None
+            ``None`` when the table couldn't be resolved, or has no real
+            header row (:attr:`DataTable.has_header` is ``False`` --
+            e.g. a hand-written headerless ``.dat``): in that case
+            ``column_names`` is left absent on the recovered series and
+            ``Axes.from_dict``-style default regeneration (mirrored here at
+            series-build time, see ``_default_column_names_like``) fills it
+            in on next save, same as any pre-Track-E3 project.
+
+            A column index of ``0`` (GLE's synthesized point-index column,
+            no real file column behind it) recovers as ``'x'`` -- matching
+            the default a fresh ``ax.plot`` would assign -- since there is
+            no header cell to read for a column that doesn't exist in the
+            file.
+
+        Invariant (post Finding-1)
+        --------------------------
+        This copies the sidecar's header text VERBATIM into
+        ``column_names`` (no re-sanitization). That is only reached for
+        *import* series, and after the Finding-1 conservative
+        classification a file is only ever an import when the ``.gle``
+        metadata block's ``import-data`` list vouches for it -- i.e. it
+        is a sidecar gleplot itself wrote, whose header was already
+        sanitized by the writer at export time. So verbatim copy is
+        exactly what preserves byte-identity on re-save: even a
+        hand-edited (unsanitary) header in a vouched sidecar round-trips
+        byte-for-byte, because the recovered ``column_names`` re-emit the
+        same header the file already holds. Hand-authored data files with
+        no metadata vouch are classified ``reference`` and never reach
+        this code, so an unsanitized user header can never be adopted and
+        rewritten here.
+        """
+        resolved = self._resolve_table(data_file)
+        if resolved.error is not None or resolved.table is None:
+            return None
+        table = resolved.table
+        if not table.has_header:
+            return None
+        names = []
+        for col in cols_1based:
+            if col == 0:
+                names.append("x")
+                continue
+            if col < 1 or col > table.n_cols:
+                return None
+            names.append(table.column_names[col - 1])
+        return names
+
     # -- amove / text cluster / trailer ---------------------------------
 
     def _match_amove(self, node) -> Optional[Tuple[float, float]]:
@@ -1507,12 +1665,19 @@ class _Recognizer:
     def _consume_text_cluster(self, nodes, start) -> Tuple[List[dict], int]:
         """Greedily match the writer's deferred-text pattern after end graph.
 
-        Pattern per text (in order):
+        Pattern per text (every ``set`` is optional, in any subset, in order):
             [set hei H]
-            set color C
-            set just J
+            [set color C]
+            [set just J]
             amove xg(X) yg(Y)
             write "T"
+
+        ``set hei``/``set color``/``set just`` are GLE *interpreter-global*
+        state: once set, they apply to every subsequent cluster (including
+        clusters in later graphs) until changed again -- mirroring GLE's own
+        stateful semantics. This lets a single ``set hei`` shared by multiple
+        clusters, or a cluster with no ``set just`` at all, still recover the
+        correct fontsize/color/ha via the sticky ``self._text_*`` state.
         Returns (texts, next_index).
         """
         texts: List[dict] = []
@@ -1528,70 +1693,103 @@ class _Recognizer:
         return texts, i
 
     def _try_one_text(self, nodes, i) -> Tuple[int, Optional[dict]]:
+        """Try to match one text cluster starting at ``i``.
+
+        On success returns ``(next_index, text_dict)``. On failure returns
+        ``(i, None)`` with the ORIGINAL ``i`` unchanged (never an
+        intermediate position), so the caller (:meth:`_consume_text_cluster`)
+        can safely discard partial progress and hand every skipped node back
+        to the ordinary passthrough walk untouched.
+
+        Blank/comment-only lines are tolerated *between* cluster elements
+        (a hand-edited file may have a blank line separating annotations for
+        readability) via :meth:`_skip_blanks`, but this skip is provisional:
+        it only survives if the pattern goes on to match a full cluster.
+        Nothing here treats a blank line as a hard stop -- a blank line
+        followed by an unrelated statement simply falls through to the
+        ``return i, None`` below, restoring the untouched original ``i``.
+        """
+        start = i
         n = len(nodes)
-        fontsize = None
-        color = "BLACK"
-        just = "left"
         x = y = None
         text_str = None
 
-        # Optional 'set hei H'
-        stmt = self._as_statement(nodes[i]) if i < n else None
-        if stmt is not None and stmt.keyword == "set":
+        # Optional 'set hei H' / 'set color C' / 'set just J', in any order,
+        # each independently optional. Every hit updates sticky state
+        # immediately so a later cluster with no 'set just' inherits the
+        # last-seen value (GLE semantics: 'set' is global interpreter state).
+        while True:
+            i = self._skip_blanks(nodes, i)
+            stmt = self._as_statement(nodes[i]) if i < n else None
+            if stmt is None or stmt.keyword != "set":
+                break
             toks = _words_and_values(stmt)
-            if len(toks) >= 3 and toks[1].value.lower() == "hei":
+            if len(toks) < 3:
+                break
+            sub = toks[1].value.lower()
+            if sub == "hei":
                 v = _num(toks[2])
-                if v is not None:
-                    fontsize = fontsize_cm_to_pt(v)
-                    i += 1
-                    stmt = self._as_statement(nodes[i]) if i < n else None
+                if v is None:
+                    break
+                self._text_fontsize = fontsize_cm_to_pt(v)
+                i += 1
+                continue
+            if sub == "color":
+                self._text_color = toks[2].value
+                i += 1
+                continue
+            if sub == "just":
+                just = toks[2].value.lower()
+                if just in ("left", "center", "right"):
+                    self._text_just = just
+                i += 1
+                continue
+            break
 
-        # 'set color C'
-        if stmt is None or stmt.keyword != "set":
-            return i, None
-        toks = _words_and_values(stmt)
-        if len(toks) >= 3 and toks[1].value.lower() == "color":
-            color = toks[2].value
-            i += 1
-        else:
-            return i, None
-
-        # 'set just J'
-        stmt = self._as_statement(nodes[i]) if i < n else None
-        if stmt is None or stmt.keyword != "set":
-            return i, None
-        toks = _words_and_values(stmt)
-        if len(toks) >= 3 and toks[1].value.lower() == "just":
-            just = toks[2].value.lower()
-            i += 1
-        else:
-            return i, None
-
-        # 'amove xg(X) yg(Y)'
+        # 'amove xg(X) yg(Y)' -- mandatory: this is what makes the run of
+        # 'set' statements above a text cluster rather than unrelated
+        # passthrough. If absent, nothing was consumed as a text cluster (any
+        # 'set' statements walked above are left for the caller/passthrough
+        # by returning the ORIGINAL start index).
+        i = self._skip_blanks(nodes, i)
         stmt = self._as_statement(nodes[i]) if i < n else None
         if stmt is None or stmt.keyword != "amove":
-            return i, None
+            return start, None
         x, y = self._parse_xg_yg(_words_and_values(stmt))
         if x is None or y is None:
-            return i, None
+            return start, None
         i += 1
 
-        # 'write "T"'
+        # 'write "T"' -- mandatory (a blank line may separate the amove from
+        # its write in a hand-edited file; tolerate it the same way).
+        i = self._skip_blanks(nodes, i)
         stmt = self._as_statement(nodes[i]) if i < n else None
         if stmt is None or stmt.keyword != "write":
-            return i, None
+            return start, None
         toks = _words_and_values(stmt)
         text_str = self._first_string(toks)
         if text_str is None:
-            return i, None
+            return start, None
         i += 1
 
-        just_norm = just if just in ("left", "center", "right") else "left"
         return i, {
             "x": x, "y": y, "text": text_str,
-            "color": color, "fontsize": fontsize,
-            "ha": just_norm, "va": "center", "box_color": None,
+            "color": self._text_color, "fontsize": self._text_fontsize,
+            "ha": self._text_just, "va": "center", "box_color": None,
         }
+
+    def _skip_blanks(self, nodes, i) -> int:
+        """Advance past any run of ``BlankOrComment`` nodes at ``i``.
+
+        Used by :meth:`_try_one_text` to tolerate a blank line separating
+        the elements of a hand-edited text cluster (e.g. between
+        ``end graph`` and the first cluster, or between two clusters).
+        Never looks past the end of ``nodes``.
+        """
+        n = len(nodes)
+        while i < n and isinstance(nodes[i], BlankOrComment):
+            i += 1
+        return i
 
     def _parse_xg_yg(self, toks) -> Tuple[Optional[float], Optional[float]]:
         """Parse ``amove xg(X) yg(Y)`` argument expressions."""
@@ -1700,6 +1898,18 @@ class _Recognizer:
         ax.file_series = info["file_series"]
         ax.texts = info["texts"]
         ax.passthrough = info["passthrough"]
+
+        # A series whose sidecar had no real header row (hand-written .dat,
+        # or a headerless import from an older gleplot version) has no
+        # 'column_names' recovered above. Regenerate the same stable
+        # defaults Axes.from_dict falls back to for pre-Track-E3 projects,
+        # so the next save still gets a named header row.
+        for attr in ("lines", "scatters", "bars", "fills", "errorbars"):
+            for item in getattr(ax, attr):
+                if "column_names" not in item:
+                    defaults = Axes._default_column_names(attr, item)
+                    if defaults is not None:
+                        item["column_names"] = defaults
 
         # Legend tri-state recovery.
         labels_present = self._labels_present(info)

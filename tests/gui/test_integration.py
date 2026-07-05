@@ -638,3 +638,115 @@ def test_programmatic_file_prompts(qapp, tmp_path, monkeypatch):
         window2.preview_controller.shutdown()
         window2._cleanup_gle_temp_dirs()
         window2.deleteLater()
+
+
+# ======================================================================
+# Track F1: annotation-overlay E2E (open multi-annotation .gle -> drag one
+# -> save -> re-parse -> moved coords persist, others untouched).
+# ======================================================================
+def _write_multi_annotation_gle(tmp_path: Path) -> Path:
+    """A synthetic .gle with a series and two text annotations (data coords).
+
+    Built through the public figure API so the on-disk script is exactly what
+    the recognizer round-trips back into ``ax.texts`` on open.
+    """
+    import gleplot as glp
+
+    fig = glp.Figure(figsize=(4, 3))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 10)
+    ax.plot([0, 10], [0, 10], label="line")
+    ax.text(2.0, 8.0, "alpha")
+    ax.text(6.0, 3.0, "beta")
+    out = tmp_path / "annotated.gle"
+    fig.savefig_gle(str(out))
+    return out
+
+
+def _sig6(value: float) -> float:
+    """Normalise to 6 significant figures (matches the writer's %.6g output)."""
+    return float(f"{value:.6g}")
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_annotation_drag_persists_across_save_reparse(qapp, tmp_path):
+    """Open a multi-annotation .gle, drag one text via the overlay, save, and
+    re-parse: the moved annotation's coords persist (6-sig-fig normalised) and
+    the other annotation is untouched.
+    """
+    from PySide6.QtCore import QPointF
+
+    from gleplot.gui import file_ops
+    from gleplot.parser.recognizer import parse_gle_figure
+
+    settings = _scratch_settings(tmp_path)
+    gle_path = _write_multi_annotation_gle(tmp_path)
+
+    window = MainWindow()
+    window.preview_controller.debounce_ms = 50
+    recorder = _RenderRecorder(window.preview_controller)
+    try:
+        # Open the .gle as an editable figure through the real dispatch path.
+        window._dispatch_open(str(gle_path))
+        assert window.is_gle_preview_mode is False
+        ax = window.document.figure.gca()
+        assert len(ax.texts) == 2
+        # Recognizer restored both annotations.
+        by_text = {t["text"]: t for t in ax.texts}
+        assert set(by_text) == {"alpha", "beta"}
+
+        # First render lands, geometry installed, overlay enabled with 2 items.
+        assert _wait_until(lambda: recorder.succeeded or recorder.failed)
+        assert not recorder.failed, recorder.failed
+        overlay = window.annotation_overlay
+        assert _wait_until(lambda: overlay.enabled and len(overlay.items) == 2)
+
+        # Find the overlay item for "beta" and drag it to data (8, 9).
+        beta_item = next(it for it in overlay.items if it.text_dict["text"] == "beta")
+        mapping = window.preview_view.view_mapping()
+        cal = window.preview_controller.last_geometry.axes[beta_item.cal.index]
+        tcx, tcy = cal.data_to_cm(8.0, 9.0)
+        tvx, tvy = mapping.cm_to_view(tcx, tcy)
+        beta_item.sync_position(QPointF(tvx, tvy))
+
+        n_before = len(recorder.succeeded)
+        overlay.commit_item_move(beta_item)
+
+        # Model updated; document dirty.
+        assert by_text["beta"]["x"] == pytest.approx(8.0, abs=0.2)
+        assert by_text["beta"]["y"] == pytest.approx(9.0, abs=0.2)
+        assert window.document.is_dirty
+        # The follow-up render lands (overlay rebuilds -- no jump exercised in
+        # the unit tests; here we just ensure the pipeline recovers).
+        assert _wait_until(lambda: len(recorder.succeeded) > n_before)
+        assert not recorder.failed, recorder.failed
+
+        # Alpha untouched.
+        assert by_text["alpha"]["x"] == pytest.approx(2.0)
+        assert by_text["alpha"]["y"] == pytest.approx(8.0)
+
+        moved_x = _sig6(by_text["beta"]["x"])
+        moved_y = _sig6(by_text["beta"]["y"])
+
+        # Save, then re-parse the on-disk .gle from scratch.
+        out = tmp_path / "annotated_moved.gle"
+        assert file_ops.save_project_as(
+            window, window.document, path=out, settings=settings,
+        ) is True
+
+        rec = parse_gle_figure(out)
+        reparsed_ax = rec.figure.axes_list[0]
+        reparsed = {t["text"]: t for t in reparsed_ax.texts}
+        assert set(reparsed) == {"alpha", "beta"}
+
+        # Moved coords persisted (6-sig-fig normalised, matching %.6g output).
+        assert _sig6(reparsed["beta"]["x"]) == pytest.approx(moved_x, abs=1e-4)
+        assert _sig6(reparsed["beta"]["y"]) == pytest.approx(moved_y, abs=1e-4)
+        # The other annotation is untouched.
+        assert reparsed["alpha"]["x"] == pytest.approx(2.0)
+        assert reparsed["alpha"]["y"] == pytest.approx(8.0)
+    finally:
+        window.preview_controller.shutdown()
+        window._cleanup_gle_temp_dirs()
+        window.deleteLater()

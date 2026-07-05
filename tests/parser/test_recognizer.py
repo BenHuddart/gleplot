@@ -160,10 +160,26 @@ def normalize(d: dict) -> dict:
 
         # Text annotations: fontsize round-trips through cm (snap); box_color
         # is accepted-but-ignored by the writer (never emitted) -> drop.
+        #
+        # Sticky-fontsize normalization: 'set hei' is GLE interpreter-global
+        # state (see recognizer._try_one_text / writer.add_text). The writer
+        # only emits 'set hei' when a text's fontsize DIFFERS from whatever is
+        # currently active -- so a text with fontsize=None (or one equal to
+        # the already-active height) genuinely renders in real GLE at the
+        # last-explicit height, not some independent default. The recognizer
+        # correctly resolves that inherited value on recovery (it cannot tell
+        # "no explicit set hei" apart from "same value restated"). Both sides
+        # are therefore normalized to the STICKY-RESOLVED height, seeded from
+        # the style default (the preamble's unconditional 'set hei'), matching
+        # the value real GLE would use when rendering each text in sequence.
+        sticky_fs = style.get("fontsize")
         for s in ax.get("texts", []):
-            if s.get("fontsize") is not None:
-                emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(s["fontsize"])))
-                s["fontsize"] = fontsize_cm_to_pt(float(emitted))
+            fs = s.get("fontsize")
+            if fs is None:
+                fs = sticky_fs
+            emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
+            s["fontsize"] = fontsize_cm_to_pt(float(emitted))
+            sticky_fs = s["fontsize"]
             s.pop("box_color", None)
 
     return d
@@ -368,10 +384,13 @@ def test_opaque_block_inside_graph_becomes_axes_passthrough(tmp_path):
     assert "raw line two" in text
 
 
-def test_no_metadata_block_uses_heuristics(tmp_path):
-    # No '! gleplot' metadata at all -> import/reference decided by heuristic.
-    # 'data_5.dat' matches the sidecar naming pattern -> import (loaded).
-    # 'other.csv' does not -> reference (file_series).
+def test_no_metadata_block_all_references(tmp_path):
+    # Finding 1: with NO '! gleplot' metadata block, classification is
+    # conservative -- EVERY data reference is treated as an external
+    # 'reference' (file_series), regardless of filename. A sidecar-looking
+    # name like 'data_5.dat' is NOT adopted as an import (which would let a
+    # later save rewrite a user's file). Both files land in file_series and
+    # nothing is loaded into ax.lines.
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -388,11 +407,9 @@ def test_no_metadata_block_uses_heuristics(tmp_path):
     )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
-    # data_5.dat imported (arrays loaded into lines), other.csv referenced.
-    assert len(ax.lines) == 1
-    assert ax.lines[0]["data_file"] == "data_5.dat"
-    assert len(ax.file_series) == 1
-    assert ax.file_series[0]["data_file"] == "other.csv"
+    assert ax.lines == []
+    referenced = {fs["data_file"] for fs in ax.file_series}
+    assert referenced == {"data_5.dat", "other.csv"}
 
 
 def test_missing_grid_multigraph_falls_back(tmp_path):

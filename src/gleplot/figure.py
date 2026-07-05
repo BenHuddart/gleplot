@@ -724,9 +724,10 @@ class Figure:
                 fill_data['y2'],
                 fill_data['data_file'],
                 fill_data['color'],
-                fill_data['alpha']
+                fill_data['alpha'],
+                column_names=fill_data.get('column_names'),
             )
-        
+
         # Add bar charts
         for bar_data in ax.bars:
             writer.add_bar_chart(
@@ -734,9 +735,10 @@ class Figure:
                 bar_data['height'],
                 bar_data['data_file'],
                 bar_data['colors'],
-                bar_data['label']
+                bar_data['label'],
+                column_names=bar_data.get('column_names'),
             )
-        
+
         # Add line plots
         for line_data in ax.lines:
             writer.add_plot_line(
@@ -750,6 +752,7 @@ class Figure:
                 marker=line_data.get('marker'),
                 markersize=line_data.get('markersize', 0.1),
                 yaxis=line_data.get('yaxis', 'y'),
+                column_names=line_data.get('column_names'),
             )
 
         # Add scatter plots
@@ -764,8 +767,9 @@ class Figure:
                 markersize=scatter_data['markersize'],
                 label=scatter_data['label'],
                 yaxis=scatter_data.get('yaxis', 'y'),
+                column_names=scatter_data.get('column_names'),
             )
-        
+
         # Add errorbar plots
         for eb_data in ax.errorbars:
             writer.add_errorbar(
@@ -784,6 +788,7 @@ class Figure:
                 xerr_right=eb_data['xerr_right'],
                 capsize=eb_data.get('gle_capsize', eb_data.get('capsize')),
                 yaxis=eb_data.get('yaxis', 'y'),
+                column_names=eb_data.get('column_names'),
             )
 
         # Add external-file series (no generated data files).
