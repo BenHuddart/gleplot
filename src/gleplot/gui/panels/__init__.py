@@ -12,5 +12,6 @@ from .figure_panel import FigurePanel
 from .layout_panel import LayoutPanel
 from .raw_gle_panel import RawGlePanel
 from .series_panel import SeriesPanel
+from .texts_panel import TextsPanel
 
-__all__ = ["FigurePanel", "AxesPanel", "SeriesPanel", "LayoutPanel", "RawGlePanel"]
+__all__ = ["FigurePanel", "AxesPanel", "SeriesPanel", "LayoutPanel", "RawGlePanel", "TextsPanel"]

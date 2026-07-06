@@ -11,12 +11,32 @@ docks or a main window) that lets the user:
    in-memory arrays directly (``Import data``) or by referencing the
    file's columns in place (``Reference file``, via
    ``Axes.line_from_file`` / ``Axes.errorbar_from_file``).
+4. Rename a table's column headers in place (double-click a header cell),
+   for figure-owned sidecars and in-memory tables only -- see "Header
+   editing" below.
 
 The panel talks to a ``document`` object via a small duck-typed contract
 (``.figure``, ``.notify_changed()``, ``.figure_replaced`` signal) rather
 than importing the concrete ``FigureDocument`` class, since that class is
 implemented by a parallel work track. See ``tests/gui/test_data_panel.py``
 for a minimal local stub satisfying this contract.
+
+Header editing (Track G1)
+--------------------------
+Column headers are editable ONLY for tables gleplot itself owns the data
+of: figure-owned sidecars (generated ``.dat`` files behind an "Import
+data" series) and tables loaded via ``load_file`` that are not (yet)
+referenced by any file-reference series. They are NOT editable for
+external files referenced in place (``ax.file_series``, i.e. "Reference
+file" mode / ``line_from_file`` / ``errorbar_from_file``): gleplot never
+rewrites a user's own source data file, so renaming its header would be
+either a lie (cosmetic-only, not written back) or dangerous (silently
+rewriting someone else's file). See :meth:`DataPanel._is_editable_table`
+for the precise ownership rule and :meth:`DataPanel._on_header_double_clicked`
+for the edit UX (a prefilled ``QInputDialog``, not an in-place header
+delegate -- simpler to get right and consistent with how Qt table headers
+are conventionally edited, since ``QHeaderView`` has no built-in item
+delegate support the way table cells do).
 """
 
 from __future__ import annotations
@@ -33,10 +53,12 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QTableWidget,
@@ -45,7 +67,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gleplot.axes import _unique_column_names, sanitize_column_name
+
 from .loader import DataTable, load_data_file
+
+#: Tooltip shown on non-editable (external-file) column headers.
+_EXTERNAL_HEADER_TOOLTIP = (
+    "Column names come from the referenced file and are not edited by "
+    "gleplot."
+)
 
 #: Maximum number of rows shown in the preview table.
 _MAX_PREVIEW_ROWS = 100
@@ -95,15 +125,26 @@ class DataPanel(QWidget):
     series_added(str)
         Emitted with the new series' label after a series is
         successfully added to the figure.
+    column_renamed(str, int, str)
+        Emitted after a successful header rename (no-op renames and
+        rejected/cancelled edits do not emit this): the file key (the
+        resolved absolute path string used internally in ``_tables``,
+        matching the list item's ``_PATH_ROLE`` data), the 1-based column
+        index (matching GLE's own column numbering, as used elsewhere in
+        this panel for ``x_col``/``y_col``), and the new (sanitized)
+        column name. Intended for status-bar wiring by ``main_window``;
+        this panel does not display it itself.
     """
 
     series_added = Signal(str)
+    column_renamed = Signal(str, int, str)
 
     def __init__(self, document, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._document = document
         self._tables: Dict[str, DataTable] = {}  # path string -> DataTable
         self._current_table: Optional[DataTable] = None
+        self._current_key: Optional[str] = None  # key into self._tables
         self._last_dir: str = str(Path.home())
 
         self._build_ui()
@@ -173,6 +214,9 @@ class DataPanel(QWidget):
         self.label_edit.textEdited.connect(self._on_label_edited)
         self.add_series_button.clicked.connect(self.add_series)
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        self.preview_table.horizontalHeader().sectionDoubleClicked.connect(
+            self._on_header_double_clicked
+        )
 
         figure_replaced = getattr(self._document, "figure_replaced", None)
         if figure_replaced is not None:
@@ -288,6 +332,7 @@ class DataPanel(QWidget):
     ) -> None:
         if current is None:
             self._current_table = None
+            self._current_key = None
             self.preview_table.clear()
             self.preview_table.setRowCount(0)
             self.preview_table.setColumnCount(0)
@@ -298,11 +343,14 @@ class DataPanel(QWidget):
         key = current.data(_PATH_ROLE)
         table = self._tables.get(key)
         self._current_table = table
-        self._populate_preview(table)
+        self._current_key = key
+        self._populate_preview(table, key)
         self._populate_column_combos()
         self._update_add_button_state()
 
-    def _populate_preview(self, table: Optional[DataTable]) -> None:
+    def _populate_preview(
+        self, table: Optional[DataTable], key: Optional[str] = None
+    ) -> None:
         self.preview_table.clear()
         if table is None:
             self.preview_table.setRowCount(0)
@@ -312,7 +360,13 @@ class DataPanel(QWidget):
         n_preview_rows = min(table.n_rows, _MAX_PREVIEW_ROWS)
         self.preview_table.setColumnCount(table.n_cols)
         self.preview_table.setRowCount(n_preview_rows)
-        self.preview_table.setHorizontalHeaderLabels(table.column_names)
+
+        editable = key is not None and self._is_editable_table(key)
+        for col_idx, name in enumerate(table.column_names):
+            header_item = QTableWidgetItem(name)
+            if not editable:
+                header_item.setToolTip(_EXTERNAL_HEADER_TOOLTIP)
+            self.preview_table.setHorizontalHeaderItem(col_idx, header_item)
 
         grey = QColor(160, 160, 160)
         for col_idx, (col, numeric) in enumerate(zip(table.columns, table.is_numeric)):
@@ -375,6 +429,259 @@ class DataPanel(QWidget):
 
     def _on_mode_changed(self, text: str) -> None:
         self.mode_combo.setToolTip(_MODE_TOOLTIPS.get(text, ""))
+
+    # ------------------------------------------------------------------
+    # Header editing (Track G1)
+    # ------------------------------------------------------------------
+    def _import_entries(self, fig):
+        """All series entries capable of owning a regenerated sidecar.
+
+        These are exactly the collections the writer regenerates
+        ``data_file``/``column_names`` for on every save (see
+        ``Figure.savefig_gle`` pulling ``column_names`` straight off each
+        dict). ``ax.file_series`` is deliberately excluded: those entries
+        reference an external file in place and are never rewritten.
+        """
+        entries = []
+        for ax in getattr(fig, "axes_list", []):
+            entries.extend(ax.lines)
+            entries.extend(ax.scatters)
+            entries.extend(ax.bars)
+            entries.extend(ax.fills)
+            entries.extend(ax.errorbars)
+        return entries
+
+    def _owning_series_for_key(self, key: str) -> List[dict]:
+        """Import-mode series entries whose sidecar resolves to ``key``.
+
+        Ownership rule (the precise form of the "figure-owned sidecar"
+        concept described in the module docstring): a loaded table is
+        figure-owned iff its resolved absolute path (``key``, normcased)
+        equals the resolution of some import-mode series' ``data_file``
+        against ``document.project_path``'s directory. This mirrors
+        exactly what :meth:`populate_from_figure` does when deciding
+        which files to surface, so "shows up via populate_from_figure" and
+        "is figure-owned/editable" are the same test by construction:
+
+        - Import-mode series (``ax.lines``/``scatters``/``bars``/``fills``/
+          ``errorbars``) store a ``data_file`` that is a bare/relative
+          sidecar filename (e.g. ``"myfig_0.dat"``) generated by
+          ``_resolve_data_file``. It only resolves to an absolute path
+          once a project directory is known (``document.project_path``);
+          before the first save (no project path yet), it can never match
+          anything already on disk, so nothing is editable-as-owned yet
+          (there is also nothing to rename propagation-wise: the table was
+          loaded via ``load_file``, i.e. user-loaded/in-memory, which is
+          separately editable -- see ``_is_editable_table``).
+        - ``ax.file_series`` entries (the "Reference file" / *EXTERNAL*
+          mode) store an absolute path to a user's own file and are never
+          considered here.
+
+        A single sidecar can in principle be the ``data_file`` for more
+        than one series entry (e.g. a fill built from two datasets that
+        happen to share a file); all matching entries are returned so a
+        rename can be propagated to every one of them.
+
+        Matching (Findings 4 & 5)
+        -------------------------
+        A relative import ``data_file`` is resolved against
+        ``project_path`` AT RENAME TIME, while the table ``key`` was
+        resolved AT LOAD TIME. After a *Save As* to a new directory the
+        UI's ``project_path`` moves but the still-in-memory table key does
+        not, so a purely path-based match goes stale and silently drops the
+        rename. Because import sidecars are ALWAYS written beside the
+        ``.gle`` (their relative ``data_file`` is a bare filename), the
+        sidecar's *basename* is a stable identity independent of which
+        directory the project currently lives in. So a match succeeds when
+        EITHER the resolved absolute paths agree OR the basenames agree.
+        When ``project_path`` is ``None`` (before the first save there is
+        no directory to resolve against) the basename comparison is the
+        only signal available, and it is sufficient.
+        """
+        fig = getattr(self._document, "figure", None)
+        if fig is None:
+            return []
+
+        project_path = getattr(self._document, "project_path", None)
+        base = Path(project_path).parent if project_path else None
+
+        key_base = os.path.normcase(Path(key).name)
+        key_norm = os.path.normcase(key)
+
+        owners = []
+        for entry in self._import_entries(fig):
+            name = entry.get("data_file")
+            if not name or "column_names" not in entry:
+                continue
+            path = Path(name)
+            # Basename fallback: import sidecars live beside the .gle, so a
+            # relative data_file's basename is its stable identity.
+            if os.path.normcase(path.name) == key_base:
+                owners.append(entry)
+                continue
+            # Path match (absolute entries, or relative resolved against the
+            # current project dir when one is known).
+            if not path.is_absolute():
+                if base is None:
+                    continue
+                path = base / path
+            try:
+                resolved = os.path.normcase(str(path.resolve()))
+            except OSError:
+                continue
+            if resolved == key_norm:
+                owners.append(entry)
+        return owners
+
+    def _is_referenced_externally(self, key: str) -> bool:
+        """Whether ``key`` is some ``ax.file_series`` entry's data file.
+
+        These are EXTERNAL by definition (mode = "Reference file"): the
+        GLE script reads the user's file in place, so its header must
+        display the file's real column names and must never be rewritten.
+        """
+        fig = getattr(self._document, "figure", None)
+        if fig is None:
+            return False
+
+        project_path = getattr(self._document, "project_path", None)
+        base = Path(project_path).parent if project_path else None
+
+        for ax in getattr(fig, "axes_list", []):
+            for entry in ax.file_series:
+                name = entry.get("data_file")
+                if not name:
+                    continue
+                path = Path(name)
+                if not path.is_absolute():
+                    if base is None:
+                        continue
+                    path = base / path
+                if not path.exists():
+                    continue
+                if os.path.normcase(str(path.resolve())) == os.path.normcase(key):
+                    return True
+        return False
+
+    def _is_editable_table(self, key: str) -> bool:
+        """Whether the table at ``key`` may have its header renamed.
+
+        Per the user-approved decision: header names are editable ONLY
+        for figure-owned sidecars (:meth:`_owning_series_for_key` returns
+        at least one entry) and for in-memory/user-loaded tables that are
+        not (yet) referenced by any "Reference file" series. Anything
+        referenced externally (``ax.file_series``) is never editable,
+        even if it also happens to look like it could be figure-owned
+        (external takes priority -- a file can't simultaneously be "we
+        generated this" and "we read the user's file in place").
+        """
+        if self._is_referenced_externally(key):
+            return False
+        return True
+
+    def _on_header_double_clicked(self, col_idx: int) -> None:
+        """Prompt for a new column name via a prefilled ``QInputDialog``.
+
+        UX choice: a modal prefilled text dialog rather than an in-place
+        header editor widget. ``QHeaderView`` has no built-in equivalent
+        of ``QTableWidget``'s cell item delegates, so an in-place editor
+        would mean hand-building a floating ``QLineEdit`` positioned over
+        the header section (tracking resizes/scrolling/click-outside-to-
+        commit). The dialog is a few lines, has an OK/Cancel affordance
+        for free, and is the conventional Qt pattern for header renames.
+        """
+        table = self._current_table
+        key = self._current_key
+        if table is None or key is None or col_idx < 0 or col_idx >= table.n_cols:
+            return
+
+        if not self._is_editable_table(key):
+            QMessageBox.information(
+                self,
+                "Column name not editable",
+                _EXTERNAL_HEADER_TOOLTIP,
+            )
+            return
+
+        current_name = table.column_names[col_idx]
+        new_name, ok = QInputDialog.getText(
+            self, "Rename column", "Column name:", text=current_name
+        )
+        if not ok:
+            return
+
+        self._rename_column(key, table, col_idx, new_name)
+
+    def _rename_column(
+        self, key: str, table: DataTable, col_idx: int, raw_name: str
+    ) -> None:
+        """Validate and apply a column rename, propagating everywhere needed.
+
+        Validation (in order): sanitize via
+        ``gleplot.axes.sanitize_column_name`` (strips to ``[A-Za-z0-9_]``,
+        lowercases, and prefixes purely-numeric results so a renamed
+        column can never be mistaken for a data value -- see that
+        function's docstring for the full rule set). If the sanitized
+        name is unchanged from the current name, this is a no-op (no
+        mutation, no ``notify_changed``, no signal). Otherwise uniqueness
+        within the table is enforced by auto-suffixing via
+        ``gleplot.axes._unique_column_names`` (the same ``_2``, ``_3``,
+        ... convention gleplot's own writer uses for sidecar headers) --
+        chosen over reject-with-message because it matches how gleplot
+        already resolves naming collisions elsewhere (e.g.
+        ``_build_column_names``) and never blocks the user on a dialog
+        round-trip for what is, after sanitization, a purely mechanical
+        collision.
+
+        Propagation for figure-owned sidecars: the in-memory
+        ``DataTable.column_names``, the preview header, the x/y/yerr
+        combo item text (by index, so current *selections* survive: combo
+        ``userData`` is the 0-based column index, unaffected by a name
+        change), and every owning series entry's ``column_names`` list at
+        the same column index (see :meth:`_owning_series_for_key` for why
+        index-alignment holds), followed by ``document.notify_changed()``
+        so the next save writes the new header. Series *labels* (legend
+        text) are deliberately left untouched -- a label is user-facing
+        prose the user may have already customized (e.g. via the Series
+        tab), whereas the column header is purely a data/file concern;
+        conflating the two would silently overwrite a label the user
+        chose on purpose.
+        """
+        sanitized = sanitize_column_name(raw_name)
+        if sanitized == table.column_names[col_idx]:
+            return  # no-op: unchanged after sanitization
+
+        other_names = [n for i, n in enumerate(table.column_names) if i != col_idx]
+        final_name = _unique_column_names(other_names + [sanitized])[-1]
+
+        table.column_names[col_idx] = final_name
+
+        header_item = self.preview_table.horizontalHeaderItem(col_idx)
+        if header_item is not None:
+            header_item.setText(final_name)
+
+        for combo in (self.x_combo, self.y_combo, self.yerr_combo):
+            for i in range(combo.count()):
+                if combo.itemData(i) == col_idx:
+                    combo.setItemText(i, final_name)
+
+        for entry in self._owning_series_for_key(key):
+            names = entry.get("column_names")
+            # Finding 7 guard: only propagate into an owner whose
+            # column_names is index-aligned with THIS table (same column
+            # count). A mismatched-length list means the entry's columns do
+            # not correspond 1:1 to the previewed table (a stale/foreign
+            # entry that basename-matched), so writing names[col_idx] would
+            # corrupt the wrong column or raise. Skip it defensively.
+            if names is None:
+                continue
+            if len(names) != table.n_cols:
+                continue
+            if col_idx < len(names):
+                names[col_idx] = final_name
+
+        self._document.notify_changed()
+        self.column_renamed.emit(key, col_idx + 1, final_name)
 
     # ------------------------------------------------------------------
     # Enabled-state management

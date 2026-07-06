@@ -64,6 +64,81 @@ def _sanitize_data_stem(name: object) -> str:
     return text or "data"
 
 
+def _looks_numeric(token: str) -> bool:
+    """True if ``token`` would parse as a float (int/float/exponent form).
+
+    GLE's own header auto-detection (see ``graph.cpp: auto_has_header`` /
+    ``isFloatMiss``) treats the first row of a data file as a header ONLY
+    if *every* cell in that row fails float conversion; a single numeric-
+    looking header token would make GLE read the whole header row as data
+    instead. Column names must never satisfy this check.
+    """
+    try:
+        float(token)
+        return True
+    except ValueError:
+        return False
+
+
+def sanitize_column_name(name: object, fallback: str = "col") -> str:
+    """Sanitize an arbitrary label into a safe GLE data-file column header token.
+
+    Rules (documented here as the single source of truth for the sanitizer):
+
+    1. Keep only ``[A-Za-z0-9_]`` characters; every other character
+       (whitespace, punctuation, unicode, ...) becomes a single ``_``.
+    2. Lowercase the result.
+    3. Collapse consecutive underscores to one and strip leading/trailing
+       underscores.
+    4. If the result is empty, fall back to ``fallback``.
+    5. If the result would itself parse as a number (e.g. a label of
+       ``"2024"``), prefix it with ``fallback + "_"`` so it can never be
+       mistaken for a data value -- GLE's header auto-detection requires
+       *every* first-row token to be non-numeric, and a purely numeric
+       column name would silently defeat the header row for the whole
+       file (see :func:`_looks_numeric`).
+    6. The result never contains whitespace (guaranteed by step 1), since
+       header tokens are whitespace/space-separated on the header line.
+
+    Uniqueness across a file's column names is NOT handled here (a single
+    label sanitizes deterministically); see :func:`_unique_column_names`
+    for de-duplication via ``_2``, ``_3``, ... suffixes.
+    """
+    text = re.sub(r"[^A-Za-z0-9_]+", "_", str(name).strip().lower())
+    text = re.sub(r"_+", "_", text).strip("_")
+    if not text:
+        text = fallback
+    if _looks_numeric(text):
+        text = f"{fallback}_{text}"
+    return text
+
+
+def _unique_column_names(names: List[str]) -> List[str]:
+    """De-duplicate a list of column name tokens with stable ``_2``, ``_3``, ... suffixes.
+
+    The first occurrence of a name is kept as-is; subsequent occurrences of
+    the same (already-sanitized) name are suffixed with ``_2``, ``_3``, etc.
+    (matching :func:`_reserve_data_filename`'s collision convention). This
+    keeps sanitize_column_name pure/stateless while still guaranteeing
+    uniqueness within one sidecar's header row.
+    """
+    seen: dict = {}
+    result = []
+    for name in names:
+        if name not in seen:
+            seen[name] = 1
+            result.append(name)
+        else:
+            seen[name] += 1
+            candidate = f"{name}_{seen[name]}"
+            while candidate in seen:
+                seen[name] += 1
+                candidate = f"{name}_{seen[name]}"
+            seen[candidate] = 1
+            result.append(candidate)
+    return result
+
+
 def _reserve_data_filename(filename: str, figure=None) -> str:
     """Reserve a data filename and avoid collisions within a figure."""
     if not filename.endswith(".dat"):
@@ -120,6 +195,94 @@ def _resolve_data_file(figure=None, data_name: object = None) -> str:
     if data_name is None:
         return _get_next_data_file(figure)
     return _reserve_data_filename(_sanitize_data_stem(data_name), figure)
+
+
+def _build_errorbar_column_names(
+    label: Optional[str],
+    yerr_up, yerr_down, xerr_left, xerr_right,
+) -> List[str]:
+    """Build the sidecar header row for an errorbar series.
+
+    Mirrors :meth:`gleplot.writer.GLEWriter.add_errorbar`'s column-building
+    order exactly (x, y, then vertical error column(s), then horizontal
+    error column(s)), so the header row lines up 1:1 with the data columns
+    the writer actually emits:
+
+    - symmetric y error (``yerr_up == yerr_down``, both given) -> one
+      ``'err'`` column
+    - asymmetric -> ``'err_up'`` and/or ``'err_down'`` columns, in that order
+    - symmetric x error (``xerr_left == xerr_right``, both given) -> one
+      ``'xerr'`` column
+    - asymmetric -> ``'xerr_left'`` and/or ``'xerr_right'`` columns
+
+    The primary y column is named from ``label`` when given (else ``'y'``);
+    error columns always keep their stable suffix names (never derived from
+    the label) since GLE never auto-keys off an error dataset's column name
+    directly relevant here -- only the uniqueness pass can rename them.
+    """
+    y_names = ['y']
+
+    has_yerr = yerr_up is not None or yerr_down is not None
+    has_xerr = xerr_left is not None or xerr_right is not None
+    yerr_symmetric = (has_yerr and yerr_up is not None and yerr_down is not None
+                      and np.array_equal(yerr_up, yerr_down))
+    xerr_symmetric = (has_xerr and xerr_left is not None and xerr_right is not None
+                      and np.array_equal(xerr_left, xerr_right))
+
+    if has_yerr:
+        if yerr_symmetric:
+            y_names.append('err')
+        else:
+            if yerr_up is not None:
+                y_names.append('err_up')
+            if yerr_down is not None:
+                y_names.append('err_down')
+
+    if has_xerr:
+        if xerr_symmetric:
+            y_names.append('xerr')
+        else:
+            if xerr_left is not None:
+                y_names.append('xerr_left')
+            if xerr_right is not None:
+                y_names.append('xerr_right')
+
+    return _build_column_names('x', y_names, label)
+
+
+def _build_column_names(x_name: str, y_names: List[str], label: Optional[str]) -> List[str]:
+    """Build a sidecar header row: one name for x, then one per y-like column.
+
+    Parameters
+    ----------
+    x_name : str
+        Base name for the x column (conventionally ``'x'``).
+    y_names : list of str
+        Base (pre-uniqueness) names for the remaining columns in file order,
+        e.g. ``['y']`` for a plain line, ``['y', 'err']`` for a symmetric
+        errorbar, ``['upper', 'lower']`` for a fill, ``['height']`` for a
+        bar chart. When ``label`` is given, the FIRST entry of ``y_names``
+        (the primary data column) is derived from the sanitized label
+        instead of its own base name; the rest keep their stable suffixes.
+    label : str, optional
+        Series label (e.g. the ``label=`` argument to ``plot``/``errorbar``/
+        ...). When present, sanitized and used as the primary data column's
+        name in place of its generic base name (e.g. ``'y'``). When absent
+        (``None`` or empty), the generic base name is kept as-is.
+
+    Returns
+    -------
+    list of str
+        ``[x_name] + y_names`` with the primary column optionally renamed
+        from ``label``, then de-duplicated for uniqueness within the file.
+    """
+    names = [x_name]
+    for i, base in enumerate(y_names):
+        if i == 0 and label:
+            names.append(sanitize_column_name(label, fallback=base))
+        else:
+            names.append(base)
+    return _unique_column_names(names)
 
 
 class Axes:
@@ -248,6 +411,7 @@ class Axes:
             'label': label,
             'yaxis': yaxis,  # 'y' or 'y2'
             'data_file': _resolve_data_file(self.figure, data_name),
+            'column_names': _build_column_names('x', ['y'], label),
         }
         
         if is_scatter:
@@ -438,6 +602,9 @@ class Axes:
             'gle_capsize': gle_capsize,  # Separate field for the GLE-converted value
             'yaxis': yaxis,  # 'y' or 'y2'
             'data_file': _resolve_data_file(self.figure, data_name),
+            'column_names': _build_errorbar_column_names(
+                label, yerr_up, yerr_down, xerr_left, xerr_right
+            ),
         }
         self.errorbars.append(errbar_data)
 
@@ -621,6 +788,7 @@ class Axes:
             'colors': colors,
             'label': label,
             'data_file': _resolve_data_file(self.figure, data_name),
+            'column_names': _build_column_names('x', ['height'], label),
         }
         self.bars.append(bar_data)
         
@@ -669,6 +837,7 @@ class Axes:
             'alpha': alpha,
             'label': label,
             'data_file': _resolve_data_file(self.figure, data_name),
+            'column_names': _unique_column_names(['x', 'upper', 'lower']),
         }
         self.fills.append(fill_data)
         
@@ -869,6 +1038,34 @@ class Axes:
     _SERIES_ATTRS = ('lines', 'scatters', 'bars', 'fills', 'errorbars',
                      'file_series', 'texts')
 
+    @staticmethod
+    def _default_column_names(attr: str, item: dict) -> Optional[List[str]]:
+        """Regenerate ``column_names`` for a series loaded from an older project.
+
+        Projects saved before Track E3 (named sidecar column headers) have no
+        ``'column_names'`` key on their series dicts at all. Rather than
+        leaving it absent (which would produce a headerless sidecar on the
+        next save -- a silent format regression), recompute the same default
+        names :meth:`plot`/:meth:`errorbar`/:meth:`bar`/:meth:`fill_between`
+        would have produced for equivalent arguments, using the already
+        JSON-scalar/array-restored ``item``. Returns ``None`` for
+        ``file_series``/``texts`` (no generated sidecar, nothing to name).
+        """
+        label = item.get('label')
+        if attr in ('lines', 'scatters'):
+            return _build_column_names('x', ['y'], label)
+        if attr == 'bars':
+            return _build_column_names('x', ['height'], label)
+        if attr == 'fills':
+            return _unique_column_names(['x', 'upper', 'lower'])
+        if attr == 'errorbars':
+            return _build_errorbar_column_names(
+                label,
+                item.get('yerr_up'), item.get('yerr_down'),
+                item.get('xerr_left'), item.get('xerr_right'),
+            )
+        return None
+
     def to_dict(self) -> dict:
         """Serialize this axes to a JSON-safe dictionary.
 
@@ -972,6 +1169,14 @@ class Axes:
                 item = dict(series)
                 for key in array_keys:
                     item[key] = _to_float_array(item.get(key))
+                # Older projects (pre Track E3) have no 'column_names' key at
+                # all on their series dicts; regenerate the same defaults the
+                # plotting methods would produce so the next save still gets
+                # a named header row instead of silently reverting to none.
+                if 'column_names' not in item:
+                    defaults = cls._default_column_names(attr, item)
+                    if defaults is not None:
+                        item['column_names'] = defaults
                 restored.append(item)
             setattr(ax, attr, restored)
 

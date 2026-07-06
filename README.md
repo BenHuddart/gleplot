@@ -48,7 +48,7 @@ fig.savefig('trig.pdf', folder=True)
 
 ## GUI Editor
 
-gleplot also ships a desktop editor (PySide6) for building figures without writing code: load data, pick columns, style series, arrange subplots, and export -- all with a live preview.
+gleplot also ships a desktop editor (PySide6) for building figures without writing code: load data, pick columns, style series, arrange subplots, annotate, and export -- all with a live preview.
 
 ### Install
 ```bash
@@ -61,9 +61,11 @@ gleplot-gui
 ```
 
 ### Features
-✨ **Live Preview** - Debounced, async GLE compile-to-PNG as you edit  
+✨ **Live Preview** - Debounced, async GLE compile as you edit, as a vector SVG by default (with an automatic, sticky PNG fallback if SVG isn't usable)  
+✨ **On-Canvas Annotations** - Add, drag, double-click-edit, and delete free-form text labels directly on the preview, kept in sync with a dedicated Texts tab  
 ✨ **Data Manager** - Load CSV/`.dat` files, pick columns, import data or reference the file in place  
-✨ **Property Panels** - Layout, Figure, Axes, and Series tabs for point-and-click styling  
+✨ **Named Data Columns** - Generated `.dat` sidecars carry real column names (from your series labels) instead of anonymous placeholders  
+✨ **Property Panels** - Layout, Figure, Axes, Series, and Texts tabs for point-and-click styling  
 ✨ **Native `.gle` Files** - Save and open your work directly as `.gle` (the same format GLE renders) via File ▸ Save / Open -- unrecognized content is preserved as raw GLE  
 ✨ **Export Dialog** - PDF, PNG, EPS, SVG, JPG, or raw GLE script, with an optional folder bundle  
 ✨ **Undo/Redo** - Full editing history  

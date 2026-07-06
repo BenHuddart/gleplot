@@ -41,8 +41,24 @@ class TestTextAnnotations(unittest.TestCase):
 
         self.assertIn('amove xg(1.25) yg(0.45)', gle)
         self.assertIn('write "Comp 1"', gle)
-        self.assertIn('set just left', gle)
+        # 'BLACK'/'left' are GLE's own defaults (and the sticky state the
+        # writer starts in), so a text using them needs no 'set color'/'set
+        # just' restated -- the writer skips redundant lines that would not
+        # change anything (see GLEWriter.add_text sticky-state tracking).
+        self.assertNotIn('set color BLACK', gle)
+        self.assertNotIn('set just left', gle)
         self.assertLess(gle.find('end graph'), gle.find('amove xg(1.25) yg(0.45)'))
+
+    def test_text_with_non_default_just_emits_set_just(self):
+        # A halign that differs from GLE's sticky default ('left') must still
+        # emit an explicit 'set just' so the rendered alignment is correct.
+        self.ax.plot([0, 1, 2], [0.2, 0.5, 0.3], color='blue')
+        self.ax.text(1.25, 0.45, 'Comp 1', ha='center')
+
+        gle = self.fig._generate_gle()
+
+        self.assertIn('set just center', gle)
+        self.assertIn('write "Comp 1"', gle)
 
     def test_module_level_text(self):
         glp.figure()

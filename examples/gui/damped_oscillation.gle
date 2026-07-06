@@ -14,10 +14,25 @@ begin graph
     xtitle "Time (s)"
     ytitle "Amplitude"
     xaxis min 0 max 10
-    yaxis min -0.715181 max 1.06219
+    yaxis min -0.598548 max 1.05629
     data data_1.dat d1=c1,c2
     d1 line smooth color RED lwidth 0.05292 lstyle 2 key "Model fit"
     data data_0.dat d2=c1,c2 d3=c1,c3
-    d2 marker FCIRCLE msize 0.15 color BLUE line lwidth 0.05292 err d3 errwidth 0.1059 key "Measured"
+    d2 marker FCIRCLE msize 0.15 color BLUE line lwidth 0.05292 err d3 key "Measured"
     key pos tr
 end graph
+set hei 0.352734
+set color BLACK
+set just left
+amove xg(1) yg(0.92)
+write "Initial peak"
+set hei 0.352734
+set color DARKGREEN
+set just left
+amove xg(4.5) yg(-0.32)
+write "Decay envelope"
+set hei 0.352734
+set color PURPLE
+set just right
+amove xg(8.5) yg(0.25)
+write "Settling"
