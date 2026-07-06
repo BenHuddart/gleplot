@@ -42,6 +42,22 @@ The preview renders PNG by default; SVG is strictly opt-in per session via
 by a one-time probe compile on first opt-in — the raster path has proven the
 more robust of the two across GLE/Cairo environments, for the reasons below.
 
+Known, undetectable-in-practice SVG mis-render (occlusion clips): GLE's
+Cairo backend implements occlusion — a legend or filled text box drawn over
+already-painted content — not by painting the box's background on top, but by
+*clipping* the underlying content out of the box's rectangle (a ``<clipPath>``
+whose path has multiple ``M`` subpaths describing the exposed region). QtSvg's
+clip-path support is partial (SVG Tiny has none), so it paints such content
+unclipped: whatever the box should hide bleeds through it. The SVG *file* is
+correct — browsers render it fine; only the QtSvg preview is wrong. This
+cannot be turned into a validation rule: every Cairo-emitted SVG carries
+multi-subpath clips (verified empirically — 100% of clip defs in both a
+legend-overlapping and a visually-fine figure), so their presence does not
+discriminate; only actual visual overlap does, which would require geometry
+intersection of painted content against clip-excluded regions. Mitigation:
+PNG is the default, and the opt-in toggle carries a tooltip + status-bar
+caveat pointing users back to PNG when the preview looks wrong.
+
 GLE's Cairo-based SVG backend (``gle -d svg``) refuses to draw any PostScript
 font (``>> Error: PostScript fonts not supported with '-cairo'``) but still
 exits ``0`` and still writes a structurally valid (if incomplete -- missing

@@ -315,7 +315,13 @@ class MainWindow(QMainWindow):
             self.preview_controller.render_format == "svg"
         )
         self.action_vector_preview.setEnabled(self.preview_controller.svg_available)
-        if not self.preview_controller.svg_available:
+        if self.preview_controller.svg_available:
+            self.action_vector_preview.setToolTip(
+                "Sharper zooming, but boxes/legends drawn over data may not "
+                "occlude it correctly (Qt SVG clip-path limitation). Switch "
+                "back to PNG if the preview looks wrong."
+            )
+        else:
             self.action_vector_preview.setToolTip(
                 "SVG preview is unavailable in this session; showing PNG."
             )
@@ -504,6 +510,18 @@ class MainWindow(QMainWindow):
     def _on_toggle_vector_preview(self, checked: bool) -> None:
         """View ▸ Vector preview (SVG): switch ``render_format`` on toggle."""
         self.preview_controller.render_format = "svg" if checked else "png"
+        if checked and self.preview_controller.render_format == "svg":
+            # Honest caveat on opt-in: QtSvg has no real clip-path support, so
+            # occlusion GLE achieves via clip regions (a legend or text box
+            # over data) renders wrongly — content bleeds through the box.
+            # This cannot be detected mechanically (every Cairo SVG carries
+            # such clips; only visual overlap makes it wrong), hence a
+            # message rather than a validation rule.
+            self.statusBar().showMessage(
+                "Vector preview on — boxes/legends over data may not occlude "
+                "correctly; switch back to PNG if the preview looks wrong.",
+                _STATUS_MS,
+            )
 
     def _on_svg_fallback_activated(self, reason: str) -> None:
         """SVG rendering failed permanently this session; reflect it in the UI.
