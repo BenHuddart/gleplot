@@ -133,14 +133,25 @@ def _single_axes_doc():
 # --------------------------------------------------------------------------- #
 # PreviewController: SVG render end-to-end
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
-def test_svg_is_default_render_format_when_available(qapp):
-    """With QtSvg + a working GLE/Cairo install, SVG is the default format."""
+def test_png_is_default_render_format(qapp):
+    """PNG is always the startup format; SVG is strictly opt-in."""
     doc = _make_sin_document()
     ctrl = PreviewController(doc, debounce_ms=50)
     try:
-        assert ctrl.render_format == "svg"
+        assert ctrl.render_format == "png"
+    finally:
+        ctrl.shutdown()
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_svg_opt_in_probes_and_switches(qapp):
+    """With QtSvg + a working GLE/Cairo install, opting in switches to SVG."""
+    doc = _make_sin_document()
+    ctrl = PreviewController(doc, debounce_ms=50)
+    try:
         assert ctrl.svg_available
+        ctrl.render_format = "svg"
+        assert ctrl.render_format == "svg"
     finally:
         ctrl.shutdown()
 
@@ -151,6 +162,7 @@ def test_svg_render_succeeds_and_is_valid(qapp):
     ctrl = PreviewController(doc, debounce_ms=50)
     rec = SignalRecorder(ctrl)
     try:
+        ctrl.render_format = "svg"  # opt-in (runs the probe)
         assert ctrl.render_format == "svg"
         ctrl.request_render()
         assert _wait_until(lambda: rec.succeeded or rec.failed, 10000)
@@ -184,6 +196,7 @@ def test_svg_calibration_print_line_present(qapp):
     ctrl = PreviewController(doc, debounce_ms=50)
     rec = SignalRecorder(ctrl)
     try:
+        ctrl.render_format = "svg"  # opt-in (runs the probe)
         ctrl.request_render()
         assert _wait_until(lambda: rec.succeeded or rec.failed, 10000)
         assert not rec.failed, rec.failed
@@ -206,6 +219,10 @@ def test_svg_fallback_on_invalid_output(qapp, monkeypatch, tmp_path):
     doc = _make_sin_document()
     ctrl = PreviewController(doc, debounce_ms=50)
     rec = SignalRecorder(ctrl)
+    # Opt in BEFORE poisoning the validator: the opt-in probe calls
+    # _svg_output_problem too, and must pass with the real validation so this
+    # test exercises the *live-render* fallback path, not the probe path.
+    ctrl.render_format = "svg"
     assert ctrl.render_format == "svg"
 
     # Force every SVG-output validation to report a problem, regardless of
@@ -235,6 +252,27 @@ def test_svg_fallback_on_invalid_output(qapp, monkeypatch, tmp_path):
         assert Path(final_path).stat().st_size > 0
 
         # Sticky: attempting to re-enable SVG is a silent no-op.
+        ctrl.render_format = "svg"
+        assert ctrl.render_format == "png"
+    finally:
+        ctrl.shutdown()
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_svg_opt_in_refused_when_probe_fails(qapp, monkeypatch):
+    """A failed opt-in probe keeps PNG and activates the sticky fallback."""
+    doc = _make_sin_document()
+    ctrl = PreviewController(doc, debounce_ms=50)
+    rec = SignalRecorder(ctrl)
+    try:
+        monkeypatch.setattr(ctrl, "_probe_svg_support", lambda: False)
+
+        ctrl.render_format = "svg"
+
+        assert ctrl.render_format == "png"
+        assert not ctrl.svg_available
+        assert rec.fallbacks  # UI was told why the opt-in was refused
+        # Sticky: a second attempt is silently ignored, without re-probing.
         ctrl.render_format = "svg"
         assert ctrl.render_format == "png"
     finally:

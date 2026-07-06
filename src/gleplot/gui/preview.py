@@ -37,6 +37,27 @@ any series, the controller skips the render and emits
 
 SVG rendering and fallback (Track E2)
 --------------------------------------
+The preview renders PNG by default; SVG is strictly opt-in per session via
+:attr:`PreviewController.render_format` (View ▸ Vector preview (SVG)), gated
+by a one-time probe compile on first opt-in — the raster path has proven the
+more robust of the two across GLE/Cairo environments, for the reasons below.
+
+Known, undetectable-in-practice SVG mis-render (occlusion clips): GLE's
+Cairo backend implements occlusion — a legend or filled text box drawn over
+already-painted content — not by painting the box's background on top, but by
+*clipping* the underlying content out of the box's rectangle (a ``<clipPath>``
+whose path has multiple ``M`` subpaths describing the exposed region). QtSvg's
+clip-path support is partial (SVG Tiny has none), so it paints such content
+unclipped: whatever the box should hide bleeds through it. The SVG *file* is
+correct — browsers render it fine; only the QtSvg preview is wrong. This
+cannot be turned into a validation rule: every Cairo-emitted SVG carries
+multi-subpath clips (verified empirically — 100% of clip defs in both a
+legend-overlapping and a visually-fine figure), so their presence does not
+discriminate; only actual visual overlap does, which would require geometry
+intersection of painted content against clip-excluded regions. Mitigation:
+PNG is the default, and the opt-in toggle carries a tooltip + status-bar
+caveat pointing users back to PNG when the preview looks wrong.
+
 GLE's Cairo-based SVG backend (``gle -d svg``) refuses to draw any PostScript
 font (``>> Error: PostScript fonts not supported with '-cairo'``) but still
 exits ``0`` and still writes a structurally valid (if incomplete -- missing
@@ -355,16 +376,18 @@ class PreviewController(QObject):
         self._gle_path = find_gle()
         self._preview_dpi = 150
 
-        # Render format: 'svg' by default only when QtSvg imported successfully
-        # AND a one-time session probe (a trivial compile) confirms GLE's
-        # ``-d svg`` actually produces a loadable SVG in this environment;
-        # otherwise 'png'. See _probe_svg_support(). ``_svg_fallback_reason``
-        # is set (once, permanently) the first time an SVG-specific failure is
-        # detected, and pins the format to 'png' from then on.
+        # Render format: 'png' by default — the raster path is the most robust
+        # across GLE/Cairo/Qt environments. SVG (vector) is strictly opt-in via
+        # the ``render_format`` setter (View ▸ Vector preview (SVG)); the first
+        # opt-in runs a one-time session probe (a trivial compile) confirming
+        # GLE's ``-d svg`` output actually loads before switching. See
+        # _probe_svg_support(). ``_svg_fallback_reason`` is set (once,
+        # permanently) the first time an SVG-specific failure is detected, and
+        # pins the format to 'png' from then on. ``_svg_probe_ok`` caches the
+        # probe verdict so opting out and back in never re-probes.
         self._svg_fallback_reason: Optional[str] = None
+        self._svg_probe_ok: Optional[bool] = None
         self._render_format = "png"
-        if _QTSVG_AVAILABLE and self._gle_path and self._probe_svg_support():
-            self._render_format = "svg"
 
         # Session scratch directory for scripts, data files, and PNGs. Created
         # lazily on first render so constructing a controller is cheap.
@@ -437,12 +460,14 @@ class PreviewController(QObject):
 
     @property
     def render_format(self) -> str:
-        """Current render format: ``'svg'`` (vector) or ``'png'`` (raster).
+        """Current render format: ``'png'`` (raster) or ``'svg'`` (vector).
 
-        Defaults to ``'svg'`` when ``QtSvg`` imported successfully *and* a
-        one-time session probe confirmed GLE's ``-d svg`` output loads, else
-        ``'png'``. Once :data:`fallback_activated` has fired, this is
-        permanently pinned to ``'png'`` -- the setter silently ignores any
+        Defaults to ``'png'`` — the most robust path — with SVG strictly
+        opt-in. The first attempt to set ``'svg'`` runs a one-time session
+        probe confirming GLE's ``-d svg`` output loads (``QtSvg`` must also
+        have imported successfully). Once :data:`fallback_activated` has
+        fired — from a failed probe or a failed live render — this is
+        permanently pinned to ``'png'``: the setter silently ignores any
         attempt to set ``'svg'`` again for the rest of the session (see
         :attr:`svg_available`).
         """
@@ -458,9 +483,30 @@ class PreviewController(QObject):
             return
         if value == "svg" and not _QTSVG_AVAILABLE:
             return
+        if value == "svg" and not self._ensure_svg_probe():
+            return
         if value != self._render_format:
             self._render_format = value
             self._on_document_changed()
+
+    def _ensure_svg_probe(self) -> bool:
+        """Run the one-time SVG probe on first opt-in (cached thereafter).
+
+        A failed probe (with a GLE binary present) activates the permanent
+        PNG fallback so the UI is told why the opt-in was refused — the
+        toggle unchecks/disables with the reason — instead of the setter
+        silently doing nothing. With no GLE binary the refusal is *not*
+        cached or made sticky: the user may configure GLE later and retry.
+        """
+        if self._svg_probe_ok is None:
+            if not self._gle_path:
+                return False
+            self._svg_probe_ok = self._probe_svg_support()
+            if not self._svg_probe_ok:
+                self._activate_svg_fallback(
+                    "probe compile did not produce a loadable SVG"
+                )
+        return bool(self._svg_probe_ok)
 
     @property
     def svg_available(self) -> bool:
@@ -795,11 +841,11 @@ class PreviewController(QObject):
         Compiles a minimal known-good script (an axes box, the same
         Cairo-safe font forced for all SVG renders) in a throwaway temp
         directory. Never raises; any exception or a failed/invalid probe
-        result means SVG is not available and the controller starts in
-        ``'png'`` mode instead. Runs synchronously (a bare ``gle`` invocation
-        on a trivial script is a small fraction of a second) so the format
-        decision is stable and available immediately in ``__init__`` --
-        the render pipeline itself remains fully async for real renders.
+        result means SVG is not available and the opt-in is refused (see
+        :meth:`_ensure_svg_probe`). Runs synchronously (a bare ``gle``
+        invocation on a trivial script is a small fraction of a second) —
+        acceptable for a one-time response to an explicit user toggle; the
+        render pipeline itself remains fully async for real renders.
         """
         probe_dir = None
         try:
