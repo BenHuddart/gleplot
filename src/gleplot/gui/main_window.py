@@ -151,6 +151,10 @@ class MainWindow(QMainWindow):
         # pinned binary is in effect for the very first render.
         compiler.set_gle_path_override(self._read_gle_override())
 
+        #: When True, :meth:`closeEvent` skips the dirty-document confirmation
+        #: (set transiently by :meth:`force_close` for embedder shutdown).
+        self._force_close = False
+
         # GLE-preview mode state. ``_gle_preview_path`` is the .gle file being
         # previewed (None => document mode). ``_gle_temp_dirs`` accumulates the
         # mkdtemp'd compile output directories we own and must clean up.
@@ -699,6 +703,17 @@ class MainWindow(QMainWindow):
             return
         self._dispatch_open(chosen)
 
+    def open_path(self, path_str: str) -> None:
+        """Open ``path_str`` in the editor (public entry point).
+
+        This is the supported way for embedders (e.g. host applications that
+        create a :class:`MainWindow` inside their own ``QApplication``) to load
+        a ``.gle`` file after construction. Interactive: may show modal dialogs
+        (programmatic-file prompt, parse-failure fallback offer), exactly like
+        File ▸ Open.
+        """
+        self._dispatch_open(path_str)
+
     def _dispatch_open(self, path_str: str) -> None:
         """Open ``path_str`` as an editable ``.gle`` figure (native format).
 
@@ -1028,12 +1043,26 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override
         """Confirm discard on a dirty document, then tear down the render engine."""
-        if not self._confirm_discard_if_dirty("Exit"):
+        if not self._force_close and not self._confirm_discard_if_dirty("Exit"):
             event.ignore()
             return
         self._cleanup_gle_temp_dirs()
         self.preview_controller.shutdown()
         event.accept()
+
+    def force_close(self) -> None:
+        """Close unconditionally, skipping the dirty-document confirmation.
+
+        For embedders tearing down editor windows at host-application
+        shutdown, where a modal prompt cannot be answered — and would hang a
+        headless (offscreen) test run. Normal interactive closes still get
+        the confirmation via :meth:`closeEvent`.
+        """
+        self._force_close = True
+        try:
+            self.close()
+        finally:
+            self._force_close = False
 
     # ------------------------------------------------------------------
     # GLE setup (executable configuration)
@@ -1070,7 +1099,29 @@ class MainWindow(QMainWindow):
             return  # cancelled — leave the setting untouched
 
         self._write_gle_override(chosen)
-        compiler.set_gle_path_override(chosen)
+        self.apply_gle_executable(chosen)
+
+        resolved = compiler.find_gle()
+        self.statusBar().showMessage(
+            f"GLE: {resolved}" if resolved else "GLE: not found", _STATUS_MS,
+        )
+
+    def apply_gle_executable(self, path: Optional[str]) -> None:
+        """Apply a GLE-binary override for this process and refresh the window.
+
+        Pushes ``path`` into :func:`gleplot.compiler.set_gle_path_override`
+        (process-global), re-resolves, propagates the result to the preview
+        controller's cached path and the status-bar label, and re-renders so
+        the change takes effect immediately. ``None``/empty restores
+        auto-detection.
+
+        Unlike Tools ▸ GLE Setup…, this does **not** persist the choice to
+        gleplot's settings — embedders (host applications opening the editor
+        in-process via :func:`gleplot.gui.app.open_editor`) use it to impose
+        their own configured binary for the session without overwriting the
+        user's standalone-gleplot preference.
+        """
+        compiler.set_gle_path_override(path or None)
 
         # Re-resolve and propagate: the preview controller caches the path.
         resolved = compiler.find_gle()
@@ -1081,10 +1132,6 @@ class MainWindow(QMainWindow):
         # request_render coalesces/skips when there's nothing renderable.
         if not self.is_gle_preview_mode:
             self.preview_controller.request_render()
-
-        self.statusBar().showMessage(
-            f"GLE: {resolved}" if resolved else "GLE: not found", _STATUS_MS,
-        )
 
     # ------------------------------------------------------------------
     # Dialogs
