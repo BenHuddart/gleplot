@@ -906,12 +906,11 @@ class _Recognizer:
         """
         if len(toks) < 2:
             return
-        data_file = self._token_filename(toks[1])
+        data_file, i = self._read_filename(toks, 1)
         m = len(toks)
 
         # Collect dataset clauses in the order given: (name, explicit_cols|None).
         given: List[Tuple[str, Optional[Tuple[int, int]]]] = []
-        i = 2
         while i < m:
             name_tok = toks[i]
             if name_tok.type is not TokenType.WORD or not _DATASET_RE.match(name_tok.value):
@@ -989,12 +988,54 @@ class _Recognizer:
         datasets[name] = (data_file, xcol, ycol)
         self._datasets[name] = (data_file, xcol, ycol)
 
-    @staticmethod
-    def _token_filename(tok) -> str:
-        """Filename from a data-command token: unwrap STRING quotes."""
+    #: OP token values that may appear glued mid-filename (hyphenated names,
+    #: relative paths, and -- defensively -- a literal '+') when assembling
+    #: an unquoted filename from contiguous tokens. See ``_read_filename``.
+    _FILENAME_MERGE_OPS = frozenset({"-", "+", "/"})
+
+    @classmethod
+    def _read_filename(cls, toks, idx: int) -> Tuple[str, int]:
+        """Assemble a data-command filename starting at ``toks[idx]``.
+
+        A quoted filename is a single ``STRING`` token; unwrap it exactly as
+        before. An *unquoted* filename may lex as several tokens with no gap
+        between them -- e.g. ``20_main.dat`` (``NUMBER``-turned-``WORD`` by
+        the lexer, but still possibly split for other digit/word
+        combinations), ``my-file.dat`` (``WORD OP('-') WORD``), or
+        ``sub/dir/file.dat`` (``WORD OP('/') WORD OP('/') WORD``). Merge a
+        maximal run of *span-contiguous* tokens (no whitespace between them)
+        whose type is ``WORD``/``NUMBER``, or ``OP`` with a value in
+        :data:`_FILENAME_MERGE_OPS`, into one filename string. A whitespace
+        gap, ``COMMENT``, ``STRING``, or any other ``OP`` (``=``, ``,``,
+        ``(``, ``)``, ``*``, ``^``, ``;``) stops the run -- this is what
+        keeps the normal ``data data_0.dat d1=c1,c2`` case correct (the gap
+        before ``d1`` stops the merge).
+
+        Returns ``(filename, next_index)`` where ``next_index`` is the index
+        of the first token not consumed, so the ``dN=cX,cY`` parsing that
+        follows starts in the right place.
+        """
+        tok = toks[idx]
         if tok.type is TokenType.STRING:
-            return _string_value(tok)
-        return tok.value
+            return _string_value(tok), idx + 1
+
+        parts = [tok.value]
+        end = tok.end
+        j = idx + 1
+        while j < len(toks):
+            nxt = toks[j]
+            if nxt.start != end:
+                break
+            if nxt.type is TokenType.WORD or nxt.type is TokenType.NUMBER:
+                pass
+            elif nxt.type is TokenType.OP and nxt.value in cls._FILENAME_MERGE_OPS:
+                pass
+            else:
+                break
+            parts.append(nxt.value)
+            end = nxt.end
+            j += 1
+        return "".join(parts), j
 
     def _file_column_count(self, data_file) -> Optional[int]:
         """Number of columns in the resolved data file, or None if unresolved."""
