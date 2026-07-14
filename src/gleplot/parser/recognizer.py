@@ -610,6 +610,15 @@ class _Recognizer:
             # this set lets pass 2 recognize and skip it as a suppression
             # marker instead of fabricating a phantom series.
             "_key_suppress_datasets": set(),
+            # dataset name (e.g. 'd10') -> vertical offset, for datasets the
+            # writer defines via 'let dK = dJ+off' to stack a waterfall/overlay
+            # trace at plot time. The recovered series carries the RAW file
+            # values plus this offset as an editable property (the offset never
+            # touches the .dat file). See _parse_let_command.
+            "_dataset_offsets": {},
+            # Names of 'let' targets recognized as offset aliases, so pass 2
+            # consumes those 'let' lines instead of preserving them as raw GLE.
+            "_offset_let_datasets": set(),
         }
 
         # Local dataset map for THIS block (dataset refs are graph-local).
@@ -633,6 +642,12 @@ class _Recognizer:
                 kw = child.keyword
                 if kw == "data":
                     self._parse_data_command(_words_and_values(child), datasets)
+                    continue
+                if kw == "let":
+                    # 'let dK = dJ+off' -- register dK as an offset alias of dJ
+                    # (dJ's 'data' command precedes it in body order, so dJ is
+                    # already known here in pass 1).
+                    self._parse_let_command(_words_and_values(child), datasets, info)
                     continue
                 if kw is not None and _DATASET_RE.match(kw):
                     name = kw
@@ -667,6 +682,14 @@ class _Recognizer:
             kw = child.keyword
             if kw == "data":
                 continue  # already handled in pass 1
+            if kw == "let":
+                # Recognized offset alias -> consumed (the offset now lives on
+                # the aliased series). An unrecognized 'let' falls through to
+                # generic dispatch, which preserves it as raw GLE.
+                toks = _words_and_values(child)
+                target = toks[1].value.lower() if len(toks) > 1 else None
+                if target in info["_offset_let_datasets"]:
+                    continue
             if kw is not None and _DATASET_RE.match(kw):
                 name = kw
                 if name in emitted:
@@ -988,6 +1011,45 @@ class _Recognizer:
         datasets[name] = (data_file, xcol, ycol)
         self._datasets[name] = (data_file, xcol, ycol)
 
+    def _parse_let_command(self, toks, datasets, info):
+        """``let dK = dJ+off`` / ``let dK = dJ-off`` -> register dK as an
+        offset alias of dJ.
+
+        Recognizes only the exact vertical-shift shape gleplot's writer emits
+        (see :meth:`gleplot.writer.GLEWriter._apply_offset`): a target dataset,
+        ``=``, a source dataset already registered by a ``data`` command, a
+        single ``+``/``-``, and a numeric value. dK is registered pointing at
+        dJ's file and columns, and the signed offset is recorded in
+        ``info["_dataset_offsets"]`` so the recovered series carries the raw
+        file values plus an editable offset. Anything richer (a general GLE
+        ``let`` expression) is left unregistered and preserved as raw GLE.
+
+        Tokens (keyword included): ``let dK = dJ <op> <number...>``.
+        """
+        # let dK = dJ <op> number  -> at least 6 tokens.
+        if len(toks) < 6:
+            return
+        target = toks[1].value.lower()
+        eq = toks[2]
+        source = toks[3].value.lower()
+        op = toks[4].value
+        if not _DATASET_RE.match(target) or not _DATASET_RE.match(source):
+            return
+        if eq.type is not TokenType.OP or eq.value != "=":
+            return
+        if op not in ("+", "-"):
+            return
+        if source not in datasets:
+            return
+        magnitude = eval_gle_number(toks[5:])
+        if magnitude is None:
+            return
+        offset = -magnitude if op == "-" else magnitude
+        data_file, xcol, ycol = datasets[source]
+        self._register_dataset(target, data_file, xcol, ycol, datasets)
+        info["_dataset_offsets"][target] = float(offset)
+        info["_offset_let_datasets"].add(target)
+
     #: OP token values that may appear glued mid-filename (hyphenated names,
     #: relative paths, and -- defensively -- a literal '+') when assembling
     #: an unquoted filename from contiguous tokens. See ``_read_filename``.
@@ -1134,6 +1196,7 @@ class _Recognizer:
         fill_entry = {
             "x": x, "y1": y1, "y2": y2,
             "color": color, "alpha": 0.3, "label": None,
+            "offset": info["_dataset_offsets"].get(d_names[0], 0.0),
             "data_file": f1,
         }
         column_names = self._recovered_column_names(f1, [xc1, yc1, yc2])
@@ -1230,6 +1293,7 @@ class _Recognizer:
             "linewidth": linewidth,
             "label": attrs["label"],
             "yaxis": "y2" if attrs["y2axis"] else "y",
+            "offset": info["_dataset_offsets"].get(d_name, 0.0),
             "data_file": data_file,
         }
         column_names = self._recovered_column_names(data_file, [xcol, ycol])
@@ -1517,6 +1581,11 @@ class _Recognizer:
             "capsize": stored_capsize,
             "gle_capsize": gle_capsize,
             "yaxis": "y2" if attrs["y2axis"] else "y",
+            "offset": (
+                info["_dataset_offsets"].get(orig_toks[0].value.lower(), 0.0)
+                if orig_toks
+                else 0.0
+            ),
             "data_file": data_file,
         }
         if not err_consts:

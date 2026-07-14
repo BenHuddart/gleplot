@@ -356,12 +356,35 @@ class GLEWriter:
 
         # Add trailing newline for GLE compatibility
         self.data_files[filename] = '\n'.join(lines) + '\n'
-    
+
+    def _apply_offset(self, source_name: str, offset: float) -> str:
+        """Emit a ``let`` command that shifts *source_name* vertically by *offset*.
+
+        Returns the name of a fresh dataset holding ``source_name + offset`` so
+        the caller can display the shifted trace while the on-disk ``.dat`` file
+        keeps its raw values. The offset therefore lives entirely in the GLE
+        script (a waterfall/overlay stack applied at plot time), never baked
+        into the data. Error datasets are unaffected -- they carry magnitudes,
+        so the caller keeps its ``err`` references on the raw error datasets and
+        they ride along with the shifted centre.
+
+        GLE's ``let`` parser is whitespace-sensitive around arithmetic on a
+        dataset reference: ``let d2 = d1 + 5`` fails ("unknown token '+'") but
+        ``let d2 = d1+5`` works, so the operator is glued to its operands. A
+        negative offset is emitted as ``d1-5`` (not ``d1+-5``).
+        """
+        shifted = f'd{self.dataset_index}'
+        self.dataset_index += 1
+        mag = self._format_number(abs(offset))
+        sign = '-' if offset < 0 else '+'
+        self.lines_gle.append(f'    let {shifted} = {source_name}{sign}{mag}')
+        return shifted
+
     def add_plot_line(self, x: np.ndarray, y: np.ndarray, data_file: str,
                       color: str = 'BLUE', linestyle: str = '-',
                       linewidth: float = 1.0, label: Optional[str] = None,
                       marker: Optional[str] = None, markersize: float = 0.1,
-                      yaxis: str = 'y',
+                      yaxis: str = 'y', offset: float = 0.0,
                       column_names: Optional[List[str]] = None):
         """
         Add line plot to graph.
@@ -409,9 +432,13 @@ class GLEWriter:
         
         cmd = f'    data {_format_data_filename(data_file)} {d_name}=c1,c2'
         self.lines_gle.append(cmd)
-        
+
+        # A non-zero offset shifts the trace vertically at plot time via a
+        # ``let`` on a fresh dataset, leaving the .dat file's values raw.
+        display_name = self._apply_offset(d_name, offset) if offset else d_name
+
         # Generate line command
-        line_cmd = f'    {d_name}'
+        line_cmd = f'    {display_name}'
         
         # Convert matplotlib linewidth (points) to GLE lwidth (cm)
         # If linewidth is 0 or 1, use default from style config
@@ -524,7 +551,7 @@ class GLEWriter:
                      xerr_left: Optional[np.ndarray] = None,
                      xerr_right: Optional[np.ndarray] = None,
                      capsize: Optional[float] = None,
-                     yaxis: str = 'y',
+                     yaxis: str = 'y', offset: float = 0.0,
                      column_names: Optional[List[str]] = None):
         """
         Add plot with error bars to graph.
@@ -690,9 +717,15 @@ class GLEWriter:
                     err_datasets['xerr_right'] = d_xerr_right
         
         self.lines_gle.append(data_cmd)
-        
+
+        # A non-zero offset shifts the plotted centre vertically at plot time
+        # via a ``let`` on a fresh dataset; the raw .dat values are untouched
+        # and the error datasets (magnitudes) stay bound to the raw columns, so
+        # the bars ride along with the shifted centre.
+        display_name = self._apply_offset(d_main, offset) if offset else d_main
+
         # Build the main dataset display command
-        line_cmd = f'    {d_main}'
+        line_cmd = f'    {display_name}'
         
         # Convert linewidth
         if linewidth == 0 or linewidth == 1:
@@ -842,6 +875,7 @@ class GLEWriter:
     
     def add_fill_between(self, x: np.ndarray, y1: np.ndarray, y2: np.ndarray,
                          data_file: str, color: str = 'LIGHTBLUE', alpha: float = 1.0,
+                         offset: float = 0.0,
                          column_names: Optional[List[str]] = None):
         """
         Add fill between two curves.
@@ -877,12 +911,21 @@ class GLEWriter:
         cmd = f'    data {_format_data_filename(data_file)} {d1_name}=c1,c2 {d2_name}=c1,c3'
         self.lines_gle.append(cmd)
 
+        # A non-zero offset shifts BOTH band edges vertically by the same amount
+        # at plot time (a waterfall band rides with its trace), leaving the .dat
+        # file raw. The displayed/keyed datasets are then the shifted ones.
+        if offset:
+            fill_a = self._apply_offset(d1_name, offset)
+            fill_b = self._apply_offset(d2_name, offset)
+        else:
+            fill_a, fill_b = d1_name, d2_name
+
         # GLE fill between two datasets: fill d1,d2 color X
-        self.lines_gle.append(f'    fill {d1_name},{d2_name} color {color}')
+        self.lines_gle.append(f'    fill {fill_a},{fill_b} color {color}')
 
         if column_names:
-            self.lines_gle.append(f'    {d1_name} key ""')
-            self.lines_gle.append(f'    {d2_name} key ""')
+            self.lines_gle.append(f'    {fill_a} key ""')
+            self.lines_gle.append(f'    {fill_b} key ""')
 
     def add_text(
         self,

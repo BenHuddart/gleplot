@@ -315,6 +315,24 @@ class TestSeriesPanel:
         scale = document.figure.marker_config.msize_scale
         assert ax.scatters[0]["markersize"] == pytest.approx(10.0 * 0.025 * scale)
 
+    def test_offset_field_enabled_and_populated_for_line(self, document):
+        ax = document.figure.gca()
+        ax.lines[0]["offset"] = 3.5
+        panel = SeriesPanel(document)
+        panel.series_list.setCurrentRow(0)
+        assert panel.offset_spin.isEnabled() is True
+        assert panel.offset_spin.value() == pytest.approx(3.5)
+
+    def test_write_back_offset(self, document):
+        panel = SeriesPanel(document)
+        panel.series_list.setCurrentRow(0)
+        before = document.notify_count
+        panel.offset_spin.setValue(-6.0)
+        panel.offset_spin.editingFinished.emit()
+        ax = document.figure.gca()
+        assert ax.lines[0]["offset"] == pytest.approx(-6.0)
+        assert document.notify_count == before + 1
+
     def test_write_back_label_refreshes_list_text(self, document):
         panel = SeriesPanel(document)
         panel.series_list.setCurrentRow(0)

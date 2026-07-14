@@ -345,7 +345,7 @@ class Axes:
     def plot(self, x, y, linestyle: str = '-', color: Optional[str] = None,
              marker: Optional[str] = None, markersize: float = 6,
              linewidth: float = 1, label: Optional[str] = None,
-             yaxis: str = 'y', **kwargs):
+             yaxis: str = 'y', offset: float = 0.0, **kwargs):
         """
         Plot line or scatter plot (if marker without line).
         
@@ -410,10 +410,11 @@ class Axes:
             'linewidth': linewidth,
             'label': label,
             'yaxis': yaxis,  # 'y' or 'y2'
+            'offset': float(offset),
             'data_file': _resolve_data_file(self.figure, data_name),
             'column_names': _build_column_names('x', ['y'], label),
         }
-        
+
         if is_scatter:
             self.scatters.append(line_data)
         else:
@@ -426,7 +427,7 @@ class Axes:
                  markersize: float = 6, linewidth: float = 1,
                  label: Optional[str] = None, capsize: Optional[float] = None,
                  capsize_cm: Optional[float] = None,
-                 yaxis: str = 'y',
+                 yaxis: str = 'y', offset: float = 0.0,
                  **kwargs):
         """
         Plot data with error bars.
@@ -601,6 +602,7 @@ class Axes:
             'capsize': stored_capsize,
             'gle_capsize': gle_capsize,  # Separate field for the GLE-converted value
             'yaxis': yaxis,  # 'y' or 'y2'
+            'offset': float(offset),
             'data_file': _resolve_data_file(self.figure, data_name),
             'column_names': _build_errorbar_column_names(
                 label, yerr_up, yerr_down, xerr_left, xerr_right
@@ -795,7 +797,8 @@ class Axes:
         return self
     
     def fill_between(self, x, y1, y2, color: Optional[str] = None,
-                     alpha: float = 0.3, label: Optional[str] = None, **kwargs):
+                     alpha: float = 0.3, label: Optional[str] = None,
+                     offset: float = 0.0, **kwargs):
         """
         Fill area between two curves.
         
@@ -836,6 +839,7 @@ class Axes:
             'color': color,
             'alpha': alpha,
             'label': label,
+            'offset': float(offset),
             'data_file': _resolve_data_file(self.figure, data_name),
             'column_names': _unique_column_names(['x', 'upper', 'lower']),
         }
