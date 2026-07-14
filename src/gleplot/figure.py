@@ -725,6 +725,7 @@ class Figure:
                 fill_data['data_file'],
                 fill_data['color'],
                 fill_data['alpha'],
+                offset=fill_data.get('offset', 0.0),
                 column_names=fill_data.get('column_names'),
             )
 
@@ -752,6 +753,7 @@ class Figure:
                 marker=line_data.get('marker'),
                 markersize=line_data.get('markersize', 0.1),
                 yaxis=line_data.get('yaxis', 'y'),
+                offset=line_data.get('offset', 0.0),
                 column_names=line_data.get('column_names'),
             )
 
@@ -767,6 +769,7 @@ class Figure:
                 markersize=scatter_data['markersize'],
                 label=scatter_data['label'],
                 yaxis=scatter_data.get('yaxis', 'y'),
+                offset=scatter_data.get('offset', 0.0),
                 column_names=scatter_data.get('column_names'),
             )
 
@@ -788,6 +791,7 @@ class Figure:
                 xerr_right=eb_data['xerr_right'],
                 capsize=eb_data.get('gle_capsize', eb_data.get('capsize')),
                 yaxis=eb_data.get('yaxis', 'y'),
+                offset=eb_data.get('offset', 0.0),
                 column_names=eb_data.get('column_names'),
             )
 
@@ -926,9 +930,12 @@ class Figure:
         """Calculate y-axis limits from data."""
         ymin, ymax = None, None
         
+        # A series' ``offset`` shifts its trace vertically at plot time (the .dat
+        # values stay raw), so autoscale must add it back when bounding the data
+        # -- otherwise a waterfall stack falls off the auto-computed axis.
         for data_list in [ax.lines, ax.scatters]:
             for data in data_list:
-                y = np.asarray(data['y'])
+                y = np.asarray(data['y']) + data.get('offset', 0.0)
                 if len(y) > 0:
                     if ymin is None or y.min() < ymin:
                         ymin = float(y.min())
@@ -944,8 +951,9 @@ class Figure:
                     ymax = float(height.max())
         
         for fill_data in ax.fills:
-            y1 = np.asarray(fill_data['y1'])
-            y2 = np.asarray(fill_data['y2'])
+            off = fill_data.get('offset', 0.0)
+            y1 = np.asarray(fill_data['y1']) + off
+            y2 = np.asarray(fill_data['y2']) + off
             all_y = np.concatenate([y1, y2])
             if len(all_y) > 0:
                 if ymin is None or all_y.min() < ymin:
@@ -954,10 +962,10 @@ class Figure:
                     ymax = float(all_y.max())
         
         for eb_data in ax.errorbars:
-            y = np.asarray(eb_data['y'])
+            y = np.asarray(eb_data['y']) + eb_data.get('offset', 0.0)
             yerr_up = eb_data.get('yerr_up')
             yerr_down = eb_data.get('yerr_down')
-            
+
             if len(y) > 0:
                 y_with_err = y.copy()
                 if yerr_up is not None:

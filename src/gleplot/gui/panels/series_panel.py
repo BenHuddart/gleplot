@@ -27,19 +27,22 @@ Stored-representation conventions mirrored here (see ``gleplot/axes.py``):
   This panel shows the user a matplotlib-scale number and inverts that
   formula on read/write so edits round-trip through the same conversion.
 - ``label``: stored verbatim, ``None`` allowed.
+- ``offset``: vertical shift applied at plot time (waterfall/overlay). Stored
+  verbatim as a float; the writer emits ``let dK = dJ+offset`` so the .dat
+  file keeps its raw values (see ``writer.GLEWriter._apply_offset``).
 
 Series kinds and their applicable controls:
 
-===========  =====  =======  ==========  =========  =====
-kind         color  marker   linestyle   linewidth  label
-===========  =====  =======  ==========  =========  =====
-line         yes    yes      yes         yes        yes
-scatter      yes    yes      no          no         yes
-errorbar     yes    yes      yes         yes        yes
-bar          yes*   no       no          no         yes
-fill         yes    no       no          no         yes
-file_series  yes    depends  depends     depends    yes
-===========  =====  =======  ==========  =========  =====
+===========  =====  =======  ==========  =========  =====  ======
+kind         color  marker   linestyle   linewidth  label  offset
+===========  =====  =======  ==========  =========  =====  ======
+line         yes    yes      yes         yes        yes    yes
+scatter      yes    yes      no          no         yes    yes
+errorbar     yes    yes      yes         yes        yes    yes
+bar          yes*   no       no          no         yes    no
+fill         yes    no       no          no         yes    yes
+file_series  yes    depends  depends     depends    yes    no
+===========  =====  =======  ==========  =========  =====  ======
 
 ``bar`` stores a per-point ``colors`` list rather than a single ``color``
 key (GLE only supports one color per bar chart in practice, so all entries
@@ -271,12 +274,24 @@ class SeriesPanel(QWidget):
         self.markersize_spin.setSingleStep(0.5)
         self.markersize_spin.setDecimals(2)
 
+        # Vertical offset (waterfall/overlay). A non-zero value shifts the trace
+        # in the GLE script (via 'let dK = dJ+off'); the .dat file stays raw.
+        self.offset_spin = QDoubleSpinBox(self)
+        self.offset_spin.setRange(-1.0e9, 1.0e9)
+        self.offset_spin.setSingleStep(0.1)
+        self.offset_spin.setDecimals(6)
+        self.offset_spin.setToolTip(
+            "Vertical offset applied at plot time (waterfall/overlay stacking). "
+            "The data file keeps its raw values."
+        )
+
         form.addRow("Label", self.label_edit)
         form.addRow("Color", color_row)
         form.addRow("Line style", self.linestyle_combo)
         form.addRow("Marker", self.marker_combo)
         form.addRow("Line width", self.linewidth_spin)
         form.addRow("Marker size", self.markersize_spin)
+        form.addRow("Offset", self.offset_spin)
 
         outer.addLayout(form)
 
@@ -302,6 +317,7 @@ class SeriesPanel(QWidget):
         self.marker_combo.currentTextChanged.connect(self._on_marker_changed)
         self.linewidth_spin.editingFinished.connect(self._on_linewidth_edited)
         self.markersize_spin.editingFinished.connect(self._on_markersize_edited)
+        self.offset_spin.editingFinished.connect(self._on_offset_edited)
         self.locate_button.clicked.connect(self._on_locate_clicked)
 
     def _on_figure_replaced(self) -> None:
@@ -418,6 +434,9 @@ class SeriesPanel(QWidget):
                 scale = self._msize_scale()
                 mpl_size = gle_size / (_MSIZE_PER_MPL_UNIT * scale) if scale else 0.0
                 self.markersize_spin.setValue(float(mpl_size))
+
+            if applicable.get("offset"):
+                self.offset_spin.setValue(float(series.get("offset") or 0.0))
         finally:
             self._updating = was_updating
 
@@ -450,6 +469,7 @@ class SeriesPanel(QWidget):
         self.marker_combo.setEnabled(enabled and applicable.get("marker", False))
         self.linewidth_spin.setEnabled(enabled and applicable.get("linewidth", False))
         self.markersize_spin.setEnabled(enabled and applicable.get("markersize", False))
+        self.offset_spin.setEnabled(enabled and applicable.get("offset", False))
         self.remove_button.setEnabled(enabled)
         self.up_button.setEnabled(enabled)
         self.down_button.setEnabled(enabled)
@@ -614,6 +634,15 @@ class SeriesPanel(QWidget):
         series["markersize"] = mpl_value * _MSIZE_PER_MPL_UNIT * scale
         self._document.notify_changed()
 
+    def _on_offset_edited(self) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.offset_spin.isEnabled():
+            return
+        series["offset"] = float(self.offset_spin.value())
+        self._document.notify_changed()
+
     def _on_locate_clicked(self) -> None:
         """Repoint a broken ``file_series`` entry at a real file on disk.
 
@@ -690,19 +719,19 @@ def _applicable_controls(kind: str, series: dict) -> dict:
         # a marker alongside a solid/dashed line), so a line series may carry
         # both a line style and a marker with a marker size.
         return {"color": True, "marker": True, "linestyle": True,
-                "linewidth": True, "markersize": True}
+                "linewidth": True, "markersize": True, "offset": True}
     if kind == "scatter":
         return {"color": True, "marker": True, "linestyle": False,
-                "linewidth": False, "markersize": True}
+                "linewidth": False, "markersize": True, "offset": True}
     if kind == "errorbar":
         return {"color": True, "marker": True, "linestyle": True,
-                "linewidth": True, "markersize": True}
+                "linewidth": True, "markersize": True, "offset": True}
     if kind == "bar":
         return {"color": True, "marker": False, "linestyle": False,
                 "linewidth": False, "markersize": False}
     if kind == "fill":
         return {"color": True, "marker": False, "linestyle": False,
-                "linewidth": False, "markersize": False}
+                "linewidth": False, "markersize": False, "offset": True}
     if kind == "file_series":
         if series.get("data_error"):
             # Broken reference: the file couldn't be read, so there is no
