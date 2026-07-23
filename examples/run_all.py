@@ -13,6 +13,7 @@ from basic import (
     example_symmetric_error_bars,
     example_asymmetric_error_bars,
     example_horizontal_error_bars,
+    example_heatmap_imshow,
 )
 from advanced import (
     example_fill_between,
@@ -30,6 +31,7 @@ from advanced import (
     example_line_from_file,
     example_data_prefix,
     example_line_overlay_from_file,
+    example_phase_diagram,
 )
 
 
@@ -46,6 +48,7 @@ def main():
         ("Symmetric Error Bars", example_symmetric_error_bars),
         ("Asymmetric Error Bars", example_asymmetric_error_bars),
         ("Horizontal Error Bars", example_horizontal_error_bars),
+        ("Heatmap (imshow)", example_heatmap_imshow),
         ("Fill Between", example_fill_between),
         ("Log Scale", example_log_scale),
         ("Combined Plot", example_combined_plot),
@@ -61,6 +64,7 @@ def main():
         ("Line From File", example_line_from_file),
         ("Data Prefix Naming", example_data_prefix),
         ("Line Overlay From File", example_line_overlay_from_file),
+        ("Phase Diagram (tripcolor + tricontour)", example_phase_diagram),
     ]
     
     for name, example_func in examples:

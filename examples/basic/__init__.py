@@ -10,6 +10,7 @@ from .error_bars import (
     example_errorbar_with_line,
     example_combined_errorbars,
 )
+from .heatmap_imshow import example_heatmap_imshow
 
 __all__ = [
     'example_basic_line_plot',
@@ -20,4 +21,5 @@ __all__ = [
     'example_horizontal_error_bars',
     'example_errorbar_with_line',
     'example_combined_errorbars',
+    'example_heatmap_imshow',
 ]

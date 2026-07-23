@@ -44,6 +44,19 @@ Guide for plotting directly from existing data files.
 - 1-based column indexing
 - Data format and workflow notes
 
+### [CONTOUR_AND_HEATMAPS.md](CONTOUR_AND_HEATMAPS.md)
+Guide for heatmaps and contour plots (`imshow`, `contour`, `tripcolor`, `tricontour`, `colorbar`).
+
+**Contents:**
+- Gridded vs. scattered-data APIs
+- `origin` semantics (default differs from matplotlib)
+- `vmin`/`vmax` and Akima-overshoot pitfalls with scattered data
+- Palette gallery
+- One-heatmap-per-axes limitation and sidecar/generated-file layout
+- Greek letters and math in labels — matplotlib `$...$` mathtext **and** direct GLE markup
+- Worked antiferromagnet phase-diagram example
+- Known colorbar-clipping issue on a lone axes and its workaround
+
 ### [COLORS_AND_MARKERS.md](COLORS_AND_MARKERS.md)
 Reference for accepted color and marker mappings.
 

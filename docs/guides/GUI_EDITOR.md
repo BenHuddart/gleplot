@@ -86,7 +86,7 @@ With a file selected, the "Add series" form fills its X/Y/Y-error column combos 
 - **X column** / **Y column** -- required.
 - **Y error** -- optional, only used for the "Error bars" plot type.
 - **Label** -- defaults to the Y column's name; edit it and the default stops auto-updating.
-- **Plot type** -- Line, Scatter, Line+markers, or Error bars.
+- **Plot type** -- Line, Scatter, Line+markers, Error bars, or one of the two scattered-field types **Heatmap (scattered x,y,z)** and **Contour (scattered x,y,z)** (see [Heatmaps and contours](#heatmaps-and-contours) below).
 - **Mode** -- **Import data** copies the selected columns into the figure (they become `.dat` sidecars on export); **Reference file** instead points the GLE script at the original file by column index (via `Axes.line_from_file` / `Axes.errorbar_from_file`), so no data is duplicated. Note: reference mode's "Scatter" plot type currently falls back to a plain line -- markers on a referenced series aren't supported yet; use Import mode for a true scatter.
 
 Click **Add series**. It's added to the figure's current axes and the live preview recompiles.
@@ -96,6 +96,19 @@ Click **Add series**. It's added to the figure's current axes and the live previ
 Switch to the **Properties** dock's **Series** tab, which lists every series on the current axes. Select one to edit its label, color, line style, marker, line width, and marker size (control availability depends on the series kind -- e.g. bar charts only expose color, since GLE only supports one color per bar chart, and scatter series have no line style/line width). The Remove / Up / Down buttons delete or reorder the selected series (reordering only moves it within its own kind -- lines, then scatters, then bars, ... -- the between-kind draw order is fixed).
 
 The **Axes** tab covers axis labels (title, X/Y/Y2), limits (leave a limit blank for "auto"), scale (linear/log per axis, including a secondary Y2 axis), and legend (on/off plus one of five placements). The legend checkbox reflects the *effective* state: with it left on auto, a legend appears automatically once any series has a label. The **Figure** tab covers figure-level settings: width and height (inches) and DPI. The **Texts** tab lists and edits any free-form text annotations on the current axes -- see [Working with annotations](#working-with-annotations) for the full walkthrough, including adding and dragging annotations directly on the preview.
+
+### Heatmaps and contours
+
+The editor can draw scalar-field data as a colour map (heatmap) and/or contour lines. There are two ways in: creating one from scattered `(x, y, z)` samples in the **Data** dock, and styling it in the **Series** tab. (Gridded `imshow`/`contour` figures built in code, or opened from a `.gle`, are edited from the Series tab the same way.)
+
+**Creating from scattered data.** Load a data file with at least three numeric columns, then pick **Heatmap (scattered x,y,z)** or **Contour (scattered x,y,z)** as the plot type. The form swaps its **Y error** row for a **Z column** picker; choose the X, Y, and Z columns and click **Add series**. gleplot writes the raw `x y z` triples to a sidecar and lets GLE grid them (via `fitz`) at compile time -- so these types are **Import mode only** (the Mode combo is disabled while one is selected; there is no reference-file equivalent, since `fitz` needs gleplot's own triples file). GLE allows **at most one heatmap per axes**: if the current axes already has one, adding another is refused with an explanatory dialog rather than replacing it -- remove the existing heatmap first (Series tab) if you want a different one. A contour on the same axes as a heatmap is fine (they are independent layers).
+
+**Styling in the Series tab.** Heatmap and contour series appear in the Series list like any other. Selecting one shows its dedicated controls:
+
+- **Heatmap** -- **Palette** (viridis, magma, inferno, plasma, cividis, coolwarm, rainbow/jet, or gray), **Colour min** / **Colour max** (leave blank for GLE's automatic data range), **Pixels** (the colormap's bitmap resolution), **Interpolation** (bicubic or nearest), **Invert colours**, and a **Show colorbar** toggle. Turning the colorbar on reveals its **Colorbar label** and **Colorbar format** fields (the format is a GLE `format$` string such as `fix 1`); the tick range is derived from the heatmap's colour range. A heatmap has no single line colour, so the shared **Color** control is disabled for it.
+- **Contour** -- a **Levels** field, plus a **Label contours** toggle with a **Label format** field. Contours reuse the shared **Color** and **Line width** controls for their line styling. The Levels field accepts an explicit space- or comma-separated list (`0.1 0.2 0.3`), the shorthand `n=10` for ten evenly-spaced automatic levels, or blank for GLE's default set. Enabling **Label contours** draws the level value inline along each contour, formatted with the label format.
+
+All of these edits go through the normal document flow, so the live preview recompiles and **Undo/redo** restores them like any other change.
 
 ### 4. Arrange subplots
 

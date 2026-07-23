@@ -42,6 +42,7 @@ def _reset_counter():
 # to_dict equivalence up to documented normalizations
 # --------------------------------------------------------------------------- #
 
+
 def normalize(d: dict) -> dict:
     """Apply the documented recognizer normalizations to a figure ``to_dict``.
 
@@ -77,8 +78,13 @@ def normalize(d: dict) -> dict:
         fig["figsize"] = [float(v) for v in fig["figsize"]]
 
     # Figure-level: drop data-naming/counter state that need not round-trip.
-    for k in ("data_prefix", "local_data_counter", "global_data_counter",
-              "used_data_files", "subplot_adjust"):
+    for k in (
+        "data_prefix",
+        "local_data_counter",
+        "global_data_counter",
+        "used_data_files",
+        "subplot_adjust",
+    ):
         fig.pop(k, None)
 
     # fontsize -> emitted cm -> pt.
@@ -108,6 +114,12 @@ def normalize(d: dict) -> dict:
         if isinstance(v, list):
             return [_snap_num(e) for e in v]
         return v
+
+    def _snap_deep(v):
+        # Snap a possibly-nested (2-D ``z`` grid) numeric structure.
+        if isinstance(v, list):
+            return [_snap_deep(e) for e in v]
+        return _snap_num(v)
 
     # Data arrays are written to the .dat sidecar at 6 significant figures, so
     # recovered arrays are rounded. Snap BOTH sides to that emitted precision.
@@ -158,6 +170,30 @@ def normalize(d: dict) -> dict:
         for s in ax.get("fills", []):
             s.pop("alpha", None)
 
+        # Heatmap / contour series: grids and scattered points are written to
+        # ``.z``/``.dat`` sidecars at 6 significant figures, extents/levels/
+        # vmin/vmax to the emitted GLE precision; the colorbar's z-range comes
+        # back from the emitted call. Snap BOTH sides to those precisions. The
+        # recovered ``z`` grid is always y-increasing origin='lower' (documented
+        # normalization) -- our builders use origin='lower' so no flip needed.
+        for group in ("heatmaps", "contours"):
+            for s in ax.get(group, []):
+                if s.get("z") is not None:
+                    s["z"] = _snap_deep(s["z"])
+                for k in ("x", "y", "zpts", "extent", "levels"):
+                    if s.get(k) is not None:
+                        s[k] = _snap_array(s[k])
+                for k in ("vmin", "vmax"):
+                    if s.get(k) is not None:
+                        s[k] = _snap_num(s[k])
+                if "linewidth" in s:
+                    s["linewidth"] = _snap_linewidth(s["linewidth"])
+                cb = s.get("colorbar")
+                if cb:
+                    for k in ("zmin", "zmax", "zstep", "width", "sep"):
+                        if cb.get(k) is not None:
+                            cb[k] = _snap_num(cb[k])
+
         # Text annotations: fontsize round-trips through cm (snap); box_color
         # is accepted-but-ignored by the writer (never emitted) -> drop.
         #
@@ -207,6 +243,7 @@ def test_to_dict_equivalence(name, tmp_path):
 # Broken-data recovery
 # --------------------------------------------------------------------------- #
 
+
 def test_broken_data_becomes_file_series_with_error(tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     fig = golden.single_line()
@@ -240,6 +277,7 @@ def test_broken_data_becomes_file_series_with_error(tmp_path):
 # --------------------------------------------------------------------------- #
 # Hand-written tolerance
 # --------------------------------------------------------------------------- #
+
 
 def _write(tmp_path: Path, name: str, content: str, dats: dict | None = None) -> Path:
     for dat_name, dat_content in (dats or {}).items():
@@ -325,16 +363,16 @@ def test_unknown_statements_in_all_bucket_positions(tmp_path):
     src = (
         "! GLE graphics file\n"
         "! hand note\n"
-        "set weird_directive 7\n"           # header passthrough
+        "set weird_directive 7\n"  # header passthrough
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
         "begin graph\n"
         "   data u_1.dat d1=c1,c2\n"
         "   d1 line color BLUE lwidth 0.05292\n"
-        "   mystery_stmt inside graph\n"      # axes passthrough
+        "   mystery_stmt inside graph\n"  # axes passthrough
         "end graph\n"
-        "! trailing note\n"                   # trailer passthrough
-        "draw somebox\n"                      # trailer passthrough
+        "! trailing note\n"  # trailer passthrough
+        "draw somebox\n"  # trailer passthrough
     )
     p = _write(tmp_path, "u.gle", src, {"u_1.dat": "1 1\n2 2\n"})
     rec = parse_gle_figure(p)
@@ -402,7 +440,9 @@ def test_no_metadata_block_all_references(tmp_path):
         "end graph\n"
     )
     p = _write(
-        tmp_path, "h.gle", src,
+        tmp_path,
+        "h.gle",
+        src,
         {"data_5.dat": "1 1\n2 2\n", "other.csv": "1 2\n2 1\n"},
     )
     rec = parse_gle_figure(p)
@@ -427,7 +467,9 @@ def test_missing_grid_multigraph_falls_back(tmp_path):
         "end graph\n"
     )
     p = _write(
-        tmp_path, "mg.gle", src,
+        tmp_path,
+        "mg.gle",
+        src,
         {"g_1.dat": "1 1\n2 2\n", "h_1.dat": "1 2\n2 1\n"},
     )
     rec = parse_gle_figure(p)
@@ -439,6 +481,7 @@ def test_missing_grid_multigraph_falls_back(tmp_path):
 # --------------------------------------------------------------------------- #
 # open_gle smoke
 # --------------------------------------------------------------------------- #
+
 
 def test_open_gle_smoke(tmp_path):
     _gleplot_axes._global_data_file_counter = 0

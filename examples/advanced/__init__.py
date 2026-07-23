@@ -27,6 +27,7 @@ from .per_element_styling import example_per_element_styling
 from .batch_figures import example_batch_figures
 from .line_from_file import example_line_from_file
 from .data_prefix import example_data_prefix
+from .phase_diagram import example_phase_diagram
 
 __all__ = [
     'example_fill_between',
@@ -51,4 +52,5 @@ __all__ = [
     'example_batch_figures',
     'example_line_from_file',
     'example_data_prefix',
+    'example_phase_diagram',
 ]
