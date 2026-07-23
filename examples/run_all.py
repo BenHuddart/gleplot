@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from basic import (
     example_basic_line_plot,
@@ -35,10 +35,10 @@ from advanced import (
 
 def main():
     """Run all examples."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("gleplot Examples - Matplotlib-like API for GLE")
-    print("="*60 + "\n")
-    
+    print("=" * 60 + "\n")
+
     examples = [
         ("Basic Line Plot", example_basic_line_plot),
         ("Scatter Plot", example_scatter_plot),
@@ -62,7 +62,7 @@ def main():
         ("Data Prefix Naming", example_data_prefix),
         ("Line Overlay From File", example_line_overlay_from_file),
     ]
-    
+
     for name, example_func in examples:
         try:
             print(f"\n[{name}]")
@@ -70,14 +70,15 @@ def main():
         except Exception as e:
             print(f"  ✗ Error: {e}")
             import traceback
+
             traceback.print_exc()
-    
-    print("\n" + "="*60)
+
+    print("\n" + "=" * 60)
     print("All examples completed!")
     print("Generated GLE files: example_*.gle")
     print("To compile to PDF: gle example_*.gle -d PDF")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

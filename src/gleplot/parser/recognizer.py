@@ -172,7 +172,6 @@ from ..dataio import (
     resolve_data_reference,
 )
 
-
 __all__ = ["RecognizedFigure", "parse_gle_figure"]
 
 
@@ -198,6 +197,7 @@ class RecognizedFigure:
 # --------------------------------------------------------------------------- #
 # Token-stream helpers
 # --------------------------------------------------------------------------- #
+
 
 def _words_and_values(stmt: Statement) -> List[Token]:
     """Tokens of a statement, dropping comments."""
@@ -288,6 +288,7 @@ def _collect_value(toks: List[Token], start: int) -> Tuple[Optional[float], int]
 # The recognizer
 # --------------------------------------------------------------------------- #
 
+
 class _Recognizer:
     """Stateful recognizer for one document. See :func:`parse_gle_figure`."""
 
@@ -365,7 +366,7 @@ class _Recognizer:
         # --- Preamble: everything before the first graph-related node. ---
         first_graph_start = self._first_graph_region_start(nodes, graph_indices)
 
-        (figsize, font, fontsize, passthrough_header) = self._parse_preamble(
+        figsize, font, fontsize, passthrough_header = self._parse_preamble(
             nodes[:first_graph_start]
         )
 
@@ -450,9 +451,18 @@ class _Recognizer:
     #: flow / subroutines). The syntax parser has no awareness of these, so a
     #: graph inside such a construct parses as a top-level graph and editing it
     #: would restructure the file. We only *warn*; parse behavior is unchanged.
-    _PROGRAMMATIC_KEYWORDS = frozenset({
-        "sub", "if", "for", "while", "until", "next", "else", "return",
-    })
+    _PROGRAMMATIC_KEYWORDS = frozenset(
+        {
+            "sub",
+            "if",
+            "for",
+            "while",
+            "until",
+            "next",
+            "else",
+            "return",
+        }
+    )
 
     #: Opaque wrapper block types that establish a coordinate transform. A
     #: graph nested inside one of these is preserved wholesale as raw GLE.
@@ -508,7 +518,9 @@ class _Recognizer:
             return j
         return first_graph
 
-    def _parse_preamble(self, pre_nodes) -> Tuple[Tuple[float, float], str, float, List[str]]:
+    def _parse_preamble(
+        self, pre_nodes
+    ) -> Tuple[Tuple[float, float], str, float, List[str]]:
         figsize = (8.0, 6.0)
         font = ""
         fontsize = 12.0
@@ -582,24 +594,37 @@ class _Recognizer:
     def _parse_graph_block(self, block: GraphBlock, marker_cfg, smooth_flags) -> dict:
         """Parse one ``begin graph`` .. ``end graph`` into an axes-info dict."""
         info = {
-            "size_cm": None,        # (w, h) if explicit 'size' present
-            "scale_mode": None,     # 'auto' | 'fixed' | None
+            "size_cm": None,  # (w, h) if explicit 'size' present
+            "scale_mode": None,  # 'auto' | 'fixed' | None
             "title": None,
             "xlabel": None,
             "ylabel": None,
             "y2label": None,
-            "xmin": None, "xmax": None, "xlog": False,
-            "ymin": None, "ymax": None, "ylog": False,
-            "y2min": None, "y2max": None, "y2log": False,
-            "xlabels_off": False, "ylabels_off": False,
-            "nofirst_x": False, "nolast_x": False,
-            "nofirst_y": False, "nolast_y": False,
-            "key_pos": None,        # short-form position or None
+            "xmin": None,
+            "xmax": None,
+            "xlog": False,
+            "ymin": None,
+            "ymax": None,
+            "ylog": False,
+            "y2min": None,
+            "y2max": None,
+            "y2log": False,
+            "xlabels_off": False,
+            "ylabels_off": False,
+            "nofirst_x": False,
+            "nolast_x": False,
+            "nofirst_y": False,
+            "nolast_y": False,
+            "key_pos": None,  # short-form position or None
             "key_off": False,
-            "lines": [], "scatters": [], "bars": [], "fills": [], "errorbars": [],
+            "lines": [],
+            "scatters": [],
+            "bars": [],
+            "fills": [],
+            "errorbars": [],
             "file_series": [],
             "passthrough": [],
-            "series_order": [],     # to preserve ordering info if needed
+            "series_order": [],  # to preserve ordering info if needed
             # Dataset names (e.g. 'd1') consumed by a 'bar'/'fill' command.
             # The writer emits a standalone 'dN key ""' statement right after
             # 'bar'/'fill' to neutralize GLE's auto-key-from-header behavior
@@ -695,7 +720,9 @@ class _Recognizer:
                 if name in emitted:
                     continue
                 attr_toks = merged_attr_toks.get(name, [])
-                if name in info["_key_suppress_datasets"] and self._is_bare_key_suppression(attr_toks):
+                if name in info[
+                    "_key_suppress_datasets"
+                ] and self._is_bare_key_suppression(attr_toks):
                     # 'dN key ""' with no other attributes, following a
                     # 'bar'/'fill' command that already consumed this
                     # dataset -- the writer's auto-key-from-header
@@ -713,7 +740,9 @@ class _Recognizer:
                 )
                 continue
 
-            self._dispatch_graph_statement(child, info, datasets, marker_cfg, smooth_flags)
+            self._dispatch_graph_statement(
+                child, info, datasets, marker_cfg, smooth_flags
+            )
 
         return info
 
@@ -741,10 +770,13 @@ class _Recognizer:
             return False
         return _string_value(val_tok) == ""
 
-    def _build_series_from_attrs(self, name, merged_toks, datasets, info,
-                                 marker_cfg, smooth_flags):
+    def _build_series_from_attrs(
+        self, name, merged_toks, datasets, info, marker_cfg, smooth_flags
+    ):
         """Build one series from a dataset's merged attribute tokens."""
-        self._parse_series_command(merged_toks, datasets, info, marker_cfg, smooth_flags)
+        self._parse_series_command(
+            merged_toks, datasets, info, marker_cfg, smooth_flags
+        )
 
     def _dispatch_graph_statement(self, stmt, info, datasets, marker_cfg, smooth_flags):
         kw = stmt.keyword
@@ -936,7 +968,9 @@ class _Recognizer:
         given: List[Tuple[str, Optional[Tuple[int, int]]]] = []
         while i < m:
             name_tok = toks[i]
-            if name_tok.type is not TokenType.WORD or not _DATASET_RE.match(name_tok.value):
+            if name_tok.type is not TokenType.WORD or not _DATASET_RE.match(
+                name_tok.value
+            ):
                 i += 1
                 continue
             name = name_tok.value.lower()
@@ -945,7 +979,11 @@ class _Recognizer:
                 j = i + 2
                 while j < m:
                     t = toks[j]
-                    if t.type is TokenType.WORD and t.value.lower().startswith("c") and t.value[1:].isdigit():
+                    if (
+                        t.type is TokenType.WORD
+                        and t.value.lower().startswith("c")
+                        and t.value[1:].isdigit()
+                    ):
                         cols.append(int(t.value[1:]))
                         j += 1
                         if j < m and toks[j].value == ",":
@@ -993,9 +1031,7 @@ class _Recognizer:
                 self._register_dataset("d1", data_file, 0, 1, datasets)
             else:
                 for k in range(ncols - 1):
-                    self._register_dataset(
-                        f"d{k + 1}", data_file, 1, k + 2, datasets
-                    )
+                    self._register_dataset(f"d{k + 1}", data_file, 1, k + 2, datasets)
             return
 
         # Explicit and/or positional clauses.
@@ -1137,13 +1173,16 @@ class _Recognizer:
         }
         if loaded is None or loaded.get("error"):
             # Broken data -> represent as file_series-style reference w/ error.
-            info["file_series"].append({
-                "series_type": "bar",
-                "data_file": data_file,
-                "x_col": xcol, "y_col": ycol,
-                "color": color,
-                "data_error": (loaded or {}).get("error", "unresolved"),
-            })
+            info["file_series"].append(
+                {
+                    "series_type": "bar",
+                    "data_file": data_file,
+                    "x_col": xcol,
+                    "y_col": ycol,
+                    "color": color,
+                    "data_error": (loaded or {}).get("error", "unresolved"),
+                }
+            )
             return
         x = loaded["x"]
         height = loaded["y"]
@@ -1182,20 +1221,28 @@ class _Recognizer:
         # fill data file has c1=x, c2=y1, c3=y2. d1=c1,c2 ; d2=c1,c3.
         loaded = self._load_series(f1, xc1, yc1, extra_cols=[yc2])
         if loaded is None or loaded.get("error"):
-            info["file_series"].append({
-                "series_type": "fill",
-                "data_file": f1,
-                "x_col": xc1, "y1_col": yc1, "y2_col": yc2,
-                "color": color,
-                "data_error": (loaded or {}).get("error", "unresolved"),
-            })
+            info["file_series"].append(
+                {
+                    "series_type": "fill",
+                    "data_file": f1,
+                    "x_col": xc1,
+                    "y1_col": yc1,
+                    "y2_col": yc2,
+                    "color": color,
+                    "data_error": (loaded or {}).get("error", "unresolved"),
+                }
+            )
             return
         x = loaded["x"]
         y1 = loaded["y"]
         y2 = loaded.get(f"c{yc2}")
         fill_entry = {
-            "x": x, "y1": y1, "y2": y2,
-            "color": color, "alpha": 0.3, "label": None,
+            "x": x,
+            "y1": y1,
+            "y2": y2,
+            "color": color,
+            "alpha": 0.3,
+            "label": None,
             "offset": info["_dataset_offsets"].get(d_names[0], 0.0),
             "data_file": f1,
         }
@@ -1220,13 +1267,14 @@ class _Recognizer:
         # we cannot model; a cumulative re-emit would produce a competing 'key'
         # line. Keep the WHOLE original line as raw GLE (legend untouched) and
         # warn.
-        line = self._stmt_text(stmt) if stmt is not None else (
-            "    " + " ".join(t.value for t in toks)
+        line = (
+            self._stmt_text(stmt)
+            if stmt is not None
+            else ("    " + " ".join(t.value for t in toks))
         )
         info["passthrough"].append(line)
         self.warnings.append(
-            "structure: key has unsupported options; kept as raw GLE, "
-            "not editable"
+            "structure: key has unsupported options; kept as raw GLE, " "not editable"
         )
 
     # -- series command --------------------------------------------------
@@ -1253,7 +1301,13 @@ class _Recognizer:
 
         if is_errorbar:
             self._build_errorbar(
-                info, datasets, data_file, xcol, ycol, attrs, is_import,
+                info,
+                datasets,
+                data_file,
+                xcol,
+                ycol,
+                attrs,
+                is_import,
                 orig_toks=toks,
             )
             return
@@ -1266,7 +1320,12 @@ class _Recognizer:
         loaded = self._load_series(data_file, xcol, ycol)
         if loaded is None or loaded.get("error"):
             self._build_file_series(
-                info, data_file, xcol, ycol, attrs, has_line,
+                info,
+                data_file,
+                xcol,
+                ycol,
+                attrs,
+                has_line,
                 error=(loaded or {}).get("error", "unresolved"),
             )
             return
@@ -1285,7 +1344,8 @@ class _Recognizer:
 
         entry = {
             "type": "scatter" if (has_marker and not has_line) else "line",
-            "x": x, "y": y,
+            "x": x,
+            "y": y,
             "color": attrs["color"] or "BLUE",
             "marker": attrs["marker"],
             "markersize": markersize,
@@ -1318,8 +1378,8 @@ class _Recognizer:
             "msize": None,
             "y2axis": False,
             "label": None,
-            "err_refs": {},   # kind -> dataset name (err/errup/errdown/herr/herrleft/herrright)
-            "err_consts": {}, # kind -> (value: float, is_percent: bool) for literals
+            "err_refs": {},  # kind -> dataset name (err/errup/errdown/herr/herrleft/herrright)
+            "err_consts": {},  # kind -> (value: float, is_percent: bool) for literals
             "errwidth": None,
             "herrwidth": None,
         }
@@ -1363,7 +1423,10 @@ class _Recognizer:
                 a["msize"] = v
                 i = nxt if v is not None else i + 2
                 continue
-            if w in ("err", "errup", "errdown", "herr", "herrleft", "herrright") and i + 1 < m:
+            if (
+                w in ("err", "errup", "errdown", "herr", "herrleft", "herrright")
+                and i + 1 < m
+            ):
                 nxt_tok = toks[i + 1]
                 nxt_val = nxt_tok.value.lower()
                 if nxt_tok.type is TokenType.WORD and _DATASET_RE.match(nxt_val):
@@ -1410,8 +1473,9 @@ class _Recognizer:
             i += 1
         return a
 
-    def _build_errorbar(self, info, datasets, data_file, xcol, ycol, attrs,
-                        is_import, orig_toks=None):
+    def _build_errorbar(
+        self, info, datasets, data_file, xcol, ycol, attrs, is_import, orig_toks=None
+    ):
         """Reconstruct an errorbar entry, matching Axes.errorbar's dict schema."""
         # Resolve error column indices from referenced datasets.
         err = attrs["err_refs"]
@@ -1459,7 +1523,9 @@ class _Recognizer:
         # capsize: writer emits errwidth (from gle_capsize) for yerr, herrwidth
         # for xerr; both derive from the SAME stored capsize. Recover via
         # capsize_cm_to_pt.
-        cap_cm = attrs["errwidth"] if attrs["errwidth"] is not None else attrs["herrwidth"]
+        cap_cm = (
+            attrs["errwidth"] if attrs["errwidth"] is not None else attrs["herrwidth"]
+        )
         gle_capsize = cap_cm
         stored_capsize = capsize_cm_to_pt(cap_cm) if cap_cm is not None else None
 
@@ -1476,22 +1542,28 @@ class _Recognizer:
         if not is_import:
             # File-series errorbar reference.
             yerr_col = yerr_up_col if yerr_up_col is not None else None
-            info["file_series"].append({
-                "series_type": "errorbar",
-                "data_file": data_file,
-                "x_col": xcol, "y_col": ycol,
-                "yerr_col": yerr_col,
-                "color": attrs["color"] or "BLUE",
-                "marker": marker,
-                "markersize": markersize,
-                "label": attrs["label"],
-                "capsize": gle_capsize,
-                "yaxis": "y2" if attrs["y2axis"] else "y",
-            })
+            info["file_series"].append(
+                {
+                    "series_type": "errorbar",
+                    "data_file": data_file,
+                    "x_col": xcol,
+                    "y_col": ycol,
+                    "yerr_col": yerr_col,
+                    "color": attrs["color"] or "BLUE",
+                    "marker": marker,
+                    "markersize": markersize,
+                    "label": attrs["label"],
+                    "capsize": gle_capsize,
+                    "yaxis": "y2" if attrs["y2axis"] else "y",
+                }
+            )
             return
 
-        extra = [c for c in (yerr_up_col, yerr_down_col, xerr_left_col, xerr_right_col)
-                 if c is not None]
+        extra = [
+            c
+            for c in (yerr_up_col, yerr_down_col, xerr_left_col, xerr_right_col)
+            if c is not None
+        ]
         loaded = self._load_series(data_file, xcol, ycol, extra_cols=extra)
         if loaded is None or loaded.get("error"):
             if err_consts:
@@ -1503,19 +1575,22 @@ class _Recognizer:
                 )
                 return
             yerr_col = yerr_up_col if yerr_up_col is not None else None
-            info["file_series"].append({
-                "series_type": "errorbar",
-                "data_file": data_file,
-                "x_col": xcol, "y_col": ycol,
-                "yerr_col": yerr_col,
-                "color": attrs["color"] or "BLUE",
-                "marker": marker,
-                "markersize": markersize,
-                "label": attrs["label"],
-                "capsize": gle_capsize,
-                "yaxis": "y2" if attrs["y2axis"] else "y",
-                "data_error": (loaded or {}).get("error", "unresolved"),
-            })
+            info["file_series"].append(
+                {
+                    "series_type": "errorbar",
+                    "data_file": data_file,
+                    "x_col": xcol,
+                    "y_col": ycol,
+                    "yerr_col": yerr_col,
+                    "color": attrs["color"] or "BLUE",
+                    "marker": marker,
+                    "markersize": markersize,
+                    "label": attrs["label"],
+                    "capsize": gle_capsize,
+                    "yaxis": "y2" if attrs["y2axis"] else "y",
+                    "data_error": (loaded or {}).get("error", "unresolved"),
+                }
+            )
             return
 
         def col_arr(c):
@@ -1532,8 +1607,7 @@ class _Recognizer:
         # -- for vertical err the value dimension is y, for horizontal it is x.
         if err_consts:
             self.warnings.append(
-                "data: constant error expression converted to a data column on "
-                "save"
+                "data: constant error expression converted to a data column on " "save"
             )
             y_arr = loaded["y"]
             x_arr = loaded["x"]
@@ -1569,9 +1643,12 @@ class _Recognizer:
 
         entry = {
             "type": "errorbar",
-            "x": loaded["x"], "y": loaded["y"],
-            "yerr_up": yerr_up, "yerr_down": yerr_down,
-            "xerr_left": xerr_left, "xerr_right": xerr_right,
+            "x": loaded["x"],
+            "y": loaded["y"],
+            "yerr_up": yerr_up,
+            "yerr_down": yerr_down,
+            "xerr_left": xerr_left,
+            "xerr_right": xerr_right,
             "color": attrs["color"] or "BLUE",
             "marker": marker,
             "markersize": markersize,
@@ -1620,7 +1697,9 @@ class _Recognizer:
         rendered = " ".join(self._token_text(t) for t in orig_toks)
         info["passthrough"].append("    " + rendered)
 
-    def _build_file_series(self, info, data_file, xcol, ycol, attrs, has_line, error=None):
+    def _build_file_series(
+        self, info, data_file, xcol, ycol, attrs, has_line, error=None
+    ):
         markersize = attrs["msize"] if attrs["msize"] is not None else 0.15
         # Branch on has_line ALONE: a 'd1 line marker circle lwidth X' reference
         # is a line (carrying line/lwidth/linestyle) that ALSO has a marker --
@@ -1631,11 +1710,14 @@ class _Recognizer:
             entry = {
                 "series_type": "line",
                 "data_file": data_file,
-                "x_col": xcol, "y_col": ycol,
+                "x_col": xcol,
+                "y_col": ycol,
                 "color": attrs["color"] or "BLUE",
                 "linestyle": attrs["linestyle"],
                 "linewidth": (
-                    linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
+                    linewidth_cm_to_pt(attrs["lwidth"])
+                    if attrs["lwidth"] is not None
+                    else 1.0
                 ),
                 "label": attrs["label"],
                 "yaxis": "y2" if attrs["y2axis"] else "y",
@@ -1649,7 +1731,8 @@ class _Recognizer:
             entry = {
                 "series_type": "errorbar",
                 "data_file": data_file,
-                "x_col": xcol, "y_col": ycol,
+                "x_col": xcol,
+                "y_col": ycol,
                 "yerr_col": None,
                 "color": attrs["color"] or "BLUE",
                 "marker": attrs["marker"],
@@ -1883,9 +1966,14 @@ class _Recognizer:
         i += 1
 
         return i, {
-            "x": x, "y": y, "text": text_str,
-            "color": self._text_color, "fontsize": self._text_fontsize,
-            "ha": self._text_just, "va": "center", "box_color": None,
+            "x": x,
+            "y": y,
+            "text": text_str,
+            "color": self._text_color,
+            "fontsize": self._text_fontsize,
+            "ha": self._text_just,
+            "va": "center",
+            "box_color": None,
         }
 
     def _skip_blanks(self, nodes, i) -> int:
@@ -2205,6 +2293,7 @@ class _Recognizer:
 # Grid-clustering helpers
 # --------------------------------------------------------------------------- #
 
+
 def _cluster(values, tol=0.5, reverse=False):
     """Cluster near-equal floats into ordered groups (representative values)."""
     uniq = sorted(set(values), reverse=reverse)
@@ -2238,6 +2327,7 @@ def _which_cluster(value, reps, tol=None, reverse=False):
 # --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
+
 
 def parse_gle_figure(
     path_or_text: Union[str, Path],

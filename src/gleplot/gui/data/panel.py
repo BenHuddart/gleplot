@@ -73,8 +73,7 @@ from .loader import DataTable, load_data_file
 
 #: Tooltip shown on non-editable (external-file) column headers.
 _EXTERNAL_HEADER_TOOLTIP = (
-    "Column names come from the referenced file and are not edited by "
-    "gleplot."
+    "Column names come from the referenced file and are not edited by " "gleplot."
 )
 
 #: Maximum number of rows shown in the preview table.
@@ -301,8 +300,12 @@ class DataPanel(QWidget):
         first_added: Optional[str] = None
         for ax in getattr(fig, "axes_list", []):
             entries = (
-                ax.lines + ax.scatters + ax.bars + ax.fills
-                + ax.errorbars + ax.file_series
+                ax.lines
+                + ax.scatters
+                + ax.bars
+                + ax.fills
+                + ax.errorbars
+                + ax.file_series
             )
             for entry in entries:
                 name = entry.get("data_file")

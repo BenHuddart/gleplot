@@ -65,7 +65,9 @@ def qapp():
 def _make_figure():
     fig = gleplot.figure(figsize=(8, 6), dpi=100)
     ax = fig.gca()
-    ax.plot([1, 2, 3], [1, 4, 9], color="blue", linestyle="--", linewidth=2, label="line a")
+    ax.plot(
+        [1, 2, 3], [1, 4, 9], color="blue", linestyle="--", linewidth=2, label="line a"
+    )
     ax.scatter([1, 2, 3], [3, 2, 1], color="red", marker="s", label="scatter a")
     ax.set_title("My title")
     ax.set_xlabel("X")
@@ -222,7 +224,9 @@ class TestAxesPanel:
 class TestSeriesPanel:
     def test_populate_series_list(self, document):
         panel = SeriesPanel(document)
-        texts = [panel.series_list.item(i).text() for i in range(panel.series_list.count())]
+        texts = [
+            panel.series_list.item(i).text() for i in range(panel.series_list.count())
+        ]
         assert texts == ["line: line a", "scatter: scatter a"]
 
     def test_select_line_shows_correct_controls(self, document):

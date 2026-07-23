@@ -25,14 +25,13 @@ from gleplot.parser.recognizer import parse_gle_figure
 from tests.parser import _golden_battery as golden
 from tests.integration import test_project_io as project_battery
 
-
 # Builders whose GLE text is NOT byte-identical after a round-trip because they
 # use subplots_adjust (documented layout loss). Their data files must still
 # round-trip byte-identically, and the layout that IS emitted must be valid.
 _SUBPLOT_ADJUST_EXEMPT = {
-    "subplots_grid_mixed",       # golden battery
-    "_subplots_grid",            # project battery (default hspace/wspace)
-    "_subplots_sharey_adjust",   # project battery
+    "subplots_grid_mixed",  # golden battery
+    "_subplots_grid",  # project battery (default hspace/wspace)
+    "_subplots_sharey_adjust",  # project battery
 }
 
 
@@ -76,6 +75,7 @@ def _round_trip(builder, tmp_path: Path):
 
 # -- Golden battery ---------------------------------------------------------
 
+
 @pytest.mark.parametrize("name", golden.BUILDER_IDS)
 def test_golden_battery_fixed_point(name, tmp_path):
     builder = getattr(golden, name)
@@ -89,14 +89,15 @@ def test_golden_battery_fixed_point(name, tmp_path):
         # Documented subplots_adjust loss: the text differs only in the baked
         # amove/size geometry. Everything that is not layout geometry must be
         # unchanged, so strip the geometry lines and compare the rest.
-        assert _strip_layout(text1) == _strip_layout(text2), (
-            f"{name}: non-layout content changed after round-trip"
-        )
+        assert _strip_layout(text1) == _strip_layout(
+            text2
+        ), f"{name}: non-layout content changed after round-trip"
     else:
         assert text2 == text1, f"{name}: GLE text differs after round-trip"
 
 
 # -- Project-I/O battery ----------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "builder", project_battery.BUILDERS, ids=project_battery.BUILDER_IDS

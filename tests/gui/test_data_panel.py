@@ -91,9 +91,7 @@ def test_load_file_populates_table(qapp, document, tmp_path):
     assert panel.file_list.item(0).text() == "data.csv"
     assert panel.preview_table.rowCount() == 4
     assert panel.preview_table.columnCount() == 3
-    headers = [
-        panel.preview_table.horizontalHeaderItem(i).text() for i in range(3)
-    ]
+    headers = [panel.preview_table.horizontalHeaderItem(i).text() for i in range(3)]
     assert headers == ["x", "y", "yerr"]
 
 
@@ -104,9 +102,7 @@ def test_column_combos_populated_after_load(qapp, document, tmp_path):
 
     x_items = [panel.x_combo.itemText(i) for i in range(panel.x_combo.count())]
     y_items = [panel.y_combo.itemText(i) for i in range(panel.y_combo.count())]
-    yerr_items = [
-        panel.yerr_combo.itemText(i) for i in range(panel.yerr_combo.count())
-    ]
+    yerr_items = [panel.yerr_combo.itemText(i) for i in range(panel.yerr_combo.count())]
 
     assert x_items == ["x", "y", "yerr"]
     assert y_items == ["x", "y", "yerr"]

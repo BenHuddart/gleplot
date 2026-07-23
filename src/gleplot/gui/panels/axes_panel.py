@@ -225,9 +225,10 @@ class AxesPanel(QWidget):
             # legend_on is tri-state (None = auto: shown iff labels exist);
             # display the EFFECTIVE state so the checkbox matches the preview.
             if ax.legend_on is None:
-                sources = (ax.lines + ax.scatters + ax.bars + ax.errorbars
-                           + ax.file_series)
-                effective = any(s.get('label') for s in sources)
+                sources = (
+                    ax.lines + ax.scatters + ax.bars + ax.errorbars + ax.file_series
+                )
+                effective = any(s.get("label") for s in sources)
             else:
                 effective = bool(ax.legend_on)
             self.legend_enabled_check.setChecked(effective)

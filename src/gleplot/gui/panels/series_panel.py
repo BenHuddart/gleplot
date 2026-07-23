@@ -396,7 +396,9 @@ class SeriesPanel(QWidget):
         series = series_list[index] if index < len(series_list) else None
         self._populate_style_editor(kind, series)
 
-    def _populate_style_editor(self, kind: Optional[str], series: Optional[dict] = None) -> None:
+    def _populate_style_editor(
+        self, kind: Optional[str], series: Optional[dict] = None
+    ) -> None:
         was_updating = self._updating
         self._updating = True
         try:
@@ -406,7 +408,9 @@ class SeriesPanel(QWidget):
                 return
 
             data_error = series.get("data_error")
-            self._set_error_strip_visible(bool(data_error), str(data_error) if data_error else "")
+            self._set_error_strip_visible(
+                bool(data_error), str(data_error) if data_error else ""
+            )
 
             applicable = _applicable_controls(kind, series)
             self._set_style_controls_enabled(True, applicable)
@@ -419,11 +423,17 @@ class SeriesPanel(QWidget):
             self._update_color_swatch(rgb)
 
             if applicable.get("linestyle"):
-                self._set_combo_text(self.linestyle_combo, series.get("linestyle") or "-")
+                self._set_combo_text(
+                    self.linestyle_combo, series.get("linestyle") or "-"
+                )
 
             if applicable.get("marker"):
                 marker_name = series.get("marker")
-                code = _GLE_MARKER_TO_CODE.get(marker_name, "none") if marker_name else "none"
+                code = (
+                    _GLE_MARKER_TO_CODE.get(marker_name, "none")
+                    if marker_name
+                    else "none"
+                )
                 self._set_combo_text(self.marker_combo, code)
 
             if applicable.get("linewidth"):
@@ -461,7 +471,9 @@ class SeriesPanel(QWidget):
             self.error_label.setText(message)
             self.error_label.setToolTip(message)
 
-    def _set_style_controls_enabled(self, enabled: bool, applicable: Optional[dict] = None) -> None:
+    def _set_style_controls_enabled(
+        self, enabled: bool, applicable: Optional[dict] = None
+    ) -> None:
         applicable = applicable or {}
         self.label_edit.setEnabled(enabled)
         self.color_button.setEnabled(enabled)
@@ -697,11 +709,7 @@ def _format_entry(kind: str, series: dict, index: int) -> tuple[str, Optional[st
     """
     data_error = series.get("data_error")
     if data_error:
-        file_label = (
-            series.get("label")
-            or series.get("data_file")
-            or f"series {index}"
-        )
+        file_label = series.get("label") or series.get("data_file") or f"series {index}"
         text = f"{_BROKEN_MARKER} {kind}: {file_label} (missing data)"
         return text, str(data_error)
     label = series.get("label") or f"series {index}"
@@ -718,20 +726,49 @@ def _applicable_controls(kind: str, series: dict) -> dict:
         # GLE renders markers on line datasets natively (Axes.plot preserves
         # a marker alongside a solid/dashed line), so a line series may carry
         # both a line style and a marker with a marker size.
-        return {"color": True, "marker": True, "linestyle": True,
-                "linewidth": True, "markersize": True, "offset": True}
+        return {
+            "color": True,
+            "marker": True,
+            "linestyle": True,
+            "linewidth": True,
+            "markersize": True,
+            "offset": True,
+        }
     if kind == "scatter":
-        return {"color": True, "marker": True, "linestyle": False,
-                "linewidth": False, "markersize": True, "offset": True}
+        return {
+            "color": True,
+            "marker": True,
+            "linestyle": False,
+            "linewidth": False,
+            "markersize": True,
+            "offset": True,
+        }
     if kind == "errorbar":
-        return {"color": True, "marker": True, "linestyle": True,
-                "linewidth": True, "markersize": True, "offset": True}
+        return {
+            "color": True,
+            "marker": True,
+            "linestyle": True,
+            "linewidth": True,
+            "markersize": True,
+            "offset": True,
+        }
     if kind == "bar":
-        return {"color": True, "marker": False, "linestyle": False,
-                "linewidth": False, "markersize": False}
+        return {
+            "color": True,
+            "marker": False,
+            "linestyle": False,
+            "linewidth": False,
+            "markersize": False,
+        }
     if kind == "fill":
-        return {"color": True, "marker": False, "linestyle": False,
-                "linewidth": False, "markersize": False, "offset": True}
+        return {
+            "color": True,
+            "marker": False,
+            "linestyle": False,
+            "linewidth": False,
+            "markersize": False,
+            "offset": True,
+        }
     if kind == "file_series":
         if series.get("data_error"):
             # Broken reference: the file couldn't be read, so there is no
@@ -741,13 +778,33 @@ def _applicable_controls(kind: str, series: dict) -> dict:
             # data"). Color and label are metadata only and always safe to
             # edit -- they affect regeneration regardless of whether the
             # data loads.
-            return {"color": True, "marker": False, "linestyle": False,
-                    "linewidth": False, "markersize": False}
+            return {
+                "color": True,
+                "marker": False,
+                "linestyle": False,
+                "linewidth": False,
+                "markersize": False,
+            }
         series_type = series.get("series_type")
         if series_type == "errorbar":
-            return {"color": True, "marker": True, "linestyle": False,
-                    "linewidth": False, "markersize": True}
-        return {"color": True, "marker": False, "linestyle": True,
-                "linewidth": True, "markersize": False}
-    return {"color": False, "marker": False, "linestyle": False,
-            "linewidth": False, "markersize": False}
+            return {
+                "color": True,
+                "marker": True,
+                "linestyle": False,
+                "linewidth": False,
+                "markersize": True,
+            }
+        return {
+            "color": True,
+            "marker": False,
+            "linestyle": True,
+            "linewidth": True,
+            "markersize": False,
+        }
+    return {
+        "color": False,
+        "marker": False,
+        "linestyle": False,
+        "linewidth": False,
+        "markersize": False,
+    }

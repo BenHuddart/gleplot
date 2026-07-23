@@ -22,18 +22,18 @@ Features
 Usage
 -----
     import gleplot as glp
-    
+
     fig = glp.figure(figsize=(8, 6))
     ax = fig.add_subplot(111)
-    
+
     ax.plot([1, 2, 3], [1, 4, 9], 'b-', label='quadratic')
     ax.scatter([1, 2, 3], [1, 2, 3], color='red', label='points')
-    
+
     ax.set_xlabel('X axis')
     ax.set_ylabel('Y axis')
     ax.set_title('Example Plot')
     ax.legend()
-    
+
     fig.savefig('output.pdf')  # Saves as PDF
     fig.savefig('output.gle')  # Saves as GLE script only
     fig.view()  # Display inline in Jupyter notebook
@@ -44,15 +44,15 @@ Figure
     Matplotlib-like figure container
 Axes
     Matplotlib-like axes for plotting
-    
+
 Functions
 ---------
 figure(figsize=(8, 6), dpi=100)
     Create a new figure
 """
 
-__version__ = '1.7.0'
-__author__ = 'gleplot contributors'
+__version__ = "1.7.0"
+__author__ = "gleplot contributors"
 
 from .figure import Figure
 from .axes import Axes
@@ -92,13 +92,16 @@ def open_gle(path, *, base_dir=None) -> Figure:
     Figure
     """
     from .parser.recognizer import parse_gle_figure
+
     return parse_gle_figure(path, base_dir=base_dir).figure
 
 
-def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None, data_prefix=None) -> Figure:
+def figure(
+    figsize=(8, 6), dpi=100, style=None, graph=None, marker=None, data_prefix=None
+) -> Figure:
     """
     Create a new figure.
-    
+
     Parameters
     ----------
     figsize : tuple, optional
@@ -114,30 +117,37 @@ def figure(figsize=(8, 6), dpi=100, style=None, graph=None, marker=None, data_pr
     data_prefix : str, optional
         Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
         If None, uses global counter with ``data_`` prefix.
-        
+
     Returns
     -------
     Figure
         New figure object
-        
+
     Examples
     --------
     Create a figure with default settings:
-    
+
     >>> fig = glp.figure()
-    
+
     Create a figure with custom style:
-    
+
     >>> style = glp.GLEStyleConfig(font='helvetica', fontsize=12)
     >>> fig = glp.figure(style=style)
-    
+
     Or modify global defaults:
-    
+
     >>> glp.GlobalConfig.style.font = 'helvetica'
     >>> fig = glp.figure()  # Will use helvetica font
     """
     global _current_figure
-    _current_figure = Figure(figsize=figsize, dpi=dpi, style=style, graph=graph, marker=marker, data_prefix=data_prefix)
+    _current_figure = Figure(
+        figsize=figsize,
+        dpi=dpi,
+        style=style,
+        graph=graph,
+        marker=marker,
+        data_prefix=data_prefix,
+    )
     return _current_figure
 
 
@@ -185,15 +195,23 @@ def text(*args, **kwargs):
     return gca().text(*args, **kwargs)
 
 
-def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
-             style=None, graph=None, marker=None,
-             sharex: bool = False, sharey: bool = False,
-             data_prefix=None):
+def subplots(
+    nrows: int = 1,
+    ncols: int = 1,
+    figsize=None,
+    dpi=100,
+    style=None,
+    graph=None,
+    marker=None,
+    sharex: bool = False,
+    sharey: bool = False,
+    data_prefix=None,
+):
     """
     Create a figure and a set of subplots.
-    
+
     Convenience function matching ``matplotlib.pyplot.subplots()``.
-    
+
     Parameters
     ----------
     nrows : int, optional
@@ -220,7 +238,7 @@ def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
     data_prefix : str, optional
         Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
         If None, uses global counter with ``data_`` prefix.
-    
+
     Returns
     -------
     fig : Figure
@@ -228,41 +246,49 @@ def subplots(nrows: int = 1, ncols: int = 1, figsize=None, dpi=100,
     axes : Axes or list of Axes
         A single Axes if nrows*ncols == 1, otherwise a list of Axes
         arranged in row-major order.
-    
+
     Examples
     --------
     Single plot:
-    
+
     >>> fig, ax = glp.subplots()
     >>> ax.plot(x, y)
-    
+
     2x2 grid:
-    
+
     >>> fig, axes = glp.subplots(2, 2, figsize=(12, 10))
     >>> axes[0].plot(x, y1)   # top-left
     >>> axes[1].scatter(x, y2)  # top-right
     >>> axes[2].bar(x, y3)      # bottom-left
     >>> axes[3].plot(x, y4)     # bottom-right
-    
+
     Shared x-axis (stacked plots):
-    
+
     >>> fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 12))
     >>> # Only bottom subplot shows x-axis label and ticks
     """
     global _current_figure
-    
+
     if figsize is None:
         figsize = (max(6, 6 * ncols), max(4, 4 * nrows))
-    
-    fig = Figure(figsize=figsize, dpi=dpi, style=style, graph=graph, marker=marker,
-                 sharex=sharex, sharey=sharey, data_prefix=data_prefix)
+
+    fig = Figure(
+        figsize=figsize,
+        dpi=dpi,
+        style=style,
+        graph=graph,
+        marker=marker,
+        sharex=sharex,
+        sharey=sharey,
+        data_prefix=data_prefix,
+    )
     _current_figure = fig
-    
+
     axes_list = []
     for idx in range(1, nrows * ncols + 1):
         ax = fig.add_subplot(nrows, ncols, idx)
         axes_list.append(ax)
-    
+
     if len(axes_list) == 1:
         return fig, axes_list[0]
     return fig, axes_list
@@ -298,21 +324,21 @@ def show():
     print(f"Figure saved to {gcf().figsize}")
 
 
-def view(dpi=None, format='png'):
+def view(dpi=None, format="png"):
     """Display current figure inline (in Jupyter notebooks).
-    
+
     Parameters
     ----------
     dpi : int, optional
         Resolution in dots per inch. If None, uses figure's dpi setting.
     format : {'png', 'pdf'}, optional
         Output format. Default is 'png' for inline display.
-    
+
     Returns
     -------
     Path or None
         Path to the generated file, or None when displayed inline in Jupyter.
-        
+
     Examples
     --------
     >>> import gleplot as glp
@@ -336,33 +362,33 @@ def close(fig=None):
 
 
 __all__ = [
-    'Figure',
-    'Axes',
-    'figure',
-    'gca',
-    'gcf',
-    'plot',
-    'scatter',
-    'bar',
-    'fill_between',
-    'errorbar',
-    'text',
-    'subplots',
-    'xlabel',
-    'ylabel',
-    'title',
-    'legend',
-    'savefig',
-    'view',
-    'show',
-    'close',
-    'rgb_to_gle',
-    'get_color_palette',
-    'get_gle_marker',
-    'GLECompiler',
-    'GLEStyleConfig',
-    'GLEGraphConfig',
-    'GLEMarkerConfig',
-    'GlobalConfig',
-    'open_gle',
+    "Figure",
+    "Axes",
+    "figure",
+    "gca",
+    "gcf",
+    "plot",
+    "scatter",
+    "bar",
+    "fill_between",
+    "errorbar",
+    "text",
+    "subplots",
+    "xlabel",
+    "ylabel",
+    "title",
+    "legend",
+    "savefig",
+    "view",
+    "show",
+    "close",
+    "rgb_to_gle",
+    "get_color_palette",
+    "get_gle_marker",
+    "GLECompiler",
+    "GLEStyleConfig",
+    "GLEGraphConfig",
+    "GLEMarkerConfig",
+    "GlobalConfig",
+    "open_gle",
 ]

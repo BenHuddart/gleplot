@@ -42,6 +42,7 @@ def _reset_counter():
 # to_dict equivalence up to documented normalizations
 # --------------------------------------------------------------------------- #
 
+
 def normalize(d: dict) -> dict:
     """Apply the documented recognizer normalizations to a figure ``to_dict``.
 
@@ -77,8 +78,13 @@ def normalize(d: dict) -> dict:
         fig["figsize"] = [float(v) for v in fig["figsize"]]
 
     # Figure-level: drop data-naming/counter state that need not round-trip.
-    for k in ("data_prefix", "local_data_counter", "global_data_counter",
-              "used_data_files", "subplot_adjust"):
+    for k in (
+        "data_prefix",
+        "local_data_counter",
+        "global_data_counter",
+        "used_data_files",
+        "subplot_adjust",
+    ):
         fig.pop(k, None)
 
     # fontsize -> emitted cm -> pt.
@@ -207,6 +213,7 @@ def test_to_dict_equivalence(name, tmp_path):
 # Broken-data recovery
 # --------------------------------------------------------------------------- #
 
+
 def test_broken_data_becomes_file_series_with_error(tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     fig = golden.single_line()
@@ -240,6 +247,7 @@ def test_broken_data_becomes_file_series_with_error(tmp_path):
 # --------------------------------------------------------------------------- #
 # Hand-written tolerance
 # --------------------------------------------------------------------------- #
+
 
 def _write(tmp_path: Path, name: str, content: str, dats: dict | None = None) -> Path:
     for dat_name, dat_content in (dats or {}).items():
@@ -325,16 +333,16 @@ def test_unknown_statements_in_all_bucket_positions(tmp_path):
     src = (
         "! GLE graphics file\n"
         "! hand note\n"
-        "set weird_directive 7\n"           # header passthrough
+        "set weird_directive 7\n"  # header passthrough
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
         "begin graph\n"
         "   data u_1.dat d1=c1,c2\n"
         "   d1 line color BLUE lwidth 0.05292\n"
-        "   mystery_stmt inside graph\n"      # axes passthrough
+        "   mystery_stmt inside graph\n"  # axes passthrough
         "end graph\n"
-        "! trailing note\n"                   # trailer passthrough
-        "draw somebox\n"                      # trailer passthrough
+        "! trailing note\n"  # trailer passthrough
+        "draw somebox\n"  # trailer passthrough
     )
     p = _write(tmp_path, "u.gle", src, {"u_1.dat": "1 1\n2 2\n"})
     rec = parse_gle_figure(p)
@@ -402,7 +410,9 @@ def test_no_metadata_block_all_references(tmp_path):
         "end graph\n"
     )
     p = _write(
-        tmp_path, "h.gle", src,
+        tmp_path,
+        "h.gle",
+        src,
         {"data_5.dat": "1 1\n2 2\n", "other.csv": "1 2\n2 1\n"},
     )
     rec = parse_gle_figure(p)
@@ -427,7 +437,9 @@ def test_missing_grid_multigraph_falls_back(tmp_path):
         "end graph\n"
     )
     p = _write(
-        tmp_path, "mg.gle", src,
+        tmp_path,
+        "mg.gle",
+        src,
         {"g_1.dat": "1 1\n2 2\n", "h_1.dat": "1 2\n2 1\n"},
     )
     rec = parse_gle_figure(p)
@@ -439,6 +451,7 @@ def test_missing_grid_multigraph_falls_back(tmp_path):
 # --------------------------------------------------------------------------- #
 # open_gle smoke
 # --------------------------------------------------------------------------- #
+
 
 def test_open_gle_smoke(tmp_path):
     _gleplot_axes._global_data_file_counter = 0
