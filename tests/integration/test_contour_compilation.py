@@ -27,23 +27,24 @@ def _gle_available() -> bool:
 pytestmark = pytest.mark.skipif(not _gle_available(), reason="GLE binary not available")
 
 # GLE 4.3.9 built on the macOS ARM CI runners aborts during the render pass of
-# scripts containing ``begin fitz``/``begin contour`` blocks, with no error
-# output (banner "-C-R-" then a nonzero exit). The same scripts compile fine on
-# Linux with the identically pinned GLE build, and upstream has no functional
-# changes between v4.3.9 and master, so this is a platform-specific crash in
-# GLE's Akima/contour code, not a gleplot emission problem. Non-strict xfail:
-# records XPASS if a future GLE or runner image fixes it.
-_darwin_gle_fitz_crash = pytest.mark.xfail(
+# scripts containing a ``begin contour`` block, with no error output (banner
+# "-C-R-" then a nonzero exit). Isolated by CI experiment: fitz-only scripts
+# (test_tripcolor_only_compiles) pass on the same runners, so the crash is in
+# GLE's contour stage specifically. The same scripts compile fine on Linux with
+# the identically pinned GLE build, and upstream has no functional changes
+# between v4.3.9 and master, so this is a platform-specific crash in GLE, not a
+# gleplot emission problem. Non-strict xfail: records XPASS if a future GLE or
+# runner image fixes it.
+_darwin_gle_contour_crash = pytest.mark.xfail(
     sys.platform == "darwin",
-    reason="GLE 4.3.9 crashes rendering fitz/contour blocks on macOS ARM",
+    reason="GLE 4.3.9 crashes rendering begin-contour blocks on macOS ARM",
     strict=False,
 )
 
 
-@_darwin_gle_fitz_crash
 def test_tripcolor_only_compiles(tmp_path):
-    """fitz gridding + colormap without any contour block (isolates which of
-    the two GLE stages crashes on macOS — see _darwin_gle_fitz_crash)."""
+    """fitz gridding + colormap without any contour block (runs everywhere,
+    including macOS — see _darwin_gle_contour_crash)."""
     rng = np.random.default_rng(7)
     x = rng.uniform(0.0, 5.0, 200)
     y = rng.uniform(0.0, 3.0, 200)
@@ -58,7 +59,7 @@ def test_tripcolor_only_compiles(tmp_path):
     assert out.stat().st_size > 0
 
 
-@_darwin_gle_fitz_crash
+@_darwin_gle_contour_crash
 def test_phase_diagram_like_tripcolor_tricontour_colorbar_compiles(tmp_path):
     # Synthetic susceptibility-like field chi(T, H): a Neel boundary
     # T_N(H) = T_N0 * sqrt(1 - (H/Hc)^2) with a ridge in chi at the boundary.
