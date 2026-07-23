@@ -158,6 +158,7 @@ from .syntax import (
 from .tables import (
     KEY_POSITIONS_SHORT_TO_LONG,
     LSTYLE_TO_MATPLOTLIB,
+    PALETTE_SUB_TO_CMAP,
 )
 from .units import (
     capsize_cm_to_pt,
@@ -202,6 +203,34 @@ class RecognizedFigure:
 def _words_and_values(stmt: Statement) -> List[Token]:
     """Tokens of a statement, dropping comments."""
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
+
+
+def _first_statement_of(source_line) -> Statement:
+    """Build a throwaway :class:`Statement` from a raw block inner line.
+
+    Opaque-block inner lines are stored as bare :class:`SourceLine`s (never
+    tokenized into statements). The contour/fitz block parsers need their
+    tokens, so this tokenizes one line's text into a Statement wrapper.
+    """
+    from .lexer import tokenize_line
+
+    return Statement(
+        tokens=tokenize_line(source_line.text),
+        raw=source_line.text,
+        line_no=source_line.line_no,
+        sub_index=0,
+        source_line=source_line,
+    )
+
+
+def _as_float(value, default: float) -> float:
+    """Best-effort float from a recovered named-argument value."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _string_value(tok: Token) -> str:
@@ -311,12 +340,34 @@ class _Recognizer:
         self._text_fontsize: Optional[float] = None
         self._text_color: str = "BLACK"
         self._text_just: str = "left"
+        # Contour/heatmap recognition state.
+        # Line numbers spanned by gleplot_<name> subroutine definitions
+        # (palette / colorbar / contour-labels). Dropped everywhere, like the
+        # metadata block, and regenerated canonically from the model on re-save.
+        self._gleplot_sub_lines: set = set()
+        # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
+        self._fitz_blocks: Dict[str, dict] = {}
+        # contour ``.z`` file -> {levels}
+        self._contour_blocks: Dict[str, dict] = {}
+        # Line numbers of fitz/contour blocks recognized as gleplot-authored
+        # (consumed into a series), dropped from passthrough.
+        self._consumed_block_lines: set = set()
 
     # -- public driver ---------------------------------------------------
 
     def run(self) -> RecognizedFigure:
         doc = parse_gle_source(self.text)
+
+        # Line ranges of gleplot_<name> subs (palette/colorbar/clabel), dropped
+        # like metadata and regenerated canonically from the model on re-save.
+        self._gleplot_sub_lines = self._scan_gleplot_sub_lines()
+
+        # Structure warnings from within our own generated subs (e.g. an ``end
+        # if`` the flat parser sees as an unmatched ``end``) are noise -- those
+        # lines are dropped and regenerated. Suppress them; keep the rest.
         for w in doc.warnings:
+            if w.line_no in self._gleplot_sub_lines:
+                continue
             self.warnings.append(f"structure: {w}")
 
         # 1-based line numbers spanned by the '! gleplot' metadata block; these
@@ -324,6 +375,12 @@ class _Recognizer:
         # (including inside a graph body) so they never leak into passthrough
         # and re-emit as a stale duplicate block.
         self._meta_lines = self._metadata_line_numbers()
+
+        # Pre-scan fitz/contour blocks and cross-reference them against the
+        # colormap / cdata references in the graph blocks, so a gleplot-authored
+        # heatmap/contour can be reconstructed and its blocks dropped from
+        # passthrough (foreign/unreferenced blocks stay opaque passthrough).
+        self._prescan_contour_heatmap(doc.nodes)
 
         # Guard: files using GLE programming constructs are not safe to edit.
         self._check_programmatic_constructs(doc.nodes)
@@ -410,6 +467,9 @@ class _Recognizer:
                 # Greedily consume deferred text cluster that follows.
                 texts, consumed = self._consume_text_cluster(nodes, i + 1)
                 axes_info["texts"] = texts
+                # Then consume any post-graph colorbar / contour-label sub
+                # calls belonging to this axes.
+                consumed = self._consume_post_graph_calls(nodes, consumed, axes_info)
                 parsed_axes.append(axes_info)
                 i = consumed
                 continue
@@ -425,6 +485,16 @@ class _Recognizer:
             # between graphs (writer emits a blank between subplots). Otherwise
             # it is trailer content.
             if isinstance(node, BlankOrComment) and self._more_graphs_after(nodes, i):
+                i += 1
+                continue
+
+            # fitz/contour blocks consumed into a recognized series (their
+            # geometry lives on the model; regenerated on re-save).
+            if (
+                isinstance(node, OpaqueBlock)
+                and node.block_type in ("fitz", "contour")
+                and node.begin.line_no in self._consumed_block_lines
+            ):
                 i += 1
                 continue
 
@@ -487,6 +557,11 @@ class _Recognizer:
         for node in nodes:
             if not isinstance(node, Statement):
                 continue
+            # gleplot_<name> subroutine bodies use sub/if/return/else etc., but
+            # are our own self-contained palettes/colorbar/labels -- not a
+            # user-authored programmatic file. Don't flag them.
+            if node.source_line is not None and node.line_no in self._gleplot_sub_lines:
+                continue
             kw = node.keyword
             if kw is not None and kw in self._PROGRAMMATIC_KEYWORDS:
                 self.warnings.append(
@@ -526,10 +601,24 @@ class _Recognizer:
         fontsize = 12.0
         passthrough: List[str] = []
 
-        # Track which lines belong to the metadata block so we drop them.
-        meta_line_nos = self._meta_lines
+        # Track which lines belong to the metadata block, or to a gleplot_<name>
+        # sub definition, so we drop them (both are regenerated canonically).
+        meta_line_nos = self._meta_lines | self._gleplot_sub_lines
 
         for node in pre_nodes:
+            if isinstance(node, OpaqueBlock):
+                # begin box / begin rotate nested inside a gleplot_<name> sub
+                # body (e.g. the colorbar sub) -> drop with the sub.
+                if node.begin.line_no in self._gleplot_sub_lines:
+                    continue
+                # Consumed fitz/contour blocks: their geometry lives on the
+                # model, regenerated on re-save; drop the raw block here.
+                if (
+                    node.block_type in ("fitz", "contour")
+                    and node.begin.line_no in self._consumed_block_lines
+                ):
+                    continue
+
             if isinstance(node, BlankOrComment):
                 stmt = node.statement
                 if stmt.line_no in meta_line_nos:
@@ -623,6 +712,8 @@ class _Recognizer:
             "fills": [],
             "errorbars": [],
             "file_series": [],
+            "heatmaps": [],
+            "contours": [],
             "passthrough": [],
             "series_order": [],  # to preserve ordering info if needed
             # Dataset names (e.g. 'd1') consumed by a 'bar'/'fill' command.
@@ -843,6 +934,9 @@ class _Recognizer:
             return
         if kw == "key":
             self._parse_key_command(toks, info, stmt)
+            return
+        if kw == "colormap":
+            self._parse_colormap(toks, info, stmt)
             return
 
         # Unrecognized statement inside a graph block -> axes passthrough.
@@ -1291,6 +1385,18 @@ class _Recognizer:
             info["passthrough"].append("    " + " ".join(t.value for t in toks))
             return
         data_file, xcol, ycol = datasets[d_name]
+
+        # A ``data "<base>-cdata.dat" dN=c1,c2`` + ``dN line ...`` pair is a
+        # contour series' generated polyline, not a broken file line series --
+        # but only when the prescan actually recognized (and will reconstruct)
+        # the feeding contour/fitz block. A ``-cdata.dat`` reference with no
+        # recognized block falls through to ordinary file-series handling so the
+        # ``data`` command and its display line are preserved verbatim.
+        if isinstance(data_file, str) and data_file.endswith("-cdata.dat"):
+            zfile = data_file[: -len("-cdata.dat")] + ".z"
+            if zfile in self._contour_blocks or zfile in self._fitz_blocks:
+                self._build_contour_from_cdata(data_file, toks, info)
+                return
 
         has_line = attrs["has_line"]
         has_marker = attrs["marker"] is not None
@@ -1747,6 +1853,724 @@ class _Recognizer:
 
     # -- data loading ----------------------------------------------------
 
+    # -- contour / heatmap recognition ----------------------------------
+
+    def _scan_gleplot_sub_lines(self) -> set:
+        """1-based line numbers spanned by ``sub gleplot_<name>`` definitions.
+
+        gleplot emits self-contained palette / colorbar / contour-label subs
+        (see :mod:`gleplot.palettes`). Their bodies use ``sub``/``if``/``return``
+        etc.; they are dropped wherever they appear (like the metadata block) and
+        regenerated canonically from the model on re-save, so they never leak
+        into passthrough nor trip the programmatic-construct guard.
+        """
+        nums: set = set()
+        in_sub = False
+        for idx, line in enumerate(self.text.splitlines(), start=1):
+            low = line.strip().lower()
+            if not in_sub:
+                if low.startswith("sub gleplot_"):
+                    in_sub = True
+                    nums.add(idx)
+                continue
+            nums.add(idx)
+            if low == "end sub" or low.startswith("end sub "):
+                in_sub = False
+        return nums
+
+    def _prescan_contour_heatmap(self, nodes) -> None:
+        """Parse fitz/contour blocks and decide which are gleplot-authored.
+
+        Builds ``self._fitz_blocks`` (keyed by the ``.z`` file the block
+        generates) and ``self._contour_blocks`` (keyed by the ``.z`` file the
+        block reads), then cross-references them against the ``colormap`` /
+        ``data "*-cdata.dat"`` references inside the graph blocks. A block is
+        recorded as *consumed* (its lines dropped from passthrough, its geometry
+        reconstructed onto the model) only when it is actually referenced -- a
+        foreign or unreferenced ``begin fitz``/``begin contour`` stays opaque
+        passthrough with no loss.
+        """
+        raw_fitz: Dict[str, Tuple[dict, OpaqueBlock]] = {}
+        raw_contour: Dict[str, Tuple[dict, OpaqueBlock]] = {}
+        for node in nodes:
+            if not isinstance(node, OpaqueBlock):
+                continue
+            if node.block_type == "fitz":
+                info = self._parse_fitz_block(node)
+                if info is not None:
+                    raw_fitz[info["zfile"]] = (info, node)
+            elif node.block_type == "contour":
+                info = self._parse_contour_block(node)
+                if info is not None:
+                    raw_contour[info["zfile"]] = (info, node)
+
+        colormap_files, cdata_bases = self._referenced_grid_files(nodes)
+
+        # A contour block is ours iff its cdata polyline is drawn in a graph AND
+        # its data source can actually be reconstructed (scattered points via a
+        # feeding fitz block, or the grid ``.z`` on disk). If the data can't be
+        # read the reconstruction would bail to passthrough, so we must NOT drop
+        # the block here -- keep it opaque and lose nothing.
+        for zfile, (info, node) in raw_contour.items():
+            base = zfile[:-2] if zfile.endswith(".z") else zfile
+            if base not in cdata_bases:
+                continue
+            fitz_pair = raw_fitz.get(zfile)
+            if fitz_pair is not None:
+                if self._read_points(fitz_pair[0]["points_file"]) is None:
+                    continue
+            elif self._read_z_grid(zfile) is None:
+                continue
+            self._contour_blocks[zfile] = info
+            self._mark_block_consumed(node)
+
+        # A fitz block is ours iff its generated .z feeds a recognized colormap
+        # or a recognized contour block, AND its scattered points are readable.
+        for zfile, (info, node) in raw_fitz.items():
+            if zfile not in colormap_files and zfile not in self._contour_blocks:
+                continue
+            if self._read_points(info["points_file"]) is None:
+                continue
+            self._fitz_blocks[zfile] = info
+            self._mark_block_consumed(node)
+
+    def _mark_block_consumed(self, node: OpaqueBlock) -> None:
+        if node.begin.source_line is not None:
+            self._consumed_block_lines.add(node.begin.line_no)
+
+    def _referenced_grid_files(self, nodes) -> Tuple[set, set]:
+        """Scan graph blocks for ``colormap`` files and ``-cdata.dat`` bases.
+
+        Only colormaps that are *structurally recognizable* as gleplot heatmaps
+        (known/built-in palette, ``.z``/``.gz`` file, no unrecognized options)
+        contribute their grid file. A foreign colormap (unknown palette,
+        function expression, extra options) is re-emitted verbatim as
+        passthrough and must NOT cause the ``begin fitz`` block that generates
+        its ``.z`` to be dropped -- otherwise the preserved colormap line would
+        reference a grid nothing produces (content loss + broken output).
+        """
+        colormap_files: set = set()
+        cdata_bases: set = set()
+        for node in nodes:
+            if not isinstance(node, GraphBlock):
+                continue
+            for child in node.body:
+                if not isinstance(child, Statement):
+                    continue
+                kw = child.keyword
+                toks = _words_and_values(child)
+                if kw == "colormap":
+                    zfile = self._colormap_recognizable_zfile(toks)
+                    if zfile is not None:
+                        colormap_files.add(zfile)
+                elif kw == "data" and len(toks) >= 2:
+                    fname, _ = self._read_filename(toks, 1)
+                    if fname.endswith("-cdata.dat"):
+                        cdata_bases.add(fname[: -len("-cdata.dat")])
+        return colormap_files, cdata_bases
+
+    def _colormap_recognizable_zfile(self, toks) -> Optional[str]:
+        """Return the grid ``.z`` file iff this ``colormap`` is reconstructable.
+
+        Mirrors the accept criteria of :meth:`_parse_colormap` (palette known
+        or ``color``/grayscale, a ``.z``/``.gz`` file rather than a function
+        expression, and no unrecognized options) but WITHOUT touching disk --
+        data readability is handled separately. Returns ``None`` for any
+        colormap that :meth:`_parse_colormap` would send to passthrough, so the
+        prescan never drops the fitz block feeding a foreign colormap.
+        """
+        if len(toks) < 4:
+            return None
+        zfile, idx = self._read_filename(toks, 1)
+        px = _num(toks[idx]) if idx < len(toks) else None
+        py = _num(toks[idx + 1]) if idx + 1 < len(toks) else None
+        if px is None or py is None:
+            return None
+        i = idx + 2
+        m = len(toks)
+        color = False
+        palette = None
+        unknown = False
+        while i < m:
+            w = toks[i].value.lower()
+            if w == "color":
+                color = True
+                i += 1
+            elif w == "invert":
+                i += 1
+            elif w in ("zmin", "zmax") and i + 1 < m:
+                _, nxt = _collect_value(toks, i + 1)
+                i = nxt if nxt > i + 1 else i + 2
+            elif w == "palette" and i + 1 < m:
+                palette = toks[i + 1].value
+                i += 2
+            elif w == "interpolate" and i + 1 < m:
+                i += 2
+            else:
+                unknown = True
+                i += 1
+        if unknown:
+            return None
+        if not color and palette is not None:
+            if PALETTE_SUB_TO_CMAP.get(palette.lower()) is None:
+                return None
+        if not zfile.lower().endswith((".z", ".gz")):
+            return None
+        return zfile
+
+    def _parse_fitz_block(self, node: OpaqueBlock) -> Optional[dict]:
+        """Parse a ``begin fitz`` block matching gleplot's shape, or ``None``.
+
+        Recovers ``points_file``, ``extent`` (x0,x1,y0,y1), ``gridsize``
+        (nx,ny from the ``from..to..step`` ranges) and optional ``ncontour``.
+        ``zfile`` is the generated grid name (points base + ``.z``).
+        """
+        data_file = None
+        xr = yr = None
+        ncontour = None
+        for sl in node.inner_lines:
+            toks = _words_and_values(_first_statement_of(sl))
+            if not toks:
+                continue
+            kw = toks[0].value.lower()
+            if kw == "data" and len(toks) >= 2:
+                data_file, _ = self._read_filename(toks, 1)
+            elif kw in ("x", "y") and len(toks) >= 6:
+                rng = self._parse_from_to_step(toks)
+                if rng is not None:
+                    if kw == "x":
+                        xr = rng
+                    else:
+                        yr = rng
+            elif kw == "ncontour" and len(toks) >= 2:
+                n = _num(toks[1])
+                if n is not None:
+                    ncontour = int(n)
+        if data_file is None or xr is None or yr is None:
+            return None
+        x0, x1, xstep = xr
+        y0, y1, ystep = yr
+        nx = int(round((x1 - x0) / xstep)) + 1 if xstep else 2
+        ny = int(round((y1 - y0) / ystep)) + 1 if ystep else 2
+        zfile = (
+            data_file[:-4] + ".z" if data_file.endswith(".dat") else data_file + ".z"
+        )
+        return {
+            "points_file": data_file,
+            "zfile": zfile,
+            "extent": [x0, x1, y0, y1],
+            "gridsize": [nx, ny],
+            "ncontour": ncontour,
+        }
+
+    def _parse_contour_block(self, node: OpaqueBlock) -> Optional[dict]:
+        """Parse a ``begin contour`` block matching gleplot's shape, or ``None``.
+
+        Recovers the ``.z`` file it reads and the explicit ``values`` list
+        (``None`` when a bare block using GLE's default 10 levels).
+        """
+        zfile = None
+        levels = None
+        for sl in node.inner_lines:
+            toks = _words_and_values(_first_statement_of(sl))
+            if not toks:
+                continue
+            kw = toks[0].value.lower()
+            if kw == "data" and len(toks) >= 2:
+                zfile, _ = self._read_filename(toks, 1)
+            elif kw == "values":
+                # Only the explicit ``values v1 v2 ...`` form is modeled;
+                # ``values from a to b step s`` stays a foreign block.
+                if len(toks) >= 2 and toks[1].value.lower() == "from":
+                    return None
+                vals: List[float] = []
+                k = 1
+                while k < len(toks):
+                    v, nxt = _collect_value(toks, k)
+                    if v is None:
+                        k += 1
+                        continue
+                    vals.append(v)
+                    k = nxt
+                if vals:
+                    levels = vals
+        if zfile is None:
+            return None
+        return {"zfile": zfile, "levels": levels}
+
+    @staticmethod
+    def _parse_from_to_step(toks) -> Optional[Tuple[float, float, float]]:
+        """Parse ``<axis> from A to B step C`` -> (A, B, C)."""
+        words = {t.value.lower(): idx for idx, t in enumerate(toks)}
+        try:
+            fi, ti, si = words["from"], words["to"], words["step"]
+        except KeyError:
+            return None
+        a = eval_gle_number(toks[fi + 1 : ti])
+        b = eval_gle_number(toks[ti + 1 : si])
+        c = eval_gle_number(toks[si + 1 :])
+        if a is None or b is None or c is None:
+            return None
+        return (a, b, c)
+
+    def _parse_colormap(self, toks, info, stmt) -> None:
+        """Parse a ``colormap`` statement into a heatmap series (or passthrough)."""
+        if len(toks) < 4:
+            info["passthrough"].append(self._stmt_text(stmt))
+            return
+        zfile, idx = self._read_filename(toks, 1)
+        px = _num(toks[idx]) if idx < len(toks) else None
+        py = _num(toks[idx + 1]) if idx + 1 < len(toks) else None
+        if px is None or py is None:
+            info["passthrough"].append(self._stmt_text(stmt))
+            return
+        i = idx + 2
+        m = len(toks)
+        color = invert = False
+        vmin = vmax = None
+        palette = None
+        interpolation = "bicubic"
+        unknown = False
+        while i < m:
+            w = toks[i].value.lower()
+            if w == "color":
+                color = True
+                i += 1
+            elif w == "invert":
+                invert = True
+                i += 1
+            elif w == "zmin" and i + 1 < m:
+                v, nxt = _collect_value(toks, i + 1)
+                vmin = v
+                i = nxt if v is not None else i + 2
+            elif w == "zmax" and i + 1 < m:
+                v, nxt = _collect_value(toks, i + 1)
+                vmax = v
+                i = nxt if v is not None else i + 2
+            elif w == "palette" and i + 1 < m:
+                palette = toks[i + 1].value
+                i += 2
+            elif w == "interpolate" and i + 1 < m:
+                interpolation = toks[i + 1].value.lower()
+                i += 2
+            else:
+                unknown = True
+                i += 1
+
+        # cmap resolution.
+        if color:
+            cmap = "rainbow"
+        elif palette is not None:
+            cmap = PALETTE_SUB_TO_CMAP.get(palette.lower())
+            if cmap is None:
+                # Foreign / unknown palette sub -> keep the whole colormap raw.
+                info["passthrough"].append(self._stmt_text(stmt))
+                self.warnings.append(
+                    f"structure: colormap uses unknown palette {palette!r}; "
+                    "kept as raw GLE, not editable"
+                )
+                return
+        else:
+            cmap = "gray"
+
+        if unknown:
+            info["passthrough"].append(self._stmt_text(stmt))
+            self.warnings.append(
+                "structure: colormap has unrecognized options; kept as raw GLE"
+            )
+            return
+
+        # A colormap of a FUNCTION expression (not a .z/.gz file) can't be
+        # modeled -> passthrough.
+        if not zfile.lower().endswith((".z", ".gz")):
+            info["passthrough"].append(self._stmt_text(stmt))
+            self.warnings.append(
+                "structure: colormap of a function expression; kept as raw GLE"
+            )
+            return
+
+        fitz = self._fitz_blocks.get(zfile)
+        if fitz is not None:
+            pts = self._read_points(fitz["points_file"])
+            if pts is None:
+                info["passthrough"].append(self._stmt_text(stmt))
+                self.warnings.append(
+                    f"data: could not read scattered points {fitz['points_file']!r} "
+                    "for heatmap; kept colormap as raw GLE"
+                )
+                return
+            hm = {
+                "type": "heatmap",
+                "source": "points",
+                "z": None,
+                "x": pts[0],
+                "y": pts[1],
+                "zpts": pts[2],
+                "extent": list(fitz["extent"]),
+                "origin": "lower",
+                "cmap": cmap,
+                "vmin": vmin,
+                "vmax": vmax,
+                "interpolation": "nearest" if interpolation == "nearest" else "bicubic",
+                "pixels": [int(px), int(py)],
+                "invert": invert,
+                "gridsize": list(fitz["gridsize"]),
+                "ncontour": None,
+                "label": None,
+                "data_file": fitz["points_file"],
+                "colorbar": None,
+            }
+        else:
+            grid = self._read_z_grid(zfile)
+            if grid is None:
+                info["passthrough"].append(self._stmt_text(stmt))
+                self.warnings.append(
+                    f"data: could not read grid {zfile!r} for heatmap; "
+                    "kept colormap as raw GLE"
+                )
+                return
+            z, extent = grid
+            hm = {
+                "type": "heatmap",
+                "source": "grid",
+                "z": z,
+                "x": None,
+                "y": None,
+                "zpts": None,
+                "extent": extent,
+                "origin": "lower",
+                "cmap": cmap,
+                "vmin": vmin,
+                "vmax": vmax,
+                "interpolation": "nearest" if interpolation == "nearest" else "bicubic",
+                "pixels": [int(px), int(py)],
+                "invert": invert,
+                "gridsize": None,
+                "ncontour": None,
+                "label": None,
+                "data_file": zfile,
+                "colorbar": None,
+            }
+        info["heatmaps"].append(hm)
+
+    def _build_contour_from_cdata(self, cdata_file, toks, info) -> None:
+        """Build a contour series from its ``dN line`` and the fitz/contour blocks."""
+        base = cdata_file[: -len("-cdata.dat")]
+        zfile = base + ".z"
+        attrs = self._scan_series_attrs(toks[1:])
+        color = attrs["color"] or "BLACK"
+        linewidth = (
+            linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
+        )
+        lstyle = attrs["lstyle"]  # int or None (None = solid)
+
+        cblock = self._contour_blocks.get(zfile, {})
+        levels = cblock.get("levels")
+
+        fitz = self._fitz_blocks.get(zfile)
+        if fitz is not None:
+            pts = self._read_points(fitz["points_file"])
+            if pts is None:
+                info["passthrough"].append("    " + " ".join(t.value for t in toks))
+                self.warnings.append(
+                    f"data: could not read scattered points {fitz['points_file']!r} "
+                    "for contour; kept line as raw GLE"
+                )
+                return
+            ct = {
+                "type": "contour",
+                "source": "points",
+                "z": None,
+                "x": pts[0],
+                "y": pts[1],
+                "zpts": pts[2],
+                "extent": list(fitz["extent"]),
+                "levels": levels,
+                "color": color,
+                "linewidth": linewidth,
+                "linestyle": lstyle,
+                "clabel": False,
+                "clabel_fmt": "fix 1",
+                "gridsize": list(fitz["gridsize"]),
+                "ncontour": fitz["ncontour"],
+                "label": None,
+                "data_file": fitz["points_file"],
+            }
+        else:
+            grid = self._read_z_grid(zfile)
+            if grid is None:
+                info["passthrough"].append("    " + " ".join(t.value for t in toks))
+                self.warnings.append(
+                    f"data: could not read grid {zfile!r} for contour; "
+                    "kept line as raw GLE"
+                )
+                return
+            z, extent = grid
+            ct = {
+                "type": "contour",
+                "source": "grid",
+                "z": z,
+                "x": None,
+                "y": None,
+                "zpts": None,
+                "extent": extent,
+                "levels": levels,
+                "color": color,
+                "linewidth": linewidth,
+                "linestyle": lstyle,
+                "clabel": False,
+                "clabel_fmt": "fix 1",
+                "gridsize": None,
+                "ncontour": None,
+                "label": None,
+                "data_file": zfile,
+            }
+        info["contours"].append(ct)
+
+    def _read_z_grid(self, filename) -> Optional[Tuple[np.ndarray, List[float]]]:
+        """Read a ``.z`` grid sidecar -> (z ndarray (ny,nx), [x0,x1,y0,y1]).
+
+        Returns ``None`` when the file cannot be resolved/parsed. The array is
+        returned y-increasing (row 0 = ymin), matching GLE's ``.z`` convention;
+        the recovered heatmap/contour therefore always uses ``origin='lower'``
+        (a documented, rendering-neutral normalization).
+        """
+        text = self._read_sidecar_text(filename)
+        if text is None:
+            return None
+        header = None
+        values: List[float] = []
+        for raw in text.splitlines():
+            s = raw.strip()
+            if not s:
+                continue
+            if s.startswith("!"):
+                if header is None:
+                    header = s
+                continue
+            for tok in s.replace(",", " ").split():
+                try:
+                    values.append(float(tok))
+                except ValueError:
+                    return None
+        if header is None:
+            return None
+        meta = self._parse_z_header(header)
+        if meta is None:
+            return None
+        nx, ny, x0, x1, y0, y1 = meta
+        if len(values) != nx * ny:
+            return None
+        z = np.asarray(values, dtype=float).reshape(ny, nx)
+        return z, [x0, x1, y0, y1]
+
+    @staticmethod
+    def _parse_z_header(header: str):
+        """Parse ``! nx N ny N xmin V xmax V ymin V ymax V`` -> tuple or None."""
+        parts = header.lstrip("!").replace(",", " ").split()
+        kv = {}
+        i = 0
+        while i + 1 < len(parts):
+            key = parts[i].lower()
+            try:
+                kv[key] = float(parts[i + 1])
+            except ValueError:
+                return None
+            i += 2
+        try:
+            nx = int(kv["nx"])
+            ny = int(kv["ny"])
+            x0 = kv["xmin"]
+            x1 = kv["xmax"]
+            y0 = kv["ymin"]
+            y1 = kv["ymax"]
+        except (KeyError, ValueError):
+            return None
+        return nx, ny, x0, x1, y0, y1
+
+    def _read_points(self, filename):
+        """Read a scattered ``x y z`` triples sidecar -> (x, y, z) ndarrays."""
+        text = self._read_sidecar_text(filename)
+        if text is None:
+            return None
+        xs, ys, zs = [], [], []
+        for raw in text.splitlines():
+            s = raw.strip()
+            if not s or s.startswith("!"):
+                continue
+            parts = s.split()
+            if len(parts) < 3:
+                return None
+            try:
+                xs.append(float(parts[0]))
+                ys.append(float(parts[1]))
+                zs.append(float(parts[2]))
+            except ValueError:
+                return None
+        if not xs:
+            return None
+        return (
+            np.asarray(xs, dtype=float),
+            np.asarray(ys, dtype=float),
+            np.asarray(zs, dtype=float),
+        )
+
+    def _read_sidecar_text(self, filename) -> Optional[str]:
+        """Read a raw sidecar file's text, resolving relative to the .gle path."""
+        p = Path(filename)
+        if not p.is_absolute():
+            p = self.gle_path.parent / p
+        try:
+            return p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+
+    # -- post-graph colorbar / contour-label calls ----------------------
+
+    def _consume_post_graph_calls(self, nodes, start, axes_info) -> int:
+        """Consume ``gleplot_colorbar_v`` / ``gleplot_contour_labels`` calls.
+
+        Each call is preceded by its own ``amove`` (``xg(xgmax)+S yg(ygmin)`` for
+        the colorbar, ``0 0`` for the labels). Attaches the recovered colorbar
+        to this axes' heatmap and sets ``clabel`` on the matching contour.
+        Returns the index of the first node not consumed.
+        """
+        i = start
+        n = len(nodes)
+        while i < n:
+            consumed = self._try_one_post_call(nodes, i, axes_info)
+            if consumed is None:
+                break
+            i = consumed
+        return i
+
+    def _try_one_post_call(self, nodes, i, axes_info) -> Optional[int]:
+        # optional leading amove, then the sub call.
+        amove_sep = None
+        j = i
+        st = self._as_statement(nodes[j]) if j < len(nodes) else None
+        if st is not None and st.keyword == "amove":
+            amove_sep = self._amove_colorbar_sep(_words_and_values(st))
+            j += 1
+        st = self._as_statement(nodes[j]) if j < len(nodes) else None
+        if st is None:
+            return None
+        kw = st.keyword
+        toks = _words_and_values(st)
+        if kw == "gleplot_colorbar_v":
+            self._apply_colorbar_call(toks, amove_sep, axes_info)
+            return j + 1
+        if kw == "gleplot_contour_labels":
+            self._apply_clabel_call(toks, axes_info)
+            return j + 1
+        return None
+
+    @staticmethod
+    def _amove_colorbar_sep(toks) -> Optional[float]:
+        """Recover ``S`` from ``amove xg(xgmax)+S yg(ygmin)`` (else None)."""
+        text = " ".join(t.value for t in toks)
+        m = re.search(r"xgmax\s*\)\s*\+\s*([0-9.eE+-]+)", text)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+        return None
+
+    def _apply_colorbar_call(self, toks, sep, axes_info) -> None:
+        args = self._named_args(toks[1:])
+        heatmaps = axes_info.get("heatmaps") or []
+        if not heatmaps:
+            return
+        hm = heatmaps[0]
+        cb = {
+            "label": args.get("label") or None,
+            "format": args.get("format") or "fix 1",
+            "width": _as_float(args.get("wd"), 0.5),
+            "sep": sep if sep is not None else 0.3,
+            "zmin": _as_float(args.get("zmin"), 0.0),
+            "zmax": _as_float(args.get("zmax"), 1.0),
+            "zstep": _as_float(args.get("zstep"), 0.0),
+        }
+        hm["colorbar"] = cb
+
+    def _apply_clabel_call(self, toks, axes_info) -> None:
+        args = self._named_args(toks[1:])
+        fname = args.get("file")
+        fmt = args.get("format") or "fix 1"
+        contours = axes_info.get("contours") or []
+        if not fname or not fname.endswith("-clabels.dat"):
+            if contours:
+                contours[0]["clabel"] = True
+                contours[0]["clabel_fmt"] = fmt
+            return
+        base = fname[: -len("-clabels.dat")]
+        for ct in contours:
+            df = ct["data_file"]
+            ct_base = (
+                df[:-4]
+                if df.endswith(".dat")
+                else (df[:-2] if df.endswith(".z") else df)
+            )
+            if ct_base == base:
+                ct["clabel"] = True
+                ct["clabel_fmt"] = fmt
+                return
+        if contours:
+            contours[0]["clabel"] = True
+            contours[0]["clabel_fmt"] = fmt
+
+    #: Recognized colorbar/clabel call argument names (used to delimit the
+    #: unmodeled ``hi <expr>`` height argument).
+    _CALL_ARG_NAMES = frozenset(
+        {"zmin", "zmax", "zstep", "palette", "wd", "hi", "format", "label", "file"}
+    )
+
+    def _named_args(self, toks) -> dict:
+        """Parse GLE named-argument call tokens ``name value name value ...``.
+
+        String values (quoted) are unwrapped; numeric values are collected with
+        the expression-tolerant :func:`_collect_value` (so signed numbers like
+        ``-1`` are read whole). The ``hi yg(...)-yg(...)`` height argument is a
+        multi-token expression that is not modeled (the colorbar always spans
+        the graph height); it is skipped up to the next recognized arg name.
+        """
+        args: dict = {}
+        i = 0
+        m = len(toks)
+        while i < m:
+            name = toks[i].value.lower()
+            i += 1
+            if i >= m:
+                break
+            if name == "hi":
+                while i < m and toks[i].value.lower() not in self._CALL_ARG_NAMES:
+                    i += 1
+                continue
+            val_tok = toks[i]
+            if val_tok.type is TokenType.STRING:
+                args[name] = _string_value(val_tok)
+                i += 1
+                continue
+            if name in ("palette", "format", "label", "file"):
+                # A word/filename value (single token, or an unquoted
+                # hyphenated filename run).
+                if name == "file":
+                    fname, nxt = self._read_filename(toks, i)
+                    args[name] = fname
+                    i = nxt
+                else:
+                    args[name] = val_tok.value
+                    i += 1
+                continue
+            v, nxt = _collect_value(toks, i)
+            if v is not None:
+                args[name] = v
+                i = nxt
+            else:
+                i += 1
+        return args
+
     def _resolve_table(self, data_file):
         if data_file in self._table_cache:
             return self._table_cache[data_file]
@@ -2095,6 +2919,8 @@ class _Recognizer:
         ax.errorbars = info["errorbars"]
         ax.file_series = info["file_series"]
         ax.texts = info["texts"]
+        ax.heatmaps = info["heatmaps"]
+        ax.contours = info["contours"]
         ax.passthrough = info["passthrough"]
 
         # A series whose sidecar had no real header row (hand-written .dat,
@@ -2190,18 +3016,53 @@ class _Recognizer:
     def _finalize_data_state(self, fig):
         """Set data_prefix / counters / used-files so re-save reuses names."""
         used = set()
+        sidecars = set()
         for ax in fig.axes_list:
             for s in ax.lines + ax.scatters + ax.bars + ax.fills + ax.errorbars:
                 df = s.get("data_file")
                 if df:
                     used.add(df)
-        fig._used_data_files = set(used)
+            for s in ax.heatmaps + ax.contours:
+                df = s.get("data_file")
+                if df:
+                    sidecars.add(df)
+        # Every reserved file (columnar sidecars + heatmap/contour/points raw
+        # sidecars) is tracked so collision avoidance and to_dict round-trip see
+        # the full set.
+        fig._used_data_files = set(used) | set(sidecars)
 
-        # Derive prefix from the sidecar naming convention: <prefix>_<N>.dat.
+        # Derive prefix from the columnar sidecar convention <prefix>_<N>.dat
+        # first; fall back to the heatmap/contour/points sidecar convention
+        # <prefix>_<kind><N>.<ext> when there are no columnar series.
         prefix, max_idx = self._derive_prefix(used)
-        if prefix is not None:
+        if prefix is None:
+            prefix, _ = self._derive_prefix_from_sidecars(sidecars)
+            if prefix is not None:
+                fig.data_prefix = prefix
+        elif prefix is not None:
             fig.data_prefix = prefix
             fig._local_data_counter = max_idx + 1
+
+    @staticmethod
+    def _derive_prefix_from_sidecars(names) -> Tuple[Optional[str], int]:
+        """Return the shared prefix of ``<prefix>_<kind><N>.<ext>`` sidecars.
+
+        Recognizes ``heatmap``/``contour``/``points`` kinds with ``.z``/``.dat``
+        extensions. Returns ``(None, -1)`` when there is no single confident
+        prefix (or it is the default ``data``).
+        """
+        pat = re.compile(r"^(.*)_(?:heatmap|contour|points)\d+\.(?:z|dat)$")
+        prefixes = set()
+        for name in names:
+            mobj = pat.match(name)
+            if mobj:
+                prefixes.add(mobj.group(1))
+        if len(prefixes) == 1:
+            pfx = next(iter(prefixes))
+            if pfx == "data":
+                return None, -1
+            return pfx, 0
+        return None, -1
 
     @staticmethod
     def _derive_prefix(used) -> Tuple[Optional[str], int]:

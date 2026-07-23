@@ -26,6 +26,17 @@ def _format_data_filename(name: str) -> str:
     return name
 
 
+def _quote_filename(name: str) -> str:
+    """Always quote a filename for GLE.
+
+    Used for the contour/heatmap grid and generated files: their names contain
+    hyphens (``-cdata.dat``/``-clabels.dat``) which GLE would otherwise parse
+    as subtraction ("left hand side contains unquoted string"). Quoting is
+    always valid, so it is applied unconditionally in these contexts.
+    """
+    return '"' + str(name).replace('"', '\\"') + '"'
+
+
 class GLEWriter:
     """Writer for GLE script files.
 
@@ -65,6 +76,11 @@ class GLEWriter:
 
         self.lines_gle = []  # GLE script lines
         self.data_files = {}  # {filename: data_content}
+        # Raw-content sidecars (heatmap/contour ``.z`` grids and scattered
+        # ``points.dat`` triples). They are written like any data file but are
+        # NOT columnar imports, so they are excluded from the ``import-data``
+        # metadata list (see Figure._build_metadata_dict).
+        self.raw_sidecars: set = set()
         self.dataset_index = (
             1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         )
@@ -228,6 +244,21 @@ class GLEWriter:
         else:  # 'auto' - default
             # Auto-size and center axes within graph box
             self.lines_gle.append("    scale auto")
+
+    def add_graph_box_size(self, width_cm: float, height_cm: float):
+        """Emit a bare graph ``size W H`` (no ``scale``) for the single-plot path.
+
+        Unlike :meth:`add_graph_size` (which, in ``auto`` mode, emits
+        ``scale auto`` and lets GLE fill the whole page), this pins the graph
+        box to ``width_cm`` x ``height_cm`` while still letting GLE auto-inset
+        the axis labels/ticks inside that box. Used only when a colorbar needs
+        reserved space to the right of an otherwise single (1,1,1) graph, so
+        the bar + ticks + rotated label are not clipped off the page.
+        """
+        self.lines_gle.append(
+            f"    size {self._format_number(width_cm)} "
+            f"{self._format_number(height_cm)}"
+        )
 
     def add_axes(
         self,
@@ -1151,6 +1182,191 @@ class GLEWriter:
             files[data_file] = data_path
 
         return files
+
+    # -- contour / heatmap emission -------------------------------------
+
+    def add_z_sidecar(self, filename: str, z: np.ndarray, extent, origin: str):
+        """Write a raw ``.z`` grid sidecar.
+
+        Header ``! nx <nx> ny <ny> xmin <x0> xmax <x1> ymin <y0> ymax <y1>``
+        followed by ``ny`` lines of ``nx`` values, ROW ymin FIRST (GLE's ``.z``
+        format is y-increasing). For ``origin='upper'`` the array rows are
+        flipped so row 0 (the top) is written last. Numbers use the writer's
+        canonical formatter, single-space separated -- deterministic, so the
+        sidecar is fixed-point safe.
+        """
+        z = np.asarray(z, dtype=float)
+        ny, nx = z.shape
+        x0, x1, y0, y1 = (self._format_number(v) for v in extent)
+        header = f"! nx {nx} ny {ny} xmin {x0} xmax {x1} ymin {y0} ymax {y1}"
+        rows = z[::-1] if origin == "upper" else z
+        lines = [header]
+        for row in rows:
+            lines.append(" ".join(self._format_number(v) for v in row))
+        content = "\n".join(lines) + "\n"
+        self.data_files[filename] = content
+        self.raw_sidecars.add(filename)
+
+    def add_points_sidecar(
+        self, filename: str, x: np.ndarray, y: np.ndarray, z: np.ndarray
+    ):
+        """Write a raw scattered ``x y z`` triples sidecar (no header).
+
+        GLE's ``fitz`` reads raw whitespace-separated triples, one per line, in
+        the given order (no sorting). Deterministic / fixed-point safe.
+        """
+        x = np.asarray(x, dtype=float)
+        y = np.asarray(y, dtype=float)
+        z = np.asarray(z, dtype=float)
+        lines = []
+        for xi, yi, zi in zip(x, y, z):
+            lines.append(
+                f"{self._format_number(xi)} {self._format_number(yi)} "
+                f"{self._format_number(zi)}"
+            )
+        content = "\n".join(lines) + "\n"
+        self.data_files[filename] = content
+        self.raw_sidecars.add(filename)
+
+    def add_sub_defs(self, sub_texts: List[str]):
+        """Append self-contained subroutine definitions to the script.
+
+        Each entry is a full multi-line ``sub ... end sub`` block. A blank
+        line separates consecutive subs (and follows the last), matching the
+        script's readable block spacing.
+        """
+        for text in sub_texts:
+            self.lines_gle.extend(text.split("\n"))
+            self.lines_gle.append("")
+
+    def add_fitz_block(self, points_file: str, extent, gridsize, ncontour):
+        """Emit a ``begin fitz`` .. ``end fitz`` block (before ``begin graph``).
+
+        ``step = (hi - lo) / (n - 1)`` for each axis so the grid spans the
+        extent inclusively at ``gridsize`` nodes.
+        """
+        x0, x1, y0, y1 = extent
+        nx, ny = gridsize
+        xstep = (x1 - x0) / (nx - 1)
+        ystep = (y1 - y0) / (ny - 1)
+        self.lines_gle.append("begin fitz")
+        self.lines_gle.append(f"   data {_quote_filename(points_file)}")
+        self.lines_gle.append(
+            f"   x from {self._format_number(x0)} to {self._format_number(x1)} "
+            f"step {self._format_number(xstep)}"
+        )
+        self.lines_gle.append(
+            f"   y from {self._format_number(y0)} to {self._format_number(y1)} "
+            f"step {self._format_number(ystep)}"
+        )
+        if ncontour is not None:
+            self.lines_gle.append(f"   ncontour {int(ncontour)}")
+        self.lines_gle.append("end fitz")
+
+    def add_contour_block(self, z_file: str, levels):
+        """Emit a ``begin contour`` .. ``end contour`` block.
+
+        ``levels`` is ``None`` (GLE default 10 levels) or an explicit list of
+        z-values emitted as ``values v1 v2 ...``.
+        """
+        self.lines_gle.append("begin contour")
+        self.lines_gle.append(f"   data {_quote_filename(z_file)}")
+        if levels:
+            vals = " ".join(self._format_number(v) for v in levels)
+            self.lines_gle.append(f"   values {vals}")
+        self.lines_gle.append("end contour")
+
+    def add_colormap(
+        self,
+        z_file: str,
+        pixels,
+        cmap_mode,
+        vmin,
+        vmax,
+        invert: bool,
+        interpolation: str,
+    ):
+        """Emit the ``colormap`` statement inside a graph block.
+
+        Clause order (fixed): file, px, py, [color], [invert], [zmin v],
+        [zmax v], [palette name], [interpolate mode]. ``cmap_mode`` is
+        ``('color', None)`` for rainbow, ``('palette', 'gleplot_x')`` for a
+        named palette, or ``('gray', None)`` for grayscale (no clause).
+        """
+        px, py = pixels
+        cmd = f"    colormap {_quote_filename(z_file)} {int(px)} {int(py)}"
+        mode, name = cmap_mode
+        if mode == "color":
+            cmd += " color"
+        if invert:
+            cmd += " invert"
+        if vmin is not None:
+            cmd += f" zmin {self._format_number(vmin)}"
+        if vmax is not None:
+            cmd += f" zmax {self._format_number(vmax)}"
+        if mode == "palette":
+            cmd += f" palette {name}"
+        if interpolation == "nearest":
+            cmd += " interpolate nearest"
+        self.lines_gle.append(cmd)
+
+    def add_contour_line(
+        self, cdata_file: str, color: str, linewidth: float, lstyle: Optional[int]
+    ):
+        """Emit the ``data``/``dN line`` pair that draws a contour's polylines.
+
+        ``cdata_file`` is the ``-cdata.dat`` file GLE generates from the
+        contour block; it is plotted as a ``line`` dataset.
+        """
+        d_name = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        self.lines_gle.append(f"    data {_quote_filename(cdata_file)} {d_name}=c1,c2")
+        if linewidth == 0 or linewidth == 1:
+            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
+        else:
+            gle_lwidth = linewidth_pt_to_cm(linewidth)
+        cmd = (
+            f"    {d_name} line color {color} "
+            f"lwidth {self._format_number(gle_lwidth)}"
+        )
+        if lstyle is not None:
+            cmd += f" lstyle {int(lstyle)}"
+        self.lines_gle.append(cmd)
+
+    def add_colorbar_call(
+        self,
+        sep: float,
+        zmin: float,
+        zmax: float,
+        zstep: float,
+        palette_call: str,
+        width: float,
+        fmt: str,
+        label: Optional[str],
+    ):
+        """Emit the post-graph vertical-colorbar sub call.
+
+        Positioned at ``xg(xgmax)+sep yg(ygmin)`` with height spanning the
+        graph. Named-argument call style (``zmin V zmax V ...``); note GLE
+        matches named args by the parameter name WITHOUT the ``$`` suffix.
+        """
+        self.lines_gle.append(f"amove xg(xgmax)+{self._format_number(sep)} yg(ygmin)")
+        lbl = self._escape_gle_string(label or "")
+        self.lines_gle.append(
+            f"gleplot_colorbar_v zmin {self._format_number(zmin)} "
+            f"zmax {self._format_number(zmax)} "
+            f"zstep {self._format_number(zstep)} "
+            f'palette "{palette_call}" wd {self._format_number(width)} '
+            f'hi yg(ygmax)-yg(ygmin) format "{fmt}" label "{lbl}"'
+        )
+
+    def add_clabel_call(self, clabels_file: str, fmt: str):
+        """Emit the post-graph contour-label sub call."""
+        self.lines_gle.append("amove 0 0")
+        self.lines_gle.append(
+            f"gleplot_contour_labels file {_quote_filename(clabels_file)} "
+            f'format "{fmt}"'
+        )
 
     @staticmethod
     def _format_number(val: float, precision: int = 6) -> str:

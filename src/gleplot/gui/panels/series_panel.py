@@ -42,7 +42,29 @@ errorbar     yes    yes      yes         yes        yes    yes
 bar          yes*   no       no          no         yes    no
 fill         yes    no       no          no         yes    yes
 file_series  yes    depends  depends     depends    yes    no
+heatmap      no     no       no          no         yes    no
+contour      yes    no       no          yes        yes    no
 ===========  =====  =======  ==========  =========  =====  ======
+
+``heatmap`` (``imshow``/``tripcolor``) and ``contour``
+(``contour``/``tricontour``) additionally expose their own dedicated
+controls, applicable only to that kind:
+
+===========  ==================================================================
+kind         extra controls
+===========  ==================================================================
+heatmap      palette, colour min/max (blank = auto), pixels, interpolation,
+             invert, colorbar toggle + colorbar label/format
+contour      levels ("0.1 0.2 0.3" explicit list, or "n=10" for n auto levels,
+             blank = GLE default), contour labels toggle + label format
+===========  ==================================================================
+
+For ``heatmap`` the ``color`` control is disabled (a colormap has no single
+line colour); ``contour`` reuses the shared ``color`` and ``line width``
+controls for its line styling. Both kinds keep ``label`` editable. Because
+GLE allows at most one heatmap per axes, this panel never *creates* a
+heatmap (that happens in the Data dock, which guards the limit); it only
+edits an existing one.
 
 ``bar`` stores a per-point ``colors`` list rather than a single ``color``
 key (GLE only supports one color per bar chart in practice, so all entries
@@ -59,9 +81,11 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+import numpy as np
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QColorDialog,
     QComboBox,
     QDoubleSpinBox,
@@ -73,12 +97,15 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from gleplot.colors import rgb_to_gle
 from gleplot.markers import get_gle_marker
+from gleplot.mathtext import mathtext_to_gle
+from gleplot.palettes import SUPPORTED_CMAPS, canonical_cmap
 
 #: Marker prefixed onto the label of a ``file_series`` entry carrying a
 #: ``data_error`` (broken data reference), both in the aggregated list and
@@ -95,7 +122,13 @@ _KIND_ATTRS = (
     ("fill", "fills"),
     ("errorbar", "errorbars"),
     ("file_series", "file_series"),
+    ("heatmap", "heatmaps"),
+    ("contour", "contours"),
 )
+
+#: Interpolation modes shown in the heatmap interpolation combo, matching the
+#: values stored on a heatmap dict by ``Axes.imshow``/``Axes.tripcolor``.
+_INTERPOLATION_MODES = ("bicubic", "nearest")
 
 #: matplotlib-style marker codes shown in the combo box, plus 'none'.
 _MARKER_CODES = ("none", "o", "s", "^", "v", "D", "*", "p", "+", "x", ".")
@@ -293,6 +326,64 @@ class SeriesPanel(QWidget):
         form.addRow("Marker size", self.markersize_spin)
         form.addRow("Offset", self.offset_spin)
 
+        # ---- heatmap-only controls (imshow/tripcolor) -----------------
+        self.palette_combo = QComboBox(self)
+        self.palette_combo.addItems(SUPPORTED_CMAPS)
+
+        # vmin/vmax as free-text so an empty field means "auto" (GLE's
+        # data-range default); a spin box has no blank state.
+        self.vmin_edit = QLineEdit(self)
+        self.vmin_edit.setPlaceholderText("auto")
+        self.vmax_edit = QLineEdit(self)
+        self.vmax_edit.setPlaceholderText("auto")
+
+        self.pixels_spin = QSpinBox(self)
+        self.pixels_spin.setRange(2, 4000)
+        self.pixels_spin.setSingleStep(50)
+        self.pixels_spin.setToolTip(
+            "Bitmap resolution of the colormap (applied to both axes)."
+        )
+
+        self.interp_combo = QComboBox(self)
+        self.interp_combo.addItems(_INTERPOLATION_MODES)
+
+        self.invert_check = QCheckBox("Invert colours", self)
+
+        self.colorbar_check = QCheckBox("Show colorbar", self)
+        self.cbar_label_edit = QLineEdit(self)
+        self.cbar_format_edit = QLineEdit(self)
+        self.cbar_format_edit.setToolTip(
+            'GLE format$ string for the colorbar tick labels, e.g. "fix 1".'
+        )
+
+        form.addRow("Palette", self.palette_combo)
+        form.addRow("Colour min", self.vmin_edit)
+        form.addRow("Colour max", self.vmax_edit)
+        form.addRow("Pixels", self.pixels_spin)
+        form.addRow("Interpolation", self.interp_combo)
+        form.addRow("", self.invert_check)
+        form.addRow("", self.colorbar_check)
+        form.addRow("Colorbar label", self.cbar_label_edit)
+        form.addRow("Colorbar format", self.cbar_format_edit)
+
+        # ---- contour-only controls (contour/tricontour) ---------------
+        self.levels_edit = QLineEdit(self)
+        self.levels_edit.setPlaceholderText("auto (e.g. 0.1 0.2 0.3 or n=10)")
+        self.levels_edit.setToolTip(
+            "Explicit contour levels ('0.1 0.2 0.3'), or 'n=10' for n "
+            "evenly-spaced auto levels, or blank for GLE's default."
+        )
+
+        self.clabel_check = QCheckBox("Label contours", self)
+        self.clabel_format_edit = QLineEdit(self)
+        self.clabel_format_edit.setToolTip(
+            'GLE format$ string for the inline contour labels, e.g. "fix 1".'
+        )
+
+        form.addRow("Levels", self.levels_edit)
+        form.addRow("", self.clabel_check)
+        form.addRow("Label format", self.clabel_format_edit)
+
         outer.addLayout(form)
 
         # Keep references to (widget, form-row-label-widget) so we can hide
@@ -319,6 +410,22 @@ class SeriesPanel(QWidget):
         self.markersize_spin.editingFinished.connect(self._on_markersize_edited)
         self.offset_spin.editingFinished.connect(self._on_offset_edited)
         self.locate_button.clicked.connect(self._on_locate_clicked)
+
+        # heatmap controls
+        self.palette_combo.currentTextChanged.connect(self._on_palette_changed)
+        self.vmin_edit.editingFinished.connect(self._on_vmin_edited)
+        self.vmax_edit.editingFinished.connect(self._on_vmax_edited)
+        self.pixels_spin.editingFinished.connect(self._on_pixels_edited)
+        self.interp_combo.currentTextChanged.connect(self._on_interp_changed)
+        self.invert_check.toggled.connect(self._on_invert_toggled)
+        self.colorbar_check.toggled.connect(self._on_colorbar_toggled)
+        self.cbar_label_edit.editingFinished.connect(self._on_cbar_label_edited)
+        self.cbar_format_edit.editingFinished.connect(self._on_cbar_format_edited)
+
+        # contour controls
+        self.levels_edit.editingFinished.connect(self._on_levels_edited)
+        self.clabel_check.toggled.connect(self._on_clabel_toggled)
+        self.clabel_format_edit.editingFinished.connect(self._on_clabel_format_edited)
 
     def _on_figure_replaced(self) -> None:
         """Handle a brand-new figure being installed (New/Open/undo/redo).
@@ -447,6 +554,42 @@ class SeriesPanel(QWidget):
 
             if applicable.get("offset"):
                 self.offset_spin.setValue(float(series.get("offset") or 0.0))
+
+            if applicable.get("palette"):
+                self._set_combo_text(
+                    self.palette_combo, series.get("cmap") or "viridis"
+                )
+
+            if applicable.get("vmin"):
+                self.vmin_edit.setText(_float_to_text(series.get("vmin")))
+            if applicable.get("vmax"):
+                self.vmax_edit.setText(_float_to_text(series.get("vmax")))
+
+            if applicable.get("pixels"):
+                pixels = series.get("pixels") or [200, 200]
+                self.pixels_spin.setValue(int(pixels[0]))
+
+            if applicable.get("interpolation"):
+                self._set_combo_text(
+                    self.interp_combo, series.get("interpolation") or "bicubic"
+                )
+
+            if applicable.get("invert"):
+                self.invert_check.setChecked(bool(series.get("invert")))
+
+            if applicable.get("colorbar"):
+                cb = series.get("colorbar")
+                self.colorbar_check.setChecked(cb is not None)
+                self.cbar_label_edit.setText((cb or {}).get("label") or "")
+                self.cbar_format_edit.setText((cb or {}).get("format") or "fix 1")
+                self._sync_colorbar_fields_enabled()
+
+            if applicable.get("levels"):
+                self.levels_edit.setText(_levels_to_text(series.get("levels")))
+
+            if applicable.get("clabel"):
+                self.clabel_check.setChecked(bool(series.get("clabel")))
+                self.clabel_format_edit.setText(series.get("clabel_fmt") or "fix 1")
         finally:
             self._updating = was_updating
 
@@ -476,15 +619,43 @@ class SeriesPanel(QWidget):
     ) -> None:
         applicable = applicable or {}
         self.label_edit.setEnabled(enabled)
-        self.color_button.setEnabled(enabled)
+        # ``color`` applies to every historical kind (default True), but is
+        # disabled for a heatmap, which has no single line colour.
+        self.color_button.setEnabled(enabled and applicable.get("color", True))
         self.linestyle_combo.setEnabled(enabled and applicable.get("linestyle", False))
         self.marker_combo.setEnabled(enabled and applicable.get("marker", False))
         self.linewidth_spin.setEnabled(enabled and applicable.get("linewidth", False))
         self.markersize_spin.setEnabled(enabled and applicable.get("markersize", False))
         self.offset_spin.setEnabled(enabled and applicable.get("offset", False))
+
+        # heatmap-only controls
+        self.palette_combo.setEnabled(enabled and applicable.get("palette", False))
+        self.vmin_edit.setEnabled(enabled and applicable.get("vmin", False))
+        self.vmax_edit.setEnabled(enabled and applicable.get("vmax", False))
+        self.pixels_spin.setEnabled(enabled and applicable.get("pixels", False))
+        self.interp_combo.setEnabled(enabled and applicable.get("interpolation", False))
+        self.invert_check.setEnabled(enabled and applicable.get("invert", False))
+        self.colorbar_check.setEnabled(enabled and applicable.get("colorbar", False))
+        # colorbar label/format follow the colorbar toggle (see
+        # _sync_colorbar_fields_enabled); disable outright off-heatmap.
+        if not (enabled and applicable.get("colorbar", False)):
+            self.cbar_label_edit.setEnabled(False)
+            self.cbar_format_edit.setEnabled(False)
+
+        # contour-only controls
+        self.levels_edit.setEnabled(enabled and applicable.get("levels", False))
+        self.clabel_check.setEnabled(enabled and applicable.get("clabel", False))
+        self.clabel_format_edit.setEnabled(enabled and applicable.get("clabel", False))
+
         self.remove_button.setEnabled(enabled)
         self.up_button.setEnabled(enabled)
         self.down_button.setEnabled(enabled)
+
+    def _sync_colorbar_fields_enabled(self) -> None:
+        """Enable colorbar label/format only while the colorbar toggle is on."""
+        on = self.colorbar_check.isEnabled() and self.colorbar_check.isChecked()
+        self.cbar_label_edit.setEnabled(on)
+        self.cbar_format_edit.setEnabled(on)
 
     def _update_color_swatch(self, rgb: tuple) -> None:
         color = QColor(*rgb)
@@ -559,7 +730,7 @@ class SeriesPanel(QWidget):
         series = self._selected_series_dict()
         if series is None:
             return
-        series["label"] = self.label_edit.text() or None
+        series["label"] = mathtext_to_gle(self.label_edit.text() or None)
         self._document.notify_changed()
         self._refresh_selected_list_text()
 
@@ -653,6 +824,221 @@ class SeriesPanel(QWidget):
         if series is None or not self.offset_spin.isEnabled():
             return
         series["offset"] = float(self.offset_spin.value())
+        self._document.notify_changed()
+
+    # ------------------------------------------------------------------
+    # UI -> Model: heatmap edits
+    # ------------------------------------------------------------------
+    def _on_palette_changed(self, text: str) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.palette_combo.isEnabled():
+            return
+        series["cmap"] = canonical_cmap(text)
+        self._document.notify_changed()
+
+    def _on_vmin_edited(self) -> None:
+        self._edit_optional_float("vmin", self.vmin_edit)
+
+    def _on_vmax_edited(self) -> None:
+        self._edit_optional_float("vmax", self.vmax_edit)
+
+    def _edit_optional_float(self, key: str, edit: QLineEdit) -> None:
+        """Store a blank-means-``None`` float from ``edit`` under ``key``.
+
+        Reverts the field to the stored value if the text can't be parsed as a
+        float (rather than silently coercing garbage to a number).
+        """
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not edit.isEnabled():
+            return
+        text = edit.text().strip()
+        if not text:
+            value = None
+        else:
+            try:
+                value = float(text)
+            except ValueError:
+                edit.setText(_float_to_text(series.get(key)))
+                return
+        series[key] = value
+        self._document.notify_changed()
+
+    def _on_pixels_edited(self) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.pixels_spin.isEnabled():
+            return
+        px = int(self.pixels_spin.value())
+        series["pixels"] = [px, px]
+        self._document.notify_changed()
+
+    def _on_interp_changed(self, text: str) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.interp_combo.isEnabled():
+            return
+        series["interpolation"] = "nearest" if text == "nearest" else "bicubic"
+        self._document.notify_changed()
+
+    def _on_invert_toggled(self, checked: bool) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.invert_check.isEnabled():
+            return
+        series["invert"] = bool(checked)
+        self._document.notify_changed()
+
+    def _on_colorbar_toggled(self, checked: bool) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.colorbar_check.isEnabled():
+            return
+        if checked:
+            if series.get("colorbar") is None:
+                series["colorbar"] = self._make_colorbar_dict(
+                    series,
+                    self.cbar_label_edit.text() or None,
+                    self.cbar_format_edit.text() or "fix 1",
+                )
+        else:
+            series["colorbar"] = None
+        self._sync_colorbar_fields_enabled()
+        self._document.notify_changed()
+
+    def _on_cbar_label_edited(self) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.cbar_label_edit.isEnabled():
+            return
+        cb = series.get("colorbar")
+        if cb is None:
+            return
+        cb["label"] = mathtext_to_gle(self.cbar_label_edit.text() or None)
+        self._document.notify_changed()
+
+    def _on_cbar_format_edited(self) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.cbar_format_edit.isEnabled():
+            return
+        cb = series.get("colorbar")
+        if cb is None:
+            return
+        cb["format"] = self.cbar_format_edit.text() or "fix 1"
+        self._document.notify_changed()
+
+    @staticmethod
+    def _series_z_range(series: dict) -> tuple:
+        """Return ``(zmin, zmax)`` for a heatmap/contour from its stored data.
+
+        Mirrors ``Figure.colorbar``/``Axes._resolve_levels``: a ``vmin``/
+        ``vmax`` override wins; otherwise the range is taken from the gridded
+        ``z`` (grid source) or the scattered ``zpts`` (points source).
+        """
+        vmin = series.get("vmin")
+        vmax = series.get("vmax")
+        data = series.get("z") if series.get("source") == "grid" else series.get("zpts")
+        if data is None:
+            arr = None
+        else:
+            arr = np.asarray(data, dtype=float)
+        if vmin is not None:
+            zmin = float(vmin)
+        elif arr is not None and arr.size:
+            zmin = float(np.nanmin(arr))
+        else:
+            zmin = 0.0
+        if vmax is not None:
+            zmax = float(vmax)
+        elif arr is not None and arr.size:
+            zmax = float(np.nanmax(arr))
+        else:
+            zmax = 1.0
+        return zmin, zmax
+
+    def _make_colorbar_dict(self, series: dict, label, fmt: str) -> dict:
+        """Build a colorbar dict for ``series`` matching ``Figure.colorbar``.
+
+        Targets the selected heatmap directly (rather than calling
+        ``Figure.colorbar``, which errors when more than one axes has a
+        heatmap) so the panel works regardless of sibling axes.
+        """
+        zmin, zmax = self._series_z_range(series)
+        span = zmax - zmin
+        zstep = (span / 5.0) if span > 0 else 1.0
+        return {
+            "label": mathtext_to_gle(label),
+            "format": fmt or "fix 1",
+            "width": 0.5,
+            "sep": 0.3,
+            "zmin": zmin,
+            "zmax": zmax,
+            "zstep": zstep,
+        }
+
+    # ------------------------------------------------------------------
+    # UI -> Model: contour edits
+    # ------------------------------------------------------------------
+    def _on_levels_edited(self) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.levels_edit.isEnabled():
+            return
+        try:
+            levels = self._parse_levels_text(self.levels_edit.text(), series)
+        except ValueError:
+            self.levels_edit.setText(_levels_to_text(series.get("levels")))
+            return
+        series["levels"] = levels
+        self._document.notify_changed()
+
+    def _parse_levels_text(self, text: str, series: dict):
+        """Parse the levels field to ``None`` or a list of floats.
+
+        Accepts a blank field (``None`` -> GLE's default 10 levels), an
+        ``"n=<int>"`` form (``n`` evenly-spaced levels strictly between the
+        data's min and max, matching ``Axes._resolve_levels``), or an explicit
+        whitespace/comma-separated list of numbers.
+        """
+        text = text.strip()
+        if not text:
+            return None
+        low = text.lower()
+        if low.startswith("n="):
+            n = int(low[2:].strip())
+            if n < 1:
+                raise ValueError("levels count must be >= 1")
+            zmin, zmax = self._series_z_range(series)
+            return [float(v) for v in np.linspace(zmin, zmax, n + 2)[1:-1]]
+        return [float(tok) for tok in text.replace(",", " ").split()]
+
+    def _on_clabel_toggled(self, checked: bool) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.clabel_check.isEnabled():
+            return
+        series["clabel"] = bool(checked)
+        self._document.notify_changed()
+
+    def _on_clabel_format_edited(self) -> None:
+        if self._updating:
+            return
+        series = self._selected_series_dict()
+        if series is None or not self.clabel_format_edit.isEnabled():
+            return
+        series["clabel_fmt"] = self.clabel_format_edit.text() or "fix 1"
         self._document.notify_changed()
 
     def _on_locate_clicked(self) -> None:
@@ -801,6 +1187,37 @@ def _applicable_controls(kind: str, series: dict) -> dict:
             "linewidth": True,
             "markersize": False,
         }
+    if kind == "heatmap":
+        # A colormap has no single line colour; it exposes palette + range +
+        # sampling controls plus an optional colorbar instead.
+        return {
+            "color": False,
+            "marker": False,
+            "linestyle": False,
+            "linewidth": False,
+            "markersize": False,
+            "offset": False,
+            "palette": True,
+            "vmin": True,
+            "vmax": True,
+            "pixels": True,
+            "interpolation": True,
+            "invert": True,
+            "colorbar": True,
+        }
+    if kind == "contour":
+        # Contour lines reuse the shared color + line-width controls, and add
+        # a levels editor and inline-label toggle.
+        return {
+            "color": True,
+            "marker": False,
+            "linestyle": False,
+            "linewidth": True,
+            "markersize": False,
+            "offset": False,
+            "levels": True,
+            "clabel": True,
+        }
     return {
         "color": False,
         "marker": False,
@@ -808,3 +1225,17 @@ def _applicable_controls(kind: str, series: dict) -> dict:
         "linewidth": False,
         "markersize": False,
     }
+
+
+def _float_to_text(value) -> str:
+    """Render an optional float for a blank-means-``None`` line edit."""
+    if value is None:
+        return ""
+    return repr(float(value))
+
+
+def _levels_to_text(levels) -> str:
+    """Render a contour ``levels`` value (``None`` or list) as edit text."""
+    if not levels:
+        return ""
+    return " ".join(repr(float(v)) for v in levels)

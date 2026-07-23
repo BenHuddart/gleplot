@@ -7,6 +7,7 @@ from .axes import Axes
 from .writer import GLEWriter
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .colors import rgb_to_gle
+from .mathtext import mathtext_to_gle
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
 from .parser import metadata as _gle_metadata
 
@@ -285,6 +286,96 @@ class Figure:
         """Add text on current axes."""
         return self.gca().text(x, y, s, **kwargs)
 
+    def imshow(self, Z, **kwargs):
+        """Display gridded data as a heatmap on current axes."""
+        return self.gca().imshow(Z, **kwargs)
+
+    def contour(self, *args, **kwargs):
+        """Draw contour lines on current axes."""
+        return self.gca().contour(*args, **kwargs)
+
+    def tripcolor(self, x, y, z, **kwargs):
+        """Scattered-data heatmap on current axes."""
+        return self.gca().tripcolor(x, y, z, **kwargs)
+
+    def tricontour(self, x, y, z, **kwargs):
+        """Scattered-data contour lines on current axes."""
+        return self.gca().tricontour(x, y, z, **kwargs)
+
+    def colorbar(
+        self,
+        label: Optional[str] = None,
+        format: str = "fix 1",
+        nticks: Optional[int] = None,
+        width: float = 0.5,
+        sep: float = 0.3,
+    ):
+        """Attach a vertical colorbar to the figure's single heatmap axes.
+
+        Parameters
+        ----------
+        label : str, optional
+            Colorbar axis label (rotated text to the right of the bar).
+        format : str
+            GLE ``format$`` string for the tick labels (e.g. ``'fix 1'``).
+        nticks : int, optional
+            Approximate number of tick intervals. Default: 5.
+        width : float
+            Colorbar width in cm.
+        sep : float
+            Gap (cm) between the graph's right edge and the colorbar.
+
+        Returns
+        -------
+        dict
+            The stored colorbar dict (also attached to the heatmap under
+            ``'colorbar'``).
+
+        Raises
+        ------
+        ValueError
+            If no axes has a heatmap, or if more than one does (ambiguous).
+        """
+        bearing = [ax for ax in self.axes_list if ax.heatmaps]
+        if not bearing:
+            raise ValueError(
+                "colorbar() requires a heatmap (imshow/tripcolor) on some axes"
+            )
+        if len(bearing) > 1:
+            raise ValueError(
+                "colorbar() is ambiguous: more than one axes has a heatmap"
+            )
+        hm = bearing[0].heatmaps[0]
+
+        if hm["vmin"] is not None:
+            zmin = float(hm["vmin"])
+        elif hm["source"] == "grid":
+            zmin = float(np.nanmin(hm["z"]))
+        else:
+            zmin = float(np.nanmin(hm["zpts"]))
+        if hm["vmax"] is not None:
+            zmax = float(hm["vmax"])
+        elif hm["source"] == "grid":
+            zmax = float(np.nanmax(hm["z"]))
+        else:
+            zmax = float(np.nanmax(hm["zpts"]))
+
+        divisions = int(nticks) if nticks else 5
+        span = zmax - zmin
+        zstep = (span / divisions) if span > 0 else 1.0
+
+        cb = {
+            "label": mathtext_to_gle(label),
+            "format": str(format),
+            "width": float(width),
+            "sep": float(sep),
+            "zmin": zmin,
+            "zmax": zmax,
+            "zstep": zstep,
+        }
+        hm["colorbar"] = cb
+        return cb
+
     def xlabel(self, label: str):
         """Set x label on current axes."""
         return self.gca().set_xlabel(label)
@@ -459,7 +550,7 @@ class Figure:
         content, _ = self._generate_gle_with_files()
         return content
 
-    def _build_metadata_dict(self, data_files: dict) -> dict:
+    def _build_metadata_dict(self, data_files: dict, raw_sidecars=None) -> dict:
         """Assemble the ``! gleplot:`` metadata payload for this save.
 
         Parameters
@@ -481,12 +572,16 @@ class Figure:
             differ from the documented defaults. Any ``metadata_extra`` keys
             recovered from a parsed file are passed through verbatim.
         """
+        raw = set(raw_sidecars or ())
         data = {
             "dpi": self.dpi,
             "sharex": self.sharex,
             "sharey": self.sharey,
             "msize_scale": self.marker_config.msize_scale,
-            "import-data": sorted(data_files.keys()),
+            # Raw-content sidecars (heatmap/contour ``.z`` grids, scattered
+            # ``points.dat`` triples) are not columnar imports and must not be
+            # vouched for as such -- excluded from ``import-data``.
+            "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
         data.update(self.metadata_extra)
         return data
@@ -528,6 +623,10 @@ class Figure:
             self.passthrough_header or self.passthrough_trailer
         )
 
+        # Palette / colorbar / contour-label subs needed by any axes. Emitted
+        # once, right after the preamble, before any graph uses them.
+        sub_texts = self._collect_sub_texts()
+
         if is_single and no_fabricate:
             writer.add_preamble(
                 include_graph_begin=False, passthrough_header=self.passthrough_header
@@ -536,11 +635,14 @@ class Figure:
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
             )
         elif is_single:
-            # Single plot — backward-compatible simple layout
+            # Single plot — backward-compatible simple layout. 'begin graph' is
+            # emitted explicitly (not by the preamble) so palette subs and the
+            # fitz/contour pre-graph blocks can precede it. For a figure with
+            # neither, output is byte-identical to the historical layout.
             writer.add_preamble(
-                include_graph_begin=True, passthrough_header=self.passthrough_header
+                include_graph_begin=False, passthrough_header=self.passthrough_header
             )
-            writer.add_graph_size()
+            writer.add_sub_defs(sub_texts)
 
             if self.axes_list:
                 ax = self.axes_list[0]
@@ -559,21 +661,36 @@ class Figure:
                     if ax.ymax is None:
                         ax.ymax = data_ymax
 
+                self._emit_pre_graph_blocks(writer, ax)
+                writer.begin_graph()
+                # A colorbar is drawn to the right of the graph, outside its
+                # box. In the default 'auto' scale mode the graph fills the
+                # whole page and the bar clips off-page, so when this axes has
+                # a colorbar, pin the graph box to a width that reserves room
+                # for it. Figures without a colorbar keep the historical
+                # 'scale auto' output byte-for-byte.
+                reserved = self._axes_colorbar_reserved_cm(ax)
+                if reserved > 0:
+                    graph_w = max(writer.width_cm - reserved, writer.width_cm * 0.3)
+                    writer.add_graph_box_size(graph_w, writer.height_cm)
+                else:
+                    writer.add_graph_size()
                 self._write_axes_content(writer, ax)
-                graph_passthrough = ax.passthrough
+                writer.end_graph(passthrough=ax.passthrough)
+                self._emit_post_graph_calls(writer, ax)
             else:
-                graph_passthrough = None
+                writer.begin_graph()
+                writer.add_graph_size()
+                writer.end_graph()
 
-            writer.finalize(
-                include_graph_end=True,
-                graph_passthrough=graph_passthrough,
-                passthrough_trailer=self.passthrough_trailer,
-            )
+            if self.passthrough_trailer:
+                writer.lines_gle.extend(self.passthrough_trailer)
         else:
             # Multi-subplot layout
             writer.add_preamble(
                 include_graph_begin=False, passthrough_header=self.passthrough_header
             )
+            writer.add_sub_defs(sub_texts)
 
             # Determine grid dimensions from axes positions
             max_rows = max(ax.position[0] for ax in self.axes_list)
@@ -633,6 +750,21 @@ class Figure:
             if "top" in self._subplot_adjust:
                 margin_top = (1.0 - self._subplot_adjust["top"]) * writer.height_cm
 
+            # Reserve extra room on the right for a colorbar, if any axes has
+            # one. colorbar() enforces exactly one heatmap-bearing axes per
+            # figure, so at most one colorbar exists here; it is drawn at the
+            # right edge of its (rightmost, in the common 1-row layout) axes.
+            # This keeps simple grids correct; a colorbar on an axes that is
+            # NOT in the rightmost column could still overlap its neighbour
+            # (documented limitation). With no colorbar, margin_right is
+            # unchanged and non-colorbar layouts stay byte-identical.
+            cbar_reserved = max(
+                (self._axes_colorbar_reserved_cm(ax) for ax in self.axes_list),
+                default=0.0,
+            )
+            if cbar_reserved > 0:
+                margin_right = max(margin_right, cbar_reserved)
+
             avail_w = writer.width_cm - margin_left - margin_right
             avail_h = writer.height_cm - margin_bottom - margin_top
 
@@ -672,6 +804,7 @@ class Figure:
                     writer.height_cm - margin_top - (row + 1) * cell_h - row * vspace
                 )
 
+                self._emit_pre_graph_blocks(writer, ax)
                 writer.add_amove(x_pos, y_pos)
                 writer.begin_graph()
                 writer.add_graph_size(
@@ -681,6 +814,7 @@ class Figure:
                 self._write_axes_content(writer, ax)
 
                 writer.end_graph(passthrough=ax.passthrough)
+                self._emit_post_graph_calls(writer, ax)
                 writer.lines_gle.append("")  # Blank line between subplots
 
             writer.finalize(
@@ -691,12 +825,210 @@ class Figure:
         # ('! GLE graphics file' / '! Generated by gleplot') and before the
         # 'size ...' line -- add_preamble always emits exactly those two
         # lines first, so index 2 is the fixed, stable insertion point.
-        metadata_dict = self._build_metadata_dict(writer.data_files)
+        metadata_dict = self._build_metadata_dict(
+            writer.data_files, writer.raw_sidecars
+        )
         metadata_lines = _gle_metadata.emit_metadata(metadata_dict)
         if metadata_lines:
             writer.lines_gle[2:2] = metadata_lines
 
         return writer.get_gle_content(), writer.data_files
+
+    # -- contour / heatmap helpers --------------------------------------
+
+    @staticmethod
+    def _heatmap_z_file(hm: dict) -> str:
+        """The ``.z`` grid file a heatmap's ``colormap`` references.
+
+        Grid heatmaps reference their written ``.z`` sidecar directly; scattered
+        (points) heatmaps reference the ``.z`` file GLE's ``fitz`` generates
+        (points base with the ``.dat`` extension replaced by ``.z``).
+        """
+        df = hm["data_file"]
+        if hm["source"] == "grid":
+            return df
+        return df[:-4] + ".z" if df.endswith(".dat") else df + ".z"
+
+    @staticmethod
+    def _contour_z_file(ct: dict) -> str:
+        """The ``.z`` grid file a contour block reads (see :meth:`_heatmap_z_file`)."""
+        df = ct["data_file"]
+        if ct["source"] == "grid":
+            return df
+        return df[:-4] + ".z" if df.endswith(".dat") else df + ".z"
+
+    @staticmethod
+    def _cmap_mode(cmap: str):
+        """Map a canonical cmap name to a ``colormap`` emission mode tuple.
+
+        Returns ``('gray', None)`` (grayscale, no clause), ``('color', None)``
+        (GLE built-in rainbow), or ``('palette', 'gleplot_<name>')``.
+        """
+        if cmap == "gray":
+            return ("gray", None)
+        if cmap == "rainbow":
+            return ("color", None)
+        return ("palette", f"gleplot_{cmap}")
+
+    # -- colorbar layout reservation ------------------------------------
+    #
+    # A vertical colorbar is drawn AFTER the graph, at ``xg(xgmax)+sep``, so it
+    # falls outside the graph box. On the single-plot path GLE's ``scale auto``
+    # sizes the graph to fill the whole page, leaving no room to its right and
+    # clipping the bar. To fix that we shrink the graph box by a reserved
+    # right-hand margin computed here, purely from the colorbar dict (which the
+    # recognizer recovers verbatim) -- so the reserved size recomputes
+    # identically on a writer -> recognizer -> writer round trip and stays
+    # byte-stable (never parsed back from the emitted ``size`` line).
+
+    #: Nominal tick-label text height (cm) used only to size the reserved
+    #: colorbar margin. A fixed constant (not derived from ``style.fontsize``)
+    #: keeps the reservation a pure function of the round-tripping colorbar
+    #: dict; a little slack here only widens the margin slightly.
+    _CBAR_TEXT_HEI_CM = 0.42
+
+    @staticmethod
+    def _estimate_tick_chars(zmin, zmax, fmt) -> int:
+        """Widest tick-number character count for a GLE ``fix N`` format.
+
+        Deterministic estimate from the z-range and the ``format$`` string;
+        used only to size the reserved colorbar margin (see
+        :meth:`_colorbar_reserved_cm`).
+        """
+        decimals = 1
+        parts = str(fmt).strip().lower().split()
+        if len(parts) == 2 and parts[0] == "fix":
+            try:
+                decimals = max(int(parts[1]), 0)
+            except ValueError:
+                decimals = 1
+
+        def width_of(v) -> int:
+            v = float(v)
+            n = len(f"{abs(v):.{decimals}f}")
+            if v < 0:
+                n += 1  # minus sign
+            return n
+
+        return max(width_of(zmin), width_of(zmax), 3)
+
+    @classmethod
+    def _colorbar_reserved_cm(cls, cb: dict) -> float:
+        """Right-hand space (cm), measured from ``xgmax``, a colorbar needs.
+
+        Sized honestly from how ``gleplot_colorbar_v`` lays out (see
+        :func:`gleplot.palettes.colorbar_sub_text`): the ``sep`` gap, the bar
+        (``wd``), then whichever is wider -- the tick marks + numbers to the
+        bar's right, or the rotated axis ``label`` (drawn at ``rc + 1.3``).
+        """
+        wd = float(cb["width"])
+        sep = float(cb["sep"])
+        hei = cls._CBAR_TEXT_HEI_CM
+        charw = 0.6 * hei
+        nchars = cls._estimate_tick_chars(cb["zmin"], cb["zmax"], cb.get("format"))
+        # Both extents are measured from the bar's right edge.
+        tick_extent = wd / 3.0 + 0.1 + nchars * charw
+        label_extent = (1.3 + hei) if cb.get("label") else 0.0
+        return sep + wd + max(tick_extent, label_extent) + 0.3  # + safety pad
+
+    def _axes_colorbar_reserved_cm(self, ax: Axes) -> float:
+        """Max reserved colorbar margin (cm) over an axes' heatmaps (0 if none)."""
+        reserved = 0.0
+        for hm in ax.heatmaps:
+            cb = hm.get("colorbar")
+            if cb:
+                reserved = max(reserved, self._colorbar_reserved_cm(cb))
+        return reserved
+
+    def _collect_sub_texts(self):
+        """Gather the palette/colorbar/clabel sub definitions this figure needs.
+
+        Returns the deterministic ordered list of sub-definition texts: used
+        palette subs sorted by name, then the colorbar sub (if any colorbar),
+        then the contour-labels sub (if any clabel).
+        """
+        from . import palettes as _pal
+
+        used_cmaps = set()
+        any_colorbar = False
+        any_clabel = False
+        for ax in self.axes_list:
+            for hm in ax.heatmaps:
+                if _pal.cmap_needs_sub(hm["cmap"]):
+                    used_cmaps.add(hm["cmap"])
+                if hm.get("colorbar"):
+                    any_colorbar = True
+            for ct in ax.contours:
+                if ct.get("clabel"):
+                    any_clabel = True
+
+        subs = []
+        for cmap in sorted(used_cmaps):
+            text = _pal.palette_sub_text(cmap)
+            if text:
+                subs.append(text)
+        if any_colorbar:
+            subs.append(_pal.colorbar_sub_text())
+        if any_clabel:
+            subs.append(_pal.contour_labels_sub_text())
+        return subs
+
+    def _emit_pre_graph_blocks(self, writer: GLEWriter, ax: Axes):
+        """Write sidecars + ``begin fitz``/``begin contour`` blocks for an axes.
+
+        These execute before the graph reads the (generated) grid/contour
+        files, so they are emitted immediately before the axes' ``begin graph``.
+        """
+        for hm in ax.heatmaps:
+            if hm["source"] == "points":
+                writer.add_points_sidecar(hm["data_file"], hm["x"], hm["y"], hm["zpts"])
+                # tripcolor's fitz omits ncontour (GLE default), keeping the
+                # heatmap model's ncontour honestly None.
+                writer.add_fitz_block(
+                    hm["data_file"], hm["extent"], hm["gridsize"], None
+                )
+            else:
+                writer.add_z_sidecar(
+                    hm["data_file"], hm["z"], hm["extent"], hm["origin"]
+                )
+
+        for ct in ax.contours:
+            if ct["source"] == "points":
+                writer.add_points_sidecar(ct["data_file"], ct["x"], ct["y"], ct["zpts"])
+                writer.add_fitz_block(
+                    ct["data_file"], ct["extent"], ct["gridsize"], ct["ncontour"]
+                )
+            else:
+                writer.add_z_sidecar(ct["data_file"], ct["z"], ct["extent"], "lower")
+            writer.add_contour_block(self._contour_z_file(ct), ct["levels"])
+
+    def _emit_post_graph_calls(self, writer: GLEWriter, ax: Axes):
+        """Write the post-graph colorbar and contour-label sub calls."""
+        for hm in ax.heatmaps:
+            cb = hm.get("colorbar")
+            if not cb:
+                continue
+            palette_call = self._palette_call_for(hm["cmap"])
+            writer.add_colorbar_call(
+                sep=cb["sep"],
+                zmin=cb["zmin"],
+                zmax=cb["zmax"],
+                zstep=cb["zstep"],
+                palette_call=palette_call,
+                width=cb["width"],
+                fmt=cb["format"],
+                label=cb.get("label"),
+            )
+        for ct in ax.contours:
+            if ct.get("clabel"):
+                clabels = self._contour_z_file(ct)[:-2] + "-clabels.dat"
+                writer.add_clabel_call(clabels, ct["clabel_fmt"])
+
+    @staticmethod
+    def _palette_call_for(cmap: str) -> str:
+        from . import palettes as _pal
+
+        return _pal.palette_call_name(cmap)
 
     def _write_axes_content(self, writer: GLEWriter, ax: Axes):
         """
@@ -735,6 +1067,25 @@ class Figure:
             remove_first_xtick=getattr(ax, "_remove_first_xtick", False),
             remove_first_ytick=getattr(ax, "_remove_first_ytick", False),
         )
+
+        # Heatmap colormap (drawn behind everything as the background) and
+        # contour polylines, before the ordinary series (fills, bars, ...).
+        for hm in ax.heatmaps:
+            writer.add_colormap(
+                self._heatmap_z_file(hm),
+                hm["pixels"],
+                self._cmap_mode(hm["cmap"]),
+                hm["vmin"],
+                hm["vmax"],
+                hm["invert"],
+                hm["interpolation"],
+            )
+
+        for ct in ax.contours:
+            cdata = self._contour_z_file(ct)[:-2] + "-cdata.dat"
+            writer.add_contour_line(
+                cdata, ct["color"], ct["linewidth"], ct["linestyle"]
+            )
 
         # Add fill regions (background)
         for fill_data in ax.fills:
@@ -946,6 +1297,13 @@ class Figure:
                 if xmax is None or x.max() > xmax:
                     xmax = float(x.max())
 
+        for series in list(ax.heatmaps) + list(ax.contours):
+            x0, x1 = series["extent"][0], series["extent"][1]
+            if xmin is None or x0 < xmin:
+                xmin = float(x0)
+            if xmax is None or x1 > xmax:
+                xmax = float(x1)
+
         return xmin, xmax
 
     def _get_data_ylim(self, ax: Axes) -> Tuple[Optional[float], Optional[float]]:
@@ -1003,6 +1361,13 @@ class Figure:
                     ymin = float(y.min())
                 if ymax is None or y.max() > ymax:
                     ymax = float(y.max())
+
+        for series in list(ax.heatmaps) + list(ax.contours):
+            y0, y1 = series["extent"][2], series["extent"][3]
+            if ymin is None or y0 < ymin:
+                ymin = float(y0)
+            if ymax is None or y1 > ymax:
+                ymax = float(y1)
 
         return ymin, ymax
 

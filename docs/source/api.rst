@@ -79,6 +79,16 @@ Functions
 
 .. autofunction:: gleplot.errorbar
 
+.. autofunction:: gleplot.imshow
+
+.. autofunction:: gleplot.contour
+
+.. autofunction:: gleplot.tripcolor
+
+.. autofunction:: gleplot.tricontour
+
+.. autofunction:: gleplot.colorbar
+
 .. autofunction:: gleplot.text
 
 .. autofunction:: gleplot.xlabel
@@ -105,6 +115,8 @@ Utilities
 .. autofunction:: gleplot.get_color_palette
 
 .. autofunction:: gleplot.get_gle_marker
+
+.. autofunction:: gleplot.mathtext_to_gle
 
 Compiler
 --------

@@ -90,6 +90,18 @@ Reference for accepted color and marker mappings.
 - Marker symbol mappings
 - Native GLE marker names
 
+### [CONTOUR_AND_HEATMAPS.md](guides/CONTOUR_AND_HEATMAPS.md)
+Guide for heatmaps and contour plots.
+
+**Contains:**
+- `imshow()`/`contour()` (gridded) and `tripcolor()`/`tricontour()` (scattered) usage
+- `origin` semantics and the matplotlib default difference
+- `vmin`/`vmax`, palette gallery, and one-heatmap-per-axes limitation
+- Sidecar and GLE-generated file layout
+- Greek letters and math in labels (matplotlib `$...$` mathtext and direct GLE markup)
+- Worked antiferromagnet phase-diagram example
+- Known colorbar-clipping cosmetic issue and workaround
+
 ### [MATPLOTLIB_MIGRATION.md](guides/MATPLOTLIB_MIGRATION.md)
 Quick migration guide for porting matplotlib code to gleplot.
 
@@ -223,6 +235,9 @@ Script to run and compile all basic examples.
 - `batch_figures.py` - Generating many figures programmatically
 - `line_from_file.py` - Overlay model lines from existing data files
 - `data_prefix.py` - Deterministic sidecar data file naming
+- `phase_diagram.py` - Susceptibility phase diagram (`tripcolor` + `tricontour` + colorbar)
+
+Basic examples (`examples/basic/`) also include `heatmap_imshow.py` - gridded `imshow` + `contour` + colorbar.
 
 ## File Structure
 

@@ -200,6 +200,67 @@ def custom_figsize_and_dpi():
     return fig
 
 
+def heatmap_imshow_colorbar():
+    """imshow (grid .z sidecar) + a vertical colorbar."""
+    fig = glp.figure(figsize=(7, 6), data_prefix="golden")
+    ax = fig.add_subplot(111)
+    y, x = np.mgrid[0:16, 0:21]
+    Z = np.sin(x / 6.0) * np.cos(y / 5.0)
+    ax.imshow(Z, extent=(0, 10, 0, 8), cmap="viridis", vmin=-1, vmax=1)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    fig.colorbar(label="signal", format="fix 1")
+    return fig
+
+
+def contour_grid_levels_clabel():
+    """Gridded contour (contour(x, y, Z)) with explicit levels + clabels."""
+    fig = glp.figure(figsize=(7, 6), data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 10, 26)
+    y = np.linspace(0, 8, 21)
+    Z = np.sin(x[None, :] / 6.0) * np.cos(y[:, None] / 5.0)
+    ax.contour(
+        x,
+        y,
+        Z,
+        levels=[-0.5, 0.0, 0.5],
+        colors="black",
+        linewidths=1.0,
+        clabel=True,
+        clabel_fmt="fix 2",
+    )
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    return fig
+
+
+def tripcolor_tricontour_combo():
+    """Scattered tripcolor + tricontour on one axes, with a colorbar."""
+    fig = glp.figure(figsize=(8, 6), data_prefix="golden")
+    ax = fig.add_subplot(111)
+    rng = np.random.default_rng(7)
+    xs = rng.uniform(0, 10, 150)
+    ys = rng.uniform(0, 8, 150)
+    zs = np.sin(xs) * np.cos(ys)
+    ax.tripcolor(xs, ys, zs, gridsize=(51, 41), extent=(0, 10, 0, 8), cmap="magma")
+    ax.tricontour(
+        xs,
+        ys,
+        zs,
+        gridsize=(51, 41),
+        extent=(0, 10, 0, 8),
+        ncontour=3,
+        levels=[-0.4, 0.0, 0.4],
+        colors="white",
+        clabel=True,
+    )
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    fig.colorbar(label="z", format="fix 1")
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -216,6 +277,9 @@ BUILDERS = [
     file_series,
     large_markersize_and_linewidth,
     custom_figsize_and_dpi,
+    heatmap_imshow_colorbar,
+    contour_grid_levels_clabel,
+    tripcolor_tricontour_combo,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

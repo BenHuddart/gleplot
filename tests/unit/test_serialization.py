@@ -27,6 +27,77 @@ def _simple_figure():
     return fig
 
 
+def _heatmap_contour_figure():
+    fig = glp.figure(figsize=(7, 6), data_prefix="u")
+    ax = fig.add_subplot(111)
+    Z = np.arange(12, dtype=float).reshape(3, 4)
+    ax.imshow(Z, extent=(0, 4, 0, 3), cmap="viridis", vmin=0, vmax=11)
+    ax.contour(
+        np.linspace(0, 4, 4),
+        np.linspace(0, 3, 3),
+        np.arange(12, dtype=float).reshape(3, 4),
+        levels=[2.0, 6.0],
+        colors="black",
+        clabel=True,
+    )
+    fig.colorbar(label="signal")
+    return fig
+
+
+# -- Heatmap / contour serialization ---------------------------------------
+
+
+def test_heatmap_contour_to_from_dict_roundtrip():
+    fig = _heatmap_contour_figure()
+    d = fig.to_dict()
+    # JSON-serializable (2-D z becomes nested lists; colorbar nested dict).
+    json.dumps(d)
+    fig2 = Figure.from_dict(d)
+    assert fig2.to_dict() == d
+
+
+def test_heatmap_2d_z_restored_as_2d_float_array():
+    fig = _heatmap_contour_figure()
+    fig2 = Figure.from_dict(fig.to_dict())
+    hm = fig2.axes_list[0].heatmaps[0]
+    assert isinstance(hm["z"], np.ndarray)
+    assert hm["z"].ndim == 2
+    assert hm["z"].shape == (3, 4)
+    assert hm["z"].dtype == float
+    np.testing.assert_array_equal(hm["z"], np.arange(12).reshape(3, 4))
+
+
+def test_heatmap_colorbar_dict_survives_roundtrip():
+    fig = _heatmap_contour_figure()
+    fig2 = Figure.from_dict(fig.to_dict())
+    cb = fig2.axes_list[0].heatmaps[0]["colorbar"]
+    assert cb is not None
+    assert cb["label"] == "signal"
+    assert cb["zmin"] == 0.0 and cb["zmax"] == 11.0
+
+
+def test_points_series_1d_arrays_restored():
+    fig = glp.figure(data_prefix="u")
+    ax = fig.add_subplot(111)
+    x = np.array([0.0, 1.0, 2.0, 3.0])
+    ax.tripcolor(x, x, x * 2, gridsize=(5, 5))
+    fig2 = Figure.from_dict(fig.to_dict())
+    hm = fig2.axes_list[0].heatmaps[0]
+    assert hm["z"] is None
+    for key in ("x", "y", "zpts"):
+        assert isinstance(hm[key], np.ndarray)
+        assert hm[key].ndim == 1
+
+
+def test_regenerated_gle_identical_after_from_dict():
+    fig = _heatmap_contour_figure()
+    text1, files1 = fig._generate_gle_with_files()
+    fig2 = Figure.from_dict(fig.to_dict())
+    text2, files2 = fig2._generate_gle_with_files()
+    assert text2 == text1
+    assert files2 == files1
+
+
 # -- Envelope shape ---------------------------------------------------------
 
 
@@ -316,6 +387,8 @@ _AXES_SERIALIZED_ATTRS = {
     "errorbars",
     "file_series",
     "texts",
+    "heatmaps",
+    "contours",
     "passthrough",
 }
 

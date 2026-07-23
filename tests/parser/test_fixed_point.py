@@ -52,7 +52,13 @@ def _save(fig, directory: Path):
     gle_path = directory / "figure.gle"
     fig.savefig_gle(str(gle_path))
     text = gle_path.read_text(encoding="utf-8")
-    data = {p.name: p.read_bytes() for p in directory.glob("*.dat")}
+    # Compare both columnar ``.dat`` sidecars and raw ``.z``/points sidecars
+    # (heatmap/contour grids and scattered points) for byte identity.
+    data = {
+        p.name: p.read_bytes()
+        for p in directory.iterdir()
+        if p.suffix in (".dat", ".z")
+    }
     return text, data
 
 

@@ -79,8 +79,19 @@ _EXTERNAL_HEADER_TOOLTIP = (
 #: Maximum number of rows shown in the preview table.
 _MAX_PREVIEW_ROWS = 100
 
-#: Plot-type combo entries.
-_PLOT_TYPES = ["Line", "Scatter", "Line+markers", "Error bars"]
+#: Plot-type combo entries for the standard x/y series.
+_XY_PLOT_TYPES = ["Line", "Scatter", "Line+markers", "Error bars"]
+
+#: Scattered-data (x, y, z) plot types. These grid the points at GLE compile
+#: time via ``fitz`` and can only be created in Import mode (``fitz`` reads a
+#: raw x-y-z triples sidecar that gleplot writes, so there is no reference-mode
+#: equivalent -- see :meth:`DataPanel.add_series`).
+_HEATMAP_TYPE = "Heatmap (scattered x,y,z)"
+_CONTOUR_TYPE = "Contour (scattered x,y,z)"
+_XYZ_PLOT_TYPES = [_HEATMAP_TYPE, _CONTOUR_TYPE]
+
+#: All plot-type combo entries, in display order.
+_PLOT_TYPES = _XY_PLOT_TYPES + _XYZ_PLOT_TYPES
 
 #: Sentinel text for "no Y-error column selected".
 _NONE_LABEL = "(none)"
@@ -187,6 +198,13 @@ class DataPanel(QWidget):
         self.yerr_combo = QComboBox(form_box)
         form.addRow("Y error", self.yerr_combo)
 
+        # Z column: shown only for the scattered (x, y, z) heatmap/contour
+        # plot types; hidden (along with the Y-error row) otherwise.
+        self.z_combo = QComboBox(form_box)
+        form.addRow("Z column", self.z_combo)
+
+        self._form = form
+
         self.label_edit = QLineEdit(form_box)
         form.addRow("Label", self.label_edit)
 
@@ -205,6 +223,8 @@ class DataPanel(QWidget):
         layout.addWidget(form_box)
 
         self._label_user_edited = False
+        # Start on the default (x/y) plot type: Z hidden, Y-error shown.
+        self._apply_plot_type_visibility(self.plot_type_combo.currentText())
 
     def _connect_signals(self) -> None:
         self.load_button.clicked.connect(self._on_load_file_clicked)
@@ -213,6 +233,7 @@ class DataPanel(QWidget):
         self.label_edit.textEdited.connect(self._on_label_edited)
         self.add_series_button.clicked.connect(self.add_series)
         self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        self.plot_type_combo.currentTextChanged.connect(self._on_plot_type_changed)
         self.preview_table.horizontalHeader().sectionDoubleClicked.connect(
             self._on_header_double_clicked
         )
@@ -388,6 +409,7 @@ class DataPanel(QWidget):
         self.x_combo.clear()
         self.y_combo.clear()
         self.yerr_combo.clear()
+        self.z_combo.clear()
         self.yerr_combo.addItem(_NONE_LABEL, userData=-1)
 
         table = self._current_table
@@ -403,6 +425,7 @@ class DataPanel(QWidget):
             self.x_combo.addItem(name, userData=idx)
             self.y_combo.addItem(name, userData=idx)
             self.yerr_combo.addItem(name, userData=idx)
+            self.z_combo.addItem(name, userData=idx)
 
         if self.x_combo.count() > 0:
             self.x_combo.setCurrentIndex(0)
@@ -410,6 +433,11 @@ class DataPanel(QWidget):
             self.y_combo.setCurrentIndex(1)
         elif self.y_combo.count() > 0:
             self.y_combo.setCurrentIndex(0)
+        # Default Z to the third numeric column when available (x, y, z).
+        if self.z_combo.count() > 2:
+            self.z_combo.setCurrentIndex(2)
+        elif self.z_combo.count() > 0:
+            self.z_combo.setCurrentIndex(self.z_combo.count() - 1)
 
         self._label_user_edited = False
         self._update_default_label()
@@ -432,6 +460,31 @@ class DataPanel(QWidget):
 
     def _on_mode_changed(self, text: str) -> None:
         self.mode_combo.setToolTip(_MODE_TOOLTIPS.get(text, ""))
+
+    def _on_plot_type_changed(self, text: str) -> None:
+        self._apply_plot_type_visibility(text)
+
+    def _apply_plot_type_visibility(self, plot_type: str) -> None:
+        """Show the Z-column (and hide Y-error) for scattered heatmap/contour.
+
+        The scattered (x, y, z) types grid at compile time via ``fitz`` and
+        only work in Import mode, so the Mode combo is forced to Import and
+        disabled while one of them is selected; the standard x/y types restore
+        the Y-error row and re-enable the mode choice.
+        """
+        is_xyz = plot_type in _XYZ_PLOT_TYPES
+        self._set_row_visible(self.z_combo, is_xyz)
+        self._set_row_visible(self.yerr_combo, not is_xyz)
+        if is_xyz:
+            self.mode_combo.setCurrentText(_MODE_IMPORT)
+        self.mode_combo.setEnabled(not is_xyz)
+
+    def _set_row_visible(self, field: QWidget, visible: bool) -> None:
+        """Show/hide a QFormLayout field together with its label widget."""
+        field.setVisible(visible)
+        label = self._form.labelForField(field)
+        if label is not None:
+            label.setVisible(visible)
 
     # ------------------------------------------------------------------
     # Header editing (Track G1)
@@ -727,6 +780,10 @@ class DataPanel(QWidget):
 
         ax = figure.gca()
 
+        if plot_type in _XYZ_PLOT_TYPES:
+            self._add_xyz_series(ax, table, x_idx, y_idx, plot_type, label)
+            return
+
         if mode == _MODE_REFERENCE:
             # gleplot's line_from_file / errorbar_from_file use 1-based
             # column indices (GLE convention); our combos store 0-based
@@ -773,6 +830,51 @@ class DataPanel(QWidget):
                 ax.plot(x, y, marker="o", label=label)
             else:
                 ax.plot(x, y, label=label)
+
+        self._document.notify_changed()
+        self.series_added.emit(label)
+
+    def _add_xyz_series(
+        self, ax, table, x_idx, y_idx, plot_type: str, label: str
+    ) -> None:
+        """Create a scattered heatmap/contour from x/y/z columns (Import only).
+
+        Reads the Z column from :attr:`z_combo`, then calls
+        ``Axes.tripcolor`` (heatmap) or ``Axes.tricontour`` (contour). Both
+        write their own raw x-y-z triples sidecar for GLE ``fitz`` gridding, so
+        there is no reference-mode path. GLE allows at most one heatmap per
+        axes: a second heatmap request is refused with an explanatory message
+        rather than raising. ``ValueError`` from the core call (e.g. fewer than
+        three points, or the one-heatmap guard racing us) is surfaced the same
+        way, and no ``notify_changed`` fires on a refusal.
+        """
+        z_idx = self.z_combo.currentData()
+        if z_idx is None:
+            return
+
+        is_heatmap = plot_type == _HEATMAP_TYPE
+        if is_heatmap and ax.heatmaps:
+            QMessageBox.information(
+                self,
+                "Heatmap already present",
+                "GLE supports at most one heatmap (colormap) per axes, and "
+                "this axes already has one. Remove the existing heatmap (in "
+                "the Series tab) before adding another.",
+            )
+            return
+
+        x = table.columns[x_idx]
+        y = table.columns[y_idx]
+        z = table.columns[z_idx]
+
+        try:
+            if is_heatmap:
+                ax.tripcolor(x, y, z, label=label)
+            else:
+                ax.tricontour(x, y, z, label=label)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Could not add series", str(exc))
+            return
 
         self._document.notify_changed()
         self.series_added.emit(label)

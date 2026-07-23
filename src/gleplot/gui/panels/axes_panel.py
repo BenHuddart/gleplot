@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gleplot.mathtext import mathtext_to_gle
+
 #: Scale values accepted by Axes.set_xscale/set_yscale (see axes.py).
 _SCALE_VALUES = ("linear", "log")
 
@@ -246,16 +248,16 @@ class AxesPanel(QWidget):
     # UI -> Model: labels
     # ------------------------------------------------------------------
     def _on_title_edited(self) -> None:
-        self._write_attr("title_text", self.title_edit.text())
+        self._write_attr("title_text", mathtext_to_gle(self.title_edit.text()))
 
     def _on_xlabel_edited(self) -> None:
-        self._write_attr("xlabel_text", self.xlabel_edit.text())
+        self._write_attr("xlabel_text", mathtext_to_gle(self.xlabel_edit.text()))
 
     def _on_ylabel_edited(self) -> None:
-        self._write_attr("ylabel_text", self.ylabel_edit.text())
+        self._write_attr("ylabel_text", mathtext_to_gle(self.ylabel_edit.text()))
 
     def _on_y2label_edited(self) -> None:
-        self._write_attr("y2label_text", self.y2label_edit.text())
+        self._write_attr("y2label_text", mathtext_to_gle(self.y2label_edit.text()))
 
     # ------------------------------------------------------------------
     # UI -> Model: limits

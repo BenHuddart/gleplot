@@ -115,6 +115,12 @@ def normalize(d: dict) -> dict:
             return [_snap_num(e) for e in v]
         return v
 
+    def _snap_deep(v):
+        # Snap a possibly-nested (2-D ``z`` grid) numeric structure.
+        if isinstance(v, list):
+            return [_snap_deep(e) for e in v]
+        return _snap_num(v)
+
     # Data arrays are written to the .dat sidecar at 6 significant figures, so
     # recovered arrays are rounded. Snap BOTH sides to that emitted precision.
     _ARRAY_KEYS = {
@@ -163,6 +169,30 @@ def normalize(d: dict) -> dict:
         # drop it. Its data arrays already snapped above.
         for s in ax.get("fills", []):
             s.pop("alpha", None)
+
+        # Heatmap / contour series: grids and scattered points are written to
+        # ``.z``/``.dat`` sidecars at 6 significant figures, extents/levels/
+        # vmin/vmax to the emitted GLE precision; the colorbar's z-range comes
+        # back from the emitted call. Snap BOTH sides to those precisions. The
+        # recovered ``z`` grid is always y-increasing origin='lower' (documented
+        # normalization) -- our builders use origin='lower' so no flip needed.
+        for group in ("heatmaps", "contours"):
+            for s in ax.get(group, []):
+                if s.get("z") is not None:
+                    s["z"] = _snap_deep(s["z"])
+                for k in ("x", "y", "zpts", "extent", "levels"):
+                    if s.get(k) is not None:
+                        s[k] = _snap_array(s[k])
+                for k in ("vmin", "vmax"):
+                    if s.get(k) is not None:
+                        s[k] = _snap_num(s[k])
+                if "linewidth" in s:
+                    s["linewidth"] = _snap_linewidth(s["linewidth"])
+                cb = s.get("colorbar")
+                if cb:
+                    for k in ("zmin", "zmax", "zstep", "width", "sep"):
+                        if cb.get(k) is not None:
+                            cb[k] = _snap_num(cb[k])
 
         # Text annotations: fontsize round-trips through cm (snap); box_color
         # is accepted-but-ignored by the writer (never emitted) -> drop.

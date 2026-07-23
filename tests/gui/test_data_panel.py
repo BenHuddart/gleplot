@@ -387,3 +387,122 @@ class TestPopulateFromFigure:
         # Simulate the open flow: installing a figure emits figure_replaced.
         doc.figure_replaced.emit()
         assert panel.file_list.count() == 1
+
+
+# ----------------------------------------------------------------------
+# Scattered (x, y, z) heatmap / contour series (Phase B)
+# ----------------------------------------------------------------------
+def _write_xyz_csv(tmp_path: Path, name: str = "xyz.csv") -> Path:
+    p = tmp_path / name
+    p.write_text(
+        "x,y,z\n0,0,1\n1,0,2\n0,1,3\n1,1,4\n0.5,0.5,2.5\n",
+    )
+    return p
+
+
+class TestScatteredHeatmapContour:
+    def test_plot_types_include_heatmap_and_contour(self, qapp, document):
+        panel = DataPanel(document)
+        items = [
+            panel.plot_type_combo.itemText(i)
+            for i in range(panel.plot_type_combo.count())
+        ]
+        assert "Heatmap (scattered x,y,z)" in items
+        assert "Contour (scattered x,y,z)" in items
+
+    def test_z_row_hidden_by_default_visible_for_xyz(self, qapp, document, tmp_path):
+        panel = DataPanel(document)
+        panel.load_file(str(_write_xyz_csv(tmp_path)))
+        # Default plot type is "Line": Z hidden, Y-error visible, mode enabled.
+        # (The panel is never shown top-level in an offscreen test, so
+        # isVisible() is always False; isHidden() reflects the explicit
+        # setVisible state we drive.)
+        assert panel.z_combo.isHidden() is True
+        assert panel.yerr_combo.isHidden() is False
+        assert panel.mode_combo.isEnabled() is True
+
+        panel.plot_type_combo.setCurrentText("Heatmap (scattered x,y,z)")
+        assert panel.z_combo.isHidden() is False
+        assert panel.yerr_combo.isHidden() is True
+        # fitz gridding needs the raw triples we write, so import mode only.
+        assert panel.mode_combo.isEnabled() is False
+        assert panel.mode_combo.currentText() == "Import data"
+
+    def test_z_combo_populated(self, qapp, document, tmp_path):
+        panel = DataPanel(document)
+        panel.load_file(str(_write_xyz_csv(tmp_path)))
+        z_items = [panel.z_combo.itemText(i) for i in range(panel.z_combo.count())]
+        assert z_items == ["x", "y", "z"]
+        # Defaults to the third numeric column.
+        assert panel.z_combo.currentText() == "z"
+
+    def test_add_tripcolor_series(self, qapp, document, figure, tmp_path):
+        panel = DataPanel(document)
+        panel.load_file(str(_write_xyz_csv(tmp_path)))
+        panel.plot_type_combo.setCurrentText("Heatmap (scattered x,y,z)")
+        panel.label_edit.setText("field")
+
+        panel.add_series()
+
+        ax = figure.gca()
+        assert len(ax.heatmaps) == 1
+        hm = ax.heatmaps[0]
+        assert hm["source"] == "points"
+        assert hm["label"] == "field"
+        assert list(hm["zpts"]) == [1.0, 2.0, 3.0, 4.0, 2.5]
+        assert document.notify_changed_count == 1
+
+    def test_add_tricontour_series(self, qapp, document, figure, tmp_path):
+        panel = DataPanel(document)
+        panel.load_file(str(_write_xyz_csv(tmp_path)))
+        panel.plot_type_combo.setCurrentText("Contour (scattered x,y,z)")
+        panel.label_edit.setText("levels")
+
+        panel.add_series()
+
+        ax = figure.gca()
+        assert len(ax.contours) == 1
+        ct = ax.contours[0]
+        assert ct["source"] == "points"
+        assert ct["label"] == "levels"
+        assert len(ax.heatmaps) == 0
+        assert document.notify_changed_count == 1
+
+    def test_one_heatmap_per_axes_guard(
+        self, qapp, document, figure, tmp_path, monkeypatch
+    ):
+        from gleplot.gui.data import panel as panel_mod
+
+        seen = []
+        monkeypatch.setattr(
+            panel_mod.QMessageBox,
+            "information",
+            lambda *a, **k: seen.append(a),
+        )
+
+        panel = DataPanel(document)
+        panel.load_file(str(_write_xyz_csv(tmp_path)))
+        panel.plot_type_combo.setCurrentText("Heatmap (scattered x,y,z)")
+        panel.add_series()
+        assert len(figure.gca().heatmaps) == 1
+        count_after_first = document.notify_changed_count
+
+        # A second heatmap on the same axes is refused with a message, not a
+        # crash, and does not mutate the figure.
+        panel.add_series()
+        assert len(figure.gca().heatmaps) == 1
+        assert document.notify_changed_count == count_after_first
+        assert len(seen) == 1
+
+    def test_tricontour_does_not_trip_heatmap_guard(
+        self, qapp, document, figure, tmp_path
+    ):
+        panel = DataPanel(document)
+        panel.load_file(str(_write_xyz_csv(tmp_path)))
+        # A heatmap plus a contour on the same axes is allowed (separate lists).
+        panel.plot_type_combo.setCurrentText("Heatmap (scattered x,y,z)")
+        panel.add_series()
+        panel.plot_type_combo.setCurrentText("Contour (scattered x,y,z)")
+        panel.add_series()
+        assert len(figure.gca().heatmaps) == 1
+        assert len(figure.gca().contours) == 1

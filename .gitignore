@@ -149,6 +149,17 @@ test_custom_prefix_output/
 # reached the repository).
 !examples/**/*.gle
 !examples/**/data_*.dat
+# ... the imshow/grid-contour examples ship gleplot-written .z grid sidecars.
+!examples/**/*.z
+# ... but GLE's own build products are NOT source and must stay untracked even
+# though they match the negations above (a later rule wins):
+#   - contour derivatives  <base>-cdata.dat / -clabels.dat / -cvalues.dat
+#   - fitz-gridded grids    <prefix>_points<N>.z  (GLE generates these at
+#     compile time from the tracked <prefix>_points<N>.dat triples)
+examples/**/*-cdata.dat
+examples/**/*-clabels.dat
+examples/**/*-cvalues.dat
+examples/**/*_points*.z
 examples/outputs/
 tests/output/
 docs/source/_static/gallery/

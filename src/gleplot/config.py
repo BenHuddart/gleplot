@@ -91,6 +91,15 @@ class GLEGraphConfig:
 
     show_grid : bool
         Show background grid. Default: False
+
+    default_cmap : str
+        Default colour map used by ``imshow``/``tripcolor`` when ``cmap`` is
+        not passed. One of the names in :data:`gleplot.palettes.SUPPORTED_CMAPS`.
+        Default: 'viridis'
+
+    colormap_pixels : int
+        Default bitmap resolution (pixels per side) for ``colormap`` rendering
+        when ``imshow(pixels=...)`` is not given. Default: 200
     """
 
     scale_mode: str = "auto"  # 'auto', 'fixed', 'fullsize'
@@ -102,6 +111,8 @@ class GLEGraphConfig:
     legend_offset_y: float = 0.0
     smooth_curves: bool = True
     show_grid: bool = False
+    default_cmap: str = "viridis"
+    colormap_pixels: int = 200
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""

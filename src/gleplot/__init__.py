@@ -58,6 +58,7 @@ from .figure import Figure
 from .axes import Axes
 from .colors import rgb_to_gle, get_color_palette
 from .markers import get_gle_marker
+from .mathtext import mathtext_to_gle
 from .compiler import GLECompiler
 from .config import (
     GLEStyleConfig,
@@ -193,6 +194,31 @@ def errorbar(*args, **kwargs):
 def text(*args, **kwargs):
     """Add text annotation on current axes."""
     return gca().text(*args, **kwargs)
+
+
+def imshow(*args, **kwargs):
+    """Display gridded data as a heatmap on current axes."""
+    return gca().imshow(*args, **kwargs)
+
+
+def contour(*args, **kwargs):
+    """Draw contour lines on current axes."""
+    return gca().contour(*args, **kwargs)
+
+
+def tripcolor(*args, **kwargs):
+    """Scattered-data heatmap on current axes."""
+    return gca().tripcolor(*args, **kwargs)
+
+
+def tricontour(*args, **kwargs):
+    """Scattered-data contour lines on current axes."""
+    return gca().tricontour(*args, **kwargs)
+
+
+def colorbar(*args, **kwargs):
+    """Attach a colorbar to the current figure's heatmap axes."""
+    return gcf().colorbar(*args, **kwargs)
 
 
 def subplots(
@@ -373,6 +399,11 @@ __all__ = [
     "fill_between",
     "errorbar",
     "text",
+    "imshow",
+    "contour",
+    "tripcolor",
+    "tricontour",
+    "colorbar",
     "subplots",
     "xlabel",
     "ylabel",
@@ -385,6 +416,7 @@ __all__ = [
     "rgb_to_gle",
     "get_color_palette",
     "get_gle_marker",
+    "mathtext_to_gle",
     "GLECompiler",
     "GLEStyleConfig",
     "GLEGraphConfig",

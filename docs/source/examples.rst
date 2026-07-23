@@ -271,6 +271,39 @@ Both vertical and horizontal error bars:
    ax.errorbar(x, y, yerr=yerr_array, xerr=xerr_array,
               marker='o', fmt='none', color='blue', capsize=0.1)
 
+Heatmaps and Contour Plots
+---------------------------
+
+See the `Contour Plots and Heatmaps guide
+<https://github.com/benhuddart/gleplot/blob/main/docs/guides/CONTOUR_AND_HEATMAPS.md>`_
+for the full guide. Minimal gridded example:
+
+.. code-block:: python
+
+   import numpy as np
+   import gleplot as glp
+
+   x = np.linspace(-3, 3, 120)
+   y = np.linspace(-2.5, 2.5, 100)
+   X, Y = np.meshgrid(x, y)
+   Z = np.exp(-(X**2 + Y**2) / 2.0)
+
+   fig = glp.figure(figsize=(8, 6))
+   ax = fig.add_subplot(111)
+
+   ax.imshow(Z, extent=(x[0], x[-1], y[0], y[-1]), cmap='viridis')
+   ax.contour(x, y, Z, levels=6, colors='white', linewidths=0.7)
+
+   ax.set_xlabel('x')
+   ax.set_ylabel('y')
+   fig.colorbar(label='amplitude')
+
+   fig.savefig('example_heatmap_imshow.pdf')
+
+``examples/advanced/phase_diagram.py`` builds a full antiferromagnet H-T
+phase diagram from synthetic scattered susceptibility data using
+``tripcolor`` + ``tricontour`` + ``colorbar``, as described in the guide.
+
 Additional Advanced Example Scripts
 -----------------------------------
 
@@ -282,6 +315,10 @@ for focused workflows:
 - ``batch_figures.py`` - loop-based generation of many figures
 - ``line_from_file.py`` - model overlays from existing data files
 - ``data_prefix.py`` - deterministic sidecar file naming patterns
+- ``phase_diagram.py`` - susceptibility phase diagram (``tripcolor`` + ``tricontour`` + colorbar)
+
+The ``examples/basic`` directory also includes ``heatmap_imshow.py`` - a
+simple gridded ``imshow`` + ``contour`` + colorbar example.
 
 Run the full suite from the repository root:
 

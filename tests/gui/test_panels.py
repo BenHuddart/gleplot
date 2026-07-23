@@ -152,6 +152,22 @@ class TestAxesPanel:
         assert ax.title_text == "Changed title"
         assert document.notify_count == before + 1
 
+    def test_ylabel_mathtext_stored_translated(self, document):
+        # A label typed with $...$ mathtext is translated to GLE markup on store.
+        panel = AxesPanel(document)
+        panel.ylabel_edit.setText(r"$\chi$ (emu/mol)")
+        panel.ylabel_edit.editingFinished.emit()
+        ax = document.figure.gca()
+        assert ax.ylabel_text == r"\chi{} (emu/mol)"
+
+    def test_title_mathtext_roundtrip_is_idempotent(self, document):
+        # Re-editing an already-translated (GLE-markup) label is a no-op.
+        panel = AxesPanel(document)
+        panel.title_edit.setText(r"\chi{} (emu/mol)")
+        panel.title_edit.editingFinished.emit()
+        ax = document.figure.gca()
+        assert ax.title_text == r"\chi{} (emu/mol)"
+
     def test_write_back_legend_loc(self, document):
         panel = AxesPanel(document)
         before = document.notify_count
@@ -310,6 +326,15 @@ class TestSeriesPanel:
         assert ax.lines[0]["linewidth"] == pytest.approx(4.0)
         assert document.notify_count == before + 1
 
+    def test_write_back_label_mathtext_translated(self, document):
+        # A legend label typed with $...$ mathtext is stored as GLE markup.
+        panel = SeriesPanel(document)
+        panel.series_list.setCurrentRow(0)
+        panel.label_edit.setText(r"$\beta$ decay")
+        panel.label_edit.editingFinished.emit()
+        ax = document.figure.gca()
+        assert ax.lines[0]["label"] == r"\beta{} decay"
+
     def test_write_back_markersize_uses_gle_scale(self, document):
         panel = SeriesPanel(document)
         panel.series_list.setCurrentRow(1)
@@ -371,3 +396,209 @@ class TestSeriesPanel:
         before = document.notify_count
         panel.refresh()
         assert document.notify_count == before
+
+
+# ------------------------------------------------------------------
+# SeriesPanel: heatmap & contour kinds (Phase B)
+# ------------------------------------------------------------------
+def _make_heatmap_figure():
+    import numpy as np
+
+    fig = gleplot.figure(figsize=(8, 6), dpi=100)
+    ax = fig.gca()
+    Z = np.array([[0.0, 0.5], [0.5, 1.0]])
+    ax.imshow(Z, cmap="viridis", vmin=0.0, vmax=1.0, label="hm")
+    ax.contour(Z, levels=[0.25, 0.75], colors="black", label="ct")
+    return fig
+
+
+@pytest.fixture
+def heatmap_document(qapp):
+    return StubDocument(_make_heatmap_figure())
+
+
+class TestSeriesPanelHeatmapContour:
+    def test_heatmap_and_contour_listed(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        texts = [
+            panel.series_list.item(i).text() for i in range(panel.series_list.count())
+        ]
+        assert texts == ["heatmap: hm", "contour: ct"]
+
+    def test_select_heatmap_shows_correct_controls(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)  # heatmap
+        assert panel.palette_combo.isEnabled() is True
+        assert panel.vmin_edit.isEnabled() is True
+        assert panel.vmax_edit.isEnabled() is True
+        assert panel.pixels_spin.isEnabled() is True
+        assert panel.interp_combo.isEnabled() is True
+        assert panel.invert_check.isEnabled() is True
+        assert panel.colorbar_check.isEnabled() is True
+        # A colormap has no single line colour, and contour-only / xy-only
+        # controls stay disabled.
+        assert panel.color_button.isEnabled() is False
+        assert panel.levels_edit.isEnabled() is False
+        assert panel.linestyle_combo.isEnabled() is False
+        # Populated from the stored dict.
+        assert panel.palette_combo.currentText() == "viridis"
+        assert panel.vmin_edit.text() == "0.0"
+        assert panel.vmax_edit.text() == "1.0"
+
+    def test_select_contour_shows_correct_controls(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(1)  # contour
+        assert panel.color_button.isEnabled() is True
+        assert panel.linewidth_spin.isEnabled() is True
+        assert panel.levels_edit.isEnabled() is True
+        assert panel.clabel_check.isEnabled() is True
+        assert panel.clabel_format_edit.isEnabled() is True
+        # heatmap-only controls stay disabled.
+        assert panel.palette_combo.isEnabled() is False
+        assert panel.colorbar_check.isEnabled() is False
+        # Explicit levels shown back as text.
+        assert panel.levels_edit.text() == "0.25 0.75"
+
+    def test_change_palette_updates_dict(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+        before = heatmap_document.notify_count
+        panel.palette_combo.setCurrentText("magma")
+        ax = heatmap_document.figure.gca()
+        assert ax.heatmaps[0]["cmap"] == "magma"
+        assert heatmap_document.notify_count == before + 1
+
+    def test_change_palette_undo_restores(self, heatmap_document):
+        from gleplot.gui.undo import UndoStack
+
+        undo = UndoStack(heatmap_document)
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+
+        panel.palette_combo.setCurrentText("magma")
+        assert heatmap_document.figure.gca().heatmaps[0]["cmap"] == "magma"
+
+        assert undo.can_undo is True
+        undo.undo()
+        # Snapshot-based undo restores the whole figure; the palette reverts.
+        assert heatmap_document.figure.gca().heatmaps[0]["cmap"] == "viridis"
+
+    def test_vmin_blank_stores_none(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+        panel.vmin_edit.setText("")
+        panel.vmin_edit.editingFinished.emit()
+        assert heatmap_document.figure.gca().heatmaps[0]["vmin"] is None
+
+    def test_vmin_invalid_text_reverts(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+        panel.vmin_edit.setText("not-a-number")
+        panel.vmin_edit.editingFinished.emit()
+        # Stored value unchanged; field reverted to it.
+        assert heatmap_document.figure.gca().heatmaps[0]["vmin"] == pytest.approx(0.0)
+        assert panel.vmin_edit.text() == "0.0"
+
+    def test_toggle_colorbar_creates_and_removes_dict(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+        hm = heatmap_document.figure.gca().heatmaps[0]
+        assert hm["colorbar"] is None
+
+        panel.colorbar_check.setChecked(True)
+        assert isinstance(hm["colorbar"], dict)
+        assert hm["colorbar"]["zmin"] == pytest.approx(0.0)
+        assert hm["colorbar"]["zmax"] == pytest.approx(1.0)
+        assert panel.cbar_label_edit.isEnabled() is True
+
+        panel.colorbar_check.setChecked(False)
+        assert hm["colorbar"] is None
+        assert panel.cbar_label_edit.isEnabled() is False
+
+    def test_colorbar_label_edit(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+        panel.colorbar_check.setChecked(True)
+        panel.cbar_label_edit.setText("Intensity")
+        panel.cbar_label_edit.editingFinished.emit()
+        hm = heatmap_document.figure.gca().heatmaps[0]
+        assert hm["colorbar"]["label"] == "Intensity"
+
+    def test_pixels_edit(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+        panel.pixels_spin.setValue(300)
+        panel.pixels_spin.editingFinished.emit()
+        assert heatmap_document.figure.gca().heatmaps[0]["pixels"] == [300, 300]
+
+    def test_invert_toggle(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+        panel.invert_check.setChecked(True)
+        assert heatmap_document.figure.gca().heatmaps[0]["invert"] is True
+
+    def test_interpolation_change(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(0)
+        panel.interp_combo.setCurrentText("nearest")
+        assert heatmap_document.figure.gca().heatmaps[0]["interpolation"] == "nearest"
+
+    def test_contour_levels_explicit_list(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(1)
+        panel.levels_edit.setText("0.1 0.2 0.3")
+        panel.levels_edit.editingFinished.emit()
+        assert heatmap_document.figure.gca().contours[0]["levels"] == [0.1, 0.2, 0.3]
+
+    def test_contour_levels_n_form(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(1)
+        panel.levels_edit.setText("n=3")
+        panel.levels_edit.editingFinished.emit()
+        levels = heatmap_document.figure.gca().contours[0]["levels"]
+        assert levels is not None
+        assert len(levels) == 3  # 3 evenly-spaced levels strictly inside [0, 1]
+
+    def test_contour_levels_blank_is_none(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(1)
+        panel.levels_edit.setText("")
+        panel.levels_edit.editingFinished.emit()
+        assert heatmap_document.figure.gca().contours[0]["levels"] is None
+
+    def test_contour_levels_invalid_reverts(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(1)
+        panel.levels_edit.setText("abc def")
+        panel.levels_edit.editingFinished.emit()
+        # Unchanged; field reverts to the stored explicit list.
+        assert heatmap_document.figure.gca().contours[0]["levels"] == [0.25, 0.75]
+        assert panel.levels_edit.text() == "0.25 0.75"
+
+    def test_contour_color_and_linewidth(self, heatmap_document):
+        from gleplot.colors import rgb_to_gle
+
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(1)
+        # color_button opens a modal dialog; exercise the same write path.
+        ct = heatmap_document.figure.gca().contours[0]
+        ct["color"] = rgb_to_gle((1.0, 0.0, 0.0))
+        assert ct["color"] == "RED"
+        panel.linewidth_spin.setValue(3.0)
+        panel.linewidth_spin.editingFinished.emit()
+        assert ct["linewidth"] == pytest.approx(3.0)
+
+    def test_contour_clabel_toggle_and_format(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        panel.series_list.setCurrentRow(1)
+        panel.clabel_check.setChecked(True)
+        assert heatmap_document.figure.gca().contours[0]["clabel"] is True
+        panel.clabel_format_edit.setText("fix 2")
+        panel.clabel_format_edit.editingFinished.emit()
+        assert heatmap_document.figure.gca().contours[0]["clabel_fmt"] == "fix 2"
+
+    def test_programmatic_refresh_does_not_notify(self, heatmap_document):
+        panel = SeriesPanel(heatmap_document)
+        before = heatmap_document.notify_count
+        panel.refresh()
+        assert heatmap_document.notify_count == before

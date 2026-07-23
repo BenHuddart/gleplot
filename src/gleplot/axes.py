@@ -5,7 +5,10 @@ import re
 from typing import Optional, List, Union, Tuple
 from .colors import rgb_to_gle
 from .markers import get_gle_marker
+from .mathtext import mathtext_to_gle
+from .palettes import canonical_cmap
 from .parser.units import markersize_to_msize, capsize_pt_to_cm
+from .parser.tables import MATPLOTLIB_TO_LSTYLE
 
 # Global counter for unique data file names across all figures in a session
 _global_data_file_counter = 0
@@ -54,6 +57,44 @@ def _to_float_array(value):
     if value is None:
         return None
     return np.asarray(value, dtype=float)
+
+
+def _require_finite(arr: np.ndarray, what: str) -> None:
+    """Raise ``ValueError`` if ``arr`` holds any NaN or infinity.
+
+    GLE's ``.z`` grid and scattered-points readers have NO missing-value
+    support -- a ``nan``/``inf`` in a sidecar is a hard parse error at compile
+    time (and would silently corrupt the bitmap). matplotlib's ``imshow``
+    tolerates NaN (renders transparent); GLE cannot, so we reject early with a
+    clear message pointing at the offending data rather than emitting a broken
+    sidecar.
+    """
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(
+            f"{what} contains NaN or infinite values, which GLE's colormap/"
+            "contour grid cannot represent; mask or fill them before plotting"
+        )
+
+
+def _require_valid_extent(ext) -> None:
+    """Validate an ``[xmin, xmax, ymin, ymax]`` extent for GLE.
+
+    GLE's ``.z`` grid header and the graph axes both require strictly
+    ascending ranges (``xmin < xmax``, ``ymin < ymax``); a reversed or
+    degenerate extent otherwise emits a ``.z`` file and an ``xaxis``/``yaxis``
+    range GLE rejects at compile time ("illegal range for xaxis"). Reject early
+    with a clear message. (Unlike matplotlib, gleplot cannot express an axis
+    flipped purely via ``extent``.)
+    """
+    x0, x1, y0, y1 = ext
+    if not all(np.isfinite(v) for v in ext):
+        raise ValueError(f"extent must contain finite values; got {ext}")
+    if x0 >= x1 or y0 >= y1:
+        raise ValueError(
+            "extent must have xmin < xmax and ymin < ymax (GLE requires "
+            f"ascending axis ranges); got (xmin={x0}, xmax={x1}, ymin={y0}, "
+            f"ymax={y1})"
+        )
 
 
 def _sanitize_data_stem(name: object) -> str:
@@ -163,6 +204,45 @@ def _reserve_data_filename(filename: str, figure=None) -> str:
             used.add(candidate)
             return candidate
         suffix_idx += 1
+
+
+def _reserve_sidecar(figure, kind: str, ext: str) -> str:
+    """Reserve a named sidecar file ``<prefix>_<kind><N>.<ext>`` for a figure.
+
+    Used for the contour/heatmap raw-content sidecars whose names GLE derives
+    generated files from mechanically (``.z`` grids, scattered ``.dat``
+    points). ``kind`` is ``'heatmap'``/``'contour'``/``'points'`` and ``ext``
+    is ``'z'``/``'dat'``. ``N`` is a per-kind, 1-based counter kept on the
+    figure. The reserved name is recorded in ``figure._used_data_files`` so it
+    never collides with a generated ``data_N.dat`` (or another sidecar) and so
+    it round-trips through ``Figure.to_dict``/``from_dict``.
+
+    ``figure`` is optional only for symmetry with the other reservers; in
+    practice a figure is always present when a heatmap/contour series is added.
+    """
+    prefix = figure.data_prefix if figure and figure.data_prefix else "data"
+
+    counters = getattr(figure, "_sidecar_counters", None) if figure else None
+    if figure is not None and counters is None:
+        counters = {}
+        figure._sidecar_counters = counters
+
+    used = getattr(figure, "_used_data_files", None) if figure else None
+    if figure is not None and used is None:
+        used = set()
+        figure._used_data_files = used
+
+    idx = (counters.get(kind, 0) + 1) if counters is not None else 1
+    while True:
+        name = f"{prefix}_{kind}{idx}.{ext}"
+        if used is None or name not in used:
+            break
+        idx += 1
+    if counters is not None:
+        counters[kind] = idx
+    if used is not None:
+        used.add(name)
+    return name
 
 
 def _get_next_data_file(figure=None):
@@ -347,6 +427,8 @@ class Axes:
         self.errorbars = []  # List of errorbar plot data
         self.file_series = []  # External-file series definitions (column references)
         self.texts = []  # In-plot text annotations
+        self.heatmaps = []  # imshow/tripcolor colormap series
+        self.contours = []  # contour/tricontour line series
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model. Emitted verbatim inside this
@@ -398,6 +480,7 @@ class Axes:
             Line object (for compatibility)
         """
         data_name = kwargs.pop("data_name", None)
+        label = mathtext_to_gle(label)
 
         x = np.asarray(x)
         y = np.asarray(y)
@@ -520,6 +603,7 @@ class Axes:
 
         >>> ax.errorbar(x, y, yerr=0.5, xerr=0.3)
         """
+        label = mathtext_to_gle(label)
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
 
@@ -670,6 +754,7 @@ class Axes:
         if x_col < 1 or y_col < 1 or (yerr_col is not None and yerr_col < 1):
             raise ValueError("Column indices must be >= 1")
 
+        label = mathtext_to_gle(label)
         if color is None:
             gle_color = "BLUE"
         else:
@@ -718,6 +803,7 @@ class Axes:
         if x_col < 1 or y_col < 1:
             raise ValueError("Column indices must be >= 1")
 
+        label = mathtext_to_gle(label)
         if color is None:
             gle_color = "BLUE"
         else:
@@ -774,6 +860,7 @@ class Axes:
         -------
         self
         """
+        label = mathtext_to_gle(label)
         # scatter() uses 's' instead of markersize
         # matplotlib scatter s is area in points^2, typical range 10-100, default ~36
         # Convert to markersize: since area ~ size^2, markersize ~ sqrt(s)
@@ -832,6 +919,7 @@ class Axes:
         >>> fig.savefig('bar_chart.pdf')
         """
         data_name = kwargs.pop("data_name", None)
+        label = mathtext_to_gle(label)
 
         x = np.asarray(x, dtype=float)
         height = np.asarray(height, dtype=float)
@@ -891,6 +979,7 @@ class Axes:
         self
         """
         data_name = kwargs.pop("data_name", None)
+        label = mathtext_to_gle(label)
 
         x = np.asarray(x)
         y1 = np.asarray(y1)
@@ -962,7 +1051,7 @@ class Axes:
             {
                 "x": float(x),
                 "y": float(y),
-                "text": str(s),
+                "text": mathtext_to_gle(str(s)),
                 "color": gle_color,
                 "fontsize": float(fontsize) if fontsize is not None else None,
                 "ha": str(ha),
@@ -972,9 +1061,420 @@ class Axes:
         )
         return self
 
+    # -- heatmaps & contours --------------------------------------------
+
+    def _resolve_cmap(self, cmap: Optional[str]) -> str:
+        """Return the canonical cmap name, falling back to the graph default."""
+        if cmap is None:
+            cmap = self.figure.graph.default_cmap
+        return canonical_cmap(cmap)
+
+    def _resolve_pixels(self, pixels) -> List[int]:
+        """Normalize the ``pixels`` argument to a stored ``[px, py]`` int pair."""
+        if pixels is None:
+            px = int(self.figure.graph.colormap_pixels)
+            return [px, px]
+        if isinstance(pixels, (list, tuple)):
+            px, py = int(pixels[0]), int(pixels[1])
+            return [px, py]
+        px = int(pixels)
+        return [px, px]
+
+    @staticmethod
+    def _linestyle_to_lstyle(linestyle: Optional[str]) -> Optional[int]:
+        """Map a matplotlib linestyle to a GLE ``lstyle`` int (None = solid)."""
+        if linestyle in ("-", None, "", "solid"):
+            return None
+        return MATPLOTLIB_TO_LSTYLE.get(linestyle)
+
+    def imshow(
+        self,
+        Z,
+        extent=None,
+        origin: str = "lower",
+        cmap: Optional[str] = None,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        interpolation: str = "bicubic",
+        pixels=None,
+        invert: bool = False,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Display gridded 2-D data ``Z`` as a colour map (heatmap).
+
+        Parameters
+        ----------
+        Z : array-like, shape (ny, nx)
+            Gridded scalar field.
+        extent : tuple, optional
+            ``(xmin, xmax, ymin, ymax)`` mapping the grid onto data
+            coordinates. Default ``(0, nx, 0, ny)``.
+        origin : {'lower', 'upper'}
+            ``'lower'`` (default) puts row 0 of ``Z`` at ``ymin`` (the
+            scientific convention; note this differs from matplotlib's
+            ``'upper'`` default). ``'upper'`` flips the rows when writing the
+            ``.z`` sidecar.
+        cmap : str, optional
+            Palette name (see :data:`gleplot.palettes.SUPPORTED_CMAPS`). When
+            ``None``, uses the figure graph config's ``default_cmap``.
+        vmin, vmax : float, optional
+            Colour normalization range (GLE ``zmin``/``zmax``). ``None`` uses
+            GLE's data-range default.
+        interpolation : {'bicubic', 'nearest'}
+            Sampling interpolation for the ``.z`` grid.
+        pixels : int or (px, py), optional
+            Bitmap resolution. Default from graph config ``colormap_pixels``.
+        invert : bool
+            Invert the colour mapping.
+        label : str, optional
+            Series label (not drawn by the colormap itself; kept for the GUI).
+
+        Returns
+        -------
+        dict
+            The stored heatmap series dict.
+        """
+        label = mathtext_to_gle(label)
+        if origin not in ("lower", "upper"):
+            raise ValueError("origin must be 'lower' or 'upper'")
+        z = np.asarray(Z, dtype=float)
+        if z.ndim != 2:
+            raise ValueError("imshow requires a 2-D array Z")
+        _require_finite(z, "imshow Z")
+        ny, nx = z.shape
+        if extent is None:
+            ext = [0.0, float(nx), 0.0, float(ny)]
+        else:
+            ext = [float(v) for v in extent]
+            if len(ext) != 4:
+                raise ValueError("extent must be (xmin, xmax, ymin, ymax)")
+            _require_valid_extent(ext)
+
+        if self.heatmaps:
+            raise ValueError(
+                "GLE supports at most one heatmap (colormap) per axes; "
+                "this axes already has one"
+            )
+
+        data_file = _reserve_sidecar(self.figure, "heatmap", "z")
+        hm = {
+            "type": "heatmap",
+            "source": "grid",
+            "z": z,
+            "x": None,
+            "y": None,
+            "zpts": None,
+            "extent": ext,
+            "origin": origin,
+            "cmap": self._resolve_cmap(cmap),
+            "vmin": None if vmin is None else float(vmin),
+            "vmax": None if vmax is None else float(vmax),
+            "interpolation": "nearest" if interpolation == "nearest" else "bicubic",
+            "pixels": self._resolve_pixels(pixels),
+            "invert": bool(invert),
+            "gridsize": None,
+            "ncontour": None,
+            "label": label,
+            "data_file": data_file,
+            "colorbar": None,
+        }
+        self.heatmaps.append(hm)
+        return hm
+
+    def contour(
+        self,
+        *args,
+        levels=None,
+        colors: str = "black",
+        linewidths: float = 1.0,
+        linestyles: str = "-",
+        clabel: bool = False,
+        clabel_fmt: str = "fix 1",
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Draw contour lines of gridded data.
+
+        Signatures: ``contour(Z)`` or ``contour(x, y, Z)`` with 1-D ``x`` (nx),
+        1-D ``y`` (ny), 2-D ``Z`` (ny, nx). ``x``/``y`` must be uniformly
+        spaced.
+
+        Parameters
+        ----------
+        levels : None, int, or sequence
+            ``None`` uses GLE's default 10 levels. An int ``n`` emits
+            ``values from zmin to zmax step (zmax-zmin)/n``. A sequence emits
+            ``values v1 v2 ...``.
+        colors : str
+            Contour line colour.
+        linewidths : float
+            Line width (matplotlib points).
+        linestyles : str
+            Line style ('-', '--', ':', '-.').
+        clabel : bool
+            Draw inline contour labels from the generated ``-clabels.dat``.
+        clabel_fmt : str
+            GLE ``format$`` string for the labels.
+
+        Returns
+        -------
+        dict
+            The stored contour series dict.
+        """
+        label = mathtext_to_gle(label)
+        z, ext = self._grid_from_args(args)
+        levels_resolved = self._resolve_levels(levels, z)
+        # Explicit levels that all lie outside the data range would make GLE's
+        # ``begin contour`` emit an EMPTY ``-cdata.dat`` (no crossings), and the
+        # ``data "...-cdata.dat"`` line then aborts the whole compile with a
+        # cryptic "column index out of range". We have the grid here, so reject
+        # early with a clear message (a partially in-range level set is fine).
+        if levels_resolved:
+            zmn = float(np.min(z))
+            zmx = float(np.max(z))
+            if not any(zmn < lv < zmx for lv in levels_resolved):
+                raise ValueError(
+                    f"contour levels {levels_resolved} all lie outside the data "
+                    f"range ({zmn}, {zmx}); no contour lines would be drawn"
+                )
+        data_file = _reserve_sidecar(self.figure, "contour", "z")
+        ct = {
+            "type": "contour",
+            "source": "grid",
+            "z": z,
+            "x": None,
+            "y": None,
+            "zpts": None,
+            "extent": ext,
+            "levels": levels_resolved,
+            "color": rgb_to_gle(colors),
+            "linewidth": float(linewidths),
+            "linestyle": self._linestyle_to_lstyle(linestyles),
+            "clabel": bool(clabel),
+            "clabel_fmt": str(clabel_fmt),
+            "gridsize": None,
+            "ncontour": None,
+            "label": label,
+            "data_file": data_file,
+        }
+        self.contours.append(ct)
+        return ct
+
+    def _grid_from_args(self, args):
+        """Parse ``contour`` positional args into ``(z_2d, extent)``."""
+        if len(args) == 1:
+            z = np.asarray(args[0], dtype=float)
+            if z.ndim != 2:
+                raise ValueError("contour(Z) requires a 2-D array")
+            _require_finite(z, "contour Z")
+            ny, nx = z.shape
+            return z, [0.0, float(nx), 0.0, float(ny)]
+        if len(args) == 3:
+            x = np.asarray(args[0], dtype=float)
+            y = np.asarray(args[1], dtype=float)
+            z = np.asarray(args[2], dtype=float)
+            if x.ndim != 1 or y.ndim != 1 or z.ndim != 2:
+                raise ValueError("contour(x, y, Z) requires 1-D x, 1-D y, 2-D Z")
+            if z.shape != (len(y), len(x)):
+                raise ValueError(
+                    f"Z shape {z.shape} does not match (len(y), len(x)) = "
+                    f"({len(y)}, {len(x)})"
+                )
+            _require_finite(x, "contour x")
+            _require_finite(y, "contour y")
+            _require_finite(z, "contour Z")
+            self._check_uniform(x, "x")
+            self._check_uniform(y, "y")
+            ext = [float(x[0]), float(x[-1]), float(y[0]), float(y[-1])]
+            _require_valid_extent(ext)
+            return z, ext
+        raise ValueError("contour expects contour(Z) or contour(x, y, Z)")
+
+    @staticmethod
+    def _check_uniform(v, name):
+        """Validate that a 1-D coordinate array is uniformly spaced."""
+        if len(v) < 2:
+            return
+        diffs = np.diff(v)
+        step = diffs[0]
+        if step == 0 or not np.allclose(diffs, step, rtol=1e-6, atol=1e-12):
+            raise ValueError(
+                f"contour requires uniformly spaced {name} (a .z grid is "
+                "uniform); got non-uniform spacing"
+            )
+
+    @staticmethod
+    def _resolve_levels(levels, z):
+        """Resolve the ``levels`` argument to ``None`` or a list of floats.
+
+        ``None`` -> ``None`` (GLE's default 10 levels). An int ``n`` is resolved
+        at store time to ``n`` explicit levels evenly spaced strictly between the
+        data's min and max -- emitted as an explicit ``values`` list rather than
+        the GLE ``values from a to b step s`` form, because the recognizer models
+        only the explicit-list form (round-trip safety). An explicit sequence is
+        stored verbatim as floats.
+        """
+        if levels is None:
+            return None
+        if isinstance(levels, (int, np.integer)) and not isinstance(levels, bool):
+            n = int(levels)
+            if n < 1:
+                raise ValueError("levels count must be >= 1")
+            zmin = float(np.nanmin(z))
+            zmax = float(np.nanmax(z))
+            return [float(v) for v in np.linspace(zmin, zmax, n + 2)[1:-1]]
+        return [float(v) for v in levels]
+
+    def tripcolor(
+        self,
+        x,
+        y,
+        z,
+        gridsize=(50, 50),
+        extent=None,
+        cmap: Optional[str] = None,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        interpolation: str = "bicubic",
+        pixels=None,
+        invert: bool = False,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Heatmap from scattered ``(x, y, z)`` samples via GLE ``fitz`` gridding.
+
+        Writes a points sidecar (raw ``x y z`` triples) and emits a
+        ``begin fitz`` block that grids the data (Akima interpolation) to a
+        ``.z`` file at GLE compile time, then a ``colormap`` of that grid.
+
+        Parameters
+        ----------
+        x, y, z : array-like
+            Equal-length 1-D scattered samples.
+        gridsize : (nx, ny)
+            Interpolation grid resolution.
+        extent : tuple, optional
+            ``(xmin, xmax, ymin, ymax)``. Default: data bounds.
+        (remaining kwargs as :meth:`imshow`).
+        """
+        label = mathtext_to_gle(label)
+        if self.heatmaps:
+            raise ValueError(
+                "GLE supports at most one heatmap (colormap) per axes; "
+                "this axes already has one"
+            )
+        xa, ya, za, ext, gs = self._points_from_args(x, y, z, gridsize, extent)
+        data_file = _reserve_sidecar(self.figure, "points", "dat")
+        hm = {
+            "type": "heatmap",
+            "source": "points",
+            "z": None,
+            "x": xa,
+            "y": ya,
+            "zpts": za,
+            "extent": ext,
+            "origin": "lower",
+            "cmap": self._resolve_cmap(cmap),
+            "vmin": None if vmin is None else float(vmin),
+            "vmax": None if vmax is None else float(vmax),
+            "interpolation": "nearest" if interpolation == "nearest" else "bicubic",
+            "pixels": self._resolve_pixels(pixels),
+            "invert": bool(invert),
+            "gridsize": gs,
+            "ncontour": None,
+            "label": label,
+            "data_file": data_file,
+            "colorbar": None,
+        }
+        self.heatmaps.append(hm)
+        return hm
+
+    def tricontour(
+        self,
+        x,
+        y,
+        z,
+        gridsize=(50, 50),
+        extent=None,
+        ncontour: int = 3,
+        levels=None,
+        colors: str = "black",
+        linewidths: float = 1.0,
+        linestyles: str = "-",
+        clabel: bool = False,
+        clabel_fmt: str = "fix 1",
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Contour lines from scattered ``(x, y, z)`` samples via GLE ``fitz``.
+
+        Writes a points sidecar and emits a ``begin fitz`` block (gridding at
+        compile time) followed by a ``begin contour`` block on the generated
+        ``.z`` grid.
+
+        Parameters
+        ----------
+        ncontour : int
+            ``fitz`` neighbour-point count per interpolation node.
+        (remaining kwargs as :meth:`contour`).
+        """
+        label = mathtext_to_gle(label)
+        xa, ya, za, ext, gs = self._points_from_args(x, y, z, gridsize, extent)
+        # For explicit-level or count resolution we approximate the grid range
+        # from the scattered z-values (GLE grids at compile time).
+        levels_resolved = self._resolve_levels(levels, za)
+        data_file = _reserve_sidecar(self.figure, "points", "dat")
+        ct = {
+            "type": "contour",
+            "source": "points",
+            "z": None,
+            "x": xa,
+            "y": ya,
+            "zpts": za,
+            "extent": ext,
+            "levels": levels_resolved,
+            "color": rgb_to_gle(colors),
+            "linewidth": float(linewidths),
+            "linestyle": self._linestyle_to_lstyle(linestyles),
+            "clabel": bool(clabel),
+            "clabel_fmt": str(clabel_fmt),
+            "gridsize": gs,
+            "ncontour": int(ncontour),
+            "label": label,
+            "data_file": data_file,
+        }
+        self.contours.append(ct)
+        return ct
+
+    @staticmethod
+    def _points_from_args(x, y, z, gridsize, extent):
+        """Validate scattered inputs; return (x, y, z, extent, [nx, ny])."""
+        xa = np.asarray(x, dtype=float).ravel()
+        ya = np.asarray(y, dtype=float).ravel()
+        za = np.asarray(z, dtype=float).ravel()
+        if not (len(xa) == len(ya) == len(za)):
+            raise ValueError("x, y, z must have equal length")
+        _require_finite(xa, "scattered x")
+        _require_finite(ya, "scattered y")
+        _require_finite(za, "scattered z")
+        if len(xa) < 3:
+            raise ValueError("scattered gridding needs at least 3 points")
+        gs = [int(gridsize[0]), int(gridsize[1])]
+        if gs[0] < 2 or gs[1] < 2:
+            raise ValueError("gridsize entries must be >= 2")
+        if extent is None:
+            ext = [float(xa.min()), float(xa.max()), float(ya.min()), float(ya.max())]
+        else:
+            ext = [float(v) for v in extent]
+            if len(ext) != 4:
+                raise ValueError("extent must be (xmin, xmax, ymin, ymax)")
+        _require_valid_extent(ext)
+        return xa, ya, za, ext, gs
+
     def set_xlabel(self, label: str):
         """Set x-axis label."""
-        self.xlabel_text = label
+        self.xlabel_text = mathtext_to_gle(label)
         return self
 
     def set_ylabel(self, label: str, axis: str = "y"):
@@ -987,6 +1487,7 @@ class Axes:
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
         """
+        label = mathtext_to_gle(label)
         if axis == "y2":
             self.y2label_text = label
         else:
@@ -995,7 +1496,7 @@ class Axes:
 
     def set_title(self, label: str):
         """Set subplot title."""
-        self.title_text = label
+        self.title_text = mathtext_to_gle(label)
         return self
 
     def set_xscale(self, scale: str):
@@ -1089,6 +1590,8 @@ class Axes:
             or self.fills
             or self.errorbars
             or self.file_series
+            or self.heatmaps
+            or self.contours
         )
 
     def has_y2_plots(self) -> bool:
@@ -1112,6 +1615,8 @@ class Axes:
         "errorbars": ("x", "y", "yerr_up", "yerr_down", "xerr_left", "xerr_right"),
         "file_series": (),
         "texts": (),
+        "heatmaps": ("z", "x", "y", "zpts"),
+        "contours": ("z", "x", "y", "zpts"),
     }
 
     # Series list attributes serialized on every axes, in a stable order.
@@ -1123,6 +1628,8 @@ class Axes:
         "errorbars",
         "file_series",
         "texts",
+        "heatmaps",
+        "contours",
     )
 
     @staticmethod
@@ -1201,6 +1708,8 @@ class Axes:
             "errorbars": [_to_jsonable(d) for d in self.errorbars],
             "file_series": [_to_jsonable(d) for d in self.file_series],
             "texts": [_to_jsonable(d) for d in self.texts],
+            "heatmaps": [_to_jsonable(d) for d in self.heatmaps],
+            "contours": [_to_jsonable(d) for d in self.contours],
             "passthrough": list(self.passthrough),
         }
 
