@@ -245,6 +245,12 @@ class Figure:
         -------
         BrokenAxes
 
+        Notes
+        -----
+        Plot through the returned object, not through the figure: this sets
+        the figure's current axes to the *leftmost segment*, so a subsequent
+        ``fig.plot(...)`` / :meth:`gca` would reach only that one segment.
+
         Examples
         --------
         >>> fig = glp.figure(figsize=(3.4, 2.6))

@@ -133,6 +133,9 @@ figure's font size (measured against a native `xtitle` render to ~0.02 cm);
   a repeated x makes that spline spike.
 - **Mixing with ordinary subplots** works: pass `position=(rows, cols, index)`
   and use `add_subplot` for the other cells.
+- **Plot through the `BrokenAxes`, not the figure.** `add_broken_xaxes` sets
+  the figure's current axes to the leftmost *segment*, so `fig.plot(...)` or
+  `glp.plot(...)` would reach only that one segment.
 
 ## Limitations
 
