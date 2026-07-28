@@ -232,6 +232,100 @@ class TestFillBetween(unittest.TestCase):
         self.assertEqual(self.ax.lines[1]['data_file'], 'model-range_1.dat')
 
 
+class TestDataPrefixValidation(unittest.TestCase):
+    """Test that a figure-level data_prefix is validated, not sanitized.
+
+    Unlike ``data_name`` (a label, sanitized into a stem by the tests above),
+    ``data_prefix`` is used verbatim to build sidecar filenames. A prefix GLE
+    cannot parse must therefore fail in Python at the point it is supplied,
+    rather than producing a script that aborts at compile time with
+    ``>> Error: left hand side contains unquoted string``.
+    """
+
+    def tearDown(self):
+        glp.close()
+
+    def test_plus_in_prefix_raises_instead_of_failing_at_compile_time(self):
+        """The reported reproducer: 'mk+white' produced unparseable GLE."""
+        with self.assertRaises(ValueError) as ctx:
+            glp.figure(data_prefix='mk+white')
+
+        message = str(ctx.exception)
+        self.assertIn('mk+white', message)  # names the offending value
+        self.assertIn("'+'", message)       # ...and the offending character
+
+    def test_forbidden_characters_are_rejected(self):
+        """Every character GLE cannot read in an unquoted data filename."""
+        # '!', '"' and '+' were confirmed against GLE 4.3.10 by compiling a
+        # data file containing each; '/' and '\\' are path separators.
+        for prefix in ['a!b', 'a"b', 'a+b', 'a/b', 'a\\b']:
+            with self.subTest(prefix=prefix):
+                with self.assertRaises(ValueError):
+                    glp.figure(data_prefix=prefix)
+
+    def test_whitespace_and_control_characters_are_rejected(self):
+        for prefix in ['a b', 'a\tb', 'a\nb', 'a\x00b', 'a\x1fb']:
+            with self.subTest(prefix=prefix):
+                with self.assertRaises(ValueError):
+                    glp.figure(data_prefix=prefix)
+
+    def test_empty_prefix_is_rejected(self):
+        for prefix in ['', '   ']:
+            with self.subTest(prefix=prefix):
+                with self.assertRaises(ValueError):
+                    glp.figure(data_prefix=prefix)
+
+    def test_non_string_prefix_raises_type_error(self):
+        with self.assertRaises(TypeError):
+            glp.figure(data_prefix=42)
+
+    def test_none_prefix_keeps_default_naming(self):
+        """None is not a bad value -- it selects the global data_N counter."""
+        fig = glp.figure(data_prefix=None)
+        self.assertIsNone(fig.data_prefix)
+
+    def test_valid_prefix_is_preserved_verbatim(self):
+        """Case and legal punctuation must survive: no sanitizing here.
+
+        Sanitizing would lowercase, silently turning the documented
+        ``data_prefix='experimentA'`` into ``experimenta_0.dat``.
+        """
+        for prefix in ['experimentA', 'run42', 'exp-1.2', 'a#b', 'a,b', 'a=b']:
+            with self.subTest(prefix=prefix):
+                fig = glp.figure(data_prefix=prefix)
+                self.assertEqual(fig.data_prefix, prefix)
+
+    def test_valid_prefix_drives_sidecar_filenames(self):
+        fig = glp.figure(data_prefix='experimentA')
+        ax = fig.add_subplot(111)
+        ax.plot([1, 2, 3], [1, 2, 3])
+        ax.plot([1, 2, 3], [3, 2, 1])
+
+        self.assertEqual(ax.lines[0]['data_file'], 'experimentA_0.dat')
+        self.assertEqual(ax.lines[1]['data_file'], 'experimentA_1.dat')
+
+    def test_subplots_validates_prefix_too(self):
+        with self.assertRaises(ValueError):
+            glp.subplots(1, 2, data_prefix='mk+white')
+
+    def test_from_dict_restores_a_prefix_init_would_reject(self):
+        """Recorded state round-trips even when it would fail validation.
+
+        The recognizer derives a prefix from filenames already present in a
+        parsed .gle, and a quoted ``data "my file_0.dat"`` yields the prefix
+        ``my file``. from_dict restores such a figure verbatim -- validating
+        there would make the figure impossible to reload and would break GUI
+        undo/redo, which restores every snapshot through from_dict.
+        """
+        fig = glp.figure()
+        fig.add_subplot(111).plot([1, 2], [1, 2])
+        fig.data_prefix = 'my file'
+
+        restored = glp.Figure.from_dict(fig.to_dict())
+
+        self.assertEqual(restored.data_prefix, 'my file')
+
+
 class TestErrorBars(unittest.TestCase):
     """Test error bar functionality."""
     
