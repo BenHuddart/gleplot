@@ -350,7 +350,11 @@ def test_global_data_counter_takes_max_with_in_process_value(monkeypatch):
 # format: `figure` is a back-reference to the parent Figure (set by the
 # constructor from the caller, not user/plot state), reconstructed by
 # Figure.from_dict passing itself into Axes.from_dict.
-_AXES_RUNTIME_ONLY_ATTRS = {"figure"}
+# `_break_owner` is the same kind of thing for a broken-axis segment: a
+# back-reference to the BrokenAxes that owns it, rebound by Figure.from_dict
+# once every axes exists (the grouping itself IS persisted, as
+# figure["broken_axes"], by index into figure["axes"]).
+_AXES_RUNTIME_ONLY_ATTRS = {"figure", "_break_owner"}
 
 # Axes attributes that ARE serialized, mapped to the to_dict()/from_dict()
 # keys that cover them (some are stored under a different dict key name,
@@ -392,6 +396,19 @@ _AXES_SERIALIZED_ATTRS = {
     "reflines",
     "spans",
     "passthrough",
+    "xdticks",
+    "ydticks",
+    "xdsubticks",
+    "ydsubticks",
+    "xplaces",
+    "xnames",
+    "yplaces",
+    "ynames",
+    "_xaxis_off",
+    "_yaxis_off",
+    "_x2axis_off",
+    "_y2axis_off",
+    "_break_index",
 }
 
 # Figure attributes that are intentionally NOT part of the serialized
@@ -419,6 +436,7 @@ _FIGURE_SERIALIZED_ATTRS = {
     "graph",
     "marker_config",
     "axes_list",
+    "broken_axes",
     "passthrough_header",
     "passthrough_trailer",
     "metadata_extra",

@@ -434,6 +434,39 @@ class Axes:
         self._show_ylabel = True
         self._show_xticks = True
         self._show_yticks = True
+        # Edge tick-label suppression for touching subplots. Normally written
+        # by Figure._apply_shared_axes_flags, but initialized here so a
+        # directly-constructed Axes (e.g. a broken-axis segment) has them too.
+        self._remove_last_xtick = False
+        self._remove_last_ytick = False
+        self._remove_first_xtick = False
+        self._remove_first_ytick = False
+
+        # Explicit tick control (GLE dticks/dsubticks/places/names). All None
+        # means "let GLE choose", which is the historical behaviour.
+        self.xdticks = None
+        self.ydticks = None
+        self.xdsubticks = None
+        self.ydsubticks = None
+        self.xplaces = None
+        self.xnames = None
+        self.yplaces = None
+        self.ynames = None
+
+        # Frame sides switched off entirely -- axis line, ticks and labels.
+        # Used for the inner edges of a broken-axis assembly, where several
+        # graph blocks butt together and must read as one panel.
+        self._xaxis_off = False
+        self._yaxis_off = False
+        self._x2axis_off = False
+        self._y2axis_off = False
+
+        # Broken-axis membership (see :mod:`gleplot.brokenaxes`). Both stay
+        # None on an ordinary axes; on a segment, ``_break_owner`` is the
+        # BrokenAxes back-reference and ``_break_index`` its 0-based position
+        # left-to-right.
+        self._break_owner = None
+        self._break_index = None
 
         # Plot data storage
         self.lines = []  # List of line plot data
@@ -1939,6 +1972,63 @@ class Axes:
             self.ymax = ymax
         return self
 
+    def set_xticks(
+        self,
+        ticks=None,
+        labels=None,
+        *,
+        dticks: Optional[float] = None,
+        dsubticks: Optional[float] = None,
+    ):
+        """Control x-axis tick placement.
+
+        Parameters
+        ----------
+        ticks : sequence of float, optional
+            Explicit tick positions (GLE ``xplaces``). Passing ``None`` leaves
+            the current setting alone; pass an empty sequence to draw no
+            labelled ticks at all.
+        labels : sequence of str, optional
+            Tick labels (GLE ``xnames``), one per entry of ``ticks``.
+        dticks : float, optional
+            Major tick interval (GLE ``dticks``) -- the usual way to keep two
+            segments of a broken axis from colliding at the seam.
+        dsubticks : float, optional
+            Minor tick interval (GLE ``dsubticks``).
+
+        Returns
+        -------
+        self
+        """
+        if ticks is not None:
+            self.xplaces = [float(t) for t in ticks]
+        if labels is not None:
+            self.xnames = [str(lbl) for lbl in labels]
+        if dticks is not None:
+            self.xdticks = float(dticks)
+        if dsubticks is not None:
+            self.xdsubticks = float(dsubticks)
+        return self
+
+    def set_yticks(
+        self,
+        ticks=None,
+        labels=None,
+        *,
+        dticks: Optional[float] = None,
+        dsubticks: Optional[float] = None,
+    ):
+        """Control y-axis tick placement. See :meth:`set_xticks`."""
+        if ticks is not None:
+            self.yplaces = [float(t) for t in ticks]
+        if labels is not None:
+            self.ynames = [str(lbl) for lbl in labels]
+        if dticks is not None:
+            self.ydticks = float(dticks)
+        if dsubticks is not None:
+            self.ydsubticks = float(dsubticks)
+        return self
+
     def legend(self, loc: str = "best", **kwargs):
         """Add legend."""
         self.legend_on = True
@@ -2106,6 +2196,19 @@ class Axes:
             "remove_last_ytick": getattr(self, "_remove_last_ytick", False),
             "remove_first_xtick": getattr(self, "_remove_first_xtick", False),
             "remove_first_ytick": getattr(self, "_remove_first_ytick", False),
+            "xdticks": _to_jsonable(self.xdticks),
+            "ydticks": _to_jsonable(self.ydticks),
+            "xdsubticks": _to_jsonable(self.xdsubticks),
+            "ydsubticks": _to_jsonable(self.ydsubticks),
+            "xplaces": _to_jsonable(self.xplaces),
+            "xnames": _to_jsonable(self.xnames),
+            "yplaces": _to_jsonable(self.yplaces),
+            "ynames": _to_jsonable(self.ynames),
+            "xaxis_off": self._xaxis_off,
+            "yaxis_off": self._yaxis_off,
+            "x2axis_off": self._x2axis_off,
+            "y2axis_off": self._y2axis_off,
+            "break_index": self._break_index,
             "lines": [_to_jsonable(d) for d in self.lines],
             "scatters": [_to_jsonable(d) for d in self.scatters],
             "bars": [_to_jsonable(d) for d in self.bars],
@@ -2166,6 +2269,22 @@ class Axes:
         ax._remove_last_ytick = d.get("remove_last_ytick", False)
         ax._remove_first_xtick = d.get("remove_first_xtick", False)
         ax._remove_first_ytick = d.get("remove_first_ytick", False)
+
+        ax.xdticks = d.get("xdticks")
+        ax.ydticks = d.get("ydticks")
+        ax.xdsubticks = d.get("xdsubticks")
+        ax.ydsubticks = d.get("ydsubticks")
+        ax.xplaces = d.get("xplaces")
+        ax.xnames = d.get("xnames")
+        ax.yplaces = d.get("yplaces")
+        ax.ynames = d.get("ynames")
+        ax._xaxis_off = d.get("xaxis_off", False)
+        ax._yaxis_off = d.get("yaxis_off", False)
+        ax._x2axis_off = d.get("x2axis_off", False)
+        ax._y2axis_off = d.get("y2axis_off", False)
+        # ``_break_owner`` is a back-reference rebound by Figure.from_dict
+        # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
+        ax._break_index = d.get("break_index")
 
         for attr in cls._SERIES_ATTRS:
             array_keys = cls._ARRAY_KEYS[attr]

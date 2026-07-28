@@ -32,6 +32,10 @@ from advanced import (
     example_data_prefix,
     example_line_overlay_from_file,
     example_phase_diagram,
+    example_broken_axis_slash,
+    example_broken_axis_line,
+    example_broken_axis_none,
+    example_prl_fig2a_style,
 )
 
 
@@ -65,6 +69,10 @@ def main():
         ("Data Prefix Naming", example_data_prefix),
         ("Line Overlay From File", example_line_overlay_from_file),
         ("Phase Diagram (tripcolor + tricontour)", example_phase_diagram),
+        ("Broken X-Axis (double-slash break)", example_broken_axis_slash),
+        ("Broken X-Axis (single rule)", example_broken_axis_line),
+        ("Broken X-Axis (three segments)", example_broken_axis_none),
+        ("PRL Fig. 2(a)-style panel", example_prl_fig2a_style),
     ]
     
     for name, example_func in examples:

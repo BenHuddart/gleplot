@@ -35,6 +35,15 @@ Guide for data-coordinate text labels, alignment controls, and callout boxes.
 - Boxed annotations
 - Convenience API patterns
 
+### [BROKEN_AXES.md](BROKEN_AXES.md)
+Guide for `add_broken_xaxes()` — one panel, an x-axis split into segments.
+
+**Contents:**
+- `BrokenAxes` API: fan-out, shared y state, per-segment tick control
+- Seam styles (`none`/`line`/`slash`) and width ratios
+- How the assembly is built from adjacent GLE graph blocks
+- Parser round-trip limitation
+
 ### [REFERENCE_LINES_AND_SPANS.md](REFERENCE_LINES_AND_SPANS.md)
 Guide for `axvline`, `axhline`, `axvspan` and `axhspan`.
 

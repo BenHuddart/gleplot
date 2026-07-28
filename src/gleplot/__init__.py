@@ -56,6 +56,7 @@ __author__ = "gleplot contributors"
 
 from .figure import Figure
 from .axes import Axes
+from .brokenaxes import BrokenAxes
 from .colors import rgb_to_gle, get_color_palette
 from .markers import get_gle_marker
 from .mathtext import mathtext_to_gle
@@ -410,6 +411,7 @@ def close(fig=None):
 __all__ = [
     "Figure",
     "Axes",
+    "BrokenAxes",
     "figure",
     "gca",
     "gcf",
