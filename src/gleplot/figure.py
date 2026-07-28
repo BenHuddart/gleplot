@@ -3,7 +3,7 @@
 import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional, Literal
-from .axes import Axes
+from .axes import Axes, _validate_data_prefix
 from .writer import GLEWriter
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .colors import rgb_to_gle
@@ -64,6 +64,20 @@ class Figure:
         data_prefix : str, optional
             Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
             If None, uses global counter with ``data_`` prefix.
+
+            Used verbatim -- it is never sanitized, so the sidecar names stay
+            predictable (``'experimentA'`` yields ``experimentA_0.dat``, not
+            ``experimenta_0.dat``). In exchange it is validated: a prefix
+            containing whitespace, a control character, or any of
+            ``! " + / \\`` raises ``ValueError`` here rather than producing a
+            script GLE fails to parse. See
+            :func:`gleplot.axes._validate_data_prefix`.
+
+        Raises
+        ------
+        ValueError
+            If ``data_prefix`` is empty/whitespace-only or contains a
+            character that is not usable in a GLE data filename.
         """
         self.figsize = figsize
         self.dpi = dpi
@@ -77,8 +91,12 @@ class Figure:
         self.sharex = sharex
         self.sharey = sharey
 
-        # Custom data file naming
-        self.data_prefix = data_prefix
+        # Custom data file naming. Validated (not sanitized) so a prefix GLE
+        # cannot parse fails here, at the point the bad value was supplied,
+        # instead of at compile time inside a generated 'data <file>' line.
+        self.data_prefix = (
+            _validate_data_prefix(data_prefix) if data_prefix is not None else None
+        )
         self._local_data_counter = 0  # Local counter when using custom prefix
         self._used_data_files: set[str] = set()
         self._subplot_adjust: dict[str, float] = {}
@@ -1624,8 +1642,16 @@ class Figure:
             marker=marker,
             sharex=fig_block.get("sharex", False),
             sharey=fig_block.get("sharey", False),
-            data_prefix=fig_block.get("data_prefix"),
         )
+
+        # Restore the prefix verbatim, bypassing __init__'s validation. This is
+        # recorded state, not a user-supplied value: the recognizer derives a
+        # prefix from filenames already present in a parsed .gle, and those can
+        # legitimately contain characters __init__ rejects (a quoted
+        # 'data "my file_0.dat"' yields the prefix 'my file'). Re-validating
+        # here would make such a figure impossible to round-trip -- and would
+        # break GUI undo/redo, which restores every snapshot through from_dict.
+        fig.data_prefix = fig_block.get("data_prefix")
 
         fig._local_data_counter = fig_block.get("local_data_counter", 0)
         fig._used_data_files = set(fig_block.get("used_data_files", []))

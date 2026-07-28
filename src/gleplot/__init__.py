@@ -117,7 +117,9 @@ def figure(
         Marker configuration. If None, uses global default.
     data_prefix : str, optional
         Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
-        If None, uses global counter with ``data_`` prefix.
+        If None, uses global counter with ``data_`` prefix. Used verbatim, so
+        it must be usable as a GLE data filename: whitespace, control
+        characters and any of ``! " + / \\`` raise ``ValueError``.
 
     Returns
     -------
@@ -263,7 +265,9 @@ def subplots(
         will show y-axis labels and ticks. Default: False
     data_prefix : str, optional
         Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
-        If None, uses global counter with ``data_`` prefix.
+        If None, uses global counter with ``data_`` prefix. Used verbatim, so
+        it must be usable as a GLE data filename: whitespace, control
+        characters and any of ``! " + / \\`` raise ``ValueError``.
 
     Returns
     -------

@@ -104,6 +104,83 @@ def _sanitize_data_stem(name: object) -> str:
     return text or "data"
 
 
+#: Characters rejected in a figure-level ``data_prefix``.
+#:
+#: Two disjoint groups, both verified against GLE 4.3.10 rather than assumed:
+#:
+#: 1. ``!``, ``"``, ``+`` and any whitespace -- GLE's tokenizer cannot read
+#:    these inside the *unquoted* filename of a ``data <file>`` statement.
+#:    ``data mk+white_0.dat`` aborts the compile with
+#:    ``>> Error: left hand side contains unquoted string``. A sweep of the
+#:    printable ASCII punctuation found exactly these; ``. - # $ % & ( ) [ ] {
+#:    } , ; : = @ ~ ^ * ? < > | \ ` '`` and non-ASCII all parse fine, so they
+#:    are deliberately *not* rejected.
+#: 2. ``/`` and ``\\`` -- path separators. A ``data_prefix`` names a filename
+#:    stem, not a path; either one would redirect the sidecar into a
+#:    directory (or, on the platform where it is not a separator, produce a
+#:    filename that stops resolving when the script moves). Rejected on every
+#:    platform so a prefix means the same thing everywhere.
+#:
+#: C0 control characters (including NUL) are rejected as well -- see
+#: :func:`_validate_data_prefix`.
+_DATA_PREFIX_FORBIDDEN = '!"+/\\'
+
+
+def _describe_char(ch: str) -> str:
+    """Render a character for an error message, naming invisible ones."""
+    names = {" ": "space", "\t": "tab", "\n": "newline", "\r": "carriage return"}
+    if ch in names:
+        return names[ch]
+    if ch.isspace() or ord(ch) < 0x20 or ord(ch) == 0x7F:
+        return f"U+{ord(ch):04X}"
+    return repr(ch)
+
+
+def _validate_data_prefix(prefix: object) -> str:
+    """Validate a figure-level ``data_prefix``, or raise ``ValueError``.
+
+    Returns the prefix unchanged on success. Unlike :func:`_sanitize_data_stem`
+    -- which quietly rewrites the *label-like* ``data_name=`` argument into a
+    filename stem -- this rejects a bad prefix instead of repairing it. The
+    whole point of ``data_prefix`` is that the caller can predict the sidecar
+    filenames (batch pipelines glob for them), so silently renaming
+    ``mk+white`` to ``mk_white`` would trade a GLE compile error for a missing
+    file much further downstream. Sanitizing here would also lowercase, which
+    would break documented usage such as ``data_prefix='experimentA'``.
+
+    See :data:`_DATA_PREFIX_FORBIDDEN` for what is rejected and why.
+    """
+    if not isinstance(prefix, str):
+        raise TypeError(
+            f"data_prefix must be a str, got {type(prefix).__name__}: {prefix!r}"
+        )
+    if not prefix or not prefix.strip():
+        raise ValueError(
+            "data_prefix must be a non-empty filename stem; got "
+            f"{prefix!r}. Pass None to use the default 'data_N.dat' naming."
+        )
+
+    bad = [
+        (idx, ch)
+        for idx, ch in enumerate(prefix)
+        if ch in _DATA_PREFIX_FORBIDDEN
+        or ch.isspace()
+        or ord(ch) < 0x20
+        or ord(ch) == 0x7F
+    ]
+    if bad:
+        detail = ", ".join(f"{_describe_char(c)} at index {i}" for i, c in bad)
+        raise ValueError(
+            f"data_prefix {prefix!r} contains characters that cannot appear in "
+            f"a GLE data filename: {detail}. Forbidden: whitespace, control "
+            'characters, and any of ! " + / \\ (GLE cannot parse the first '
+            "four in an unquoted 'data' statement; the last two are path "
+            "separators). Most other punctuation, including . - _ and #, is "
+            "allowed."
+        )
+    return prefix
+
+
 def _looks_numeric(token: str) -> bool:
     """True if ``token`` would parse as a float (int/float/exponent form).
 

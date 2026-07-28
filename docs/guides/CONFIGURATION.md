@@ -282,6 +282,27 @@ Typical side files:
 For semantic per-series names, use the `data_name` keyword in generated-data
 methods such as `plot()` and `fill_between()`.
 
+#### Allowed characters
+
+The prefix is used **verbatim**, so the sidecar names stay predictable —
+`data_prefix='experimentA'` yields `experimentA_0.dat`, not `experimenta_0.dat`.
+In exchange it is validated when the figure is created, and an unusable prefix
+raises `ValueError` immediately instead of producing a `.gle` script that fails
+at compile time:
+
+    glp.figure(data_prefix='mk+white')
+    # ValueError: data_prefix 'mk+white' contains characters that cannot appear
+    # in a GLE data filename: '+' at index 2. ...
+
+Rejected: whitespace, control characters, and `!`, `"`, `+` (GLE cannot parse
+these in the unquoted filename of a `data` statement), plus the path separators
+`/` and `\`. An empty or whitespace-only prefix is rejected too; pass `None` for
+the default `data_N.dat` naming.
+
+Most other punctuation is allowed, including `.`, `-`, `_` and `#`. Note that
+`data_name` behaves differently: it takes a free-form *label* and sanitizes it
+into a filename stem, because no caller depends on its exact spelling.
+
 ## Resetting to Defaults
 
 Reset all global configurations to defaults:

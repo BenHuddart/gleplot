@@ -133,6 +133,12 @@ This produces files such as:
 - ``experimentA_plot.gle``
 - ``experimentA_0.dat``
 
+The prefix is used verbatim (note the preserved capital ``A``), so it must be
+usable as a GLE data filename. Whitespace, control characters, ``!``, ``"``,
+``+`` and the path separators ``/`` and ``\`` raise ``ValueError`` when the
+figure is created, rather than producing a script that fails to compile. See
+``docs/guides/CONFIGURATION.md`` for the full list.
+
 New: Shared Axes in Subplots
 ----------------------------
 
