@@ -104,6 +104,44 @@ The `fill=` argument of `gleplot.markers.get_gle_marker` and
 `gleplot.markers.MATPLOTLIB_TO_GLE_OUTLINE_MARKERS` /
 `MATPLOTLIB_TO_GLE_WHITE_MARKERS` are the full derived tables.
 
+## Line Style Mapping
+
+Matplotlib `linestyle` strings map onto GLE `lstyle` integers. Solid lines emit
+no `lstyle` token at all, since GLE's own default is style 1.
+
+| matplotlib | GLE `lstyle` | Renders as |
+| ---------- | ------------ | ---------- |
+| `'-'`      | 1 (implicit) | solid |
+| `'--'`     | 3            | dashed |
+| `':'`      | 2            | dotted |
+| `'-.'`     | 6            | dash-dot |
+
+The integers are GLE's built-in style table, not a gleplot convention. Compiling
+a ruler of `set lstyle 1..9` strokes through GLE 4.3.10 gives:
+
+    1 solid   2 dotted   3 dashed   4 dotted (sparse)   5 dashed (long)
+    6 dash-dot   7 dash-dot (sparse)   8 dash-dot (dense)   9 dashed (long)
+
+Only the four styles in the table are reachable from a matplotlib `linestyle`
+string; the rest are available by overriding
+`GLEStyleConfig.line_style_dashed` / `line_style_dotted` / `line_style_dashdot`
+(see [CONFIGURATION.md](CONFIGURATION.md)). The parser derives its inverse table
+from those same fields, so reading a `.gle` file back in always agrees with what
+the writer emits.
+
+> **Changed in 1.9.0.** Earlier releases mapped `'--'` to `lstyle 2` and `':'`
+> to `lstyle 3` — GLE's dotted and dashed respectively — so dashed and dotted
+> lines rendered as each other. `'-.'` used `lstyle 4`, another dotted style,
+> rather than a true dash-dot. Any figure regenerated with 1.9.0 or later will
+> look different wherever `'--'`, `':'`, or `'-.'` is used; that difference is
+> the correction. To reproduce the old output deliberately:
+>
+> ```python
+> style = glp.GLEStyleConfig(
+>     line_style_dashed=2, line_style_dotted=3, line_style_dashdot=4
+> )
+> ```
+
 ## Practical Notes
 
 - Marker size in `plot` and `errorbar` uses `markersize` (matplotlib-style) and is scaled internally for GLE.
