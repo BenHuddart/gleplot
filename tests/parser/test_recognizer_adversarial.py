@@ -213,7 +213,7 @@ def test_finding3_file_series_line_with_marker(tmp_path):
     fs = ax.file_series[0]
     # Line properties are preserved, not dropped by errorbar-classification.
     assert fs["series_type"] == "line"
-    assert fs["linestyle"] == "--"      # lstyle 2
+    assert fs["linestyle"] == ":"       # lstyle 2 is GLE's dotted style
     assert fs["linewidth"] > 0
     assert fs.get("marker") == "circle"  # marker kept as additional field
 

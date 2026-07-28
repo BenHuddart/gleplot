@@ -53,9 +53,13 @@ Customize how different line styles are rendered:
 
     style = glp.GLEStyleConfig()
     style.line_style_solid = 1    # `-` (solid)
-    style.line_style_dashed = 2   # `--` (dashed)
-    style.line_style_dotted = 3   # `:` (dotted)
-    style.line_style_dashdot = 4  # `-.` (dash-dot)
+    style.line_style_dashed = 3   # `--` (dashed)
+    style.line_style_dotted = 2   # `:` (dotted)
+    style.line_style_dashdot = 6  # `-.` (dash-dot)
+
+The numbers are GLE's own `lstyle` codes, and they are not in
+solid/dashed/dotted/dash-dot order: GLE renders 2 as dotted, 3 as dashed and 6
+as dash-dot. The defaults above are the codes that match their names.
 
 ## Graph Configuration (GLEGraphConfig)
 
@@ -299,9 +303,9 @@ Attributes:
 - `default_color` (str) - Default line color. Default: 'BLUE'
 - `default_marker_color` (str) - Default marker color. Default: 'BLUE'
 - `line_style_solid` (int) - GLE style for solid lines. Default: 1
-- `line_style_dashed` (int) - GLE style for dashed lines. Default: 2
-- `line_style_dotted` (int) - GLE style for dotted lines. Default: 3
-- `line_style_dashdot` (int) - GLE style for dash-dot lines. Default: 4
+- `line_style_dashed` (int) - GLE style for dashed lines. Default: 3
+- `line_style_dotted` (int) - GLE style for dotted lines. Default: 2
+- `line_style_dashdot` (int) - GLE style for dash-dot lines. Default: 6
 
 ### GLEGraphConfig
 

@@ -732,14 +732,17 @@ class GLEWriter:
                 line_cmd += " line"
             line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
 
-            # Use configured line styles from style config
+            # Use configured line styles from style config. (A stray second
+            # ``lstyle 4`` used to follow the dash-dot case here, overriding
+            # the configured value with GLE's sparse-dotted style on every
+            # '-.' line series -- removed; the other three emission sites in
+            # this file never had it.)
             if linestyle == "--":
                 line_cmd += f" lstyle {self.style.line_style_dashed}"
             elif linestyle == ":":
                 line_cmd += f" lstyle {self.style.line_style_dotted}"
             elif linestyle == "-.":
                 line_cmd += f" lstyle {self.style.line_style_dashdot}"
-                line_cmd += " lstyle 4"
 
             if marker:
                 # Marker overlaid on the line (line+markers).

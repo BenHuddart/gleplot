@@ -26,13 +26,6 @@ Conventions on show, all of them things the target figure relies on:
   segment's at the seam;
 * double-slash break marks on the top and bottom frame lines.
 
-Note on line styles: gleplot's default ``GLEStyleConfig`` maps ``'--'`` to
-GLE ``lstyle 2`` and ``':'`` to ``lstyle 3``, but in GLE 4.3.10 those are the
-other way round (2 renders dotted, 3 dashed; 6 is the dash-dot). This example
-therefore passes a corrected style config so ``linestyle='--'`` really is
-dashed and ``':'`` really is dotted, as the figure needs. Remove the override
-once the library default is fixed.
-
 Outputs (next to this file): ``prl_fig2a_style.gle`` + sidecars and
 ``prl_fig2a_style.pdf``.
 """
@@ -94,15 +87,10 @@ def example_prl_fig2a_style():
         np.concatenate([np.linspace(0.0, 0.02, 60), np.linspace(0.02, 3.0, 160)])
     )
 
-    # See the module docstring: GLE 4.3.10's lstyle 2 is dotted and 3 dashed,
-    # the opposite of gleplot's defaults, and 6 is the real dash-dot.
-    style = GLEStyleConfig(
-        fontsize=11,
-        default_linewidth=1.1,
-        line_style_dashed=3,
-        line_style_dotted=2,
-        line_style_dashdot=6,
-    )
+    # Only typography here: the line-style numbers come from the library
+    # defaults, which map '--' and ':' onto the GLE styles that really render
+    # dashed and dotted.
+    style = GLEStyleConfig(fontsize=11, default_linewidth=1.1)
 
     # Single-column PRL panel: 3.4 in wide is the journal's column width.
     fig = glp.figure(figsize=(3.4, 2.7), dpi=300, style=style, data_prefix="prlfig2a")

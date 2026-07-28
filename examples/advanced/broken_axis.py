@@ -90,7 +90,8 @@ def example_broken_axis_slash():
         color="red", capsize=2, fillstyle="none", label="50 K",
     )
 
-    # A background-level guide spanning the whole panel, drawn under the data.
+    # A dashed background-level guide spanning the whole panel, drawn under
+    # the data.
     bax.axhline(2.0, color="gray", linestyle="--", linewidth=0.8)
 
     bax.set_ylabel("Asymmetry (%)")

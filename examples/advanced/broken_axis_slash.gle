@@ -17,7 +17,7 @@ begin graph
     yaxis min 0 max 30
     y2axis off
     data brokenslash_4.dat d1=c1,c2
-    d1 line smooth color GRAY lwidth 0.028224 lstyle 2 key ""
+    d1 line smooth color GRAY lwidth 0.028224 lstyle 3 key ""
     data brokenslash_0.dat d2=c1,c2 d3=c1,c3
     d2 marker FCIRCLE msize 0.1 color BLUE err d3 errwidth 0.0706 key "2 K"
     data brokenslash_2.dat d4=c1,c2 d5=c1,c3
@@ -45,7 +45,7 @@ begin graph
     yaxis min 0 max 30 off
     ylabels off
     data brokenslash_5.dat d6=c1,c2
-    d6 line smooth color GRAY lwidth 0.028224 lstyle 2 key ""
+    d6 line smooth color GRAY lwidth 0.028224 lstyle 3 key ""
     data brokenslash_0.dat d7=c1,c2 d8=c1,c3
     d7 marker FCIRCLE msize 0.1 color BLUE err d8 errwidth 0.0706 key "2 K"
     data brokenslash_2.dat d9=c1,c2 d10=c1,c3
