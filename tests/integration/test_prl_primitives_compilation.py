@@ -92,7 +92,7 @@ def test_every_marker_and_fill_combination_is_a_name_gle_accepts(
     """GLE rejects an unknown marker name outright, so this is a real check."""
     # The prefix is built from the index, not the marker symbol: '+' and '*'
     # are not valid characters in an unquoted GLE `data` filename.
-    fig = glp.figure(figsize=(3, 3), data_prefix=f"mk{index}{fill}")
+    fig = glp.figure(figsize=(3, 3), data_prefix=f"mk{index}{fill or 'solid'}")
     ax = fig.add_subplot(111)
     ax.plot(
         [1.0, 2.0, 3.0],

@@ -1,9 +1,10 @@
 """Figure class for gleplot."""
 
 import numpy as np
+import warnings
 from pathlib import Path
 from typing import Tuple, Optional, Literal
-from .axes import Axes
+from .axes import Axes, _sanitize_data_stem
 from .brokenaxes import BrokenAxes
 from .writer import GLEWriter
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
@@ -85,6 +86,16 @@ class Figure:
         data_prefix : str, optional
             Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
             If None, uses global counter with ``data_`` prefix.
+
+            The prefix is passed through the same sanitizer as a per-series
+            ``data_name`` (:func:`gleplot.axes._sanitize_data_stem`): it is
+            lowercased and every character outside ``[A-Za-z0-9_-]`` becomes an
+            underscore. Without this, a prefix such as ``'run+2'`` produced
+            ``data run+2_0.dat ...``, which GLE rejects at *compile* time
+            ("left hand side contains unquoted string") rather than failing
+            where the bad value was supplied. A prefix that had to be changed
+            raises a :class:`UserWarning` naming both spellings, so the
+            rewrite is never silent.
         """
         self.figsize = figsize
         self.dpi = dpi
@@ -98,7 +109,27 @@ class Figure:
         self.sharex = sharex
         self.sharey = sharey
 
-        # Custom data file naming
+        # Custom data file naming. An empty/None prefix keeps its "use the
+        # global data_N counter" meaning and is left alone; anything else is
+        # sanitized into something GLE can parse in a bare ``data`` command
+        # (see the docstring).
+        if data_prefix:
+            safe_prefix = _sanitize_data_stem(data_prefix)
+            # Warn only when a CHARACTER had to be substituted -- that is the
+            # case that would otherwise have blown up inside GLE. The
+            # sanitizer also lowercases, but mixed case is perfectly valid in
+            # a bare GLE filename, so a pure case change is a silent
+            # normalization (exactly as it already is for a per-series
+            # ``data_name``) rather than something to warn about.
+            if safe_prefix != str(data_prefix).lower():
+                warnings.warn(
+                    f"data_prefix={data_prefix!r} contains characters that are "
+                    f"not safe in a GLE data filename; using {safe_prefix!r} "
+                    "instead. Generated sidecars will be named accordingly.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            data_prefix = safe_prefix
         self.data_prefix = data_prefix
         self._local_data_counter = 0  # Local counter when using custom prefix
         self._used_data_files: set[str] = set()
