@@ -4,7 +4,7 @@ import numpy as np
 import re
 from typing import Optional, List, Union, Tuple
 from .colors import rgb_to_gle
-from .markers import get_gle_marker
+from .markers import get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
 from .palettes import canonical_cmap
 from .parser.units import markersize_to_msize, capsize_pt_to_cm
@@ -377,6 +377,21 @@ def _build_column_names(
     return _unique_column_names(names)
 
 
+def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
+    """Resolve the marker fill mode from the plotting methods' kwargs.
+
+    Accepts matplotlib's short aliases (``mfc`` for ``markerfacecolor``) out
+    of ``**kwargs`` so a call copied straight from a matplotlib script works,
+    and removes them so they never reach the series dict. Returns one of
+    ``'full'`` / ``'none'`` / ``'white'`` (see
+    :func:`gleplot.markers.resolve_marker_fill`).
+    """
+    mfc = kwargs.pop("mfc", None)
+    if markerfacecolor is None:
+        markerfacecolor = mfc
+    return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
+
+
 class Axes:
     """Matplotlib-like axes for plotting."""
 
@@ -448,6 +463,8 @@ class Axes:
         label: Optional[str] = None,
         yaxis: str = "y",
         offset: float = 0.0,
+        fillstyle: Optional[str] = None,
+        markerfacecolor: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -471,6 +488,12 @@ class Axes:
             Legend label
         yaxis : str, optional
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        fillstyle : {'full', 'none'}, optional
+            ``'none'`` draws an open (outline) marker instead of a filled one.
+        markerfacecolor : str, optional
+            ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
+            gives an outline marker with an opaque white interior. Also
+            accepted as the matplotlib alias ``mfc``.
         **kwargs
             Additional matplotlib-compatible arguments
 
@@ -480,6 +503,7 @@ class Axes:
             Line object (for compatibility)
         """
         data_name = kwargs.pop("data_name", None)
+        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
 
         x = np.asarray(x)
@@ -497,7 +521,9 @@ class Axes:
         # true scatter.
         is_scatter = marker is not None and linestyle in ("", "none", " ", "None")
 
-        gle_marker = get_gle_marker(marker) if marker is not None else None
+        gle_marker = (
+            get_gle_marker(marker, fill=marker_fill) if marker is not None else None
+        )
         plot_type = "scatter" if is_scatter else "line"
 
         # Scale markersize from matplotlib (typical 1-20, default 6) to GLE msize (0.05-0.5)
@@ -545,6 +571,8 @@ class Axes:
         capsize_cm: Optional[float] = None,
         yaxis: str = "y",
         offset: float = 0.0,
+        fillstyle: Optional[str] = None,
+        markerfacecolor: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -582,6 +610,12 @@ class Axes:
             If specified, this overrides `capsize`. Use this for direct control.
         yaxis : str, optional
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        fillstyle : {'full', 'none'}, optional
+            ``'none'`` draws an open (outline) marker instead of a filled one.
+        markerfacecolor : str, optional
+            ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
+            gives an outline marker with an opaque white interior. Also
+            accepted as the matplotlib alias ``mfc``.
         **kwargs
             Additional arguments
 
@@ -603,6 +637,7 @@ class Axes:
 
         >>> ax.errorbar(x, y, yerr=0.5, xerr=0.3)
         """
+        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
@@ -634,7 +669,7 @@ class Axes:
         # Determine GLE marker
         gle_marker = None
         if parsed_marker is not None:
-            gle_marker = get_gle_marker(parsed_marker)
+            gle_marker = get_gle_marker(parsed_marker, fill=marker_fill)
 
         # Scale markersize from matplotlib to GLE msize (with config scaling)
         gle_markersize = markersize_to_msize(
@@ -745,22 +780,30 @@ class Axes:
         label: Optional[str] = None,
         capsize: Optional[float] = None,
         yaxis: str = "y",
+        fillstyle: Optional[str] = None,
+        markerfacecolor: Optional[str] = None,
+        **kwargs,
     ):
         """Plot by referencing columns in an existing external data file.
 
         This avoids writing generated ``data_*.dat`` files. Column indices are
         1-based to match GLE conventions.
+
+        ``fillstyle='none'`` / ``markerfacecolor='none'`` (alias ``mfc``)
+        select an open marker; ``markerfacecolor='white'`` selects a
+        white-filled one.
         """
         if x_col < 1 or y_col < 1 or (yerr_col is not None and yerr_col < 1):
             raise ValueError("Column indices must be >= 1")
 
+        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
         if color is None:
             gle_color = "BLUE"
         else:
             gle_color = rgb_to_gle(color)
 
-        gle_marker = get_gle_marker(marker) if marker else None
+        gle_marker = get_gle_marker(marker, fill=marker_fill) if marker else None
         gle_markersize = markersize_to_msize(
             markersize, self.figure.marker_config.msize_scale
         )
@@ -834,6 +877,8 @@ class Axes:
         marker: str = "o",
         label: Optional[str] = None,
         yaxis: str = "y",
+        fillstyle: Optional[str] = None,
+        markerfacecolor: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -853,6 +898,12 @@ class Axes:
             Legend label
         yaxis : str, optional
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        fillstyle : {'full', 'none'}, optional
+            ``'none'`` draws open (outline) markers instead of filled ones.
+        markerfacecolor : str, optional
+            ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
+            gives outline markers with an opaque white interior. Also
+            accepted as the matplotlib alias ``mfc``.
         **kwargs
             Additional arguments
 
@@ -866,6 +917,12 @@ class Axes:
         # Convert to markersize: since area ~ size^2, markersize ~ sqrt(s)
         # Use factor of 1.2 for better visibility
         markersize = np.sqrt(s) * 1.2
+        # Collapse the two matplotlib fill controls (plus the ``mfc`` alias
+        # that may be sitting in **kwargs) here, then hand plot() a single
+        # canonical spelling. Resolving once means a bad value warns once,
+        # from the method the user actually called.
+        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
+        face = {"full": None, "none": "none", "white": "white"}[marker_fill]
         return self.plot(
             x,
             y,
@@ -875,6 +932,8 @@ class Axes:
             markersize=markersize,
             label=label,
             yaxis=yaxis,
+            markerfacecolor=face,
+            **kwargs,
         )
 
     def bar(
