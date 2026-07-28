@@ -16,6 +16,25 @@ PROJECT_FORMAT = "gleplot-project"
 PROJECT_VERSION = 1
 
 
+def _refline_axis_values(ax, orient: str):
+    """Data coordinates the guides of ``ax`` contribute to autoscaling.
+
+    ``orient`` is ``'v'`` (vertical guides -> x coordinates) or ``'h'``
+    (horizontal guides -> y coordinates). Only the guide's *data* coordinate
+    counts: the extent along the other axis is an axes fraction, so feeding it
+    back into autoscale would be circular.
+    """
+    values = []
+    for entry in getattr(ax, "reflines", ()):
+        if entry["orient"] == orient:
+            values.append(float(entry["value"]))
+    for entry in getattr(ax, "spans", ()):
+        if entry["orient"] == orient:
+            values.append(float(entry["start"]))
+            values.append(float(entry["end"]))
+    return values
+
+
 def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
     """Filter ``data`` down to the keys ``cls`` (a dataclass) accepts.
 
@@ -285,6 +304,22 @@ class Figure:
     def text(self, x, y, s, **kwargs):
         """Add text on current axes."""
         return self.gca().text(x, y, s, **kwargs)
+
+    def axvline(self, x=0.0, **kwargs):
+        """Vertical reference line on current axes."""
+        return self.gca().axvline(x, **kwargs)
+
+    def axhline(self, y=0.0, **kwargs):
+        """Horizontal reference line on current axes."""
+        return self.gca().axhline(y, **kwargs)
+
+    def axvspan(self, xmin, xmax, **kwargs):
+        """Shaded vertical band on current axes."""
+        return self.gca().axvspan(xmin, xmax, **kwargs)
+
+    def axhspan(self, ymin, ymax, **kwargs):
+        """Shaded horizontal band on current axes."""
+        return self.gca().axhspan(ymin, ymax, **kwargs)
 
     def imshow(self, Z, **kwargs):
         """Display gridded data as a heatmap on current axes."""
@@ -1087,8 +1122,12 @@ class Figure:
                 cdata, ct["color"], ct["linewidth"], ct["linestyle"]
             )
 
-        # Add fill regions (background)
-        for fill_data in ax.fills:
+        # Add fill regions (background). axvspan/axhspan bands are realized
+        # here too: they are declarations until the axis limits are known, and
+        # they belong in the same background layer as fills so the data series
+        # always draw on top of their guides.
+        limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
+        for fill_data in list(ax.fills) + ax.materialize_spans(limits):
             writer.add_fill_between(
                 fill_data["x"],
                 fill_data["y1"],
@@ -1098,6 +1137,24 @@ class Figure:
                 fill_data["alpha"],
                 offset=fill_data.get("offset", 0.0),
                 column_names=fill_data.get("column_names"),
+            )
+
+        # Reference lines (axvline/axhline), drawn above the shaded bands but
+        # still below every data series.
+        for ref_data in ax.materialize_reflines(limits):
+            writer.add_plot_line(
+                ref_data["x"],
+                ref_data["y"],
+                ref_data["data_file"],
+                color=ref_data["color"],
+                linestyle=ref_data["linestyle"],
+                linewidth=ref_data["linewidth"],
+                label=ref_data["label"],
+                marker=None,
+                markersize=ref_data["markersize"],
+                yaxis="y",
+                offset=0.0,
+                column_names=ref_data.get("column_names"),
             )
 
         # Add bar charts
@@ -1209,7 +1266,13 @@ class Figure:
         # Add legend if needed. legend_on is tri-state: None means auto
         # (show iff labels exist); True/False is an explicit user choice.
         legend_sources = (
-            ax.lines + ax.scatters + ax.bars + ax.errorbars + ax.file_series
+            ax.lines
+            + ax.scatters
+            + ax.bars
+            + ax.errorbars
+            + ax.file_series
+            + ax.reflines
+            + ax.spans
         )
         labels_present = any(series.get("label") for series in legend_sources)
         show_legend = ax.legend_on if ax.legend_on is not None else labels_present
@@ -1304,6 +1367,16 @@ class Figure:
             if xmax is None or x1 > xmax:
                 xmax = float(x1)
 
+        # Vertical guides carry a data x-coordinate and, like matplotlib's
+        # axvline/axvspan, participate in autoscaling. Horizontal ones do not:
+        # their x extent is an axes FRACTION, so including it would be
+        # circular.
+        for value in _refline_axis_values(ax, "v"):
+            if xmin is None or value < xmin:
+                xmin = value
+            if xmax is None or value > xmax:
+                xmax = value
+
         return xmin, xmax
 
     def _get_data_ylim(self, ax: Axes) -> Tuple[Optional[float], Optional[float]]:
@@ -1368,6 +1441,14 @@ class Figure:
                 ymin = float(y0)
             if ymax is None or y1 > ymax:
                 ymax = float(y1)
+
+        # Horizontal guides carry a data y-coordinate (see _get_data_xlim for
+        # the mirror-image reasoning).
+        for value in _refline_axis_values(ax, "h"):
+            if ymin is None or value < ymin:
+                ymin = value
+            if ymax is None or value > ymax:
+                ymax = value
 
         return ymin, ymax
 

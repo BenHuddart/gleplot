@@ -2,6 +2,7 @@
 
 import numpy as np
 import re
+import warnings
 from typing import Optional, List, Union, Tuple
 from .colors import rgb_to_gle
 from .markers import get_gle_marker, resolve_marker_fill
@@ -444,6 +445,13 @@ class Axes:
         self.texts = []  # In-plot text annotations
         self.heatmaps = []  # imshow/tripcolor colormap series
         self.contours = []  # contour/tricontour line series
+        # Reference lines (axvline/axhline) and shaded bands (axvspan/
+        # axhspan). Stored as *declarations* -- a value plus a fractional
+        # extent along the other axis -- and turned into concrete two-point
+        # line / band datasets only at write time, once the axis limits are
+        # known. See :meth:`materialize_reflines` for why.
+        self.reflines = []
+        self.spans = []
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model. Emitted verbatim inside this
@@ -1064,6 +1072,334 @@ class Axes:
 
         return self
 
+    # -- reference lines & shaded spans ----------------------------------
+    #
+    # matplotlib's axvline/axhline/axvspan/axhspan take one data coordinate
+    # (or a pair) and span the *whole* axis in the other direction. GLE has no
+    # equivalent primitive: everything inside a graph block is a dataset, and
+    # a dataset needs concrete numbers. Two consequences shape the design
+    # below.
+    #
+    # 1. The concrete end points are computed at WRITE time, not call time
+    #    (:meth:`materialize_reflines` / :meth:`materialize_spans`, called from
+    #    ``Figure._write_axes_content`` after the axis limits are resolved).
+    #    So a later ``set_ylim`` -- or autoscaling from data added after the
+    #    axvline call -- is respected, exactly as in matplotlib. The generated
+    #    ``.dat`` sidecar name, by contrast, is reserved at CALL time so it is
+    #    stable across repeated saves of the same figure.
+    #
+    # 2. Spans are emitted with the ``fill``s and reference lines immediately
+    #    after them, i.e. before bars/lines/scatters/errorbars, so data always
+    #    draws on top of its guides. (matplotlib gives axvspan a lower zorder
+    #    than lines for the same reason.)
+    #
+    # GLE clips datasets to the graph's axis range, so a guide whose value
+    # falls outside the visible range simply does not appear -- which is what
+    # makes these compose correctly with broken axes, where each segment shows
+    # only the guides that land inside it.
+
+    @staticmethod
+    def _check_axes_fraction(lo: float, hi: float, names: str) -> Tuple[float, float]:
+        """Validate a pair of axes-fraction bounds (matplotlib semantics)."""
+        lo = float(lo)
+        hi = float(hi)
+        if not (0.0 <= lo <= 1.0) or not (0.0 <= hi <= 1.0):
+            raise ValueError(f"{names} must be within [0, 1], got ({lo}, {hi})")
+        return lo, hi
+
+    def axvline(
+        self,
+        x: float = 0.0,
+        ymin: float = 0.0,
+        ymax: float = 1.0,
+        color: Optional[str] = None,
+        linestyle: str = "-",
+        linewidth: float = 1,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Draw a vertical reference line at data coordinate ``x``.
+
+        Parameters
+        ----------
+        x : float
+            Position of the line, in data coordinates.
+        ymin, ymax : float
+            Vertical extent as a fraction of the axes height (matplotlib
+            semantics): ``0`` is the bottom of the axes, ``1`` the top.
+        color : str, optional
+            Line colour. Default: black.
+        linestyle : str
+            ``'-'``, ``'--'``, ``':'`` or ``'-.'``.
+        linewidth : float
+            Line width in points.
+        label : str, optional
+            Legend label.
+
+        Returns
+        -------
+        dict
+            The stored declaration (also appended to ``self.reflines``).
+
+        Notes
+        -----
+        The line is realized as a two-point dataset whose end points are
+        computed when the figure is written, so it tracks any axis limits set
+        afterwards. It is drawn *underneath* the data series.
+        """
+        return self._add_refline(
+            "v", x, ymin, ymax, color, linestyle, linewidth, label, kwargs
+        )
+
+    def axhline(
+        self,
+        y: float = 0.0,
+        xmin: float = 0.0,
+        xmax: float = 1.0,
+        color: Optional[str] = None,
+        linestyle: str = "-",
+        linewidth: float = 1,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Draw a horizontal reference line at data coordinate ``y``.
+
+        ``xmin``/``xmax`` are the horizontal extent as a fraction of the axes
+        width (matplotlib semantics). See :meth:`axvline` for the rest.
+        """
+        return self._add_refline(
+            "h", y, xmin, xmax, color, linestyle, linewidth, label, kwargs
+        )
+
+    def _add_refline(
+        self, orient, value, lo, hi, color, linestyle, linewidth, label, kwargs
+    ):
+        """Shared implementation of :meth:`axvline` / :meth:`axhline`."""
+        names = "ymin/ymax" if orient == "v" else "xmin/xmax"
+        lo, hi = self._check_axes_fraction(lo, hi, names)
+        data_name = kwargs.pop("data_name", None)
+        label = mathtext_to_gle(label)
+        gle_color = "BLACK" if color is None else rgb_to_gle(color)
+
+        entry = {
+            "type": "refline",
+            "orient": orient,
+            "value": float(value),
+            "span_lo": lo,
+            "span_hi": hi,
+            "color": gle_color,
+            "linestyle": linestyle,
+            "linewidth": linewidth,
+            "label": label,
+            "data_file": _resolve_data_file(self.figure, data_name),
+            "column_names": _build_column_names("x", ["y"], label),
+        }
+        self.reflines.append(entry)
+        return entry
+
+    def axvspan(
+        self,
+        xmin: float,
+        xmax: float,
+        ymin: float = 0.0,
+        ymax: float = 1.0,
+        color: Optional[str] = None,
+        alpha: float = 0.3,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Shade the vertical band between data coordinates ``xmin`` and ``xmax``.
+
+        Parameters
+        ----------
+        xmin, xmax : float
+            Band edges, in data coordinates.
+        ymin, ymax : float
+            Vertical extent as a fraction of the axes height (matplotlib
+            semantics).
+        color : str, optional
+            Fill colour. Default: light gray.
+        alpha : float
+            Stored for matplotlib API compatibility but **not rendered**:
+            GLE 4.3.10 refuses semi-transparency unless it is driven with
+            ``-cairo`` ("semi-transparency only supported with command line
+            option '-cairo'"), which gleplot's compiler does not use. Pick a
+            light colour instead. This matches the existing behaviour of
+            :meth:`fill_between`.
+        label : str, optional
+            Legend label.
+
+        Returns
+        -------
+        dict
+            The stored declaration (also appended to ``self.spans``).
+        """
+        return self._add_span("v", xmin, xmax, ymin, ymax, color, alpha, label, kwargs)
+
+    def axhspan(
+        self,
+        ymin: float,
+        ymax: float,
+        xmin: float = 0.0,
+        xmax: float = 1.0,
+        color: Optional[str] = None,
+        alpha: float = 0.3,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Shade the horizontal band between data coordinates ``ymin`` and ``ymax``.
+
+        ``xmin``/``xmax`` are the horizontal extent as a fraction of the axes
+        width (matplotlib semantics). See :meth:`axvspan` for the rest,
+        including the ``alpha`` caveat.
+        """
+        return self._add_span("h", ymin, ymax, xmin, xmax, color, alpha, label, kwargs)
+
+    def _add_span(self, orient, start, end, lo, hi, color, alpha, label, kwargs):
+        """Shared implementation of :meth:`axvspan` / :meth:`axhspan`."""
+        names = "ymin/ymax" if orient == "v" else "xmin/xmax"
+        lo, hi = self._check_axes_fraction(lo, hi, names)
+        data_name = kwargs.pop("data_name", None)
+        label = mathtext_to_gle(label)
+        gle_color = "LIGHTGRAY" if color is None else rgb_to_gle(color)
+
+        entry = {
+            "type": "span",
+            "orient": orient,
+            "start": float(start),
+            "end": float(end),
+            "span_lo": lo,
+            "span_hi": hi,
+            "color": gle_color,
+            "alpha": float(alpha),
+            "label": label,
+            "data_file": _resolve_data_file(self.figure, data_name),
+            "column_names": _unique_column_names(["x", "upper", "lower"]),
+        }
+        self.spans.append(entry)
+        return entry
+
+    @staticmethod
+    def _fraction_to_data(lo: float, hi: float, vmin: float, vmax: float):
+        """Map an axes-fraction pair onto the data range ``[vmin, vmax]``."""
+        span = vmax - vmin
+        return vmin + lo * span, vmin + hi * span
+
+    def materialize_reflines(self, limits) -> List[dict]:
+        """Turn ``self.reflines`` into concrete two-point line series.
+
+        Parameters
+        ----------
+        limits : tuple
+            ``(xmin, xmax, ymin, ymax)`` -- the axis limits actually being
+            written. Any of them may be ``None`` if they could not be
+            resolved (an axes with no data at all), in which case the
+            affected guides are skipped with a warning rather than emitting a
+            dataset full of ``None``.
+
+        Returns
+        -------
+        list of dict
+            Line dicts in the same shape ``plot()`` produces, ready for
+            ``GLEWriter.add_plot_line``. Nothing is stored back on the axes,
+            so writing a figure twice does not duplicate content.
+        """
+        xmin, xmax, ymin, ymax = limits
+        out = []
+        for entry in self.reflines:
+            if entry["orient"] == "v":
+                if ymin is None or ymax is None:
+                    self._warn_unresolved("axvline", "y")
+                    continue
+                y0, y1 = self._fraction_to_data(
+                    entry["span_lo"], entry["span_hi"], ymin, ymax
+                )
+                x = np.array([entry["value"], entry["value"]], dtype=float)
+                y = np.array([y0, y1], dtype=float)
+            else:
+                if xmin is None or xmax is None:
+                    self._warn_unresolved("axhline", "x")
+                    continue
+                x0, x1 = self._fraction_to_data(
+                    entry["span_lo"], entry["span_hi"], xmin, xmax
+                )
+                x = np.array([x0, x1], dtype=float)
+                y = np.array([entry["value"], entry["value"]], dtype=float)
+
+            out.append(
+                {
+                    "type": "line",
+                    "x": x,
+                    "y": y,
+                    "color": entry["color"],
+                    "marker": None,
+                    "markersize": 0.1,
+                    "linestyle": entry["linestyle"],
+                    "linewidth": entry["linewidth"],
+                    "label": entry["label"],
+                    "yaxis": "y",
+                    "offset": 0.0,
+                    "data_file": entry["data_file"],
+                    "column_names": entry["column_names"],
+                }
+            )
+        return out
+
+    def materialize_spans(self, limits) -> List[dict]:
+        """Turn ``self.spans`` into concrete fill-between series.
+
+        See :meth:`materialize_reflines`; the same contract applies (nothing
+        is stored back, unresolvable limits skip with a warning).
+        """
+        xmin, xmax, ymin, ymax = limits
+        out = []
+        for entry in self.spans:
+            if entry["orient"] == "v":
+                if ymin is None or ymax is None:
+                    self._warn_unresolved("axvspan", "y")
+                    continue
+                y0, y1 = self._fraction_to_data(
+                    entry["span_lo"], entry["span_hi"], ymin, ymax
+                )
+                x = np.array([entry["start"], entry["end"]], dtype=float)
+                upper = np.array([y1, y1], dtype=float)
+                lower = np.array([y0, y0], dtype=float)
+            else:
+                if xmin is None or xmax is None:
+                    self._warn_unresolved("axhspan", "x")
+                    continue
+                x0, x1 = self._fraction_to_data(
+                    entry["span_lo"], entry["span_hi"], xmin, xmax
+                )
+                x = np.array([x0, x1], dtype=float)
+                upper = np.array([entry["end"], entry["end"]], dtype=float)
+                lower = np.array([entry["start"], entry["start"]], dtype=float)
+
+            out.append(
+                {
+                    "x": x,
+                    "y1": upper,
+                    "y2": lower,
+                    "color": entry["color"],
+                    "alpha": entry["alpha"],
+                    "label": entry["label"],
+                    "offset": 0.0,
+                    "data_file": entry["data_file"],
+                    "column_names": entry["column_names"],
+                }
+            )
+        return out
+
+    @staticmethod
+    def _warn_unresolved(what: str, axis: str) -> None:
+        warnings.warn(
+            f"{what}() was dropped: the {axis}-axis limits could not be "
+            f"resolved (the axes has no data and no explicit set_{axis}lim), "
+            f"so the line/band has no extent to span.",
+            UserWarning,
+            stacklevel=3,
+        )
+
     def text(
         self,
         x: float,
@@ -1651,6 +1987,8 @@ class Axes:
             or self.file_series
             or self.heatmaps
             or self.contours
+            or self.reflines
+            or self.spans
         )
 
     def has_y2_plots(self) -> bool:
@@ -1676,6 +2014,10 @@ class Axes:
         "texts": (),
         "heatmaps": ("z", "x", "y", "zpts"),
         "contours": ("z", "x", "y", "zpts"),
+        # Reference lines/spans store scalar declarations only (the arrays
+        # are built at write time), so there is nothing to restore as ndarray.
+        "reflines": (),
+        "spans": (),
     }
 
     # Series list attributes serialized on every axes, in a stable order.
@@ -1689,6 +2031,8 @@ class Axes:
         "texts",
         "heatmaps",
         "contours",
+        "reflines",
+        "spans",
     )
 
     @staticmethod
@@ -1709,8 +2053,10 @@ class Axes:
             return _build_column_names("x", ["y"], label)
         if attr == "bars":
             return _build_column_names("x", ["height"], label)
-        if attr == "fills":
+        if attr in ("fills", "spans"):
             return _unique_column_names(["x", "upper", "lower"])
+        if attr == "reflines":
+            return _build_column_names("x", ["y"], label)
         if attr == "errorbars":
             return _build_errorbar_column_names(
                 label,
@@ -1769,6 +2115,8 @@ class Axes:
             "texts": [_to_jsonable(d) for d in self.texts],
             "heatmaps": [_to_jsonable(d) for d in self.heatmaps],
             "contours": [_to_jsonable(d) for d in self.contours],
+            "reflines": [_to_jsonable(d) for d in self.reflines],
+            "spans": [_to_jsonable(d) for d in self.spans],
             "passthrough": list(self.passthrough),
         }
 

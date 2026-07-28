@@ -72,6 +72,15 @@ Guide for placing text labels in data coordinates with alignment and callout box
 - Font and color examples
 - Boxed annotation patterns
 
+### [REFERENCE_LINES_AND_SPANS.md](guides/REFERENCE_LINES_AND_SPANS.md)
+Guide for `axvline`, `axhline`, `axvspan` and `axhspan`.
+
+**Contains:**
+- Data coordinates vs. axes-fraction extents
+- Write-time materialization and autoscaling
+- Draw order relative to data series
+- The GLE 4.3.10 `alpha` limitation
+
 ### [FILE_BASED_SERIES.md](guides/FILE_BASED_SERIES.md)
 Guide for plotting directly from existing tabular data files.
 
@@ -250,6 +259,8 @@ gleplot/
 │       ├── CONFIGURATION.md
 │       ├── CONFIGURATION_API.md
 │       ├── TEXT_ANNOTATIONS.md
+│       ├── REFERENCE_LINES_AND_SPANS.md
+│       ├── BROKEN_AXES.md
 │       ├── FILE_BASED_SERIES.md
 │       ├── COLORS_AND_MARKERS.md
 │       ├── MATPLOTLIB_MIGRATION.md

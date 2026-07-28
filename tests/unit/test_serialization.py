@@ -389,6 +389,8 @@ _AXES_SERIALIZED_ATTRS = {
     "texts",
     "heatmaps",
     "contours",
+    "reflines",
+    "spans",
     "passthrough",
 }
 

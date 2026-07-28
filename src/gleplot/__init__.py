@@ -196,6 +196,26 @@ def text(*args, **kwargs):
     return gca().text(*args, **kwargs)
 
 
+def axvline(*args, **kwargs):
+    """Vertical reference line on current axes."""
+    return gca().axvline(*args, **kwargs)
+
+
+def axhline(*args, **kwargs):
+    """Horizontal reference line on current axes."""
+    return gca().axhline(*args, **kwargs)
+
+
+def axvspan(*args, **kwargs):
+    """Shaded vertical band on current axes."""
+    return gca().axvspan(*args, **kwargs)
+
+
+def axhspan(*args, **kwargs):
+    """Shaded horizontal band on current axes."""
+    return gca().axhspan(*args, **kwargs)
+
+
 def imshow(*args, **kwargs):
     """Display gridded data as a heatmap on current axes."""
     return gca().imshow(*args, **kwargs)
@@ -399,6 +419,10 @@ __all__ = [
     "fill_between",
     "errorbar",
     "text",
+    "axvline",
+    "axhline",
+    "axvspan",
+    "axhspan",
     "imshow",
     "contour",
     "tripcolor",
