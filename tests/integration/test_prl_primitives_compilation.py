@@ -156,3 +156,21 @@ def test_prl_fig2a_style_panel_compiles(tmp_path):
 
     out = fig.savefig(str(tmp_path / "prl.pdf"))
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_coloured_text_ending_a_panel_compiles_and_does_not_leak(tmp_path):
+    """Real-GLE compile check for the 2026-07-29 colour-state-leak fix.
+
+    ``tests/unit/test_text.py``'s ``TestColorStateDoesNotLeakAcrossPanels``
+    pins the emitted GLE text; this confirms real GLE actually accepts the
+    gsave/grestore-wrapped output (a syntax GLE could in principle reject)
+    and produces a non-empty PDF.
+    """
+    fig, axes = glp.subplots(2, 1, sharex=True, figsize=(3.4, 4.0), data_prefix="leak")
+    axes[0].plot([0, 1, 2], [0, 1, 2], color="blue")
+    axes[0].text(1, 1, "PM", color="green", ha="center")
+    axes[1].plot([0, 1, 2], [0, 2, 1], color="blue")
+    axes[1].set_xlabel("t (\\mu s)")
+
+    out = fig.savefig(str(tmp_path / "colour_leak.pdf"))
+    assert out.exists() and out.stat().st_size > 0

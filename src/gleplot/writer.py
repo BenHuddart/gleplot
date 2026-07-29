@@ -176,13 +176,44 @@ class GLEWriter:
             Raw lines recovered from a parsed ``.gle`` file that belong
             inside this graph block; emitted verbatim immediately before
             'end graph'. Omitted entirely when falsy (no blank-line churn).
+
+        Notes
+        -----
+        The deferred graph-data-coordinate text queued by :meth:`add_text`
+        (``_pending_graph_text_lines``) is flushed here, AFTER 'end graph' --
+        that is deliberate (GLE's ``xg()``/``yg()`` need the graph that just
+        closed) but it means any 'set color'/'set hei'/'set just' the text
+        needed is emitted at the PAGE level, where it is sticky interpreter
+        state exactly like the broken-axis seam decoration (see the comment
+        above :meth:`add_break_divider`). Left unguarded, a coloured text
+        element ending one panel would leak its colour into the axes/ticks
+        of the NEXT 'begin graph' block, which draws them with whatever
+        colour is currently ambient. The flush is therefore wrapped in
+        gsave/grestore, same idiom as the seam decoration, so the colour
+        (and height/justification) reverts to ambient the moment this
+        panel's text is done -- and the writer's own sticky-state trackers
+        are reset alongside it (see ``_text_state_*`` below), since grestore
+        changes the REAL GLE state but not this Python-side bookkeeping.
         """
         if passthrough:
             self.lines_gle.extend(passthrough)
         self.lines_gle.append("end graph")
         if self._pending_graph_text_lines:
+            self.lines_gle.append("gsave")
             self.lines_gle.extend(self._pending_graph_text_lines)
+            self.lines_gle.append("grestore")
             self._pending_graph_text_lines = []
+            # grestore reverted the ambient GLE state to what it was before
+            # this panel's gsave (i.e. the script-start default: BLACK,
+            # style-default height, left-justified) -- resync the sticky
+            # trackers to match, or the NEXT panel's add_text calls would
+            # wrongly skip restating a 'set color'/'set hei'/'set just' that
+            # real GLE no longer has in effect.
+            self._text_state_hei_cm = self._format_number(
+                fontsize_pt_to_cm(self.style.fontsize)
+            )
+            self._text_state_color = "BLACK"
+            self._text_state_just = "left"
 
     def add_amove(self, x_cm: float, y_cm: float):
         """Add absolute move command to position the next graph.
