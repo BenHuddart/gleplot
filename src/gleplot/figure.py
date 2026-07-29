@@ -3,7 +3,7 @@
 import numpy as np
 import warnings
 from pathlib import Path
-from typing import Tuple, Optional, Literal
+from typing import Tuple, Optional, Literal, Sequence, List
 from .axes import Axes, _sanitize_data_stem
 from .brokenaxes import BrokenAxes
 from .writer import GLEWriter
@@ -78,6 +78,8 @@ class Figure:
         sharex: bool = False,
         sharey: bool = False,
         data_prefix: Optional[str] = None,
+        height_ratios: Optional[Sequence[float]] = None,
+        width_ratios: Optional[Sequence[float]] = None,
     ):
         """Initialize figure with optional configuration objects.
 
@@ -96,6 +98,21 @@ class Figure:
             where the bad value was supplied. A prefix that had to be changed
             raises a :class:`UserWarning` naming both spellings, so the
             rewrite is never silent.
+        height_ratios : sequence of float, optional
+            Relative height of each subplot ROW, matplotlib-``gridspec``
+            style, e.g. ``[3, 3, 3, 1, 4]`` for a 5-row grid whose 4th row is
+            thin. ``None`` (default) keeps every row the same height -- the
+            historical behaviour, byte-identical output. Applies only to the
+            multi-subplot grid layout (``add_subplot``/:func:`gleplot.subplots`
+            with more than one axes); ignored for a single (1,1,1) axes.
+            Checked against the actual number of subplot rows at GLE-
+            generation time (:meth:`Figure.savefig`/:meth:`savefig_gle`),
+            since the grid shape is not always known yet when the figure is
+            constructed -- a length mismatch raises :class:`ValueError` then,
+            naming both the given length and the row count found.
+        width_ratios : sequence of float, optional
+            Relative width of each subplot COLUMN. Same semantics, defaults
+            and validation timing as ``height_ratios``, but for columns.
         """
         self.figsize = figsize
         self.dpi = dpi
@@ -134,6 +151,17 @@ class Figure:
         self._local_data_counter = 0  # Local counter when using custom prefix
         self._used_data_files: set[str] = set()
         self._subplot_adjust: dict[str, float] = {}
+
+        # Per-row/per-column relative sizes for the multi-subplot grid
+        # (matplotlib-style height_ratios/width_ratios). None (the default)
+        # means equal sizes -- see _grid_axis_sizes for how this combines
+        # with subplots_adjust's wspace/hspace.
+        self.height_ratios = (
+            [float(r) for r in height_ratios] if height_ratios is not None else None
+        )
+        self.width_ratios = (
+            [float(r) for r in width_ratios] if width_ratios is not None else None
+        )
 
         self.axes_list = []  # List of Axes objects
         self._current_axes = None  # Current working axes
@@ -368,6 +396,94 @@ class Figure:
                 ax._remove_last_xtick = False
                 ax._remove_first_xtick = False
                 ax._remove_first_xtick = False
+
+    @staticmethod
+    def _grid_axis_sizes(
+        ratios: Optional[Sequence[float]],
+        n: int,
+        avail_cm: float,
+        gap_frac: Optional[float],
+        default_gap_cm: float,
+        param_name: str,
+    ) -> Tuple[List[float], float]:
+        """Per-cell sizes (cm) and the inter-cell gap (cm) along one grid axis.
+
+        Shared by the row (``height_ratios``) and column (``width_ratios``)
+        cases in the multi-subplot layout.
+
+        Parameters
+        ----------
+        ratios : sequence of float, optional
+            ``None`` for equal sizes (the pre-existing behaviour), or ``n``
+            positive relative sizes, matplotlib ``height_ratios``/
+            ``width_ratios`` style.
+        n : int
+            Number of rows (or columns) in the grid.
+        avail_cm : float
+            Total space available along this axis, after margins.
+        gap_frac : float, optional
+            A ``subplots_adjust`` ``wspace``/``hspace`` override: the gap as
+            a fraction of the UNIT cell (the size a ratio of 1.0 gets).
+            ``None`` uses ``default_gap_cm`` verbatim.
+        default_gap_cm : float
+            Gap (cm) to use when ``gap_frac`` is ``None``.
+        param_name : str
+            ``'height_ratios'`` or ``'width_ratios'``, for the error message.
+
+        Returns
+        -------
+        sizes : list of float
+            One size (cm) per row/column.
+        gap : float
+            The resolved gap (cm) between adjacent cells.
+
+        Notes
+        -----
+        With uniform ratios (the default, ``ratios=None``) this reproduces
+        the historical ``cell_w``/``cell_h`` and ``hspace``/``vspace``
+        formulas exactly: a figure that does not use ``height_ratios``/
+        ``width_ratios`` gets byte-identical output to before they existed.
+
+        The gap is defined as a fraction of the UNIT cell -- the size a
+        ratio of 1.0 would receive -- rather than of any one row/column's
+        actual size, so it stays independent of the ratios themselves
+        (a ``hspace`` chosen for a uniform grid keeps looking the same after
+        some rows are made thinner or thicker).
+
+        Raises
+        ------
+        ValueError
+            If ``ratios`` is given but its length does not equal ``n``, or
+            any entry is not strictly positive.
+        """
+        if ratios is None:
+            resolved = [1.0] * n
+        else:
+            if len(ratios) != n:
+                noun = "rows" if param_name == "height_ratios" else "columns"
+                raise ValueError(
+                    f"{param_name} has length {len(ratios)}, but the subplot "
+                    f"grid has {n} {noun}"
+                )
+            if any(r <= 0 for r in ratios):
+                raise ValueError(
+                    f"{param_name} entries must all be positive, got {list(ratios)}"
+                )
+            resolved = [float(r) for r in ratios]
+
+        total_ratio = float(sum(resolved))
+
+        if n > 1 and gap_frac is not None:
+            denom = total_ratio + gap_frac * (n - 1)
+            unit = avail_cm / denom if denom > 0 else avail_cm / total_ratio
+            gap = gap_frac * unit
+        else:
+            gap = default_gap_cm
+            usable = avail_cm - (n - 1) * gap
+            unit = usable / total_ratio
+
+        sizes = [r * unit for r in resolved]
+        return sizes, gap
 
     def gca(self) -> Axes:
         """Get current axes (or create if needed)."""
@@ -908,23 +1024,42 @@ class Figure:
             wspace_frac = self._subplot_adjust.get("wspace")
             hspace_frac = self._subplot_adjust.get("hspace")
 
-            if max_cols > 1 and wspace_frac is not None:
-                denom = max_cols + wspace_frac * (max_cols - 1)
-                cell_w = avail_w / denom if denom > 0 else avail_w / max_cols
-                hspace = wspace_frac * cell_w
-            else:
-                hspace = default_hspace_cm
-                usable_w = avail_w - (max_cols - 1) * hspace
-                cell_w = usable_w / max_cols
+            # Per-column widths / per-row heights (cm), plus the resolved
+            # gap. Equal-size unless height_ratios/width_ratios were given at
+            # construction time (see _grid_axis_sizes); the equal-ratios path
+            # reproduces the historical cell_w/cell_h/hspace/vspace formulas
+            # exactly.
+            col_widths, hspace = self._grid_axis_sizes(
+                self.width_ratios,
+                max_cols,
+                avail_w,
+                wspace_frac,
+                default_hspace_cm,
+                "width_ratios",
+            )
+            row_heights, vspace = self._grid_axis_sizes(
+                self.height_ratios,
+                max_rows,
+                avail_h,
+                hspace_frac,
+                default_vspace_cm,
+                "height_ratios",
+            )
 
-            if max_rows > 1 and hspace_frac is not None:
-                denom = max_rows + hspace_frac * (max_rows - 1)
-                cell_h = avail_h / denom if denom > 0 else avail_h / max_rows
-                vspace = hspace_frac * cell_h
-            else:
-                vspace = default_vspace_cm
-                usable_h = avail_h - (max_rows - 1) * vspace
-                cell_h = usable_h / max_rows
+            # Cumulative left edge per column and bottom edge per row (GLE
+            # coordinates: origin bottom-left, y increases upward), built
+            # once so unequal row/column sizes are placed correctly -- with
+            # equal sizes this reduces to the historical
+            # ``margin + i * (cell + gap)`` arithmetic.
+            col_x_offsets = [margin_left]
+            for w in col_widths[:-1]:
+                col_x_offsets.append(col_x_offsets[-1] + w + hspace)
+
+            row_y_bottoms = []
+            consumed_h = margin_top
+            for h in row_heights:
+                row_y_bottoms.append(writer.height_cm - consumed_h - h)
+                consumed_h += h + vspace
 
             for ax in self.axes_list:
                 rows, cols, idx = ax.position
@@ -932,11 +1067,10 @@ class Figure:
                 row = (idx - 1) // cols  # 0-based, 0 = top row
                 col = (idx - 1) % cols  # 0-based, 0 = left col
 
-                # GLE coordinates: origin is bottom-left, y increases upward
-                cell_x = margin_left + col * (cell_w + hspace)
-                y_pos = (
-                    writer.height_cm - margin_top - (row + 1) * cell_h - row * vspace
-                )
+                cell_x = col_x_offsets[col]
+                cell_w = col_widths[col]
+                cell_h = row_heights[row]
+                y_pos = row_y_bottoms[row]
 
                 # A broken-axis segment occupies a slice of its grid cell
                 # rather than the whole thing; everything else about the
@@ -1785,6 +1919,12 @@ class Figure:
             "global_data_counter": _axes_module._global_data_file_counter,
             "used_data_files": sorted(self._used_data_files),
             "subplot_adjust": {k: float(v) for k, v in self._subplot_adjust.items()},
+            "height_ratios": (
+                list(self.height_ratios) if self.height_ratios is not None else None
+            ),
+            "width_ratios": (
+                list(self.width_ratios) if self.width_ratios is not None else None
+            ),
             "passthrough_header": list(self.passthrough_header),
             "passthrough_trailer": list(self.passthrough_trailer),
             "metadata_extra": dict(self.metadata_extra),
@@ -1895,6 +2035,8 @@ class Figure:
             sharex=fig_block.get("sharex", False),
             sharey=fig_block.get("sharey", False),
             data_prefix=fig_block.get("data_prefix"),
+            height_ratios=fig_block.get("height_ratios"),
+            width_ratios=fig_block.get("width_ratios"),
         )
 
         fig._local_data_counter = fig_block.get("local_data_counter", 0)

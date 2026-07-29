@@ -432,6 +432,8 @@ _FIGURE_SERIALIZED_ATTRS = {
     "_local_data_counter",
     "_used_data_files",
     "_subplot_adjust",
+    "height_ratios",
+    "width_ratios",
     "style",
     "graph",
     "marker_config",

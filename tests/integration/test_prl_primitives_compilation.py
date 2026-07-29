@@ -174,3 +174,27 @@ def test_coloured_text_ending_a_panel_compiles_and_does_not_leak(tmp_path):
 
     out = fig.savefig(str(tmp_path / "colour_leak.pdf"))
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_height_ratios_five_row_stack_compiles(tmp_path):
+    """Real-GLE compile check for ``height_ratios``: the PRL LF/J(omega)
+    figure shape this was built for -- 3 flush lambda panels, a SHORT
+    separator row for tick labels, and a 4th panel.
+    """
+    fig, axes = glp.subplots(
+        5, 1, sharex=True, figsize=(3.386, 5.5), data_prefix="hratio",
+        height_ratios=[3, 3, 3, 1, 4],
+    )
+    for i, ax in enumerate(axes[:3]):
+        ax.plot(T, _asymmetry(T) * (i + 1) / 3.0, color="blue")
+        ax.set_ylabel(f"\\lambda_{i} (\\mu s^{{-1}})")
+    # The short separator row (index 3) intentionally carries no series --
+    # it exists purely so the shared x tick labels have somewhere to sit
+    # without stealing height from a real panel.
+    axes[3].set_ylim(0.0, 1.0)
+    axes[4].plot(T, np.cos(T * 5.0), color="red")
+    axes[4].set_ylabel("J(\\omega)")
+    axes[4].set_xlabel("t (\\mu s)")
+
+    out = fig.savefig(str(tmp_path / "height_ratios_5row.pdf"))
+    assert out.exists() and out.stat().st_size > 0
