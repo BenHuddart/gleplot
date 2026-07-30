@@ -28,14 +28,14 @@ class TestColorMapping(unittest.TestCase):
         self.assertEqual(rgb_to_gle('green'), 'GREEN')
     
     def test_rgb_tuple(self):
-        """Test RGB tuple conversion."""
+        """RGB tuples convert to exact rgb255() expressions, never snapped."""
         # Pure blue
         color = rgb_to_gle((0.0, 0.0, 1.0))
-        self.assertEqual(color, 'BLUE')
-        
+        self.assertEqual(color, 'rgb255(0,0,255)')
+
         # Pure red
         color = rgb_to_gle((1.0, 0.0, 0.0))
-        self.assertEqual(color, 'RED')
+        self.assertEqual(color, 'rgb255(255,0,0)')
 
 
 class TestMarkerMapping(unittest.TestCase):

@@ -5,13 +5,12 @@ current axes and a style editor for whichever series is selected.
 
 Stored-representation conventions mirrored here (see ``gleplot/axes.py``):
 
-- ``color``: GLE color name string (e.g. ``'BLUE'``), produced by
-  ``colors.rgb_to_gle``. There is no official GLE-name -> RGB inverse in
-  ``colors.py``; :data:`_GLE_COLOR_TO_RGB` below is this panel's best-effort
-  inverse (built from the same named-color table) purely so the color
-  dialog can show a representative swatch. Colors that can't be mapped
-  (unlikely, since only the fixed GLE palette is ever stored) fall back to
-  black, as instructed.
+- ``color``: GLE color token string, produced by ``colors.rgb_to_gle`` --
+  either a GLE color name (e.g. ``'BLUE'``) when the user named one, or an
+  exact ``rgb255(r,g,b)`` expression for a hex/RGB/cycle color.
+  ``colors.gle_color_to_rgb255`` inverts both forms (see
+  :func:`_swatch_rgb`) so the color dialog opens on the true color; an
+  unresolvable token falls back to black, as instructed.
 - ``marker``: GLE marker name string (e.g. ``'FCIRCLE'``) or ``None`` for
   no marker, produced by ``markers.get_gle_marker``. The combo shows
   matplotlib-style codes ('o', 's', '^', ...) and translates through
@@ -102,7 +101,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gleplot.colors import rgb_to_gle
+from gleplot.colors import gle_color_to_rgb255, rgb_to_gle
 from gleplot.markers import get_gle_marker
 from gleplot.mathtext import mathtext_to_gle
 from gleplot.palettes import SUPPORTED_CMAPS, canonical_cmap
@@ -136,33 +135,17 @@ _MARKER_CODES = ("none", "o", "s", "^", "v", "D", "*", "p", "+", "x", ".")
 #: linestyle codes as stored verbatim in the series dicts.
 _LINESTYLE_CODES = ("-", "--", ":", "-.", "none")
 
-#: Best-effort inverse of colors.MATPLOTLIB_TO_GLE_COLORS / GLE_COLORS,
-#: for initializing the QColorDialog swatch from a stored GLE color name.
-#: colors.py has no official reverse mapping; these RGB triples are chosen
-#: to render sensibly and are not meant to be exact GLE hues.
-_GLE_COLOR_TO_RGB = {
-    "BLUE": (0, 0, 255),
-    "RED": (255, 0, 0),
-    "GREEN": (0, 128, 0),
-    "CYAN": (0, 255, 255),
-    "MAGENTA": (255, 0, 255),
-    "YELLOW": (255, 255, 0),
-    "BLACK": (0, 0, 0),
-    "WHITE": (255, 255, 255),
-    "ORANGE": (255, 165, 0),
-    "PURPLE": (128, 0, 128),
-    "BROWN": (165, 42, 42),
-    "PINK": (255, 192, 203),
-    "GRAY": (128, 128, 128),
-    "LIGHTBLUE": (173, 216, 230),
-    "LIGHTGREEN": (144, 238, 144),
-    "LIGHTCYAN": (224, 255, 255),
-    "LIGHTGRAY": (211, 211, 211),
-    "DARKBLUE": (0, 0, 139),
-    "DARKGREEN": (0, 100, 0),
-    "DARKRED": (139, 0, 0),
-    "DARKGRAY": (169, 169, 169),
-}
+
+def _swatch_rgb(color_value) -> tuple:
+    """RGB triple for the colour swatch/dialog, from a stored colour token.
+
+    ``colors.gle_color_to_rgb255`` resolves both forms the object model can
+    hold -- a GLE colour name and an exact ``rgb255(r,g,b)`` expression -- so
+    the swatch shows the true colour rather than an approximation. Anything
+    unresolvable falls back to black.
+    """
+    return gle_color_to_rgb255(str(color_value)) or (0, 0, 0)
+
 
 #: Inverse of markers.MATPLOTLIB_TO_GLE_MARKERS, best-effort (several
 #: matplotlib codes map to the same GLE marker; we pick one representative
@@ -525,7 +508,7 @@ class SeriesPanel(QWidget):
             self.label_edit.setText(series.get("label") or "")
 
             color_value = self._series_color(kind, series)
-            rgb = _GLE_COLOR_TO_RGB.get(str(color_value).upper(), (0, 0, 0))
+            rgb = _swatch_rgb(color_value)
             self._current_color_rgb = rgb
             self._update_color_swatch(rgb)
 
