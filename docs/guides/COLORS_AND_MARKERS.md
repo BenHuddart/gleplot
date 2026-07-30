@@ -67,3 +67,7 @@ You can also use GLE names directly:
 - Marker size in `plot` and `errorbar` uses `markersize` (matplotlib-style) and is scaled internally for GLE.
 - Marker size in `scatter` uses `s` (area-like style) and is converted to a GLE marker size.
 - If a color or marker cannot be resolved, gleplot falls back to defaults (`BLACK` for color, `FCIRCLE` for marker).
+- Error bars take the series `color`, and so do their caps -- including bars-only
+  series (`fmt='none'`, no marker and no line) and `capsize=0`. GLE draws error
+  bars in the dataset's colour and an unstyled dataset renders black, so gleplot
+  always emits a `color` qualifier on an errorbar dataset.

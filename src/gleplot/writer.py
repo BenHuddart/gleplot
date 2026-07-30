@@ -843,10 +843,18 @@ class GLEWriter:
             gle_lwidth = linewidth_pt_to_cm(linewidth)
 
         # Add line/marker styling
+        has_line = linestyle not in ("", "none", " ", "None")
+        # GLE draws error bars (and their caps) in the DATASET's colour, which
+        # only ever gets set by a ``color`` qualifier on the ``dN`` command --
+        # an unstyled dataset defaults to black. Track whether the marker/line
+        # styling already supplied one so a bars-only series can add it below.
+        color_emitted = False
+
         if marker:
             line_cmd += f" marker {marker} msize {self._format_number(markersize)} color {color}"
+            color_emitted = True
             # Also add line if linestyle is not 'none'
-            if linestyle not in ("", "none", " ", "None"):
+            if has_line:
                 line_cmd += f" line lwidth {self._format_number(gle_lwidth)}"
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
@@ -855,18 +863,29 @@ class GLEWriter:
                 elif linestyle == "-.":
                     line_cmd += f" lstyle {self.style.line_style_dashdot}"
         else:
-            if linestyle not in ("", "none", " ", "None"):
+            if has_line:
                 if self.graph.smooth_curves:
                     line_cmd += " line smooth"
                 else:
                     line_cmd += " line"
                 line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
+                color_emitted = True
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
                 elif linestyle == ":":
                     line_cmd += f" lstyle {self.style.line_style_dotted}"
                 elif linestyle == "-.":
                     line_cmd += f" lstyle {self.style.line_style_dashdot}"
+
+        # Bars-only series (no marker AND no line -- matplotlib's
+        # ``fmt="none"``) previously emitted no ``color`` at all, so GLE drew
+        # the bars black no matter what colour was requested. Emit it here so
+        # every errorbar dataset carries its series colour, at any dataset
+        # index and for any capsize (including ``capsize=0``). The token order
+        # matches :meth:`add_errorbar_from_file`'s marker-less form
+        # (``dN color <c> err dM``).
+        if not color_emitted:
+            line_cmd += f" color {color}"
 
         # Add vertical error bar commands
         if "yerr" in err_datasets:
@@ -928,6 +947,9 @@ class GLEWriter:
         self.lines_gle.append(data_cmd)
 
         line_cmd = f"    {d_main}"
+        # Both branches must set ``color``: GLE draws the error bars in the
+        # dataset's colour and an unstyled dataset falls back to black (see
+        # :meth:`add_errorbar`).
         if marker:
             line_cmd += f" marker {marker} msize {self._format_number(markersize)} color {color}"
         else:
