@@ -103,8 +103,24 @@ You can also use GLE names directly:
 
 ## Practical Notes
 
-- Marker size in `plot` and `errorbar` uses `markersize` (matplotlib-style) and is scaled internally for GLE.
-- Marker size in `scatter` uses `s` (area-like style) and is converted to a GLE marker size.
+- Marker size in `plot` and `errorbar` uses `markersize` (matplotlib's `Line2D`
+  convention -- a diameter in points) and is scaled internally for GLE.
+- Marker size in `scatter` takes **either** convention:
+  - `s` -- matplotlib's `scatter` size, an *area* in points<sup>2</sup>
+    (gleplot's default is `s=20`). Converted with the square-root relation
+    matplotlib defines between area and diameter, `markersize = sqrt(s)`,
+    times gleplot's 1.2 visibility factor. Quadrupling `s` doubles the marker.
+  - `markersize` -- a *diameter* in points, used as given. A `scatter` and a
+    `plot` asking for the same `markersize` draw the same marker.
+
+  Passing **both is ambiguous, and `markersize` wins**: it is a size rather
+  than an area, so honouring it needs no conversion. (Before 1.9.0 `markersize`
+  was swallowed by `**kwargs` and silently ignored, drawing the default size.)
+- Per-point sizes (`s=[10, 20, 30]`) are **not** supported and raise
+  `ValueError`: GLE's `msize` is a per-dataset attribute, so one series draws
+  one marker size. Plot one series per size. (Before 1.9.0 this emitted an
+  array into the script -- `msize [0.094 0.212 0.284]` -- which is not valid
+  GLE.)
 - If a color or marker cannot be resolved, gleplot falls back to defaults (`BLACK` for color, `FCIRCLE` for marker).
 - Error bars take the series `color`, and so do their caps -- including bars-only
   series (`fmt='none'`, no marker and no line) and `capsize=0`. GLE draws error
