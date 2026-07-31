@@ -193,6 +193,34 @@ def large_markersize_and_linewidth():
     return fig
 
 
+def exact_rgb_colors():
+    """Every colour-carrying emission context, driven by exact (non-name) colours.
+
+    Hex / tuple / matplotlib-cycle colours emit as ``rgb255(r,g,b)``; a named
+    colour still emits as its name. Both forms must survive the round trip.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 6, 12)
+    ax.plot(x, np.sin(x), color="#8c8c8c", label="grey line")
+    ax.plot(x, np.cos(x), color="C4", marker="o", label="cycle purple")
+    ax.plot(
+        x,
+        np.sin(x) * 0.4,
+        color=(0.72, 0.73, 0.13),
+        marker="s",
+        linestyle="none",
+        label="tuple",
+    )
+    ax.plot(x, np.cos(x) * 0.4, color="darkred", label="named")
+    ax.errorbar([1, 2, 3], [2, 4, 6], yerr=0.4, color="#9467bd", marker="D", capsize=3)
+    ax.bar([4.5, 5.0, 5.5], [1.0, 1.4, 0.8], color="#bbbbbb")
+    ax.fill_between(x, np.zeros_like(x), np.sin(x) * 0.2, color="#999999", alpha=0.4)
+    ax.text(2.0, 1.2, "grey label", color="#8c8c8c", fontsize=12)
+    ax.legend()
+    return fig
+
+
 def custom_figsize_and_dpi():
     fig = glp.figure(figsize=(10, 4), dpi=150, data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -276,6 +304,7 @@ BUILDERS = [
     subplots_grid_mixed,
     file_series,
     large_markersize_and_linewidth,
+    exact_rgb_colors,
     custom_figsize_and_dpi,
     heatmap_imshow_colorbar,
     contour_grid_levels_clabel,

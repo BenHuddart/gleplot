@@ -477,7 +477,8 @@ def test_hand_written_edit_preserves_unknown_lines(qapp, tmp_path):
             window.series_panel._on_color_clicked()
         finally:
             QColorDialog.getColor = orig
-        assert ax.file_series[0]["color"].upper() == "RED"
+        # A picked colour is stored exactly, as a GLE rgb255() expression.
+        assert ax.file_series[0]["color"] == "rgb255(255,0,0)"
 
         # Save and assert unknown lines are present verbatim + color applied.
         out = tmp_path / "hand_saved.gle"
@@ -488,7 +489,7 @@ def test_hand_written_edit_preserves_unknown_lines(qapp, tmp_path):
         assert "set arrowsize 0.2" in text
         assert "grid" in text
         assert "ticks lstyle 2" in text
-        assert "color RED" in text
+        assert "color rgb255(255,0,0)" in text
 
         # File still compiles with real GLE.
         assert _compiles_with_gle(out)

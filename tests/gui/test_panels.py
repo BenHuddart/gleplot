@@ -277,14 +277,15 @@ class TestSeriesPanel:
         assert panel.linewidth_spin.isEnabled() is False
         assert panel.marker_combo.currentText() == "s"
 
-    def test_write_back_color_stores_gle_name(self, document):
+    def test_write_back_color_stores_exact_gle_color(self, document):
         panel = SeriesPanel(document)
         panel.series_list.setCurrentRow(0)
         before = document.notify_count
 
         # Simulate the user picking pure green in the color dialog by
         # calling the same conversion path _on_color_clicked uses,
-        # bypassing the modal QColorDialog itself.
+        # bypassing the modal QColorDialog itself. A picked colour is stored
+        # exactly (rgb255), never snapped onto a named-palette approximation.
         from gleplot.colors import rgb_to_gle
 
         ax = document.figure.gca()
@@ -292,7 +293,7 @@ class TestSeriesPanel:
         series["color"] = rgb_to_gle((0.0, 1.0, 0.0))
         document.notify_changed()
 
-        assert ax.lines[0]["color"] == "GREEN"
+        assert ax.lines[0]["color"] == "rgb255(0,255,0)"
         assert document.notify_count == before + 1
 
     def test_write_back_marker_stores_gle_marker_name(self, document):
@@ -583,7 +584,7 @@ class TestSeriesPanelHeatmapContour:
         # color_button opens a modal dialog; exercise the same write path.
         ct = heatmap_document.figure.gca().contours[0]
         ct["color"] = rgb_to_gle((1.0, 0.0, 0.0))
-        assert ct["color"] == "RED"
+        assert ct["color"] == "rgb255(255,0,0)"
         panel.linewidth_spin.setValue(3.0)
         panel.linewidth_spin.editingFinished.emit()
         assert ct["linewidth"] == pytest.approx(3.0)

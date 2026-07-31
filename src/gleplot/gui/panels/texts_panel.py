@@ -63,36 +63,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gleplot.colors import rgb_to_gle
+from gleplot.colors import gle_color_to_rgb255, rgb_to_gle
 
-#: Best-effort inverse of the GLE named-color table, copied from
-#: series_panel.py so the color dialog can show a representative swatch.
-#: colors.py has no official GLE-name -> RGB inverse; unmapped names
-#: (unlikely, since only this fixed palette is ever stored) fall back to
-#: black.
-_GLE_COLOR_TO_RGB = {
-    "BLUE": (0, 0, 255),
-    "RED": (255, 0, 0),
-    "GREEN": (0, 128, 0),
-    "CYAN": (0, 255, 255),
-    "MAGENTA": (255, 0, 255),
-    "YELLOW": (255, 255, 0),
-    "BLACK": (0, 0, 0),
-    "WHITE": (255, 255, 255),
-    "ORANGE": (255, 165, 0),
-    "PURPLE": (128, 0, 128),
-    "BROWN": (165, 42, 42),
-    "PINK": (255, 192, 203),
-    "GRAY": (128, 128, 128),
-    "LIGHTBLUE": (173, 216, 230),
-    "LIGHTGREEN": (144, 238, 144),
-    "LIGHTCYAN": (224, 255, 255),
-    "LIGHTGRAY": (211, 211, 211),
-    "DARKBLUE": (0, 0, 139),
-    "DARKGREEN": (0, 100, 0),
-    "DARKRED": (139, 0, 0),
-    "DARKGRAY": (169, 169, 169),
-}
+
+def _swatch_rgb(color_value):
+    """RGB triple for a colour swatch, or ``None`` if the token is unknown.
+
+    ``colors.gle_color_to_rgb255`` resolves both forms the object model can
+    hold: a GLE colour name and an exact ``rgb255(r,g,b)`` expression.
+    """
+    return gle_color_to_rgb255(str(color_value))
+
 
 #: Horizontal-alignment values accepted by Axes.text/GLEWriter.add_text.
 _HA_VALUES = ("left", "center", "right")
@@ -432,7 +413,7 @@ class TextsPanel(QWidget):
                 self.y_edit.setText(_format_coord(entry.get("y", 0.0)))
 
             color_value = entry.get("color") or "BLACK"
-            rgb = _GLE_COLOR_TO_RGB.get(str(color_value).upper(), (0, 0, 0))
+            rgb = _swatch_rgb(color_value) or (0, 0, 0)
             self._current_color_rgb = rgb
             self._update_color_swatch(rgb)
 
@@ -449,7 +430,7 @@ class TextsPanel(QWidget):
                 self._set_combo_text(self.va_combo, va)
 
             box_color = entry.get("box_color")
-            box_rgb = _GLE_COLOR_TO_RGB.get(str(box_color).upper(), None) if box_color else None
+            box_rgb = _swatch_rgb(box_color) if box_color else None
             if box_rgb is not None:
                 self.box_color_button.setStyleSheet(
                     f"background-color: rgb({box_rgb[0]}, {box_rgb[1]}, {box_rgb[2]});"

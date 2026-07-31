@@ -233,8 +233,12 @@ def nearest_gle_color(r: int, g: int, b: int) -> str:
     Tries an exact match first; falls back to the color with the smallest
     Euclidean distance in RGB space. Ties are broken by the first match in
     :data:`COLORS`' iteration order (stable across calls since dicts
-    preserve insertion order). Used by the GUI color swatch to snap an
-    arbitrary picked color to its closest named GLE equivalent.
+    preserve insertion order).
+
+    Nothing in gleplot's own emission path snaps a color: an arbitrary color
+    is written out exactly as ``rgb255(r,g,b)`` (see
+    :func:`gleplot.colors.rgb_to_gle`). This helper exists for callers who
+    *want* a named approximation -- pass its result back in as the color.
     """
     target = (int(r), int(g), int(b))
     for name, rgb in COLORS.items():

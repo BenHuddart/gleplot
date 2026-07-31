@@ -229,7 +229,7 @@ class TestEdits:
         assert panel.x_edit.text() == "3.1"
         assert document.notify_count == before
 
-    def test_edit_color_stores_gle_name(self, document):
+    def test_edit_color_stores_exact_gle_color(self, document):
         panel = TextsPanel(document)
         panel.text_list.setCurrentRow(0)
         before = document.notify_count
@@ -241,7 +241,7 @@ class TestEdits:
         entry["color"] = rgb_to_gle((0.0, 1.0, 0.0))
         document.notify_changed()
 
-        assert ax.texts[0]["color"] == "GREEN"
+        assert ax.texts[0]["color"] == "rgb255(0,255,0)"
         assert document.notify_count == before + 1
 
     def test_edit_fontsize_custom_to_value(self, document):

@@ -313,6 +313,52 @@ def _collect_value(toks: List[Token], start: int) -> Tuple[Optional[float], int]
     return val, j
 
 
+def _collect_color(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
+    """Collect a colour value starting at ``start``.
+
+    A GLE colour is either a bare name (``BLUE``, ``gray55``) or a colour
+    *expression* -- an identifier applied to a parenthesised argument list,
+    e.g. ``rgb255(140,140,140)``, ``rgb(0.55,0.4,0.74)``, ``grey(0.5)``. The
+    lexer splits an expression into several tokens (``rgb255`` ``(`` ``140``
+    ``,`` ...), so reading ``toks[start].value`` alone would recover only the
+    function name and leave the arguments to be mis-scanned as further
+    qualifiers.
+
+    Returns ``(color_text, next_index)``; the expression form is rejoined
+    without whitespace, matching what the writer emits. Returns
+    ``(None, start)`` when there is no token to read.
+    """
+    m = len(toks)
+    if start >= m:
+        return None, start
+
+    head = toks[start]
+    nxt = start + 1
+    if not (
+        head.type is TokenType.WORD
+        and nxt < m
+        and toks[nxt].type is TokenType.OP
+        and toks[nxt].value == "("
+    ):
+        return head.value, start + 1
+
+    parts = [head.value]
+    depth = 0
+    j = nxt
+    while j < m:
+        t = toks[j]
+        parts.append(t.value)
+        j += 1
+        if t.type is TokenType.OP and t.value == "(":
+            depth += 1
+        elif t.type is TokenType.OP and t.value == ")":
+            depth -= 1
+            if depth == 0:
+                return "".join(parts), j
+    # Unbalanced parentheses: don't swallow the rest of the statement.
+    return head.value, start + 1
+
+
 # --------------------------------------------------------------------------- #
 # The recognizer
 # --------------------------------------------------------------------------- #
@@ -1250,8 +1296,10 @@ class _Recognizer:
             if _DATASET_RE.match(wl):
                 d_name = wl
             elif wl == "fill" and i + 1 < m:
-                color = toks[i + 1].value
-                i += 2
+                val, nxt = _collect_color(toks, i + 1)
+                if val is not None:
+                    color = val
+                i = nxt
                 continue
             i += 1
         if d_name is None or d_name not in datasets:
@@ -1301,8 +1349,10 @@ class _Recognizer:
             if _DATASET_RE.match(wl):
                 d_names.append(wl)
             elif wl == "color" and i + 1 < m:
-                color = toks[i + 1].value
-                i += 2
+                val, nxt = _collect_color(toks, i + 1)
+                if val is not None:
+                    color = val
+                i = nxt
                 continue
             i += 1
         if len(d_names) < 2 or d_names[0] not in datasets or d_names[1] not in datasets:
@@ -1503,8 +1553,9 @@ class _Recognizer:
                 i += 1
                 continue
             if w == "color" and i + 1 < m:
-                a["color"] = toks[i + 1].value
-                i += 2
+                val, nxt = _collect_color(toks, i + 1)
+                a["color"] = val
+                i = nxt
                 continue
             if w == "lwidth" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
@@ -2752,7 +2803,10 @@ class _Recognizer:
                 i += 1
                 continue
             if sub == "color":
-                self._text_color = toks[2].value
+                val, _nxt = _collect_color(toks, 2)
+                if val is None:
+                    break
+                self._text_color = val
                 i += 1
                 continue
             if sub == "just":
