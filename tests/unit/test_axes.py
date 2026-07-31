@@ -307,6 +307,146 @@ class TestSubplots(unittest.TestCase):
             self.assertEqual(content.count('begin graph'), 2)
 
 
+class TestGridRatios(unittest.TestCase):
+    """Test height_ratios/width_ratios on the multi-subplot grid."""
+
+    def setUp(self):
+        glp.close()
+
+    def tearDown(self):
+        glp.close()
+
+    @staticmethod
+    def _extract_sizes(gle):
+        """Return all graph size commands as (width, height) float tuples."""
+        return [
+            (float(w), float(h))
+            for w, h in re.findall(r'^\s*size\s+([0-9.]+)\s+([0-9.]+)$', gle, re.MULTILINE)
+        ]
+
+    @staticmethod
+    def _extract_amove_points(gle):
+        return [
+            (float(x), float(y))
+            for x, y in re.findall(r'^amove\s+([0-9.]+)\s+([0-9.]+)$', gle, re.MULTILINE)
+        ]
+
+    def test_default_omitted_height_ratios_is_byte_identical(self):
+        """Omitting height_ratios must reproduce the pre-existing equal-row output."""
+        from gleplot import axes as _gleplot_axes
+
+        def build(**kwargs):
+            fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 9), **kwargs)
+            for idx, ax in enumerate(axes):
+                ax.plot([1, 2, 3], [idx + 1, idx + 2, idx + 3], color='blue')
+            return fig
+
+        glp.close()
+        _gleplot_axes._global_data_file_counter = 0
+        without = build()._generate_gle()
+        glp.close()
+        _gleplot_axes._global_data_file_counter = 0
+        explicit_none = build(height_ratios=None, width_ratios=None)._generate_gle()
+
+        self.assertEqual(without, explicit_none)
+
+    def test_height_ratios_scales_row_sizes_proportionally(self):
+        """A 3:1 height_ratios pair should split the plotting height 3:1."""
+        fig, axes = glp.subplots(2, 1, sharex=True, figsize=(3.386, 4.0),
+                                  height_ratios=[3, 1])
+        for ax in axes:
+            ax.plot([0, 1], [0, 1], color='blue')
+
+        gle = fig._generate_gle()
+        sizes = self._extract_sizes(gle)[1:]  # drop the page 'size' command
+        self.assertEqual(len(sizes), 2)
+        top_h, bottom_h = sizes[0][1], sizes[1][1]
+        self.assertAlmostEqual(top_h / bottom_h, 3.0, places=6)
+        # Widths are unaffected by height_ratios.
+        self.assertAlmostEqual(sizes[0][0], sizes[1][0], places=6)
+
+    def test_width_ratios_scales_column_sizes_proportionally(self):
+        """A 1:3 width_ratios pair should split the plotting width 1:3."""
+        fig, axes = glp.subplots(1, 2, figsize=(10, 5), width_ratios=[1, 3])
+        for ax in axes:
+            ax.plot([0, 1], [0, 1], color='blue')
+
+        gle = fig._generate_gle()
+        sizes = self._extract_sizes(gle)[1:]
+        self.assertEqual(len(sizes), 2)
+        left_w, right_w = sizes[0][0], sizes[1][0]
+        self.assertAlmostEqual(right_w / left_w, 3.0, places=6)
+
+    def test_height_ratios_five_row_stack_with_short_separator(self):
+        """3 flush panels + a short separator row + a 4th panel, PRL-shaped."""
+        fig, axes = glp.subplots(5, 1, sharex=True, figsize=(3.386, 5.5),
+                                  height_ratios=[3, 3, 3, 1, 4])
+        for ax in axes:
+            ax.plot([0, 1], [0, 1], color='blue')
+
+        gle = fig._generate_gle()
+        sizes = self._extract_sizes(gle)[1:]
+        self.assertEqual(len(sizes), 5)
+        heights = [h for _, h in sizes]
+        # sharex=True -> zero vertical gap, so heights sum exactly to the
+        # available plotting height (figure height minus margins).
+        for a, b in ((0, 1), (1, 2)):
+            self.assertAlmostEqual(heights[a], heights[b], places=6)
+        self.assertAlmostEqual(heights[0] / heights[3], 3.0, places=6)
+        self.assertAlmostEqual(heights[4] / heights[3], 4.0, places=6)
+
+        # Panels are flush (sharex -> zero vspace): each row's top edge
+        # meets the previous row's bottom edge exactly.
+        amoves = self._extract_amove_points(gle)
+        self.assertEqual(len(amoves), 5)
+        for i in range(4):
+            top_of_next = amoves[i + 1][1] + heights[i + 1]
+            bottom_of_this = amoves[i][1]
+            self.assertAlmostEqual(top_of_next, bottom_of_this, places=6)
+
+    def test_height_ratios_length_mismatch_raises(self):
+        fig, axes = glp.subplots(3, 1, height_ratios=[1, 2])
+        with self.assertRaisesRegex(
+            ValueError, r'height_ratios has length 2, but the subplot grid has 3 rows'
+        ):
+            fig._generate_gle()
+
+    def test_width_ratios_length_mismatch_raises(self):
+        fig, axes = glp.subplots(1, 2, width_ratios=[1, 2, 3])
+        with self.assertRaisesRegex(
+            ValueError, r'width_ratios has length 3, but the subplot grid has 2 columns'
+        ):
+            fig._generate_gle()
+
+    def test_non_positive_ratio_raises(self):
+        fig, axes = glp.subplots(2, 1, height_ratios=[1, 0])
+        with self.assertRaisesRegex(ValueError, 'height_ratios entries must all be positive'):
+            fig._generate_gle()
+
+    def test_height_ratios_via_figure_and_add_subplot(self):
+        """height_ratios also works through Figure()/add_subplot, not just subplots()."""
+        fig = glp.figure(figsize=(3.386, 4.0), height_ratios=[3, 1])
+        ax1 = fig.add_subplot(2, 1, 1)
+        ax2 = fig.add_subplot(2, 1, 2)
+        ax1.plot([0, 1], [0, 1], color='blue')
+        ax2.plot([0, 1], [0, 1], color='blue')
+
+        gle = fig._generate_gle()
+        sizes = self._extract_sizes(gle)[1:]
+        self.assertEqual(len(sizes), 2)
+        self.assertAlmostEqual(sizes[0][1] / sizes[1][1], 3.0, places=6)
+
+    def test_single_row_width_ratios_ignored_for_single_axes(self):
+        """A single (1,1,1) axes must ignore height_ratios/width_ratios entirely."""
+        fig = glp.figure(height_ratios=[1, 2, 3])
+        ax = fig.add_subplot(111)
+        ax.plot([0, 1], [0, 1], color='blue')
+        # Must not raise even though height_ratios has length 3 (there is
+        # only ever 1 row on the single-axes path, which never validates it).
+        gle = fig._generate_gle()
+        self.assertIn('begin graph', gle)
+
+
 class TestSecondaryYAxis(unittest.TestCase):
     """Test secondary y-axis (y2axis) functionality."""
     

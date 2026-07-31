@@ -1,19 +1,41 @@
 """Figure class for gleplot."""
 
 import numpy as np
+import warnings
 from pathlib import Path
-from typing import Tuple, Optional, Literal
-from .axes import Axes, _validate_data_prefix
+from typing import Tuple, Optional, Literal, Sequence, List
+from .axes import Axes, _validate_data_prefix, _sanitize_data_stem
+from .brokenaxes import BrokenAxes
 from .writer import GLEWriter
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .colors import rgb_to_gle
 from .mathtext import mathtext_to_gle
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
 from .parser import metadata as _gle_metadata
+from .parser.units import fontsize_pt_to_cm
 
 #: Envelope identifiers for the gleplot project-file format.
 PROJECT_FORMAT = "gleplot-project"
 PROJECT_VERSION = 1
+
+
+def _refline_axis_values(ax, orient: str):
+    """Data coordinates the guides of ``ax`` contribute to autoscaling.
+
+    ``orient`` is ``'v'`` (vertical guides -> x coordinates) or ``'h'``
+    (horizontal guides -> y coordinates). Only the guide's *data* coordinate
+    counts: the extent along the other axis is an axes fraction, so feeding it
+    back into autoscale would be circular.
+    """
+    values = []
+    for entry in getattr(ax, "reflines", ()):
+        if entry["orient"] == orient:
+            values.append(float(entry["value"]))
+    for entry in getattr(ax, "spans", ()):
+        if entry["orient"] == orient:
+            values.append(float(entry["start"]))
+            values.append(float(entry["end"]))
+    return values
 
 
 def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
@@ -56,6 +78,8 @@ class Figure:
         sharex: bool = False,
         sharey: bool = False,
         data_prefix: Optional[str] = None,
+        height_ratios: Optional[Sequence[float]] = None,
+        width_ratios: Optional[Sequence[float]] = None,
     ):
         """Initialize figure with optional configuration objects.
 
@@ -78,6 +102,21 @@ class Figure:
         ValueError
             If ``data_prefix`` is empty/whitespace-only or contains a
             character that is not usable in a GLE data filename.
+        height_ratios : sequence of float, optional
+            Relative height of each subplot ROW, matplotlib-``gridspec``
+            style, e.g. ``[3, 3, 3, 1, 4]`` for a 5-row grid whose 4th row is
+            thin. ``None`` (default) keeps every row the same height -- the
+            historical behaviour, byte-identical output. Applies only to the
+            multi-subplot grid layout (``add_subplot``/:func:`gleplot.subplots`
+            with more than one axes); ignored for a single (1,1,1) axes.
+            Checked against the actual number of subplot rows at GLE-
+            generation time (:meth:`Figure.savefig`/:meth:`savefig_gle`),
+            since the grid shape is not always known yet when the figure is
+            constructed -- a length mismatch raises :class:`ValueError` then,
+            naming both the given length and the row count found.
+        width_ratios : sequence of float, optional
+            Relative width of each subplot COLUMN. Same semantics, defaults
+            and validation timing as ``height_ratios``, but for columns.
         """
         self.figsize = figsize
         self.dpi = dpi
@@ -101,8 +140,24 @@ class Figure:
         self._used_data_files: set[str] = set()
         self._subplot_adjust: dict[str, float] = {}
 
+        # Per-row/per-column relative sizes for the multi-subplot grid
+        # (matplotlib-style height_ratios/width_ratios). None (the default)
+        # means equal sizes -- see _grid_axis_sizes for how this combines
+        # with subplots_adjust's wspace/hspace.
+        self.height_ratios = (
+            [float(r) for r in height_ratios] if height_ratios is not None else None
+        )
+        self.width_ratios = (
+            [float(r) for r in width_ratios] if width_ratios is not None else None
+        )
+
         self.axes_list = []  # List of Axes objects
         self._current_axes = None  # Current working axes
+        # BrokenAxes assemblies. Their segments are ordinary Axes and live in
+        # axes_list like any other subplot (so limits, series and emission all
+        # work unchanged); this list only records the grouping, the seam
+        # decoration and the shared titles.
+        self.broken_axes: list = []
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model, split into two buckets by
@@ -212,6 +267,64 @@ class Figure:
         self._current_axes = ax
         return ax
 
+    def add_broken_xaxes(self, xlims, **kwargs) -> BrokenAxes:
+        """Add a panel whose x-axis is broken into adjacent segments.
+
+        The segments share one y-axis: tick labels and the y title appear only
+        on the leftmost one, the sides that face each other are switched off,
+        and the seam is marked with a rule or double-slash break marks. Series
+        are declared once on the returned object and fanned out to every
+        segment, sharing a single data sidecar; GLE clips each dataset to its
+        own segment's range.
+
+        Parameters
+        ----------
+        xlims : sequence of (float, float)
+            One ``(xmin, xmax)`` per segment, left to right; at least two.
+        **kwargs
+            Passed to :class:`gleplot.brokenaxes.BrokenAxes` --
+            ``width_ratios``, ``position``, ``gap``, ``divider``,
+            ``divider_color``, ``divider_linewidth``, ``divider_lstyle``,
+            ``break_mark_size``, ``trim_seam_labels``, ``xlabel_dist``,
+            ``title_dist``.
+
+        Returns
+        -------
+        BrokenAxes
+
+        Notes
+        -----
+        Plot through the returned object, not through the figure: this sets
+        the figure's current axes to the *leftmost segment*, so a subsequent
+        ``fig.plot(...)`` / :meth:`gca` would reach only that one segment.
+
+        Examples
+        --------
+        >>> fig = glp.figure(figsize=(3.4, 2.6))
+        >>> bax = fig.add_broken_xaxes([(0, 0.02), (0.02, 3)],
+        ...                            width_ratios=[1, 3], divider='slash')
+        >>> bax.errorbar(t, a, yerr=e, marker='o', fmt='none')
+        >>> bax.set_xlabel('t (us)')
+        >>> bax.set_ylabel('Asymmetry (%)')
+        """
+        bax = BrokenAxes(self, xlims, **kwargs)
+        for seg in bax.segments:
+            # Derive the grid-level sharing flags first, then let the
+            # broken-axis rules (already applied by the constructor) stand
+            # where they disagree: the assembly's internal geometry is not
+            # negotiable, whereas sharex/sharey describe the grid around it.
+            show_ylabel, show_yticks = seg._show_ylabel, seg._show_yticks
+            remove_first_xtick = seg._remove_first_xtick
+            self._apply_shared_axes_flags(seg)
+            seg._show_ylabel, seg._show_yticks = show_ylabel, show_yticks
+            seg._show_xlabel = False
+            seg._remove_first_xtick = remove_first_xtick
+            self.axes_list.append(seg)
+
+        self.broken_axes.append(bax)
+        self._current_axes = bax.segments[0]
+        return bax
+
     def _apply_shared_axes_flags(self, ax: Axes) -> None:
         """Set ``ax``'s shared-axes tick/label visibility flags.
 
@@ -272,6 +385,94 @@ class Figure:
                 ax._remove_first_xtick = False
                 ax._remove_first_xtick = False
 
+    @staticmethod
+    def _grid_axis_sizes(
+        ratios: Optional[Sequence[float]],
+        n: int,
+        avail_cm: float,
+        gap_frac: Optional[float],
+        default_gap_cm: float,
+        param_name: str,
+    ) -> Tuple[List[float], float]:
+        """Per-cell sizes (cm) and the inter-cell gap (cm) along one grid axis.
+
+        Shared by the row (``height_ratios``) and column (``width_ratios``)
+        cases in the multi-subplot layout.
+
+        Parameters
+        ----------
+        ratios : sequence of float, optional
+            ``None`` for equal sizes (the pre-existing behaviour), or ``n``
+            positive relative sizes, matplotlib ``height_ratios``/
+            ``width_ratios`` style.
+        n : int
+            Number of rows (or columns) in the grid.
+        avail_cm : float
+            Total space available along this axis, after margins.
+        gap_frac : float, optional
+            A ``subplots_adjust`` ``wspace``/``hspace`` override: the gap as
+            a fraction of the UNIT cell (the size a ratio of 1.0 gets).
+            ``None`` uses ``default_gap_cm`` verbatim.
+        default_gap_cm : float
+            Gap (cm) to use when ``gap_frac`` is ``None``.
+        param_name : str
+            ``'height_ratios'`` or ``'width_ratios'``, for the error message.
+
+        Returns
+        -------
+        sizes : list of float
+            One size (cm) per row/column.
+        gap : float
+            The resolved gap (cm) between adjacent cells.
+
+        Notes
+        -----
+        With uniform ratios (the default, ``ratios=None``) this reproduces
+        the historical ``cell_w``/``cell_h`` and ``hspace``/``vspace``
+        formulas exactly: a figure that does not use ``height_ratios``/
+        ``width_ratios`` gets byte-identical output to before they existed.
+
+        The gap is defined as a fraction of the UNIT cell -- the size a
+        ratio of 1.0 would receive -- rather than of any one row/column's
+        actual size, so it stays independent of the ratios themselves
+        (a ``hspace`` chosen for a uniform grid keeps looking the same after
+        some rows are made thinner or thicker).
+
+        Raises
+        ------
+        ValueError
+            If ``ratios`` is given but its length does not equal ``n``, or
+            any entry is not strictly positive.
+        """
+        if ratios is None:
+            resolved = [1.0] * n
+        else:
+            if len(ratios) != n:
+                noun = "rows" if param_name == "height_ratios" else "columns"
+                raise ValueError(
+                    f"{param_name} has length {len(ratios)}, but the subplot "
+                    f"grid has {n} {noun}"
+                )
+            if any(r <= 0 for r in ratios):
+                raise ValueError(
+                    f"{param_name} entries must all be positive, got {list(ratios)}"
+                )
+            resolved = [float(r) for r in ratios]
+
+        total_ratio = float(sum(resolved))
+
+        if n > 1 and gap_frac is not None:
+            denom = total_ratio + gap_frac * (n - 1)
+            unit = avail_cm / denom if denom > 0 else avail_cm / total_ratio
+            gap = gap_frac * unit
+        else:
+            gap = default_gap_cm
+            usable = avail_cm - (n - 1) * gap
+            unit = usable / total_ratio
+
+        sizes = [r * unit for r in resolved]
+        return sizes, gap
+
     def gca(self) -> Axes:
         """Get current axes (or create if needed)."""
         if self._current_axes is None:
@@ -303,6 +504,22 @@ class Figure:
     def text(self, x, y, s, **kwargs):
         """Add text on current axes."""
         return self.gca().text(x, y, s, **kwargs)
+
+    def axvline(self, x=0.0, **kwargs):
+        """Vertical reference line on current axes."""
+        return self.gca().axvline(x, **kwargs)
+
+    def axhline(self, y=0.0, **kwargs):
+        """Horizontal reference line on current axes."""
+        return self.gca().axhline(y, **kwargs)
+
+    def axvspan(self, xmin, xmax, **kwargs):
+        """Shaded vertical band on current axes."""
+        return self.gca().axvspan(xmin, xmax, **kwargs)
+
+    def axhspan(self, ymin, ymax, **kwargs):
+        """Shaded horizontal band on current axes."""
+        return self.gca().axhspan(ymin, ymax, **kwargs)
 
     def imshow(self, Z, **kwargs):
         """Display gridded data as a heatmap on current axes."""
@@ -740,8 +957,11 @@ class Figure:
             # Default margins/spacing are heuristic, but can be overridden via
             # subplots_adjust(left=..., right=..., top=..., bottom=..., wspace=..., hspace=...).
 
-            # Check if any subplot has a title
-            has_titles = any(ax.title_text for ax in self.axes_list)
+            # Check if any subplot has a title (a broken axis keeps its title
+            # on the assembly, not on the individual segments)
+            has_titles = any(ax.title_text for ax in self.axes_list) or any(
+                bax.title_text for bax in self.broken_axes
+            )
 
             if self.sharex or self.sharey:
                 # Top margin: more room needed if subplots have titles
@@ -792,23 +1012,42 @@ class Figure:
             wspace_frac = self._subplot_adjust.get("wspace")
             hspace_frac = self._subplot_adjust.get("hspace")
 
-            if max_cols > 1 and wspace_frac is not None:
-                denom = max_cols + wspace_frac * (max_cols - 1)
-                cell_w = avail_w / denom if denom > 0 else avail_w / max_cols
-                hspace = wspace_frac * cell_w
-            else:
-                hspace = default_hspace_cm
-                usable_w = avail_w - (max_cols - 1) * hspace
-                cell_w = usable_w / max_cols
+            # Per-column widths / per-row heights (cm), plus the resolved
+            # gap. Equal-size unless height_ratios/width_ratios were given at
+            # construction time (see _grid_axis_sizes); the equal-ratios path
+            # reproduces the historical cell_w/cell_h/hspace/vspace formulas
+            # exactly.
+            col_widths, hspace = self._grid_axis_sizes(
+                self.width_ratios,
+                max_cols,
+                avail_w,
+                wspace_frac,
+                default_hspace_cm,
+                "width_ratios",
+            )
+            row_heights, vspace = self._grid_axis_sizes(
+                self.height_ratios,
+                max_rows,
+                avail_h,
+                hspace_frac,
+                default_vspace_cm,
+                "height_ratios",
+            )
 
-            if max_rows > 1 and hspace_frac is not None:
-                denom = max_rows + hspace_frac * (max_rows - 1)
-                cell_h = avail_h / denom if denom > 0 else avail_h / max_rows
-                vspace = hspace_frac * cell_h
-            else:
-                vspace = default_vspace_cm
-                usable_h = avail_h - (max_rows - 1) * vspace
-                cell_h = usable_h / max_rows
+            # Cumulative left edge per column and bottom edge per row (GLE
+            # coordinates: origin bottom-left, y increases upward), built
+            # once so unequal row/column sizes are placed correctly -- with
+            # equal sizes this reduces to the historical
+            # ``margin + i * (cell + gap)`` arithmetic.
+            col_x_offsets = [margin_left]
+            for w in col_widths[:-1]:
+                col_x_offsets.append(col_x_offsets[-1] + w + hspace)
+
+            row_y_bottoms = []
+            consumed_h = margin_top
+            for h in row_heights:
+                row_y_bottoms.append(writer.height_cm - consumed_h - h)
+                consumed_h += h + vspace
 
             for ax in self.axes_list:
                 rows, cols, idx = ax.position
@@ -816,23 +1055,35 @@ class Figure:
                 row = (idx - 1) // cols  # 0-based, 0 = top row
                 col = (idx - 1) % cols  # 0-based, 0 = left col
 
-                # GLE coordinates: origin is bottom-left, y increases upward
-                x_pos = margin_left + col * (cell_w + hspace)
-                y_pos = (
-                    writer.height_cm - margin_top - (row + 1) * cell_h - row * vspace
-                )
+                cell_x = col_x_offsets[col]
+                cell_w = col_widths[col]
+                cell_h = row_heights[row]
+                y_pos = row_y_bottoms[row]
+
+                # A broken-axis segment occupies a slice of its grid cell
+                # rather than the whole thing; everything else about the
+                # emission is identical to an ordinary subplot.
+                owner = ax._break_owner
+                if owner is not None:
+                    dx, graph_w = owner.segment_extent(ax._break_index, cell_w)
+                    x_pos = cell_x + dx
+                else:
+                    x_pos = cell_x
+                    graph_w = cell_w
 
                 self._emit_pre_graph_blocks(writer, ax)
                 writer.add_amove(x_pos, y_pos)
                 writer.begin_graph()
                 writer.add_graph_size(
-                    width_cm=cell_w, height_cm=cell_h, force_size=True
+                    width_cm=graph_w, height_cm=cell_h, force_size=True
                 )
 
                 self._write_axes_content(writer, ax)
 
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax)
+                if owner is not None:
+                    self._emit_break_decoration(writer, owner, ax, cell_x, cell_w)
                 writer.lines_gle.append("")  # Blank line between subplots
 
             writer.finalize(
@@ -1084,6 +1335,18 @@ class Figure:
             remove_last_ytick=getattr(ax, "_remove_last_ytick", False),
             remove_first_xtick=getattr(ax, "_remove_first_xtick", False),
             remove_first_ytick=getattr(ax, "_remove_first_ytick", False),
+            xdticks=ax.xdticks,
+            ydticks=ax.ydticks,
+            xdsubticks=ax.xdsubticks,
+            ydsubticks=ax.ydsubticks,
+            xplaces=ax.xplaces,
+            yplaces=ax.yplaces,
+            xnames=ax.xnames,
+            ynames=ax.ynames,
+            xaxis_off=ax._xaxis_off,
+            yaxis_off=ax._yaxis_off,
+            x2axis_off=ax._x2axis_off,
+            y2axis_off=ax._y2axis_off,
         )
 
         # Heatmap colormap (drawn behind everything as the background) and
@@ -1105,8 +1368,12 @@ class Figure:
                 cdata, ct["color"], ct["linewidth"], ct["linestyle"]
             )
 
-        # Add fill regions (background)
-        for fill_data in ax.fills:
+        # Add fill regions (background). axvspan/axhspan bands are realized
+        # here too: they are declarations until the axis limits are known, and
+        # they belong in the same background layer as fills so the data series
+        # always draw on top of their guides.
+        limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
+        for fill_data in list(ax.fills) + ax.materialize_spans(limits):
             writer.add_fill_between(
                 fill_data["x"],
                 fill_data["y1"],
@@ -1116,6 +1383,24 @@ class Figure:
                 fill_data["alpha"],
                 offset=fill_data.get("offset", 0.0),
                 column_names=fill_data.get("column_names"),
+            )
+
+        # Reference lines (axvline/axhline), drawn above the shaded bands but
+        # still below every data series.
+        for ref_data in ax.materialize_reflines(limits):
+            writer.add_plot_line(
+                ref_data["x"],
+                ref_data["y"],
+                ref_data["data_file"],
+                color=ref_data["color"],
+                linestyle=ref_data["linestyle"],
+                linewidth=ref_data["linewidth"],
+                label=ref_data["label"],
+                marker=None,
+                markersize=ref_data["markersize"],
+                yaxis="y",
+                offset=0.0,
+                column_names=ref_data.get("column_names"),
             )
 
         # Add bar charts
@@ -1227,7 +1512,13 @@ class Figure:
         # Add legend if needed. legend_on is tri-state: None means auto
         # (show iff labels exist); True/False is an explicit user choice.
         legend_sources = (
-            ax.lines + ax.scatters + ax.bars + ax.errorbars + ax.file_series
+            ax.lines
+            + ax.scatters
+            + ax.bars
+            + ax.errorbars
+            + ax.file_series
+            + ax.reflines
+            + ax.spans
         )
         labels_present = any(series.get("label") for series in legend_sources)
         show_legend = ax.legend_on if ax.legend_on is not None else labels_present
@@ -1237,6 +1528,68 @@ class Figure:
             # GLE draws an implicit key from per-dataset key "label" tokens;
             # it must be switched off explicitly.
             writer.add_key_off()
+
+    def _emit_break_decoration(
+        self,
+        writer: GLEWriter,
+        bax: BrokenAxes,
+        seg: Axes,
+        cell_x: float,
+        cell_w: float,
+    ):
+        """Emit the seam marker, or the shared titles, after a segment's graph.
+
+        Called right after each broken-axis segment's ``end graph``, which is
+        the only point where GLE's ``xg()``/``yg()`` refer to that segment's
+        box. Every segment but the last gets the seam decoration on its right
+        edge; the last one carries the titles, which are centred on the whole
+        assembly (``cell_x + cell_w/2``) rather than on any single graph.
+        """
+        index = seg._break_index
+        is_last = index == len(bax.segments) - 1
+
+        if not is_last:
+            if bax.divider == "line":
+                writer.add_break_divider(
+                    bax.gap,
+                    color=rgb_to_gle(bax.divider_color),
+                    linewidth=bax.divider_linewidth,
+                    lstyle=bax.divider_lstyle,
+                )
+            elif bax.divider == "slash":
+                size = bax.break_mark_size
+                writer.add_break_marks(
+                    bax.gap,
+                    color=rgb_to_gle(bax.divider_color),
+                    linewidth=bax.divider_linewidth,
+                    width_cm=0.65 * size,
+                    height_cm=size,
+                    separation_cm=0.3 * size,
+                )
+            return
+
+        # Titles. GLE places its own xtitle one tick-label row below the frame;
+        # 1.57 * the font height reproduces that offset (measured against a
+        # native `xtitle` render, matching to ~0.02 cm), and the title sits
+        # 0.55 * the font height above the frame.
+        hei_cm = fontsize_pt_to_cm(self.style.fontsize)
+        centre_x = cell_x + cell_w / 2.0
+        if bax.xlabel_text:
+            dist = bax.xlabel_dist if bax.xlabel_dist is not None else 1.57 * hei_cm
+            writer.add_page_text(
+                centre_x,
+                f"yg(ygmin)-{writer._format_number(dist)}",
+                bax.xlabel_text,
+                just="tc",
+            )
+        if bax.title_text:
+            dist = bax.title_dist if bax.title_dist is not None else 0.55 * hei_cm
+            writer.add_page_text(
+                centre_x,
+                f"yg(ygmax)+{writer._format_number(dist)}",
+                bax.title_text,
+                just="bc",
+            )
 
     def _synchronize_x_limits(self):
         """Synchronize x-axis limits across all axes when sharex is enabled."""
@@ -1322,6 +1675,16 @@ class Figure:
             if xmax is None or x1 > xmax:
                 xmax = float(x1)
 
+        # Vertical guides carry a data x-coordinate and, like matplotlib's
+        # axvline/axvspan, participate in autoscaling. Horizontal ones do not:
+        # their x extent is an axes FRACTION, so including it would be
+        # circular.
+        for value in _refline_axis_values(ax, "v"):
+            if xmin is None or value < xmin:
+                xmin = value
+            if xmax is None or value > xmax:
+                xmax = value
+
         return xmin, xmax
 
     def _get_data_ylim(self, ax: Axes) -> Tuple[Optional[float], Optional[float]]:
@@ -1386,6 +1749,14 @@ class Figure:
                 ymin = float(y0)
             if ymax is None or y1 > ymax:
                 ymax = float(y1)
+
+        # Horizontal guides carry a data y-coordinate (see _get_data_xlim for
+        # the mirror-image reasoning).
+        for value in _refline_axis_values(ax, "h"):
+            if ymin is None or value < ymin:
+                ymin = value
+            if ymax is None or value > ymax:
+                ymax = value
 
         return ymin, ymax
 
@@ -1536,6 +1907,12 @@ class Figure:
             "global_data_counter": _axes_module._global_data_file_counter,
             "used_data_files": sorted(self._used_data_files),
             "subplot_adjust": {k: float(v) for k, v in self._subplot_adjust.items()},
+            "height_ratios": (
+                list(self.height_ratios) if self.height_ratios is not None else None
+            ),
+            "width_ratios": (
+                list(self.width_ratios) if self.width_ratios is not None else None
+            ),
             "passthrough_header": list(self.passthrough_header),
             "passthrough_trailer": list(self.passthrough_trailer),
             "metadata_extra": dict(self.metadata_extra),
@@ -1545,6 +1922,9 @@ class Figure:
                 "marker": self.marker_config.to_dict(),
             },
             "axes": [ax.to_dict() for ax in self.axes_list],
+            # Broken-axis assemblies reference their segments by index into
+            # "axes" (the segments themselves are serialized there in full).
+            "broken_axes": [bax.to_dict() for bax in self.broken_axes],
         }
 
         return {
@@ -1642,6 +2022,8 @@ class Figure:
             marker=marker,
             sharex=fig_block.get("sharex", False),
             sharey=fig_block.get("sharey", False),
+            height_ratios=fig_block.get("height_ratios"),
+            width_ratios=fig_block.get("width_ratios"),
         )
 
         # Restore the prefix verbatim, bypassing __init__'s validation. This is
@@ -1670,6 +2052,12 @@ class Figure:
         fig.axes_list = [
             Axes.from_dict(fig, ax_d) for ax_d in fig_block.get("axes", [])
         ]
+        # Rebind the broken-axis groupings once every segment exists; this also
+        # restores each segment's ``_break_owner`` back-reference (the one
+        # piece of segment state Axes.from_dict cannot recover on its own).
+        fig.broken_axes = [
+            BrokenAxes.from_dict(fig, b_d) for b_d in fig_block.get("broken_axes", [])
+        ]
         fig._current_axes = fig.axes_list[-1] if fig.axes_list else None
 
         return fig
@@ -1677,4 +2065,5 @@ class Figure:
     def close(self):
         """Close figure."""
         self.axes_list.clear()
+        self.broken_axes.clear()
         self._current_axes = None

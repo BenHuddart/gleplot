@@ -2,6 +2,7 @@
 
 import sys
 import unittest
+import warnings
 from pathlib import Path
 
 # Add src to path
@@ -49,9 +50,17 @@ class TestMarkerMapping(unittest.TestCase):
         self.assertEqual(get_gle_marker('+'), 'PLUS')
     
     def test_invalid_marker(self):
-        """Test invalid marker returns default."""
-        result = get_gle_marker('INVALID')
+        """Test invalid marker returns default -- and now says so.
+
+        The fallback value is unchanged, but it is no longer silent: an
+        unrecognized symbol warns (see tests/unit/test_outline_markers.py) so
+        a typo cannot quietly become a differently-shaped marker.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = get_gle_marker('INVALID')
         self.assertEqual(result, 'FCIRCLE')  # Default
+        self.assertTrue(any(issubclass(w.category, UserWarning) for w in caught))
 
     def test_case_significant_markers(self):
         """Case-significant matplotlib codes must map to distinct GLE markers.

@@ -176,13 +176,44 @@ class GLEWriter:
             Raw lines recovered from a parsed ``.gle`` file that belong
             inside this graph block; emitted verbatim immediately before
             'end graph'. Omitted entirely when falsy (no blank-line churn).
+
+        Notes
+        -----
+        The deferred graph-data-coordinate text queued by :meth:`add_text`
+        (``_pending_graph_text_lines``) is flushed here, AFTER 'end graph' --
+        that is deliberate (GLE's ``xg()``/``yg()`` need the graph that just
+        closed) but it means any 'set color'/'set hei'/'set just' the text
+        needed is emitted at the PAGE level, where it is sticky interpreter
+        state exactly like the broken-axis seam decoration (see the comment
+        above :meth:`add_break_divider`). Left unguarded, a coloured text
+        element ending one panel would leak its colour into the axes/ticks
+        of the NEXT 'begin graph' block, which draws them with whatever
+        colour is currently ambient. The flush is therefore wrapped in
+        gsave/grestore, same idiom as the seam decoration, so the colour
+        (and height/justification) reverts to ambient the moment this
+        panel's text is done -- and the writer's own sticky-state trackers
+        are reset alongside it (see ``_text_state_*`` below), since grestore
+        changes the REAL GLE state but not this Python-side bookkeeping.
         """
         if passthrough:
             self.lines_gle.extend(passthrough)
         self.lines_gle.append("end graph")
         if self._pending_graph_text_lines:
+            self.lines_gle.append("gsave")
             self.lines_gle.extend(self._pending_graph_text_lines)
+            self.lines_gle.append("grestore")
             self._pending_graph_text_lines = []
+            # grestore reverted the ambient GLE state to what it was before
+            # this panel's gsave (i.e. the script-start default: BLACK,
+            # style-default height, left-justified) -- resync the sticky
+            # trackers to match, or the NEXT panel's add_text calls would
+            # wrongly skip restating a 'set color'/'set hei'/'set just' that
+            # real GLE no longer has in effect.
+            self._text_state_hei_cm = self._format_number(
+                fontsize_pt_to_cm(self.style.fontsize)
+            )
+            self._text_state_color = "BLACK"
+            self._text_state_just = "left"
 
     def add_amove(self, x_cm: float, y_cm: float):
         """Add absolute move command to position the next graph.
@@ -283,6 +314,18 @@ class GLEWriter:
         remove_last_ytick: bool = False,
         remove_first_xtick: bool = False,
         remove_first_ytick: bool = False,
+        xdticks: Optional[float] = None,
+        ydticks: Optional[float] = None,
+        xdsubticks: Optional[float] = None,
+        ydsubticks: Optional[float] = None,
+        xplaces: Optional[List[float]] = None,
+        yplaces: Optional[List[float]] = None,
+        xnames: Optional[List[str]] = None,
+        ynames: Optional[List[str]] = None,
+        xaxis_off: bool = False,
+        yaxis_off: bool = False,
+        x2axis_off: bool = False,
+        y2axis_off: bool = False,
     ):
         """Add axis configuration.
 
@@ -312,7 +355,36 @@ class GLEWriter:
         remove_first_xtick, remove_first_ytick : bool
             Whether to remove the first tick label using GLE's nofirst command
             (used when subplots touch to avoid overlapping labels)
+        xdticks, ydticks : float, optional
+            Major tick interval (GLE ``dticks``). Needed per-segment on a
+            broken axis, where the two segments cover wildly different ranges
+            and GLE's automatic choice would collide at the seam.
+        xdsubticks, ydsubticks : float, optional
+            Minor tick interval (GLE ``dsubticks``).
+        xplaces, yplaces : list of float, optional
+            Explicit tick positions (GLE ``xplaces``/``yplaces``), emitted as
+            their own statement. Overrides the automatic/``dticks`` placement.
+        xnames, ynames : list of str, optional
+            Tick labels to go with ``xplaces``/``yplaces`` (GLE
+            ``xnames``/``ynames``). Must be the same length as the
+            corresponding places list.
+        xaxis_off, yaxis_off, x2axis_off, y2axis_off : bool
+            Disable a single side of the graph frame entirely -- axis line,
+            ticks and labels (GLE's ``off`` sub-command; ``x2``/``y2`` are the
+            top/right sides GLE draws by default). This is what lets several
+            graph blocks butt up against each other and read as one panel:
+            the inner sides are switched off and the seam is drawn separately.
+
+        Raises
+        ------
+        ValueError
+            If a ``*names`` list is given without, or of a different length
+            to, its ``*places`` list.
         """
+        if xnames is not None and (xplaces is None or len(xnames) != len(xplaces)):
+            raise ValueError("xnames must be the same length as xplaces")
+        if ynames is not None and (yplaces is None or len(ynames) != len(yplaces)):
+            raise ValueError("ynames must be the same length as yplaces")
         if title:
             self.lines_gle.append(f'    title "{title}"')
 
@@ -337,14 +409,30 @@ class GLEWriter:
             x_cmd += f" max {self._format_number(xmax)}"
         if xlog:
             x_cmd += " log"
+        if xdticks is not None:
+            x_cmd += f" dticks {self._format_number(xdticks)}"
+        if xdsubticks is not None:
+            x_cmd += f" dsubticks {self._format_number(xdsubticks)}"
         if remove_first_xtick:
             x_cmd += " nofirst"  # Remove first tick label to prevent overlap
         if remove_last_xtick:
             x_cmd += " nolast"  # Remove last tick label to prevent overlap
+        if xaxis_off:
+            x_cmd += " off"
 
         # Add xaxis command if it has parameters
         if x_cmd != "    xaxis":
             self.lines_gle.append(x_cmd)
+
+        if xplaces is not None:
+            self.lines_gle.append(
+                "    xplaces " + " ".join(self._format_number(v) for v in xplaces)
+            )
+        if xnames is not None:
+            self.lines_gle.append(
+                "    xnames "
+                + " ".join(f'"{self._escape_gle_string(n)}"' for n in xnames)
+            )
 
         # Hide x-axis tick labels if requested (but keep the ticks themselves)
         if not show_xticks:
@@ -358,21 +446,37 @@ class GLEWriter:
             y_cmd += f" max {self._format_number(ymax)}"
         if ylog:
             y_cmd += " log"
+        if ydticks is not None:
+            y_cmd += f" dticks {self._format_number(ydticks)}"
+        if ydsubticks is not None:
+            y_cmd += f" dsubticks {self._format_number(ydsubticks)}"
         if remove_first_ytick:
             y_cmd += " nofirst"  # Remove first tick label to prevent overlap
         if remove_last_ytick:
             y_cmd += " nolast"  # Remove last tick label to prevent overlap
+        if yaxis_off:
+            y_cmd += " off"
 
         # Add yaxis command if it has parameters
         if y_cmd != "    yaxis":
             self.lines_gle.append(y_cmd)
+
+        if yplaces is not None:
+            self.lines_gle.append(
+                "    yplaces " + " ".join(self._format_number(v) for v in yplaces)
+            )
+        if ynames is not None:
+            self.lines_gle.append(
+                "    ynames "
+                + " ".join(f'"{self._escape_gle_string(n)}"' for n in ynames)
+            )
 
         # Hide y-axis tick labels if requested (but keep the ticks themselves)
         if not show_yticks:
             self.lines_gle.append("    ylabels off")
 
         # Handle y2axis (secondary y-axis) if limits or log scale specified
-        if y2min is not None or y2max is not None or y2log:
+        if y2min is not None or y2max is not None or y2log or y2axis_off:
             y2_cmd = "    y2axis"
             if y2min is not None:
                 y2_cmd += f" min {self._format_number(y2min)}"
@@ -380,7 +484,120 @@ class GLEWriter:
                 y2_cmd += f" max {self._format_number(y2max)}"
             if y2log:
                 y2_cmd += " log"
+            if y2axis_off:
+                y2_cmd += " off"
             self.lines_gle.append(y2_cmd)
+
+        # The top side has no gleplot-level configuration of its own; it is
+        # only ever switched off (inner edge of a broken-axis assembly).
+        if x2axis_off:
+            self.lines_gle.append("    x2axis off")
+
+    # -- broken-axis seam decoration ------------------------------------
+    #
+    # These are emitted between two adjacent graph blocks, immediately after
+    # the LEFT one's ``end graph``. GLE's ``xg()``/``yg()`` map data
+    # coordinates to page cm for the graph that most recently ended, and
+    # ``xgmin``/``xgmax``/``ygmin``/``ygmax`` hold that graph's data range --
+    # the same mechanism the colorbar placement already relies on. Using them
+    # (rather than the cm geometry gleplot computed) keeps the decoration
+    # pinned to what GLE actually drew.
+    #
+    # Everything is wrapped in gsave/grestore: ``set lwidth``/``set color``
+    # are sticky interpreter state in GLE and would otherwise leak into the
+    # following graph block.
+
+    def add_break_divider(
+        self,
+        gap_cm: float,
+        color: str = "BLACK",
+        linewidth: Optional[float] = None,
+        lstyle: Optional[int] = None,
+    ):
+        """Draw a single vertical rule down the seam between two segments.
+
+        The rule sits at the centre of the gap, so it lands exactly on the
+        join when ``gap_cm`` is 0.
+        """
+        offset = self._format_number(gap_cm / 2.0)
+        self.lines_gle.append("gsave")
+        self.lines_gle.append(f"set color {color}")
+        if linewidth is not None:
+            self.lines_gle.append(
+                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
+            )
+        if lstyle is not None:
+            self.lines_gle.append(f"set lstyle {int(lstyle)}")
+        self.lines_gle.append(f"amove xg(xgmax)+{offset} yg(ygmin)")
+        self.lines_gle.append(f"aline xg(xgmax)+{offset} yg(ygmax)")
+        self.lines_gle.append("grestore")
+
+    def add_break_marks(
+        self,
+        gap_cm: float,
+        color: str = "BLACK",
+        linewidth: Optional[float] = None,
+        width_cm: float = 0.13,
+        height_cm: float = 0.20,
+        separation_cm: float = 0.06,
+    ):
+        """Draw the conventional double-slash break marks at the seam.
+
+        Two short parallel strokes, leaning right, are drawn on the bottom
+        axis line and two more on the top one, centred on the gap between the
+        two segments. ``separation_cm`` is the half-distance between the pair
+        of strokes; ``width_cm``/``height_cm`` are the half-extents of each
+        stroke.
+        """
+        centre = f"xg(xgmax)+{self._format_number(gap_cm / 2.0)}"
+        w = self._format_number(width_cm)
+        h = self._format_number(height_cm)
+        sep = self._format_number(separation_cm)
+
+        self.lines_gle.append("gsave")
+        self.lines_gle.append(f"set color {color}")
+        if linewidth is not None:
+            self.lines_gle.append(
+                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
+            )
+        self.lines_gle.append("set lstyle 1")
+        for side in ("ygmin", "ygmax"):
+            for sign in ("-", "+"):
+                self.lines_gle.append(
+                    f"amove {centre}{sign}{sep}-{w} yg({side})-{h}"
+                )
+                self.lines_gle.append(
+                    f"aline {centre}{sign}{sep}+{w} yg({side})+{h}"
+                )
+        self.lines_gle.append("grestore")
+
+    def add_page_text(
+        self,
+        x_cm: float,
+        y_expr: str,
+        text: str,
+        just: str = "tc",
+        color: str = "BLACK",
+        fontsize: Optional[float] = None,
+    ):
+        """Write text at an absolute page position, outside any graph block.
+
+        Used for a broken axis' shared x title / title, which must be centred
+        on the WHOLE assembly rather than on any one segment (GLE's own
+        ``xtitle`` centres on its own graph box). ``y_expr`` is a raw GLE
+        expression so the caller can anchor it to the graph that just ended,
+        e.g. ``'yg(ygmin)-0.55'``.
+        """
+        self.lines_gle.append("gsave")
+        self.lines_gle.append(f"set just {just}")
+        self.lines_gle.append(f"set color {color}")
+        if fontsize is not None:
+            self.lines_gle.append(
+                f"set hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
+            )
+        self.lines_gle.append(f"amove {self._format_number(x_cm)} {y_expr}")
+        self.lines_gle.append(f'write "{self._escape_gle_string(text)}"')
+        self.lines_gle.append("grestore")
 
     def add_data_file(
         self,
@@ -545,14 +762,17 @@ class GLEWriter:
             line_cmd += self._line_token()
             line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
 
-            # Use configured line styles from style config
+            # Use configured line styles from style config. (A stray second
+            # ``lstyle 4`` used to follow the dash-dot case here, overriding
+            # the configured value with GLE's sparse-dotted style on every
+            # '-.' line series -- removed; the other three emission sites in
+            # this file never had it.)
             if linestyle == "--":
                 line_cmd += f" lstyle {self.style.line_style_dashed}"
             elif linestyle == ":":
                 line_cmd += f" lstyle {self.style.line_style_dotted}"
             elif linestyle == "-.":
                 line_cmd += f" lstyle {self.style.line_style_dashdot}"
-                line_cmd += " lstyle 4"
 
             if marker:
                 # Marker overlaid on the line (line+markers).

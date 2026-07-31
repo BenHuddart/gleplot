@@ -31,13 +31,39 @@ class GLEStyleConfig:
         GLE line style for solid lines. Default: 1
 
     line_style_dashed : int
-        GLE line style for dashed lines (--). Default: 2
+        GLE line style for dashed lines (--). Default: 3
 
     line_style_dotted : int
-        GLE line style for dotted lines (:). Default: 3
+        GLE line style for dotted lines (:). Default: 2
 
     line_style_dashdot : int
-        GLE line style for dash-dot lines (-.). Default: 4
+        GLE line style for dash-dot lines (-.). Default: 6
+
+    Notes
+    -----
+    The ``line_style_*`` defaults are the GLE ``lstyle`` numbers that actually
+    render as their names say, measured by compiling a ruler of ``set lstyle
+    1..9`` strokes with GLE 4.3.10 and looking at the result:
+
+    ==========  ==================
+    ``lstyle``  renders as
+    ==========  ==================
+    1           solid
+    2           dotted (dense)
+    3           dashed
+    4           dotted (sparse)
+    5           dashed (long)
+    6           dash-dot
+    7           dash-dot (sparse)
+    8           dash-dot (dense)
+    9           dashed (long, sparse)
+    ==========  ==================
+
+    gleplot previously defaulted to dashed=2 / dotted=3 / dashdot=4, i.e.
+    ``linestyle='--'`` drew a dotted line and ``':'`` drew a dashed one. Do
+    not "restore" those numbers: they were transposed, and dashed-vs-dotted
+    is load-bearing in publication figures where a dashed curve conventionally
+    means a fit.
     """
 
     font: str = ""  # Empty string = GLE default font
@@ -45,10 +71,12 @@ class GLEStyleConfig:
     default_linewidth: float = 1.5  # Increased from 1.0 for visibility
     default_color: str = "BLUE"
     default_marker_color: str = "BLUE"
+    # See the "Notes" section above: these are GLE's real style numbers, not
+    # a sequential 1/2/3/4 guess.
     line_style_solid: int = 1
-    line_style_dashed: int = 2
-    line_style_dotted: int = 3
-    line_style_dashdot: int = 4
+    line_style_dashed: int = 3
+    line_style_dotted: int = 2
+    line_style_dashdot: int = 6
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""

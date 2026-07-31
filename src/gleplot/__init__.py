@@ -51,11 +51,12 @@ figure(figsize=(8, 6), dpi=100)
     Create a new figure
 """
 
-__version__ = "1.8.3"
+__version__ = "1.9.0"
 __author__ = "gleplot contributors"
 
 from .figure import Figure
 from .axes import Axes
+from .brokenaxes import BrokenAxes
 from .colors import rgb_to_gle, get_color_palette
 from .markers import get_gle_marker
 from .mathtext import mathtext_to_gle
@@ -98,7 +99,14 @@ def open_gle(path, *, base_dir=None) -> Figure:
 
 
 def figure(
-    figsize=(8, 6), dpi=100, style=None, graph=None, marker=None, data_prefix=None
+    figsize=(8, 6),
+    dpi=100,
+    style=None,
+    graph=None,
+    marker=None,
+    data_prefix=None,
+    height_ratios=None,
+    width_ratios=None,
 ) -> Figure:
     """
     Create a new figure.
@@ -120,6 +128,16 @@ def figure(
         If None, uses global counter with ``data_`` prefix. Used verbatim, so
         it must be usable as a GLE data filename: whitespace, control
         characters and any of ``! " + / \\`` raise ``ValueError``.
+    height_ratios : sequence of float, optional
+        Relative height of each subplot ROW for the grid built with
+        subsequent :meth:`Figure.add_subplot` calls, matplotlib-``gridspec``
+        style. ``None`` (default) keeps every row the same height. See
+        :class:`gleplot.figure.Figure` for full semantics (validated against
+        the actual row count at GLE-generation time, once every
+        ``add_subplot`` has been made).
+    width_ratios : sequence of float, optional
+        Relative width of each subplot COLUMN. Same semantics as
+        ``height_ratios``, for columns.
 
     Returns
     -------
@@ -141,6 +159,11 @@ def figure(
 
     >>> glp.GlobalConfig.style.font = 'helvetica'
     >>> fig = glp.figure()  # Will use helvetica font
+
+    A 5-row grid built with add_subplot, with a short 4th "separator" row:
+
+    >>> fig = glp.figure(figsize=(3.4, 5.2), height_ratios=[3, 3, 3, 1, 4])
+    >>> axes = [fig.add_subplot(5, 1, i) for i in range(1, 6)]
     """
     global _current_figure
     _current_figure = Figure(
@@ -150,6 +173,8 @@ def figure(
         graph=graph,
         marker=marker,
         data_prefix=data_prefix,
+        height_ratios=height_ratios,
+        width_ratios=width_ratios,
     )
     return _current_figure
 
@@ -198,6 +223,26 @@ def text(*args, **kwargs):
     return gca().text(*args, **kwargs)
 
 
+def axvline(*args, **kwargs):
+    """Vertical reference line on current axes."""
+    return gca().axvline(*args, **kwargs)
+
+
+def axhline(*args, **kwargs):
+    """Horizontal reference line on current axes."""
+    return gca().axhline(*args, **kwargs)
+
+
+def axvspan(*args, **kwargs):
+    """Shaded vertical band on current axes."""
+    return gca().axvspan(*args, **kwargs)
+
+
+def axhspan(*args, **kwargs):
+    """Shaded horizontal band on current axes."""
+    return gca().axhspan(*args, **kwargs)
+
+
 def imshow(*args, **kwargs):
     """Display gridded data as a heatmap on current axes."""
     return gca().imshow(*args, **kwargs)
@@ -234,6 +279,8 @@ def subplots(
     sharex: bool = False,
     sharey: bool = False,
     data_prefix=None,
+    height_ratios=None,
+    width_ratios=None,
 ):
     """
     Create a figure and a set of subplots.
@@ -268,6 +315,18 @@ def subplots(
         If None, uses global counter with ``data_`` prefix. Used verbatim, so
         it must be usable as a GLE data filename: whitespace, control
         characters and any of ``! " + / \\`` raise ``ValueError``.
+    height_ratios : sequence of float, optional
+        Relative height of each of the ``nrows`` subplot rows, matplotlib-
+        ``gridspec`` style (e.g. ``[3, 3, 3, 1, 4]`` for 5 rows whose 4th is
+        thin). Must have length ``nrows`` if given. ``None`` (default) keeps
+        every row the same height -- the historical behaviour, byte-
+        identical output. See :class:`gleplot.figure.Figure` for full
+        semantics (validated against the actual row count at GLE-generation
+        time).
+    width_ratios : sequence of float, optional
+        Relative width of each of the ``ncols`` subplot columns. Same
+        semantics as ``height_ratios``, for columns; must have length
+        ``ncols`` if given.
 
     Returns
     -------
@@ -296,6 +355,12 @@ def subplots(
 
     >>> fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 12))
     >>> # Only bottom subplot shows x-axis label and ticks
+
+    Stacked panels with a short separator row (unequal row heights):
+
+    >>> fig, axes = glp.subplots(3, 1, sharex=True, figsize=(3.4, 4),
+    ...                          height_ratios=[3, 3, 1])
+    >>> # axes[2] gets 1/7 of the plotting height, axes[0]/axes[1] get 3/7 each
     """
     global _current_figure
 
@@ -311,6 +376,8 @@ def subplots(
         sharex=sharex,
         sharey=sharey,
         data_prefix=data_prefix,
+        height_ratios=height_ratios,
+        width_ratios=width_ratios,
     )
     _current_figure = fig
 
@@ -394,6 +461,7 @@ def close(fig=None):
 __all__ = [
     "Figure",
     "Axes",
+    "BrokenAxes",
     "figure",
     "gca",
     "gcf",
@@ -403,6 +471,10 @@ __all__ = [
     "fill_between",
     "errorbar",
     "text",
+    "axvline",
+    "axhline",
+    "axvspan",
+    "axhspan",
     "imshow",
     "contour",
     "tripcolor",

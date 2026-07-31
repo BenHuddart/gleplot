@@ -43,6 +43,9 @@ fig.savefig('trig.pdf', folder=True)
 ✨ **File-Based Series** - Plot directly from existing data columns (no extra sidecar files)  
 ✨ **Subplots** - Multi-panel figures with flexible grid layouts  
 ✨ **Subplot Layout Control** - Fine-tune margins and inter-panel spacing with `subplots_adjust`  
+✨ **Broken X-Axes** - One panel, several adjacent x ranges sharing a y-axis, with configurable break markers  
+✨ **Reference Lines and Spans** - `axvline`/`axhline`/`axvspan`/`axhspan` that track the axis limits  
+✨ **Open and Filled Markers** - matplotlib `fillstyle`/`markerfacecolor` mapped onto GLE's marker families  
 ✨ **Publication Ready** - Suitable for all major academic journals  
 ✨ **Lightweight** - Pure Python, minimal dependencies  
 
@@ -84,6 +87,9 @@ See the **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** for a full walkthrough
 
 **Key Documentation Resources:**
 - **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** - Desktop editor walkthrough, project files, troubleshooting
+- **[Broken Axes](docs/guides/BROKEN_AXES.md)** - Split x-axes for two-timescale data
+- **[Reference Lines and Spans](docs/guides/REFERENCE_LINES_AND_SPANS.md)** - `axvline`/`axhline`/`axvspan`/`axhspan`
+- **[Colors and Markers](docs/guides/COLORS_AND_MARKERS.md)** - Color/marker mapping, open and white-filled markers
 - **[Configuration System](docs/guides/CONFIGURATION.md)** - Customize gleplot appearance and behavior
 - **[Configuration API](docs/guides/CONFIGURATION_API.md)** - Complete configuration reference  
 - **[Semantic Versioning](docs/guides/VERSIONING.md)** - Automatic version management

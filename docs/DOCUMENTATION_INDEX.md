@@ -72,6 +72,24 @@ Guide for placing text labels in data coordinates with alignment and callout box
 - Font and color examples
 - Boxed annotation patterns
 
+### [BROKEN_AXES.md](guides/BROKEN_AXES.md)
+Guide for broken (split) x-axes: one panel, several adjacent x ranges.
+
+**Contains:**
+- `add_broken_xaxes()` / `BrokenAxes` API
+- Seam styles, width ratios and per-segment ticks
+- Implementation notes (adjacent graph blocks, per-side `off`)
+- Parser round-trip limitation
+
+### [REFERENCE_LINES_AND_SPANS.md](guides/REFERENCE_LINES_AND_SPANS.md)
+Guide for `axvline`, `axhline`, `axvspan` and `axhspan`.
+
+**Contains:**
+- Data coordinates vs. axes-fraction extents
+- Write-time materialization and autoscaling
+- Draw order relative to data series
+- The GLE 4.3.10 `alpha` limitation
+
 ### [FILE_BASED_SERIES.md](guides/FILE_BASED_SERIES.md)
 Guide for plotting directly from existing tabular data files.
 
@@ -89,6 +107,7 @@ Reference for accepted color and marker mappings.
 - Supported named colors
 - Marker symbol mappings
 - Native GLE marker names
+- Open (`fillstyle='none'`) and white-filled (`markerfacecolor='white'`) markers
 
 ### [CONTOUR_AND_HEATMAPS.md](guides/CONTOUR_AND_HEATMAPS.md)
 Guide for heatmaps and contour plots.
@@ -236,6 +255,8 @@ Script to run and compile all basic examples.
 - `line_from_file.py` - Overlay model lines from existing data files
 - `data_prefix.py` - Deterministic sidecar data file naming
 - `phase_diagram.py` - Susceptibility phase diagram (`tripcolor` + `tricontour` + colorbar)
+- `broken_axis.py` - Broken (split) x-axes: three seam styles, unequal segment widths, per-segment ticks
+- `prl_fig2a_style.py` - PRL-style muon asymmetry panel: broken time axis, filled/open markers, dashed fits
 
 Basic examples (`examples/basic/`) also include `heatmap_imshow.py` - gridded `imshow` + `contour` + colorbar.
 
@@ -250,6 +271,8 @@ gleplot/
 │       ├── CONFIGURATION.md
 │       ├── CONFIGURATION_API.md
 │       ├── TEXT_ANNOTATIONS.md
+│       ├── REFERENCE_LINES_AND_SPANS.md
+│       ├── BROKEN_AXES.md
 │       ├── FILE_BASED_SERIES.md
 │       ├── COLORS_AND_MARKERS.md
 │       ├── MATPLOTLIB_MIGRATION.md

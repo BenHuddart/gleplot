@@ -304,7 +304,9 @@ def test_attribute_order_shuffled_and_grey(tmp_path):
     ax = rec.figure.axes_list[0]
     series = (ax.lines or ax.file_series)[0]
     assert series["color"] == "GREY"
-    assert series["linestyle"] == "--"
+    # GLE renders lstyle 2 as dotted (3 is the dashed one), so that is what
+    # the recognizer must report -- see tables.LSTYLE_TO_MATPLOTLIB.
+    assert series["linestyle"] == ":"
     assert series["label"] == "w"
     assert ax.xmin == 0 and ax.xmax == 10 and ax.ymin == -1
 

@@ -2747,19 +2747,53 @@ class _Recognizer:
         stateful semantics. This lets a single ``set hei`` shared by multiple
         clusters, or a cluster with no ``set just`` at all, still recover the
         correct fontsize/color/ha via the sticky ``self._text_*`` state.
+
+        A non-empty run of clusters is wrapped in ``gsave``/``grestore`` by
+        the writer (:meth:`gleplot.writer.GLEWriter.end_graph`), so that page-
+        level text state does not leak into the next graph's axes/ticks.
+        That wrapper is recognized and swallowed here: if the run starts with
+        a ``gsave`` and, after every cluster we can match, is immediately
+        followed by a ``grestore``, both are consumed along with the
+        clusters and the sticky ``self._text_*`` state is reset back to
+        ambient (matching what ``grestore`` just did to the REAL GLE state --
+        see the writer's matching reset in ``end_graph``). If no cluster
+        matches, or the run isn't closed by a ``grestore``, nothing is
+        consumed here at all (not even the ``gsave``) and it falls through to
+        ordinary passthrough handling, same as any other content this
+        recognizer does not model (e.g. the broken-axis seam decoration).
+
         Returns (texts, next_index).
         """
-        texts: List[dict] = []
         i = start
         n = len(nodes)
-        while i < n:
-            # Try to match one text cluster starting at i.
-            consumed, text = self._try_one_text(nodes, i)
+
+        j = self._skip_blanks(nodes, i)
+        gsave_stmt = self._as_statement(nodes[j]) if j < n else None
+        wrapped = gsave_stmt is not None and gsave_stmt.keyword == "gsave"
+        scan_start = j + 1 if wrapped else i
+
+        texts: List[dict] = []
+        k = scan_start
+        while k < n:
+            consumed, text = self._try_one_text(nodes, k)
             if text is None:
                 break
             texts.append(text)
-            i = consumed
-        return texts, i
+            k = consumed
+
+        if wrapped:
+            if texts:
+                m = self._skip_blanks(nodes, k)
+                grestore_stmt = self._as_statement(nodes[m]) if m < n else None
+                if grestore_stmt is not None and grestore_stmt.keyword == "grestore":
+                    self._text_fontsize = None
+                    self._text_color = "BLACK"
+                    self._text_just = "left"
+                    return texts, m + 1
+            # Unclosed or empty: back off entirely, leave 'gsave' untouched.
+            return [], i
+
+        return texts, k
 
     def _try_one_text(self, nodes, i) -> Tuple[int, Optional[dict]]:
         """Try to match one text cluster starting at ``i``.

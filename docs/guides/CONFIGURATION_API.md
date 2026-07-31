@@ -103,9 +103,9 @@ GLEStyleConfig(
     default_color: str = 'BLUE',
     default_marker_color: str = 'BLUE',
     line_style_solid: int = 1,
-    line_style_dashed: int = 2,
-    line_style_dotted: int = 3,
-    line_style_dashdot: int = 4,
+    line_style_dashed: int = 3,
+    line_style_dotted: int = 2,
+    line_style_dashdot: int = 6,
 )
 ```
 
@@ -207,19 +207,27 @@ GLE line style code for solid lines (`'-'`).
 **Type:** int
 **Mutable:** Yes
 
-**GLE line styles:**
+**GLE line styles** (measured by compiling a `set lstyle 1..9` ruler with GLE 4.3.10):
 - 1 = solid (continuous)
-- 2 = dashed (9-unit segments)
-- 3 = dotted (3-unit segments)
-- 4 = dash-dot (alternating 9-3 units)
+- 2 = dotted (dense)
+- 3 = dashed
+- 4 = dotted (sparse)
+- 5 = dashed (long)
+- 6 = dash-dot
+- 7 = dash-dot (sparse)
+- 8 = dash-dot (dense)
+- 9 = dashed (long, sparse)
 - Custom: multi-digit codes (e.g., 12 = 1 black + 2 white repeating)
+
+Note the ordering: GLE's numbering is **not** solid/dashed/dotted/dash-dot in
+sequence. gleplot's defaults pick the codes that render as their names say.
 
 #### `line_style_dashed: int`
 
 GLE line style code for dashed lines (`'--'`).
 
 **Valid range:** 1-9
-**Default:** 2
+**Default:** 3
 **Type:** int
 **Mutable:** Yes
 
@@ -228,7 +236,7 @@ GLE line style code for dashed lines (`'--'`).
 GLE line style code for dotted lines (`':'`).
 
 **Valid range:** 1-9
-**Default:** 3
+**Default:** 2
 **Type:** int
 **Mutable:** Yes
 
@@ -237,7 +245,7 @@ GLE line style code for dotted lines (`':'`).
 GLE line style code for dash-dot lines (`'-.'`).
 
 **Valid range:** 1-9
-**Default:** 4
+**Default:** 6
 **Type:** int
 **Mutable:** Yes
 

@@ -28,6 +28,12 @@ from .batch_figures import example_batch_figures
 from .line_from_file import example_line_from_file
 from .data_prefix import example_data_prefix
 from .phase_diagram import example_phase_diagram
+from .broken_axis import (
+    example_broken_axis_slash,
+    example_broken_axis_line,
+    example_broken_axis_none,
+)
+from .prl_fig2a_style import example_prl_fig2a_style
 
 __all__ = [
     'example_fill_between',
@@ -53,4 +59,8 @@ __all__ = [
     'example_line_from_file',
     'example_data_prefix',
     'example_phase_diagram',
+    'example_broken_axis_slash',
+    'example_broken_axis_line',
+    'example_broken_axis_none',
+    'example_prl_fig2a_style',
 ]

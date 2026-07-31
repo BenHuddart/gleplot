@@ -100,7 +100,19 @@ class TestMarkers:
 
 class TestLineStyles:
     def test_forward_map(self):
-        assert tables.LSTYLE_TO_MATPLOTLIB == {1: "-", 2: "--", 3: ":", 4: "-."}
+        # These are GLE 4.3.10's real style numbers, measured by rendering a
+        # ruler of `set lstyle 1..9` strokes: 2 is dotted and 3 is dashed (6
+        # is the dash-dot). gleplot used to have dashed/dotted transposed --
+        # see GLEStyleConfig's Notes. Do not "tidy" this back to 1/2/3/4.
+        assert tables.LSTYLE_TO_MATPLOTLIB == {1: "-", 3: "--", 2: ":", 6: "-."}
+
+    def test_map_is_derived_from_the_config_not_transcribed(self):
+        """Changing a config default must move the parser's inverse with it."""
+        from gleplot.config import GLEStyleConfig
+
+        rebuilt = tables._build_lstyle_to_matplotlib()
+        assert rebuilt == tables.LSTYLE_TO_MATPLOTLIB
+        assert rebuilt[GLEStyleConfig().line_style_dashed] == "--"
 
     def test_reverse_is_exact_inverse(self):
         for style_int, mpl in tables.LSTYLE_TO_MATPLOTLIB.items():
