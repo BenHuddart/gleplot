@@ -138,6 +138,58 @@ def _require_valid_extent(ext) -> None:
         )
 
 
+def _axis_from_meshgrid(arr: np.ndarray, name: str) -> np.ndarray:
+    """Reduce a matplotlib-style 2-D meshgrid coordinate array to its 1-D axis.
+
+    ``np.meshgrid(x, y)`` (the default ``indexing='xy'``) returns an ``X``
+    whose every row is ``x`` and a ``Y`` whose every column is ``y``. GLE's
+    ``.z`` grid is defined by an extent plus a shape, so it needs those 1-D
+    axes back. This extracts them, verifying the grid really is regular --
+    the whole point of the check is that a grid we cannot represent must
+    raise here rather than be silently misdrawn.
+
+    Parameters
+    ----------
+    arr : ndarray, shape (ny, nx)
+        The 2-D coordinate array (``X`` or ``Y``).
+    name : {'x', 'y'}
+        Which coordinate it is; decides the axis it must be constant along.
+
+    Returns
+    -------
+    ndarray
+        The 1-D axis (``arr[0, :]`` for ``x``, ``arr[:, 0]`` for ``y``).
+    """
+    # Tolerance relative to the coordinate's own span: np.meshgrid copies
+    # values exactly, but a grid built by arithmetic can carry rounding.
+    span = float(np.ptp(arr)) if arr.size else 0.0
+    tol = max(1e-12, 1e-9 * span)
+
+    along_rows = np.max(np.abs(arr - arr[0:1, :])) <= tol if arr.size else True
+    along_cols = np.max(np.abs(arr - arr[:, 0:1])) <= tol if arr.size else True
+
+    wanted, other = ("rows", "columns") if name == "x" else ("columns", "rows")
+    constant = along_rows if name == "x" else along_cols
+    transposed = along_cols if name == "x" else along_rows
+
+    if constant:
+        return arr[0, :] if name == "x" else arr[:, 0]
+    if transposed:
+        raise ValueError(
+            f"contour(X, Y, Z): the 2-D {name.upper()} is constant along its "
+            f"{other}, not its {wanted} -- this is the layout of "
+            f"np.meshgrid(..., indexing='ij'). Rebuild the grid with the "
+            f"default indexing='xy' (and Z of shape (len(y), len(x))), or "
+            f"pass X.T, Y.T and Z.T."
+        )
+    raise ValueError(
+        f"contour(X, Y, Z): the 2-D {name.upper()} is not a regular grid (its "
+        f"{wanted} are not all identical), so it has no single 1-D {name} "
+        f"axis. GLE contours a uniform rectangular grid; use tricontour(x, y, "
+        f"z) for scattered or irregularly gridded data."
+    )
+
+
 def _sanitize_data_stem(name: object) -> str:
     """Convert an arbitrary data name to a safe filename stem."""
     text = re.sub(r"[^A-Za-z0-9_-]+", "_", str(name).strip().lower())
@@ -1787,6 +1839,13 @@ class Axes:
         1-D ``y`` (ny), 2-D ``Z`` (ny, nx). ``x``/``y`` must be uniformly
         spaced.
 
+        The matplotlib spelling ``contour(X, Y, Z)`` with 2-D ``X``/``Y`` from
+        ``np.meshgrid`` is also accepted: the grid is checked for regularity
+        (constant rows in ``X``, constant columns in ``Y``) and its 1-D axes
+        extracted, since GLE's ``.z`` grid is an extent plus a shape. A
+        genuinely irregular grid raises -- use :meth:`tricontour` for
+        scattered data.
+
         Parameters
         ----------
         levels : None, int, or sequence
@@ -1861,8 +1920,26 @@ class Axes:
             x = np.asarray(args[0], dtype=float)
             y = np.asarray(args[1], dtype=float)
             z = np.asarray(args[2], dtype=float)
+            # matplotlib's usual call passes the 2-D X, Y from np.meshgrid.
+            # Accept those: check the grid is regular and take its 1-D axes,
+            # which is what GLE's .z grid (extent + shape) is defined by.
+            if z.ndim == 2:
+                for coord, cname in ((x, "x"), (y, "y")):
+                    if coord.ndim == 2 and coord.shape != z.shape:
+                        raise ValueError(
+                            f"contour(X, Y, Z): 2-D {cname.upper()} has shape "
+                            f"{coord.shape} but Z has shape {z.shape}; a "
+                            "meshgrid coordinate array must match Z"
+                        )
+                if x.ndim == 2:
+                    x = _axis_from_meshgrid(x, "x")
+                if y.ndim == 2:
+                    y = _axis_from_meshgrid(y, "y")
             if x.ndim != 1 or y.ndim != 1 or z.ndim != 2:
-                raise ValueError("contour(x, y, Z) requires 1-D x, 1-D y, 2-D Z")
+                raise ValueError(
+                    "contour(x, y, Z) requires 1-D x, 1-D y, 2-D Z (or "
+                    "matplotlib's 2-D meshgrid X, Y matching Z's shape)"
+                )
             if z.shape != (len(y), len(x)):
                 raise ValueError(
                     f"Z shape {z.shape} does not match (len(y), len(x)) = "
