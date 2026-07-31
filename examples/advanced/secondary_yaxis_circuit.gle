@@ -11,12 +11,12 @@ begin graph
     ytitle "Voltage (V)"
     y2title "Current (A)"
     data data_4.dat d1=c1,c2
-    d1 line smooth color RED lwidth 0.07056 key "Voltage 1"
+    d1 line color RED lwidth 0.07056 key "Voltage 1"
     data data_5.dat d2=c1,c2
-    d2 line smooth color DARKRED lwidth 0.07056 lstyle 2 key "Voltage 2"
+    d2 line color DARKRED lwidth 0.07056 lstyle 2 key "Voltage 2"
     data data_6.dat d3=c1,c2
-    d3 line smooth color BLUE lwidth 0.07056 y2axis key "Current 1"
+    d3 line color BLUE lwidth 0.07056 y2axis key "Current 1"
     data data_7.dat d4=c1,c2
-    d4 line smooth color DARKBLUE lwidth 0.07056 lstyle 2 y2axis key "Current 2"
+    d4 line color DARKBLUE lwidth 0.07056 lstyle 2 y2axis key "Current 2"
     key pos tr
 end graph

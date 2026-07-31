@@ -171,10 +171,10 @@ begin graph
     xaxis min 1.5 max 34.5
     yaxis min 0 max 1.2
     data data_0.dat d2=c1,c2
-    d2 line smooth color BLUE lwidth 0.07056 key "H = 0 T"
+    d2 line color BLUE lwidth 0.07056 key "H = 0 T"
     data data_1.dat d3=c1,c2
-    d3 line smooth color GREEN lwidth 0.07056 key "H = 5 T"
+    d3 line color GREEN lwidth 0.07056 key "H = 5 T"
     data data_2.dat d4=c1,c2
-    d4 line smooth color RED lwidth 0.07056 key "H = 8 T"
+    d4 line color RED lwidth 0.07056 key "H = 8 T"
     key pos tr
 end graph

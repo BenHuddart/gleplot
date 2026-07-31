@@ -12,8 +12,8 @@ begin graph
     y2title "eˣ"
     y2axis log
     data data_2.dat d1=c1,c2
-    d1 line smooth color GREEN lwidth 0.07056 key "Quadratic: x²"
+    d1 line color GREEN lwidth 0.07056 key "Quadratic: x²"
     data data_3.dat d2=c1,c2
-    d2 line smooth color PURPLE lwidth 0.07056 y2axis key "Exponential: eˣ"
+    d2 line color PURPLE lwidth 0.07056 y2axis key "Exponential: eˣ"
     key pos tr
 end graph

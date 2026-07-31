@@ -69,11 +69,57 @@ Controls graph layout and rendering:
         legend_position='tr',        # Legend position: 'tr', 'tl', 'br', 'bl', etc.
         legend_offset_x=0.0,         # Legend x-offset (cm)
         legend_offset_y=0.0,         # Legend y-offset (cm)
-        smooth_curves=True,          # Enable GLE smooth keyword on lines
+        smooth_curves=False,         # Spline-smooth lines (GLE `smooth`); opt-in
         show_grid=False,             # Show background grid
     )
     
     fig = glp.figure(graph=graph)
+
+### Curve Smoothing (`smooth_curves`)
+
+**A line series is drawn as a polyline through your points.** Straight
+segments join consecutive measurements; nothing is drawn that is not in the
+data.
+
+`smooth_curves=True` opts into GLE's `smooth` keyword instead, which draws a
+fitted piecewise-cubic spline. The curve then passes *near*, not through, the
+points: it overshoots steep steps and rings around noise. That is a model of
+the data, not the data, so keep it off for anything meant to be read
+quantitatively. The legitimate uses are cosmetic -- a guide to the eye through
+widely spaced points, or a densely sampled model curve where the spline and
+the polyline are indistinguishable anyway.
+
+    # Per figure
+    fig = glp.figure(graph=glp.GLEGraphConfig(smooth_curves=True))
+
+    # Or globally, for every figure created afterwards
+    glp.GlobalConfig.graph.smooth_curves = True
+
+The flag is per figure and applies to every line series in it (`plot`,
+`line_from_file`, and the line drawn by `errorbar`). Fills and contour lines
+are never smoothed: GLE's `fill` command takes no `smooth` qualifier, and
+contour polylines come out of GLE's own contouring of the gridded surface,
+where splining would move the level off the surface it was computed from.
+
+> **Behaviour change in 1.9.0.** Before 1.9.0, `smooth_curves` defaulted to
+> **`True`**: every line gleplot drew was a spline through the data, and no
+> figure showed the measured polyline unless its author had found the flag and
+> turned it off. Figures regenerated with 1.9.0 render as polylines --
+> visibly more angular between sparse points, with no overshoot past local
+> maxima. **That is the correct rendering.** If a curve now looks jagged, the
+> jaggedness is in the data and was previously being hidden.
+>
+> To reproduce a pre-1.9.0 figure exactly, ask for smoothing explicitly:
+> `glp.figure(graph=glp.GLEGraphConfig(smooth_curves=True))`, or one
+> `glp.GlobalConfig.graph.smooth_curves = True` at the top of the script to
+> restore the old behaviour everywhere in it.
+
+> **Unrelated to smoothing, but worth knowing:** `plot()` and `errorbar()`
+> sort their points by ascending x before writing the data file -- a habit
+> left over from `smooth`, which requires monotonic x. A series whose x is
+> non-monotonic by design (hysteresis loop, parametric curve, a trace that
+> doubles back) is therefore reordered. `line_from_file` writes no data file
+> and preserves row order.
 
 ### Scale Modes
 
@@ -150,7 +196,6 @@ GLE-specific markers:
     glp.GlobalConfig.style.font = 'helvetica'
     glp.GlobalConfig.style.fontsize = 12
     glp.GlobalConfig.graph.legend_position = 'tl'
-    glp.GlobalConfig.graph.smooth_curves = True
     
     # Create figure (uses global defaults)
     fig = glp.figure()
@@ -334,7 +379,7 @@ Attributes:
 - `legend_position` (str) - Legend position code. Default: 'tr'
 - `legend_offset_x` (float) - Legend x-offset (cm). Default: 0.0
 - `legend_offset_y` (float) - Legend y-offset (cm). Default: 0.0
-- `smooth_curves` (bool) - Enable smooth curves. Default: True
+- `smooth_curves` (bool) - Spline-smooth line series (GLE `smooth`). Default: False
 - `show_grid` (bool) - Show background grid. Default: False
 
 ### GLEMarkerConfig
