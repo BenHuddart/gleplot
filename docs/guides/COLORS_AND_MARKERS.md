@@ -72,6 +72,13 @@ than gleplot already asked for.
 ## Marker Mapping
 
 gleplot accepts matplotlib marker symbols and maps them to GLE marker types.
+**Every code in matplotlib's standard string marker set is mapped** (as of
+1.9.0), so no valid matplotlib marker silently turns into a circle.
+
+Marker codes are case-significant, exactly as in matplotlib. Where matplotlib
+distinguishes a pair by case, gleplot keeps them visually distinct by giving
+the uppercase code the filled GLE glyph and the lowercase one the outline
+glyph.
 
 ### Common matplotlib markers
 
@@ -80,6 +87,7 @@ gleplot accepts matplotlib marker symbols and maps them to GLE marker types.
 - `^` -> `FTRIANGLE`
 - `v` -> `FTRIANGLED`
 - `D` -> `FDIAMOND`
+- `d` -> `DIAMOND` (thin diamond -- outline partner of `D`)
 - `*` -> `FSTARR`
 - `+` / `P` -> `PLUS`
 - `x` / `X` -> `PCROSS`
@@ -88,10 +96,23 @@ gleplot accepts matplotlib marker symbols and maps them to GLE marker types.
 ### Additional accepted symbols
 
 - `<`, `>` -> `TRIANGLE`
+- `1` -> `TRIANGLED`; `2`, `3`, `4` -> `TRIANGLE` (matplotlib's `tri_*`
+  markers are the spokes of a triangle; GLE has no such glyph, and no
+  directed triangle, so left/right collapse onto `TRIANGLE` as `<`/`>` do)
+- `8` -> `FCIRCLE` (a filled octagon at marker sizes is a filled circle)
 - `p` -> `STARR`
 - `H` -> `HEART`
 - `h` -> `DIAMOND`
 - `|`, `_` -> `PLUS`
+
+### Not mapped
+
+matplotlib's **integer** markers -- `0`-`3` (`tickleft`, `tickright`,
+`tickup`, `tickdown`) and `4`-`11` (the carets) -- have no GLE counterpart:
+they are line segments and wedges drawn beside a point, not symbols centred
+on it. They fall back to the default marker (`FCIRCLE`) rather than being
+approximated. Note that they are a separate namespace from the string codes:
+the integer `1` is `tickright`, the string `'1'` is `tri_down`.
 
 ### Native GLE marker names
 
