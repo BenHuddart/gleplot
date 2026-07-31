@@ -2239,7 +2239,9 @@ class Axes:
         if ticks is not None:
             self.xplaces = [float(t) for t in ticks]
         if labels is not None:
-            self.xnames = [str(lbl) for lbl in labels]
+            # Tick labels are user-supplied display text like any other, so
+            # they get the same mathtext translation / literal escaping.
+            self.xnames = [mathtext_to_gle(str(lbl)) for lbl in labels]
         if dticks is not None:
             self.xdticks = float(dticks)
         if dsubticks is not None:
@@ -2258,7 +2260,7 @@ class Axes:
         if ticks is not None:
             self.yplaces = [float(t) for t in ticks]
         if labels is not None:
-            self.ynames = [str(lbl) for lbl in labels]
+            self.ynames = [mathtext_to_gle(str(lbl)) for lbl in labels]
         if dticks is not None:
             self.ydticks = float(dticks)
         if dsubticks is not None:

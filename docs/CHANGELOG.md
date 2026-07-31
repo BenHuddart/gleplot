@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## Unreleased
+
+### Features
+
+- `ax.legend()` honours `fontsize` (GLE `key ... hei`, points converted with
+  the same pt→cm rule as `set hei`, including matplotlib's relative names) and
+  `frameon` (`key ... nobox`); all eleven matplotlib `loc` strings now reach
+  GLE's nine key anchors instead of five of them collapsing onto top right
+- Every other matplotlib `legend()` keyword — and an unrecognized `loc`, and
+  an explicit handles/labels sequence — warns instead of being silently
+  dropped
+- `ax.contour(X, Y, Z)` accepts matplotlib's 2-D `np.meshgrid` coordinate
+  arrays; irregular grids, transposed (`indexing='ij'`) grids and shape
+  mismatches each raise their own message
+
+### Behaviour changes
+
+- **Plain display strings now render literally.** GLE's text engine reads `_`
+  and `^` as sub/superscripts and swallows braces, so `'lambda_tail'` used to
+  render as "lambda" with a subscripted "tail" and `'{a, b}'` lost its braces.
+  gleplot now follows matplotlib's contract — literal by default, math opt-in
+  via `$...$` — and escapes `_`, `^`, `{` and `}` in every non-math segment of
+  every display string (axis labels, titles, legend keys, annotations, tick
+  labels).
+
+  Still treated as GLE markup, so existing figures that use it are unaffected:
+  a **backslash** (`r'\chi{} (emu/mol)'`, `'{\bf bold}'`) and a **braced**
+  script (`'T_{N}'`, `'mol^{-1}'`). Only a *bare* `_`/`^` changed meaning. If
+  you relied on `'T_N'` subscripting, write `'T_{N}'` or `r'$T_N$'`.
+
 ## v1.9.0 (2026-07-31)
 
 ### Features

@@ -223,3 +223,114 @@ class TestEntryPointsStoreTranslated:
         assert r"\chi" in text
         # No untranslated matplotlib mathtext leaks into the script.
         assert "$" not in text
+
+
+# ----------------------------------------------------------------------
+# Literal-by-default text mode (GLE's TeX-ish text engine outside $...$)
+#
+# Verified against GLE 4.3.10 with its standard PostScript fonts: "a\_b"
+# renders "a_b", "\char{94}" a caret and "\char{123}"/"\char{125}" braces
+# (a bare "\^"/"\{" are *accents*, not literals).
+# ----------------------------------------------------------------------
+from gleplot.mathtext import escape_gle_text
+
+
+class TestLiteralTextMode:
+    def test_underscore_is_literal(self):
+        assert mathtext_to_gle("lambda_tail") == r"lambda\_tail"
+
+    def test_several_underscores(self):
+        assert (
+            mathtext_to_gle("excluded: window_selection_bias")
+            == r"excluded: window\_selection\_bias"
+        )
+
+    def test_bare_caret_is_literal(self):
+        assert mathtext_to_gle("x^2") == r"x\char{94}2"
+
+    def test_bare_braces_are_literal(self):
+        assert mathtext_to_gle("set {a, b}") == r"set \char{123}a, b\char{125}"
+
+    def test_underscore_inside_a_math_string_is_still_math(self):
+        assert mathtext_to_gle(r"$T_N$ from run_01") == r"T_{N} from run\_01"
+
+    def test_braced_scripts_stay_gle_markup(self):
+        # The documented direct-GLE-markup spelling keeps working, and it is
+        # also what the math translator emits, which is what makes
+        # translating an already-translated label a no-op.
+        assert mathtext_to_gle("T_{N} (K)") == "T_{N} (K)"
+        assert mathtext_to_gle("mol^{-1}") == "mol^{-1}"
+
+    def test_backslash_still_opens_gle_markup(self):
+        assert mathtext_to_gle(r"\chi{} (emu/mol)") == r"\chi{} (emu/mol)"
+        assert mathtext_to_gle(r"{\bf bold} text") == r"{\bf bold} text"
+        assert mathtext_to_gle(r"T (\degree C)") == r"T (\degree C)"
+
+    @pytest.mark.parametrize(
+        "s",
+        [
+            "lambda_tail",
+            "x^2",
+            "set {a, b}",
+            r"$T_N$ from run_01",
+            "T_{N} (K)",
+            r"\chi{} (emu/mol)",
+            r"{\bf bold} text",
+            "a_b^c{d}",
+        ],
+    )
+    def test_escaping_is_idempotent(self, s):
+        once = mathtext_to_gle(s)
+        assert mathtext_to_gle(once) == once
+
+    def test_unclosed_brace_is_escaped_not_swallowed(self):
+        assert escape_gle_text("a{b") == r"a\char{123}b"
+
+    def test_plain_text_untouched(self):
+        for s in ["plain text", "", "50% of 3 runs (a & b) #1"]:
+            assert mathtext_to_gle(s) == s
+
+
+class TestLiteralTextModeEntryPoints:
+    def test_axis_label_legend_key_and_annotation(self, tmp_path):
+        fig = gleplot.figure(data_prefix="esc")
+        ax = fig.add_subplot(111)
+        ax.plot([1, 2, 3], [1, 4, 9], label="fit_A")
+        ax.set_xlabel("time_bin")
+        ax.set_ylabel("lambda_tail")
+        ax.set_title("run_01")
+        ax.text(2.0, 4.0, "chi2_red = 1.02")
+        out = tmp_path / "esc.gle"
+        fig.savefig_gle(str(out))
+        text = out.read_text()
+
+        assert r"lambda\_tail" in text
+        assert r'key "fit\_A"' in text
+        assert r"time\_bin" in text
+        assert r"run\_01" in text
+        assert r"chi2\_red = 1.02" in text
+        # ...and no unescaped underscore survives in any display string
+        # (data-file names are not display text and keep theirs).
+        display = [
+            line
+            for line in text.splitlines()
+            if line.strip().startswith(("xtitle", "ytitle", "title", "write"))
+            or " key " in line
+        ]
+        assert display
+        assert "_" not in "\n".join(display).replace(r"\_", "")
+
+    def test_tick_labels_are_escaped(self):
+        fig = gleplot.figure()
+        ax = fig.gca()
+        ax.plot([1, 2], [1, 2])
+        ax.set_xticks([1, 2], ["low_T", r"$T_N$"])
+        assert ax.xnames == [r"low\_T", "T_{N}"]
+
+    def test_math_still_passes_through_entry_points(self):
+        fig = gleplot.figure()
+        ax = fig.gca()
+        ax.plot([1, 2], [1, 2], label=r"$\alpha$ decay")
+        ax.set_ylabel(r"$\chi_{mol}$ (emu mol$^{-1}$)")
+        assert ax.lines[0]["label"] == r"\alpha{} decay"
+        assert ax.ylabel_text == r"\chi_{mol} (emu mol^{-1})"

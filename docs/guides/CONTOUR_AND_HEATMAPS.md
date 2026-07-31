@@ -188,7 +188,7 @@ You can write labels in **either** matplotlib-style `$...$` mathtext **or** GLE'
 
 ### matplotlib mathtext (`$...$`)
 
-Anything between unescaped `$` delimiters is treated as math and translated to GLE markup; text outside the delimiters passes through verbatim:
+Anything between unescaped `$` delimiters is treated as math and translated to GLE markup; text outside the delimiters is escaped so it renders **literally** (see "Plain text is literal" below):
 
 ```python
 ax.set_ylabel(r'$\chi_{mol}$ (emu mol$^{-1}$)')   # renders: χ_mol (emu mol⁻¹)
@@ -205,12 +205,26 @@ Translation rules:
 - Spacing macros `\,` `\:` `\;` `\!` pass through; unknown macros pass through unchanged (GLE understands more than gleplot enumerates).
 - `\$` is a literal dollar sign anywhere (not a delimiter). A string with an **odd/unmatched** `$` count is left completely unchanged (matplotlib would error; gleplot degrades gracefully rather than guess).
 
+### Plain text is literal
+
+GLE's text engine is TeX-ish everywhere, not only inside math: a bare `_` or `^` starts a sub/superscript and braces group silently. gleplot follows matplotlib's contract instead — **a plain string renders literally, and math is opt-in via `$...$`** — by escaping those characters outside math:
+
+```python
+ax.plot(x, y, label='lambda_tail')        # renders: lambda_tail  (not lambda_t ail)
+ax.set_title('excluded: window_bias')     # renders: excluded: window_bias
+ax.text(1, 1, 'set {a, b} at x^2')        # renders: set {a, b} at x^2
+```
+
+Two things are deliberately *not* escaped, because they are gleplot's opt-in to GLE's own markup (see below): a **backslash**, and a **braced** script `_{…}` / `^{…}`.
+
 ### GLE markup (direct)
 
-Direct GLE markup still works — a string with no `$` is passed through byte-for-byte:
+Direct GLE markup still works — a backslash outside `$...$` opens GLE's text commands:
 
 - Greek letters and symbols use backslash escapes: `\chi`, `\alpha`, `\Omega`, `\mu`, `\pi`, …
-- Subscripts/superscripts use braces: `T_{N}`, `mol^{-1}`, `10^{-3}`.
+- Subscripts/superscripts use **braces**: `T_{N}`, `mol^{-1}`, `10^{-3}`. The braces are what marks them as markup; a bare `T_N` renders literally as `T_N`.
+- Font groups work: `{\bf bold}`, `{\it italic}`, `{\rm roman}`.
+- A literal character GLE would otherwise eat can always be written `\char{n}` — `\char{95}` underscore, `\char{94}` caret, `\char{123}`/`\char{125}` braces. (`\_` is the underscore too; `\^` and `\{` are *accents*, not literals.)
 - Use Python **raw strings** so the backslash reaches GLE intact: `r'\chi'`, not `'\chi'` (which Python would treat as an invalid escape).
 
 ```python
