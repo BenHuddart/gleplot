@@ -114,12 +114,37 @@ where splining would move the level off the surface it was computed from.
 > `glp.GlobalConfig.graph.smooth_curves = True` at the top of the script to
 > restore the old behaviour everywhere in it.
 
-> **Unrelated to smoothing, but worth knowing:** `plot()` and `errorbar()`
-> sort their points by ascending x before writing the data file -- a habit
-> left over from `smooth`, which requires monotonic x. A series whose x is
-> non-monotonic by design (hysteresis loop, parametric curve, a trace that
-> doubles back) is therefore reordered. `line_from_file` writes no data file
-> and preserves row order.
+#### Point order
+
+A series is drawn, and written to its `.dat` file, in the order you passed its
+points -- as in matplotlib. Consecutive points are joined in that order, so a
+curve whose x is non-monotonic by design comes out as drawn: a hysteresis loop
+closes, a parametric curve traces its parameter, a field sweep taken up and
+back down shows both legs.
+
+    # A circle, parameterised by angle: x runs 1 -> -1 -> 1
+    t = np.linspace(0, 2 * np.pi, 200)
+    ax.plot(np.cos(t), np.sin(t))
+
+**Smoothing is the one exception.** GLE's `smooth` fits a piecewise cubic *as
+a function of x* and needs the points in ascending x, so a series that will
+actually be drawn with `smooth` -- it draws a line and `smooth_curves` is on
+-- has its rows sorted by x (stably: points sharing an x keep their input
+order). A closed or doubling-back curve cannot be smoothed meaningfully for
+that reason; leave `smooth_curves` off for one, which is the default.
+
+Sorting never applies to a series that draws no line (`scatter`), to
+`fill_between`, or to `line_from_file`/`errorbar_from_file` (which reference
+your file's rows and write nothing).
+
+> **Behaviour change in 1.9.0.** Before 1.9.0, `plot()` and `errorbar()`
+> sorted their points by ascending x before writing the data file -- a habit
+> left over from when smoothing was on by default. Any series with
+> non-monotonic x was silently reordered, both on screen and on disk. Figures
+> regenerated with 1.9.0 draw the points in the order they were given; a loop
+> that previously came out torn into two overlapping arcs now closes. If a
+> figure depended on the old ordering, sort before plotting:
+> `order = np.argsort(x); ax.plot(x[order], y[order])`.
 
 ### Scale Modes
 
@@ -379,7 +404,8 @@ Attributes:
 - `legend_position` (str) - Legend position code. Default: 'tr'
 - `legend_offset_x` (float) - Legend x-offset (cm). Default: 0.0
 - `legend_offset_y` (float) - Legend y-offset (cm). Default: 0.0
-- `smooth_curves` (bool) - Spline-smooth line series (GLE `smooth`). Default: False
+- `smooth_curves` (bool) - Spline-smooth line series (GLE `smooth`); sorts a
+  smoothed series by x, which `smooth` requires. Default: False
 - `show_grid` (bool) - Show background grid. Default: False
 
 ### GLEMarkerConfig
