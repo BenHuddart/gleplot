@@ -330,6 +330,64 @@ def test_cumulative_axis_lines(tmp_path):
     assert ax.xscale == "log"
 
 
+def test_xplaces_xnames_yplaces_ynames_recognized(tmp_path):
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        "   xaxis min 0 max 2\n"
+        "   xplaces 0 1 2\n"
+        '   xnames "a" "b" "c"\n'
+        "   yaxis min 0 max 4\n"
+        "   yplaces 0 2 4\n"
+        '   ynames "low" "mid" "high"\n'
+        "   data pt_1.dat d1=c1,c2\n"
+        "   d1 line color BLUE lwidth 0.05292\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "tk.gle", src, {"pt_1.dat": "0 0\n1 1\n2 4\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.xplaces == [0.0, 1.0, 2.0]
+    assert ax.xnames == ["a", "b", "c"]
+    assert ax.yplaces == [0.0, 2.0, 4.0]
+    assert ax.ynames == ["low", "mid", "high"]
+    assert not rec.warnings
+    assert not ax.passthrough
+
+
+def test_xplaces_xnames_length_mismatch_falls_back_to_passthrough(tmp_path):
+    # xnames has fewer entries than xplaces -- not representable on the model
+    # (GLEWriter.add_axis_config would raise), so both lines must be kept as
+    # raw GLE instead of populating ax.xplaces/xnames.
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        "   xaxis min 0 max 2\n"
+        "   xplaces 0 1 2\n"
+        '   xnames "a" "b"\n'
+        "   yaxis min 0 max 4\n"
+        "   data pt_1.dat d1=c1,c2\n"
+        "   d1 line color BLUE lwidth 0.05292\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "mismatch.gle", src, {"pt_1.dat": "0 0\n1 1\n2 4\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.xplaces is None
+    assert ax.xnames is None
+    assert any("xnames/xplaces length mismatch" in w for w in rec.warnings)
+    assert any("xplaces 0 1 2" in line for line in ax.passthrough)
+    assert any('xnames "a" "b"' in line for line in ax.passthrough)
+    # Re-saving must not raise (GLEWriter would reject a mismatched pairing)
+    # and must reproduce both lines verbatim, cumulative with the modeled
+    # xaxis line.
+    text, _ = rec.figure._generate_gle_with_files()
+    assert "xplaces 0 1 2" in text
+    assert 'xnames "a" "b"' in text
+
+
 def test_arithmetic_expressions_in_numbers(tmp_path):
     src = (
         "size 20.32 15.24\n"

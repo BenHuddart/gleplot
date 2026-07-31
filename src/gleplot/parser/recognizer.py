@@ -751,6 +751,18 @@ class _Recognizer:
             "nolast_x": False,
             "nofirst_y": False,
             "nolast_y": False,
+            "xplaces": None,
+            "yplaces": None,
+            "xnames": None,
+            "ynames": None,
+            # Raw source text of a parsed '*places'/'*names' line, kept only
+            # so it can be restored to passthrough verbatim if a later
+            # length-mismatch check (see _parse_graph_block) finds the pairing
+            # unrepresentable on the model.
+            "_xplaces_raw": None,
+            "_yplaces_raw": None,
+            "_xnames_raw": None,
+            "_ynames_raw": None,
             "key_pos": None,  # short-form position or None
             "key_off": False,
             "key_hei": None,  # 'hei' in cm, or None (= inherit 'set hei')
@@ -884,7 +896,37 @@ class _Recognizer:
                 child, info, datasets, marker_cfg, smooth_flags
             )
 
+        self._reconcile_places_names(info)
         return info
+
+    def _reconcile_places_names(self, info) -> None:
+        """Drop a ``*names`` list the writer could never reproduce.
+
+        ``GLEWriter.add_axis_config`` raises if ``xnames``/``ynames`` is set
+        without a same-length ``xplaces``/``yplaces`` (see writer.py). A
+        hand-written file can pair them inconsistently -- unmatched lengths,
+        or names with no places at all -- which the model cannot represent.
+        Fall back to raw passthrough for both recovered lines in that case so
+        re-emission stays cumulative-equivalent instead of raising on save.
+        """
+        for prefix in ("x", "y"):
+            places_field = f"{prefix}places"
+            names_field = f"{prefix}names"
+            names = info[names_field]
+            places = info[places_field]
+            if names is None:
+                continue
+            if places is not None and len(names) == len(places):
+                continue
+            for field in (places_field, names_field):
+                raw = info.pop(f"_{field}_raw", None)
+                if raw is not None:
+                    info["passthrough"].append(raw)
+                info[field] = None
+            self.warnings.append(
+                f"structure: {prefix}names/{prefix}places length mismatch; "
+                "kept as raw GLE, not editable"
+            )
 
     def _skip_meta_stmt(self, stmt) -> bool:
         """True if this statement's physical line is inside the metadata block."""
@@ -972,6 +1014,9 @@ class _Recognizer:
                 info["xlabels_off" if kw == "xlabels" else "ylabels_off"] = True
             else:
                 info["passthrough"].append(self._stmt_text(stmt))
+            return
+        if kw in ("xplaces", "yplaces", "xnames", "ynames"):
+            self._parse_places_or_names_line(kw, toks, info, stmt)
             return
         # NOTE: 'data' and 'dN' statements are handled by the two-pass driver
         # in _parse_graph_block, not here.
@@ -1079,6 +1124,48 @@ class _Recognizer:
             esc = inner.replace(q, "\\" + q)
             return f"{q}{esc}{q}"
         return tok.value
+
+    # -- explicit tick places/names ---------------------------------------
+
+    def _parse_places_or_names_line(self, kw, toks, info, stmt) -> None:
+        """``xplaces v1 v2 ...`` / ``xnames "a" "b" ...`` (and y variants).
+
+        Each is a standalone statement (sibling to ``xaxis``/``yaxis``, not
+        one of its sub-tokens) so it is dispatched here directly. A line that
+        does not fully parse as a number list (``*places``) or string list
+        (``*names``) is kept verbatim in the axes passthrough instead --
+        final ``*places``/``*names`` pairing (length match) is checked once
+        the whole graph block has been read, in :meth:`_parse_graph_block`.
+        """
+        is_names = kw.endswith("names")
+        prefix = "x" if kw.startswith("x") else "y"
+        field = f"{prefix}names" if is_names else f"{prefix}places"
+
+        values: List = []
+        i = 1
+        m = len(toks)
+        if is_names:
+            while i < m and toks[i].type is TokenType.STRING:
+                values.append(_string_value(toks[i]))
+                i += 1
+        else:
+            while i < m:
+                v, nxt = _collect_value(toks, i)
+                if v is None:
+                    break
+                values.append(v)
+                i = nxt
+
+        if i != m or not values:
+            info["passthrough"].append(self._stmt_text(stmt))
+            self.warnings.append(
+                f"structure: unrecognized {kw} line preserved as raw GLE, "
+                "not editable"
+            )
+            return
+
+        info[field] = values
+        info[f"_{field}_raw"] = self._stmt_text(stmt)
 
     # -- data command ----------------------------------------------------
 
@@ -3035,6 +3122,10 @@ class _Recognizer:
         ax.ymax = info["ymax"]
         ax.y2min = info["y2min"]
         ax.y2max = info["y2max"]
+        ax.xplaces = info["xplaces"]
+        ax.yplaces = info["yplaces"]
+        ax.xnames = info["xnames"]
+        ax.ynames = info["ynames"]
 
         ax.lines = info["lines"]
         ax.scatters = info["scatters"]
