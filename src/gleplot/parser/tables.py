@@ -15,10 +15,12 @@ All lookup tables that a parser must invert live here in one place:
   :data:`gleplot.markers.MATPLOTLIB_TO_GLE_MARKERS` so the two can never
   drift apart.
 - ``LSTYLE_TO_MATPLOTLIB`` / ``MATPLOTLIB_TO_LSTYLE``: GLE ``lstyle`` integer
-  <-> matplotlib linestyle string, as actually emitted by
+  <-> matplotlib linestyle string, derived programmatically from the
+  ``line_style_*`` fields of ``GLEStyleConfig`` -- the same fields
   ``GLEWriter.add_plot_line``/``add_errorbar``/``add_plot_line_from_file``
-  (which read ``style.line_style_dashed`` etc. -- default 2/3/4 -- from
-  ``GLEStyleConfig``) and consumed by ``Axes.errorbar``'s ``fmt`` parsing.
+  read when emitting -- so the parser's inverse cannot drift from the
+  writer's forward choice. Also consumed by ``Axes.errorbar``'s ``fmt``
+  parsing.
 - ``KEY_POSITIONS``: long-form <-> short-form GLE legend position, mirroring
   ``GLEWriter.add_legend``'s ``pos_map`` and ``Axes.legend``'s ``loc_map``.
 
@@ -352,21 +354,42 @@ GLE_MARKER_TO_MATPLOTLIB: Dict[str, str] = _build_gle_marker_to_matplotlib()
 # Line styles
 # ---------------------------------------------------------------------------
 #
-# GLE ``lstyle`` integer <-> matplotlib linestyle string. Verified against
-# the actual mapping used at the writer call sites (not assumed):
-# ``GLEWriter.add_plot_line``/``add_errorbar``/``add_plot_line_from_file``
-# emit ``lstyle {style.line_style_dashed}`` for ``'--'``, ``{...dotted}`` for
-# ``':'``, and ``{...dashdot}`` for ``'-.'`` (default field values 2/3/4 from
-# ``GLEStyleConfig`` in ``src/gleplot/config.py``); solid lines (``'-'``)
-# never emit an ``lstyle`` token at all (GLE's default is style 1). The
-# reverse map used by ``Axes.errorbar``'s ``fmt`` string parsing recognizes
-# exactly ``'-'``, ``'--'``, ``':'``, ``'-.'``.
-LSTYLE_TO_MATPLOTLIB: Dict[int, str] = {
-    1: "-",
-    2: "--",
-    3: ":",
-    4: "-.",
-}
+# GLE ``lstyle`` integer <-> matplotlib linestyle string.
+#
+# DERIVED from ``GLEStyleConfig``'s defaults rather than transcribed, for the
+# same reason ``GLE_MARKER_TO_MATPLOTLIB`` is: the writer emits ``lstyle
+# {style.line_style_dashed}`` for ``'--'``, ``{...dotted}`` for ``':'`` and
+# ``{...dashdot}`` for ``'-.'`` (see ``GLEWriter.add_plot_line`` /
+# ``add_errorbar`` / ``add_plot_line_from_file``), so building the parser's
+# inverse from the very same fields makes it impossible for the two to drift
+# apart. They previously did: the config said dashed=2/dotted=3 while GLE
+# 4.3.10 renders 2 as dotted and 3 as dashed, and this table faithfully
+# reproduced the transposition on the way back in.
+#
+# Solid lines (``'-'``) never emit an ``lstyle`` token at all (GLE's default
+# is style 1), but the pair is still listed so a hand-written ``lstyle 1``
+# round-trips. The reverse map is also used by ``Axes.errorbar``'s ``fmt``
+# parsing and by ``Axes._linestyle_to_lstyle`` for contour lines; it
+# recognizes exactly ``'-'``, ``'--'``, ``':'``, ``'-.'``.
+#
+# NOTE: this is a module-level constant keyed off the *default* config. A
+# figure that overrides ``line_style_dashed`` etc. will emit numbers this
+# table cannot invert -- a pre-existing limitation of parsing without the
+# producing config in hand.
+def _build_lstyle_to_matplotlib() -> Dict[int, str]:
+    """Invert the writer's linestyle -> ``lstyle`` choice, from the defaults."""
+    from ..config import GLEStyleConfig
+
+    defaults = GLEStyleConfig()
+    return {
+        defaults.line_style_solid: "-",
+        defaults.line_style_dashed: "--",
+        defaults.line_style_dotted: ":",
+        defaults.line_style_dashdot: "-.",
+    }
+
+
+LSTYLE_TO_MATPLOTLIB: Dict[int, str] = _build_lstyle_to_matplotlib()
 
 MATPLOTLIB_TO_LSTYLE: Dict[str, int] = {v: k for k, v in LSTYLE_TO_MATPLOTLIB.items()}
 

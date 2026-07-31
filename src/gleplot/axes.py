@@ -2,9 +2,10 @@
 
 import numpy as np
 import re
+import warnings
 from typing import Optional, List, Union, Tuple
 from .colors import rgb_to_gle
-from .markers import get_gle_marker
+from .markers import get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
 from .palettes import canonical_cmap
 from .parser.units import markersize_to_msize, capsize_pt_to_cm
@@ -454,6 +455,21 @@ def _build_column_names(
     return _unique_column_names(names)
 
 
+def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
+    """Resolve the marker fill mode from the plotting methods' kwargs.
+
+    Accepts matplotlib's short aliases (``mfc`` for ``markerfacecolor``) out
+    of ``**kwargs`` so a call copied straight from a matplotlib script works,
+    and removes them so they never reach the series dict. Returns one of
+    ``'full'`` / ``'none'`` / ``'white'`` (see
+    :func:`gleplot.markers.resolve_marker_fill`).
+    """
+    mfc = kwargs.pop("mfc", None)
+    if markerfacecolor is None:
+        markerfacecolor = mfc
+    return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
+
+
 class Axes:
     """Matplotlib-like axes for plotting."""
 
@@ -495,6 +511,39 @@ class Axes:
         self._show_ylabel = True
         self._show_xticks = True
         self._show_yticks = True
+        # Edge tick-label suppression for touching subplots. Normally written
+        # by Figure._apply_shared_axes_flags, but initialized here so a
+        # directly-constructed Axes (e.g. a broken-axis segment) has them too.
+        self._remove_last_xtick = False
+        self._remove_last_ytick = False
+        self._remove_first_xtick = False
+        self._remove_first_ytick = False
+
+        # Explicit tick control (GLE dticks/dsubticks/places/names). All None
+        # means "let GLE choose", which is the historical behaviour.
+        self.xdticks = None
+        self.ydticks = None
+        self.xdsubticks = None
+        self.ydsubticks = None
+        self.xplaces = None
+        self.xnames = None
+        self.yplaces = None
+        self.ynames = None
+
+        # Frame sides switched off entirely -- axis line, ticks and labels.
+        # Used for the inner edges of a broken-axis assembly, where several
+        # graph blocks butt together and must read as one panel.
+        self._xaxis_off = False
+        self._yaxis_off = False
+        self._x2axis_off = False
+        self._y2axis_off = False
+
+        # Broken-axis membership (see :mod:`gleplot.brokenaxes`). Both stay
+        # None on an ordinary axes; on a segment, ``_break_owner`` is the
+        # BrokenAxes back-reference and ``_break_index`` its 0-based position
+        # left-to-right.
+        self._break_owner = None
+        self._break_index = None
 
         # Plot data storage
         self.lines = []  # List of line plot data
@@ -506,6 +555,13 @@ class Axes:
         self.texts = []  # In-plot text annotations
         self.heatmaps = []  # imshow/tripcolor colormap series
         self.contours = []  # contour/tricontour line series
+        # Reference lines (axvline/axhline) and shaded bands (axvspan/
+        # axhspan). Stored as *declarations* -- a value plus a fractional
+        # extent along the other axis -- and turned into concrete two-point
+        # line / band datasets only at write time, once the axis limits are
+        # known. See :meth:`materialize_reflines` for why.
+        self.reflines = []
+        self.spans = []
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model. Emitted verbatim inside this
@@ -525,6 +581,8 @@ class Axes:
         label: Optional[str] = None,
         yaxis: str = "y",
         offset: float = 0.0,
+        fillstyle: Optional[str] = None,
+        markerfacecolor: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -548,6 +606,12 @@ class Axes:
             Legend label
         yaxis : str, optional
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        fillstyle : {'full', 'none'}, optional
+            ``'none'`` draws an open (outline) marker instead of a filled one.
+        markerfacecolor : str, optional
+            ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
+            gives an outline marker with an opaque white interior. Also
+            accepted as the matplotlib alias ``mfc``.
         **kwargs
             Additional matplotlib-compatible arguments
 
@@ -557,6 +621,7 @@ class Axes:
             Line object (for compatibility)
         """
         data_name = kwargs.pop("data_name", None)
+        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
 
         x = np.asarray(x)
@@ -574,7 +639,9 @@ class Axes:
         # true scatter.
         is_scatter = marker is not None and linestyle in ("", "none", " ", "None")
 
-        gle_marker = get_gle_marker(marker) if marker is not None else None
+        gle_marker = (
+            get_gle_marker(marker, fill=marker_fill) if marker is not None else None
+        )
         plot_type = "scatter" if is_scatter else "line"
 
         # Scale markersize from matplotlib (typical 1-20, default 6) to GLE msize (0.05-0.5)
@@ -622,6 +689,8 @@ class Axes:
         capsize_cm: Optional[float] = None,
         yaxis: str = "y",
         offset: float = 0.0,
+        fillstyle: Optional[str] = None,
+        markerfacecolor: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -659,6 +728,12 @@ class Axes:
             If specified, this overrides `capsize`. Use this for direct control.
         yaxis : str, optional
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        fillstyle : {'full', 'none'}, optional
+            ``'none'`` draws an open (outline) marker instead of a filled one.
+        markerfacecolor : str, optional
+            ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
+            gives an outline marker with an opaque white interior. Also
+            accepted as the matplotlib alias ``mfc``.
         **kwargs
             Additional arguments
 
@@ -680,6 +755,7 @@ class Axes:
 
         >>> ax.errorbar(x, y, yerr=0.5, xerr=0.3)
         """
+        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
@@ -711,7 +787,7 @@ class Axes:
         # Determine GLE marker
         gle_marker = None
         if parsed_marker is not None:
-            gle_marker = get_gle_marker(parsed_marker)
+            gle_marker = get_gle_marker(parsed_marker, fill=marker_fill)
 
         # Scale markersize from matplotlib to GLE msize (with config scaling)
         gle_markersize = markersize_to_msize(
@@ -822,22 +898,30 @@ class Axes:
         label: Optional[str] = None,
         capsize: Optional[float] = None,
         yaxis: str = "y",
+        fillstyle: Optional[str] = None,
+        markerfacecolor: Optional[str] = None,
+        **kwargs,
     ):
         """Plot by referencing columns in an existing external data file.
 
         This avoids writing generated ``data_*.dat`` files. Column indices are
         1-based to match GLE conventions.
+
+        ``fillstyle='none'`` / ``markerfacecolor='none'`` (alias ``mfc``)
+        select an open marker; ``markerfacecolor='white'`` selects a
+        white-filled one.
         """
         if x_col < 1 or y_col < 1 or (yerr_col is not None and yerr_col < 1):
             raise ValueError("Column indices must be >= 1")
 
+        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
         if color is None:
             gle_color = "BLUE"
         else:
             gle_color = rgb_to_gle(color)
 
-        gle_marker = get_gle_marker(marker) if marker else None
+        gle_marker = get_gle_marker(marker, fill=marker_fill) if marker else None
         gle_markersize = markersize_to_msize(
             markersize, self.figure.marker_config.msize_scale
         )
@@ -915,6 +999,8 @@ class Axes:
         label: Optional[str] = None,
         yaxis: str = "y",
         markersize: Optional[float] = None,
+        fillstyle: Optional[str] = None,
+        markerfacecolor: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -957,6 +1043,12 @@ class Axes:
         markersize : float, optional
             Marker diameter in points (matplotlib ``Line2D``/:meth:`plot`
             convention). Takes precedence over ``s``.
+        fillstyle : {'full', 'none'}, optional
+            ``'none'`` draws open (outline) markers instead of filled ones.
+        markerfacecolor : str, optional
+            ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
+            gives outline markers with an opaque white interior. Also
+            accepted as the matplotlib alias ``mfc``.
         **kwargs
             Additional arguments
 
@@ -994,6 +1086,9 @@ class Axes:
             markersize=markersize,
             label=label,
             yaxis=yaxis,
+            fillstyle=fillstyle,
+            markerfacecolor=markerfacecolor,
+            **kwargs,
         )
 
     def bar(
@@ -1123,6 +1218,334 @@ class Axes:
         self.fills.append(fill_data)
 
         return self
+
+    # -- reference lines & shaded spans ----------------------------------
+    #
+    # matplotlib's axvline/axhline/axvspan/axhspan take one data coordinate
+    # (or a pair) and span the *whole* axis in the other direction. GLE has no
+    # equivalent primitive: everything inside a graph block is a dataset, and
+    # a dataset needs concrete numbers. Two consequences shape the design
+    # below.
+    #
+    # 1. The concrete end points are computed at WRITE time, not call time
+    #    (:meth:`materialize_reflines` / :meth:`materialize_spans`, called from
+    #    ``Figure._write_axes_content`` after the axis limits are resolved).
+    #    So a later ``set_ylim`` -- or autoscaling from data added after the
+    #    axvline call -- is respected, exactly as in matplotlib. The generated
+    #    ``.dat`` sidecar name, by contrast, is reserved at CALL time so it is
+    #    stable across repeated saves of the same figure.
+    #
+    # 2. Spans are emitted with the ``fill``s and reference lines immediately
+    #    after them, i.e. before bars/lines/scatters/errorbars, so data always
+    #    draws on top of its guides. (matplotlib gives axvspan a lower zorder
+    #    than lines for the same reason.)
+    #
+    # GLE clips datasets to the graph's axis range, so a guide whose value
+    # falls outside the visible range simply does not appear -- which is what
+    # makes these compose correctly with broken axes, where each segment shows
+    # only the guides that land inside it.
+
+    @staticmethod
+    def _check_axes_fraction(lo: float, hi: float, names: str) -> Tuple[float, float]:
+        """Validate a pair of axes-fraction bounds (matplotlib semantics)."""
+        lo = float(lo)
+        hi = float(hi)
+        if not (0.0 <= lo <= 1.0) or not (0.0 <= hi <= 1.0):
+            raise ValueError(f"{names} must be within [0, 1], got ({lo}, {hi})")
+        return lo, hi
+
+    def axvline(
+        self,
+        x: float = 0.0,
+        ymin: float = 0.0,
+        ymax: float = 1.0,
+        color: Optional[str] = None,
+        linestyle: str = "-",
+        linewidth: float = 1,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Draw a vertical reference line at data coordinate ``x``.
+
+        Parameters
+        ----------
+        x : float
+            Position of the line, in data coordinates.
+        ymin, ymax : float
+            Vertical extent as a fraction of the axes height (matplotlib
+            semantics): ``0`` is the bottom of the axes, ``1`` the top.
+        color : str, optional
+            Line colour. Default: black.
+        linestyle : str
+            ``'-'``, ``'--'``, ``':'`` or ``'-.'``.
+        linewidth : float
+            Line width in points.
+        label : str, optional
+            Legend label.
+
+        Returns
+        -------
+        dict
+            The stored declaration (also appended to ``self.reflines``).
+
+        Notes
+        -----
+        The line is realized as a two-point dataset whose end points are
+        computed when the figure is written, so it tracks any axis limits set
+        afterwards. It is drawn *underneath* the data series.
+        """
+        return self._add_refline(
+            "v", x, ymin, ymax, color, linestyle, linewidth, label, kwargs
+        )
+
+    def axhline(
+        self,
+        y: float = 0.0,
+        xmin: float = 0.0,
+        xmax: float = 1.0,
+        color: Optional[str] = None,
+        linestyle: str = "-",
+        linewidth: float = 1,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Draw a horizontal reference line at data coordinate ``y``.
+
+        ``xmin``/``xmax`` are the horizontal extent as a fraction of the axes
+        width (matplotlib semantics). See :meth:`axvline` for the rest.
+        """
+        return self._add_refline(
+            "h", y, xmin, xmax, color, linestyle, linewidth, label, kwargs
+        )
+
+    def _add_refline(
+        self, orient, value, lo, hi, color, linestyle, linewidth, label, kwargs
+    ):
+        """Shared implementation of :meth:`axvline` / :meth:`axhline`."""
+        names = "ymin/ymax" if orient == "v" else "xmin/xmax"
+        lo, hi = self._check_axes_fraction(lo, hi, names)
+        data_name = kwargs.pop("data_name", None)
+        label = mathtext_to_gle(label)
+        gle_color = "BLACK" if color is None else rgb_to_gle(color)
+
+        entry = {
+            "type": "refline",
+            "orient": orient,
+            "value": float(value),
+            "span_lo": lo,
+            "span_hi": hi,
+            "color": gle_color,
+            "linestyle": linestyle,
+            "linewidth": linewidth,
+            "label": label,
+            "data_file": _resolve_data_file(self.figure, data_name),
+            "column_names": _build_column_names("x", ["y"], label),
+        }
+        self.reflines.append(entry)
+        return entry
+
+    def axvspan(
+        self,
+        xmin: float,
+        xmax: float,
+        ymin: float = 0.0,
+        ymax: float = 1.0,
+        color: Optional[str] = None,
+        alpha: float = 0.3,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Shade the vertical band between data coordinates ``xmin`` and ``xmax``.
+
+        Parameters
+        ----------
+        xmin, xmax : float
+            Band edges, in data coordinates.
+        ymin, ymax : float
+            Vertical extent as a fraction of the axes height (matplotlib
+            semantics).
+        color : str, optional
+            Fill colour. Default: light gray.
+        alpha : float
+            Stored for matplotlib API compatibility but **not rendered**:
+            GLE 4.3.10 refuses semi-transparency unless it is driven with
+            ``-cairo`` ("semi-transparency only supported with command line
+            option '-cairo'"), which gleplot's compiler does not use. Pick a
+            light colour instead. This matches the existing behaviour of
+            :meth:`fill_between`.
+        label : str, optional
+            Legend label.
+
+        Returns
+        -------
+        dict
+            The stored declaration (also appended to ``self.spans``).
+        """
+        return self._add_span("v", xmin, xmax, ymin, ymax, color, alpha, label, kwargs)
+
+    def axhspan(
+        self,
+        ymin: float,
+        ymax: float,
+        xmin: float = 0.0,
+        xmax: float = 1.0,
+        color: Optional[str] = None,
+        alpha: float = 0.3,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Shade the horizontal band between data coordinates ``ymin`` and ``ymax``.
+
+        ``xmin``/``xmax`` are the horizontal extent as a fraction of the axes
+        width (matplotlib semantics). See :meth:`axvspan` for the rest,
+        including the ``alpha`` caveat.
+        """
+        return self._add_span("h", ymin, ymax, xmin, xmax, color, alpha, label, kwargs)
+
+    def _add_span(self, orient, start, end, lo, hi, color, alpha, label, kwargs):
+        """Shared implementation of :meth:`axvspan` / :meth:`axhspan`."""
+        names = "ymin/ymax" if orient == "v" else "xmin/xmax"
+        lo, hi = self._check_axes_fraction(lo, hi, names)
+        data_name = kwargs.pop("data_name", None)
+        label = mathtext_to_gle(label)
+        gle_color = "LIGHTGRAY" if color is None else rgb_to_gle(color)
+
+        entry = {
+            "type": "span",
+            "orient": orient,
+            "start": float(start),
+            "end": float(end),
+            "span_lo": lo,
+            "span_hi": hi,
+            "color": gle_color,
+            "alpha": float(alpha),
+            "label": label,
+            "data_file": _resolve_data_file(self.figure, data_name),
+            "column_names": _unique_column_names(["x", "upper", "lower"]),
+        }
+        self.spans.append(entry)
+        return entry
+
+    @staticmethod
+    def _fraction_to_data(lo: float, hi: float, vmin: float, vmax: float):
+        """Map an axes-fraction pair onto the data range ``[vmin, vmax]``."""
+        span = vmax - vmin
+        return vmin + lo * span, vmin + hi * span
+
+    def materialize_reflines(self, limits) -> List[dict]:
+        """Turn ``self.reflines`` into concrete two-point line series.
+
+        Parameters
+        ----------
+        limits : tuple
+            ``(xmin, xmax, ymin, ymax)`` -- the axis limits actually being
+            written. Any of them may be ``None`` if they could not be
+            resolved (an axes with no data at all), in which case the
+            affected guides are skipped with a warning rather than emitting a
+            dataset full of ``None``.
+
+        Returns
+        -------
+        list of dict
+            Line dicts in the same shape ``plot()`` produces, ready for
+            ``GLEWriter.add_plot_line``. Nothing is stored back on the axes,
+            so writing a figure twice does not duplicate content.
+        """
+        xmin, xmax, ymin, ymax = limits
+        out = []
+        for entry in self.reflines:
+            if entry["orient"] == "v":
+                if ymin is None or ymax is None:
+                    self._warn_unresolved("axvline", "y")
+                    continue
+                y0, y1 = self._fraction_to_data(
+                    entry["span_lo"], entry["span_hi"], ymin, ymax
+                )
+                x = np.array([entry["value"], entry["value"]], dtype=float)
+                y = np.array([y0, y1], dtype=float)
+            else:
+                if xmin is None or xmax is None:
+                    self._warn_unresolved("axhline", "x")
+                    continue
+                x0, x1 = self._fraction_to_data(
+                    entry["span_lo"], entry["span_hi"], xmin, xmax
+                )
+                x = np.array([x0, x1], dtype=float)
+                y = np.array([entry["value"], entry["value"]], dtype=float)
+
+            out.append(
+                {
+                    "type": "line",
+                    "x": x,
+                    "y": y,
+                    "color": entry["color"],
+                    "marker": None,
+                    "markersize": 0.1,
+                    "linestyle": entry["linestyle"],
+                    "linewidth": entry["linewidth"],
+                    "label": entry["label"],
+                    "yaxis": "y",
+                    "offset": 0.0,
+                    "data_file": entry["data_file"],
+                    "column_names": entry["column_names"],
+                }
+            )
+        return out
+
+    def materialize_spans(self, limits) -> List[dict]:
+        """Turn ``self.spans`` into concrete fill-between series.
+
+        See :meth:`materialize_reflines`; the same contract applies (nothing
+        is stored back, unresolvable limits skip with a warning).
+        """
+        xmin, xmax, ymin, ymax = limits
+        out = []
+        for entry in self.spans:
+            if entry["orient"] == "v":
+                if ymin is None or ymax is None:
+                    self._warn_unresolved("axvspan", "y")
+                    continue
+                y0, y1 = self._fraction_to_data(
+                    entry["span_lo"], entry["span_hi"], ymin, ymax
+                )
+                x = np.array([entry["start"], entry["end"]], dtype=float)
+                upper = np.array([y1, y1], dtype=float)
+                lower = np.array([y0, y0], dtype=float)
+            else:
+                if xmin is None or xmax is None:
+                    self._warn_unresolved("axhspan", "x")
+                    continue
+                x0, x1 = self._fraction_to_data(
+                    entry["span_lo"], entry["span_hi"], xmin, xmax
+                )
+                x = np.array([x0, x1], dtype=float)
+                upper = np.array([entry["end"], entry["end"]], dtype=float)
+                lower = np.array([entry["start"], entry["start"]], dtype=float)
+
+            out.append(
+                {
+                    "x": x,
+                    "y1": upper,
+                    "y2": lower,
+                    "color": entry["color"],
+                    "alpha": entry["alpha"],
+                    "label": entry["label"],
+                    "offset": 0.0,
+                    "data_file": entry["data_file"],
+                    "column_names": entry["column_names"],
+                }
+            )
+        return out
+
+    @staticmethod
+    def _warn_unresolved(what: str, axis: str) -> None:
+        warnings.warn(
+            f"{what}() was dropped: the {axis}-axis limits could not be "
+            f"resolved (the axes has no data and no explicit set_{axis}lim), "
+            f"so the line/band has no extent to span.",
+            UserWarning,
+            stacklevel=3,
+        )
 
     def text(
         self,
@@ -1663,6 +2086,63 @@ class Axes:
             self.ymax = ymax
         return self
 
+    def set_xticks(
+        self,
+        ticks=None,
+        labels=None,
+        *,
+        dticks: Optional[float] = None,
+        dsubticks: Optional[float] = None,
+    ):
+        """Control x-axis tick placement.
+
+        Parameters
+        ----------
+        ticks : sequence of float, optional
+            Explicit tick positions (GLE ``xplaces``). Passing ``None`` leaves
+            the current setting alone; pass an empty sequence to draw no
+            labelled ticks at all.
+        labels : sequence of str, optional
+            Tick labels (GLE ``xnames``), one per entry of ``ticks``.
+        dticks : float, optional
+            Major tick interval (GLE ``dticks``) -- the usual way to keep two
+            segments of a broken axis from colliding at the seam.
+        dsubticks : float, optional
+            Minor tick interval (GLE ``dsubticks``).
+
+        Returns
+        -------
+        self
+        """
+        if ticks is not None:
+            self.xplaces = [float(t) for t in ticks]
+        if labels is not None:
+            self.xnames = [str(lbl) for lbl in labels]
+        if dticks is not None:
+            self.xdticks = float(dticks)
+        if dsubticks is not None:
+            self.xdsubticks = float(dsubticks)
+        return self
+
+    def set_yticks(
+        self,
+        ticks=None,
+        labels=None,
+        *,
+        dticks: Optional[float] = None,
+        dsubticks: Optional[float] = None,
+    ):
+        """Control y-axis tick placement. See :meth:`set_xticks`."""
+        if ticks is not None:
+            self.yplaces = [float(t) for t in ticks]
+        if labels is not None:
+            self.ynames = [str(lbl) for lbl in labels]
+        if dticks is not None:
+            self.ydticks = float(dticks)
+        if dsubticks is not None:
+            self.ydsubticks = float(dsubticks)
+        return self
+
     def legend(self, loc: str = "best", **kwargs):
         """Add legend."""
         self.legend_on = True
@@ -1711,6 +2191,8 @@ class Axes:
             or self.file_series
             or self.heatmaps
             or self.contours
+            or self.reflines
+            or self.spans
         )
 
     def has_y2_plots(self) -> bool:
@@ -1736,6 +2218,10 @@ class Axes:
         "texts": (),
         "heatmaps": ("z", "x", "y", "zpts"),
         "contours": ("z", "x", "y", "zpts"),
+        # Reference lines/spans store scalar declarations only (the arrays
+        # are built at write time), so there is nothing to restore as ndarray.
+        "reflines": (),
+        "spans": (),
     }
 
     # Series list attributes serialized on every axes, in a stable order.
@@ -1749,6 +2235,8 @@ class Axes:
         "texts",
         "heatmaps",
         "contours",
+        "reflines",
+        "spans",
     )
 
     @staticmethod
@@ -1769,8 +2257,10 @@ class Axes:
             return _build_column_names("x", ["y"], label)
         if attr == "bars":
             return _build_column_names("x", ["height"], label)
-        if attr == "fills":
+        if attr in ("fills", "spans"):
             return _unique_column_names(["x", "upper", "lower"])
+        if attr == "reflines":
+            return _build_column_names("x", ["y"], label)
         if attr == "errorbars":
             return _build_errorbar_column_names(
                 label,
@@ -1820,6 +2310,19 @@ class Axes:
             "remove_last_ytick": getattr(self, "_remove_last_ytick", False),
             "remove_first_xtick": getattr(self, "_remove_first_xtick", False),
             "remove_first_ytick": getattr(self, "_remove_first_ytick", False),
+            "xdticks": _to_jsonable(self.xdticks),
+            "ydticks": _to_jsonable(self.ydticks),
+            "xdsubticks": _to_jsonable(self.xdsubticks),
+            "ydsubticks": _to_jsonable(self.ydsubticks),
+            "xplaces": _to_jsonable(self.xplaces),
+            "xnames": _to_jsonable(self.xnames),
+            "yplaces": _to_jsonable(self.yplaces),
+            "ynames": _to_jsonable(self.ynames),
+            "xaxis_off": self._xaxis_off,
+            "yaxis_off": self._yaxis_off,
+            "x2axis_off": self._x2axis_off,
+            "y2axis_off": self._y2axis_off,
+            "break_index": self._break_index,
             "lines": [_to_jsonable(d) for d in self.lines],
             "scatters": [_to_jsonable(d) for d in self.scatters],
             "bars": [_to_jsonable(d) for d in self.bars],
@@ -1829,6 +2332,8 @@ class Axes:
             "texts": [_to_jsonable(d) for d in self.texts],
             "heatmaps": [_to_jsonable(d) for d in self.heatmaps],
             "contours": [_to_jsonable(d) for d in self.contours],
+            "reflines": [_to_jsonable(d) for d in self.reflines],
+            "spans": [_to_jsonable(d) for d in self.spans],
             "passthrough": list(self.passthrough),
         }
 
@@ -1878,6 +2383,22 @@ class Axes:
         ax._remove_last_ytick = d.get("remove_last_ytick", False)
         ax._remove_first_xtick = d.get("remove_first_xtick", False)
         ax._remove_first_ytick = d.get("remove_first_ytick", False)
+
+        ax.xdticks = d.get("xdticks")
+        ax.ydticks = d.get("ydticks")
+        ax.xdsubticks = d.get("xdsubticks")
+        ax.ydsubticks = d.get("ydsubticks")
+        ax.xplaces = d.get("xplaces")
+        ax.xnames = d.get("xnames")
+        ax.yplaces = d.get("yplaces")
+        ax.ynames = d.get("ynames")
+        ax._xaxis_off = d.get("xaxis_off", False)
+        ax._yaxis_off = d.get("yaxis_off", False)
+        ax._x2axis_off = d.get("x2axis_off", False)
+        ax._y2axis_off = d.get("y2axis_off", False)
+        # ``_break_owner`` is a back-reference rebound by Figure.from_dict
+        # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
+        ax._break_index = d.get("break_index")
 
         for attr in cls._SERIES_ATTRS:
             array_keys = cls._ARRAY_KEYS[attr]

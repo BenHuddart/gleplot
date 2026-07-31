@@ -171,10 +171,13 @@ def example_line_styles():
     
     style = glp.GLEStyleConfig(
         font='rm',  # GLE Roman (serif) font
-        line_style_solid=1,       # Solid
-        line_style_dashed=2,      # Dashed (default)
-        line_style_dotted=3,      # Dotted (default)
-        line_style_dashdot=4,     # Dash-dot (default)
+        # GLE's lstyle numbering is not solid/dashed/dotted/dash-dot in
+        # sequence -- 2 is dotted, 3 dashed, 6 dash-dot. These are the
+        # library defaults, restated here to show the knob.
+        line_style_solid=1,       # Solid (default)
+        line_style_dashed=3,      # Dashed (default)
+        line_style_dotted=2,      # Dotted (default)
+        line_style_dashdot=6,     # Dash-dot (default)
     )
     
     fig = glp.figure(figsize=(10, 5), style=style)

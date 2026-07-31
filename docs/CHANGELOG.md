@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## v1.9.0 (2026-07-31)
+
+### Features
+
+- `Figure.add_broken_xaxes` — split/broken x-axis figures, rendered as
+  independent GLE subplot segments with a shared y-axis and configurable
+  divider style (double-slash, single rule, or none)
+- `axhline`/`axvline`/`axhspan`/`axvspan` as first-class `Axes` methods,
+  matplotlib-compatible reference lines and shaded spans
+- `Axes.set_xticks`/`set_yticks` accept `dticks`/`dsubticks` for explicit
+  major/minor tick spacing
+- `height_ratios`/`width_ratios` on `Figure`/`glp.figure`/`glp.subplots` for
+  matplotlib-`gridspec`-style uneven subplot grids
+- Open (outline) and white-filled marker variants, selected via `fillstyle`
+  or `markerfacecolor`/`mfc` on `plot`, `scatter`, and `errorbar`
+- `scatter` accepts `markersize` (matplotlib `Line2D` diameter convention)
+  alongside its existing `s` (area) convention; passing both prefers
+  `markersize`
+- Every matplotlib string marker code is now mapped to a GLE glyph
+
+### Fixes
+
+- Colours are emitted as exact `rgb255(...)` values instead of being snapped
+  onto the nearest of ~8 named GLE colours
+- Line series are drawn as the data itself rather than a spline through it
+  unless smoothing is explicitly requested (`GLEGraphConfig.smooth_curves`
+  now defaults to `False`)
+- Line styles use the GLE line-style numbers that actually render as their
+  names say (dashed, dotted, and dash-dot no longer render as each other)
+- Error bars and their caps consistently take the series colour, including
+  bars-only error series
+- `Figure(data_prefix=...)` is validated instead of silently producing GLE
+  scripts that fail to parse
+
 ## v1.0.1 (2026-03-03)
 
 ### Improvements

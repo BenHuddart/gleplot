@@ -116,11 +116,91 @@ the integer `1` is `tickright`, the string `'1'` is `tri_down`.
 
 ### Native GLE marker names
 
-You can also use GLE names directly:
+You can also use GLE names directly (any case — `wcircle` and `WCIRCLE` both
+work). They are validated against GLE's own marker table, so a name GLE would
+reject at compile time is caught in Python first:
 
 - Filled: `FCIRCLE`, `FSQUARE`, `FTRIANGLE`, `FTRIANGLED`, `FDIAMOND`, `FSTARR`
-- Outline: `CIRCLE`, `SQUARE`, `TRIANGLE`, `TRIANGLED`, `DIAMOND`, `STARR`
+- Outline (transparent): `CIRCLE`, `SQUARE`, `TRIANGLE`, `TRIANGLED`, `DIAMOND`, `STARR`
+- Outline (white fill): `WCIRCLE`, `WSQUARE`, `WTRIANGLE`, `WTRIANGLED`, `WDIAMOND`, `WSTARR`
 - Symbols: `DOT`, `PLUS`, `PCROSS`, `CROSS`, `CLUB`, `HEART`, `SPADE`, `STAR`, `DAG`, `DDAG`, `SNAKE`
+
+## Open (unfilled) markers
+
+Filled-vs-open markers are a standard way to distinguish two datasets in one
+panel (e.g. zero-field vs longitudinal-field muon data). Both matplotlib
+spellings are accepted by `plot`, `scatter`, `errorbar` and
+`errorbar_from_file`:
+
+```python
+ax.errorbar(t, a1, yerr=e1, marker='o', fmt='none', label='2 K')                   # filled
+ax.errorbar(t, a2, yerr=e2, marker='o', fmt='none', fillstyle='none', label='20 K')  # open
+ax.errorbar(t, a3, yerr=e3, marker='o', fmt='none', mfc='none')                     # same thing
+ax.scatter(x, y, marker='s', markerfacecolor='white')                               # white-filled
+```
+
+There are three fill modes, matching the three GLE marker families:
+
+| Request | GLE family | Appearance |
+|---|---|---|
+| default | `FCIRCLE`, `FSQUARE`, … | solid |
+| `fillstyle='none'` or `markerfacecolor='none'` (or `mfc='none'`) | `CIRCLE`, `SQUARE`, … | outline, **transparent** — a line or error bar underneath shows through |
+| `markerfacecolor='white'` (or `'w'`, `'#ffffff'`) | `WCIRCLE`, `WSQUARE`, … | outline, **opaque white** interior that masks what is underneath |
+
+`fillstyle` wins when both are given (as in matplotlib). Shapes with no filled
+counterpart (`PLUS`, `PCROSS`, `DOT`, `CROSS`, …) are strokes rather than
+areas and are returned unchanged by any fill mode.
+
+Two constraints worth knowing:
+
+- matplotlib's *partial* fill styles (`'top'`, `'bottom'`, `'left'`, `'right'`)
+  have no GLE equivalent; they warn and fall back to a solid marker.
+- A GLE marker is drawn in **one** colour, so a `markerfacecolor` that is
+  neither `'none'` nor white cannot be represented (edge and face colours
+  cannot differ). Such a value warns and is ignored.
+
+The `fill=` argument of `gleplot.markers.get_gle_marker` and
+`gleplot.markers.apply_marker_fill` expose the same mapping directly, and
+`gleplot.markers.MATPLOTLIB_TO_GLE_OUTLINE_MARKERS` /
+`MATPLOTLIB_TO_GLE_WHITE_MARKERS` are the full derived tables.
+
+## Line Style Mapping
+
+Matplotlib `linestyle` strings map onto GLE `lstyle` integers. Solid lines emit
+no `lstyle` token at all, since GLE's own default is style 1.
+
+| matplotlib | GLE `lstyle` | Renders as |
+| ---------- | ------------ | ---------- |
+| `'-'`      | 1 (implicit) | solid |
+| `'--'`     | 3            | dashed |
+| `':'`      | 2            | dotted |
+| `'-.'`     | 6            | dash-dot |
+
+The integers are GLE's built-in style table, not a gleplot convention. Compiling
+a ruler of `set lstyle 1..9` strokes through GLE 4.3.10 gives:
+
+    1 solid   2 dotted   3 dashed   4 dotted (sparse)   5 dashed (long)
+    6 dash-dot   7 dash-dot (sparse)   8 dash-dot (dense)   9 dashed (long)
+
+Only the four styles in the table are reachable from a matplotlib `linestyle`
+string; the rest are available by overriding
+`GLEStyleConfig.line_style_dashed` / `line_style_dotted` / `line_style_dashdot`
+(see [CONFIGURATION.md](CONFIGURATION.md)). The parser derives its inverse table
+from those same fields, so reading a `.gle` file back in always agrees with what
+the writer emits.
+
+> **Changed in 1.9.0.** Earlier releases mapped `'--'` to `lstyle 2` and `':'`
+> to `lstyle 3` — GLE's dotted and dashed respectively — so dashed and dotted
+> lines rendered as each other. `'-.'` used `lstyle 4`, another dotted style,
+> rather than a true dash-dot. Any figure regenerated with 1.9.0 or later will
+> look different wherever `'--'`, `':'`, or `'-.'` is used; that difference is
+> the correction. To reproduce the old output deliberately:
+>
+> ```python
+> style = glp.GLEStyleConfig(
+>     line_style_dashed=2, line_style_dotted=3, line_style_dashdot=4
+> )
+> ```
 
 ## Practical Notes
 
@@ -156,3 +236,11 @@ You can also use GLE names directly:
 - To snap a colour to the nearest *named* GLE colour on purpose, call
   `gleplot.parser.tables.nearest_gle_color(r, g, b)` and pass the name it
   returns.
+- An **unrecognized marker** (neither a matplotlib code nor a GLE marker name)
+  falls back to `FCIRCLE` *and emits a `UserWarning`*. It used to fall back
+  silently, which turned a typo into a wrong-shaped marker with no indication
+  anything had happened.
+- A few long-standing mappings point at outline shapes because GLE has no
+  filled counterpart at all: `<`/`>` → `TRIANGLE` (GLE has no sideways
+  triangle), `p` → `STARR`, `h` → `DIAMOND`. These are kept verbatim so
+  existing scripts render identically.

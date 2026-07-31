@@ -147,6 +147,27 @@ def subplots_sharex():
     return fig
 
 
+def subplots_sharex_with_colored_text():
+    """A coloured text ending one panel must not leak into the next panel.
+
+    Regression coverage for the 2026-07-29 library gap: the writer used to
+    emit a bare ``set color`` for graph-data-coordinate text (queued in
+    ``_pending_graph_text_lines``, flushed right after ``end graph``), which
+    is GLE *page-level* sticky state shared by the whole script -- so a
+    coloured label ending one panel coloured the NEXT panel's axes/ticks.
+    ``GLEWriter.end_graph`` now wraps that flush in gsave/grestore (see
+    ``tests/unit/test_text.py``'s ``TestColorStateDoesNotLeakAcrossPanels``
+    for the direct assertion); this builder exercises the same fix through a
+    full multi-subplot writer -> recognizer -> writer fixed point.
+    """
+    fig, axes = glp.subplots(2, 1, sharex=True, data_prefix="golden")
+    axes[0].plot([1, 2, 3], [1, 2, 3], color="blue")
+    axes[0].text(2, 2, "PM", color="green", ha="center")
+    axes[1].plot([1, 2, 3], [3, 2, 1], color="blue")
+    axes[1].set_xlabel("shared x")
+    return fig
+
+
 def subplots_grid_mixed():
     fig, axes = glp.subplots(2, 2, data_prefix="golden")
     axes[0].plot([1, 2, 3], [1, 2, 3])
@@ -301,6 +322,7 @@ BUILDERS = [
     secondary_yaxis,
     legend_positions_all,
     subplots_sharex,
+    subplots_sharex_with_colored_text,
     subplots_grid_mixed,
     file_series,
     large_markersize_and_linewidth,
