@@ -17,6 +17,7 @@ import pytest
 
 import gleplot as glp
 from gleplot.brokenaxes import BrokenAxes
+from gleplot.writer import GLEWriter
 
 
 T = np.linspace(0.0, 3.0, 40)
@@ -161,6 +162,36 @@ def test_three_segments_switch_off_both_inner_sides_of_the_middle_one():
     assert (a._yaxis_off, a._y2axis_off) == (False, True)
     assert (b._yaxis_off, b._y2axis_off) == (True, True)
     assert (c._yaxis_off, c._y2axis_off) == (True, False)
+
+
+def test_rightmost_segment_asks_gle_for_its_outer_frame_edge():
+    """``yaxis ... off`` also kills GLE's mirrored y2 axis unless re-asserted.
+
+    The rightmost segment always has the y axis off (it belongs to the
+    leftmost segment) and always wants its right-hand frame line: without an
+    explicit ``y2axis on`` the panel renders open on the right and reads as
+    clipped.
+    """
+    fig, bax = _fig()
+    bax.set_ylabel("Asymmetry (%)")
+    text, _files = _gle(fig)
+
+    assert "    y2axis on" in text
+    # Exactly one segment asks for it, and it is not the one that was
+    # explicitly switched off.
+    assert text.count("    y2axis on") == 1
+    assert text.count("    y2axis off") == 1
+
+
+def test_middle_segment_does_not_get_an_outer_frame_edge():
+    fig = glp.figure(data_prefix="bx")
+    bax = fig.add_broken_xaxes([(0, 1), (1, 2), (2, 3)])
+    bax.set_ylim(0.0, 1.0)
+    text, _files = _gle(fig)
+
+    # Two inner sides switched off (segments 0 and 1), one outer edge on.
+    assert text.count("    y2axis off") == 2
+    assert text.count("    y2axis on") == 1
 
 
 def test_contiguous_segments_drop_the_duplicated_seam_label():
@@ -451,3 +482,49 @@ def test_regenerated_gle_is_byte_identical_after_a_round_trip():
     bax.set_xlabel("t")
     restored = glp.Figure.from_dict(fig.to_dict())
     assert restored._generate_gle_with_files()[0] == fig._generate_gle_with_files()[0]
+
+
+# --------------------------------------------------------------------------- #
+# Writer-level frame contract
+#
+# GLE mirrors an axis onto the opposite side of the box by default, and that
+# mirror is what closes the frame. Switching the primary side off takes the
+# mirror with it, so a side that nobody turned off silently disappears. The
+# writer re-asserts it.
+# --------------------------------------------------------------------------- #
+
+
+def _axes_block(**kwargs):
+    writer = GLEWriter()
+    writer.add_axes(xmin=0.0, xmax=1.0, ymin=0.0, ymax=1.0, **kwargs)
+    return "\n".join(writer.lines_gle)
+
+
+def test_writer_reasserts_the_mirrored_y2_side_when_the_y_axis_is_off():
+    assert "    y2axis on" in _axes_block(yaxis_off=True)
+
+
+def test_writer_does_not_reassert_a_y2_side_that_was_switched_off():
+    text = _axes_block(yaxis_off=True, y2axis_off=True)
+    assert "    y2axis off" in text
+    assert "y2axis on" not in text
+
+
+def test_writer_stays_silent_about_y2_when_the_y_axis_is_drawn():
+    # GLE's own default already draws both sides; emitting anything here
+    # would be noise (and would change every existing generated file).
+    assert "y2axis" not in _axes_block()
+
+
+def test_writer_reasserts_the_mirrored_x2_side_when_the_x_axis_is_off():
+    assert "    x2axis on" in _axes_block(xaxis_off=True)
+
+
+def test_writer_does_not_reassert_an_x2_side_that_was_switched_off():
+    text = _axes_block(xaxis_off=True, x2axis_off=True)
+    assert "    x2axis off" in text
+    assert "x2axis on" not in text
+
+
+def test_writer_stays_silent_about_x2_when_the_x_axis_is_drawn():
+    assert "x2axis" not in _axes_block()
