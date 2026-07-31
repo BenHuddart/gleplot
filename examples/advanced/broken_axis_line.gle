@@ -21,9 +21,9 @@ begin graph
     d1 key ""
     d2 key ""
     data brokenline_2.dat d3=c1,c2
-    d3 line smooth color BLUE lwidth 0.05292 key ""
+    d3 line color BLUE lwidth 0.05292 key ""
     data brokenline_4.dat d4=c1,c2
-    d4 line smooth color RED lwidth 0.042336 lstyle 2 key ""
+    d4 line color RED lwidth 0.042336 lstyle 2 key ""
 end graph
 gsave
 set color BLACK
@@ -43,9 +43,9 @@ begin graph
     d5 key ""
     d6 key ""
     data brokenline_2.dat d7=c1,c2
-    d7 line smooth color BLUE lwidth 0.05292 key ""
+    d7 line color BLUE lwidth 0.05292 key ""
     data brokenline_4.dat d8=c1,c2
-    d8 line smooth color RED lwidth 0.042336 lstyle 2 key ""
+    d8 line color RED lwidth 0.042336 lstyle 2 key ""
 end graph
 gsave
 set just tc

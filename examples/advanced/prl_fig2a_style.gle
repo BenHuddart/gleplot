@@ -17,13 +17,13 @@ begin graph
     yaxis min 0 max 28 dticks 5
     y2axis off
     data prlfig2a_0.dat d1=c1,c2
-    d1 line smooth color GRAY lwidth 0.031752 lstyle 2 key ""
+    d1 line color GRAY lwidth 0.031752 lstyle 2 key ""
     data prlfig2a_4.dat d2=c1,c2
-    d2 line smooth color BLUE lwidth 0.038808 lstyle 3 key ""
+    d2 line color BLUE lwidth 0.038808 lstyle 3 key ""
     data prlfig2a_8.dat d3=c1,c2
-    d3 line smooth color RED lwidth 0.038808 lstyle 3 key ""
+    d3 line color RED lwidth 0.038808 lstyle 3 key ""
     data prlfig2a_12.dat d4=c1,c2
-    d4 line smooth color BLACK lwidth 0.038808 lstyle 3 key ""
+    d4 line color BLACK lwidth 0.038808 lstyle 3 key ""
     data prlfig2a_2.dat d5=c1,c2 d6=c1,c3
     d5 marker FCIRCLE msize 0.09 color BLUE err d6 errwidth 0.05648 key "2 K"
     data prlfig2a_6.dat d7=c1,c2 d8=c1,c3
@@ -53,13 +53,13 @@ begin graph
     yaxis min 0 max 28 dticks 5 off
     ylabels off
     data prlfig2a_1.dat d11=c1,c2
-    d11 line smooth color GRAY lwidth 0.031752 lstyle 2 key ""
+    d11 line color GRAY lwidth 0.031752 lstyle 2 key ""
     data prlfig2a_4.dat d12=c1,c2
-    d12 line smooth color BLUE lwidth 0.038808 lstyle 3 key ""
+    d12 line color BLUE lwidth 0.038808 lstyle 3 key ""
     data prlfig2a_8.dat d13=c1,c2
-    d13 line smooth color RED lwidth 0.038808 lstyle 3 key ""
+    d13 line color RED lwidth 0.038808 lstyle 3 key ""
     data prlfig2a_12.dat d14=c1,c2
-    d14 line smooth color BLACK lwidth 0.038808 lstyle 3 key ""
+    d14 line color BLACK lwidth 0.038808 lstyle 3 key ""
     data prlfig2a_2.dat d15=c1,c2 d16=c1,c3
     d15 marker FCIRCLE msize 0.09 color BLUE err d16 errwidth 0.05648 key "2 K"
     data prlfig2a_6.dat d17=c1,c2 d18=c1,c3

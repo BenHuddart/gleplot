@@ -17,7 +17,7 @@ begin graph
     yaxis min 0 max 10
     y2axis off
     data brokennone_0.dat d1=c1,c2
-    d1 line smooth color RED lwidth 0.05292 key ""
+    d1 line color RED lwidth 0.05292 key ""
 end graph
 
 amove 3.8608 1.56464
@@ -29,7 +29,7 @@ begin graph
     ylabels off
     y2axis off
     data brokennone_0.dat d2=c1,c2
-    d2 line smooth color RED lwidth 0.05292 key ""
+    d2 line color RED lwidth 0.05292 key ""
 end graph
 
 amove 8.2296 1.56464
@@ -40,7 +40,7 @@ begin graph
     yaxis min 0 max 10 off
     ylabels off
     data brokennone_0.dat d3=c1,c2
-    d3 line smooth color RED lwidth 0.05292 key ""
+    d3 line color RED lwidth 0.05292 key ""
 end graph
 gsave
 set just tc
