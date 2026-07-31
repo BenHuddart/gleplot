@@ -475,8 +475,20 @@ class GLEWriter:
         if not show_yticks:
             self.lines_gle.append("    ylabels off")
 
-        # Handle y2axis (secondary y-axis) if limits or log scale specified
-        if y2min is not None or y2max is not None or y2log or y2axis_off:
+        # Handle y2axis (secondary y-axis) if limits or log scale specified.
+        #
+        # GLE mirrors the primary axis onto the opposite side by default, and
+        # that mirroring is what draws the closing edge of the box. Switching
+        # the primary axis off takes the mirror with it: ``yaxis ... off``
+        # silently removes the RIGHT-hand frame line too, even though nothing
+        # asked for it. That is a real bug for a broken-axis assembly, whose
+        # rightmost segment always has ``yaxis off`` (the y axis belongs to
+        # the leftmost segment) and always wants its outer edge drawn -- the
+        # panel otherwise renders open on the right and reads as clipped.
+        # Re-assert the mirror explicitly whenever the primary side is off
+        # and the mirror was not itself turned off.
+        y2_on = yaxis_off and not y2axis_off
+        if y2min is not None or y2max is not None or y2log or y2axis_off or y2_on:
             y2_cmd = "    y2axis"
             if y2min is not None:
                 y2_cmd += f" min {self._format_number(y2min)}"
@@ -486,12 +498,18 @@ class GLEWriter:
                 y2_cmd += " log"
             if y2axis_off:
                 y2_cmd += " off"
+            elif y2_on:
+                y2_cmd += " on"
             self.lines_gle.append(y2_cmd)
 
         # The top side has no gleplot-level configuration of its own; it is
-        # only ever switched off (inner edge of a broken-axis assembly).
+        # only ever switched off (inner edge of a broken-axis assembly) --
+        # or switched back on, for the same reason as y2axis above, when the
+        # bottom axis is off and the top one is not.
         if x2axis_off:
             self.lines_gle.append("    x2axis off")
+        elif xaxis_off:
+            self.lines_gle.append("    x2axis on")
 
     # -- broken-axis seam decoration ------------------------------------
     #
