@@ -1523,7 +1523,11 @@ class Figure:
         labels_present = any(series.get("label") for series in legend_sources)
         show_legend = ax.legend_on if ax.legend_on is not None else labels_present
         if show_legend:
-            writer.add_legend(ax.legend_pos)
+            writer.add_legend(
+                ax.legend_pos,
+                fontsize=getattr(ax, "legend_fontsize", None),
+                frameon=getattr(ax, "legend_frameon", True),
+            )
         elif labels_present:
             # GLE draws an implicit key from per-dataset key "label" tokens;
             # it must be switched off explicitly.

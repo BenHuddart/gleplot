@@ -129,11 +129,18 @@ class TestLineStyles:
 
 class TestKeyPositions:
     def test_long_to_short_matches_writer_pos_map(self):
+        # All nine GLE key anchors: every matplotlib legend loc maps onto one
+        # of them (MATPLOTLIB_TO_GLE_LEGEND_LOC), so all nine can reach the
+        # writer as a long form that must translate to a short form.
         assert tables.KEY_POSITIONS_LONG_TO_SHORT == {
             "top right": "tr",
             "top left": "tl",
+            "top center": "tc",
             "bottom right": "br",
             "bottom left": "bl",
+            "bottom center": "bc",
+            "left center": "lc",
+            "right center": "rc",
             "center": "cc",
         }
 
@@ -146,11 +153,11 @@ class TestKeyPositions:
             assert short in tables.KEY_POSITIONS_SHORT_TO_LONG
 
     def test_matches_axes_legend_loc_map_targets(self):
-        # Axes.legend's loc_map produces these long-form strings; every one
+        # Axes.legend maps every matplotlib loc to a long-form string; each
         # must be representable in the long->short table.
-        loc_map_targets = {
-            "top right", "top left", "bottom left", "bottom right", "center",
-        }
+        from gleplot.axes import MATPLOTLIB_TO_GLE_LEGEND_LOC
+
+        loc_map_targets = set(MATPLOTLIB_TO_GLE_LEGEND_LOC.values())
         assert loc_map_targets <= set(tables.KEY_POSITIONS_LONG_TO_SHORT.keys())
 
 

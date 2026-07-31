@@ -5,14 +5,54 @@ import re
 import warnings
 from typing import Optional, List, Union, Tuple
 from .colors import rgb_to_gle
+from .config import GlobalConfig
 from .markers import get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
 from .palettes import canonical_cmap
 from .parser.units import markersize_to_msize, capsize_pt_to_cm
-from .parser.tables import MATPLOTLIB_TO_LSTYLE
+from .parser.tables import (
+    KEY_POSITIONS_LONG_TO_SHORT,
+    KEY_POSITIONS_SHORT_TO_LONG,
+    MATPLOTLIB_TO_LSTYLE,
+)
 
 # Global counter for unique data file names across all figures in a session
 _global_data_file_counter = 0
+
+#: matplotlib ``legend(loc=...)`` strings -> gleplot's long-form key position.
+#: GLE's key has nine anchors (tl/tc/tr, lc/cc/rc, bl/bc/br), so every
+#: matplotlib location has an exact counterpart; only ``'best'`` has no
+#: equivalent (GLE does not search for a clear spot) and maps to top right.
+#: Provenance for the GLE side: GLE 4.3.10 manual, "The Key Module",
+#: ``position``/``pos`` (the same nine values as ``justify``).
+MATPLOTLIB_TO_GLE_LEGEND_LOC = {
+    "best": "top right",
+    "upper right": "top right",
+    "upper left": "top left",
+    "upper center": "top center",
+    "lower left": "bottom left",
+    "lower right": "bottom right",
+    "lower center": "bottom center",
+    "center left": "left center",
+    "center right": "right center",
+    "right": "right center",
+    "center": "center",
+}
+
+#: matplotlib's relative font-size names as multipliers of the base font size
+#: (matplotlib ``font_manager.font_scalings``). Used to resolve
+#: ``legend(fontsize='small')`` against the figure style's fontsize.
+MATPLOTLIB_RELATIVE_FONTSIZES = {
+    "xx-small": 0.579,
+    "x-small": 0.694,
+    "small": 0.833,
+    "medium": 1.0,
+    "large": 1.2,
+    "x-large": 1.44,
+    "xx-large": 1.728,
+    "larger": 1.2,
+    "smaller": 0.833,
+}
 
 
 def _to_jsonable(value):
@@ -505,6 +545,11 @@ class Axes:
         # True/False = explicit user choice (the GUI toggle writes these).
         self.legend_on = None
         self.legend_pos = "top right"
+        # Legend text height in matplotlib points (None = inherit the figure
+        # style's fontsize, i.e. whatever GLE's current ``set hei`` is) and
+        # the legend box (matplotlib ``frameon``; False emits ``key nobox``).
+        self.legend_fontsize = None
+        self.legend_frameon = True
 
         # Shared axes visibility control
         self._show_xlabel = True
@@ -2144,19 +2189,125 @@ class Axes:
         return self
 
     def legend(self, loc: str = "best", **kwargs):
-        """Add legend."""
+        """Show a legend (GLE's graph ``key``).
+
+        Parameters
+        ----------
+        loc : str
+            matplotlib legend location. All eleven matplotlib strings map onto
+            GLE's nine key anchors (``'best'`` is not computed -- like
+            matplotlib's own ``'best'`` fallback in ambiguous cases it means
+            top right). GLE short forms (``'tr'``, ``'bl'``, ...) are also
+            accepted. An unrecognized value warns and uses top right.
+        fontsize : float or str, optional
+            Legend text height, in matplotlib points, emitted as GLE's
+            ``key ... hei`` (the only lever on key size before this existed
+            was the figure-wide style fontsize). matplotlib's relative names
+            (``'small'``, ``'x-large'``, ...) are resolved against the
+            figure's style fontsize at call time.
+        frameon : bool, optional
+            Draw the box around the key (default ``True``, as matplotlib).
+            ``False`` emits GLE's ``key ... nobox``.
+        ncol, ncols : int, optional
+            Only a single column is expressible: GLE builds multi-column keys
+            from ``separator`` commands in a standalone ``begin key`` block,
+            which gleplot does not emit. ``1`` is accepted; anything else
+            warns.
+        **kwargs
+            Any other matplotlib legend keyword has no GLE ``key`` equivalent
+            and warns rather than being silently dropped.
+
+        Returns
+        -------
+        self
+        """
         self.legend_on = True
-        # Map matplotlib loc to GLE positions
-        loc_map = {
-            "best": "top right",
-            "upper right": "top right",
-            "upper left": "top left",
-            "lower left": "bottom left",
-            "lower right": "bottom right",
-            "center": "center",
-        }
-        self.legend_pos = loc_map.get(loc, "top right")
+
+        # matplotlib's first positional argument may be a handles/labels
+        # sequence. gleplot takes legend text from each series' ``label=``,
+        # so an explicit sequence cannot be honoured -- say so.
+        if loc is not None and not isinstance(loc, str):
+            warnings.warn(
+                "legend(): explicit handles/labels are not supported; legend "
+                "text comes from each series' label= argument. The positional "
+                "argument was ignored.",
+                UserWarning,
+                stacklevel=2,
+            )
+            loc = "best"
+
+        self.legend_pos = self._resolve_legend_loc(loc)
+
+        if "fontsize" in kwargs:
+            fontsize = kwargs.pop("fontsize")
+            self.legend_fontsize = (
+                None if fontsize is None else self._resolve_legend_fontsize(fontsize)
+            )
+
+        if "frameon" in kwargs:
+            frameon = kwargs.pop("frameon")
+            self.legend_frameon = True if frameon is None else bool(frameon)
+
+        for name in ("ncol", "ncols"):
+            if name in kwargs:
+                ncol = kwargs.pop(name)
+                if ncol is not None and int(ncol) != 1:
+                    warnings.warn(
+                        f"legend({name}={ncol!r}) is not supported: a GLE "
+                        "graph-block key is always a single column (multiple "
+                        "columns need a standalone 'begin key' block with "
+                        "'separator' commands). Drawing one column.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+
+        for name in sorted(kwargs):
+            warnings.warn(
+                f"legend({name}=...) is not supported and was ignored: GLE's "
+                "key command understands only position, text height "
+                "(fontsize), and the box (frameon).",
+                UserWarning,
+                stacklevel=2,
+            )
+
         return self
+
+    @staticmethod
+    def _resolve_legend_loc(loc) -> str:
+        """Map a matplotlib ``loc`` onto a gleplot long-form key position."""
+        if loc is None:
+            return "top right"
+        key = str(loc).strip().lower()
+        if key in MATPLOTLIB_TO_GLE_LEGEND_LOC:
+            return MATPLOTLIB_TO_GLE_LEGEND_LOC[key]
+        # A GLE short form ('tr', 'bl', ...) or an already-long gleplot form.
+        if key in KEY_POSITIONS_SHORT_TO_LONG:
+            return KEY_POSITIONS_SHORT_TO_LONG[key]
+        if key in KEY_POSITIONS_LONG_TO_SHORT:
+            return key
+        warnings.warn(
+            f"legend(loc={loc!r}) is not a recognized matplotlib location or "
+            "GLE key position; using 'upper right'.",
+            UserWarning,
+            stacklevel=3,
+        )
+        return "top right"
+
+    def _resolve_legend_fontsize(self, fontsize) -> float:
+        """Resolve a matplotlib ``fontsize`` (number or name) to points."""
+        if isinstance(fontsize, str):
+            name = fontsize.strip().lower()
+            if name not in MATPLOTLIB_RELATIVE_FONTSIZES:
+                raise ValueError(
+                    f"legend(fontsize={fontsize!r}) is not a number or one of "
+                    f"{sorted(MATPLOTLIB_RELATIVE_FONTSIZES)}"
+                )
+            style = getattr(self.figure, "style", None) or GlobalConfig.get_style()
+            return float(style.fontsize) * MATPLOTLIB_RELATIVE_FONTSIZES[name]
+        size = float(fontsize)
+        if size <= 0:
+            raise ValueError(f"legend(fontsize={fontsize!r}) must be positive")
+        return size
 
     def grid(self, visible: bool = True, **kwargs):
         """Toggle grid (placeholder for future implementation)."""
@@ -2302,6 +2453,8 @@ class Axes:
             "y2max": _to_jsonable(self.y2max),
             "legend_on": self.legend_on,
             "legend_pos": self.legend_pos,
+            "legend_fontsize": _to_jsonable(self.legend_fontsize),
+            "legend_frameon": self.legend_frameon,
             "show_xlabel": self._show_xlabel,
             "show_ylabel": self._show_ylabel,
             "show_xticks": self._show_xticks,
@@ -2374,6 +2527,10 @@ class Axes:
         ax.y2max = d.get("y2max")
         ax.legend_on = d.get("legend_on")  # tri-state; missing key = auto
         ax.legend_pos = d.get("legend_pos", "top right")
+        # Missing keys = a pre-1.9.2 payload: inherit the style fontsize and
+        # draw the box, which is exactly what those figures rendered as.
+        ax.legend_fontsize = d.get("legend_fontsize")
+        ax.legend_frameon = d.get("legend_frameon", True)
 
         ax._show_xlabel = d.get("show_xlabel", True)
         ax._show_ylabel = d.get("show_ylabel", True)

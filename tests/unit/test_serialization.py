@@ -376,6 +376,8 @@ _AXES_SERIALIZED_ATTRS = {
     "y2max",
     "legend_on",
     "legend_pos",
+    "legend_fontsize",
+    "legend_frameon",
     "_show_xlabel",
     "_show_ylabel",
     "_show_xticks",

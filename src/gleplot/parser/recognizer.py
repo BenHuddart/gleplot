@@ -753,6 +753,8 @@ class _Recognizer:
             "nolast_y": False,
             "key_pos": None,  # short-form position or None
             "key_off": False,
+            "key_hei": None,  # 'hei' in cm, or None (= inherit 'set hei')
+            "key_nobox": False,
             "lines": [],
             "scatters": [],
             "bars": [],
@@ -1404,14 +1406,19 @@ class _Recognizer:
         if rest == ["off"]:
             info["key_off"] = True
             return
-        # Exactly 'key pos P' -> recognized.
-        if len(rest) == 2 and rest[0] == "pos":
-            info["key_pos"] = rest[1]
+        # The modelled option set, in any order: 'pos P', 'hei H', 'nobox'
+        # -- exactly what GLEWriter.add_legend emits. Parse into a scratch
+        # dict first so a later unmodelled token leaves ``info`` untouched.
+        parsed = self._scan_key_options(rest)
+        if parsed is not None:
+            info["key_pos"] = parsed.get("pos", info["key_pos"])
+            info["key_hei"] = parsed.get("hei", info["key_hei"])
+            info["key_nobox"] = parsed.get("nobox", info["key_nobox"])
             return
-        # Any richer form ('key pos tr hei 0.3 nobox offset ...') carries options
-        # we cannot model; a cumulative re-emit would produce a competing 'key'
-        # line. Keep the WHOLE original line as raw GLE (legend untouched) and
-        # warn.
+        # Any richer form ('key pos tr offset 0.2 0.2 compact ...') carries
+        # options we cannot model; a cumulative re-emit would produce a
+        # competing 'key' line. Keep the WHOLE original line as raw GLE
+        # (legend untouched) and warn.
         line = (
             self._stmt_text(stmt)
             if stmt is not None
@@ -1421,6 +1428,34 @@ class _Recognizer:
         self.warnings.append(
             "structure: key has unsupported options; kept as raw GLE, " "not editable"
         )
+
+    @staticmethod
+    def _scan_key_options(rest):
+        """Scan the tokens after ``key`` into ``{pos, hei, nobox}``.
+
+        Returns ``None`` as soon as a token outside the modelled set appears,
+        so the caller can fall back to raw passthrough. A ``pos``/``hei``
+        without its value, or a non-numeric ``hei``, is likewise unmodelled.
+        """
+        out = {}
+        i = 0
+        while i < len(rest):
+            word = rest[i]
+            if word == "nobox":
+                out["nobox"] = True
+                i += 1
+            elif word in ("pos", "position") and i + 1 < len(rest):
+                out["pos"] = rest[i + 1]
+                i += 2
+            elif word == "hei" and i + 1 < len(rest):
+                try:
+                    out["hei"] = float(rest[i + 1])
+                except ValueError:
+                    return None  # an expression, not a literal height
+                i += 2
+            else:
+                return None
+        return out or None
 
     # -- series command --------------------------------------------------
 
@@ -3033,6 +3068,9 @@ class _Recognizer:
             ax.legend_pos = KEY_POSITIONS_SHORT_TO_LONG.get(pos_short, pos_short)
             # 'key pos P' + labels -> auto (None); + no labels -> True.
             ax.legend_on = None if labels_present else True
+            if info["key_hei"] is not None:
+                ax.legend_fontsize = fontsize_cm_to_pt(info["key_hei"])
+            ax.legend_frameon = not info["key_nobox"]
         else:
             if labels_present:
                 # Hand-written implicit key: GLE draws a key from the per-series
