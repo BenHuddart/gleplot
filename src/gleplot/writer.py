@@ -1339,7 +1339,12 @@ class GLEWriter:
         )
         self._pending_graph_text_lines.append(f'write "{escaped_text}"')
 
-    def add_legend(self, position: Optional[str] = None):
+    def add_legend(
+        self,
+        position: Optional[str] = None,
+        fontsize: Optional[float] = None,
+        frameon: bool = True,
+    ):
         """Add legend configuration.
 
         Parameters
@@ -1348,13 +1353,32 @@ class GLEWriter:
             Legend position. If None, uses configured default.
             Options: 'tl', 'tr', 'bl', 'br', 'tc', 'bc', 'lc', 'rc', 'cc'
             or long form: 'top right', 'top left', 'bottom right', 'bottom left', 'center'
+        fontsize : float, optional
+            Key text height in matplotlib points, emitted as GLE's ``hei`` (in
+            cm) on the same ``key`` line. ``None`` omits ``hei`` entirely, so
+            GLE uses the current ``set hei`` -- the historical behaviour, and
+            byte-identical output for figures that do not size their legend.
+        frameon : bool
+            Draw the box around the key (GLE's default). ``False`` appends
+            ``nobox``.
+
+        Notes
+        -----
+        All options go on the single ``key`` line: the recognizer models
+        ``pos``/``hei``/``nobox`` there (see ``_parse_key_command``), and a
+        second ``key`` command would compete with this one on re-emit.
         """
         # Use provided position or fall back to configured default
         pos = position if position is not None else self.graph.legend_position
 
         # Try long form, else use as-is (short form)
         gle_pos = KEY_POSITIONS_LONG_TO_SHORT.get(pos, pos)
-        self.lines_gle.append(f"    key pos {gle_pos}")
+        cmd = f"    key pos {gle_pos}"
+        if fontsize is not None:
+            cmd += f" hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
+        if not frameon:
+            cmd += " nobox"
+        self.lines_gle.append(cmd)
 
     def add_key_off(self):
         """Suppress the graph key entirely.

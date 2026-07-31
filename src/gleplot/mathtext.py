@@ -14,14 +14,22 @@ Design (see the feature brief / CLAUDE.md conventions):
   object model stores the *translated* GLE-markup string and the writer stays
   untouched. A ``.gle`` file re-parsed by the recognizer already contains GLE
   markup, so writer -> recognizer -> writer stays a byte-identical fixed point.
-* **Idempotent.** A string with no ``$`` is returned unchanged (round-tripped
-  labels are already GLE markup), so ``translate(translate(s)) == translate(s)``.
+* **Idempotent.** ``translate(translate(s)) == translate(s)``: everything the
+  translator emits (GLE macros and brace groups belonging to them) is copied
+  verbatim on a second pass, so a stored label can be re-translated safely --
+  the GUI panels do exactly that on every edit.
 * **Graceful degradation.** An odd number of unescaped ``$`` (which matplotlib
   would reject) leaves the string completely unchanged rather than guessing.
+* **Literal by default, math by opt-in** -- matplotlib's own contract. Text
+  *inside* ``$...$`` is translated as math; text outside is escaped by
+  :func:`escape_gle_text` so it renders literally, because GLE's TeX-ish text
+  mode would otherwise read ``lambda_tail`` as a subscript and swallow braces.
+  A **backslash still opens GLE markup** outside math (``\\degree``,
+  ``{\\bf x}``): that is the escape hatch for GLE's own text commands, and it
+  is what keeps labels recovered from a ``.gle`` file rendering as written.
 
-Only the text *inside* ``$...$`` segments is translated; text outside passes
-through verbatim (it may already be GLE markup). ``\\$`` is a literal dollar
-sign everywhere and never opens/closes a math segment.
+``\\$`` is a literal dollar sign everywhere and never opens/closes a math
+segment.
 
 The supported-macro tables below are derived from the GLE 4.3.10 manual:
 
@@ -45,14 +53,16 @@ Examples
 'cost $5'
 >>> mathtext_to_gle(r"$x = 5")               # unmatched $ -> unchanged
 '$x = 5'
->>> mathtext_to_gle(r"\\chi{} (emu/mol)")    # no $ -> identity
+>>> mathtext_to_gle(r"\\chi{} (emu/mol)")    # GLE markup -> identity
 '\\\\chi{} (emu/mol)'
+>>> mathtext_to_gle("lambda_tail")           # plain text -> literal
+'lambda\\\\_tail'
 """
 
 import re
 from typing import List, Optional, Tuple
 
-__all__ = ["mathtext_to_gle"]
+__all__ = ["mathtext_to_gle", "escape_gle_text"]
 
 
 # ---------------------------------------------------------------------------
@@ -294,9 +304,30 @@ _SYMBOL_ESCAPES = {
     "%": "%",
     "&": "&",
     "#": "#",
-    "{": "{",
-    "}": "}",
+    "{": "\\char{123}",  # a bare brace is grouping in GLE and disappears
+    "}": "\\char{125}",
     "$": "$",
+}
+
+# ---------------------------------------------------------------------------
+# Text-mode escaping
+# ---------------------------------------------------------------------------
+#
+# GLE's text engine is TeX-ish everywhere, not only inside math: ``_`` and
+# ``^`` start a subscript/superscript and braces group silently. matplotlib
+# renders a plain string literally and takes math only inside ``$...$``, so
+# gleplot escapes those characters in every non-math segment.
+#
+# The escapes are the ones GLE actually renders (verified against GLE 4.3.10
+# with its standard PostScript fonts): ``\_`` is the manual's "underscore
+# character", while ``\^`` and ``\{`` are *accents*, not literals -- the
+# literal caret and braces have to come from ``\char{n}`` (manual appendix
+# A.3, "Any character in current font").
+TEXT_ESCAPES = {
+    "_": "\\_",
+    "^": "\\char{94}",
+    "{": "\\char{123}",
+    "}": "\\char{125}",
 }
 
 # A GLE token that ends in a bare macro name (``\word``). Used to decide whether
@@ -318,14 +349,16 @@ def mathtext_to_gle(s: Optional[str]) -> Optional[str]:
     Returns
     -------
     str or None
-        The string with every ``$...$`` math segment rewritten in GLE markup.
-        Text outside math segments is preserved verbatim. Returned unchanged
-        when *s* contains no ``$`` (idempotent on already-translated GLE
-        markup) or when the unescaped ``$`` count is odd (matplotlib would
-        error; we degrade gracefully rather than guess).
+        The string with every ``$...$`` math segment rewritten in GLE markup
+        and every non-math segment escaped so it renders literally (see
+        :func:`escape_gle_text`). Returned unchanged when the unescaped ``$``
+        count is odd (matplotlib would error; we degrade gracefully rather
+        than guess what was meant).
     """
-    if not isinstance(s, str) or "$" not in s:
+    if not isinstance(s, str):
         return s
+    if "$" not in s:
+        return escape_gle_text(s)
 
     segments = _split_segments(s)
     if segments is None:
@@ -341,7 +374,7 @@ def mathtext_to_gle(s: Optional[str]) -> Optional[str]:
             gle = _translate_math(text)
             rendered.append((gle, bool(_TRAILING_MACRO.search(gle))))
         else:
-            rendered.append((text, False))
+            rendered.append((escape_gle_text(text), False))
 
     out: List[str] = []
     for idx, (text, trailing_macro) in enumerate(rendered):
@@ -351,6 +384,130 @@ def mathtext_to_gle(s: Optional[str]) -> Optional[str]:
             if nxt is not None and (nxt.isalpha() or nxt.isspace()):
                 out.append("{}")
     return "".join(out)
+
+
+def escape_gle_text(s: str) -> str:
+    """Escape a non-math string so GLE renders it literally.
+
+    GLE's text engine reads ``_``/``^`` as subscript/superscript and ``{}``
+    as silent grouping, so a plain label like ``lambda_tail`` renders as
+    "lambda" with a subscripted "tail" and ``set {a, b}`` loses its braces.
+    matplotlib renders plain strings literally, so gleplot does too: these
+    four characters are escaped everywhere outside ``$...$``.
+
+    A **backslash still opens GLE markup** -- that is gleplot's opt-in to
+    GLE's own text commands outside math mode, and it is what keeps
+    round-tripped ``.gle`` labels (``\\chi{} (emu/mol)``, ``{\\bf bold}``)
+    rendering as they were written. So this function copies verbatim:
+
+    * a macro token ``\\name`` (or ``\\`` + one non-letter) and any brace
+      group that directly follows it -- ``\\char{95}``, ``\\rule{2}{4}``;
+    * a brace group whose contents start with a macro -- ``{\\bf bold}``;
+    * a *braced* script, ``_{...}`` or ``^{...}`` -- the form the math
+      translator emits and the documented GLE markup spelling of a
+      sub/superscript. Only a bare ``_``/``^`` is escaped, which is exactly
+      the accident that mangles ``lambda_tail``.
+
+    Everything else is literal text. The two rules above are also what makes
+    the escaping **idempotent**: the escapes it emits (``\\_``,
+    ``\\char{94}``) are themselves macro tokens, so escaping twice is
+    escaping once, and a stored label can be re-translated safely (the GUI
+    panels do exactly that on every edit).
+
+    Parameters
+    ----------
+    s : str
+        A non-math display string.
+
+    Returns
+    -------
+    str
+        The same text with GLE's special characters escaped.
+
+    Examples
+    --------
+    >>> escape_gle_text("lambda_tail")
+    'lambda\\\\_tail'
+    >>> escape_gle_text("x^2")
+    'x\\\\char{94}2'
+    >>> escape_gle_text(escape_gle_text("x^2"))     # idempotent
+    'x\\\\char{94}2'
+    >>> escape_gle_text(r"\\chi{} (emu/mol)")         # markup passes through
+    '\\\\chi{} (emu/mol)'
+    """
+    out: List[str] = []
+    i, n = 0, len(s)
+    while i < n:
+        c = s[i]
+
+        if c == "\\":
+            # GLE markup: copy the macro token, plus any brace groups that
+            # belong to it (\char{95}, \rule{2}{4}, \raise{0.1em}{x}).
+            j = i + 1
+            while j < n and s[j].isalpha():
+                j += 1
+            if j == i + 1:  # backslash + non-letter (\_, \,, \\ ...)
+                j = min(i + 2, n)
+            out.append(s[i:j])
+            i = j
+            while i < n and s[i] == "{":
+                end = _brace_end(s, i)
+                if end is None:
+                    break
+                out.append(s[i:end])
+                i = end
+            continue
+
+        if c in "_^" and i + 1 < n and s[i + 1] == "{":
+            # A *braced* script is GLE markup, not literal text: it is what
+            # the math translator emits (``x_{i}^{2}``) and what the GLE
+            # markup spelling of a subscript looks like (``T_{N}``). Only a
+            # bare ``_``/``^`` -- the accident in ``lambda_tail`` -- is
+            # escaped. Keeping these verbatim is also what makes translating
+            # an already-translated string a no-op.
+            end = _brace_end(s, i + 1)
+            if end is not None:
+                out.append(s[i:end])
+                i = end
+                continue
+
+        if c == "{":
+            end = _brace_end(s, i)
+            if end is not None and _opens_with_macro(s[i + 1 : end - 1]):
+                # A font/markup group such as ``{\bf bold}``.
+                out.append(s[i:end])
+                i = end
+                continue
+
+        out.append(TEXT_ESCAPES.get(c, c))
+        i += 1
+
+    return "".join(out)
+
+
+def _brace_end(s: str, i: int) -> Optional[int]:
+    """Index just past the ``}`` matching the ``{`` at *i*, or None if unclosed."""
+    depth = 0
+    j, n = i, len(s)
+    while j < n:
+        ch = s[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
+    return None
+
+
+def _opens_with_macro(inner: str) -> bool:
+    """True if a brace group's contents start with a ``\\macro`` token."""
+    stripped = inner.lstrip()
+    return len(stripped) >= 2 and stripped[0] == "\\" and stripped[1].isalpha()
 
 
 def _next_char(rendered: List[Tuple[str, bool]], start: int) -> Optional[str]:

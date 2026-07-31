@@ -400,17 +400,20 @@ MATPLOTLIB_TO_LSTYLE: Dict[str, int] = {v: k for k, v in LSTYLE_TO_MATPLOTLIB.it
 #
 # Long-form <-> short-form GLE legend position, mirroring
 # ``GLEWriter.add_legend``'s ``pos_map`` (long -> short; falls through to the
-# value as-is if already short-form) and ``Axes.legend``'s ``loc_map``
-# (matplotlib ``loc`` -> gleplot's long form, which ``add_legend`` then maps
-# to short form). Only the four corner positions plus ``'center'`` are
-# produced by the current writer/axes code; ``'tc'``/``'bc'``/``'lc'``/``'rc'``
-# are valid GLE short forms with no long-form producer in gleplot today, so
-# they map to themselves for completeness on the parser side.
+# value as-is if already short-form) and
+# ``gleplot.axes.MATPLOTLIB_TO_GLE_LEGEND_LOC`` (matplotlib ``loc`` ->
+# gleplot's long form, which ``add_legend`` then maps to short form). All nine
+# GLE key anchors are reachable from a matplotlib ``loc``, so all nine appear
+# here.
 KEY_POSITIONS_LONG_TO_SHORT: Dict[str, str] = {
     "top right": "tr",
     "top left": "tl",
+    "top center": "tc",
     "bottom right": "br",
     "bottom left": "bl",
+    "bottom center": "bc",
+    "left center": "lc",
+    "right center": "rc",
     "center": "cc",
 }
 
@@ -441,9 +444,3 @@ CMAP_TO_PALETTE_SUB: Dict[str, str] = {v: k for k, v in PALETTE_SUB_TO_CMAP.item
 KEY_POSITIONS_SHORT_TO_LONG: Dict[str, str] = {
     v: k for k, v in KEY_POSITIONS_LONG_TO_SHORT.items()
 }
-# Short forms with no long-form producer in gleplot's writer/axes today, but
-# valid GLE key-position tokens a parser must still recognize.
-KEY_POSITIONS_SHORT_TO_LONG.setdefault("tc", "top center")
-KEY_POSITIONS_SHORT_TO_LONG.setdefault("bc", "bottom center")
-KEY_POSITIONS_SHORT_TO_LONG.setdefault("lc", "left center")
-KEY_POSITIONS_SHORT_TO_LONG.setdefault("rc", "right center")

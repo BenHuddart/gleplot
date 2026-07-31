@@ -185,6 +185,100 @@ def test_contour_non_uniform_x_raises():
         ax.contour(x, y, np.zeros((3, 4)))
 
 
+# --------------------------------------------------------------------------- #
+# contour with matplotlib meshgrid (2-D X, Y) input
+# --------------------------------------------------------------------------- #
+
+
+def _peaks(x, y):
+    X, Y = np.meshgrid(x, y)
+    return np.sin(X) * np.cos(Y)
+
+
+def test_contour_meshgrid_matches_1d_input():
+    """The whole point: np.meshgrid input must be the same figure as 1-D input."""
+    x = np.linspace(0, 3, 7)
+    y = np.linspace(-1, 2, 5)
+    Z = _peaks(x, y)
+    X, Y = np.meshgrid(x, y)
+
+    fig_1d = glp.figure(data_prefix="t")
+    ct_1d = fig_1d.add_subplot(111).contour(x, y, Z, levels=[0.0, 0.5])
+    fig_mesh = glp.figure(data_prefix="t")
+    ct_mesh = fig_mesh.add_subplot(111).contour(X, Y, Z, levels=[0.0, 0.5])
+
+    assert ct_mesh["extent"] == ct_1d["extent"]
+    assert ct_mesh["levels"] == ct_1d["levels"]
+    np.testing.assert_array_equal(ct_mesh["z"], ct_1d["z"])
+    text_mesh, files_mesh = _gle(fig_mesh)
+    text_1d, files_1d = _gle(fig_1d)
+    assert text_mesh == text_1d
+    assert files_mesh == files_1d
+
+
+def test_contour_meshgrid_x_only():
+    """A 2-D X with a 1-D y (and vice versa) is reduced independently."""
+    x = np.linspace(0, 3, 4)
+    y = np.linspace(0, 1, 3)
+    X, Y = np.meshgrid(x, y)
+    Z = np.zeros((3, 4))
+
+    ax = glp.figure(data_prefix="t").add_subplot(111)
+    assert ax.contour(X, y, Z)["extent"] == [0.0, 3.0, 0.0, 1.0]
+    assert ax.contour(x, Y, Z)["extent"] == [0.0, 3.0, 0.0, 1.0]
+
+
+def test_contour_meshgrid_shape_mismatch_raises():
+    x = np.linspace(0, 3, 4)
+    y = np.linspace(0, 1, 3)
+    X, Y = np.meshgrid(x, y)  # (3, 4)
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match="must match Z"):
+        ax.contour(X, Y, np.zeros((4, 3)))
+
+
+def test_contour_irregular_meshgrid_raises_and_points_at_tricontour():
+    x = np.linspace(0, 3, 4)
+    y = np.linspace(0, 1, 3)
+    X, Y = np.meshgrid(x, y)
+    X = X.copy()
+    X[1, 2] += 0.5  # a genuinely irregular (curvilinear) grid
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match="not a regular grid"):
+        ax.contour(X, Y, np.zeros((3, 4)))
+    with pytest.raises(ValueError, match="tricontour"):
+        ax.contour(X, Y, np.zeros((3, 4)))
+
+
+def test_contour_ij_indexed_meshgrid_raises_with_a_fix():
+    """indexing='ij' is transposed, not irregular; say so rather than misdraw."""
+    x = np.linspace(0, 3, 4)
+    y = np.linspace(0, 1, 3)
+    X, Y = np.meshgrid(x, y, indexing="ij")  # (4, 3)
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match="indexing='ij'"):
+        ax.contour(X, Y, np.zeros((4, 3)))
+
+
+def test_contour_meshgrid_still_requires_uniform_spacing():
+    x = np.array([0.0, 1.0, 3.0, 4.0])  # non-uniform
+    y = np.linspace(0, 1, 3)
+    X, Y = np.meshgrid(x, y)
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match="uniformly spaced"):
+        ax.contour(X, Y, np.zeros((3, 4)))
+
+
+def test_contour_meshgrid_tolerates_rounding():
+    """A grid built by arithmetic carries float noise; that is still regular."""
+    x = np.linspace(0, 3, 4)
+    y = np.linspace(0, 1, 3)
+    X, Y = np.meshgrid(x, y)
+    X = X + np.array([[0.0, 1e-13, 0.0, 0.0]] * 3)
+    ax = glp.figure(data_prefix="t").add_subplot(111)
+    assert ax.contour(X, Y, np.zeros((3, 4)))["extent"] == [0.0, 3.0, 0.0, 1.0]
+
+
 def test_contour_int_levels_resolves_to_explicit_list():
     fig = glp.figure(data_prefix="t")
     ax = fig.add_subplot(111)
