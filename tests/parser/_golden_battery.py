@@ -310,6 +310,17 @@ def tripcolor_tricontour_combo():
     return fig
 
 
+def custom_tick_labels():
+    """xplaces/xnames + yplaces/ynames (explicit set_xticks/set_yticks)."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], color="blue", label="quad")
+    ax.set_xticks([0, 1, 2], ["a", "b", "c"])
+    ax.set_yticks([0, 2, 4], ["low", "mid", "high"])
+    ax.legend()
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -331,6 +342,7 @@ BUILDERS = [
     heatmap_imshow_colorbar,
     contour_grid_levels_clabel,
     tripcolor_tricontour_combo,
+    custom_tick_labels,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]
