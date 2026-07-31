@@ -173,6 +173,12 @@ This writes files such as ``calibration_0.dat`` and ``calibration_1.dat``.
 Scatter with Different Sizes
 -----------------------------
 
+GLE's ``msize`` is a per-dataset attribute, so a series is drawn at one marker
+size and a per-point ``s`` array raises ``ValueError`` -- plot one series per
+size. ``s`` is an area in points\ :sup:`2` (matplotlib's ``scatter``
+convention); pass ``markersize=`` instead for a diameter in points, the
+convention ``plot`` uses.
+
 .. code-block:: python
 
    import numpy as np
@@ -181,14 +187,20 @@ Scatter with Different Sizes
    np.random.seed(42)
    x = np.random.rand(50)
    y = np.random.rand(50)
-   sizes = np.random.rand(50) * 100
+   weight = np.random.rand(50)
 
    fig = glp.figure(figsize=(8, 6))
    ax = fig.add_subplot(111)
-   ax.scatter(x, y, s=sizes, alpha=0.6, color='blue')
+   # Three size bands -- quadrupling s doubles the drawn marker.
+   for lo, hi, s, label in [(0.00, 0.33, 25, 'low'),
+                            (0.33, 0.66, 100, 'mid'),
+                            (0.66, 1.01, 400, 'high')]:
+       band = (weight >= lo) & (weight < hi)
+       ax.scatter(x[band], y[band], s=s, color='blue', label=label)
    ax.set_xlabel('X')
    ax.set_ylabel('Y')
    ax.set_title('Scatter Plot with Variable Sizes')
+   ax.legend()
    fig.savefig('scatter_sizes.pdf')
 
 Filled Area

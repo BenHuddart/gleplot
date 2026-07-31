@@ -75,6 +75,30 @@ This is expected behavior.
 
 Disable sharing if each panel must show all tick labels.
 
+## Lines Look More Angular Than They Used To
+
+Symptoms:
+
+- A figure regenerated with gleplot 1.9.0 or later has visibly kinked lines
+  where the old one had flowing curves, and peaks no longer overshoot
+
+This is the fix, not a regression. Before 1.9.0, `GLEGraphConfig.smooth_curves`
+defaulted to `True`, so every line series was emitted with GLE's `smooth`
+qualifier and rendered as a spline fitted *near* the data instead of a
+polyline *through* it. The new default draws the data. Any jaggedness you now
+see is in your points and was previously being smoothed away.
+
+If the smoothed look is what you want (a guide to the eye, a densely sampled
+model curve), ask for it explicitly:
+
+```python
+fig = glp.figure(graph=glp.GLEGraphConfig(smooth_curves=True))
+# or, once per script, for every figure it creates:
+glp.GlobalConfig.graph.smooth_curves = True
+```
+
+See the Curve Smoothing section of `CONFIGURATION.md`.
+
 ## Grid Call Has No Visual Effect
 
 Current behavior: `ax.grid(...)` exists for API compatibility and future extension. If grid lines are not rendered in your output, rely on explicit axis styling for now.

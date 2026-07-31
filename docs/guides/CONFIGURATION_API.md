@@ -275,7 +275,7 @@ GLEGraphConfig(
     legend_position: str = 'tr',
     legend_offset_x: float = 0.0,
     legend_offset_y: float = 0.0,
-    smooth_curves: bool = True,
+    smooth_curves: bool = False,
     show_grid: bool = False,
 )
 ```
@@ -405,31 +405,43 @@ Y-offset for legend position (in cm).
 
 #### `smooth_curves: bool`
 
-Enable smooth curve fitting on line plots (GLE `smooth` keyword).
+Draw line series as a fitted spline (GLE's `smooth` keyword) instead of as a
+polyline through the points.
 
 **Valid values:** `True`, `False`
-**Default:** `True`
+**Default:** `False`
 **Type:** bool
 **Mutable:** Yes
 
 **Effect:**
-- `True` - Fits piecewise cubic polynomials through data points
-- `False` - Draws straight lines between points
+- `False` (default) - Straight segments join consecutive points. The drawn
+  curve *is* the data.
+- `True` - Fits piecewise cubic polynomials; the curve passes near, not
+  through, the points, overshooting steep steps and ringing around noise.
+  An interpolation of the data -- opt in only when that is what you want.
+
+Applies to every line series in the figure: `plot`, `line_from_file`, and the
+line drawn by `errorbar`. Never applies to `fill_between` (GLE's `fill` takes
+no `smooth` qualifier) or to contour lines (GLE contours its own gridded
+surface; splining those polylines would move the level off that surface).
 
 **Example:**
 ```python
-graph = glp.GLEGraphConfig(smooth_curves=False)
+graph = glp.GLEGraphConfig(smooth_curves=True)
 fig = glp.figure(graph=graph)
 ax = fig.add_subplot(111)
 
 x = [1, 2, 3, 4, 5]
 y = [1, 4, 9, 16, 25]
 
-ax.plot(x, y)  # Draws piecewise linear (not smooth)
+ax.plot(x, y)  # Spline through the points; omit the config for a polyline
 ```
 
-**Performance note:** Smooth curves may be slightly slower to compile, but
-the difference is negligible.
+> **Behaviour change in 1.9.0:** this defaulted to `True` before 1.9.0, so
+> every line was silently smoothed. Figures regenerated with 1.9.0 render as
+> polylines -- the faithful rendering. Set `smooth_curves=True` (per figure,
+> or once via `glp.GlobalConfig.graph.smooth_curves`) to get the old look
+> back. See the Curve Smoothing section of `CONFIGURATION.md`.
 
 #### `show_grid: bool`
 
@@ -550,7 +562,6 @@ pub_style = glp.GLEStyleConfig(
 pub_graph = glp.GLEGraphConfig(
     scale_mode='auto',        # Leave room for labels
     legend_position='tl',     # Top-left (common in publications)
-    smooth_curves=True,       # Smooth rendering
 )
 
 # Create publication-quality markers
@@ -591,7 +602,6 @@ pres_style = glp.GLEStyleConfig(
 pres_graph = glp.GLEGraphConfig(
     scale_mode='auto',
     legend_position='br',     # Bottom-right
-    smooth_curves=True,
 )
 
 # Create figure

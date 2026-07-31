@@ -13,8 +13,8 @@ begin graph
     yaxis min 10 max 30
     y2axis min 30 max 90
     data data_0.dat d1=c1,c2
-    d1 line smooth color RED lwidth 0.07056 key "Temperature"
+    d1 line color RED lwidth 0.07056 key "Temperature"
     data data_1.dat d2=c1,c2
-    d2 line smooth color BLUE lwidth 0.07056 y2axis key "Humidity"
+    d2 line color BLUE lwidth 0.07056 y2axis key "Humidity"
     key pos tr
 end graph

@@ -61,7 +61,8 @@ for rendering, applied by the test-side ``normalize()`` helper)
 7. **Mixed ``smooth`` (hand-written only).** The writer applies ``smooth``
    globally (``graph.smooth_curves``). If a hand-written file has some line
    datasets ``smooth`` and some not, the recovered figure sets
-   ``smooth_curves=True`` (the default) and warns; re-save then applies smooth
+   ``smooth_curves=True`` -- preserving the smoothing that is in the file
+   rather than silently dropping it -- and warns; re-save then applies smooth
    to all line datasets.
 8. **Constant / percentage error -> data column (hand-written only).** A
    ``dN ... err 0.5`` (constant) or ``dN ... err 10%`` (percentage) carries no
@@ -3051,8 +3052,8 @@ class _Recognizer:
 
     def _apply_smooth(self, fig, graph_cfg, smooth_flags):
         if not smooth_flags:
-            # No line datasets: leave default (True). Writer emits nothing that
-            # depends on it, so byte-identity is unaffected.
+            # No line datasets: leave the default (False). The writer emits
+            # nothing that depends on it, so byte-identity is unaffected.
             return
         if all(smooth_flags):
             graph_cfg.smooth_curves = True

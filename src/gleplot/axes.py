@@ -902,19 +902,40 @@ class Axes:
 
         return self
 
+    #: Default ``scatter`` size, in matplotlib's points**2.
+    SCATTER_DEFAULT_S = 20
+
     def scatter(
         self,
         x,
         y,
         color: Optional[str] = None,
-        s: float = 20,
+        s: Optional[float] = None,
         marker: str = "o",
         label: Optional[str] = None,
         yaxis: str = "y",
+        markersize: Optional[float] = None,
         **kwargs,
     ):
         """
         Create scatter plot.
+
+        Accepts either sizing convention:
+
+        * ``s`` -- matplotlib's ``scatter`` size, an **area in points**2**
+          (matplotlib's own default is ~36; gleplot's is 20). Converted to a
+          marker size with the square-root relation matplotlib defines between
+          the two, ``markersize = sqrt(s)``, times gleplot's 1.2 visibility
+          factor, and from there to GLE's ``msize`` the same way
+          :meth:`plot` does it.
+        * ``markersize`` -- a **diameter in points**, matplotlib's ``Line2D``
+          convention and exactly what :meth:`plot` takes. Used as given, with
+          no area conversion, so a ``scatter`` and a ``plot`` asking for the
+          same ``markersize`` draw the same size of marker.
+
+        Passing neither uses ``s = 20``. **Passing both is ambiguous and
+        ``markersize`` wins** -- it is a size, not an area, so honouring it
+        needs no conversion and leaves nothing to guess.
 
         Parameters
         ----------
@@ -922,14 +943,20 @@ class Axes:
             Data coordinates
         color : str, optional
             Point color
-        s : float
-            Marker size (matplotlib convention)
+        s : float, optional
+            Marker area in points**2 (matplotlib ``scatter`` convention).
+            Default 20 when neither ``s`` nor ``markersize`` is given.
+            A per-point array is not supported: GLE's ``msize`` is a
+            per-dataset attribute, so one series draws one marker size.
         marker : str
             Marker symbol
         label : str, optional
             Legend label
         yaxis : str, optional
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        markersize : float, optional
+            Marker diameter in points (matplotlib ``Line2D``/:meth:`plot`
+            convention). Takes precedence over ``s``.
         **kwargs
             Additional arguments
 
@@ -938,11 +965,26 @@ class Axes:
         self
         """
         label = mathtext_to_gle(label)
-        # scatter() uses 's' instead of markersize
-        # matplotlib scatter s is area in points^2, typical range 10-100, default ~36
-        # Convert to markersize: since area ~ size^2, markersize ~ sqrt(s)
-        # Use factor of 1.2 for better visibility
-        markersize = np.sqrt(s) * 1.2
+
+        if markersize is None:
+            if s is None:
+                s = self.SCATTER_DEFAULT_S
+            if np.ndim(s) != 0:
+                raise ValueError(
+                    "scatter(s=...) must be a single size: GLE's msize is a "
+                    "per-dataset attribute, so every point in a series is "
+                    "drawn at one size. Plot one series per size instead."
+                )
+            # matplotlib: s is an area in points**2 and markersize a diameter
+            # in points, so markersize = sqrt(s). The 1.2 is gleplot's own
+            # visibility factor, kept so scatter sizes are unchanged.
+            markersize = np.sqrt(float(s)) * 1.2
+        elif np.ndim(markersize) != 0:
+            raise ValueError(
+                "scatter(markersize=...) must be a single size: GLE's msize "
+                "is a per-dataset attribute, so every point in a series is "
+                "drawn at one size. Plot one series per size instead."
+            )
         return self.plot(
             x,
             y,

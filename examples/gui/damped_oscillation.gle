@@ -16,7 +16,7 @@ begin graph
     xaxis min 0 max 10
     yaxis min -0.598548 max 1.05629
     data data_1.dat d1=c1,c2
-    d1 line smooth color RED lwidth 0.05292 lstyle 2 key "Model fit"
+    d1 line color RED lwidth 0.05292 lstyle 2 key "Model fit"
     data data_0.dat d2=c1,c2 d3=c1,c3
     d2 marker FCIRCLE msize 0.15 color BLUE line lwidth 0.05292 err d3 key "Measured"
     key pos tr

@@ -25,7 +25,7 @@ Created a complete configuration system with four main classes:
 - `ylabel_distance` (float) - Y-label distance (cm)
 - `legend_position` (str) - Legend position (default: 'tr')
 - `legend_offset_x`, `legend_offset_y` (float) - Legend offset (cm)
-- `smooth_curves` (bool) - Enable smooth curve fitting (default: True)
+- `smooth_curves` (bool) - Spline-smooth line series, GLE `smooth` (default: False; was True before 1.9.0)
 - `show_grid` (bool) - Show background grid (default: False)
 
 #### **GLEMarkerConfig** - Marker Appearance
@@ -138,7 +138,7 @@ fig = glp.figure()
 ### Per-Figure Configuration
 ```python
 style = glp.GLEStyleConfig(font='courier', fontsize=12)
-graph = glp.GLEGraphConfig(scale_mode='auto', smooth_curves=True)
+graph = glp.GLEGraphConfig(scale_mode='auto', smooth_curves=True)  # opt-in
 
 fig = glp.figure(style=style, graph=graph)
 ```

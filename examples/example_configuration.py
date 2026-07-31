@@ -132,7 +132,7 @@ def example_smooth_curves():
     print("Example 4: Smooth Curves Configuration")
     print("=" * 50)
     
-    # Figure with smooth curves (default)
+    # Figure with smooth curves (opt-in: a spline, not the data)
     graph_smooth = glp.GLEGraphConfig(smooth_curves=True)
     fig1 = glp.figure(figsize=(8, 4), graph=graph_smooth)
     ax1 = fig1.add_subplot(111)
@@ -149,7 +149,7 @@ def example_smooth_curves():
     fig1.savefig(Path(__file__).parent / 'output' / 'example_smooth.pdf')
     print("✓ Saved to example_smooth.pdf")
     
-    # Figure without smooth curves
+    # Figure without smooth curves (the default: a polyline through the points)
     graph_sharp = glp.GLEGraphConfig(smooth_curves=False)
     fig2 = glp.figure(figsize=(8, 4), graph=graph_sharp)
     ax2 = fig2.add_subplot(111)
