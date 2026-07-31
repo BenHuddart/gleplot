@@ -475,6 +475,10 @@ class GLEWriter:
         """
         Add line plot to graph.
 
+        Points are written to the data file, and drawn, in the order given
+        (matplotlib's behavior). The one exception is a smoothed line, which
+        GLE requires to be monotonic in x -- see :meth:`_row_order`.
+
         Parameters
         ----------
         x, y : arrays
@@ -501,18 +505,18 @@ class GLEWriter:
             ``key ""`` when unlabeled) to neutralize GLE's auto-key-from-
             header behavior -- see :meth:`_key_clause`.
         """
-        # Sort data by x values. Historically this was here because GLE's
-        # ``smooth`` requires monotonic x (GLE manual); it is applied to every
-        # line series regardless, so it also reorders un-smoothed data -- see
-        # the note in docs/guides/CONFIGURATION.md.
         x_array = np.asarray(x)
         y_array = np.asarray(y)
-        sorted_indices = np.argsort(x_array)
-        x_sorted = x_array[sorted_indices]
-        y_sorted = y_array[sorted_indices]
 
-        # Add data file with sorted data
-        self.add_data_file(data_file, [x_sorted, y_sorted], column_names)
+        # A "no line" state is signalled by a linestyle of none/empty. GLE
+        # supports markers on line datasets natively (``d1 line marker circle
+        # msize 0.2``), so a series may carry a line, a marker, or both.
+        has_line = linestyle not in ("none", "None", "", " ", None)
+
+        # Rows go out in the caller's order unless this series is genuinely
+        # smoothed -- see :meth:`_row_order`.
+        order = self._row_order(x_array, has_line)
+        self.add_data_file(data_file, [x_array[order], y_array[order]], column_names)
 
         # Generate plot command with unique dataset name
         d_name = f"d{self.dataset_index}"
@@ -534,11 +538,6 @@ class GLEWriter:
             gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
         else:
             gle_lwidth = linewidth_pt_to_cm(linewidth)
-
-        # A "no line" state is signalled by a linestyle of none/empty. GLE
-        # supports markers on line datasets natively (``d1 line marker circle
-        # msize 0.2``), so a series may carry a line, a marker, or both.
-        has_line = linestyle not in ("none", "None", "", " ", None)
 
         if has_line:
             # Line plot; ``smooth`` only when opted in (see _line_token).
@@ -658,6 +657,10 @@ class GLEWriter:
 
         Generates GLE error bar syntax using datasets for error values.
 
+        Points are written to the data file, and drawn, in the order given
+        (matplotlib's behavior). The one exception is a smoothed line, which
+        GLE requires to be monotonic in x -- see :meth:`_row_order`.
+
         GLE error bar syntax reference (from GLE manual):
         - ``dn err <value|percent|dataset>`` — symmetric vertical errors
         - ``dn errup <value|percent|dataset>`` — upper vertical error
@@ -707,15 +710,19 @@ class GLEWriter:
             they never draw an auto-key regardless of any header-derived
             name on their column (verified empirically).
         """
-        # Sort data by x values
         x_array = np.asarray(x)
         y_array = np.asarray(y)
-        sorted_indices = np.argsort(x_array)
-        x_sorted = x_array[sorted_indices]
-        y_sorted = y_array[sorted_indices]
+
+        has_line = linestyle not in ("", "none", " ", "None")
+
+        # Rows go out in the caller's order unless this series is genuinely
+        # smoothed -- see :meth:`_row_order`. Every column below (centres and
+        # error magnitudes alike) is indexed by the same ``order`` so a row
+        # stays one point.
+        order = self._row_order(x_array, has_line)
 
         # Build columns list: x, y, then error columns
-        columns = [x_sorted, y_sorted]
+        columns = [x_array[order], y_array[order]]
         col_idx = 3  # Next column index (c1=x, c2=y, c3=...)
 
         # Track which columns hold error data
@@ -745,33 +752,33 @@ class GLEWriter:
         if has_yerr:
             if yerr_symmetric:
                 # Single column for symmetric error
-                columns.append(np.asarray(yerr_up)[sorted_indices])
+                columns.append(np.asarray(yerr_up)[order])
                 yerr_up_col = col_idx
                 yerr_down_col = col_idx  # Same column
                 col_idx += 1
             else:
                 if yerr_up is not None:
-                    columns.append(np.asarray(yerr_up)[sorted_indices])
+                    columns.append(np.asarray(yerr_up)[order])
                     yerr_up_col = col_idx
                     col_idx += 1
                 if yerr_down is not None:
-                    columns.append(np.asarray(yerr_down)[sorted_indices])
+                    columns.append(np.asarray(yerr_down)[order])
                     yerr_down_col = col_idx
                     col_idx += 1
 
         if has_xerr:
             if xerr_symmetric:
-                columns.append(np.asarray(xerr_left)[sorted_indices])
+                columns.append(np.asarray(xerr_left)[order])
                 xerr_left_col = col_idx
                 xerr_right_col = col_idx
                 col_idx += 1
             else:
                 if xerr_left is not None:
-                    columns.append(np.asarray(xerr_left)[sorted_indices])
+                    columns.append(np.asarray(xerr_left)[order])
                     xerr_left_col = col_idx
                     col_idx += 1
                 if xerr_right is not None:
-                    columns.append(np.asarray(xerr_right)[sorted_indices])
+                    columns.append(np.asarray(xerr_right)[order])
                     xerr_right_col = col_idx
                     col_idx += 1
 
@@ -1389,6 +1396,31 @@ class GLEWriter:
             f'format "{fmt}"'
         )
 
+    def _row_order(self, x_array: np.ndarray, has_line: bool) -> np.ndarray:
+        """Return the order in which a series' points are written to its .dat.
+
+        The caller's order, always -- except for the one case that cannot use
+        it. GLE's ``smooth`` fits a piecewise cubic *as a function of x* and
+        needs the points in ascending x; handed a non-monotonic dataset it
+        draws a tangle. So the rows are sorted by x when, and only when, this
+        series will actually carry the ``smooth`` qualifier: it draws a line
+        and ``smooth_curves`` is on (see :meth:`_line_token`).
+
+        Everywhere else -- which, since smoothing became opt-in, is the great
+        majority of series -- the caller's point order is both the drawing
+        order and the .dat file's row order, as in matplotlib. It has to be:
+        a series whose x is non-monotonic by design (a hysteresis loop, a
+        parametric or closed curve, a time-ordered trace that doubles back)
+        is a different figure once sorted, and the data file on disk would no
+        longer be the data that was passed in.
+
+        The sort is stable, so points sharing an x value keep their input
+        order rather than being permuted by an unstable quicksort.
+        """
+        if has_line and self.graph.smooth_curves:
+            return np.argsort(x_array, kind="stable")
+        return np.arange(len(x_array))
+
     def _line_token(self) -> str:
         """Return the ``line`` token for a dataset display command.
 
@@ -1410,6 +1442,10 @@ class GLEWriter:
         - ``add_contour_line`` -- the ``-cdata.dat`` polylines come out of
           GLE's own contouring of the gridded surface; splining them would
           move the level away from the surface it was computed from.
+
+        Smoothing also constrains point order (it needs monotonic x); that
+        consequence is handled in :meth:`_row_order`, the only place a series
+        is ever reordered.
         """
         return " line smooth" if self.graph.smooth_curves else " line"
 
