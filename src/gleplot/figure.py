@@ -4,7 +4,7 @@ import numpy as np
 import warnings
 from pathlib import Path
 from typing import Tuple, Optional, Literal, Sequence, List
-from .axes import Axes, _validate_data_prefix, _sanitize_data_stem
+from .axes import Axes, _validate_data_prefix, _sanitize_data_stem, sorted_zorder_drawables
 from .brokenaxes import BrokenAxes
 from .writer import GLEWriter
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
@@ -1403,71 +1403,65 @@ class Figure:
                 column_names=ref_data.get("column_names"),
             )
 
-        # Add bar charts
-        for bar_data in ax.bars:
-            writer.add_bar_chart(
-                bar_data["x"],
-                bar_data["height"],
-                bar_data["data_file"],
-                bar_data["colors"],
-                bar_data["label"],
-                column_names=bar_data.get("column_names"),
-            )
-
-        # Add line plots
-        for line_data in ax.lines:
-            writer.add_plot_line(
-                line_data["x"],
-                line_data["y"],
-                line_data["data_file"],
-                color=line_data["color"],
-                linestyle=line_data["linestyle"],
-                linewidth=line_data["linewidth"],
-                label=line_data["label"],
-                marker=line_data.get("marker"),
-                markersize=line_data.get("markersize", 0.1),
-                yaxis=line_data.get("yaxis", "y"),
-                offset=line_data.get("offset", 0.0),
-                column_names=line_data.get("column_names"),
-            )
-
-        # Add scatter plots
-        for scatter_data in ax.scatters:
-            writer.add_plot_line(
-                scatter_data["x"],
-                scatter_data["y"],
-                scatter_data["data_file"],
-                color=scatter_data["color"],
-                linestyle=scatter_data.get("linestyle", "none"),
-                marker=scatter_data["marker"],
-                markersize=scatter_data["markersize"],
-                label=scatter_data["label"],
-                yaxis=scatter_data.get("yaxis", "y"),
-                offset=scatter_data.get("offset", 0.0),
-                column_names=scatter_data.get("column_names"),
-            )
-
-        # Add errorbar plots
-        for eb_data in ax.errorbars:
-            writer.add_errorbar(
-                eb_data["x"],
-                eb_data["y"],
-                eb_data["data_file"],
-                color=eb_data["color"],
-                linestyle=eb_data["linestyle"],
-                linewidth=eb_data["linewidth"],
-                label=eb_data["label"],
-                marker=eb_data["marker"],
-                markersize=eb_data["markersize"],
-                yerr_up=eb_data["yerr_up"],
-                yerr_down=eb_data["yerr_down"],
-                xerr_left=eb_data["xerr_left"],
-                xerr_right=eb_data["xerr_right"],
-                capsize=eb_data.get("gle_capsize", eb_data.get("capsize")),
-                yaxis=eb_data.get("yaxis", "y"),
-                offset=eb_data.get("offset", 0.0),
-                column_names=eb_data.get("column_names"),
-            )
+        for kind, series_data in sorted_zorder_drawables(ax):
+            if kind == "bar":
+                writer.add_bar_chart(
+                    series_data["x"],
+                    series_data["height"],
+                    series_data["data_file"],
+                    series_data["colors"],
+                    series_data["label"],
+                    column_names=series_data.get("column_names"),
+                )
+            elif kind == "line":
+                writer.add_plot_line(
+                    series_data["x"],
+                    series_data["y"],
+                    series_data["data_file"],
+                    color=series_data["color"],
+                    linestyle=series_data["linestyle"],
+                    linewidth=series_data["linewidth"],
+                    label=series_data["label"],
+                    marker=series_data.get("marker"),
+                    markersize=series_data.get("markersize", 0.1),
+                    yaxis=series_data.get("yaxis", "y"),
+                    offset=series_data.get("offset", 0.0),
+                    column_names=series_data.get("column_names"),
+                )
+            elif kind == "scatter":
+                writer.add_plot_line(
+                    series_data["x"],
+                    series_data["y"],
+                    series_data["data_file"],
+                    color=series_data["color"],
+                    linestyle=series_data.get("linestyle", "none"),
+                    marker=series_data["marker"],
+                    markersize=series_data["markersize"],
+                    label=series_data["label"],
+                    yaxis=series_data.get("yaxis", "y"),
+                    offset=series_data.get("offset", 0.0),
+                    column_names=series_data.get("column_names"),
+                )
+            else:
+                writer.add_errorbar(
+                    series_data["x"],
+                    series_data["y"],
+                    series_data["data_file"],
+                    color=series_data["color"],
+                    linestyle=series_data["linestyle"],
+                    linewidth=series_data["linewidth"],
+                    label=series_data["label"],
+                    marker=series_data["marker"],
+                    markersize=series_data["markersize"],
+                    yerr_up=series_data["yerr_up"],
+                    yerr_down=series_data["yerr_down"],
+                    xerr_left=series_data["xerr_left"],
+                    xerr_right=series_data["xerr_right"],
+                    capsize=series_data.get("gle_capsize", series_data.get("capsize")),
+                    yaxis=series_data.get("yaxis", "y"),
+                    offset=series_data.get("offset", 0.0),
+                    column_names=series_data.get("column_names"),
+                )
 
         # Add external-file series (no generated data files).
         for fs_data in ax.file_series:

@@ -181,9 +181,10 @@ class SeriesPanel(QWidget):
     -----
     Ordering limitation: Up/Down only reorders within the series' own kind
     list (e.g. moving a line only changes its position among ``ax.lines``).
-    The relative draw order *between* kinds (lines, then scatters, then
-    bars, ...) is fixed by ``Axes._SERIES_ATTRS`` / the GLEWriter emission
-    order and cannot be changed from this panel.
+    Cross-kind stacking is controlled by each series' optional ``zorder`` key
+    (set via ``plot``/``scatter``/``errorbar`` in scripts); when every series
+    uses the default layers, emission order matches the historical fixed
+    between-kind stack documented in the user guides.
 
     Broken ``file_series`` entries (a ``data`` reference whose file was
     missing/unreadable when the ``.gle`` was parsed -- see
