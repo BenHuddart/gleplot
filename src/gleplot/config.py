@@ -86,8 +86,10 @@ class GLEGraphConfig:
         Legend y-offset from position (cm). Default: 0.0
 
     smooth_curves : bool
-        Enable smooth curve fitting on line plots (GLE smooth keyword).
-        Default: True
+        Draw line series as a fitted spline through the points (GLE's
+        ``smooth`` keyword) instead of as a polyline joining them.
+        **Opt-in**: a smoothed curve is an interpolation, not the data, so
+        it must never be applied without being asked for. Default: False
 
     show_grid : bool
         Show background grid. Default: False
@@ -109,7 +111,7 @@ class GLEGraphConfig:
     legend_position: str = "tr"
     legend_offset_x: float = 0.0
     legend_offset_y: float = 0.0
-    smooth_curves: bool = True
+    smooth_curves: bool = False
     show_grid: bool = False
     default_cmap: str = "viridis"
     colormap_pixels: int = 200

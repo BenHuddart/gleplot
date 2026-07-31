@@ -501,8 +501,10 @@ class GLEWriter:
             ``key ""`` when unlabeled) to neutralize GLE's auto-key-from-
             header behavior -- see :meth:`_key_clause`.
         """
-        # Sort data by x values (required for GLE smooth lines)
-        # Reference: GLE manual - smooth requires sorted x values
+        # Sort data by x values. Historically this was here because GLE's
+        # ``smooth`` requires monotonic x (GLE manual); it is applied to every
+        # line series regardless, so it also reorders un-smoothed data -- see
+        # the note in docs/guides/CONFIGURATION.md.
         x_array = np.asarray(x)
         y_array = np.asarray(y)
         sorted_indices = np.argsort(x_array)
@@ -539,11 +541,8 @@ class GLEWriter:
         has_line = linestyle not in ("none", "None", "", " ", None)
 
         if has_line:
-            # Line plot with optional smooth curves (configured via graph.smooth_curves)
-            if self.graph.smooth_curves:
-                line_cmd += " line smooth"
-            else:
-                line_cmd += " line"
+            # Line plot; ``smooth`` only when opted in (see _line_token).
+            line_cmd += self._line_token()
             line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
 
             # Use configured line styles from style config
@@ -855,7 +854,9 @@ class GLEWriter:
             color_emitted = True
             # Also add line if linestyle is not 'none'
             if has_line:
-                line_cmd += f" line lwidth {self._format_number(gle_lwidth)}"
+                line_cmd += (
+                    f"{self._line_token()} lwidth {self._format_number(gle_lwidth)}"
+                )
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
                 elif linestyle == ":":
@@ -864,10 +865,7 @@ class GLEWriter:
                     line_cmd += f" lstyle {self.style.line_style_dashdot}"
         else:
             if has_line:
-                if self.graph.smooth_curves:
-                    line_cmd += " line smooth"
-                else:
-                    line_cmd += " line"
+                line_cmd += self._line_token()
                 line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
                 color_emitted = True
                 if linestyle == "--":
@@ -993,7 +991,8 @@ class GLEWriter:
             gle_lwidth = linewidth_pt_to_cm(linewidth)
 
         line_cmd = (
-            f"    {d_main} line color {color} lwidth {self._format_number(gle_lwidth)}"
+            f"    {d_main}{self._line_token()} color {color} "
+            f"lwidth {self._format_number(gle_lwidth)}"
         )
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
@@ -1389,6 +1388,30 @@ class GLEWriter:
             f"gleplot_contour_labels file {_quote_filename(clabels_file)} "
             f'format "{fmt}"'
         )
+
+    def _line_token(self) -> str:
+        """Return the ``line`` token for a dataset display command.
+
+        Every line-drawing path in this writer goes through here, so the
+        ``smooth`` qualifier is decided in exactly one place.
+
+        GLE's ``smooth`` replaces the polyline through the data with a fitted
+        piecewise-cubic spline: the drawn curve then passes near, not through,
+        the points, and it invents structure between them (overshoot on steep
+        steps, ringing around noise). That is an interpolation of the data,
+        not the data, so it is **off unless asked for** -- set
+        ``GLEGraphConfig(smooth_curves=True)`` on a figure, or
+        ``GlobalConfig.graph.smooth_curves = True`` globally, to opt in.
+
+        Paths that deliberately never smooth, whatever the setting:
+
+        - ``add_fill_between`` -- GLE's ``fill dA,dB`` command takes no
+          ``smooth`` qualifier, so a band edge is always a polyline.
+        - ``add_contour_line`` -- the ``-cdata.dat`` polylines come out of
+          GLE's own contouring of the gridded surface; splining them would
+          move the level away from the surface it was computed from.
+        """
+        return " line smooth" if self.graph.smooth_curves else " line"
 
     @staticmethod
     def _format_number(val: float, precision: int = 6) -> str:
