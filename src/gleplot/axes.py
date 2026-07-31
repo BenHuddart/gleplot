@@ -3,7 +3,7 @@
 import numpy as np
 import re
 import warnings
-from typing import Optional, List, Union, Tuple
+from typing import Optional, List, Union, Tuple, Dict
 from .colors import rgb_to_gle
 from .config import GlobalConfig
 from .markers import get_gle_marker, resolve_marker_fill
@@ -42,6 +42,20 @@ MATPLOTLIB_TO_GLE_LEGEND_LOC = {
 #: matplotlib's relative font-size names as multipliers of the base font size
 #: (matplotlib ``font_manager.font_scalings``). Used to resolve
 #: ``legend(fontsize='small')`` against the figure style's fontsize.
+
+#: Default ``zorder`` for drawable series kinds when the caller omits ``zorder``.
+#: Matches the pre-zorder GLE emission stack: bars, then lines, scatters,
+#: errorbars (later ``dN`` commands draw on top in GLE).
+SERIES_ZORDER_DEFAULT: Dict[str, float] = {
+    "bar": 2.0,
+    "line": 3.0,
+    "scatter": 4.0,
+    "errorbar": 5.0,
+}
+
+#: Stable kind rank for legacy series dicts missing ``_draw_seq``.
+_SERIES_KIND_RANK = {"bar": 0, "line": 1, "scatter": 2, "errorbar": 3}
+
 MATPLOTLIB_RELATIVE_FONTSIZES = {
     "xx-small": 0.579,
     "x-small": 0.694,
@@ -666,6 +680,17 @@ class Axes:
         # source line, no trailing newline. Default: empty (nothing to emit).
         self.passthrough: list = []
 
+        # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
+        self._draw_seq_counter = 0
+
+    def _register_series_draw_meta(
+        self, entry: dict, kind: str, zorder: Optional[float] = None
+    ) -> None:
+        entry["_draw_seq"] = self._draw_seq_counter
+        self._draw_seq_counter += 1
+        if zorder is not None:
+            entry["zorder"] = float(zorder)
+
     def plot(
         self,
         x,
@@ -680,6 +705,7 @@ class Axes:
         offset: float = 0.0,
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
+        zorder: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -709,6 +735,10 @@ class Axes:
             ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
             gives an outline marker with an opaque white interior. Also
             accepted as the matplotlib alias ``mfc``.
+        zorder : float, optional
+            Draw order relative to other data series on the same axes.
+            Higher values are drawn on top. When omitted, lines and scatters
+            keep gleplot's default layer (lines below scatters and error bars).
         **kwargs
             Additional matplotlib-compatible arguments
 
@@ -718,6 +748,8 @@ class Axes:
             Line object (for compatibility)
         """
         data_name = kwargs.pop("data_name", None)
+        if zorder is None and "zorder" in kwargs:
+            zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
 
@@ -764,8 +796,10 @@ class Axes:
         }
 
         if is_scatter:
+            self._register_series_draw_meta(line_data, "scatter", zorder)
             self.scatters.append(line_data)
         else:
+            self._register_series_draw_meta(line_data, "line", zorder)
             self.lines.append(line_data)
 
         return self  # Return self for method chaining
@@ -788,6 +822,7 @@ class Axes:
         offset: float = 0.0,
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
+        zorder: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -831,6 +866,10 @@ class Axes:
             ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
             gives an outline marker with an opaque white interior. Also
             accepted as the matplotlib alias ``mfc``.
+        zorder : float, optional
+            Draw order relative to other data series on the same axes.
+            Higher values are drawn on top. When omitted, error bars sit
+            above lines and scatters (the historical gleplot default).
         **kwargs
             Additional arguments
 
@@ -852,6 +891,8 @@ class Axes:
 
         >>> ax.errorbar(x, y, yerr=0.5, xerr=0.3)
         """
+        if zorder is None and "zorder" in kwargs:
+            zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
         x = np.asarray(x, dtype=float)
@@ -979,6 +1020,7 @@ class Axes:
                 label, yerr_up, yerr_down, xerr_left, xerr_right
             ),
         }
+        self._register_series_draw_meta(errbar_data, "errorbar", zorder)
         self.errorbars.append(errbar_data)
 
         return self
@@ -1098,6 +1140,7 @@ class Axes:
         markersize: Optional[float] = None,
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
+        zorder: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -1146,6 +1189,9 @@ class Axes:
             ``'none'`` is equivalent to ``fillstyle='none'``; ``'white'``
             gives outline markers with an opaque white interior. Also
             accepted as the matplotlib alias ``mfc``.
+        zorder : float, optional
+            Draw order relative to other data series on the same axes.
+            Higher values are drawn on top.
         **kwargs
             Additional arguments
 
@@ -1185,6 +1231,7 @@ class Axes:
             yaxis=yaxis,
             fillstyle=fillstyle,
             markerfacecolor=markerfacecolor,
+            zorder=zorder,
             **kwargs,
         )
 
@@ -1194,6 +1241,7 @@ class Axes:
         height,
         color: Optional[Union[str, List[str]]] = None,
         label: Optional[str] = None,
+        zorder: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -1230,6 +1278,8 @@ class Axes:
         >>> fig.savefig('bar_chart.pdf')
         """
         data_name = kwargs.pop("data_name", None)
+        if zorder is None and "zorder" in kwargs:
+            zorder = kwargs.pop("zorder")
         label = mathtext_to_gle(label)
 
         x = np.asarray(x, dtype=float)
@@ -1252,6 +1302,7 @@ class Axes:
             "data_file": _resolve_data_file(self.figure, data_name),
             "column_names": _build_column_names("x", ["height"], label),
         }
+        self._register_series_draw_meta(bar_data, "bar", zorder)
         self.bars.append(bar_data)
 
         return self
@@ -2656,4 +2707,31 @@ class Axes:
 
         ax.passthrough = list(d.get("passthrough", []))
 
+        max_seq = -1
+        for attr in ("bars", "lines", "scatters", "errorbars"):
+            for item in getattr(ax, attr):
+                seq = item.get("_draw_seq")
+                if seq is not None:
+                    max_seq = max(max_seq, int(seq))
+        ax._draw_seq_counter = max_seq + 1 if max_seq >= 0 else 0
+
         return ax
+
+
+def sorted_zorder_drawables(ax: "Axes") -> List[Tuple[str, dict]]:
+    """Bars, lines, scatters, and errorbars sorted by ``(zorder, call order)``."""
+    items: List[Tuple[float, float, str, dict]] = []
+    for kind, series_list in (
+        ("bar", ax.bars),
+        ("line", ax.lines),
+        ("scatter", ax.scatters),
+        ("errorbar", ax.errorbars),
+    ):
+        for idx, data in enumerate(series_list):
+            z = float(data["zorder"]) if "zorder" in data else SERIES_ZORDER_DEFAULT[kind]
+            draw_seq = data.get("_draw_seq")
+            if draw_seq is None:
+                draw_seq = _SERIES_KIND_RANK[kind] * 1_000_000 + idx
+            items.append((z, float(draw_seq), kind, data))
+    items.sort(key=lambda t: (t[0], t[1]))
+    return [(kind, data) for _z, _seq, kind, data in items]

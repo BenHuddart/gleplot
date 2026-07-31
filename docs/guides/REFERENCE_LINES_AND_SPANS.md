@@ -70,7 +70,10 @@ Three consequences:
    a fraction and never feeds back into the y autoscale.
 3. **Guides are drawn underneath the data.** Spans go out with the
    `fill_between` layer, reference lines immediately after, and all data
-   series after that.
+   series after that. Use the matplotlib-compatible ``zorder`` argument on
+   ``plot``, ``scatter``, and ``errorbar`` when you need a fit line or curve
+   drawn above markers (the default keeps markers and error bars on top of
+   plain lines).
 
 Generating a figure twice does not duplicate anything: materialization
 returns a fresh list and never writes back onto the axes. The `.dat` sidecar

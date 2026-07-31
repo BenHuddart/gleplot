@@ -354,7 +354,12 @@ def test_global_data_counter_takes_max_with_in_process_value(monkeypatch):
 # back-reference to the BrokenAxes that owns it, rebound by Figure.from_dict
 # once every axes exists (the grouping itself IS persisted, as
 # figure["broken_axes"], by index into figure["axes"]).
-_AXES_RUNTIME_ONLY_ATTRS = {"figure", "_break_owner"}
+_AXES_RUNTIME_ONLY_ATTRS = {
+    "figure",
+    "_break_owner",
+    # Rebuilt in from_dict from the max ``_draw_seq`` on loaded series.
+    "_draw_seq_counter",
+}
 
 # Axes attributes that ARE serialized, mapped to the to_dict()/from_dict()
 # keys that cover them (some are stored under a different dict key name,

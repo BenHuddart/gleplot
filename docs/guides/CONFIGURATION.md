@@ -150,6 +150,26 @@ your file's rows and write nothing).
 > figure depended on the old ordering, sort before plotting:
 > `order = np.argsort(x); ax.plot(x[order], y[order])`.
 
+#### Draw order (`zorder`)
+
+By default gleplot emits data series in a fixed layer stack (fills and guide
+bands at the back, reference lines next, then bars, lines, scatters, and
+error bars, with file-based series last). That stack matches the historical
+behaviour: markers and error bars stay on top of plain fit lines unless you
+say otherwise.
+
+Pass matplotlib's ``zorder`` on ``plot``, ``scatter``, or ``errorbar`` to
+raise or lower a series relative to the others on the same axes. Higher
+``zorder`` is drawn on top in the compiled figure. When two series share the
+same ``zorder``, call order breaks the tie.
+
+    ax.errorbar(t, y, yerr=e, fmt='o', zorder=1, label='data')
+    ax.plot(t, y_fit, '--', zorder=2, label='fit')  # dashed fit above markers
+
+Guide calls (`axvline`, `axhspan`, …) keep their fixed under-data layer in
+this release; use ``zorder`` on the data series when you need fits above
+points.
+
 ### Scale Modes
 
 - **`'auto'` (default)** - Automatically sizes and centers axes within the graph box

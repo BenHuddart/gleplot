@@ -333,6 +333,33 @@ def test_complex_combined():
         print("   ✓ Saved GLE")
 
 
+def test_zorder_fit_above_markers():
+    """Dense markers with a dashed fit line drawn on top (``zorder``)."""
+    print("12. zorder fit above markers...")
+    fig = glp.figure(figsize=(6, 4.5))
+    ax = fig.add_subplot(111)
+
+    rng = np.random.default_rng(0)
+    t = np.linspace(0, 5, 80)
+    y = np.exp(-0.3 * t) + rng.normal(0, 0.04, size=t.size)
+    y_fit = np.exp(-0.3 * t)
+
+    ax.errorbar(t, y, yerr=0.05, fmt="o", markersize=4, zorder=1, label="data")
+    ax.plot(t, y_fit, color="crimson", linestyle="--", linewidth=2, zorder=2, label="fit")
+
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Signal")
+    ax.set_title("Fit line above markers (zorder=2)")
+    ax.legend()
+
+    fig.savefig(str(output_dir / "test_12_zorder_fit_above_markers.gle"))
+    try:
+        fig.savefig(str(output_dir / "test_12_zorder_fit_above_markers.pdf"))
+        print("   ✓ Saved GLE and PDF")
+    except Exception:
+        print("   ✓ Saved GLE")
+
+
 def main():
     """Run all test graphics generation."""
     tests = [
@@ -347,6 +374,7 @@ def main():
         test_shared_y_axis,
         test_shared_both_axes,
         test_complex_combined,
+        test_zorder_fit_above_markers,
     ]
     
     for test_func in tests:
