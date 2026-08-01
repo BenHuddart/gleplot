@@ -1382,8 +1382,12 @@ class GLEWriter:
             ``nobox``.
         offset : tuple of (float, float), optional
             Displacement of the key from its anchor, in cm, emitted as GLE's
-            ``offset dx dy``. GLE's convention: positive dx moves right,
-            positive dy moves down from the anchor. ``None`` omits the token.
+            ``offset dx dy``. GLE displaces the key INWARD from the anchored
+            corner (verified against GLE 4.3.10 by compiled pixel-diff): for a
+            right-anchored key positive dx moves LEFT, for a top-anchored key
+            positive dy moves DOWN. Negative values push the key outside the
+            graph and can move it off-canvas entirely. ``None`` omits the
+            token.
 
         Notes
         -----

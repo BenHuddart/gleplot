@@ -2382,7 +2382,9 @@ class Axes:
         if "offset" in kwargs:
             # gleplot extension (not a matplotlib kwarg): displace the key
             # from its anchor by (dx, dy) IN CM, GLE's ``key ... offset``.
-            # Positive dy moves DOWN from the anchor, following GLE.
+            # GLE displaces INWARD from the anchored corner: for pos tr,
+            # positive dx moves LEFT and positive dy moves DOWN (verified by
+            # compiled pixel-diff; negative values can leave the canvas).
             offset = kwargs.pop("offset")
             if offset is None:
                 self.legend_offset = None
