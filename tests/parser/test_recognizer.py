@@ -58,6 +58,12 @@ def normalize(d: dict) -> dict:
       * data_prefix / counters: dropped (not always recoverable).
       * global_data_counter: dropped.
       * axis limits: rounded to the emitted 6-sig-fig form.
+      * _draw_seq: dropped. The writer emits all line series before all
+        marker series (ASYMMETRY docs / writer emission order), so the
+        caller's interleave across kinds is not representable in the .gle;
+        the recognizer stamps encounter order (= what GLE actually draws),
+        which legitimately differs from the built figure's call order
+        whenever lines and markers interleave.
     """
     import copy
 
@@ -70,6 +76,17 @@ def normalize(d: dict) -> dict:
     from gleplot.writer import GLEWriter
 
     d = copy.deepcopy(d)
+
+    def _drop_draw_seq(node):
+        if isinstance(node, dict):
+            node.pop("_draw_seq", None)
+            for v in node.values():
+                _drop_draw_seq(v)
+        elif isinstance(node, list):
+            for v in node:
+                _drop_draw_seq(v)
+
+    _drop_draw_seq(d)
     fig = d["figure"]
 
     # figsize is recovered as float (cm->inches) even if the source used int

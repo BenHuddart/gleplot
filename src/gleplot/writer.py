@@ -1362,6 +1362,7 @@ class GLEWriter:
         position: Optional[str] = None,
         fontsize: Optional[float] = None,
         frameon: bool = True,
+        offset: Optional[tuple] = None,
     ):
         """Add legend configuration.
 
@@ -1379,6 +1380,10 @@ class GLEWriter:
         frameon : bool
             Draw the box around the key (GLE's default). ``False`` appends
             ``nobox``.
+        offset : tuple of (float, float), optional
+            Displacement of the key from its anchor, in cm, emitted as GLE's
+            ``offset dx dy``. GLE's convention: positive dx moves right,
+            positive dy moves down from the anchor. ``None`` omits the token.
 
         Notes
         -----
@@ -1392,6 +1397,9 @@ class GLEWriter:
         # Try long form, else use as-is (short form)
         gle_pos = KEY_POSITIONS_LONG_TO_SHORT.get(pos, pos)
         cmd = f"    key pos {gle_pos}"
+        if offset is not None:
+            dx, dy = offset
+            cmd += f" offset {self._format_number(float(dx))} {self._format_number(float(dy))}"
         if fontsize is not None:
             cmd += f" hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
         if not frameon:

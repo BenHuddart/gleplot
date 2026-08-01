@@ -616,6 +616,7 @@ class Axes:
         # the legend box (matplotlib ``frameon``; False emits ``key nobox``).
         self.legend_fontsize = None
         self.legend_frameon = True
+        self.legend_offset = None  # (dx_cm, dy_cm) or None
 
         # Shared axes visibility control
         self._show_xlabel = True
@@ -2378,6 +2379,23 @@ class Axes:
             frameon = kwargs.pop("frameon")
             self.legend_frameon = True if frameon is None else bool(frameon)
 
+        if "offset" in kwargs:
+            # gleplot extension (not a matplotlib kwarg): displace the key
+            # from its anchor by (dx, dy) IN CM, GLE's ``key ... offset``.
+            # Positive dy moves DOWN from the anchor, following GLE.
+            offset = kwargs.pop("offset")
+            if offset is None:
+                self.legend_offset = None
+            else:
+                try:
+                    dx, dy = (float(offset[0]), float(offset[1]))
+                except (TypeError, ValueError, IndexError):
+                    raise ValueError(
+                        "legend(offset=...) expects a (dx_cm, dy_cm) pair of "
+                        f"numbers, got {offset!r}"
+                    ) from None
+                self.legend_offset = (dx, dy)
+
         for name in ("ncol", "ncols"):
             if name in kwargs:
                 ncol = kwargs.pop(name)
@@ -2395,7 +2413,7 @@ class Axes:
             warnings.warn(
                 f"legend({name}=...) is not supported and was ignored: GLE's "
                 "key command understands only position, text height "
-                "(fontsize), and the box (frameon).",
+                "(fontsize), the box (frameon), and offset.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -2585,6 +2603,7 @@ class Axes:
             "legend_pos": self.legend_pos,
             "legend_fontsize": _to_jsonable(self.legend_fontsize),
             "legend_frameon": self.legend_frameon,
+            "legend_offset": _to_jsonable(self.legend_offset),
             "show_xlabel": self._show_xlabel,
             "show_ylabel": self._show_ylabel,
             "show_xticks": self._show_xticks,
@@ -2661,6 +2680,8 @@ class Axes:
         # draw the box, which is exactly what those figures rendered as.
         ax.legend_fontsize = d.get("legend_fontsize")
         ax.legend_frameon = d.get("legend_frameon", True)
+        _offset = d.get("legend_offset")
+        ax.legend_offset = None if _offset is None else (float(_offset[0]), float(_offset[1]))
 
         ax._show_xlabel = d.get("show_xlabel", True)
         ax._show_ylabel = d.get("show_ylabel", True)

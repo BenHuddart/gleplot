@@ -1521,6 +1521,7 @@ class Figure:
                 ax.legend_pos,
                 fontsize=getattr(ax, "legend_fontsize", None),
                 frameon=getattr(ax, "legend_frameon", True),
+                offset=getattr(ax, "legend_offset", None),
             )
         elif labels_present:
             # GLE draws an implicit key from per-dataset key "label" tokens;

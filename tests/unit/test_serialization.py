@@ -383,6 +383,7 @@ _AXES_SERIALIZED_ATTRS = {
     "legend_pos",
     "legend_fontsize",
     "legend_frameon",
+    "legend_offset",
     "_show_xlabel",
     "_show_ylabel",
     "_show_xticks",

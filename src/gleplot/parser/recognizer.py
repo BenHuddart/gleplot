@@ -767,6 +767,8 @@ class _Recognizer:
             "key_off": False,
             "key_hei": None,  # 'hei' in cm, or None (= inherit 'set hei')
             "key_nobox": False,
+            "key_offset": None,  # (dx_cm, dy_cm) or None
+            "_draw_seq_counter": 0,  # display-command order = GLE draw order
             "lines": [],
             "scatters": [],
             "bars": [],
@@ -1424,6 +1426,8 @@ class _Recognizer:
         column_names = self._recovered_column_names(data_file, [xcol, ycol])
         if column_names is not None:
             entry["column_names"] = column_names
+        entry["_draw_seq"] = info["_draw_seq_counter"]
+        info["_draw_seq_counter"] += 1
         info["bars"].append(entry)
 
     def _parse_fill_command(self, toks, datasets, info):
@@ -1493,14 +1497,15 @@ class _Recognizer:
         if rest == ["off"]:
             info["key_off"] = True
             return
-        # The modelled option set, in any order: 'pos P', 'hei H', 'nobox'
-        # -- exactly what GLEWriter.add_legend emits. Parse into a scratch
+        # The modelled option set, in any order: 'pos P', 'hei H', 'nobox',
+        # 'offset X Y' -- exactly what GLEWriter.add_legend emits. Parse into a scratch
         # dict first so a later unmodelled token leaves ``info`` untouched.
         parsed = self._scan_key_options(rest)
         if parsed is not None:
             info["key_pos"] = parsed.get("pos", info["key_pos"])
             info["key_hei"] = parsed.get("hei", info["key_hei"])
             info["key_nobox"] = parsed.get("nobox", info["key_nobox"])
+            info["key_offset"] = parsed.get("offset", info["key_offset"])
             return
         # Any richer form ('key pos tr offset 0.2 0.2 compact ...') carries
         # options we cannot model; a cumulative re-emit would produce a
@@ -1540,6 +1545,12 @@ class _Recognizer:
                 except ValueError:
                     return None  # an expression, not a literal height
                 i += 2
+            elif word == "offset" and i + 2 < len(rest) + 1 and i + 2 <= len(rest):
+                try:
+                    out["offset"] = (float(rest[i + 1]), float(rest[i + 2]))
+                except (ValueError, IndexError):
+                    return None  # expressions, not literal displacements
+                i += 3
             else:
                 return None
         return out or None
@@ -1639,8 +1650,12 @@ class _Recognizer:
         if column_names is not None:
             entry["column_names"] = column_names
         if has_marker and not has_line:
+            entry["_draw_seq"] = info["_draw_seq_counter"]
+            info["_draw_seq_counter"] += 1
             info["scatters"].append(entry)
         else:
+            entry["_draw_seq"] = info["_draw_seq_counter"]
+            info["_draw_seq_counter"] += 1
             info["lines"].append(entry)
             smooth_flags.append(attrs["smooth"])
 
@@ -1963,6 +1978,8 @@ class _Recognizer:
             column_names = self._recovered_column_names(data_file, cols)
             if column_names is not None:
                 entry["column_names"] = column_names
+        entry["_draw_seq"] = info["_draw_seq_counter"]
+        info["_draw_seq_counter"] += 1
         info["errorbars"].append(entry)
 
     def _passthrough_original_dn(self, info, orig_toks):
@@ -2023,6 +2040,8 @@ class _Recognizer:
             }
         if error is not None:
             entry["data_error"] = error
+        entry["_draw_seq"] = info["_draw_seq_counter"]
+        info["_draw_seq_counter"] += 1
         info["file_series"].append(entry)
 
     # -- data loading ----------------------------------------------------
@@ -3162,6 +3181,7 @@ class _Recognizer:
             if info["key_hei"] is not None:
                 ax.legend_fontsize = fontsize_cm_to_pt(info["key_hei"])
             ax.legend_frameon = not info["key_nobox"]
+            ax.legend_offset = info["key_offset"]
         else:
             if labels_present:
                 # Hand-written implicit key: GLE draws a key from the per-series

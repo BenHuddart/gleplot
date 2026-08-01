@@ -319,6 +319,26 @@ def test_finding5_title_with_options_kept_raw(tmp_path):
 
 
 def test_finding5_key_with_options_kept_raw(tmp_path):
+    # Re-baselined when 'offset' became a modelled option (legend offset
+    # support): the unmodelled example is now GLE's 'compact'.
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2\n"
+        '   d1 line color blue lwidth 0.05 key "s"\n'
+        "   key pos tr hei 0.3 nobox compact\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    joined = "\n".join(ax.passthrough)
+    assert "key pos tr hei 0.3 nobox compact" in joined
+    assert any("key has unsupported options" in w for w in rec.warnings)
+
+
+def test_finding5_key_with_offset_now_modelled(tmp_path):
+    # The other half of the re-baseline: 'offset X Y' is fully modelled.
     src = (
         "size 20.32 15.24\n"
         "begin graph\n"
@@ -330,9 +350,8 @@ def test_finding5_key_with_options_kept_raw(tmp_path):
     p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
-    joined = "\n".join(ax.passthrough)
-    assert "key pos tr hei 0.3 nobox offset 0.2 0.2" in joined
-    assert any("key has unsupported options" in w for w in rec.warnings)
+    assert ax.legend_offset == (0.2, 0.2)
+    assert not any("key has unsupported options" in w for w in rec.warnings)
 
 
 def test_finding5_plain_title_still_modeled(tmp_path):
