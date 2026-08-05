@@ -89,11 +89,10 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Protocol
+from typing import Optional, Protocol
 
 from PySide6.QtCore import (
     QObject,
-    QProcess,
     QRectF,
     Qt,
     QTimer,
@@ -116,8 +115,16 @@ except ImportError:  # pragma: no cover - exercised only without the gui extra
     QGraphicsSvgItem = None  # type: ignore[assignment, misc]
     _QTSVG_AVAILABLE = False
 
-from gleplot.compiler import GLEError, find_gle, parse_gle_errors
+from gleplot.compiler import GLEError, build_compile_args, find_gle, parse_gle_errors
 from gleplot.figure import Figure
+from gleplot.gui.compile_core import (
+    DEFAULT_WATCHDOG_MS,
+    CompileOutcome,
+    RenderCoalescer,
+    create_session_dir,
+    remove_session_dir,
+)
+from gleplot.gui.compile_service import CompileProcessRunner
 from gleplot.gui.document import FigureDocument
 from gleplot.gui.geometry import CM_PER_INCH, PreviewGeometry, parse_calibration_lines
 from gleplot.parser.syntax import GraphBlock, parse_gle_source
@@ -363,7 +370,9 @@ class PreviewController(QObject):
     #: Default debounce interval in milliseconds.
     DEFAULT_DEBOUNCE_MS = 300
     #: Watchdog timeout in milliseconds; a render exceeding this is killed.
-    WATCHDOG_MS = 15000
+    #: Sourced from :mod:`gleplot.gui.compile_core` -- the Qt-free compile
+    #: service core -- so preview and export share one default.
+    WATCHDOG_MS = DEFAULT_WATCHDOG_MS
 
     def __init__(
         self,
@@ -393,15 +402,20 @@ class PreviewController(QObject):
         # lazily on first render so constructing a controller is cheap.
         self._session_dir: Optional[Path] = None
 
-        # Render bookkeeping. ``_requested_seq`` is bumped every time a render
-        # is *requested*; ``_running_seq`` records the sequence of the render
-        # currently executing. A finished process whose sequence is older than
-        # the latest request is discarded. ``_pending`` records that a newer
-        # change landed mid-render so we immediately re-render on completion.
-        self._requested_seq = 0
-        self._running_seq = 0
-        self._pending = False
-        self._process: Optional[QProcess] = None
+        # Render bookkeeping, delegated to the Qt-free coalescing policy
+        # object (gleplot.gui.compile_core.RenderCoalescer): ``requested_seq``
+        # is bumped every time a render is *requested*; ``running_seq``
+        # records the sequence of the render currently executing. A finished
+        # process whose sequence is older than the latest request is
+        # discarded. ``pending`` records that a newer change landed
+        # mid-render so we immediately re-render on completion. See the
+        # ``_requested_seq``/``_running_seq`` properties below, kept for
+        # backward-compatible introspection (tests read them directly).
+        self._coalescer = RenderCoalescer()
+        # The compile job currently in flight, or None between renders. Each
+        # render gets a fresh CompileProcessRunner (see _launch()); it owns
+        # the actual QProcess plus its own watchdog timer.
+        self._runner: Optional[CompileProcessRunner] = None
         self._current_output: Optional[Path] = None
 
         # Calibration geometry from the most recent successful render, or None
@@ -425,14 +439,23 @@ class PreviewController(QObject):
         self._debounce.setInterval(debounce_ms)
         self._debounce.timeout.connect(self._start_render)
 
-        # Watchdog: kills a wedged GLE process.
-        self._watchdog = QTimer(self)
-        self._watchdog.setSingleShot(True)
-        self._watchdog.setInterval(self.WATCHDOG_MS)
-        self._watchdog.timeout.connect(self._on_watchdog_timeout)
-
         document.figure_changed.connect(self._on_document_changed)
         document.figure_replaced.connect(self._on_document_changed)
+
+    # ------------------------------------------------------------------
+    # Coalescing bookkeeping (read-only; delegates to self._coalescer)
+    # ------------------------------------------------------------------
+    @property
+    def _requested_seq(self) -> int:
+        return self._coalescer.requested_seq
+
+    @property
+    def _running_seq(self) -> int:
+        return self._coalescer.running_seq
+
+    @property
+    def _pending(self) -> bool:
+        return self._coalescer.pending
 
     # ------------------------------------------------------------------
     # Configuration
@@ -551,18 +574,18 @@ class PreviewController(QObject):
             # Nothing renderable. If a render is in flight, let it finish
             # (its result would show a stale image, but the emptiness will be
             # re-evaluated only on the next change); otherwise report empty.
-            if self._process is None:
+            if self._runner is None:
                 self.render_skipped_empty.emit()
             return
 
         # A newer request always wins. Bump the requested sequence so that any
         # in-flight render finishing later is recognised as stale.
-        self._requested_seq += 1
+        self._coalescer.request()
 
-        if self._process is not None:
+        if self._runner is not None:
             # A render is already running; mark pending so we immediately
             # kick off a fresh render (from the newest state) on completion.
-            self._pending = True
+            self._coalescer.mark_pending()
             return
 
         self._launch(snap)
@@ -585,22 +608,24 @@ class PreviewController(QObject):
     # ------------------------------------------------------------------
     def _ensure_session_dir(self) -> Path:
         if self._session_dir is None:
-            self._session_dir = Path(tempfile.mkdtemp(prefix="gleplot_preview_"))
+            self._session_dir = create_session_dir(prefix="gleplot_preview_")
         return self._session_dir
 
     def _launch(self, snap: dict) -> None:
-        """Write the GLE script + data files and start a GLE QProcess."""
+        """Write the GLE script + data files and start a GLE compile job."""
         if not self._gle_path:
             # No GLE available: surface a structured error rather than hanging.
             err = GLEError(
-                file=None, line=None, column=None,
+                file=None,
+                line=None,
+                column=None,
                 message="GLE executable not found; cannot render preview.",
             )
             self.render_failed.emit([err], "GLE not found")
             return
 
-        seq = self._requested_seq
-        self._running_seq = seq
+        seq = self._coalescer.requested_seq
+        self._coalescer.begin(seq)
         fmt = self._render_format
         self._running_format = fmt
         session = self._ensure_session_dir()
@@ -631,7 +656,9 @@ class PreviewController(QObject):
             ]
         except Exception as exc:  # noqa: BLE001 - report, never crash the GUI
             err = GLEError(
-                file=None, line=None, column=None,
+                file=None,
+                line=None,
+                column=None,
                 message=f"Failed to generate GLE script: {exc}",
             )
             self.render_failed.emit([err], str(exc))
@@ -640,27 +667,28 @@ class PreviewController(QObject):
         output_name = f"render_{seq}.{fmt}"
         self._current_output = session / output_name
 
-        proc = QProcess(self)
-        proc.setWorkingDirectory(str(session))
-        # Keep stdout and stderr separate: GLE 4.3.3 emits the ``gleplot-cal``
-        # calibration records on *stderr* while errors and diagnostics can land
-        # on either stream. We read and concatenate both on finish so
-        # calibration parsing sees the records regardless of stream, and error
-        # parsing sees everything it did under the old merged mode.
-        proc.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
-        proc.finished.connect(self._on_process_finished)
-        proc.errorOccurred.connect(self._on_process_error)
-        self._process = proc
+        # Unified device-flag construction (gleplot.compiler.build_compile_args)
+        # -- the single place -d/-r/(future -cairo) argument shape is decided,
+        # shared with GLECompiler and the export path. ``-r`` is included only
+        # for raster formats; harmless to have dropped it for svg (GLE ignores
+        # -r for vector formats) but now explicit rather than incidental.
+        args = build_compile_args(
+            fmt, output_name, f"{_SCRIPT_STEM}.gle", dpi=self._preview_dpi
+        )
 
-        args = [
-            "-d", fmt,
-            "-r", str(self._preview_dpi),
-            "-o", output_name,
-            f"{_SCRIPT_STEM}.gle",
-        ]
-        self._watchdog.start()
+        # The runner is the "thin QProcess adapter": it owns the actual
+        # process, stream collection, and watchdog kill (see
+        # gleplot.gui.compile_service.CompileProcessRunner). GLE 4.3.3 emits
+        # the ``gleplot-cal`` calibration records on *stderr* while errors and
+        # diagnostics can land on either stream; the runner concatenates both
+        # so calibration parsing sees the records regardless of stream, and
+        # error parsing sees everything it did under the old merged mode.
+        runner = CompileProcessRunner(watchdog_ms=self.WATCHDOG_MS, parent=self)
+        runner.finished.connect(self._on_compile_finished)
+        self._runner = runner
+
         self.render_started.emit()
-        proc.start(self._gle_path, args)
+        runner.start(self._gle_path, session, args, self._current_output)
 
     def _write_script(self, work_fig: Figure, session: Path, fmt: str = "png") -> None:
         """Write the GLE script and its data sidecars into ``session``.
@@ -754,11 +782,7 @@ class PreviewController(QObject):
         # Map end-graph line number -> block order. Skip any unclosed block
         # (end is None): without an ``end graph`` there is nothing to anchor to,
         # and its calibration will simply be reported missing downstream.
-        anchors = {
-            g.end.line_no: i
-            for i, g in enumerate(graphs)
-            if g.end is not None
-        }
+        anchors = {g.end.line_no: i for i, g in enumerate(graphs) if g.end is not None}
         if not anchors:
             return
 
@@ -788,9 +812,7 @@ class PreviewController(QObject):
         """
         if self._cal_page_size_cm is None:
             return None
-        calibrations, _warnings = parse_calibration_lines(
-            raw, self._cal_axes_meta
-        )
+        calibrations, _warnings = parse_calibration_lines(raw, self._cal_axes_meta)
         if not calibrations:
             return None
         return PreviewGeometry(
@@ -869,7 +891,11 @@ class PreviewController(QObject):
                 timeout=10,
                 text=True,
             )
-            if result.returncode != 0 or not output.exists() or output.stat().st_size == 0:
+            if (
+                result.returncode != 0
+                or not output.exists()
+                or output.stat().st_size == 0
+            ):
                 return False
             raw = (result.stdout or "") + (result.stderr or "")
             problem = self._svg_output_problem(output, raw)
@@ -881,39 +907,30 @@ class PreviewController(QObject):
                 shutil.rmtree(probe_dir, ignore_errors=True)
 
     # ------------------------------------------------------------------
-    # Process callbacks
+    # Compile-job callback
     # ------------------------------------------------------------------
-    def _on_process_finished(self, exit_code: int, exit_status) -> None:
-        self._watchdog.stop()
-        proc = self._process
-        self._process = None
+    def _on_compile_finished(self, outcome: CompileOutcome) -> None:
+        """Handle a :class:`CompileProcessRunner` job finishing.
+
+        Fires uniformly whether the process finished normally, was killed by
+        its watchdog, or failed to start -- ``outcome.ok``/``outcome.errors``
+        already reflect which (see ``CompileProcessRunner`` /
+        ``evaluate_compile_output``), so this method no longer needs a
+        separate watchdog-timeout code path.
+        """
+        self._runner = None
         output = self._current_output
+        raw = outcome.raw_output
 
-        raw = ""
-        if proc is not None:
-            stdout = bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
-            stderr = bytes(proc.readAllStandardError()).decode("utf-8", "replace")
-            # Concatenate both streams: error parsing wants everything (as it
-            # did under the old merged mode) and calibration records live on
-            # stderr for this GLE build.
-            raw = stdout + stderr
-            proc.deleteLater()
-
-        finished_seq = self._running_seq
-        stale = finished_seq < self._requested_seq
+        finished_seq = self._coalescer.running_seq
+        stale = self._coalescer.is_stale(finished_seq)
 
         # If newer state is pending (or this result is stale), start the next
         # render from the latest snapshot regardless of this one's outcome.
-        restart_needed = self._pending or stale
-        self._pending = False
+        restart_needed = self._coalescer.finish(finished_seq)
 
         if not stale:
-            ok = (
-                exit_code == 0
-                and output is not None
-                and output.exists()
-                and output.stat().st_size > 0
-            )
+            ok = outcome.ok
             # For an SVG render, exit==0 and a non-empty file are *necessary
             # but not sufficient*: GLE's Cairo backend can exit 0 and write a
             # structurally valid-but-incomplete SVG on a PostScript-font error
@@ -946,19 +963,13 @@ class PreviewController(QObject):
                 # A failed render has no valid geometry; drop any stale one so
                 # an overlay does not keep drawing against an outdated page.
                 self.last_geometry = None
-                errors = parse_gle_errors(raw)
-                if not errors:
-                    errors = [GLEError(
-                        file=None, line=None, column=None,
-                        message="GLE render failed (no output produced).",
-                    )]
-                self.render_failed.emit(errors, raw)
+                self.render_failed.emit(outcome.errors, raw)
 
         if restart_needed:
             snap = self._empty_check_and_snapshot()
             if snap is not None:
                 self._launch(snap)
-            elif self._process is None:
+            elif self._runner is None:
                 self.render_skipped_empty.emit()
 
     def _activate_svg_fallback(self, reason: str) -> None:
@@ -976,68 +987,16 @@ class PreviewController(QObject):
         _log.warning("SVG preview disabled for this session: %s", reason)
         self.fallback_activated.emit(reason)
 
-    def _on_process_error(self, error) -> None:
-        # A start/crash error; ``finished`` may or may not follow. If the
-        # process failed to start there will be no ``finished`` signal, so
-        # handle cleanup here when the process is genuinely gone.
-        if error == QProcess.ProcessError.FailedToStart:
-            self._watchdog.stop()
-            proc = self._process
-            self._process = None
-            if proc is not None:
-                proc.deleteLater()
-            err = GLEError(
-                file=None, line=None, column=None,
-                message="GLE process failed to start.",
-            )
-            self.render_failed.emit([err], "FailedToStart")
-
-    def _on_watchdog_timeout(self) -> None:
-        """Kill a render that exceeded the watchdog timeout."""
-        proc = self._process
-        if proc is None:
-            return
-        # Disconnect finished so kill() doesn't drive the normal path; report
-        # a synthetic timeout error here instead.
-        try:
-            proc.finished.disconnect(self._on_process_finished)
-        except (RuntimeError, TypeError):
-            pass
-        proc.kill()
-        proc.waitForFinished(2000)
-        proc.deleteLater()
-        self._process = None
-
-        err = GLEError(
-            file=None, line=None, column=None,
-            message=f"GLE render timed out after {self.WATCHDOG_MS // 1000}s and was killed.",
-        )
-        self.render_failed.emit([err], "watchdog timeout")
-
-        if self._pending or self._running_seq < self._requested_seq:
-            self._pending = False
-            snap = self._empty_check_and_snapshot()
-            if snap is not None:
-                self._launch(snap)
-
     # ------------------------------------------------------------------
     # Teardown
     # ------------------------------------------------------------------
     def shutdown(self) -> None:
         """Kill any running render and remove the session temp directory."""
         self._debounce.stop()
-        self._watchdog.stop()
-        if self._process is not None:
-            try:
-                self._process.finished.disconnect(self._on_process_finished)
-            except (RuntimeError, TypeError):
-                pass
-            self._process.kill()
-            self._process.waitForFinished(2000)
-            self._process.deleteLater()
-            self._process = None
-        if self._session_dir is not None and self._session_dir.exists():
-            shutil.rmtree(self._session_dir, ignore_errors=True)
+        if self._runner is not None:
+            self._runner.cancel()
+            self._runner = None
+        remove_session_dir(self._session_dir)
         self._session_dir = None
 
     def deleteLater(self) -> None:  # noqa: N802 - Qt override

@@ -12,10 +12,13 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
 from gleplot.compiler import (
-    GLECompiler,
+    RASTER_COMPILE_FORMATS,
+    SUPPORTED_COMPILE_FORMATS,
     GLECompileError,
+    GLECompiler,
     GLEError,
     autodetect_gle,
+    build_compile_args,
     find_gle,
     parse_gle_errors,
     set_gle_path_override,
@@ -409,6 +412,103 @@ class TestCompileIntegration(unittest.TestCase):
         result = self.compiler.compile(str(gle_file), output_format='svg', dpi=150)
         self.assertTrue(result.exists())
         self.assertEqual(result.suffix, '.svg')
+
+
+class TestBuildCompileArgs(unittest.TestCase):
+    """Tests for build_compile_args(): the single, unified device-flag
+    builder (Track G3). Previously GLECompiler.compile() built an uppercase
+    ``-d PDF`` with ``-r`` only for raster formats, while gui/preview.py
+    built a lowercase ``-d svg`` with ``-r`` unconditional (including for
+    vector formats, where GLE just ignores it). This is the one place that
+    decides the shape now.
+    """
+
+    def test_all_supported_formats_produce_lowercase_device_flag(self):
+        for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
+            args = build_compile_args(fmt, 'out', 'in.gle')
+            self.assertEqual(args[0], '-d')
+            self.assertEqual(args[1], fmt.lower())
+
+    def test_uppercase_and_mixed_case_input_normalized_to_lowercase(self):
+        for given in ('PDF', 'Pdf', 'pDf'):
+            args = build_compile_args(given, 'out', 'in.gle')
+            self.assertEqual(args[1], 'pdf')
+
+    def test_raster_formats_include_dpi_flag(self):
+        for fmt in RASTER_COMPILE_FORMATS:
+            args = build_compile_args(fmt, 'out', 'in.gle', dpi=150)
+            self.assertIn('-r', args)
+            self.assertEqual(args[args.index('-r') + 1], '150')
+
+    def test_vector_formats_omit_dpi_flag_even_when_dpi_given(self):
+        vector_formats = SUPPORTED_COMPILE_FORMATS - RASTER_COMPILE_FORMATS
+        self.assertTrue(vector_formats)  # sanity: pdf/eps/svg are vector
+        for fmt in vector_formats:
+            args = build_compile_args(fmt, 'out', 'in.gle', dpi=300)
+            self.assertNotIn('-r', args)
+
+    def test_raster_format_without_dpi_omits_dpi_flag(self):
+        # dpi is optional; when the caller doesn't have one to give (or
+        # doesn't care), -r must not appear with a garbage value.
+        args = build_compile_args('png', 'out', 'in.gle')
+        self.assertNotIn('-r', args)
+
+    def test_dpi_is_coerced_to_int_string(self):
+        args = build_compile_args('png', 'out', 'in.gle', dpi=150.0)
+        self.assertEqual(args[args.index('-r') + 1], '150')
+
+    def test_output_and_input_paths_appear_last_in_order(self):
+        args = build_compile_args('pdf', 'result.pdf', 'script.gle')
+        self.assertEqual(args[-3:], ['-o', 'result.pdf', 'script.gle'])
+
+    def test_output_before_input_with_o_flag(self):
+        args = build_compile_args('pdf', 'result.pdf', 'script.gle')
+        o_index = args.index('-o')
+        self.assertEqual(args[o_index + 1], 'result.pdf')
+        self.assertEqual(args[o_index + 2], 'script.gle')
+
+    def test_accepts_path_objects(self):
+        args = build_compile_args('pdf', Path('out.pdf'), Path('in.gle'))
+        self.assertIn('out.pdf', args)
+        self.assertIn('in.gle', args)
+
+    def test_unsupported_format_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            build_compile_args('bogus', 'out', 'in.gle')
+
+    # -- cairo: flag construction is unified/ready, but no caller enables it
+    #    yet (reserved for task G6 -- see build_compile_args' docstring).
+    def test_cairo_false_by_default_omits_flag(self):
+        args = build_compile_args('pdf', 'out', 'in.gle')
+        self.assertNotIn('-cairo', args)
+
+    def test_cairo_true_appends_flag_directly_after_device(self):
+        args = build_compile_args('pdf', 'out', 'in.gle', cairo=True)
+        self.assertIn('-cairo', args)
+        # Placed right after -d <fmt>, before -o/-r, matching GLE's "options
+        # before filename" convention used throughout this module.
+        self.assertEqual(args[:3], ['-d', 'pdf', '-cairo'])
+
+    def test_cairo_and_raster_dpi_compose(self):
+        args = build_compile_args('png', 'out', 'in.gle', dpi=150, cairo=True)
+        self.assertIn('-cairo', args)
+        self.assertIn('-r', args)
+        self.assertEqual(args[args.index('-r') + 1], '150')
+
+    def test_compiler_compile_uses_build_compile_args(self):
+        # GLECompiler.compile() must build its command line through the one
+        # shared function rather than a parallel inline implementation.
+        with mock.patch(
+            'gleplot.compiler.build_compile_args', wraps=build_compile_args,
+        ) as spy:
+            compiler = GLECompiler(gle_path='/explicit/path/to/gle')
+            with mock.patch('gleplot.compiler.subprocess.run') as run:
+                run.return_value = mock.Mock(returncode=0, stdout='', stderr='')
+                with mock.patch('gleplot.compiler.Path.exists', return_value=True):
+                    compiler.compile('in.gle', output_format='png', dpi=150)
+        spy.assert_called_once()
+        _args, kwargs = spy.call_args
+        self.assertEqual(kwargs.get('dpi'), 150)
 
 
 class TestGLECompileErrorAttributes(unittest.TestCase):

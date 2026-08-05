@@ -226,6 +226,10 @@ def test_full_m2_workflow(qapp, tmp_path):
         dialog._path_edit.setText(str(png_path))
         dialog._format_combo.setCurrentText("png")
         dialog._on_export_clicked()
+        # Export now compiles asynchronously through the shared compile
+        # service (Track G3) rather than blocking the GUI thread; wait for
+        # the job to finish before checking the output.
+        assert _wait_until(lambda: dialog._runner is None)
         assert png_path.exists()
         assert png_path.stat().st_size > 0
 
