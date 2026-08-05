@@ -411,6 +411,10 @@ _AXES_SERIALIZED_ATTRS = {
     "reflines",
     "spans",
     "passthrough",
+    # Explicit page geometry: the placement rect (SPEC 3.3) and the verbatim
+    # geometry statements kept for GLE geometry that inverts to no rect.
+    "placement",
+    "geometry_passthrough",
     "xdticks",
     "ydticks",
     "xdsubticks",

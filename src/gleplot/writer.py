@@ -582,6 +582,25 @@ class GLEWriter:
             # Auto-size and center axes within graph box
             self.lines_gle.append("    scale auto")
 
+    def add_graph_geometry_passthrough(self, lines: Sequence[str]):
+        """Emit recovered graph-geometry statements verbatim.
+
+        Used for GLE geometry that is real but not invertible into a
+        placement rect (``fullsize``, ``scale 0.8 0.8``, a bare ``size w h``
+        without the ``scale 1 1`` that would pin the frame). The lines are
+        the original source lines, re-emitted in the geometry slot -- the
+        first thing inside ``begin graph`` -- INSTEAD of this writer's own
+        geometry line, so the figure re-saves byte-for-byte instead of being
+        normalized to ``scale auto``.
+
+        Parameters
+        ----------
+        lines : sequence of str
+            ``Axes.geometry_passthrough``: raw source lines, in source
+            order, with their original indentation and no trailing newline.
+        """
+        self.lines_gle.extend(lines)
+
     def add_graph_box_size(self, width_cm: float, height_cm: float):
         """Emit a bare graph ``size W H`` (no ``scale``) for the single-plot path.
 

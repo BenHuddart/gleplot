@@ -42,7 +42,10 @@ for rendering, applied by the test-side ``normalize()`` helper)
    because the recovered ``figsize`` + grid reproduce the same geometry only
    when the original used default spacing; a figure that used a non-default
    ``subplots_adjust`` re-saves with the DEFAULT spacing (documented layout
-   loss -- see the fixed-point exceptions in the module report).
+   loss -- see the fixed-point exceptions in the module report). Concretely,
+   a subplot's canonical ``size w h`` + ``scale 1 1`` pair is left to the grid
+   path (which re-derives it from the recovered grid + ``figsize``) rather
+   than captured per-axes; see #13 for everything else, which IS captured.
 4. **global_data_counter.** ``to_dict`` records the process-global
    ``data_N.dat`` counter. The recognizer cannot know the original session's
    counter, so it derives the counter state from the recovered sidecar names
@@ -99,6 +102,39 @@ for rendering, applied by the test-side ``normalize()`` helper)
     has no control-flow awareness, so editing may restructure such files. Parse
     behavior is unchanged; this is advisory only.
 
+13. **Graph geometry is modelled, never dropped.** Graph-level ``size`` /
+    ``scale`` / ``fullsize`` (and the ``amove`` in front of the block) map onto
+    the axes as follows -- this replaces the historical behaviour, where they
+    were parsed into two fields nothing read and vanished *without warning*,
+    so a hand-written ``fullsize`` figure silently re-saved as ``scale auto``:
+
+    * ``amove x y`` + ``size w h`` + ``scale 1 1`` -- the one invertible
+      geometry (``scale 1 1`` makes the axis frame fill the graph box) --
+      becomes ``Axes.placement``, a frame rect in page cm (SPEC 3.3). The
+      writer re-emits exactly those three statements. No warning: modelled.
+    * No geometry at all, or exactly ``scale auto``, means AUTO placement
+      ("GLE decides"; ``placement`` stays ``None``). This is what every figure
+      built through the scripting API carries and what the writer emits by
+      default, so default output is untouched. Resolving auto into a concrete
+      rect needs a calibration render and happens in the editor, not here.
+    * Anything else real -- ``fullsize``, ``scale h v`` with actual factors, a
+      bare ``size`` with no ``scale 1 1``, several statements we do not model
+      -- is kept VERBATIM in ``Axes.geometry_passthrough`` and re-emitted in
+      the geometry slot (first thing inside ``begin graph``), so such figures
+      are a byte-identical fixed point instead of being normalized. A
+      ``layout:`` warning reports that the geometry is not editable.
+    * An ``amove`` that did not become a placement rect is preserved verbatim
+      in ``passthrough_header`` ahead of the block, also with a ``layout:``
+      warning.
+
+    Two consequences worth naming. A single-plot figure whose bare ``size``
+    is exactly the colorbar reserved-width line the writer re-derives
+    (``Figure._axes_colorbar_reserved_cm``) is left to that derivation, so
+    colorbar figures keep both their bytes and a clean model. And a figure
+    written with ``GLEGraphConfig.scale_mode='fullsize'`` comes back with the
+    geometry per-axes rather than as the config field (the config is a writer
+    default, not per-axes state); the emitted GLE is identical either way.
+
 Tolerances for hand-written input
 ---------------------------------
 Attribute order within a dataset command may vary; axis lines may be given
@@ -107,8 +143,9 @@ cumulatively (multiple ``xaxis`` lines merge); numbers may be expressions
 are case-insensitive; single-quoted strings and ``;``-joined statements are
 accepted; British ``GREY`` colors are accepted. Anything not recognized is
 preserved verbatim in the appropriate passthrough bucket (header / trailer /
-axes) so it re-emits unchanged. A blank (or comment-only) line separating two
-post-graph text clusters, or between ``end graph`` and the first cluster, is
+axes / axes geometry) so it re-emits unchanged. A blank (or comment-only) line
+separating two post-graph text clusters, or between ``end graph`` and the first
+cluster, is
 tolerated by :meth:`_Recognizer._try_one_text` (:meth:`_Recognizer._skip_blanks`)
 -- the writer itself never emits such a blank line, but a human editing the
 file for readability may add one; recognition proceeds exactly as if it were
@@ -127,8 +164,11 @@ Every recovered ambiguity or loss appends a human-readable string to
 - ``"legend: ..."``             -- a hand-written implicit legend was assumed.
 - ``"smooth: ..."``             -- mixed per-series smooth flags.
 - ``"layout: ..."``             -- multi-graph grid could not be inferred
-                                   cleanly (n x 1 fallback) or share flags
-                                   were guessed.
+                                   cleanly (n x 1 fallback), share flags were
+                                   guessed, or graph geometry / an ``amove``
+                                   was preserved verbatim rather than modelled
+                                   (normalization #13). Geometry is never
+                                   dropped silently.
 - ``"programmatic: ..."``       -- the file uses GLE programming constructs
                                    (sub/if/for/...); editing may restructure
                                    them (advisory; parse unchanged).
@@ -176,6 +216,7 @@ from .units import (
     capsize_cm_to_pt,
     cm_to_inches,
     fontsize_cm_to_pt,
+    inches_to_cm,
     linewidth_cm_to_pt,
 )
 from ..dataio import (
@@ -323,6 +364,40 @@ def _collect_value(toks: List[Token], start: int) -> Tuple[Optional[float], int]
     if val is None:
         return None, start
     return val, j
+
+
+def _collect_values(toks: List[Token], start: int) -> List[float]:
+    """Collect every numeric value from ``start`` to the end of ``toks``.
+
+    Used for graph-geometry statements (``size 8 6``, ``scale 1 1``), whose
+    arguments are a flat run of numbers. Stops at the first token that is not
+    the start of a numeric value, so ``scale auto`` yields ``[]``.
+    """
+    vals: List[float] = []
+    i = start
+    while i < len(toks):
+        val, nxt = _collect_value(toks, i)
+        if val is None:
+            break
+        vals.append(val)
+        i = nxt
+    return vals
+
+
+@dataclass
+class _GraphGeometryStmt:
+    """One recovered graph-geometry statement (``size``/``scale``/``fullsize``).
+
+    ``words`` are the lowercased argument tokens (so ``scale auto`` is
+    recognizable), ``values`` their numeric evaluation where they are numbers,
+    and ``raw`` the verbatim source line (indentation included) used for
+    byte-preserving re-emission.
+    """
+
+    keyword: str
+    words: List[str]
+    values: List[float]
+    raw: str
 
 
 def _collect_color(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
@@ -514,6 +589,9 @@ class _Recognizer:
         i = first_graph_start
         trailer: List[str] = []
         pending_amove: Optional[Tuple[float, float]] = None
+        # Verbatim source line of ``pending_amove``, so an amove that does not
+        # become a placement rect can still be preserved (see _apply_geometry).
+        pending_amove_raw: Optional[str] = None
 
         n = len(nodes)
         while i < n:
@@ -521,7 +599,9 @@ class _Recognizer:
             if isinstance(node, GraphBlock):
                 axes_info = self._parse_graph_block(node, marker_cfg, smooth_flags)
                 axes_info["amove"] = pending_amove
+                axes_info["amove_raw"] = pending_amove_raw
                 pending_amove = None
+                pending_amove_raw = None
                 # Greedily consume deferred text cluster that follows.
                 texts, consumed = self._consume_text_cluster(nodes, i + 1)
                 axes_info["texts"] = texts
@@ -536,6 +616,7 @@ class _Recognizer:
             amove = self._match_amove(node)
             if amove is not None:
                 pending_amove = amove
+                pending_amove_raw = self._stmt_text(node)
                 i += 1
                 continue
 
@@ -741,8 +822,12 @@ class _Recognizer:
     def _parse_graph_block(self, block: GraphBlock, marker_cfg, smooth_flags) -> dict:
         """Parse one ``begin graph`` .. ``end graph`` into an axes-info dict."""
         info = {
-            "size_cm": None,  # (w, h) if explicit 'size' present
-            "scale_mode": None,  # 'auto' | 'fixed' | None
+            # Graph-geometry statements ('size'/'scale'/'fullsize') in source
+            # order, as _GraphGeometryStmt records. Classified into a
+            # placement rect / verbatim geometry passthrough by
+            # _apply_geometry once the whole figure is known (a single graph
+            # and a grid member are handled differently).
+            "geometry_stmts": [],
             "title": None,
             "xlabel": None,
             "ylabel": None,
@@ -979,21 +1064,17 @@ class _Recognizer:
         if not toks:
             return
 
-        if kw == "size":
-            vals = [_num(t) for t in toks[1:] if _num(t) is not None]
-            if len(vals) >= 2:
-                info["size_cm"] = (vals[0], vals[1])
-            return
-        if kw == "scale":
-            # 'scale auto' or 'scale 1 1'
-            rest = [t.value.lower() for t in toks[1:]]
-            if rest and rest[0] == "auto":
-                info["scale_mode"] = "auto"
-            else:
-                info["scale_mode"] = "fixed"
-            return
-        if kw == "fullsize":
-            info["scale_mode"] = "fullsize"
+        if kw in ("size", "scale", "fullsize"):
+            # Graph geometry. Recorded verbatim (plus its parsed arguments)
+            # and classified later by _apply_geometry -- never dropped.
+            info["geometry_stmts"].append(
+                _GraphGeometryStmt(
+                    keyword=kw,
+                    words=[t.value.lower() for t in toks[1:]],
+                    values=_collect_values(toks, 1),
+                    raw=self._stmt_text(stmt),
+                )
+            )
             return
         if kw == "title":
             if self._title_has_unsupported_options(toks):
@@ -3103,7 +3184,143 @@ class _Recognizer:
             self._restore_visibility_flags(ax, info)
             fig.axes_list.append(ax)
 
+        self._apply_geometry(fig, parsed_axes)
+
         fig._current_axes = fig.axes_list[-1] if fig.axes_list else None
+
+    # -- graph geometry --------------------------------------------------
+
+    def _apply_geometry(self, fig, parsed_axes) -> None:
+        """Map each graph block's recovered geometry onto the axes model.
+
+        Three outcomes per axes, in order of preference (SPEC 3.3 / 8.1.3):
+
+        * **modelled** -- the invertible triple ``amove x y`` + ``size w h`` +
+          ``scale 1 1`` becomes :attr:`Axes.placement`, a frame rect in page
+          cm that the writer re-emits as the same three statements;
+        * **auto** -- no geometry at all, or exactly ``scale auto`` (the
+          writer's own default emission): nothing is stored, placement stays
+          ``None`` = "GLE decides" until a calibration render resolves it;
+        * **preserved** -- any other geometry (``fullsize``, ``scale h v``
+          with real factors, a bare ``size`` with no ``scale 1 1``, several
+          statements in an order we do not model) is kept verbatim in
+          :attr:`Axes.geometry_passthrough` and re-emitted in the geometry
+          slot, with a ``layout:`` warning saying it is not editable.
+
+        Multi-graph figures keep the historical grid modelling: their
+        ``amove`` positions become grid positions (:meth:`_infer_positions`)
+        and the canonical per-block ``size w h`` + ``scale 1 1`` that the grid
+        writer re-derives is left to that path (documented normalization #3).
+        Per-axes placement rects for grids are the next work item; nothing is
+        dropped here that was not already reproduced by the grid geometry.
+        """
+        single = len(parsed_axes) == 1
+        for info, ax in zip(parsed_axes, fig.axes_list):
+            stmts = info.get("geometry_stmts") or []
+            if single:
+                self._apply_single_geometry(fig, ax, info, stmts)
+            else:
+                self._apply_grid_geometry(ax, stmts)
+
+    def _apply_single_geometry(self, fig, ax, info, stmts) -> None:
+        amove = info.get("amove")
+        triple = self._invertible_triple(stmts)
+        if triple is not None and amove is not None:
+            ax.placement = (amove[0], amove[1], triple[0], triple[1])
+            return
+
+        if self._is_auto_geometry(stmts):
+            pass
+        elif self._is_writer_derived_size(fig, ax, stmts):
+            # The writer's own single-plot colorbar emission (a bare 'size'
+            # reserving room for the bar to the right of the graph). It is
+            # re-derived from the recovered colorbar, so capturing it would
+            # only duplicate model state -- and the line re-emits identically.
+            pass
+        else:
+            ax.geometry_passthrough = [s.raw for s in stmts]
+            self.warnings.append(
+                "layout: graph geometry ("
+                + ", ".join(sorted({s.keyword for s in stmts}))
+                + ") is preserved as raw GLE, not editable"
+            )
+
+        # An 'amove' that did not become a placement rect still positions the
+        # graph. Preserve it verbatim ahead of the block rather than dropping
+        # it (SPEC 8.1.4: no silent geometry loss).
+        raw_amove = info.get("amove_raw")
+        if amove is not None and raw_amove is not None:
+            fig.passthrough_header.append(raw_amove)
+            self.warnings.append(
+                "layout: graph position (amove) is preserved as raw GLE, "
+                "not editable"
+            )
+
+    def _apply_grid_geometry(self, ax, stmts) -> None:
+        if not stmts or self._invertible_triple(stmts) is not None:
+            # Nothing to keep, or the canonical grid-cell geometry the
+            # multi-subplot writer re-derives from the grid positions.
+            return
+        ax.geometry_passthrough = [s.raw for s in stmts]
+        self.warnings.append(
+            "layout: subplot graph geometry ("
+            + ", ".join(sorted({s.keyword for s in stmts}))
+            + ") is preserved as raw GLE, not editable"
+        )
+
+    @staticmethod
+    def _invertible_triple(stmts) -> Optional[Tuple[float, float]]:
+        """``(w, h)`` iff ``stmts`` are exactly ``size w h`` + ``scale 1 1``.
+
+        That pair -- with an ``amove`` in front of the block -- is the only
+        graph geometry that inverts to a frame rectangle (SPEC 3.3), because
+        ``scale 1 1`` makes the axis frame fill the graph box exactly.
+        """
+        if len(stmts) != 2:
+            return None
+        size_st, scale_st = stmts
+        if size_st.keyword != "size" or len(size_st.values) != 2:
+            return None
+        if scale_st.keyword != "scale" or scale_st.values != [1.0, 1.0]:
+            return None
+        return (size_st.values[0], size_st.values[1])
+
+    @staticmethod
+    def _is_auto_geometry(stmts) -> bool:
+        """True for "GLE decides": no geometry, or exactly ``scale auto``."""
+        if not stmts:
+            return True
+        return (
+            len(stmts) == 1
+            and stmts[0].keyword == "scale"
+            and stmts[0].words == ["auto"]
+        )
+
+    @staticmethod
+    def _is_writer_derived_size(fig, ax, stmts) -> bool:
+        """True iff ``stmts`` are the exact geometry line the writer re-derives.
+
+        Only one such line exists on the single-plot path: the graph-box
+        ``size`` that reserves right-hand room for a colorbar
+        (``Figure._axes_colorbar_reserved_cm`` -> ``add_graph_box_size``).
+        Compared as emitted text, so a hand-written bare ``size`` that does
+        NOT match is captured verbatim instead of being silently replaced.
+        """
+        if len(stmts) != 1 or stmts[0].keyword != "size":
+            return False
+        reserved = fig._axes_colorbar_reserved_cm(ax)
+        if reserved <= 0:
+            return False
+        from ..writer import GLEWriter
+
+        width_cm = inches_to_cm(fig.figsize[0])
+        height_cm = inches_to_cm(fig.figsize[1])
+        graph_w = max(width_cm - reserved, width_cm * 0.3)
+        expected = (
+            f"    size {GLEWriter._format_number(graph_w)} "
+            f"{GLEWriter._format_number(height_cm)}"
+        )
+        return stmts[0].raw == expected
 
     def _infer_positions(self, parsed_axes) -> List[Tuple[int, int, int]]:
         """Infer (rows, cols, idx) per axes from recovered amove positions."""

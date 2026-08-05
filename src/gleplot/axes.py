@@ -531,6 +531,29 @@ class Axes:
         # source line, no trailing newline. Default: empty (nothing to emit).
         self.passthrough: list = []
 
+        # -- Graph geometry (page placement) --------------------------------
+        #
+        # Two mutually exclusive representations, both defaulting to "unset"
+        # = AUTO placement ("GLE decides"), which is what every figure built
+        # through the scripting API carries and what the writer's default
+        # emission ('scale auto' single-plot / computed grid cells) means.
+        #
+        # ``placement`` is the explicit graph FRAME rectangle in page cm,
+        # ``(x, y, width, height)`` with the origin at the bottom-left of the
+        # page -- the invertible GLE triple ``amove x y`` + ``size w h`` +
+        # ``scale 1 1``. It is authoritative when set: the writer emits that
+        # triple verbatim instead of computing geometry.
+        #
+        # ``geometry_passthrough`` holds the graph block's geometry
+        # statements verbatim (source order, original indentation) for GLE
+        # geometry that is real but NOT invertible into a frame rect
+        # ('fullsize', 'scale 0.8 0.8', a bare 'size w h', ...). The writer
+        # emits these lines in the geometry slot -- the first thing inside
+        # 'begin graph' -- INSTEAD of its own geometry line, so such a figure
+        # re-emits byte-for-byte rather than being normalized to 'scale auto'.
+        self.placement: Optional[Tuple[float, float, float, float]] = None
+        self.geometry_passthrough: list = []
+
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
 
@@ -2426,6 +2449,15 @@ class Axes:
             "x2axis_off": self._x2axis_off,
             "y2axis_off": self._y2axis_off,
             "break_index": self._break_index,
+            # Explicit page geometry (see __init__): the frame rect, or the
+            # verbatim geometry statements when no rect is invertible. Both
+            # unset = auto placement.
+            "placement": (
+                [float(v) for v in self.placement]
+                if self.placement is not None
+                else None
+            ),
+            "geometry_passthrough": list(self.geometry_passthrough),
         }
         # Series lists, in registry order -- exactly where they appeared when
         # each was spelled out here by hand, so the key order (and therefore
@@ -2479,7 +2511,9 @@ class Axes:
         ax.legend_fontsize = d.get("legend_fontsize")
         ax.legend_frameon = d.get("legend_frameon", True)
         _offset = d.get("legend_offset")
-        ax.legend_offset = None if _offset is None else (float(_offset[0]), float(_offset[1]))
+        ax.legend_offset = (
+            None if _offset is None else (float(_offset[0]), float(_offset[1]))
+        )
 
         ax._show_xlabel = d.get("show_xlabel", True)
         ax._show_ylabel = d.get("show_ylabel", True)
@@ -2505,6 +2539,21 @@ class Axes:
         # ``_break_owner`` is a back-reference rebound by Figure.from_dict
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")
+
+        # Explicit page geometry. Missing keys = a pre-geometry payload, i.e.
+        # auto placement -- exactly what those figures rendered as.
+        _placement = d.get("placement")
+        ax.placement = (
+            None
+            if _placement is None
+            else (
+                float(_placement[0]),
+                float(_placement[1]),
+                float(_placement[2]),
+                float(_placement[3]),
+            )
+        )
+        ax.geometry_passthrough = list(d.get("geometry_passthrough") or [])
 
         for attr, series_cls in SERIES_CLASSES.items():
             restored = []
