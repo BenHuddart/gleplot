@@ -971,6 +971,12 @@ class Figure:
                         ax.ymax = data_ymax
 
                 self._emit_pre_graph_blocks(writer, ax, resolution)
+                # Explicit placement (SPEC 3.3): the frame rect is realized as
+                # 'amove x y' + 'size w h' + 'scale 1 1'. Only figures that
+                # carry one take this path; everything else keeps the
+                # historical auto emission byte-for-byte.
+                if ax.placement is not None:
+                    writer.add_amove(ax.placement[0], ax.placement[1])
                 writer.begin_graph()
                 # A colorbar is drawn to the right of the graph, outside its
                 # box. In the default 'auto' scale mode the graph fills the
@@ -979,7 +985,15 @@ class Figure:
                 # for it. Figures without a colorbar keep the historical
                 # 'scale auto' output byte-for-byte.
                 reserved = self._axes_colorbar_reserved_cm(ax, resolution)
-                if reserved > 0:
+                if ax.geometry_passthrough:
+                    writer.add_graph_geometry_passthrough(ax.geometry_passthrough)
+                elif ax.placement is not None:
+                    writer.add_graph_size(
+                        width_cm=ax.placement[2],
+                        height_cm=ax.placement[3],
+                        force_size=True,
+                    )
+                elif reserved > 0:
                     graph_w = max(writer.width_cm - reserved, writer.width_cm * 0.3)
                     writer.add_graph_box_size(graph_w, writer.height_cm)
                 else:
@@ -1148,12 +1162,22 @@ class Figure:
                     x_pos = cell_x
                     graph_w = cell_w
 
+                # An explicit placement rect (SPEC 3.3) overrides the computed
+                # grid cell: the rect IS the model, the grid is only a helper
+                # that computes rects. Nothing built through the scripting API
+                # carries one, so ordinary grids are unaffected.
+                if ax.placement is not None:
+                    x_pos, y_pos, graph_w, cell_h = ax.placement
+
                 self._emit_pre_graph_blocks(writer, ax, resolution)
                 writer.add_amove(x_pos, y_pos)
                 writer.begin_graph()
-                writer.add_graph_size(
-                    width_cm=graph_w, height_cm=cell_h, force_size=True
-                )
+                if ax.geometry_passthrough:
+                    writer.add_graph_geometry_passthrough(ax.geometry_passthrough)
+                else:
+                    writer.add_graph_size(
+                        width_cm=graph_w, height_cm=cell_h, force_size=True
+                    )
 
                 self._write_axes_content(writer, ax, resolution)
 

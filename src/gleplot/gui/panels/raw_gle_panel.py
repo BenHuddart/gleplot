@@ -2,17 +2,20 @@
 
 When the recognizer (``gleplot.parser.recognizer``) cannot map a line of a
 parsed ``.gle`` file onto the object model, it keeps the raw text instead of
-dropping it, split into three buckets:
+dropping it, split into four buckets:
 
 * :attr:`~gleplot.figure.Figure.passthrough_header` -- lines recovered from
   before the first graph block, re-emitted right after the standard preamble.
+* :attr:`~gleplot.axes.Axes.geometry_passthrough` (per axes) -- graph geometry
+  that inverts to no placement rect (``fullsize``, ``scale 0.8 0.8``, ...),
+  re-emitted as the first thing inside that axes' ``begin graph``.
 * :attr:`~gleplot.axes.Axes.passthrough` (one bucket per axes) -- lines
   recovered from inside that axes' graph block, re-emitted immediately before
   its ``end graph``.
 * :attr:`~gleplot.figure.Figure.passthrough_trailer` -- lines recovered from
   after the last graph block, re-emitted at the very end of the script.
 
-:class:`RawGlePanel` is a pure, read-only view onto these three buckets: it
+:class:`RawGlePanel` is a pure, read-only view onto these buckets: it
 never edits them (there is nothing to edit -- unrecognized text is opaque by
 definition) and holds no state beyond what it displays. It exists so users
 opening a hand-edited or exotic ``.gle`` file can see, at a glance, exactly
@@ -62,8 +65,8 @@ class RawGlePanel(QWidget):
     A summary label ("N preserved lines will be written back verbatim on
     save") followed by one read-only :class:`QPlainTextEdit` section per
     non-empty bucket, in file order: ``Header``, then one ``Axes (r,c)``
-    section per axes with a non-empty ``passthrough`` list (in
-    ``figure.axes_list`` order), then ``Trailer``. When every bucket is
+    section per axes with non-empty ``geometry_passthrough``/``passthrough``
+    lists (in ``figure.axes_list`` order), then ``Trailer``. When every bucket is
     empty, only the friendly empty-state message is shown.
     """
 
@@ -169,7 +172,12 @@ def _collect_buckets(figure) -> list:
         cols = max((ax.position[1] for ax in axes_list if ax.position), default=1) or 1
 
     for ax in axes_list:
-        lines = list(getattr(ax, "passthrough", []) or [])
+        # File order inside the graph block: the geometry statements the
+        # recognizer preserved verbatim ('fullsize', 'scale 0.8 0.8', ...)
+        # come first, right after 'begin graph'; the general axes bucket is
+        # emitted just before 'end graph'.
+        lines = list(getattr(ax, "geometry_passthrough", []) or [])
+        lines += list(getattr(ax, "passthrough", []) or [])
         if ax.position:
             idx = ax.position[2]
             r = (idx - 1) // cols

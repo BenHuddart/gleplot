@@ -131,6 +131,21 @@ class TestBucketRendering:
         all_text = _all_section_text(panel)
         assert any("mystery_stmt" in line for line in all_text.splitlines())
 
+    def test_shows_preserved_graph_geometry(self, qapp, tmp_path):
+        """Geometry kept verbatim (Axes.geometry_passthrough) is visible too.
+
+        It re-emits inside 'begin graph' just like the axes bucket, so the
+        panel must account for it or the user cannot see what will be
+        written back.
+        """
+        src = _SRC_ALL_BUCKETS.replace("begin graph\n", "begin graph\n   fullsize\n")
+        path = _write(tmp_path, "g.gle", src, {"u_1.dat": "1 1\n2 2\n"})
+        figure = parse_gle_figure(path).figure
+        assert figure.axes_list[0].geometry_passthrough == ["   fullsize"]
+
+        panel = RawGlePanel(StubDocument(figure))
+        assert "fullsize" in _all_section_text(panel)
+
     def test_shows_trailer_section_content(self, document):
         panel = RawGlePanel(document)
         all_text = _all_section_text(panel)
