@@ -4,10 +4,10 @@ import numpy as np
 import warnings
 from pathlib import Path
 from typing import Tuple, Optional, Literal, Sequence, List
-from .axes import Axes, _validate_data_prefix, _sanitize_data_stem, sorted_zorder_drawables
+from .axes import Axes, _sanitize_data_stem, _validate_data_prefix
 from .series import Series
 from .brokenaxes import BrokenAxes
-from .writer import GLEWriter
+from .writer import GLEWriter, SourceResolution, resolve_figure
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .colors import rgb_to_gle
 from .mathtext import mathtext_to_gle
@@ -17,7 +17,20 @@ from .parser.units import fontsize_pt_to_cm
 
 #: Envelope identifiers for the gleplot project-file format.
 PROJECT_FORMAT = "gleplot-project"
-PROJECT_VERSION = 1
+
+#: Version written by :meth:`Figure.to_dict`.
+#:
+#: 1 -- every series carries its own baked arrays.
+#: 2 -- series may carry a ``data_source`` (:mod:`gleplot.sources`). A series
+#:      WITHOUT one is inline, exactly as in version 1, so a version-2 dict
+#:      for a figure built through the scripting API is identical to the
+#:      version-1 dict it would have produced except for this integer.
+PROJECT_VERSION = 2
+
+#: Versions :meth:`Figure.from_dict` accepts. Version 1 is read as "every
+#: series is :class:`~gleplot.sources.InlineData`", which needs no conversion
+#: at all -- the absence of ``data_source`` already means exactly that.
+SUPPORTED_PROJECT_VERSIONS = (1, 2)
 
 
 def _refline_axis_values(ax, orient: str):
@@ -177,11 +190,31 @@ class Figure:
         # empty (no extra keys).
         self.metadata_extra: dict = {}
 
+        # Structured records for series skipped by the LAST write because
+        # their data source was dangling (§3.2). Write-time output, not
+        # document state: reset by every generation, never serialized.
+        self._source_warnings: List = []
+
         self.compiler = None
         try:
             self.compiler = GLECompiler()
         except RuntimeError:
             pass  # GLE not available, but can still write scripts
+
+    @property
+    def source_warnings(self) -> List:
+        """Series skipped by the most recent GLE generation, and why.
+
+        A list of :class:`gleplot.sources.DanglingSourceRef` -- inspectable
+        objects naming the series (axes index, series list, index, label) and
+        the reference that could not be resolved (table id, column keys,
+        reason). Empty for any figure whose series are all inline, which is
+        every figure the scripting API builds.
+
+        Reset at the start of each generation, so it always describes the
+        latest ``savefig``/``savefig_gle`` rather than accumulating.
+        """
+        return list(self._source_warnings)
 
     def subplots_adjust(
         self,
@@ -661,7 +694,7 @@ class Figure:
                 if not ref.is_absolute():
                     fs["data_file"] = (base / ref).resolve().as_posix()
 
-    def savefig_gle(self, filepath: str, **kwargs) -> Path:
+    def savefig_gle(self, filepath: str, data_provider=None, **kwargs) -> Path:
         """
         Save figure as GLE script.
 
@@ -669,6 +702,9 @@ class Figure:
         ----------
         filepath : str
             Output file path
+        data_provider : DataProvider, optional
+            Resolver for series whose ``data_source`` references a table
+            (see :meth:`savefig` and :mod:`gleplot.sources`).
         folder : bool, optional
             If True, place the ``.gle`` script and generated data files
             in a sibling ``<name>.gleplot`` directory.
@@ -687,7 +723,9 @@ class Figure:
         export_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate and save GLE content with data files
-        gle_content, data_content = self._generate_gle_with_files()
+        gle_content, data_content = self._generate_gle_with_files(
+            data_provider=data_provider
+        )
 
         # Write script
         output_path.write_text(gle_content, encoding="utf-8")
@@ -704,6 +742,7 @@ class Figure:
         filepath: str,
         format: Optional[str] = None,
         dpi: Optional[int] = None,
+        data_provider=None,
         **kwargs,
     ) -> Path:
         """
@@ -720,6 +759,20 @@ class Figure:
             If format is given but the file extension differs, format wins.
         dpi : int, optional
             DPI for raster formats
+        data_provider : DataProvider, optional
+            Supplies the tables that ``ColumnRef``/``GridRef`` series
+            reference (:mod:`gleplot.sources`). Injected **here**, at write
+            time, rather than held on the figure: the figure is a
+            serializable document that ``to_dict`` round-trips and the
+            provider is a live application object, so binding the two would
+            make snapshots either lossy or impossible -- and passing it per
+            write is what lets one figure be rendered against different
+            tables (a preview vs an export, a what-if dataset). Figures whose
+            series are all inline (everything the scripting API builds)
+            ignore it entirely.
+
+            References that cannot be resolved do not raise: the affected
+            series is skipped and recorded in :attr:`source_warnings`.
         folder : bool, optional
             If True, place the exported file, the intermediate ``.gle``
             script, and generated data files in a sibling
@@ -747,7 +800,9 @@ class Figure:
 
         # Write GLE script and data files
         base_path = output_path.with_suffix(".gle")
-        gle_content, data_files = self._generate_gle_with_files()
+        gle_content, data_files = self._generate_gle_with_files(
+            data_provider=data_provider
+        )
         base_path.write_text(gle_content, encoding="utf-8")
 
         # Write data files in same directory
@@ -781,9 +836,9 @@ class Figure:
 
         return output_path, export_dir
 
-    def _generate_gle(self) -> str:
+    def _generate_gle(self, data_provider=None) -> str:
         """Generate complete GLE script content."""
-        content, _ = self._generate_gle_with_files()
+        content, _ = self._generate_gle_with_files(data_provider=data_provider)
         return content
 
     def _build_metadata_dict(self, data_files: dict, raw_sidecars=None) -> dict:
@@ -822,7 +877,7 @@ class Figure:
         data.update(self.metadata_extra)
         return data
 
-    def _generate_gle_with_files(self) -> tuple:
+    def _generate_gle_with_files(self, data_provider=None) -> tuple:
         """
         Generate complete GLE script content with data files.
 
@@ -832,6 +887,20 @@ class Figure:
         explicit ``size`` commands based on the subplot grid.
 
         Uses figure's configured style, graph, and marker settings.
+
+        Every series' data goes through ONE path: the source-resolution pass
+        (:func:`gleplot.writer.resolve_figure`) runs first and hands the rest
+        of this method an array-bearing series whether the numbers were baked
+        in at ``plot()`` time or pulled from ``data_provider``'s tables.
+        Series whose reference is dangling are skipped -- absent from
+        autoscaling, the legend and the script -- and recorded in
+        :attr:`source_warnings`; a figure in which every series is dangling
+        still produces a valid ``.gle``.
+
+        Parameters
+        ----------
+        data_provider : DataProvider, optional
+            See :meth:`savefig`.
 
         Returns
         -------
@@ -847,6 +916,10 @@ class Figure:
             marker=self.marker_config,
         )
 
+        # Source resolution, before anything reads a series' numbers.
+        resolution = resolve_figure(self, data_provider)
+        self._source_warnings = list(resolution.warnings)
+
         is_single = len(self.axes_list) <= 1
 
         # A figure with NO axes that carries passthrough (e.g. a graph the
@@ -861,7 +934,7 @@ class Figure:
 
         # Palette / colorbar / contour-label subs needed by any axes. Emitted
         # once, right after the preamble, before any graph uses them.
-        sub_texts = self._collect_sub_texts()
+        sub_texts = self._collect_sub_texts(resolution)
 
         if is_single and no_fabricate:
             writer.add_preamble(
@@ -885,19 +958,19 @@ class Figure:
                 # Calculate axis limits from data if not explicitly set
                 # This is especially important for bar charts which need explicit x-axis limits
                 if ax.xmin is None or ax.xmax is None:
-                    data_xmin, data_xmax = self._get_data_xlim(ax)
+                    data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
                     if ax.xmin is None:
                         ax.xmin = data_xmin
                     if ax.xmax is None:
                         ax.xmax = data_xmax
                 if ax.ymin is None or ax.ymax is None:
-                    data_ymin, data_ymax = self._get_data_ylim(ax)
+                    data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
                     if ax.ymin is None:
                         ax.ymin = data_ymin
                     if ax.ymax is None:
                         ax.ymax = data_ymax
 
-                self._emit_pre_graph_blocks(writer, ax)
+                self._emit_pre_graph_blocks(writer, ax, resolution)
                 writer.begin_graph()
                 # A colorbar is drawn to the right of the graph, outside its
                 # box. In the default 'auto' scale mode the graph fills the
@@ -905,15 +978,15 @@ class Figure:
                 # a colorbar, pin the graph box to a width that reserves room
                 # for it. Figures without a colorbar keep the historical
                 # 'scale auto' output byte-for-byte.
-                reserved = self._axes_colorbar_reserved_cm(ax)
+                reserved = self._axes_colorbar_reserved_cm(ax, resolution)
                 if reserved > 0:
                     graph_w = max(writer.width_cm - reserved, writer.width_cm * 0.3)
                     writer.add_graph_box_size(graph_w, writer.height_cm)
                 else:
                     writer.add_graph_size()
-                self._write_axes_content(writer, ax)
+                self._write_axes_content(writer, ax, resolution)
                 writer.end_graph(passthrough=ax.passthrough)
-                self._emit_post_graph_calls(writer, ax)
+                self._emit_post_graph_calls(writer, ax, resolution)
             else:
                 writer.begin_graph()
                 writer.add_graph_size()
@@ -934,21 +1007,21 @@ class Figure:
 
             # Synchronize axis limits for shared axes
             if self.sharex:
-                self._synchronize_x_limits()
+                self._synchronize_x_limits(resolution)
             if self.sharey:
-                self._synchronize_y_limits()
+                self._synchronize_y_limits(resolution)
 
             # Calculate axis limits from data for any axes without explicit limits
             # This is especially important for bar charts
             for ax in self.axes_list:
                 if ax.xmin is None or ax.xmax is None:
-                    data_xmin, data_xmax = self._get_data_xlim(ax)
+                    data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
                     if ax.xmin is None:
                         ax.xmin = data_xmin
                     if ax.xmax is None:
                         ax.xmax = data_xmax
                 if ax.ymin is None or ax.ymax is None:
-                    data_ymin, data_ymax = self._get_data_ylim(ax)
+                    data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
                     if ax.ymin is None:
                         ax.ymin = data_ymin
                     if ax.ymax is None:
@@ -998,7 +1071,10 @@ class Figure:
             # (documented limitation). With no colorbar, margin_right is
             # unchanged and non-colorbar layouts stay byte-identical.
             cbar_reserved = max(
-                (self._axes_colorbar_reserved_cm(ax) for ax in self.axes_list),
+                (
+                    self._axes_colorbar_reserved_cm(ax, resolution)
+                    for ax in self.axes_list
+                ),
                 default=0.0,
             )
             if cbar_reserved > 0:
@@ -1072,17 +1148,17 @@ class Figure:
                     x_pos = cell_x
                     graph_w = cell_w
 
-                self._emit_pre_graph_blocks(writer, ax)
+                self._emit_pre_graph_blocks(writer, ax, resolution)
                 writer.add_amove(x_pos, y_pos)
                 writer.begin_graph()
                 writer.add_graph_size(
                     width_cm=graph_w, height_cm=cell_h, force_size=True
                 )
 
-                self._write_axes_content(writer, ax)
+                self._write_axes_content(writer, ax, resolution)
 
                 writer.end_graph(passthrough=ax.passthrough)
-                self._emit_post_graph_calls(writer, ax)
+                self._emit_post_graph_calls(writer, ax, resolution)
                 if owner is not None:
                     self._emit_break_decoration(writer, owner, ax, cell_x, cell_w)
                 writer.lines_gle.append("")  # Blank line between subplots
@@ -1090,6 +1166,12 @@ class Figure:
             writer.finalize(
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
             )
+
+        # Provider-table sidecars are only complete once every series that
+        # references them has been emitted; render them now, before the
+        # metadata block vouches for the figure's data files.
+        writer.finalize_shared_sidecars()
+        resolution.emit_warnings()
 
         # Splice the metadata block in after the two header comment lines
         # ('! GLE graphics file' / '! Generated by gleplot') and before the
@@ -1201,34 +1283,44 @@ class Figure:
         label_extent = (1.3 + hei) if cb.get("label") else 0.0
         return sep + wd + max(tick_extent, label_extent) + 0.3  # + safety pad
 
-    def _axes_colorbar_reserved_cm(self, ax: Axes) -> float:
-        """Max reserved colorbar margin (cm) over an axes' heatmaps (0 if none)."""
+    def _axes_colorbar_reserved_cm(
+        self, ax: Axes, resolution: Optional[SourceResolution] = None
+    ) -> float:
+        """Max reserved colorbar margin (cm) over an axes' heatmaps (0 if none).
+
+        A heatmap skipped for a dangling reference draws no colorbar, so it
+        reserves no margin either.
+        """
+        resolution = resolution or SourceResolution()
         reserved = 0.0
-        for hm in ax.heatmaps:
+        for hm in resolution.visible(ax.heatmaps):
             cb = hm.get("colorbar")
             if cb:
                 reserved = max(reserved, self._colorbar_reserved_cm(cb))
         return reserved
 
-    def _collect_sub_texts(self):
+    def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
         """Gather the palette/colorbar/clabel sub definitions this figure needs.
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs sorted by name, then the colorbar sub (if any colorbar),
-        then the contour-labels sub (if any clabel).
+        then the contour-labels sub (if any clabel). Skipped (dangling) grid
+        series contribute nothing, so a write that drops the only heatmap
+        does not leave an unused palette sub behind.
         """
         from . import palettes as _pal
 
+        resolution = resolution or SourceResolution()
         used_cmaps = set()
         any_colorbar = False
         any_clabel = False
         for ax in self.axes_list:
-            for hm in ax.heatmaps:
+            for hm in resolution.visible(ax.heatmaps):
                 if _pal.cmap_needs_sub(hm["cmap"]):
                     used_cmaps.add(hm["cmap"])
                 if hm.get("colorbar"):
                     any_colorbar = True
-            for ct in ax.contours:
+            for ct in resolution.visible(ax.contours):
                 if ct.get("clabel"):
                     any_clabel = True
 
@@ -1243,13 +1335,16 @@ class Figure:
             subs.append(_pal.contour_labels_sub_text())
         return subs
 
-    def _emit_pre_graph_blocks(self, writer: GLEWriter, ax: Axes):
+    def _emit_pre_graph_blocks(
+        self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
+    ):
         """Write sidecars + ``begin fitz``/``begin contour`` blocks for an axes.
 
         These execute before the graph reads the (generated) grid/contour
         files, so they are emitted immediately before the axes' ``begin graph``.
         """
-        for hm in ax.heatmaps:
+        resolution = resolution or SourceResolution()
+        for hm in resolution.visible(ax.heatmaps):
             if hm["source"] == "points":
                 writer.add_points_sidecar(hm["data_file"], hm["x"], hm["y"], hm["zpts"])
                 # tripcolor's fitz omits ncontour (GLE default), keeping the
@@ -1262,7 +1357,7 @@ class Figure:
                     hm["data_file"], hm["z"], hm["extent"], hm["origin"]
                 )
 
-        for ct in ax.contours:
+        for ct in resolution.visible(ax.contours):
             if ct["source"] == "points":
                 writer.add_points_sidecar(ct["data_file"], ct["x"], ct["y"], ct["zpts"])
                 writer.add_fitz_block(
@@ -1272,9 +1367,12 @@ class Figure:
                 writer.add_z_sidecar(ct["data_file"], ct["z"], ct["extent"], "lower")
             writer.add_contour_block(self._contour_z_file(ct), ct["levels"])
 
-    def _emit_post_graph_calls(self, writer: GLEWriter, ax: Axes):
+    def _emit_post_graph_calls(
+        self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
+    ):
         """Write the post-graph colorbar and contour-label sub calls."""
-        for hm in ax.heatmaps:
+        resolution = resolution or SourceResolution()
+        for hm in resolution.visible(ax.heatmaps):
             cb = hm.get("colorbar")
             if not cb:
                 continue
@@ -1289,7 +1387,7 @@ class Figure:
                 fmt=cb["format"],
                 label=cb.get("label"),
             )
-        for ct in ax.contours:
+        for ct in resolution.visible(ax.contours):
             if ct.get("clabel"):
                 clabels = self._contour_z_file(ct)[:-2] + "-clabels.dat"
                 writer.add_clabel_call(clabels, ct["clabel_fmt"])
@@ -1300,11 +1398,17 @@ class Figure:
 
         return _pal.palette_call_name(cmap)
 
-    def _write_axes_content(self, writer: GLEWriter, ax: Axes):
+    def _write_axes_content(
+        self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
+    ):
         """
         Write all plot content for a single Axes into the current graph block.
 
         This method is shared between single-plot and multi-subplot paths.
+
+        Every series list is walked through ``resolution``, so a series is
+        seen here already carrying its numbers (inline or resolved from a
+        provider table) or not seen at all (dangling reference, skipped).
 
         Parameters
         ----------
@@ -1312,7 +1416,13 @@ class Figure:
             The GLE writer to append commands to.
         ax : Axes
             The axes whose content should be written.
+        resolution : SourceResolution, optional
+            The write's source resolution. Omitted (``None``) means "every
+            series is inline", which is what a direct caller outside
+            :meth:`_generate_gle_with_files` gets.
         """
+        resolution = resolution or SourceResolution()
+
         # Axis properties
         writer.add_axes(
             xlabel=ax.xlabel_text or None,
@@ -1352,7 +1462,7 @@ class Figure:
 
         # Heatmap colormap (drawn behind everything as the background) and
         # contour polylines, before the ordinary series (fills, bars, ...).
-        for hm in ax.heatmaps:
+        for hm in resolution.visible(ax.heatmaps):
             writer.add_colormap(
                 self._heatmap_z_file(hm),
                 hm["pixels"],
@@ -1363,7 +1473,7 @@ class Figure:
                 hm["interpolation"],
             )
 
-        for ct in ax.contours:
+        for ct in resolution.visible(ax.contours):
             cdata = self._contour_z_file(ct)[:-2] + "-cdata.dat"
             writer.add_contour_line(
                 cdata, ct["color"], ct["linewidth"], ct["linestyle"]
@@ -1374,7 +1484,10 @@ class Figure:
         # they belong in the same background layer as fills so the data series
         # always draw on top of their guides.
         limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
-        for fill_data in list(ax.fills) + ax.materialize_spans(limits):
+        fill_pairs = resolution.pairs(ax.fills) + [
+            (span, span) for span in ax.materialize_spans(limits)
+        ]
+        for fill_series, fill_data in fill_pairs:
             writer.add_fill_between(
                 fill_data["x"],
                 fill_data["y1"],
@@ -1384,6 +1497,7 @@ class Figure:
                 fill_data["alpha"],
                 offset=fill_data.get("offset", 0.0),
                 column_names=fill_data.get("column_names"),
+                binding=resolution.binding(fill_series),
             )
 
         # Reference lines (axvline/axhline), drawn above the shaded bands but
@@ -1404,7 +1518,8 @@ class Figure:
                 column_names=ref_data.get("column_names"),
             )
 
-        for kind, series_data in sorted_zorder_drawables(ax):
+        for kind, series, series_data in resolution.drawables(ax):
+            binding = resolution.binding(series)
             if kind == "bar":
                 writer.add_bar_chart(
                     series_data["x"],
@@ -1413,6 +1528,7 @@ class Figure:
                     series_data["colors"],
                     series_data["label"],
                     column_names=series_data.get("column_names"),
+                    binding=binding,
                 )
             elif kind == "line":
                 writer.add_plot_line(
@@ -1428,6 +1544,7 @@ class Figure:
                     yaxis=series_data.get("yaxis", "y"),
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
+                    binding=binding,
                 )
             elif kind == "scatter":
                 writer.add_plot_line(
@@ -1442,6 +1559,7 @@ class Figure:
                     yaxis=series_data.get("yaxis", "y"),
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
+                    binding=binding,
                 )
             else:
                 writer.add_errorbar(
@@ -1462,6 +1580,7 @@ class Figure:
                     yaxis=series_data.get("yaxis", "y"),
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
+                    binding=binding,
                 )
 
         # Add external-file series (no generated data files).
@@ -1507,13 +1626,13 @@ class Figure:
         # Add legend if needed. legend_on is tri-state: None means auto
         # (show iff labels exist); True/False is an explicit user choice.
         legend_sources = (
-            ax.lines
-            + ax.scatters
-            + ax.bars
-            + ax.errorbars
-            + ax.file_series
-            + ax.reflines
-            + ax.spans
+            resolution.visible(ax.lines)
+            + resolution.visible(ax.scatters)
+            + resolution.visible(ax.bars)
+            + resolution.visible(ax.errorbars)
+            + list(ax.file_series)
+            + list(ax.reflines)
+            + list(ax.spans)
         )
         labels_present = any(series.get("label") for series in legend_sources)
         show_legend = ax.legend_on if ax.legend_on is not None else labels_present
@@ -1591,7 +1710,7 @@ class Figure:
                 just="bc",
             )
 
-    def _synchronize_x_limits(self):
+    def _synchronize_x_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize x-axis limits across all axes when sharex is enabled."""
         # Find global x-axis limits
         xmin_global = None
@@ -1600,7 +1719,7 @@ class Figure:
         for ax in self.axes_list:
             # Calculate data limits if not explicitly set
             if ax.xmin is None or ax.xmax is None:
-                data_xmin, data_xmax = self._get_data_xlim(ax)
+                data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
                 if ax.xmin is None:
                     ax.xmin = data_xmin
                 if ax.xmax is None:
@@ -1619,7 +1738,7 @@ class Figure:
             ax.xmin = xmin_global
             ax.xmax = xmax_global
 
-    def _synchronize_y_limits(self):
+    def _synchronize_y_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize y-axis limits across all axes when sharey is enabled."""
         # Find global y-axis limits
         ymin_global = None
@@ -1628,7 +1747,7 @@ class Figure:
         for ax in self.axes_list:
             # Calculate data limits if not explicitly set
             if ax.ymin is None or ax.ymax is None:
-                data_ymin, data_ymax = self._get_data_ylim(ax)
+                data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
                 if ax.ymin is None:
                     ax.ymin = data_ymin
                 if ax.ymax is None:
@@ -1647,15 +1766,23 @@ class Figure:
             ax.ymin = ymin_global
             ax.ymax = ymax_global
 
-    def _get_data_xlim(self, ax: Axes) -> Tuple[Optional[float], Optional[float]]:
-        """Calculate x-axis limits from data."""
+    def _get_data_xlim(
+        self, ax: Axes, resolution: Optional[SourceResolution] = None
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate x-axis limits from data.
+
+        Reads through ``resolution``, so table-backed series autoscale from
+        their resolved values and skipped (dangling) series contribute
+        nothing -- the limits describe what will actually be drawn.
+        """
+        resolution = resolution or SourceResolution()
         xmin, xmax = None, None
 
         x_bearing: Sequence[Sequence[Series]] = (
-            ax.lines,
-            ax.scatters,
-            ax.bars,
-            ax.errorbars,
+            resolution.visible(ax.lines),
+            resolution.visible(ax.scatters),
+            resolution.visible(ax.bars),
+            resolution.visible(ax.errorbars),
         )
         for data_list in x_bearing:
             for data in data_list:
@@ -1666,7 +1793,7 @@ class Figure:
                     if xmax is None or x.max() > xmax:
                         xmax = float(x.max())
 
-        for fill_data in ax.fills:
+        for fill_data in resolution.visible(ax.fills):
             x = np.asarray(fill_data["x"])
             if len(x) > 0:
                 if xmin is None or x.min() < xmin:
@@ -1674,7 +1801,7 @@ class Figure:
                 if xmax is None or x.max() > xmax:
                     xmax = float(x.max())
 
-        for series in list(ax.heatmaps) + list(ax.contours):
+        for series in resolution.visible(ax.heatmaps) + resolution.visible(ax.contours):
             x0, x1 = series["extent"][0], series["extent"][1]
             if xmin is None or x0 < xmin:
                 xmin = float(x0)
@@ -1693,14 +1820,20 @@ class Figure:
 
         return xmin, xmax
 
-    def _get_data_ylim(self, ax: Axes) -> Tuple[Optional[float], Optional[float]]:
-        """Calculate y-axis limits from data."""
+    def _get_data_ylim(
+        self, ax: Axes, resolution: Optional[SourceResolution] = None
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate y-axis limits from data (see :meth:`_get_data_xlim`)."""
+        resolution = resolution or SourceResolution()
         ymin, ymax = None, None
 
         # A series' ``offset`` shifts its trace vertically at plot time (the .dat
         # values stay raw), so autoscale must add it back when bounding the data
         # -- otherwise a waterfall stack falls off the auto-computed axis.
-        offset_bearing: Sequence[Sequence[Series]] = (ax.lines, ax.scatters)
+        offset_bearing: Sequence[Sequence[Series]] = (
+            resolution.visible(ax.lines),
+            resolution.visible(ax.scatters),
+        )
         for data_list in offset_bearing:
             for data in data_list:
                 y = np.asarray(data["y"]) + data.get("offset", 0.0)
@@ -1710,7 +1843,7 @@ class Figure:
                     if ymax is None or y.max() > ymax:
                         ymax = float(y.max())
 
-        for bar_data in ax.bars:
+        for bar_data in resolution.visible(ax.bars):
             height = np.asarray(bar_data["height"])
             if len(height) > 0:
                 if ymin is None or height.min() < ymin:
@@ -1718,7 +1851,7 @@ class Figure:
                 if ymax is None or height.max() > ymax:
                     ymax = float(height.max())
 
-        for fill_data in ax.fills:
+        for fill_data in resolution.visible(ax.fills):
             off = fill_data.get("offset", 0.0)
             y1 = np.asarray(fill_data["y1"]) + off
             y2 = np.asarray(fill_data["y2"]) + off
@@ -1729,7 +1862,7 @@ class Figure:
                 if ymax is None or all_y.max() > ymax:
                     ymax = float(all_y.max())
 
-        for eb_data in ax.errorbars:
+        for eb_data in resolution.visible(ax.errorbars):
             y = np.asarray(eb_data["y"]) + eb_data.get("offset", 0.0)
             yerr_up = eb_data.get("yerr_up")
             yerr_down = eb_data.get("yerr_down")
@@ -1750,7 +1883,7 @@ class Figure:
                 if ymax is None or y.max() > ymax:
                     ymax = float(y.max())
 
-        for series in list(ax.heatmaps) + list(ax.contours):
+        for series in resolution.visible(ax.heatmaps) + resolution.visible(ax.contours):
             y0, y1 = series["extent"][2], series["extent"][3]
             if ymin is None or y0 < ymin:
                 ymin = float(y0)
@@ -1985,10 +2118,10 @@ class Figure:
                 f"Unrecognized project format {fmt!r}; expected {PROJECT_FORMAT!r}"
             )
         version = d.get("version")
-        if version != PROJECT_VERSION:
+        if version not in SUPPORTED_PROJECT_VERSIONS:
             raise ValueError(
                 f"Unsupported project version {version!r}; this build supports "
-                f"version {PROJECT_VERSION}"
+                f"version(s) {', '.join(str(v) for v in SUPPORTED_PROJECT_VERSIONS)}"
             )
 
         fig_block = d.get("figure")
