@@ -5,6 +5,7 @@ import warnings
 from pathlib import Path
 from typing import Tuple, Optional, Literal, Sequence, List
 from .axes import Axes, _validate_data_prefix, _sanitize_data_stem, sorted_zorder_drawables
+from .series import Series
 from .brokenaxes import BrokenAxes
 from .writer import GLEWriter
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
@@ -1650,7 +1651,13 @@ class Figure:
         """Calculate x-axis limits from data."""
         xmin, xmax = None, None
 
-        for data_list in [ax.lines, ax.scatters, ax.bars, ax.errorbars]:
+        x_bearing: Sequence[Sequence[Series]] = (
+            ax.lines,
+            ax.scatters,
+            ax.bars,
+            ax.errorbars,
+        )
+        for data_list in x_bearing:
             for data in data_list:
                 x = np.asarray(data["x"])
                 if len(x) > 0:
@@ -1693,7 +1700,8 @@ class Figure:
         # A series' ``offset`` shifts its trace vertically at plot time (the .dat
         # values stay raw), so autoscale must add it back when bounding the data
         # -- otherwise a waterfall stack falls off the auto-computed axis.
-        for data_list in [ax.lines, ax.scatters]:
+        offset_bearing: Sequence[Sequence[Series]] = (ax.lines, ax.scatters)
+        for data_list in offset_bearing:
             for data in data_list:
                 y = np.asarray(data["y"]) + data.get("offset", 0.0)
                 if len(y) > 0:

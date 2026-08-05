@@ -112,8 +112,9 @@ from gleplot.palettes import SUPPORTED_CMAPS, canonical_cmap
 _BROKEN_MARKER = "⚠"  # warning sign
 
 #: Stable iteration order for aggregating series across an axes. Must match
-#: Axes._SERIES_ATTRS (writer emission order) so list positions stay
-#: meaningful, even though this panel only needs "some stable order".
+#: the gleplot.series registry order (writer emission order) so list
+#: positions stay meaningful, even though this panel only needs "some
+#: stable order".
 _KIND_ATTRS = (
     ("line", "lines"),
     ("scatter", "scatters"),

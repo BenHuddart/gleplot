@@ -781,7 +781,7 @@ def test_comment_header_vouched_sidecar_does_not_adopt_comment_names(tmp_path):
 
     Note: a headerless sidecar (with or without a comment line) already
     gets a *stable default* header line regenerated on next save (see
-    ``Axes._default_column_names``, "pre-Track-E3 projects" fallback --
+    ``Series.default_column_names``, "pre-Track-E3 projects" fallback --
     documented, pre-existing behavior, not something this feature changes
     or should suppress). The invariant this test pins is narrower and
     exact: the regenerated header must be the SAME stable default in both
