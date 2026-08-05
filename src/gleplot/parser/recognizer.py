@@ -146,6 +146,17 @@ import numpy as np
 from ..axes import Axes
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..figure import Figure
+from ..series import (
+    BarSeries,
+    ContourSeries,
+    ErrorbarSeries,
+    FileSeries,
+    FillSeries,
+    HeatmapSeries,
+    LineSeries,
+    ScatterSeries,
+    TextAnnotation,
+)
 from . import metadata as _metadata
 from .expr import eval_gle_number
 from .lexer import Token, TokenType
@@ -1400,22 +1411,22 @@ class _Recognizer:
         info["_key_suppress_datasets"].add(d_name)
         data_file, xcol, ycol = datasets[d_name]
         loaded = self._load_series(data_file, xcol, ycol)
-        entry = {
-            "colors": None,
-            "label": None,
-            "data_file": data_file,
-        }
+        entry = BarSeries(
+            colors=None,
+            label=None,
+            data_file=data_file,
+        )
         if loaded is None or loaded.get("error"):
             # Broken data -> represent as file_series-style reference w/ error.
             info["file_series"].append(
-                {
-                    "series_type": "bar",
-                    "data_file": data_file,
-                    "x_col": xcol,
-                    "y_col": ycol,
-                    "color": color,
-                    "data_error": (loaded or {}).get("error", "unresolved"),
-                }
+                FileSeries(
+                    series_type="bar",
+                    data_file=data_file,
+                    x_col=xcol,
+                    y_col=ycol,
+                    color=color,
+                    data_error=(loaded or {}).get("error", "unresolved"),
+                )
             )
             return
         x = loaded["x"]
@@ -1460,30 +1471,30 @@ class _Recognizer:
         loaded = self._load_series(f1, xc1, yc1, extra_cols=[yc2])
         if loaded is None or loaded.get("error"):
             info["file_series"].append(
-                {
-                    "series_type": "fill",
-                    "data_file": f1,
-                    "x_col": xc1,
-                    "y1_col": yc1,
-                    "y2_col": yc2,
-                    "color": color,
-                    "data_error": (loaded or {}).get("error", "unresolved"),
-                }
+                FileSeries(
+                    series_type="fill",
+                    data_file=f1,
+                    x_col=xc1,
+                    y1_col=yc1,
+                    y2_col=yc2,
+                    color=color,
+                    data_error=(loaded or {}).get("error", "unresolved"),
+                )
             )
             return
         x = loaded["x"]
         y1 = loaded["y"]
         y2 = loaded.get(f"c{yc2}")
-        fill_entry = {
-            "x": x,
-            "y1": y1,
-            "y2": y2,
-            "color": color,
-            "alpha": 0.3,
-            "label": None,
-            "offset": info["_dataset_offsets"].get(d_names[0], 0.0),
-            "data_file": f1,
-        }
+        fill_entry = FillSeries(
+            x=x,
+            y1=y1,
+            y2=y2,
+            color=color,
+            alpha=0.3,
+            label=None,
+            offset=info["_dataset_offsets"].get(d_names[0], 0.0),
+            data_file=f1,
+        )
         column_names = self._recovered_column_names(f1, [xc1, yc1, yc2])
         if column_names is not None:
             fill_entry["column_names"] = column_names
@@ -1632,24 +1643,25 @@ class _Recognizer:
         )
         linestyle = attrs["linestyle"] if has_line else "none"
 
-        entry = {
-            "type": "scatter" if (has_marker and not has_line) else "line",
-            "x": x,
-            "y": y,
-            "color": attrs["color"] or "BLUE",
-            "marker": attrs["marker"],
-            "markersize": markersize,
-            "linestyle": linestyle,
-            "linewidth": linewidth,
-            "label": attrs["label"],
-            "yaxis": "y2" if attrs["y2axis"] else "y",
-            "offset": info["_dataset_offsets"].get(d_name, 0.0),
-            "data_file": data_file,
-        }
+        is_scatter = has_marker and not has_line
+        entry = (ScatterSeries if is_scatter else LineSeries)(
+            type="scatter" if is_scatter else "line",
+            x=x,
+            y=y,
+            color=attrs["color"] or "BLUE",
+            marker=attrs["marker"],
+            markersize=markersize,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=attrs["label"],
+            yaxis="y2" if attrs["y2axis"] else "y",
+            offset=info["_dataset_offsets"].get(d_name, 0.0),
+            data_file=data_file,
+        )
         column_names = self._recovered_column_names(data_file, [xcol, ycol])
         if column_names is not None:
             entry["column_names"] = column_names
-        if has_marker and not has_line:
+        if is_scatter:
             entry["_draw_seq"] = info["_draw_seq_counter"]
             info["_draw_seq_counter"] += 1
             info["scatters"].append(entry)
@@ -1838,19 +1850,19 @@ class _Recognizer:
             # File-series errorbar reference.
             yerr_col = yerr_up_col if yerr_up_col is not None else None
             info["file_series"].append(
-                {
-                    "series_type": "errorbar",
-                    "data_file": data_file,
-                    "x_col": xcol,
-                    "y_col": ycol,
-                    "yerr_col": yerr_col,
-                    "color": attrs["color"] or "BLUE",
-                    "marker": marker,
-                    "markersize": markersize,
-                    "label": attrs["label"],
-                    "capsize": gle_capsize,
-                    "yaxis": "y2" if attrs["y2axis"] else "y",
-                }
+                FileSeries(
+                    series_type="errorbar",
+                    data_file=data_file,
+                    x_col=xcol,
+                    y_col=ycol,
+                    yerr_col=yerr_col,
+                    color=attrs["color"] or "BLUE",
+                    marker=marker,
+                    markersize=markersize,
+                    label=attrs["label"],
+                    capsize=gle_capsize,
+                    yaxis="y2" if attrs["y2axis"] else "y",
+                )
             )
             return
 
@@ -1871,20 +1883,20 @@ class _Recognizer:
                 return
             yerr_col = yerr_up_col if yerr_up_col is not None else None
             info["file_series"].append(
-                {
-                    "series_type": "errorbar",
-                    "data_file": data_file,
-                    "x_col": xcol,
-                    "y_col": ycol,
-                    "yerr_col": yerr_col,
-                    "color": attrs["color"] or "BLUE",
-                    "marker": marker,
-                    "markersize": markersize,
-                    "label": attrs["label"],
-                    "capsize": gle_capsize,
-                    "yaxis": "y2" if attrs["y2axis"] else "y",
-                    "data_error": (loaded or {}).get("error", "unresolved"),
-                }
+                FileSeries(
+                    series_type="errorbar",
+                    data_file=data_file,
+                    x_col=xcol,
+                    y_col=ycol,
+                    yerr_col=yerr_col,
+                    color=attrs["color"] or "BLUE",
+                    marker=marker,
+                    markersize=markersize,
+                    label=attrs["label"],
+                    capsize=gle_capsize,
+                    yaxis="y2" if attrs["y2axis"] else "y",
+                    data_error=(loaded or {}).get("error", "unresolved"),
+                )
             )
             return
 
@@ -1936,30 +1948,30 @@ class _Recognizer:
                     v, p = err_consts["herrright"]
                     xerr_right = const_arr(v, p, True)
 
-        entry = {
-            "type": "errorbar",
-            "x": loaded["x"],
-            "y": loaded["y"],
-            "yerr_up": yerr_up,
-            "yerr_down": yerr_down,
-            "xerr_left": xerr_left,
-            "xerr_right": xerr_right,
-            "color": attrs["color"] or "BLUE",
-            "marker": marker,
-            "markersize": markersize,
-            "linestyle": linestyle,
-            "linewidth": linewidth,
-            "label": attrs["label"],
-            "capsize": stored_capsize,
-            "gle_capsize": gle_capsize,
-            "yaxis": "y2" if attrs["y2axis"] else "y",
-            "offset": (
+        entry = ErrorbarSeries(
+            type="errorbar",
+            x=loaded["x"],
+            y=loaded["y"],
+            yerr_up=yerr_up,
+            yerr_down=yerr_down,
+            xerr_left=xerr_left,
+            xerr_right=xerr_right,
+            color=attrs["color"] or "BLUE",
+            marker=marker,
+            markersize=markersize,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=attrs["label"],
+            capsize=stored_capsize,
+            gle_capsize=gle_capsize,
+            yaxis="y2" if attrs["y2axis"] else "y",
+            offset=(
                 info["_dataset_offsets"].get(orig_toks[0].value.lower(), 0.0)
                 if orig_toks
                 else 0.0
             ),
-            "data_file": data_file,
-        }
+            data_file=data_file,
+        )
         if not err_consts:
             # Column indices in the SAME order the writer emits them (x, y,
             # then y-error column(s) collapsed to one when symmetric i.e.
@@ -2004,40 +2016,40 @@ class _Recognizer:
         # an errorbar (the old behavior) drops the whole styled line. Keep the
         # marker as an additional field so it survives on the model.
         if has_line:
-            entry = {
-                "series_type": "line",
-                "data_file": data_file,
-                "x_col": xcol,
-                "y_col": ycol,
-                "color": attrs["color"] or "BLUE",
-                "linestyle": attrs["linestyle"],
-                "linewidth": (
+            entry = FileSeries(
+                series_type="line",
+                data_file=data_file,
+                x_col=xcol,
+                y_col=ycol,
+                color=attrs["color"] or "BLUE",
+                linestyle=attrs["linestyle"],
+                linewidth=(
                     linewidth_cm_to_pt(attrs["lwidth"])
                     if attrs["lwidth"] is not None
                     else 1.0
                 ),
-                "label": attrs["label"],
-                "yaxis": "y2" if attrs["y2axis"] else "y",
-            }
+                label=attrs["label"],
+                yaxis="y2" if attrs["y2axis"] else "y",
+            )
             if attrs["marker"] is not None:
                 entry["marker"] = attrs["marker"]
                 entry["markersize"] = markersize
         else:
             # Marker-only (or bare) reference -> errorbar-style entry (which the
             # writer emits as a marker-only dataset).
-            entry = {
-                "series_type": "errorbar",
-                "data_file": data_file,
-                "x_col": xcol,
-                "y_col": ycol,
-                "yerr_col": None,
-                "color": attrs["color"] or "BLUE",
-                "marker": attrs["marker"],
-                "markersize": markersize,
-                "label": attrs["label"],
-                "capsize": None,
-                "yaxis": "y2" if attrs["y2axis"] else "y",
-            }
+            entry = FileSeries(
+                series_type="errorbar",
+                data_file=data_file,
+                x_col=xcol,
+                y_col=ycol,
+                yerr_col=None,
+                color=attrs["color"] or "BLUE",
+                marker=attrs["marker"],
+                markersize=markersize,
+                label=attrs["label"],
+                capsize=None,
+                yaxis="y2" if attrs["y2axis"] else "y",
+            )
         if error is not None:
             entry["data_error"] = error
         entry["_draw_seq"] = info["_draw_seq_counter"]
@@ -2392,27 +2404,27 @@ class _Recognizer:
                     "for heatmap; kept colormap as raw GLE"
                 )
                 return
-            hm = {
-                "type": "heatmap",
-                "source": "points",
-                "z": None,
-                "x": pts[0],
-                "y": pts[1],
-                "zpts": pts[2],
-                "extent": list(fitz["extent"]),
-                "origin": "lower",
-                "cmap": cmap,
-                "vmin": vmin,
-                "vmax": vmax,
-                "interpolation": "nearest" if interpolation == "nearest" else "bicubic",
-                "pixels": [int(px), int(py)],
-                "invert": invert,
-                "gridsize": list(fitz["gridsize"]),
-                "ncontour": None,
-                "label": None,
-                "data_file": fitz["points_file"],
-                "colorbar": None,
-            }
+            hm = HeatmapSeries(
+                type="heatmap",
+                source="points",
+                z=None,
+                x=pts[0],
+                y=pts[1],
+                zpts=pts[2],
+                extent=list(fitz["extent"]),
+                origin="lower",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                interpolation="nearest" if interpolation == "nearest" else "bicubic",
+                pixels=[int(px), int(py)],
+                invert=invert,
+                gridsize=list(fitz["gridsize"]),
+                ncontour=None,
+                label=None,
+                data_file=fitz["points_file"],
+                colorbar=None,
+            )
         else:
             grid = self._read_z_grid(zfile)
             if grid is None:
@@ -2423,27 +2435,27 @@ class _Recognizer:
                 )
                 return
             z, extent = grid
-            hm = {
-                "type": "heatmap",
-                "source": "grid",
-                "z": z,
-                "x": None,
-                "y": None,
-                "zpts": None,
-                "extent": extent,
-                "origin": "lower",
-                "cmap": cmap,
-                "vmin": vmin,
-                "vmax": vmax,
-                "interpolation": "nearest" if interpolation == "nearest" else "bicubic",
-                "pixels": [int(px), int(py)],
-                "invert": invert,
-                "gridsize": None,
-                "ncontour": None,
-                "label": None,
-                "data_file": zfile,
-                "colorbar": None,
-            }
+            hm = HeatmapSeries(
+                type="heatmap",
+                source="grid",
+                z=z,
+                x=None,
+                y=None,
+                zpts=None,
+                extent=extent,
+                origin="lower",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                interpolation="nearest" if interpolation == "nearest" else "bicubic",
+                pixels=[int(px), int(py)],
+                invert=invert,
+                gridsize=None,
+                ncontour=None,
+                label=None,
+                data_file=zfile,
+                colorbar=None,
+            )
         info["heatmaps"].append(hm)
 
     def _build_contour_from_cdata(self, cdata_file, toks, info) -> None:
@@ -2470,25 +2482,25 @@ class _Recognizer:
                     "for contour; kept line as raw GLE"
                 )
                 return
-            ct = {
-                "type": "contour",
-                "source": "points",
-                "z": None,
-                "x": pts[0],
-                "y": pts[1],
-                "zpts": pts[2],
-                "extent": list(fitz["extent"]),
-                "levels": levels,
-                "color": color,
-                "linewidth": linewidth,
-                "linestyle": lstyle,
-                "clabel": False,
-                "clabel_fmt": "fix 1",
-                "gridsize": list(fitz["gridsize"]),
-                "ncontour": fitz["ncontour"],
-                "label": None,
-                "data_file": fitz["points_file"],
-            }
+            ct = ContourSeries(
+                type="contour",
+                source="points",
+                z=None,
+                x=pts[0],
+                y=pts[1],
+                zpts=pts[2],
+                extent=list(fitz["extent"]),
+                levels=levels,
+                color=color,
+                linewidth=linewidth,
+                linestyle=lstyle,
+                clabel=False,
+                clabel_fmt="fix 1",
+                gridsize=list(fitz["gridsize"]),
+                ncontour=fitz["ncontour"],
+                label=None,
+                data_file=fitz["points_file"],
+            )
         else:
             grid = self._read_z_grid(zfile)
             if grid is None:
@@ -2499,25 +2511,25 @@ class _Recognizer:
                 )
                 return
             z, extent = grid
-            ct = {
-                "type": "contour",
-                "source": "grid",
-                "z": z,
-                "x": None,
-                "y": None,
-                "zpts": None,
-                "extent": extent,
-                "levels": levels,
-                "color": color,
-                "linewidth": linewidth,
-                "linestyle": lstyle,
-                "clabel": False,
-                "clabel_fmt": "fix 1",
-                "gridsize": None,
-                "ncontour": None,
-                "label": None,
-                "data_file": zfile,
-            }
+            ct = ContourSeries(
+                type="contour",
+                source="grid",
+                z=z,
+                x=None,
+                y=None,
+                zpts=None,
+                extent=extent,
+                levels=levels,
+                color=color,
+                linewidth=linewidth,
+                linestyle=lstyle,
+                clabel=False,
+                clabel_fmt="fix 1",
+                gridsize=None,
+                ncontour=None,
+                label=None,
+                data_file=zfile,
+            )
         info["contours"].append(ct)
 
     def _read_z_grid(self, filename) -> Optional[Tuple[np.ndarray, List[float]]]:
@@ -2811,7 +2823,7 @@ class _Recognizer:
             e.g. a hand-written headerless ``.dat``): in that case
             ``column_names`` is left absent on the recovered series and
             ``Axes.from_dict``-style default regeneration (mirrored here at
-            series-build time, see ``_default_column_names_like``) fills it
+            series-build time, see ``Series.default_column_names``) fills it
             in on next save, same as any pre-Track-E3 project.
 
             A column index of ``0`` (GLE's synthesized point-index column,
@@ -3019,16 +3031,16 @@ class _Recognizer:
             return start, None
         i += 1
 
-        return i, {
-            "x": x,
-            "y": y,
-            "text": text_str,
-            "color": self._text_color,
-            "fontsize": self._text_fontsize,
-            "ha": self._text_just,
-            "va": "center",
-            "box_color": None,
-        }
+        return i, TextAnnotation(
+            x=x,
+            y=y,
+            text=text_str,
+            color=self._text_color,
+            fontsize=self._text_fontsize,
+            ha=self._text_just,
+            va="center",
+            box_color=None,
+        )
 
     def _skip_blanks(self, nodes, i) -> int:
         """Advance past any run of ``BlankOrComment`` nodes at ``i``.
@@ -3165,7 +3177,7 @@ class _Recognizer:
         for attr in ("lines", "scatters", "bars", "fills", "errorbars"):
             for item in getattr(ax, attr):
                 if "column_names" not in item:
-                    defaults = Axes._default_column_names(attr, item)
+                    defaults = item.default_column_names()
                     if defaults is not None:
                         item["column_names"] = defaults
 

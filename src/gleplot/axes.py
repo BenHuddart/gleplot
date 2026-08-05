@@ -3,7 +3,7 @@
 import numpy as np
 import re
 import warnings
-from typing import Optional, List, Union, Tuple, Dict
+from typing import Any, Optional, List, Sequence, Union, Tuple, Dict
 from .colors import rgb_to_gle
 from .config import GlobalConfig
 from .markers import get_gle_marker, resolve_marker_fill
@@ -14,6 +14,28 @@ from .parser.tables import (
     KEY_POSITIONS_LONG_TO_SHORT,
     KEY_POSITIONS_SHORT_TO_LONG,
     MATPLOTLIB_TO_LSTYLE,
+)
+from .series import (  # noqa: F401  (re-exported: historical import path)
+    DRAWABLE_CLASSES,
+    SERIES_ATTRS,
+    SERIES_CLASSES,
+    BarSeries,
+    ContourSeries,
+    ErrorbarSeries,
+    FileSeries,
+    FillSeries,
+    HeatmapSeries,
+    LineSeries,
+    RefLine,
+    ScatterSeries,
+    Series,
+    Span,
+    TextAnnotation,
+    _build_column_names,
+    _build_errorbar_column_names,
+    _looks_numeric,
+    _unique_column_names,
+    sanitize_column_name,
 )
 
 # Global counter for unique data file names across all figures in a session
@@ -45,16 +67,17 @@ MATPLOTLIB_TO_GLE_LEGEND_LOC = {
 
 #: Default ``zorder`` for drawable series kinds when the caller omits ``zorder``.
 #: Matches the pre-zorder GLE emission stack: bars, then lines, scatters,
-#: errorbars (later ``dN`` commands draw on top in GLE).
+#: errorbars (later ``dN`` commands draw on top in GLE). Derived from the
+#: series classes, which own the value (``LineSeries.ZORDER_DEFAULT``, ...).
 SERIES_ZORDER_DEFAULT: Dict[str, float] = {
-    "bar": 2.0,
-    "line": 3.0,
-    "scatter": 4.0,
-    "errorbar": 5.0,
+    kind: float(cls.ZORDER_DEFAULT or 0.0) for kind, cls in DRAWABLE_CLASSES.items()
 }
 
-#: Stable kind rank for legacy series dicts missing ``_draw_seq``.
-_SERIES_KIND_RANK = {"bar": 0, "line": 1, "scatter": 2, "errorbar": 3}
+#: Stable kind rank for legacy series dicts missing ``_draw_seq``; likewise
+#: derived from the classes (``LineSeries.KIND_RANK``, ...).
+_SERIES_KIND_RANK: Dict[str, int] = {
+    kind: int(cls.KIND_RANK or 0) for kind, cls in DRAWABLE_CLASSES.items()
+}
 
 MATPLOTLIB_RELATIVE_FONTSIZES = {
     "xx-small": 0.579,
@@ -288,81 +311,6 @@ def _validate_data_prefix(prefix: object) -> str:
     return prefix
 
 
-def _looks_numeric(token: str) -> bool:
-    """True if ``token`` would parse as a float (int/float/exponent form).
-
-    GLE's own header auto-detection (see ``graph.cpp: auto_has_header`` /
-    ``isFloatMiss``) treats the first row of a data file as a header ONLY
-    if *every* cell in that row fails float conversion; a single numeric-
-    looking header token would make GLE read the whole header row as data
-    instead. Column names must never satisfy this check.
-    """
-    try:
-        float(token)
-        return True
-    except ValueError:
-        return False
-
-
-def sanitize_column_name(name: object, fallback: str = "col") -> str:
-    """Sanitize an arbitrary label into a safe GLE data-file column header token.
-
-    Rules (documented here as the single source of truth for the sanitizer):
-
-    1. Keep only ``[A-Za-z0-9_]`` characters; every other character
-       (whitespace, punctuation, unicode, ...) becomes a single ``_``.
-    2. Lowercase the result.
-    3. Collapse consecutive underscores to one and strip leading/trailing
-       underscores.
-    4. If the result is empty, fall back to ``fallback``.
-    5. If the result would itself parse as a number (e.g. a label of
-       ``"2024"``), prefix it with ``fallback + "_"`` so it can never be
-       mistaken for a data value -- GLE's header auto-detection requires
-       *every* first-row token to be non-numeric, and a purely numeric
-       column name would silently defeat the header row for the whole
-       file (see :func:`_looks_numeric`).
-    6. The result never contains whitespace (guaranteed by step 1), since
-       header tokens are whitespace/space-separated on the header line.
-
-    Uniqueness across a file's column names is NOT handled here (a single
-    label sanitizes deterministically); see :func:`_unique_column_names`
-    for de-duplication via ``_2``, ``_3``, ... suffixes.
-    """
-    text = re.sub(r"[^A-Za-z0-9_]+", "_", str(name).strip().lower())
-    text = re.sub(r"_+", "_", text).strip("_")
-    if not text:
-        text = fallback
-    if _looks_numeric(text):
-        text = f"{fallback}_{text}"
-    return text
-
-
-def _unique_column_names(names: List[str]) -> List[str]:
-    """De-duplicate a list of column name tokens with stable ``_2``, ``_3``, ... suffixes.
-
-    The first occurrence of a name is kept as-is; subsequent occurrences of
-    the same (already-sanitized) name are suffixed with ``_2``, ``_3``, etc.
-    (matching :func:`_reserve_data_filename`'s collision convention). This
-    keeps sanitize_column_name pure/stateless while still guaranteeing
-    uniqueness within one sidecar's header row.
-    """
-    seen: dict = {}
-    result = []
-    for name in names:
-        if name not in seen:
-            seen[name] = 1
-            result.append(name)
-        else:
-            seen[name] += 1
-            candidate = f"{name}_{seen[name]}"
-            while candidate in seen:
-                seen[name] += 1
-                candidate = f"{name}_{seen[name]}"
-            seen[candidate] = 1
-            result.append(candidate)
-    return result
-
-
 def _reserve_data_filename(filename: str, figure=None) -> str:
     """Reserve a data filename and avoid collisions within a figure."""
     if not filename.endswith(".dat"):
@@ -458,107 +406,6 @@ def _resolve_data_file(figure=None, data_name: object = None) -> str:
     if data_name is None:
         return _get_next_data_file(figure)
     return _reserve_data_filename(_sanitize_data_stem(data_name), figure)
-
-
-def _build_errorbar_column_names(
-    label: Optional[str],
-    yerr_up,
-    yerr_down,
-    xerr_left,
-    xerr_right,
-) -> List[str]:
-    """Build the sidecar header row for an errorbar series.
-
-    Mirrors :meth:`gleplot.writer.GLEWriter.add_errorbar`'s column-building
-    order exactly (x, y, then vertical error column(s), then horizontal
-    error column(s)), so the header row lines up 1:1 with the data columns
-    the writer actually emits:
-
-    - symmetric y error (``yerr_up == yerr_down``, both given) -> one
-      ``'err'`` column
-    - asymmetric -> ``'err_up'`` and/or ``'err_down'`` columns, in that order
-    - symmetric x error (``xerr_left == xerr_right``, both given) -> one
-      ``'xerr'`` column
-    - asymmetric -> ``'xerr_left'`` and/or ``'xerr_right'`` columns
-
-    The primary y column is named from ``label`` when given (else ``'y'``);
-    error columns always keep their stable suffix names (never derived from
-    the label) since GLE never auto-keys off an error dataset's column name
-    directly relevant here -- only the uniqueness pass can rename them.
-    """
-    y_names = ["y"]
-
-    has_yerr = yerr_up is not None or yerr_down is not None
-    has_xerr = xerr_left is not None or xerr_right is not None
-    yerr_symmetric = (
-        has_yerr
-        and yerr_up is not None
-        and yerr_down is not None
-        and np.array_equal(yerr_up, yerr_down)
-    )
-    xerr_symmetric = (
-        has_xerr
-        and xerr_left is not None
-        and xerr_right is not None
-        and np.array_equal(xerr_left, xerr_right)
-    )
-
-    if has_yerr:
-        if yerr_symmetric:
-            y_names.append("err")
-        else:
-            if yerr_up is not None:
-                y_names.append("err_up")
-            if yerr_down is not None:
-                y_names.append("err_down")
-
-    if has_xerr:
-        if xerr_symmetric:
-            y_names.append("xerr")
-        else:
-            if xerr_left is not None:
-                y_names.append("xerr_left")
-            if xerr_right is not None:
-                y_names.append("xerr_right")
-
-    return _build_column_names("x", y_names, label)
-
-
-def _build_column_names(
-    x_name: str, y_names: List[str], label: Optional[str]
-) -> List[str]:
-    """Build a sidecar header row: one name for x, then one per y-like column.
-
-    Parameters
-    ----------
-    x_name : str
-        Base name for the x column (conventionally ``'x'``).
-    y_names : list of str
-        Base (pre-uniqueness) names for the remaining columns in file order,
-        e.g. ``['y']`` for a plain line, ``['y', 'err']`` for a symmetric
-        errorbar, ``['upper', 'lower']`` for a fill, ``['height']`` for a
-        bar chart. When ``label`` is given, the FIRST entry of ``y_names``
-        (the primary data column) is derived from the sanitized label
-        instead of its own base name; the rest keep their stable suffixes.
-    label : str, optional
-        Series label (e.g. the ``label=`` argument to ``plot``/``errorbar``/
-        ...). When present, sanitized and used as the primary data column's
-        name in place of its generic base name (e.g. ``'y'``). When absent
-        (``None`` or empty), the generic base name is kept as-is.
-
-    Returns
-    -------
-    list of str
-        ``[x_name] + y_names`` with the primary column optionally renamed
-        from ``label``, then de-duplicated for uniqueness within the file.
-    """
-    names = [x_name]
-    for i, base in enumerate(y_names):
-        if i == 0 and label:
-            names.append(sanitize_column_name(label, fallback=base))
-        else:
-            names.append(base)
-    return _unique_column_names(names)
 
 
 def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
@@ -657,23 +504,26 @@ class Axes:
         self._break_owner = None
         self._break_index = None
 
-        # Plot data storage
-        self.lines = []  # List of line plot data
-        self.scatters = []  # List of scatter plot data
-        self.bars = []  # List of bar chart data
-        self.fills = []  # List of fill_between data
-        self.errorbars = []  # List of errorbar plot data
-        self.file_series = []  # External-file series definitions (column references)
-        self.texts = []  # In-plot text annotations
-        self.heatmaps = []  # imshow/tripcolor colormap series
-        self.contours = []  # contour/tricontour line series
+        # Plot data storage. One list per series kind, each holding the
+        # matching :mod:`gleplot.series` class (which owns that kind's field
+        # schema, array fields and sidecar header defaults).
+        self.lines: List[LineSeries] = []
+        self.scatters: List[ScatterSeries] = []
+        self.bars: List[BarSeries] = []
+        self.fills: List[FillSeries] = []
+        self.errorbars: List[ErrorbarSeries] = []
+        # External-file series definitions (column references).
+        self.file_series: List[FileSeries] = []
+        self.texts: List[TextAnnotation] = []  # In-plot text annotations
+        self.heatmaps: List[HeatmapSeries] = []  # imshow/tripcolor colormaps
+        self.contours: List[ContourSeries] = []  # contour/tricontour lines
         # Reference lines (axvline/axhline) and shaded bands (axvspan/
         # axhspan). Stored as *declarations* -- a value plus a fractional
         # extent along the other axis -- and turned into concrete two-point
         # line / band datasets only at write time, once the axis limits are
         # known. See :meth:`materialize_reflines` for why.
-        self.reflines = []
-        self.spans = []
+        self.reflines: List[RefLine] = []
+        self.spans: List[Span] = []
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model. Emitted verbatim inside this
@@ -780,26 +630,28 @@ class Axes:
             markersize, self.figure.marker_config.msize_scale
         )
 
-        line_data = {
-            "type": plot_type,
-            "x": x,
-            "y": y,
-            "color": color,
-            "marker": gle_marker,
-            "markersize": gle_markersize,
-            "linestyle": linestyle,
-            "linewidth": linewidth,
-            "label": label,
-            "yaxis": yaxis,  # 'y' or 'y2'
-            "offset": float(offset),
-            "data_file": _resolve_data_file(self.figure, data_name),
-            "column_names": _build_column_names("x", ["y"], label),
-        }
+        plot_fields = dict(
+            type=plot_type,
+            x=x,
+            y=y,
+            color=color,
+            marker=gle_marker,
+            markersize=gle_markersize,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=label,
+            yaxis=yaxis,  # 'y' or 'y2'
+            offset=float(offset),
+            data_file=_resolve_data_file(self.figure, data_name),
+            column_names=_build_column_names("x", ["y"], label),
+        )
 
         if is_scatter:
-            self._register_series_draw_meta(line_data, "scatter", zorder)
-            self.scatters.append(line_data)
+            scatter_data = ScatterSeries(**plot_fields)
+            self._register_series_draw_meta(scatter_data, "scatter", zorder)
+            self.scatters.append(scatter_data)
         else:
+            line_data = LineSeries(**plot_fields)
             self._register_series_draw_meta(line_data, "line", zorder)
             self.lines.append(line_data)
 
@@ -998,29 +850,29 @@ class Axes:
 
         data_name = kwargs.pop("data_name", None)
 
-        errbar_data = {
-            "type": "errorbar",
-            "x": x,
-            "y": y,
-            "yerr_up": yerr_up,
-            "yerr_down": yerr_down,
-            "xerr_left": xerr_left,
-            "xerr_right": xerr_right,
-            "color": color,
-            "marker": gle_marker,
-            "markersize": gle_markersize,
-            "linestyle": parsed_linestyle,
-            "linewidth": linewidth,
-            "label": label,
-            "capsize": stored_capsize,
-            "gle_capsize": gle_capsize,  # Separate field for the GLE-converted value
-            "yaxis": yaxis,  # 'y' or 'y2'
-            "offset": float(offset),
-            "data_file": _resolve_data_file(self.figure, data_name),
-            "column_names": _build_errorbar_column_names(
+        errbar_data = ErrorbarSeries(
+            type="errorbar",
+            x=x,
+            y=y,
+            yerr_up=yerr_up,
+            yerr_down=yerr_down,
+            xerr_left=xerr_left,
+            xerr_right=xerr_right,
+            color=color,
+            marker=gle_marker,
+            markersize=gle_markersize,
+            linestyle=parsed_linestyle,
+            linewidth=linewidth,
+            label=label,
+            capsize=stored_capsize,
+            gle_capsize=gle_capsize,  # Separate field for the GLE-converted value
+            yaxis=yaxis,  # 'y' or 'y2'
+            offset=float(offset),
+            data_file=_resolve_data_file(self.figure, data_name),
+            column_names=_build_errorbar_column_names(
                 label, yerr_up, yerr_down, xerr_left, xerr_right
             ),
-        }
+        )
         self._register_series_draw_meta(errbar_data, "errorbar", zorder)
         self.errorbars.append(errbar_data)
 
@@ -1068,19 +920,19 @@ class Axes:
         gle_capsize = capsize_pt_to_cm(capsize) if capsize is not None else None
 
         self.file_series.append(
-            {
-                "series_type": "errorbar",
-                "data_file": data_file,
-                "x_col": int(x_col),
-                "y_col": int(y_col),
-                "yerr_col": int(yerr_col) if yerr_col is not None else None,
-                "color": gle_color,
-                "marker": gle_marker,
-                "markersize": gle_markersize,
-                "label": label,
-                "capsize": gle_capsize,
-                "yaxis": yaxis,
-            }
+            FileSeries(
+                series_type="errorbar",
+                data_file=data_file,
+                x_col=int(x_col),
+                y_col=int(y_col),
+                yerr_col=int(yerr_col) if yerr_col is not None else None,
+                color=gle_color,
+                marker=gle_marker,
+                markersize=gle_markersize,
+                label=label,
+                capsize=gle_capsize,
+                yaxis=yaxis,
+            )
         )
 
         return self
@@ -1111,17 +963,17 @@ class Axes:
             gle_color = rgb_to_gle(color)
 
         self.file_series.append(
-            {
-                "series_type": "line",
-                "data_file": data_file,
-                "x_col": int(x_col),
-                "y_col": int(y_col),
-                "color": gle_color,
-                "linestyle": linestyle,
-                "linewidth": float(linewidth),
-                "label": label,
-                "yaxis": yaxis,
-            }
+            FileSeries(
+                series_type="line",
+                data_file=data_file,
+                x_col=int(x_col),
+                y_col=int(y_col),
+                color=gle_color,
+                linestyle=linestyle,
+                linewidth=float(linewidth),
+                label=label,
+                yaxis=yaxis,
+            )
         )
 
         return self
@@ -1295,14 +1147,14 @@ class Axes:
             # Take first color only
             colors = [rgb_to_gle(color[0])] * len(height)
 
-        bar_data = {
-            "x": x,
-            "height": height,
-            "colors": colors,
-            "label": label,
-            "data_file": _resolve_data_file(self.figure, data_name),
-            "column_names": _build_column_names("x", ["height"], label),
-        }
+        bar_data = BarSeries(
+            x=x,
+            height=height,
+            colors=colors,
+            label=label,
+            data_file=_resolve_data_file(self.figure, data_name),
+            column_names=_build_column_names("x", ["height"], label),
+        )
         self._register_series_draw_meta(bar_data, "bar", zorder)
         self.bars.append(bar_data)
 
@@ -1353,17 +1205,17 @@ class Axes:
         else:
             color = rgb_to_gle(color)
 
-        fill_data = {
-            "x": x,
-            "y1": y1,
-            "y2": y2,
-            "color": color,
-            "alpha": alpha,
-            "label": label,
-            "offset": float(offset),
-            "data_file": _resolve_data_file(self.figure, data_name),
-            "column_names": _unique_column_names(["x", "upper", "lower"]),
-        }
+        fill_data = FillSeries(
+            x=x,
+            y1=y1,
+            y2=y2,
+            color=color,
+            alpha=alpha,
+            label=label,
+            offset=float(offset),
+            data_file=_resolve_data_file(self.figure, data_name),
+            column_names=_unique_column_names(["x", "upper", "lower"]),
+        )
         self.fills.append(fill_data)
 
         return self
@@ -1477,19 +1329,19 @@ class Axes:
         label = mathtext_to_gle(label)
         gle_color = "BLACK" if color is None else rgb_to_gle(color)
 
-        entry = {
-            "type": "refline",
-            "orient": orient,
-            "value": float(value),
-            "span_lo": lo,
-            "span_hi": hi,
-            "color": gle_color,
-            "linestyle": linestyle,
-            "linewidth": linewidth,
-            "label": label,
-            "data_file": _resolve_data_file(self.figure, data_name),
-            "column_names": _build_column_names("x", ["y"], label),
-        }
+        entry = RefLine(
+            type="refline",
+            orient=orient,
+            value=float(value),
+            span_lo=lo,
+            span_hi=hi,
+            color=gle_color,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=label,
+            data_file=_resolve_data_file(self.figure, data_name),
+            column_names=_build_column_names("x", ["y"], label),
+        )
         self.reflines.append(entry)
         return entry
 
@@ -1559,19 +1411,19 @@ class Axes:
         label = mathtext_to_gle(label)
         gle_color = "LIGHTGRAY" if color is None else rgb_to_gle(color)
 
-        entry = {
-            "type": "span",
-            "orient": orient,
-            "start": float(start),
-            "end": float(end),
-            "span_lo": lo,
-            "span_hi": hi,
-            "color": gle_color,
-            "alpha": float(alpha),
-            "label": label,
-            "data_file": _resolve_data_file(self.figure, data_name),
-            "column_names": _unique_column_names(["x", "upper", "lower"]),
-        }
+        entry = Span(
+            type="span",
+            orient=orient,
+            start=float(start),
+            end=float(end),
+            span_lo=lo,
+            span_hi=hi,
+            color=gle_color,
+            alpha=float(alpha),
+            label=label,
+            data_file=_resolve_data_file(self.figure, data_name),
+            column_names=_unique_column_names(["x", "upper", "lower"]),
+        )
         self.spans.append(entry)
         return entry
 
@@ -1581,7 +1433,7 @@ class Axes:
         span = vmax - vmin
         return vmin + lo * span, vmin + hi * span
 
-    def materialize_reflines(self, limits) -> List[dict]:
+    def materialize_reflines(self, limits) -> List[LineSeries]:
         """Turn ``self.reflines`` into concrete two-point line series.
 
         Parameters
@@ -1601,7 +1453,7 @@ class Axes:
             so writing a figure twice does not duplicate content.
         """
         xmin, xmax, ymin, ymax = limits
-        out = []
+        out: List[LineSeries] = []
         for entry in self.reflines:
             if entry["orient"] == "v":
                 if ymin is None or ymax is None:
@@ -1623,32 +1475,32 @@ class Axes:
                 y = np.array([entry["value"], entry["value"]], dtype=float)
 
             out.append(
-                {
-                    "type": "line",
-                    "x": x,
-                    "y": y,
-                    "color": entry["color"],
-                    "marker": None,
-                    "markersize": 0.1,
-                    "linestyle": entry["linestyle"],
-                    "linewidth": entry["linewidth"],
-                    "label": entry["label"],
-                    "yaxis": "y",
-                    "offset": 0.0,
-                    "data_file": entry["data_file"],
-                    "column_names": entry["column_names"],
-                }
+                LineSeries(
+                    type="line",
+                    x=x,
+                    y=y,
+                    color=entry["color"],
+                    marker=None,
+                    markersize=0.1,
+                    linestyle=entry["linestyle"],
+                    linewidth=entry["linewidth"],
+                    label=entry["label"],
+                    yaxis="y",
+                    offset=0.0,
+                    data_file=entry["data_file"],
+                    column_names=entry["column_names"],
+                )
             )
         return out
 
-    def materialize_spans(self, limits) -> List[dict]:
+    def materialize_spans(self, limits) -> List[FillSeries]:
         """Turn ``self.spans`` into concrete fill-between series.
 
         See :meth:`materialize_reflines`; the same contract applies (nothing
         is stored back, unresolvable limits skip with a warning).
         """
         xmin, xmax, ymin, ymax = limits
-        out = []
+        out: List[FillSeries] = []
         for entry in self.spans:
             if entry["orient"] == "v":
                 if ymin is None or ymax is None:
@@ -1672,17 +1524,17 @@ class Axes:
                 lower = np.array([entry["start"], entry["start"]], dtype=float)
 
             out.append(
-                {
-                    "x": x,
-                    "y1": upper,
-                    "y2": lower,
-                    "color": entry["color"],
-                    "alpha": entry["alpha"],
-                    "label": entry["label"],
-                    "offset": 0.0,
-                    "data_file": entry["data_file"],
-                    "column_names": entry["column_names"],
-                }
+                FillSeries(
+                    x=x,
+                    y1=upper,
+                    y2=lower,
+                    color=entry["color"],
+                    alpha=entry["alpha"],
+                    label=entry["label"],
+                    offset=0.0,
+                    data_file=entry["data_file"],
+                    column_names=entry["column_names"],
+                )
             )
         return out
 
@@ -1739,16 +1591,16 @@ class Axes:
                 box_color = rgb_to_gle(facecolor)
 
         self.texts.append(
-            {
-                "x": float(x),
-                "y": float(y),
-                "text": mathtext_to_gle(str(s)),
-                "color": gle_color,
-                "fontsize": float(fontsize) if fontsize is not None else None,
-                "ha": str(ha),
-                "va": str(va),
-                "box_color": box_color,
-            }
+            TextAnnotation(
+                x=float(x),
+                y=float(y),
+                text=mathtext_to_gle(str(s)),
+                color=gle_color,
+                fontsize=float(fontsize) if fontsize is not None else None,
+                ha=str(ha),
+                va=str(va),
+                box_color=box_color,
+            )
         )
         return self
 
@@ -1849,27 +1701,27 @@ class Axes:
             )
 
         data_file = _reserve_sidecar(self.figure, "heatmap", "z")
-        hm = {
-            "type": "heatmap",
-            "source": "grid",
-            "z": z,
-            "x": None,
-            "y": None,
-            "zpts": None,
-            "extent": ext,
-            "origin": origin,
-            "cmap": self._resolve_cmap(cmap),
-            "vmin": None if vmin is None else float(vmin),
-            "vmax": None if vmax is None else float(vmax),
-            "interpolation": "nearest" if interpolation == "nearest" else "bicubic",
-            "pixels": self._resolve_pixels(pixels),
-            "invert": bool(invert),
-            "gridsize": None,
-            "ncontour": None,
-            "label": label,
-            "data_file": data_file,
-            "colorbar": None,
-        }
+        hm = HeatmapSeries(
+            type="heatmap",
+            source="grid",
+            z=z,
+            x=None,
+            y=None,
+            zpts=None,
+            extent=ext,
+            origin=origin,
+            cmap=self._resolve_cmap(cmap),
+            vmin=None if vmin is None else float(vmin),
+            vmax=None if vmax is None else float(vmax),
+            interpolation="nearest" if interpolation == "nearest" else "bicubic",
+            pixels=self._resolve_pixels(pixels),
+            invert=bool(invert),
+            gridsize=None,
+            ncontour=None,
+            label=label,
+            data_file=data_file,
+            colorbar=None,
+        )
         self.heatmaps.append(hm)
         return hm
 
@@ -1937,25 +1789,25 @@ class Axes:
                     f"range ({zmn}, {zmx}); no contour lines would be drawn"
                 )
         data_file = _reserve_sidecar(self.figure, "contour", "z")
-        ct = {
-            "type": "contour",
-            "source": "grid",
-            "z": z,
-            "x": None,
-            "y": None,
-            "zpts": None,
-            "extent": ext,
-            "levels": levels_resolved,
-            "color": rgb_to_gle(colors),
-            "linewidth": float(linewidths),
-            "linestyle": self._linestyle_to_lstyle(linestyles),
-            "clabel": bool(clabel),
-            "clabel_fmt": str(clabel_fmt),
-            "gridsize": None,
-            "ncontour": None,
-            "label": label,
-            "data_file": data_file,
-        }
+        ct = ContourSeries(
+            type="contour",
+            source="grid",
+            z=z,
+            x=None,
+            y=None,
+            zpts=None,
+            extent=ext,
+            levels=levels_resolved,
+            color=rgb_to_gle(colors),
+            linewidth=float(linewidths),
+            linestyle=self._linestyle_to_lstyle(linestyles),
+            clabel=bool(clabel),
+            clabel_fmt=str(clabel_fmt),
+            gridsize=None,
+            ncontour=None,
+            label=label,
+            data_file=data_file,
+        )
         self.contours.append(ct)
         return ct
 
@@ -2082,27 +1934,27 @@ class Axes:
             )
         xa, ya, za, ext, gs = self._points_from_args(x, y, z, gridsize, extent)
         data_file = _reserve_sidecar(self.figure, "points", "dat")
-        hm = {
-            "type": "heatmap",
-            "source": "points",
-            "z": None,
-            "x": xa,
-            "y": ya,
-            "zpts": za,
-            "extent": ext,
-            "origin": "lower",
-            "cmap": self._resolve_cmap(cmap),
-            "vmin": None if vmin is None else float(vmin),
-            "vmax": None if vmax is None else float(vmax),
-            "interpolation": "nearest" if interpolation == "nearest" else "bicubic",
-            "pixels": self._resolve_pixels(pixels),
-            "invert": bool(invert),
-            "gridsize": gs,
-            "ncontour": None,
-            "label": label,
-            "data_file": data_file,
-            "colorbar": None,
-        }
+        hm = HeatmapSeries(
+            type="heatmap",
+            source="points",
+            z=None,
+            x=xa,
+            y=ya,
+            zpts=za,
+            extent=ext,
+            origin="lower",
+            cmap=self._resolve_cmap(cmap),
+            vmin=None if vmin is None else float(vmin),
+            vmax=None if vmax is None else float(vmax),
+            interpolation="nearest" if interpolation == "nearest" else "bicubic",
+            pixels=self._resolve_pixels(pixels),
+            invert=bool(invert),
+            gridsize=gs,
+            ncontour=None,
+            label=label,
+            data_file=data_file,
+            colorbar=None,
+        )
         self.heatmaps.append(hm)
         return hm
 
@@ -2141,25 +1993,25 @@ class Axes:
         # from the scattered z-values (GLE grids at compile time).
         levels_resolved = self._resolve_levels(levels, za)
         data_file = _reserve_sidecar(self.figure, "points", "dat")
-        ct = {
-            "type": "contour",
-            "source": "points",
-            "z": None,
-            "x": xa,
-            "y": ya,
-            "zpts": za,
-            "extent": ext,
-            "levels": levels_resolved,
-            "color": rgb_to_gle(colors),
-            "linewidth": float(linewidths),
-            "linestyle": self._linestyle_to_lstyle(linestyles),
-            "clabel": bool(clabel),
-            "clabel_fmt": str(clabel_fmt),
-            "gridsize": gs,
-            "ncontour": int(ncontour),
-            "label": label,
-            "data_file": data_file,
-        }
+        ct = ContourSeries(
+            type="contour",
+            source="points",
+            z=None,
+            x=xa,
+            y=ya,
+            zpts=za,
+            extent=ext,
+            levels=levels_resolved,
+            color=rgb_to_gle(colors),
+            linewidth=float(linewidths),
+            linestyle=self._linestyle_to_lstyle(linestyles),
+            clabel=bool(clabel),
+            clabel_fmt=str(clabel_fmt),
+            gridsize=gs,
+            ncontour=int(ncontour),
+            label=label,
+            data_file=data_file,
+        )
         self.contours.append(ct)
         return ct
 
@@ -2498,7 +2350,12 @@ class Axes:
 
     def has_y2_plots(self) -> bool:
         """Check if axes has any plots using the y2 axis."""
-        for plot_list in [self.lines, self.scatters, self.errorbars]:
+        y2_capable: Sequence[Sequence[Series]] = (
+            self.lines,
+            self.scatters,
+            self.errorbars,
+        )
+        for plot_list in y2_capable:
             for plot_data in plot_list:
                 if plot_data.get("yaxis") == "y2":
                     return True
@@ -2506,71 +2363,13 @@ class Axes:
 
     # -- Serialization ----------------------------------------------------
     #
-    # Which keys in each series dict hold numeric arrays. ``from_dict`` uses
-    # this to restore ndarrays where the object model expects them; every
-    # other key is a JSON scalar/string/None and is restored verbatim.
-    _ARRAY_KEYS = {
-        "lines": ("x", "y"),
-        "scatters": ("x", "y"),
-        "bars": ("x", "height"),
-        "fills": ("x", "y1", "y2"),
-        "errorbars": ("x", "y", "yerr_up", "yerr_down", "xerr_left", "xerr_right"),
-        "file_series": (),
-        "texts": (),
-        "heatmaps": ("z", "x", "y", "zpts"),
-        "contours": ("z", "x", "y", "zpts"),
-        # Reference lines/spans store scalar declarations only (the arrays
-        # are built at write time), so there is nothing to restore as ndarray.
-        "reflines": (),
-        "spans": (),
-    }
+    # The series list order, which keys hold numeric arrays, and the sidecar
+    # header-row fallback all come from the series classes now (see
+    # :mod:`gleplot.series`), so there is nothing left to keep in sync by
+    # hand here.
 
-    # Series list attributes serialized on every axes, in a stable order.
-    _SERIES_ATTRS = (
-        "lines",
-        "scatters",
-        "bars",
-        "fills",
-        "errorbars",
-        "file_series",
-        "texts",
-        "heatmaps",
-        "contours",
-        "reflines",
-        "spans",
-    )
-
-    @staticmethod
-    def _default_column_names(attr: str, item: dict) -> Optional[List[str]]:
-        """Regenerate ``column_names`` for a series loaded from an older project.
-
-        Projects saved before Track E3 (named sidecar column headers) have no
-        ``'column_names'`` key on their series dicts at all. Rather than
-        leaving it absent (which would produce a headerless sidecar on the
-        next save -- a silent format regression), recompute the same default
-        names :meth:`plot`/:meth:`errorbar`/:meth:`bar`/:meth:`fill_between`
-        would have produced for equivalent arguments, using the already
-        JSON-scalar/array-restored ``item``. Returns ``None`` for
-        ``file_series``/``texts`` (no generated sidecar, nothing to name).
-        """
-        label = item.get("label")
-        if attr in ("lines", "scatters"):
-            return _build_column_names("x", ["y"], label)
-        if attr == "bars":
-            return _build_column_names("x", ["height"], label)
-        if attr in ("fills", "spans"):
-            return _unique_column_names(["x", "upper", "lower"])
-        if attr == "reflines":
-            return _build_column_names("x", ["y"], label)
-        if attr == "errorbars":
-            return _build_errorbar_column_names(
-                label,
-                item.get("yerr_up"),
-                item.get("yerr_down"),
-                item.get("xerr_left"),
-                item.get("xerr_right"),
-            )
-        return None
+    #: Series list attributes serialized on every axes, in a stable order.
+    _SERIES_ATTRS: Tuple[str, ...] = SERIES_ATTRS
 
     def to_dict(self) -> dict:
         """Serialize this axes to a JSON-safe dictionary.
@@ -2586,7 +2385,7 @@ class Axes:
         verbatim so that a round-trip produces byte-identical GLE regardless
         of the module-global data-file counter state.
         """
-        return {
+        payload: Dict[str, Any] = {
             "position": list(self.position) if self.position is not None else None,
             "xlabel_text": self.xlabel_text,
             "ylabel_text": self.ylabel_text,
@@ -2627,19 +2426,14 @@ class Axes:
             "x2axis_off": self._x2axis_off,
             "y2axis_off": self._y2axis_off,
             "break_index": self._break_index,
-            "lines": [_to_jsonable(d) for d in self.lines],
-            "scatters": [_to_jsonable(d) for d in self.scatters],
-            "bars": [_to_jsonable(d) for d in self.bars],
-            "fills": [_to_jsonable(d) for d in self.fills],
-            "errorbars": [_to_jsonable(d) for d in self.errorbars],
-            "file_series": [_to_jsonable(d) for d in self.file_series],
-            "texts": [_to_jsonable(d) for d in self.texts],
-            "heatmaps": [_to_jsonable(d) for d in self.heatmaps],
-            "contours": [_to_jsonable(d) for d in self.contours],
-            "reflines": [_to_jsonable(d) for d in self.reflines],
-            "spans": [_to_jsonable(d) for d in self.spans],
-            "passthrough": list(self.passthrough),
         }
+        # Series lists, in registry order -- exactly where they appeared when
+        # each was spelled out here by hand, so the key order (and therefore
+        # the serialized bytes) is unchanged.
+        for attr in SERIES_ATTRS:
+            payload[attr] = [_to_jsonable(s) for s in getattr(self, attr)]
+        payload["passthrough"] = list(self.passthrough)
+        return payload
 
     @classmethod
     def from_dict(cls, figure, d: dict) -> "Axes":
@@ -2653,10 +2447,12 @@ class Axes:
             Axes payload produced by :meth:`to_dict`. Unknown keys are
             ignored for forward compatibility.
 
-        Numeric data in series is restored to ``float`` numpy arrays where the
-        object model expects arrays (see ``_ARRAY_KEYS``); optional error
-        arrays that were ``None`` stay ``None``. All style keys, labels and
-        the ``data_file`` names are restored verbatim.
+        Each series is rebuilt as its :mod:`gleplot.series` class, whose
+        ``ARRAY_FIELDS`` say which values are restored to ``float`` numpy
+        arrays; optional error arrays that were ``None`` stay ``None``. All
+        style keys, labels and the ``data_file`` names are restored
+        verbatim, as are any keys the class does not declare (a project
+        written by a newer gleplot still round-trips).
         """
         position = d.get("position")
         if position is not None:
@@ -2710,19 +2506,18 @@ class Axes:
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")
 
-        for attr in cls._SERIES_ATTRS:
-            array_keys = cls._ARRAY_KEYS[attr]
+        for attr, series_cls in SERIES_CLASSES.items():
             restored = []
-            for series in d.get(attr, []):
-                item = dict(series)
-                for key in array_keys:
+            for payload in d.get(attr, []):
+                item = series_cls._restore(payload)
+                for key in series_cls.ARRAY_FIELDS:
                     item[key] = _to_float_array(item.get(key))
                 # Older projects (pre Track E3) have no 'column_names' key at
-                # all on their series dicts; regenerate the same defaults the
+                # all on their series; regenerate the same defaults the
                 # plotting methods would produce so the next save still gets
                 # a named header row instead of silently reverting to none.
                 if "column_names" not in item:
-                    defaults = cls._default_column_names(attr, item)
+                    defaults = item.default_column_names()
                     if defaults is not None:
                         item["column_names"] = defaults
                 restored.append(item)
@@ -2741,17 +2536,25 @@ class Axes:
         return ax
 
 
-def sorted_zorder_drawables(ax: "Axes") -> List[Tuple[str, dict]]:
-    """Bars, lines, scatters, and errorbars sorted by ``(zorder, call order)``."""
-    items: List[Tuple[float, float, str, dict]] = []
-    for kind, series_list in (
-        ("bar", ax.bars),
-        ("line", ax.lines),
-        ("scatter", ax.scatters),
-        ("errorbar", ax.errorbars),
-    ):
+def sorted_zorder_drawables(ax: "Axes") -> List[Tuple[str, Series]]:
+    """Bars, lines, scatters, and errorbars sorted by ``(zorder, call order)``.
+
+    The kind name and both fallbacks come from the series classes
+    (:data:`gleplot.series.DRAWABLE_CLASSES`), so a new drawable kind only
+    has to declare ``KIND``/``ZORDER_DEFAULT``/``KIND_RANK`` to join the
+    ordering. An explicit ``zorder`` on a series wins; ``_draw_seq`` records
+    the call order and is absent only on pre-zorder projects, where the
+    kind rank reproduces the old fixed emission stack.
+    """
+    items: List[Tuple[float, float, str, Series]] = []
+    for kind, series_cls in DRAWABLE_CLASSES.items():
+        series_list = getattr(ax, series_cls.ATTR)
         for idx, data in enumerate(series_list):
-            z = float(data["zorder"]) if "zorder" in data else SERIES_ZORDER_DEFAULT[kind]
+            z = (
+                float(data["zorder"])
+                if "zorder" in data
+                else SERIES_ZORDER_DEFAULT[kind]
+            )
             draw_seq = data.get("_draw_seq")
             if draw_seq is None:
                 draw_seq = _SERIES_KIND_RANK[kind] * 1_000_000 + idx

@@ -14,7 +14,9 @@ import pytest
 import gleplot as glp
 from gleplot import axes as glp_axes
 from gleplot import Figure
+from gleplot.axes import Axes
 from gleplot.figure import PROJECT_FORMAT, PROJECT_VERSION
+from gleplot.series import SERIES_ATTRS, SERIES_CLASSES, Series
 
 
 def _simple_figure():
@@ -339,7 +341,7 @@ def test_global_data_counter_takes_max_with_in_process_value(monkeypatch):
 #
 # These tests guard against a future dev adding a new stateful attribute to
 # Axes.__init__ / Figure.__init__ without updating the serialization layer
-# (to_dict / from_dict / _ARRAY_KEYS) to round-trip it. If either of these
+# (to_dict / from_dict) to round-trip it. If either of these
 # tests fails, it means `vars(instance)` grew a key that isn't accounted for
 # below -- go update Axes.to_dict/from_dict (or Figure.to_dict/from_dict) and
 # then extend the "covered" set (or, if the new attribute is genuinely
@@ -466,9 +468,9 @@ def test_axes_instance_attrs_fully_accounted_for_in_serialization():
         f"Axes gained new instance attribute(s) {unaccounted} that are not "
         "handled by Axes.to_dict()/from_dict() and not listed in the "
         "documented runtime-only exclusion set in this test file. Update "
-        "Axes.to_dict/from_dict (and _ARRAY_KEYS/_SERIES_ATTRS if it's a new "
-        "series list) or add it to _AXES_RUNTIME_ONLY_ATTRS with a comment "
-        "explaining why it must not be persisted."
+        "Axes.to_dict/from_dict (and gleplot.series.SERIES_CLASSES if it's a "
+        "new series list) or add it to _AXES_RUNTIME_ONLY_ATTRS with a "
+        "comment explaining why it must not be persisted."
     )
 
     # Also guard against the lists going stale in the other direction (a
@@ -495,3 +497,201 @@ def test_figure_instance_attrs_fully_accounted_for_in_serialization():
 
     stale = accounted_for - actual_attrs
     assert not stale, f"Stale entries in the Figure attribute lists: {stale}"
+
+
+# -- Series-class completeness ------------------------------------------------
+#
+# The same drift guard as above, one level down. Each series kind used to be
+# an anonymous dict described by three hand-synced tables on Axes
+# (_SERIES_ATTRS / _ARRAY_KEYS / _default_column_names); it is now a class in
+# gleplot.series that declares its own fields. These tests are what makes the
+# class the single source of truth: a field that is not declared cannot be
+# constructed, and every field that IS declared must survive a round-trip.
+
+
+def _figure_exercising_every_series_kind():
+    """A figure touching every public series-producing entry point.
+
+    One axes per heatmap/contour pair because GLE (and so Axes.imshow)
+    allows at most one colormap per axes.
+    """
+    fig = glp.figure(figsize=(8, 10), data_prefix="cov")
+    ax = fig.add_subplot(311)
+    ax.plot([1.0, 2.0], [3.0, 4.0], marker="o", label="line", zorder=7)
+    ax.scatter([1.0, 2.0], [3.0, 4.0], label="scatter", zorder=8)
+    ax.bar([1.0, 2.0], [3.0, 4.0], color="red", label="bar", zorder=1)
+    ax.fill_between([1.0, 2.0], [0.0, 1.0], [3.0, 4.0], label="fill")
+    ax.errorbar(
+        [1.0, 2.0],
+        [3.0, 4.0],
+        yerr=[0.1, 0.2],
+        xerr=[0.3, 0.4],
+        capsize=3,
+        label="err",
+        zorder=9,
+    )
+    ax.line_from_file("ext.dat", 1, 2, label="fline")
+    ax.errorbar_from_file("ext.dat", 1, 2, yerr_col=3, capsize=2, label="ferr")
+    ax.text(1.0, 2.0, "hello", color="blue", fontsize=9, bbox={"facecolor": "white"})
+    ax.axvline(1.5, label="vline")
+    ax.axhline(2.5, label="hline")
+    ax.axvspan(1.0, 1.2, label="vspan")
+    ax.axhspan(2.0, 2.2, label="hspan")
+
+    ax2 = fig.add_subplot(312)
+    ax2.imshow(np.arange(12, dtype=float).reshape(3, 4), extent=(0, 4, 0, 3))
+    ax2.contour(
+        np.linspace(0, 4, 4),
+        np.linspace(0, 3, 3),
+        np.arange(12, dtype=float).reshape(3, 4),
+        levels=[2.0, 6.0],
+        clabel=True,
+    )
+
+    ax3 = fig.add_subplot(313)
+    pts_x = [0.0, 1.0, 2.0, 3.0]
+    pts_y = [0.0, 1.0, 0.0, 1.0]
+    pts_z = [1.0, 2.0, 3.0, 4.0]
+    ax3.tripcolor(pts_x, pts_y, pts_z, gridsize=(4, 4))
+    ax3.tricontour(pts_x, pts_y, pts_z, gridsize=(4, 4), ncontour=2)
+    return fig
+
+
+def _all_series(fig):
+    """Yield ``(attr, series)`` for every series on every axes of ``fig``."""
+    for ax in fig.axes_list:
+        for attr in SERIES_ATTRS:
+            for series in getattr(ax, attr):
+                yield attr, series
+
+
+def test_series_registry_matches_axes_attributes():
+    """Every registry entry is a real Axes list, and every list is registered."""
+    ax = glp.figure().add_subplot(111)
+    for attr, series_cls in SERIES_CLASSES.items():
+        assert isinstance(getattr(ax, attr), list), f"Axes has no list {attr!r}"
+        assert series_cls.ATTR == attr
+        assert set(series_cls.ARRAY_FIELDS) <= set(series_cls.FIELDS), (
+            f"{series_cls.__name__}.ARRAY_FIELDS names undeclared field(s) "
+            f"{sorted(set(series_cls.ARRAY_FIELDS) - set(series_cls.FIELDS))}"
+        )
+        assert series_cls.FIELDS, f"{series_cls.__name__} declares no fields"
+
+    # Axes._SERIES_ATTRS is derived from the registry, not hand-maintained.
+    assert Axes._SERIES_ATTRS == SERIES_ATTRS
+
+
+def test_every_key_the_plotting_api_produces_is_a_declared_field():
+    """No series may carry a key its class does not declare.
+
+    This is the check that replaces the old hand-synced tables: adding a key
+    at a call site without declaring it on the class fails here (and, for the
+    keyword form, already fails at construction -- see the next test).
+    """
+    fig = _figure_exercising_every_series_kind()
+    for attr, series in _all_series(fig):
+        assert isinstance(series, SERIES_CLASSES[attr]), (
+            f"{attr} holds a {type(series).__name__}; series must be built "
+            f"through {SERIES_CLASSES[attr].__name__} so the schema applies"
+        )
+        stray = set(series) - set(type(series).FIELDS)
+        assert not stray, (
+            f"{type(series).__name__} carries undeclared key(s) {sorted(stray)}. "
+            "Declare them as annotations on the class in gleplot/series.py -- "
+            "that is the single place a series kind's schema lives."
+        )
+
+
+def test_series_reject_undeclared_construction_keywords():
+    for series_cls in SERIES_CLASSES.values():
+        with pytest.raises(TypeError, match="unknown field"):
+            series_cls(definitely_not_a_field=1)
+
+
+def test_optional_fields_stay_absent_rather_than_none():
+    """``zorder``/``_draw_seq`` presence is meaningful; construction must not
+    materialize unset fields (``sorted_zorder_drawables`` reads ``"zorder" in
+    series`` to tell "explicit" from "kind default" apart)."""
+    fig = glp.figure(data_prefix="u")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2], [1, 2])
+    ax.plot([1, 2], [2, 3], zorder=4.5)
+    assert "zorder" not in ax.lines[0]
+    assert ax.lines[1]["zorder"] == 4.5
+    # ... and the distinction survives serialization.
+    restored = Figure.from_dict(fig.to_dict()).axes_list[0]
+    assert "zorder" not in restored.lines[0]
+    assert restored.lines[1]["zorder"] == 4.5
+
+
+def test_every_declared_field_survives_a_full_round_trip():
+    """to_dict -> from_dict -> to_dict is a fixed point for every field.
+
+    A field declared on a class but dropped by the serialization layer shows
+    up here as a missing key; one restored with the wrong type shows up as a
+    value mismatch.
+    """
+    fig = _figure_exercising_every_series_kind()
+    once = fig.to_dict()
+    twice = Figure.from_dict(once).to_dict()
+    assert twice == once
+
+    seen_fields = {}
+    for attr, series in _all_series(Figure.from_dict(once)):
+        seen_fields.setdefault(attr, set()).update(series)
+    # Every kind was actually exercised above (else the test proves nothing).
+    assert set(seen_fields) == set(SERIES_ATTRS), (
+        "the coverage figure no longer produces every series kind: missing "
+        f"{sorted(set(SERIES_ATTRS) - set(seen_fields))}"
+    )
+
+
+def test_unknown_series_keys_are_preserved_for_forward_compatibility():
+    """A project written by a newer gleplot round-trips through an older one.
+
+    Axes.from_dict is deliberately lenient where the constructors are strict:
+    a key the class does not declare is kept verbatim rather than dropped.
+    """
+    fig = _simple_figure()
+    payload = fig.to_dict()
+    payload["figure"]["axes"][0]["lines"][0]["future_field"] = "keep me"
+
+    restored = Figure.from_dict(payload)
+    assert restored.axes_list[0].lines[0]["future_field"] == "keep me"
+    assert restored.to_dict()["figure"]["axes"][0]["lines"][0]["future_field"] == (
+        "keep me"
+    )
+
+
+def test_declared_fields_are_readable_as_attributes():
+    """The typed face of the classes: ``series.color`` is ``series["color"]``."""
+    fig = _simple_figure()
+    line = fig.axes_list[0].lines[0]
+    assert isinstance(line, Series)
+    assert line.color == line["color"]
+    assert line.label == "q"
+    line.label = "renamed"
+    assert line["label"] == "renamed"
+    # An unset optional field is an AttributeError, not a silent None.
+    with pytest.raises(AttributeError):
+        line.zorder
+
+
+def test_series_copy_keeps_its_class():
+    """``dict.copy()`` would downgrade a series to a plain dict."""
+    fig = _simple_figure()
+    line = fig.axes_list[0].lines[0]
+    clone = line.copy()
+    assert type(clone) is type(line)
+    assert clone == line
+    clone["label"] = "other"
+    assert line["label"] == "q"
+
+
+def test_series_deep_copy_round_trips():
+    """Undo snapshots and preview copies deep-copy the model."""
+    fig = _figure_exercising_every_series_kind()
+    for _attr, series in _all_series(fig):
+        clone = copy.deepcopy(series)
+        assert type(clone) is type(series)
+        assert list(clone) == list(series)

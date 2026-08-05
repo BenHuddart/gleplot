@@ -18,6 +18,7 @@ Two entry points:
 - `__init__.py` — public API: `Figure`, `Axes`, config classes, module-level convenience functions (`figure`, `subplots`, `plot`, …), and `open_gle()` (parse a `.gle` file back into a `Figure`).
 - `figure.py` — `Figure`: subplot layout, `savefig`, `view`, and a byte-stable `to_dict()`/`from_dict()` serialization (used by the GUI for undo/preview snapshots).
 - `axes.py` — `Axes`: per-plot primitives (lines, scatter, bars, fills, errorbars, text, log scales, secondary y-axis, `*_from_file` series).
+- `series.py` — the typed series classes (`LineSeries`, `ScatterSeries`, `BarSeries`, `FillSeries`, `ErrorbarSeries`, `FileSeries`, `TextAnnotation`, `HeatmapSeries`, `ContourSeries`, `RefLine`, `Span`) held in the eleven series lists on `Axes`, plus the `SERIES_CLASSES` registry that fixes their serialization/emission order. Each class declares its own fields, its array fields and its sidecar header-row defaults, and is a `dict` subclass so every `series["key"]` call site in the writer/recognizer/GUI keeps working and `to_dict()` stays byte-identical.
 - `writer.py` — turns the object model into GLE script text.
 - `compiler.py` — `GLECompiler` + `find_gle()`: shells out to the external `gle` binary. Supported formats in `SUPPORTED_COMPILE_FORMATS`.
 - `config.py` — `GLEStyleConfig`, `GLEGraphConfig`, `GLEMarkerConfig`, `GlobalConfig`.
