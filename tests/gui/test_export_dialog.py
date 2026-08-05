@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6", reason="PySide6 not installed (gui extra)")
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QEventLoop, QSettings, QTimer
 from PySide6.QtWidgets import QApplication
 
 import gleplot as glp
@@ -33,6 +33,47 @@ def qapp():
     if app is None:
         app = QApplication([])
     yield app
+
+
+def _wait_until(predicate, timeout_ms=10000):
+    """Spin the Qt event loop until ``predicate()`` is true or timeout.
+
+    Export now compiles asynchronously (Track G3): ``_on_export_clicked()``
+    returns as soon as the compile job is *launched*, not once it finishes.
+    Tests that assert on the exported file (or on error/cancel state) must
+    pump the event loop until the job's ``finished`` signal has actually been
+    delivered -- this mirrors ``tests/gui/test_preview.py``'s helper of the
+    same name and purpose. Returns True if the predicate became true, False
+    on timeout.
+    """
+    loop = QEventLoop()
+    timed_out = {"value": False}
+
+    poll = QTimer()
+    poll.setInterval(20)
+
+    deadline = QTimer()
+    deadline.setSingleShot(True)
+    deadline.setInterval(timeout_ms)
+
+    def check():
+        if predicate():
+            loop.quit()
+
+    def on_deadline():
+        timed_out["value"] = True
+        loop.quit()
+
+    poll.timeout.connect(check)
+    deadline.timeout.connect(on_deadline)
+    poll.start()
+    deadline.start()
+    if predicate():
+        return True
+    loop.exec()
+    poll.stop()
+    deadline.stop()
+    return not timed_out["value"]
 
 
 @pytest.fixture
@@ -145,6 +186,7 @@ def test_export_png_produces_file(qapp, tmp_path, scratch_settings):
     dialog._dpi_spin.setValue(100)
 
     dialog._on_export_clicked()
+    assert _wait_until(lambda: dialog._runner is None, 10000)
 
     assert target.exists(), dialog._error_box.toPlainText()
     assert dialog.selected_path == target
@@ -160,6 +202,7 @@ def test_export_pdf_produces_file(qapp, tmp_path, scratch_settings):
     _set_path(dialog, target)
 
     dialog._on_export_clicked()
+    assert _wait_until(lambda: dialog._runner is None, 10000)
 
     assert target.exists(), dialog._error_box.toPlainText()
 
@@ -187,6 +230,7 @@ def test_export_folder_bundle_creates_gleplot_dir(qapp, tmp_path, scratch_settin
     dialog._folder_check.setChecked(True)
 
     dialog._on_export_clicked()
+    assert _wait_until(lambda: dialog._runner is None, 10000)
 
     bundle_dir = tmp_path / "bundle.gleplot"
     assert bundle_dir.exists(), dialog._error_box.toPlainText()
@@ -194,22 +238,23 @@ def test_export_folder_bundle_creates_gleplot_dir(qapp, tmp_path, scratch_settin
     assert dialog.folder_bundle is True
 
 
-def test_export_failure_shows_errors_and_does_not_close(qapp, tmp_path, scratch_settings, monkeypatch):
+def test_export_failure_shows_errors_and_does_not_close(
+    qapp, tmp_path, scratch_settings, monkeypatch
+):
     doc = _make_document()
     dialog = ExportDialog(doc, settings=scratch_settings)
 
     target = tmp_path / "fail.pdf"
     _set_path(dialog, target)
 
-    # Force a compile failure regardless of GLE availability by making
-    # Figure.savefig raise GLECompileError.
-    from gleplot.compiler import GLECompileError
-    from gleplot.figure import Figure
+    # Force a failure deterministically, regardless of GLE availability, by
+    # making the GLE-discovery the compile step relies on fail. (Export no
+    # longer calls Figure.savefig() for compiled formats -- see the module
+    # docstring -- so monkeypatching that is no longer a valid way to force
+    # a failure; find_gle() is the equivalent unconditional choke point.)
+    import gleplot.gui.export_dialog as export_dialog_module
 
-    def broken_savefig(self, *args, **kwargs):
-        raise GLECompileError("boom", errors=[], raw_output="boom output")
-
-    monkeypatch.setattr(Figure, "savefig", broken_savefig)
+    monkeypatch.setattr(export_dialog_module, "find_gle", lambda: None)
 
     dialog._on_export_clicked()
 
@@ -218,8 +263,11 @@ def test_export_failure_shows_errors_and_does_not_close(qapp, tmp_path, scratch_
     # shown; here we assert on the explicit "should be shown" flag instead
     # (setVisible(True) was called) plus the actual error text.
     assert dialog._error_box.isHidden() is False
-    assert "boom" in dialog._error_box.toPlainText()
+    assert "GLE executable not found" in dialog._error_box.toPlainText()
     assert dialog.result() != 1  # not accepted
+    # This path fails synchronously (before any process is launched), so no
+    # job was ever started.
+    assert dialog._runner is None
 
 
 # ----------------------------------------------------------------------
@@ -235,7 +283,98 @@ def test_export_does_not_mutate_live_figure(qapp, tmp_path, scratch_settings):
     _set_path(dialog, target)
 
     dialog._on_export_clicked()
+    assert _wait_until(lambda: dialog._runner is None, 10000)
 
     after = doc.figure.to_dict()
     assert before == after
     assert target.exists()
+
+
+# ----------------------------------------------------------------------
+# Track G3: export runs through the async compile service, not the GUI
+# thread. See the module docstring in gleplot/gui/export_dialog.py.
+# ----------------------------------------------------------------------
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_export_click_returns_before_compile_finishes(qapp, tmp_path, scratch_settings):
+    """_on_export_clicked() must return as soon as the job is *launched*,
+    not once GLE has actually finished -- the opposite (call blocks until
+    the file exists) is exactly the old, GUI-thread-blocking behaviour this
+    track replaces."""
+    doc = _make_document()
+    dialog = ExportDialog(doc, settings=scratch_settings)
+
+    target = tmp_path / "nonblocking.pdf"
+    _set_path(dialog, target)
+
+    dialog._on_export_clicked()
+
+    # The call above must have returned control without waiting for GLE: a
+    # real compile always takes measurably longer than zero event-loop
+    # turns, so if this call had blocked (subprocess.run-style) the output
+    # would already exist here.
+    assert not target.exists()
+    assert dialog._runner is not None
+    assert dialog._runner.is_running
+
+    assert _wait_until(lambda: dialog._runner is None, 10000)
+    assert target.exists(), dialog._error_box.toPlainText()
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_gui_thread_stays_responsive_during_export(qapp, tmp_path, scratch_settings):
+    """The event loop keeps servicing other timers while a compile is in
+    flight -- proof the compile isn't blocking the GUI thread. A timer
+    ticking every 5ms is used as a stand-in for "the UI can still repaint,
+    handle clicks, etc." while waiting for the compile service."""
+    doc = _make_document()
+    dialog = ExportDialog(doc, settings=scratch_settings)
+
+    target = tmp_path / "responsive.pdf"
+    _set_path(dialog, target)
+
+    ticks = {"count": 0}
+    responsiveness_timer = QTimer()
+    responsiveness_timer.setInterval(5)
+    responsiveness_timer.timeout.connect(
+        lambda: ticks.__setitem__("count", ticks["count"] + 1)
+    )
+    responsiveness_timer.start()
+
+    try:
+        dialog._on_export_clicked()
+        assert _wait_until(lambda: dialog._runner is None, 10000)
+    finally:
+        responsiveness_timer.stop()
+
+    assert target.exists(), dialog._error_box.toPlainText()
+    # The responsiveness timer must have fired multiple times *during* the
+    # compile -- if the GUI thread were blocked (e.g. by a synchronous
+    # subprocess.run call), no Qt timer could fire at all until the compile
+    # returned, and this would be 0.
+    assert (
+        ticks["count"] > 0
+    ), "GUI-thread timer never fired -- export blocked the event loop"
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_cancel_during_export_stops_the_job(qapp, tmp_path, scratch_settings):
+    doc = _make_document()
+    dialog = ExportDialog(doc, settings=scratch_settings)
+
+    target = tmp_path / "cancelled.pdf"
+    _set_path(dialog, target)
+
+    dialog._on_export_clicked()
+    # No event-loop turn has happened yet, so the job cannot have finished:
+    # cancelling here deterministically stops it before completion.
+    assert dialog._runner is not None
+    dialog._on_cancel_clicked()
+
+    assert dialog._runner is None
+    assert dialog.result() != 1  # not accepted
+    assert "cancel" in dialog._status_label.text().lower()
+
+    # Give the killed process a moment to actually die and confirm no
+    # output ever landed.
+    _wait_until(lambda: False, 300)
+    assert not target.exists()

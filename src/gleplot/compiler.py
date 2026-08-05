@@ -9,7 +9,7 @@ import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Literal
+from typing import List, Literal, Optional, Union
 
 
 #: Well-known install locations to probe, keyed by ``sys.platform`` prefix.
@@ -86,6 +86,86 @@ SUFFIX_TO_COMPILE_FORMAT = {
     f'.{fmt}': fmt for fmt in SUPPORTED_COMPILE_FORMATS
 }
 SUFFIX_TO_COMPILE_FORMAT['.jpeg'] = 'jpg'
+
+#: Formats for which GLE's ``-r`` (raster resolution / DPI) flag is
+#: meaningful. Passing ``-r`` for a vector format (pdf/eps/svg) is harmless --
+#: GLE silently ignores it -- but including it unconditionally (as the GUI
+#: preview used to) obscures which formats it actually affects.
+RASTER_COMPILE_FORMATS = frozenset({'png', 'jpg'})
+
+
+def build_compile_args(
+    output_format: str,
+    output_path: Union[str, Path],
+    input_path: Union[str, Path],
+    dpi: Optional[int] = None,
+    cairo: bool = False,
+) -> List[str]:
+    """Build the GLE command-line arguments for one compile invocation.
+
+    This is the single place that decides ``-d``/``-r``/``-cairo``/``-o``
+    argument shape, used by both :meth:`GLECompiler.compile` and the GUI's
+    async compile service (:mod:`gleplot.gui.compile_core`,
+    :mod:`gleplot.gui.compile_service`) so preview and export can never again
+    drift apart the way they had: :meth:`GLECompiler.compile` used to pass an
+    *uppercase* device name (``-d PDF``) and included ``-r`` only for raster
+    formats, while ``gui/preview.py`` passed a *lowercase* device name and
+    included ``-r`` unconditionally (harmless for vector formats -- GLE
+    ignores it -- but inconsistent). Both now go through this function, which
+    lowercases the device name (GLE's ``-d`` is case-insensitive; verified
+    against a real ``gle`` binary) and includes ``-r`` only for
+    :data:`RASTER_COMPILE_FORMATS`.
+
+    Does **not** include the ``gle`` executable path itself -- callers using
+    :mod:`subprocess` prepend it to this list; callers using
+    :class:`~PySide6.QtCore.QProcess` pass it as the separate ``program``
+    argument to ``QProcess.start()``.
+
+    Parameters
+    ----------
+    output_format : str
+        One of :data:`SUPPORTED_COMPILE_FORMATS` (case-insensitive).
+    output_path : str or Path
+        Value passed to ``-o``. Can be relative (resolved against the
+        process's working directory) or absolute.
+    input_path : str or Path
+        The ``.gle`` script to compile. Same relative/absolute freedom as
+        ``output_path``.
+    dpi : int, optional
+        Raster resolution. Only emitted (as ``-r <dpi>``) when
+        ``output_format`` is in :data:`RASTER_COMPILE_FORMATS` *and* ``dpi``
+        is not ``None``.
+    cairo : bool, optional
+        Reserved for task G6 (SPEC §10.6): when ``True``, appends ``-cairo``
+        to enable GLE's Cairo rendering backend. The flag construction is
+        already correct, but no caller passes ``cairo=True`` yet -- deciding
+        *when* to enable Cairo (figures using alpha) and handling its
+        font-substitution consequence are out of scope here.
+
+    Returns
+    -------
+    list of str
+        E.g. ``['-d', 'png', '-r', '150', '-o', 'out.png', 'in.gle']``.
+
+    Raises
+    ------
+    ValueError
+        If ``output_format`` is not in :data:`SUPPORTED_COMPILE_FORMATS`.
+    """
+    fmt = output_format.lower()
+    if fmt not in SUPPORTED_COMPILE_FORMATS:
+        raise ValueError(
+            f"Unsupported GLE compile format: {output_format!r} "
+            f"(supported: {sorted(SUPPORTED_COMPILE_FORMATS)})"
+        )
+
+    args = ['-d', fmt]
+    if cairo:
+        args.append('-cairo')
+    if fmt in RASTER_COMPILE_FORMATS and dpi is not None:
+        args.extend(['-r', str(int(dpi))])
+    args.extend(['-o', str(output_path), str(input_path)])
+    return args
 
 
 def _iter_well_known_gle_paths() -> "list[str]":
@@ -414,17 +494,13 @@ class GLECompiler:
 
         # Build command (all options must come before filename). Pass as a
         # list (no shell=True) so paths containing spaces are handled safely
-        # on all platforms, notably "Program Files" on Windows.
-        cmd = [
-            self.gle_path,
-            '-d', output_format.upper(),
-            '-o', str(output_path),
-        ]
-
-        if output_format in ('png', 'jpg'):
-            cmd.extend(['-r', str(dpi)])
-
-        cmd.append(str(input_path))
+        # on all platforms, notably "Program Files" on Windows. Argument
+        # shape (device name case, when -r is included) comes from the one
+        # shared builder so this never drifts from the GUI's compile paths
+        # again -- see build_compile_args().
+        cmd = [self.gle_path] + build_compile_args(
+            output_format, output_path, input_path, dpi=dpi,
+        )
 
         try:
             result = subprocess.run(

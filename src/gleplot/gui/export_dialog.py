@@ -3,7 +3,8 @@
 :class:`ExportDialog` lets the user pick a destination path, output format,
 DPI (for raster formats), and whether to bundle the export as a
 ``.gleplot`` folder (script + data files alongside the compiled output),
-then drives :meth:`~gleplot.figure.Figure.savefig` to produce it.
+then produces it through the same async compile service the live preview
+uses (:mod:`gleplot.gui.compile_core`, :mod:`gleplot.gui.compile_service`).
 
 Snapshot semantics
 -------------------
@@ -14,10 +15,26 @@ order (see the same rationale in :mod:`gleplot.gui.preview`). Instead the
 export button takes an immediate ``to_dict()`` snapshot of the document's
 figure, rebuilds a throwaway working figure from it via ``Figure.from_dict``,
 and exports *that* -- the live figure is left untouched.
+
+Non-blocking compile (Track G3)
+--------------------------------
+Exporting used to call :meth:`~gleplot.figure.Figure.savefig`, which for any
+compiled format shelled out via a blocking ``subprocess.run`` on the GUI
+thread -- for a large or slow-to-render figure this froze the whole
+application for the duration of the compile. The compile step now goes
+through :class:`~gleplot.gui.compile_service.CompileProcessRunner` (the same
+"thin QProcess adapter" the live preview uses): :meth:`_on_export_clicked`
+writes the script/data files synchronously (plain file I/O, not a compile --
+see :meth:`~gleplot.figure.Figure.savefig_gle`), launches the compile, and
+returns immediately. The result arrives later via
+:meth:`_on_compile_finished`, connected to the runner's ``finished`` signal;
+the GUI event loop -- and this dialog's own Cancel button, now repurposed to
+abort an in-flight compile -- stays responsive throughout.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -41,19 +58,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gleplot.compiler import GLECompileError
+from gleplot.compiler import GLECompileError, build_compile_args, find_gle
 from gleplot.figure import Figure
+from gleplot.gui.compile_core import CompileOutcome
+from gleplot.gui.compile_service import CompileProcessRunner
 from gleplot.gui.document import FigureDocument
 from gleplot.gui.error_panel import format_gle_error
 
-__all__ = ['ExportDialog', 'run_export_dialog']
+__all__ = ["ExportDialog", "run_export_dialog"]
 
 #: Formats offered in the export dialog. 'gle' exports the script only (no
-#: compile step), the rest go through GLECompiler via Figure.savefig.
-FORMATS = ('pdf', 'png', 'eps', 'svg', 'jpg', 'gle')
+#: compile step); the rest are compiled through the async compile service.
+FORMATS = ("pdf", "png", "eps", "svg", "jpg", "gle")
 
 #: Formats for which the DPI control is meaningful (raster output).
-_DPI_FORMATS = frozenset({'png', 'jpg'})
+_DPI_FORMATS = frozenset({"png", "jpg"})
 
 _ORG = "gleplot"
 _APP = "gleplot"
@@ -100,9 +119,13 @@ class ExportDialog(QDialog):
         self._syncing = False
 
         self.selected_path: Optional[Path] = None
-        self.selected_format: str = 'pdf'
+        self.selected_format: str = "pdf"
         self.selected_dpi: int = 300
         self.folder_bundle: bool = False
+
+        # The in-flight compile job, or None between exports. See the
+        # "Non-blocking compile" section of the module docstring.
+        self._runner: Optional[CompileProcessRunner] = None
 
         self._build_ui()
         self._connect_signals()
@@ -136,7 +159,8 @@ class ExportDialog(QDialog):
         form.addRow("DPI:", self._dpi_spin)
 
         self._folder_check = QCheckBox(
-            "Export as folder bundle (.gleplot folder with script and data)", self,
+            "Export as folder bundle (.gleplot folder with script and data)",
+            self,
         )
         form.addRow(self._folder_check)
 
@@ -153,7 +177,8 @@ class ExportDialog(QDialog):
 
         buttons = QDialogButtonBox(self)
         self._export_button = buttons.addButton(
-            "Export", QDialogButtonBox.ButtonRole.AcceptRole,
+            "Export",
+            QDialogButtonBox.ButtonRole.AcceptRole,
         )
         self._cancel_button = buttons.addButton(
             QDialogButtonBox.StandardButton.Cancel,
@@ -161,7 +186,7 @@ class ExportDialog(QDialog):
         layout.addWidget(buttons)
 
         self._export_button.clicked.connect(self._on_export_clicked)
-        self._cancel_button.clicked.connect(self.reject)
+        self._cancel_button.clicked.connect(self._on_cancel_clicked)
 
     def _connect_signals(self) -> None:
         self._browse_button.clicked.connect(self._on_browse)
@@ -176,7 +201,9 @@ class ExportDialog(QDialog):
     def _on_browse(self) -> None:
         start_dir = self._settings.value(_KEY_LAST_DIR, "", type=str) or ""
         chosen, _ = QFileDialog.getSaveFileName(
-            self, "Export Figure", start_dir,
+            self,
+            "Export Figure",
+            start_dir,
             "All supported (*.pdf *.png *.eps *.svg *.jpg *.gle);;All files (*)",
         )
         if chosen:
@@ -185,7 +212,7 @@ class ExportDialog(QDialog):
     def _on_path_text_changed(self, text: str) -> None:
         if self._syncing:
             return
-        suffix = Path(text).suffix.lower().lstrip('.')
+        suffix = Path(text).suffix.lower().lstrip(".")
         if suffix in FORMATS:
             self._syncing = True
             try:
@@ -202,7 +229,7 @@ class ExportDialog(QDialog):
             try:
                 current = self._path_edit.text()
                 if current:
-                    new_path = str(Path(current).with_suffix(f'.{fmt}'))
+                    new_path = str(Path(current).with_suffix(f".{fmt}"))
                     self._path_edit.setText(new_path)
             finally:
                 self._syncing = False
@@ -241,34 +268,110 @@ class ExportDialog(QDialog):
         self._status_label.setText("Exporting…")
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         try:
-            # CRITICAL: never export from the live figure -- GLE generation
-            # mutates unset axis limits in place. Snapshot + rebuild first.
-            snap = fig.to_dict()
-            work = Figure.from_dict(snap)
-            # Reference-mode series carry paths relative to the project's
-            # directory; the export may compile in a different directory,
-            # so absolutize them on the throwaway copy.
-            project_path = getattr(self._document, "project_path", None)
-            if project_path:
-                work.absolutize_file_references(Path(project_path).parent)
-            work.savefig(
-                str(path),
-                format=self.selected_format,
-                dpi=self.selected_dpi,
-                folder=self.folder_bundle,
+            self._begin_export(fig, path)
+        except (OSError, RuntimeError, ValueError) as exc:
+            QApplication.restoreOverrideCursor()
+            self._show_error(str(exc))
+
+    def _begin_export(self, fig, path: Path) -> None:
+        """Write the script/data files, then launch (or skip) the compile.
+
+        The script/data write is plain file I/O (:meth:`Figure.savefig_gle`)
+        -- fast and synchronous, unlike the GLE compile itself, which never
+        runs on this thread (see the module docstring). Any exception raised
+        here (bad path, unwritable directory, ...) propagates to
+        :meth:`_on_export_clicked`'s ``except`` clause.
+        """
+        # CRITICAL: never export from the live figure -- GLE generation
+        # mutates unset axis limits in place. Snapshot + rebuild first.
+        snap = fig.to_dict()
+        work = Figure.from_dict(snap)
+        # Reference-mode series carry paths relative to the project's
+        # directory; the export may compile in a different directory, so
+        # absolutize them on the throwaway copy.
+        project_path = getattr(self._document, "project_path", None)
+        if project_path:
+            work.absolutize_file_references(Path(project_path).parent)
+
+        # Write the .gle script (+ any data sidecars) via the same public API
+        # Figure.savefig() itself uses -- savefig_gle() does not compile, so
+        # this is ordinary (fast) file I/O and stays on the GUI thread.
+        # folder_bundle handling (creating <stem>.gleplot/) is entirely
+        # savefig_gle()'s existing, already-tested behaviour; we only choose
+        # where the compiled output lands relative to the script it writes.
+        gle_target = path.with_suffix(".gle")
+        script_path = work.savefig_gle(str(gle_target), folder=self.folder_bundle)
+        export_dir = script_path.parent
+
+        if self.selected_format == "gle":
+            self._finish_success(script_path)
+            return
+
+        # Writability preflight (SPEC §6.1: "export validates writability up
+        # front and reports clearly") -- fail fast with a clear message
+        # rather than launching a compile doomed to fail partway through.
+        if not os.access(export_dir, os.W_OK):
+            raise OSError(f"Destination directory is not writable: {export_dir}")
+
+        gle_path = find_gle()
+        if not gle_path:
+            raise RuntimeError(
+                "GLE executable not found. Install GLE, or export as 'gle' "
+                "to save the script only."
             )
-        except GLECompileError as exc:
+
+        output_name = script_path.with_suffix(f".{self.selected_format}").name
+        output_path = export_dir / output_name
+        args = build_compile_args(
+            self.selected_format,
+            output_name,
+            script_path.name,
+            dpi=self.selected_dpi,
+        )
+
+        self._export_button.setEnabled(False)
+        self._cancel_button.setText("Cancel Export")
+
+        runner = CompileProcessRunner(parent=self)
+        runner.finished.connect(self._on_compile_finished)
+        self._runner = runner
+        runner.start(gle_path, export_dir, args, output_path)
+
+    def _on_cancel_clicked(self) -> None:
+        if self._runner is not None:
+            self._runner.cancel()
+            self._runner = None
+            QApplication.restoreOverrideCursor()
+            self._reset_buttons()
+            self._status_label.setText("Export cancelled.")
+            return
+        self.reject()
+
+    def _on_compile_finished(self, outcome: CompileOutcome) -> None:
+        self._runner = None
+        QApplication.restoreOverrideCursor()
+        self._reset_buttons()
+
+        if not outcome.ok:
+            exc = GLECompileError(
+                "GLE export failed",
+                errors=outcome.errors,
+                raw_output=outcome.raw_output,
+            )
             self._show_error(self._format_compile_error(exc))
             return
-        except (OSError, RuntimeError, ValueError) as exc:
-            self._show_error(str(exc))
-            return
-        finally:
-            QApplication.restoreOverrideCursor()
 
+        assert self.selected_path is not None  # set in _on_export_clicked
+        self._finish_success(self.selected_path)
+
+    def _finish_success(self, path: Path) -> None:
         self._settings.setValue(_KEY_LAST_DIR, str(path.parent))
         self._status_label.setText(f"Exported to {path}")
         self.accept()
+
+    def _reset_buttons(self) -> None:
+        self._export_button.setEnabled(True)
+        self._cancel_button.setText("Cancel")
 
     @staticmethod
     def _format_compile_error(exc: GLECompileError) -> str:
@@ -277,7 +380,7 @@ class ExportDialog(QDialog):
         export dialog and the ErrorPanel render individual errors identically).
         """
         lines = [str(exc)]
-        for err in getattr(exc, 'errors', []) or []:
+        for err in getattr(exc, "errors", []) or []:
             lines.append(format_gle_error(err))
         return "\n".join(lines)
 
