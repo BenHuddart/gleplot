@@ -68,6 +68,21 @@ from .config import (
     GlobalConfig,
 )
 
+# Series data sources: where a series' numbers come from. The scripting API
+# always produces InlineData (baked arrays) and never needs these; they are
+# the API an embedding application uses to point series at its own tables.
+from .sources import (
+    ColumnRef,
+    DanglingSourceRef,
+    DanglingSourceWarning,
+    DataProvider,
+    DataSource,
+    DictDataProvider,
+    GridRef,
+    InlineData,
+    TableData,
+)
+
 # Module-level convenience functions (for matplotlib compatibility)
 
 _current_figure = None
@@ -499,4 +514,13 @@ __all__ = [
     "GLEMarkerConfig",
     "GlobalConfig",
     "open_gle",
+    "DataSource",
+    "InlineData",
+    "ColumnRef",
+    "GridRef",
+    "DataProvider",
+    "TableData",
+    "DictDataProvider",
+    "DanglingSourceRef",
+    "DanglingSourceWarning",
 ]

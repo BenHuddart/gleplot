@@ -41,14 +41,36 @@ what keeps this refactor behaviour-preserving:
 
 On top of that the declared fields are readable as attributes
 (``series.color`` is ``series["color"]``), which is what gives static type
-checking something to work with and what the ``source`` abstraction will
-hang off next.
+checking something to work with.
+
+Where the numbers come from: ``data_source``
+--------------------------------------------
+
+Every kind that owns bulk data declares a ``data_source`` field holding a
+:class:`gleplot.sources.DataSource`. It follows the same
+"absent means the historical behaviour" rule as ``zorder``: a series with no
+``data_source`` key is an :class:`~gleplot.sources.InlineData` series whose
+arrays live in its own ``ARRAY_FIELDS``, which is exactly what the scripting
+API produces and exactly the shape every pre-existing project has. A series
+whose ``data_source`` is a :class:`~gleplot.sources.ColumnRef` /
+:class:`~gleplot.sources.GridRef` instead carries ``None`` in those array
+fields until the write-time resolution pass fills them in from a
+:class:`~gleplot.sources.DataProvider` (see ``gleplot.writer.resolve_figure``).
+
+The field is spelled ``data_source``, not ``source``: ``HeatmapSeries`` and
+``ContourSeries`` have had a ``source`` field since long before this
+abstraction existed (it holds ``'grid'`` or ``'points'``, i.e. which *grid
+mode* the series uses), and those two kinds are precisely the ones that need
+a ``GridRef``. Renaming the older field would have changed the serialized
+shape of every heatmap and contour ever saved for no gain.
 """
 
 import re
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 import numpy as np
+
+from .sources import DataSource, source_from_dict
 
 __all__ = [
     "Series",
@@ -339,6 +361,11 @@ class Series(Dict[str, Any]):
         for key, value in payload.items():
             if key not in cls.FIELDS:
                 obj[key] = value
+        # A serialized source is a plain mapping; rebuild it as its class so
+        # ``source_of(series)`` hands back something with behaviour. An
+        # unrecognized ``kind`` survives verbatim (see source_from_dict).
+        if obj.get("data_source") is not None:
+            obj["data_source"] = source_from_dict(obj["data_source"])
         return obj
 
     def copy(self) -> "Series":
@@ -420,6 +447,9 @@ class _XYSeries(Series):
     offset: float
     data_file: Optional[str]
     column_names: Optional[List[str]]
+    #: Where the numbers come from; absent means InlineData (this
+    #: series' own array fields). See :mod:`gleplot.sources`.
+    data_source: Optional[DataSource]
     #: Display-command order within the axes; absent on pre-zorder projects.
     _draw_seq: int
     #: Only present when the caller asked for an explicit draw order.
@@ -464,6 +494,9 @@ class BarSeries(Series):
     label: Optional[str]
     data_file: Optional[str]
     column_names: Optional[List[str]]
+    #: Where the numbers come from; absent means InlineData (this
+    #: series' own array fields). See :mod:`gleplot.sources`.
+    data_source: Optional[DataSource]
     _draw_seq: int
     zorder: float
 
@@ -486,6 +519,9 @@ class FillSeries(Series):
     offset: float
     data_file: Optional[str]
     column_names: Optional[List[str]]
+    #: Where the numbers come from; absent means InlineData (this
+    #: series' own array fields). See :mod:`gleplot.sources`.
+    data_source: Optional[DataSource]
 
     def default_column_names(self) -> Optional[List[str]]:
         return _unique_column_names(["x", "upper", "lower"])
@@ -521,6 +557,9 @@ class ErrorbarSeries(Series):
     offset: float
     data_file: Optional[str]
     column_names: Optional[List[str]]
+    #: Where the numbers come from; absent means InlineData (this
+    #: series' own array fields). See :mod:`gleplot.sources`.
+    data_source: Optional[DataSource]
     _draw_seq: int
     zorder: float
 
@@ -625,6 +664,9 @@ class HeatmapSeries(_GridSeries):
     ncontour: Optional[int]
     label: Optional[str]
     data_file: str
+    #: Where the numbers come from; absent means InlineData (this
+    #: series' own array fields). See :mod:`gleplot.sources`.
+    data_source: Optional[DataSource]
     #: Colorbar declaration dict, or ``None`` for no colorbar.
     colorbar: Optional[Dict[str, Any]]
 
@@ -652,6 +694,9 @@ class ContourSeries(_GridSeries):
     ncontour: Optional[int]
     label: Optional[str]
     data_file: str
+    #: Where the numbers come from; absent means InlineData (this
+    #: series' own array fields). See :mod:`gleplot.sources`.
+    data_source: Optional[DataSource]
 
 
 class RefLine(Series):

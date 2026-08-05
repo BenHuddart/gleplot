@@ -1,15 +1,37 @@
-"""GLE file writer for gleplot."""
+"""GLE file writer for gleplot.
+
+Besides turning the object model into GLE text, this module owns the
+**write-time resolution of series data sources** (:mod:`gleplot.sources`).
+Every series' numbers reach the emission code through one path --
+:func:`resolve_figure` -> :class:`SourceResolution` -- whether they were baked
+in by the scripting API or pulled from a :class:`~gleplot.sources.DataProvider`
+table. Emission then sees an ordinary array-bearing series either way, so the
+sidecar machinery below is unchanged for inline figures and byte-for-byte
+identical to what it produced before sources existed.
+"""
+
+import warnings as _warnings
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
+from .parser.tables import KEY_POSITIONS_LONG_TO_SHORT
 from .parser.units import (
+    fontsize_pt_to_cm,
     inches_to_cm,
     linewidth_pt_to_cm,
-    fontsize_pt_to_cm,
 )
-from .parser.tables import KEY_POSITIONS_LONG_TO_SHORT
+from .series import SERIES_CLASSES, Series, _unique_column_names, sanitize_column_name
+from .sources import (
+    ColumnRef,
+    DanglingSourceRef,
+    DanglingSourceWarning,
+    DataProvider,
+    DataSource,
+    resolve_reference,
+)
 
 
 def _format_data_filename(name: str) -> str:
@@ -35,6 +57,285 @@ def _quote_filename(name: str) -> str:
     always valid, so it is applied unconditionally in these contexts.
     """
     return '"' + str(name).replace('"', '\\"') + '"'
+
+
+# -- provider-table sidecars ---------------------------------------------------
+
+
+class ColumnBinding:
+    """Says where a provider-backed series' columns live in a shared sidecar.
+
+    An inline series owns its ``.dat`` outright and writes columns ``c1..cN``
+    in role order. A series resolved from a provider table instead *shares*
+    one sidecar with every other series drawing from the same table (§3.2), so
+    its roles land at whatever column index the union happened to put them at.
+    This object carries the mapping the emission code needs to say
+    ``dN=c1,c4`` instead of always ``dN=c1,c2``.
+
+    Attributes
+    ----------
+    data_file : str
+        Name of the shared sidecar.
+    keys : dict
+        Series role (``'x'``, ``'y'``, ``'yerr_up'``, ...) -> stable column
+        key in the provider table.
+    names : dict
+        Column key -> the table's *display* name for it, used to build the
+        one header row the shared file gets.
+    uid : str
+        Identifies the series, so a role it supplies inline (a constant error
+        column on an otherwise table-backed errorbar) gets a private column in
+        the shared file rather than colliding with another series' column.
+    """
+
+    __slots__ = ("data_file", "keys", "names", "uid")
+
+    def __init__(
+        self,
+        data_file: str,
+        keys: Mapping[str, Any],
+        names: Mapping[str, str],
+        uid: str,
+    ) -> None:
+        self.data_file = data_file
+        self.keys = dict(keys)
+        self.names = dict(names)
+        self.uid = uid
+
+    def column_for(self, role: str) -> Tuple[str, str]:
+        """``(column key, display name)`` for one role.
+
+        A role the reference does not mention is inline data riding along in
+        the shared file; it gets a key private to this series and is named
+        after the role.
+        """
+        key = self.keys.get(role)
+        if key is None or isinstance(key, list):
+            private = f"{self.uid}\x00{role}"
+            return private, role
+        return key, self.names.get(key, role)
+
+
+class _SharedSidecar:
+    """A ``.dat`` file accumulating the union of several series' columns.
+
+    Columns are keyed, so two series naming the same table column write it
+    once and both reference the same ``cN``. Order is first-mention order,
+    which makes the file deterministic given a deterministic series walk (see
+    :func:`resolve_figure`) and therefore fixed-point safe.
+    """
+
+    def __init__(self) -> None:
+        self.keys: List[str] = []
+        self.names: List[str] = []
+        self.columns: List[np.ndarray] = []
+
+    def index_of(self, key: str, values: np.ndarray, name: str) -> int:
+        """1-based column index of ``key``, appending it on first mention."""
+        try:
+            return self.keys.index(key) + 1
+        except ValueError:
+            pass
+        self.keys.append(key)
+        self.names.append(name)
+        self.columns.append(np.asarray(values, dtype=float))
+        return len(self.keys)
+
+    def header(self) -> List[str]:
+        """The single header row: sanitized display names, made unique."""
+        return _unique_column_names(
+            [
+                sanitize_column_name(name, fallback=f"col{i + 1}")
+                for i, name in enumerate(self.names)
+            ]
+        )
+
+
+# -- write-time source resolution ----------------------------------------------
+
+
+class SourceResolution:
+    """The result of resolving every series' data source for one write.
+
+    The single gate between the object model and emission. Ask it for a
+    series' data and you get back either an array-bearing series (the original
+    object itself when it was inline -- no copy, so inline figures are exactly
+    as they were) or ``None``, meaning "skip this one, its reference is
+    dangling". Every list-walking helper in :mod:`gleplot.figure` goes through
+    :meth:`visible` so a skipped series disappears from autoscaling, the
+    legend and the emitted script alike.
+    """
+
+    def __init__(self) -> None:
+        #: Structured records for every series skipped this write.
+        self.warnings: List[DanglingSourceRef] = []
+        self._data: Dict[int, Optional[Series]] = {}
+        self._bindings: Dict[int, ColumnBinding] = {}
+        # Hold the originals so their ids cannot be reused by a new object
+        # while this resolution is alive.
+        self._originals: List[Series] = []
+
+    # -- population (used by resolve_figure) --------------------------------
+
+    def _record(
+        self,
+        series: Series,
+        data: Optional[Series],
+        binding: Optional[ColumnBinding] = None,
+    ) -> None:
+        self._originals.append(series)
+        self._data[id(series)] = data
+        if binding is not None:
+            self._bindings[id(series)] = binding
+
+    def _skip(self, series: Series, ref: DanglingSourceRef) -> None:
+        self._record(series, None)
+        self.warnings.append(ref)
+
+    # -- queries ------------------------------------------------------------
+
+    def data(self, series: Series) -> Optional[Series]:
+        """The array-bearing form of ``series``, or ``None`` if dangling.
+
+        A series this resolution never saw (one materialized at write time
+        from a declaration -- ``axvline`` guides, ``axvspan`` bands) is inline
+        by construction and is returned unchanged.
+        """
+        return self._data.get(id(series), series)
+
+    def binding(self, series: Series) -> Optional[ColumnBinding]:
+        """The shared-sidecar binding for ``series``, if it has one."""
+        return self._bindings.get(id(series))
+
+    def visible(self, series_list: Sequence[Series]) -> List[Series]:
+        """``series_list`` resolved, with dangling entries dropped."""
+        out = []
+        for series in series_list:
+            data = self.data(series)
+            if data is not None:
+                out.append(data)
+        return out
+
+    def pairs(self, series_list: Sequence[Series]) -> List[Tuple[Series, Series]]:
+        """``(original, resolved)`` for every non-dangling entry.
+
+        Emission needs both: the resolved copy for the numbers, the original
+        for the identity that :meth:`binding` is keyed by.
+        """
+        out = []
+        for series in series_list:
+            data = self.data(series)
+            if data is not None:
+                out.append((series, data))
+        return out
+
+    def drawables(self, ax: Any) -> List[Tuple[str, Series, Series]]:
+        """z-ordered ``(kind, original, resolved)`` triples for one axes."""
+        from .axes import sorted_zorder_drawables
+
+        out = []
+        for kind, series in sorted_zorder_drawables(ax):
+            data = self.data(series)
+            if data is not None:
+                out.append((kind, series, data))
+        return out
+
+    def emit_warnings(self) -> None:
+        """Re-raise every record through the :mod:`warnings` machinery.
+
+        The structured records are the primary channel (a GUI reads them off
+        ``Figure.source_warnings``); this is the courtesy channel so a script
+        that silently loses a series at least says so on stderr. Each warning
+        carries its record on ``.ref``.
+        """
+        for ref in self.warnings:
+            _warnings.warn(DanglingSourceWarning(ref), stacklevel=3)
+
+
+def resolve_figure(
+    figure: Any, data_provider: Optional[DataProvider] = None
+) -> SourceResolution:
+    """Resolve every series' data source across ``figure``.
+
+    Walks the figure in a fixed order -- axes order, then
+    :data:`gleplot.series.SERIES_CLASSES` order, then list order -- so the
+    shared-sidecar layout (which table gets which filename, and which column
+    lands at which index) is a pure function of the figure and is stable
+    across repeated writes.
+
+    Sidecar sharing: the first series to reference a given ``table_id`` donates
+    its own ``data_file`` name to the shared sidecar, and every later series on
+    that table writes into it instead of its own. No new filename is reserved,
+    so nothing about the figure is mutated by a write and the fixed-point
+    property is untouched.
+
+    A reference that cannot be resolved -- no provider, no such table, no such
+    column, or a source kind this build does not know -- produces a
+    :class:`~gleplot.sources.DanglingSourceRef` and the series is skipped.
+    Nothing raises: a figure in which *every* series is dangling still writes
+    a valid, empty ``.gle``.
+    """
+    resolution = SourceResolution()
+    table_files: Dict[str, str] = {}
+
+    for axes_index, ax in enumerate(getattr(figure, "axes_list", []) or []):
+        for attr, series_cls in SERIES_CLASSES.items():
+            for series_index, series in enumerate(getattr(ax, attr, []) or []):
+                raw = series.get("data_source")
+                if raw is None or (
+                    isinstance(raw, DataSource) and not raw.is_reference()
+                ):
+                    # Inline: the arrays are already on the series. Recorded
+                    # as itself, so no copy is made and emission is unchanged.
+                    resolution._record(series, series)
+                    continue
+
+                resolved, reason, missing = resolve_reference(
+                    raw, data_provider, series_cls.ARRAY_FIELDS
+                )
+                if resolved is None:
+                    table_id = (
+                        raw.get("table_id", "") if isinstance(raw, Mapping) else ""
+                    )
+                    resolution._skip(
+                        series,
+                        DanglingSourceRef(
+                            axes_index=axes_index,
+                            series_attr=attr,
+                            series_index=series_index,
+                            label=series.get("label"),
+                            table_id=str(table_id),
+                            reason=str(reason),
+                            missing_columns=missing,
+                        ),
+                    )
+                    continue
+
+                data = series.copy()
+                for role, values in resolved.values.items():
+                    data[role] = values
+
+                binding = None
+                if isinstance(raw, ColumnRef):
+                    # Grid series (GridRef) write a raw ``.z``/points sidecar
+                    # of their own that GLE's colormap/fitz reads directly --
+                    # there is nothing to share.
+                    default_name = series.get("data_file") or (
+                        f"{getattr(figure, 'data_prefix', None) or 'data'}"
+                        f"_table{len(table_files) + 1}.dat"
+                    )
+                    shared_file = table_files.setdefault(
+                        resolved.table_id, str(default_name)
+                    )
+                    binding = ColumnBinding(
+                        shared_file,
+                        resolved.column_keys,
+                        resolved.display_names,
+                        uid=f"{axes_index}.{attr}.{series_index}",
+                    )
+                resolution._record(series, data, binding)
+
+    return resolution
 
 
 class GLEWriter:
@@ -76,6 +377,11 @@ class GLEWriter:
 
         self.lines_gle = []  # GLE script lines
         self.data_files = {}  # {filename: data_content}
+        # Sidecars shared by several provider-backed series, keyed by
+        # filename. Their content is only complete once every series has
+        # contributed, so they are rendered into ``data_files`` by
+        # :meth:`finalize_shared_sidecars` at the end of the write.
+        self._shared_sidecars: Dict[str, _SharedSidecar] = {}
         # Raw-content sidecars (heatmap/contour ``.z`` grids and scattered
         # ``points.dat`` triples). They are written like any data file but are
         # NOT columnar imports, so they are excluded from the ``import-data``
@@ -581,12 +887,8 @@ class GLEWriter:
         self.lines_gle.append("set lstyle 1")
         for side in ("ygmin", "ygmax"):
             for sign in ("-", "+"):
-                self.lines_gle.append(
-                    f"amove {centre}{sign}{sep}-{w} yg({side})-{h}"
-                )
-                self.lines_gle.append(
-                    f"aline {centre}{sign}{sep}+{w} yg({side})+{h}"
-                )
+                self.lines_gle.append(f"amove {centre}{sign}{sep}-{w} yg({side})-{h}")
+                self.lines_gle.append(f"aline {centre}{sign}{sep}+{w} yg({side})+{h}")
         self.lines_gle.append("grestore")
 
     def add_page_text(
@@ -669,6 +971,49 @@ class GLEWriter:
         # Add trailing newline for GLE compatibility
         self.data_files[filename] = "\n".join(lines) + "\n"
 
+    def _write_columns(
+        self,
+        data_file: str,
+        named_columns: Sequence[Tuple[str, np.ndarray]],
+        column_names: Optional[List[str]],
+        binding: Optional[ColumnBinding] = None,
+    ) -> List[int]:
+        """Place one series' columns and return their 1-based column indices.
+
+        The **single** point where a series' numbers become file columns, and
+        the only place that knows whether a sidecar is private to one series
+        or shared by a whole provider table.
+
+        With no ``binding`` (every inline series, i.e. everything the
+        scripting API produces) this is exactly :meth:`add_data_file` and the
+        indices are ``1..N`` in role order -- the historical behaviour, byte
+        for byte. With a ``binding``, the columns are merged into the shared
+        sidecar named by it and the indices are wherever they landed there.
+        """
+        if binding is None:
+            self.add_data_file(
+                data_file, [array for _role, array in named_columns], column_names
+            )
+            return list(range(1, len(named_columns) + 1))
+
+        shared = self._shared_sidecars.setdefault(binding.data_file, _SharedSidecar())
+        indices = []
+        for role, array in named_columns:
+            key, name = binding.column_for(role)
+            indices.append(shared.index_of(key, array, name))
+        return indices
+
+    def finalize_shared_sidecars(self) -> None:
+        """Render the accumulated provider-table sidecars into ``data_files``.
+
+        Called once, after all emission: a shared file's column set is only
+        known when the last series that references its table has been written.
+        """
+        for filename, shared in self._shared_sidecars.items():
+            if shared.columns:
+                self.add_data_file(filename, shared.columns, shared.header())
+        self._shared_sidecars.clear()
+
     def _apply_offset(self, source_name: str, offset: float) -> str:
         """Emit a ``let`` command that shifts *source_name* vertically by *offset*.
 
@@ -706,6 +1051,7 @@ class GLEWriter:
         yaxis: str = "y",
         offset: float = 0.0,
         column_names: Optional[List[str]] = None,
+        binding: Optional[ColumnBinding] = None,
     ):
         """
         Add line plot to graph.
@@ -739,6 +1085,10 @@ class GLEWriter:
             explicit ``key`` clause is always emitted (the real label, or
             ``key ""`` when unlabeled) to neutralize GLE's auto-key-from-
             header behavior -- see :meth:`_key_clause`.
+        binding : ColumnBinding, optional
+            Present when this series was resolved from a provider table; its
+            columns then go into a sidecar shared with the other series on
+            that table (see :meth:`_write_columns`).
         """
         x_array = np.asarray(x)
         y_array = np.asarray(y)
@@ -750,14 +1100,24 @@ class GLEWriter:
 
         # Rows go out in the caller's order unless this series is genuinely
         # smoothed -- see :meth:`_row_order`.
-        order = self._row_order(x_array, has_line)
-        self.add_data_file(data_file, [x_array[order], y_array[order]], column_names)
+        order = self._row_order(x_array, has_line, shared=binding is not None)
+        cols = self._write_columns(
+            data_file,
+            [("x", x_array[order]), ("y", y_array[order])],
+            column_names,
+            binding,
+        )
+        has_header = bool(column_names) or binding is not None
+        file_name = binding.data_file if binding is not None else data_file
 
         # Generate plot command with unique dataset name
         d_name = f"d{self.dataset_index}"
         self.dataset_index += 1
 
-        cmd = f"    data {_format_data_filename(data_file)} {d_name}=c1,c2"
+        cmd = (
+            f"    data {_format_data_filename(file_name)} "
+            f"{d_name}=c{cols[0]},c{cols[1]}"
+        )
         self.lines_gle.append(cmd)
 
         # A non-zero offset shifts the trace vertically at plot time via a
@@ -803,7 +1163,7 @@ class GLEWriter:
         if yaxis == "y2":
             line_cmd += " y2axis"
 
-        line_cmd += self._key_clause(label, bool(column_names))
+        line_cmd += self._key_clause(label, has_header)
 
         self.lines_gle.append(line_cmd)
 
@@ -815,6 +1175,7 @@ class GLEWriter:
         colors: Optional[List[str]] = None,
         label: Optional[str] = None,
         column_names: Optional[List[str]] = None,
+        binding: Optional[ColumnBinding] = None,
     ):
         """
         Add bar chart to graph.
@@ -857,17 +1218,24 @@ class GLEWriter:
         bar_color = colors[0]
 
         # Create single data file with all bars
-        self.add_data_file(data_file, [x, heights], column_names)
+        cols = self._write_columns(
+            data_file, [("x", x), ("height", heights)], column_names, binding
+        )
+        has_header = bool(column_names) or binding is not None
+        file_name = binding.data_file if binding is not None else data_file
 
         d_name = f"d{self.dataset_index}"
         self.dataset_index += 1
-        cmd = f"    data {_format_data_filename(data_file)} {d_name}=c1,c2"
+        cmd = (
+            f"    data {_format_data_filename(file_name)} "
+            f"{d_name}=c{cols[0]},c{cols[1]}"
+        )
         self.lines_gle.append(cmd)
 
         bar_cmd = f"    bar {d_name} fill {bar_color}"
         self.lines_gle.append(bar_cmd)
 
-        if column_names and not label:
+        if has_header and not label:
             self.lines_gle.append(f'    {d_name} key ""')
 
     def add_errorbar(
@@ -889,6 +1257,7 @@ class GLEWriter:
         yaxis: str = "y",
         offset: float = 0.0,
         column_names: Optional[List[str]] = None,
+        binding: Optional[ColumnBinding] = None,
     ):
         """
         Add plot with error bars to graph.
@@ -947,6 +1316,10 @@ class GLEWriter:
             to GLE's key-rendering "used dataset" order on their own, so
             they never draw an auto-key regardless of any header-derived
             name on their column (verified empirically).
+        binding : ColumnBinding, optional
+            Present when this series was resolved from a provider table; its
+            columns then go into a sidecar shared with the other series on
+            that table (see :meth:`_write_columns`).
         """
         x_array = np.asarray(x)
         y_array = np.asarray(y)
@@ -957,10 +1330,12 @@ class GLEWriter:
         # smoothed -- see :meth:`_row_order`. Every column below (centres and
         # error magnitudes alike) is indexed by the same ``order`` so a row
         # stays one point.
-        order = self._row_order(x_array, has_line)
+        order = self._row_order(x_array, has_line, shared=binding is not None)
 
-        # Build columns list: x, y, then error columns
-        columns = [x_array[order], y_array[order]]
+        # Build columns list: x, y, then error columns. Each entry is tagged
+        # with the series ROLE it came from, which is how _write_columns maps
+        # it onto a provider table column when this series is table-backed.
+        columns = [("x", x_array[order]), ("y", y_array[order])]
         col_idx = 3  # Next column index (c1=x, c2=y, c3=...)
 
         # Track which columns hold error data
@@ -990,45 +1365,59 @@ class GLEWriter:
         if has_yerr:
             if yerr_symmetric:
                 # Single column for symmetric error
-                columns.append(np.asarray(yerr_up)[order])
+                columns.append(("yerr_up", np.asarray(yerr_up)[order]))
                 yerr_up_col = col_idx
                 yerr_down_col = col_idx  # Same column
                 col_idx += 1
             else:
                 if yerr_up is not None:
-                    columns.append(np.asarray(yerr_up)[order])
+                    columns.append(("yerr_up", np.asarray(yerr_up)[order]))
                     yerr_up_col = col_idx
                     col_idx += 1
                 if yerr_down is not None:
-                    columns.append(np.asarray(yerr_down)[order])
+                    columns.append(("yerr_down", np.asarray(yerr_down)[order]))
                     yerr_down_col = col_idx
                     col_idx += 1
 
         if has_xerr:
             if xerr_symmetric:
-                columns.append(np.asarray(xerr_left)[order])
+                columns.append(("xerr_left", np.asarray(xerr_left)[order]))
                 xerr_left_col = col_idx
                 xerr_right_col = col_idx
                 col_idx += 1
             else:
                 if xerr_left is not None:
-                    columns.append(np.asarray(xerr_left)[order])
+                    columns.append(("xerr_left", np.asarray(xerr_left)[order]))
                     xerr_left_col = col_idx
                     col_idx += 1
                 if xerr_right is not None:
-                    columns.append(np.asarray(xerr_right)[order])
+                    columns.append(("xerr_right", np.asarray(xerr_right)[order]))
                     xerr_right_col = col_idx
                     col_idx += 1
 
-        # Write data file with all columns
-        self.add_data_file(data_file, columns, column_names)
+        # Write data file with all columns. The ``*_col`` values above are
+        # positions within THIS series' column list; ``cols`` maps each onto
+        # the column index it actually got in the file, which is an identity
+        # map for a private sidecar and a lookup for a shared one.
+        cols = self._write_columns(data_file, columns, column_names, binding)
+        has_header = bool(column_names) or binding is not None
+        file_name = binding.data_file if binding is not None else data_file
+
+        def _c(local_pos: Optional[int]) -> int:
+            # Only ever called from a branch that has just established the
+            # column exists, so the narrowing is an invariant, not a check.
+            assert local_pos is not None
+            return cols[local_pos - 1]
 
         # Generate dataset name for main data
         d_main = f"d{self.dataset_index}"
         self.dataset_index += 1
 
         # Build data command with all dataset references
-        data_cmd = f"    data {_format_data_filename(data_file)} {d_main}=c1,c2"
+        data_cmd = (
+            f"    data {_format_data_filename(file_name)} "
+            f"{d_main}=c{cols[0]},c{cols[1]}"
+        )
 
         # Create error datasets referencing the same file columns
         err_datasets = {}
@@ -1037,36 +1426,36 @@ class GLEWriter:
             if yerr_symmetric:
                 d_yerr = f"d{self.dataset_index}"
                 self.dataset_index += 1
-                data_cmd += f" {d_yerr}=c1,c{yerr_up_col}"
+                data_cmd += f" {d_yerr}=c{cols[0]},c{_c(yerr_up_col)}"
                 err_datasets["yerr"] = d_yerr
             else:
                 if yerr_up_col is not None:
                     d_yerr_up = f"d{self.dataset_index}"
                     self.dataset_index += 1
-                    data_cmd += f" {d_yerr_up}=c1,c{yerr_up_col}"
+                    data_cmd += f" {d_yerr_up}=c{cols[0]},c{_c(yerr_up_col)}"
                     err_datasets["yerr_up"] = d_yerr_up
                 if yerr_down_col is not None:
                     d_yerr_down = f"d{self.dataset_index}"
                     self.dataset_index += 1
-                    data_cmd += f" {d_yerr_down}=c1,c{yerr_down_col}"
+                    data_cmd += f" {d_yerr_down}=c{cols[0]},c{_c(yerr_down_col)}"
                     err_datasets["yerr_down"] = d_yerr_down
 
         if has_xerr:
             if xerr_symmetric:
                 d_xerr = f"d{self.dataset_index}"
                 self.dataset_index += 1
-                data_cmd += f" {d_xerr}=c1,c{xerr_left_col}"
+                data_cmd += f" {d_xerr}=c{cols[0]},c{_c(xerr_left_col)}"
                 err_datasets["xerr"] = d_xerr
             else:
                 if xerr_left_col is not None:
                     d_xerr_left = f"d{self.dataset_index}"
                     self.dataset_index += 1
-                    data_cmd += f" {d_xerr_left}=c1,c{xerr_left_col}"
+                    data_cmd += f" {d_xerr_left}=c{cols[0]},c{_c(xerr_left_col)}"
                     err_datasets["xerr_left"] = d_xerr_left
                 if xerr_right_col is not None:
                     d_xerr_right = f"d{self.dataset_index}"
                     self.dataset_index += 1
-                    data_cmd += f" {d_xerr_right}=c1,c{xerr_right_col}"
+                    data_cmd += f" {d_xerr_right}=c{cols[0]},c{_c(xerr_right_col)}"
                     err_datasets["xerr_right"] = d_xerr_right
 
         self.lines_gle.append(data_cmd)
@@ -1158,7 +1547,7 @@ class GLEWriter:
         if yaxis == "y2":
             line_cmd += " y2axis"
 
-        line_cmd += self._key_clause(label, bool(column_names))
+        line_cmd += self._key_clause(label, has_header)
 
         self.lines_gle.append(line_cmd)
 
@@ -1264,6 +1653,7 @@ class GLEWriter:
         alpha: float = 1.0,
         offset: float = 0.0,
         column_names: Optional[List[str]] = None,
+        binding: Optional[ColumnBinding] = None,
     ):
         """
         Add fill between two curves.
@@ -1288,15 +1678,26 @@ class GLEWriter:
             either one. Neutralize both with standalone ``dN key ""``
             statements when a header row is present (verified empirically
             byte-identical to the headerless case).
+        binding : ColumnBinding, optional
+            Present when this series was resolved from a provider table; its
+            columns then go into a sidecar shared with the other series on
+            that table (see :meth:`_write_columns`).
         """
-        self.add_data_file(data_file, [x, y1, y2], column_names)
+        cols = self._write_columns(
+            data_file, [("x", x), ("y1", y1), ("y2", y2)], column_names, binding
+        )
+        has_header = bool(column_names) or binding is not None
+        file_name = binding.data_file if binding is not None else data_file
 
         # Create two unique dataset names for the fill between operation
         d1_name = f"d{self.dataset_index}"
         d2_name = f"d{self.dataset_index + 1}"
         self.dataset_index += 2
 
-        cmd = f"    data {_format_data_filename(data_file)} {d1_name}=c1,c2 {d2_name}=c1,c3"
+        cmd = (
+            f"    data {_format_data_filename(file_name)} "
+            f"{d1_name}=c{cols[0]},c{cols[1]} {d2_name}=c{cols[0]},c{cols[2]}"
+        )
         self.lines_gle.append(cmd)
 
         # A non-zero offset shifts BOTH band edges vertically by the same amount
@@ -1311,7 +1712,7 @@ class GLEWriter:
         # GLE fill between two datasets: fill d1,d2 color X
         self.lines_gle.append(f"    fill {fill_a},{fill_b} color {color}")
 
-        if column_names:
+        if has_header:
             self.lines_gle.append(f'    {fill_a} key ""')
             self.lines_gle.append(f'    {fill_b} key ""')
 
@@ -1670,7 +2071,9 @@ class GLEWriter:
             f'format "{fmt}"'
         )
 
-    def _row_order(self, x_array: np.ndarray, has_line: bool) -> np.ndarray:
+    def _row_order(
+        self, x_array: np.ndarray, has_line: bool, shared: bool = False
+    ) -> np.ndarray:
         """Return the order in which a series' points are written to its .dat.
 
         The caller's order, always -- except for the one case that cannot use
@@ -1690,8 +2093,15 @@ class GLEWriter:
 
         The sort is stable, so points sharing an x value keep their input
         order rather than being permuted by an unstable quicksort.
+
+        ``shared`` marks a series whose columns go into a sidecar it shares
+        with other series on the same provider table. A shared file has ONE
+        row order -- the table's -- so no per-series permutation is possible
+        there; the rows go out as the table holds them, and a smoothed
+        table-backed series is the caller's responsibility to keep monotonic
+        (exactly as it would be for a hand-written ``.dat``).
         """
-        if has_line and self.graph.smooth_curves:
+        if has_line and self.graph.smooth_curves and not shared:
             return np.argsort(x_array, kind="stable")
         return np.arange(len(x_array))
 

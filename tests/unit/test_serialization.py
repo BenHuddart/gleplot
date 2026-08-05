@@ -15,8 +15,13 @@ import gleplot as glp
 from gleplot import axes as glp_axes
 from gleplot import Figure
 from gleplot.axes import Axes
-from gleplot.figure import PROJECT_FORMAT, PROJECT_VERSION
+from gleplot.figure import (
+    PROJECT_FORMAT,
+    PROJECT_VERSION,
+    SUPPORTED_PROJECT_VERSIONS,
+)
 from gleplot.series import SERIES_ATTRS, SERIES_CLASSES, Series
+from gleplot.sources import ColumnRef, GridRef, is_inline
 
 
 def _simple_figure():
@@ -428,7 +433,11 @@ _AXES_SERIALIZED_ATTRS = {
 #     machines/processes.
 #   - `_current_axes`: a derived pointer into axes_list, recomputed by
 #     from_dict as `axes_list[-1]` (or None), not independent state.
-_FIGURE_RUNTIME_ONLY_ATTRS = {"compiler", "_current_axes"}
+#   - `_source_warnings`: output of the LAST GLE generation (the
+#     DanglingSourceRef records behind Figure.source_warnings), not document
+#     state. Reset by every write and meaningless without the provider that
+#     produced it, so persisting it would only ever be stale.
+_FIGURE_RUNTIME_ONLY_ATTRS = {"compiler", "_current_axes", "_source_warnings"}
 
 # Figure attributes that ARE serialized (style/graph/marker_config go into
 # the 'config' sub-dict; axes_list is serialized element-by-element via
@@ -695,3 +704,145 @@ def test_series_deep_copy_round_trips():
         clone = copy.deepcopy(series)
         assert type(clone) is type(series)
         assert list(clone) == list(series)
+
+
+# -- Project version 1 -> 2: the ``data_source`` field ------------------------
+#
+# Version 2 adds one optional key per data-bearing series. It is optional in
+# the strong sense: a series WITHOUT it is InlineData, which is exactly what
+# every version-1 series is, so the two versions differ for a scripted figure
+# by the envelope integer alone. These tests pin both directions.
+
+
+def test_project_version_is_two():
+    assert PROJECT_VERSION == 2
+    assert SUPPORTED_PROJECT_VERSIONS == (1, 2)
+    assert _simple_figure().to_dict()["version"] == 2
+
+
+def test_version_2_dict_of_an_inline_figure_matches_the_version_1_shape():
+    """The ONLY schema change for a scripted figure is the version integer."""
+    fig = _figure_exercising_every_series_kind()
+    d = fig.to_dict()
+
+    as_v1 = copy.deepcopy(d)
+    as_v1["version"] = 1
+    # No series grew a key, so downgrading the envelope yields a dict a
+    # version-1 build would have written verbatim.
+    for ax_d in d["figure"]["axes"]:
+        for attr in SERIES_ATTRS:
+            for series_d in ax_d[attr]:
+                assert "data_source" not in series_d
+
+    restored = Figure.from_dict(as_v1)
+    assert restored.to_dict()["figure"] == d["figure"]
+
+
+def test_version_1_dict_still_loads_with_inline_implied():
+    fig = _simple_figure()
+    d = fig.to_dict()
+    d["version"] = 1
+
+    restored = Figure.from_dict(d)
+    line = restored.axes_list[0].lines[0]
+    assert "data_source" not in line
+    assert is_inline(line)
+    # ... and re-saving stamps the current version.
+    assert restored.to_dict()["version"] == PROJECT_VERSION
+
+
+def test_version_1_and_version_2_dicts_regenerate_identical_gle():
+    fig = _figure_exercising_every_series_kind()
+    d2 = fig.to_dict()
+    d1 = copy.deepcopy(d2)
+    d1["version"] = 1
+
+    from_v1 = Figure.from_dict(d1)._generate_gle_with_files()
+    from_v2 = Figure.from_dict(d2)._generate_gle_with_files()
+    assert from_v1 == from_v2
+
+
+def test_still_unsupported_versions_raise():
+    fig = _simple_figure()
+    for bad in (0, 3, "2", None):
+        d = fig.to_dict()
+        d["version"] = bad
+        with pytest.raises(ValueError, match="version"):
+            Figure.from_dict(d)
+
+
+# -- Series-class completeness: the ``data_source`` field ---------------------
+
+
+#: Every kind that owns bulk data and can therefore be table-backed. The
+#: complement is asserted below so this list cannot silently go stale: the
+#: kinds WITHOUT a source are the ones with no bulk data of their own
+#: (``file_series`` already IS an external reference, ``texts`` hold a single
+#: point, ``reflines``/``spans`` are declarations materialized at write time).
+_SOURCE_BEARING_ATTRS = {
+    "lines",
+    "scatters",
+    "bars",
+    "fills",
+    "errorbars",
+    "heatmaps",
+    "contours",
+}
+
+
+def test_every_data_bearing_series_class_declares_data_source():
+    for attr, series_cls in SERIES_CLASSES.items():
+        declared = "data_source" in series_cls.FIELDS
+        assert declared == (attr in _SOURCE_BEARING_ATTRS), (
+            f"{series_cls.__name__}: data_source declared={declared} but the "
+            f"documented set says {attr in _SOURCE_BEARING_ATTRS}. A kind that "
+            "owns bulk data must declare it; one that does not must not."
+        )
+        if declared:
+            # Declared but absent by default -- the InlineData-is-implied rule.
+            assert "data_source" not in series_cls()
+
+
+def test_data_source_round_trips_for_every_class_that_declares_it():
+    """to_dict -> JSON -> from_dict rebuilds the source as its own class."""
+    sources = {
+        "lines": ColumnRef("t1", {"x": "a", "y": "b"}),
+        "scatters": ColumnRef("t1", {"x": "a", "y": "b"}),
+        "bars": ColumnRef("t1", {"x": "a", "height": "b"}),
+        "fills": ColumnRef("t1", {"x": "a", "y1": "b", "y2": "c"}),
+        "errorbars": ColumnRef("t1", {"x": "a", "y": "b", "yerr_up": "c"}),
+        "heatmaps": GridRef("t1", {"z": ["a", "b"]}),
+        "contours": GridRef("t1", {"z": ["a", "b"]}),
+    }
+    assert set(sources) == _SOURCE_BEARING_ATTRS
+
+    fig = _figure_exercising_every_series_kind()
+    for attr, source in sources.items():
+        for ax in fig.axes_list:
+            for series in getattr(ax, attr):
+                series["data_source"] = source
+
+    once = fig.to_dict()
+    json.dumps(once)  # a source must be JSON-safe like everything else
+    twice = Figure.from_dict(once).to_dict()
+    assert twice == once
+
+    seen = set()
+    for attr, series in _all_series(Figure.from_dict(once)):
+        if attr not in _SOURCE_BEARING_ATTRS:
+            continue
+        seen.add(attr)
+        restored = series["data_source"]
+        assert type(restored) is type(sources[attr])
+        assert restored == sources[attr]
+        assert not is_inline(series)
+    assert seen == _SOURCE_BEARING_ATTRS
+
+
+def test_series_copy_keeps_its_data_source():
+    fig = _simple_figure()
+    line = fig.axes_list[0].lines[0]
+    line["data_source"] = ColumnRef("t1", {"x": "a", "y": "b"})
+    clone = line.copy()
+    assert clone["data_source"] == line["data_source"]
+    assert isinstance(copy.deepcopy(line)["data_source"], ColumnRef)
