@@ -556,9 +556,18 @@ class GLEWriter:
             Graph height in cm. Used if scale_mode is 'fixed' or force_size is True.
         force_size : bool
             If True, always emit the size command regardless of scale_mode.
-            Used for subplot layouts where each graph needs an explicit size.
-            Subplots use 'scale 1 1' to make plot area fill the entire graph box
-            with no padding, so axes from adjacent subplots can touch.
+            This is how every placed graph is emitted: ``size w h`` +
+            ``scale 1 1`` makes the axis frame fill the graph box exactly, so
+            the box IS the frame rectangle (SPEC 3.3) -- invertible on parse,
+            and letting adjacent subplots' axes touch.
+
+        Notes
+        -----
+        Without ``force_size`` and without dimensions this falls through to
+        ``scale auto`` (GLE fits the graph, labels included, to the page).
+        Since metadata v2 that path is reached only by a figure with no axes
+        at all; every placed graph is emitted with ``force_size=True`` from a
+        rect computed by :meth:`Figure._layout_rects`.
         """
         if force_size and width_cm is not None and height_cm is not None:
             self.lines_gle.append(
@@ -600,21 +609,6 @@ class GLEWriter:
             order, with their original indentation and no trailing newline.
         """
         self.lines_gle.extend(lines)
-
-    def add_graph_box_size(self, width_cm: float, height_cm: float):
-        """Emit a bare graph ``size W H`` (no ``scale``) for the single-plot path.
-
-        Unlike :meth:`add_graph_size` (which, in ``auto`` mode, emits
-        ``scale auto`` and lets GLE fill the whole page), this pins the graph
-        box to ``width_cm`` x ``height_cm`` while still letting GLE auto-inset
-        the axis labels/ticks inside that box. Used only when a colorbar needs
-        reserved space to the right of an otherwise single (1,1,1) graph, so
-        the bar + ticks + rotated label are not clipped off the page.
-        """
-        self.lines_gle.append(
-            f"    size {self._format_number(width_cm)} "
-            f"{self._format_number(height_cm)}"
-        )
 
     def add_axes(
         self,

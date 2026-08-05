@@ -10,7 +10,7 @@ GLE source to any other tool that opens it.
 
 Format (fixed, versioned)::
 
-    ! gleplot-meta-begin v1
+    ! gleplot-meta-begin v2
     ! gleplot: dpi = 100
     ! gleplot: sharex = false
     ! gleplot: sharey = false
@@ -22,6 +22,35 @@ This module is intentionally standalone: it does not import the writer, and
 nothing wires it into ``GLEWriter`` yet (that is a later phase). It only
 defines the ``emit_metadata`` / ``parse_metadata`` pair plus the shared
 default/type knowledge they both use so the two can never drift apart.
+
+Versions and the geometry migration
+-----------------------------------
+The version marker does **not** describe the ``key = value`` lines (those have
+never changed and are parsed identically for every known version). It describes
+the *page geometry* of the file the block sits in:
+
+``v1``
+    Graph geometry is implicit. A single-plot figure was written as a bare
+    ``scale auto`` (GLE auto-fits the graph to the page) and a subplot grid's
+    ``amove``/``size`` cells were only reproducible by re-deriving them from
+    the recovered grid + ``figsize``, so a ``subplots_adjust`` override could
+    not survive a round trip.
+``v2``
+    Every graph block carries an explicit frame rectangle -- ``amove x y`` +
+    ``size w h`` + ``scale 1 1`` (SPEC 3.3) -- which the recognizer reads back
+    into :attr:`gleplot.Axes.placement`.
+
+:func:`parse_metadata` accepts every version in :data:`SUPPORTED_VERSIONS`
+without complaint; :func:`emit_metadata` always writes :data:`VERSION`.
+
+**Migration policy.** A v1 file loads fine: its implicit geometry becomes
+"auto" placement (``placement = None``) exactly as before. The first time it is
+saved, the writer emits the v2 explicit placement it computes for the figure,
+so the file changes geometry once -- a deliberate, one-time byte diff, with a
+``metadata:`` warning on load saying so. There is no v2 -> v1 downgrade path
+and none is planned: older gleplot builds parse a v2 file's marker with a
+warning and still read every key, and the ``amove``/``size``/``scale 1 1``
+triple they do not model is preserved verbatim rather than dropped.
 """
 
 from __future__ import annotations
@@ -35,13 +64,24 @@ __all__ = [
     "LINE_PREFIX",
     "DEFAULTS",
     "ALWAYS_EMIT",
+    "VERSION",
+    "SUPPORTED_VERSIONS",
     "emit_metadata",
     "parse_metadata",
 ]
 
 # -- Format constants ---------------------------------------------------
 
-VERSION = 1
+#: Version written by :func:`emit_metadata`. See the module docstring for what
+#: each version means and for the v1 -> v2 geometry migration policy.
+VERSION = 2
+
+#: Versions :func:`parse_metadata` reads without complaint. Every one of them
+#: uses the same ``! gleplot: key = value`` line format, so the parse itself is
+#: version-independent; the marker only records how the file's page geometry
+#: was written.
+SUPPORTED_VERSIONS = (1, 2)
+
 BEGIN_MARKER = f"! gleplot-meta-begin v{VERSION}"
 END_MARKER = "! gleplot-meta-end"
 LINE_PREFIX = "! gleplot:"
@@ -196,6 +236,37 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _version_warnings(marker: str) -> List[str]:
+    """Warnings for a ``! gleplot-meta-begin`` marker's version suffix.
+
+    ``marker`` is everything after ``! gleplot-meta-begin`` (e.g. ``"v1"``),
+    already stripped; an empty string means the marker carried no version.
+
+    Three cases:
+
+    * the current :data:`VERSION`, or no suffix at all -- silent;
+    * an older but supported version -- one ``metadata:``-free informational
+      line naming the geometry migration that the next save performs (see the
+      module docstring). Recovery is unaffected: the keys parse identically;
+    * anything else (a newer or unparseable marker) -- the historical
+      "unrecognized version" warning. Parsing still proceeds line by line.
+    """
+    if not marker or marker == f"v{VERSION}":
+        return []
+    for known in SUPPORTED_VERSIONS:
+        if marker == f"v{known}" and known < VERSION:
+            return [
+                f"file uses gleplot metadata v{known}, in which graph geometry "
+                f"is implicit; saving rewrites it as v{VERSION} with an "
+                f"explicit placement rectangle per axes (a one-time geometry "
+                f"change)."
+            ]
+    return [
+        f"Unrecognized gleplot metadata version marker {marker!r}; "
+        f"expected 'v{VERSION}'. Parsing line contents anyway."
+    ]
+
+
 def _parse_scalar(raw: str) -> Any:
     """Parse a single scalar value token: bool, int, float, else string."""
     lowered = raw.lower()
@@ -248,10 +319,12 @@ def parse_metadata(lines: List[str]) -> Tuple[Dict[str, Any], List[str]]:
 
     Notes
     -----
-    Tolerant by design: a version mismatch on the begin marker does not
-    raise -- it is recorded as a warning and parsing still proceeds line by
-    line, since the ``! gleplot: key = value`` line format itself is not
-    expected to change across the currently-defined version(s).
+    Tolerant by design: the begin marker's version never affects how the block
+    is read, because the ``! gleplot: key = value`` line format is identical in
+    every version. A version in :data:`SUPPORTED_VERSIONS` that is older than
+    :data:`VERSION` yields one informational warning about the geometry
+    migration the next save performs; an unknown version yields the historical
+    "unrecognized version" warning. Neither raises. See the module docstring.
     """
     data: Dict[str, Any] = {}
     warnings: List[str] = []
@@ -266,11 +339,7 @@ def parse_metadata(lines: List[str]) -> Tuple[Dict[str, Any], List[str]]:
                 in_block = True
                 found_block = True
                 rest = stripped[len("! gleplot-meta-begin"):].strip()
-                if rest and rest != f"v{VERSION}":
-                    warnings.append(
-                        f"Unrecognized gleplot metadata version marker {rest!r}; "
-                        f"expected 'v{VERSION}'. Parsing line contents anyway."
-                    )
+                warnings.extend(_version_warnings(rest))
             continue
 
         if stripped == END_MARKER:

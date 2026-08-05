@@ -15,7 +15,7 @@ class TestEmitMetadata:
         data = {"dpi": 100, "sharex": False, "sharey": False,
                 "msize_scale": 1.0, "import-data": []}
         lines = md.emit_metadata(data)
-        assert lines[0] == "! gleplot-meta-begin v1"
+        assert lines[0] == md.BEGIN_MARKER
         assert lines[-1] == "! gleplot-meta-end"
         assert "! gleplot: dpi = 100" in lines
         assert "! gleplot: import-data = " in lines
@@ -34,7 +34,7 @@ class TestEmitMetadata:
         }
         lines = md.emit_metadata(data)
         assert lines == [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: dpi = 100",
             "! gleplot: import-data = data_0.dat, data_1.dat",
             "! gleplot-meta-end",
@@ -69,7 +69,7 @@ class TestParseMetadata:
 
     def test_round_trip_documented_example(self):
         lines = [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: dpi = 100",
             "! gleplot: sharex = false",
             "! gleplot: sharey = false",
@@ -94,7 +94,7 @@ class TestParseMetadata:
         lines = [
             "! GLE graphics file",
             "size 20.32 15.24",
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: dpi = 200",
             "! gleplot-meta-end",
             "",
@@ -107,7 +107,7 @@ class TestParseMetadata:
 
     def test_malformed_lines_skipped_with_warnings(self):
         lines = [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: dpi = 100",
             "! gleplot: nomatchhere",
             "! not-a-gleplot-line-at-all",
@@ -120,7 +120,7 @@ class TestParseMetadata:
 
     def test_unknown_keys_preserved(self):
         lines = [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: dpi = 100",
             "! gleplot: some_future_key = 42",
             "! gleplot-meta-end",
@@ -131,7 +131,7 @@ class TestParseMetadata:
 
     def test_empty_import_data_parses_to_empty_list(self):
         lines = [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: import-data = ",
             "! gleplot-meta-end",
         ]
@@ -140,7 +140,7 @@ class TestParseMetadata:
 
     def test_import_data_with_whitespace_around_commas(self):
         lines = [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: import-data = a.dat,  b.dat ,c.dat",
             "! gleplot-meta-end",
         ]
@@ -149,10 +149,10 @@ class TestParseMetadata:
 
     def test_only_first_block_parsed_when_multiple_present(self):
         lines = [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: dpi = 100",
             "! gleplot-meta-end",
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: dpi = 999",
             "! gleplot-meta-end",
         ]
@@ -161,7 +161,7 @@ class TestParseMetadata:
 
     def test_unrecognized_version_marker_warns_but_still_parses(self):
         lines = [
-            "! gleplot-meta-begin v2",
+            "! gleplot-meta-begin v99",
             "! gleplot: dpi = 100",
             "! gleplot-meta-end",
         ]
@@ -172,7 +172,7 @@ class TestParseMetadata:
 
     def test_bool_parsing_case_insensitive(self):
         lines = [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: sharex = TRUE",
             "! gleplot: sharey = False",
             "! gleplot-meta-end",
@@ -183,11 +183,66 @@ class TestParseMetadata:
 
     def test_missing_end_marker_still_parses_lines_seen(self):
         lines = [
-            "! gleplot-meta-begin v1",
+            md.BEGIN_MARKER,
             "! gleplot: dpi = 100",
         ]
         data, warnings = md.parse_metadata(lines)
         assert data == {"dpi": 100}
+
+
+class TestVersionMarkers:
+    """The version marker records page geometry, never the line format.
+
+    Every supported version parses identically; an older-but-supported one
+    additionally reports the one-time geometry migration the next save
+    performs (see the metadata module docstring).
+    """
+
+    def test_current_version_is_two(self):
+        assert md.VERSION == 2
+        assert md.BEGIN_MARKER == "! gleplot-meta-begin v2"
+
+    def test_version_one_is_still_supported(self):
+        assert 1 in md.SUPPORTED_VERSIONS
+        assert md.VERSION in md.SUPPORTED_VERSIONS
+
+    @pytest.mark.parametrize("version", md.SUPPORTED_VERSIONS)
+    def test_every_supported_version_parses_identically(self, version):
+        lines = [
+            f"! gleplot-meta-begin v{version}",
+            "! gleplot: dpi = 150",
+            "! gleplot: sharex = true",
+            "! gleplot: import-data = a.dat",
+            "! gleplot-meta-end",
+        ]
+        data, _ = md.parse_metadata(lines)
+        assert data == {"dpi": 150, "sharex": True, "import-data": ["a.dat"]}
+
+    def test_v1_reports_the_geometry_migration(self):
+        lines = [
+            "! gleplot-meta-begin v1",
+            "! gleplot: dpi = 100",
+            "! gleplot-meta-end",
+        ]
+        _, warnings = md.parse_metadata(lines)
+        assert len(warnings) == 1
+        assert "v1" in warnings[0]
+        assert "geometry" in warnings[0]
+
+    def test_current_version_is_silent(self):
+        lines = [md.BEGIN_MARKER, "! gleplot: dpi = 100", "! gleplot-meta-end"]
+        _, warnings = md.parse_metadata(lines)
+        assert warnings == []
+
+    def test_marker_without_a_version_is_silent(self):
+        lines = [
+            "! gleplot-meta-begin",
+            "! gleplot: dpi = 100",
+            "! gleplot-meta-end",
+        ]
+        data, warnings = md.parse_metadata(lines)
+        assert data == {"dpi": 100}
+        assert warnings == []
 
 
 class TestEmitParseRoundTrip:
@@ -237,7 +292,7 @@ class TestListQuoting:
     def test_unquoted_lists_still_parse(self):
         from gleplot.parser.metadata import parse_metadata
         parsed, _ = parse_metadata(
-            ["! gleplot-meta-begin v1",
+            [md.BEGIN_MARKER,
              "! gleplot: import-data = data_0.dat, data_1.dat",
              "! gleplot-meta-end"]
         )

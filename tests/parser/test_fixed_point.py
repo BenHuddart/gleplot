@@ -5,11 +5,16 @@ to ``.gle``, parsing it back with :func:`parse_gle_figure`, and saving again
 must produce byte-identical GLE text AND byte-identical ``.dat`` sidecars.
 
 This is the acceptance bar for Track B1: ``.gle`` is a lossless native save
-format for gleplot's own output. A small, explicitly enumerated set of builders
-is exempted because they use ``subplots_adjust`` overrides that bake into
-non-invertible cm geometry (see the recognizer module docstring, normalization
-#3); those are asserted to differ ONLY in the layout geometry and to still
-round-trip everything else.
+format for gleplot's own output.
+
+**There are no exemptions.** There used to be three: builders whose
+``subplots_adjust`` overrides baked into cm geometry that the grid path could
+not invert, so they re-saved with default spacing. Since metadata v2 every
+graph block carries an explicit ``amove``/``size``/``scale 1 1`` frame rect
+which the recognizer reads straight back into ``Axes.placement``, so the
+geometry is recovered rather than re-derived and the exemption set is empty --
+the exit criterion of SPEC 10.2. Keep it that way: a builder that cannot make
+this test pass is a writer/recognizer bug, not a candidate for a new exemption.
 """
 
 from __future__ import annotations
@@ -25,14 +30,14 @@ from gleplot.parser.recognizer import parse_gle_figure
 from tests.parser import _golden_battery as golden
 from tests.integration import test_project_io as project_battery
 
-# Builders whose GLE text is NOT byte-identical after a round-trip because they
-# use subplots_adjust (documented layout loss). Their data files must still
-# round-trip byte-identically, and the layout that IS emitted must be valid.
-_SUBPLOT_ADJUST_EXEMPT = {
-    "subplots_grid_mixed",  # golden battery
-    "_subplots_grid",  # project battery (default hspace/wspace)
-    "_subplots_sharey_adjust",  # project battery
-}
+#: Builders exempted from byte-identity. Empty, and asserted to stay empty:
+#: this is the SPEC 10.2 exit criterion (see the module docstring).
+_EXEMPT: frozenset = frozenset()
+
+
+def test_the_exemption_set_is_empty():
+    """SPEC 10.2 exit criterion, asserted rather than merely documented."""
+    assert _EXEMPT == frozenset()
 
 
 @pytest.fixture(autouse=True)
@@ -87,19 +92,9 @@ def test_golden_battery_fixed_point(name, tmp_path):
     builder = getattr(golden, name)
     text1, data1, text2, data2, _ = _round_trip(builder, tmp_path)
 
-    # Data sidecars are ALWAYS byte-identical (even for the adjust-exempt
-    # builders: only page geometry differs, not the data).
+    assert name not in _EXEMPT
     assert data2 == data1, f"{name}: data files differ after round-trip"
-
-    if name in _SUBPLOT_ADJUST_EXEMPT:
-        # Documented subplots_adjust loss: the text differs only in the baked
-        # amove/size geometry. Everything that is not layout geometry must be
-        # unchanged, so strip the geometry lines and compare the rest.
-        assert _strip_layout(text1) == _strip_layout(
-            text2
-        ), f"{name}: non-layout content changed after round-trip"
-    else:
-        assert text2 == text1, f"{name}: GLE text differs after round-trip"
+    assert text2 == text1, f"{name}: GLE text differs after round-trip"
 
 
 # -- Project-I/O battery ----------------------------------------------------
@@ -111,22 +106,6 @@ def test_golden_battery_fixed_point(name, tmp_path):
 def test_project_battery_fixed_point(builder, tmp_path):
     text1, data1, text2, data2, _ = _round_trip(builder, tmp_path)
 
+    assert builder.__name__ not in _EXEMPT
     assert data2 == data1, f"{builder.__name__}: data files differ"
-
-    if builder.__name__ in _SUBPLOT_ADJUST_EXEMPT:
-        assert _strip_layout(text1) == _strip_layout(text2)
-    else:
-        assert text2 == text1, f"{builder.__name__}: GLE text differs"
-
-
-def _strip_layout(text: str) -> str:
-    """Drop the layout-geometry lines (``amove``/``size``) for adjust-exempt
-    comparison. What remains -- titles, axes, series, keys, data commands --
-    must be identical, proving only the subplot geometry was lost."""
-    out = []
-    for line in text.splitlines():
-        s = line.strip()
-        if s.startswith("amove ") or s.startswith("size "):
-            continue
-        out.append(line)
-    return "\n".join(out)
+    assert text2 == text1, f"{builder.__name__}: GLE text differs"
