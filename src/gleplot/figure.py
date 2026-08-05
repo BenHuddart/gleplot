@@ -507,6 +507,262 @@ class Figure:
         sizes = [r * unit for r in resolved]
         return sizes, gap
 
+    # -- page geometry ---------------------------------------------------
+    #
+    # ONE routine computes the frame rectangle of every axes, for every
+    # figure: a lone plot is simply the 1x1 case of the subplot grid. Before
+    # SPEC 3.3 / metadata v2 the single-plot path had no geometry at all (it
+    # emitted a bare ``scale auto`` and let GLE auto-fit the page), which made
+    # its layout non-invertible and forced a second, ad-hoc geometry hack for
+    # the one case where auto-fit visibly broke (a colorbar clipped off the
+    # right edge). Both are gone: the writer now always emits an explicit
+    # ``amove x y`` + ``size w h`` + ``scale 1 1`` triple, and the recognizer
+    # reads it straight back into ``Axes.placement``.
+    #
+    # GLE draws axis tick labels and axis titles OUTSIDE the frame rectangle,
+    # so the margins below are *decoration* margins: space left blank around
+    # the grid for those labels to occupy. They are expressed in units of the
+    # figure's text height (``hei``), because the overflow scales with the
+    # font -- measured against GLE 4.3.10, an 18 pt figure needs exactly the
+    # same margins in ``hei`` units as a 12 pt one.
+
+    #: Decoration margin (in units of ``hei``) for a lone plot's left edge --
+    #: a horizontal run of y tick labels plus the rotated y-axis title.
+    #: Measured worst cases: 3.11 hei for 4-character tick labels ("-0.5"),
+    #: 4.72 hei for 7-character ones ("-0.0001"). The chosen value covers the
+    #: former with slack; the latter needs ``subplots_adjust(left=...)``, the
+    #: same limitation the grid path has always had.
+    _AUTO_MARGIN_LEFT_HEI = 4.0
+
+    #: Same, bottom edge (one line of x tick labels + the x-axis title).
+    #: Measured worst case 2.43 hei.
+    _AUTO_MARGIN_BOTTOM_HEI = 3.0
+
+    #: Same, top edge when the axes carries a title. Measured 1.49 hei.
+    _AUTO_MARGIN_TITLE_HEI = 2.0
+
+    #: Same, right edge when the axes carries a decorated secondary y-axis.
+    #: Measured 3.28 hei.
+    _AUTO_MARGIN_Y2_HEI = 4.0
+
+    #: Same, for an edge with no axis title on it: only the outermost tick
+    #: label's overhang past the frame corner. Measured worst case 0.52 hei.
+    _AUTO_MARGIN_PLAIN_HEI = 1.5
+
+    #: Lower bound on a computed frame extent, as a fraction of the page, so a
+    #: very small ``figsize`` (or a very wide colorbar reservation) can never
+    #: produce a zero or negative ``size``.
+    _MIN_FRAME_FRACTION = 0.3
+
+    @staticmethod
+    def _axes_has_y2(ax: Axes) -> bool:
+        """True if ``ax`` makes the writer decorate the secondary y-axis.
+
+        Mirrors the conditions under which :meth:`GLEWriter.add_axes` emits a
+        ``y2title``/``y2axis`` line -- the only ways the right-hand side of the
+        frame acquires labels that need margin reserved for them.
+        """
+        return bool(
+            ax.y2label_text
+            or ax.y2min is not None
+            or ax.y2max is not None
+            or ax.y2scale == "log"
+        )
+
+    def _auto_margins_cm(self, writer, resolution) -> Tuple[float, float, float, float]:
+        """``(left, right, bottom, top)`` decoration margins in page cm.
+
+        Three policies, one per layout shape:
+
+        * **a lone plot** (the 1x1 case) has no neighbours to trade space
+          with, so every margin is sized from the measured decoration
+          overflow, in units of ``hei`` (see the class constants above);
+        * **a shared-axis grid** and **a plain grid** keep the historical
+          fixed centimetre margins unchanged -- those figures already emitted
+          explicit placement, and G2.2 is about making the *single-plot* path
+          explicit, not about re-flowing every existing grid. (Their margins
+          are measurably tight for a y-axis title plus wide tick labels;
+          re-tuning them is a separate, visible change.)
+
+        ``subplots_adjust`` overrides are applied last and win outright, for
+        all three shapes -- so a lone plot now honours ``subplots_adjust``
+        exactly as a grid does.
+        """
+        if len(self.axes_list) <= 1:
+            hei = fontsize_pt_to_cm(self.style.fontsize)
+            ax = self.axes_list[0] if self.axes_list else None
+            titled = bool(ax is not None and ax.title_text)
+            has_y2 = bool(ax is not None and self._axes_has_y2(ax))
+            margin_left = self._AUTO_MARGIN_LEFT_HEI * hei
+            margin_bottom = self._AUTO_MARGIN_BOTTOM_HEI * hei
+            margin_top = (
+                self._AUTO_MARGIN_TITLE_HEI if titled else self._AUTO_MARGIN_PLAIN_HEI
+            ) * hei
+            margin_right = (
+                self._AUTO_MARGIN_Y2_HEI if has_y2 else self._AUTO_MARGIN_PLAIN_HEI
+            ) * hei
+        elif self.sharex or self.sharey:
+            # Top margin: more room needed if subplots have titles
+            margin_top = 1.2 if self._has_titles() else 0.5
+            margin_right = 0.5
+            # Bottom needs room for x-axis labels (when showing them)
+            margin_bottom = 1.5 if self.sharex else 1.0
+            # Left always needs room for y-axis labels in multi-subplot layouts
+            margin_left = 1.5
+        else:
+            # Normal margins for non-shared layouts
+            margin_top = 1.5 if self._has_titles() else 1.0
+            margin_bottom = 1.0
+            margin_left = 1.0
+            margin_right = 1.0
+
+        # Convert margin overrides from normalized figure fractions to cm.
+        if "left" in self._subplot_adjust:
+            margin_left = self._subplot_adjust["left"] * writer.width_cm
+        if "right" in self._subplot_adjust:
+            margin_right = (1.0 - self._subplot_adjust["right"]) * writer.width_cm
+        if "bottom" in self._subplot_adjust:
+            margin_bottom = self._subplot_adjust["bottom"] * writer.height_cm
+        if "top" in self._subplot_adjust:
+            margin_top = (1.0 - self._subplot_adjust["top"]) * writer.height_cm
+
+        # Reserve extra room on the right for a colorbar, if any axes has one.
+        # colorbar() enforces exactly one heatmap-bearing axes per figure, so
+        # at most one colorbar exists here; it is drawn at the right edge of
+        # its (rightmost, in the common 1-row layout) axes. This keeps simple
+        # grids correct; a colorbar on an axes that is NOT in the rightmost
+        # column could still overlap its neighbour (documented limitation).
+        # With no colorbar, margin_right is unchanged.
+        cbar_reserved = max(
+            (self._axes_colorbar_reserved_cm(ax, resolution) for ax in self.axes_list),
+            default=0.0,
+        )
+        if cbar_reserved > 0:
+            margin_right = max(margin_right, cbar_reserved)
+
+        return margin_left, margin_right, margin_bottom, margin_top
+
+    def _has_titles(self) -> bool:
+        """True if any subplot has a title (a broken axis titles the assembly)."""
+        return any(ax.title_text for ax in self.axes_list) or any(
+            bax.title_text for bax in self.broken_axes
+        )
+
+    def _layout_rects(self, writer, resolution) -> Tuple[List[tuple], List[tuple]]:
+        """Default frame rect + grid cell for every axes, in ``axes_list`` order.
+
+        Returns
+        -------
+        rects : list of (x, y, w, h)
+            The frame rectangle in page cm the grid arrangement computes for
+            each axes -- what the writer emits when the axes carries no
+            explicit :attr:`Axes.placement` of its own. A broken-axis segment
+            gets its slice of the cell rather than the whole cell.
+        cells : list of (cell_x, cell_w)
+            The un-sliced grid cell each axes sits in, which the broken-axis
+            seam decoration needs in order to span the whole cell.
+
+        The grid dimensions come from the axes' ``position`` tuples; sizes
+        come from ``height_ratios``/``width_ratios`` (equal when unset) and
+        the gaps from ``subplots_adjust``'s ``wspace``/``hspace`` (fixed
+        defaults when unset). With one axes this degenerates to a single cell
+        filling the page inside the margins -- no gaps are consulted at all.
+        """
+        margin_left, margin_right, margin_bottom, margin_top = self._auto_margins_cm(
+            writer, resolution
+        )
+
+        max_rows = max((ax.position[0] for ax in self.axes_list), default=1)
+        max_cols = max((ax.position[1] for ax in self.axes_list), default=1)
+
+        # With a single cell there are no relative sizes to distribute, so
+        # height_ratios/width_ratios are ignored rather than validated -- a
+        # figure-level setting left over from a grid must not turn a lone
+        # plot into a ValueError (see _grid_axis_sizes' length check).
+        height_ratios = self.height_ratios if len(self.axes_list) > 1 else None
+        width_ratios = self.width_ratios if len(self.axes_list) > 1 else None
+
+        avail_w = max(
+            writer.width_cm - margin_left - margin_right,
+            writer.width_cm * self._MIN_FRAME_FRACTION,
+        )
+        avail_h = max(
+            writer.height_cm - margin_bottom - margin_top,
+            writer.height_cm * self._MIN_FRAME_FRACTION,
+        )
+
+        # Spacing between subplots; defaults preserve existing behavior.
+        default_hspace_cm = 0.0 if self.sharey else 1.5
+        default_vspace_cm = 0.0 if self.sharex else 2.0
+        wspace_frac = self._subplot_adjust.get("wspace")
+        hspace_frac = self._subplot_adjust.get("hspace")
+
+        # Per-column widths / per-row heights (cm), plus the resolved gap.
+        # Equal-size unless height_ratios/width_ratios were given at
+        # construction time (see _grid_axis_sizes); the equal-ratios path
+        # reproduces the historical cell_w/cell_h/hspace/vspace formulas
+        # exactly.
+        col_widths, hspace = self._grid_axis_sizes(
+            width_ratios,
+            max_cols,
+            avail_w,
+            wspace_frac,
+            default_hspace_cm,
+            "width_ratios",
+        )
+        row_heights, vspace = self._grid_axis_sizes(
+            height_ratios,
+            max_rows,
+            avail_h,
+            hspace_frac,
+            default_vspace_cm,
+            "height_ratios",
+        )
+
+        # Cumulative left edge per column and bottom edge per row (GLE
+        # coordinates: origin bottom-left, y increases upward), built once so
+        # unequal row/column sizes are placed correctly -- with equal sizes
+        # this reduces to the historical ``margin + i * (cell + gap)``
+        # arithmetic.
+        col_x_offsets = [margin_left]
+        for w in col_widths[:-1]:
+            col_x_offsets.append(col_x_offsets[-1] + w + hspace)
+
+        row_y_bottoms = []
+        consumed_h = margin_top
+        for h in row_heights:
+            row_y_bottoms.append(writer.height_cm - consumed_h - h)
+            consumed_h += h + vspace
+
+        rects: List[tuple] = []
+        cells: List[tuple] = []
+        for ax in self.axes_list:
+            _rows, cols, idx = ax.position
+            # Convert 1-based index to row/col (row-major, top-to-bottom)
+            row = (idx - 1) // cols  # 0-based, 0 = top row
+            col = (idx - 1) % cols  # 0-based, 0 = left col
+
+            cell_x = col_x_offsets[col]
+            cell_w = col_widths[col]
+            cell_h = row_heights[row]
+            y_pos = row_y_bottoms[row]
+
+            # A broken-axis segment occupies a slice of its grid cell rather
+            # than the whole thing; everything else about the emission is
+            # identical to an ordinary subplot.
+            owner = ax._break_owner
+            if owner is not None:
+                dx, graph_w = owner.segment_extent(ax._break_index, cell_w)
+                x_pos = cell_x + dx
+            else:
+                x_pos = cell_x
+                graph_w = cell_w
+
+            rects.append((x_pos, y_pos, graph_w, cell_h))
+            cells.append((cell_x, cell_w))
+
+        return rects, cells
+
     def gca(self) -> Axes:
         """Get current axes (or create if needed)."""
         if self._current_axes is None:
@@ -944,14 +1200,16 @@ class Figure:
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
             )
         elif is_single:
-            # Single plot — backward-compatible simple layout. 'begin graph' is
-            # emitted explicitly (not by the preamble) so palette subs and the
-            # fitz/contour pre-graph blocks can precede it. For a figure with
-            # neither, output is byte-identical to the historical layout.
+            # Single plot -- the 1x1 case of the grid geometry, emitted through
+            # a simpler block sequence (no inter-subplot blank lines, no
+            # shared-axis synchronization). 'begin graph' is emitted explicitly
+            # (not by the preamble) so palette subs and the fitz/contour
+            # pre-graph blocks can precede it.
             writer.add_preamble(
                 include_graph_begin=False, passthrough_header=self.passthrough_header
             )
             writer.add_sub_defs(sub_texts)
+            rects, _cells = self._layout_rects(writer, resolution)
 
             if self.axes_list:
                 ax = self.axes_list[0]
@@ -971,37 +1229,38 @@ class Figure:
                         ax.ymax = data_ymax
 
                 self._emit_pre_graph_blocks(writer, ax, resolution)
-                # Explicit placement (SPEC 3.3): the frame rect is realized as
-                # 'amove x y' + 'size w h' + 'scale 1 1'. Only figures that
-                # carry one take this path; everything else keeps the
-                # historical auto emission byte-for-byte.
-                if ax.placement is not None:
-                    writer.add_amove(ax.placement[0], ax.placement[1])
-                writer.begin_graph()
-                # A colorbar is drawn to the right of the graph, outside its
-                # box. In the default 'auto' scale mode the graph fills the
-                # whole page and the bar clips off-page, so when this axes has
-                # a colorbar, pin the graph box to a width that reserves room
-                # for it. Figures without a colorbar keep the historical
-                # 'scale auto' output byte-for-byte.
-                reserved = self._axes_colorbar_reserved_cm(ax, resolution)
+                # Explicit placement (SPEC 3.3, metadata v2): the frame rect is
+                # realized as 'amove x y' + 'size w h' + 'scale 1 1'. This is
+                # the DEFAULT emission -- a lone plot is the 1x1 case of the
+                # grid geometry (_layout_rects), so its rect is deterministic
+                # and invertible instead of being left to GLE's 'scale auto'
+                # page fit. The two exceptions below keep their own geometry.
                 if ax.geometry_passthrough:
+                    # Unmodelled GLE geometry recovered from a parsed file:
+                    # re-emitted verbatim, and any amove it had is preserved in
+                    # passthrough_header, so nothing is fabricated in front.
+                    writer.begin_graph()
                     writer.add_graph_geometry_passthrough(ax.geometry_passthrough)
-                elif ax.placement is not None:
-                    writer.add_graph_size(
-                        width_cm=ax.placement[2],
-                        height_cm=ax.placement[3],
-                        force_size=True,
-                    )
-                elif reserved > 0:
-                    graph_w = max(writer.width_cm - reserved, writer.width_cm * 0.3)
-                    writer.add_graph_box_size(graph_w, writer.height_cm)
-                else:
+                elif self.graph.scale_mode == "fullsize":
+                    # An explicit writer-level opt-out of gleplot's own layout:
+                    # GLE fits the graph (labels included) to the whole page.
+                    # There is no rect to emit, so no amove either.
+                    writer.begin_graph()
                     writer.add_graph_size()
+                else:
+                    rect = ax.placement if ax.placement is not None else rects[0]
+                    writer.add_amove(rect[0], rect[1])
+                    writer.begin_graph()
+                    writer.add_graph_size(
+                        width_cm=rect[2], height_cm=rect[3], force_size=True
+                    )
                 self._write_axes_content(writer, ax, resolution)
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
             else:
+                # No axes at all: there is nothing to place, so the historical
+                # empty block stands. (A figure with passthrough took the
+                # no-fabricate branch above; this is the truly empty figure.)
                 writer.begin_graph()
                 writer.add_graph_size()
                 writer.end_graph()
@@ -1014,10 +1273,6 @@ class Figure:
                 include_graph_begin=False, passthrough_header=self.passthrough_header
             )
             writer.add_sub_defs(sub_texts)
-
-            # Determine grid dimensions from axes positions
-            max_rows = max(ax.position[0] for ax in self.axes_list)
-            max_cols = max(ax.position[1] for ax in self.axes_list)
 
             # Synchronize axis limits for shared axes
             if self.sharex:
@@ -1041,133 +1296,23 @@ class Figure:
                     if ax.ymax is None:
                         ax.ymax = data_ymax
 
-            # Calculate per-subplot dimensions in cm.
-            # Default margins/spacing are heuristic, but can be overridden via
-            # subplots_adjust(left=..., right=..., top=..., bottom=..., wspace=..., hspace=...).
+            # Per-axes frame rectangles in cm, from the one geometry routine
+            # (see _layout_rects). Default margins/spacing are heuristic but
+            # can be overridden via subplots_adjust(left=..., right=...,
+            # top=..., bottom=..., wspace=..., hspace=...).
+            rects, cells = self._layout_rects(writer, resolution)
 
-            # Check if any subplot has a title (a broken axis keeps its title
-            # on the assembly, not on the individual segments)
-            has_titles = any(ax.title_text for ax in self.axes_list) or any(
-                bax.title_text for bax in self.broken_axes
-            )
-
-            if self.sharex or self.sharey:
-                # Top margin: more room needed if subplots have titles
-                margin_top = 1.2 if has_titles else 0.5
-                margin_right = 0.5
-                # Bottom needs room for x-axis labels (when showing them)
-                margin_bottom = 1.5 if self.sharex else 1.0
-                # Left always needs room for y-axis labels in multi-subplot layouts
-                margin_left = 1.5
-            else:
-                # Normal margins for non-shared layouts
-                margin_top = 1.5 if has_titles else 1.0
-                margin_bottom = 1.0
-                margin_left = 1.0
-                margin_right = 1.0
-
-            # Convert margin overrides from normalized figure fractions to cm.
-            if "left" in self._subplot_adjust:
-                margin_left = self._subplot_adjust["left"] * writer.width_cm
-            if "right" in self._subplot_adjust:
-                margin_right = (1.0 - self._subplot_adjust["right"]) * writer.width_cm
-            if "bottom" in self._subplot_adjust:
-                margin_bottom = self._subplot_adjust["bottom"] * writer.height_cm
-            if "top" in self._subplot_adjust:
-                margin_top = (1.0 - self._subplot_adjust["top"]) * writer.height_cm
-
-            # Reserve extra room on the right for a colorbar, if any axes has
-            # one. colorbar() enforces exactly one heatmap-bearing axes per
-            # figure, so at most one colorbar exists here; it is drawn at the
-            # right edge of its (rightmost, in the common 1-row layout) axes.
-            # This keeps simple grids correct; a colorbar on an axes that is
-            # NOT in the rightmost column could still overlap its neighbour
-            # (documented limitation). With no colorbar, margin_right is
-            # unchanged and non-colorbar layouts stay byte-identical.
-            cbar_reserved = max(
-                (
-                    self._axes_colorbar_reserved_cm(ax, resolution)
-                    for ax in self.axes_list
-                ),
-                default=0.0,
-            )
-            if cbar_reserved > 0:
-                margin_right = max(margin_right, cbar_reserved)
-
-            avail_w = writer.width_cm - margin_left - margin_right
-            avail_h = writer.height_cm - margin_bottom - margin_top
-
-            # Spacing between subplots; defaults preserve existing behavior.
-            default_hspace_cm = 0.0 if self.sharey else 1.5
-            default_vspace_cm = 0.0 if self.sharex else 2.0
-            wspace_frac = self._subplot_adjust.get("wspace")
-            hspace_frac = self._subplot_adjust.get("hspace")
-
-            # Per-column widths / per-row heights (cm), plus the resolved
-            # gap. Equal-size unless height_ratios/width_ratios were given at
-            # construction time (see _grid_axis_sizes); the equal-ratios path
-            # reproduces the historical cell_w/cell_h/hspace/vspace formulas
-            # exactly.
-            col_widths, hspace = self._grid_axis_sizes(
-                self.width_ratios,
-                max_cols,
-                avail_w,
-                wspace_frac,
-                default_hspace_cm,
-                "width_ratios",
-            )
-            row_heights, vspace = self._grid_axis_sizes(
-                self.height_ratios,
-                max_rows,
-                avail_h,
-                hspace_frac,
-                default_vspace_cm,
-                "height_ratios",
-            )
-
-            # Cumulative left edge per column and bottom edge per row (GLE
-            # coordinates: origin bottom-left, y increases upward), built
-            # once so unequal row/column sizes are placed correctly -- with
-            # equal sizes this reduces to the historical
-            # ``margin + i * (cell + gap)`` arithmetic.
-            col_x_offsets = [margin_left]
-            for w in col_widths[:-1]:
-                col_x_offsets.append(col_x_offsets[-1] + w + hspace)
-
-            row_y_bottoms = []
-            consumed_h = margin_top
-            for h in row_heights:
-                row_y_bottoms.append(writer.height_cm - consumed_h - h)
-                consumed_h += h + vspace
-
-            for ax in self.axes_list:
-                rows, cols, idx = ax.position
-                # Convert 1-based index to row/col (row-major, top-to-bottom)
-                row = (idx - 1) // cols  # 0-based, 0 = top row
-                col = (idx - 1) % cols  # 0-based, 0 = left col
-
-                cell_x = col_x_offsets[col]
-                cell_w = col_widths[col]
-                cell_h = row_heights[row]
-                y_pos = row_y_bottoms[row]
-
-                # A broken-axis segment occupies a slice of its grid cell
-                # rather than the whole thing; everything else about the
-                # emission is identical to an ordinary subplot.
-                owner = ax._break_owner
-                if owner is not None:
-                    dx, graph_w = owner.segment_extent(ax._break_index, cell_w)
-                    x_pos = cell_x + dx
-                else:
-                    x_pos = cell_x
-                    graph_w = cell_w
-
+            for ax, rect, (cell_x, cell_w) in zip(self.axes_list, rects, cells):
                 # An explicit placement rect (SPEC 3.3) overrides the computed
                 # grid cell: the rect IS the model, the grid is only a helper
-                # that computes rects. Nothing built through the scripting API
-                # carries one, so ordinary grids are unaffected.
-                if ax.placement is not None:
-                    x_pos, y_pos, graph_w, cell_h = ax.placement
+                # that computes rects. Figures built through the scripting API
+                # carry none and use the computed cell; a figure parsed back
+                # from GLE carries the rect recovered from its own
+                # amove/size/scale-1-1 triple, which is what makes a
+                # subplots_adjust layout survive the round trip.
+                x_pos, y_pos, graph_w, cell_h = (
+                    ax.placement if ax.placement is not None else rect
+                )
 
                 self._emit_pre_graph_blocks(writer, ax, resolution)
                 writer.add_amove(x_pos, y_pos)
@@ -1183,8 +1328,10 @@ class Figure:
 
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
-                if owner is not None:
-                    self._emit_break_decoration(writer, owner, ax, cell_x, cell_w)
+                if ax._break_owner is not None:
+                    self._emit_break_decoration(
+                        writer, ax._break_owner, ax, cell_x, cell_w
+                    )
                 writer.lines_gle.append("")  # Blank line between subplots
 
             writer.finalize(
@@ -1249,13 +1396,14 @@ class Figure:
     # -- colorbar layout reservation ------------------------------------
     #
     # A vertical colorbar is drawn AFTER the graph, at ``xg(xgmax)+sep``, so it
-    # falls outside the graph box. On the single-plot path GLE's ``scale auto``
-    # sizes the graph to fill the whole page, leaving no room to its right and
-    # clipping the bar. To fix that we shrink the graph box by a reserved
-    # right-hand margin computed here, purely from the colorbar dict (which the
-    # recognizer recovers verbatim) -- so the reserved size recomputes
-    # identically on a writer -> recognizer -> writer round trip and stays
-    # byte-stable (never parsed back from the emitted ``size`` line).
+    # falls outside the frame rectangle. The reserved width computed here
+    # becomes the layout's right-hand margin (:meth:`_auto_margins_cm`), for a
+    # lone plot exactly as for a grid, so the bar + ticks + rotated label are
+    # not clipped off the page. It is derived purely from the colorbar dict
+    # (which the recognizer recovers verbatim), so it recomputes identically on
+    # a writer -> recognizer -> writer round trip -- though since metadata v2
+    # the emitted rect is also read straight back, so the round trip no longer
+    # depends on the re-derivation matching.
 
     #: Nominal tick-label text height (cm) used only to size the reserved
     #: colorbar margin. A fixed constant (not derived from ``style.fontsize``)

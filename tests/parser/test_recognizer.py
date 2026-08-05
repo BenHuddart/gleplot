@@ -58,6 +58,10 @@ def normalize(d: dict) -> dict:
       * data_prefix / counters: dropped (not always recoverable).
       * global_data_counter: dropped.
       * axis limits: rounded to the emitted 6-sig-fig form.
+      * placement: dropped. The writer emits an explicit frame rect for every
+        axes and the recognizer reads it back, so a scripted figure's
+        ``None`` ("layout decides") legitimately becomes the rect the layout
+        decided on.
       * _draw_seq: dropped. The writer emits all line series before all
         marker series (ASYMMETRY docs / writer emission order), so the
         caller's interleave across kinds is not representable in the .gle;
@@ -157,6 +161,15 @@ def normalize(d: dict) -> dict:
         )
         if ax.get("legend_on") is True and labels:
             ax["legend_on"] = None
+
+        # Explicit placement: a scripted figure carries None ("let the layout
+        # decide") and the writer emits the rect the layout computed; the
+        # recognizer reads that rect straight back, so the recovered axes
+        # carries it explicitly. Same geometry either way -- drop it from
+        # both sides, exactly as ``subplot_adjust`` is dropped above (the
+        # rect IS the surviving form of that information). That the rect
+        # itself round-trips is asserted by tests/parser/test_graph_geometry.
+        ax.pop("placement", None)
 
         # axis limits snap to emitted precision.
         for lim in ("xmin", "xmax", "ymin", "ymax", "y2min", "y2max"):

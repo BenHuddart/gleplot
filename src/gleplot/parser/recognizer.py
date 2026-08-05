@@ -35,17 +35,16 @@ for rendering, applied by the test-side ``normalize()`` helper)
    marker-only ``dN marker M msize S color C`` form. The recognizer classifies
    a marker-only (no ``line`` token) dataset as a scatter with
    ``linestyle='none'`` -- matching the object model exactly.
-3. **subplots_adjust is lost.** The multi-subplot writer bakes
-   ``subplots_adjust`` overrides into ``amove``/``size`` cm geometry that is
-   not uniquely invertible, so recovered multi-subplot figures come back with
-   an empty ``_subplot_adjust``. The *layout* still round-trips byte-identically
-   because the recovered ``figsize`` + grid reproduce the same geometry only
-   when the original used default spacing; a figure that used a non-default
-   ``subplots_adjust`` re-saves with the DEFAULT spacing (documented layout
-   loss -- see the fixed-point exceptions in the module report). Concretely,
-   a subplot's canonical ``size w h`` + ``scale 1 1`` pair is left to the grid
-   path (which re-derives it from the recovered grid + ``figsize``) rather
-   than captured per-axes; see #13 for everything else, which IS captured.
+3. **subplots_adjust survives as geometry, not as fractions.** The layout
+   helper bakes ``subplots_adjust`` overrides into ``amove``/``size`` cm
+   geometry, and the fractions themselves are not uniquely invertible, so a
+   recovered figure still comes back with an empty ``_subplot_adjust``. The
+   *layout* nevertheless round-trips byte-identically, whatever spacing was
+   used, because every graph block's rect is recovered per-axes into
+   :attr:`Axes.placement` (#13) and re-emitted verbatim -- the rects are the
+   model, the fractions were only the helper's input. This retires the former
+   documented loss (a non-default ``subplots_adjust`` re-saving with DEFAULT
+   spacing) and with it the fixed-point test's exemption set.
 4. **global_data_counter.** ``to_dict`` records the process-global
    ``data_N.dat`` counter. The recognizer cannot know the original session's
    counter, so it derives the counter state from the recovered sidecar names
@@ -112,11 +111,17 @@ for rendering, applied by the test-side ``normalize()`` helper)
       geometry (``scale 1 1`` makes the axis frame fill the graph box) --
       becomes ``Axes.placement``, a frame rect in page cm (SPEC 3.3). The
       writer re-emits exactly those three statements. No warning: modelled.
+      This is what every gleplot-written file carries since metadata v2, for
+      a lone plot exactly as for a subplot grid, which is what makes gleplot's
+      own output a byte-identical fixed point with no exemptions.
     * No geometry at all, or exactly ``scale auto``, means AUTO placement
-      ("GLE decides"; ``placement`` stays ``None``). This is what every figure
-      built through the scripting API carries and what the writer emits by
-      default, so default output is untouched. Resolving auto into a concrete
-      rect needs a calibration render and happens in the editor, not here.
+      ("GLE decides"; ``placement`` stays ``None``). That is how gleplot wrote
+      single plots up to metadata v1, and how a hand-written file that says
+      nothing about geometry is read. Such a figure re-saves with the explicit
+      rect the layout computes for it -- a deliberate one-time geometry change,
+      see the migration policy in :mod:`gleplot.parser.metadata`. Resolving
+      auto against what GLE would actually have chosen needs a calibration
+      render and happens in the editor, not here.
     * Anything else real -- ``fullsize``, ``scale h v`` with actual factors, a
       bare ``size`` with no ``scale 1 1``, several statements we do not model
       -- is kept VERBATIM in ``Axes.geometry_passthrough`` and re-emitted in
@@ -125,15 +130,18 @@ for rendering, applied by the test-side ``normalize()`` helper)
       ``layout:`` warning reports that the geometry is not editable.
     * An ``amove`` that did not become a placement rect is preserved verbatim
       in ``passthrough_header`` ahead of the block, also with a ``layout:``
-      warning.
+      warning -- but only for a SINGLE-graph file. With several graphs the
+      ``amove`` positions are modelled (they are what the grid is inferred
+      from), so re-emitting them would duplicate every subplot's position.
 
-    Two consequences worth naming. A single-plot figure whose bare ``size``
-    is exactly the colorbar reserved-width line the writer re-derives
-    (``Figure._axes_colorbar_reserved_cm``) is left to that derivation, so
-    colorbar figures keep both their bytes and a clean model. And a figure
-    written with ``GLEGraphConfig.scale_mode='fullsize'`` comes back with the
-    geometry per-axes rather than as the config field (the config is a writer
-    default, not per-axes state); the emitted GLE is identical either way.
+    Two consequences worth naming. A metadata-v1 single-plot figure whose bare
+    ``size`` is exactly the colorbar reserved-width line that release derived
+    (``Figure._axes_colorbar_reserved_cm``) is recognized as such and loads as
+    auto placement, so it migrates to a v2 rect instead of freezing a legacy
+    line in passthrough. And a figure written with
+    ``GLEGraphConfig.scale_mode='fullsize'`` comes back with the geometry
+    per-axes rather than as the config field (the config is a writer default,
+    not per-axes state); the emitted GLE is identical either way.
 
 Tolerances for hand-written input
 ---------------------------------
@@ -3207,22 +3215,31 @@ class _Recognizer:
           :attr:`Axes.geometry_passthrough` and re-emitted in the geometry
           slot, with a ``layout:`` warning saying it is not editable.
 
-        Multi-graph figures keep the historical grid modelling: their
-        ``amove`` positions become grid positions (:meth:`_infer_positions`)
-        and the canonical per-block ``size w h`` + ``scale 1 1`` that the grid
-        writer re-derives is left to that path (documented normalization #3).
-        Per-axes placement rects for grids are the next work item; nothing is
-        dropped here that was not already reproduced by the grid geometry.
+        Multi-graph figures take the same three outcomes per graph block. Their
+        ``amove`` positions still become grid positions
+        (:meth:`_infer_positions`), but the rect they form with the block's
+        ``size w h`` + ``scale 1 1`` is ALSO captured as
+        :attr:`Axes.placement` rather than left to the grid path to re-derive.
+        That is what makes a ``subplots_adjust`` layout survive save -> parse
+        -> save: the writer honours the recovered rects verbatim instead of
+        recomputing default spacing (this retired documented normalization #3).
         """
         single = len(parsed_axes) == 1
         for info, ax in zip(parsed_axes, fig.axes_list):
             stmts = info.get("geometry_stmts") or []
-            if single:
-                self._apply_single_geometry(fig, ax, info, stmts)
-            else:
-                self._apply_grid_geometry(ax, stmts)
+            self._apply_axes_geometry(fig, ax, info, stmts, preserve_amove=single)
 
-    def _apply_single_geometry(self, fig, ax, info, stmts) -> None:
+    def _apply_axes_geometry(self, fig, ax, info, stmts, preserve_amove: bool) -> None:
+        """Classify one graph block's geometry (see :meth:`_apply_geometry`).
+
+        ``preserve_amove`` controls what happens to an ``amove`` that did not
+        become part of a placement rect. With a single graph there is no grid
+        to hold the position, so it is kept verbatim in the figure's header
+        passthrough (SPEC 8.1.4: no silent geometry loss). With several graphs
+        the ``amove`` positions ARE modelled -- they are what
+        :meth:`_infer_positions` reads the grid off -- so re-emitting them
+        would duplicate every subplot's position line.
+        """
         amove = info.get("amove")
         triple = self._invertible_triple(stmts)
         if triple is not None and amove is not None:
@@ -3230,12 +3247,22 @@ class _Recognizer:
             return
 
         if self._is_auto_geometry(stmts):
+            # Legacy (metadata v1) geometry, or a hand-written 'scale auto':
+            # placement stays None and the next save adopts the computed
+            # explicit rect. See the metadata module's migration policy.
+            pass
+        elif triple is not None:
+            # 'size w h' + 'scale 1 1' with no amove in front. The pair pins
+            # the box but not its position, so it inverts to no rect; the grid
+            # path (or the single-plot default) supplies the position and
+            # re-emits an equivalent block.
             pass
         elif self._is_writer_derived_size(fig, ax, stmts):
-            # The writer's own single-plot colorbar emission (a bare 'size'
-            # reserving room for the bar to the right of the graph). It is
-            # re-derived from the recovered colorbar, so capturing it would
-            # only duplicate model state -- and the line re-emits identically.
+            # A metadata-v1 single-plot colorbar emission (a bare 'size'
+            # reserving room for the bar to the right of the graph). It was
+            # derived from the colorbar, so capturing it would only duplicate
+            # model state; on re-save the reservation becomes the layout's
+            # right-hand margin instead.
             pass
         else:
             ax.geometry_passthrough = [s.raw for s in stmts]
@@ -3249,24 +3276,12 @@ class _Recognizer:
         # graph. Preserve it verbatim ahead of the block rather than dropping
         # it (SPEC 8.1.4: no silent geometry loss).
         raw_amove = info.get("amove_raw")
-        if amove is not None and raw_amove is not None:
+        if preserve_amove and amove is not None and raw_amove is not None:
             fig.passthrough_header.append(raw_amove)
             self.warnings.append(
                 "layout: graph position (amove) is preserved as raw GLE, "
                 "not editable"
             )
-
-    def _apply_grid_geometry(self, ax, stmts) -> None:
-        if not stmts or self._invertible_triple(stmts) is not None:
-            # Nothing to keep, or the canonical grid-cell geometry the
-            # multi-subplot writer re-derives from the grid positions.
-            return
-        ax.geometry_passthrough = [s.raw for s in stmts]
-        self.warnings.append(
-            "layout: subplot graph geometry ("
-            + ", ".join(sorted({s.keyword for s in stmts}))
-            + ") is preserved as raw GLE, not editable"
-        )
 
     @staticmethod
     def _invertible_triple(stmts) -> Optional[Tuple[float, float]]:
@@ -3298,13 +3313,21 @@ class _Recognizer:
 
     @staticmethod
     def _is_writer_derived_size(fig, ax, stmts) -> bool:
-        """True iff ``stmts`` are the exact geometry line the writer re-derives.
+        """True iff ``stmts`` are the legacy (metadata v1) colorbar ``size`` line.
 
-        Only one such line exists on the single-plot path: the graph-box
-        ``size`` that reserves right-hand room for a colorbar
-        (``Figure._axes_colorbar_reserved_cm`` -> ``add_graph_box_size``).
-        Compared as emitted text, so a hand-written bare ``size`` that does
-        NOT match is captured verbatim instead of being silently replaced.
+        gleplot v1 output pinned a single-plot graph BOX -- a bare ``size W H``
+        with no ``scale`` and no ``amove`` -- when the axes had a colorbar, so
+        the bar and its labels were not clipped off the right of the page. That
+        line is a pure function of the recovered colorbar
+        (``Figure._axes_colorbar_reserved_cm``), so it carries no information
+        the model does not already hold: recognizing it here lets such a file
+        load as auto placement and re-save as a v2 rect whose right-hand margin
+        reserves the same width. Compared as emitted text, so a hand-written
+        bare ``size`` that does NOT match is captured verbatim instead of being
+        silently replaced.
+
+        Kept for backward compatibility only; the current writer never emits
+        this form.
         """
         if len(stmts) != 1 or stmts[0].keyword != "size":
             return False

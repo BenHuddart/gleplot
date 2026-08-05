@@ -46,6 +46,47 @@ Core design principle — **the `FigureDocument` object model is the single sour
 - `panels/` — property panels: `figure_panel`, `axes_panel`, `series_panel`, `layout_panel`, `raw_gle_panel`.
 - `data/` — data-manager panel (`panel.py`); `loader.py` re-exports the loading layer now living in `dataio.py`.
 
+## Page geometry: explicit placement, and the metadata v1 → v2 migration
+
+Every graph block gleplot writes carries an **explicit frame rectangle** —
+`amove x y` before the block, `size w h` + `scale 1 1` as its first statements.
+That triple is the only GLE geometry that inverts to a rectangle (`scale 1 1`
+makes the axis frame fill the graph box), so the recognizer reads it straight
+back into `Axes.placement` and re-emits it verbatim.
+
+- **One routine computes it**: `Figure._layout_rects`. A lone plot is the 1×1
+  case of the subplot grid — there is no separate single-plot geometry path.
+  `subplots_adjust`, `height_ratios`/`width_ratios` and the colorbar width
+  reservation therefore apply to a single plot exactly as to a grid.
+- **Margins are decoration margins.** GLE draws tick labels and axis titles
+  *outside* the frame rect, so `_auto_margins_cm` leaves blank space around the
+  grid for them. The 1×1 row is expressed in units of the text height `hei`
+  (the overflow scales with the font); the grid rows keep their historical
+  fixed-cm values. Margins are a heuristic in both cases — unusually wide tick
+  labels still need `subplots_adjust(left=…)`.
+- **`placement` wins when set.** The grid is only a helper that computes rects;
+  the rects are the model (SPEC 3.3). A figure parsed back from GLE carries its
+  recovered rects, which is why `subplots_adjust` layouts survive save → parse
+  → save byte-identically even though the *fractions* are not recoverable.
+- **Opt-out**: `GLEGraphConfig(scale_mode="fullsize")` still emits `fullsize`
+  and no `amove`, and unmodelled geometry recovered from a hand-written file is
+  re-emitted verbatim from `Axes.geometry_passthrough`.
+
+**Migration policy (metadata block v1 → v2).** The `! gleplot-meta-begin vN`
+marker records how a file's page geometry was written, not the `key = value`
+line format (identical in every version). v1 files — where a single plot was a
+bare `scale auto` and grid cells were only reproducible by re-deriving them —
+**load fine**: their implicit geometry becomes auto placement (`placement =
+None`), exactly as before. The **first save rewrites them as v2 with an explicit
+rect**, a deliberate one-time byte diff, reported by a `metadata:` warning on
+load. There is no downgrade path. `parse_metadata` accepts every version in
+`SUPPORTED_VERSIONS`; only an *unknown* version warns as unrecognized.
+
+The invariant this buys: `tests/parser/test_fixed_point.py` has an **empty
+exemption set**. Writer → parse → writer is byte-identical for every builder in
+the golden and project batteries, with no carve-outs. A builder that cannot
+satisfy it is a bug, not a candidate for a new exemption.
+
 ## External dependency: GLE binary
 
 The GUI and compiler **shell out to an external `gle` binary (GLE 4.3+)**, discovered via an explicit override (set in the GUI's **Tools ▸ GLE Setup…**, persisted in `QSettings` as `gle/path`, applied through `compiler.set_gle_path_override`) → `GLE_PATH` env var → `PATH` (`shutil.which`) → platform well-known locations, incl. globbed versioned install dirs (see `compiler.find_gle` / `compiler.autodetect_gle`). **GLE is NOT bundled.** The app degrades gracefully when GLE is absent: the status bar shows "not found", and features needing compilation are disabled while pure-`.gle` editing still works.

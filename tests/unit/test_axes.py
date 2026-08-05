@@ -161,14 +161,21 @@ class TestSubplots(unittest.TestCase):
         self.assertEqual(len(axes[1].lines), 0)
         self.assertEqual(len(axes[1].scatters), 1)
     
-    def test_single_subplot_gle_no_amove(self):
-        """Test that single subplot generates simple GLE without amove."""
+    def test_single_subplot_gle_is_explicitly_placed(self):
+        """A single subplot is the 1x1 case: one placed graph block.
+
+        Since metadata v2 the lone plot carries the same explicit frame
+        rectangle every subplot does -- ``amove`` + ``size`` + ``scale 1 1``
+        -- instead of leaving the layout to GLE's ``scale auto`` page fit.
+        """
         fig = glp.figure()
         ax = fig.add_subplot(111)
         ax.plot([1, 2, 3], [1, 4, 9])
-        
+
         gle = fig._generate_gle()
-        self.assertNotIn('amove', gle)
+        self.assertEqual(gle.count('amove'), 1)
+        self.assertNotIn('scale auto', gle)
+        self.assertIn('    scale 1 1', gle)
         # Should have exactly one begin/end graph
         self.assertEqual(gle.count('begin graph'), 1)
         self.assertEqual(gle.count('end graph'), 1)
