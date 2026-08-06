@@ -9,6 +9,7 @@ from .series import Series
 from .brokenaxes import BrokenAxes
 from .writer import GLEWriter, SourceResolution, resolve_figure
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
+from .cairo_support import cairo_font_warning, figure_requires_cairo
 from .colors import rgb_to_gle
 from .mathtext import mathtext_to_gle
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
@@ -1010,6 +1011,7 @@ class Figure:
         format: Optional[str] = None,
         dpi: Optional[int] = None,
         data_provider=None,
+        cairo: Optional[bool] = None,
         **kwargs,
     ) -> Path:
         """
@@ -1026,6 +1028,23 @@ class Figure:
             If format is given but the file extension differs, format wins.
         dpi : int, optional
             DPI for raster formats
+        cairo : bool, optional
+            Whether to compile with GLE's ``-cairo`` device flag (SPEC
+            §6.1/§10.6). ``None`` (the default) auto-detects via
+            :meth:`requires_cairo` -- on for any figure using semi-
+            transparency, off otherwise, so an ordinary opaque figure's
+            compile behaviour (and its written ``.gle`` text -- the flag is
+            compile-time only, never script-time) is completely unchanged.
+            Pass ``True``/``False`` to force the flag either way. Ignored
+            when ``format`` is ``'gle'`` (no compile happens).
+
+            When Cairo ends up active (auto or forced) and this figure's
+            configured font (:attr:`style`'s ``font``) is not one of GLE's
+            Cairo-safe fonts, a :class:`UserWarning` is raised: GLE itself
+            substitutes a Cairo-safe font in that case (see
+            :mod:`gleplot.cairo_support`), and SPEC's "no silent drops" rule
+            means that substitution must never happen without gleplot saying
+            so.
         data_provider : DataProvider, optional
             Supplies the tables that ``ColumnRef``/``GridRef`` series
             reference (:mod:`gleplot.sources`). Injected **here**, at write
@@ -1085,8 +1104,21 @@ class Figure:
                     "Install GLE or use savefig_gle() to save script only."
                 )
 
+            effective_cairo = self.requires_cairo() if cairo is None else cairo
+            if effective_cairo:
+                warning = cairo_font_warning(self.style.font)
+                if warning:
+                    warnings.warn(
+                        f"{warning} (figure requires Cairo for its "
+                        "semi-transparent colours).",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+
             output_dpi = dpi or self.dpi
-            self.compiler.compile(str(base_path), format, dpi=output_dpi)
+            self.compiler.compile(
+                str(base_path), format, dpi=output_dpi, cairo=effective_cairo
+            )
             return output_path.with_suffix(f".{format}")
 
         return base_path
@@ -2527,6 +2559,31 @@ class Figure:
             "gleplot_version": __version__,
             "figure": figure_block,
         }
+
+    def requires_cairo(self) -> bool:
+        """Whether rendering this figure needs GLE's ``-cairo`` device flag.
+
+        True whenever the figure uses semi-transparency anywhere it can
+        appear -- a ``fill_between``/``axvspan``/``axhspan`` with
+        ``alpha < 1`` (:meth:`Axes.fill_between`, :meth:`Axes.axvspan`,
+        :meth:`Axes.axhspan`), or any colour expressed directly as
+        ``rgba(...)``/``rgba255(...)``. See
+        :func:`gleplot.cairo_support.figure_requires_cairo` for the exact
+        rule and :func:`gleplot.compiler.build_compile_args` for where the
+        answer turns into a compiler flag.
+
+        Built on :meth:`to_dict` (per SPEC's "render always works from a
+        to_dict() snapshot" rule) rather than a live-model walk; axvspan/
+        axhspan declarations carry their ``alpha`` from the moment they're
+        created, so this sees them correctly even though their concrete x/y
+        coordinates are only materialized later, at write time
+        (:meth:`Axes.materialize_spans`).
+
+        Returns
+        -------
+        bool
+        """
+        return figure_requires_cairo(self.to_dict())
 
     @classmethod
     def from_dict(cls, d: dict) -> "Figure":

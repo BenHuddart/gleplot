@@ -91,7 +91,9 @@ class TestFileIO(unittest.TestCase):
         self.assertEqual(result, export_dir / 'report.pdf')
         self.assertTrue((export_dir / 'report.gle').exists())
         self.assertGreaterEqual(len(list(export_dir.glob('*.dat'))), 1)
-        compiler.compile.assert_called_once_with(str(export_dir / 'report.gle'), 'pdf', dpi=self.fig.dpi)
+        compiler.compile.assert_called_once_with(
+            str(export_dir / 'report.gle'), 'pdf', dpi=self.fig.dpi, cairo=False
+        )
         self.assertFalse(output_file.exists())
 
     def test_savefig_auto_detects_jpg(self):

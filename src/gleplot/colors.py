@@ -189,6 +189,48 @@ def rgb255_expr(r: int, g: int, b: int) -> str:
     return "rgb255({},{},{})".format(_clamp255(r), _clamp255(g), _clamp255(b))
 
 
+def apply_alpha(color: str, alpha: Optional[float]) -> str:
+    """Compose a resolved GLE colour token with a transparency component.
+
+    ``color`` must already be a resolved GLE colour token, i.e. what
+    :func:`rgb_to_gle` returns (a colour name or an ``rgb255(...)``/``rgb(...)``
+    expression) -- this is what every caller (``FillSeries``/``Span``) stores.
+
+    When ``alpha`` is ``None`` or >= 1.0 (fully opaque), ``color`` is returned
+    completely unchanged -- this is what keeps every existing (opaque) figure's
+    generated ``.gle`` text byte-identical (gleplot's fixed-point contract):
+    the alpha path never touches a script that has nothing to be transparent.
+
+    Otherwise ``color`` is decomposed to its RGB components
+    (:func:`gle_color_to_rgb255`) and re-expressed as GLE's
+    ``rgba255(r,g,b,a)`` colour function (GLE >= 4.2), with ``a`` the 0-255
+    scaled alpha. Rendering a script containing ``rgba255`` requires GLE's
+    ``-cairo`` device flag (see ``gleplot.figure.Figure.requires_cairo`` and
+    ``gleplot.compiler.build_compile_args``); composing the colour here is
+    purely a *script-text* concern and is independent of that compile-time
+    flag decision, so this function never needs to know whether Cairo will
+    actually be used.
+
+    A token :func:`gle_color_to_rgb255` cannot decompose (notably: an
+    already-formed ``rgba255(...)``/``rgba(...)`` expression a user supplied
+    directly, or round-tripped from a parsed ``.gle`` file) is returned
+    unchanged -- it already carries its own alpha, so the separate ``alpha``
+    field is redundant for it, exactly like :func:`rgb_to_gle`'s "already a
+    GLE colour expression" pass-through.
+    """
+    if alpha is None:
+        return color
+    a = float(alpha)
+    if a >= 1.0:
+        return color
+    a = max(0.0, min(1.0, a))
+    rgb = gle_color_to_rgb255(color)
+    if rgb is None:
+        return color
+    r, g, b = rgb
+    return "rgba255({},{},{},{})".format(r, g, b, _clamp255(a * 255.0))
+
+
 def gle_color_to_rgb255(color: str) -> Optional[Tuple[int, int, int]]:
     """Best-effort inverse of :func:`rgb_to_gle`, for colour swatches.
 

@@ -1737,7 +1737,20 @@ class _Recognizer:
             y1=y1,
             y2=y2,
             color=color,
-            alpha=0.3,
+            # 1.0 (opaque), not a guessed fraction: `color` as parsed here IS
+            # the exact GLE colour text (verbatim, via _collect_color) that
+            # will be re-emitted -- if it already carries its own alpha
+            # (a hand-written `rgba255(...)`), gleplot.colors.apply_alpha
+            # passes an already-formed colour expression through unchanged
+            # regardless of this field (see its docstring), and if it is a
+            # plain colour, 1.0 is the only value that keeps apply_alpha a
+            # no-op so a round-tripped non-alpha fill stays byte-identical
+            # (Track G6; see tests/parser/test_recognizer.py and
+            # tests/parser/_golden_battery.py::fill_between). A guessed
+            # fraction here (this used to be a fixed 0.3, back when alpha was
+            # accepted but never rendered) would make apply_alpha rewrite the
+            # colour on the very next save.
+            alpha=1.0,
             label=None,
             offset=info["_dataset_offsets"].get(d_names[0], 0.0),
             data_file=f1,

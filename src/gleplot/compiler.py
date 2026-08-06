@@ -136,11 +136,43 @@ def build_compile_args(
         ``output_format`` is in :data:`RASTER_COMPILE_FORMATS` *and* ``dpi``
         is not ``None``.
     cairo : bool, optional
-        Reserved for task G6 (SPEC §10.6): when ``True``, appends ``-cairo``
-        to enable GLE's Cairo rendering backend. The flag construction is
-        already correct, but no caller passes ``cairo=True`` yet -- deciding
-        *when* to enable Cairo (figures using alpha) and handling its
-        font-substitution consequence are out of scope here.
+        When ``True``, appends ``-cairo`` to enable GLE's Cairo rendering
+        backend (SPEC §6.1/§10.6). Required for a script using
+        semi-transparency (an ``rgba(...)``/``rgba255(...)`` colour); GLE
+        fails outright on such a script without it, on every device this
+        function supports *except* ``svg`` (``-d svg`` always renders
+        through GLE's Cairo backend regardless of this flag -- but see the
+        Notes below for why passing it explicitly still matters there too).
+        Deciding *when* to enable Cairo is the caller's job:
+        :meth:`gleplot.figure.Figure.savefig` passes
+        ``figure.requires_cairo()`` automatically; other callers pass an
+        explicit override.
+
+    Notes
+    -----
+    Device composition under ``-cairo`` (verified against a real GLE 4.3.10
+    binary; see ``gleplot.cairo_support`` for the font-substitution half of
+    this):
+
+    * ``pdf``/``eps``/``png``/``jpg`` -- without ``-cairo``, a script using
+      semi-transparency fails (exit 1, "semi-transparency only supported
+      with command line option '-cairo'"); with it, they succeed. ``png``/
+      ``jpg`` route through an internal Cairo PDF pass first (visible in
+      GLE's own progress output as ``[foo.pdf][foo.png]``) but GLE cleans up
+      that intermediate itself -- no leftover ``.pdf`` was observed.
+    * ``svg`` -- GLE *always* selects its Cairo SVG backend for ``-d svg``,
+      with or without ``-cairo`` on the command line. But the flag still
+      changes behavior: GLE's own automatic PostScript-font fallback
+      (silently substituting a Cairo-safe font, with only an informational
+      note) is gated on the ``-cairo`` *flag* being present, not on the
+      Cairo backend being active. Compile ``-d svg`` *without* ``-cairo``
+      against the default (PostScript) font and GLE still exits 0 but drops
+      the affected text from the output (a hard, uncaught
+      ``PostScript fonts not supported with '-cairo'`` at the point each
+      character would have been drawn) -- exactly the failure mode
+      ``gleplot.gui.preview``'s pre-emptive ``set font texcmr`` injection
+      works around. Passing ``-cairo`` explicitly for an SVG compile lets
+      GLE's own graceful fallback run instead.
 
     Returns
     -------
@@ -453,6 +485,7 @@ class GLECompiler:
         dpi: int = 150,
         verbose: bool = False,
         timeout: int = 30,
+        cairo: bool = False,
     ) -> Path:
         """
         Compile GLE file to output format.
@@ -469,6 +502,19 @@ class GLECompiler:
             Print compiler output
         timeout : int
             Maximum number of seconds to allow the GLE process to run.
+        cairo : bool
+            Whether to pass GLE's ``-cairo`` device flag (SPEC §6.1/§10.6).
+            Required for any script using semi-transparency (an
+            ``rgba(...)``/``rgba255(...)`` colour -- e.g. a ``fill_between``
+            with ``alpha < 1``); without it GLE fails outright on such a
+            script (``semi-transparency only supported with command line
+            option '-cairo'``). This method has no ``Figure`` to inspect, so
+            it never decides this for you -- ``cairo`` is an explicit,
+            caller-supplied override. :meth:`gleplot.figure.Figure.savefig`
+            is the caller that *does* have the figure and passes
+            ``figure.requires_cairo()`` here automatically; pass an explicit
+            ``True``/``False`` yourself when compiling a ``.gle`` file this
+            compiler didn't write (or to force the flag either way).
 
         Returns
         -------
@@ -499,7 +545,7 @@ class GLECompiler:
         # shared builder so this never drifts from the GUI's compile paths
         # again -- see build_compile_args().
         cmd = [self.gle_path] + build_compile_args(
-            output_format, output_path, input_path, dpi=dpi,
+            output_format, output_path, input_path, dpi=dpi, cairo=cairo,
         )
 
         try:
