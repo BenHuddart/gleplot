@@ -169,6 +169,14 @@ def normalize(d: dict) -> dict:
         if ax.get("legend_on") is True and labels:
             ax["legend_on"] = None
 
+        # legend_fontsize -> emitted cm -> pt, same snap as the style
+        # fontsize above (GLEWriter.add_legend's 'hei' token round-trips
+        # through the writer's 6-significant-figure cm formatting).
+        lfs = ax.get("legend_fontsize")
+        if isinstance(lfs, (int, float)):
+            emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(lfs)))
+            ax["legend_fontsize"] = fontsize_cm_to_pt(float(emitted))
+
         # Explicit placement: a scripted figure carries None ("let the layout
         # decide") and the writer emits the rect the layout computed; the
         # recognizer reads that rect straight back, so the recovered axes
