@@ -17,6 +17,7 @@ unmodified elsewhere to prove the shim in the GUI context; this file
 covers the new gleplot.dataio surface directly.
 """
 
+import gzip
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from gleplot.dataio import (
+    WHITESPACE_DELIMITER,
     ColumnExtractionError,
     DataTable,
     ResolvedData,
@@ -839,3 +841,370 @@ def test_comment_header_leaves_has_header_false_for_vouch_safety(tmp_path):
         "header row, or a vouched sidecar would be rewritten with a new "
         "header line on next save"
     )
+
+
+# ---------------------------------------------------------------------------
+# load_data_file overrides: delimiter / header / comment_chars / skip_rows.
+#
+# These parameterize load_data_file so downstream consumers (e.g.
+# GLEstudio's data-import wizard) can bypass sniffing/detection for part or
+# all of a file without importing dataio's private per-token helpers. See
+# the "Deviation from the task brief" note this section closes out.
+# ---------------------------------------------------------------------------
+
+
+def test_guard_defaults_reproduce_existing_structure(tmp_path):
+    """With every new keyword at its default, the returned DataTable is
+    identical -- field for field -- to what the pre-override implementation
+    produced for the same input. Pins the "no behavior change when unused"
+    contract independently of the rest of the (unmodified) suite above.
+    """
+    content = "# a comment\nx,y\n1,2\n3,4\n"
+    p = _write(tmp_path, "guard.csv", content)
+
+    table = load_data_file(p)
+
+    assert table.column_names == ["x", "y"]
+    assert table.delimiter == ","
+    assert table.has_header is True
+    assert table.header_source == "row"
+    assert table.is_numeric == [True, True]
+    assert table.n_rows == 2
+    assert table.warnings == []
+    np.testing.assert_allclose(table.columns[0], [1.0, 3.0])
+    np.testing.assert_allclose(table.columns[1], [2.0, 4.0])
+    # New field: always populated now (even unoverridden), but doesn't
+    # change any pre-existing field's value.
+    assert table.comment_lines_skipped == 1
+
+
+def test_guard_defaults_no_override_kwargs_needed(tmp_path):
+    """Calling with only ``path`` (no keyword arguments at all) still works
+    -- the new parameters are all keyword-only with defaults, so no
+    existing call site can break."""
+    p = _write(tmp_path, "plain.dat", "1 2\n3 4\n")
+
+    table = load_data_file(p)
+
+    assert table.column_names == ["col1", "col2"]
+    assert table.delimiter == r"\s+"
+
+
+# -- delimiter override -------------------------------------------------
+
+
+def test_delimiter_override_forces_explicit_char(tmp_path):
+    """An explicit delimiter override bypasses sniffing entirely -- here
+    forcing ';'-splitting on a file that would otherwise sniff as
+    whitespace-delimited (no ';' present at all, so this also proves the
+    override doesn't require the character to appear)."""
+    p = _write(tmp_path, "f.dat", "a;b\n1;2\n3;4\n")
+
+    table = load_data_file(p, delimiter=";")
+
+    assert table.delimiter == ";"
+    assert table.column_names == ["a", "b"]
+    np.testing.assert_allclose(table.columns[0], [1.0, 3.0])
+
+
+def test_delimiter_override_whitespace_token(tmp_path):
+    """WHITESPACE_DELIMITER forces arbitrary-whitespace splitting -- the
+    same token DataTable.delimiter itself uses to report it."""
+    p = _write(tmp_path, "f.dat", "a b\n1 2\n3 4\n")
+
+    table = load_data_file(p, delimiter=WHITESPACE_DELIMITER)
+
+    assert table.delimiter == r"\s+"
+    assert table.column_names == ["a", "b"]
+
+
+def test_delimiter_override_not_second_guessed_by_single_field_fallback(tmp_path):
+    """Sniffing falls back to whitespace-splitting when the sniffed
+    delimiter yields only one field per row; an explicit override is not
+    subject to that fallback -- forcing ',' on a comma-free file yields one
+    wide (single-field) "column" per row instead of being silently swapped
+    for whitespace-splitting. (Each whitespace-containing field then fails
+    float conversion, so -- per the ordinary, unchanged header heuristic --
+    the first such row still reads as a non-numeric label and is consumed
+    as a header; that is a downstream consequence of the delimiter choice,
+    not a special case for overrides.)"""
+    p = _write(tmp_path, "f.dat", "1 2\n3 4\n5 6\n")
+
+    table = load_data_file(p, delimiter=",")
+
+    assert table.delimiter == ","
+    assert table.column_names == ["1 2"]
+    assert table.columns[0].tolist() == ["3 4", "5 6"]
+
+
+def test_delimiter_none_is_default_sniffing(tmp_path):
+    """delimiter=None (explicitly passed) is identical to omitting the
+    keyword -- both sniff."""
+    p = _write(tmp_path, "f.csv", "x,y\n1,2\n3,4\n")
+
+    default_table = load_data_file(p)
+    explicit_none_table = load_data_file(p, delimiter=None)
+
+    assert default_table.delimiter == explicit_none_table.delimiter == ","
+
+
+# -- header override ------------------------------------------------------
+
+
+def test_header_override_true_forces_header_even_when_all_numeric(tmp_path):
+    """header=True forces the first row to be consumed as a header even
+    though its tokens are all-numeric and would never auto-detect as one."""
+    p = _write(tmp_path, "f.dat", "1 2\n3 4\n5 6\n")
+
+    table = load_data_file(p, header=True)
+
+    assert table.has_header is True
+    assert table.header_source == "row"
+    # Numeric-looking header tokens become header names verbatim -- no
+    # special-casing, matching how an inline non-numeric header is handled.
+    assert table.column_names == ["1", "2"]
+    assert table.n_rows == 2
+    np.testing.assert_allclose(table.columns[0], [3.0, 5.0])
+
+
+def test_header_override_false_forces_no_header_even_when_labels_present(tmp_path):
+    """header=False forces the first row to be treated as data even though
+    it contains a genuine non-numeric label that would normally
+    auto-detect as a header."""
+    p = _write(tmp_path, "f.dat", "x y\n1 2\n3 4\n")
+
+    table = load_data_file(p, header=False)
+
+    assert table.has_header is False
+    assert table.header_source is None
+    assert table.column_names == ["col1", "col2"]
+    assert table.n_rows == 3
+    # The label row is preserved as a (non-numeric) data row rather than
+    # consumed as a header.
+    assert table.is_numeric == [False, False]
+
+
+def test_header_none_is_default_auto_detect(tmp_path):
+    p = _write(tmp_path, "f.dat", "x y\n1 2\n3 4\n")
+
+    default_table = load_data_file(p)
+    explicit_none_table = load_data_file(p, header=None)
+
+    assert default_table.has_header == explicit_none_table.has_header is True
+
+
+# -- comment_chars override ------------------------------------------------
+
+
+def test_comment_chars_override_replaces_default_markers(tmp_path):
+    """A non-None comment_chars REPLACES the built-in '#'/'!' set: here
+    only ';' is recognized, so a '#'-prefixed line becomes ordinary content
+    instead of being filtered out -- and since it is the first content
+    line with a non-numeric label, it is consumed as the header row
+    verbatim (comment marker and all)."""
+    content = "#a b\n1 2\n"
+    p = _write(tmp_path, "f.dat", content, encoding="utf-8")
+
+    table = load_data_file(p, comment_chars=";")
+
+    assert table.has_header is True
+    assert table.header_source == "row"
+    assert table.column_names == ["#a", "b"]
+    assert table.n_rows == 1
+
+
+def test_comment_chars_override_recognizes_custom_marker(tmp_path):
+    p = _write(tmp_path, "f.dat", ";a header comment\nx y\n1 2\n3 4\n")
+
+    table = load_data_file(p, comment_chars=";")
+
+    assert table.comment_lines_skipped == 1
+    assert table.column_names == ["x", "y"]
+    assert table.n_rows == 2
+
+
+def test_comment_chars_additive_pattern_documented(tmp_path):
+    """A caller wanting ';' *in addition to* the defaults passes the
+    defaults explicitly alongside it, per the documented (non-additive)
+    contract."""
+    content = "# real comment\n;also a comment\nx y\n1 2\n"
+    p = _write(tmp_path, "f.dat", content)
+
+    table = load_data_file(p, comment_chars="#!;")
+
+    assert table.comment_lines_skipped == 2
+    assert table.column_names == ["x", "y"]
+    assert table.n_rows == 1
+
+
+def test_comment_chars_empty_string_disables_comment_detection(tmp_path):
+    p = _write(tmp_path, "f.dat", "# looks like a comment\n1 2\n3 4\n")
+
+    table = load_data_file(p, comment_chars="")
+
+    assert table.comment_lines_skipped == 0
+    # The '#' line is now content; it's the first row and contains a
+    # non-numeric label ('#', 'looks', ...), so it's consumed as a header.
+    assert table.has_header is True
+    assert table.n_rows == 2
+
+
+def test_comment_chars_none_is_default(tmp_path):
+    p = _write(tmp_path, "f.dat", "# c\nx y\n1 2\n")
+
+    default_table = load_data_file(p)
+    explicit_none_table = load_data_file(p, comment_chars=None)
+
+    assert default_table.column_names == explicit_none_table.column_names == ["x", "y"]
+    assert (
+        default_table.comment_lines_skipped
+        == explicit_none_table.comment_lines_skipped
+        == 1
+    )
+
+
+def test_comment_chars_override_skips_comment_header_recovery(tmp_path):
+    """Comment-header recovery (_recover_comment_header) is hardcoded to
+    '#'/'!' and is only attempted when comment_chars is None -- with an
+    override active, a qualifying trailing comment line is NOT used to
+    recover column names, even though the unoverridden call would recover
+    them (see test_comment_header_recovered_after_multi_comment_block for
+    the equivalent unoverridden case with a similar shape)."""
+    content = "! x y\n1.0 2.0\n3.0 4.0\n"
+    p = _write(tmp_path, "f.dat", content)
+
+    unoverridden = load_data_file(p)
+    overridden = load_data_file(p, comment_chars="#!")
+
+    assert unoverridden.header_source == "comment"
+    assert unoverridden.column_names == ["x", "y"]
+
+    assert overridden.header_source is None
+    assert overridden.column_names == ["col1", "col2"]
+
+
+# -- skip_rows override ----------------------------------------------------
+
+
+def test_skip_rows_drops_leading_lines(tmp_path):
+    content = "junk banner line 1\njunk banner line 2\nx y\n1 2\n3 4\n"
+    p = _write(tmp_path, "f.dat", content)
+
+    table = load_data_file(p, skip_rows=2)
+
+    assert table.column_names == ["x", "y"]
+    assert table.n_rows == 2
+
+
+def test_skip_rows_zero_is_default_noop(tmp_path):
+    p = _write(tmp_path, "f.dat", "x y\n1 2\n3 4\n")
+
+    default_table = load_data_file(p)
+    explicit_zero_table = load_data_file(p, skip_rows=0)
+
+    assert default_table.column_names == explicit_zero_table.column_names
+    assert default_table.n_rows == explicit_zero_table.n_rows
+
+
+def test_skip_rows_counts_raw_lines_not_content_lines(tmp_path):
+    """skip_rows drops raw lines (including comments/blanks), not just
+    content lines -- dropping 3 raw lines here removes a comment, a blank,
+    and the first data-ish line, landing exactly on the header row."""
+    content = "# comment\n\nignored data-looking line\nx y\n1 2\n3 4\n"
+    p = _write(tmp_path, "f.dat", content)
+
+    table = load_data_file(p, skip_rows=3)
+
+    assert table.column_names == ["x", "y"]
+    assert table.n_rows == 2
+
+
+# -- composition ------------------------------------------------------------
+
+
+def test_composition_skip_rows_and_header_override(tmp_path):
+    """skip_rows is applied before header handling, so a forced header
+    decision operates on the row that remains after skipping."""
+    content = "instrument banner\nrun_id value\n1 10\n2 20\n"
+    p = _write(tmp_path, "f.dat", content)
+
+    table = load_data_file(p, skip_rows=1, header=True)
+
+    assert table.column_names == ["run_id", "value"]
+    assert table.has_header is True
+    assert table.n_rows == 2
+    np.testing.assert_allclose(table.columns[0], [1.0, 2.0])
+
+
+def test_composition_skip_rows_and_delimiter_override(tmp_path):
+    content = "banner;not;data\na;b\n1;2\n3;4\n"
+    p = _write(tmp_path, "f.dat", content)
+
+    table = load_data_file(p, skip_rows=1, delimiter=";")
+
+    assert table.delimiter == ";"
+    assert table.column_names == ["a", "b"]
+    assert table.n_rows == 2
+
+
+def test_composition_skip_rows_comment_chars_and_header(tmp_path):
+    content = "banner\n;comment using custom marker\nrun_id value\n1 10\n2 20\n"
+    p = _write(tmp_path, "f.dat", content)
+
+    table = load_data_file(p, skip_rows=1, comment_chars=";", header=True)
+
+    assert table.comment_lines_skipped == 1
+    assert table.column_names == ["run_id", "value"]
+    assert table.has_header is True
+    assert table.n_rows == 2
+
+
+def test_composition_all_four_overrides_together(tmp_path):
+    content = (
+        "instrument export banner\n"
+        "* extra prose\n"
+        "run_id;value\n"
+        "1;10\n"
+        "2;20\n"
+    )
+    p = _write(tmp_path, "f.dat", content)
+
+    table = load_data_file(
+        p, skip_rows=1, delimiter=";", header=True, comment_chars="*"
+    )
+
+    assert table.comment_lines_skipped == 1
+    assert table.delimiter == ";"
+    assert table.has_header is True
+    assert table.column_names == ["run_id", "value"]
+    assert table.n_rows == 2
+    np.testing.assert_allclose(table.columns[1], [10.0, 20.0])
+
+
+# -- gzip: confirm dataio does NOT handle it (no override should either) ---
+
+
+def test_gzip_files_are_not_transparently_decompressed(tmp_path):
+    """gleplot.dataio has never had gzip support (confirmed by inspection:
+    no `import gzip` anywhere in the module) -- a .gz file is read as raw
+    bytes (falling back to latin-1) rather than decompressed, so its
+    content does not come back out as the original text. This is scope
+    GLEstudio's data-import wizard layers on itself (file preparation,
+    independent of load_data_file); the new override parameters added here
+    do not add gzip support either -- overrides operate on whatever text
+    _read_text produces, gzip or not."""
+    p = tmp_path / "f.dat.gz"
+    p.write_bytes(gzip.compress(b"x y\n1 2\n3 4\n"))
+
+    table = load_data_file(p)
+
+    # Not raised, and not usable data: the compressed bytes decode (via the
+    # latin-1 fallback) into one garbled single-field "row", not the
+    # original 2-column, 2-row table.
+    assert table.column_names != ["x", "y"]
+    assert table.n_rows != 2
+
+    # Confirms the override parameters don't change this either -- they
+    # operate on whatever (garbled) text comes back from _read_text.
+    overridden = load_data_file(p, delimiter=" ", skip_rows=0)
+    assert overridden.column_names != ["x", "y"]
