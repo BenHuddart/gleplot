@@ -21,6 +21,7 @@ tests pin the replacement contract on the generated GLE text:
 from __future__ import annotations
 
 import re
+import warnings
 
 import numpy as np
 import pytest
@@ -144,6 +145,66 @@ def test_color_expressions_pass_through(expression):
 def test_unresolvable_color_still_falls_back_to_black():
     assert rgb_to_gle("definitely-not-a-colour") == "BLACK"
     assert rgb_to_gle("#12345") == "BLACK"
+
+
+@pytest.mark.parametrize(
+    "requested",
+    ["definitely-not-a-colour", "#12345", "#zzzzzz"],
+)
+def test_unresolvable_color_warns_while_falling_back(requested):
+    """No silent drops: an unrecognized name/hex string at least warns.
+
+    ``rgb_to_gle`` used to swallow a typo'd or malformed colour into BLACK
+    with no indication anything had happened -- the same failure mode
+    ``markers.matplotlib_to_gle_marker`` already warns about for an
+    unrecognized marker symbol.
+    """
+    with pytest.warns(UserWarning, match=re.escape(requested)):
+        assert rgb_to_gle(requested) == "BLACK"
+
+
+#: Every "grey"-spelled name that must map exactly like its "gray" form:
+#: bare grey, the numbered ramp (GLE's ``defineOldGLEColors`` grey ramp,
+#: matching the GRAY1..GRAY90 RGB values exactly), and named composites.
+GREY_FAMILY = [
+    "grey",
+    "GREY",
+    "Grey",
+    "grey1",
+    "grey5",
+    "grey10",
+    "grey20",
+    "grey30",
+    "grey40",
+    "grey50",
+    "grey60",
+    "grey70",
+    "grey80",
+    "grey90",
+    "darkgrey",
+    "lightgrey",
+]
+
+
+@pytest.mark.parametrize("requested", GREY_FAMILY)
+def test_grey_family_maps_to_gray_equivalent(requested):
+    """British ``grey`` spellings must resolve exactly like their ``gray`` form.
+
+    Regression test: ``rgb_to_gle('grey40')`` used to match nothing (only
+    the bare ``gray``/``grey`` and ``lightgray``/``lightgrey`` pairs were in
+    ``MATPLOTLIB_TO_GLE_COLORS``, and the numbered grey ramp -- ``grey10``..
+    ``grey90`` -- was never checked at all) and fell through to the
+    unrecognized-name fallback, silently turning a mid-grey into BLACK.
+    """
+    expected = requested.upper().replace("GREY", "GRAY")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert rgb_to_gle(requested) == expected
+        # And the "gray" spelling resolves to the same token.
+        assert (
+            rgb_to_gle(requested.replace("grey", "gray").replace("GREY", "GRAY"))
+            == expected
+        )
 
 
 def test_gle_color_to_rgb255_inverts_both_forms():
