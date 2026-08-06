@@ -11,6 +11,11 @@ as by the GUI data manager. It provides two layers:
    ``gleplot.gui.data.loader`` (moved here unchanged as part of the
    GLE-parsing project's Track A3 -- ``gleplot.gui.data.loader`` is now a
    thin backwards-compatible shim re-exporting these same names).
+   :func:`load_data_file` also accepts explicit, keyword-only overrides
+   (``delimiter``, ``header``, ``comment_chars``, ``skip_rows``) for
+   consumers that need to bypass detection for part or all of a file --
+   see its docstring. Every override defaults to "detect exactly as
+   before", so existing callers are unaffected.
 
 2. **Resolution** (:func:`resolve_data_reference`, :func:`extract_columns`,
    :func:`classify_data_file`): a parser-facing layer used to turn a
@@ -101,13 +106,14 @@ import io
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Callable, List, Optional, Union
 
 import numpy as np
 
 __all__ = [
     "DataTable",
     "load_data_file",
+    "WHITESPACE_DELIMITER",
     "ResolvedData",
     "resolve_data_reference",
     "extract_columns",
@@ -123,6 +129,14 @@ _MISSING_TOKENS_CI = {"nan", ""}
 
 #: Delimiters tried by the Sniffer / candidate list, in preference order.
 _CANDIDATE_DELIMITERS = [",", "\t", ";"]
+
+#: ``load_data_file(delimiter=...)`` override value denoting explicit
+#: whitespace-splitting, as opposed to ``delimiter=None`` (the default),
+#: which means "sniff/detect". Reuses the same token
+#: :attr:`DataTable.delimiter` already uses to *report* whitespace-splitting,
+#: so a caller can round-trip a previously-reported delimiter straight back
+#: in as an override.
+WHITESPACE_DELIMITER = r"\s+"
 
 
 @dataclass
@@ -162,6 +176,14 @@ class DataTable:
         is still a comment, data-row indexing is unaffected), or ``None``
         when ``column_names`` are the synthesized positional
         ``col1``..``colN`` placeholders.
+    comment_lines_skipped : int
+        Number of non-blank lines recognized as comments (and therefore
+        excluded from header/data detection) -- per the built-in ``#``/``!``
+        convention, or per ``load_data_file``'s ``comment_chars`` override
+        when one was given. Counted after ``skip_rows`` leading lines (if
+        any) were dropped. Together with ``delimiter`` and ``has_header``,
+        this is enough for a caller to report "delimiter found / header
+        found / N comment lines skipped" without recomputing anything.
     """
 
     column_names: List[str]
@@ -173,6 +195,7 @@ class DataTable:
     is_numeric: List[bool] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     header_source: Optional[str] = None
+    comment_lines_skipped: int = 0
 
     @property
     def n_cols(self) -> int:
@@ -509,7 +532,13 @@ def _recover_comment_header(
 
 
 def load_data_file(
-    path: Union[str, Path], max_preview_rows: Optional[int] = None
+    path: Union[str, Path],
+    max_preview_rows: Optional[int] = None,
+    *,
+    delimiter: Optional[str] = None,
+    header: Optional[bool] = None,
+    comment_chars: Optional[str] = None,
+    skip_rows: int = 0,
 ) -> DataTable:
     """Load a delimited text data file into a :class:`DataTable`.
 
@@ -523,6 +552,56 @@ def load_data_file(
         parsed into ``columns`` (the rest of the file is ignored). This
         is a performance aid for large files when only a preview is
         needed; ``n_rows`` reflects the number of rows actually loaded.
+    delimiter : str, optional
+        Explicit override for field splitting, bypassing
+        :class:`csv.Sniffer`-based detection entirely. ``None`` (the
+        default) sniffs/detects the delimiter exactly as before -- byte-
+        for-byte identical to calling this function without the keyword
+        at all. Pass a single character (``","``, ``"\\t"``, ``";"``, an
+        arbitrary custom character, ...) to force that literal delimiter,
+        or :data:`WHITESPACE_DELIMITER` (``r"\\s+"`` -- the same token
+        :attr:`DataTable.delimiter` uses to *report* whitespace-splitting)
+        to force arbitrary-whitespace splitting. An explicit override is
+        honored exactly as given: unlike detection, it is not
+        second-guessed by the "does it actually split the first row into
+        more than one field" fallback that sniffing uses -- if a caller
+        forces a delimiter that doesn't apply to the file, that is
+        reflected as one wide ragged column, not silently overridden.
+    header : bool, optional
+        Explicit override for whether the first content row is a header.
+        ``None`` (the default) auto-detects exactly as before: a row is a
+        header iff at least one field is a genuine non-numeric label.
+        ``True``/``False`` forces that decision, bypassing the heuristic
+        entirely. A forced ``header=False`` still allows comment-header
+        recovery to supply display names from a qualifying comment line
+        (see ``comment_chars`` below); a forced ``header=True`` never
+        does -- an explicit/inline header always takes precedence, the
+        same rule that already applies to auto-detected headers.
+    comment_chars : str, optional
+        Explicit override for which leading characters mark a
+        standalone-line comment. ``None`` (the default) uses the built-in
+        convention (``#`` or ``!``, i.e. :func:`_is_comment`) unchanged.
+        A non-``None`` value **replaces** the built-in set entirely (it is
+        not additive): e.g. ``comment_chars=";"`` recognizes only
+        ``;``-prefixed lines as comments, and ``#``/``!`` lines become
+        ordinary content; a caller that wants ``;`` *in addition to* the
+        defaults should pass ``comment_chars="#!;"``. ``comment_chars=""``
+        disables comment-line detection entirely (every non-blank line is
+        content). Because the comment-header recovery heuristics
+        (:func:`_recover_indexed_comment_header`,
+        :func:`_recover_comment_header`) are hardcoded to the ``#``/``!``
+        convention, they are only attempted when ``comment_chars is
+        None`` -- running them against a different marker set could
+        recover a "header" from a line that was actually treated as
+        ordinary data (or the reverse), so when ``comment_chars`` is
+        overridden, positional ``col1``..``colN`` names are used instead
+        whenever there is no inline header.
+    skip_rows : int, optional
+        Number of leading raw lines to drop before any other processing
+        -- comment filtering, delimiter sniffing, and header detection all
+        run only on what remains. Default ``0`` (nothing skipped, and
+        thus no behavior change). Applied first, so it composes with
+        every other parameter.
 
     Returns
     -------
@@ -533,7 +612,16 @@ def load_data_file(
     FileNotFoundError
         If ``path`` does not exist.
     ValueError
-        If the file contains no data rows at all.
+        If the file contains no data rows at all (after ``skip_rows`` and
+        comment/blank filtering).
+
+    Notes
+    -----
+    With every keyword-only parameter left at its default, behavior is
+    byte-for-byte identical to calling this function with just ``path``
+    (and, optionally, ``max_preview_rows``) as before: the detection
+    heuristics, missing-value conventions, and numeric-column typing this
+    module has always used are all unchanged for existing callers.
     """
     path = Path(path)
     if not path.exists():
@@ -541,25 +629,47 @@ def load_data_file(
 
     text = _read_text(path)
     raw_lines = text.splitlines()
+    if skip_rows:
+        raw_lines = raw_lines[skip_rows:]
+
+    is_comment_line: Callable[[str], bool]
+    if comment_chars is None:
+        is_comment_line = _is_comment
+    else:
+        _comment_prefixes = tuple(comment_chars)
+
+        def is_comment_line(line: str) -> bool:
+            return line.lstrip().startswith(_comment_prefixes)
 
     # Filter out comment and blank lines up front; header/data detection
     # and delimiter sniffing both operate on this filtered list only.
-    content_lines = [l for l in raw_lines if l.strip() and not _is_comment(l)]
+    content_lines = [l for l in raw_lines if l.strip() and not is_comment_line(l)]
+    comment_lines_skipped = sum(
+        1 for l in raw_lines if l.strip() and is_comment_line(l)
+    )
 
     if not content_lines:
         raise ValueError(f"No data rows found in {path}")
 
     sample_lines = content_lines[:20]
-    delimiter = _sniff_delimiter(sample_lines)
+    if delimiter is None:
+        resolved_delimiter = _sniff_delimiter(sample_lines)
 
-    # Validate the sniffed delimiter actually splits the first line into
-    # more than one field; otherwise fall back to whitespace splitting.
-    if delimiter is not None:
-        first_fields = _split_line(content_lines[0], delimiter)
-        if len(first_fields) <= 1:
-            delimiter = None
+        # Validate the sniffed delimiter actually splits the first line into
+        # more than one field; otherwise fall back to whitespace splitting.
+        if resolved_delimiter is not None:
+            first_fields = _split_line(content_lines[0], resolved_delimiter)
+            if len(first_fields) <= 1:
+                resolved_delimiter = None
+    elif delimiter == WHITESPACE_DELIMITER:
+        resolved_delimiter = None
+    else:
+        # Explicit override: honored as given (see docstring), not
+        # second-guessed by the single-field fallback above, which only
+        # applies to sniffed delimiters.
+        resolved_delimiter = delimiter
 
-    split_rows = [_split_line(line, delimiter) for line in content_lines]
+    split_rows = [_split_line(line, resolved_delimiter) for line in content_lines]
 
     # Header detection: the first row is a header iff at least one field is a
     # genuine non-numeric label -- i.e. it fails float conversion AND is not a
@@ -567,13 +677,17 @@ def load_data_file(
     # also "fails float conversion", but a first data row consisting entirely
     # of missing values (e.g. '* * *') is real DATA (all-NaN), not a header;
     # only a field that is a real word/label marks the row as a header.
+    # ``header`` overrides this heuristic entirely when given.
     first_row = split_rows[0]
-    first_row_is_header = any(
-        _normalize_token(tok) is not None and _try_float(_normalize_token(tok)) is None
-        for tok in first_row
-    )
+    if header is None:
+        has_header = any(
+            _normalize_token(tok) is not None
+            and _try_float(_normalize_token(tok)) is None
+            for tok in first_row
+        )
+    else:
+        has_header = header
 
-    has_header = first_row_is_header
     if has_header:
         header_fields = [f.strip() for f in first_row]
         data_rows = split_rows[1:]
@@ -664,7 +778,14 @@ def load_data_file(
         # all. A mismatched inline header (has_header True, tokens
         # misaligned) is still a real header row and must NOT be
         # second-guessed by a comment line.
-        if not header_mismatch:
+        #
+        # Also gated on `comment_chars is None`: the recovery heuristics
+        # below are hardcoded to the built-in '#'/'!' convention (see
+        # docstring), so they only run when that convention is actually
+        # what was used to filter comments out above -- otherwise a line
+        # treated as data by the (overridden) filter could be mistaken for
+        # a recoverable comment header, or vice versa.
+        if not header_mismatch and comment_chars is None:
             # Indexed '! c N = name' block (see _recover_indexed_comment_header)
             # is unambiguous -- every column is explicitly named by number --
             # so it takes PRECEDENCE over the positional last-comment-line
@@ -676,7 +797,9 @@ def load_data_file(
                 column_names = recovered
                 header_source = "comment"
             else:
-                recovered = _recover_comment_header(raw_lines, delimiter, max_cols)
+                recovered = _recover_comment_header(
+                    raw_lines, resolved_delimiter, max_cols
+                )
                 if recovered is not None:
                     column_names = recovered
                     header_source = "comment"
@@ -725,11 +848,12 @@ def load_data_file(
         columns=columns,
         n_rows=n_rows,
         path=path,
-        delimiter=delimiter if delimiter is not None else r"\s+",
+        delimiter=resolved_delimiter if resolved_delimiter is not None else r"\s+",
         has_header=has_header,
         is_numeric=is_numeric,
         warnings=warnings,
         header_source=header_source,
+        comment_lines_skipped=comment_lines_skipped,
     )
 
 
