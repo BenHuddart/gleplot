@@ -406,3 +406,104 @@ def test_parse_valid_axes_unaffected_by_validation():
     assert len(cals) == 1
     assert cals[0].index == 0
     assert any("skipped" in w for w in warnings)
+
+
+# --------------------------------------------------------------------------- #
+# parse_calibration_lines: stable axes ids (G5)
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_by_id_tags_axes_id_and_no_extra_warnings():
+    text = (
+        "gleplot-cal ax0deadbeef  2 12 -1 1 1 1 4.33 6.62\n"
+        "gleplot-cal ax1deadbeef  1 100 0.1 1000 5.83 1 9.16 6.62\n"
+    )
+    meta = [("ax0deadbeef", False, False), ("ax1deadbeef", True, True)]
+    cals, warnings = parse_calibration_lines(text, meta)
+    assert warnings == []
+    assert len(cals) == 2
+    assert cals[0].axes_id == "ax0deadbeef"
+    assert cals[0].index == 0
+    assert cals[1].axes_id == "ax1deadbeef"
+    assert cals[1].index == 1
+
+
+def test_parse_by_id_order_independent_of_record_order():
+    # Records printed in reverse of axes_list order must still resolve to
+    # their own axes' flags/position by id, not by the order they appear in.
+    text = (
+        "gleplot-cal ax1  1 100 0.1 1000 5.83 1 9.16 6.62\n"
+        "gleplot-cal ax0  2 12 -1 1 1 1 4.33 6.62\n"
+    )
+    meta = [("ax0", False, False), ("ax1", True, True)]
+    cals, warnings = parse_calibration_lines(text, meta)
+    assert warnings == []
+    by_id = {c.axes_id: c for c in cals}
+    assert by_id["ax0"].index == 0
+    assert by_id["ax0"].x_log is False
+    assert by_id["ax1"].index == 1
+    assert by_id["ax1"].x_log is True
+
+
+def test_parse_calibration_matches_by_id_across_reorder():
+    """The G5 acceptance scenario: the same calibration text, matched against
+    a reordered ``axes_meta``, still attributes each record to the right
+    axes (by id) at its NEW position -- proving reordering the model between
+    a render and consuming its geometry does not scramble the mapping."""
+    text = "gleplot-cal axA  0 10 0 1 0 0 3 3\ngleplot-cal axB  100 200 0 1 4 0 8 3\n"
+    meta_before = [("axA", False, False), ("axB", False, False)]
+    cals_before, warnings_before = parse_calibration_lines(text, meta_before)
+    assert warnings_before == []
+    by_id_before = {c.axes_id: c for c in cals_before}
+    assert by_id_before["axA"].index == 0
+    assert by_id_before["axB"].index == 1
+
+    # Axes B and A swap places in the model; re-parse the SAME text against
+    # the new ordering.
+    meta_after = [("axB", False, False), ("axA", False, False)]
+    cals_after, warnings_after = parse_calibration_lines(text, meta_after)
+    assert warnings_after == []
+    by_id_after = {c.axes_id: c for c in cals_after}
+    # Same ids, same data ranges -- now at swapped positions.
+    assert by_id_after["axA"].index == 1
+    assert by_id_after["axA"].x_range == pytest.approx((0.0, 10.0))
+    assert by_id_after["axB"].index == 0
+    assert by_id_after["axB"].x_range == pytest.approx((100.0, 200.0))
+
+
+def test_parse_legacy_positional_key_tolerated_when_ids_known():
+    # axes_meta carries real ids, but this record still uses the old bare
+    # positional key -- must still parse (mapped by position), with a
+    # warning flagging the mismatch as a legacy/mixed-version signal.
+    text = "gleplot-cal 1  1 100 0.1 1000 5.83 1 9.16 6.62\n"
+    meta = [("ax0", False, False), ("ax1", True, True)]
+    cals, warnings = parse_calibration_lines(text, meta)
+    assert len(cals) == 1
+    assert cals[0].index == 1
+    assert cals[0].x_log is True
+    assert cals[0].axes_id == "ax1"
+    assert any("legacy" in w and "1" in w for w in warnings)
+
+
+def test_parse_plain_integer_key_with_no_ids_known_is_silent():
+    # A fully legacy caller (2-tuple meta, no ids at all) using bare integer
+    # keys is the pre-G5 format and must stay warning-free.
+    text = "gleplot-cal 0  2 12 -1 1 1 1 4.33 6.62\n"
+    cals, warnings = parse_calibration_lines(text, [(False, False)])
+    assert warnings == []
+    assert len(cals) == 1
+    assert cals[0].axes_id is None
+
+
+def test_parse_unrecognized_key_is_skipped_with_warning():
+    text = "gleplot-cal not_an_id_or_int  2 12 -1 1 1 1 4.33 6.62\n"
+    cals, warnings = parse_calibration_lines(text, [("ax0", False, False)])
+    assert cals == []
+    assert any("unrecognized" in w for w in warnings)
+
+
+def test_axes_calibration_axes_id_defaults_to_none():
+    # Existing positional/keyword construction (pre-G5 call sites, and most
+    # of this module's own math tests) is unaffected: axes_id is optional.
+    cal = AxesCalibration(0, (0, 1), (0, 1), False, False, (0, 0, 1, 1))
+    assert cal.axes_id is None

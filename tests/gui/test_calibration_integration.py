@@ -203,6 +203,65 @@ def test_subplot_grid_yields_four_distinct_calibrations(qapp):
 
 
 @pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_calibration_survives_axes_reorder_by_id(qapp):
+    """G5: calibrations key by each axes' stable ``axes_id``, not by its
+    position in ``axes_list`` -- so reordering the axes between renders does
+    not scramble which calibration belongs to which axes."""
+    doc = FigureDocument()
+    fig = glp.Figure(figsize=(6, 3))
+    ax_a = fig.add_subplot(1, 2, 1)
+    ax_a.set_xlim(0, 10)
+    ax_a.set_ylim(0, 1)
+    ax_a.plot([0, 10], [0, 1], label="a")
+    ax_b = fig.add_subplot(1, 2, 2)
+    ax_b.set_xlim(100, 200)
+    ax_b.set_ylim(0, 1)
+    ax_b.plot([100, 200], [0, 1], label="b")
+    doc.set_figure(fig)
+
+    ctrl = PreviewController(doc, debounce_ms=50)
+    rec = GeomRecorder(ctrl)
+    try:
+        ctrl.request_render()
+        assert _wait_until(lambda: rec.succeeded or rec.failed, 15000)
+        assert not rec.failed, rec.failed
+
+        geom1 = ctrl.last_geometry
+        assert geom1 is not None
+        assert len(geom1.axes) == 2
+        by_id_1 = {c.axes_id: c for c in geom1.axes}
+        assert set(by_id_1) == {ax_a.axes_id, ax_b.axes_id}
+        assert by_id_1[ax_a.axes_id].x_range == pytest.approx((0.0, 10.0))
+        assert by_id_1[ax_b.axes_id].x_range == pytest.approx((100.0, 200.0))
+        assert by_id_1[ax_a.axes_id].index == 0
+        assert by_id_1[ax_b.axes_id].index == 1
+
+        # Reorder the axes in the live model (e.g. what a GLEstudio
+        # structure-tree drag would do) and render again.
+        fig.axes_list[0], fig.axes_list[1] = fig.axes_list[1], fig.axes_list[0]
+
+        def _second_render_done():
+            return len(rec.succeeded) > 1 or len(rec.failed) > 0
+
+        ctrl.request_render()
+        assert _wait_until(_second_render_done, 15000)
+        assert not rec.failed, rec.failed
+
+        geom2 = ctrl.last_geometry
+        assert geom2 is not None
+        assert len(geom2.axes) == 2
+        by_id_2 = {c.axes_id: c for c in geom2.axes}
+        # Same ids, same data ranges -- each axes' calibration followed it to
+        # its new (swapped) position rather than being misattributed.
+        assert by_id_2[ax_a.axes_id].x_range == pytest.approx((0.0, 10.0))
+        assert by_id_2[ax_b.axes_id].x_range == pytest.approx((100.0, 200.0))
+        assert by_id_2[ax_a.axes_id].index == 1
+        assert by_id_2[ax_b.axes_id].index == 0
+    finally:
+        ctrl.shutdown()
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
 def test_log_scale_calibration_maps_geometric_midpoint(qapp):
     doc = FigureDocument()
     fig = glp.Figure(figsize=(4, 3))
@@ -246,7 +305,9 @@ def test_calibration_absent_still_renders_with_none_geometry(qapp, monkeypatch):
     rec = GeomRecorder(ctrl)
 
     # Skip the injection step: the script compiles fine but emits no cal lines.
-    monkeypatch.setattr(PreviewController, "_inject_calibration", staticmethod(lambda p: None))
+    monkeypatch.setattr(
+        PreviewController, "_inject_calibration", staticmethod(lambda p, ids: None)
+    )
 
     try:
         ctrl.request_render()
@@ -280,9 +341,11 @@ def test_injection_present_in_preview_but_not_saved(qapp, tmp_path):
     script = tmp_path / "preview.gle"
     fig.savefig_gle(str(script))
     assert "gleplot-cal" not in script.read_text(encoding="utf-8")
-    # Apply the controller's private injection to the temp copy.
-    PreviewController._inject_calibration(script)
+    # Apply the controller's private injection to the temp copy, keyed by the
+    # axes' stable id (G5) rather than a positional index.
+    axes_id = ax.axes_id
+    PreviewController._inject_calibration(script, [axes_id])
     injected = script.read_text(encoding="utf-8")
-    assert 'print "gleplot-cal 0 ' in injected
+    assert f'print "gleplot-cal {axes_id} ' in injected
     # Exactly one graph block -> exactly one calibration print.
     assert injected.count("gleplot-cal") == 1
