@@ -545,7 +545,19 @@ _AXES_SERIALIZED_ATTRS = {
 #     DanglingSourceRef records behind Figure.source_warnings), not document
 #     state. Reset by every write and meaningless without the provider that
 #     produced it, so persisting it would only ever be stale.
-_FIGURE_RUNTIME_ONLY_ATTRS = {"compiler", "_current_axes", "_source_warnings"}
+#   - `_preview_decimation_report`: output of the LAST GLE generation (the
+#     DecimationRecord list behind Figure.preview_decimation_report, G7).
+#     `preview_decimation` itself is a per-call generation argument, never an
+#     attribute -- this is only the report of what it did, reset by every
+#     write (including a plain call with no argument, which resets it to
+#     `[]`), so persisting it would misrepresent the document as something it
+#     decimates by default.
+_FIGURE_RUNTIME_ONLY_ATTRS = {
+    "compiler",
+    "_current_axes",
+    "_source_warnings",
+    "_preview_decimation_report",
+}
 
 # Figure attributes that ARE serialized (style/graph/marker_config go into
 # the 'config' sub-dict; axes_list is serialized element-by-element via

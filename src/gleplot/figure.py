@@ -276,6 +276,13 @@ class Figure:
         # document state: reset by every generation, never serialized.
         self._source_warnings: List = []
 
+        # Structured records for series the LAST write appended a preview
+        # ``deresolve`` clause to (§6.1/§10.7, G7). Write-time output, not
+        # document state: reset (to ``[]``, since ``preview_decimation`` is a
+        # per-call opt-in) by every generation, never serialized -- see
+        # :attr:`preview_decimation_report`.
+        self._preview_decimation_report: List = []
+
         self.compiler = None
         try:
             self.compiler = GLECompiler()
@@ -296,6 +303,28 @@ class Figure:
         latest ``savefig``/``savefig_gle`` rather than accumulating.
         """
         return list(self._source_warnings)
+
+    @property
+    def preview_decimation_report(self) -> List:
+        """Series the most recent generation actually decimated, and by how much.
+
+        A list of :class:`gleplot.writer.DecimationRecord` (dataset name,
+        label, factor, original point count) -- empty unless that generation
+        call passed ``preview_decimation=N`` (``N`` > 1) AND at least one
+        eligible series (line/scatter -- see
+        :meth:`gleplot.writer.GLEWriter._deresolve_clause` for the full kind/
+        threshold rule) met :attr:`gleplot.writer.GLEWriter.MIN_DERESOLVE_POINTS`.
+        Always ``[]`` for a generation that did not pass the argument at all,
+        matching the DEFAULT emission being byte-identical to a build before
+        G7 existed.
+
+        Reset at the start of each generation (mirrors :attr:`source_warnings`),
+        so it always describes the latest ``savefig``/``savefig_gle`` rather
+        than accumulating. Intended consumer: GLEstudio's render controller,
+        to show a "preview decimated x N" badge on the series it names and to
+        keep hit-testing locked to the same decimated point set (SPEC §7.1).
+        """
+        return list(self._preview_decimation_report)
 
     def subplots_adjust(
         self,
@@ -1029,7 +1058,13 @@ class Figure:
                 if not ref.is_absolute():
                     fs["data_file"] = (base / ref).resolve().as_posix()
 
-    def savefig_gle(self, filepath: str, data_provider=None, **kwargs) -> Path:
+    def savefig_gle(
+        self,
+        filepath: str,
+        data_provider=None,
+        preview_decimation: Optional[int] = None,
+        **kwargs,
+    ) -> Path:
         """
         Save figure as GLE script.
 
@@ -1040,6 +1075,20 @@ class Figure:
         data_provider : DataProvider, optional
             Resolver for series whose ``data_source`` references a table
             (see :meth:`savefig` and :mod:`gleplot.sources`).
+        preview_decimation : int, optional
+            Preview-only ``deresolve`` factor (SPEC §6.1/§10.7). ``None``
+            (the default) emits byte-identically to a build before this
+            option existed. When given and > 1, large line/scatter series
+            (see :attr:`gleplot.writer.GLEWriter.MIN_DERESOLVE_POINTS`) get
+            a `` deresolve N`` clause on their ``dN`` line -- GLE then draws
+            (and this call's caller may hit-test against) 1-in-N points
+            instead of the full series, while axis autoscale is still
+            computed from the full, undecimated data. A generation-time
+            argument only: never stored on the figure, so ``to_dict``/
+            ``from_dict`` and a *saved* ``.gle`` are unaffected -- pass it
+            only when writing a throwaway preview copy, never the document
+            being saved. See :attr:`preview_decimation_report` for what got
+            decimated.
         folder : bool, optional
             If True, place the ``.gle`` script and generated data files
             in a sibling ``<name>.gleplot`` directory.
@@ -1059,7 +1108,7 @@ class Figure:
 
         # Generate and save GLE content with data files
         gle_content, data_content = self._generate_gle_with_files(
-            data_provider=data_provider
+            data_provider=data_provider, preview_decimation=preview_decimation
         )
 
         # Write script
@@ -1080,6 +1129,7 @@ class Figure:
         data_provider=None,
         cairo: Optional[bool] = None,
         keep_intermediates: bool = False,
+        preview_decimation: Optional[int] = None,
         **kwargs,
     ) -> Path:
         """
@@ -1136,6 +1186,13 @@ class Figure:
             note below. Default False. Has no effect when this figure has
             no contour/heatmap series, or when ``format == 'gle'`` (no
             compile runs, so nothing was generated to clean up).
+        preview_decimation : int, optional
+            Preview-only ``deresolve`` factor -- see :meth:`savefig_gle` for
+            the full contract. Generation-time only, never stored on the
+            figure. Compiling with this set still produces a real
+            ``format`` output (PDF/PNG/...), just from a decimated preview
+            script -- pass it for a live-preview compile, not for a save the
+            user will treat as their document.
         folder : bool, optional
             If True, place the exported file, the intermediate ``.gle``
             script, and generated data files in a sibling
@@ -1183,7 +1240,7 @@ class Figure:
         # Write GLE script and data files
         base_path = output_path.with_suffix(".gle")
         gle_content, data_files = self._generate_gle_with_files(
-            data_provider=data_provider
+            data_provider=data_provider, preview_decimation=preview_decimation
         )
         base_path.write_text(gle_content, encoding="utf-8")
 
@@ -1242,9 +1299,13 @@ class Figure:
 
         return output_path, export_dir
 
-    def _generate_gle(self, data_provider=None) -> str:
+    def _generate_gle(
+        self, data_provider=None, preview_decimation: Optional[int] = None
+    ) -> str:
         """Generate complete GLE script content."""
-        content, _ = self._generate_gle_with_files(data_provider=data_provider)
+        content, _ = self._generate_gle_with_files(
+            data_provider=data_provider, preview_decimation=preview_decimation
+        )
         return content
 
     def _build_metadata_dict(self, data_files: dict, raw_sidecars=None) -> dict:
@@ -1283,7 +1344,9 @@ class Figure:
         data.update(self.metadata_extra)
         return data
 
-    def _generate_gle_with_files(self, data_provider=None) -> tuple:
+    def _generate_gle_with_files(
+        self, data_provider=None, preview_decimation: Optional[int] = None
+    ) -> tuple:
         """
         Generate complete GLE script content with data files.
 
@@ -1307,6 +1370,11 @@ class Figure:
         ----------
         data_provider : DataProvider, optional
             See :meth:`savefig`.
+        preview_decimation : int, optional
+            See :meth:`savefig_gle`. Forwarded to :class:`~gleplot.writer.GLEWriter`
+            as a constructor argument only -- never read off ``self`` -- so
+            this stays a pure function of its arguments plus the figure's
+            already-serializable state.
 
         Returns
         -------
@@ -1320,11 +1388,15 @@ class Figure:
             style=self.style,
             graph=self.graph,
             marker=self.marker_config,
+            preview_decimation=preview_decimation,
         )
 
         # Source resolution, before anything reads a series' numbers.
         resolution = resolve_figure(self, data_provider)
         self._source_warnings = list(resolution.warnings)
+        # Reset alongside source_warnings: both are write-time output for
+        # THIS generation, not document state (see preview_decimation_report).
+        self._preview_decimation_report = []
 
         is_single = len(self.axes_list) <= 1
 
@@ -1484,6 +1556,7 @@ class Figure:
         if metadata_lines:
             writer.lines_gle[2:2] = metadata_lines
 
+        self._preview_decimation_report = list(writer.decimation_report)
         return writer.get_gle_content(), writer.data_files
 
     # -- contour / heatmap helpers --------------------------------------
