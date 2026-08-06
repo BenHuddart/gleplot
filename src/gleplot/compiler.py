@@ -168,6 +168,72 @@ def build_compile_args(
     return args
 
 
+def remove_generated_intermediates(
+    directory: Union[str, Path], filenames: "list[str]"
+) -> "list[Path]":
+    """Delete engine-generated intermediates by exact name (GLEstudio §9.1/§10.8).
+
+    GLE's ``begin contour``/``fitz`` code paths write files into the
+    compiling script's directory as an undocumented side effect of running
+    the ``gle`` binary -- never something gleplot itself asked GLE to write.
+    ``begin contour`` always produces ``<stem>-cdata.dat``,
+    ``<stem>-clabels.dat`` and ``<stem>-cvalues.dat`` (GLE derives ``<stem>``
+    from its ``data "<stem>.z"`` line by stripping the extension --
+    ``GetMainName`` in GLE's own ``gcontour.cpp``); a scattered (points-based)
+    heatmap or contour additionally runs ``fitz``, which writes a gridded
+    ``<stem>.z`` from the raw points ``.dat`` gleplot wrote (``fit.cpp``).
+    None of these are gleplot's own output and none of them are meant to
+    survive past the compile that produced them -- left behind, they clutter
+    (and can go stale in) the export directory.
+
+    This function does no globbing and no prefix matching: ``filenames`` is
+    the closed, exact list of basenames a *specific* figure's contour/fitz
+    series can produce (built by
+    :meth:`~gleplot.figure.Figure._engine_intermediate_filenames`, itself
+    derived from sidecar names that figure's own writer reserved -- see
+    ``axes._reserve_sidecar``). A name is removed only if it is a literal,
+    case-sensitive match to something in ``filenames`` *and* it exists as a
+    plain file directly inside ``directory``; anything else -- a user's own
+    file, a same-looking name in a different figure's stem sequence, a
+    subdirectory -- is left alone. Path separators in a candidate name are
+    rejected outright (defence in depth: every real caller only ever puts
+    plain basenames in ``filenames``, but nothing here should ever escape
+    ``directory`` even if a caller lists something malformed).
+
+    Parameters
+    ----------
+    directory : str or Path
+        The directory the ``.gle`` script was compiled from (its intermediates
+        land here -- see the module note in ``Figure.savefig``).
+    filenames : list of str
+        Exact basenames to remove if present.
+
+    Returns
+    -------
+    list of Path
+        The files actually removed (a subset of ``filenames``; a name with no
+        matching file -- e.g. a dangling series that produced no output, or
+        a heatmap/contour without ``clabel`` so no ``-clabels.dat`` -- is
+        silently skipped, not an error).
+    """
+    directory = Path(directory)
+    removed: "list[Path]" = []
+    for name in dict.fromkeys(filenames):  # de-dupe, preserve order
+        if not name or "/" in name or "\\" in name or name in (".", ".."):
+            continue
+        candidate = directory / name
+        try:
+            if candidate.is_file():
+                candidate.unlink()
+                removed.append(candidate)
+        except OSError:
+            # Best-effort cleanup: a permissions error or a race (file
+            # removed by something else between the is_file() check and the
+            # unlink()) should not turn a successful compile into a failure.
+            pass
+    return removed
+
+
 def _iter_well_known_gle_paths() -> "list[str]":
     """Return existing GLE executables among the well-known locations.
 
