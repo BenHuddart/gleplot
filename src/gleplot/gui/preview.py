@@ -118,6 +118,7 @@ except ImportError:  # pragma: no cover - exercised only without the gui extra
 from gleplot.cairo_support import (
     CAIRO_SAFE_FONT,
     cairo_font_warning,
+    inject_svg_safe_font,
     is_cairo_safe_font,
 )
 from gleplot.compiler import GLEError, build_compile_args, find_gle, parse_gle_errors
@@ -160,11 +161,6 @@ _SVG_MARGIN_PT = 1.0
 #: reuse the exact same choice; kept as a local name since it is this
 #: module's own long-established public-ish constant (referenced by tests).
 _SVG_SAFE_FONT = CAIRO_SAFE_FONT
-
-#: Matches a top-level ``set font ...`` line so we never override an explicit
-#: user choice (see module docstring).
-_SET_FONT_RE = re.compile(r"^\s*set\s+font\b", re.IGNORECASE)
-_SIZE_LINE_RE = re.compile(r"^\s*size\s+[-+0-9.]+\s+[-+0-9.]+\s*$", re.IGNORECASE)
 
 #: Matches a genuine GLE diagnostic location line, e.g.
 #: ``>> foo.gle (10) |end graph|`` -- the same anchor
@@ -761,26 +757,16 @@ class PreviewController(QObject):
     def _inject_svg_font(script_path: Path) -> None:
         """Insert ``set font texcmr`` after the ``size`` line, if needed.
 
-        No-op if the script already contains a ``set font`` line (an explicit
-        user choice always wins). See the module docstring "SVG rendering and
-        fallback" for why this is necessary at all.
+        Delegates to :func:`gleplot.cairo_support.inject_svg_safe_font` --
+        the shared script-side substitution mechanism the export dialog's
+        SVG path also uses (Track H follow-up) -- for this preview-only
+        session script copy. No-op if the script already contains a ``set
+        font`` line (an explicit user choice always wins). See the module
+        docstring "SVG rendering and fallback" for why this is necessary at
+        all; a failure to substitute here is still caught downstream by the
+        SVG validation/fallback path.
         """
-        text = script_path.read_text(encoding="utf-8")
-        newline = "\r\n" if "\r\n" in text else "\n"
-        raw_lines = text.split(newline)
-
-        if any(_SET_FONT_RE.match(line) for line in raw_lines):
-            return  # explicit user font already present; do not override
-
-        for idx, line in enumerate(raw_lines):
-            if _SIZE_LINE_RE.match(line):
-                raw_lines.insert(idx + 1, f"set font {_SVG_SAFE_FONT}")
-                script_path.write_text(newline.join(raw_lines), encoding="utf-8")
-                return
-        # No ``size`` line found (should not happen for a gleplot-generated
-        # script): leave the script untouched rather than guess where to
-        # insert -- the SVG validation/fallback path will catch any resulting
-        # failure downstream.
+        inject_svg_safe_font(script_path, safe_font=_SVG_SAFE_FONT)
 
     @staticmethod
     def _inject_calibration(script_path: Path) -> None:

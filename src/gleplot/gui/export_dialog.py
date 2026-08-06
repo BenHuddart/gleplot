@@ -30,10 +30,40 @@ returns immediately. The result arrives later via
 :meth:`_on_compile_finished`, connected to the runner's ``finished`` signal;
 the GUI event loop -- and this dialog's own Cancel button, now repurposed to
 abort an in-flight compile -- stays responsive throughout.
+
+Engine-intermediate cleanup (G8 follow-up)
+-------------------------------------------
+:meth:`_begin_export` captures ``export_dir`` and this export's exact
+contour/fitz engine-intermediate basenames (via the throwaway ``work``
+figure's :meth:`~gleplot.figure.Figure._engine_intermediate_filenames`)
+right before launching the compile. On a *successful* finish,
+:meth:`_on_compile_finished` removes exactly those basenames from
+``export_dir`` via :func:`gleplot.compiler.remove_generated_intermediates`
+-- the same exact-name-only helper :meth:`~gleplot.figure.Figure.savefig`
+uses -- so a compiled export leaves no ``-cdata``/``-clabels``/``-cvalues``/
+fitz ``.z`` byproducts behind. A failed compile returns before cleanup runs,
+so its intermediates (if any were written) survive for debugging, matching
+``savefig``'s own behavior.
+
+SVG font pre-injection (G6 follow-up)
+---------------------------------------
+GLE's SVG output always renders through its Cairo backend, but -- unlike
+every other Cairo-backed device -- that backend engages independently of
+the ``-cairo`` command-line flag, so GLE's own graceful PostScript-font
+substitution (gated on the flag, not the backend) never runs for an SVG
+compile. Left alone, exporting SVG against a PostScript font would exit 0
+while silently dropping the affected text. :meth:`_begin_export` reuses
+:func:`gleplot.cairo_support.inject_svg_safe_font` -- the same script-side
+substitution :mod:`gleplot.gui.preview`'s SVG preview path forces -- on the
+throwaway export copy of the script, and reports the same
+:func:`~gleplot.cairo_support.cairo_font_warning` the other Cairo-aware
+paths (this dialog's own alpha/Cairo warning, ``Figure.savefig``) emit
+whenever a substitution actually happens.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import warnings
 from pathlib import Path
@@ -59,8 +89,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gleplot.cairo_support import cairo_font_warning
-from gleplot.compiler import GLECompileError, build_compile_args, find_gle
+from gleplot.cairo_support import cairo_font_warning, inject_svg_safe_font
+from gleplot.compiler import (
+    GLECompileError,
+    build_compile_args,
+    find_gle,
+    remove_generated_intermediates,
+)
 from gleplot.figure import Figure
 from gleplot.gui.compile_core import CompileOutcome
 from gleplot.gui.compile_service import CompileProcessRunner
@@ -68,6 +103,8 @@ from gleplot.gui.document import FigureDocument
 from gleplot.gui.error_panel import format_gle_error
 
 __all__ = ["ExportDialog", "run_export_dialog"]
+
+_log = logging.getLogger(__name__)
 
 #: Formats offered in the export dialog. 'gle' exports the script only (no
 #: compile step); the rest are compiled through the async compile service.
@@ -128,6 +165,15 @@ class ExportDialog(QDialog):
         # The in-flight compile job, or None between exports. See the
         # "Non-blocking compile" section of the module docstring.
         self._runner: Optional[CompileProcessRunner] = None
+
+        # Captured at launch time in _begin_export, consumed by
+        # _on_compile_finished for post-compile intermediate cleanup (G8
+        # follow-up): the directory a compile ran in, and this export's
+        # figure's exact engine-intermediate basenames (contour/fitz
+        # byproducts -- see Figure._engine_intermediate_filenames). Cleared
+        # again immediately after use so a stale value is never reused.
+        self._export_dir: Optional[Path] = None
+        self._export_intermediate_names: "list[str]" = []
 
         self._build_ui()
         self._connect_signals()
@@ -334,14 +380,40 @@ class ExportDialog(QDialog):
             # GLE itself substitutes a Cairo-safe font when this flag is
             # set (see gleplot.cairo_support); SPEC's "no silent drops"
             # means that swap must never happen unreported. 'svg' is
-            # excluded here because this dialog does not run any pre-emptive
-            # font handling for it at all (unlike gleplot.gui.preview's
-            # SVG-preview path) -- an SVG export with a PostScript font has
-            # its own pre-existing failure mode independent of Track G6/
-            # alpha, out of scope for this warning.
+            # excluded here -- its own font handling (below) covers it
+            # unconditionally, so warning about the alpha-driven -cairo
+            # flag here too would be redundant (and, once the pre-injected
+            # font is in place, a false positive: the script's font by the
+            # time it compiles is no longer the unsafe one this check would
+            # be evaluating).
             warning = cairo_font_warning(work.style.font)
             if warning:
                 warnings.warn(warning, UserWarning, stacklevel=2)
+
+        if self.selected_format == "svg":
+            # SVG font pre-injection (G6 follow-up, found during that
+            # track): GLE's SVG output always renders through its Cairo
+            # backend, but -- unlike every other Cairo-backed device --
+            # that backend engages regardless of the '-cairo' command-line
+            # flag, so GLE's own graceful PostScript-font fallback (gated
+            # on the flag, not the backend -- see build_compile_args'
+            # Notes) never runs here. Left alone, an SVG export against a
+            # PostScript font exits 0 while silently dropping the affected
+            # text (SPEC "no silent drops"). Reuse the exact script-side
+            # substitution gleplot.gui.preview's SVG preview path forces
+            # (gleplot.cairo_support.inject_svg_safe_font, promoted from
+            # preview.py's former private _inject_svg_font so both paths
+            # share one mechanism) on this throwaway export copy only --
+            # never the user's saved figure. Warn only when a substitution
+            # actually happens (an explicit non-Cairo-safe `set font` is
+            # left untouched, matching preview's own "explicit choice
+            # always wins" rule, so no substitution -- and no warning --
+            # occurs for it here either).
+            if inject_svg_safe_font(script_path):
+                warning = cairo_font_warning(work.style.font)
+                if warning:
+                    warnings.warn(warning, UserWarning, stacklevel=2)
+                    _log.warning("%s (export format=svg)", warning)
 
         output_name = script_path.with_suffix(f".{self.selected_format}").name
         output_path = export_dir / output_name
@@ -355,6 +427,14 @@ class ExportDialog(QDialog):
 
         self._export_button.setEnabled(False)
         self._cancel_button.setText("Cancel Export")
+
+        # Captured now (from the same throwaway `work` figure the script was
+        # written from) for _on_compile_finished's post-compile cleanup --
+        # see the "Engine intermediates" note on Figure.savefig. Computed
+        # purely from the object model, so this is correct regardless of
+        # whether any contour/fitz series actually resolved on this write.
+        self._export_dir = export_dir
+        self._export_intermediate_names = work._engine_intermediate_filenames()
 
         runner = CompileProcessRunner(parent=self)
         runner.finished.connect(self._on_compile_finished)
@@ -384,6 +464,20 @@ class ExportDialog(QDialog):
             )
             self._show_error(self._format_compile_error(exc))
             return
+
+        # Post-compile cleanup (G8 follow-up): only after a SUCCESSFUL
+        # compile -- the failure branch above already returned, so a failed
+        # export leaves any intermediates in place, matching
+        # Figure.savefig()'s "may help diagnose the failure" rationale --
+        # and only this export's own figure's known contour/fitz stems, by
+        # exact name (see gleplot.compiler.remove_generated_intermediates),
+        # never a glob.
+        if self._export_dir is not None:
+            remove_generated_intermediates(
+                self._export_dir, self._export_intermediate_names
+            )
+        self._export_dir = None
+        self._export_intermediate_names = []
 
         assert self.selected_path is not None  # set in _on_export_clicked
         self._finish_success(self.selected_path)
