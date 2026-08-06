@@ -41,6 +41,20 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
 # Global counter for unique data file names across all figures in a session
 _global_data_file_counter = 0
 
+#: Global, per-kind counters for contour/heatmap/fitz sidecar reservations
+#: (``kind`` in ``{'heatmap', 'contour', 'points'}``) made by figures that use
+#: the default ``data_`` prefix -- the ``_reserve_sidecar`` analogue of
+#: ``_global_data_file_counter`` above. A figure with a *custom*
+#: ``data_prefix`` keeps its own per-figure counters instead (see
+#: ``_reserve_sidecar``): a caller who sets distinct prefixes per figure has
+#: already opted into predictable, figure-local numbering, exactly as for
+#: plain ``data_N.dat`` series. Figures left on the default prefix have not,
+#: so they share this counter -- the fix for G8's cross-figure stem
+#: uniqueness requirement (GLEstudio SPEC 9.1/10.8): two default-prefix
+#: figures compiled into the same directory no longer both try to write
+#: ``data_contour1.z``.
+_global_sidecar_counters: Dict[str, int] = {}
+
 #: matplotlib ``legend(loc=...)`` strings -> gleplot's long-form key position.
 #: GLE's key has nine anchors (tl/tc/tr, lc/cc/rc, bl/bc/br), so every
 #: matplotlib location has an exact counterpart; only ``'best'`` has no
@@ -344,34 +358,57 @@ def _reserve_sidecar(figure, kind: str, ext: str) -> str:
     Used for the contour/heatmap raw-content sidecars whose names GLE derives
     generated files from mechanically (``.z`` grids, scattered ``.dat``
     points). ``kind`` is ``'heatmap'``/``'contour'``/``'points'`` and ``ext``
-    is ``'z'``/``'dat'``. ``N`` is a per-kind, 1-based counter kept on the
-    figure. The reserved name is recorded in ``figure._used_data_files`` so it
-    never collides with a generated ``data_N.dat`` (or another sidecar) and so
-    it round-trips through ``Figure.to_dict``/``from_dict``.
+    is ``'z'``/``'dat'``. ``N`` is a per-kind, 1-based counter. The reserved
+    name is recorded in ``figure._used_data_files`` so it never collides with
+    a generated ``data_N.dat`` (or another sidecar) and so it round-trips
+    through ``Figure.to_dict``/``from_dict``.
+
+    **Which counter, and why (G8: cross-figure stem uniqueness).** This
+    mirrors the existing ``data_prefix`` contract from
+    :func:`_get_next_data_file`/:func:`_resolve_data_file`:
+
+    - A figure with a *custom* ``data_prefix`` keeps a per-figure counter
+      (``figure._sidecar_counters``), exactly as before. Distinct series
+      within that one figure never collide (the counter is monotonic and the
+      candidate is re-checked against ``used`` regardless); distinct figures
+      are the caller's responsibility to keep apart, same as for
+      ``<prefix>_N.dat`` -- give them different prefixes.
+    - A figure left on the *default* prefix (``data_prefix is None``, i.e.
+      the emitted prefix is the literal ``"data"``) shares the **module-level**
+      ``_global_sidecar_counters`` instead of a fresh per-figure one. Two such
+      figures compiled into the same directory therefore get distinct
+      ``data_contour1.z``/``data_contour2.z`` stems instead of both starting
+      at 1 and colliding -- the GLEstudio SPEC 9.1/10.8 requirement ("two
+      figures compiled in one directory ... must not collide"). This is the
+      same per-process guarantee (not cross-process) that
+      ``_global_data_file_counter`` already provides for plain data files.
 
     ``figure`` is optional only for symmetry with the other reservers; in
     practice a figure is always present when a heatmap/contour series is added.
     """
-    prefix = figure.data_prefix if figure and figure.data_prefix else "data"
+    has_custom_prefix = bool(figure and figure.data_prefix)
+    prefix = figure.data_prefix if has_custom_prefix else "data"
 
-    counters = getattr(figure, "_sidecar_counters", None) if figure else None
-    if figure is not None and counters is None:
-        counters = {}
-        figure._sidecar_counters = counters
+    if has_custom_prefix:
+        counters = getattr(figure, "_sidecar_counters", None)
+        if counters is None:
+            counters = {}
+            figure._sidecar_counters = counters
+    else:
+        counters = _global_sidecar_counters
 
     used = getattr(figure, "_used_data_files", None) if figure else None
     if figure is not None and used is None:
         used = set()
         figure._used_data_files = used
 
-    idx = (counters.get(kind, 0) + 1) if counters is not None else 1
+    idx = counters.get(kind, 0) + 1
     while True:
         name = f"{prefix}_{kind}{idx}.{ext}"
         if used is None or name not in used:
             break
         idx += 1
-    if counters is not None:
-        counters[kind] = idx
+    counters[kind] = idx
     if used is not None:
         used.add(name)
     return name

@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 import gleplot as glp
+from gleplot import axes as _axes_module
 from gleplot import palettes
 
 
@@ -506,3 +507,86 @@ def test_colorbar_sub_guards_degenerate_range():
     divide by zero and abort the render."""
     text = palettes.colorbar_sub_text()
     assert "if zmax = zmin then" in text
+
+
+# --------------------------------------------------------------------------- #
+# G8: unique per-figure / cross-figure contour+fitz sidecar stems
+# (GLEstudio SPEC 9.1/10.8 -- see gleplot.compiler.remove_generated_intermediates
+# and gleplot.figure.Figure.savefig for the paired compiled-output cleanup,
+# exercised end-to-end with a real GLE binary in
+# tests/integration/test_intermediate_cleanup.py).
+# --------------------------------------------------------------------------- #
+
+
+def test_two_contours_one_figure_get_distinct_stems():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ct1 = ax.contour(np.arange(12.0).reshape(3, 4), levels=[2, 4])
+    ct2 = ax.contour(np.arange(12.0).reshape(3, 4) + 1, levels=[2, 4])
+    assert ct1["data_file"] == "t_contour1.z"
+    assert ct2["data_file"] == "t_contour2.z"
+
+
+def test_heatmap_and_contour_share_kind_specific_counters():
+    """A heatmap and a contour in the same figure use independent 'heatmap'/
+    'contour' counters, so both legitimately start at 1 without colliding
+    (different kind tokens in the name)."""
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    hm = ax.imshow(np.arange(12.0).reshape(3, 4))
+    ct = ax.contour(np.arange(12.0).reshape(3, 4), levels=[2, 4])
+    assert hm["data_file"] == "t_heatmap1.z"
+    assert ct["data_file"] == "t_contour1.z"
+
+
+def test_custom_prefix_figures_keep_independent_per_figure_counters():
+    """A custom data_prefix is the caller's existing opt-in to predictable,
+    figure-local numbering (same contract as plain '<prefix>_N.dat' series):
+    two figures with different prefixes both legitimately start at 1."""
+    fig1 = glp.figure(data_prefix="alpha")
+    ct1 = fig1.add_subplot(111).contour(np.arange(12.0).reshape(3, 4), levels=[2, 4])
+    fig2 = glp.figure(data_prefix="beta")
+    ct2 = fig2.add_subplot(111).contour(np.arange(12.0).reshape(3, 4), levels=[2, 4])
+    assert ct1["data_file"] == "alpha_contour1.z"
+    assert ct2["data_file"] == "beta_contour1.z"
+
+
+def test_default_prefix_figures_do_not_collide_across_figures():
+    """Two figures left on the default prefix (no data_prefix given) must not
+    both reserve 'data_contour1.z' if compiled into the same directory --
+    the G8 cross-figure uniqueness requirement. Resets the shared globals
+    first so the assertion is independent of what ran earlier in the
+    session (mirrors tests/parser/test_fixed_point.py's counter reset)."""
+    _axes_module._global_data_file_counter = 0
+    _axes_module._global_sidecar_counters.clear()
+    try:
+        fig1 = glp.figure()
+        ct1 = fig1.add_subplot(111).contour(
+            np.arange(12.0).reshape(3, 4), levels=[2, 4]
+        )
+        fig2 = glp.figure()
+        ct2 = fig2.add_subplot(111).contour(
+            np.arange(12.0).reshape(3, 4), levels=[2, 4]
+        )
+        assert ct1["data_file"] == "data_contour1.z"
+        assert ct2["data_file"] == "data_contour2.z"
+    finally:
+        _axes_module._global_data_file_counter = 0
+        _axes_module._global_sidecar_counters.clear()
+
+
+def test_sidecar_counters_round_trip_and_avoid_renumbering_collision():
+    """to_dict/from_dict preserve the sidecar counters, so a contour added to
+    a reloaded figure keeps counting forward instead of restarting at 1 and
+    landing on an already-used name."""
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.contour(np.arange(12.0).reshape(3, 4), levels=[2, 4])
+    d = fig.to_dict()
+    assert d["figure"]["sidecar_counters"] == {"contour": 1}
+
+    restored = glp.Figure.from_dict(d)
+    ct2 = restored.axes_list[0].contour(
+        np.arange(12.0).reshape(3, 4) + 1, levels=[2, 4]
+    )
+    assert ct2["data_file"] == "t_contour2.z"

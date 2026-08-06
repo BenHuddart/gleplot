@@ -21,6 +21,7 @@ from gleplot.compiler import (
     build_compile_args,
     find_gle,
     parse_gle_errors,
+    remove_generated_intermediates,
     set_gle_path_override,
 )
 from tests._tempdir import make_tempdir
@@ -412,6 +413,90 @@ class TestCompileIntegration(unittest.TestCase):
         result = self.compiler.compile(str(gle_file), output_format='svg', dpi=150)
         self.assertTrue(result.exists())
         self.assertEqual(result.suffix, '.svg')
+
+
+class TestRemoveGeneratedIntermediates(unittest.TestCase):
+    """G8: exact-name-only cleanup of contour/fitz engine intermediates.
+
+    Pure filesystem tests -- no GLE binary needed (the compiled-output
+    version of this, exercised end-to-end through ``Figure.savefig``, is
+    ``tests/integration/test_intermediate_cleanup.py``).
+    """
+
+    def setUp(self):
+        self.tempdir = make_tempdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tempdir, ignore_errors=True)
+
+    def _touch(self, *names: str) -> None:
+        for name in names:
+            (self.tempdir / name).write_text("x\n")
+
+    def test_removes_only_listed_names_that_exist(self):
+        self._touch(
+            "t_contour1-cdata.dat",
+            "t_contour1-clabels.dat",
+            "t_contour1-cvalues.dat",
+            "t_contour1.z",  # not in the list: gleplot's own sidecar
+        )
+        removed = remove_generated_intermediates(
+            self.tempdir,
+            [
+                "t_contour1-cdata.dat",
+                "t_contour1-clabels.dat",
+                "t_contour1-cvalues.dat",
+                # No -clabels for this one (e.g. clabel=False): listed but
+                # never written -- must be silently skipped, not an error.
+                "t_contour2-cdata.dat",
+            ],
+        )
+        remaining = {p.name for p in self.tempdir.iterdir()}
+        self.assertEqual(remaining, {"t_contour1.z"})
+        self.assertEqual(
+            {p.name for p in removed},
+            {
+                "t_contour1-cdata.dat",
+                "t_contour1-clabels.dat",
+                "t_contour1-cvalues.dat",
+            },
+        )
+
+    def test_similar_but_different_name_is_not_removed(self):
+        self._touch("userdata_contour1-cdata.dat", "t_contour1-cdata.dat.bak")
+        remove_generated_intermediates(
+            self.tempdir, ["t_contour1-cdata.dat", "t_contour1-clabels.dat"]
+        )
+        remaining = {p.name for p in self.tempdir.iterdir()}
+        self.assertEqual(
+            remaining, {"userdata_contour1-cdata.dat", "t_contour1-cdata.dat.bak"}
+        )
+
+    def test_rejects_names_with_path_separators(self):
+        # Defence in depth: even a malformed candidate name can never escape
+        # `directory` -- nothing outside it is touched.
+        outside = self.tempdir.parent / "escaped-cdata.dat"
+        outside.write_text("do not touch\n")
+        try:
+            remove_generated_intermediates(
+                self.tempdir, ["../escaped-cdata.dat", "sub/dir-cdata.dat"]
+            )
+            self.assertTrue(outside.exists())
+        finally:
+            outside.unlink(missing_ok=True)
+
+    def test_empty_filenames_is_a_noop(self):
+        self._touch("unrelated.dat")
+        removed = remove_generated_intermediates(self.tempdir, [])
+        self.assertEqual(removed, [])
+        self.assertTrue((self.tempdir / "unrelated.dat").exists())
+
+    def test_duplicate_names_removed_once(self):
+        self._touch("t_contour1-cdata.dat")
+        removed = remove_generated_intermediates(
+            self.tempdir, ["t_contour1-cdata.dat", "t_contour1-cdata.dat"]
+        )
+        self.assertEqual(len(removed), 1)
 
 
 class TestBuildCompileArgs(unittest.TestCase):

@@ -166,6 +166,11 @@ class Figure:
         )
         self._local_data_counter = 0  # Local counter when using custom prefix
         self._used_data_files: set[str] = set()
+        # Per-kind (heatmap/contour/points) contour+fitz sidecar counters --
+        # only ever populated when this figure has a custom data_prefix (see
+        # axes._reserve_sidecar); a default-prefix figure shares the
+        # module-level axes._global_sidecar_counters instead (G8).
+        self._sidecar_counters: dict[str, int] = {}
         self._subplot_adjust: dict[str, float] = {}
 
         # Per-row/per-column relative sizes for the multi-subplot grid
@@ -1012,6 +1017,7 @@ class Figure:
         dpi: Optional[int] = None,
         data_provider=None,
         cairo: Optional[bool] = None,
+        keep_intermediates: bool = False,
         **kwargs,
     ) -> Path:
         """
@@ -1059,6 +1065,15 @@ class Figure:
 
             References that cannot be resolved do not raise: the affected
             series is skipped and recorded in :attr:`source_warnings`.
+        keep_intermediates : bool, optional
+            If True, skip the post-compile cleanup of GLE-generated contour/
+            ``fitz`` intermediates (``-cdata.dat``/``-clabels.dat``/
+            ``-cvalues.dat``, and a points-sourced heatmap/contour's
+            generated ``.z``) that a compiled export otherwise removes from
+            ``export_dir`` afterwards -- see the "Engine intermediates"
+            note below. Default False. Has no effect when this figure has
+            no contour/heatmap series, or when ``format == 'gle'`` (no
+            compile runs, so nothing was generated to clean up).
         folder : bool, optional
             If True, place the exported file, the intermediate ``.gle``
             script, and generated data files in a sibling
@@ -1070,6 +1085,25 @@ class Figure:
         -------
         Path
             Path to output file (GLE script or compiled output)
+
+        Notes
+        -----
+        **Engine intermediates (GLEstudio SPEC 9.1/10.8).** Compiling a
+        figure with a contour or a points-sourced (``fitz``) heatmap/contour
+        makes the ``gle`` binary itself write extra files into ``export_dir``
+        as an undocumented side effect -- ``<stem>-cdata.dat``,
+        ``<stem>-clabels.dat``, ``<stem>-cvalues.dat``, and (points-sourced
+        only) the generated ``<stem>.z``. These are never gleplot's own
+        output, so on a successful compile (``format != 'gle'``) they are
+        deleted from ``export_dir`` afterwards by exact name -- never by
+        glob or prefix match, so a user's own file can only be caught if its
+        name is a byte-for-byte match to one GLE itself would have written
+        for *this* figure (see
+        :func:`gleplot.compiler.remove_generated_intermediates`). Pass
+        ``keep_intermediates=True`` to leave them in place, e.g. to inspect
+        a contour's raw crossings while debugging. A failed compile raises
+        before cleanup runs, so its intermediates (if any were written) are
+        never removed -- they may help diagnose the failure.
         """
         output_path, export_dir = self._resolve_export_paths(
             filepath,
@@ -1119,6 +1153,17 @@ class Figure:
             self.compiler.compile(
                 str(base_path), format, dpi=output_dpi, cairo=effective_cairo
             )
+
+            # Post-compile cleanup (G8): only on a *successful* compile --
+            # compile() raises before this line otherwise -- and only for
+            # this figure's own known contour/fitz stems (never a glob).
+            if not keep_intermediates:
+                from .compiler import remove_generated_intermediates
+
+                remove_generated_intermediates(
+                    export_dir, self._engine_intermediate_filenames()
+                )
+
             return output_path.with_suffix(f".{format}")
 
         return base_path
@@ -1401,6 +1446,49 @@ class Figure:
         if ct["source"] == "grid":
             return df
         return df[:-4] + ".z" if df.endswith(".dat") else df + ".z"
+
+    def _engine_intermediate_filenames(self) -> "list[str]":
+        """Exact basenames of GLE-generated intermediates this figure can produce.
+
+        Used by :meth:`savefig` (G8, GLEstudio SPEC 9.1/10.8) to clean up
+        after a compile. Computed purely from the object model -- every
+        heatmap/contour on every axes, *not* filtered through a write's
+        ``SourceResolution`` -- so a name reserved for a series that is
+        dangling on this particular write (and therefore did not get a fresh
+        ``begin contour``/``fitz`` block emitted) is still recognized as
+        belonging to this figure if a stale file under that name is lying
+        around from an earlier, successful compile.
+
+        Two kinds of engine-generated file, mirroring :func:`gcontour.cpp`/
+        :func:`fit.cpp` in GLE itself (see
+        :func:`gleplot.compiler.remove_generated_intermediates`):
+
+        - Every contour (grid- or points-sourced) can produce
+          ``<stem>-cdata.dat``, ``<stem>-clabels.dat`` and
+          ``<stem>-cvalues.dat``, where ``<stem>`` is :meth:`_contour_z_file`
+          with its ``.z`` extension stripped.
+        - A points-sourced (``fitz``) heatmap or contour additionally
+          produces the gridded ``<points-stem>.z`` file itself -- that ``.z``
+          is GLE's *output*, distinct from the raw ``<points-stem>.dat``
+          points sidecar gleplot wrote as ``fitz``'s input (kept: it is
+          gleplot's own file, needed to recompile, not an engine byproduct).
+          A grid-sourced heatmap/contour's ``.z`` is likewise gleplot's own
+          written sidecar, not GLE-generated, and is never included here.
+        """
+        names: "list[str]" = []
+        for ax in self.axes_list:
+            for ct in ax.contours:
+                z_file = self._contour_z_file(ct)
+                stem = z_file[:-2] if z_file.endswith(".z") else z_file
+                names.append(f"{stem}-cdata.dat")
+                names.append(f"{stem}-clabels.dat")
+                names.append(f"{stem}-cvalues.dat")
+                if ct.get("source") == "points":
+                    names.append(z_file)  # the fitz-generated .z itself
+            for hm in ax.heatmaps:
+                if hm.get("source") == "points":
+                    names.append(self._heatmap_z_file(hm))
+        return names
 
     @staticmethod
     def _cmap_mode(cmap: str):
@@ -2514,6 +2602,12 @@ class Figure:
         continued plotting after :meth:`from_dict` in a fresh process picks up
         where the original session left off instead of restarting at 0 and
         colliding with (or duplicating) previously used ``data_N.dat`` names.
+        The contour/heatmap/fitz sidecar counters get the same treatment
+        (``sidecar_counters`` for a figure with a custom ``data_prefix``,
+        ``global_sidecar_counters`` for the shared default-prefix counter --
+        see ``axes._reserve_sidecar``), so a figure reloaded via
+        :meth:`from_dict` and then given a new contour/heatmap series keeps
+        numbering forward rather than restarting at ``1``.
 
         Returns
         -------
@@ -2532,6 +2626,8 @@ class Figure:
             "local_data_counter": self._local_data_counter,
             "global_data_counter": _axes_module._global_data_file_counter,
             "used_data_files": sorted(self._used_data_files),
+            "sidecar_counters": dict(getattr(self, "_sidecar_counters", {}) or {}),
+            "global_sidecar_counters": dict(_axes_module._global_sidecar_counters),
             "subplot_adjust": {k: float(v) for k, v in self._subplot_adjust.items()},
             "height_ratios": (
                 list(self.height_ratios) if self.height_ratios is not None else None
@@ -2688,6 +2784,7 @@ class Figure:
 
         fig._local_data_counter = fig_block.get("local_data_counter", 0)
         fig._used_data_files = set(fig_block.get("used_data_files", []))
+        fig._sidecar_counters = dict(fig_block.get("sidecar_counters") or {})
         fig._subplot_adjust = {
             k: float(v) for k, v in (fig_block.get("subplot_adjust") or {}).items()
         }
@@ -2699,6 +2796,16 @@ class Figure:
         _axes_module._global_data_file_counter = max(
             _axes_module._global_data_file_counter, saved_counter
         )
+
+        # Same "never rewind" treatment for the global sidecar (contour/
+        # heatmap/fitz) counters (G8): take the per-kind max so continued
+        # plotting in this process picks up past the highest index either
+        # side has seen, instead of risking a future collision.
+        saved_sidecar_counters = fig_block.get("global_sidecar_counters") or {}
+        for _kind, _saved_idx in saved_sidecar_counters.items():
+            _axes_module._global_sidecar_counters[_kind] = max(
+                _axes_module._global_sidecar_counters.get(_kind, 0), _saved_idx
+            )
 
         fig.axes_list = [
             Axes.from_dict(fig, ax_d) for ax_d in fig_block.get("axes", [])

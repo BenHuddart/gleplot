@@ -100,12 +100,18 @@ def normalize(d: dict) -> dict:
         fig["figsize"] = [float(v) for v in fig["figsize"]]
 
     # Figure-level: drop data-naming/counter state that need not round-trip.
+    # sidecar_counters/global_sidecar_counters (G8) are the contour/heatmap/
+    # fitz analogue of local_data_counter/global_data_counter: the recognizer
+    # builds heatmaps/contours directly from parsed filenames, never through
+    # axes._reserve_sidecar, so a recovered figure never populates them.
     for k in (
         "data_prefix",
         "local_data_counter",
         "global_data_counter",
         "used_data_files",
         "subplot_adjust",
+        "sidecar_counters",
+        "global_sidecar_counters",
     ):
         fig.pop(k, None)
 

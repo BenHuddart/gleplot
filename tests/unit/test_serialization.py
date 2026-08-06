@@ -454,6 +454,7 @@ _FIGURE_SERIALIZED_ATTRS = {
     "data_prefix",
     "_local_data_counter",
     "_used_data_files",
+    "_sidecar_counters",
     "_subplot_adjust",
     "height_ratios",
     "width_ratios",
