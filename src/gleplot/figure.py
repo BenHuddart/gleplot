@@ -1910,7 +1910,39 @@ class Figure:
             if ax.ymax is None:
                 ax.ymax = data_ymax
 
+        self._normalize_inverted_log_limits(ax)
         self._apply_log_limits(ax, resolution)
+
+    def _normalize_inverted_log_limits(self, ax: Axes):
+        """Undo an axis inversion on a log axis, which GLE cannot draw.
+
+        Descending limits invert an axis (``set_ylim(3, 1)``, matplotlib's
+        idiom), and :meth:`GLEWriter._axis_direction` emits that as GLE's
+        ``negate``. But GLE's ``negate`` mirrors the value *linearly* before
+        taking the logarithm -- ``fnAxisX`` in ``axis.cpp`` computes
+        ``max - (v - min)`` and only then ``log10`` -- so on a log axis it
+        does not reverse the decades, it smears them: measured against GLE
+        4.3.10, ``yaxis min 1 max 100 log negate`` puts 1, 10 and 100 at
+        7.00, 6.88 and 1.00 cm, with the first two decades on top of each
+        other.
+
+        There is no way to spell a reversed log axis in GLE, so the inversion
+        is dropped rather than drawn wrong, and said out loud.
+        """
+        for which, scale in (("x", ax.xscale), ("y", ax.yscale), ("y2", ax.y2scale)):
+            if scale != "log":
+                continue
+            lo, hi = self._axis_limits(ax, which)
+            if lo is None or hi is None or lo <= hi:
+                continue
+            warnings.warn(
+                f"{which}-axis has descending limits ({lo!r} .. {hi!r}), "
+                "which would invert it, but GLE cannot invert a log axis "
+                f"(its 'negate' does not reverse the decades). Drawing "
+                f"{hi!r} .. {lo!r} the usual way round instead.",
+                UserWarning,
+            )
+            self._set_axis_limits(ax, which, hi, lo)
 
     def _apply_log_limits(
         self, ax: Axes, resolution: Optional[SourceResolution] = None
@@ -2012,6 +2044,22 @@ class Figure:
             return (ax.ymin, ax.ymax)
         return (ax.y2min, ax.y2max)
 
+    @classmethod
+    def _axis_span(
+        cls, ax: Axes, which: str
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """``(lower, upper)`` extent of an axis, whichever way round it reads."""
+        lo, hi = cls._axis_limits(ax, which)
+        if lo is not None and hi is not None and lo > hi:
+            return (hi, lo)
+        return (lo, hi)
+
+    @classmethod
+    def _axis_is_inverted(cls, ax: Axes, which: str) -> bool:
+        """True if the axis' limits descend, i.e. it is drawn inverted."""
+        lo, hi = cls._axis_limits(ax, which)
+        return lo is not None and hi is not None and lo > hi
+
     @staticmethod
     def _set_axis_limits(ax: Axes, which: str, lo: float, hi: float):
         if which == "x":
@@ -2024,8 +2072,9 @@ class Figure:
     def _synchronize_x_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize x-axis limits across all axes when sharex is enabled."""
         # Find global x-axis limits
-        xmin_global = None
-        xmax_global = None
+        lo_global = None
+        hi_global = None
+        inverted = False
 
         for ax in self.axes_list:
             # Calculate data limits if not explicitly set
@@ -2036,24 +2085,31 @@ class Figure:
                 if ax.xmax is None:
                     ax.xmax = data_xmax
 
-            # Track global limits
-            if ax.xmin is not None:
-                if xmin_global is None or ax.xmin < xmin_global:
-                    xmin_global = ax.xmin
-            if ax.xmax is not None:
-                if xmax_global is None or ax.xmax > xmax_global:
-                    xmax_global = ax.xmax
+            # Track the global SPAN. A descending pair is an inverted axis
+            # (see GLEWriter._axis_direction), so read its extent through
+            # min/max rather than trusting the order, and carry the inversion
+            # over to the shared result -- sharing an axis must not silently
+            # flip a panel back the right way up.
+            lo, hi = self._axis_span(ax, "x")
+            inverted = inverted or self._axis_is_inverted(ax, "x")
+            if lo is not None and (lo_global is None or lo < lo_global):
+                lo_global = lo
+            if hi is not None and (hi_global is None or hi > hi_global):
+                hi_global = hi
 
         # Apply global limits to all axes
         for ax in self.axes_list:
-            ax.xmin = xmin_global
-            ax.xmax = xmax_global
+            if inverted and lo_global is not None and hi_global is not None:
+                ax.xmin, ax.xmax = hi_global, lo_global
+            else:
+                ax.xmin, ax.xmax = lo_global, hi_global
 
     def _synchronize_y_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize y-axis limits across all axes when sharey is enabled."""
         # Find global y-axis limits
-        ymin_global = None
-        ymax_global = None
+        lo_global = None
+        hi_global = None
+        inverted = False
 
         for ax in self.axes_list:
             # Calculate data limits if not explicitly set
@@ -2064,18 +2120,20 @@ class Figure:
                 if ax.ymax is None:
                     ax.ymax = data_ymax
 
-            # Track global limits
-            if ax.ymin is not None:
-                if ymin_global is None or ax.ymin < ymin_global:
-                    ymin_global = ax.ymin
-            if ax.ymax is not None:
-                if ymax_global is None or ax.ymax > ymax_global:
-                    ymax_global = ax.ymax
+            # See _synchronize_x_limits on descending (inverted) pairs.
+            lo, hi = self._axis_span(ax, "y")
+            inverted = inverted or self._axis_is_inverted(ax, "y")
+            if lo is not None and (lo_global is None or lo < lo_global):
+                lo_global = lo
+            if hi is not None and (hi_global is None or hi > hi_global):
+                hi_global = hi
 
         # Apply global limits to all axes
         for ax in self.axes_list:
-            ax.ymin = ymin_global
-            ax.ymax = ymax_global
+            if inverted and lo_global is not None and hi_global is not None:
+                ax.ymin, ax.ymax = hi_global, lo_global
+            else:
+                ax.ymin, ax.ymax = lo_global, hi_global
 
     def _get_data_xlim(
         self,

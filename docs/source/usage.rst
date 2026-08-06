@@ -210,6 +210,17 @@ Axis Limits
    ax.set_xlim(0, 10)
    ax.set_ylim(-1, 1)
 
+Passing the limits in descending order inverts the axis, as in matplotlib --
+useful for depth below ground, magnitudes, and anything else that counts
+downwards:
+
+.. code-block:: python
+
+   ax.set_ylim(500, 0)    # zero at the top, 500 at the bottom
+
+The one exception is a log axis, which GLE cannot invert; a descending log
+range is drawn the usual way round, with a ``UserWarning``.
+
 Axis Scale
 ~~~~~~~~~~~
 
