@@ -304,6 +304,118 @@ def test_broken_data_becomes_file_series_with_error(tmp_path):
     assert "data golden_0.dat d1=c1,c2" in text
 
 
+def test_broken_bar_becomes_file_series_with_error(tmp_path):
+    """``bar dN fill COLOR`` against a missing data file -> FileSeries('bar')."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = golden.bar()
+    gle_path = tmp_path / "f.gle"
+    fig.savefig_gle(str(gle_path))
+
+    (tmp_path / "golden_0.dat").unlink()
+
+    recognized = parse_gle_figure(gle_path)
+    ax = recognized.figure.axes_list[0]
+
+    assert ax.bars == []
+    assert len(ax.file_series) == 1
+    fs = ax.file_series[0]
+    assert set(fs.keys()) == {
+        "series_type",
+        "data_file",
+        "x_col",
+        "y_col",
+        "color",
+        "data_error",
+    }
+    assert fs["series_type"] == "bar"
+    assert fs["data_file"] == "golden_0.dat"
+    assert fs["x_col"] == 1
+    assert fs["y_col"] == 2
+    assert fs["color"] == "ORANGE"
+    assert fs["data_error"]
+
+    assert any(w.startswith("data:") for w in recognized.warnings)
+
+    # Re-save preserves the "bar" shape verbatim rather than degrading it to
+    # a plain dataset -- GLE will still fail on the missing file, but the
+    # recovered figure keeps meaning "this was a bar chart" across saves.
+    out = tmp_path / "again.gle"
+    recognized.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "data golden_0.dat d1=c1,c2" in text
+    assert "bar d1 fill ORANGE" in text
+
+    # Fixed point: re-parsing the recovered output reproduces the identical
+    # recognized field set and a byte-identical next save.
+    reparsed = parse_gle_figure(out)
+    fs2 = reparsed.figure.axes_list[0].file_series[0]
+    assert {k: v for k, v in fs2.items() if k != "data_error"} == {
+        k: v for k, v in fs.items() if k != "data_error"
+    }
+    out2 = tmp_path / "again2.gle"
+    reparsed.figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == text
+
+
+def test_broken_fill_becomes_file_series_with_error(tmp_path):
+    """``fill dA,dB color COLOR`` against a missing data file -> FileSeries('fill').
+
+    Uses a standalone fixture (rather than ``golden.fill_between``, which also
+    plots a line) so the recovered dataset numbering is unambiguous.
+    """
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure(data_prefix="golden")
+    ax = fig.add_subplot(1, 1, 1)
+    x = [0, 1, 2, 3, 4]
+    ax.fill_between(x, [0, 0, 0, 0, 0], [0, 1, 4, 9, 16], color="lightblue")
+    gle_path = tmp_path / "f.gle"
+    fig.savefig_gle(str(gle_path))
+
+    (tmp_path / "golden_0.dat").unlink()
+
+    recognized = parse_gle_figure(gle_path)
+    ax = recognized.figure.axes_list[0]
+
+    assert ax.fills == []
+    assert len(ax.file_series) == 1
+    fs = ax.file_series[0]
+    assert set(fs.keys()) == {
+        "series_type",
+        "data_file",
+        "x_col",
+        "y1_col",
+        "y2_col",
+        "color",
+        "data_error",
+    }
+    assert fs["data_file"] == "golden_0.dat"
+    assert fs["x_col"] == 1
+    assert fs["y1_col"] == 2
+    assert fs["y2_col"] == 3
+    assert fs["color"] == "LIGHTBLUE"
+    assert fs["data_error"]
+
+    assert any(w.startswith("data:") for w in recognized.warnings)
+
+    # Re-save must not crash (the 'fill' variant has no y_col, only
+    # y1_col/y2_col) and preserves the "fill" shape verbatim.
+    out = tmp_path / "again.gle"
+    recognized.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "d1=c1,c2 d2=c1,c3" in text
+    assert "fill d1,d2 color LIGHTBLUE" in text
+
+    # Fixed point across a second parse/save cycle.
+    reparsed = parse_gle_figure(out)
+    fs2 = reparsed.figure.axes_list[0].file_series[0]
+    assert {k: v for k, v in fs2.items() if k != "data_error"} == {
+        k: v for k, v in fs.items() if k != "data_error"
+    }
+    out2 = tmp_path / "again2.gle"
+    reparsed.figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == text
+
+
 # --------------------------------------------------------------------------- #
 # Hand-written tolerance
 # --------------------------------------------------------------------------- #

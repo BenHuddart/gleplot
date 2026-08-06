@@ -1656,6 +1656,50 @@ class GLEWriter:
 
         self.lines_gle.append(line_cmd)
 
+    def add_bar_from_file(
+        self,
+        data_file: str,
+        x_col: int,
+        y_col: int,
+        color: str = "RED",
+    ):
+        """Add a bar series that references columns in an external data file.
+
+        Used for a ``bar`` dataset the recognizer could not resolve (e.g. a
+        missing data file): re-emits the ``data``/``bar`` shape verbatim so
+        GLE fails with its own honest missing-file error rather than
+        gleplot silently degrading the bar into a plain dataset.
+        """
+        d_name = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        self.lines_gle.append(
+            f"    data {_format_data_filename(data_file)} {d_name}=c{x_col},c{y_col}"
+        )
+        self.lines_gle.append(f"    bar {d_name} fill {color}")
+
+    def add_fill_from_file(
+        self,
+        data_file: str,
+        x_col: int,
+        y1_col: int,
+        y2_col: int,
+        color: str = "LIGHTBLUE",
+    ):
+        """Add a fill-between series that references columns in an external
+        data file.
+
+        Used for a ``fill`` dataset pair the recognizer could not resolve;
+        see :meth:`add_bar_from_file`.
+        """
+        d1_name = f"d{self.dataset_index}"
+        d2_name = f"d{self.dataset_index + 1}"
+        self.dataset_index += 2
+        self.lines_gle.append(
+            f"    data {_format_data_filename(data_file)} "
+            f"{d1_name}=c{x_col},c{y1_col} {d2_name}=c{x_col},c{y2_col}"
+        )
+        self.lines_gle.append(f"    fill {d1_name},{d2_name} color {color}")
+
     def add_fill_between(
         self,
         x: np.ndarray,
