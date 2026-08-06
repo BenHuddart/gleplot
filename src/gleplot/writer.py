@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .colors import apply_alpha
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
 from .parser.tables import KEY_POSITIONS_LONG_TO_SHORT
 from .parser.units import (
@@ -1735,7 +1736,14 @@ class GLEWriter:
         color : str
             GLE fill color
         alpha : float
-            Transparency (not directly supported in GLE, but stored)
+            Transparency (0-1). Below 1, ``color`` is re-expressed as a GLE
+            ``rgba255(...)`` colour expression (:func:`gleplot.colors.
+            apply_alpha`) so the transparency is real in the generated
+            script; rendering it requires GLE's ``-cairo`` device (SPEC
+            §6.1/§10.6, :meth:`gleplot.figure.Figure.requires_cairo`). At
+            ``alpha >= 1.0`` (the default) ``color`` is written verbatim,
+            unchanged from every pre-Cairo-support ``.gle`` this method has
+            ever produced.
         column_names : list of str, optional
             Sidecar header row (e.g. ``['x', 'upper', 'lower']``). GLE's
             ``fill dA,dB color X`` command (like ``bar``) has no ``key``
@@ -1778,7 +1786,9 @@ class GLEWriter:
             fill_a, fill_b = d1_name, d2_name
 
         # GLE fill between two datasets: fill d1,d2 color X
-        self.lines_gle.append(f"    fill {fill_a},{fill_b} color {color}")
+        self.lines_gle.append(
+            f"    fill {fill_a},{fill_b} color {apply_alpha(color, alpha)}"
+        )
 
         if has_header:
             self.lines_gle.append(f'    {fill_a} key ""')

@@ -35,6 +35,7 @@ abort an in-flight compile -- stays responsive throughout.
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -58,6 +59,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gleplot.cairo_support import cairo_font_warning
 from gleplot.compiler import GLECompileError, build_compile_args, find_gle
 from gleplot.figure import Figure
 from gleplot.gui.compile_core import CompileOutcome
@@ -320,6 +322,27 @@ class ExportDialog(QDialog):
                 "to save the script only."
             )
 
+        # Cairo (Track G6): auto-detected from the same snapshot the script
+        # was written from -- on for any figure using semi-transparency
+        # (an alpha fill/span, or a raw rgba(...)/rgba255(...) colour), off
+        # otherwise, so an ordinary opaque figure's export command line is
+        # unaffected. Only 'svg' is unconditionally Cairo-backed regardless
+        # of this flag (see build_compile_args' Notes); every other format
+        # needs it to even accept a semi-transparent colour.
+        cairo = work.requires_cairo()
+        if cairo and self.selected_format != "svg":
+            # GLE itself substitutes a Cairo-safe font when this flag is
+            # set (see gleplot.cairo_support); SPEC's "no silent drops"
+            # means that swap must never happen unreported. 'svg' is
+            # excluded here because this dialog does not run any pre-emptive
+            # font handling for it at all (unlike gleplot.gui.preview's
+            # SVG-preview path) -- an SVG export with a PostScript font has
+            # its own pre-existing failure mode independent of Track G6/
+            # alpha, out of scope for this warning.
+            warning = cairo_font_warning(work.style.font)
+            if warning:
+                warnings.warn(warning, UserWarning, stacklevel=2)
+
         output_name = script_path.with_suffix(f".{self.selected_format}").name
         output_path = export_dir / output_name
         args = build_compile_args(
@@ -327,6 +350,7 @@ class ExportDialog(QDialog):
             output_name,
             script_path.name,
             dpi=self.selected_dpi,
+            cairo=cairo,
         )
 
         self._export_button.setEnabled(False)

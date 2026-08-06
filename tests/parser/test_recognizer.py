@@ -71,6 +71,7 @@ def normalize(d: dict) -> dict:
     """
     import copy
 
+    from gleplot.colors import apply_alpha as _apply_alpha
     from gleplot.parser.units import (
         fontsize_cm_to_pt,
         fontsize_pt_to_cm,
@@ -195,9 +196,20 @@ def normalize(d: dict) -> dict:
                     if s.get(k) is not None:
                         s[k] = _snap_array(s[k])
 
-        # fill_between alpha is not representable in GLE (writer ignores it);
-        # drop it. Its data arrays already snapped above.
+        # fill_between alpha (Track G6) is baked into the emitted colour as
+        # an ``rgba255(...)`` expression (gleplot.colors.apply_alpha), so the
+        # recovered series' 'color' is that expression while the built
+        # figure's is still the plain colour the caller passed. Normalize the
+        # built side to what actually gets written/recovered -- the same
+        # composition the writer performs -- then drop 'alpha' itself: the
+        # recognizer has no way to recover a fractional alpha from an
+        # already-composed colour expression (see recognizer.py's
+        # ``_parse_fill_command``), so it is not representable as a *number*
+        # post round-trip, only baked into 'color'. Its data arrays already
+        # snapped above.
         for s in ax.get("fills", []):
+            if "color" in s:
+                s["color"] = _apply_alpha(s["color"], s.get("alpha"))
             s.pop("alpha", None)
 
         # Heatmap / contour series: grids and scattered points are written to

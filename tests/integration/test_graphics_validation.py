@@ -288,11 +288,17 @@ class TestGraphicsFormattingConsistency(unittest.TestCase):
         
         gle_file = self.tempdir / 'complex.gle'
         fig.savefig(str(gle_file))
-        
+
+        # alpha=0.5 is real (Track G6): the fill's colour is now written as
+        # rgba255(...), which GLE only accepts under -cairo. This calls
+        # GLECompiler.compile() directly (bypassing Figure.savefig()'s
+        # auto-detection via requires_cairo()), so the flag must be explicit.
         # Compile to all formats
-        pdf_file = self.compiler.compile(str(gle_file), output_format='pdf')
-        eps_file = self.compiler.compile(str(gle_file), output_format='eps')
-        png_file = self.compiler.compile(str(gle_file), output_format='png', dpi=200)
+        pdf_file = self.compiler.compile(str(gle_file), output_format='pdf', cairo=True)
+        eps_file = self.compiler.compile(str(gle_file), output_format='eps', cairo=True)
+        png_file = self.compiler.compile(
+            str(gle_file), output_format='png', dpi=200, cairo=True
+        )
         
         # All should be valid
         for f in [pdf_file, eps_file, png_file]:

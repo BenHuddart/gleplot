@@ -115,6 +115,11 @@ except ImportError:  # pragma: no cover - exercised only without the gui extra
     QGraphicsSvgItem = None  # type: ignore[assignment, misc]
     _QTSVG_AVAILABLE = False
 
+from gleplot.cairo_support import (
+    CAIRO_SAFE_FONT,
+    cairo_font_warning,
+    is_cairo_safe_font,
+)
 from gleplot.compiler import GLEError, build_compile_args, find_gle, parse_gle_errors
 from gleplot.figure import Figure
 from gleplot.gui.compile_core import (
@@ -149,8 +154,12 @@ _SVG_MARGIN_PT = 1.0
 
 #: Cairo/TeX font forced into the SVG-mode script when the figure does not
 #: already set one, so GLE's own PostScript-font default never triggers
-#: ``>> Error: PostScript fonts not supported with '-cairo'``.
-_SVG_SAFE_FONT = "texcmr"
+#: ``>> Error: PostScript fonts not supported with '-cairo'``. Alias of
+#: :data:`gleplot.cairo_support.CAIRO_SAFE_FONT` -- promoted there (Track G6)
+#: so the general Cairo compile path (not just this SVG-only workaround) can
+#: reuse the exact same choice; kept as a local name since it is this
+#: module's own long-established public-ish constant (referenced by tests).
+_SVG_SAFE_FONT = CAIRO_SAFE_FONT
 
 #: Matches a top-level ``set font ...`` line so we never override an explicit
 #: user choice (see module docstring).
@@ -667,13 +676,33 @@ class PreviewController(QObject):
         output_name = f"render_{seq}.{fmt}"
         self._current_output = session / output_name
 
+        # Cairo (Track G6): any alpha/rgba colour in the snapshot makes GLE
+        # fail outright without -cairo on every format this controller can
+        # render (png -- the default -- and svg alike; see
+        # gleplot.compiler.build_compile_args' Notes for the per-device
+        # detail). Auto-detected from the same snapshot the script was
+        # written from, so a plain (no-transparency) figure's preview
+        # command line is completely unaffected.
+        cairo = work_fig.requires_cairo()
+        if cairo and fmt != "svg" and not is_cairo_safe_font(work_fig.style.font):
+            # SVG already gets a Cairo-safe font pre-injected unconditionally
+            # (_write_script -> _inject_svg_font, below) regardless of
+            # alpha, so warning about it here would be a false positive: by
+            # the time this compiles, the script's font already isn't the
+            # unsafe one being checked. For every other format, nothing
+            # pre-empts GLE's own substitution, so say so (SPEC "no silent
+            # drops": a font swap must never happen unreported).
+            warning = cairo_font_warning(work_fig.style.font)
+            if warning:
+                _log.warning("%s (preview format=%s)", warning, fmt)
+
         # Unified device-flag construction (gleplot.compiler.build_compile_args)
-        # -- the single place -d/-r/(future -cairo) argument shape is decided,
-        # shared with GLECompiler and the export path. ``-r`` is included only
-        # for raster formats; harmless to have dropped it for svg (GLE ignores
+        # -- the single place -d/-r/-cairo argument shape is decided, shared
+        # with GLECompiler and the export path. ``-r`` is included only for
+        # raster formats; harmless to have dropped it for svg (GLE ignores
         # -r for vector formats) but now explicit rather than incidental.
         args = build_compile_args(
-            fmt, output_name, f"{_SCRIPT_STEM}.gle", dpi=self._preview_dpi
+            fmt, output_name, f"{_SCRIPT_STEM}.gle", dpi=self._preview_dpi, cairo=cairo
         )
 
         # The runner is the "thin QProcess adapter": it owns the actual

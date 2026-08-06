@@ -476,8 +476,10 @@ class TestBuildCompileArgs(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_compile_args('bogus', 'out', 'in.gle')
 
-    # -- cairo: flag construction is unified/ready, but no caller enables it
-    #    yet (reserved for task G6 -- see build_compile_args' docstring).
+    # -- cairo: flag construction (Track G6). Deciding *when* to enable it
+    #    (figures using alpha) lives in Figure.requires_cairo() /
+    #    Figure.savefig(), not here -- this builder only ever does what its
+    #    caller tells it, for every device gleplot supports.
     def test_cairo_false_by_default_omits_flag(self):
         args = build_compile_args('pdf', 'out', 'in.gle')
         self.assertNotIn('-cairo', args)
@@ -495,6 +497,36 @@ class TestBuildCompileArgs(unittest.TestCase):
         self.assertIn('-r', args)
         self.assertEqual(args[args.index('-r') + 1], '150')
 
+    def test_cairo_true_present_for_every_supported_device(self):
+        # All devices gleplot supports (pdf/eps/png/jpg/svg) accept -cairo on
+        # the command line -- verified empirically against a real GLE 4.3.10
+        # binary; see build_compile_args' Notes for the per-device behaviour
+        # that flag actually produces (semi-transparency support for
+        # pdf/eps/png/jpg; graceful vs. hard-erroring PostScript-font
+        # handling for svg, which is Cairo-backed either way).
+        for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
+            with self.subTest(fmt=fmt):
+                args = build_compile_args(fmt, 'out', 'in.gle', cairo=True)
+                self.assertIn('-cairo', args)
+
+    def test_cairo_false_absent_for_every_supported_device(self):
+        for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
+            with self.subTest(fmt=fmt):
+                args = build_compile_args(fmt, 'out', 'in.gle', cairo=False)
+                self.assertNotIn('-cairo', args)
+
+    def test_cairo_omitted_defaults_to_false_for_every_supported_device(self):
+        # The default (caller passes nothing) must match cairo=False exactly
+        # -- an ordinary, no-alpha figure's compile command line is
+        # completely unaffected by this feature existing.
+        for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
+            with self.subTest(fmt=fmt):
+                default_args = build_compile_args(fmt, 'out', 'in.gle')
+                explicit_false_args = build_compile_args(
+                    fmt, 'out', 'in.gle', cairo=False
+                )
+                self.assertEqual(default_args, explicit_false_args)
+
     def test_compiler_compile_uses_build_compile_args(self):
         # GLECompiler.compile() must build its command line through the one
         # shared function rather than a parallel inline implementation.
@@ -509,6 +541,25 @@ class TestBuildCompileArgs(unittest.TestCase):
         spy.assert_called_once()
         _args, kwargs = spy.call_args
         self.assertEqual(kwargs.get('dpi'), 150)
+        self.assertEqual(kwargs.get('cairo'), False)
+
+    def test_compiler_compile_passes_cairo_true_through(self):
+        # GLECompiler.compile(cairo=True) is the explicit-override path
+        # (Track G6): no Figure to auto-detect from, so the caller's choice
+        # must reach build_compile_args -- and therefore the actual GLE
+        # command line -- unchanged.
+        with mock.patch(
+            'gleplot.compiler.build_compile_args', wraps=build_compile_args,
+        ) as spy:
+            compiler = GLECompiler(gle_path='/explicit/path/to/gle')
+            with mock.patch('gleplot.compiler.subprocess.run') as run:
+                run.return_value = mock.Mock(returncode=0, stdout='', stderr='')
+                with mock.patch('gleplot.compiler.Path.exists', return_value=True):
+                    compiler.compile('in.gle', output_format='pdf', cairo=True)
+        _args, kwargs = spy.call_args
+        self.assertEqual(kwargs.get('cairo'), True)
+        cmd = run.call_args[0][0]
+        self.assertIn('-cairo', cmd)
 
 
 class TestGLECompileErrorAttributes(unittest.TestCase):

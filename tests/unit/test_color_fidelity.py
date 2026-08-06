@@ -281,11 +281,13 @@ def test_bar_fill_and_fill_between_carry_exact_color(tmp_path):
     ax = fig.add_subplot(111)
     x = np.linspace(0, 5, 6)
     ax.bar([1, 2, 3], [3, 5, 4], color="#bbbbbb")
+    # alpha=0.4 (Track G6): the fill's colour is composed into rgba255(...)
+    # (gleplot.colors.apply_alpha) -- 0.4 * 255 = 102 exactly.
     ax.fill_between(x, np.zeros_like(x), x, color="#999999", alpha=0.4)
     script = _script(fig, tmp_path)
 
     assert re.search(r"bar d\d+ fill rgb255\(187,187,187\)", script)
-    assert re.search(r"fill d\d+,d\d+ color rgb255\(153,153,153\)", script)
+    assert re.search(r"fill d\d+,d\d+ color rgba255\(153,153,153,102\)", script)
     assert "WHITE" not in _emitted_colors(script)
 
 
@@ -352,6 +354,9 @@ def test_round_trip_preserves_exact_colors(tmp_path):
     ax.plot(x, x + 1, color="C4", marker="o", label="cycle")
     ax.plot(x, x + 2, color="darkred", label="named")
     ax.bar([1, 2, 3], [1, 2, 3], color="#bbbbbb")
+    # alpha=0.4 (Track G6): the fill's colour is composed into rgba255(...)
+    # (gleplot.colors.apply_alpha) -- 0.4 * 255 = 102 exactly -- and that
+    # composed expression, not the plain rgb255 one, is what round-trips.
     ax.fill_between(x, np.zeros_like(x), x, color="#999999", alpha=0.4)
     ax.text(1.0, 1.0, "grey", color="#8c8c8c")
     first = _script(fig, tmp_path, "rt.gle")
@@ -363,7 +368,7 @@ def test_round_trip_preserves_exact_colors(tmp_path):
     assert rax.lines[1]["color"] == "rgb255(148,103,189)"
     assert rax.lines[2]["color"] == "DARKRED"
     assert rax.bars[0]["colors"][0] == "rgb255(187,187,187)"
-    assert rax.fills[0]["color"] == "rgb255(153,153,153)"
+    assert rax.fills[0]["color"] == "rgba255(153,153,153,102)"
     assert rax.texts[0]["color"] == "rgb255(140,140,140)"
 
     # ... and re-emitting is a fixed point.

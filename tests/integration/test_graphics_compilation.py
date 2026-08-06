@@ -319,8 +319,12 @@ class TestGraphicsWithAdvancedFeatures(unittest.TestCase):
         
         gle_file = self.tempdir / 'fill_between.gle'
         fig.savefig(str(gle_file))
-        
-        pdf_file = self.compiler.compile(str(gle_file), output_format='pdf')
+
+        # alpha=0.5 is real (Track G6): the fill's colour is now written as
+        # rgba255(...), which GLE only accepts under -cairo. This calls
+        # GLECompiler.compile() directly (bypassing Figure.savefig()'s
+        # auto-detection via requires_cairo()), so the flag must be explicit.
+        pdf_file = self.compiler.compile(str(gle_file), output_format='pdf', cairo=True)
         
         self.assertTrue(pdf_file.exists())
         self.assertGreater(pdf_file.stat().st_size, 1024)

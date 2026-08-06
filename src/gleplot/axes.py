@@ -1189,7 +1189,7 @@ class Axes:
         y1,
         y2,
         color: Optional[str] = None,
-        alpha: float = 0.3,
+        alpha: float = 1.0,
         label: Optional[str] = None,
         offset: float = 0.0,
         **kwargs,
@@ -1206,7 +1206,14 @@ class Axes:
         color : str, optional
             Fill color
         alpha : float
-            Transparency (0-1)
+            Transparency (0-1). Default 1.0 (opaque), matching matplotlib's
+            ``fill_between`` and keeping every pre-Cairo-support figure's
+            ``.gle`` output byte-identical unless a caller actually asks for
+            transparency. Below 1.0, the fill is genuinely semi-transparent
+            (``gleplot.colors.apply_alpha`` composes an ``rgba255(...)``
+            colour) and rendering it requires GLE's Cairo device, which
+            gleplot's compile pipeline enables automatically -- see
+            :meth:`gleplot.figure.Figure.requires_cairo` and SPEC §6.1/§10.6.
         label : str, optional
             Legend label
         **kwargs
@@ -1375,7 +1382,7 @@ class Axes:
         ymin: float = 0.0,
         ymax: float = 1.0,
         color: Optional[str] = None,
-        alpha: float = 0.3,
+        alpha: float = 1.0,
         label: Optional[str] = None,
         **kwargs,
     ):
@@ -1391,12 +1398,16 @@ class Axes:
         color : str, optional
             Fill colour. Default: light gray.
         alpha : float
-            Stored for matplotlib API compatibility but **not rendered**:
-            GLE 4.3.10 refuses semi-transparency unless it is driven with
-            ``-cairo`` ("semi-transparency only supported with command line
-            option '-cairo'"), which gleplot's compiler does not use. Pick a
-            light colour instead. This matches the existing behaviour of
-            :meth:`fill_between`.
+            Transparency (0-1). Default 1.0 (opaque), matching matplotlib and
+            keeping every pre-Cairo-support figure's ``.gle`` output
+            byte-identical unless a caller actually asks for transparency.
+            Below 1.0, the band is genuinely semi-transparent
+            (``gleplot.colors.apply_alpha`` composes an ``rgba255(...)``
+            colour, exactly as :meth:`fill_between` does -- spans are
+            materialized into fills at write time) and rendering it requires
+            GLE's Cairo device, which gleplot's compile pipeline enables
+            automatically -- see :meth:`gleplot.figure.Figure.requires_cairo`
+            and SPEC §6.1/§10.6.
         label : str, optional
             Legend label.
 
@@ -1414,7 +1425,7 @@ class Axes:
         xmin: float = 0.0,
         xmax: float = 1.0,
         color: Optional[str] = None,
-        alpha: float = 0.3,
+        alpha: float = 1.0,
         label: Optional[str] = None,
         **kwargs,
     ):
@@ -1422,7 +1433,7 @@ class Axes:
 
         ``xmin``/``xmax`` are the horizontal extent as a fraction of the axes
         width (matplotlib semantics). See :meth:`axvspan` for the rest,
-        including the ``alpha`` caveat.
+        including the ``alpha`` behaviour.
         """
         return self._add_span("h", ymin, ymax, xmin, xmax, color, alpha, label, kwargs)
 
