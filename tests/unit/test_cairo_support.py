@@ -347,3 +347,58 @@ class TestSavefigCairoWiring:
             warnings.simplefilter("error")
             fig.savefig(str(tmp_path / "out.gle"))
         fig.compiler.compile.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# Regression: the font-substitution warning above (and its GUI-side
+# counterpart in tests/gui/test_export_dialog.py) used to be exercised by
+# setting ``fig.style.font`` IN PLACE on a default-styled figure, which is
+# exactly the pattern that leaked global state before Figure() started
+# copying GlobalConfig.get_style() instead of aliasing it (see
+# gleplot/figure.py and gleplot/config.py -- GlobalConfig's "Copy-at-
+# construction, not shared-by-reference" docstring note). This class proves
+# that leak is gone WITHOUT falling back to the ``style=GLEStyleConfig(...)``
+# workaround the export-dialog tests use.
+# --------------------------------------------------------------------------- #
+
+
+class TestNoStyleLeakBetweenFigures:
+    def test_in_place_font_edit_on_one_figure_does_not_leak_to_the_next(self):
+        fig_a = glp.figure()
+        fig_a.style.font = "rm"  # unsafe-for-Cairo, as the warning test above uses
+
+        fig_b = glp.figure()
+        assert fig_b.style.font != "rm"
+        assert fig_b.style.font == ""  # GLEStyleConfig's own default
+
+    def test_in_place_font_edit_does_not_change_the_cairo_warning_for_a_later_figure(
+        self, tmp_path
+    ):
+        # The behaviour the export-dialog workaround exists to avoid: a
+        # figure built AFTER an in-place ``fig.style.font = "rm"`` edit on
+        # an unrelated, earlier figure must still get the safe-font
+        # no-warning path, not the leaked unsafe font.
+        leaking_fig = glp.figure(data_prefix="g6cairo_leak_a")
+        leaking_fig.style.font = "rm"
+        ax = leaking_fig.add_subplot(111)
+        x = np.array([0.0, 1.0, 2.0])
+        ax.fill_between(x, x, x + 1, color="lightblue", alpha=0.5)
+        leaking_fig.compiler = mock.Mock()
+        with pytest.warns(UserWarning, match="texcmr"):
+            leaking_fig.savefig(str(tmp_path / "leaked.pdf"))
+
+        fig = glp.figure(data_prefix="g6cairo_leak_b")
+        fig.style.font = CAIRO_SAFE_FONT
+        ax = fig.add_subplot(111)
+        ax.fill_between(x, x, x + 1, color="lightblue", alpha=0.5)
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fig.savefig(str(tmp_path / "clean.pdf"))  # must not raise
+
+    def test_in_place_font_edit_does_not_mutate_global_config(self):
+        from gleplot.config import GlobalConfig
+
+        fig = glp.figure()
+        fig.style.font = "rm"
+        assert GlobalConfig.style.font != "rm"

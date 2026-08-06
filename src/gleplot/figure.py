@@ -2,6 +2,7 @@
 
 import numpy as np
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import Tuple, Optional, Literal, Sequence, List
 from .axes import Axes, _sanitize_data_stem, _validate_data_prefix
@@ -89,11 +90,43 @@ class Figure:
     dpi : int, optional
         Dots per inch. Default: 100
     style : GLEStyleConfig, optional
-        Style configuration. If None, uses global default.
+        Style configuration. If None, a COPY of
+        :attr:`~gleplot.config.GlobalConfig.style` is taken at construction
+        time -- see the "Global defaults are copied, not shared" note below.
+        An explicitly passed ``style`` is stored by reference, as before.
     graph : GLEGraphConfig, optional
-        Graph configuration. If None, uses global default.
+        Graph configuration. If None, a COPY of
+        :attr:`~gleplot.config.GlobalConfig.graph` is taken at construction
+        time (same note). An explicitly passed ``graph`` is stored by
+        reference, as before.
     marker : GLEMarkerConfig, optional
-        Marker configuration. If None, uses global default.
+        Marker configuration. If None, a COPY of
+        :attr:`~gleplot.config.GlobalConfig.marker` is taken at construction
+        time (same note). An explicitly passed ``marker`` is stored by
+        reference, as before.
+
+    Notes
+    -----
+    **Global defaults are copied, not shared.** ``GlobalConfig.style``/
+    ``.graph``/``.marker`` are process-wide singletons. Setting
+    ``GlobalConfig.style.font = 'helvetica'`` *before* creating a figure
+    still changes that figure's default font, exactly as documented in
+    :class:`gleplot.config.GlobalConfig`. But once a ``Figure`` exists, its
+    ``style``/``graph``/``marker_config`` are independent objects (when no
+    explicit config was passed in): editing ``fig.style.font`` in place (or
+    reassigning ``fig.style``) affects only ``fig`` -- it can neither leak
+    into other figures created earlier or later in the same process, nor
+    mutate ``GlobalConfig`` itself. This is copy-AT-CONSTRUCTION semantics,
+    the same rule matplotlib's ``rcParams`` snapshot follows for a new
+    ``Figure``/``Axes``.
+
+    This only applies to the *default*, taken from ``GlobalConfig``. A
+    ``style``/``graph``/``marker`` object YOU pass in explicitly is still
+    stored by reference, unchanged from before this note was added: two
+    figures built with the same explicit config object still share it, and
+    the object stays live for code that wants to mutate it after
+    construction (:mod:`gleplot.parser.recognizer` does exactly this while
+    reconstructing a ``Figure`` from parsed GLE text).
     """
 
     def __init__(
@@ -149,10 +182,39 @@ class Figure:
         self.figsize = figsize
         self.dpi = dpi
 
-        # Store configuration for passing to writer
-        self.style = style or GlobalConfig.get_style()
-        self.graph = graph or GlobalConfig.get_graph()
-        self.marker_config = marker or GlobalConfig.get_marker()
+        # Store configuration for passing to writer.
+        #
+        # When no explicit config is given, take a COPY of the global
+        # default rather than the ``GlobalConfig`` singleton itself.
+        # ``GLEStyleConfig``/``GLEGraphConfig``/``GLEMarkerConfig`` are all
+        # flat dataclasses (str/float/int/bool/Optional[float] fields only,
+        # no mutable members), so a shallow ``dataclasses.replace(...)`` --
+        # equivalent to ``copy.copy`` here -- is a full, independent copy.
+        # Without this, ``fig.style.font = ...`` on a figure that never
+        # passed ``style=`` mutates the *same* object every other
+        # default-styled ``Figure()`` in the process holds, because
+        # ``GlobalConfig.get_style()`` returns one shared instance. This is
+        # copy-AT-CONSTRUCTION semantics: changing ``GlobalConfig.style``
+        # (etc.) before creating a figure still changes that figure's
+        # defaults, same as before; only the *identity* is no longer
+        # shared, so later in-place edits on one figure's config cannot
+        # leak into another figure's, or into the global default itself.
+        #
+        # An EXPLICIT config object, by contrast, is still stored BY
+        # REFERENCE, not copied: that is a narrower, pre-existing contract
+        # the parser recognizer depends on. ``parser/recognizer.py`` builds
+        # a ``GLEGraphConfig`` up front, hands it to ``Figure(graph=...)``,
+        # then mutates ``smooth_curves`` on that same object afterwards
+        # (see ``_apply_smooth``) once it has walked the parsed series and
+        # knows whether they carried ``smooth`` -- it relies on
+        # ``fig.graph is graph_cfg``. Only the ``GlobalConfig`` singleton is
+        # a cross-figure hazard; an object the caller constructed and holds
+        # no other reference to is not.
+        self.style = style if style is not None else replace(GlobalConfig.get_style())
+        self.graph = graph if graph is not None else replace(GlobalConfig.get_graph())
+        self.marker_config = (
+            marker if marker is not None else replace(GlobalConfig.get_marker())
+        )
 
         # Shared axes configuration
         self.sharex = sharex

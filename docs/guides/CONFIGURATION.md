@@ -25,6 +25,20 @@ Access and modify global defaults through `GlobalConfig`:
     # All new figures will use these settings
     fig = glp.figure()
 
+**Copy-at-construction.** A figure created with no explicit `style=`/`graph=`/
+`marker=` takes an independent COPY of the current `GlobalConfig` values at
+the moment it is constructed -- not a live reference to `GlobalConfig`
+itself. So the order above matters (set the global default, *then* create
+the figure), and the reverse is also true: once `fig = glp.figure()` has
+run, editing `fig.style.font` in place changes only `fig` -- it cannot leak
+into other figures, and it cannot write back into `GlobalConfig.style`
+either. (This is the fix for a real bug in earlier gleplot releases, where
+`fig.style` for a default-styled figure *was* `GlobalConfig.style` itself,
+so an in-place edit on one figure silently changed every other
+default-styled figure in the process.) An explicit `style=`/`graph=`/
+`marker=` object you construct and pass in yourself is unaffected by this --
+it is still stored by reference, as it always was.
+
 ## Style Configuration (GLEStyleConfig)
 
 Controls text and line rendering:

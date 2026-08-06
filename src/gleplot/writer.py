@@ -11,7 +11,7 @@ identical to what it produced before sources existed.
 """
 
 import warnings as _warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -424,11 +424,15 @@ class GLEWriter:
     dpi : int, optional
         Dots per inch for PNG output. Default: 100
     style : GLEStyleConfig, optional
-        Style configuration. If None, uses global default.
+        Style configuration. If None, a COPY of ``GlobalConfig.style`` is
+        taken at construction time (see :class:`gleplot.figure.Figure`'s
+        "Global defaults are copied, not shared" note -- same rule here).
     graph : GLEGraphConfig, optional
-        Graph configuration. If None, uses global default.
+        Graph configuration. If None, a COPY of ``GlobalConfig.graph`` is
+        taken at construction time (same note).
     marker : GLEMarkerConfig, optional
-        Marker configuration. If None, uses global default.
+        Marker configuration. If None, a COPY of ``GlobalConfig.marker`` is
+        taken at construction time (same note).
     """
 
     def __init__(
@@ -446,10 +450,19 @@ class GLEWriter:
         self.width_cm = inches_to_cm(figsize[0])
         self.height_cm = inches_to_cm(figsize[1])
 
-        # Get configuration (fall back to global defaults)
-        self.style = style or GlobalConfig.get_style()
-        self.graph = graph or GlobalConfig.get_graph()
-        self.marker = marker or GlobalConfig.get_marker()
+        # Get configuration (fall back to global defaults). When no explicit
+        # config object is given, copy the global default instead of holding
+        # the ``GlobalConfig`` singleton by reference -- see the identical
+        # reasoning, including the "explicit config is still by reference"
+        # carve-out, in ``Figure.__init__`` (figure.py). GLEWriter is
+        # normally handed an already figure-owned config by
+        # ``Figure._generate_gle_lines``; this fallback only matters when a
+        # writer is built directly, e.g. in tests.
+        self.style = style if style is not None else replace(GlobalConfig.get_style())
+        self.graph = graph if graph is not None else replace(GlobalConfig.get_graph())
+        self.marker = (
+            marker if marker is not None else replace(GlobalConfig.get_marker())
+        )
 
         self.lines_gle = []  # GLE script lines
         self.data_files = {}  # {filename: data_content}
