@@ -325,6 +325,40 @@ def custom_tick_labels():
     return fig
 
 
+def axes_styling_full():
+    """Every axes-styling field at once: formats, a subtick grid with style,
+    axis-title and tick-label size/colour/angle, and a styled graph title."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 4, 9], color="blue", label="quad")
+    ax.set_title("Styled")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_ylabel("Y2", axis="y2")
+    ax.set_ylim(0, 10, axis="y2")
+    ax.set_tick_format("fix 1", axis="x")
+    ax.set_tick_format("sci 2 10", axis="y2")
+    ax.grid(True, which="both", linestyle=":", linewidth=0.4, color="gray40")
+    ax.title_size, ax.title_color, ax.title_dist = 14, "RED", 0.3
+    ax.xlabel_size, ax.xlabel_color, ax.xlabel_dist = 10, "BLUE", 0.35
+    ax.ylabel_size, ax.ylabel_color = 9, "GREEN"
+    ax.y2label_size = 8
+    ax.xticklabel_size, ax.xticklabel_color, ax.xticklabel_angle = 7, "ORANGE", 45
+    ax.yticklabel_color = "CYAN"
+    ax.y2ticklabel_size = 6
+    ax.legend()
+    return fig
+
+
+def axes_styling_grid_only():
+    """The plainest grid: no style clause, no other styling."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], color="red")
+    ax.grid(True)
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -347,6 +381,8 @@ BUILDERS = [
     contour_grid_levels_clabel,
     tripcolor_tricontour_combo,
     custom_tick_labels,
+    axes_styling_full,
+    axes_styling_grid_only,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

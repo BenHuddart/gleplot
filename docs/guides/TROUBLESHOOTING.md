@@ -101,4 +101,11 @@ See the Curve Smoothing section of `CONFIGURATION.md`.
 
 ## Grid Call Has No Visual Effect
 
-Current behavior: `ax.grid(...)` exists for API compatibility and future extension. If grid lines are not rendered in your output, rely on explicit axis styling for now.
+`ax.grid(...)` draws a real grid (GLE `xaxis grid`, which stretches that
+axis' ticks across the graph). Two things to know if it does not look the way
+matplotlib would:
+
+- A grid always covers the **main ticks**; `which='minor'` alone is not
+  expressible in GLE and is normalized to `which='both'` with a warning.
+- Grid style **is** tick style (`xticks lstyle/lwidth/color`), so
+  `ax.grid(True, color='gray40')` recolours that axis' ticks as well.

@@ -22,10 +22,19 @@ class GLEStyleConfig:
         Default: 1.5 points ≈ 0.053 cm (increased for visibility in PDFs)
 
     default_color : str
-        Default line/plot color (GLE color name). Default: 'BLUE'
+        Colour used by :meth:`gleplot.Axes.plot`, :meth:`~gleplot.Axes.errorbar`,
+        :meth:`~gleplot.Axes.errorbar_from_file` and
+        :meth:`~gleplot.Axes.line_from_file` when the call passes no
+        ``color``. Any spelling :func:`gleplot.colors.rgb_to_gle` accepts.
+        Default: 'BLUE' -- the colour those methods hard-coded before this
+        field was wired up, so the default changes nothing.
+        (:meth:`~gleplot.Axes.bar` and :meth:`~gleplot.Axes.fill_between`
+        keep their own distinct defaults, RED and LIGHTBLUE.)
 
     default_marker_color : str
-        Default marker color. Default: 'BLUE'
+        Same, for a marker-only series -- what :meth:`gleplot.Axes.scatter`
+        produces, and :meth:`~gleplot.Axes.plot` with a marker and no line.
+        Default: 'BLUE'
 
     line_style_solid : int
         GLE line style for solid lines. Default: 1
@@ -93,14 +102,28 @@ class GLEGraphConfig:
         Graph scaling mode: 'auto' (auto-sizes and centers), 'fixed' (uses specified size),
         or 'fullsize' (axes fill entire box, no margins). Default: 'auto'
 
-    title_distance : float
-        Distance (cm) from graph top to title. Default: 0.1
+    title_distance : float or None
+        Figure-wide default for ``Axes.title_dist`` -- the ``dist`` option of
+        GLE's ``title`` command, in cm. A per-axes ``title_dist`` wins over
+        it. ``None`` (the default) emits no ``dist`` at all, leaving GLE's
+        own spacing.
 
-    xlabel_distance : float
-        Distance (cm) from graph bottom to x-axis label. Default: 0.1
+        .. versionchanged:: 2.4
+           Was an inert ``0.1`` that nothing read. It is now the default for
+           the per-axes distance, and its default is ``None`` so that
+           figures which never set it emit exactly the GLE they always did.
+           A project serialized with the old inert ``0.1`` will, once
+           reloaded, actually emit ``dist 0.1``.
 
-    ylabel_distance : float
-        Distance (cm) from graph left to y-axis label. Default: 0.1
+    xlabel_distance : float or None
+        Same, for ``Axes.xlabel_dist`` -- the ``dist`` option of GLE's
+        ``xtitle`` command (distance between the axis title and the tick
+        labels), in cm. Default: None.
+
+    ylabel_distance : float or None
+        Same, for ``Axes.ylabel_dist`` (GLE ``ytitle ... dist``) and, when
+        the axes sets no distance of its own, ``Axes.y2label_dist``
+        (``y2title ... dist``). Default: None.
 
     legend_position : str
         Default legend position: 'tl', 'tr', 'bl', 'br', 'tc', 'bc', 'lc', 'rc', 'cc'.
@@ -108,10 +131,14 @@ class GLEGraphConfig:
         Default: 'tr' (top right)
 
     legend_offset_x : float
-        Legend x-offset from position (cm). Default: 0.0
+        Figure-wide default legend x-offset from its anchor (cm), used by
+        every axes whose own ``legend_offset`` is None. Default: 0.0.
 
     legend_offset_y : float
-        Legend y-offset from position (cm). Default: 0.0
+        The y half of the same default (cm). Default: 0.0.
+
+        ``(0.0, 0.0)`` means "no offset", and emits no ``offset`` clause --
+        so the defaults leave GLE output unchanged.
 
     smooth_curves : bool
         Draw line series as a fitted spline through the points (GLE's
@@ -120,7 +147,11 @@ class GLEGraphConfig:
         it must never be applied without being asked for. Default: False
 
     show_grid : bool
-        Show background grid. Default: False
+        Figure-wide default grid: when True, every axes that has not called
+        :meth:`gleplot.Axes.grid` itself gets a main-tick grid on both axes
+        (GLE ``xaxis grid`` / ``yaxis grid``). An axes that HAS called
+        ``grid()`` -- including ``grid(False)`` -- keeps its own answer.
+        Default: False
 
     default_cmap : str
         Default colour map used by ``imshow``/``tripcolor`` when ``cmap`` is
@@ -133,9 +164,11 @@ class GLEGraphConfig:
     """
 
     scale_mode: str = "auto"  # 'auto', 'fixed', 'fullsize'
-    title_distance: float = 0.1
-    xlabel_distance: float = 0.1
-    ylabel_distance: float = 0.1
+    # None = emit no 'dist' option (GLE's atitledist/titlescale spacing).
+    # See the class docstring for why these are no longer 0.1.
+    title_distance: Optional[float] = None
+    xlabel_distance: Optional[float] = None
+    ylabel_distance: Optional[float] = None
     legend_position: str = "tr"
     legend_offset_x: float = 0.0
     legend_offset_y: float = 0.0

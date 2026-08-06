@@ -14,6 +14,7 @@ from .parser.tables import (
     KEY_POSITIONS_LONG_TO_SHORT,
     KEY_POSITIONS_SHORT_TO_LONG,
     MATPLOTLIB_TO_LSTYLE,
+    NUMBER_FORMAT_KEYWORDS,
 )
 from .series import (  # noqa: F401  (re-exported: historical import path)
     DRAWABLE_CLASSES,
@@ -445,6 +446,93 @@ def _resolve_data_file(figure=None, data_name: object = None) -> str:
     return _reserve_data_filename(_sanitize_data_stem(data_name), figure)
 
 
+#: The axes-styling attributes added by GLEstudio plan task G10 (tick-label
+#: formats, grids, axis-title / tick-label / graph-title styling), in
+#: serialization order. All default to ``None`` = "absent, emit nothing", so
+#: :meth:`Axes.to_dict` gained keys without any figure's GLE changing. One
+#: list drives ``to_dict``, ``from_dict`` and the writer's styling payload,
+#: so the three cannot drift apart.
+_STYLING_KEYS: Tuple[str, ...] = (
+    "xformat",
+    "yformat",
+    "y2format",
+    "xgrid",
+    "ygrid",
+    "xgrid_lstyle",
+    "xgrid_lwidth",
+    "xgrid_color",
+    "ygrid_lstyle",
+    "ygrid_lwidth",
+    "ygrid_color",
+    "xlabel_size",
+    "xlabel_color",
+    "xlabel_dist",
+    "ylabel_size",
+    "ylabel_color",
+    "ylabel_dist",
+    "y2label_size",
+    "y2label_color",
+    "y2label_dist",
+    "xticklabel_size",
+    "xticklabel_color",
+    "xticklabel_angle",
+    "yticklabel_size",
+    "yticklabel_color",
+    "yticklabel_angle",
+    "y2ticklabel_size",
+    "y2ticklabel_color",
+    "y2ticklabel_angle",
+    "title_size",
+    "title_color",
+    "title_dist",
+)
+
+
+def validate_tick_format(fmt: str) -> str:
+    """Light validation of a GLE number-format string; returns it stripped.
+
+    Used by :meth:`Axes.set_tick_format` and available to callers building a
+    format string interactively (GLEstudio's format preset builder). The
+    check is deliberately weak, because GLE's own parser is:
+    :data:`gleplot.parser.tables.NUMBER_FORMAT_KEYWORDS` documents that an
+    unrecognized specifier is skipped with a printed note, not an error. So
+    this only rules out the strings that could not possibly be a format --
+    empty, multi-line, or not starting with a keyword GLE knows -- and lets
+    everything else (including arguments this version has never seen)
+    through unchanged.
+
+    Parameters
+    ----------
+    fmt : str
+        Candidate format string, e.g. ``"fix 1"`` or ``"sci 2 10 expsign"``.
+
+    Returns
+    -------
+    str
+        ``fmt`` with surrounding whitespace removed.
+
+    Raises
+    ------
+    ValueError
+        If ``fmt`` is not a string, is blank, spans multiple lines, or does
+        not begin with a GLE number-format keyword.
+    """
+    if not isinstance(fmt, str):
+        raise ValueError(f"format must be a string, got {type(fmt).__name__}")
+    text = fmt.strip()
+    if not text:
+        raise ValueError("format string is empty; use None to clear the format")
+    if "\n" in text or "\r" in text:
+        raise ValueError(f"format string must be a single line: {fmt!r}")
+    first = text.split()[0].lower()
+    if first not in NUMBER_FORMAT_KEYWORDS:
+        raise ValueError(
+            f"format string {fmt!r} does not start with a GLE number-format "
+            f"keyword ({', '.join(NUMBER_FORMAT_KEYWORDS)})"
+        )
+    return text
+
+
 def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
     """Resolve the marker fill mode from the plotting methods' kwargs.
 
@@ -485,22 +573,30 @@ class Axes:
         self.xscale = "linear"
         self.yscale = "linear"
         self.y2scale = "linear"  # Secondary y-axis scale
-        self.xmin = None
-        self.xmax = None
-        self.ymin = None
-        self.ymax = None
-        self.y2min = None  # Secondary y-axis limits
-        self.y2max = None
+        # Axis limits. ``None`` = auto (derived from the data at GLE-generation
+        # time); a DESCENDING pair inverts the axis (GLE ``negate``). Annotated
+        # explicitly: the ``= None`` initializers alone would have a type
+        # checker infer the declared type as bare ``None`` and reject the
+        # "None = auto" assignments every downstream editor makes.
+        self.xmin: Optional[float] = None
+        self.xmax: Optional[float] = None
+        self.ymin: Optional[float] = None
+        self.ymax: Optional[float] = None
+        self.y2min: Optional[float] = None  # Secondary y-axis limits
+        self.y2max: Optional[float] = None
         # Tri-state: None = auto (show a legend iff any series has a label),
         # True/False = explicit user choice (the GUI toggle writes these).
-        self.legend_on = None
+        self.legend_on: Optional[bool] = None
         self.legend_pos = "top right"
         # Legend text height in matplotlib points (None = inherit the figure
         # style's fontsize, i.e. whatever GLE's current ``set hei`` is) and
         # the legend box (matplotlib ``frameon``; False emits ``key nobox``).
-        self.legend_fontsize = None
+        self.legend_fontsize: Optional[float] = None
         self.legend_frameon = True
-        self.legend_offset = None  # (dx_cm, dy_cm) or None
+        #: ``(dx_cm, dy_cm)`` or None (= the figure graph config's
+        #: ``legend_offset_x``/``legend_offset_y``, themselves ``0, 0`` by
+        #: default, i.e. no ``offset`` clause at all).
+        self.legend_offset: Optional[Tuple[float, float]] = None
 
         # Shared axes visibility control
         self._show_xlabel = True
@@ -517,14 +613,98 @@ class Axes:
 
         # Explicit tick control (GLE dticks/dsubticks/places/names). All None
         # means "let GLE choose", which is the historical behaviour.
-        self.xdticks = None
-        self.ydticks = None
-        self.xdsubticks = None
-        self.ydsubticks = None
-        self.xplaces = None
-        self.xnames = None
-        self.yplaces = None
-        self.ynames = None
+        self.xdticks: Optional[float] = None
+        self.ydticks: Optional[float] = None
+        self.xdsubticks: Optional[float] = None
+        self.ydsubticks: Optional[float] = None
+        self.xplaces: Optional[List[float]] = None
+        self.xnames: Optional[List[str]] = None
+        self.yplaces: Optional[List[float]] = None
+        self.ynames: Optional[List[str]] = None
+
+        # -- Axes styling (all None = "absent", emit nothing) ---------------
+        #
+        # Every field below defaults to None and is emitted only when set, so
+        # a figure that never touches them produces exactly the GLE it always
+        # did. Sizes are matplotlib POINTS (converted to GLE ``hei`` cm at
+        # write time), distances are page CENTIMETRES (GLE's own unit for
+        # ``dist``), angles are DEGREES, and colours are anything
+        # :func:`gleplot.colors.rgb_to_gle` accepts.
+
+        #: Tick-label number format per axis -- GLE ``xaxis format "<fmt>"``
+        #: (see :meth:`set_tick_format` for the syntax and validation).
+        self.xformat: Optional[str] = None
+        self.yformat: Optional[str] = None
+        self.y2format: Optional[str] = None
+
+        #: Functional grid per axis: None (no grid), ``'major'`` (grid lines
+        #: at the main ticks) or ``'both'`` (grid lines at main ticks AND
+        #: subticks). Set through :meth:`grid`. GLE draws the grid by making
+        #: that axis' ticks span the graph, so ``'both'`` is ``xaxis grid``
+        #: plus ``xsubticks on``. x2/y2 have no grid of their own: they are
+        #: the far ends of the x/y ticks.
+        #
+        # ``GLEGraphConfig.show_grid`` is the figure-wide default and is read
+        # HERE, once, at construction: a later ``grid(False)`` then simply
+        # switches it off, and the answer always lives in the model (so it
+        # serializes and round-trips) rather than being re-derived at write
+        # time from a config the axes may since have disagreed with.
+        # ``from_dict``/the recognizer overwrite these straight after, so a
+        # loaded figure keeps what it was saved with.
+        _grid_default = "major" if self._figure_shows_grid(figure) else None
+        self.xgrid: Optional[str] = _grid_default
+        self.ygrid: Optional[str] = _grid_default
+        #: Grid line style, width (points) and colour. Emitted as ``xticks
+        #: lstyle/lwidth/color`` and, when the grid covers subticks, the
+        #: matching ``xsubticks`` clause -- in GLE the grid lines ARE the
+        #: ticks, so these style the ticks too. Only written when the
+        #: corresponding grid is on; a style with no grid would be a silent
+        #: no-op.
+        self.xgrid_lstyle: Optional[int] = None
+        self.xgrid_lwidth: Optional[float] = None
+        self.xgrid_color: Optional[str] = None
+        self.ygrid_lstyle: Optional[int] = None
+        self.ygrid_lwidth: Optional[float] = None
+        self.ygrid_color: Optional[str] = None
+
+        #: Axis-title styling -- the ``xtitle``/``ytitle``/``y2title`` text is
+        #: ``xlabel_text``/... above; these are its ``hei``/``color``/``dist``
+        #: options. ``*_dist`` is the gap between the title and the tick
+        #: labels (None = the figure graph config's ``xlabel_distance`` /
+        #: ``ylabel_distance``, themselves None = GLE's ``atitledist``).
+        self.xlabel_size: Optional[float] = None
+        self.xlabel_color: Optional[str] = None
+        self.xlabel_dist: Optional[float] = None
+        self.ylabel_size: Optional[float] = None
+        self.ylabel_color: Optional[str] = None
+        self.ylabel_dist: Optional[float] = None
+        self.y2label_size: Optional[float] = None
+        self.y2label_color: Optional[str] = None
+        self.y2label_dist: Optional[float] = None
+
+        #: Tick-label styling: ``xlabels hei/color`` plus ``xaxis angle``
+        #: (which rotates the tick labels, not the axis).
+        self.xticklabel_size: Optional[float] = None
+        self.xticklabel_color: Optional[str] = None
+        self.xticklabel_angle: Optional[float] = None
+        self.yticklabel_size: Optional[float] = None
+        self.yticklabel_color: Optional[str] = None
+        self.yticklabel_angle: Optional[float] = None
+        #: y2 tick labels are OFF in GLE unless ``y2labels on`` is given, so
+        #: setting any y2 tick-label property (including ``y2format``) also
+        #: turns them on -- otherwise the property would be inert. See
+        #: :meth:`GLEWriter.add_axes`.
+        self.y2ticklabel_size: Optional[float] = None
+        self.y2ticklabel_color: Optional[str] = None
+        self.y2ticklabel_angle: Optional[float] = None
+
+        #: Graph-title styling (GLE ``title "..." hei/color/dist``). GLE's
+        #: title belongs to the graph block, so it lives here, per axes,
+        #: rather than on the figure. ``title_dist`` None = the figure graph
+        #: config's ``title_distance`` (itself None = GLE's default).
+        self.title_size: Optional[float] = None
+        self.title_color: Optional[str] = None
+        self.title_dist: Optional[float] = None
 
         # Frame sides switched off entirely -- axis line, ticks and labels.
         # Used for the inner edges of a broken-axis assembly, where several
@@ -593,6 +773,37 @@ class Axes:
 
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
+
+    @staticmethod
+    def _figure_shows_grid(figure) -> bool:
+        """Whether ``figure``'s graph config asks for a grid by default."""
+        graph = getattr(figure, "graph", None)
+        if graph is None:
+            graph = GlobalConfig.get_graph()
+        return bool(getattr(graph, "show_grid", False))
+
+    def _style(self):
+        """This figure's :class:`~gleplot.config.GLEStyleConfig`.
+
+        Falls back to the process-global style for an axes constructed
+        without a figure (only the test helpers do that).
+        """
+        return getattr(self.figure, "style", None) or GlobalConfig.get_style()
+
+    def _resolve_color(self, color, marker_only: bool = False) -> str:
+        """Resolve a series colour argument to a GLE colour.
+
+        ``None`` means "use the figure style's default"
+        (``default_marker_color`` for a marker-only series,
+        ``default_color`` otherwise -- both ``'BLUE'`` out of the box, the
+        colour these call sites used to hard-code). Anything else goes
+        through :func:`gleplot.colors.rgb_to_gle` as usual; so does the
+        configured default, so it may be spelled the matplotlib way.
+        """
+        style = self._style()
+        if color is None:
+            color = style.default_marker_color if marker_only else style.default_color
+        return rgb_to_gle(color)
 
     def _register_series_draw_meta(
         self, entry: dict, kind: str, zorder: Optional[float] = None
@@ -667,17 +878,17 @@ class Axes:
         x = np.asarray(x)
         y = np.asarray(y)
 
-        # Handle color
-        if color is None:
-            color = "BLUE"
-        else:
-            color = rgb_to_gle(color)
-
         # Handle marker. GLE supports markers on line datasets natively, so a
         # marker requested alongside a solid/dashed line must be preserved
         # (not silently dropped). Only when there is *no* line is the series a
         # true scatter.
         is_scatter = marker is not None and linestyle in ("", "none", " ", "None")
+
+        # Handle color. Which style default applies depends on what this
+        # series turns out to be, which is why it is resolved after
+        # ``is_scatter``: a marker-only series is what ``scatter()`` produces
+        # and takes ``default_marker_color``.
+        color = self._resolve_color(color, marker_only=is_scatter)
 
         gle_marker = (
             get_gle_marker(marker, fill=marker_fill) if marker is not None else None
@@ -811,11 +1022,8 @@ class Axes:
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
 
-        # Handle color
-        if color is None:
-            color = "BLUE"
-        else:
-            color = rgb_to_gle(color)
+        # Handle color (see _resolve_color: None = the style default).
+        color = self._resolve_color(color)
 
         # Parse fmt string for marker/linestyle
         # Simple parsing: check for marker chars and line styles
@@ -968,10 +1176,7 @@ class Axes:
 
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
-        if color is None:
-            gle_color = "BLUE"
-        else:
-            gle_color = rgb_to_gle(color)
+        gle_color = self._resolve_color(color)
 
         gle_marker = get_gle_marker(marker, fill=marker_fill) if marker else None
         gle_markersize = markersize_to_msize(
@@ -1017,10 +1222,7 @@ class Axes:
             raise ValueError("Column indices must be >= 1")
 
         label = mathtext_to_gle(label)
-        if color is None:
-            gle_color = "BLUE"
-        else:
-            gle_color = rgb_to_gle(color)
+        gle_color = self._resolve_color(color)
 
         self.file_series.append(
             FileSeries(
@@ -2159,19 +2361,24 @@ class Axes:
             self.yscale = scale
         return self
 
-    def set_xlim(self, xmin: float, xmax: float):
-        """Set x-axis limits."""
+    def set_xlim(self, xmin: Optional[float], xmax: Optional[float]):
+        """Set x-axis limits.
+
+        ``None`` puts that bound back on AUTO -- derived from the data at
+        GLE-generation time -- which is what an editor's "auto" checkbox
+        means and what a freshly created axes carries.
+        """
         self.xmin = xmin
         self.xmax = xmax
         return self
 
-    def set_ylim(self, ymin: float, ymax: float, axis: str = "y"):
+    def set_ylim(self, ymin: Optional[float], ymax: Optional[float], axis: str = "y"):
         """Set y-axis limits.
 
         Parameters
         ----------
-        ymin, ymax : float
-            Axis limits
+        ymin, ymax : float or None
+            Axis limits; ``None`` = auto (see :meth:`set_xlim`).
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
         """
@@ -2216,7 +2423,7 @@ class Axes:
         if labels is not None:
             # Tick labels are user-supplied display text like any other, so
             # they get the same mathtext translation / literal escaping.
-            self.xnames = [mathtext_to_gle(str(lbl)) for lbl in labels]
+            self.xnames = [str(mathtext_to_gle(str(lbl))) for lbl in labels]
         if dticks is not None:
             self.xdticks = float(dticks)
         if dsubticks is not None:
@@ -2235,7 +2442,7 @@ class Axes:
         if ticks is not None:
             self.yplaces = [float(t) for t in ticks]
         if labels is not None:
-            self.ynames = [mathtext_to_gle(str(lbl)) for lbl in labels]
+            self.ynames = [str(mathtext_to_gle(str(lbl))) for lbl in labels]
         if dticks is not None:
             self.ydticks = float(dticks)
         if dsubticks is not None:
@@ -2382,17 +2589,215 @@ class Axes:
             raise ValueError(f"legend(fontsize={fontsize!r}) must be positive")
         return size
 
-    def grid(self, visible: bool = True, **kwargs):
-        """Toggle grid (placeholder for future implementation)."""
-        # GLE grid support can be added later
+    def grid(
+        self,
+        visible: Optional[bool] = None,
+        which: str = "major",
+        axis: str = "both",
+        color: Optional[str] = None,
+        linestyle: Optional[Union[str, int]] = None,
+        linewidth: Optional[float] = None,
+        **kwargs,
+    ):
+        """Turn the graph grid on or off, matplotlib-style.
+
+        GLE has no separate grid object: ``xaxis grid`` makes that axis'
+        ticks long enough to reach the opposite side, and the resulting lines
+        ARE the grid (manual, "Graph Commands": ``xaxis grid``). Three
+        consequences the model is honest about:
+
+        * A grid always covers the **main ticks**. ``which='minor'`` alone is
+          not expressible; it is normalized to ``'both'`` with a warning
+          rather than silently dropped.
+        * ``which='both'`` adds ``xsubticks on``, GLE's "grid lines at each
+          subtick" mode.
+        * Grid style is tick style (``xticks lstyle/lwidth/color``), so it
+          also restyles the ticks of that axis.
+
+        Parameters
+        ----------
+        visible : bool, optional
+            True/False to switch the grid on/off. ``None`` (the default)
+            means "on" when any style argument is given, and otherwise
+            TOGGLES the targeted axes, as matplotlib does.
+        which : {'major', 'minor', 'both'}
+            Which ticks carry grid lines. ``'minor'`` is normalized to
+            ``'both'`` (see above).
+        axis : {'both', 'x', 'y'}
+            Which axis' grid to change. x2/y2 have no grid of their own --
+            they are where the x/y grid lines end.
+        color : str, optional
+            Grid line colour (any :func:`gleplot.colors.rgb_to_gle` spelling).
+        linestyle : str or int, optional
+            matplotlib line style (``'-'``, ``'--'``, ``':'``, ``'-.'``) or a
+            raw GLE ``lstyle`` number.
+        linewidth : float, optional
+            Grid line width in points.
+
+        Returns
+        -------
+        Axes
+            ``self``, so calls can be chained (gleplot has always returned
+            this; matplotlib returns None).
+
+        Raises
+        ------
+        ValueError
+            On an unknown ``which``/``axis``/``linestyle`` value, a
+            non-positive ``linewidth``, or an unsupported keyword argument.
+
+        Examples
+        --------
+        >>> ax.grid(True, which='both', linestyle=':', color='grey40')
+        """
+        for key in kwargs:
+            raise ValueError(
+                f"grid() got an unsupported keyword argument {key!r}; "
+                "supported style arguments are color, linestyle and linewidth"
+            )
+        if which not in ("major", "minor", "both"):
+            raise ValueError(
+                f"grid(which={which!r}) must be 'major', 'minor' or 'both'"
+            )
+        if axis not in ("both", "x", "y"):
+            raise ValueError(f"grid(axis={axis!r}) must be 'both', 'x' or 'y'")
+
+        targets = ("x", "y") if axis == "both" else (axis,)
+        styled = color is not None or linestyle is not None or linewidth is not None
+
+        mode = which
+        if which == "minor":
+            mode = "both"
+            warnings.warn(
+                "grid(which='minor'): GLE draws grid lines from the main "
+                "ticks whenever the grid is on, so a minor-only grid is not "
+                "expressible; using which='both'.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        lstyle = self._resolve_grid_lstyle(linestyle)
+        if linewidth is not None and float(linewidth) <= 0:
+            raise ValueError(f"grid(linewidth={linewidth!r}) must be positive")
+
+        for name in targets:
+            current = getattr(self, f"{name}grid")
+            if visible is None:
+                on = True if styled else current is None
+            else:
+                on = bool(visible)
+            if not on:
+                # which='minor' off = drop back to a main-tick grid; anything
+                # else switches the grid off entirely.
+                setattr(self, f"{name}grid", "major" if mode == "both" else None)
+            elif mode == "major" and current == "both":
+                pass  # enabling the major layer must not drop the subticks
+            else:
+                setattr(self, f"{name}grid", mode)
+            if color is not None:
+                setattr(self, f"{name}grid_color", rgb_to_gle(color))
+            if lstyle is not None:
+                setattr(self, f"{name}grid_lstyle", lstyle)
+            if linewidth is not None:
+                setattr(self, f"{name}grid_lwidth", float(linewidth))
         return self
 
-    def get_xlim(self) -> Tuple[float, float]:
-        """Get x-axis limits."""
+    def _resolve_grid_lstyle(
+        self, linestyle: Optional[Union[str, int]]
+    ) -> Optional[int]:
+        """matplotlib line style -> GLE ``lstyle`` number (ints pass through).
+
+        Reads the figure's own :class:`~gleplot.config.GLEStyleConfig` so a
+        custom ``line_style_dashed`` (etc.) applies to the grid exactly as it
+        does to line series.
+        """
+        if linestyle is None:
+            return None
+        if isinstance(linestyle, bool):
+            raise ValueError(f"grid(linestyle={linestyle!r}) is not a line style")
+        if isinstance(linestyle, int):
+            return int(linestyle)
+        style = getattr(self.figure, "style", None) or GlobalConfig.get_style()
+        mapping = {
+            "-": style.line_style_solid,
+            "solid": style.line_style_solid,
+            "--": style.line_style_dashed,
+            "dashed": style.line_style_dashed,
+            ":": style.line_style_dotted,
+            "dotted": style.line_style_dotted,
+            "-.": style.line_style_dashdot,
+            "dashdot": style.line_style_dashdot,
+        }
+        key = str(linestyle).strip().lower()
+        if key not in mapping:
+            raise ValueError(
+                f"grid(linestyle={linestyle!r}) is not a matplotlib line style "
+                f"({sorted(mapping)}) or a GLE lstyle number"
+            )
+        return int(mapping[key])
+
+    def set_tick_format(self, fmt: Optional[str], axis: str = "both"):
+        """Set the tick-label number format (GLE ``xaxis format "<fmt>"``).
+
+        ``fmt`` is a GLE format string -- the same syntax as the ``format$()``
+        function (manual, "Programming": ``format$``): a base format
+        (``fix``, ``sci``, ``eng``, ``round``, ``percent``, ``frac``, ``pi``,
+        ``dec``, ``hex``, ``bin``, ``append``) with its arguments, optionally
+        followed by modifiers (``nozeroes``, ``sign``, ``pad``, ``prefix``,
+        ``prepend``, ``min``, ``max``) and optionally several formats
+        combined, e.g. ``"sci 2 10 min 1e2 fix 0"``.
+
+        It is stored as a free-form string: GLE is the authority on the
+        syntax and a friendly preset builder belongs in a GUI, not here.
+        Validation is deliberately light -- non-empty, single-line, and
+        starting with a keyword GLE knows -- so that format strings this
+        version has never heard of still round-trip.
+
+        Parameters
+        ----------
+        fmt : str or None
+            The format string, or None to clear it (GLE's automatic
+            labelling).
+        axis : {'both', 'x', 'y', 'y2'}
+            Which axis to apply it to. ``'both'`` means x and y (not y2,
+            which is a distinct axis with its own data range).
+
+        Returns
+        -------
+        Axes
+            ``self``.
+
+        Raises
+        ------
+        ValueError
+            On an unknown ``axis``, or a format string that is empty,
+            multi-line, or does not begin with a GLE format keyword.
+
+        Notes
+        -----
+        GLE's y2 (and x2) tick labels are off unless ``y2labels on`` is
+        given, so setting ``axis='y2'`` also turns them on at write time --
+        see :meth:`gleplot.writer.GLEWriter.add_axes`.
+        """
+        if axis not in ("both", "x", "y", "y2"):
+            raise ValueError(
+                f"set_tick_format(axis={axis!r}) must be 'both', 'x', 'y' or 'y2'"
+            )
+        value = None if fmt is None else validate_tick_format(fmt)
+        for name in ("x", "y") if axis == "both" else (axis,):
+            setattr(self, f"{name}format", value)
+        return self
+
+    def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
+        """Get x-axis limits.
+
+        Either bound is ``None`` when it is on AUTO -- to be derived from the
+        data at GLE-generation time -- which is how every figure starts out.
+        """
         return self.xmin, self.xmax
 
-    def get_ylim(self, axis: str = "y") -> Tuple[float, float]:
-        """Get y-axis limits.
+    def get_ylim(self, axis: str = "y") -> Tuple[Optional[float], Optional[float]]:
+        """Get y-axis limits (``None`` = auto, see :meth:`get_xlim`).
 
         Parameters
         ----------
@@ -2507,6 +2912,11 @@ class Axes:
             ),
             "geometry_passthrough": list(self.geometry_passthrough),
         }
+        # Axes styling (see __init__ and _STYLING_KEYS). Every one of these
+        # is None on a figure that never asked for it, and the writer emits
+        # nothing for a None -- so adding them left existing output untouched.
+        for key in _STYLING_KEYS:
+            payload[key] = _to_jsonable(getattr(self, key))
         # Series lists, in registry order -- exactly where they appeared when
         # each was spelled out here by hand, so the key order (and therefore
         # the serialized bytes) is unchanged.
@@ -2580,6 +2990,11 @@ class Axes:
         ax.xnames = d.get("xnames")
         ax.yplaces = d.get("yplaces")
         ax.ynames = d.get("ynames")
+        # Axes styling. A missing key = a payload written before G10, whose
+        # figure had no styling at all -- which is what None means, so the
+        # plain ``.get`` default is also the correct migration.
+        for _styling_key in _STYLING_KEYS:
+            setattr(ax, _styling_key, d.get(_styling_key))
         ax._xaxis_off = d.get("xaxis_off", False)
         ax._yaxis_off = d.get("yaxis_off", False)
         ax._x2axis_off = d.get("x2axis_off", False)

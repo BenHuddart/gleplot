@@ -55,7 +55,7 @@ __version__ = "2.3.0"
 __author__ = "gleplot contributors"
 
 from .figure import Figure
-from .axes import Axes
+from .axes import Axes, validate_tick_format
 from .brokenaxes import BrokenAxes
 from .colors import rgb_to_gle, get_color_palette
 from .markers import get_gle_marker
@@ -476,6 +476,9 @@ def close(fig=None):
 __all__ = [
     "Figure",
     "Axes",
+    # Light validation of a GLE tick-label number format string ("fix 1",
+    # "sci 2 10", ...), for callers building one interactively.
+    "validate_tick_format",
     "BrokenAxes",
     "figure",
     "gca",

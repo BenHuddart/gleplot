@@ -237,26 +237,34 @@ def test_finding4_axis_remainder_passthrough(tmp_path):
     # Recognized min/max go to the model.
     assert ax.xmin == 0
     assert abs(ax.xmax - 6.283185307179586) < 1e-9
-    # Unrecognized remainder re-emitted as a supplementary axis line.
+    # 'grid' became a modelled option (axes styling), so only 'dticks pi/2'
+    # is left over -- re-emitted as a supplementary axis line.
+    assert ax.xgrid == "major"
     joined = "\n".join(ax.passthrough)
-    assert "xaxis" in joined and "dticks" in joined and "grid" in joined
+    assert "xaxis" in joined and "dticks" in joined
+    assert "grid" not in joined
     assert any(w.startswith("structure:") and "xaxis" in w for w in rec.warnings)
 
 
 def test_finding4_axis_string_option_keeps_quotes(tmp_path):
+    # Re-baselined when 'format' became a modelled option (axes styling): the
+    # FIRST format goes to the model, and a second one -- which the model has
+    # nowhere to put, one format per axis -- is the remainder whose quotes
+    # must survive.
     src = (
         "size 20.32 15.24\n"
         "begin graph\n"
         "   data data_8.dat d1=c1,c2\n"
         "   d1 line color blue lwidth 0.05\n"
-        '   xaxis min 0 max 10 format "fix 2"\n'
+        '   xaxis min 0 max 10 format "fix 2" format "sci 2"\n'
         "end graph\n"
     )
     p = _write(tmp_path, "axs.gle", src, {"data_8.dat": "0 0\n10 1\n"})
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
+    assert ax.xformat == "fix 2"
     joined = "\n".join(ax.passthrough)
-    assert 'format "fix 2"' in joined
+    assert 'format "sci 2"' in joined
 
 
 def test_finding4_axis_remainder_compiles_in_gle(tmp_path):

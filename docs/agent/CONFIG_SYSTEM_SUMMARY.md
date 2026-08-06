@@ -20,13 +20,13 @@ Created a complete configuration system with four main classes:
 
 #### **GLEGraphConfig** - Graph Layout and Rendering
 - `scale_mode` (str) - Axis scaling mode: 'auto', 'fixed', or 'fullsize'
-- `title_distance` (float) - Title distance from graph (cm)
-- `xlabel_distance` (float) - X-label distance (cm)
-- `ylabel_distance` (float) - Y-label distance (cm)
+- `title_distance` (Optional[float]) - Default `Axes.title_dist` (cm; None = GLE's own spacing)
+- `xlabel_distance` (Optional[float]) - Default `Axes.xlabel_dist` (cm)
+- `ylabel_distance` (Optional[float]) - Default `Axes.ylabel_dist`/`y2label_dist` (cm)
 - `legend_position` (str) - Legend position (default: 'tr')
-- `legend_offset_x`, `legend_offset_y` (float) - Legend offset (cm)
+- `legend_offset_x`, `legend_offset_y` (float) - Default `Axes.legend_offset` (cm; 0,0 = none)
 - `smooth_curves` (bool) - Spline-smooth line series, GLE `smooth` (default: False; was True before 1.9.0)
-- `show_grid` (bool) - Show background grid (default: False)
+- `show_grid` (bool) - Default grid on newly created axes; `Axes.grid()` overrides (default: False)
 
 #### **GLEMarkerConfig** - Marker Appearance
 - `default_marker` (str) - Default marker type (default: 'fcircle')

@@ -67,14 +67,14 @@ Controls graph layout and rendering:
 
     graph = glp.GLEGraphConfig(
         scale_mode='auto',           # 'auto', 'fixed', or 'fullsize'
-        title_distance=0.1,          # Distance (cm) from title to graph
-        xlabel_distance=0.1,         # Distance (cm) from x-label to graph
-        ylabel_distance=0.1,         # Distance (cm) from y-label to graph
+        title_distance=None,         # Default Axes.title_dist (cm)
+        xlabel_distance=None,        # Default Axes.xlabel_dist (cm)
+        ylabel_distance=None,        # Default Axes.ylabel_dist (cm)
         legend_position='tr',        # Legend position: 'tr', 'tl', 'br', 'bl', etc.
         legend_offset_x=0.0,         # Legend x-offset (cm)
         legend_offset_y=0.0,         # Legend y-offset (cm)
         smooth_curves=False,         # Spline-smooth lines (GLE `smooth`); opt-in
-        show_grid=False,             # Show background grid
+        show_grid=False,             # Default grid on new axes
     )
     
     fig = glp.figure(graph=graph)
@@ -422,15 +422,19 @@ Attributes:
 
 Attributes:
 - `scale_mode` (str) - ['auto', 'fixed', 'fullsize']. Default: 'auto'
-- `title_distance` (float) - Title distance from graph (cm). Default: 0.1
-- `xlabel_distance` (float) - X-label distance from graph (cm). Default: 0.1
-- `ylabel_distance` (float) - Y-label distance from graph (cm). Default: 0.1
+- `title_distance` (Optional[float]) - Figure-wide default for
+  `Axes.title_dist` (GLE `title ... dist`), cm. Default: None (GLE's spacing)
+- `xlabel_distance` (Optional[float]) - Same for `Axes.xlabel_dist`
+  (`xtitle ... dist`). Default: None
+- `ylabel_distance` (Optional[float]) - Same for `Axes.ylabel_dist` /
+  `Axes.y2label_dist`. Default: None
 - `legend_position` (str) - Legend position code. Default: 'tr'
 - `legend_offset_x` (float) - Legend x-offset (cm). Default: 0.0
 - `legend_offset_y` (float) - Legend y-offset (cm). Default: 0.0
 - `smooth_curves` (bool) - Spline-smooth line series (GLE `smooth`); sorts a
   smoothed series by x, which `smooth` requires. Default: False
-- `show_grid` (bool) - Show background grid. Default: False
+- `show_grid` (bool) - Figure-wide default grid on every axes created after
+  it is set; `Axes.grid()` overrides per axes. Default: False
 
 ### GLEMarkerConfig
 

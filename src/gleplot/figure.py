@@ -7,7 +7,7 @@ from typing import Tuple, Optional, Literal, Sequence, List
 from .axes import Axes, _sanitize_data_stem, _validate_data_prefix
 from .series import Series
 from .brokenaxes import BrokenAxes
-from .writer import GLEWriter, SourceResolution, resolve_figure
+from .writer import AxisStyle, GLEWriter, SourceResolution, resolve_figure
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .cairo_support import cairo_font_warning, figure_requires_cairo
 from .colors import rgb_to_gle
@@ -1680,6 +1680,53 @@ class Figure:
 
         return _pal.palette_call_name(cmap)
 
+    def _legend_offset(self, ax: Axes) -> Optional[Tuple[float, float]]:
+        """This axes' legend offset in cm, or the figure-wide default.
+
+        ``Axes.legend_offset`` is None until ``legend(offset=...)`` sets it;
+        the figure's :class:`~gleplot.config.GLEGraphConfig` then supplies
+        ``(legend_offset_x, legend_offset_y)``. Those default to ``(0, 0)``,
+        which means "no offset" and is returned as None so no ``offset``
+        clause is written at all.
+        """
+        offset: Optional[Tuple[float, float]] = getattr(ax, "legend_offset", None)
+        if offset is not None:
+            return offset
+        default = (float(self.graph.legend_offset_x), float(self.graph.legend_offset_y))
+        return None if default == (0.0, 0.0) else default
+
+    def _axis_style(self, ax: Axes, prefix: str) -> AxisStyle:
+        """Collect one axis' styling off ``ax`` into a writer :class:`AxisStyle`.
+
+        Flat model attributes (``xformat``, ``xgrid``, ``xlabel_size``, ...)
+        in, one parameter object out, with the figure-wide
+        :class:`~gleplot.config.GLEGraphConfig` distances applied where the
+        axes sets none: ``xlabel_distance`` for the x title,
+        ``ylabel_distance`` for the y AND y2 titles (GLE's ``ytitle``/
+        ``y2title`` are the same decoration on opposite sides).
+
+        Only x and y have a ``grid``: GLE's grid is the axis' own ticks
+        stretched across the graph, so a y2 grid would duplicate the y one.
+        """
+        graph_cfg = self.graph
+        dist_default = (
+            graph_cfg.xlabel_distance if prefix == "x" else graph_cfg.ylabel_distance
+        )
+        title_dist = getattr(ax, f"{prefix}label_dist")
+        return AxisStyle(
+            fmt=getattr(ax, f"{prefix}format"),
+            grid=getattr(ax, f"{prefix}grid", None) if prefix != "y2" else None,
+            grid_lstyle=getattr(ax, f"{prefix}grid_lstyle", None),
+            grid_lwidth=getattr(ax, f"{prefix}grid_lwidth", None),
+            grid_color=getattr(ax, f"{prefix}grid_color", None),
+            title_size=getattr(ax, f"{prefix}label_size"),
+            title_color=getattr(ax, f"{prefix}label_color"),
+            title_dist=title_dist if title_dist is not None else dist_default,
+            label_size=getattr(ax, f"{prefix}ticklabel_size"),
+            label_color=getattr(ax, f"{prefix}ticklabel_color"),
+            label_angle=getattr(ax, f"{prefix}ticklabel_angle"),
+        )
+
     def _write_axes_content(
         self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
     ):
@@ -1740,6 +1787,16 @@ class Figure:
             yaxis_off=ax._yaxis_off,
             x2axis_off=ax._x2axis_off,
             y2axis_off=ax._y2axis_off,
+            xstyle=self._axis_style(ax, "x"),
+            ystyle=self._axis_style(ax, "y"),
+            y2style=self._axis_style(ax, "y2"),
+            title_size=ax.title_size,
+            title_color=ax.title_color,
+            title_dist=(
+                ax.title_dist
+                if ax.title_dist is not None
+                else self.graph.title_distance
+            ),
         )
 
         # Heatmap colormap (drawn behind everything as the background) and
@@ -1938,7 +1995,7 @@ class Figure:
                 ax.legend_pos,
                 fontsize=getattr(ax, "legend_fontsize", None),
                 frameon=getattr(ax, "legend_frameon", True),
-                offset=getattr(ax, "legend_offset", None),
+                offset=self._legend_offset(ax),
             )
         elif labels_present:
             # GLE draws an implicit key from per-dataset key "label" tokens;

@@ -11,6 +11,7 @@ identical to what it produced before sources existed.
 """
 
 import warnings as _warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -33,6 +34,80 @@ from .sources import (
     DataSource,
     resolve_reference,
 )
+
+
+@dataclass(frozen=True)
+class AxisStyle:
+    """Styling for ONE axis (x, y or y2) of a graph block.
+
+    The parameter object :meth:`GLEWriter.add_axes` takes instead of a dozen
+    more keyword arguments per axis. Every field is optional and ``None``
+    means "emit nothing", so the default instance -- ``AxisStyle()`` -- writes
+    exactly the GLE gleplot wrote before axes styling existed.
+    :class:`gleplot.Axes` holds the same information as flat attributes
+    (``xformat``, ``xgrid``, ``xlabel_size``, ...) and
+    ``Figure._axis_style`` assembles them here, applying the figure-wide
+    :class:`~gleplot.config.GLEGraphConfig` defaults on the way.
+
+    Attributes
+    ----------
+    fmt : str, optional
+        Tick-label number format -- GLE ``xaxis format "<fmt>"``. Free-form
+        (see :func:`gleplot.axes.validate_tick_format`).
+    grid : {'major', 'both'}, optional
+        Draw grid lines from this axis' ticks (GLE ``xaxis grid``);
+        ``'both'`` adds ``xsubticks on`` so the subticks become grid lines
+        too. Not meaningful on y2 (the y grid already spans to it).
+    grid_lstyle : int, optional
+        GLE ``lstyle`` number for the grid/tick lines.
+    grid_lwidth : float, optional
+        Grid/tick line width in POINTS (converted to GLE cm on emission).
+    grid_color : str, optional
+        Grid/tick colour.
+    title_size, title_color, title_dist : optional
+        ``hei`` (points), ``color`` and ``dist`` (cm) of this axis' title --
+        GLE ``xtitle "..." hei H color C dist D``.
+    label_size, label_color : optional
+        ``hei`` (points) and ``color`` of the tick labels (GLE ``xlabels``).
+    label_angle : float, optional
+        Tick-label rotation in degrees (GLE ``xaxis angle``).
+
+    Notes
+    -----
+    ``grid_*`` are only emitted when ``grid`` is set: in GLE the grid lines
+    ARE the axis ticks (``xticks lstyle ...``), so a grid style without a
+    grid would silently restyle the ticks instead.
+    """
+
+    fmt: Optional[str] = None
+    grid: Optional[str] = None
+    grid_lstyle: Optional[int] = None
+    grid_lwidth: Optional[float] = None
+    grid_color: Optional[str] = None
+    title_size: Optional[float] = None
+    title_color: Optional[str] = None
+    title_dist: Optional[float] = None
+    label_size: Optional[float] = None
+    label_color: Optional[str] = None
+    label_angle: Optional[float] = None
+
+    def has_tick_label_styling(self) -> bool:
+        """True if anything here changes how the tick labels are drawn.
+
+        Used for GLE's y2 rule: y2 (and x2) tick labels are OFF unless
+        ``y2labels on`` is given, so any y2 tick-label property implies it.
+        """
+        return (
+            self.fmt is not None
+            or self.label_size is not None
+            or self.label_color is not None
+            or self.label_angle is not None
+        )
+
+
+#: An axis with no styling at all -- shared so the common case allocates
+#: nothing and ``style is _NO_STYLE`` short-circuits are possible.
+_NO_STYLE = AxisStyle()
 
 
 def _format_data_filename(name: str) -> str:
@@ -646,6 +721,12 @@ class GLEWriter:
         yaxis_off: bool = False,
         x2axis_off: bool = False,
         y2axis_off: bool = False,
+        xstyle: Optional[AxisStyle] = None,
+        ystyle: Optional[AxisStyle] = None,
+        y2style: Optional[AxisStyle] = None,
+        title_size: Optional[float] = None,
+        title_color: Optional[str] = None,
+        title_dist: Optional[float] = None,
     ):
         """Add axis configuration.
 
@@ -695,31 +776,68 @@ class GLEWriter:
             top/right sides GLE draws by default). This is what lets several
             graph blocks butt up against each other and read as one panel:
             the inner sides are switched off and the seam is drawn separately.
+        xstyle, ystyle, y2style : AxisStyle, optional
+            Per-axis styling -- tick-label format, grid, axis-title and
+            tick-label size/colour/angle. Omitted (or the default
+            ``AxisStyle()``) emits nothing, so an unstyled figure is
+            byte-identical to what gleplot wrote before styling existed.
+        title_size, title_color, title_dist : optional
+            The graph title's ``hei`` (points), ``color`` and ``dist`` (cm) --
+            GLE ``title "..." hei H color C dist D``. GLE's title belongs to
+            the graph block, which is why gleplot models it per-axes and not
+            per-figure.
 
         Raises
         ------
         ValueError
             If a ``*names`` list is given without, or of a different length
             to, its ``*places`` list.
+
+        Notes
+        -----
+        Emission order inside the graph block matters to GLE, and the order
+        here is: the ``title``/``*title`` texts, then per axis its ``xaxis``
+        line, ``xplaces``/``xnames``, ``xlabels``, and its grid tick styling
+        (``xticks``/``xsubticks``) -- x before y before y2, with ``x2axis``
+        last, as before. New tokens on the ``xaxis`` line (``format``,
+        ``angle``, ``grid``) go after ``dsubticks`` and before
+        ``nofirst``/``nolast``/``off``.
+
+        GLE's y2 (and x2) tick labels are off unless ``y2labels on`` is
+        given, so any y2 tick-label property in ``y2style`` also emits
+        ``y2labels on`` -- it would otherwise be inert.
         """
         if xnames is not None and (xplaces is None or len(xnames) != len(xplaces)):
             raise ValueError("xnames must be the same length as xplaces")
         if ynames is not None and (yplaces is None or len(ynames) != len(yplaces)):
             raise ValueError("ynames must be the same length as yplaces")
+        xstyle = xstyle or _NO_STYLE
+        ystyle = ystyle or _NO_STYLE
+        y2style = y2style or _NO_STYLE
         if title:
-            self.lines_gle.append(f'    title "{title}"')
+            opts = self._text_options(title_size, title_color, title_dist)
+            self.lines_gle.append(f'    title "{title}"{opts}')
 
         # Only show axis titles if requested
         # Note: show_xlabel controls the title (e.g. "Time (s)"), not the tick marks
         if xlabel and show_xlabel:
-            self.lines_gle.append(f'    xtitle "{xlabel}"')
+            opts = self._text_options(
+                xstyle.title_size, xstyle.title_color, xstyle.title_dist
+            )
+            self.lines_gle.append(f'    xtitle "{xlabel}"{opts}')
 
         if ylabel and show_ylabel:
-            self.lines_gle.append(f'    ytitle "{ylabel}"')
+            opts = self._text_options(
+                ystyle.title_size, ystyle.title_color, ystyle.title_dist
+            )
+            self.lines_gle.append(f'    ytitle "{ylabel}"{opts}')
 
         # Add y2axis title if provided
         if y2label:
-            self.lines_gle.append(f'    y2title "{y2label}"')
+            opts = self._text_options(
+                y2style.title_size, y2style.title_color, y2style.title_dist
+            )
+            self.lines_gle.append(f'    y2title "{y2label}"{opts}')
 
         # Handle axis ranges and tick labels
         # Note: We keep the axis and ticks visible but can hide the tick labels
@@ -740,6 +858,7 @@ class GLEWriter:
             x_cmd += f" dticks {self._format_number(xdticks)}"
         if xdsubticks is not None:
             x_cmd += f" dsubticks {self._format_number(xdsubticks)}"
+        x_cmd += self._axis_style_tokens(xstyle)
         if remove_first_xtick:
             x_cmd += " nofirst"  # Remove first tick label to prevent overlap
         if remove_last_xtick:
@@ -761,9 +880,13 @@ class GLEWriter:
                 + " ".join(f'"{self._escape_gle_string(n)}"' for n in xnames)
             )
 
-        # Hide x-axis tick labels if requested (but keep the ticks themselves)
+        # Hide x-axis tick labels if requested (but keep the ticks themselves),
+        # or style them; styling labels that are switched off would be a no-op.
         if not show_xticks:
             self.lines_gle.append("    xlabels off")
+        else:
+            self._add_tick_label_style("x", xstyle)
+        self._add_grid_style("x", xstyle)
 
         # Same for y-axis
         y_cmd = "    yaxis"
@@ -779,6 +902,7 @@ class GLEWriter:
             y_cmd += f" dticks {self._format_number(ydticks)}"
         if ydsubticks is not None:
             y_cmd += f" dsubticks {self._format_number(ydsubticks)}"
+        y_cmd += self._axis_style_tokens(ystyle)
         if remove_first_ytick:
             y_cmd += " nofirst"  # Remove first tick label to prevent overlap
         if remove_last_ytick:
@@ -803,6 +927,9 @@ class GLEWriter:
         # Hide y-axis tick labels if requested (but keep the ticks themselves)
         if not show_yticks:
             self.lines_gle.append("    ylabels off")
+        else:
+            self._add_tick_label_style("y", ystyle)
+        self._add_grid_style("y", ystyle)
 
         # Handle y2axis (secondary y-axis) if limits or log scale specified.
         #
@@ -817,7 +944,15 @@ class GLEWriter:
         # Re-assert the mirror explicitly whenever the primary side is off
         # and the mirror was not itself turned off.
         y2_on = yaxis_off and not y2axis_off
-        if y2min is not None or y2max is not None or y2log or y2axis_off or y2_on:
+        y2_styled = y2style is not _NO_STYLE and y2style != _NO_STYLE
+        if (
+            y2min is not None
+            or y2max is not None
+            or y2log
+            or y2axis_off
+            or y2_on
+            or y2_styled
+        ):
             y2_cmd = "    y2axis"
             if y2min is not None:
                 y2_cmd += f" min {self._format_number(y2min)}"
@@ -827,11 +962,20 @@ class GLEWriter:
                 y2_cmd += " log"
             if y2negate:
                 y2_cmd += " negate"
+            y2_cmd += self._axis_style_tokens(y2style)
             if y2axis_off:
                 y2_cmd += " off"
             elif y2_on:
                 y2_cmd += " on"
-            self.lines_gle.append(y2_cmd)
+            if y2_cmd != "    y2axis":
+                self.lines_gle.append(y2_cmd)
+        # GLE draws no y2 tick labels unless asked (manual: "xlabels on ...
+        # the default for the x and y axis, but not for the x2 and y2 axis"),
+        # so a y2 format/hei/color/angle is inert without 'y2labels on'.
+        # Emitting it is the only way those properties mean anything.
+        if not y2axis_off and y2style.has_tick_label_styling():
+            opts = self._text_options(y2style.label_size, y2style.label_color, None)
+            self.lines_gle.append(f"    y2labels on{opts}")
 
         # The top side has no gleplot-level configuration of its own; it is
         # only ever switched off (inner edge of a broken-axis assembly) --
@@ -841,6 +985,90 @@ class GLEWriter:
             self.lines_gle.append("    x2axis off")
         elif xaxis_off:
             self.lines_gle.append("    x2axis on")
+
+    # -- axes styling helpers -------------------------------------------
+
+    def _text_options(
+        self,
+        size: Optional[float] = None,
+        color: Optional[str] = None,
+        dist: Optional[float] = None,
+    ) -> str:
+        """``[ hei H][ color C][ dist D]`` for a GLE title/labels command.
+
+        Shared by ``title``, ``xtitle``/``ytitle``/``y2title`` and
+        ``xlabels``/``ylabels``/``y2labels``, which all take the same
+        options in the same order. ``size`` is in matplotlib points and
+        becomes GLE's ``hei`` in cm; ``dist`` is already in cm (GLE's own
+        unit for it). Returns ``''`` when nothing is set, so the caller can
+        concatenate unconditionally.
+        """
+        out = ""
+        if size is not None:
+            out += f" hei {self._format_number(fontsize_pt_to_cm(float(size)))}"
+        if color is not None:
+            out += f" color {color}"
+        if dist is not None:
+            out += f" dist {self._format_number(float(dist))}"
+        return out
+
+    def _axis_style_tokens(self, style: AxisStyle) -> str:
+        """``[ format "F"][ angle A][ grid]`` for an ``xaxis``-family line.
+
+        These three live on the axis command itself rather than in a
+        statement of their own (manual: ``xaxis format``, ``xaxis angle``,
+        ``xaxis grid``), so they are appended to the line the caller is
+        already building.
+        """
+        out = ""
+        if style.fmt is not None:
+            out += f' format "{self._escape_gle_string(style.fmt)}"'
+        if style.label_angle is not None:
+            out += f" angle {self._format_number(float(style.label_angle))}"
+        if style.grid is not None:
+            out += " grid"
+        return out
+
+    def _add_tick_label_style(self, prefix: str, style: AxisStyle) -> None:
+        """``xlabels hei H color C`` (and y/y2 twins), when anything is set."""
+        opts = self._text_options(style.label_size, style.label_color, None)
+        if opts:
+            self.lines_gle.append(f"    {prefix}labels{opts}")
+
+    def _add_grid_style(self, prefix: str, style: AxisStyle) -> None:
+        """Tick styling for an axis whose grid is on, plus the subtick mode.
+
+        GLE's grid lines are this axis' ticks stretched across the graph, so
+        their style is ``xticks lstyle/lwidth/color`` -- which also restyles
+        the ticks, as documented on :class:`AxisStyle`. ``grid='both'`` adds
+        ``xsubticks on``, GLE's "grid lines at each subtick" mode (manual,
+        Fig. "Different grid options").
+
+        Subticks inherit only the tick **colour**, not ``lstyle``/``lwidth``
+        (measured with GLE 4.3.10: ``xticks lstyle 3`` + ``xsubticks on``
+        draws dashed main grid lines and SOLID subtick ones), so those two
+        are repeated on the ``xsubticks`` clause -- as the manual's own
+        "Various Settings" grid example does.
+
+        Nothing is emitted when the grid is off: a bare ``xticks color ...``
+        would restyle the ticks of a gridless axis, which is not what the
+        model says.
+        """
+        if style.grid is None:
+            return
+        opts = ""
+        if style.grid_lstyle is not None:
+            opts += f" lstyle {int(style.grid_lstyle)}"
+        if style.grid_lwidth is not None:
+            width = linewidth_pt_to_cm(float(style.grid_lwidth))
+            opts += f" lwidth {self._format_number(width)}"
+        line_opts = opts
+        if style.grid_color is not None:
+            line_opts += f" color {style.grid_color}"
+        if line_opts:
+            self.lines_gle.append(f"    {prefix}ticks{line_opts}")
+        if style.grid == "both":
+            self.lines_gle.append(f"    {prefix}subticks on{opts}")
 
     # -- broken-axis seam decoration ------------------------------------
     #

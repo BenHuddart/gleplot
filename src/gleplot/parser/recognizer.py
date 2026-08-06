@@ -205,7 +205,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -440,6 +440,11 @@ class _GraphGeometryStmt:
     words: List[str]
     values: List[float]
     raw: str
+
+
+def _pt_or_none(hei: Optional[float]) -> Optional[float]:
+    """GLE ``hei`` in cm -> matplotlib points, passing None through."""
+    return None if hei is None else fontsize_cm_to_pt(hei)
 
 
 def _collect_color(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
@@ -888,6 +893,52 @@ class _Recognizer:
             "y2negate": False,
             "xlabels_off": False,
             "ylabels_off": False,
+            # -- axes styling (GLEstudio plan G10) ------------------------
+            # Tick-label number format (GLE 'xaxis format "..."'), tick-label
+            # rotation ('xaxis angle') and grid ('xaxis grid'); the graph
+            # title's and each axis title's hei/color/dist; the tick labels'
+            # hei/color. All None/False = not present in the source, which is
+            # also the model default, so a file without them round-trips
+            # untouched.
+            "title_hei": None,
+            "title_color": None,
+            "title_dist": None,
+            "xformat": None,
+            "yformat": None,
+            "y2format": None,
+            "xangle": None,
+            "yangle": None,
+            "y2angle": None,
+            "xgrid": False,
+            "ygrid": False,
+            "xtitle_hei": None,
+            "xtitle_color": None,
+            "xtitle_dist": None,
+            "ytitle_hei": None,
+            "ytitle_color": None,
+            "ytitle_dist": None,
+            "y2title_hei": None,
+            "y2title_color": None,
+            "y2title_dist": None,
+            "xlabels_hei": None,
+            "xlabels_color": None,
+            "ylabels_hei": None,
+            "ylabels_color": None,
+            "y2labels_hei": None,
+            "y2labels_color": None,
+            # Deferred lines: an 'xticks'/'xsubticks' style is only part of
+            # the model when that axis has a grid (the grid lines ARE the
+            # ticks), and a 'y2labels on' is only implied when some y2
+            # tick-label property is modeled. Whether that holds is not known
+            # until the whole block has been read -- GLE statement order is
+            # free -- so they are parked here and resolved by
+            # _reconcile_axis_styling, which sends the unusable ones back to
+            # passthrough verbatim.
+            "_xticks": None,
+            "_yticks": None,
+            "_xsubticks": None,
+            "_ysubticks": None,
+            "_y2labels_on_raw": None,
             "nofirst_x": False,
             "nolast_x": False,
             "nofirst_y": False,
@@ -1100,7 +1151,70 @@ class _Recognizer:
             info["passthrough"][0:0] = restored
 
         self._reconcile_places_names(info)
+        self._reconcile_axis_styling(info)
         return info
+
+    def _reconcile_axis_styling(self, info) -> None:
+        """Decide what the parked ``*ticks``/``y2labels on`` lines meant.
+
+        Run once the whole graph block has been read, because GLE does not
+        fix the order of these statements relative to the ``xaxis ... grid``
+        that gives them their meaning:
+
+        * ``xticks``/``xsubticks`` style is grid style, and only when that
+          axis HAS a grid. Without one it would restyle bare ticks, which the
+          model cannot express -- so the line goes back to passthrough
+          verbatim.
+        * A subtick grid must be styled exactly like the main grid for one
+          ``lstyle``/``lwidth`` pair to describe both (subticks inherit only
+          the tick colour -- see ``GLEWriter._add_grid_style``). A file that
+          styles them differently keeps its ``xsubticks`` line as raw GLE.
+        * ``y2labels on`` is implied by any modeled y2 tick-label property;
+          on its own it is a visibility switch the model does not have, and
+          is preserved.
+        """
+        for prefix in ("x", "y"):
+            ticks = info[f"_{prefix}ticks"]
+            subticks = info[f"_{prefix}subticks"]
+            gridded = info[f"{prefix}grid"]
+            if ticks is not None and not (gridded and ticks["ok"] and not ticks["on"]):
+                info["passthrough"].append(ticks["raw"])
+                self.warnings.append(
+                    f"structure: {prefix}ticks styling without a modeled grid; "
+                    "kept as raw GLE, not editable"
+                )
+                info[f"_{prefix}ticks"] = ticks = None
+            if subticks is None:
+                continue
+            styled_alike = subticks["lstyle"] == (
+                ticks["lstyle"] if ticks else None
+            ) and subticks["lwidth"] == (ticks["lwidth"] if ticks else None)
+            if not (
+                gridded
+                and subticks["ok"]
+                and subticks["on"]
+                and subticks["color"] is None
+                and styled_alike
+            ):
+                info["passthrough"].append(subticks["raw"])
+                self.warnings.append(
+                    f"structure: {prefix}subticks line is not a modeled grid "
+                    "mode; kept as raw GLE, not editable"
+                )
+                info[f"_{prefix}subticks"] = None
+        if info["_y2labels_on_raw"] is not None:
+            implied = (
+                info["y2format"] is not None
+                or info["y2angle"] is not None
+                or info["y2labels_hei"] is not None
+                or info["y2labels_color"] is not None
+            )
+            if not implied:
+                info["passthrough"].append(info["_y2labels_on_raw"])
+                self.warnings.append(
+                    "structure: 'y2labels on' with nothing to style; kept as "
+                    "raw GLE, not editable"
+                )
 
     def _reconcile_places_names(self, info) -> None:
         """Drop a ``*names`` list the writer could never reproduce.
@@ -1182,37 +1296,19 @@ class _Recognizer:
             )
             return
         if kw == "title":
-            if self._title_has_unsupported_options(toks):
-                # 'title "T" hei 0.6 font roman' -- trailing modifiers cannot be
-                # represented on the model and a cumulative re-emit would produce
-                # a competing 'title' line. Keep the WHOLE original line as raw
-                # GLE (title_text stays unset) and warn.
-                info["passthrough"].append(self._stmt_text(stmt))
-                self.warnings.append(
-                    "structure: title has unsupported options; kept as raw GLE, "
-                    "not editable"
-                )
-            else:
-                info["title"] = self._first_string(toks)
+            self._parse_title_line(toks, info, stmt)
             return
-        if kw == "xtitle":
-            info["xlabel"] = self._first_string(toks)
-            return
-        if kw == "ytitle":
-            info["ylabel"] = self._first_string(toks)
-            return
-        if kw == "y2title":
-            info["y2label"] = self._first_string(toks)
+        if kw in ("xtitle", "ytitle", "y2title"):
+            self._parse_axis_title_line(kw, toks, info, stmt)
             return
         if kw in ("xaxis", "yaxis", "y2axis"):
             self._parse_axis_line(kw, toks, info, stmt)
             return
-        if kw in ("xlabels", "ylabels"):
-            # 'xlabels off'
-            if any(t.value.lower() == "off" for t in toks[1:]):
-                info["xlabels_off" if kw == "xlabels" else "ylabels_off"] = True
-            else:
-                info["passthrough"].append(self._stmt_text(stmt))
+        if kw in ("xlabels", "ylabels", "y2labels"):
+            self._parse_labels_line(kw, toks, info, stmt)
+            return
+        if kw in ("xticks", "yticks", "xsubticks", "ysubticks"):
+            self._parse_ticks_line(kw, toks, info, stmt)
             return
         if kw in ("xplaces", "yplaces", "xnames", "ynames"):
             self._parse_places_or_names_line(kw, toks, info, stmt)
@@ -1234,6 +1330,196 @@ class _Recognizer:
 
         # Unrecognized statement inside a graph block -> axes passthrough.
         info["passthrough"].append(self._stmt_text(stmt))
+
+    # -- text styling (title / axis titles / tick labels) ----------------
+
+    _TEXT_PREFIX = {
+        "xtitle": "x",
+        "ytitle": "y",
+        "y2title": "y2",
+        "xlabels": "x",
+        "ylabels": "y",
+        "y2labels": "y2",
+    }
+
+    def _parse_text_options(self, toks, start):
+        """Peel ``hei H`` / ``color C`` / ``dist D`` off a title/labels line.
+
+        These three options are shared by GLE's ``title``, ``xtitle`` family
+        and ``xlabels`` family, in any order. Returns
+        ``(options, remainder)``: a dict with ``hei``/``color``/``dist``
+        (None where absent) and the tokens that were none of them, which the
+        caller decides what to do with -- there is no "ignore the rest" path.
+        """
+        opts = {"hei": None, "color": None, "dist": None}
+        remainder: List[Token] = []
+        i = start
+        m = len(toks)
+        while i < m:
+            w = toks[i].value.lower()
+            if w in ("hei", "dist") and i + 1 < m:
+                value, nxt = _collect_value(toks, i + 1)
+                if value is not None:
+                    opts[w] = value
+                    i = nxt
+                    continue
+            elif w == "color" and i + 1 < m:
+                color, nxt = _collect_color(toks, i + 1)
+                if color is not None:
+                    opts["color"] = color
+                    i = nxt
+                    continue
+            remainder.append(toks[i])
+            i += 1
+        return opts, remainder
+
+    @staticmethod
+    def _string_index(toks) -> Optional[int]:
+        """Index of the first STRING token, or None."""
+        for i, t in enumerate(toks):
+            if t.type is TokenType.STRING:
+                return i
+        return None
+
+    def _parse_title_line(self, toks, info, stmt) -> None:
+        """``title "T" [hei H] [color C] [dist D]``.
+
+        Anything else on the line (``font roman``, a second string, a token
+        before the text) cannot be represented, and GLE's ``title`` is a
+        single command -- a supplementary line would replace it rather than
+        add to it, the way a second ``xaxis`` line accumulates. So an
+        unrepresentable title keeps its WHOLE original line as raw GLE and
+        leaves ``title_text`` unset, exactly as before this method understood
+        any options at all.
+        """
+        idx = self._string_index(toks)
+        opts, remainder = self._parse_text_options(toks, idx + 1) if idx else ({}, [])
+        if idx != 1 or remainder:
+            info["passthrough"].append(self._stmt_text(stmt))
+            self.warnings.append(
+                "structure: title has unsupported options; kept as raw GLE, "
+                "not editable"
+            )
+            return
+        info["title"] = _string_value(toks[idx])
+        info["title_hei"] = opts["hei"]
+        info["title_color"] = opts["color"]
+        info["title_dist"] = opts["dist"]
+
+    def _parse_axis_title_line(self, kw, toks, info, stmt) -> None:
+        """``xtitle "L" [hei H] [color C] [dist D]`` (and y/y2 twins).
+
+        Same all-or-nothing rule as :meth:`_parse_title_line`: ``adist``,
+        ``font`` and ``y2title``'s ``rotate`` are not modeled, and an axis
+        title is a single command, so such a line is preserved verbatim
+        instead of being re-emitted shorn of its options.
+        """
+        prefix = self._TEXT_PREFIX[kw]
+        idx = self._string_index(toks)
+        opts, remainder = self._parse_text_options(toks, idx + 1) if idx else ({}, [])
+        if idx != 1 or remainder:
+            info["passthrough"].append(self._stmt_text(stmt))
+            self.warnings.append(
+                f"structure: {kw} has unsupported options; kept as raw GLE, "
+                "not editable"
+            )
+            return
+        info[f"{prefix}label"] = _string_value(toks[idx])
+        info[f"{prefix}title_hei"] = opts["hei"]
+        info[f"{prefix}title_color"] = opts["color"]
+        info[f"{prefix}title_dist"] = opts["dist"]
+
+    def _parse_labels_line(self, kw, toks, info, stmt) -> None:
+        """``xlabels [off] [hei H] [color C]`` (and y/y2 twins).
+
+        ``off`` is the writer's tick-label suppression for shared axes.
+        ``on`` is modeled only for y2, where it is what makes any y2
+        tick-label property visible at all (GLE draws no y2 labels without
+        it) -- and only if such a property is actually present, which
+        :meth:`_reconcile_axis_styling` decides once the block has been read.
+        ``dist``/``font``/``log`` are not modeled, so a line carrying them is
+        kept whole as raw GLE.
+        """
+        prefix = self._TEXT_PREFIX[kw]
+        opts, remainder = self._parse_text_options(toks, 1)
+        leftover: List[Token] = []
+        off = False
+        on = False
+        for tok in remainder:
+            word = tok.value.lower()
+            if word == "off" and prefix in ("x", "y"):
+                off = True
+            elif word == "on" and prefix == "y2":
+                on = True
+            else:
+                leftover.append(tok)
+        if leftover or (off and (opts["hei"] is not None or opts["color"] is not None)):
+            # Unmodeled option, or styling on labels that are switched off
+            # (which the writer would drop): keep the line verbatim.
+            info["passthrough"].append(self._stmt_text(stmt))
+            self.warnings.append(
+                f"structure: unrecognized {kw} options; kept as raw GLE, "
+                "not editable"
+            )
+            return
+        if off:
+            info[f"{prefix}labels_off"] = True
+        if on:
+            info["_y2labels_on_raw"] = self._stmt_text(stmt)
+        info[f"{prefix}labels_hei"] = opts["hei"]
+        info[f"{prefix}labels_color"] = opts["color"]
+
+    def _parse_ticks_line(self, kw, toks, info, stmt) -> None:
+        """``xticks``/``xsubticks`` style, parked for later reconciliation.
+
+        On the model these are grid styling, and only meaningful when that
+        axis has a grid (see :class:`gleplot.writer.AxisStyle`). GLE allows
+        the ``xaxis ... grid`` that decides it to appear anywhere in the
+        block, so the line is recorded here and judged by
+        :meth:`_reconcile_axis_styling`; ``length``/``off`` and any other
+        sub-command mean the line is not ours and goes back to passthrough
+        untouched.
+        """
+        prefix = "x" if kw.startswith("x") else "y"
+        key = f"_{prefix}subticks" if "sub" in kw else f"_{prefix}ticks"
+        parsed: Dict[str, Any] = {
+            "raw": self._stmt_text(stmt),
+            "lstyle": None,
+            "lwidth": None,
+            "color": None,
+            "on": False,
+            "ok": True,
+        }
+        i = 1
+        m = len(toks)
+        while i < m:
+            word = toks[i].value.lower()
+            if word in ("lstyle", "lwidth") and i + 1 < m:
+                value, nxt = _collect_value(toks, i + 1)
+                if value is not None:
+                    parsed[word] = value
+                    i = nxt
+                    continue
+            elif word == "color" and i + 1 < m:
+                color, nxt = _collect_color(toks, i + 1)
+                if color is not None:
+                    parsed["color"] = color
+                    i = nxt
+                    continue
+            elif word == "on":
+                parsed["on"] = True
+                i += 1
+                continue
+            parsed["ok"] = False
+            i += 1
+        if info[key] is not None:
+            # A second style line for the same ticks; the model holds one.
+            parsed["ok"] = False
+            info["passthrough"].append(info[key]["raw"])
+            self.warnings.append(
+                f"structure: repeated {kw} line; kept as raw GLE, not editable"
+            )
+        info[key] = parsed
 
     # -- axis line parsing ----------------------------------------------
 
@@ -1275,6 +1561,29 @@ class _Recognizer:
                 continue
             if w == "nolast":
                 info[f"nolast_{prefix}"] = True
+                i += 1
+                continue
+            if (
+                w == "format"
+                and i + 1 < m
+                and toks[i + 1].type is TokenType.STRING
+                and info[f"{prefix}format"] is None
+            ):
+                info[f"{prefix}format"] = _string_value(toks[i + 1])
+                i += 2
+                continue
+            if w == "angle" and i + 1 < m and info[f"{prefix}angle"] is None:
+                value, nxt = _collect_value(toks, i + 1)
+                if value is not None:
+                    info[f"{prefix}angle"] = value
+                    i = nxt
+                    continue
+            if w == "grid" and prefix in ("x", "y"):
+                # y2 has no grid on the model: GLE's grid is the axis' own
+                # ticks stretched across the graph, so 'y2axis grid' would be
+                # the y grid drawn from the other side. Left unrecognized (and
+                # therefore preserved) rather than folded into ygrid.
+                info[f"{prefix}grid"] = True
                 i += 1
                 continue
             # Unrecognized axis sub-token (off/grid/dticks/dsubticks/nticks/
@@ -3568,6 +3877,7 @@ class _Recognizer:
         ax.yplaces = info["yplaces"]
         ax.xnames = info["xnames"]
         ax.ynames = info["ynames"]
+        self._populate_axes_styling(ax, info)
 
         ax.lines = info["lines"]
         ax.scatters = info["scatters"]
@@ -3617,6 +3927,53 @@ class _Recognizer:
                 ax.legend_on = None
             else:
                 ax.legend_on = None
+
+    def _populate_axes_styling(self, ax, info) -> None:
+        """Copy the recognized axes styling onto the model.
+
+        Units are converted back to the model's: GLE's ``hei``/``lwidth`` are
+        cm, the model keeps matplotlib points (``fontsize_cm_to_pt`` /
+        ``linewidth_cm_to_pt``); ``dist`` and angles are already in the
+        model's units (cm and degrees).
+        """
+        ax.title_size = _pt_or_none(info["title_hei"])
+        ax.title_color = info["title_color"]
+        ax.title_dist = info["title_dist"]
+        for prefix in ("x", "y", "y2"):
+            setattr(ax, f"{prefix}format", info[f"{prefix}format"])
+            setattr(ax, f"{prefix}label_size", _pt_or_none(info[f"{prefix}title_hei"]))
+            setattr(ax, f"{prefix}label_color", info[f"{prefix}title_color"])
+            setattr(ax, f"{prefix}label_dist", info[f"{prefix}title_dist"])
+            setattr(
+                ax,
+                f"{prefix}ticklabel_size",
+                _pt_or_none(info[f"{prefix}labels_hei"]),
+            )
+            setattr(ax, f"{prefix}ticklabel_color", info[f"{prefix}labels_color"])
+            setattr(ax, f"{prefix}ticklabel_angle", info[f"{prefix}angle"])
+        for prefix in ("x", "y"):
+            if not info[f"{prefix}grid"]:
+                continue
+            setattr(
+                ax,
+                f"{prefix}grid",
+                "both" if info[f"_{prefix}subticks"] is not None else "major",
+            )
+            ticks = info[f"_{prefix}ticks"]
+            if ticks is None:
+                continue
+            lstyle = ticks["lstyle"]
+            setattr(ax, f"{prefix}grid_lstyle", None if lstyle is None else int(lstyle))
+            setattr(
+                ax,
+                f"{prefix}grid_lwidth",
+                (
+                    None
+                    if ticks["lwidth"] is None
+                    else linewidth_cm_to_pt(ticks["lwidth"])
+                ),
+            )
+            setattr(ax, f"{prefix}grid_color", ticks["color"])
 
     def _labels_present(self, info) -> bool:
         for group in ("lines", "scatters", "bars", "errorbars", "file_series"):

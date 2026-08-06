@@ -14,7 +14,7 @@ import pytest
 import gleplot as glp
 from gleplot import axes as glp_axes
 from gleplot import Figure
-from gleplot.axes import Axes
+from gleplot.axes import _STYLING_KEYS, Axes
 from gleplot.figure import (
     PROJECT_FORMAT,
     PROJECT_VERSION,
@@ -428,6 +428,11 @@ _AXES_SERIALIZED_ATTRS = {
     "_x2axis_off",
     "_y2axis_off",
     "_break_index",
+    # Axes styling (tick-label formats, grids, axis-title / tick-label /
+    # graph-title size-colour-distance-angle). Enumerated by
+    # ``gleplot.axes._STYLING_KEYS``, which is also what to_dict/from_dict
+    # walk -- spliced in here rather than retyped so the two cannot drift.
+    *_STYLING_KEYS,
 }
 
 # Figure attributes that are intentionally NOT part of the serialized
