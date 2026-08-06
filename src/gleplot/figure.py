@@ -526,22 +526,21 @@ class Figure:
     # font -- measured against GLE 4.3.10, an 18 pt figure needs exactly the
     # same margins in ``hei`` units as a 12 pt one.
 
-    #: Decoration margin (in units of ``hei``) for a lone plot's left edge --
+    #: Decoration margin (in units of ``hei``) for the layout's left edge --
     #: a horizontal run of y tick labels plus the rotated y-axis title.
     #: Measured worst cases: 3.11 hei for 4-character tick labels ("-0.5"),
     #: 4.72 hei for 7-character ones ("-0.0001"). The chosen value covers the
-    #: former with slack; the latter needs ``subplots_adjust(left=...)``, the
-    #: same limitation the grid path has always had.
+    #: former with slack; the latter needs ``subplots_adjust(left=...)``.
     _AUTO_MARGIN_LEFT_HEI = 4.0
 
     #: Same, bottom edge (one line of x tick labels + the x-axis title).
     #: Measured worst case 2.43 hei.
     _AUTO_MARGIN_BOTTOM_HEI = 3.0
 
-    #: Same, top edge when the axes carries a title. Measured 1.49 hei.
+    #: Same, top edge when any axes carries a title. Measured 1.49 hei.
     _AUTO_MARGIN_TITLE_HEI = 2.0
 
-    #: Same, right edge when the axes carries a decorated secondary y-axis.
+    #: Same, right edge when any axes carries a decorated secondary y-axis.
     #: Measured 3.28 hei.
     _AUTO_MARGIN_Y2_HEI = 4.0
 
@@ -572,49 +571,43 @@ class Figure:
     def _auto_margins_cm(self, writer, resolution) -> Tuple[float, float, float, float]:
         """``(left, right, bottom, top)`` decoration margins in page cm.
 
-        Three policies, one per layout shape:
+        **One policy, for every layout shape.** These are the margins of the
+        whole grid, so what has to fit in them is the decoration of the
+        *outermost* row and column -- exactly the decoration a lone plot
+        carries, which is why the 1x1 case and the grid case cannot want
+        different numbers. Each margin is therefore sized from the measured
+        decoration overflow in units of ``hei`` (see the class constants
+        above), whatever the grid's dimensions and whether or not its axes
+        are shared.
 
-        * **a lone plot** (the 1x1 case) has no neighbours to trade space
-          with, so every margin is sized from the measured decoration
-          overflow, in units of ``hei`` (see the class constants above);
-        * **a shared-axis grid** and **a plain grid** keep the historical
-          fixed centimetre margins unchanged -- those figures already emitted
-          explicit placement, and G2.2 is about making the *single-plot* path
-          explicit, not about re-flowing every existing grid. (Their margins
-          are measurably tight for a y-axis title plus wide tick labels;
-          re-tuning them is a separate, visible change.)
+        Grids used to keep fixed centimetre margins instead, inherited from
+        before any of this was measured (left 1.0 cm plain / 1.5 cm shared).
+        That is less than the ~1.32 cm a y-axis title plus tick labels like
+        "-0.5" needs at the default 12 pt, so every such grid put ink off the
+        left edge of the page. Sizing them like the lone plot fixes that, at
+        the cost of moving every existing multi-plot figure's frames.
 
-        ``subplots_adjust`` overrides are applied last and win outright, for
-        all three shapes -- so a lone plot now honours ``subplots_adjust``
-        exactly as a grid does.
+        The two conditionals are deliberately figure-wide rather than
+        per-edge: a title anywhere in the grid reserves the top margin (it is
+        the top row that will use it), and a decorated secondary y-axis
+        anywhere reserves the right margin. Both over-reserve for the grid
+        that puts its titled or y2-bearing axes somewhere other than the
+        edge that needs the room -- the same trade the colorbar reservation
+        below makes, and preferable to clipping.
+
+        ``subplots_adjust`` overrides are applied last and win outright.
         """
-        if len(self.axes_list) <= 1:
-            hei = fontsize_pt_to_cm(self.style.fontsize)
-            ax = self.axes_list[0] if self.axes_list else None
-            titled = bool(ax is not None and ax.title_text)
-            has_y2 = bool(ax is not None and self._axes_has_y2(ax))
-            margin_left = self._AUTO_MARGIN_LEFT_HEI * hei
-            margin_bottom = self._AUTO_MARGIN_BOTTOM_HEI * hei
-            margin_top = (
-                self._AUTO_MARGIN_TITLE_HEI if titled else self._AUTO_MARGIN_PLAIN_HEI
-            ) * hei
-            margin_right = (
-                self._AUTO_MARGIN_Y2_HEI if has_y2 else self._AUTO_MARGIN_PLAIN_HEI
-            ) * hei
-        elif self.sharex or self.sharey:
-            # Top margin: more room needed if subplots have titles
-            margin_top = 1.2 if self._has_titles() else 0.5
-            margin_right = 0.5
-            # Bottom needs room for x-axis labels (when showing them)
-            margin_bottom = 1.5 if self.sharex else 1.0
-            # Left always needs room for y-axis labels in multi-subplot layouts
-            margin_left = 1.5
-        else:
-            # Normal margins for non-shared layouts
-            margin_top = 1.5 if self._has_titles() else 1.0
-            margin_bottom = 1.0
-            margin_left = 1.0
-            margin_right = 1.0
+        hei = fontsize_pt_to_cm(self.style.fontsize)
+        titled = self._has_titles()
+        has_y2 = any(self._axes_has_y2(ax) for ax in self.axes_list)
+        margin_left = self._AUTO_MARGIN_LEFT_HEI * hei
+        margin_bottom = self._AUTO_MARGIN_BOTTOM_HEI * hei
+        margin_top = (
+            self._AUTO_MARGIN_TITLE_HEI if titled else self._AUTO_MARGIN_PLAIN_HEI
+        ) * hei
+        margin_right = (
+            self._AUTO_MARGIN_Y2_HEI if has_y2 else self._AUTO_MARGIN_PLAIN_HEI
+        ) * hei
 
         # Convert margin overrides from normalized figure fractions to cm.
         if "left" in self._subplot_adjust:
@@ -692,6 +685,11 @@ class Figure:
         )
 
         # Spacing between subplots; defaults preserve existing behavior.
+        # Unlike the outer margins these are still fixed centimetres, and they
+        # carry the same decoration an outer margin does (an inner column's y
+        # title and tick labels live in the gap to its left). 1.5 cm clears
+        # the measured 3.11 hei at the default 12 pt but not at, say, 18 pt,
+        # where inner panels need ``subplots_adjust(wspace=...)``.
         default_hspace_cm = 0.0 if self.sharey else 1.5
         default_vspace_cm = 0.0 if self.sharex else 2.0
         wspace_frac = self._subplot_adjust.get("wspace")

@@ -338,6 +338,19 @@ class TestGridRatios(unittest.TestCase):
             for x, y in re.findall(r'^amove\s+([0-9.]+)\s+([0-9.]+)$', gle, re.MULTILINE)
         ]
 
+    def assertEmittedAlmostEqual(self, actual, expected):
+        """Compare quantities read back from emitted GLE text.
+
+        The writer emits 6 significant digits (GLEWriter._format_number), so
+        a value recovered from the script -- or a ratio or sum of two of them
+        -- is only good to ~1e-5 relative, however exactly the model's rects
+        divide. Anything tighter tests the margins' decimal expansion rather
+        than the layout.
+        """
+        self.assertAlmostEqual(
+            actual, expected, delta=1e-5 * max(1.0, abs(expected))
+        )
+
     def test_default_omitted_height_ratios_is_byte_identical(self):
         """Omitting height_ratios must reproduce the pre-existing equal-row output."""
         from gleplot import axes as _gleplot_axes
@@ -368,7 +381,7 @@ class TestGridRatios(unittest.TestCase):
         sizes = self._extract_sizes(gle)[1:]  # drop the page 'size' command
         self.assertEqual(len(sizes), 2)
         top_h, bottom_h = sizes[0][1], sizes[1][1]
-        self.assertAlmostEqual(top_h / bottom_h, 3.0, places=6)
+        self.assertEmittedAlmostEqual(top_h / bottom_h, 3.0)
         # Widths are unaffected by height_ratios.
         self.assertAlmostEqual(sizes[0][0], sizes[1][0], places=6)
 
@@ -382,7 +395,7 @@ class TestGridRatios(unittest.TestCase):
         sizes = self._extract_sizes(gle)[1:]
         self.assertEqual(len(sizes), 2)
         left_w, right_w = sizes[0][0], sizes[1][0]
-        self.assertAlmostEqual(right_w / left_w, 3.0, places=6)
+        self.assertEmittedAlmostEqual(right_w / left_w, 3.0)
 
     def test_height_ratios_five_row_stack_with_short_separator(self):
         """3 flush panels + a short separator row + a 4th panel, PRL-shaped."""
@@ -399,8 +412,8 @@ class TestGridRatios(unittest.TestCase):
         # available plotting height (figure height minus margins).
         for a, b in ((0, 1), (1, 2)):
             self.assertAlmostEqual(heights[a], heights[b], places=6)
-        self.assertAlmostEqual(heights[0] / heights[3], 3.0, places=6)
-        self.assertAlmostEqual(heights[4] / heights[3], 4.0, places=6)
+        self.assertEmittedAlmostEqual(heights[0] / heights[3], 3.0)
+        self.assertEmittedAlmostEqual(heights[4] / heights[3], 4.0)
 
         # Panels are flush (sharex -> zero vspace): each row's top edge
         # meets the previous row's bottom edge exactly.
@@ -409,7 +422,7 @@ class TestGridRatios(unittest.TestCase):
         for i in range(4):
             top_of_next = amoves[i + 1][1] + heights[i + 1]
             bottom_of_this = amoves[i][1]
-            self.assertAlmostEqual(top_of_next, bottom_of_this, places=6)
+            self.assertEmittedAlmostEqual(top_of_next, bottom_of_this)
 
     def test_height_ratios_length_mismatch_raises(self):
         fig, axes = glp.subplots(3, 1, height_ratios=[1, 2])
@@ -602,6 +615,100 @@ class TestSecondaryYAxis(unittest.TestCase):
         ax = self.fig.gca()
         self.assertEqual(ax.ylabel_text, 'Primary Y')
         self.assertEqual(ax.y2label_text, 'Secondary Y')
+
+
+class TestDecorationMargins(unittest.TestCase):
+    """One margin policy for every layout shape (Figure._auto_margins_cm).
+
+    The compiled proof that these margins are big enough lives in
+    ``tests/integration/test_ink_on_page.py``, which needs a GLE binary.
+    These assertions are on the model alone, so they run everywhere.
+    """
+
+    def setUp(self):
+        glp.close()
+
+    def tearDown(self):
+        glp.close()
+
+    @staticmethod
+    def _margins(fig):
+        """``(left, right, bottom, top)`` cm for a figure, as the writer sees it."""
+        from gleplot.writer import GLEWriter
+
+        writer = GLEWriter(fig.figsize, fig.dpi, style=fig.style, graph=fig.graph)
+        return fig._auto_margins_cm(writer, None)
+
+    @staticmethod
+    def _build(rows, cols, **kwargs):
+        fig, axes = glp.subplots(rows, cols, figsize=(8, 6), **kwargs)
+        for ax in (axes if isinstance(axes, list) else [axes]):
+            ax.plot([0, 1, 2], [-1.0, -0.5, -1.0], color='blue')
+            ax.set_xlabel('time')
+            ax.set_ylabel('voltage')
+        return fig
+
+    def test_a_grid_gets_the_same_margins_as_a_lone_plot(self):
+        """The grid's outer decoration is the lone plot's decoration."""
+        lone = self._margins(self._build(1, 1))
+        for shape in ((1, 2), (2, 1), (2, 2), (3, 3)):
+            with self.subTest(shape=shape):
+                self.assertEqual(self._margins(self._build(*shape)), lone)
+
+    def test_shared_axes_do_not_get_their_own_margins(self):
+        """Sharing suppresses INNER labels; the outer edges are unchanged."""
+        plain = self._margins(self._build(2, 2))
+        for kwargs in ({'sharex': True}, {'sharey': True},
+                       {'sharex': True, 'sharey': True}):
+            with self.subTest(**kwargs):
+                self.assertEqual(self._margins(self._build(2, 2, **kwargs)), plain)
+
+    def test_grid_margins_scale_with_the_font_size(self):
+        """A fixed-cm margin that fits at 12 pt clips at 18 pt; these do not."""
+        small = self._margins(
+            self._build(2, 2, style=glp.GLEStyleConfig(fontsize=9))
+        )
+        large = self._margins(
+            self._build(2, 2, style=glp.GLEStyleConfig(fontsize=18))
+        )
+        for a, b in zip(small, large):
+            self.assertAlmostEqual(b / a, 2.0, places=6)
+
+    def test_grid_left_margin_covers_a_y_title_plus_wide_tick_labels(self):
+        """The measured requirement the old fixed 1.0 cm / 1.5 cm missed.
+
+        A rotated y-axis title plus 4-character tick labels ("-0.5") occupy
+        3.11 hei, measured against GLE 4.3.10 -- 1.32 cm at the default
+        12 pt, which the old grid margins were below.
+        """
+        from gleplot.parser.units import fontsize_pt_to_cm
+
+        fig = self._build(2, 2)
+        left = self._margins(fig)[0]
+        self.assertGreaterEqual(left, 3.11 * fontsize_pt_to_cm(fig.style.fontsize))
+        self.assertGreater(left, 1.32)
+
+    def test_a_titled_grid_reserves_more_top_margin(self):
+        titled = self._build(2, 2)
+        titled.axes_list[0].set_title('panel')
+        self.assertGreater(self._margins(titled)[3], self._margins(self._build(2, 2))[3])
+
+    def test_a_grid_with_a_secondary_y_axis_reserves_more_right_margin(self):
+        with_y2 = self._build(1, 2)
+        with_y2.axes_list[-1].set_ylabel('current', axis='y2')
+        self.assertGreater(
+            self._margins(with_y2)[1], self._margins(self._build(1, 2))[1]
+        )
+
+    def test_subplots_adjust_still_overrides_the_computed_margins(self):
+        fig = self._build(2, 2)
+        fig.subplots_adjust(left=0.25, right=0.9, bottom=0.2, top=0.8)
+        left, right, bottom, top = self._margins(fig)
+        width_cm, height_cm = 8 * 2.54, 6 * 2.54
+        self.assertAlmostEqual(left, 0.25 * width_cm, places=6)
+        self.assertAlmostEqual(right, 0.1 * width_cm, places=6)
+        self.assertAlmostEqual(bottom, 0.2 * height_cm, places=6)
+        self.assertAlmostEqual(top, 0.2 * height_cm, places=6)
 
 
 if __name__ == '__main__':
