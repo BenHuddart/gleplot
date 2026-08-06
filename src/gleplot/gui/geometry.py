@@ -1,5 +1,11 @@
 """Preview geometry abstraction for the gleplot GUI (Track E1).
 
+Calibration **v1**. :mod:`gleplot.calibration` is the v2 superset (secondary
+axis ranges, a label-inclusive bounding-box record, text metrics, a CTM guard),
+written for GLEstudio and deliberately kept separate: it speaks a different
+wire format (``glestudio-cal``, 13 fields) to a different consumer, so this
+module and ``gui/preview.py`` are unchanged by it. New code should use v2.
+
 This module is the pure-logic core that maps between three coordinate spaces so
 draggable annotations can live in *data* coordinates while being drawn on a
 raster preview:
