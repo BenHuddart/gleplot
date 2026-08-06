@@ -243,7 +243,16 @@ def test_untouched_figure_to_dict_matches_explicit_default_style():
     )
     fig_explicit.add_subplot(111).plot([1, 2, 3], [1, 4, 9])
 
-    assert fig_default.to_dict() == fig_explicit.to_dict()
+    d_default = fig_default.to_dict()
+    d_explicit = fig_explicit.to_dict()
+    # axes_id (G5) is a fresh uuid4 per Axes instance by design -- two
+    # independently constructed figures never share one, and are not meant
+    # to; strip it from both sides before the field-for-field comparison.
+    for d in (d_default, d_explicit):
+        for ax in d["figure"]["axes"]:
+            ax.pop("axes_id", None)
+
+    assert d_default == d_explicit
 
 
 def test_untouched_figure_gle_text_matches_explicit_default_style(tmp_path):

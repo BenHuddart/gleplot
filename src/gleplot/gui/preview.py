@@ -89,7 +89,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Optional, Protocol, Sequence
 
 from PySide6.QtCore import (
     QObject,
@@ -428,8 +428,11 @@ class PreviewController(QObject):
         # overlay via the ``geometry_ready`` signal.
         self.last_geometry: Optional[PreviewGeometry] = None
         # Per-render calibration inputs captured at launch (from the snapshot,
-        # not the live figure): the page size in cm and the per-axes log flags,
-        # both needed to build a PreviewGeometry when the process finishes.
+        # not the live figure): the page size in cm and, per axes in
+        # axes_list order, its stable ``axes_id`` plus log flags -- all
+        # needed to build a PreviewGeometry when the process finishes. Keyed
+        # by id (G5) rather than position so calibrations can be matched back
+        # even if the axes were reordered between launch and consumption.
         self._cal_page_size_cm: Optional[tuple] = None
         self._cal_axes_meta: list = []
         # The format ('svg'/'png') the *currently running* (or just-finished)
@@ -654,6 +657,7 @@ class PreviewController(QObject):
             )
             self._cal_axes_meta = [
                 (
+                    getattr(ax, "axes_id", None),
                     getattr(ax, "xscale", "linear") == "log",
                     getattr(ax, "yscale", "linear") == "log",
                 )
@@ -740,8 +744,10 @@ class PreviewController(QObject):
         # Post-process the preview-only copy to inject one calibration ``print``
         # per graph block so GLE emits its axis ranges + box corners at compile
         # time. This touches only the temp script -- writer.py is untouched and
-        # user saves never see these lines.
-        self._inject_calibration(script_path)
+        # user saves never see these lines. Keyed by each axes' stable
+        # ``axes_id`` (G5), in axes_list order, so the parse side matches
+        # records back to axes by identity rather than by position.
+        self._inject_calibration(script_path, [ax.axes_id for ax in work_fig.axes_list])
         if fmt == "svg":
             # GLE's Cairo SVG backend rejects PostScript fonts (see module
             # docstring "SVG rendering and fallback"). gleplot emits no
@@ -769,7 +775,7 @@ class PreviewController(QObject):
         inject_svg_safe_font(script_path, safe_font=_SVG_SAFE_FONT)
 
     @staticmethod
-    def _inject_calibration(script_path: Path) -> None:
+    def _inject_calibration(script_path: Path, axes_ids: Sequence[str]) -> None:
         """Insert a ``gleplot-cal`` ``print`` after each graph block.
 
         Uses :func:`gleplot.parser.syntax.parse_gle_source` to locate every
@@ -779,13 +785,19 @@ class PreviewController(QObject):
         we anchor on the ``end`` statement's own line), the exact empirically
         proven print form::
 
-            print "gleplot-cal {i} " xgmin " " xgmax " " ygmin " " ygmax " "
+            print "gleplot-cal {axes_id} " xgmin " " xgmax " " ygmin " " ygmax " "
                   xg(xgmin) " " yg(ygmin) " " xg(xgmax) " " yg(ygmax)
 
         ``xgmin``/``xg()``/``yg()`` in GLE refer to the most recent graph block,
-        so anchoring right after each block's ``end`` is correct. ``{i}`` is the
-        block order, which matches ``axes_list`` order (figure.py emits one
-        graph block per axes in list order).
+        so anchoring right after each block's ``end`` is correct. ``{axes_id}``
+        (G5: gleplot's stable per-axes identity, see ``Axes.axes_id``) replaces
+        the old positional block index so a calibration record identifies its
+        axes even if the axes are later reordered -- ``axes_ids`` is the
+        caller's ``[ax.axes_id for ax in work_fig.axes_list]``, in the same
+        block order the writer emits graph blocks in (one per axes, in
+        ``axes_list`` order), so ``axes_ids[i]`` is block ``i``'s id. A
+        mismatched (too-short) ``axes_ids`` falls back to the block's plain
+        index for that block only, so a bug here degrades rather than crashes.
 
         Insertions are done bottom-up (highest line number first) so earlier
         line numbers stay valid as we splice.
@@ -810,8 +822,9 @@ class PreviewController(QObject):
         # ``line_no - 1`` and we insert immediately after it.
         for line_no in sorted(anchors, reverse=True):
             i = anchors[line_no]
+            axes_id = axes_ids[i] if i < len(axes_ids) else str(i)
             print_line = (
-                f'print "gleplot-cal {i} " xgmin " " xgmax " " ygmin " " '
+                f'print "gleplot-cal {axes_id} " xgmin " " xgmax " " ygmin " " '
                 f'ygmax " " xg(xgmin) " " yg(ygmin) " " xg(xgmax) " " yg(ygmax)'
             )
             raw_lines.insert(line_no, print_line)

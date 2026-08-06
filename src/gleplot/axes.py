@@ -2,6 +2,7 @@
 
 import numpy as np
 import re
+import uuid
 import warnings
 from typing import Any, Optional, List, Sequence, Union, Tuple, Dict
 from .colors import rgb_to_gle
@@ -564,6 +565,20 @@ class Axes:
         """
         self.figure = figure
         self.position = position
+
+        #: Stable opaque identity for this axes (GLEstudio SPEC 6.2/10.5):
+        #: a uuid4 hex string assigned once at construction and never
+        #: recomputed from position/content, so it survives ``to_dict``/
+        #: ``from_dict`` round-trips and axes reordering. Deliberately NOT
+        #: emitted into GLE output (writer.py never reads this attribute) --
+        #: it lives only in the dict/project layer, where GLEstudio keys its
+        #: calibration records and last-good-calibration store by it instead
+        #: of by positional index (see gui/preview.py's calibration
+        #: injection and gui/geometry.py's AxesCalibration). A parsed .gle
+        #: file has no id to recover, so the recognizer's freshly
+        #: constructed Axes objects simply get a new one here, same as any
+        #: other new Axes.
+        self.axes_id: str = uuid.uuid4().hex
 
         # Axis properties
         self.xlabel_text = ""
@@ -2862,6 +2877,10 @@ class Axes:
         of the module-global data-file counter state.
         """
         payload: Dict[str, Any] = {
+            # Stable opaque identity (see __init__); a legacy dict saved
+            # before this field existed simply has no key here, and
+            # from_dict tolerates that by minting a fresh id on load.
+            "axes_id": self.axes_id,
             "position": list(self.position) if self.position is not None else None,
             "xlabel_text": self.xlabel_text,
             "ylabel_text": self.ylabel_text,
@@ -2948,6 +2967,15 @@ class Axes:
         if position is not None:
             position = tuple(position)
         ax = cls(figure, position)
+
+        # Stable opaque identity (see __init__). ``cls(figure, position)``
+        # already minted a fresh id; keep that fresh id unless the payload
+        # carries a real one to restore -- this is the tolerant path for a
+        # legacy dict saved before axes_id existed (missing key) or any
+        # payload with a malformed/empty value.
+        _axes_id = d.get("axes_id")
+        if isinstance(_axes_id, str) and _axes_id:
+            ax.axes_id = _axes_id
 
         ax.xlabel_text = d.get("xlabel_text", "")
         ax.ylabel_text = d.get("ylabel_text", "")

@@ -186,6 +186,104 @@ def test_errorbar_none_arrays_stay_none():
     assert isinstance(eb["yerr_up"], np.ndarray)
 
 
+# -- Stable axes identifiers (G5, GLEstudio SPEC 6.2/10.5) ------------------
+
+
+def test_axes_id_assigned_at_construction():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    assert isinstance(ax.axes_id, str)
+    assert ax.axes_id  # non-empty
+
+
+def test_axes_id_unique_across_axes():
+    fig = glp.figure()
+    ax1 = fig.add_subplot(2, 1, 1)
+    ax2 = fig.add_subplot(2, 1, 2)
+    assert ax1.axes_id != ax2.axes_id
+
+
+def test_axes_id_survives_to_dict_from_dict_round_trip():
+    fig = _simple_figure()
+    original_id = fig.axes_list[0].axes_id
+    fig2 = Figure.from_dict(fig.to_dict())
+    assert fig2.axes_list[0].axes_id == original_id
+
+
+def test_axes_id_stable_across_repeated_round_trips():
+    fig = _simple_figure()
+    d1 = fig.to_dict()
+    fig2 = Figure.from_dict(d1)
+    d2 = fig2.to_dict()
+    fig3 = Figure.from_dict(d2)
+    assert fig3.axes_list[0].axes_id == fig.axes_list[0].axes_id
+    assert d1["figure"]["axes"][0]["axes_id"] == d2["figure"]["axes"][0]["axes_id"]
+
+
+def test_axes_id_preserved_across_reorder():
+    """The id follows the Axes object, not its position in axes_list."""
+    fig = glp.figure(data_prefix="u")
+    ax_a = fig.add_subplot(2, 1, 1)
+    ax_a.plot([1, 2], [1, 2])
+    ax_b = fig.add_subplot(2, 1, 2)
+    ax_b.plot([3, 4], [3, 4])
+    id_a, id_b = ax_a.axes_id, ax_b.axes_id
+
+    d = fig.to_dict()
+    # Simulate a reorder (e.g. a GLEstudio structure-tree drag): swap the two
+    # serialized axes payloads before reconstructing.
+    d["figure"]["axes"] = list(reversed(d["figure"]["axes"]))
+    fig2 = Figure.from_dict(d)
+
+    assert fig2.axes_list[0].axes_id == id_b
+    assert fig2.axes_list[1].axes_id == id_a
+
+
+def test_legacy_dict_without_axes_id_gets_fresh_id_on_load():
+    fig = _simple_figure()
+    d = fig.to_dict()
+    del d["figure"]["axes"][0]["axes_id"]  # simulate a pre-G5 saved project
+    fig2 = Figure.from_dict(d)
+    assert isinstance(fig2.axes_list[0].axes_id, str)
+    assert fig2.axes_list[0].axes_id  # non-empty
+    # A round-trip of the migrated project is now stable.
+    fresh_id = fig2.axes_list[0].axes_id
+    fig3 = Figure.from_dict(fig2.to_dict())
+    assert fig3.axes_list[0].axes_id == fresh_id
+
+
+def test_dict_with_empty_or_malformed_axes_id_gets_fresh_id_on_load():
+    fig = _simple_figure()
+    for bad_value in ("", None, 123, [1, 2]):
+        d = fig.to_dict()
+        d["figure"]["axes"][0]["axes_id"] = bad_value
+        fig2 = Figure.from_dict(d)
+        assert isinstance(fig2.axes_list[0].axes_id, str)
+        assert fig2.axes_list[0].axes_id
+
+
+def test_axes_id_not_emitted_into_gle_output():
+    fig = _simple_figure()
+    text, _files = fig._generate_gle_with_files()
+    assert fig.axes_list[0].axes_id not in text
+
+
+def test_recognized_axes_get_fresh_ids_not_shared_with_source():
+    from gleplot.parser.recognizer import parse_gle_figure
+    import tempfile
+    from pathlib import Path
+
+    fig = _simple_figure()
+    original_id = fig.axes_list[0].axes_id
+    with tempfile.TemporaryDirectory() as tmp:
+        gle_path = Path(tmp) / "figure.gle"
+        fig.savefig_gle(str(gle_path))
+        recognized = parse_gle_figure(gle_path)
+    new_id = recognized.figure.axes_list[0].axes_id
+    assert isinstance(new_id, str) and new_id
+    assert new_id != original_id
+
+
 # -- Envelope validation ----------------------------------------------------
 
 
@@ -372,6 +470,7 @@ _AXES_RUNTIME_ONLY_ATTRS = {
 # keys that cover them (some are stored under a different dict key name,
 # e.g. the leading-underscore visibility/tick-removal flags).
 _AXES_SERIALIZED_ATTRS = {
+    "axes_id",
     "position",
     "xlabel_text",
     "ylabel_text",

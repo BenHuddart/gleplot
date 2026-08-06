@@ -160,6 +160,12 @@ def normalize(d: dict) -> dict:
     }
 
     for ax in fig["axes"]:
+        # Stable axes identity (G5): a .gle file carries no id, so the
+        # recognizer always mints a fresh uuid4 per axes -- by design (SPEC
+        # 6.2/10.5: "a parsed .gle has no ids -- fresh ones"). Never equal to
+        # the original figure's id, so drop it from both sides.
+        ax.pop("axes_id", None)
+
         # legend tri-state normalization: explicit True with labels -> None.
         labels = any(
             s.get("label")

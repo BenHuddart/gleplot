@@ -69,10 +69,11 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple, Union
 
 __all__ = [
     "AxesCalibration",
+    "AxesMetaEntry",
     "PreviewGeometry",
     "parse_calibration_lines",
     "CM_PER_INCH",
@@ -120,8 +121,10 @@ class AxesCalibration:
     Attributes
     ----------
     index:
-        Position of this axes in the figure's ``axes_list`` (== graph-block
-        order == the ``<idx>`` printed in the ``gleplot-cal`` line).
+        Position of this axes in the figure's ``axes_list`` at *parse time*
+        (== graph-block order). Kept for existing consumers that index
+        ``axes_list`` directly (e.g. the annotation overlay); see
+        ``axes_id`` for the identity that survives reordering.
     x_range, y_range:
         ``(min, max)`` data-coordinate ranges of the axes, as reported by GLE
         (``xgmin``/``xgmax`` and ``ygmin``/``ygmax``).
@@ -134,6 +137,15 @@ class AxesCalibration:
         corner at ``(x_range[1], y_range[1])``. In GLE page cm the origin is the
         bottom-left of the page and y increases upward, so typically
         ``y0 < y1``.
+    axes_id:
+        The producing axes' stable ``Axes.axes_id`` (GLEstudio SPEC 6.2/10.5),
+        when known -- the ``<key>`` printed in the ``gleplot-cal`` line, once
+        that key resolved to a real id rather than a legacy positional index
+        (see :func:`parse_calibration_lines`). ``None`` when the caller never
+        supplied ids (a pre-G5 caller, or a test building a calibration
+        directly) or when the record's key could not be resolved to one.
+        Optional and defaulted so existing positional-argument construction
+        of this dataclass is unaffected.
     """
 
     index: int
@@ -142,6 +154,7 @@ class AxesCalibration:
     x_log: bool
     y_log: bool
     cm_rect: Tuple[float, float, float, float]
+    axes_id: Optional[str] = None
 
     # -- data -> cm ---------------------------------------------------------
     def data_to_cm(self, x: float, y: float) -> Tuple[float, float]:
@@ -321,20 +334,40 @@ class PreviewGeometry:
 # Parsing GLE calibration output
 # ------------------------------------------------------------------------- #
 
-#: Matches one ``gleplot-cal <idx> <9 numbers>`` record, whitespace-tolerant.
+#: Matches one ``gleplot-cal <key> <9 numbers>`` record, whitespace-tolerant.
 #: GLE inserts variable spacing between fields, so we split on whitespace rather
 #: than fixed columns. The leading token is matched loosely so the record can be
 #: embedded in a longer stderr line.
 _CAL_RE = re.compile(r"gleplot-cal\b(.*)")
 
-_NUM_RE = re.compile(
-    r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"
-)
+#: A single axes' calibration metadata as supplied by the caller, in
+#: ``axes_list`` order. Either the legacy 2-tuple ``(x_log, y_log)`` (no id --
+#: pre-G5 callers, and most of this module's own unit tests, which exercise
+#: the numeric math and don't care about identity) or the 3-tuple
+#: ``(axes_id, x_log, y_log)`` produced by :mod:`gleplot.gui.preview` since
+#: G5. Both shapes are accepted by :func:`parse_calibration_lines` -- see its
+#: docstring for how the leading record key is resolved against each.
+AxesMetaEntry = Union[Tuple[bool, bool], Tuple[Optional[str], bool, bool]]
+
+
+def _normalize_axes_meta(
+    axes_meta: Sequence[AxesMetaEntry],
+) -> List[Tuple[Optional[str], bool, bool]]:
+    """Normalize either meta shape to ``(axes_id_or_None, x_log, y_log)``."""
+    normalized: List[Tuple[Optional[str], bool, bool]] = []
+    for entry in axes_meta:
+        if len(entry) == 2:
+            x_log, y_log = entry
+            normalized.append((None, bool(x_log), bool(y_log)))
+        else:
+            axes_id, x_log, y_log = entry
+            normalized.append((axes_id or None, bool(x_log), bool(y_log)))
+    return normalized
 
 
 def parse_calibration_lines(
     text: str,
-    axes_meta: Sequence[Tuple[bool, bool]],
+    axes_meta: Sequence[AxesMetaEntry],
 ) -> Tuple[List[AxesCalibration], List[str]]:
     """Scan GLE output for ``gleplot-cal`` records into calibrations.
 
@@ -345,10 +378,32 @@ def parse_calibration_lines(
         appear on either stream (they are on stderr for GLE 4.3.3) and carry
         GLE-inserted variable whitespace between fields.
     axes_meta:
-        Per-axes ``(x_log, y_log)`` flags in ``axes_list`` order, taken from the
-        model snapshot. Used to tag each calibration with its log flags (GLE's
-        printed ranges do not encode which axis is logarithmic). The record's
-        ``<idx>`` indexes into this sequence.
+        Per-axes metadata in ``axes_list`` order, taken from the model
+        snapshot: either the legacy ``(x_log, y_log)`` 2-tuple, or (since G5)
+        the ``(axes_id, x_log, y_log)`` 3-tuple carrying each axes' stable
+        identity. Used both to tag each calibration with its log flags (GLE's
+        printed ranges do not encode which axis is logarithmic) and, when ids
+        are present, to resolve the record's key by identity rather than by
+        position -- see "Key resolution" below.
+
+    Key resolution
+    --------------
+    Each record's leading key (``gleplot-cal <key> ...``) is resolved against
+    ``axes_meta`` in this order:
+
+    1. If it exactly matches one of the ids in ``axes_meta``, the record maps
+       to *that axes' current position* -- this is what makes calibrations
+       survive axes reordering (GLEstudio SPEC 6.2/10.5): the id is the same
+       regardless of where the axes now sits in ``axes_list``.
+    2. Otherwise, if it parses as an integer, it is tolerated as a **legacy
+       positional index** and mapped directly to that position. This is the
+       pre-G5 wire format, and remains how a plain 2-tuple ``axes_meta`` (no
+       ids at all) is always resolved -- silently, exactly as before G5, since
+       there is no id to have preferred instead. A warning is added only when
+       ``axes_meta`` *does* carry ids for other axes but this particular key
+       still came in as a bare position (a genuine legacy/mixed-version
+       signal worth surfacing).
+    3. Otherwise the record is unresolvable and is skipped with a warning.
 
     Returns
     -------
@@ -358,72 +413,108 @@ def parse_calibration_lines(
         human-readable strings describing skipped/malformed records; parsing is
         tolerant and never raises.
     """
+    normalized = _normalize_axes_meta(axes_meta)
+    ids_known = any(axes_id is not None for axes_id, _, _ in normalized)
+    id_to_position = {
+        axes_id: i for i, (axes_id, _, _) in enumerate(normalized) if axes_id
+    }
+
     calibrations: List[AxesCalibration] = []
     warnings: List[str] = []
-    seen_indices = set()
+    seen_positions = set()
 
     for raw_line in text.splitlines():
         m = _CAL_RE.search(raw_line)
         if m is None:
             continue
         tail = m.group(1)
-        nums = _NUM_RE.findall(tail)
-        # Expected fields: idx + 4 data-range values (xgmin xgmax ygmin ygmax)
+        # Split on whitespace rather than scanning for numeric substrings: an
+        # axes_id is an opaque uuid4 hex token (may contain digit runs), which
+        # a blind "find all numbers" scan over the raw tail would misparse as
+        # extra numeric fields.
+        tokens = tail.split()
+        # Expected fields: key + 4 data-range values (xgmin xgmax ygmin ygmax)
         # + 4 cm-corner values (xg(xgmin) yg(ygmin) xg(xgmax) yg(ygmax)) = 9.
-        if len(nums) < 9:
+        if len(tokens) < 9:
             warnings.append(
                 f"malformed gleplot-cal record (expected 9 fields, got "
-                f"{len(nums)}): {raw_line.strip()!r}"
+                f"{len(tokens)}): {raw_line.strip()!r}"
             )
             continue
+        key_token = tokens[0]
         try:
-            idx = int(float(nums[0]))
-            xgmin, xgmax, ygmin, ygmax = (float(nums[i]) for i in range(1, 5))
-            cx0, cy0, cx1, cy1 = (float(nums[i]) for i in range(5, 9))
+            xgmin, xgmax, ygmin, ygmax = (float(tokens[i]) for i in range(1, 5))
+            cx0, cy0, cx1, cy1 = (float(tokens[i]) for i in range(5, 9))
         except (ValueError, IndexError):
             warnings.append(
                 f"unparseable gleplot-cal record: {raw_line.strip()!r}"
             )
             continue
 
-        if idx in seen_indices:
-            warnings.append(f"duplicate gleplot-cal index {idx}; keeping first")
+        axes_id: Optional[str] = None
+        pos = id_to_position.get(key_token)
+        if pos is not None:
+            axes_id = key_token
+        else:
+            # Not a known id -- tolerate the legacy positional-index format.
+            try:
+                pos = int(float(key_token))
+            except ValueError:
+                warnings.append(
+                    f"unrecognized gleplot-cal key {key_token!r} (not a "
+                    "known axes id and not a positional index); skipped"
+                )
+                continue
+            if ids_known:
+                # axes_meta carries real ids for (at least some) axes, so a
+                # bare positional key here is a genuine legacy/mixed-version
+                # record, not just the normal pre-G5 wire format.
+                warnings.append(
+                    f"gleplot-cal record used a legacy positional index "
+                    f"({pos}) instead of an axes id; mapped by position"
+                )
+            if 0 <= pos < len(normalized):
+                axes_id = normalized[pos][0]
+
+        if pos in seen_positions:
+            warnings.append(f"duplicate gleplot-cal index {pos}; keeping first")
             continue
 
-        if idx < 0 or idx >= len(axes_meta):
+        if pos < 0 or pos >= len(normalized):
             warnings.append(
-                f"gleplot-cal index {idx} out of range for {len(axes_meta)} "
+                f"gleplot-cal index {pos} out of range for {len(normalized)} "
                 f"axes; skipped"
             )
             continue
 
-        x_log, y_log = axes_meta[idx]
+        _, x_log, y_log = normalized[pos]
         cal = AxesCalibration(
-            index=idx,
+            index=pos,
             x_range=(xgmin, xgmax),
             y_range=(ygmin, ygmax),
-            x_log=bool(x_log),
-            y_log=bool(y_log),
+            x_log=x_log,
+            y_log=y_log,
             cm_rect=(cx0, cy0, cx1, cy1),
+            axes_id=axes_id,
         )
         reason = cal.invalid_reason()
         if reason is not None:
-            # Mark the index seen so it is not also flagged "missing" below, but
-            # skip it: an invalid calibration would emit corrupted coordinates.
-            # The overlay simply has no items for this axes.
-            seen_indices.add(idx)
+            # Mark the position seen so it is not also flagged "missing" below,
+            # but skip it: an invalid calibration would emit corrupted
+            # coordinates. The overlay simply has no items for this axes.
+            seen_positions.add(pos)
             warnings.append(
-                f"gleplot-cal index {idx} skipped ({reason}): {raw_line.strip()!r}"
+                f"gleplot-cal index {pos} skipped ({reason}): {raw_line.strip()!r}"
             )
             continue
-        seen_indices.add(idx)
+        seen_positions.add(pos)
         calibrations.append(cal)
 
     calibrations.sort(key=lambda c: c.index)
 
     # Warn about any axes we expected a calibration for but never saw.
-    for i in range(len(axes_meta)):
-        if i not in seen_indices:
+    for i in range(len(normalized)):
+        if i not in seen_positions:
             warnings.append(f"missing gleplot-cal record for axes index {i}")
 
     return calibrations, warnings
