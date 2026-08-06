@@ -256,6 +256,26 @@ class GlobalConfig(metaclass=GlobalConfigMeta):
 
     >>> # Or reset to defaults
     >>> GlobalConfig.reset()
+
+    Notes
+    -----
+    **Copy-at-construction, not shared-by-reference.** ``GlobalConfig.style``
+    (and ``.graph``, ``.marker``) really is one shared, mutable instance --
+    editing it here, before any figure exists, is exactly how you change the
+    default for every figure created afterwards. But :class:`gleplot.figure.Figure`
+    and :class:`gleplot.writer.GLEWriter` each take an independent COPY of
+    the current value at construction time (when their own ``style``/
+    ``graph``/``marker`` argument is omitted), not a reference to this
+    singleton. So:
+
+    - ``GlobalConfig.style.font = 'x'`` then ``fig = Figure()`` -- ``fig``
+      gets ``'x'`` (the default was read at construction time).
+    - ``fig = Figure()`` then ``fig.style.font = 'x'`` -- only ``fig``
+      changes; ``GlobalConfig.style.font`` and every other figure are
+      unaffected. Before this was fixed, this in-place edit silently
+      mutated ``GlobalConfig.style`` itself (since ``fig.style`` and
+      ``GlobalConfig.style`` were the same object), leaking into every
+      figure created afterwards in the process.
     """
 
     _instance = None
