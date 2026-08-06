@@ -25,6 +25,7 @@ Two entry points:
 - `config.py` — `GLEStyleConfig`, `GLEGraphConfig`, `GLEMarkerConfig`, `GlobalConfig`.
 - `colors.py`, `markers.py` — matplotlib→GLE color/marker mappings.
 - `dataio.py` — pure-Python delimited data-file loading (`load_data_file`, `DataTable`); no Qt dependency, shared by parser and GUI.
+- `calibration.py` — **calibration record v2** (GLEstudio SPEC §6.2/§6.3): instruments a *preview copy* of a script (`instrument_script` wraps each graph block in `begin name` and prints `glestudio-cal`/`glestudio-box` records; `inject_text_metrics` adds `glestudio-tw` metrics), parses GLE's stderr back into typed records with surfaced warnings (`parse_calibration_records`), derives the x/y/x2/y2 affine maps, and flags CTM-modifying statements that would silently corrupt geometry (`find_ctm_hazards`). Qt-free and writer-free — instrumentation is a post-generation splice over `parser.syntax`, so the byte-identical fixed point is untouched. The GUI's own overlay still uses the older, narrower `gui/geometry.py` (v1); see that module's docstring.
 
 ### Parser subpackage (`src/gleplot/parser/`)
 
