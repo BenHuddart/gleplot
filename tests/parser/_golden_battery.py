@@ -114,7 +114,11 @@ def secondary_yaxis():
     ax.plot([1, 2, 3], [100, 200, 300], color="red", label="right", yaxis="y2")
     ax.set_ylabel("left y")
     ax.set_ylabel("right y", axis="y2")
-    ax.set_ylim(0, 400, axis="y2")
+    # A log axis needs a strictly positive range, or GLE will not compile the
+    # script this builder is here to produce. (It asked for 0..400 until
+    # 2026-08-06; nothing noticed, because the batteries round-trip their GLE
+    # rather than compiling it. See tests/unit/test_log_limits.py.)
+    ax.set_ylim(50, 400, axis="y2")
     ax.set_yscale("log", axis="y2")
     ax.legend()
     return fig
