@@ -414,6 +414,46 @@ def resolve_figure(
     return resolution
 
 
+# -- preview-only deresolve decimation (G7; SPEC 6.1/10.7) --------------------
+
+
+@dataclass(frozen=True)
+class DecimationRecord:
+    """One series whose emitted ``dN`` line got a preview-only ``deresolve``.
+
+    Returned via :attr:`GLEWriter.decimation_report` so a caller (GLEstudio's
+    render controller) can badge "preview decimated x N" on exactly the
+    series that changed, and drive hit-testing off the same decimated point
+    set (SPEC 7.1/§10.7 -- decimated-set parity is the *caller's*
+    responsibility; this only reports what happened).
+
+    Deliberately keyed by the GLE dataset name rather than an
+    ``(axes_index, series_attr, series_index)`` triple like
+    :class:`~gleplot.sources.DanglingSourceRef`: the dataset name is already
+    the join key a caller needs, since it is what appears in the generated
+    script it is about to compile (and, for hit-testing parity, the same
+    script it parses for calibration). Threading full series identity through
+    every ``add_plot_line``/``add_errorbar`` call site was judged not worth
+    the extra surface for this first cut; add it if a consumer needs it.
+
+    Attributes
+    ----------
+    dataset : str
+        The GLE dataset name the clause was appended to (e.g. ``'d3'``).
+    label : str or None
+        The series' legend label, when it has one.
+    factor : int
+        The ``deresolve`` factor applied (always > 1).
+    original_points : int
+        Row count of the series before decimation.
+    """
+
+    dataset: str
+    label: Optional[str]
+    factor: int
+    original_points: int
+
+
 class GLEWriter:
     """Writer for GLE script files.
 
@@ -433,7 +473,25 @@ class GLEWriter:
     marker : GLEMarkerConfig, optional
         Marker configuration. If None, a COPY of ``GlobalConfig.marker`` is
         taken at construction time (same note).
+    preview_decimation : int, optional
+        Preview-only ``deresolve`` factor (SPEC 6.1/10.7), or ``None`` (the
+        default) for today's byte-identical emission. See
+        :meth:`_deresolve_clause` for the eligibility rule and
+        :attr:`decimation_report` for what a caller gets back. Generation-time
+        only -- never read from or written to the figure, so ``to_dict``/
+        ``from_dict`` and the saved ``.gle`` are untouched (snapshot
+        discipline: a preview copy may decimate, the document never does).
     """
+
+    #: A series needs at least this many rows before ``preview_decimation``
+    #: touches it. Below this, GLE's own per-point draw cost is a few ms --
+    #: not worth measuring -- so decimating would only reshape a small
+    #: series's line/markers for zero compile-time benefit, and would change
+    #: emitted bytes on figures nobody asked to speed up. Chosen well under
+    #: the SPEC-cited "~10x speedup at 200k points" measurement, since a
+    #: series in the low thousands already costs enough to be worth thinning
+    #: in a debounced live preview.
+    MIN_DERESOLVE_POINTS = 1000
 
     def __init__(
         self,
@@ -442,6 +500,7 @@ class GLEWriter:
         style: Optional[GLEStyleConfig] = None,
         graph: Optional[GLEGraphConfig] = None,
         marker: Optional[GLEMarkerConfig] = None,
+        preview_decimation: Optional[int] = None,
     ):
         """Initialize GLE writer with optional configuration objects."""
         self.figsize = figsize
@@ -495,6 +554,80 @@ class GLEWriter:
         )
         self._text_state_color: str = "BLACK"
         self._text_state_just: str = "left"
+
+        # Preview-only deresolve decimation (G7; SPEC 6.1/10.7). Per-call,
+        # never persisted: see the class docstring and _deresolve_clause.
+        self._preview_decimation = preview_decimation
+        #: Every series this write actually appended a ``deresolve`` clause
+        #: to. Empty whenever ``preview_decimation`` is None/<=1, or when no
+        #: eligible series met :attr:`MIN_DERESOLVE_POINTS` -- including the
+        #: default (no-argument) call, so the default path's report is always
+        #: ``[]`` alongside its byte-identical script.
+        self.decimation_report: List[DecimationRecord] = []
+
+    def _deresolve_clause(
+        self, dataset_name: str, label: Optional[str], n_points: int
+    ) -> str:
+        """A trailing `` deresolve N`` clause for a ``dN`` line, or ``""``.
+
+        Applies only to series kinds whose GLE draw path actually consults
+        it -- verified against GLE 4.3.10 source (``graph2.cpp``) and by
+        compiling small fixtures and diffing the emitted PostScript:
+
+        - **line/steps/fsteps/hist/impulses/scatter (marker-only)**: drawn
+          through ``transform_data()``, which applies ``deresolve`` before
+          drawing. Confirmed: a 10-point marker-only dataset with
+          ``deresolve 3`` draws 5 markers (points 0,3,6,9 plus GLE's
+          always-keep-the-last-point rule -- 9 repeated) versus 10 without.
+          This is the only family :meth:`add_plot_line` calls this for.
+        - **errorbar (`err`/`errup`/`errdown`/`herr`/...)**: intentionally
+          EXCLUDED. ``draw_err`` -> ``getErrorBarData`` builds the whisker
+          geometry straight from the dataset's raw, undecimated arrays --
+          it never calls ``transform_data``. Compiling an err-only dataset
+          with and without ``deresolve`` produced byte-identical PostScript
+          (aside from the ``%%Title`` comment). Emitting ``deresolve`` on an
+          errorbar series' main dataset would thin its markers/line while
+          leaving every whisker in place -- a misleading, broken-looking
+          preview for no compile-time win on the whiskers themselves -- so
+          :meth:`add_errorbar` never calls this.
+        - **bar (`bar dN fill ...`, the graph-level statement
+          :meth:`add_bar_chart` emits)**: also EXCLUDED. ``drawBar`` reads
+          ``GLEDataPairs(toDataSet)`` directly from the raw dataset, bypassing
+          ``transform_data`` entirely. Compiling identical ``bar`` fixtures
+          with and without a prior ``dN deresolve 3`` on the bar's dataset
+          produced byte-identical PostScript. (GLE's OTHER, unrelated bar
+          mode -- the per-dataset ``dn ... bar`` line_mode -- does go through
+          ``transform_data`` via ``GLEGraphPartLines``, but gleplot's
+          ``BarSeries`` never emits that form, so it is moot here.)
+        - **fill (`fill dA,dB color ...`)**: NOT wired up by this cut, even
+          though ``drawFill`` -> ``transform_data`` means GLE itself would
+          honor ``deresolve`` on the two boundary datasets. The two
+          datasets a fill references are not symmetric: one is commonly a
+          ``let``-derived offset copy that would need the SAME factor
+          applied for the polygon to stay a consistent shape (decimating
+          only one boundary produces a warped fill), and :meth:`add_fill_between`
+          does not currently track a shared row count/eligibility across
+          both sides. Left for a follow-up if fill-heavy previews turn out
+          to need it.
+
+        Order within the ``dN`` line does not matter to GLE's parser (the
+        per-dataset keyword loop accepts ``line``/``marker``/``deresolve``/
+        ``key`` in any order -- verified by compiling both orderings and
+        diffing identical PostScript output), so this is always appended
+        last for a minimal, single-clause diff against the undecorated line.
+        """
+        factor = self._preview_decimation
+        if not factor or factor <= 1 or n_points < self.MIN_DERESOLVE_POINTS:
+            return ""
+        self.decimation_report.append(
+            DecimationRecord(
+                dataset=dataset_name,
+                label=label,
+                factor=factor,
+                original_points=n_points,
+            )
+        )
+        return f" deresolve {factor}"
 
     def add_preamble(
         self,
@@ -1457,6 +1590,11 @@ class GLEWriter:
             line_cmd += " y2axis"
 
         line_cmd += self._key_clause(label, has_header)
+        # Preview-only decimation (G7): "" unless a caller opted in AND this
+        # series is large enough -- see _deresolve_clause. Applies to both
+        # branches above (line, with or without an overlaid marker, and
+        # marker-only/scatter) since both draw through transform_data().
+        line_cmd += self._deresolve_clause(display_name, label, len(x_array))
 
         self.lines_gle.append(line_cmd)
 
@@ -1841,6 +1979,12 @@ class GLEWriter:
             line_cmd += " y2axis"
 
         line_cmd += self._key_clause(label, has_header)
+        # No preview-decimation clause here, deliberately: this dataset
+        # carries err/errup/errdown/herr/... references, and GLE's error-bar
+        # draw path never consults `deresolve` (see _deresolve_clause's
+        # errorbar paragraph for the source trace + empirical verification).
+        # Appending it would thin the markers/line while every whisker stayed
+        # at full density -- worse than not decimating at all.
 
         self.lines_gle.append(line_cmd)
 
