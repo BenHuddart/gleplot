@@ -81,6 +81,10 @@ where = ["src"]
 # Ship the app icon inside the wheel so `pip install gleplot[gui]` + gleplot-gui
 # can set its window icon at runtime (the PyInstaller spec bundles it separately).
 "gleplot.gui" = ["assets/*.png"]
+# PEP 561 marker: gleplot is fully typed and mypy-checked in CI, so downstream
+# consumers (e.g. GLEstudio) can type-check against it without an
+# ignore_missing_imports override.
+"gleplot" = ["py.typed"]
 
 [tool.black]
 line-length = 88
