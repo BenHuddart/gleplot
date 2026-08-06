@@ -142,7 +142,9 @@ def _secondary_yaxis():
     ax.plot([1, 2, 3], [100, 200, 300], color='red', label='right', yaxis='y2')
     ax.set_ylabel('left y')
     ax.set_ylabel('right y', axis='y2')
-    ax.set_ylim(0, 400, axis='y2')
+    # Strictly positive, so the emitted log axis is one GLE will compile
+    # (see tests/unit/test_log_limits.py).
+    ax.set_ylim(50, 400, axis='y2')
     ax.set_yscale('log', axis='y2')
     ax.legend()
     return fig

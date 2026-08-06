@@ -52,6 +52,19 @@ def _refline_axis_values(ax, orient: str):
     return values
 
 
+def _plottable(values: np.ndarray, positive_only: bool) -> np.ndarray:
+    """``values``, restricted to what the axis can actually show.
+
+    With ``positive_only`` (a log axis) the non-positive entries are dropped,
+    mirroring matplotlib, which masks them rather than refusing to autoscale.
+    Without it this is the identity, so every ordinary axis is bounded by
+    exactly the values it always was.
+    """
+    if not positive_only:
+        return values
+    return values[values > 0]
+
+
 def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
     """Filter ``data`` down to the keys ``cls`` (a dataclass) accepts.
 
@@ -526,22 +539,21 @@ class Figure:
     # font -- measured against GLE 4.3.10, an 18 pt figure needs exactly the
     # same margins in ``hei`` units as a 12 pt one.
 
-    #: Decoration margin (in units of ``hei``) for a lone plot's left edge --
+    #: Decoration margin (in units of ``hei``) for the layout's left edge --
     #: a horizontal run of y tick labels plus the rotated y-axis title.
     #: Measured worst cases: 3.11 hei for 4-character tick labels ("-0.5"),
     #: 4.72 hei for 7-character ones ("-0.0001"). The chosen value covers the
-    #: former with slack; the latter needs ``subplots_adjust(left=...)``, the
-    #: same limitation the grid path has always had.
+    #: former with slack; the latter needs ``subplots_adjust(left=...)``.
     _AUTO_MARGIN_LEFT_HEI = 4.0
 
     #: Same, bottom edge (one line of x tick labels + the x-axis title).
     #: Measured worst case 2.43 hei.
     _AUTO_MARGIN_BOTTOM_HEI = 3.0
 
-    #: Same, top edge when the axes carries a title. Measured 1.49 hei.
+    #: Same, top edge when any axes carries a title. Measured 1.49 hei.
     _AUTO_MARGIN_TITLE_HEI = 2.0
 
-    #: Same, right edge when the axes carries a decorated secondary y-axis.
+    #: Same, right edge when any axes carries a decorated secondary y-axis.
     #: Measured 3.28 hei.
     _AUTO_MARGIN_Y2_HEI = 4.0
 
@@ -572,49 +584,43 @@ class Figure:
     def _auto_margins_cm(self, writer, resolution) -> Tuple[float, float, float, float]:
         """``(left, right, bottom, top)`` decoration margins in page cm.
 
-        Three policies, one per layout shape:
+        **One policy, for every layout shape.** These are the margins of the
+        whole grid, so what has to fit in them is the decoration of the
+        *outermost* row and column -- exactly the decoration a lone plot
+        carries, which is why the 1x1 case and the grid case cannot want
+        different numbers. Each margin is therefore sized from the measured
+        decoration overflow in units of ``hei`` (see the class constants
+        above), whatever the grid's dimensions and whether or not its axes
+        are shared.
 
-        * **a lone plot** (the 1x1 case) has no neighbours to trade space
-          with, so every margin is sized from the measured decoration
-          overflow, in units of ``hei`` (see the class constants above);
-        * **a shared-axis grid** and **a plain grid** keep the historical
-          fixed centimetre margins unchanged -- those figures already emitted
-          explicit placement, and G2.2 is about making the *single-plot* path
-          explicit, not about re-flowing every existing grid. (Their margins
-          are measurably tight for a y-axis title plus wide tick labels;
-          re-tuning them is a separate, visible change.)
+        Grids used to keep fixed centimetre margins instead, inherited from
+        before any of this was measured (left 1.0 cm plain / 1.5 cm shared).
+        That is less than the ~1.32 cm a y-axis title plus tick labels like
+        "-0.5" needs at the default 12 pt, so every such grid put ink off the
+        left edge of the page. Sizing them like the lone plot fixes that, at
+        the cost of moving every existing multi-plot figure's frames.
 
-        ``subplots_adjust`` overrides are applied last and win outright, for
-        all three shapes -- so a lone plot now honours ``subplots_adjust``
-        exactly as a grid does.
+        The two conditionals are deliberately figure-wide rather than
+        per-edge: a title anywhere in the grid reserves the top margin (it is
+        the top row that will use it), and a decorated secondary y-axis
+        anywhere reserves the right margin. Both over-reserve for the grid
+        that puts its titled or y2-bearing axes somewhere other than the
+        edge that needs the room -- the same trade the colorbar reservation
+        below makes, and preferable to clipping.
+
+        ``subplots_adjust`` overrides are applied last and win outright.
         """
-        if len(self.axes_list) <= 1:
-            hei = fontsize_pt_to_cm(self.style.fontsize)
-            ax = self.axes_list[0] if self.axes_list else None
-            titled = bool(ax is not None and ax.title_text)
-            has_y2 = bool(ax is not None and self._axes_has_y2(ax))
-            margin_left = self._AUTO_MARGIN_LEFT_HEI * hei
-            margin_bottom = self._AUTO_MARGIN_BOTTOM_HEI * hei
-            margin_top = (
-                self._AUTO_MARGIN_TITLE_HEI if titled else self._AUTO_MARGIN_PLAIN_HEI
-            ) * hei
-            margin_right = (
-                self._AUTO_MARGIN_Y2_HEI if has_y2 else self._AUTO_MARGIN_PLAIN_HEI
-            ) * hei
-        elif self.sharex or self.sharey:
-            # Top margin: more room needed if subplots have titles
-            margin_top = 1.2 if self._has_titles() else 0.5
-            margin_right = 0.5
-            # Bottom needs room for x-axis labels (when showing them)
-            margin_bottom = 1.5 if self.sharex else 1.0
-            # Left always needs room for y-axis labels in multi-subplot layouts
-            margin_left = 1.5
-        else:
-            # Normal margins for non-shared layouts
-            margin_top = 1.5 if self._has_titles() else 1.0
-            margin_bottom = 1.0
-            margin_left = 1.0
-            margin_right = 1.0
+        hei = fontsize_pt_to_cm(self.style.fontsize)
+        titled = self._has_titles()
+        has_y2 = any(self._axes_has_y2(ax) for ax in self.axes_list)
+        margin_left = self._AUTO_MARGIN_LEFT_HEI * hei
+        margin_bottom = self._AUTO_MARGIN_BOTTOM_HEI * hei
+        margin_top = (
+            self._AUTO_MARGIN_TITLE_HEI if titled else self._AUTO_MARGIN_PLAIN_HEI
+        ) * hei
+        margin_right = (
+            self._AUTO_MARGIN_Y2_HEI if has_y2 else self._AUTO_MARGIN_PLAIN_HEI
+        ) * hei
 
         # Convert margin overrides from normalized figure fractions to cm.
         if "left" in self._subplot_adjust:
@@ -692,6 +698,11 @@ class Figure:
         )
 
         # Spacing between subplots; defaults preserve existing behavior.
+        # Unlike the outer margins these are still fixed centimetres, and they
+        # carry the same decoration an outer margin does (an inner column's y
+        # title and tick labels live in the gap to its left). 1.5 cm clears
+        # the measured 3.11 hei at the default 12 pt but not at, say, 18 pt,
+        # where inner panels need ``subplots_adjust(wspace=...)``.
         default_hspace_cm = 0.0 if self.sharey else 1.5
         default_vspace_cm = 0.0 if self.sharex else 2.0
         wspace_frac = self._subplot_adjust.get("wspace")
@@ -1213,20 +1224,7 @@ class Figure:
 
             if self.axes_list:
                 ax = self.axes_list[0]
-                # Calculate axis limits from data if not explicitly set
-                # This is especially important for bar charts which need explicit x-axis limits
-                if ax.xmin is None or ax.xmax is None:
-                    data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
-                    if ax.xmin is None:
-                        ax.xmin = data_xmin
-                    if ax.xmax is None:
-                        ax.xmax = data_xmax
-                if ax.ymin is None or ax.ymax is None:
-                    data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
-                    if ax.ymin is None:
-                        ax.ymin = data_ymin
-                    if ax.ymax is None:
-                        ax.ymax = data_ymax
+                self._resolve_axis_limits(ax, resolution)
 
                 self._emit_pre_graph_blocks(writer, ax, resolution)
                 # Explicit placement (SPEC 3.3, metadata v2): the frame rect is
@@ -1274,27 +1272,19 @@ class Figure:
             )
             writer.add_sub_defs(sub_texts)
 
-            # Synchronize axis limits for shared axes
+            # Resolve each panel's limits from its own data first, then let
+            # sharing unify them. Doing it in this order means a shared LOG
+            # axis is unified over ranges that are already positive, so the
+            # union is positive too -- sanitizing after the unification would
+            # instead give each panel its own repaired range and quietly break
+            # the sharing.
+            for ax in self.axes_list:
+                self._resolve_axis_limits(ax, resolution)
+
             if self.sharex:
                 self._synchronize_x_limits(resolution)
             if self.sharey:
                 self._synchronize_y_limits(resolution)
-
-            # Calculate axis limits from data for any axes without explicit limits
-            # This is especially important for bar charts
-            for ax in self.axes_list:
-                if ax.xmin is None or ax.xmax is None:
-                    data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
-                    if ax.xmin is None:
-                        ax.xmin = data_xmin
-                    if ax.xmax is None:
-                        ax.xmax = data_xmax
-                if ax.ymin is None or ax.ymax is None:
-                    data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
-                    if ax.ymin is None:
-                        ax.ymin = data_ymin
-                    if ax.ymax is None:
-                        ax.ymax = data_ymax
 
             # Per-axes frame rectangles in cm, from the one geometry routine
             # (see _layout_rects). Default margins/spacing are heuristic but
@@ -1897,11 +1887,209 @@ class Figure:
                 just="bc",
             )
 
+    # -- axis limits -----------------------------------------------------
+    #
+    # GLE derives an axis' range from the data when the script does not give
+    # one, and REFUSES to compile a log axis whose range reaches zero or
+    # below: "Error: illegal range for log axis: min = 0 max = 3". That makes
+    # an omitted bound unusable on a log axis -- ``yaxis log`` over data
+    # containing a zero is rejected exactly like ``yaxis min 0 log`` is -- so
+    # gleplot has to resolve log limits itself and always emit a positive
+    # ``min``. See :meth:`_apply_log_limits`.
+
+    #: Range emitted for a log axis about which nothing positive is known
+    #: (every value non-positive, or no in-memory data at all). Arbitrary, but
+    #: legal, deterministic, and a decade wide so the axis still reads as
+    #: logarithmic.
+    _LOG_FALLBACK_RANGE = (1.0, 10.0)
+
+    def _resolve_axis_limits(
+        self, ax: Axes, resolution: Optional[SourceResolution] = None
+    ):
+        """Fill in ``ax``'s missing limits from its data, then make them legal.
+
+        Autoscaling matters beyond aesthetics for bar charts (which need an
+        explicit x range) and for every log axis (see above). Runs before the
+        shared-axis synchronization, so what that unifies is already resolved.
+        """
+        if ax.xmin is None or ax.xmax is None:
+            data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
+            if ax.xmin is None:
+                ax.xmin = data_xmin
+            if ax.xmax is None:
+                ax.xmax = data_xmax
+        if ax.ymin is None or ax.ymax is None:
+            data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
+            if ax.ymin is None:
+                ax.ymin = data_ymin
+            if ax.ymax is None:
+                ax.ymax = data_ymax
+
+        self._normalize_inverted_log_limits(ax)
+        self._apply_log_limits(ax, resolution)
+
+    def _normalize_inverted_log_limits(self, ax: Axes):
+        """Undo an axis inversion on a log axis, which GLE cannot draw.
+
+        Descending limits invert an axis (``set_ylim(3, 1)``, matplotlib's
+        idiom), and :meth:`GLEWriter._axis_direction` emits that as GLE's
+        ``negate``. But GLE's ``negate`` mirrors the value *linearly* before
+        taking the logarithm -- ``fnAxisX`` in ``axis.cpp`` computes
+        ``max - (v - min)`` and only then ``log10`` -- so on a log axis it
+        does not reverse the decades, it smears them: measured against GLE
+        4.3.10, ``yaxis min 1 max 100 log negate`` puts 1, 10 and 100 at
+        7.00, 6.88 and 1.00 cm, with the first two decades on top of each
+        other.
+
+        There is no way to spell a reversed log axis in GLE, so the inversion
+        is dropped rather than drawn wrong, and said out loud.
+        """
+        for which, scale in (("x", ax.xscale), ("y", ax.yscale), ("y2", ax.y2scale)):
+            if scale != "log":
+                continue
+            lo, hi = self._axis_limits(ax, which)
+            if lo is None or hi is None or lo <= hi:
+                continue
+            warnings.warn(
+                f"{which}-axis has descending limits ({lo!r} .. {hi!r}), "
+                "which would invert it, but GLE cannot invert a log axis "
+                f"(its 'negate' does not reverse the decades). Drawing "
+                f"{hi!r} .. {lo!r} the usual way round instead.",
+                UserWarning,
+            )
+            self._set_axis_limits(ax, which, hi, lo)
+
+    def _apply_log_limits(
+        self, ax: Axes, resolution: Optional[SourceResolution] = None
+    ):
+        """Force every log-scaled axis of ``ax`` onto a positive range.
+
+        A log axis cannot show zero or negative values, and GLE will not
+        compile a script that asks it to. matplotlib's answer is to keep
+        drawing: it masks the non-positive values when autoscaling, and
+        ignores a non-positive bound passed to ``set_xlim``/``set_ylim`` with
+        a warning. gleplot does the same, and additionally has to *write down*
+        the resulting range, because leaving a bound out would hand the
+        decision back to GLE, which would fail on the same raw data.
+
+        The replacement bound is therefore the axis' own data, bounded over
+        its positive values only. The limits are stored back onto ``ax`` --
+        like the ordinary autoscale above, which has always written what it
+        derived back onto the axes -- so the model says what the script says,
+        and a re-save (of this figure or of the file parsed back from it)
+        finds nothing left to repair and warns no further.
+        """
+        for which, scale in (
+            ("x", ax.xscale),
+            ("y", ax.yscale),
+            ("y2", ax.y2scale),
+        ):
+            if scale != "log":
+                continue
+            lo, hi = self._axis_limits(ax, which)
+            fixed = self._log_safe_range(ax, which, lo, hi, resolution)
+            if fixed != (lo, hi):
+                setter = "set_xlim" if which == "x" else "set_ylim"
+                warnings.warn(
+                    f"{which}-axis is log-scaled, but the range it resolved "
+                    f"to ({lo!r} .. {hi!r}) is not an increasing positive "
+                    "one, which GLE refuses to draw. Using "
+                    f"{fixed[0]:g} .. {fixed[1]:g} instead, from the positive "
+                    f"values plotted on it. Call {setter}() with a positive "
+                    "range to choose your own.",
+                    UserWarning,
+                )
+                self._set_axis_limits(ax, which, *fixed)
+
+    def _log_safe_range(
+        self,
+        ax: Axes,
+        which: str,
+        lo: Optional[float],
+        hi: Optional[float],
+        resolution: Optional[SourceResolution],
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """``lo``..``hi`` made legal for a log axis, or returned untouched.
+
+        Untouched is the common answer, and deliberately so: an omitted bound
+        is only a problem when the data GLE would autoscale over reaches zero.
+        A log plot of positive data keeps emitting a bare ``yaxis log``, and a
+        series gleplot cannot see the numbers of (a file series) keeps its
+        autoscale as well -- guessing a range for data this process never read
+        would be worse than the error it is trying to avoid.
+
+        When the range does need fixing, only the offending bound is replaced,
+        so ``set_ylim(0, 400)`` on a log axis keeps its 400.
+        """
+        scan = {
+            "x": self._get_data_xlim,
+            "y": self._get_data_ylim,
+            "y2": self._get_data_y2lim,
+        }[which]
+
+        # What the axis will actually span: the explicit bounds where given,
+        # and what GLE would autoscale to where not.
+        data_lo, data_hi = (None, None)
+        if lo is None or hi is None:
+            data_lo, data_hi = scan(ax, resolution)
+        effective_lo = lo if lo is not None else data_lo
+        effective_hi = hi if hi is not None else data_hi
+
+        if effective_lo is None:
+            # No visible data and no explicit bound: nothing to judge.
+            return (lo, hi)
+        if effective_lo > 0 and (effective_hi is None or effective_hi > effective_lo):
+            return (lo, hi)
+
+        pos_lo, pos_hi = scan(ax, resolution, positive_only=True)
+        fallback_lo, decade = self._LOG_FALLBACK_RANGE
+        new_lo = lo if (lo is not None and lo > 0) else pos_lo
+        if new_lo is None:
+            new_lo = fallback_lo
+        new_hi = hi if (hi is not None and hi > new_lo) else pos_hi
+        if new_hi is None or new_hi <= new_lo:
+            new_hi = new_lo * decade
+        return (float(new_lo), float(new_hi))
+
+    @staticmethod
+    def _axis_limits(ax: Axes, which: str) -> Tuple[Optional[float], Optional[float]]:
+        if which == "x":
+            return (ax.xmin, ax.xmax)
+        if which == "y":
+            return (ax.ymin, ax.ymax)
+        return (ax.y2min, ax.y2max)
+
+    @classmethod
+    def _axis_span(
+        cls, ax: Axes, which: str
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """``(lower, upper)`` extent of an axis, whichever way round it reads."""
+        lo, hi = cls._axis_limits(ax, which)
+        if lo is not None and hi is not None and lo > hi:
+            return (hi, lo)
+        return (lo, hi)
+
+    @classmethod
+    def _axis_is_inverted(cls, ax: Axes, which: str) -> bool:
+        """True if the axis' limits descend, i.e. it is drawn inverted."""
+        lo, hi = cls._axis_limits(ax, which)
+        return lo is not None and hi is not None and lo > hi
+
+    @staticmethod
+    def _set_axis_limits(ax: Axes, which: str, lo: float, hi: float):
+        if which == "x":
+            ax.xmin, ax.xmax = lo, hi
+        elif which == "y":
+            ax.ymin, ax.ymax = lo, hi
+        else:
+            ax.y2min, ax.y2max = lo, hi
+
     def _synchronize_x_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize x-axis limits across all axes when sharex is enabled."""
         # Find global x-axis limits
-        xmin_global = None
-        xmax_global = None
+        lo_global = None
+        hi_global = None
+        inverted = False
 
         for ax in self.axes_list:
             # Calculate data limits if not explicitly set
@@ -1912,24 +2100,31 @@ class Figure:
                 if ax.xmax is None:
                     ax.xmax = data_xmax
 
-            # Track global limits
-            if ax.xmin is not None:
-                if xmin_global is None or ax.xmin < xmin_global:
-                    xmin_global = ax.xmin
-            if ax.xmax is not None:
-                if xmax_global is None or ax.xmax > xmax_global:
-                    xmax_global = ax.xmax
+            # Track the global SPAN. A descending pair is an inverted axis
+            # (see GLEWriter._axis_direction), so read its extent through
+            # min/max rather than trusting the order, and carry the inversion
+            # over to the shared result -- sharing an axis must not silently
+            # flip a panel back the right way up.
+            lo, hi = self._axis_span(ax, "x")
+            inverted = inverted or self._axis_is_inverted(ax, "x")
+            if lo is not None and (lo_global is None or lo < lo_global):
+                lo_global = lo
+            if hi is not None and (hi_global is None or hi > hi_global):
+                hi_global = hi
 
         # Apply global limits to all axes
         for ax in self.axes_list:
-            ax.xmin = xmin_global
-            ax.xmax = xmax_global
+            if inverted and lo_global is not None and hi_global is not None:
+                ax.xmin, ax.xmax = hi_global, lo_global
+            else:
+                ax.xmin, ax.xmax = lo_global, hi_global
 
     def _synchronize_y_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize y-axis limits across all axes when sharey is enabled."""
         # Find global y-axis limits
-        ymin_global = None
-        ymax_global = None
+        lo_global = None
+        hi_global = None
+        inverted = False
 
         for ax in self.axes_list:
             # Calculate data limits if not explicitly set
@@ -1940,27 +2135,36 @@ class Figure:
                 if ax.ymax is None:
                     ax.ymax = data_ymax
 
-            # Track global limits
-            if ax.ymin is not None:
-                if ymin_global is None or ax.ymin < ymin_global:
-                    ymin_global = ax.ymin
-            if ax.ymax is not None:
-                if ymax_global is None or ax.ymax > ymax_global:
-                    ymax_global = ax.ymax
+            # See _synchronize_x_limits on descending (inverted) pairs.
+            lo, hi = self._axis_span(ax, "y")
+            inverted = inverted or self._axis_is_inverted(ax, "y")
+            if lo is not None and (lo_global is None or lo < lo_global):
+                lo_global = lo
+            if hi is not None and (hi_global is None or hi > hi_global):
+                hi_global = hi
 
         # Apply global limits to all axes
         for ax in self.axes_list:
-            ax.ymin = ymin_global
-            ax.ymax = ymax_global
+            if inverted and lo_global is not None and hi_global is not None:
+                ax.ymin, ax.ymax = hi_global, lo_global
+            else:
+                ax.ymin, ax.ymax = lo_global, hi_global
 
     def _get_data_xlim(
-        self, ax: Axes, resolution: Optional[SourceResolution] = None
+        self,
+        ax: Axes,
+        resolution: Optional[SourceResolution] = None,
+        positive_only: bool = False,
     ) -> Tuple[Optional[float], Optional[float]]:
         """Calculate x-axis limits from data.
 
         Reads through ``resolution``, so table-backed series autoscale from
         their resolved values and skipped (dangling) series contribute
         nothing -- the limits describe what will actually be drawn.
+
+        With ``positive_only``, values <= 0 are dropped before bounding, which
+        is what a log axis needs (:meth:`_apply_log_limits`); the result is
+        ``(None, None)`` when nothing positive is plotted.
         """
         resolution = resolution or SourceResolution()
         xmin, xmax = None, None
@@ -1973,7 +2177,7 @@ class Figure:
         )
         for data_list in x_bearing:
             for data in data_list:
-                x = np.asarray(data["x"])
+                x = _plottable(np.asarray(data["x"]), positive_only)
                 if len(x) > 0:
                     if xmin is None or x.min() < xmin:
                         xmin = float(x.min())
@@ -1981,7 +2185,7 @@ class Figure:
                         xmax = float(x.max())
 
         for fill_data in resolution.visible(ax.fills):
-            x = np.asarray(fill_data["x"])
+            x = _plottable(np.asarray(fill_data["x"]), positive_only)
             if len(x) > 0:
                 if xmin is None or x.min() < xmin:
                     xmin = float(x.min())
@@ -1990,16 +2194,20 @@ class Figure:
 
         for series in resolution.visible(ax.heatmaps) + resolution.visible(ax.contours):
             x0, x1 = series["extent"][0], series["extent"][1]
-            if xmin is None or x0 < xmin:
-                xmin = float(x0)
-            if xmax is None or x1 > xmax:
-                xmax = float(x1)
+            if not positive_only or x0 > 0:
+                if xmin is None or x0 < xmin:
+                    xmin = float(x0)
+            if not positive_only or x1 > 0:
+                if xmax is None or x1 > xmax:
+                    xmax = float(x1)
 
         # Vertical guides carry a data x-coordinate and, like matplotlib's
         # axvline/axvspan, participate in autoscaling. Horizontal ones do not:
         # their x extent is an axes FRACTION, so including it would be
         # circular.
         for value in _refline_axis_values(ax, "v"):
+            if positive_only and value <= 0:
+                continue
             if xmin is None or value < xmin:
                 xmin = value
             if xmax is None or value > xmax:
@@ -2008,7 +2216,10 @@ class Figure:
         return xmin, xmax
 
     def _get_data_ylim(
-        self, ax: Axes, resolution: Optional[SourceResolution] = None
+        self,
+        ax: Axes,
+        resolution: Optional[SourceResolution] = None,
+        positive_only: bool = False,
     ) -> Tuple[Optional[float], Optional[float]]:
         """Calculate y-axis limits from data (see :meth:`_get_data_xlim`)."""
         resolution = resolution or SourceResolution()
@@ -2023,7 +2234,9 @@ class Figure:
         )
         for data_list in offset_bearing:
             for data in data_list:
-                y = np.asarray(data["y"]) + data.get("offset", 0.0)
+                y = _plottable(
+                    np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
+                )
                 if len(y) > 0:
                     if ymin is None or y.min() < ymin:
                         ymin = float(y.min())
@@ -2031,10 +2244,15 @@ class Figure:
                         ymax = float(y.max())
 
         for bar_data in resolution.visible(ax.bars):
-            height = np.asarray(bar_data["height"])
+            height = _plottable(np.asarray(bar_data["height"]), positive_only)
             if len(height) > 0:
                 if ymin is None or height.min() < ymin:
-                    ymin = float(min(0, height.min()))
+                    # Bars are drawn from a zero baseline, so the baseline
+                    # bounds them from below -- except on a log axis, where
+                    # zero is not a value the axis can show at all.
+                    ymin = float(
+                        height.min() if positive_only else min(0, height.min())
+                    )
                 if ymax is None or height.max() > ymax:
                     ymax = float(height.max())
 
@@ -2042,7 +2260,7 @@ class Figure:
             off = fill_data.get("offset", 0.0)
             y1 = np.asarray(fill_data["y1"]) + off
             y2 = np.asarray(fill_data["y2"]) + off
-            all_y = np.concatenate([y1, y2])
+            all_y = _plottable(np.concatenate([y1, y2]), positive_only)
             if len(all_y) > 0:
                 if ymin is None or all_y.min() < ymin:
                     ymin = float(all_y.min())
@@ -2057,35 +2275,84 @@ class Figure:
             if len(y) > 0:
                 y_with_err = y.copy()
                 if yerr_up is not None:
-                    y_with_err_up = y + np.asarray(yerr_up)
-                    if ymax is None or y_with_err_up.max() > ymax:
+                    y_with_err_up = _plottable(y + np.asarray(yerr_up), positive_only)
+                    if len(y_with_err_up) > 0 and (
+                        ymax is None or y_with_err_up.max() > ymax
+                    ):
                         ymax = float(y_with_err_up.max())
                 if yerr_down is not None:
-                    y_with_err_down = y - np.asarray(yerr_down)
-                    if ymin is None or y_with_err_down.min() < ymin:
+                    y_with_err_down = _plottable(
+                        y - np.asarray(yerr_down), positive_only
+                    )
+                    if len(y_with_err_down) > 0 and (
+                        ymin is None or y_with_err_down.min() < ymin
+                    ):
                         ymin = float(y_with_err_down.min())
 
-                if ymin is None or y.min() < ymin:
-                    ymin = float(y.min())
-                if ymax is None or y.max() > ymax:
-                    ymax = float(y.max())
+                y = _plottable(y, positive_only)
+                if len(y) > 0:
+                    if ymin is None or y.min() < ymin:
+                        ymin = float(y.min())
+                    if ymax is None or y.max() > ymax:
+                        ymax = float(y.max())
 
         for series in resolution.visible(ax.heatmaps) + resolution.visible(ax.contours):
             y0, y1 = series["extent"][2], series["extent"][3]
-            if ymin is None or y0 < ymin:
-                ymin = float(y0)
-            if ymax is None or y1 > ymax:
-                ymax = float(y1)
+            if not positive_only or y0 > 0:
+                if ymin is None or y0 < ymin:
+                    ymin = float(y0)
+            if not positive_only or y1 > 0:
+                if ymax is None or y1 > ymax:
+                    ymax = float(y1)
 
         # Horizontal guides carry a data y-coordinate (see _get_data_xlim for
         # the mirror-image reasoning).
         for value in _refline_axis_values(ax, "h"):
+            if positive_only and value <= 0:
+                continue
             if ymin is None or value < ymin:
                 ymin = value
             if ymax is None or value > ymax:
                 ymax = value
 
         return ymin, ymax
+
+    def _get_data_y2lim(
+        self,
+        ax: Axes,
+        resolution: Optional[SourceResolution] = None,
+        positive_only: bool = False,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Calculate secondary-y limits from the series drawn against y2.
+
+        Deliberately narrower than :meth:`_get_data_ylim`, which bounds *every*
+        series on the axes regardless of which y axis it belongs to: y2 limits
+        are normally left to GLE, and the one thing gleplot has to know for
+        itself is what a log-scaled y2 can legally span. Only the series kinds
+        that carry a ``yaxis`` field can be on y2 at all; bars, fills, grids
+        and reference lines are always primary.
+        """
+        resolution = resolution or SourceResolution()
+        y2min, y2max = None, None
+
+        for data_list in (
+            resolution.visible(ax.lines),
+            resolution.visible(ax.scatters),
+            resolution.visible(ax.errorbars),
+        ):
+            for data in data_list:
+                if data.get("yaxis") != "y2":
+                    continue
+                y = _plottable(
+                    np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
+                )
+                if len(y) > 0:
+                    if y2min is None or y.min() < y2min:
+                        y2min = float(y.min())
+                    if y2max is None or y.max() > y2max:
+                        y2max = float(y.max())
+
+        return y2min, y2max
 
     def view(self, dpi: Optional[int] = None, format: str = "png") -> Optional[object]:
         """

@@ -60,10 +60,14 @@ back into `Axes.placement` and re-emits it verbatim.
   reservation therefore apply to a single plot exactly as to a grid.
 - **Margins are decoration margins.** GLE draws tick labels and axis titles
   *outside* the frame rect, so `_auto_margins_cm` leaves blank space around the
-  grid for them. The 1×1 row is expressed in units of the text height `hei`
-  (the overflow scales with the font); the grid rows keep their historical
-  fixed-cm values. Margins are a heuristic in both cases — unusually wide tick
-  labels still need `subplots_adjust(left=…)`.
+  grid for them. It is **one policy for every shape** — what has to fit in a
+  grid's margins is the decoration of its outermost row and column, i.e. the
+  same decoration a lone plot carries — expressed in units of the text height
+  `hei`, because the overflow scales with the font. Still a heuristic:
+  unusually wide tick labels ("-0.0001") need `subplots_adjust(left=…)`.
+  Compiled proof that the margins hold: `tests/integration/test_ink_on_page.py`
+  measures the real ink box (a `begin name` block + `print ptx/pty`, which sees
+  ink *off* the page where a raster or PDF bbox would clip it).
 - **`placement` wins when set.** The grid is only a helper that computes rects;
   the rects are the model (SPEC 3.3). A figure parsed back from GLE carries its
   recovered rects, which is why `subplots_adjust` layouts survive save → parse

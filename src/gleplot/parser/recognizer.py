@@ -374,6 +374,22 @@ def _collect_value(toks: List[Token], start: int) -> Tuple[Optional[float], int]
     return val, j
 
 
+def _oriented(
+    lo: Optional[float], hi: Optional[float], negate: bool
+) -> Tuple[Optional[float], Optional[float]]:
+    """Axis limits as the gleplot model spells them: descending if inverted.
+
+    GLE writes an inverted axis as an ascending range plus ``negate``; the
+    model writes it as a descending limit pair, the way matplotlib's
+    ``set_ylim(3, 1)`` does. ``negate`` is only recognized on a line that
+    also pins both bounds (see ``_parse_axis_line``), so this can always
+    express what it was given.
+    """
+    if negate and lo is not None and hi is not None:
+        return (hi, lo)
+    return (lo, hi)
+
+
 def _collect_values(toks: List[Token], start: int) -> List[float]:
     """Collect every numeric value from ``start`` to the end of ``toks``.
 
@@ -843,12 +859,15 @@ class _Recognizer:
             "xmin": None,
             "xmax": None,
             "xlog": False,
+            "xnegate": False,
             "ymin": None,
             "ymax": None,
             "ylog": False,
+            "ynegate": False,
             "y2min": None,
             "y2max": None,
             "y2log": False,
+            "y2negate": False,
             "xlabels_off": False,
             "ylabels_off": False,
             "nofirst_x": False,
@@ -1143,6 +1162,7 @@ class _Recognizer:
     def _parse_axis_line(self, kw, toks, info, stmt=None):
         prefix = {"xaxis": "x", "yaxis": "y", "y2axis": "y2"}[kw]
         remainder: List[Token] = []
+        negate_toks: List[Token] = []
         i = 1
         m = len(toks)
         while i < m:
@@ -1167,6 +1187,10 @@ class _Recognizer:
                 info[f"{prefix}log"] = True
                 i += 1
                 continue
+            if w == "negate":
+                negate_toks.append(toks[i])
+                i += 1
+                continue
             if w == "nofirst":
                 info[f"nofirst_{prefix}"] = True
                 i += 1
@@ -1186,6 +1210,18 @@ class _Recognizer:
             # know the arity of, so we copy tokens verbatim one at a time (their
             # own values ride along as further 'remainder' tokens).
             i += 1
+
+        # ``negate`` becomes a descending limit pair on the model, which needs
+        # BOTH bounds to exist -- on this line or (GLE axis lines being
+        # cumulative) an earlier one. Without them the inversion has nowhere
+        # to live, so it goes back to passthrough with the rest of the
+        # unmodelled options rather than being dropped.
+        if negate_toks:
+            if info[f"{prefix}min"] is not None and info[f"{prefix}max"] is not None:
+                info[f"{prefix}negate"] = True
+            else:
+                remainder.extend(negate_toks)
+                remainder.sort(key=lambda t: t.start)
 
         if remainder:
             rendered = self._render_remainder(remainder, stmt)
@@ -3387,12 +3423,12 @@ class _Recognizer:
         ax.xscale = "log" if info["xlog"] else "linear"
         ax.yscale = "log" if info["ylog"] else "linear"
         ax.y2scale = "log" if info["y2log"] else "linear"
-        ax.xmin = info["xmin"]
-        ax.xmax = info["xmax"]
-        ax.ymin = info["ymin"]
-        ax.ymax = info["ymax"]
-        ax.y2min = info["y2min"]
-        ax.y2max = info["y2max"]
+        # ``negate`` is GLE's spelling of an inverted axis; the model spells
+        # the same thing as a descending limit pair, which is what the writer
+        # turns back into ``negate`` (see GLEWriter._axis_direction).
+        ax.xmin, ax.xmax = _oriented(info["xmin"], info["xmax"], info["xnegate"])
+        ax.ymin, ax.ymax = _oriented(info["ymin"], info["ymax"], info["ynegate"])
+        ax.y2min, ax.y2max = _oriented(info["y2min"], info["y2max"], info["y2negate"])
         ax.xplaces = info["xplaces"]
         ax.yplaces = info["yplaces"]
         ax.xnames = info["xnames"]

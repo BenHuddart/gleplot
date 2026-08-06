@@ -210,6 +210,17 @@ Axis Limits
    ax.set_xlim(0, 10)
    ax.set_ylim(-1, 1)
 
+Passing the limits in descending order inverts the axis, as in matplotlib --
+useful for depth below ground, magnitudes, and anything else that counts
+downwards:
+
+.. code-block:: python
+
+   ax.set_ylim(500, 0)    # zero at the top, 500 at the bottom
+
+The one exception is a log axis, which GLE cannot invert; a descending log
+range is drawn the usual way round, with a ``UserWarning``.
+
 Axis Scale
 ~~~~~~~~~~~
 
@@ -217,6 +228,14 @@ Axis Scale
 
    ax.set_xscale('log')   # Logarithmic scale
    ax.set_yscale('log')
+
+A log axis can only show strictly positive values, and GLE refuses to compile
+a script that asks it to do otherwise. gleplot therefore resolves log limits
+before writing them, as matplotlib does: non-positive data is masked when
+autoscaling, and a non-positive limit passed to ``set_xlim``/``set_ylim`` is
+replaced by the smallest positive value plotted. Either repair emits a
+``UserWarning`` saying what range was used instead; pass a positive range to
+choose your own.
 
 Grid
 ~~~~~

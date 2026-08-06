@@ -661,7 +661,8 @@ class GLEWriter:
         y2log : bool
             Whether to use logarithmic scale for y2axis
         xmin, xmax, ymin, ymax : float, optional
-            Axis limits
+            Axis limits. A DESCENDING pair inverts the axis, as it does in
+            matplotlib; see :meth:`_axis_direction`.
         y2min, y2max : float, optional
             Secondary y-axis limits
         show_xlabel, show_ylabel : bool
@@ -721,6 +722,10 @@ class GLEWriter:
 
         # Handle axis ranges and tick labels
         # Note: We keep the axis and ticks visible but can hide the tick labels
+        xmin, xmax, xnegate = self._axis_direction(xmin, xmax)
+        ymin, ymax, ynegate = self._axis_direction(ymin, ymax)
+        y2min, y2max, y2negate = self._axis_direction(y2min, y2max)
+
         x_cmd = "    xaxis"
         if xmin is not None:
             x_cmd += f" min {self._format_number(xmin)}"
@@ -728,6 +733,8 @@ class GLEWriter:
             x_cmd += f" max {self._format_number(xmax)}"
         if xlog:
             x_cmd += " log"
+        if xnegate:
+            x_cmd += " negate"
         if xdticks is not None:
             x_cmd += f" dticks {self._format_number(xdticks)}"
         if xdsubticks is not None:
@@ -765,6 +772,8 @@ class GLEWriter:
             y_cmd += f" max {self._format_number(ymax)}"
         if ylog:
             y_cmd += " log"
+        if ynegate:
+            y_cmd += " negate"
         if ydticks is not None:
             y_cmd += f" dticks {self._format_number(ydticks)}"
         if ydsubticks is not None:
@@ -815,6 +824,8 @@ class GLEWriter:
                 y2_cmd += f" max {self._format_number(y2max)}"
             if y2log:
                 y2_cmd += " log"
+            if y2negate:
+                y2_cmd += " negate"
             if y2axis_off:
                 y2_cmd += " off"
             elif y2_on:
@@ -2189,6 +2200,33 @@ class GLEWriter:
         is ever reordered.
         """
         return " line smooth" if self.graph.smooth_curves else " line"
+
+    @staticmethod
+    def _axis_direction(
+        lo: Optional[float], hi: Optional[float]
+    ) -> Tuple[Optional[float], Optional[float], bool]:
+        """``(min, max, negate)`` for a possibly-descending limit pair.
+
+        matplotlib inverts an axis by giving it descending limits
+        (``set_ylim(3, 1)``); GLE spells the same thing as an ascending range
+        plus the ``negate`` keyword, which mirrors data coordinates within the
+        range -- ``graph2.cpp``'s ``fny()``, and ``graph_ygraph()`` with it, so
+        the ``xg()``/``yg()`` coordinates of text annotations follow the flip
+        too. GLE will not accept the descending range directly: "Error:
+        illegal range for yaxis: min = 3 max = 1".
+
+        So the descending pair IS the model (no separate inverted flag to
+        serialize, and the recognizer recovers one by reading ``negate`` back
+        as a descending pair), and this is the one place it turns into GLE.
+
+        Log axes never reach here descending: GLE's ``negate`` mirrors
+        *linearly* before taking the logarithm, which spaces the decades
+        nonsensically, so ``Figure._normalize_inverted_log_limits`` undoes the
+        inversion before emission.
+        """
+        if lo is not None and hi is not None and lo > hi:
+            return hi, lo, True
+        return lo, hi, False
 
     @staticmethod
     def _format_number(val: float, precision: int = 6) -> str:
