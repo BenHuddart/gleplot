@@ -89,6 +89,44 @@ def test_y2_tick_format_turns_the_y2_labels_on():
     assert lines.index("y2labels on") > lines.index('y2axis format "eng 2"')
 
 
+def test_y2_limits_alone_turn_the_y2_labels_on():
+    """Regression test: a y2 axis configured with limits but no styling and
+    no plotted series used to compile with mirrored tick marks and no
+    numbers -- GLE only auto-enables y2 labels for an axis a plotted
+    dataset uses (see ``GLEWriter.add_axes``'s note on
+    ``do_each_dataset_settings``), and nothing here plots on y2. Verified
+    against the real binary in
+    ``tests/integration/test_axes_styling_compiles.py::
+    test_a_configured_y2_axis_labels_the_right_axis_even_unstyled``.
+    """
+    fig, ax = _fig()
+    ax.set_ylim(0, 10, axis="y2")
+    lines = _graph_lines(fig)
+    assert "y2axis min 0 max 10" in lines
+    assert "y2labels on" in lines
+
+
+def test_y2_log_scale_alone_turns_the_y2_labels_on():
+    fig, ax = _fig()
+    ax.set_ylim(1, 100, axis="y2")
+    ax.set_yscale("log", axis="y2")
+    lines = _graph_lines(fig)
+    assert "y2labels on" in lines
+
+
+def test_y2_title_alone_turns_the_y2_labels_on():
+    fig, ax = _fig()
+    ax.set_ylabel("Right", axis="y2")
+    lines = _graph_lines(fig)
+    assert 'y2title "Right"' in lines
+    assert "y2labels on" in lines
+
+
+def test_no_y2_usage_emits_no_y2labels_line():
+    fig, _ = _fig()
+    assert "y2labels" not in fig._generate_gle()
+
+
 def test_tick_format_is_cleared_by_none():
     fig, ax = _fig()
     ax.set_tick_format("fix 1", axis="x")

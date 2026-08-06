@@ -1169,9 +1169,14 @@ class _Recognizer:
           ``lstyle``/``lwidth`` pair to describe both (subticks inherit only
           the tick colour -- see ``GLEWriter._add_grid_style``). A file that
           styles them differently keeps its ``xsubticks`` line as raw GLE.
-        * ``y2labels on`` is implied by any modeled y2 tick-label property;
-          on its own it is a visibility switch the model does not have, and
-          is preserved.
+        * ``y2labels on`` is implied by any modeled y2 tick-label property,
+          OR by the y2 axis being configured at all (explicit limits, log
+          scale or title -- see ``GLEWriter.add_axes``'s ``y2_used``, which
+          this mirrors): GLE only auto-enables y2 labels on its own when a
+          plotted dataset uses the axis, not when it is merely configured,
+          so the writer now emits ``y2labels on`` for that case too. Only
+          when NEITHER holds is it a bare visibility switch the model does
+          not have, preserved as passthrough.
         """
         for prefix in ("x", "y"):
             ticks = info[f"_{prefix}ticks"]
@@ -1208,6 +1213,10 @@ class _Recognizer:
                 or info["y2angle"] is not None
                 or info["y2labels_hei"] is not None
                 or info["y2labels_color"] is not None
+                or info["y2min"] is not None
+                or info["y2max"] is not None
+                or info["y2log"]
+                or bool(info["y2label"])
             )
             if not implied:
                 info["passthrough"].append(info["_y2labels_on_raw"])
