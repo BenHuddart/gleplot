@@ -1373,3 +1373,152 @@ def test_finding16_resave_is_byte_exact_fixed_point(tmp_path):
 
     assert text1 == text2
     assert rec2.figure.axes_list[0].texts[1]["text"] == "{\\it{T}} = 0.1 K"
+
+
+# --------------------------------------------------------------------------- #
+# Finding 17 -- 'bar'/'fill' comma-list corruption and multi-dataset bar drop
+#
+# GLEstudio's Phase-3 gate review against the GLE manual corpus found two
+# related round-trip corruptions in appendix/fig/single.gle:
+#   size 12 9  box
+#   begin graph
+#       ...
+#       bar d1,d2 fill green,blue
+#       fill x1,d1 color gray10
+#   end graph
+# --------------------------------------------------------------------------- #
+
+_SINGLE_DAT = "1 2 3\n2 3 1\n3 1 4\n4 4 2\n"
+
+
+def test_finding17_fill_comma_list_stays_byte_verbatim(tmp_path):
+    """A 'fill' line the recognizer can't model (here: 'x1' isn't a dataset,
+    so only one dataset name is found and 2 are required) must fall back to
+    the ORIGINAL source text, not a token rejoin. Rejoining with spaces turns
+    'fill x1,d1 color gray10' into 'fill x1 , d1 color gray10', which GLE
+    rejects with 'illegal data set identifier'.
+    """
+    src = (
+        "size 12 9  box\n"
+        "begin graph\n"
+        "   SIZE 12 9\n"
+        "   Title \"Bar example\"\n"
+        "   data single.dat\n"
+        "   fill x1,d1 color gray10\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "fillcomma.gle", src, {"single.dat": _SINGLE_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    joined = "\n".join(ax.passthrough)
+    assert "fill x1,d1 color gray10" in joined
+    assert "fill x1 , d1" not in joined
+
+
+def test_finding17_multi_dataset_bar_group_not_silently_dropped(tmp_path):
+    """'bar d1,d2 fill green,blue' groups two datasets in one GLE command
+    (GLE manual: 'bar d1,d2,d3 fill gray10,gray40,black' draws them
+    side-by-side). gleplot has no model for a shared bar group, so it must
+    keep the whole statement raw with both datasets and both colors intact,
+    and warn -- not silently model only the last dataset and drop the rest.
+    """
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   data single.dat\n"
+        "   bar d1,d2 fill green,blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "multibar.gle", src, {"single.dat": _SINGLE_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    joined = "\n".join(ax.passthrough)
+    assert "bar d1,d2 fill green,blue" in joined
+    assert "blue" in joined  # the previously-dropped dataset's color
+    assert any(
+        w.startswith("structure:") and "bar" in w and "d1,d2" in w
+        for w in rec.warnings
+    )
+    # No BarSeries was fabricated for a group gleplot cannot model.
+    assert ax.bars == []
+
+
+def test_finding17_orphaned_data_statement_is_restored(tmp_path):
+    """When every dataset a 'data' statement declares ends up referenced only
+    by raw passthrough text (as above), the 'data' statement itself must NOT
+    be silently dropped -- otherwise the passthrough 'bar'/'fill' lines
+    reference datasets GLE was never told how to load.
+    """
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   data single.dat\n"
+        "   bar d1,d2 fill green,blue\n"
+        "   fill x1,d1 color gray10\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "orphandata.gle", src, {"single.dat": _SINGLE_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    joined = "\n".join(ax.passthrough)
+    assert "data single.dat" in joined
+    # 'data' precedes the statements that depend on it.
+    assert joined.index("data single.dat") < joined.index("bar d1,d2")
+
+
+def test_finding17_manual_single_gle_resave_compiles_in_real_gle(tmp_path):
+    """End-to-end regression using the exact GLE manual reproducer: parse it,
+    re-save via gleplot, and compile the result with real GLE. Before the
+    fix this failed with 'illegal data set identifier' (comma corruption)
+    and silently dropped d2/blue (multi-dataset bar)."""
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    src = (
+        "size 12 9  box\n"
+        "begin graph\n"
+        "   SIZE 12 9\n"
+        "   Title \"Bar example\"\n"
+        "   data single.dat\n"
+        "   bar d1,d2 fill green,blue \n"
+        "   fill x1,d1 color gray10\n"
+        "end graph\n"
+    )
+    gle = _write(tmp_path, "single.gle", src, {"single.dat": _SINGLE_DAT})
+    rec = parse_gle_figure(gle)
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+
+    res = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(tmp_path / "out.png"), str(out)],
+        capture_output=True, text=True, cwd=str(tmp_path),
+    )
+    assert res.returncode == 0, f"GLE failed:\n{res.stdout}\n{res.stderr}"
+    assert (tmp_path / "out.png").exists()
+
+
+def test_finding17_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   data single.dat\n"
+        "   bar d1,d2 fill green,blue\n"
+        "   fill x1,d1 color gray10\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "fp17.gle", src, {"single.dat": _SINGLE_DAT})
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2

@@ -143,6 +143,24 @@ for rendering, applied by the test-side ``normalize()`` helper)
     per-axes rather than as the config field (the config is a writer default,
     not per-axes state); the emitted GLE is identical either way.
 
+14. **Multi-dataset ``bar``/``fill`` groups kept raw (hand-written only).**
+    ``bar dN,dM,... fill c1,c2,...`` groups several datasets into GLE's
+    automatic side-by-side layout (see the GLE manual's
+    ``bar d1,d2,d3 fill gray10,gray40,black`` example); ``BarSeries`` has no
+    concept of a shared group, only an independent per-dataset bar. The whole
+    statement is kept verbatim in the axes passthrough (all datasets and
+    colors intact) with a ``structure:`` warning, instead of silently
+    modeling only one dataset and dropping the rest. When every dataset a
+    ``data`` statement declares ends up referenced only by such passthrough
+    text (nothing then carries its ``data_file`` for the writer to
+    regenerate from), the original ``data`` statement is restored verbatim
+    too, ahead of the passthrough content that depends on it -- otherwise
+    the regenerated file would reference datasets GLE was never told how to
+    load. A ``data`` statement declaring a MIX of modeled and orphaned
+    datasets is not currently reconstructed (re-emitting it whole would
+    duplicate the modeled portion); a ``data:`` warning flags this instead
+    of resolving it silently either way.
+
 Tolerances for hand-written input
 ---------------------------------
 Attribute order within a dataset command may vary; axis lines may be given
@@ -902,6 +920,10 @@ class _Recognizer:
             # Names of 'let' targets recognized as offset aliases, so pass 2
             # consumes those 'let' lines instead of preserving them as raw GLE.
             "_offset_let_datasets": set(),
+            # Names of 'let' SOURCE datasets (the dJ in 'let dK = dJ+off'),
+            # consumed indirectly through the alias -- see _parse_let_command
+            # and the 'data'-statement reconciliation in _parse_graph_block.
+            "_let_source_datasets": set(),
         }
 
         # Local dataset map for THIS block (dataset refs are graph-local).
@@ -918,13 +940,21 @@ class _Recognizer:
         merged_attr_toks: Dict[str, List[Token]] = {}
         dataset_order: List[str] = []
 
+        # Raw text of each 'data' statement, paired with the dataset names it
+        # declares, in body order -- used after pass 2 to restore a 'data'
+        # statement whose datasets ended up entirely unmodeled (see the
+        # reconciliation below the pass-2 loop).
+        data_stmts: List[Tuple[List[str], str]] = []
+
         for child in block.body:
             if isinstance(child, Statement):
                 if self._skip_meta_stmt(child):
                     continue
                 kw = child.keyword
                 if kw == "data":
-                    self._parse_data_command(_words_and_values(child), datasets)
+                    names = self._parse_data_command(_words_and_values(child), datasets)
+                    if names:
+                        data_stmts.append((names, self._stmt_text(child)))
                     continue
                 if kw == "let":
                     # 'let dK = dJ+off' -- register dK as an offset alias of dJ
@@ -1001,6 +1031,54 @@ class _Recognizer:
             self._dispatch_graph_statement(
                 child, info, datasets, marker_cfg, smooth_flags
             )
+
+        # A 'data' statement's own text is never itself modeled -- pass 1
+        # only uses it to populate ``datasets`` for lookups, on the
+        # assumption that whichever series ends up consuming each dataset
+        # name will carry its 'data_file' and have the writer regenerate an
+        # equivalent 'data' line. That assumption breaks when a dataset ends
+        # up referenced only by raw passthrough text (e.g. a multi-dataset
+        # 'bar'/'fill' group kept verbatim, see _parse_bar_command /
+        # _parse_fill_command) -- nothing then carries 'data_file' for it, so
+        # the writer would silently omit the statement that defines the
+        # dataset the passthrough text still refers to, corrupting the
+        # regenerated GLE. Restore any 'data' statement whose datasets are
+        # entirely unconsumed, ahead of the passthrough content that (being
+        # later in body order) may depend on it.
+        consumed = (
+            set(info["_key_suppress_datasets"]) | emitted | info["_let_source_datasets"]
+        )
+        # A dataset may also be consumed indirectly, referenced by NAME from
+        # another dataset's own attributes rather than having a 'dN ...'
+        # line of its own -- e.g. errorbar's 'd1 ... err d2 ...' points at a
+        # sibling dataset holding the error column. Such a reference is
+        # resolved by the consuming series' own 'data_file'/columns, so it
+        # is not orphaned even though it never appears in ``emitted``.
+        for attr_toks in merged_attr_toks.values():
+            for t in attr_toks:
+                if _DATASET_RE.match(t.value):
+                    consumed.add(t.value.lower())
+        restored: List[str] = []
+        for names, raw in data_stmts:
+            if not any(n in consumed for n in names):
+                restored.append(raw)
+            elif not all(n in consumed for n in names):
+                # Mixed: some of this statement's datasets became real
+                # series (the writer will regenerate a 'data' line for
+                # those), others are orphaned (raw text refers to them but
+                # nothing carries 'data_file' for them). Re-emitting the
+                # whole original line would duplicate the modeled portion;
+                # dropping it silently loses the rest. Surface it instead of
+                # guessing.
+                self.warnings.append(
+                    "data: '"
+                    + raw.strip()
+                    + "' mixes datasets that became series with datasets "
+                    "only referenced by raw GLE; the raw reference(s) may "
+                    "not resolve after save"
+                )
+        if restored:
+            info["passthrough"][0:0] = restored
 
         self._reconcile_places_names(info)
         return info
@@ -1123,10 +1201,10 @@ class _Recognizer:
         # NOTE: 'data' and 'dN' statements are handled by the two-pass driver
         # in _parse_graph_block, not here.
         if kw == "bar":
-            self._parse_bar_command(toks, datasets, info)
+            self._parse_bar_command(toks, datasets, info, stmt)
             return
         if kw == "fill":
-            self._parse_fill_command(toks, datasets, info)
+            self._parse_fill_command(toks, datasets, info, stmt)
             return
         if kw == "key":
             self._parse_key_command(toks, info, stmt)
@@ -1271,8 +1349,13 @@ class _Recognizer:
 
     # -- data command ----------------------------------------------------
 
-    def _parse_data_command(self, toks, datasets):
+    def _parse_data_command(self, toks, datasets) -> List[str]:
         """``data FILE d1=c1,c2 d2=c1,c3 ...`` -> register datasets.
+
+        Returns the dataset names this call registered (empty if the
+        statement was empty, malformed, or its file could not be resolved
+        for auto column mapping), so the caller can pair them with the
+        statement's raw text for later reconciliation.
 
         Handles three GLE forms (semantics verified against
         ``GLE/src/gle/graph.cpp`` ``data_command`` / ``read_data_description``):
@@ -1292,7 +1375,7 @@ class _Recognizer:
         quote-embedded literal (which would never resolve).
         """
         if len(toks) < 2:
-            return
+            return []
         data_file, i = self._read_filename(toks, 1)
         m = len(toks)
 
@@ -1358,13 +1441,15 @@ class _Recognizer:
                     f"data: '{data_file}' could not be resolved; auto column "
                     "mapping (data with no dN clauses) skipped"
                 )
-                return
+                return []
             if ncols <= 1:
                 self._register_dataset("d1", data_file, 0, 1, datasets)
-            else:
-                for k in range(ncols - 1):
-                    self._register_dataset(f"d{k + 1}", data_file, 1, k + 2, datasets)
-            return
+                return ["d1"]
+            names = [f"d{k + 1}" for k in range(ncols - 1)]
+            for name in names:
+                k = int(name[1:]) - 1
+                self._register_dataset(name, data_file, 1, k + 2, datasets)
+            return names
 
         # Explicit and/or positional clauses.
         for pos, (name, cols) in enumerate(given):
@@ -1374,6 +1459,7 @@ class _Recognizer:
                 # Positional: y column follows GLE's position-based assignment.
                 ycol = pos + cy_first
                 self._register_dataset(name, data_file, cx, ycol, datasets)
+        return [name for name, _cols in given]
 
     def _register_dataset(self, name, data_file, xcol, ycol, datasets):
         datasets[name] = (data_file, xcol, ycol)
@@ -1417,6 +1503,11 @@ class _Recognizer:
         self._register_dataset(target, data_file, xcol, ycol, datasets)
         info["_dataset_offsets"][target] = float(offset)
         info["_offset_let_datasets"].add(target)
+        # 'source' is consumed by this alias (its file/columns are what the
+        # aliased series actually reads) even though it never gets its own
+        # 'dN ...' statement -- see the 'data'-statement reconciliation in
+        # _parse_graph_block.
+        info["_let_source_datasets"].add(source)
 
     #: OP token values that may appear glued mid-filename (hyphenated names,
     #: relative paths, and -- defensively -- a literal '+') when assembling
@@ -1476,9 +1567,21 @@ class _Recognizer:
 
     # -- bar / fill ------------------------------------------------------
 
-    def _parse_bar_command(self, toks, datasets, info):
-        """``bar dN fill COLOR``"""
-        d_name = None
+    def _bar_fill_passthrough_line(self, toks, stmt) -> str:
+        """Raw text for a ``bar``/``fill`` line that falls back to passthrough.
+
+        Prefer the statement's verbatim source line: re-joining tokens with a
+        single space (the old fallback) inserts spaces into comma lists like
+        ``d1,d2`` -- GLE parses ``bar d1 , d2`` as an illegal identifier, so
+        the passthrough copy must stay byte-identical to the source.
+        """
+        if stmt is not None:
+            return self._stmt_text(stmt)
+        return "    " + " ".join(t.value for t in toks)
+
+    def _parse_bar_command(self, toks, datasets, info, stmt=None):
+        """``bar dN fill COLOR`` (or ``bar dN,dM,... fill c1,c2,...``)"""
+        d_names = []
         color = "RED"
         i = 1
         m = len(toks)
@@ -1486,7 +1589,7 @@ class _Recognizer:
             w = toks[i].value
             wl = w.lower()
             if _DATASET_RE.match(wl):
-                d_name = wl
+                d_names.append(wl)
             elif wl == "fill" and i + 1 < m:
                 val, nxt = _collect_color(toks, i + 1)
                 if val is not None:
@@ -1494,8 +1597,27 @@ class _Recognizer:
                 i = nxt
                 continue
             i += 1
+
+        if len(d_names) > 1:
+            # A single 'bar' command spanning multiple datasets groups them
+            # into GLE's automatic side-by-side layout (see the GLE manual's
+            # 'bar d1,d2,d3 fill ...' grouped-bar-chart example) -- there is
+            # no BarSeries concept for a shared group, only independent
+            # per-dataset bars. Modeling only the last dataset (the old
+            # behavior) silently dropped the rest with no warning, violating
+            # the no-silent-drops contract. Keep the whole statement raw
+            # instead.
+            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
+            self.warnings.append(
+                "structure: multi-dataset bar group ("
+                + ",".join(d_names)
+                + ") kept as raw GLE, not editable"
+            )
+            return
+
+        d_name = d_names[0] if d_names else None
         if d_name is None or d_name not in datasets:
-            info["passthrough"].append("    " + " ".join(t.value for t in toks))
+            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
             return
         info["_key_suppress_datasets"].add(d_name)
         data_file, xcol, ycol = datasets[d_name]
@@ -1530,7 +1652,7 @@ class _Recognizer:
         info["_draw_seq_counter"] += 1
         info["bars"].append(entry)
 
-    def _parse_fill_command(self, toks, datasets, info):
+    def _parse_fill_command(self, toks, datasets, info, stmt=None):
         """``fill dA,dB color COLOR``"""
         # tokens: fill dA , dB color COLOR
         d_names = []
@@ -1550,7 +1672,7 @@ class _Recognizer:
                 continue
             i += 1
         if len(d_names) < 2 or d_names[0] not in datasets or d_names[1] not in datasets:
-            info["passthrough"].append("    " + " ".join(t.value for t in toks))
+            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
             return
         info["_key_suppress_datasets"].add(d_names[0])
         info["_key_suppress_datasets"].add(d_names[1])
