@@ -7,8 +7,11 @@ pattern used by ``test_preview.py`` for driving Qt objects synchronously.
 
 import os
 import sys
+import warnings
 from pathlib import Path
+from unittest import mock
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -20,7 +23,9 @@ from PySide6.QtCore import QEventLoop, QSettings, QTimer
 from PySide6.QtWidgets import QApplication
 
 import gleplot as glp
+from gleplot.cairo_support import CAIRO_SAFE_FONT
 from gleplot.compiler import find_gle
+from gleplot.gui.compile_core import CompileOutcome
 from gleplot.gui.document import FigureDocument
 from gleplot.gui.export_dialog import ExportDialog
 
@@ -378,3 +383,250 @@ def test_cancel_during_export_stops_the_job(qapp, tmp_path, scratch_settings):
     # output ever landed.
     _wait_until(lambda: False, 300)
     assert not target.exists()
+
+
+# ----------------------------------------------------------------------
+# G8 follow-up: post-compile engine-intermediate cleanup in the export
+# dialog's own async compile path (Figure.savefig() already had this via
+# G8; the export dialog bypasses savefig() and needed its own hookup --
+# see the module docstring "Engine-intermediate cleanup").
+# ----------------------------------------------------------------------
+def _make_contour_document():
+    doc = FigureDocument()
+    fig = glp.Figure(figsize=(7, 6), data_prefix="t")
+    ax = fig.add_subplot(1, 1, 1)
+    x = np.linspace(0, 10, 21)
+    y = np.linspace(0, 8, 17)
+    rng = np.random.default_rng(0)
+    Z = np.sin(x[None, :] / 3) * np.cos(y[:, None] / 3 + rng.uniform())
+    ax.contour(x, y, Z, levels=[-0.3, 0.0, 0.3], clabel=True, clabel_fmt="fix 2")
+    doc.set_figure(fig)
+    return doc
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_export_contour_cleans_up_engine_intermediates(
+    qapp, tmp_path, scratch_settings
+):
+    """A compiled contour export leaves only the intended artifacts behind:
+    the compiled output, the .gle script, the gleplot-written .z sidecar --
+    but none of GLE's own -cdata/-clabels/-cvalues byproducts."""
+    doc = _make_contour_document()
+    dialog = ExportDialog(doc, settings=scratch_settings)
+
+    target = tmp_path / "contour.pdf"
+    _set_path(dialog, target)
+
+    dialog._on_export_clicked()
+    assert _wait_until(lambda: dialog._runner is None, 15000)
+
+    assert target.exists(), dialog._error_box.toPlainText()
+
+    names = {p.name for p in tmp_path.iterdir()}
+    leftovers = {
+        n for n in names if n.endswith(("-cdata.dat", "-clabels.dat", "-cvalues.dat"))
+    }
+    assert leftovers == set(), f"engine intermediates not cleaned up: {leftovers}"
+    # gleplot's own written artifacts must survive cleanup.
+    assert "contour.gle" in names
+    assert "t_contour1.z" in names
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_export_gle_format_never_triggers_cleanup(qapp, tmp_path, scratch_settings):
+    """No compile runs for the 'gle' format, so no cleanup pass is needed;
+    the .z sidecar (gleplot's own, not an engine intermediate) survives."""
+    doc = _make_contour_document()
+    dialog = ExportDialog(doc, settings=scratch_settings)
+
+    target = tmp_path / "contour.gle"
+    _set_path(dialog, target)
+
+    dialog._on_export_clicked()
+
+    assert target.exists(), dialog._error_box.toPlainText()
+    assert (tmp_path / "t_contour1.z").exists()
+
+
+def test_cleanup_runs_only_after_a_successful_compile(qapp, tmp_path, scratch_settings):
+    """Unit-level check of the gating itself (no real GLE needed):
+    _on_compile_finished must call remove_generated_intermediates on a
+    successful outcome and must NOT call it on a failed one -- a failed
+    export's intermediates survive for debugging, mirroring
+    Figure.savefig()'s own behaviour."""
+    doc = _make_document()
+    dialog = ExportDialog(doc, settings=scratch_settings)
+    dialog.selected_path = tmp_path / "out.pdf"
+    dialog._export_dir = tmp_path
+    dialog._export_intermediate_names = ["stem-cdata.dat"]
+
+    with mock.patch(
+        "gleplot.gui.export_dialog.remove_generated_intermediates"
+    ) as cleanup:
+        failed = CompileOutcome(ok=False, output_path=None, raw_output="boom")
+        dialog._on_compile_finished(failed)
+        cleanup.assert_not_called()
+        # Intentionally left in place on failure -- reset for the next check.
+        assert dialog._export_dir == tmp_path
+
+        dialog.selected_path = tmp_path / "out.pdf"
+        dialog._export_dir = tmp_path
+        dialog._export_intermediate_names = ["stem-cdata.dat"]
+        ok = CompileOutcome(ok=True, output_path=dialog.selected_path, raw_output="")
+        dialog._on_compile_finished(ok)
+        cleanup.assert_called_once_with(tmp_path, ["stem-cdata.dat"])
+        # Cleared after use so a stale value is never reused by a later export.
+        assert dialog._export_dir is None
+        assert dialog._export_intermediate_names == []
+
+
+# ----------------------------------------------------------------------
+# G6 follow-up: SVG font pre-injection (found during Track G6). Parity
+# with gleplot.gui.preview's SVG preview path -- see the module docstring
+# "SVG font pre-injection".
+# ----------------------------------------------------------------------
+def _make_document_with_font(font):
+    # Figure() with no explicit `style=` falls back to
+    # GlobalConfig.get_style()'s shared, mutable singleton -- setting
+    # `fig.style.font` in place would leak into every other Figure()
+    # created afterwards in this test session. Pass an independent
+    # GLEStyleConfig instead so this is fully test-local.
+    doc = FigureDocument()
+    fig = glp.Figure(figsize=(4, 3), style=glp.GLEStyleConfig(font=font))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([1, 2, 3], [1, 4, 9], label="sq")
+    doc.set_figure(fig)
+    return doc
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_export_svg_postscript_font_substituted_and_warns(
+    qapp, tmp_path, scratch_settings
+):
+    # No explicit font set (the default): the script therefore carries no
+    # `set font` line at all, so GLE's own built-in default resolves --
+    # PostScript ('rm'/Times), not Cairo-safe. This is exactly the case
+    # inject_svg_safe_font() must fill in: an *explicit* unsafe font choice
+    # is a separate case that inject_svg_safe_font() intentionally leaves
+    # alone (see its docstring's "explicit choice always wins" rule).
+    doc = _make_document()
+    dialog = ExportDialog(doc, settings=scratch_settings)
+
+    target = tmp_path / "out.svg"
+    _set_path(dialog, target)
+
+    with pytest.warns(UserWarning, match="texcmr"):
+        dialog._on_export_clicked()
+    assert _wait_until(lambda: dialog._runner is None, 15000)
+
+    assert target.exists(), dialog._error_box.toPlainText()
+    # The script-side substitution actually landed in the compiled copy.
+    script_text = (tmp_path / "out.gle").read_text(encoding="utf-8")
+    assert f"set font {CAIRO_SAFE_FONT}" in script_text
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_export_svg_safe_font_no_warning_no_double_injection(
+    qapp, tmp_path, scratch_settings
+):
+    doc = _make_document_with_font(CAIRO_SAFE_FONT)
+    dialog = ExportDialog(doc, settings=scratch_settings)
+
+    target = tmp_path / "out.svg"
+    _set_path(dialog, target)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        dialog._on_export_clicked()  # must not raise/warn
+    assert _wait_until(lambda: dialog._runner is None, 15000)
+
+    assert target.exists(), dialog._error_box.toPlainText()
+    script_text = (tmp_path / "out.gle").read_text(encoding="utf-8")
+    # The user's own explicit choice is untouched -- exactly one such line.
+    assert script_text.count("set font") == 1
+    assert f"set font {CAIRO_SAFE_FONT}" in script_text
+
+
+def test_export_non_svg_format_does_not_run_svg_font_injection(
+    qapp, tmp_path, scratch_settings
+):
+    """The SVG-only font pre-injection must never run for any other format
+    -- checked directly against the call, so this needs no real GLE."""
+    doc = _make_document_with_font("rm")
+    dialog = ExportDialog(doc, settings=scratch_settings)
+
+    target = tmp_path / "out.pdf"
+    _set_path(dialog, target)
+
+    with mock.patch(
+        "gleplot.gui.export_dialog.inject_svg_safe_font"
+    ) as inject, mock.patch("gleplot.gui.export_dialog.find_gle", return_value=None):
+        # find_gle() is forced to fail so this stays synchronous and
+        # deterministic (no real compile needed) -- inject_svg_safe_font is
+        # only reached, if at all, before that failure for svg-format
+        # exports, so its call state is unaffected by exercising this path.
+        dialog._on_export_clicked()
+    inject.assert_not_called()
+
+
+@pytest.mark.xfail(not _GLE_AVAILABLE, reason="GLE not installed", strict=False)
+def test_export_svg_cairo_flag_composes_with_font_and_cleanup(
+    qapp, tmp_path, scratch_settings
+):
+    """Composition check: a figure needing -cairo for alpha AND carrying
+    contour engine-intermediates AND an unsafe font, exported as SVG --
+    all three tracks (G6 cairo/alpha, G6-follow-up font injection, G8
+    cleanup) must fire together correctly."""
+    doc = FigureDocument()
+    # No explicit font -- see test_export_svg_postscript_font_substituted_
+    # and_warns for why that (not an explicit unsafe choice) is the case
+    # that actually exercises the substitution.
+    fig = glp.Figure(figsize=(7, 6), data_prefix="t")
+    ax = fig.add_subplot(1, 1, 1)
+    x = np.linspace(0, 10, 21)
+    y = np.linspace(0, 8, 17)
+    ax.fill_between(x, np.zeros_like(x), np.ones_like(x) * 3, alpha=0.4)
+    rng = np.random.default_rng(1)
+    Z = np.sin(x[None, :] / 3) * np.cos(y[:, None] / 3 + rng.uniform())
+    ax.contour(x, y, Z, levels=[-0.3, 0.0, 0.3], clabel=True, clabel_fmt="fix 2")
+    doc.set_figure(fig)
+
+    assert fig.requires_cairo() is True
+
+    dialog = ExportDialog(doc, settings=scratch_settings)
+    target = tmp_path / "combo.svg"
+    _set_path(dialog, target)
+
+    from gleplot.compiler import build_compile_args as real_build_args
+
+    captured = {}
+
+    def _spy(*args, **kwargs):
+        result = real_build_args(*args, **kwargs)
+        captured["cairo"] = kwargs.get("cairo")
+        captured["args"] = result
+        return result
+
+    with mock.patch(
+        "gleplot.gui.export_dialog.build_compile_args", side_effect=_spy
+    ), pytest.warns(UserWarning, match="texcmr"):
+        dialog._on_export_clicked()
+    assert _wait_until(lambda: dialog._runner is None, 15000)
+
+    assert target.exists(), dialog._error_box.toPlainText()
+    # The alpha fill still drives -cairo regardless of the new SVG font path.
+    assert captured["cairo"] is True
+    assert "-cairo" in captured["args"]
+
+    # Font substitution landed in the compiled script copy.
+    script_text = (tmp_path / "combo.gle").read_text(encoding="utf-8")
+    assert f"set font {CAIRO_SAFE_FONT}" in script_text
+
+    # And cleanup still ran despite the extra svg/font handling in the way.
+    leftovers = {
+        p.name
+        for p in tmp_path.iterdir()
+        if p.name.endswith(("-cdata.dat", "-clabels.dat", "-cvalues.dat"))
+    }
+    assert leftovers == set()
+    assert (tmp_path / "t_contour1.z").exists()

@@ -34,7 +34,8 @@ share exactly one policy instead of re-deriving it.
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any, Optional, Union
 
 #: The Cairo/TeX-safe font GLE itself substitutes for a rejected PostScript
 #: font when ``-cairo`` is on the command line (empirically verified: GLE
@@ -177,3 +178,76 @@ def figure_requires_cairo(snapshot: dict) -> bool:
     wrapper that calls ``self.to_dict()`` for you.
     """
     return _value_requires_cairo(snapshot)
+
+
+#: Matches a top-level ``set font ...`` line, so :func:`inject_svg_safe_font`
+#: never overrides an explicit user choice.
+_SET_FONT_RE = re.compile(r"^\s*set\s+font\b", re.IGNORECASE)
+#: Matches the ``size W H`` line every gleplot-generated script emits near
+#: the top -- the anchor :func:`inject_svg_safe_font` inserts its ``set
+#: font`` line immediately after.
+_SIZE_LINE_RE = re.compile(r"^\s*size\s+[-+0-9.]+\s+[-+0-9.]+\s*$", re.IGNORECASE)
+
+
+def inject_svg_safe_font(
+    script_path: Union[str, Path], safe_font: str = CAIRO_SAFE_FONT
+) -> bool:
+    """Insert ``set font <safe_font>`` after ``script_path``'s ``size`` line.
+
+    Shared script-side substitution mechanism (Track E2/G6 follow-up):
+    GLE's Cairo SVG backend (``gle -d svg``) rejects PostScript fonts
+    outright -- and, unlike every other Cairo-backed device, it engages
+    regardless of the ``-cairo`` command-line flag, so GLE's own graceful
+    fallback (see :func:`cairo_font_warning`'s docstring, point 2) never
+    runs for it. Left alone, an SVG compile against the default (or any
+    other PostScript) font exits ``0`` while silently dropping the
+    affected text (SPEC "no silent drops"). Forcing ``safe_font`` into the
+    script before compiling avoids the error entirely rather than relying
+    on GLE's post-hoc substitution.
+
+    No-op -- returns ``False`` without touching the file -- if
+    ``script_path`` already contains an explicit ``set font`` line (a
+    user's own font choice always wins; a caller that wants the "was this
+    font actually unsafe" verdict independently should consult
+    :func:`is_cairo_safe_font`/:func:`cairo_font_warning`) or if no ``size``
+    line is found to anchor the insertion on (should not happen for a
+    gleplot-generated script; left untouched rather than guessing where to
+    insert).
+
+    Originally ``gleplot.gui.preview.PreviewController._inject_svg_font``
+    (Track E2); promoted here so the export dialog's SVG path (Track H
+    follow-up) can reuse the exact same mechanism instead of re-deriving
+    it.
+
+    Parameters
+    ----------
+    script_path : str or Path
+        The ``.gle`` script to modify in place. Callers are expected to
+        pass a throwaway/temp copy (preview's session script, or export's
+        just-written snapshot copy) -- this never touches a user's saved
+        file directly.
+    safe_font : str, optional
+        The font to inject. Defaults to :data:`CAIRO_SAFE_FONT`.
+
+    Returns
+    -------
+    bool
+        ``True`` if a ``set font`` line was inserted (a real substitution
+        happened), ``False`` on a no-op.
+    """
+    path = Path(script_path)
+    text = path.read_text(encoding="utf-8")
+    newline = "\r\n" if "\r\n" in text else "\n"
+    raw_lines = text.split(newline)
+
+    if any(_SET_FONT_RE.match(line) for line in raw_lines):
+        return False  # explicit user font already present; do not override
+
+    for idx, line in enumerate(raw_lines):
+        if _SIZE_LINE_RE.match(line):
+            raw_lines.insert(idx + 1, f"set font {safe_font}")
+            path.write_text(newline.join(raw_lines), encoding="utf-8")
+            return True
+    # No `size` line found (should not happen for a gleplot-generated
+    # script): leave the script untouched rather than guess where to insert.
+    return False
