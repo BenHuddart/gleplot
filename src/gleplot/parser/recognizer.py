@@ -2089,7 +2089,10 @@ class _Recognizer:
         # The modelled option set, in any order: 'pos P', 'hei H', 'nobox',
         # 'offset X Y' -- exactly what GLEWriter.add_legend emits. Parse into a scratch
         # dict first so a later unmodelled token leaves ``info`` untouched.
-        parsed = self._scan_key_options(rest)
+        # Scanned from the Token list (not the lowered strings above) because
+        # a negative literal like the writer's own 'offset 1.5 -0.5' tokenizes
+        # as an OP '-' followed by a NUMBER, not a single signed NUMBER token.
+        parsed = self._scan_key_options(toks[1:])
         if parsed is not None:
             info["key_pos"] = parsed.get("pos", info["key_pos"])
             info["key_hei"] = parsed.get("hei", info["key_hei"])
@@ -2107,39 +2110,78 @@ class _Recognizer:
         )
         info["passthrough"].append(line)
         self.warnings.append(
-            "structure: key has unsupported options; kept as raw GLE, " "not editable"
+            "legend: key has unsupported options; kept as raw GLE, not editable"
         )
 
     @staticmethod
-    def _scan_key_options(rest):
-        """Scan the tokens after ``key`` into ``{pos, hei, nobox}``.
+    def _key_literal_number(toks: List[Token], i: int) -> Tuple[Optional[float], int]:
+        """Read a literal (non-expression) number at ``toks[i]``.
+
+        Accepts a single ``NUMBER`` token, or an OP ``-`` immediately
+        followed by one -- GLE's tokenizer never fuses a leading sign into
+        the NUMBER token, so ``offset 1.5 -0.5`` lexes as
+        ``NUMBER('1.5') OP('-') NUMBER('0.5')``. Deliberately does not fall
+        back to :func:`_collect_value`'s full expression grammar (``2*pi``
+        etc.): ``hei``/``offset`` only model literal numbers, exactly as
+        before this fix -- an expression still falls through to raw
+        passthrough of the whole ``key`` line.
+        """
+        if i >= len(toks):
+            return None, i
+        t = toks[i]
+        if t.type is TokenType.NUMBER:
+            try:
+                return float(t.value), i + 1
+            except ValueError:
+                return None, i
+        if (
+            t.type is TokenType.OP
+            and t.value == "-"
+            and i + 1 < len(toks)
+            and toks[i + 1].type is TokenType.NUMBER
+        ):
+            try:
+                return -float(toks[i + 1].value), i + 2
+            except ValueError:
+                return None, i
+        return None, i
+
+    @classmethod
+    def _scan_key_options(cls, toks: List[Token]):
+        """Scan the tokens after ``key`` into ``{pos, hei, nobox, offset}``.
 
         Returns ``None`` as soon as a token outside the modelled set appears,
         so the caller can fall back to raw passthrough. A ``pos``/``hei``
-        without its value, or a non-numeric ``hei``, is likewise unmodelled.
+        without its value, or a non-numeric ``hei``/``offset`` component, is
+        likewise unmodelled.
         """
-        out = {}
+        out: dict = {}
         i = 0
-        while i < len(rest):
-            word = rest[i]
+        n = len(toks)
+        while i < n:
+            t = toks[i]
+            word = t.value.lower() if t.type is TokenType.WORD else None
             if word == "nobox":
                 out["nobox"] = True
                 i += 1
-            elif word in ("pos", "position") and i + 1 < len(rest):
-                out["pos"] = rest[i + 1]
+            elif word in ("pos", "position") and i + 1 < n:
+                out["pos"] = toks[i + 1].value.lower()
                 i += 2
-            elif word == "hei" and i + 1 < len(rest):
-                try:
-                    out["hei"] = float(rest[i + 1])
-                except ValueError:
+            elif word == "hei" and i + 1 < n:
+                hei, nxt = cls._key_literal_number(toks, i + 1)
+                if hei is None:
                     return None  # an expression, not a literal height
-                i += 2
-            elif word == "offset" and i + 2 < len(rest) + 1 and i + 2 <= len(rest):
-                try:
-                    out["offset"] = (float(rest[i + 1]), float(rest[i + 2]))
-                except (ValueError, IndexError):
+                out["hei"] = hei
+                i = nxt
+            elif word == "offset" and i + 1 < n:
+                dx, nxt = cls._key_literal_number(toks, i + 1)
+                if dx is None:
                     return None  # expressions, not literal displacements
-                i += 3
+                dy, nxt2 = cls._key_literal_number(toks, nxt)
+                if dy is None:
+                    return None
+                out["offset"] = (dx, dy)
+                i = nxt2
             else:
                 return None
         return out or None

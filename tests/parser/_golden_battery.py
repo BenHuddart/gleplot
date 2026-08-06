@@ -142,6 +142,25 @@ def legend_positions_all():
     return figs[0]
 
 
+def legend_full_options():
+    """``key pos``/``offset``/``hei`` together, offset with a negative
+    component -- the combination the writer itself emits for any legend
+    that sets an offset and a fontsize, e.g.
+    ``key pos bl offset 1.5 -0.5 hei 0.31746``. Regression coverage for a
+    recognizer gap: 'offset dx dy' tokenizes a negative component as an OP
+    '-' followed by a NUMBER (GLE has no signed-literal token), which
+    ``_scan_key_options`` failed to recognize, silently dropping the whole
+    'key' line to raw passthrough with 'pos'/'offset'/'hei' all reverting to
+    their model defaults. ``legend_positions_all`` above only exercises bare
+    ``loc=``, with no offset/fontsize, so it never touched this path.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 2, 3], label="series 1")
+    ax.legend(loc="lower left", fontsize=9.0, offset=(1.5, -0.5))
+    return fig
+
+
 def subplots_sharex():
     fig, axes = glp.subplots(3, 1, sharex=True, data_prefix="golden")
     for i, ax in enumerate(axes):
@@ -370,6 +389,7 @@ BUILDERS = [
     text_annotations,
     secondary_yaxis,
     legend_positions_all,
+    legend_full_options,
     subplots_sharex,
     subplots_sharex_with_colored_text,
     subplots_grid_mixed,
