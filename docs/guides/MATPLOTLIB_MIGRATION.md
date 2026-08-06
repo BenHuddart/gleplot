@@ -81,7 +81,9 @@ ax.legend(loc='upper left', fontsize=6.5, frameon=False)
 2. Saving to `.gle` always works without external compiler.
 3. Saving to `.pdf`, `.png`, `.eps` requires a working GLE installation.
 4. Sidecar `.dat` files are generated for in-memory series unless file-based series methods are used.
-5. `ax.grid(...)` is currently a compatibility placeholder.
+5. `ax.grid(visible, which=, axis=, color=, linestyle=, linewidth=)` maps to
+   GLE's `xaxis grid` (+ `xsubticks on` for `which='both'`). A minor-only
+   grid is not expressible and is normalized to both, with a warning.
 6. Display strings follow matplotlib's contract: plain text renders literally
    (`'lambda_tail'` is not a subscript) and math is opt-in via `$...$`. Unlike
    matplotlib, a backslash outside `$...$` still opens GLE's own text markup

@@ -183,6 +183,27 @@ def normalize(d: dict) -> dict:
             if ax.get(lim) is not None:
                 ax[lim] = _snap_num(ax[lim])
 
+        # Axes styling: sizes are points on the model and 'hei' cm in the
+        # file, grid widths points and 'lwidth' cm, both written at the
+        # writer's precision -- the same round-trip snap the text fontsizes
+        # and series linewidths get above. Distances and angles are already
+        # in the model's own units, so they come back exact.
+        for key in (
+            "title_size",
+            "xlabel_size",
+            "ylabel_size",
+            "y2label_size",
+            "xticklabel_size",
+            "yticklabel_size",
+            "y2ticklabel_size",
+        ):
+            if ax.get(key) is not None:
+                emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(ax[key])))
+                ax[key] = fontsize_cm_to_pt(float(emitted))
+        for key in ("xgrid_lwidth", "ygrid_lwidth"):
+            if ax.get(key) is not None:
+                ax[key] = _snap_linewidth(ax[key])
+
         for group in ("lines", "scatters", "errorbars"):
             for s in ax.get(group, []):
                 if "markersize" in s:

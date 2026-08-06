@@ -427,7 +427,9 @@ def _write_hand_gle(tmp_path: Path) -> Path:
         "set arrowsize 0.2\n"               # unknown line, header position
         "begin graph\n"
         '   title "Hand Written"\n'
-        "   xaxis min 0 max 3 grid\n"        # 'grid' remainder preserved
+        # 'grid' is modeled (Axes.xgrid); 'shift' still isn't, and its
+        # remainder is preserved as a supplementary axis line.
+        "   xaxis min 0 max 3 grid shift 0.1\n"
         '   data "series.dat" d1=c1,c2\n'    # quoted-filename data series
         "   d1 line color BLUE\n"
         "   ticks lstyle 2\n"                 # valid, unmodeled graph line

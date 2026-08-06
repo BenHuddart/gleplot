@@ -277,8 +277,8 @@ Configuration for graph layout and rendering behavior.
 ```python
 GLEGraphConfig(
     scale_mode: str = 'auto',
-    title_distance: float = 0.1,
-    xlabel_distance: float = 0.1,
+    title_distance: Optional[float] = None,
+    xlabel_distance: Optional[float] = None,
     ylabel_distance: float = 0.1,
     legend_position: str = 'tr',
     legend_offset_x: float = 0.0,
@@ -322,38 +322,35 @@ fig = glp.figure(graph=graph)
 graph = glp.GLEGraphConfig(scale_mode='fullsize')
 ```
 
-#### `title_distance: float`
+#### `title_distance: Optional[float]`
 
-Distance (in cm) from graph box top to title text.
+Figure-wide default distance (cm) for the graph title (GLE `title ... dist`). A per-axes
+`Axes.title_dist` wins over it.
 
-**Valid range:** 0.0-2.0 cm
-**Default:** 0.1 cm
-**Type:** float
+**Valid range:** 0.0-2.0 cm, or None
+**Default:** None (emit no `dist`; GLE's own spacing)
+**Type:** Optional[float]
 **Mutable:** Yes
 
-**Note:** Only applies to `'auto'` scale mode.
+#### `xlabel_distance: Optional[float]`
 
-#### `xlabel_distance: float`
+Figure-wide default distance (cm) for the x-axis title (GLE `xtitle ... dist`). A per-axes
+`Axes.xlabel_dist` wins over it.
 
-Distance (in cm) from graph box bottom to x-axis label.
-
-**Valid range:** 0.0-2.0 cm
-**Default:** 0.1 cm
-**Type:** float
+**Valid range:** 0.0-2.0 cm, or None
+**Default:** None (emit no `dist`; GLE's own spacing)
+**Type:** Optional[float]
 **Mutable:** Yes
 
-**Note:** Only applies to `'auto'` scale mode.
+#### `ylabel_distance: Optional[float]`
 
-#### `ylabel_distance: float`
+Figure-wide default distance (cm) for the y and y2 axis titles (GLE `ytitle`/`y2title ... dist`). A per-axes
+`Axes.ylabel_dist` wins over it.
 
-Distance (in cm) from graph box left to y-axis label.
-
-**Valid range:** 0.0-2.0 cm
-**Default:** 0.1 cm
-**Type:** float
+**Valid range:** 0.0-2.0 cm, or None
+**Default:** None (emit no `dist`; GLE's own spacing)
+**Type:** Optional[float]
 **Mutable:** Yes
-
-**Note:** Only applies to `'auto'` scale mode.
 
 #### `legend_position: str`
 
@@ -453,14 +450,15 @@ ax.plot(x, y)  # Spline through the points; omit the config for a polyline
 
 #### `show_grid: bool`
 
-Show background grid in graph area.
+Figure-wide default grid: every axes created on the figure starts with a
+main-tick grid on both axes. A later `ax.grid(...)` call (including
+`ax.grid(False)`) wins, since the setting is read once, when the axes is
+created.
 
 **Valid values:** `True`, `False`
 **Default:** `False`
 **Type:** bool
-**Mutable:** Yes
-
-**Note:** Currently a placeholder for future implementation.
+**Mutable:** Yes (affects axes created after the change)
 
 ---
 

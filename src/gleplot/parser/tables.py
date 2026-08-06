@@ -41,6 +41,7 @@ __all__ = [
     "GLE_MARKER_TO_MATPLOTLIB",
     "LSTYLE_TO_MATPLOTLIB",
     "MATPLOTLIB_TO_LSTYLE",
+    "NUMBER_FORMAT_KEYWORDS",
     "KEY_POSITIONS_LONG_TO_SHORT",
     "KEY_POSITIONS_SHORT_TO_LONG",
     "PALETTE_SUB_TO_CMAP",
@@ -392,6 +393,48 @@ def _build_lstyle_to_matplotlib() -> Dict[int, str]:
 LSTYLE_TO_MATPLOTLIB: Dict[int, str] = _build_lstyle_to_matplotlib()
 
 MATPLOTLIB_TO_LSTYLE: Dict[str, int] = {v: k for k, v in LSTYLE_TO_MATPLOTLIB.items()}
+
+
+# ---------------------------------------------------------------------------
+# Number-format keywords
+# ---------------------------------------------------------------------------
+#
+# Every specifier GLE's number-format parser understands, transcribed from
+# GLE 4.3.10 ``src/gle/numberformat.cpp``, ``GLENumberFormat::GLENumberFormat``
+# (the ``if (name == ...)`` chain) -- the code behind both ``format$(x, fmt)``
+# and the graph block's ``xaxis format "<fmt>"``. Documented in the manual
+# under ``format$`` ("Programming"), which omits ``nozero``, ``add`` and
+# ``otherwise``; the source is authoritative and they are included here.
+#
+# GLE does NOT abort on an unrecognized specifier -- it prints "Unknown
+# specifier in number format string" and skips it -- so this table is used
+# only for a light "did you mean a format string at all?" check
+# (:func:`gleplot.axes.validate_tick_format`), never to reject arguments.
+NUMBER_FORMAT_KEYWORDS: Tuple[str, ...] = (
+    # Base formats (each starts a new format in the chain).
+    "fix",
+    "percent",
+    "dec",
+    "hex",
+    "bin",
+    "round",
+    "sci",
+    "eng",
+    "frac",
+    "pi",
+    # Modifiers of the preceding format.
+    "prefix",
+    "nozeroes",
+    "nozero",
+    "sign",
+    "pad",
+    "min",
+    "max",
+    "append",
+    "add",
+    "prepend",
+    "otherwise",
+)
 
 
 # ---------------------------------------------------------------------------
