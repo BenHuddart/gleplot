@@ -1769,6 +1769,21 @@ class Figure:
                     label=fs_data.get("label"),
                     yaxis=fs_data.get("yaxis", "y"),
                 )
+            elif series_type == "bar":
+                writer.add_bar_from_file(
+                    fs_data["data_file"],
+                    fs_data["x_col"],
+                    fs_data["y_col"],
+                    color=fs_data.get("color", "RED"),
+                )
+            elif series_type == "fill":
+                writer.add_fill_from_file(
+                    fs_data["data_file"],
+                    fs_data["x_col"],
+                    fs_data["y1_col"],
+                    fs_data["y2_col"],
+                    color=fs_data.get("color", "LIGHTBLUE"),
+                )
             else:
                 writer.add_errorbar_from_file(
                     fs_data["data_file"],
