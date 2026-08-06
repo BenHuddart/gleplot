@@ -24,6 +24,7 @@ when the figure is rebuilt.
 """
 
 import re
+import warnings
 from typing import Optional, Tuple, Union
 
 
@@ -61,7 +62,7 @@ MATPLOTLIB_TO_GLE_COLORS = {
     'darkgreen': 'DARKGREEN',
     'darkred': 'DARKRED',
     'darkgray': 'DARKGRAY',
-    'darkgrey': 'DARKGREY',
+    'darkgrey': 'DARKGRAY',
 }
 
 # Extended GLE color palette
@@ -168,6 +169,22 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
         if color_upper in _gle_color_names():
             return color_upper
 
+        # British "grey" spellings of any named grey -- bare GREY, the
+        # numbered ramp GREY1/GREY5/GREY10..GREY90, DARKGREY, LIGHTGREY, etc.
+        # -- alias their "gray" equivalents. GLE itself defines these grey
+        # spellings as distinct colours (``defineOldGLEColors`` in
+        # color.cpp), matching the gray ramp's RGB values, and
+        # gleplot.parser.tables.gle_color_rgb already treats GREY as an
+        # alias for GRAY when reading a ``.gle`` file; this mirrors that
+        # convention on the writing side so a name that round-trips one way
+        # round-trips the other too. Without this, e.g. ``rgb_to_gle('grey40')``
+        # matched nothing above and fell all the way through to the
+        # unrecognized-name fallback, silently turning a mid-grey into BLACK.
+        if "GREY" in color_upper:
+            gray_variant = color_upper.replace("GREY", "GRAY")
+            if gray_variant in _gle_color_names():
+                return gray_variant
+
         # Check matplotlib color codes and named colors
         if color_lower in MATPLOTLIB_TO_GLE_COLORS:
             return MATPLOTLIB_TO_GLE_COLORS[color_lower]
@@ -179,6 +196,21 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
         # Try hex color
         if color_lower.startswith('#'):
             return _hex_to_gle(color_lower)
+
+        # Unrecognized name: neither a GLE colour, a matplotlib code/cycle
+        # reference, nor a hex string. gleplot's house rule is "no silent
+        # drops" (nothing unexpressible is dropped without at least a
+        # warning) -- see markers.matplotlib_to_gle_marker for the
+        # established pattern this follows. The BLACK fallback is
+        # deliberately kept (existing callers/tests depend on it), but it no
+        # longer happens silently.
+        warnings.warn(
+            f"Unrecognized colour {color!r}: it is neither a GLE colour "
+            f"name, a matplotlib colour code, nor a hex string. Falling "
+            f"back to BLACK.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     # Default fallback
     return 'BLACK'
@@ -292,9 +324,21 @@ def _hex_to_gle(hex_color: str) -> str:
             g = int(digits[2:4], 16)
             b = int(digits[4:6], 16)
         except ValueError:
+            warnings.warn(
+                f"Unrecognized colour {hex_color!r}: not a valid hex string. "
+                f"Falling back to BLACK.",
+                UserWarning,
+                stacklevel=3,
+            )
             return 'BLACK'
         return rgb255_expr(r, g, b)
 
+    warnings.warn(
+        f"Unrecognized colour {hex_color!r}: not a valid hex string "
+        f"(expected #RGB or #RRGGBB). Falling back to BLACK.",
+        UserWarning,
+        stacklevel=3,
+    )
     return 'BLACK'
 
 

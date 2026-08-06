@@ -818,7 +818,12 @@ class GLEWriter:
 
         GLE's y2 (and x2) tick labels are off unless ``y2labels on`` is
         given, so any y2 tick-label property in ``y2style`` also emits
-        ``y2labels on`` -- it would otherwise be inert.
+        ``y2labels on`` -- it would otherwise be inert. So does any other
+        sign the y2 axis is actually configured (``y2min``/``y2max``/
+        ``y2log``/``y2label``): GLE auto-enables y2 labels on its own when a
+        plotted dataset uses the axis, but not when the axis is only
+        configured with no dataset on it, which otherwise compiled with
+        mirrored tick marks and no numbers.
         """
         if xnames is not None and (xplaces is None or len(xnames) != len(xplaces)):
             raise ValueError("xnames must be the same length as xplaces")
@@ -986,7 +991,29 @@ class GLEWriter:
         # the default for the x and y axis, but not for the x2 and y2 axis"),
         # so a y2 format/hei/color/angle is inert without 'y2labels on'.
         # Emitting it is the only way those properties mean anything.
-        if not y2axis_off and y2style.has_tick_label_styling():
+        #
+        # GLE itself papers over this for a y2 axis that actually carries a
+        # plotted series: GLEGraph::do_each_dataset_settings (graph2.cpp)
+        # auto-clears label_off for whichever axis each in-use dataset is
+        # assigned to, as long as the script never said 'y2labels on/off'
+        # explicitly. That is real GLE behaviour, verified against the
+        # 4.3.10 binary -- a y2 series with y2 limits and no styling already
+        # renders its numbers with no help from gleplot.
+        #
+        # The case that auto-behaviour does NOT cover -- and which used to
+        # render silently blank -- is a y2 axis configured but carrying no
+        # dataset at all: explicit y2 limits/log-scale/title (``set_ylim``/
+        # ``set_yscale``/``set_ylabel(axis='y2')``) with nothing plotted on
+        # it. There is no dataset to trigger GLE's auto-enable, so the axis
+        # compiled happily and drew mirrored tick marks with no numbers.
+        # Emitting 'y2labels on' whenever the y2 axis is configured at all
+        # -- the same explicit-limits/log/title signal ``y2min``/``y2max``/
+        # ``y2log``/``y2label`` already used just above to decide whether to
+        # emit the ``y2axis`` line -- fixes that case and is a harmless,
+        # idempotent no-op for the already-working series case (GLE has no
+        # "on but no numbers" state to disturb).
+        y2_used = y2min is not None or y2max is not None or y2log or bool(y2label)
+        if not y2axis_off and (y2_used or y2style.has_tick_label_styling()):
             opts = self._text_options(y2style.label_size, y2style.label_color, None)
             self.lines_gle.append(f"    y2labels on{opts}")
 
