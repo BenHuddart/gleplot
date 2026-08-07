@@ -265,7 +265,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import numpy as np
 
@@ -317,6 +317,24 @@ __all__ = ["ImportCategory", "ImportNote", "RecognizedFigure", "parse_gle_figure
 
 
 _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
+
+
+def _bar_stack_names(toks: List[Token]) -> Optional[Tuple[str, str]]:
+    """``(dN, dM)`` for a ``bar dN from dM ...`` statement, else ``None``.
+
+    GLE's stacked-bar form (the manual's 'stacked bar chart' example): ``dN``
+    draws stacked on top of ``dM``. Detected up front, in pass 1, so an
+    EARLIER, independent ``bar dM fill ...`` statement can still be
+    recognized as part of this later stack -- see ``_bar_stack_datasets``
+    and its use in :meth:`_Recognizer._parse_bar_command`.
+    """
+    words = [t.value.lower() for t in toks]
+    for i, word in enumerate(words):
+        if word == "from" and 0 < i < len(words) - 1:
+            prev_word, next_word = words[i - 1], words[i + 1]
+            if _DATASET_RE.match(prev_word) and _DATASET_RE.match(next_word):
+                return prev_word, next_word
+    return None
 
 
 @dataclass
@@ -1157,6 +1175,14 @@ class _Recognizer:
             # consumed indirectly through the alias -- see _parse_let_command
             # and the 'data'-statement reconciliation in _parse_graph_block.
             "_let_source_datasets": set(),
+            # Both dataset names of every 'bar dN from dM ...' (GLE's
+            # stacked-bar form) found ANYWHERE in this block, collected up
+            # front in pass 1 -- so an EARLIER, independent 'bar dM fill
+            # ...' statement can still recognize dM as part of a later
+            # stack and stay raw instead of being modeled twice over (once
+            # as its own BarSeries, once folded into the stack's raw text).
+            # See _parse_bar_command.
+            "_bar_stack_datasets": set(),
         }
         # This graph block's own (begin, end) line span -- the fallback
         # location for a note about the block as a whole (no single statement
@@ -1218,6 +1244,16 @@ class _Recognizer:
                     # already known here in pass 1).
                     self._parse_let_command(_words_and_values(child), datasets, info)
                     continue
+                if kw == "bar":
+                    # Look ahead for GLE's stacked-bar form ('bar dN from dM
+                    # ...') anywhere in the block, before pass 2 decides
+                    # whether an EARLIER, independent 'bar dM fill ...'
+                    # becomes its own BarSeries (see _parse_bar_command). No
+                    # 'continue': pass 2 still needs to dispatch this
+                    # statement itself.
+                    stacked = _bar_stack_names(_words_and_values(child))
+                    if stacked is not None:
+                        cast(set, info["_bar_stack_datasets"]).update(stacked)
                 if kw is not None and _DATASET_RE.match(kw):
                     name = kw
                     if name not in merged_attr_toks:
@@ -1335,6 +1371,22 @@ class _Recognizer:
                 # whole original line would duplicate the modeled portion;
                 # dropping it silently loses the rest. Surface it instead of
                 # guessing.
+                #
+                # This case is now rare in practice: the one recurring
+                # source of it -- a 'bar dM fill ...' modeled independently
+                # while a LATER 'bar dN from dM ...' (GLE's stacked-bar
+                # form) needed dM to stay raw alongside dN -- is headed off
+                # up front by ``_bar_stack_datasets`` (see
+                # _parse_bar_command), which keeps BOTH names raw so this
+                # statement is fully unconsumed instead of mixed. A
+                # genuinely mixed statement still reaching here has no
+                # narrower fix available: synthesizing a second 'data'
+                # clause for just the orphaned names would reference columns
+                # the modeled series' OWN regenerated sidecar no longer
+                # carries (GLEWriter always rewrites an owned series' data
+                # file with exactly the columns it uses -- see
+                # GLEWriter.add_bar_chart/_write_columns), which would
+                # silently corrupt the file instead of fixing the reference.
                 self._note(
                     ImportCategory.DATA,
                     "'"
@@ -2238,6 +2290,22 @@ class _Recognizer:
         if d_name is None or d_name not in datasets:
             info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
             return
+        if d_name in info["_bar_stack_datasets"]:
+            # This dataset ALSO appears in a 'bar dN from dM ...' statement
+            # elsewhere in the block (pass 1's look-ahead, ``_bar_stack_names``)
+            # -- GLE's stacked-bar relationship has no BarSeries model, so
+            # this otherwise-ordinary single-dataset 'bar' must stay raw
+            # alongside it rather than being modeled independently. Modeling
+            # it anyway would have the writer regenerate ITS dataset's own
+            # '.dat' sidecar with only the columns IT uses (GLEWriter always
+            # rewrites an owned series' data file that way -- see
+            # add_bar_chart/_write_columns), silently truncating away the
+            # column(s) the stack statement still needs from that same
+            # file. The stack statement's own "multi-dataset bar group" note
+            # already explains the group to the no-silent-drops contract, so
+            # none is duplicated here.
+            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
+            return
         info["_key_suppress_datasets"].add(d_name)
         data_file, xcol, ycol = datasets[d_name]
         loaded = self._load_series(
@@ -2557,6 +2625,7 @@ class _Recognizer:
             markersize=markersize,
             linestyle=linestyle,
             linewidth=linewidth,
+            nomiss=attrs["nomiss"],
             label=attrs["label"],
             yaxis="y2" if attrs["y2axis"] else "y",
             offset=info["_dataset_offsets"].get(d_name, 0.0),
@@ -2580,6 +2649,7 @@ class _Recognizer:
         a = {
             "has_line": False,
             "smooth": False,
+            "nomiss": False,
             "color": None,
             "lwidth": None,
             "lstyle": None,
@@ -2606,6 +2676,10 @@ class _Recognizer:
                 a["smooth"] = True
                 i += 1
                 continue
+            if w == "nomiss":
+                a["nomiss"] = True
+                i += 1
+                continue
             if w == "color" and i + 1 < m:
                 val, nxt = _collect_color(toks, i + 1)
                 a["color"] = val
@@ -2621,6 +2695,17 @@ class _Recognizer:
                 if v is not None:
                     a["lstyle"] = int(v)
                     a["linestyle"] = LSTYLE_TO_MATPLOTLIB.get(int(v), "-")
+                    # GLE draws a line whenever EITHER the 'line' keyword is
+                    # given OR 'lstyle' names a style at all (GLE's own
+                    # draw-a-line test, graph2.cpp: 'dp[dn]->line ||
+                    # dp[dn]->lstyle[0] != 0') -- 'dN lstyle 2 color red'
+                    # with no 'line' keyword anywhere (the GLE manual's own
+                    # nomiss example) is a real, visible line, not a bare
+                    # dataset. Missing this made has_line False, which fed
+                    # linestyle="none" into the model and, downstream, an
+                    # unconditional 'marker None' from the writer's
+                    # no-line branch (see add_plot_line).
+                    a["has_line"] = True
                     i = nxt
                     continue
                 i += 2
@@ -2969,6 +3054,7 @@ class _Recognizer:
                     if attrs["lwidth"] is not None
                     else 1.0
                 ),
+                nomiss=attrs["nomiss"],
                 label=attrs["label"],
                 yaxis="y2" if attrs["y2axis"] else "y",
             )

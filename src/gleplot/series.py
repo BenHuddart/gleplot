@@ -442,6 +442,11 @@ class _XYSeries(Series):
     markersize: float
     linestyle: str
     linewidth: float
+    #: GLE's ``nomiss`` qualifier: draw the line through a missing value
+    #: instead of leaving a gap (GLE default: gap). Only meaningful when a
+    #: line is drawn, but preserved verbatim on scatter-only series too so a
+    #: hand-written file that sets it never loses the setting on re-save.
+    nomiss: bool
     label: Optional[str]
     yaxis: str
     offset: float
@@ -600,6 +605,9 @@ class FileSeries(Series):
     markersize: float
     linestyle: str
     linewidth: float
+    #: ``'line'`` variant only: GLE's ``nomiss`` qualifier (see
+    #: ``_XYSeries.nomiss``).
+    nomiss: bool
     label: Optional[str]
     capsize: Optional[float]
     yaxis: str
