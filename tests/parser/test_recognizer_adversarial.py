@@ -1530,3 +1530,144 @@ def test_finding17_resave_is_byte_exact_fixed_point(tmp_path):
     text2 = out2.read_text(encoding="utf-8")
 
     assert text1 == text2
+
+
+# --------------------------------------------------------------------------- #
+# Finding 18 -- 'dN ... err N%' passthrough corruption (same family as
+# Finding 17's bar/fill comma-list bug: a keep-raw path rejoined TOKENS with
+# spaces instead of slicing the original source).
+#
+# Found via GLEstudio's S7.0 corpus work against the GLE manual corpus
+# (appendix/fig/stack4b.gle):
+#   d1 marker dot lstyle 2 err 10%
+# GLE's lexer reads 'err 10%' as NUMBER '10' directly adjacent to WORD '%'
+# (see lexer.py's _NUMBER_MERGE_STOPPERS) -- there is no space in the
+# source between '10' and '%'. The errorbar keep-raw fallback
+# (_passthrough_original_dn) rejoined the ORIGINAL TOKENS with a single
+# space each, turning 'err 10%' into 'err 10 %', which GLE rejects with
+# "unrecognised GRAPH DN sub command: '%'". The fix threads each dataset's
+# verbatim source line(s) (collected in _parse_graph_block's pass 1,
+# alongside merged_attr_toks) down to the keep-raw sites instead of
+# reconstructing from tokens; the same helper (_dn_passthrough_lines) also
+# covers the unknown-dataset-ref and unresolved-contour-cdata keep-raw
+# sites the audit found doing the same token rejoin.
+# --------------------------------------------------------------------------- #
+
+_ERRPCT_DAT = "0 2\n1 4\n2 8\n3 6\n"
+
+
+def test_finding18_percent_error_broken_ref_stays_byte_verbatim(tmp_path):
+    """'err 10%' on an unresolved (hand-written, non-import) file reference
+    is kept raw -- it must re-emit 'err 10%' byte-for-byte, NOT 'err 10 %'
+    (the inserted space makes GLE reject the line as an unrecognised
+    sub-command).
+    """
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data missing.dat d1=c1,c2\n"
+        "   d1 marker circle err 10%\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "errpct.gle", src)
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.errorbars == []
+    joined = "\n".join(ax.passthrough)
+    assert "err 10%" in joined
+    assert "err 10 %" not in joined
+    assert any(w.startswith("data:") for w in rec.warnings)
+
+
+def test_finding18_multiline_merged_percent_error_stays_byte_verbatim(tmp_path):
+    """When a dataset's attributes are split across two physical 'dN ...'
+    lines that get merged (Finding 2/10), a keep-raw fallback must re-emit
+    BOTH original lines verbatim (not collapse them into one reconstructed
+    line), each still byte-identical -- in particular the percentage literal
+    on the second line must not gain a space.
+    """
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data missing2.dat d1=c1,c2\n"
+        "   d1 marker circle\n"
+        "   d1 lstyle 2 err 10%\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "errpctsplit.gle", src)
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.errorbars == []
+    joined = "\n".join(ax.passthrough)
+    assert "d1 marker circle" in joined
+    assert "d1 lstyle 2 err 10%" in joined
+    assert "err 10 %" not in joined
+
+
+def test_finding18_stack4b_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 17 26\n"
+        "begin graph\n"
+        "   data test.dat\n"
+        "   xlabels off\n"
+        "   y2labels on\n"
+        "   d1 marker dot lstyle 2 err 10%\n"
+        "   d2 marker dot lstyle 1 err 10%\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "fp18.gle", src, {"test.dat": _ERRPCT_DAT})
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+    assert "err 10%" in text1
+    assert "err 10 %" not in text1
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_finding18_stack4b_reproduction_resave_compiles_in_real_gle(tmp_path):
+    """End-to-end regression using the GLE manual's stack4b.gle reproducer
+    (its third graph block): parse it, re-save via gleplot, and compile the
+    result with real GLE. Before the fix this failed with 'unrecognised
+    GRAPH DN sub command: '%'' because the resaved file contained
+    'err 10 %' instead of 'err 10%'.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    src = (
+        "size 17 26\n"
+        "begin graph\n"
+        "   size 10 5\n"
+        "   data test.dat\n"
+        "   fullsize\n"
+        "   xaxis min -1 max 6 dticks 1 hei .3 nofirst nolast\n"
+        "   yaxis min 0 max 20 hei .3 dticks 5 nolast\n"
+        "   xlabels off\n"
+        "   y2labels on\n"
+        "   d1 marker dot lstyle 2 err 10%\n"
+        "   d2 marker dot lstyle 1 err 10%\n"
+        "end graph\n"
+    )
+    gle = _write(tmp_path, "stack4b_repro.gle", src, {"test.dat": _ERRPCT_DAT})
+    rec = parse_gle_figure(gle)
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+
+    res = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(tmp_path / "out.png"), str(out)],
+        capture_output=True, text=True, cwd=str(tmp_path),
+    )
+    assert res.returncode == 0, f"GLE failed:\n{res.stdout}\n{res.stderr}"
+    assert (tmp_path / "out.png").exists()
