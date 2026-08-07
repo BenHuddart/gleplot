@@ -40,6 +40,7 @@ from gleplot.calibration import (
     find_ctm_hazards,
     inject_text_metrics,
     instrument_script,
+    new_calibration_nonce,
     parse_calibration_records,
 )
 from gleplot.compiler import GLECompiler
@@ -732,3 +733,116 @@ def test_gleplot_generated_scripts_carry_no_ctm_hazards(tmp_path):
     assert find_ctm_hazards(text) == []
     # ...even though every graph block contains ``scale 1 1``.
     assert "scale 1 1" in text
+
+
+# --------------------------------------------------------------------------- #
+# Marker hardening (nonce) -- GLEstudio Phase-6 review, minor 10
+# --------------------------------------------------------------------------- #
+
+#: Shared shape for the tests below: one graph, frame at (2, 1.6)-(10, 7.6).
+_ONE_GRAPH = (
+    "size 12 9\n"
+    "amove 2 1.6\n"
+    "begin graph\n"
+    "   size 8 6\n"
+    "   scale 1 1\n"
+    "   xaxis min 0 max 10\n"
+    "   yaxis min 0 max 100\n"
+    "   let d1 = 5*x\n"
+    "   d1 line\n"
+    "end graph\n"
+)
+
+#: A well-shaped 13-field ``glestudio-cal`` record for a frame at (0,0)-(1,1)
+#: -- a forged record that, if it won, would be trivially distinguishable
+#: from the genuine (2, 1.6)-(10, 7.6) one.
+_FORGED_CAL_PRINT = (
+    'print "glestudio-cal ax1 " 0 " " 1 " " 0 " " 1'
+    ' " " 0 " " 1 " " 0 " " 1 " " 0 " " 0 " " 1 " " 1\n'
+)
+
+
+def test_nonce_round_trips_through_a_real_gle_compile(tmp_path):
+    """The hardened path recovers exactly the numbers the unhardened one does."""
+    nonce = new_calibration_nonce()
+    instrumented = instrument_script(_ONE_GRAPH, ["ax1"], nonce=nonce)
+    assert instrumented.nonce == nonce
+    assert f"glestudio-cal:{nonce}" in instrumented.text
+    assert f"glestudio-box:{nonce}" in instrumented.text
+
+    out, _png = _compile(tmp_path, instrumented.text, "nonce_ok")
+    res = parse_calibration_records(out, [AxesSpec("ax1")], expected_nonce=nonce)
+    assert res.warnings == []
+    assert res.calibrations["ax1"].frame_corners_cm == pytest.approx(
+        (2.0, 1.6, 10.0, 7.6), abs=FRAME_TOLERANCE_CM
+    )
+    assert "ax1" in res.boxes
+
+
+def test_wrong_expected_nonce_rejects_the_genuine_hardened_record(tmp_path):
+    """The flip side of the round trip: a reader/writer nonce mismatch.
+
+    Proves the check is a real gate and not a no-op -- the *genuine* record
+    is the one that fails validation when the caller's ``expected_nonce``
+    does not match what :func:`instrument_script` actually embedded.
+    """
+    instrumented = instrument_script(_ONE_GRAPH, ["ax1"], nonce=new_calibration_nonce())
+    out, _png = _compile(tmp_path, instrumented.text, "nonce_wrong")
+    res = parse_calibration_records(
+        out, [AxesSpec("ax1")], expected_nonce=new_calibration_nonce()
+    )
+    assert res.calibrations == {}
+    assert any(w.category == "spoofed" for w in res.warnings)
+
+
+def test_spoofed_passthrough_record_loses_the_race_to_the_genuine_one(tmp_path):
+    """The attack this hardens against, reproduced through a real compile.
+
+    A ``print "glestudio-cal ..."`` reaches the script as ordinary passthrough
+    text (axes ids travel in GLEstudio's ``project.json`` plaintext, so
+    nothing prevents this) and runs *before* the real graph block -- and
+    therefore before the genuine record :func:`instrument_script` appends
+    after it. Without nonce checking, ``parse_calibration_records``' "keep
+    the first record per id" rule would let this forged (0,0)-(1,1) frame
+    win over the real (2, 1.6)-(10, 7.6) one. With a nonce the forged record
+    -- which cannot know it -- is rejected instead.
+    """
+    src = "size 12 9\n" + _FORGED_CAL_PRINT + _ONE_GRAPH[len("size 12 9\n") :]
+    nonce = new_calibration_nonce()
+    instrumented = instrument_script(src, ["ax1"], nonce=nonce)
+    # The forged print really does precede the genuine, nonce-suffixed one.
+    forged_at = instrumented.text.index("glestudio-cal ax1 ")
+    genuine_at = instrumented.text.index(f"glestudio-cal:{nonce}")
+    assert forged_at < genuine_at
+
+    out, _png = _compile(tmp_path, instrumented.text, "spoof_race")
+    res = parse_calibration_records(out, [AxesSpec("ax1")], expected_nonce=nonce)
+
+    assert res.calibrations["ax1"].frame_corners_cm == pytest.approx(
+        (2.0, 1.6, 10.0, 7.6), abs=FRAME_TOLERANCE_CM
+    )
+    categories = [w.category for w in res.warnings]
+    assert "spoofed" in categories
+    assert "duplicate" not in categories  # the forgery never took the slot
+
+
+def test_instrument_script_without_nonce_compiles_and_parses_exactly_as_before(
+    tmp_path,
+):
+    """Legacy path, byte-unchanged: the pre-hardening call still works.
+
+    Regression guard for the "``nonce`` absent -> exact current behaviour"
+    backwards-compatibility contract, verified through a real compile rather
+    than just the text splice.
+    """
+    instrumented = instrument_script(_ONE_GRAPH, ["ax1"])
+    assert instrumented.nonce is None
+    assert "glestudio-cal:" not in instrumented.text
+    assert "glestudio-box:" not in instrumented.text
+
+    out, _png = _compile(tmp_path, instrumented.text, "legacy")
+    res = parse_calibration_records(out, [AxesSpec("ax1")])
+    assert res.warnings == []
+    assert res.calibrations["ax1"].frame_corners_cm == pytest.approx(
+        (2.0, 1.6, 10.0, 7.6), abs=FRAME_TOLERANCE_CM
+    )

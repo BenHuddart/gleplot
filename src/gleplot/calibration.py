@@ -17,6 +17,21 @@ This module is the Qt-free upstream half of GLEstudio's canvas interactivity
    (:func:`find_ctm_hazards`): a page-level ``scale``/``translate``/``rotate``
    changing the current transformation matrix around a graph block.
 
+Marker spoofing (GLEstudio Phase-6 review, minor 10): a document can carry a
+hand-written ``print "glestudio-cal <id> ..."`` as ordinary passthrough --
+axes ids travel in ``project.json`` plaintext, so nothing prevents this -- and
+it runs *before* the genuine record this module prints after the real graph
+block. Since :func:`parse_calibration_records` keeps the first record per id,
+that forged one would otherwise win, poisoning the data<->cm map canvas drags
+are built on. The optional ``nonce``/``expected_nonce`` parameters on
+:func:`instrument_script`, :func:`inject_text_metrics`,
+:func:`build_text_metric_script` and :func:`parse_calibration_records`
+(minted by :func:`new_calibration_nonce`) close this: every marker becomes
+``glestudio-cal:<nonce>`` and only a record carrying the expected value is
+accepted, everything else is reported as a ``"spoofed"`` warning and dropped
+before id/duplicate handling ever sees it. Opt-in -- omitted, every function
+here reproduces its exact pre-hardening behaviour.
+
 Nothing here imports Qt, and nothing here touches the writer: instrumentation
 is a *post-generation splice* over parsed source, so gleplot's default output
 and its byte-identical fixed point are untouched by construction.
@@ -83,6 +98,7 @@ from __future__ import annotations
 
 import math
 import re
+import secrets
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
@@ -117,6 +133,7 @@ __all__ = [
     "find_ctm_hazards",
     "inject_text_metrics",
     "instrument_script",
+    "new_calibration_nonce",
     "parse_calibration_records",
     "strip_ansi",
 ]
@@ -151,6 +168,12 @@ _LEGAL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 #: Characters that would break a record's leading id token (it is parsed by
 #: whitespace splitting) or the ``print`` string literal carrying it.
 _BAD_ID_RE = re.compile(r"[\s\"']")
+
+#: Same restriction, reused to validate a caller-supplied ``nonce`` (GLEstudio
+#: Phase-6 review, minor 10): it sits in the same string literal, immediately
+#: before the id field, so it must be whitespace/quote-free for the same
+#: reason an id must be.
+_BAD_NONCE_RE = _BAD_ID_RE
 
 #: Bare statements that modify the current transformation matrix. ``tran`` and
 #: ``rot`` are GLE's documented abbreviations (``keyword.cpp``); all five are
@@ -215,8 +238,11 @@ class CalibrationWarning:
         (a well-formed record whose id is not in the caller's declared set),
         ``"missing"`` (a declared id with no record), ``"duplicate"`` (a second
         record for an id already seen), ``"invalid"`` (a well-formed record
-        whose numbers cannot produce a usable map, e.g. a degenerate range) or
-        ``"injection"`` (a request that could not be instrumented).
+        whose numbers cannot produce a usable map, e.g. a degenerate range),
+        ``"injection"`` (a request that could not be instrumented) or
+        ``"spoofed"`` (a record whose marker did not carry the caller's
+        ``expected_nonce`` -- see :func:`parse_calibration_records` and
+        :func:`new_calibration_nonce`).
     message:
         Human-readable description, suitable for GLEstudio's Output dock.
     subject:
@@ -645,11 +671,71 @@ class InstrumentedScript:
     warnings:
         Injection problems (an id that cannot be written into a record, a graph
         block left unclosed, more graph blocks than declared ids, ...).
+    nonce:
+        The marker-hardening nonce this call was given (echoed back verbatim),
+        or ``None`` when the call was not hardened. Pass it on unchanged to any
+        further :func:`inject_text_metrics`/:func:`build_text_metric_script`
+        call composed with this one, and to :func:`parse_calibration_records`
+        as ``expected_nonce`` (see :func:`new_calibration_nonce`).
     """
 
     text: str
     block_names: Dict[str, str] = field(default_factory=dict)
     warnings: List[CalibrationWarning] = field(default_factory=list)
+    nonce: Optional[str] = None
+
+
+def new_calibration_nonce() -> str:
+    """Mint a fresh per-invocation nonce for calibration marker hardening.
+
+    Closes GLEstudio Phase-6 review minor 10: without a nonce, a
+    ``print "glestudio-cal <id> ..."`` smuggled into the document as plain
+    passthrough (axes ids travel in ``project.json`` plaintext, so an
+    attacker able to edit a ``.glez`` before it is opened can construct one)
+    runs *before* the genuine record printed after the real graph block, and
+    :func:`parse_calibration_records` keeping the first record per id lets
+    the forged one win -- poisoning the data<->cm map that feeds canvas
+    drags.
+
+    Pass the same string as ``nonce=`` to :func:`instrument_script`,
+    :func:`inject_text_metrics` and/or :func:`build_text_metric_script` for
+    one compile, and as ``expected_nonce=`` to
+    :func:`parse_calibration_records` when parsing that compile's output.
+    Every ``glestudio-cal``/``glestudio-box``/``glestudio-tw`` record is then
+    accepted only if it carries this exact value; anything else -- including
+    a record with no nonce suffix at all -- is reported as a ``"spoofed"``
+    :class:`CalibrationWarning` and dropped, rather than racing the genuine
+    record for the first-parsed slot.
+
+    Returns 16 hex characters from :func:`secrets.token_hex` -- unguessable,
+    and safe to splice into a GLE string literal (no whitespace or quote
+    characters). Mint a new one per preview compile: reusing one across
+    compiles reopens a replay window this exists to close.
+    """
+    return secrets.token_hex(8)
+
+
+def _validate_nonce(nonce: Optional[str]) -> None:
+    """Reject a ``nonce`` that cannot be embedded in a GLE string literal.
+
+    ``None`` (the "don't harden this call" default) always passes. A nonce is
+    minted by this module's own code (:func:`new_calibration_nonce`) or
+    supplied by a caller composing several calls around one shared value --
+    either way a malformed one is a programming error, not attacker data, so
+    this raises rather than warning.
+    """
+    if nonce is None:
+        return
+    if not nonce or _BAD_NONCE_RE.search(nonce):
+        raise ValueError(
+            f"nonce {nonce!r} must be a non-empty string with no whitespace "
+            "or quote characters"
+        )
+
+
+def _marker_token(marker: str, nonce: Optional[str]) -> str:
+    """Marker text for a print statement: ``marker`` or ``marker:nonce``."""
+    return f"{marker}:{nonce}" if nonce else marker
 
 
 def strip_ansi(text: str) -> str:
@@ -687,25 +773,34 @@ def block_name_for(axes_id: str, *, taken: Optional[Iterable[str]] = None) -> st
     return f"{base}_{n}"
 
 
-def _cal_print_line(axes_id: str) -> str:
+def _cal_print_line(axes_id: str, nonce: Optional[str] = None) -> str:
     """The 13-field ``glestudio-cal`` print statement for ``axes_id``.
 
     Field order is normative (SPEC 6.2): id, then the four ranges
     ``xgmin xgmax ygmin ygmax``, then ``x2gmin x2gmax y2gmin y2gmax``, then the
     four frame-corner cm values ``xg(xgmin) yg(ygmin) xg(xgmax) yg(ygmax)``.
+
+    When ``nonce`` is given the marker itself becomes ``glestudio-cal:<nonce>``
+    (see :func:`new_calibration_nonce`); ``None`` reproduces the unhardened
+    marker exactly.
     """
+    marker = _marker_token(CAL_MARKER, nonce)
     return (
-        f'print "{CAL_MARKER} {axes_id} "'
+        f'print "{marker} {axes_id} "'
         ' xgmin " " xgmax " " ygmin " " ygmax'
         ' " " x2gmin " " x2gmax " " y2gmin " " y2gmax'
         ' " " xg(xgmin) " " yg(ygmin) " " xg(xgmax) " " yg(ygmax)'
     )
 
 
-def _box_print_line(axes_id: str, block: str) -> str:
-    """The ``glestudio-box`` print statement for ``axes_id``'s named block."""
+def _box_print_line(axes_id: str, block: str, nonce: Optional[str] = None) -> str:
+    """The ``glestudio-box`` print statement for ``axes_id``'s named block.
+
+    See :func:`_cal_print_line` for the ``nonce`` marker form.
+    """
+    marker = _marker_token(BOX_MARKER, nonce)
     return (
-        f'print "{BOX_MARKER} {axes_id} "'
+        f'print "{marker} {axes_id} "'
         f" ptx({block}.bl)"
         f' " " pty({block}.bl)'
         f' " " width({block})'
@@ -766,6 +861,8 @@ def _splice(
 def instrument_script(
     source: Union[str, GleDocument],
     axes_ids: Sequence[str],
+    *,
+    nonce: Optional[str] = None,
 ) -> InstrumentedScript:
     """Produce the instrumented *preview copy* of a generated script.
 
@@ -780,6 +877,27 @@ def instrument_script(
         end name
         print "glestudio-cal <id> " xgmin " " ... " " yg(ygmax)
         print "glestudio-box <id> " ptx(...bl) " " ... " " height(...)
+
+    Marker hardening against record spoofing
+    -----------------------------------------
+    GLEstudio's axes ids travel in ``project.json`` plaintext, so a script
+    reached via import passthrough can contain a hand-written
+    ``print "glestudio-cal <id> ..."`` that runs *before* the genuine record
+    printed here (after the real graph block). Since
+    :func:`parse_calibration_records` keeps the first record per id, that
+    forged record would otherwise win and poison the data<->cm map that
+    feeds canvas drags (GLEstudio Phase-6 review, minor 10).
+
+    Pass ``nonce=`` (typically :func:`new_calibration_nonce`'s return value)
+    to close this: every marker this call prints becomes
+    ``glestudio-cal:<nonce>`` / ``glestudio-box:<nonce>`` instead of the bare
+    marker, and :func:`parse_calibration_records` -- given the same value as
+    ``expected_nonce`` -- accepts only records carrying it, reporting
+    anything else (including an old-style unsuffixed record) as a
+    ``"spoofed"`` warning rather than as a candidate record at all. ``nonce``
+    defaults to ``None``, which reproduces the unhardened marker text
+    byte-for-byte (the legacy, pre-hardening behaviour every existing caller
+    still gets).
 
     Splice, not writer flag
     -----------------------
@@ -813,11 +931,17 @@ def instrument_script(
         this sequence are still wrapped and still print records, keyed by their
         positional index, and a warning is recorded: degrading is better than
         silently instrumenting nothing.
+    nonce:
+        See "Marker hardening" above. Must contain no whitespace or quote
+        character if given (:class:`ValueError` otherwise) -- it is minted by
+        this module's own code, so a malformed value is a programming error,
+        not attacker input.
 
     Returns
     -------
     InstrumentedScript
-        The rewritten text plus the block names used and any warnings. When the
+        The rewritten text plus the block names used, any warnings, and the
+        ``nonce`` it was given (see :attr:`InstrumentedScript.nonce`). When the
         script has no closable graph block the text is returned unchanged.
 
     Notes
@@ -835,6 +959,7 @@ def instrument_script(
     graph is exactly the one :func:`find_ctm_hazards` flags, and no record
     beats a wrong one.
     """
+    _validate_nonce(nonce)
     doc, text = _document_of(source)
     graphs = doc.graphs
 
@@ -898,18 +1023,21 @@ def instrument_script(
         after.setdefault(graph.end.line_no, []).extend(
             [
                 f"{indent}end name",
-                _cal_print_line(axes_id),
-                _box_print_line(axes_id, block),
+                _cal_print_line(axes_id, nonce),
+                _box_print_line(axes_id, block, nonce),
             ]
         )
 
     if not before and not after:
-        return InstrumentedScript(text=text, block_names={}, warnings=warnings)
+        return InstrumentedScript(
+            text=text, block_names={}, warnings=warnings, nonce=nonce
+        )
 
     return InstrumentedScript(
         text=_splice(doc, text, before, after),
         block_names=block_names,
         warnings=warnings,
+        nonce=nonce,
     )
 
 
@@ -970,13 +1098,16 @@ def _quote_gle_string(text: str) -> Optional[str]:
 
 def _metric_block(
     requests: Sequence[TextMetricRequest],
+    nonce: Optional[str] = None,
 ) -> Tuple[List[str], List[CalibrationWarning]]:
     """Render measurement statements for ``requests``.
 
     Each request is wrapped in its own ``gsave``/``grestore`` so one font
     change cannot leak into the next measurement or into anything that follows
     the block (verified: ``gsave``/``grestore`` do restore ``font`` and
-    ``hei``).
+    ``hei``). ``nonce`` hardens the emitted ``glestudio-tw`` marker the same
+    way as :func:`instrument_script`'s ``nonce`` (see there); ``None``
+    reproduces the unhardened marker.
     """
     lines: List[str] = []
     warnings: List[CalibrationWarning] = []
@@ -1023,8 +1154,9 @@ def _metric_block(
         if req.hei is not None:
             lines.append(f"set hei {req.hei:g}")
         lines.extend(req.extra_state)
+        marker = _marker_token(TW_MARKER, nonce)
         lines.append(
-            f'print "{TW_MARKER} {req.measure_id} "'
+            f'print "{marker} {req.measure_id} "'
             f" twidth({literal})"
             f' " " theight({literal})'
             f' " " tdepth({literal})'
@@ -1037,6 +1169,8 @@ def _metric_block(
 def inject_text_metrics(
     source: Union[str, GleDocument],
     requests: Sequence[TextMetricRequest],
+    *,
+    nonce: Optional[str] = None,
 ) -> InstrumentedScript:
     """Append a text-measurement block to a script (SPEC 6.3).
 
@@ -1055,17 +1189,30 @@ def inject_text_metrics(
 
     Composes with :func:`instrument_script` in either order; the metric block
     is appended at end of file, after every graph block's records.
+
+    ``nonce`` hardens the emitted ``glestudio-tw`` markers exactly as
+    :func:`instrument_script`'s ``nonce`` does for its own markers (see there
+    for why, and :func:`new_calibration_nonce` to mint one). Pass the *same*
+    nonce here as was used for :func:`instrument_script` when composing the
+    two, so :func:`parse_calibration_records` can validate every marker from
+    the compile against one ``expected_nonce``. Defaults to ``None``, which
+    reproduces the unhardened marker text byte-for-byte.
     """
+    _validate_nonce(nonce)
     doc, text = _document_of(source)
-    lines, warnings = _metric_block(requests)
+    lines, warnings = _metric_block(requests, nonce)
     if not lines:
-        return InstrumentedScript(text=text, block_names={}, warnings=warnings)
+        return InstrumentedScript(
+            text=text, block_names={}, warnings=warnings, nonce=nonce
+        )
 
     default_nl = "\r\n" if "\r\n" in text else "\n"
     body = "".join(line + default_nl for line in lines)
     if text and not text.endswith(("\n", "\r")):
         text += default_nl
-    return InstrumentedScript(text=text + body, block_names={}, warnings=warnings)
+    return InstrumentedScript(
+        text=text + body, block_names={}, warnings=warnings, nonce=nonce
+    )
 
 
 def build_text_metric_script(
@@ -1073,6 +1220,7 @@ def build_text_metric_script(
     *,
     page_size_cm: Tuple[float, float] = (2.0, 2.0),
     preamble: Sequence[str] = (),
+    nonce: Optional[str] = None,
 ) -> InstrumentedScript:
     """Build a minimal standalone script that only measures text.
 
@@ -1084,14 +1232,21 @@ def build_text_metric_script(
     matching the figure must replay the figure's font preamble here.
 
     ``page_size_cm`` only has to be non-degenerate; the script draws nothing.
+
+    ``nonce`` hardens the emitted ``glestudio-tw`` markers exactly as
+    :func:`instrument_script`'s ``nonce`` does (see there, and
+    :func:`new_calibration_nonce`). Defaults to ``None``, reproducing the
+    unhardened marker text byte-for-byte.
     """
-    lines, warnings = _metric_block(requests)
+    _validate_nonce(nonce)
+    lines, warnings = _metric_block(requests, nonce)
     head = [f"size {page_size_cm[0]:g} {page_size_cm[1]:g}"]
     head.extend(preamble)
     return InstrumentedScript(
         text="".join(line + "\n" for line in head + lines),
         block_names={},
         warnings=warnings,
+        nonce=nonce,
     )
 
 
@@ -1100,18 +1255,31 @@ def build_text_metric_script(
 # --------------------------------------------------------------------------- #
 
 
-def _find_record(line: str, marker: str) -> Optional[List[str]]:
-    """Return whitespace-split fields following ``marker`` in ``line``.
+def _find_record(line: str, marker: str) -> Optional[Tuple[Optional[str], List[str]]]:
+    """Locate ``marker`` in ``line``; return its optional nonce and fields.
 
     The marker is located anywhere in the line rather than anchored at the
     start, so a record still parses when GLE (or a shell wrapper) prefixes it
     with something. Splitting on whitespace rather than fixed columns is
     required: GLE pads its numeric fields with a variable number of spaces.
+
+    ``marker`` may be immediately followed by ``:<nonce>`` (see
+    :func:`instrument_script`'s ``nonce`` parameter); when it is, the nonce is
+    split out and returned separately rather than becoming -- or corrupting --
+    the id field. Returns ``None`` if ``marker`` is not found in ``line`` at
+    all; returns ``(None, fields)`` for an unhardened, marker-only record.
     """
     at = line.find(marker)
     if at < 0:
         return None
-    return line[at + len(marker) :].split()
+    rest = line[at + len(marker) :]
+    nonce: Optional[str] = None
+    if rest[:1] == ":":
+        m = re.match(r":(\S*)", rest)
+        assert m is not None  # ":" always matches "(\S*)", even as ""
+        nonce = m.group(1)
+        rest = rest[m.end() :]
+    return nonce, rest.split()
 
 
 def _floats(tokens: Sequence[str]) -> Optional[List[float]]:
@@ -1130,6 +1298,7 @@ def parse_calibration_records(
     axes: Sequence[AxesSpec] = (),
     *,
     measure_ids: Sequence[str] = (),
+    expected_nonce: Optional[str] = None,
 ) -> CalibrationResult:
     """Parse a GLE stderr/stdout stream into typed calibration records.
 
@@ -1154,6 +1323,24 @@ def parse_calibration_records(
         Declared :attr:`TextMetricRequest.measure_id` values, if any. Supplying
         them turns an unexpected or absent metric record into a warning; omit
         to accept whatever arrives.
+    expected_nonce:
+        The value passed as ``nonce=`` to whichever of
+        :func:`instrument_script` / :func:`inject_text_metrics` /
+        :func:`build_text_metric_script` produced the script this ``text``
+        came from (see :func:`new_calibration_nonce`). When given, a
+        ``glestudio-cal``/``glestudio-box``/``glestudio-tw`` record is
+        accepted only if its marker carries exactly this nonce. Anything
+        else -- no ``:<nonce>`` suffix at all, or a mismatched one -- is
+        reported as a ``"spoofed"`` warning and dropped *before*
+        id/duplicate/malformed handling ever sees it. This is what stops a
+        marker string smuggled into the document as passthrough text (axes
+        ids travel in ``project.json`` plaintext) from racing the genuine
+        record -- printed after the real graph block -- for the
+        first-parsed slot per id (GLEstudio Phase-6 review, minor 10).
+
+        Defaults to ``None``: every record matching the bare marker is
+        accepted regardless of any nonce suffix, reproducing the exact
+        pre-hardening behaviour for callers that have not adopted nonces.
 
     Returns
     -------
@@ -1181,9 +1368,22 @@ def parse_calibration_records(
             (BOX_MARKER, _parse_box),
             (TW_MARKER, _parse_tw),
         ):
-            fields = _find_record(raw_line, marker)
-            if fields is None:
+            found = _find_record(raw_line, marker)
+            if found is None:
                 continue
+            nonce, fields = found
+            if expected_nonce is not None and nonce != expected_nonce:
+                result.warnings.append(
+                    CalibrationWarning(
+                        "spoofed",
+                        f"{marker} record ignored: nonce "
+                        f"{'missing' if nonce is None else nonce!r} does not "
+                        "match the expected per-invocation nonce (possible "
+                        f"spoofed or replayed record): {raw_line.strip()!r}",
+                        subject=fields[0] if fields else None,
+                    )
+                )
+                break
             if marker == CAL_MARKER and not axes and not warned_no_specs:
                 warned_no_specs = True
                 result.warnings.append(

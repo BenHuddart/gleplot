@@ -30,6 +30,22 @@
   script (`'T_{N}'`, `'mol^{-1}'`). Only a *bare* `_`/`^` changed meaning. If
   you relied on `'T_N'` subscripting, write `'T_{N}'` or `r'$T_N$'`.
 
+### Fixes
+
+- `gleplot.calibration` hardens `glestudio-cal`/`glestudio-box`/`glestudio-tw`
+  markers against spoofing: an optional per-invocation `nonce` on
+  `instrument_script`/`inject_text_metrics`/`build_text_metric_script`
+  (`new_calibration_nonce()` mints one) embeds `marker:<nonce>` in every
+  printed record, and `parse_calibration_records(..., expected_nonce=...)`
+  rejects any record whose marker lacks or mismatches it as a new `"spoofed"`
+  `CalibrationWarning`, instead of letting it race the genuine record for the
+  first-parsed slot. Fixes a hole where a `print "glestudio-cal ..."`
+  smuggled into a document as passthrough text (axes ids travel in
+  GLEstudio's `project.json` plaintext) could poison the data↔cm map before
+  the real record — printed after the actual graph block — ever arrived.
+  Opt-in: omitting `nonce`/`expected_nonce` reproduces prior behaviour
+  exactly.
+
 ## v1.9.0 (2026-07-31)
 
 ### Features

@@ -28,6 +28,7 @@ from gleplot.calibration import (
     find_ctm_hazards,
     inject_text_metrics,
     instrument_script,
+    new_calibration_nonce,
     parse_calibration_records,
     strip_ansi,
 )
@@ -314,6 +315,82 @@ def test_standalone_metric_script_is_self_contained():
 
 
 # --------------------------------------------------------------------------- #
+# Marker hardening (nonce) -- GLEstudio Phase-6 review, minor 10
+# --------------------------------------------------------------------------- #
+
+
+def test_new_calibration_nonce_is_hex_and_varies_per_call():
+    a = new_calibration_nonce()
+    b = new_calibration_nonce()
+    assert len(a) == 16
+    assert all(c in "0123456789abcdef" for c in a)
+    assert a != b
+
+
+def test_instrument_script_without_nonce_is_byte_identical_to_legacy():
+    # The "legacy path": omitting ``nonce`` must reproduce the pre-hardening
+    # marker text exactly, so every existing caller/test is unaffected.
+    out = instrument_script(TWO_GRAPHS, ["idA", "idB"])
+    assert out.nonce is None
+    assert f'print "{CAL_MARKER} idA "' in out.text
+    assert f'print "{BOX_MARKER} idA "' in out.text
+    assert f"{CAL_MARKER}:" not in out.text
+    assert f"{BOX_MARKER}:" not in out.text
+
+
+def test_instrument_script_with_nonce_embeds_it_in_both_markers():
+    nonce = "deadbeefcafef00d"
+    out = instrument_script(TWO_GRAPHS, ["idA", "idB"], nonce=nonce)
+    assert out.nonce == nonce
+    assert f'print "{CAL_MARKER}:{nonce} idA "' in out.text
+    assert f'print "{BOX_MARKER}:{nonce} idA "' in out.text
+    # The un-hardened marker form must not also appear.
+    assert f'print "{CAL_MARKER} idA "' not in out.text
+    assert f'print "{BOX_MARKER} idA "' not in out.text
+
+
+@pytest.mark.parametrize("bad", ["bad nonce", 'bad"nonce', "bad'nonce", ""])
+def test_instrument_script_rejects_an_unembeddable_nonce(bad):
+    with pytest.raises(ValueError):
+        instrument_script(TWO_GRAPHS, ["idA"], nonce=bad)
+
+
+def test_text_metrics_nonce_hardens_the_tw_marker_the_same_way():
+    nonce = "0123456789abcdef"
+    out = inject_text_metrics(
+        "size 5 5\n", [TextMetricRequest("m1", "Hello")], nonce=nonce
+    )
+    assert out.nonce == nonce
+    assert f'print "{TW_MARKER}:{nonce} m1 "' in out.text
+    assert f'print "{TW_MARKER} m1 "' not in out.text
+
+
+def test_inject_text_metrics_without_nonce_is_byte_identical_to_legacy():
+    out = inject_text_metrics("size 5 5\n", [TextMetricRequest("m1", "Hello")])
+    assert out.nonce is None
+    assert f'print "{TW_MARKER} m1 "' in out.text
+    assert f"{TW_MARKER}:" not in out.text
+
+
+def test_standalone_metric_script_nonce_hardens_the_tw_marker():
+    nonce = "1122334455667788"
+    out = build_text_metric_script([TextMetricRequest("m1", "T")], nonce=nonce)
+    assert out.nonce == nonce
+    assert f'print "{TW_MARKER}:{nonce} m1 "' in out.text
+
+
+def test_calibration_and_metric_injection_can_share_one_nonce():
+    nonce = new_calibration_nonce()
+    stage1 = instrument_script(TWO_GRAPHS, ["idA", "idB"], nonce=nonce)
+    stage2 = inject_text_metrics(
+        stage1.text, [TextMetricRequest("m1", "T")], nonce=nonce
+    )
+    assert stage1.nonce == stage2.nonce == nonce
+    assert f'print "{CAL_MARKER}:{nonce} idA "' in stage2.text
+    assert f'print "{TW_MARKER}:{nonce} m1 "' in stage2.text
+
+
+# --------------------------------------------------------------------------- #
 # Parse layer
 # --------------------------------------------------------------------------- #
 
@@ -404,6 +481,76 @@ def test_duplicate_record_keeps_the_first_and_warns():
     res = parse_calibration_records(stream, [AxesSpec("idA")])
     assert res.calibrations["idA"].x_range == (0.0, 10.0)
     assert any(w.category == "duplicate" for w in res.warnings)
+
+
+def _nonce_cal_line(axes_id, nonce, values):
+    body = "   ".join(f"{v:g}" for v in values)
+    return f"{ANSI}{CAL_MARKER}:{nonce} {axes_id}  {body}"
+
+
+def _nonce_box_line(axes_id, nonce, values):
+    body = "   ".join(f"{v:g}" for v in values)
+    return f"{ANSI}{BOX_MARKER}:{nonce} {axes_id}  {body}"
+
+
+def _nonce_tw_line(measure_id, nonce, values):
+    body = "   ".join(f"{v:g}" for v in values)
+    return f"{ANSI}{TW_MARKER}:{nonce} {measure_id}  {body}"
+
+
+def test_spoofed_record_before_the_genuine_one_is_ignored_when_nonce_expected():
+    nonce = "aa11bb22cc33dd44"
+    # A record smuggled in as ordinary passthrough (no nonce at all) arrives
+    # first; the genuine, nonce-carrying record -- printed after the real
+    # graph block -- arrives second. Without nonce checking, "keep the first
+    # record per id" would let the forged one win.
+    stream = "\n".join(
+        [cal_line("idA", [9] * 12), _nonce_cal_line("idA", nonce, GOOD_VALUES)]
+    )
+    res = parse_calibration_records(stream, [AxesSpec("idA")], expected_nonce=nonce)
+    assert res.calibrations["idA"].x_range == (0.0, 10.0)  # the genuine record
+    categories = [w.category for w in res.warnings]
+    assert "spoofed" in categories
+    assert "duplicate" not in categories  # the spoof never took the slot
+
+
+def test_record_with_mismatched_nonce_is_reported_spoofed_and_dropped():
+    stream = _nonce_cal_line("idA", "wrongnonce", GOOD_VALUES)
+    res = parse_calibration_records(
+        stream, [AxesSpec("idA")], expected_nonce="rightnonce"
+    )
+    assert res.calibrations == {}
+    warning = next(w for w in res.warnings if w.category == "spoofed")
+    assert warning.subject == "idA"
+
+
+def test_expected_nonce_omitted_accepts_records_regardless_of_nonce_shape():
+    # Backwards tolerance: a caller that never adopted nonces keeps parsing
+    # everything it always did, whether or not the producer embedded one.
+    stream = "\n".join(
+        [cal_line("idA", GOOD_VALUES), box_line("idA", [1.0, 0.8, 5.6, 4.6])]
+    )
+    res = parse_calibration_records(stream, [AxesSpec("idA")])
+    assert res.calibrations["idA"].x_range == (0.0, 10.0)
+    assert res.warnings == []
+
+
+def test_box_and_tw_markers_are_also_nonce_checked():
+    nonce = "0011223344556677"
+    stream = "\n".join(
+        [
+            box_line("idA", [9, 9, 9, 9]),  # spoofed: no nonce
+            _nonce_box_line("idA", nonce, [1.0, 0.8, 5.6, 4.6]),
+            tw_line("m1", [9, 9, 9]),  # spoofed: no nonce
+            _nonce_tw_line("m1", nonce, [1.2489, 0.2049, -0.0654]),
+        ]
+    )
+    res = parse_calibration_records(
+        stream, [AxesSpec("idA")], measure_ids=["m1"], expected_nonce=nonce
+    )
+    assert res.boxes["idA"].rect == pytest.approx((1.0, 0.8, 6.6, 5.4))
+    assert res.metrics["m1"].depth == pytest.approx(-0.0654)
+    assert sum(w.category == "spoofed" for w in res.warnings) == 2
 
 
 def test_degenerate_range_is_dropped_as_invalid():
