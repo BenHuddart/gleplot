@@ -419,6 +419,73 @@ _CARET_RE = re.compile(r'^>>\s*\^\s*$')
 #   >> Error: expected closing ')'
 _MESSAGE_RE = re.compile(r'^>>\s*(?:Error:\s*)?(?P<message>.+)$')
 
+# Matches specifically the line that *starts* an error message, e.g.:
+#   >> Error: expected closing ')'
+# Used to tell a fresh error block apart from a plain continuation line of a
+# multi-line message (e.g. the "expecting one of: ..." list GLE appends after
+# some errors), which repeats the ">> " prefix but never repeats "Error:".
+_ERROR_START_RE = re.compile(r'^>>\s*Error:', re.IGNORECASE)
+
+
+def _collect_message_lines(lines: list, i: int, n: int) -> tuple:
+    """Collect the ``>> ...`` message line(s) for one error block.
+
+    Starting at index ``i`` (which may be sitting on a blank line rather than
+    directly on the message -- see below), gather consecutive ``>> ``-prefixed
+    lines into a list of message fragments.
+
+    Two real-GLE landmines drive the scanning rules here:
+
+    * For several of the commonest error classes (missing data files, unknown
+      colours, unclosed ``begin``/``end`` blocks, runtime markup errors), GLE
+      emits a *blank* line where the caret would otherwise go, then the
+      ``>> Error: ...`` line -- there is no caret line to swallow that blank.
+      Blank lines are therefore skipped while scanning for the message,
+      rather than treated as the end of the block.
+    * When a script has multiple independent errors, GLE only prints a full
+      ``>> file (line) |source|`` location block before the *first* one;
+      subsequent errors appear as bare ``>> Error: ...`` lines with no
+      location at all, separated from their predecessors by a blank line.
+      So a second (or third, ...) ``>> Error:`` line always marks the start
+      of a new error record, never a continuation of the current message --
+      only non-"Error:" ``>> `` lines (e.g. a wrapped list of valid values)
+      continue the current message.
+
+    Returns
+    -------
+    tuple[int, list[str]]
+        The index just past the consumed lines, and the collected message
+        fragments (empty if none were found).
+    """
+    message_parts = []
+    started = False
+    while i < n:
+        raw = lines[i]
+        if not raw.strip():
+            # Blank line: may be padding before the message (no caret was
+            # emitted) or trailing padding after it. Either way, keep
+            # scanning past it -- it never itself ends the block.
+            i += 1
+            continue
+        if not raw.startswith('>>'):
+            break
+        if _LOCATION_RE.match(raw):
+            # A new error's location block starts here; let the caller's
+            # outer loop handle it.
+            break
+        if _ERROR_START_RE.match(raw) and started:
+            # A second "Error:" line: this is a new, location-less error
+            # block, not a continuation of the one we're building.
+            break
+        msg_match = _MESSAGE_RE.match(raw)
+        if msg_match:
+            text = msg_match.group('message').strip()
+            if text:
+                message_parts.append(text)
+                started = True
+        i += 1
+    return i, message_parts
+
 
 def parse_gle_errors(output: str) -> list:
     """
@@ -462,48 +529,56 @@ def parse_gle_errors(output: str) -> list:
     n = len(lines)
     while i < n:
         loc_match = _LOCATION_RE.match(lines[i])
-        if not loc_match:
+        if loc_match:
+            file = loc_match.group('file')
+            line_no = int(loc_match.group('line'))
+            source_line = loc_match.group('source')
+            # Position of the opening '|' delimiter on the location line,
+            # used below to translate the caret's absolute column into a
+            # column relative to the start of the quoted source text.
+            pipe_pos = lines[i].index('|')
+            column = None
             i += 1
+
+            # Optional caret line.
+            if i < n:
+                caret_match = _CARET_RE.match(lines[i])
+                if caret_match:
+                    caret_pos = lines[i].index('^')
+                    column = max(caret_pos - pipe_pos - 1, 0)
+                    i += 1
+
+            i, message_parts = _collect_message_lines(lines, i, n)
+            message = ' '.join(message_parts) if message_parts else 'GLE error'
+
+            errors.append(GLEError(
+                file=file,
+                line=line_no,
+                column=column,
+                message=message,
+                source_line=source_line,
+            ))
             continue
 
-        file = loc_match.group('file')
-        line_no = int(loc_match.group('line'))
-        source_line = loc_match.group('source')
-        # Position of the opening '|' delimiter on the location line, used
-        # below to translate the caret's absolute column into a column
-        # relative to the start of the quoted source text.
-        pipe_pos = lines[i].index('|')
-        column = None
+        if _ERROR_START_RE.match(lines[i]):
+            # A bare "Error:" line with no preceding location block: GLE
+            # only prints the full location for the first error in a run of
+            # several independent ones (e.g. N unrelated bad commands), so
+            # each subsequent "Error:" line found here starts its own
+            # GLEError rather than being silently dropped.
+            i, message_parts = _collect_message_lines(lines, i, n)
+            message = ' '.join(message_parts) if message_parts else 'GLE error'
+
+            errors.append(GLEError(
+                file=None,
+                line=None,
+                column=None,
+                message=message,
+                source_line=None,
+            ))
+            continue
+
         i += 1
-
-        # Optional caret line.
-        if i < n:
-            caret_match = _CARET_RE.match(lines[i])
-            if caret_match:
-                caret_pos = lines[i].index('^')
-                column = max(caret_pos - pipe_pos - 1, 0)
-                i += 1
-
-        # Message line(s): collect subsequent ">> " lines that aren't a new
-        # location block, up to (but not including) a blank line or EOF.
-        message_parts = []
-        while i < n and lines[i].startswith('>>'):
-            msg_match = _MESSAGE_RE.match(lines[i])
-            if msg_match:
-                text = msg_match.group('message').strip()
-                if text:
-                    message_parts.append(text)
-            i += 1
-
-        message = ' '.join(message_parts) if message_parts else 'GLE error'
-
-        errors.append(GLEError(
-            file=file,
-            line=line_no,
-            column=column,
-            message=message,
-            source_line=source_line,
-        ))
 
     if not errors:
         # Unparseable output: fall back to a single error carrying the raw text.
