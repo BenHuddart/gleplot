@@ -66,6 +66,135 @@ MULTI_ERROR_OUTPUT = (
 
 UNPARSEABLE_OUTPUT = "something totally unexpected blew up\nwith no structure at all\n"
 
+# ---------------------------------------------------------------------------
+# Fixtures below are *verbatim* stderr/stdout captured from a real
+# `gle 4.3.10` run (ANSI colour escapes stripped; see
+# ``_ANSI_ESCAPE_RE``/``parse_gle_errors`` docstring), reproducing the two
+# defects found in GLEstudio's Phase-6 gate review:
+#
+# (1) GLE emits a *blank* line where the caret would go for several of the
+#     commonest error classes (no column info available), instead of going
+#     straight to the ">> Error:" line. The old message-scan loop stopped at
+#     that blank line, so the structured error's ``message`` degraded to the
+#     literal "GLE error" while the real diagnostic text was dropped.
+# (2) When a script has several independent errors, GLE only prints a full
+#     ">> file (line) |source|" location block before the *first* one;
+#     subsequent errors are bare ">> Error: ..." lines with no location,
+#     separated by a blank line. The old parser only ever produced one
+#     GLEError per run because it fell out of the outer scanning loop after
+#     failing to match a location line for those later blocks.
+#
+# Each fixture's originating ``.gle`` script is given in its comment so the
+# capture can be reproduced with ``gle <script>.gle`` (GLE 4.3.10,
+# /usr/local/bin/gle).
+
+# missing_data.gle:
+#   size 10 10
+#   begin graph
+#      data "nope.dat"
+#   end graph
+MISSING_DATA_FILE_OUTPUT = (
+    'GLE 4.3.10[missing_data.gle]-C-R-\n'
+    '\n'
+    '>> missing_data.gle (3) |data "nope.dat"|\n'
+    '\n'
+    ">> Error: can't open: 'nope.dat': No such file or directory\n"
+    '\n'
+    '\n'
+    '[missing_data][.eps]\n'
+)
+
+# unknown_colour.gle:
+#   size 10 10
+#   set color "notacolor"
+#   amove 1 1
+#   box 2 2
+UNKNOWN_COLOUR_OUTPUT = (
+    'GLE 4.3.10[unknown_colour.gle]-C-R-\n'
+    '\n'
+    '>> unknown_colour.gle (2) |set color "notacolor"|\n'
+    '\n'
+    ">> Error: found 'notacolor', but expecting color or fill specification\n"
+    '\n'
+    '\n'
+    '[unknown_colour][.eps]\n'
+)
+
+# unclosed.gle:
+#   size 10 10
+#   begin graph
+#      title "test"
+UNCLOSED_BLOCK_OUTPUT = (
+    'GLE 4.3.10[unclosed.gle]-C\n'
+    '\n'
+    '>> unclosed.gle (3) |title "test"|\n'
+    '\n'
+    ">> Error: end of file while in block type 'graph' starting on line 2\n"
+    '\n'
+    '\n'
+    'Errors, GLE aborting.\n'
+)
+
+# markup_error.gle:
+#   size 10 10
+#   amove 1 1
+#   write "\setfont{notafont}text"
+MARKUP_ERROR_OUTPUT = (
+    'GLE 4.3.10[markup_error.gle]-C-R-\n'
+    '\n'
+    '>> markup_error.gle (3) |write "\\setfont{notafont}text"|\n'
+    '\n'
+    '>> Error: invalid font name {notafont}, expecting one of:\n'
+    '>>        rm, rmi, rmb, rmbi, ss,\n'
+    '>>        ssi, ssb, ssbi, texmi, texsy,\n'
+    '>>        texex, glemark, texcmb, texcmex, texcmitt,\n'
+    '>>        texcmmi, texcmr, texcmss, texcmssb, texcmssi,\n'
+    '>>        texcmsy, texcmti, texcmtt, psagb, psagbo,\n'
+    '>>        psagd, psagdo, psbd, psbdi, psbli,\n'
+    '>>        psc, pscb, pscbo, psco, psh,\n'
+    '>>        pshb, pshbo, pshc, pshcb, pshcbo,\n'
+    '>>        pshcdo, psho, pshn, pshnb, pshnbo,\n'
+    '>>        pshno, psncsb, psncsbi, psncsi, psncsr,\n'
+    '>>        pspb, pspbi, pspi, pspr, pssym,\n'
+    '>>        pstb, pstbi, psti, pstr, pszcmi,\n'
+    '>>        pszd, plba, plcc, plcg, plci,\n'
+    '>>        plcr, plcs, pldr, plge, plgg,\n'
+    '>>        plgi, plsa, plsg, plsr, plss,\n'
+    '>>        plsym1, plsym2, plti, pltr, plba,\n'
+    '>>        plsa, tt, tti, ttb, ttbi,\n'
+    '>>        psbl, arial8, arial8b, arial8i, arial8bi,\n'
+    '>>        cour8, cour8b, cour8i, cour8bi, times8,\n'
+    '>>        times8b, times8i, times8bi\n'
+    '\n'
+    '\n'
+    '[markup_error][.eps]\n'
+)
+
+# multiple_bad_commands.gle:
+#   size 10 10
+#   frobnicate 1 2 3
+#   amove 1 1
+#   zorptastic 4 5 6
+#   amove 1 1
+#   quuxify 7 8 9
+#
+# (Also independently reproduced with 20 distinct unknown commands: GLE
+# prints 20 ">> Error:" lines, only the first preceded by a location block.)
+MULTIPLE_BAD_COMMANDS_OUTPUT = (
+    'GLE 4.3.10[multiple_bad_commands.gle]-C\n'
+    '\n'
+    '>> multiple_bad_commands.gle (2) |frobnicate 1 2 3|\n'
+    '>>                 ^\n'
+    ">> Error: function 'FROBNICATE' not defined\n"
+    '\n'
+    ">> Error: function 'ZORPTASTIC' not defined\n"
+    '\n'
+    ">> Error: function 'QUUXIFY' not defined\n"
+    '\n'
+    '\n'
+    'Errors, GLE aborting.\n'
+)
+
 
 class TestParseGleErrors(unittest.TestCase):
     """Tests for parse_gle_errors()."""
@@ -117,6 +246,79 @@ class TestParseGleErrors(unittest.TestCase):
     def test_empty_output_returns_no_errors(self):
         self.assertEqual(parse_gle_errors(''), [])
         self.assertEqual(parse_gle_errors('   \n  \n'), [])
+
+    # -- Real-GLE regression coverage: blank line stands in for the caret ---
+
+    def test_missing_data_file_message_survives_blank_caret_line(self):
+        errors = parse_gle_errors(MISSING_DATA_FILE_OUTPUT)
+        self.assertEqual(len(errors), 1)
+        err = errors[0]
+        self.assertEqual(err.file, 'missing_data.gle')
+        self.assertEqual(err.line, 3)
+        self.assertIsNone(err.column)
+        self.assertEqual(err.source_line, 'data "nope.dat"')
+        self.assertEqual(
+            err.message,
+            "can't open: 'nope.dat': No such file or directory",
+        )
+        self.assertNotEqual(err.message, 'GLE error')
+
+    def test_unknown_colour_message_survives_blank_caret_line(self):
+        errors = parse_gle_errors(UNKNOWN_COLOUR_OUTPUT)
+        self.assertEqual(len(errors), 1)
+        err = errors[0]
+        self.assertEqual(err.line, 2)
+        self.assertEqual(
+            err.message,
+            "found 'notacolor', but expecting color or fill specification",
+        )
+
+    def test_unclosed_block_message_survives_blank_caret_line(self):
+        errors = parse_gle_errors(UNCLOSED_BLOCK_OUTPUT)
+        self.assertEqual(len(errors), 1)
+        err = errors[0]
+        self.assertEqual(err.line, 3)
+        self.assertEqual(
+            err.message,
+            "end of file while in block type 'graph' starting on line 2",
+        )
+
+    def test_markup_error_multiline_message_survives_blank_caret_line(self):
+        errors = parse_gle_errors(MARKUP_ERROR_OUTPUT)
+        self.assertEqual(len(errors), 1)
+        err = errors[0]
+        self.assertEqual(err.line, 3)
+        self.assertTrue(err.message.startswith(
+            'invalid font name {notafont}, expecting one of:'
+        ))
+        # The wrapped list of valid font names (continuation lines with no
+        # repeated "Error:" prefix) must still be folded into the message,
+        # not truncated at the first line.
+        self.assertIn('rm, rmi, rmb, rmbi, ss,', err.message)
+        self.assertIn('times8b, times8i, times8bi', err.message)
+
+    # -- Real-GLE regression coverage: multiple errors, one location only ---
+
+    def test_multiple_bad_commands_each_produce_their_own_error(self):
+        errors = parse_gle_errors(MULTIPLE_BAD_COMMANDS_OUTPUT)
+        self.assertEqual(len(errors), 3)
+
+        first, second, third = errors
+        self.assertEqual(first.file, 'multiple_bad_commands.gle')
+        self.assertEqual(first.line, 2)
+        self.assertEqual(first.source_line, 'frobnicate 1 2 3')
+        self.assertEqual(first.message, "function 'FROBNICATE' not defined")
+
+        # GLE prints no location block for the second/third errors; the
+        # parser must still surface them as distinct GLEErrors rather than
+        # silently dropping them or folding them into the first.
+        self.assertIsNone(second.file)
+        self.assertIsNone(second.line)
+        self.assertEqual(second.message, "function 'ZORPTASTIC' not defined")
+
+        self.assertIsNone(third.file)
+        self.assertIsNone(third.line)
+        self.assertEqual(third.message, "function 'QUUXIFY' not defined")
 
     def test_column_matches_caret_relative_to_source(self):
         # Caret directly under the 'x' at index 4 of the quoted source.
