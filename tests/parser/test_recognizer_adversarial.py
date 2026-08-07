@@ -16,6 +16,7 @@ import pytest
 import gleplot as glp
 from gleplot import Figure
 from gleplot.parser.recognizer import parse_gle_figure
+from gleplot.parser.units import fontsize_cm_to_pt
 
 
 def _write(tmp_path: Path, name: str, content: str, dats: dict | None = None) -> Path:
@@ -2437,4 +2438,255 @@ def test_finding21_nomiss_reproduction_renders_with_parity(tmp_path):
         "round-tripped render diverges from the original "
         f"(diff bbox {diff_bbox}) -- d1's bare-lstyle line was not "
         "preserved"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Finding 22 -- preamble statements re-emitted at the writer's fixed slots
+# instead of their original relative order/values (gate-review MAJOR/
+# rendered-fidelity finding, GLEstudio S8 corpus: appendix/fig/clip.gle).
+#
+# Two bugs, both in ``_parse_preamble`` (the page-level-only figures this
+# function handles have no 'begin graph' at all, so EVERYTHING is preamble):
+#
+# 1. Ordering: GLEWriter.add_preamble always emits 'size' / 'set font' /
+#    'set hei' first, THEN passthrough_header verbatim. clip.gle's own
+#    preamble is 'size' / 'set font texcmr' / 'scale .6 .8' / 'set hei .3'
+#    -- a page-level 'scale' BETWEEN the recognized font and hei statements.
+#    Re-emitting the writer's own hei line first moves it AHEAD of 'scale',
+#    reversing the original order. (Empirically, GLE 4.3.10 evaluates 'hei'
+#    against whatever CTM is active when a later drawing command actually
+#    executes, not against the CTM active at the 'set hei' statement itself,
+#    so this specific reversal alone does not visibly mis-render a page-level
+#    scale/hei pair -- verified by compiling both orders and diffing
+#    pixel-for-pixel. Fixed anyway: it is still the wrong statement order for
+#    a file whose original order was deliberate, "the honest rule" the
+#    reviewer's diagnosis names, and reproducing it costs nothing when the
+#    bucket is empty for the overwhelming majority of figures.)
+# 2. Multiple recognized statements collapsed to one (the bug that actually
+#    breaks clip.gle's own rendering): '_parse_preamble' recognized EVERY
+#    'set hei'/'set font' in the flat preamble, so a SECOND one silently
+#    overwrote the figure-wide style.fontsize/font with no note and no
+#    passthrough trace -- clip.gle's 'set hei .3' (a small caption) followed
+#    later by 'set hei 10' (body-sized text) collapsed to a single hei=10
+#    default, so the caption rendered roughly 33x too large after round
+#    trip. Only the FIRST 'set font'/'set hei' is recognized now; a second
+#    one falls through to passthrough like any other unrecognized statement,
+#    verbatim, at its original position -- which is also where fix 1's
+#    ordering machinery re-emits it, so the two fixes compose into one
+#    correct preamble walk rather than needing separate machinery.
+# --------------------------------------------------------------------------- #
+
+
+def test_finding22_scale_between_font_and_hei_preserved_before_hei(tmp_path):
+    """clip.gle's own preamble shape: 'scale .6 .8' sits between a
+    recognized 'set font' and a recognized 'set hei'. It must land in the
+    new ``passthrough_before_hei`` bucket (re-emitted before the writer's
+    own 'set hei' line), not the ordinary ``passthrough_header`` bucket
+    (which the writer always emits AFTER 'set hei').
+    """
+    src = (
+        "size 14 18\n"
+        "set font texcmr\n"
+        "scale .6 .8\n"
+        "set hei .3\n"
+        "amove 2 2\n"
+        "text hello\n"
+    )
+    p = _write(tmp_path, "clipshape.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.passthrough_before_hei == ["scale .6 .8"]
+    assert fig.passthrough_header == ["amove 2 2", "text hello"]
+
+    out = tmp_path / "out.gle"
+    fig.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert text.index("scale .6 .8") < text.index("set hei 0.3")
+    assert "set font texcmr" in text
+    assert text.index("set font texcmr") < text.index("scale .6 .8")
+
+
+def test_finding22_second_set_hei_preserved_not_collapsed(tmp_path):
+    """A second 'set hei' in the (graph-less) preamble is a real restyle for
+    whatever is drawn after it, not a redundant re-statement of the first --
+    it must survive verbatim at its original position, not silently
+    overwrite the recognized global default.
+    """
+    src = (
+        "size 14 18\n"
+        "set hei .3\n"
+        "amove 2 15\n"
+        "text Caption\n"
+        "set hei 10\n"
+        "amove 2 5\n"
+        "text Body\n"
+    )
+    p = _write(tmp_path, "twohei.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.style.fontsize == pytest.approx(fontsize_cm_to_pt(0.3))
+    assert fig.passthrough_header == [
+        "amove 2 15",
+        "text Caption",
+        "set hei 10",
+        "amove 2 5",
+        "text Body",
+    ]
+
+    out = tmp_path / "out.gle"
+    fig.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert text.count("set hei") == 2
+    assert "set hei 0.3" in text
+    assert "set hei 10" in text
+    assert (
+        text.index("text Caption") < text.index("set hei 10") < text.index("text Body")
+    )
+
+
+def test_finding22_second_set_font_preserved_not_collapsed(tmp_path):
+    """Same rule, for 'set font' (audited alongside 'set hei' as the other
+    statement '_parse_preamble' can recognize more than once)."""
+    src = (
+        "size 14 18\n"
+        "set font texcmr\n"
+        "amove 2 15\n"
+        "text one\n"
+        "set font pstr\n"
+        "amove 2 5\n"
+        "text two\n"
+    )
+    p = _write(tmp_path, "twofont.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.style.font == "texcmr"
+    assert "set font pstr" in fig.passthrough_header
+
+    out = tmp_path / "out.gle"
+    fig.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert text.count("set font") == 2
+    assert "set font texcmr" in text
+    assert "set font pstr" in text
+
+
+def test_finding22_no_hei_statement_at_all_is_unaffected(tmp_path):
+    """Regression guard for the fix's own failure mode found while building
+    it: a preamble with 'size' (or 'set font') but NO 'set hei' anywhere
+    must NOT have its passthrough wrongly diverted into
+    ``passthrough_before_hei`` forever (there being no 'hei' to land before)
+    -- everything stays in the ordinary ``passthrough_header`` bucket,
+    exactly as before this fix existed.
+    """
+    src = "size 10 8\nsub s\namove 1 1\nrline 2 2\nend sub\n"
+    p = _write(tmp_path, "nohei.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.passthrough_before_hei == []
+    assert fig.passthrough_header == ["sub s", "amove 1 1", "rline 2 2", "end sub"]
+
+
+def test_finding22_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 14 18\n"
+        "set font texcmr\n"
+        "scale .6 .8\n"
+        "set hei .3\n"
+        "amove 2 15\n"
+        "text Caption\n"
+        "set hei 10\n"
+        "amove 2 5\n"
+        "text Body\n"
+    )
+    p = _write(tmp_path, "fp22.gle", src)
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_finding22_clip_gle_shaped_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression combining both fixes, in the exact shape that
+    exposed them (a small caption at 'set hei .3', scaled by a preceding
+    page-level 'scale', followed by a second 'set hei 10' restyling later
+    text): compile the original with real GLE, round-trip it through
+    gleplot, compile the round-trip, and compare pixel for pixel.
+
+    Before either fix, this reproducer's round trip compiled cleanly but
+    rendered wrong: both 'set hei' statements collapsed into a single
+    'set hei 10', so the caption rendered roughly 33x too large and
+    overlapping the body text -- confirmed by compiling the pre-fix output
+    during development. No 'set hei'/geometry pinning is needed here
+    (unlike Findings 20/21): every length the rendering depends on is
+    already explicit in the source.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = (
+        "size 14 18\n"
+        "set font texcmr\n"
+        "scale .6 .8\n"
+        "set hei .3\n"
+        "amove 2 15\n"
+        "text Caption\n"
+        "set hei 10\n"
+        "amove 2 5\n"
+        "text Body\n"
+    )
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src)
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    rec = parse_gle_figure(orig)
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert (
+        res_rt.returncode == 0
+    ), f"round-tripped script failed to compile:\n{res_rt.stdout}\n{res_rt.stderr}"
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- the caption's 'set hei .3' was likely "
+        "collapsed into the later 'set hei 10' again"
     )

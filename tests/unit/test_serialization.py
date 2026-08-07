@@ -579,6 +579,7 @@ _FIGURE_SERIALIZED_ATTRS = {
     "marker_config",
     "axes_list",
     "broken_axes",
+    "passthrough_before_hei",
     "passthrough_header",
     "passthrough_trailer",
     "metadata_extra",

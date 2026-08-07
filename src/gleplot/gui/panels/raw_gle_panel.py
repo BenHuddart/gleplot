@@ -2,8 +2,13 @@
 
 When the recognizer (``gleplot.parser.recognizer``) cannot map a line of a
 parsed ``.gle`` file onto the object model, it keeps the raw text instead of
-dropping it, split into four buckets:
+dropping it, split into five buckets:
 
+* :attr:`~gleplot.figure.Figure.passthrough_before_hei` -- almost always
+  empty: lines that sat, in the original, between a recognized
+  ``size``/``set font`` and a recognized ``set hei`` (typically a page-level
+  ``scale``), re-emitted BEFORE the standard preamble's own ``set hei`` line
+  since it is measured in GLE's current, possibly-CTM-scaled user units.
 * :attr:`~gleplot.figure.Figure.passthrough_header` -- lines recovered from
   before the first graph block, re-emitted right after the standard preamble.
 * :attr:`~gleplot.axes.Axes.geometry_passthrough` (per axes) -- graph geometry
@@ -162,6 +167,15 @@ def _collect_buckets(figure) -> list:
     ``cols`` taken from the grid-wide max over every axes' ``position``).
     """
     buckets = []
+
+    # Almost always empty: only non-empty when the original had something
+    # (typically a page-level 'scale'/similar CTM statement) between a
+    # recognized 'size'/'set font' and a recognized 'set hei' -- see
+    # Figure.passthrough_before_hei's own docstring. Shown as its own
+    # section, ahead of "Header", to match emission order (GLEWriter.
+    # add_preamble writes it BEFORE 'set hei', "Header" after).
+    before_hei = list(getattr(figure, "passthrough_before_hei", []) or [])
+    buckets.append(("Header (before 'set hei')", before_hei))
 
     header = list(getattr(figure, "passthrough_header", []) or [])
     buckets.append(("Header", header))

@@ -754,6 +754,7 @@ class GLEWriter:
         include_graph_begin: bool = True,
         metadata_lines: Optional[List[str]] = None,
         passthrough_header: Optional[List[str]] = None,
+        passthrough_before_hei: Optional[List[str]] = None,
     ):
         """Add GLE preamble.
 
@@ -778,6 +779,21 @@ class GLEWriter:
             re-emitted verbatim right after the standard preamble (after
             'set hei ...' + the blank line) and before the first graph
             block/amove. Omitted entirely when falsy (no blank-line churn).
+        passthrough_before_hei : list of str, optional
+            Raw lines recovered from a parsed ``.gle`` file that sat, in the
+            original, between a recognized ``size``/``set font`` and a
+            recognized ``set hei`` -- almost always empty. ``hei`` is a
+            length in GLE's CURRENT user units, so a preceding CTM-affecting
+            statement (``scale .6 .8``, a page-level ``scale``/``rotate``)
+            changes what the writer's own ``set hei`` line actually renders
+            as; unlike ``passthrough_header``, this content is re-emitted
+            BEFORE 'set hei', reproducing that original order instead of
+            always putting the writer's own preamble first (see
+            ``gleplot.parser.recognizer._parse_preamble``, the only producer
+            of this bucket, and its own ``clip.gle`` finding). Omitted
+            entirely when falsy, so the overwhelming majority of figures
+            (nothing between size/font and hei) emit byte-identically to
+            before this parameter existed.
         """
         self.lines_gle.extend(
             [
@@ -796,6 +812,8 @@ class GLEWriter:
         # Only set font if explicitly specified
         if self.style.font:
             self.lines_gle.append(f"set font {self.style.font}")
+        if passthrough_before_hei:
+            self.lines_gle.extend(passthrough_before_hei)
         self.lines_gle.extend(
             [
                 f"set hei {self._format_number(fontsize_pt_to_cm(self.style.fontsize))}",
