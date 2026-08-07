@@ -13,7 +13,17 @@ identical to what it produced before sources existed.
 import warnings as _warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 
@@ -454,6 +464,78 @@ class DecimationRecord:
     original_points: int
 
 
+@dataclass(frozen=True)
+class DecimationCandidate:
+    """One series that has already cleared the ``preview_decimation``
+    eligibility gate, offered to a :data:`DecimationPolicy` callable so it
+    can pick that series' factor.
+
+    Construction implies eligibility: a candidate is only ever built for a
+    line/scatter series (the only kinds :meth:`GLEWriter._deresolve_clause`
+    is called for) that has already met
+    :attr:`~GLEWriter.MIN_DERESOLVE_POINTS`. A policy callable never has to
+    re-check kind or point count -- it only has to *choose a factor*, which
+    is the one decision that genuinely varies per series (see the mixed
+    1k-curve / 500k-trace motivation on :data:`DecimationPolicy`).
+
+    Attributes
+    ----------
+    dataset : str
+        The GLE dataset name this series will be emitted as (e.g. ``'d3'``).
+        Assigned by the writer during emission -- a policy can read it back
+        for logging/reporting, but should not expect to know it in advance
+        (see :data:`DecimationPolicy`'s note on why the ``Mapping`` shape
+        keys on ``label`` instead).
+    label : str or None
+        The series' legend label, when it has one.
+    n_points : int
+        Row count of the series before decimation.
+    kind : str
+        ``'line'`` or ``'scatter'`` -- the only two kinds a candidate is
+        ever built for. Exposed so a policy can, for example, thin scatter
+        series more aggressively than lines of the same size.
+    """
+
+    dataset: str
+    label: Optional[str]
+    n_points: int
+    kind: str
+
+
+#: A ``preview_decimation`` argument, in any of three shapes:
+#:
+#: - ``int``: one factor for every eligible series (G7's original shape;
+#:   byte-for-byte unchanged -- see :meth:`GLEWriter._deresolve_clause`).
+#: - ``Mapping[Optional[str], int]``: per-series factors keyed by the
+#:   series' ``label``. Labels are the only identifier a figure-authoring
+#:   caller can name a series by *before* generation -- dataset names
+#:   (``'d1'``, ``'d2'``, ...) are assigned by the writer during emission,
+#:   so a caller cannot know them ahead of time, and re-deriving them would
+#:   mean duplicating the writer's own axes/series-class/list-order walk
+#:   (:func:`resolve_figure`'s docstring). A label absent from the mapping
+#:   (including the ``None`` key, for unlabeled series) is simply left
+#:   undecimated -- opt-in per series, not a fallback factor.
+#: - ``Callable[[DecimationCandidate], Optional[int]]``: the general case,
+#:   and the recommended shape for the motivating problem (a figure mixing
+#:   a 1k-point curve with a 500k-point trace, where a single figure-wide
+#:   factor sized off the smallest series leaves the large one entirely
+#:   undecimated -- see G7's caller in GLEstudio). A callable can compute a
+#:   factor from :attr:`DecimationCandidate.n_points` directly (e.g.
+#:   ``max(1, n_points // target)``), vary it by
+#:   :attr:`~DecimationCandidate.kind`, or fall back to the same
+#:   label-keyed lookup the ``Mapping`` shape offers as sugar. Returning
+#:   ``None`` (or ``<= 1``) exempts that one series, the same as a int
+#:   policy of ``1`` exempts every series.
+#:
+#: All three shapes are consulted only for series that already pass the
+#: unchanged eligibility gate (line/scatter kind, >=
+#: :attr:`GLEWriter.MIN_DERESOLVE_POINTS` rows) -- a policy never sees, and
+#: can never opt in, an errorbar or bar series.
+DecimationPolicy = Union[
+    int, Mapping[Optional[str], int], Callable[[DecimationCandidate], Optional[int]]
+]
+
+
 class GLEWriter:
     """Writer for GLE script files.
 
@@ -473,9 +555,14 @@ class GLEWriter:
     marker : GLEMarkerConfig, optional
         Marker configuration. If None, a COPY of ``GlobalConfig.marker`` is
         taken at construction time (same note).
-    preview_decimation : int, optional
+    preview_decimation : DecimationPolicy, optional
         Preview-only ``deresolve`` factor (SPEC 6.1/10.7), or ``None`` (the
-        default) for today's byte-identical emission. See
+        default) for today's byte-identical emission. Either a single ``int``
+        applied to every eligible series (the original G7 shape), a
+        ``Mapping[Optional[str], int]`` keyed by series label, or a
+        ``Callable[[DecimationCandidate], Optional[int]]`` for a factor
+        computed per series -- see :data:`DecimationPolicy` for the full
+        contract and why each shape looks the way it does. See
         :meth:`_deresolve_clause` for the eligibility rule and
         :attr:`decimation_report` for what a caller gets back. Generation-time
         only -- never read from or written to the figure, so ``to_dict``/
@@ -500,7 +587,7 @@ class GLEWriter:
         style: Optional[GLEStyleConfig] = None,
         graph: Optional[GLEGraphConfig] = None,
         marker: Optional[GLEMarkerConfig] = None,
-        preview_decimation: Optional[int] = None,
+        preview_decimation: Optional[DecimationPolicy] = None,
     ):
         """Initialize GLE writer with optional configuration objects."""
         self.figsize = figsize
@@ -566,7 +653,7 @@ class GLEWriter:
         self.decimation_report: List[DecimationRecord] = []
 
     def _deresolve_clause(
-        self, dataset_name: str, label: Optional[str], n_points: int
+        self, dataset_name: str, label: Optional[str], n_points: int, kind: str
     ) -> str:
         """A trailing `` deresolve N`` clause for a ``dN`` line, or ``""``.
 
@@ -615,9 +702,42 @@ class GLEWriter:
         ``key`` in any order -- verified by compiling both orderings and
         diffing identical PostScript output), so this is always appended
         last for a minimal, single-clause diff against the undecorated line.
+
+        ``kind`` (``'line'`` or ``'scatter'`` -- :meth:`add_plot_line` is the
+        only caller, for exactly these two families) is not used to decide
+        eligibility here; it is purely payload for a callable
+        :data:`DecimationPolicy`'s :class:`DecimationCandidate`, so a policy
+        can vary its factor by kind if it wants to.
         """
-        factor = self._preview_decimation
-        if not factor or factor <= 1 or n_points < self.MIN_DERESOLVE_POINTS:
+        policy = self._preview_decimation
+        # ``not policy`` is the ``None``/``0``/empty-mapping "no policy at
+        # all" case -- identical short-circuit to the original int-only
+        # check (``not factor``), so the int path's byte-for-byte output is
+        # unaffected. The eligibility gate (kind, via the caller; row count,
+        # here) is checked before a Mapping/Callable policy is ever
+        # consulted, per DecimationPolicy's contract.
+        if not policy or n_points < self.MIN_DERESOLVE_POINTS:
+            return ""
+
+        factor: Optional[int]
+        if isinstance(policy, int):
+            factor = policy
+        elif isinstance(policy, Mapping):
+            factor = policy.get(label)
+        elif callable(policy):
+            candidate = DecimationCandidate(
+                dataset=dataset_name, label=label, n_points=n_points, kind=kind
+            )
+            factor = policy(candidate)
+        else:
+            raise TypeError(
+                "preview_decimation must be an int, a "
+                "Mapping[Optional[str], int], or a "
+                "Callable[[DecimationCandidate], Optional[int]]; got "
+                f"{type(policy).__name__!r}"
+            )
+
+        if not factor or factor <= 1:
             return ""
         self.decimation_report.append(
             DecimationRecord(
@@ -1594,7 +1714,15 @@ class GLEWriter:
         # series is large enough -- see _deresolve_clause. Applies to both
         # branches above (line, with or without an overlaid marker, and
         # marker-only/scatter) since both draw through transform_data().
-        line_cmd += self._deresolve_clause(display_name, label, len(x_array))
+        # ``kind`` is derived from ``has_line`` rather than threaded in as a
+        # parameter: every "line" call (including reference lines, which
+        # never carry a marker) sets it True, every "scatter" call (marker-
+        # only, no line) sets it False -- exactly gleplot's own KIND split
+        # for these two series classes, with no new parameter needed on
+        # add_plot_line or its three call sites in figure.py.
+        line_cmd += self._deresolve_clause(
+            display_name, label, len(x_array), "line" if has_line else "scatter"
+        )
 
         self.lines_gle.append(line_cmd)
 

@@ -138,6 +138,32 @@ def test_deresolve_reduces_drawn_markers(tmp_path):
     assert dec_markers < full_markers / 2
 
 
+@pytest.mark.gle
+def test_mixed_figure_per_series_decimation_compiles(tmp_path):
+    """A callable ``DecimationPolicy`` can give a small-ish curve and a much
+    larger trace on the same axes DIFFERENT factors, and GLE compiles the
+    result -- proving the per-series shapes produce compilable output, not
+    just textually plausible ``deresolve`` clauses (see
+    ``tests/unit/test_preview_decimation.py`` for the script-level proof)."""
+    x_small, y_small = _big_xy(n=1200, seed=1)
+    x_large, y_large = _big_xy(n=8000, seed=2)
+
+    fig = glp.figure(figsize=(4, 3), data_prefix="mixed")
+    ax = fig.add_subplot(111)
+    ax.plot(x_small, y_small, label="smallbig")
+    ax.plot(x_large, y_large, label="large")
+
+    def policy(candidate):
+        return max(1, candidate.n_points // 400)
+
+    script = fig._generate_gle(preview_decimation=policy)
+    assert "deresolve 3" in script  # 1200 // 400
+    assert "deresolve 20" in script  # 8000 // 400
+
+    fig.savefig(str(tmp_path / "mixed.pdf"), preview_decimation=policy)
+    assert (tmp_path / "mixed.pdf").exists()
+
+
 def test_decimated_compile_is_faster(tmp_path):
     """Directional check of the SPEC-cited speedup (~10x at 200k points).
 

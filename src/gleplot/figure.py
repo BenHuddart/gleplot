@@ -8,7 +8,13 @@ from typing import Tuple, Optional, Literal, Sequence, List
 from .axes import Axes, _sanitize_data_stem, _validate_data_prefix
 from .series import Series
 from .brokenaxes import BrokenAxes
-from .writer import AxisStyle, GLEWriter, SourceResolution, resolve_figure
+from .writer import (
+    AxisStyle,
+    DecimationPolicy,
+    GLEWriter,
+    SourceResolution,
+    resolve_figure,
+)
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .cairo_support import cairo_font_warning, figure_requires_cairo
 from .colors import rgb_to_gle
@@ -1062,7 +1068,7 @@ class Figure:
         self,
         filepath: str,
         data_provider=None,
-        preview_decimation: Optional[int] = None,
+        preview_decimation: Optional[DecimationPolicy] = None,
         **kwargs,
     ) -> Path:
         """
@@ -1075,14 +1081,21 @@ class Figure:
         data_provider : DataProvider, optional
             Resolver for series whose ``data_source`` references a table
             (see :meth:`savefig` and :mod:`gleplot.sources`).
-        preview_decimation : int, optional
+        preview_decimation : DecimationPolicy, optional
             Preview-only ``deresolve`` factor (SPEC §6.1/§10.7). ``None``
             (the default) emits byte-identically to a build before this
-            option existed. When given and > 1, large line/scatter series
-            (see :attr:`gleplot.writer.GLEWriter.MIN_DERESOLVE_POINTS`) get
-            a `` deresolve N`` clause on their ``dN`` line -- GLE then draws
-            (and this call's caller may hit-test against) 1-in-N points
-            instead of the full series, while axis autoscale is still
+            option existed. A single ``int`` applies one factor to every
+            eligible series (unchanged, byte-for-byte, since G7); a
+            ``Mapping`` keyed by series label or a per-series
+            ``Callable[[DecimationCandidate], Optional[int]]`` instead let a
+            mixed figure (e.g. a 1k-point curve alongside a 500k-point
+            trace) give each series its own factor -- see
+            :data:`gleplot.writer.DecimationPolicy` for the full contract.
+            When a resolved factor is given and > 1, large line/scatter
+            series (see :attr:`gleplot.writer.GLEWriter.MIN_DERESOLVE_POINTS`)
+            get a `` deresolve N`` clause on their ``dN`` line -- GLE then
+            draws (and this call's caller may hit-test against) 1-in-N
+            points instead of the full series, while axis autoscale is still
             computed from the full, undecimated data. A generation-time
             argument only: never stored on the figure, so ``to_dict``/
             ``from_dict`` and a *saved* ``.gle`` are unaffected -- pass it
@@ -1129,7 +1142,7 @@ class Figure:
         data_provider=None,
         cairo: Optional[bool] = None,
         keep_intermediates: bool = False,
-        preview_decimation: Optional[int] = None,
+        preview_decimation: Optional[DecimationPolicy] = None,
         **kwargs,
     ) -> Path:
         """
@@ -1186,7 +1199,7 @@ class Figure:
             note below. Default False. Has no effect when this figure has
             no contour/heatmap series, or when ``format == 'gle'`` (no
             compile runs, so nothing was generated to clean up).
-        preview_decimation : int, optional
+        preview_decimation : DecimationPolicy, optional
             Preview-only ``deresolve`` factor -- see :meth:`savefig_gle` for
             the full contract. Generation-time only, never stored on the
             figure. Compiling with this set still produces a real
@@ -1300,7 +1313,7 @@ class Figure:
         return output_path, export_dir
 
     def _generate_gle(
-        self, data_provider=None, preview_decimation: Optional[int] = None
+        self, data_provider=None, preview_decimation: Optional[DecimationPolicy] = None
     ) -> str:
         """Generate complete GLE script content."""
         content, _ = self._generate_gle_with_files(
@@ -1345,7 +1358,7 @@ class Figure:
         return data
 
     def _generate_gle_with_files(
-        self, data_provider=None, preview_decimation: Optional[int] = None
+        self, data_provider=None, preview_decimation: Optional[DecimationPolicy] = None
     ) -> tuple:
         """
         Generate complete GLE script content with data files.
@@ -1370,7 +1383,7 @@ class Figure:
         ----------
         data_provider : DataProvider, optional
             See :meth:`savefig`.
-        preview_decimation : int, optional
+        preview_decimation : DecimationPolicy, optional
             See :meth:`savefig_gle`. Forwarded to :class:`~gleplot.writer.GLEWriter`
             as a constructor argument only -- never read off ``self`` -- so
             this stays a pure function of its arguments plus the figure's

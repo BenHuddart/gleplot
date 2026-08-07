@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot.writer import DecimationRecord, GLEWriter
+from gleplot.writer import DecimationCandidate, DecimationRecord, GLEWriter
 
 #: Comfortably above GLEWriter.MIN_DERESOLVE_POINTS.
 _BIG_N = 2000
@@ -295,3 +295,169 @@ def test_writer_level_report_via_generate_gle_with_files():
     _script, _files = fig._generate_gle_with_files(preview_decimation=10)
 
     assert fig.preview_decimation_report[0].factor == 10
+
+
+# --------------------------------------------------------------------------- #
+# Per-series policy: Callable[[DecimationCandidate], Optional[int]]
+# --------------------------------------------------------------------------- #
+
+
+def test_decimation_candidate_is_a_plain_value_object():
+    c = DecimationCandidate(dataset="d3", label="trace", n_points=1234, kind="line")
+    assert (c.dataset, c.label, c.n_points, c.kind) == ("d3", "trace", 1234, "line")
+
+
+def test_callable_policy_gives_distinct_per_series_factors():
+    """The motivating case: a 1k-ish curve and a much larger trace on the
+    same axes get DIFFERENT factors from one callable, instead of a single
+    figure-wide int sized off the smaller series."""
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    x_small, y_small = _big_xy(1200)
+    ax.plot(x_small, y_small, label="smallbig")
+    x_large, y_large = _big_xy(6000)
+    ax.plot(x_large, y_large, label="large")
+
+    def policy(candidate: DecimationCandidate):
+        # Roughly one drawn point per 500 raw points.
+        return max(1, candidate.n_points // 500)
+
+    script = fig._generate_gle(preview_decimation=policy)
+
+    assert sorted(_deresolve_clauses(script)) == sorted(["deresolve 2", "deresolve 12"])
+    report = {r.label: r for r in fig.preview_decimation_report}
+    assert report.keys() == {"smallbig", "large"}
+    assert report["smallbig"].factor == 2
+    assert report["smallbig"].original_points == 1200
+    assert report["large"].factor == 12
+    assert report["large"].original_points == 6000
+
+
+def test_callable_policy_receives_dataset_label_points_and_kind():
+    x, y = _big_xy()
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    ax.plot(x, y, label="trace")
+
+    seen: list[DecimationCandidate] = []
+
+    def policy(candidate: DecimationCandidate):
+        seen.append(candidate)
+        return 10
+
+    fig._generate_gle(preview_decimation=policy)
+
+    assert len(seen) == 1
+    assert seen[0] == DecimationCandidate(
+        dataset="d1", label="trace", n_points=_BIG_N, kind="line"
+    )
+
+
+def test_callable_policy_sees_scatter_kind():
+    x, y = _big_xy()
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    ax.scatter(x, y, label="pts")
+
+    seen: list[DecimationCandidate] = []
+    fig._generate_gle(preview_decimation=lambda c: (seen.append(c), 5)[1])
+
+    assert seen[0].kind == "scatter"
+
+
+def test_callable_policy_returning_none_exempts_that_series():
+    """A callable may leave a normally-eligible series undecimated by
+    returning ``None`` -- the per-series analogue of an int policy of 1."""
+    x, y = _big_xy()
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    ax.plot(x, y, label="skip_me")
+
+    script = fig._generate_gle(preview_decimation=lambda candidate: None)
+
+    assert "deresolve" not in script
+    assert fig.preview_decimation_report == []
+
+
+def test_ineligible_kinds_never_reach_the_callable():
+    """bar/errorbar series must never be offered to the policy, even though
+    they are far above MIN_DERESOLVE_POINTS -- only the plain line series on
+    the same axes is eligible."""
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    x, y = _big_xy()
+    ax.errorbar(x, y, yerr=np.full_like(y, 0.1), label="err_series")
+    ax.bar(x, np.abs(y), label="bar_series")
+    x2, y2 = _big_xy()
+    ax.plot(x2, y2, label="eligible")
+
+    seen_labels: list = []
+
+    def policy(candidate: DecimationCandidate):
+        seen_labels.append(candidate.label)
+        return 5
+
+    script = fig._generate_gle(preview_decimation=policy)
+
+    assert seen_labels == ["eligible"]
+    assert _deresolve_clauses(script) == ["deresolve 5"]
+
+
+# --------------------------------------------------------------------------- #
+# Per-series policy: Mapping[Optional[str], int] keyed by label
+# --------------------------------------------------------------------------- #
+
+
+def test_mapping_policy_keys_by_label():
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    x_a, y_a = _big_xy()
+    ax.plot(x_a, y_a, label="mapped")
+    x_b, y_b = _big_xy()
+    ax.plot(x_b, y_b, label="unmapped")
+
+    script = fig._generate_gle(preview_decimation={"mapped": 7})
+
+    assert _deresolve_clauses(script) == ["deresolve 7"]
+    report = fig.preview_decimation_report
+    assert len(report) == 1
+    assert report[0].label == "mapped"
+    assert report[0].factor == 7
+
+
+def test_mapping_policy_none_key_targets_unlabeled_series():
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    x, y = _big_xy()
+    ax.plot(x, y)  # no label -> label is None
+
+    script = fig._generate_gle(preview_decimation={None: 6})
+
+    assert _deresolve_clauses(script) == ["deresolve 6"]
+
+
+def test_mapping_policy_empty_mapping_decimates_nothing():
+    x, y = _big_xy()
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    ax.plot(x, y, label="trace")
+
+    script = fig._generate_gle(preview_decimation={})
+
+    assert "deresolve" not in script
+    assert fig.preview_decimation_report == []
+
+
+# --------------------------------------------------------------------------- #
+# Invalid policy shapes
+# --------------------------------------------------------------------------- #
+
+
+def test_unsupported_policy_type_raises_type_error():
+    x, y = _big_xy()
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    ax.plot(x, y)
+
+    with pytest.raises(TypeError):
+        fig._generate_gle(preview_decimation=object())
