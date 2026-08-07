@@ -1955,3 +1955,261 @@ def test_finding19_trailing_amove_reproduction_renders_with_parity(tmp_path):
         f"amove-only strip (diff bbox {diff_bbox}) -- the trailing amove's "
         "current point was not preserved"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Finding 20 -- a stacked-bar sibling's dataset silently undefined after
+# round-trip (gate-review MAJOR/rendered-fidelity finding, GLEstudio S8
+# corpus: graph/fig/gc_bargraph1.gle).
+#
+# A bare 'data f.dat' with more than two columns already registers d1..dN
+# (see _parse_data_command's auto-mapping path -- col1=x, cols 2..N=y per the
+# GLE manual; this fix does not touch it). The bug was in '_parse_bar_command'
+# instead: 'bar d2 from d1 fill white' -- GLE's *stacked*-bar form -- has no
+# 'from'-awareness there, so it tokenizes to two dataset-shaped words ('d2',
+# 'd1') and takes the same no-shared-model path as a genuine grouped
+# 'bar d1,d2 fill c1,c2' (Finding 17): kept fully raw. That would have been
+# fine on its own (Finding 17's "fully orphaned -> restore the whole 'data'
+# line" reconciliation already handles it) -- except the EARLIER, independent
+# 'bar d1 fill gray20' statement had ALREADY been modeled as its own
+# BarSeries by the time pass 2 reached the 'from' statement. That series'
+# regenerated 'data' line only defines d1 (the writer only ever knows about
+# the columns ITS OWN modeled series uses), so the still-raw
+# 'bar d2 from d1 fill white' line was left referencing a d2 nothing
+# defined: GLE rejected the regenerated script with "bar dataset d2 not
+# defined" -- a compile failure, not merely a cosmetic difference, so the
+# round trip never even reached image comparison.
+#
+# A tempting narrower fix -- synthesize a second 'data f.dat d2=c1,c3' line
+# just for the orphaned d2 -- turns out to be unsound: GLEWriter.add_bar_chart
+# always REWRITES an owned series' data file with exactly the columns that
+# series uses (_write_columns), so d1's modeled BarSeries would silently
+# truncate the physical file down to its own 2 columns, leaving the
+# synthesized 'c3' reference pointing past the end of a file gleplot itself
+# just shrank. Verified empirically while diagnosing this finding: the naive
+# fix compiles, but only because a manual copy-back of the pristine data
+# file was masking the truncation in ad hoc testing.
+#
+# The correct fix is up-front, in pass 1: scan the whole graph block for
+# 'bar dN from dM ...' statements before dispatching anything, and remember
+# BOTH names in ``_bar_stack_datasets``. When pass 2 later reaches an
+# independent, single-name 'bar dM fill ...' for a name in that set, it stays
+# raw too -- exactly like Finding 17's grouped form -- so BOTH sides of the
+# stack end up unconsumed, the 'data' statement reconciliation restores the
+# WHOLE original line verbatim (Finding 17's existing, tested path), and the
+# underlying data file is never touched by gleplot at all: GLE reads its
+# real, complete, untruncated bytes at compile time.
+# --------------------------------------------------------------------------- #
+
+_MULTI_DAT = "1 3 5\n2 4 6\n3 2 4\n"
+
+
+def test_finding20_stacked_bar_sibling_kept_raw_alongside_its_stack(tmp_path):
+    """The reviewer's exact shape: a lone 'bar d1 ...' would, on its own,
+    become a real BarSeries; the LATER 'bar d2 from d1 ...' (GLE's
+    stacked-bar form) has no shared model and must stay raw (Finding 17).
+    Once the look-ahead recognizes the stack, d1's statement must join it
+    as raw too, instead of being modeled independently and having its
+    'data' line no longer cover d2.
+    """
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "multi.dat"\n'
+        "   bar d1 fill gray20\n"
+        "   bar d2 from d1 fill white\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "bargroup.gle", src, {"multi.dat": _MULTI_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == []  # neither d1 nor d2 became a BarSeries
+    joined = "\n".join(ax.passthrough)
+    assert '   data "multi.dat"' in joined
+    assert "bar d1 fill gray20" in joined
+    assert "bar d2 from d1 fill white" in joined
+    # Original body order preserved: the 'data' statement, then both 'bar'
+    # statements, d1 before d2.
+    assert (
+        joined.index('data "multi.dat"')
+        < joined.index("bar d1 fill gray20")
+        < joined.index("bar d2 from d1")
+    )
+    assert any(w.startswith("structure:") and "d2,d1" in w for w in rec.warnings)
+    # No "mixes datasets"/"may not resolve" note: the statement ended up
+    # FULLY unconsumed, not partially -- the case that note exists for.
+    assert not any(
+        "mixes datasets" in w or "may not resolve" in w for w in rec.warnings
+    )
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+
+    # The ORIGINAL bare 'data' statement is restored verbatim -- gleplot
+    # never claims ownership of this file, so it is never rewritten/
+    # truncated, and GLE's own default auto-mapping (d1=c1,c2, d2=c1,c3)
+    # still applies at compile time exactly as it did in the original.
+    assert 'data "multi.dat"' in text
+    assert "d1=c1,c2" not in text
+    assert "d2=c1,c3" not in text
+
+
+def test_finding20_independent_non_stacked_bars_unaffected(tmp_path):
+    """Sanity check on the look-ahead's precision: two ORDINARY, independent
+    'bar' statements sharing one bare multi-column 'data' statement -- no
+    'from' anywhere -- must still both become real, independently-modeled
+    BarSeries. The stacked-bar detection must not sweep up unrelated 'bar'
+    statements just because they reference datasets from the same file.
+    """
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "multi.dat"\n'
+        "   bar d1 fill gray20\n"
+        "   bar d2 fill white\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "twobars.gle", src, {"multi.dat": _MULTI_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.bars) == 2
+    assert ax.passthrough == []
+    assert not any(
+        w.startswith("structure:") and "bar group" in w for w in rec.warnings
+    )
+
+
+def test_finding20_single_dataset_bare_data_unaffected(tmp_path):
+    """The common case -- a bare 'data' whose only registered dataset IS the
+    one modeled series, with no sibling 'bar ... from ...' anywhere -- must
+    be untouched by this fix: nothing is ever added to
+    ``_bar_stack_datasets``, so the single-name path behaves exactly as
+    before.
+    """
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "one.dat"\n'
+        "   bar d1 fill gray20\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "single_bar.gle", src, {"one.dat": "1 3\n2 4\n3 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.bars) == 1
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+
+    assert text.count("data one.dat") == 1
+    assert not any(
+        "mixes datasets" in w or "may not resolve" in w for w in rec.warnings
+    )
+
+
+def test_finding20_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "multi.dat"\n'
+        "   bar d1 fill gray20\n"
+        "   bar d2 from d1 fill white\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "fp20.gle", src, {"multi.dat": _MULTI_DAT})
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_finding20_stacked_bar_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression: compile the reviewer's reproducer with real
+    GLE, round-trip it through gleplot, compile the round-trip, and compare
+    the two renders pixel for pixel. Before the fix, the round trip did not
+    compile AT ALL ("bar dataset d2 not defined"), so this comparison was
+    never reached.
+
+    The whole graph is passthrough after the fix (see the finding's header
+    note), so the underlying data file is never rewritten -- the one
+    remaining source of legitimate preamble drift is the writer's own
+    page-global 'set hei', which always restates gleplot's default
+    regardless of what the figure uses. An explicit 'set hei 0.42328'
+    (12pt, from fontsize_pt_to_cm) matching that default removes it too, so
+    a real difference in the stack's rendering cannot hide behind
+    unrelated drift: the two full-page renders must be pixel-identical.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = (
+        "size 8 6\n"
+        "set hei 0.42328\n"
+        "amove 1 1\n"
+        "begin graph\n"
+        "   size 6 4\n"
+        "   xaxis min 0 max 4\n"
+        "   yaxis min 0 max 8\n"
+        '   data "multi.dat"\n'
+        "   bar d1 fill gray20\n"
+        "   bar d2 from d1 fill white\n"
+        "end graph\n"
+    )
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src, {"multi.dat": _MULTI_DAT})
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    (rt_dir / "multi.dat").write_text(_MULTI_DAT, encoding="utf-8")
+    rec = parse_gle_figure(orig)
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert res_rt.returncode == 0, (
+        "round-tripped script failed to compile -- the orphaned d2 dataset "
+        f"is likely undefined again:\n{res_rt.stdout}\n{res_rt.stderr}"
+    )
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- the orphaned dataset's stacked bar "
+        "segment was not preserved"
+    )
