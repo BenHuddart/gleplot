@@ -2689,6 +2689,17 @@ class _Recognizer:
                 if v is not None:
                     a["lstyle"] = int(v)
                     a["linestyle"] = LSTYLE_TO_MATPLOTLIB.get(int(v), "-")
+                    # GLE draws a line whenever EITHER the 'line' keyword is
+                    # given OR 'lstyle' names a style at all (GLE's own
+                    # draw-a-line test, graph2.cpp: 'dp[dn]->line ||
+                    # dp[dn]->lstyle[0] != 0') -- 'dN lstyle 2 color red'
+                    # with no 'line' keyword anywhere (the GLE manual's own
+                    # nomiss example) is a real, visible line, not a bare
+                    # dataset. Missing this made has_line False, which fed
+                    # linestyle="none" into the model and, downstream, an
+                    # unconditional 'marker None' from the writer's
+                    # no-line branch (see add_plot_line).
+                    a["has_line"] = True
                     i = nxt
                     continue
                 i += 2

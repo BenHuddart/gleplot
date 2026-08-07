@@ -1700,10 +1700,17 @@ class GLEWriter:
             if marker:
                 # Marker overlaid on the line (line+markers).
                 line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
-        else:
+        elif marker:
             # No line: marker-only (scatter). Preserve the historical token
             # order ``marker <name> msize <size> color <color>``.
             line_cmd += f" marker {marker} msize {self._format_number(markersize)} color {color}"
+        # else: neither a line nor a marker (e.g. ``ax.plot(x, y,
+        # linestyle='none')`` with no marker -- a real, if pointless,
+        # degenerate case matplotlib itself allows) -- the series draws
+        # nothing, so nothing is emitted here. This branch used to be
+        # unconditional and interpolated ``marker`` even when it was
+        # ``None``, putting the literal text "marker None" into the script
+        # (GLE then rejects it: "invalid marker name 'None'").
 
         # Add y2axis directive if using secondary y-axis
         if yaxis == "y2":
@@ -2175,8 +2182,18 @@ class GLEWriter:
         linewidth: float = 1.0,
         label: Optional[str] = None,
         yaxis: str = "y",
+        marker: Optional[str] = None,
+        markersize: float = 0.1,
     ):
-        """Add a line series that references columns in an external data file."""
+        """Add a line series that references columns in an external data file.
+
+        ``marker``/``markersize`` overlay a marker on the line (GLE natively
+        supports both on one dataset) -- this function is only ever called
+        for a series that already has a line (see ``_build_file_series``'s
+        ``has_line`` branch; a no-line, marker-only reference is emitted via
+        ``add_errorbar_from_file`` instead), so there is no separate
+        no-line/marker-only case to guard here, unlike ``add_plot_line``.
+        """
         d_main = f"d{self.dataset_index}"
         self.dataset_index += 1
 
@@ -2199,6 +2216,9 @@ class GLEWriter:
             line_cmd += f" lstyle {self.style.line_style_dotted}"
         elif linestyle == "-.":
             line_cmd += f" lstyle {self.style.line_style_dashdot}"
+
+        if marker:
+            line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
 
         if yaxis == "y2":
             line_cmd += " y2axis"

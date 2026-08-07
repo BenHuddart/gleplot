@@ -2083,6 +2083,8 @@ class Figure:
                     linewidth=fs_data.get("linewidth", 1.0),
                     label=fs_data.get("label"),
                     yaxis=fs_data.get("yaxis", "y"),
+                    marker=fs_data.get("marker"),
+                    markersize=fs_data.get("markersize", 0.1),
                 )
             elif series_type == "bar":
                 writer.add_bar_from_file(

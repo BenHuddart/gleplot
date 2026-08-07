@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import gleplot as glp
 from gleplot import Figure
 from gleplot.parser.recognizer import parse_gle_figure
 
@@ -2212,4 +2213,228 @@ def test_finding20_stacked_bar_reproduction_renders_with_parity(tmp_path):
         "round-tripped render diverges from the original "
         f"(diff bbox {diff_bbox}) -- the orphaned dataset's stacked bar "
         "segment was not preserved"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Finding 21 -- a marker-less, line-less series re-emitted as literal
+# ``marker None`` (gate-review MAJOR/rendered-fidelity finding, GLEstudio S8
+# corpus: graph/fig/gc_nomiss.gle).
+#
+# Two independent bugs conspired, and both are fixed here:
+#
+# 1. Root cause (recognizer, ``_scan_series_attrs``): GLE draws a line for a
+#    ``dN`` display command when EITHER the ``line`` keyword is given OR
+#    ``lstyle`` names a style at all -- ``dp[dn]->line || dp[dn]->lstyle[0]
+#    != 0`` in GLE's own ``graph2.cpp``. The recognizer's ``has_line`` only
+#    ever became ``True`` for the literal ``line`` keyword, so
+#    ``d1 lstyle 2 color red`` (the GLE manual's own nomiss example -- no
+#    ``line`` keyword at all, yet a real, visible dotted line) recovered as
+#    ``linestyle="none"``, marker ``None``.
+#
+# 2. Writer bug (``GLEWriter.add_plot_line``'s no-line branch): unconditional
+#    ``f" marker {marker} ..."`` with no ``if marker:`` guard -- the sibling
+#    branch (line+marker) and every other marker-emitting site in the writer
+#    (``add_errorbar``, ``add_errorbar_from_file``) already guard it. Bug 1
+#    fed a ``linestyle="none"``, ``marker=None`` series into this branch and
+#    it emitted the literal text ``marker None``, which GLE rejects
+#    ("invalid marker name 'None'") -- a compile failure. The same branch is
+#    also reachable directly from the scripting API
+#    (``ax.plot(x, y, linestyle='none')`` with no marker -- matplotlib
+#    itself allows this, a real if pointless degenerate case), independent
+#    of any GLE import, confirming this needed a writer-level fix and not
+#    only a recognizer one.
+# --------------------------------------------------------------------------- #
+
+# 3 columns (col1=x, col2=d1's y, col3=d2's y), matching the GLE manual's
+# own tut3.dat this figure reads (graph/fig/gc_nomiss.gle references
+# tutorial/fig/tut3.dat) -- a bare 'data' statement auto-maps d1=c1,c2 AND
+# d2=c1,c3 only when the file actually has 3 columns; a 2-column file would
+# auto-map d1 alone and leave 'd2 ...' an unresolved dataset reference
+# (preserved as raw passthrough), never reaching the code this finding
+# fixes at all.
+_NOMISS_DAT = "1 2 1\n2 6 5\n3 4 3\n4 5 4\n"
+
+
+def test_finding21_bare_lstyle_without_line_keyword_is_a_line(tmp_path):
+    """'d1 lstyle 2 color red', no 'line' keyword anywhere: GLE's own rule
+    (line OR lstyle set) makes this a real line, dotted (lstyle 2). Before
+    the fix this recovered as linestyle="none" with no marker.
+
+    Import-mode (``_meta``) so the object model exposes a real ``LineSeries``
+    with its own ``linestyle``/``marker`` fields to assert on directly,
+    rather than the reference-mode ``FileSeries`` a hand-written file with
+    no metadata block would recover as (see the manual-shaped test below,
+    which exercises that path instead).
+    """
+    src = _meta("nomiss.dat") + (
+        "size 7 4\n"
+        "begin graph\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 color red\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "bare_lstyle.gle", src, {"nomiss.dat": _NOMISS_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.lines) == 1
+    assert ax.scatters == []
+    line = ax.lines[0]
+    assert line["linestyle"] == ":"  # GLE lstyle 2 is dotted
+    assert line["marker"] is None
+    assert line["color"] == "red"
+
+
+def test_finding21_manual_nomiss_reproduction_no_marker_none_leak(tmp_path):
+    """The manual's exact 'nomiss' shape: d1 has no marker and no 'line'
+    keyword (bare 'lstyle'); d2 has both 'nomiss' and a real marker. Neither
+    the regenerated script nor the import warnings may contain the literal
+    text "marker None".
+    """
+    src = (
+        "size 7 4\n"
+        "begin graph\n"
+        '   title "nomiss"\n'
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 color red\n"
+        "   d2 nomiss lstyle 1 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "nomiss.gle", src, {"nomiss.dat": _NOMISS_DAT})
+    rec = parse_gle_figure(p)
+    assert not any("None" in w for w in rec.warnings)
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+
+    assert "None" not in text
+    assert "marker None" not in text
+    # d1 still draws its dotted line; d2 still keeps its real marker.
+    assert "lstyle 2" in text
+    assert "marker diamond" in text
+
+
+def test_finding21_writer_omits_marker_clause_for_lineless_markerless_series():
+    """Writer-level regression, independent of the recognizer/GLE import:
+    ``ax.plot(x, y, linestyle='none')`` with NO marker is a real, if
+    pointless, degenerate case matplotlib itself allows (a LineSeries with
+    marker=None reaches GLEWriter.add_plot_line's no-line branch). Before
+    the fix that branch unconditionally interpolated ``marker`` into an
+    f-string, so it emitted the literal text "marker None" for this case
+    too -- purely a scripting-API bug, no GLE file involved.
+    """
+    fig = glp.figure(data_prefix="f21")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [1, 2, 3], linestyle="none")
+    text, _files = fig._generate_gle_with_files()
+
+    assert "None" not in text
+    assert "marker" not in text  # nothing to draw -- no marker clause at all
+
+
+def test_finding21_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 7 4\n"
+        "begin graph\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 color red\n"
+        "   d2 nomiss lstyle 1 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "fp21.gle", src, {"nomiss.dat": _NOMISS_DAT})
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_finding21_nomiss_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression: compile the manual's 'nomiss' reproducer with
+    real GLE, round-trip it through gleplot, compile the round-trip, and
+    compare the two renders pixel for pixel. Before the fix, the round trip
+    did not compile AT ALL ("invalid marker name 'None'"), so this
+    comparison was never reached.
+
+    An explicit 'set hei' matching gleplot's own default (12pt ==
+    0.42328cm), explicit 'amove'+'size'+axis-range graph placement, and an
+    explicit 'lwidth' matching gleplot's own default line width (1.5pt ==
+    0.05292cm) remove every OTHER source of legitimate preamble/line-style
+    drift -- neither original line specifies 'lwidth' at all, so GLE's own
+    default line width would otherwise differ subtly from what an
+    unspecified linewidth recovers as on the model -- so a real difference
+    in d1's line rendering cannot hide behind them.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = (
+        "size 8 6\n"
+        "set hei 0.42328\n"
+        "amove 1 1\n"
+        "begin graph\n"
+        "   size 6 4\n"
+        "   xaxis min 1 max 4\n"
+        "   yaxis min 0 max 6\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 lwidth 0.05292 color red\n"
+        "   d2 nomiss lstyle 1 lwidth 0.05292 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src, {"nomiss.dat": _NOMISS_DAT})
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    (rt_dir / "nomiss.dat").write_text(_NOMISS_DAT, encoding="utf-8")
+    rec = parse_gle_figure(orig)
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert res_rt.returncode == 0, (
+        "round-tripped script failed to compile -- 'marker None' is likely "
+        f"back:\n{res_rt.stdout}\n{res_rt.stderr}"
+    )
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- d1's bare-lstyle line was not "
+        "preserved"
     )
