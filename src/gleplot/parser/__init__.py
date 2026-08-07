@@ -59,12 +59,25 @@ __all__ = [
     # turn import gleplot.parser.units at package-init time.
     "RecognizedFigure",
     "parse_gle_figure",
+    # import report (GLEstudio plan G4) -- pure dataclass/enum, no cycle, but
+    # grouped and lazily loaded alongside the recognizer symbols they back
+    # since they are meaningless without it.
+    "ImportCategory",
+    "ImportNote",
 ]
+
+_RECOGNIZER_NAMES = ("RecognizedFigure", "parse_gle_figure")
+_REPORT_NAMES = ("ImportCategory", "ImportNote")
 
 
 def __getattr__(name):
-    """Lazily expose the recognizer symbols without an import cycle."""
-    if name in ("RecognizedFigure", "parse_gle_figure"):
+    """Lazily expose the recognizer (+ report) symbols without an import cycle."""
+    if name in _RECOGNIZER_NAMES:
         from . import recognizer
+
         return getattr(recognizer, name)
+    if name in _REPORT_NAMES:
+        from . import report
+
+        return getattr(report, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

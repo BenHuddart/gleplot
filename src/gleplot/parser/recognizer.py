@@ -179,25 +179,85 @@ absent, and re-emission is canonical (no blank line re-inserted).
 
 Warnings taxonomy
 -----------------
-Every recovered ambiguity or loss appends a human-readable string to
-``RecognizedFigure.warnings``:
+Every recovered ambiguity or loss is recorded as an
+:class:`~gleplot.parser.report.ImportNote` on ``RecognizedFigure.notes``
+(GLEstudio plan G4; SPEC 8.1.5 / 10.4) -- category, a human-readable message,
+and a ``source_span`` into the original file where one is determinable.
+``RecognizedFigure.warnings`` is a *derived* view: ``"category: message"`` for
+each note, in order, reproducing exactly the strings this API returned before
+notes existed, so it is still the right thing to check with
+``any(w.startswith("data:") ...)`` or similar. New code should prefer
+``notes`` for anything that wants a category as data or a location.
 
-- ``"metadata: ..."``            -- forwarded from ``parse_metadata``.
-- ``"structure: ..."``          -- forwarded from the syntax parser.
-- ``"data: ..."``               -- a ``data`` reference could not be loaded /
-                                   a column could not be extracted (broken
-                                   series; emitted verbatim on re-save).
-- ``"legend: ..."``             -- a hand-written implicit legend was assumed.
-- ``"smooth: ..."``             -- mixed per-series smooth flags.
-- ``"layout: ..."``             -- multi-graph grid could not be inferred
-                                   cleanly (n x 1 fallback), share flags were
-                                   guessed, or graph geometry / an ``amove``
-                                   was preserved verbatim rather than modelled
-                                   (normalization #13). Geometry is never
-                                   dropped silently.
-- ``"programmatic: ..."``       -- the file uses GLE programming constructs
-                                   (sub/if/for/...); editing may restructure
-                                   them (advisory; parse unchanged).
+- ``ImportCategory.METADATA`` (``"metadata: ..."``)     -- forwarded from
+  ``parse_metadata``.
+- ``ImportCategory.STRUCTURE`` (``"structure: ..."``)   -- forwarded from the
+  syntax parser, or a construct this module recognizes but cannot fully model
+  (unsupported title/key/axis options, a repeated styling line, a names/places
+  mismatch, an unknown colormap palette, a multi-dataset ``bar``/``fill``
+  group, a graph nested in a transform wrapper, ...).
+- ``ImportCategory.DATA`` (``"data: ..."``)             -- a ``data``
+  reference could not be loaded / a column could not be extracted (broken
+  series; emitted verbatim on re-save), a dataset redefinition, or a
+  constant-error conversion.
+- ``ImportCategory.LEGEND`` (``"legend: ..."``)         -- a hand-written
+  implicit legend was assumed, or a ``key`` line has unsupported options.
+- ``ImportCategory.SMOOTH`` (``"smooth: ..."``)         -- mixed per-series
+  smooth flags.
+- ``ImportCategory.LAYOUT`` (``"layout: ..."``)         -- multi-graph grid
+  could not be inferred cleanly (n x 1 fallback), share flags were guessed,
+  or graph geometry / an ``amove`` was preserved verbatim rather than
+  modelled (normalization #13). Geometry is never dropped silently.
+- ``ImportCategory.PROGRAMMATIC`` (``"programmatic: ..."``) -- the file uses
+  GLE programming constructs (sub/if/for/...); editing may restructure them
+  (advisory; parse unchanged).
+
+SPEC 8.1.5 additionally names a v1.1 ``mathtext:`` category (reverse
+mathtext translation for imported labels, SPEC 9) with no current emission
+site -- not in :class:`~gleplot.parser.report.ImportCategory` yet, since the
+taxonomy tracks what is actually emitted.
+
+Source-span coverage
+---------------------
+``source_span`` is only ever the location the recognizer actually had at the
+point it raised the note -- never guessed. Coverage by category:
+
+======================  ==========================================================
+Category                Span coverage
+======================  ==========================================================
+``structure``           Real, usually single-line: almost every site fires from
+                        a method that already holds the triggering ``Statement``.
+                        A few aggregate over more than one line (a names/places
+                        pair split across two statements; a translate/scale
+                        wrapper spans its ``begin``..``end``) and use the min/max
+                        line of the statements actually responsible.
+``data``                Real for every site: the series-build call chain
+                        (``_build_series_from_attrs`` -> ``_parse_series_command``
+                        -> ``_build_errorbar`` / ``_build_contour_from_cdata`` /
+                        ``_load_series``) threads the triggering ``dN``/``bar``/
+                        ``fill`` statement's line down to every data-resolution
+                        failure raised while building that series.
+``legend``              Real for ``key`` line rejections (the statement).
+                        The implicit-legend inference is a whole-axes
+                        conclusion (no ``key`` statement exists to blame) and
+                        uses the owning graph block's ``begin``..``end`` span.
+``layout``              Real for a single graph's geometry (min/max line of its
+                        ``size``/``scale``/``fullsize`` statements) and its
+                        ``amove``. The multi-graph grid-inference fallbacks are
+                        a whole-arrangement conclusion; span is the min/max of
+                        whatever amove lines the figure does have (``None`` if
+                        none do).
+``smooth``              Always ``None``. The note is a true whole-figure
+                        aggregate over every line dataset (across every graph
+                        block); no single line is more responsible than any
+                        other.
+``programmatic``        Real, single-line: the specific top-level statement
+                        whose keyword tripped the guard.
+``metadata``            The whole ``! gleplot-meta-begin``..``! gleplot-meta-end``
+                        block's span (``parse_metadata`` does not track a
+                        per-line origin for its own warnings; the block is the
+                        finest location available at the call site).
+======================  ==========================================================
 """
 
 from __future__ import annotations
@@ -226,6 +286,7 @@ from ..series import (
 from . import metadata as _metadata
 from .expr import eval_gle_number
 from .lexer import Token, TokenType
+from .report import ImportCategory, ImportNote
 from .syntax import (
     BlankOrComment,
     GraphBlock,
@@ -252,7 +313,7 @@ from ..dataio import (
     resolve_data_reference,
 )
 
-__all__ = ["RecognizedFigure", "parse_gle_figure"]
+__all__ = ["ImportCategory", "ImportNote", "RecognizedFigure", "parse_gle_figure"]
 
 
 _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
@@ -266,12 +327,24 @@ class RecognizedFigure:
     ----------
     figure : Figure
         The reconstructed object model.
+    notes : tuple of ImportNote
+        Structured recovery notes (category, message, and a source span where
+        determinable) -- see the module "Warnings taxonomy" for the span
+        coverage achievable per category. This is the source of truth;
+        ``warnings`` is derived from it.
     warnings : list of str
-        Human-readable recovery notes (see the module "Warnings taxonomy").
+        Human-readable ``"category: message"`` strings, one per note, in the
+        same order -- kept for backward compatibility with every consumer
+        written against the pre-G4 string API. Computed on each access from
+        :attr:`notes`, never stored independently.
     """
 
     figure: Figure
-    warnings: List[str] = field(default_factory=list)
+    notes: Tuple[ImportNote, ...] = field(default_factory=tuple)
+
+    @property
+    def warnings(self) -> List[str]:
+        return [note.rendered for note in self.notes]
 
 
 # --------------------------------------------------------------------------- #
@@ -432,14 +505,16 @@ class _GraphGeometryStmt:
 
     ``words`` are the lowercased argument tokens (so ``scale auto`` is
     recognizable), ``values`` their numeric evaluation where they are numbers,
-    and ``raw`` the verbatim source line (indentation included) used for
-    byte-preserving re-emission.
+    ``raw`` the verbatim source line (indentation included) used for
+    byte-preserving re-emission, and ``line_no`` its 1-indexed source line
+    (``None`` only when built without an originating statement).
     """
 
     keyword: str
     words: List[str]
     values: List[float]
     raw: str
+    line_no: Optional[int] = None
 
 
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
@@ -504,7 +579,7 @@ class _Recognizer:
     def __init__(self, text: str, gle_path: Path):
         self.text = text
         self.gle_path = gle_path
-        self.warnings: List[str] = []
+        self.notes: List[ImportNote] = []
         # dataset name (lower) -> (data_file, xcol_1based, ycol_1based)
         self._datasets: Dict[str, Tuple[str, int, int]] = {}
         # resolved-table cache per data_file name
@@ -533,6 +608,41 @@ class _Recognizer:
         # (consumed into a series), dropped from passthrough.
         self._consumed_block_lines: set = set()
 
+    # -- notes -------------------------------------------------------------
+
+    @staticmethod
+    def _stmt_span(stmt) -> Optional[Tuple[int, int]]:
+        """``(line_no, line_no)`` for a statement, or ``None`` when unknown.
+
+        A :class:`~gleplot.parser.syntax.Statement` is always confined to one
+        physical line (the lexer/splitter never spans a statement across
+        lines), so a single statement's span always has ``start == end``.
+        """
+        if stmt is None or getattr(stmt, "line_no", None) is None:
+            return None
+        return (stmt.line_no, stmt.line_no)
+
+    @staticmethod
+    def _opt_line_no(stmt) -> Optional[int]:
+        """``stmt.line_no``, or ``None`` when ``stmt`` is ``None``."""
+        return stmt.line_no if stmt is not None else None
+
+    def _note(
+        self,
+        category: ImportCategory,
+        message: str,
+        source_span: Optional[Tuple[int, int]] = None,
+    ) -> None:
+        """Record one structured recovery note (see :class:`ImportNote`).
+
+        The sole append point for :attr:`notes` -- every recovery warning in
+        this class goes through here so ``RecognizedFigure.warnings`` (a
+        derived view) and the structured report can never drift apart.
+        """
+        self.notes.append(
+            ImportNote(category=category, message=message, source_span=source_span)
+        )
+
     # -- public driver ---------------------------------------------------
 
     def run(self) -> RecognizedFigure:
@@ -548,7 +658,7 @@ class _Recognizer:
         for w in doc.warnings:
             if w.line_no in self._gleplot_sub_lines:
                 continue
-            self.warnings.append(f"structure: {w}")
+            self._note(ImportCategory.STRUCTURE, str(w), (w.line_no, w.line_no))
 
         # 1-based line numbers spanned by the '! gleplot' metadata block; these
         # lines carry parsed values and must be dropped wherever they appear
@@ -567,8 +677,11 @@ class _Recognizer:
 
         # Metadata block (parsed from the whole file, tolerantly).
         meta, meta_warnings = _metadata.parse_metadata(self.text.splitlines())
-        for w in meta_warnings:
-            self.warnings.append(f"metadata: {w}")
+        meta_span = (
+            (min(self._meta_lines), max(self._meta_lines)) if self._meta_lines else None
+        )
+        for meta_msg in meta_warnings:
+            self._note(ImportCategory.METADATA, meta_msg, meta_span)
         if "import-data" in meta:
             self._import_list = list(meta.get("import-data") or [])
 
@@ -639,6 +752,10 @@ class _Recognizer:
         # Verbatim source line of ``pending_amove``, so an amove that does not
         # become a placement rect can still be preserved (see _apply_geometry).
         pending_amove_raw: Optional[str] = None
+        # 1-indexed source line of that same ``amove``, so notes about it
+        # (layout: preserved verbatim / used for grid inference) can carry a
+        # real span instead of ``None``.
+        pending_amove_line: Optional[int] = None
 
         n = len(nodes)
         while i < n:
@@ -647,8 +764,10 @@ class _Recognizer:
                 axes_info = self._parse_graph_block(node, marker_cfg, smooth_flags)
                 axes_info["amove"] = pending_amove
                 axes_info["amove_raw"] = pending_amove_raw
+                axes_info["amove_line_no"] = pending_amove_line
                 pending_amove = None
                 pending_amove_raw = None
+                pending_amove_line = None
                 # Greedily consume deferred text cluster that follows.
                 texts, consumed = self._consume_text_cluster(nodes, i + 1)
                 axes_info["texts"] = texts
@@ -664,6 +783,7 @@ class _Recognizer:
             if amove is not None:
                 pending_amove = amove
                 pending_amove_raw = self._stmt_text(node)
+                pending_amove_line = getattr(node, "line_no", None)
                 i += 1
                 continue
 
@@ -699,7 +819,7 @@ class _Recognizer:
         # --- data-file naming state for byte-identical re-save. ---
         self._finalize_data_state(fig)
 
-        return RecognizedFigure(figure=fig, warnings=self.warnings)
+        return RecognizedFigure(figure=fig, notes=tuple(self.notes))
 
     # -- programmatic-construct guard -----------------------------------
 
@@ -730,12 +850,23 @@ class _Recognizer:
                 continue
             if node.block_type not in self._TRANSFORM_WRAPPERS:
                 continue
+            end_line = (
+                node.end.line_no
+                if node.end is not None
+                else (
+                    node.inner_lines[-1].line_no
+                    if node.inner_lines
+                    else node.begin.line_no
+                )
+            )
             for sl in node.inner_lines:
                 stripped = sl.text.strip().lower()
                 if stripped.startswith("begin graph"):
-                    self.warnings.append(
-                        "structure: graph inside begin translate/scale is "
-                        "preserved as raw GLE, not editable"
+                    self._note(
+                        ImportCategory.STRUCTURE,
+                        "graph inside begin translate/scale is "
+                        "preserved as raw GLE, not editable",
+                        (node.begin.line_no, end_line),
                     )
                     break
 
@@ -750,10 +881,12 @@ class _Recognizer:
                 continue
             kw = node.keyword
             if kw is not None and kw in self._PROGRAMMATIC_KEYWORDS:
-                self.warnings.append(
-                    "programmatic: file contains GLE programming constructs "
+                self._note(
+                    ImportCategory.PROGRAMMATIC,
+                    "file contains GLE programming constructs "
                     "(sub/if/for); opening for editing may restructure them -- "
-                    "consider read-only preview"
+                    "consider read-only preview",
+                    (node.line_no, node.line_no),
                 )
                 return
 
@@ -939,6 +1072,7 @@ class _Recognizer:
             "_xsubticks": None,
             "_ysubticks": None,
             "_y2labels_on_raw": None,
+            "_y2labels_on_line": None,
             "nofirst_x": False,
             "nolast_x": False,
             "nofirst_y": False,
@@ -995,6 +1129,15 @@ class _Recognizer:
             # and the 'data'-statement reconciliation in _parse_graph_block.
             "_let_source_datasets": set(),
         }
+        # This graph block's own (begin, end) line span -- the fallback
+        # location for a note about the block as a whole (no single statement
+        # is more specific), e.g. an implicit legend inferred from labeled
+        # series with no 'key' command anywhere in it. Assigned outside the
+        # literal above so it does not widen that dict's inferred value type.
+        info["_block_span"] = (
+            block.begin.line_no,
+            block.end.line_no if block.end is not None else block.begin.line_no,
+        )
 
         # Local dataset map for THIS block (dataset refs are graph-local).
         datasets: Dict[str, Tuple[str, int, int]] = {}
@@ -1011,10 +1154,10 @@ class _Recognizer:
         dataset_order: List[str] = []
 
         # Raw text of each 'data' statement, paired with the dataset names it
-        # declares, in body order -- used after pass 2 to restore a 'data'
-        # statement whose datasets ended up entirely unmodeled (see the
-        # reconciliation below the pass-2 loop).
-        data_stmts: List[Tuple[List[str], str]] = []
+        # declares and its source line, in body order -- used after pass 2 to
+        # restore a 'data' statement whose datasets ended up entirely
+        # unmodeled (see the reconciliation below the pass-2 loop).
+        data_stmts: List[Tuple[List[str], str, int]] = []
 
         for child in block.body:
             if isinstance(child, Statement):
@@ -1022,9 +1165,13 @@ class _Recognizer:
                     continue
                 kw = child.keyword
                 if kw == "data":
-                    names = self._parse_data_command(_words_and_values(child), datasets)
+                    names = self._parse_data_command(
+                        _words_and_values(child), datasets, line_no=child.line_no
+                    )
                     if names:
-                        data_stmts.append((names, self._stmt_text(child)))
+                        data_stmts.append(
+                            (names, self._stmt_text(child), child.line_no)
+                        )
                     continue
                 if kw == "let":
                     # 'let dK = dJ+off' -- register dK as an offset alias of dJ
@@ -1094,7 +1241,13 @@ class _Recognizer:
                 emitted.add(name)
                 merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
                 self._build_series_from_attrs(
-                    name, merged, datasets, info, marker_cfg, smooth_flags
+                    name,
+                    merged,
+                    datasets,
+                    info,
+                    marker_cfg,
+                    smooth_flags,
+                    line_no=child.line_no,
                 )
                 continue
 
@@ -1129,7 +1282,7 @@ class _Recognizer:
                 if _DATASET_RE.match(t.value):
                     consumed.add(t.value.lower())
         restored: List[str] = []
-        for names, raw in data_stmts:
+        for names, raw, data_line_no in data_stmts:
             if not any(n in consumed for n in names):
                 restored.append(raw)
             elif not all(n in consumed for n in names):
@@ -1140,12 +1293,14 @@ class _Recognizer:
                 # whole original line would duplicate the modeled portion;
                 # dropping it silently loses the rest. Surface it instead of
                 # guessing.
-                self.warnings.append(
-                    "data: '"
+                self._note(
+                    ImportCategory.DATA,
+                    "'"
                     + raw.strip()
                     + "' mixes datasets that became series with datasets "
                     "only referenced by raw GLE; the raw reference(s) may "
-                    "not resolve after save"
+                    "not resolve after save",
+                    (data_line_no, data_line_no),
                 )
         if restored:
             info["passthrough"][0:0] = restored
@@ -1184,9 +1339,12 @@ class _Recognizer:
             gridded = info[f"{prefix}grid"]
             if ticks is not None and not (gridded and ticks["ok"] and not ticks["on"]):
                 info["passthrough"].append(ticks["raw"])
-                self.warnings.append(
-                    f"structure: {prefix}ticks styling without a modeled grid; "
-                    "kept as raw GLE, not editable"
+                ticks_line = ticks["line_no"]
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"{prefix}ticks styling without a modeled grid; "
+                    "kept as raw GLE, not editable",
+                    (ticks_line, ticks_line) if ticks_line is not None else None,
                 )
                 info[f"_{prefix}ticks"] = ticks = None
             if subticks is None:
@@ -1202,9 +1360,16 @@ class _Recognizer:
                 and styled_alike
             ):
                 info["passthrough"].append(subticks["raw"])
-                self.warnings.append(
-                    f"structure: {prefix}subticks line is not a modeled grid "
-                    "mode; kept as raw GLE, not editable"
+                subticks_line = subticks["line_no"]
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"{prefix}subticks line is not a modeled grid "
+                    "mode; kept as raw GLE, not editable",
+                    (
+                        (subticks_line, subticks_line)
+                        if subticks_line is not None
+                        else None
+                    ),
                 )
                 info[f"_{prefix}subticks"] = None
         if info["_y2labels_on_raw"] is not None:
@@ -1220,9 +1385,12 @@ class _Recognizer:
             )
             if not implied:
                 info["passthrough"].append(info["_y2labels_on_raw"])
-                self.warnings.append(
-                    "structure: 'y2labels on' with nothing to style; kept as "
-                    "raw GLE, not editable"
+                y2_line = info["_y2labels_on_line"]
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    "'y2labels on' with nothing to style; kept as "
+                    "raw GLE, not editable",
+                    (y2_line, y2_line) if y2_line is not None else None,
                 )
 
     def _reconcile_places_names(self, info) -> None:
@@ -1244,14 +1412,20 @@ class _Recognizer:
                 continue
             if places is not None and len(names) == len(places):
                 continue
+            lines: List[int] = []
             for field in (places_field, names_field):
                 raw = info.pop(f"_{field}_raw", None)
+                raw_line = info.pop(f"_{field}_raw_line", None)
                 if raw is not None:
                     info["passthrough"].append(raw)
+                if raw_line is not None:
+                    lines.append(raw_line)
                 info[field] = None
-            self.warnings.append(
-                f"structure: {prefix}names/{prefix}places length mismatch; "
-                "kept as raw GLE, not editable"
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"{prefix}names/{prefix}places length mismatch; "
+                "kept as raw GLE, not editable",
+                (min(lines), max(lines)) if lines else None,
             )
 
     def _skip_meta_stmt(self, stmt) -> bool:
@@ -1279,11 +1453,16 @@ class _Recognizer:
         return _string_value(val_tok) == ""
 
     def _build_series_from_attrs(
-        self, name, merged_toks, datasets, info, marker_cfg, smooth_flags
+        self, name, merged_toks, datasets, info, marker_cfg, smooth_flags, line_no=None
     ):
-        """Build one series from a dataset's merged attribute tokens."""
+        """Build one series from a dataset's merged attribute tokens.
+
+        ``line_no`` is the first body-order statement that named this
+        dataset (the same anchor pass 1 merged its attributes from), threaded
+        through so notes raised while building the series carry a real span.
+        """
         self._parse_series_command(
-            merged_toks, datasets, info, marker_cfg, smooth_flags
+            merged_toks, datasets, info, marker_cfg, smooth_flags, line_no=line_no
         )
 
     def _dispatch_graph_statement(self, stmt, info, datasets, marker_cfg, smooth_flags):
@@ -1301,6 +1480,7 @@ class _Recognizer:
                     words=[t.value.lower() for t in toks[1:]],
                     values=_collect_values(toks, 1),
                     raw=self._stmt_text(stmt),
+                    line_no=self._opt_line_no(stmt),
                 )
             )
             return
@@ -1405,9 +1585,10 @@ class _Recognizer:
         opts, remainder = self._parse_text_options(toks, idx + 1) if idx else ({}, [])
         if idx != 1 or remainder:
             info["passthrough"].append(self._stmt_text(stmt))
-            self.warnings.append(
-                "structure: title has unsupported options; kept as raw GLE, "
-                "not editable"
+            self._note(
+                ImportCategory.STRUCTURE,
+                "title has unsupported options; kept as raw GLE, not editable",
+                self._stmt_span(stmt),
             )
             return
         info["title"] = _string_value(toks[idx])
@@ -1428,9 +1609,10 @@ class _Recognizer:
         opts, remainder = self._parse_text_options(toks, idx + 1) if idx else ({}, [])
         if idx != 1 or remainder:
             info["passthrough"].append(self._stmt_text(stmt))
-            self.warnings.append(
-                f"structure: {kw} has unsupported options; kept as raw GLE, "
-                "not editable"
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"{kw} has unsupported options; kept as raw GLE, not editable",
+                self._stmt_span(stmt),
             )
             return
         info[f"{prefix}label"] = _string_value(toks[idx])
@@ -1466,15 +1648,17 @@ class _Recognizer:
             # Unmodeled option, or styling on labels that are switched off
             # (which the writer would drop): keep the line verbatim.
             info["passthrough"].append(self._stmt_text(stmt))
-            self.warnings.append(
-                f"structure: unrecognized {kw} options; kept as raw GLE, "
-                "not editable"
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"unrecognized {kw} options; kept as raw GLE, not editable",
+                (stmt.line_no, stmt.line_no) if stmt is not None else None,
             )
             return
         if off:
             info[f"{prefix}labels_off"] = True
         if on:
             info["_y2labels_on_raw"] = self._stmt_text(stmt)
+            info["_y2labels_on_line"] = stmt.line_no if stmt is not None else None
         info[f"{prefix}labels_hei"] = opts["hei"]
         info[f"{prefix}labels_color"] = opts["color"]
 
@@ -1493,6 +1677,7 @@ class _Recognizer:
         key = f"_{prefix}subticks" if "sub" in kw else f"_{prefix}ticks"
         parsed: Dict[str, Any] = {
             "raw": self._stmt_text(stmt),
+            "line_no": stmt.line_no if stmt is not None else None,
             "lstyle": None,
             "lwidth": None,
             "color": None,
@@ -1524,9 +1709,12 @@ class _Recognizer:
         if info[key] is not None:
             # A second style line for the same ticks; the model holds one.
             parsed["ok"] = False
+            prev_line_no = info[key]["line_no"]
             info["passthrough"].append(info[key]["raw"])
-            self.warnings.append(
-                f"structure: repeated {kw} line; kept as raw GLE, not editable"
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"repeated {kw} line; kept as raw GLE, not editable",
+                (prev_line_no, prev_line_no) if prev_line_no is not None else None,
             )
         info[key] = parsed
 
@@ -1622,9 +1810,11 @@ class _Recognizer:
         if remainder:
             rendered = self._render_remainder(remainder, stmt)
             info["passthrough"].append(f"    {kw} {rendered}")
-            self.warnings.append(
-                f"structure: unrecognized {kw} options ({rendered}) preserved as "
-                "a supplementary axis line (cumulative); not editable"
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"unrecognized {kw} options ({rendered}) preserved as "
+                "a supplementary axis line (cumulative); not editable",
+                self._stmt_span(stmt),
             )
 
     def _render_remainder(self, remainder, stmt) -> str:
@@ -1692,24 +1882,32 @@ class _Recognizer:
 
         if i != m or not values:
             info["passthrough"].append(self._stmt_text(stmt))
-            self.warnings.append(
-                f"structure: unrecognized {kw} line preserved as raw GLE, "
-                "not editable"
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"unrecognized {kw} line preserved as raw GLE, not editable",
+                (stmt.line_no, stmt.line_no) if stmt is not None else None,
             )
             return
 
         info[field] = values
         info[f"_{field}_raw"] = self._stmt_text(stmt)
+        info[f"_{field}_raw_line"] = stmt.line_no if stmt is not None else None
 
     # -- data command ----------------------------------------------------
 
-    def _parse_data_command(self, toks, datasets) -> List[str]:
+    def _parse_data_command(
+        self, toks, datasets, line_no: Optional[int] = None
+    ) -> List[str]:
         """``data FILE d1=c1,c2 d2=c1,c3 ...`` -> register datasets.
 
         Returns the dataset names this call registered (empty if the
         statement was empty, malformed, or its file could not be resolved
         for auto column mapping), so the caller can pair them with the
         statement's raw text for later reconciliation.
+
+        ``line_no`` is the originating ``data`` statement's 1-indexed source
+        line, threaded through by the caller so this method's own notes
+        (redefinition / unresolved auto-mapping) can carry a real span.
 
         Handles three GLE forms (semantics verified against
         ``GLE/src/gle/graph.cpp`` ``data_command`` / ``read_data_description``):
@@ -1772,9 +1970,11 @@ class _Recognizer:
         # Warn (last-wins) about a redefinition of an already-registered name.
         for name, _cols in given:
             if name in datasets:
-                self.warnings.append(
-                    f"data: dataset {name} redefined by a later 'data' command; "
-                    "using the last definition"
+                self._note(
+                    ImportCategory.DATA,
+                    f"dataset {name} redefined by a later 'data' command; "
+                    "using the last definition",
+                    (line_no, line_no) if line_no is not None else None,
                 )
 
         need_auto = not given or any(c is None for _n, c in given)
@@ -1791,9 +1991,11 @@ class _Recognizer:
             if ncols is None:
                 # File unresolved: cannot auto-map. Record a broken reference
                 # so referencing is not silently dropped.
-                self.warnings.append(
-                    f"data: '{data_file}' could not be resolved; auto column "
-                    "mapping (data with no dN clauses) skipped"
+                self._note(
+                    ImportCategory.DATA,
+                    f"'{data_file}' could not be resolved; auto column "
+                    "mapping (data with no dN clauses) skipped",
+                    (line_no, line_no) if line_no is not None else None,
                 )
                 return []
             if ncols <= 1:
@@ -1962,10 +2164,12 @@ class _Recognizer:
             # the no-silent-drops contract. Keep the whole statement raw
             # instead.
             info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
-            self.warnings.append(
-                "structure: multi-dataset bar group ("
+            self._note(
+                ImportCategory.STRUCTURE,
+                "multi-dataset bar group ("
                 + ",".join(d_names)
-                + ") kept as raw GLE, not editable"
+                + ") kept as raw GLE, not editable",
+                self._stmt_span(stmt),
             )
             return
 
@@ -1975,7 +2179,9 @@ class _Recognizer:
             return
         info["_key_suppress_datasets"].add(d_name)
         data_file, xcol, ycol = datasets[d_name]
-        loaded = self._load_series(data_file, xcol, ycol)
+        loaded = self._load_series(
+            data_file, xcol, ycol, line_no=self._opt_line_no(stmt)
+        )
         entry = BarSeries(
             colors=None,
             label=None,
@@ -2033,7 +2239,9 @@ class _Recognizer:
         f1, xc1, yc1 = datasets[d_names[0]]
         f2, xc2, yc2 = datasets[d_names[1]]
         # fill data file has c1=x, c2=y1, c3=y2. d1=c1,c2 ; d2=c1,c3.
-        loaded = self._load_series(f1, xc1, yc1, extra_cols=[yc2])
+        loaded = self._load_series(
+            f1, xc1, yc1, extra_cols=[yc2], line_no=self._opt_line_no(stmt)
+        )
         if loaded is None or loaded.get("error"):
             info["file_series"].append(
                 FileSeries(
@@ -2109,8 +2317,10 @@ class _Recognizer:
             else ("    " + " ".join(t.value for t in toks))
         )
         info["passthrough"].append(line)
-        self.warnings.append(
-            "legend: key has unsupported options; kept as raw GLE, not editable"
+        self._note(
+            ImportCategory.LEGEND,
+            "key has unsupported options; kept as raw GLE, not editable",
+            self._stmt_span(stmt),
         )
 
     @staticmethod
@@ -2188,7 +2398,9 @@ class _Recognizer:
 
     # -- series command --------------------------------------------------
 
-    def _parse_series_command(self, toks, datasets, info, marker_cfg, smooth_flags):
+    def _parse_series_command(
+        self, toks, datasets, info, marker_cfg, smooth_flags, line_no=None
+    ):
         """Parse a ``dN ...`` dataset display command into a series entry."""
         d_name = toks[0].value.lower()
         attrs = self._scan_series_attrs(toks[1:])
@@ -2210,7 +2422,7 @@ class _Recognizer:
         if isinstance(data_file, str) and data_file.endswith("-cdata.dat"):
             zfile = data_file[: -len("-cdata.dat")] + ".z"
             if zfile in self._contour_blocks or zfile in self._fitz_blocks:
-                self._build_contour_from_cdata(data_file, toks, info)
+                self._build_contour_from_cdata(data_file, toks, info, line_no=line_no)
                 return
 
         has_line = attrs["has_line"]
@@ -2230,6 +2442,7 @@ class _Recognizer:
                 attrs,
                 is_import,
                 orig_toks=toks,
+                line_no=line_no,
             )
             return
 
@@ -2238,7 +2451,7 @@ class _Recognizer:
             return
 
         # Import series: load arrays.
-        loaded = self._load_series(data_file, xcol, ycol)
+        loaded = self._load_series(data_file, xcol, ycol, line_no=line_no)
         if loaded is None or loaded.get("error"):
             self._build_file_series(
                 info,
@@ -2401,9 +2614,19 @@ class _Recognizer:
         return a
 
     def _build_errorbar(
-        self, info, datasets, data_file, xcol, ycol, attrs, is_import, orig_toks=None
+        self,
+        info,
+        datasets,
+        data_file,
+        xcol,
+        ycol,
+        attrs,
+        is_import,
+        orig_toks=None,
+        line_no=None,
     ):
         """Reconstruct an errorbar entry, matching Axes.errorbar's dict schema."""
+        span = (line_no, line_no) if line_no is not None else None
         # Resolve error column indices from referenced datasets.
         err = attrs["err_refs"]
         err_consts = attrs["err_consts"]
@@ -2415,9 +2638,11 @@ class _Recognizer:
         if err_consts and (not is_import):
             # File reference we won't load -> keep the ORIGINAL dN line raw.
             self._passthrough_original_dn(info, orig_toks)
-            self.warnings.append(
-                "data: constant error on an unresolved file reference; original "
-                "'dN ... err' line kept as raw GLE"
+            self._note(
+                ImportCategory.DATA,
+                "constant error on an unresolved file reference; original "
+                "'dN ... err' line kept as raw GLE",
+                span,
             )
             return
 
@@ -2491,14 +2716,18 @@ class _Recognizer:
             for c in (yerr_up_col, yerr_down_col, xerr_left_col, xerr_right_col)
             if c is not None
         ]
-        loaded = self._load_series(data_file, xcol, ycol, extra_cols=extra)
+        loaded = self._load_series(
+            data_file, xcol, ycol, extra_cols=extra, line_no=line_no
+        )
         if loaded is None or loaded.get("error"):
             if err_consts:
                 # Cannot synthesize a constant-error column without the y data.
                 self._passthrough_original_dn(info, orig_toks)
-                self.warnings.append(
-                    "data: constant error but the dataset could not be loaded; "
-                    "original 'dN ... err' line kept as raw GLE"
+                self._note(
+                    ImportCategory.DATA,
+                    "constant error but the dataset could not be loaded; "
+                    "original 'dN ... err' line kept as raw GLE",
+                    span,
                 )
                 return
             yerr_col = yerr_up_col if yerr_up_col is not None else None
@@ -2533,8 +2762,10 @@ class _Recognizer:
         # per-point error; 'N%' is N/100 * abs(value along the error dimension)
         # -- for vertical err the value dimension is y, for horizontal it is x.
         if err_consts:
-            self.warnings.append(
-                "data: constant error expression converted to a data column on " "save"
+            self._note(
+                ImportCategory.DATA,
+                "constant error expression converted to a data column on save",
+                span,
             )
             y_arr = loaded["y"]
             x_arr = loaded["x"]
@@ -2990,9 +3221,11 @@ class _Recognizer:
             if cmap is None:
                 # Foreign / unknown palette sub -> keep the whole colormap raw.
                 info["passthrough"].append(self._stmt_text(stmt))
-                self.warnings.append(
-                    f"structure: colormap uses unknown palette {palette!r}; "
-                    "kept as raw GLE, not editable"
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"colormap uses unknown palette {palette!r}; "
+                    "kept as raw GLE, not editable",
+                    self._stmt_span(stmt),
                 )
                 return
         else:
@@ -3000,8 +3233,10 @@ class _Recognizer:
 
         if unknown:
             info["passthrough"].append(self._stmt_text(stmt))
-            self.warnings.append(
-                "structure: colormap has unrecognized options; kept as raw GLE"
+            self._note(
+                ImportCategory.STRUCTURE,
+                "colormap has unrecognized options; kept as raw GLE",
+                self._stmt_span(stmt),
             )
             return
 
@@ -3009,8 +3244,10 @@ class _Recognizer:
         # modeled -> passthrough.
         if not zfile.lower().endswith((".z", ".gz")):
             info["passthrough"].append(self._stmt_text(stmt))
-            self.warnings.append(
-                "structure: colormap of a function expression; kept as raw GLE"
+            self._note(
+                ImportCategory.STRUCTURE,
+                "colormap of a function expression; kept as raw GLE",
+                self._stmt_span(stmt),
             )
             return
 
@@ -3019,9 +3256,11 @@ class _Recognizer:
             pts = self._read_points(fitz["points_file"])
             if pts is None:
                 info["passthrough"].append(self._stmt_text(stmt))
-                self.warnings.append(
-                    f"data: could not read scattered points {fitz['points_file']!r} "
-                    "for heatmap; kept colormap as raw GLE"
+                self._note(
+                    ImportCategory.DATA,
+                    f"could not read scattered points {fitz['points_file']!r} "
+                    "for heatmap; kept colormap as raw GLE",
+                    self._stmt_span(stmt),
                 )
                 return
             hm = HeatmapSeries(
@@ -3049,9 +3288,11 @@ class _Recognizer:
             grid = self._read_z_grid(zfile)
             if grid is None:
                 info["passthrough"].append(self._stmt_text(stmt))
-                self.warnings.append(
-                    f"data: could not read grid {zfile!r} for heatmap; "
-                    "kept colormap as raw GLE"
+                self._note(
+                    ImportCategory.DATA,
+                    f"could not read grid {zfile!r} for heatmap; "
+                    "kept colormap as raw GLE",
+                    self._stmt_span(stmt),
                 )
                 return
             z, extent = grid
@@ -3078,8 +3319,9 @@ class _Recognizer:
             )
         info["heatmaps"].append(hm)
 
-    def _build_contour_from_cdata(self, cdata_file, toks, info) -> None:
+    def _build_contour_from_cdata(self, cdata_file, toks, info, line_no=None) -> None:
         """Build a contour series from its ``dN line`` and the fitz/contour blocks."""
+        span = (line_no, line_no) if line_no is not None else None
         base = cdata_file[: -len("-cdata.dat")]
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
@@ -3097,9 +3339,11 @@ class _Recognizer:
             pts = self._read_points(fitz["points_file"])
             if pts is None:
                 info["passthrough"].append("    " + " ".join(t.value for t in toks))
-                self.warnings.append(
-                    f"data: could not read scattered points {fitz['points_file']!r} "
-                    "for contour; kept line as raw GLE"
+                self._note(
+                    ImportCategory.DATA,
+                    f"could not read scattered points {fitz['points_file']!r} "
+                    "for contour; kept line as raw GLE",
+                    span,
                 )
                 return
             ct = ContourSeries(
@@ -3125,9 +3369,11 @@ class _Recognizer:
             grid = self._read_z_grid(zfile)
             if grid is None:
                 info["passthrough"].append("    " + " ".join(t.value for t in toks))
-                self.warnings.append(
-                    f"data: could not read grid {zfile!r} for contour; "
-                    "kept line as raw GLE"
+                self._note(
+                    ImportCategory.DATA,
+                    f"could not read grid {zfile!r} for contour; "
+                    "kept line as raw GLE",
+                    span,
                 )
                 return
             z, extent = grid
@@ -3403,16 +3649,22 @@ class _Recognizer:
         self._table_cache[data_file] = resolved
         return resolved
 
-    def _load_series(self, data_file, xcol, ycol, extra_cols=None):
-        """Return {'x','y','c{n}'...} or {'error': msg}."""
+    def _load_series(self, data_file, xcol, ycol, extra_cols=None, line_no=None):
+        """Return {'x','y','c{n}'...} or {'error': msg}.
+
+        ``line_no`` is the caller's originating ``dN``/``bar``/``fill``
+        statement, when the caller has one, so a resolution/extraction
+        failure can carry a real span instead of ``None``.
+        """
+        span = (line_no, line_no) if line_no is not None else None
         resolved = self._resolve_table(data_file)
         if resolved.error is not None or resolved.table is None:
-            self.warnings.append(f"data: {resolved.error}")
+            self._note(ImportCategory.DATA, str(resolved.error), span)
             return {"error": resolved.error}
         try:
             cols = extract_columns(resolved.table, xcol, ycol, extra_cols or [])
         except ColumnExtractionError as exc:
-            self.warnings.append(f"data: {exc}")
+            self._note(ImportCategory.DATA, str(exc), span)
             return {"error": str(exc)}
         return cols
 
@@ -3797,10 +4049,13 @@ class _Recognizer:
             pass
         else:
             ax.geometry_passthrough = [s.raw for s in stmts]
-            self.warnings.append(
-                "layout: graph geometry ("
+            geom_lines = [s.line_no for s in stmts if s.line_no is not None]
+            self._note(
+                ImportCategory.LAYOUT,
+                "graph geometry ("
                 + ", ".join(sorted({s.keyword for s in stmts}))
-                + ") is preserved as raw GLE, not editable"
+                + ") is preserved as raw GLE, not editable",
+                (min(geom_lines), max(geom_lines)) if geom_lines else None,
             )
 
         # An 'amove' that did not become a placement rect still positions the
@@ -3809,9 +4064,11 @@ class _Recognizer:
         raw_amove = info.get("amove_raw")
         if preserve_amove and amove is not None and raw_amove is not None:
             fig.passthrough_header.append(raw_amove)
-            self.warnings.append(
-                "layout: graph position (amove) is preserved as raw GLE, "
-                "not editable"
+            amove_line = info.get("amove_line_no")
+            self._note(
+                ImportCategory.LAYOUT,
+                "graph position (amove) is preserved as raw GLE, not editable",
+                (amove_line, amove_line) if amove_line is not None else None,
             )
 
     @staticmethod
@@ -3883,10 +4140,22 @@ class _Recognizer:
             return [(1, 1, 1)]
 
         amoves = [info.get("amove") for info in parsed_axes]
+        # Whatever amove lines the figure DOES have, spanning the arrangement
+        # under judgment here -- the most specific location determinable for
+        # an aggregate that is, by definition, about more than one graph
+        # block. None when no axes in the figure carried a recovered amove.
+        amove_lines = [
+            info.get("amove_line_no")
+            for info in parsed_axes
+            if info.get("amove_line_no") is not None
+        ]
+        arrangement_span = (min(amove_lines), max(amove_lines)) if amove_lines else None
         if any(a is None for a in amoves):
             # Hand-written multi-graph with no amove grid -> n x 1 fallback.
-            self.warnings.append(
-                "layout: multi-graph without amove positions; using n x 1 grid"
+            self._note(
+                ImportCategory.LAYOUT,
+                "multi-graph without amove positions; using n x 1 grid",
+                arrangement_span,
             )
             return [(n, 1, k + 1) for k in range(n)]
 
@@ -3897,8 +4166,10 @@ class _Recognizer:
         rows = len(row_clusters)
         cols = len(col_clusters)
         if rows * cols != n:
-            self.warnings.append(
-                "layout: amove positions do not form a clean grid; using n x 1 fallback"
+            self._note(
+                ImportCategory.LAYOUT,
+                "amove positions do not form a clean grid; using n x 1 fallback",
+                arrangement_span,
             )
             return [(n, 1, k + 1) for k in range(n)]
 
@@ -3971,9 +4242,11 @@ class _Recognizer:
                 # Hand-written implicit key: GLE draws a key from the per-series
                 # key "label" tokens even without 'key pos'. Re-save will add
                 # 'key pos tr' (default), visually equivalent.
-                self.warnings.append(
-                    "legend: labeled series with no 'key' command; assuming "
-                    "auto legend (re-save adds 'key pos tr')"
+                self._note(
+                    ImportCategory.LEGEND,
+                    "labeled series with no 'key' command; assuming "
+                    "auto legend (re-save adds 'key pos tr')",
+                    info.get("_block_span"),
                 )
                 ax.legend_on = None
             else:
@@ -4075,9 +4348,14 @@ class _Recognizer:
             graph_cfg.smooth_curves = False
         else:
             graph_cfg.smooth_curves = True
-            self.warnings.append(
-                "smooth: mixed per-series smooth flags; applying smooth to all "
-                "line datasets on re-save"
+            # No span: this is an aggregate over every line dataset in the
+            # whole figure (mixed True/False across possibly several graph
+            # blocks), not a property of any one of them -- see the span
+            # coverage table in the module docstring.
+            self._note(
+                ImportCategory.SMOOTH,
+                "mixed per-series smooth flags; applying smooth to all "
+                "line datasets on re-save",
             )
 
     # -- data-file naming state -----------------------------------------
