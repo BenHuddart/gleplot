@@ -53,6 +53,20 @@ jobs:
       - name: Install GLE dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
+          # GitHub's macOS runner images come with the aws/tap tap already
+          # added (for the AWS CLI tooling bundled on the image). Homebrew's
+          # tap-trust feature now requires third-party taps to be explicitly
+          # trusted before their formulae/casks/commands are used, and warns
+          # on every `brew install` while aws/tap is untrusted. We don't
+          # install anything from aws/tap, so the warning is currently
+          # harmless, but trust it explicitly (rather than the broader
+          # HOMEBREW_NO_REQUIRE_TAP_TRUST=1 opt-out) to keep the log clean
+          # and avoid a real failure if a future dependency ever resolves
+          # through it. Guarded on the tap actually being present in case a
+          # future runner image stops pre-tapping it.
+          if brew tap | grep -qx aws/tap; then
+            brew trust aws/tap
+          fi
           brew install --quiet \
             boost \
             cairo \

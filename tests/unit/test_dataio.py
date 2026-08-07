@@ -17,6 +17,7 @@ unmodified elsewhere to prove the shim in the GUI context; this file
 covers the new gleplot.dataio surface directly.
 """
 
+import csv
 import gzip
 import subprocess
 import sys
@@ -1192,9 +1193,30 @@ def test_gzip_files_are_not_transparently_decompressed(tmp_path):
     GLEstudio's data-import wizard layers on itself (file preparation,
     independent of load_data_file); the new override parameters added here
     do not add gzip support either -- overrides operate on whatever text
-    _read_text produces, gzip or not."""
+    _read_text produces, gzip or not.
+
+    The gzip header's FLG byte is always 0x00 for a plain gzip.compress()
+    stream (no FNAME/FCOMMENT/etc. flags), so the raw bytes always decode
+    (via the latin-1 fallback) to text containing an embedded NUL -- this
+    is independent of the mtime field and of Python version. What *does*
+    vary by Python version is what csv.reader does with that NUL once an
+    explicit, non-None delimiter routes a line through it (_split_line):
+    Python < 3.11 raises ``csv.Error: line contains NUL``; Python >= 3.11
+    (https://github.com/python/cpython/issues/91760) accepts the NUL as an
+    ordinary character and returns a garbled field instead. Both outcomes
+    are equally strong evidence that the file was never transparently
+    gunzipped -- had it been, csv.reader would see clean text with no NUL
+    to react to either way -- so the test accepts either.
+
+    ``mtime`` is pinned (rather than left to default to wall-clock time)
+    for a second, independent reason: gzip.compress()'s 4-byte mtime field
+    occasionally contains a byte equal to ``\\n`` (0x0a), which -- decoded
+    via latin-1 -- inserts a spurious line break into the garbled text and
+    can coincidentally reproduce the real row/column count (observed in
+    CI as ``AssertionError: assert 2 != 2``). A fixed mtime with no 0x0a
+    byte in any position removes that source of flakiness too."""
     p = tmp_path / "f.dat.gz"
-    p.write_bytes(gzip.compress(b"x y\n1 2\n3 4\n"))
+    p.write_bytes(gzip.compress(b"x y\n1 2\n3 4\n", mtime=1704067200))
 
     table = load_data_file(p)
 
@@ -1205,6 +1227,11 @@ def test_gzip_files_are_not_transparently_decompressed(tmp_path):
     assert table.n_rows != 2
 
     # Confirms the override parameters don't change this either -- they
-    # operate on whatever (garbled) text comes back from _read_text.
-    overridden = load_data_file(p, delimiter=" ", skip_rows=0)
-    assert overridden.column_names != ["x", "y"]
+    # operate on whatever (garbled) text comes back from _read_text. See
+    # the docstring above for why the csv.Error branch is also accepted.
+    try:
+        overridden = load_data_file(p, delimiter=" ", skip_rows=0)
+    except csv.Error:
+        pass
+    else:
+        assert overridden.column_names != ["x", "y"]
