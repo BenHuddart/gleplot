@@ -2028,6 +2028,7 @@ class Figure:
                     label=series_data["label"],
                     marker=series_data.get("marker"),
                     markersize=series_data.get("markersize", 0.1),
+                    nomiss=series_data.get("nomiss", False),
                     yaxis=series_data.get("yaxis", "y"),
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
@@ -2085,6 +2086,7 @@ class Figure:
                     yaxis=fs_data.get("yaxis", "y"),
                     marker=fs_data.get("marker"),
                     markersize=fs_data.get("markersize", 0.1),
+                    nomiss=fs_data.get("nomiss", False),
                 )
             elif series_type == "bar":
                 writer.add_bar_from_file(

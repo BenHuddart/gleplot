@@ -2438,3 +2438,156 @@ def test_finding21_nomiss_reproduction_renders_with_parity(tmp_path):
         f"(diff bbox {diff_bbox}) -- d1's bare-lstyle line was not "
         "preserved"
     )
+
+
+# --------------------------------------------------------------------------- #
+# The 'nomiss' qualifier itself (GLE manual, graph.tex): "If a dataset has
+# missing values GLE will not draw a line to the next real value ... use
+# nomiss to avoid this." Finding 21 above fixed 'lstyle set with no line
+# keyword' and the writer's 'marker None' leak using the manual's own
+# gc_nomiss.gle (graph/fig/gc_nomiss.gle + tutorial/fig/tut3.dat) as a
+# reproducer -- but that fixture's data has no actual missing value, so it
+# never exercised the 'nomiss' keyword itself. '_scan_series_attrs' had no
+# branch for it at all: the token loop's generic 'i += 1' fallthrough
+# silently dropped it, with no field on the model and no round-trip. Both
+# the original and a round-tripped script compiled fine either way (GLE
+# accepts a dataset with or without 'nomiss'), so no existing compile-only
+# check ever caught it -- only a rendered-pixel comparison against data that
+# actually has a missing value does, which is what these tests add.
+# --------------------------------------------------------------------------- #
+
+# tut3.dat's own rows (gle-manual/tutorial/fig/tut3.dat), missing marked '-'
+# in row 3 for both d1's and d2's y column -- GLE's own worked example.
+_NOMISS_MISSING_DAT = "1 2 1\n2 6 5\n3 - -\n4 5 4\n5 9 8\n"
+
+
+def test_nomiss_keyword_recognized_and_reemitted_only_on_its_own_series(tmp_path):
+    """'d2 nomiss lstyle 1 ...' recovers with nomiss=True on d2's model
+    entry; d1 (bare 'lstyle 2', no 'nomiss') recovers with nomiss=False.
+    Re-saving emits 'nomiss' on d2's dataset line only.
+    """
+    src = (
+        "size 7 4\n"
+        "begin graph\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 color red\n"
+        "   d2 nomiss lstyle 1 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "nomiss.gle", src, {"nomiss.dat": _NOMISS_MISSING_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    d1, d2 = ax.file_series
+    assert d1["nomiss"] is False
+    assert d2["nomiss"] is True
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+
+    lines = [ln for ln in text.splitlines() if ln.strip().startswith(("d1", "d2"))]
+    d1_line = next(ln for ln in lines if ln.strip().startswith("d1"))
+    d2_line = next(ln for ln in lines if ln.strip().startswith("d2"))
+    assert "nomiss" not in d1_line
+    assert "nomiss" in d2_line
+
+
+def test_nomiss_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 7 4\n"
+        "begin graph\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 color red\n"
+        "   d2 nomiss lstyle 1 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "fpnm.gle", src, {"nomiss.dat": _NOMISS_MISSING_DAT})
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_nomiss_reproduction_with_real_missing_value_renders_with_parity(tmp_path):
+    """End-to-end regression with the manual's own missing-value data: d1 (no
+    'nomiss') draws a real gap at the missing point, d2 ('nomiss') draws
+    through it unbroken. Compile the original with real GLE, round-trip it
+    through gleplot, compile the round-trip, and compare pixel for pixel.
+
+    Before the fix, the round trip silently dropped 'nomiss' from d2, so
+    d2 would gap on re-compile where the original did not -- both compile
+    successfully either way, so only this pixel comparison catches it.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = (
+        "size 8 6\n"
+        "set hei 0.42328\n"
+        "amove 1 1\n"
+        "begin graph\n"
+        "   size 6 4\n"
+        "   xaxis min 1 max 5\n"
+        "   yaxis min 0 max 10\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 lwidth 0.05292 color red\n"
+        "   d2 nomiss lstyle 1 lwidth 0.05292 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src, {"nomiss.dat": _NOMISS_MISSING_DAT})
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    (rt_dir / "nomiss.dat").write_text(_NOMISS_MISSING_DAT, encoding="utf-8")
+    rec = parse_gle_figure(orig)
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert (
+        res_rt.returncode == 0
+    ), f"round-tripped script failed to compile:\n{res_rt.stdout}\n{res_rt.stderr}"
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- d2's 'nomiss' was likely dropped on "
+        "round-trip, so it now gaps at the missing value where the "
+        "original drew through it"
+    )
