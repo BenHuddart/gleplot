@@ -781,6 +781,15 @@ class _Recognizer:
             # Non-graph node between/after graphs.
             amove = self._match_amove(node)
             if amove is not None:
+                # A previously pending amove reached here without a graph
+                # block ever consuming it as a placement prefix -- a second
+                # amove overwrites GLE's "current point" too, so the first
+                # one can no longer be "the amove immediately before a graph
+                # block" either. It can never become a placement prefix now:
+                # flush it byte-verbatim into the trailer, in stream order,
+                # rather than silently overwriting and losing it.
+                if pending_amove_raw is not None:
+                    trailer.append(pending_amove_raw)
                 pending_amove = amove
                 pending_amove_raw = self._stmt_text(node)
                 pending_amove_line = getattr(node, "line_no", None)
@@ -804,9 +813,29 @@ class _Recognizer:
                 i += 1
                 continue
 
-            # Anything else after the graphs -> trailer passthrough.
+            # Anything else after the graphs -> trailer passthrough. A
+            # pending amove can no longer become a placement prefix once a
+            # real statement sits between it and the next graph block (if
+            # any) -- flush it ahead of this node, byte-verbatim, preserving
+            # stream order.
+            if pending_amove_raw is not None:
+                trailer.append(pending_amove_raw)
+                pending_amove = None
+                pending_amove_raw = None
+                pending_amove_line = None
             trailer.extend(self._raw_lines(node))
             i += 1
+
+        # End of document: a still-pending amove has no following graph
+        # block left to become a placement prefix for -- preserve it
+        # byte-verbatim as the last trailer statement instead of dropping it
+        # (see module docstring: an amove is either consumed as a placement
+        # prefix or preserved verbatim, never silently lost).
+        if pending_amove_raw is not None:
+            trailer.append(pending_amove_raw)
+            pending_amove = None
+            pending_amove_raw = None
+            pending_amove_line = None
 
         fig.passthrough_trailer = trailer
 

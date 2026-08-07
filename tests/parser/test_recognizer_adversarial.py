@@ -1671,3 +1671,287 @@ def test_finding18_stack4b_reproduction_resave_compiles_in_real_gle(tmp_path):
     )
     assert res.returncode == 0, f"GLE failed:\n{res.stdout}\n{res.stderr}"
     assert (tmp_path / "out.png").exists()
+
+
+# --------------------------------------------------------------------------- #
+# Finding 19 -- trailing/interstitial top-level 'amove' silently dropped
+# (gate-review Blocker 1).
+#
+# A top-level 'amove' only ever reached ``fig.passthrough_trailer`` when a
+# ``GraphBlock`` immediately followed it (the only site that read
+# ``pending_amove``/``pending_amove_raw``). Any amove after the LAST graph
+# block, or with a non-graph statement as its immediate successor, set
+# ``pending_amove_raw`` and then had it silently overwritten or dropped when
+# the loop ended or fell through to the generic trailer-append branch --
+# despite the module docstring's invariant that an unconsumed amove is always
+# preserved verbatim. Because 'amove' sets GLE's *current point*, the drop is
+# not cosmetic: every subsequent zero-argument-position primitive (circle,
+# rline, box, ...) draws from the wrong point after a round-trip.
+#
+# Audited both of the reviewer's repro shapes against the flush site:
+#   * 'begin graph ... end graph / amove 1 1 / circle 0.3' -- hits the main
+#     graph/trailer walk (recognizer.py, the ``while i < n`` loop) and drops
+#     'amove 1 1' at end-of-loop.
+#   * 'sub s / amove 1 1 / rline 2 2 / amove 3 3 / circle 1' *by itself* (no
+#     graph block anywhere in the file) does NOT reproduce the drop -- with no
+#     graph indices at all, every node up to end-of-file is preamble
+#     (``_first_graph_region_start`` returns ``len(nodes)``), and
+#     ``_parse_preamble`` has no amove special-case: an amove there is kept
+#     like any other unrecognized statement (line 976's generic
+#     passthrough.append). The SAME statement sequence placed after a graph
+#     block, however, walks the buggy loop and drops both amoves (see
+#     ``test_finding19_double_amove_after_graph_both_preserved`` below) --
+#     confirming this is the ONE flush site, not two, and that the fix here
+#     (flush ``pending_amove_raw`` verbatim into ``trailer`` (a) before any
+#     non-amove/non-graph node is appended to the trailer and (b) at
+#     end-of-loop, instead of only inside the ``GraphBlock`` branch) covers
+#     both repro shapes.
+# --------------------------------------------------------------------------- #
+
+_AMOVE_DAT = "0 1\n1 2\n2 1.5\n3 3\n"
+
+
+def _amove_graph_src(extra_trailer: str) -> str:
+    return (
+        "size 10 8\n"
+        "begin graph\n"
+        "   size 8 6\n"
+        '   data "d.dat"\n'
+        "   d1 line\n"
+        "end graph\n" + extra_trailer
+    )
+
+
+def test_finding19_trailing_amove_after_last_graph_preserved(tmp_path):
+    """Reviewer's exact repro: an amove after the LAST graph block must not
+    be dropped -- it re-emits verbatim, in original order, ahead of the
+    statement that follows it.
+    """
+    src = _amove_graph_src("amove 1 1\ncircle 0.3\n")
+    p = _write(tmp_path, "trailing_amove.gle", src, {"d.dat": _AMOVE_DAT})
+    rec = parse_gle_figure(p)
+    assert rec.figure.passthrough_trailer == ["amove 1 1", "circle 0.3"]
+
+
+def test_finding19_amove_before_non_graph_statement_flushed(tmp_path):
+    """An amove is not only dropped at end-of-document -- any non-graph,
+    non-amove statement taking the 'slot' right after it must flush it
+    first, byte-verbatim, in stream order (not just at EOF).
+    """
+    src = _amove_graph_src("amove 1 1\nbox 2 2\ncircle 0.3\n")
+    p = _write(tmp_path, "amove_then_box.gle", src, {"d.dat": _AMOVE_DAT})
+    rec = parse_gle_figure(p)
+    assert rec.figure.passthrough_trailer == ["amove 1 1", "box 2 2", "circle 0.3"]
+
+
+def test_finding19_consecutive_amoves_without_graph_both_preserved(tmp_path):
+    """Two amoves in a row with nothing else between them and no following
+    graph block: the first amove can never become a placement prefix (the
+    second overwrites GLE's current point too), so it must flush ahead of
+    the second rather than being silently overwritten.
+    """
+    src = _amove_graph_src("amove 1 1\namove 2 2\ncircle 0.3\n")
+    p = _write(tmp_path, "double_amove.gle", src, {"d.dat": _AMOVE_DAT})
+    rec = parse_gle_figure(p)
+    assert rec.figure.passthrough_trailer == [
+        "amove 1 1",
+        "amove 2 2",
+        "circle 0.3",
+    ]
+
+
+def test_finding19_double_amove_after_graph_both_preserved(tmp_path):
+    """Reviewer's second repro (a 'sub' body with two amoves), relocated
+    after a graph block so it actually exercises the buggy flush site --
+    the bare/no-graph version of this statement sequence was already
+    correct via ``_parse_preamble``'s generic passthrough (see the Finding
+    19 header note above), so this variant is the one that must be tested.
+    Both amoves, and every statement between/after them, must survive in
+    original order.
+    """
+    src = _amove_graph_src(
+        "sub s\namove 1 1\nrline 2 2\namove 3 3\ncircle 1\nend sub\n"
+    )
+    p = _write(tmp_path, "sub_double_amove.gle", src, {"d.dat": _AMOVE_DAT})
+    rec = parse_gle_figure(p)
+    assert rec.figure.passthrough_trailer == [
+        "sub s",
+        "amove 1 1",
+        "rline 2 2",
+        "amove 3 3",
+        "circle 1",
+        "end sub",
+    ]
+    assert any(w.startswith("programmatic:") for w in rec.warnings)
+
+
+def test_finding19_bare_sub_double_amove_was_never_broken(tmp_path):
+    """Documents the audit finding: the reviewer's second repro exactly as
+    given (no graph block anywhere in the file) never hit the buggy loop at
+    all -- with zero graph indices, the whole file is 'preamble' and
+    ``_parse_preamble`` keeps every unrecognized statement, amove included,
+    via its generic passthrough branch. Kept as a regression guard on that
+    reasoning, distinct from the after-a-graph case above which DOES hit
+    the fixed loop.
+    """
+    src = "size 10 8\nsub s\namove 1 1\nrline 2 2\namove 3 3\ncircle 1\nend sub\n"
+    p = _write(tmp_path, "bare_sub_double_amove.gle", src)
+    rec = parse_gle_figure(p)
+    assert rec.figure.passthrough_trailer == []
+    assert rec.figure.passthrough_header == [
+        "sub s",
+        "amove 1 1",
+        "rline 2 2",
+        "amove 3 3",
+        "circle 1",
+        "end sub",
+    ]
+
+
+def test_finding19_amove_between_graphs_still_becomes_placement_prefix(tmp_path):
+    """Determine-and-preserve check: an amove BETWEEN two graph blocks is
+    the documented multi-plot case (module docstring point 13) -- it is
+    consumed as the FOLLOWING graph's placement prefix (grid inference),
+    not preserved as passthrough. That is existing, intentional behavior;
+    this fix must not change it, only stop drops when no graph follows.
+    """
+    src = (
+        "size 10 8\n"
+        "amove 0 4\n"
+        "begin graph\n"
+        "   size 4 3\n"
+        "   scale 1 1\n"
+        '   data "d.dat"\n'
+        "   d1 line\n"
+        "end graph\n"
+        "amove 5 4\n"
+        "begin graph\n"
+        "   size 4 3\n"
+        "   scale 1 1\n"
+        '   data "d.dat"\n'
+        "   d1 line\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "amove_between_graphs.gle", src, {"d.dat": _AMOVE_DAT})
+    rec = parse_gle_figure(p)
+    axes = rec.figure.axes_list
+    assert len(axes) == 2
+    assert axes[0].placement == pytest.approx((0.0, 4.0, 4.0, 3.0))
+    assert axes[1].placement == pytest.approx((5.0, 4.0, 4.0, 3.0))
+    # Not leaked into either passthrough bucket -- it was fully consumed as
+    # axes[1]'s placement prefix, not preserved verbatim.
+    assert rec.figure.passthrough_header == []
+    assert rec.figure.passthrough_trailer == []
+
+
+def test_finding19_trailing_amove_resave_is_byte_exact_fixed_point(tmp_path):
+    """save -> parse -> save regression: a trailing amove must survive a
+    second round-trip byte-identically once recovered.
+    """
+    src = _amove_graph_src("amove 1 1\ncircle 0.3\n")
+    p = _write(tmp_path, "fp19.gle", src, {"d.dat": _AMOVE_DAT})
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+    assert "amove 1 1" in text1
+    assert text1.index("amove 1 1") < text1.index("circle 0.3")
+
+    rec2 = parse_gle_figure(out1)
+    assert rec2.figure.passthrough_trailer == ["amove 1 1", "circle 0.3"]
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_finding19_trailing_amove_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression: compile the reviewer's reproducer with real
+    GLE, round-trip it through gleplot, compile the round-trip, and compare
+    rendered ink. The graph uses an explicit, fully-modeled placement rect
+    (``amove`` + ``size`` + ``scale 1 1``, occupying page y in [4, 8]) so
+    its position is deterministic and independent of GLE's auto-layout --
+    isolating the bottom 2.5 cm strip of the page (y in [0, 2.5]) then
+    contains ONLY the trailing amove's circle, nothing from the graph or
+    its axis labels. Before the fix, the dropped amove left 'circle 0.3'
+    drawing from GLE's post-graph current point instead of (1, 1) cm, so
+    that strip would render with no ink there at all (proven manually
+    while developing this fix: the buggy round-trip's strip is blank while
+    the original's contains the circle) -- after the fix the strip must be
+    pixel-identical between the original and the round-trip.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = (
+        "size 10 8\n"
+        "amove 0 4\n"
+        "begin graph\n"
+        "   size 8 4\n"
+        "   scale 1 1\n"
+        '   data "d.dat"\n'
+        "   d1 line\n"
+        "end graph\n"
+        "amove 1 1\n"
+        "circle 0.3\n"
+    )
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src, {"d.dat": _AMOVE_DAT})
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    (rt_dir / "d.dat").write_text(_AMOVE_DAT, encoding="utf-8")
+    rec = parse_gle_figure(orig)
+    assert rec.figure.passthrough_trailer == ["amove 1 1", "circle 0.3"]
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert res_rt.returncode == 0, f"GLE failed:\n{res_rt.stdout}\n{res_rt.stderr}"
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    sy = im_orig.size[1] / 8.0  # page height 8cm -> px/cm
+    strip_top = int(im_orig.size[1] - 2.5 * sy)
+    strip_orig = im_orig.crop((0, strip_top, im_orig.size[0], im_orig.size[1]))
+    strip_rt = im_rt.crop((0, strip_top, im_rt.size[0], im_rt.size[1]))
+
+    white = PIL_Image.new("RGB", strip_orig.size, (255, 255, 255))
+    ink_bbox = ImageChops.difference(strip_orig, white).getbbox()
+    assert (
+        ink_bbox is not None
+    ), "expected the trailing amove's circle ink in this strip"
+
+    diff_bbox = ImageChops.difference(strip_orig, strip_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original in the "
+        f"amove-only strip (diff bbox {diff_bbox}) -- the trailing amove's "
+        "current point was not preserved"
+    )
