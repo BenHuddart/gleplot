@@ -1153,6 +1153,16 @@ class _Recognizer:
         merged_attr_toks: Dict[str, List[Token]] = {}
         dataset_order: List[str] = []
 
+        # merged_attr_raw: name(lower) -> verbatim source text of each 'dN
+        # ...' statement contributing to that dataset's merged attributes, in
+        # the same order as merged_attr_toks was built. Used when a dataset
+        # ends up kept as passthrough (unresolved file, unconvertible
+        # errorbar, etc.) so the fallback can re-emit the ORIGINAL line(s)
+        # byte-for-byte instead of rejoining tokens with inserted spaces --
+        # see _dn_passthrough_lines / the 'err 10%' -> 'err 10 %' corruption
+        # this guards against (GLE rejects the space).
+        merged_attr_raw: Dict[str, List[str]] = {}
+
         # Raw text of each 'data' statement, paired with the dataset names it
         # declares and its source line, in body order -- used after pass 2 to
         # restore a 'data' statement whose datasets ended up entirely
@@ -1183,8 +1193,10 @@ class _Recognizer:
                     name = kw
                     if name not in merged_attr_toks:
                         merged_attr_toks[name] = []
+                        merged_attr_raw[name] = []
                         dataset_order.append(name)
                     merged_attr_toks[name].extend(_words_and_values(child)[1:])
+                    merged_attr_raw[name].append(self._stmt_text(child))
                     continue
 
         # --- Pass 2: walk the body in order, dispatching non-dN statements
@@ -1248,6 +1260,7 @@ class _Recognizer:
                     marker_cfg,
                     smooth_flags,
                     line_no=child.line_no,
+                    raw_stmts=merged_attr_raw.get(name, []),
                 )
                 continue
 
@@ -1453,16 +1466,35 @@ class _Recognizer:
         return _string_value(val_tok) == ""
 
     def _build_series_from_attrs(
-        self, name, merged_toks, datasets, info, marker_cfg, smooth_flags, line_no=None
+        self,
+        name,
+        merged_toks,
+        datasets,
+        info,
+        marker_cfg,
+        smooth_flags,
+        line_no=None,
+        raw_stmts=None,
     ):
         """Build one series from a dataset's merged attribute tokens.
 
         ``line_no`` is the first body-order statement that named this
         dataset (the same anchor pass 1 merged its attributes from), threaded
         through so notes raised while building the series carry a real span.
+
+        ``raw_stmts`` is the verbatim source text of each physical 'dN ...'
+        statement that fed ``merged_toks`` (usually just one), threaded
+        through so a passthrough fallback can re-emit byte-identical source
+        instead of rejoining tokens with inserted spaces.
         """
         self._parse_series_command(
-            merged_toks, datasets, info, marker_cfg, smooth_flags, line_no=line_no
+            merged_toks,
+            datasets,
+            info,
+            marker_cfg,
+            smooth_flags,
+            line_no=line_no,
+            raw_stmts=raw_stmts,
         )
 
     def _dispatch_graph_statement(self, stmt, info, datasets, marker_cfg, smooth_flags):
@@ -2399,7 +2431,14 @@ class _Recognizer:
     # -- series command --------------------------------------------------
 
     def _parse_series_command(
-        self, toks, datasets, info, marker_cfg, smooth_flags, line_no=None
+        self,
+        toks,
+        datasets,
+        info,
+        marker_cfg,
+        smooth_flags,
+        line_no=None,
+        raw_stmts=None,
     ):
         """Parse a ``dN ...`` dataset display command into a series entry."""
         d_name = toks[0].value.lower()
@@ -2409,7 +2448,7 @@ class _Recognizer:
         # figure out the data_file for the main dataset.
         if d_name not in datasets:
             # Unknown dataset ref -> passthrough (defensive).
-            info["passthrough"].append("    " + " ".join(t.value for t in toks))
+            info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
             return
         data_file, xcol, ycol = datasets[d_name]
 
@@ -2422,7 +2461,9 @@ class _Recognizer:
         if isinstance(data_file, str) and data_file.endswith("-cdata.dat"):
             zfile = data_file[: -len("-cdata.dat")] + ".z"
             if zfile in self._contour_blocks or zfile in self._fitz_blocks:
-                self._build_contour_from_cdata(data_file, toks, info, line_no=line_no)
+                self._build_contour_from_cdata(
+                    data_file, toks, info, line_no=line_no, raw_stmts=raw_stmts
+                )
                 return
 
         has_line = attrs["has_line"]
@@ -2443,6 +2484,7 @@ class _Recognizer:
                 is_import,
                 orig_toks=toks,
                 line_no=line_no,
+                raw_stmts=raw_stmts,
             )
             return
 
@@ -2624,6 +2666,7 @@ class _Recognizer:
         is_import,
         orig_toks=None,
         line_no=None,
+        raw_stmts=None,
     ):
         """Reconstruct an errorbar entry, matching Axes.errorbar's dict schema."""
         span = (line_no, line_no) if line_no is not None else None
@@ -2637,7 +2680,7 @@ class _Recognizer:
         # arrays, so it only works when the referencing series can be loaded.
         if err_consts and (not is_import):
             # File reference we won't load -> keep the ORIGINAL dN line raw.
-            self._passthrough_original_dn(info, orig_toks)
+            self._passthrough_original_dn(info, orig_toks, raw_stmts)
             self._note(
                 ImportCategory.DATA,
                 "constant error on an unresolved file reference; original "
@@ -2722,7 +2765,7 @@ class _Recognizer:
         if loaded is None or loaded.get("error"):
             if err_consts:
                 # Cannot synthesize a constant-error column without the y data.
-                self._passthrough_original_dn(info, orig_toks)
+                self._passthrough_original_dn(info, orig_toks, raw_stmts)
                 self._note(
                     ImportCategory.DATA,
                     "constant error but the dataset could not be loaded; "
@@ -2845,17 +2888,35 @@ class _Recognizer:
         info["_draw_seq_counter"] += 1
         info["errorbars"].append(entry)
 
-    def _passthrough_original_dn(self, info, orig_toks):
+    def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
         """Keep a dataset display line as raw GLE in axes passthrough.
 
         Used when a ``dN ... err <literal>`` cannot be converted (broken /
         unresolved data): rather than silently dropping the error bars we
         re-emit the original line verbatim so GLE still draws it.
         """
+        info["passthrough"].extend(self._dn_passthrough_lines(orig_toks, raw_stmts))
+
+    def _dn_passthrough_lines(self, orig_toks, raw_stmts=None) -> List[str]:
+        """Verbatim source line(s) for a ``dN ...`` statement kept as passthrough.
+
+        Prefers the statement's own raw source text over rejoining tokens
+        with inserted spaces: a rejoin turns ``err 10%`` (NUMBER '10' + WORD
+        '%', directly adjacent in the source -- see lexer.py's
+        ``_NUMBER_MERGE_STOPPERS``) into ``err 10 %``, which GLE rejects as
+        an unrecognised sub-command. ``raw_stmts`` may hold more than one
+        line when a dataset's attributes were merged from several physical
+        ``dN ...`` statements; each is re-emitted on its own line, matching
+        the original source structure. Falls back to a token rejoin only
+        when no raw text is available (defensive; every real ``dN`` line
+        should have one).
+        """
+        if raw_stmts:
+            return list(raw_stmts)
         if not orig_toks:
-            return
+            return []
         rendered = " ".join(self._token_text(t) for t in orig_toks)
-        info["passthrough"].append("    " + rendered)
+        return ["    " + rendered]
 
     def _build_file_series(
         self, info, data_file, xcol, ycol, attrs, has_line, error=None
@@ -3319,7 +3380,9 @@ class _Recognizer:
             )
         info["heatmaps"].append(hm)
 
-    def _build_contour_from_cdata(self, cdata_file, toks, info, line_no=None) -> None:
+    def _build_contour_from_cdata(
+        self, cdata_file, toks, info, line_no=None, raw_stmts=None
+    ) -> None:
         """Build a contour series from its ``dN line`` and the fitz/contour blocks."""
         span = (line_no, line_no) if line_no is not None else None
         base = cdata_file[: -len("-cdata.dat")]
@@ -3338,7 +3401,7 @@ class _Recognizer:
         if fitz is not None:
             pts = self._read_points(fitz["points_file"])
             if pts is None:
-                info["passthrough"].append("    " + " ".join(t.value for t in toks))
+                info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
                 self._note(
                     ImportCategory.DATA,
                     f"could not read scattered points {fitz['points_file']!r} "
@@ -3368,7 +3431,7 @@ class _Recognizer:
         else:
             grid = self._read_z_grid(zfile)
             if grid is None:
-                info["passthrough"].append("    " + " ".join(t.value for t in toks))
+                info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
                 self._note(
                     ImportCategory.DATA,
                     f"could not read grid {zfile!r} for contour; "
