@@ -35,7 +35,13 @@ from .parser.units import (
     inches_to_cm,
     linewidth_pt_to_cm,
 )
-from .series import SERIES_CLASSES, Series, _unique_column_names, sanitize_column_name
+from .series import (
+    SERIES_CLASSES,
+    Series,
+    _unique_column_names,
+    is_visible,
+    sanitize_column_name,
+)
 from .sources import (
     ColumnRef,
     DanglingSourceRef,
@@ -246,10 +252,18 @@ class SourceResolution:
     The single gate between the object model and emission. Ask it for a
     series' data and you get back either an array-bearing series (the original
     object itself when it was inline -- no copy, so inline figures are exactly
-    as they were) or ``None``, meaning "skip this one, its reference is
-    dangling". Every list-walking helper in :mod:`gleplot.figure` goes through
-    :meth:`visible` so a skipped series disappears from autoscaling, the
-    legend and the emitted script alike.
+    as they were) or ``None``, meaning "skip this one". Every list-walking
+    helper in :mod:`gleplot.figure` goes through :meth:`visible` so a skipped
+    series disappears from autoscaling, the legend and the emitted script
+    alike.
+
+    There are two independent reasons to skip, and they are never conflated:
+
+    * the series' reference is **dangling** (SPEC 3.2) -- it wanted data that
+      could not be found, which is a fault, and it is recorded in
+      :attr:`warnings`;
+    * the series is **hidden** (``visible = False``, SPEC 14.6) -- the user
+      switched it off, which is not a fault and produces no warning.
     """
 
     def __init__(self) -> None:
@@ -281,12 +295,20 @@ class SourceResolution:
     # -- queries ------------------------------------------------------------
 
     def data(self, series: Series) -> Optional[Series]:
-        """The array-bearing form of ``series``, or ``None`` if dangling.
+        """The array-bearing form of ``series``, or ``None`` if it is skipped.
 
         A series this resolution never saw (one materialized at write time
         from a declaration -- ``axvline`` guides, ``axvspan`` bands) is inline
         by construction and is returned unchanged.
+
+        The hidden check is made here rather than only in
+        :func:`resolve_figure` so that it also holds for a series this
+        resolution never saw: the autoscale helpers accept ``resolution=None``
+        and fall back to an empty :class:`SourceResolution`, and "hidden" has
+        to mean hidden on that path too.
         """
+        if not is_visible(series):
+            return None
         return self._data.get(id(series), series)
 
     def binding(self, series: Series) -> Optional[ColumnBinding]:
@@ -294,7 +316,11 @@ class SourceResolution:
         return self._bindings.get(id(series))
 
     def visible(self, series_list: Sequence[Series]) -> List[Series]:
-        """``series_list`` resolved, with dangling entries dropped."""
+        """``series_list`` resolved, with skipped entries dropped.
+
+        Skipped means dangling *or* hidden -- see the class docstring for why
+        those stay two distinct reasons with one shared consequence.
+        """
         out = []
         for series in series_list:
             data = self.data(series)
@@ -303,7 +329,7 @@ class SourceResolution:
         return out
 
     def pairs(self, series_list: Sequence[Series]) -> List[Tuple[Series, Series]]:
-        """``(original, resolved)`` for every non-dangling entry.
+        """``(original, resolved)`` for every entry that is not skipped.
 
         Emission needs both: the resolved copy for the numbers, the original
         for the identity that :meth:`binding` is keyed by.
@@ -360,6 +386,13 @@ def resolve_figure(
     :class:`~gleplot.sources.DanglingSourceRef` and the series is skipped.
     Nothing raises: a figure in which *every* series is dangling still writes
     a valid, empty ``.gle``.
+
+    A **hidden** series (``visible = False``, SPEC 14.6) is skipped before any
+    of that, which is what "a hidden series affects nothing rendered" means in
+    practice: it resolves no reference, so it produces no dangling warning
+    about data nothing was going to draw; and it never reaches the
+    ``table_files`` bookkeeping, so it cannot donate its filename to a shared
+    sidecar that only other series write into.
     """
     resolution = SourceResolution()
     table_files: Dict[str, str] = {}
@@ -367,6 +400,10 @@ def resolve_figure(
     for axes_index, ax in enumerate(getattr(figure, "axes_list", []) or []):
         for attr, series_cls in SERIES_CLASSES.items():
             for series_index, series in enumerate(getattr(ax, attr, []) or []):
+                if not is_visible(series):
+                    resolution._record(series, None)
+                    continue
+
                 raw = series.get("data_source")
                 if raw is None or (
                     isinstance(raw, DataSource) and not raw.is_reference()

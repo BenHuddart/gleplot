@@ -63,10 +63,35 @@ abstraction existed (it holds ``'grid'`` or ``'points'``, i.e. which *grid
 mode* the series uses), and those two kinds are precisely the ones that need
 a ``GridRef``. Renaming the older field would have changed the serialized
 shape of every heatmap and contour ever saved for no gain.
+
+Whether it is drawn at all: ``visible``
+---------------------------------------
+
+Every *drawable* kind declares a ``visible`` field (GLEstudio SPEC 14.6).
+It follows the same "absent means the historical behaviour" rule as
+``zorder`` and ``data_source``: a series with no ``visible`` key is drawn,
+so no existing project changes shape, and :func:`is_visible` is the single
+reader of the field. Only ``visible = False`` hides.
+
+Hidden means hidden *everywhere the figure is rendered*: the writer skips
+the series' entire emission -- its ``.dat`` sidecar, its display command and
+its ``key "..."`` legend entry -- and it is excluded from auto-limit
+computation, so limits may re-fit when a series is hidden (explicit limits
+are of course untouched). The one place it is NOT skipped is the model,
+which keeps the arrays, the label and the reserved data-file name so that
+un-hiding restores byte-identical output.
+
+``TextAnnotation`` deliberately has no ``visible``: SPEC 7.5 lists texts as
+their own branch of the structure tree, beside series rather than among
+them, and G11 is per-*series* visibility.
+
+Hidden is orthogonal to *dangling* (SPEC 3.2, ``DanglingSourceRef``):
+"hidden because asked" and "skipped because broken" are different states
+and neither is ever reported as the other.
 """
 
 import re
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Type
 
 import numpy as np
 
@@ -87,8 +112,25 @@ __all__ = [
     "Span",
     "SERIES_CLASSES",
     "SERIES_ATTRS",
+    "is_visible",
     "sanitize_column_name",
 ]
+
+
+def is_visible(series: Mapping[str, Any]) -> bool:
+    """Whether ``series`` should be drawn (GLEstudio SPEC 14.6).
+
+    The single reader of the ``visible`` field, so the "absent means drawn"
+    rule lives in exactly one place. A value of ``None`` also reads as drawn:
+    an unset or malformed flag must never make a series disappear silently
+    (SPEC 8.1.4 -- no silent drops), and showing something the user did not
+    ask to hide is the recoverable direction of that error.
+
+    Kinds that declare no ``visible`` field (``TextAnnotation``) are always
+    drawn, which is what the default already says.
+    """
+    flag = series.get("visible", True)
+    return True if flag is None else bool(flag)
 
 
 # -- sidecar column-name helpers ---------------------------------------------
@@ -454,6 +496,8 @@ class _XYSeries(Series):
     _draw_seq: int
     #: Only present when the caller asked for an explicit draw order.
     zorder: float
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_column_names("x", ["y"], self.get("label"))
@@ -499,6 +543,8 @@ class BarSeries(Series):
     data_source: Optional[DataSource]
     _draw_seq: int
     zorder: float
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_column_names("x", ["height"], self.get("label"))
@@ -522,6 +568,8 @@ class FillSeries(Series):
     #: Where the numbers come from; absent means InlineData (this
     #: series' own array fields). See :mod:`gleplot.sources`.
     data_source: Optional[DataSource]
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
     def default_column_names(self) -> Optional[List[str]]:
         return _unique_column_names(["x", "upper", "lower"])
@@ -562,6 +610,8 @@ class ErrorbarSeries(Series):
     data_source: Optional[DataSource]
     _draw_seq: int
     zorder: float
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_errorbar_column_names(
@@ -607,10 +657,17 @@ class FileSeries(Series):
     #: Present only on entries the recognizer degraded to a bare reference.
     data_error: str
     _draw_seq: int
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
 
 class TextAnnotation(Series):
-    """Free-form text drawn in data coordinates -- ``Axes.text``."""
+    """Free-form text drawn in data coordinates -- ``Axes.text``.
+
+    The one kind with no ``visible`` field: SPEC 7.5's structure tree lists
+    texts as their own branch beside the series, and G11 is per-*series*
+    visibility (see the module docstring).
+    """
 
     ATTR = "texts"
 
@@ -669,6 +726,8 @@ class HeatmapSeries(_GridSeries):
     data_source: Optional[DataSource]
     #: Colorbar declaration dict, or ``None`` for no colorbar.
     colorbar: Optional[Dict[str, Any]]
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
 
 class ContourSeries(_GridSeries):
@@ -697,6 +756,8 @@ class ContourSeries(_GridSeries):
     #: Where the numbers come from; absent means InlineData (this
     #: series' own array fields). See :mod:`gleplot.sources`.
     data_source: Optional[DataSource]
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
 
 class RefLine(Series):
@@ -722,6 +783,8 @@ class RefLine(Series):
     label: Optional[str]
     data_file: Optional[str]
     column_names: Optional[List[str]]
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_column_names("x", ["y"], self.get("label"))
@@ -748,6 +811,8 @@ class Span(Series):
     label: Optional[str]
     data_file: Optional[str]
     column_names: Optional[List[str]]
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
 
     def default_column_names(self) -> Optional[List[str]]:
         return _unique_column_names(["x", "upper", "lower"])

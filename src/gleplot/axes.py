@@ -37,6 +37,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     _build_errorbar_column_names,
     _looks_numeric,
     _unique_column_names,
+    is_visible,
     sanitize_column_name,
 )
 
@@ -1738,11 +1739,14 @@ class Axes:
         list of dict
             Line dicts in the same shape ``plot()`` produces, ready for
             ``GLEWriter.add_plot_line``. Nothing is stored back on the axes,
-            so writing a figure twice does not duplicate content.
+            so writing a figure twice does not duplicate content. Hidden
+            guides (``visible = False``, SPEC 14.6) materialize into nothing.
         """
         xmin, xmax, ymin, ymax = limits
         out: List[LineSeries] = []
         for entry in self.reflines:
+            if not is_visible(entry):
+                continue
             if entry["orient"] == "v":
                 if ymin is None or ymax is None:
                     self._warn_unresolved("axvline", "y")
@@ -1785,11 +1789,14 @@ class Axes:
         """Turn ``self.spans`` into concrete fill-between series.
 
         See :meth:`materialize_reflines`; the same contract applies (nothing
-        is stored back, unresolvable limits skip with a warning).
+        is stored back, unresolvable limits skip with a warning, hidden bands
+        materialize into nothing).
         """
         xmin, xmax, ymin, ymax = limits
         out: List[FillSeries] = []
         for entry in self.spans:
+            if not is_visible(entry):
+                continue
             if entry["orient"] == "v":
                 if ymin is None or ymax is None:
                     self._warn_unresolved("axvspan", "y")

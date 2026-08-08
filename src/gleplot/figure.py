@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Tuple, Optional, Literal, Sequence, List
 from .axes import Axes, _sanitize_data_stem, _validate_data_prefix
-from .series import Series
+from .series import Series, is_visible
 from .brokenaxes import BrokenAxes
 from .writer import (
     AxisStyle,
@@ -47,14 +47,15 @@ def _refline_axis_values(ax, orient: str):
     ``orient`` is ``'v'`` (vertical guides -> x coordinates) or ``'h'``
     (horizontal guides -> y coordinates). Only the guide's *data* coordinate
     counts: the extent along the other axis is an axes fraction, so feeding it
-    back into autoscale would be circular.
+    back into autoscale would be circular. A hidden guide (SPEC 14.6)
+    contributes nothing: it is not drawn, so it does not hold the axis open.
     """
     values = []
     for entry in getattr(ax, "reflines", ()):
-        if entry["orient"] == orient:
+        if entry["orient"] == orient and is_visible(entry):
             values.append(float(entry["value"]))
     for entry in getattr(ax, "spans", ()):
-        if entry["orient"] == orient:
+        if entry["orient"] == orient and is_visible(entry):
             values.append(float(entry["start"]))
             values.append(float(entry["end"]))
     return values
@@ -1402,7 +1403,9 @@ class Figure:
         Series whose reference is dangling are skipped -- absent from
         autoscaling, the legend and the script -- and recorded in
         :attr:`source_warnings`; a figure in which every series is dangling
-        still produces a valid ``.gle``.
+        still produces a valid ``.gle``. Hidden series (``visible = False``,
+        SPEC 14.6) are skipped the same way and for the same distance, but
+        silently: the user asked for it, so it is not a warning.
 
         Parameters
         ----------
@@ -1919,7 +1922,8 @@ class Figure:
 
         Every series list is walked through ``resolution``, so a series is
         seen here already carrying its numbers (inline or resolved from a
-        provider table) or not seen at all (dangling reference, skipped).
+        provider table) or not seen at all (dangling reference, or hidden --
+        SPEC 14.6).
 
         Parameters
         ----------
@@ -2104,8 +2108,9 @@ class Figure:
                     binding=binding,
                 )
 
-        # Add external-file series (no generated data files).
-        for fs_data in ax.file_series:
+        # Add external-file series (no generated data files). Walked through
+        # the resolution like every other list, so a hidden one is skipped.
+        for fs_data in resolution.visible(ax.file_series):
             series_type = fs_data.get("series_type", "errorbar")
             if series_type == "line":
                 writer.add_plot_line_from_file(
@@ -2163,14 +2168,20 @@ class Figure:
 
         # Add legend if needed. legend_on is tri-state: None means auto
         # (show iff labels exist); True/False is an explicit user choice.
+        #
+        # Every list goes through the resolution, so a series that is not
+        # drawn cannot vote for a key it will have no entry in: a hidden
+        # series' ``key "..."`` clause is never emitted (its display command
+        # is not either), and an auto legend whose only labelled series are
+        # hidden correctly disappears (SPEC 14.6).
         legend_sources = (
             resolution.visible(ax.lines)
             + resolution.visible(ax.scatters)
             + resolution.visible(ax.bars)
             + resolution.visible(ax.errorbars)
-            + list(ax.file_series)
-            + list(ax.reflines)
-            + list(ax.spans)
+            + resolution.visible(ax.file_series)
+            + resolution.visible(ax.reflines)
+            + resolution.visible(ax.spans)
         )
         labels_present = any(series.get("label") for series in legend_sources)
         show_legend = ax.legend_on if ax.legend_on is not None else labels_present

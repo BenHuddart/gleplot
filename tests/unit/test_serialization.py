@@ -969,3 +969,70 @@ def test_series_copy_keeps_its_data_source():
     clone = line.copy()
     assert clone["data_source"] == line["data_source"]
     assert isinstance(copy.deepcopy(line)["data_source"], ColumnRef)
+
+
+# -- Series-class completeness: the ``visible`` field --------------------------
+
+
+#: Every kind that is *drawn* and can therefore be hidden (G11, GLEstudio
+#: SPEC 14.6). The complement is asserted below so this list cannot silently
+#: go stale: the only kind WITHOUT the field is ``texts``, which SPEC 7.5
+#: lists as its own branch of the structure tree beside the series rather
+#: than among them (see the note on ``TextAnnotation``).
+_VISIBILITY_BEARING_ATTRS = set(SERIES_ATTRS) - {"texts"}
+
+
+def test_every_drawable_series_class_declares_visible():
+    for attr, series_cls in SERIES_CLASSES.items():
+        declared = "visible" in series_cls.FIELDS
+        assert declared == (attr in _VISIBILITY_BEARING_ATTRS), (
+            f"{series_cls.__name__}: visible declared={declared} but the "
+            f"documented set says {attr in _VISIBILITY_BEARING_ATTRS}. Every "
+            "drawable kind must declare it (SPEC 14.6); a kind that is not "
+            "per-series drawable must not."
+        )
+        if declared:
+            # Declared but absent by default -- the same "absent means the
+            # historical behaviour" rule zorder and data_source follow, and
+            # what keeps every existing project's to_dict bytes unchanged.
+            assert "visible" not in series_cls()
+
+
+def test_visible_round_trips_for_every_class_that_declares_it():
+    """to_dict -> JSON -> from_dict restores a real ``False``, not a truthy."""
+    fig = _figure_exercising_every_series_kind()
+    hidden = 0
+    for ax in fig.axes_list:
+        for attr in _VISIBILITY_BEARING_ATTRS:
+            for series in getattr(ax, attr):
+                series["visible"] = False
+                hidden += 1
+    assert hidden
+
+    once = fig.to_dict()
+    json.dumps(once)  # a flag must be JSON-safe like everything else
+    twice = Figure.from_dict(once).to_dict()
+    assert twice == once
+
+    seen = set()
+    for attr, series in _all_series(Figure.from_dict(once)):
+        if attr not in _VISIBILITY_BEARING_ATTRS:
+            continue
+        seen.add(attr)
+        assert series["visible"] is False
+    assert seen == _VISIBILITY_BEARING_ATTRS
+
+
+def test_a_visible_flag_does_not_change_the_serialized_shape_of_anything_else():
+    """Hiding one series must not perturb its neighbours' payloads."""
+    fig = _figure_exercising_every_series_kind()
+    before = fig.to_dict()
+
+    fig.axes_list[0].lines[0]["visible"] = False
+    after = fig.to_dict()
+
+    changed = after["figure"]["axes"][0]["lines"][0]
+    assert changed.pop("visible") is False
+    assert changed == before["figure"]["axes"][0]["lines"][0]
+    after["figure"]["axes"][0]["lines"][0] = before["figure"]["axes"][0]["lines"][0]
+    assert after == before
