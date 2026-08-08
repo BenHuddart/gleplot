@@ -20,8 +20,15 @@ from gleplot.figure import (
     PROJECT_VERSION,
     SUPPORTED_PROJECT_VERSIONS,
 )
-from gleplot.series import SERIES_ATTRS, SERIES_CLASSES, Series
+from gleplot.series import (
+    SERIES_ATTRS,
+    SERIES_CLASSES,
+    ContourSeries,
+    HeatmapSeries,
+    Series,
+)
 from gleplot.sources import ColumnRef, GridRef, is_inline
+from gleplot.writer import COLORBAR_AUTO_RANGE, COLORBAR_NTICKS
 
 
 def _simple_figure():
@@ -1102,3 +1109,144 @@ def test_smoothing_fields_do_not_change_the_serialized_shape_of_anything_else():
     assert changed == before["figure"]["axes"][0]["lines"][0]
     after["figure"]["axes"][0]["lines"][0] = before["figure"]["axes"][0]["lines"][0]
     assert after == before
+
+
+# -- Series-class completeness: the G13 auto states (SPEC 14.5) ----------------
+#
+# A reference-backed grid series may leave two things for write time: its
+# ``extent`` (absent) and its colorbar's range (an ``auto_range`` marker with
+# ``zmin``/``zmax``/``zstep`` at ``None``). Both are *document* state, so both
+# have to survive to_dict -> JSON -> from_dict with their types intact -- an
+# ``extent`` that came back as ``[]`` or an ``auto_range`` that came back
+# truthy-but-not-``True`` would silently re-bake a stale range on the next
+# write. The kinds that can hold them are asserted rather than assumed, the
+# way ``visible``'s and the smoothing fields' complements are above.
+
+#: Every kind whose ``extent`` may be auto: the two gridded kinds, and only
+#: those (nothing else declares the field at all).
+_EXTENT_BEARING_ATTRS = {"heatmaps", "contours"}
+
+
+def test_only_the_gridded_kinds_declare_extent_and_colorbar():
+    for attr, series_cls in SERIES_CLASSES.items():
+        declared = "extent" in series_cls.FIELDS
+        assert declared == (attr in _EXTENT_BEARING_ATTRS), (
+            f"{series_cls.__name__}: extent declared={declared} but the "
+            f"documented set says {attr in _EXTENT_BEARING_ATTRS}"
+        )
+    # The colorbar is a heatmap property (GLE's colormap is what it labels).
+    assert "colorbar" in SERIES_CLASSES["heatmaps"].FIELDS
+    assert "colorbar" not in SERIES_CLASSES["contours"].FIELDS
+
+
+def _add_auto_state_axes(fig):
+    """Add a reference-backed heatmap/contour pair in both auto states, on
+    their own axes (GLE allows one colormap per axes)."""
+    ax = fig.add_subplot(414)
+    ax.heatmaps.append(
+        HeatmapSeries(
+            type="heatmap",
+            source="grid",
+            z=None,
+            x=None,
+            y=None,
+            zpts=None,
+            extent=None,
+            origin="lower",
+            cmap="gray",
+            vmin=None,
+            vmax=None,
+            interpolation="nearest",
+            pixels=[64, 64],
+            invert=False,
+            gridsize=None,
+            ncontour=None,
+            label=None,
+            data_file="cov_auto.z",
+            data_source=GridRef("t1", {"z": ["c0", "c1"]}),
+            colorbar={
+                "label": "z",
+                "format": "fix 1",
+                "width": 0.5,
+                "sep": 0.3,
+                "zmin": None,
+                "zmax": None,
+                "zstep": None,
+                COLORBAR_AUTO_RANGE: True,
+                COLORBAR_NTICKS: 4,
+            },
+        )
+    )
+    ax.contours.append(
+        ContourSeries(
+            type="contour",
+            source="points",
+            z=None,
+            x=None,
+            y=None,
+            zpts=None,
+            extent=None,
+            levels=None,
+            color="BLACK",
+            linewidth=1.0,
+            linestyle=None,
+            clabel=False,
+            clabel_fmt="fix 1",
+            gridsize=[8, 8],
+            ncontour=2,
+            label=None,
+            data_file="cov_auto.dat",
+            data_source=GridRef("t1", {"x": "px", "y": "py", "zpts": "pz"}),
+        )
+    )
+    return ax
+
+
+def _auto_state_figure():
+    fig = _figure_exercising_every_series_kind()
+    _add_auto_state_axes(fig)
+    return fig
+
+
+def test_the_auto_states_round_trip_with_their_types_intact():
+    fig = _auto_state_figure()
+
+    once = fig.to_dict()
+    json.dumps(once)  # the auto states must be JSON-safe like everything else
+    twice = Figure.from_dict(once).to_dict()
+    assert twice == once
+
+    ax = Figure.from_dict(json.loads(json.dumps(once))).axes_list[-1]
+    hm = ax.heatmaps[0]
+    ct = ax.contours[0]
+    # Absent-means-auto is a real None, not [] or a zero-filled placeholder.
+    assert hm["extent"] is None
+    assert ct["extent"] is None
+    cb = hm["colorbar"]
+    assert cb[COLORBAR_AUTO_RANGE] is True
+    assert cb[COLORBAR_NTICKS] == 4 and isinstance(cb[COLORBAR_NTICKS], int)
+    assert cb["zmin"] is None and cb["zmax"] is None and cb["zstep"] is None
+    # ... and the reference that makes the auto states legal came back too.
+    assert isinstance(hm["data_source"], GridRef)
+    assert isinstance(ct["data_source"], GridRef)
+
+
+def test_an_explicit_colorbar_serializes_exactly_as_it_did_before_g13():
+    """The auto marker keys must not appear on a colorbar that has numbers."""
+    fig = _heatmap_contour_figure()
+    cb = fig.to_dict()["figure"]["axes"][0]["heatmaps"][0]["colorbar"]
+
+    assert list(cb) == ["label", "format", "width", "sep", "zmin", "zmax", "zstep"]
+    assert cb["zmin"] == 0.0 and cb["zmax"] == 11.0
+
+
+def test_the_auto_states_do_not_change_the_serialized_shape_of_anything_else():
+    """Adding a series in the auto states perturbs nothing already there."""
+    fig = _figure_exercising_every_series_kind()
+    before = fig.to_dict()
+
+    _add_auto_state_axes(fig)
+    after = fig.to_dict()
+
+    assert after["figure"]["axes"][:3] == before["figure"]["axes"][:3]
+    assert len(after["figure"]["axes"]) == len(before["figure"]["axes"]) + 1

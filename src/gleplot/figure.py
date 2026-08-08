@@ -9,12 +9,16 @@ from .axes import Axes, _sanitize_data_stem, _validate_data_prefix
 from .series import Series, is_visible
 from .brokenaxes import BrokenAxes
 from .writer import (
+    COLORBAR_AUTO_RANGE,
+    COLORBAR_NTICKS,
+    DEFAULT_COLORBAR_NTICKS,
     AxisStyle,
     DecimationPolicy,
     GLEWriter,
     SourceResolution,
     resolve_figure,
 )
+from .sources import DataSource, source_of
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .cairo_support import cairo_font_warning, figure_requires_cairo
 from .colors import rgb_to_gle
@@ -999,7 +1003,22 @@ class Figure:
         Raises
         ------
         ValueError
-            If no axes has a heatmap, or if more than one does (ambiguous).
+            If no axes has a heatmap, if more than one does (ambiguous), or
+            if the heatmap has neither z data nor explicit ``vmin``/``vmax``
+            to derive a colour range from and no reference to resolve one
+            from later.
+
+        Notes
+        -----
+        **Reference-backed heatmaps** (SPEC 14.5). A heatmap whose numbers
+        come from a :class:`~gleplot.sources.GridRef` has no arrays *here* --
+        they arrive per write from the provider. Rather than read arrays it
+        does not have, the colorbar records an **auto range** and each write
+        computes ``zmin``/``zmax``/``zstep`` from the data that write
+        resolved, so a table edit re-flows into the bar instead of leaving a
+        range baked at ``colorbar()`` time. Explicit ``vmin``/``vmax`` on the
+        heatmap short-circuit that and are used as-is, here and at write time
+        alike.
         """
         bearing = [ax for ax in self.axes_list if ax.heatmaps]
         if not bearing:
@@ -1012,22 +1031,17 @@ class Figure:
             )
         hm = bearing[0].heatmaps[0]
 
-        if hm["vmin"] is not None:
-            zmin = float(hm["vmin"])
-        elif hm["source"] == "grid":
-            zmin = float(np.nanmin(hm["z"]))
-        else:
-            zmin = float(np.nanmin(hm["zpts"]))
-        if hm["vmax"] is not None:
-            zmax = float(hm["vmax"])
-        elif hm["source"] == "grid":
-            zmax = float(np.nanmax(hm["z"]))
-        else:
-            zmax = float(np.nanmax(hm["zpts"]))
+        values = hm["z"] if hm["source"] == "grid" else hm["zpts"]
+        have_values = values is not None and np.asarray(values).size > 0
+        zmin = float(hm["vmin"]) if hm["vmin"] is not None else None
+        zmax = float(hm["vmax"]) if hm["vmax"] is not None else None
+        if have_values:
+            if zmin is None:
+                zmin = float(np.nanmin(values))
+            if zmax is None:
+                zmax = float(np.nanmax(values))
 
-        divisions = int(nticks) if nticks else 5
-        span = zmax - zmin
-        zstep = (span / divisions) if span > 0 else 1.0
+        divisions = int(nticks) if nticks else DEFAULT_COLORBAR_NTICKS
 
         cb = {
             "label": mathtext_to_gle(label),
@@ -1036,8 +1050,26 @@ class Figure:
             "sep": float(sep),
             "zmin": zmin,
             "zmax": zmax,
-            "zstep": zstep,
+            "zstep": None,
         }
+        if zmin is not None and zmax is not None:
+            span = zmax - zmin
+            cb["zstep"] = (span / divisions) if span > 0 else 1.0
+        else:
+            # No arrays and no explicit bound for at least one end. That is a
+            # legal, resolvable state only for a reference-backed heatmap;
+            # anything else has nowhere for a range to come from, and saying
+            # so beats the numpy TypeError this used to raise.
+            source = source_of(hm)
+            if not (isinstance(source, DataSource) and source.is_reference()):
+                raise ValueError(
+                    "colorbar() cannot determine a colour range: this heatmap "
+                    "carries no z data, and no reference-backed data source to "
+                    "resolve one from at write time. Pass vmin/vmax explicitly, "
+                    "or attach the colorbar after the data."
+                )
+            cb[COLORBAR_AUTO_RANGE] = True
+            cb[COLORBAR_NTICKS] = divisions
         hm["colorbar"] = cb
         return cb
 
@@ -1723,6 +1755,13 @@ class Figure:
                 decimals = 1
 
         def width_of(v) -> int:
+            # An auto range (SPEC 14.5) has no number here until the write
+            # that resolves it; the 3-character floor below then sizes the
+            # margin. Reserving from a resolved bar is the normal path --
+            # ``_axes_colorbar_reserved_cm`` reads the resolution's copy --
+            # so this only covers callers that ask without one.
+            if v is None:
+                return 0
             v = float(v)
             n = len(f"{abs(v):.{decimals}f}")
             if v < 0:
@@ -2571,7 +2610,14 @@ class Figure:
                     xmax = float(x.max())
 
         for series in resolution.visible(ax.heatmaps) + resolution.visible(ax.contours):
-            x0, x1 = series["extent"][0], series["extent"][1]
+            extent = series.get("extent")
+            if not extent:
+                # A reference-backed grid series with an auto extent (SPEC
+                # 14.5) that has not been through write-time resolution --
+                # e.g. an autoscale query with no resolution. It has no
+                # numbers to contribute yet; a write resolves it first.
+                continue
+            x0, x1 = extent[0], extent[1]
             if not positive_only or x0 > 0:
                 if xmin is None or x0 < xmin:
                     xmin = float(x0)
@@ -2675,7 +2721,10 @@ class Figure:
                         ymax = float(y.max())
 
         for series in resolution.visible(ax.heatmaps) + resolution.visible(ax.contours):
-            y0, y1 = series["extent"][2], series["extent"][3]
+            extent = series.get("extent")
+            if not extent:
+                continue  # auto extent, unresolved -- see _get_data_xlim
+            y0, y1 = extent[2], extent[3]
             if not positive_only or y0 > 0:
                 if ymin is None or y0 < ymin:
                     ymin = float(y0)
