@@ -80,9 +80,19 @@ returns a fresh list and never writes back onto the axes. The `.dat` sidecar
 name, on the other hand, is reserved at call time, so it is stable across
 repeated saves.
 
-If an axes has no data *and* no explicit limits, there is nothing for a guide
-to span; it is dropped with a `UserWarning` rather than emitting a broken
-dataset.
+If an axes has no data *and* no explicit limits, the guide spans **0..1** —
+the range GLE itself renders for a graph block that gives no bounds (measured
+against GLE 4.3.10: `xgmin xgmax ygmin ygmax` = `0 1 0 1`), so the guide lands
+across exactly the frame that gets drawn. Substitution is per bound, so
+`set_ylim(0, None)` on an empty axes keeps the `0` and fills in the `1`.
+Materialization runs on every write, so adding data or limits later
+re-materializes the guide against the real range with no further action.
+
+> Earlier versions dropped such a guide with a `UserWarning` instead. One
+> caveat remains: a *lone* vertical guide on an empty axes is the only thing
+> bounding x, so the x range autoscales to a single value and GLE rejects
+> `xaxis min v max v` ("illegal range for xaxis"). Give the axes a
+> `set_xlim`, a second guide, or use a span.
 
 ## Limitations
 

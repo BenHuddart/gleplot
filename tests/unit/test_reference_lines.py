@@ -9,6 +9,8 @@ figure is generated, so a ``set_ylim`` issued after ``axvline`` still wins.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -202,13 +204,20 @@ def test_fractional_extent_does_not_feed_back_into_autoscale():
     assert ax.xmin == 0.0 and ax.xmax == 3.0
 
 
-def test_guide_without_resolvable_limits_warns_and_is_dropped():
+def test_guide_without_resolvable_limits_falls_back_to_gles_own_range():
+    """G14: this used to warn and drop; it now spans GLE's default 0..1 frame.
+
+    Detail (per orientation, fractional extents, byte-level regression guard
+    for the resolvable paths) in ``tests/unit/test_refline_fallback.py``.
+    """
     fig = glp.figure(data_prefix="rl")
     ax = fig.add_subplot(111)
-    ax.axvline(1.0)  # nothing else on the axes -> no y range to span
-    with pytest.warns(UserWarning, match="axvline"):
-        text, _files = fig._generate_gle_with_files()
-    assert "data rl_" not in text
+    entry = ax.axvline(1.0)  # nothing else on the axes -> no y range to span
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        text, files = fig._generate_gle_with_files()
+    assert entry["data_file"] in text
+    assert _rows(files, entry["data_file"]) == [[1.0, 0.0], [1.0, 1.0]]
 
 
 # --------------------------------------------------------------------------- #

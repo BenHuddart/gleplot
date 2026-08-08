@@ -58,6 +58,18 @@ _global_data_file_counter = 0
 #: ``data_contour1.z``.
 _global_sidecar_counters: Dict[str, int] = {}
 
+#: Range assumed for an axis a guide (``axvline``/``axhline``/``axvspan``/
+#: ``axhspan``) has to span when that axis resolves to nothing -- no data, no
+#: explicit ``set_?lim``. It is not arbitrary: it is the range GLE itself
+#: renders for a graph block that gives no axis bounds, measured on GLE
+#: 4.3.10 (``begin graph`` / ``size`` / ``scale 1 1`` / ``end graph`` followed
+#: by ``print xgmin xgmax ygmin ygmax`` -> ``0 1 0 1``), and pinned by
+#: ``tests/integration/test_refline_fallback_compiles.py``. Since gleplot
+#: emits no ``xaxis min/max`` for an unresolved axis, the guide materialized
+#: over this range lands exactly where the compiled frame puts it.
+#: Before G14 such a guide was dropped with a warning instead.
+EMPTY_AXIS_FALLBACK_RANGE = (0.0, 1.0)
+
 #: matplotlib ``legend(loc=...)`` strings -> gleplot's long-form key position.
 #: GLE's key has nine anchors (tl/tc/tr, lc/cc/rc, bl/bc/br), so every
 #: matplotlib location has an exact counterpart; only ``'best'`` has no
@@ -1730,9 +1742,11 @@ class Axes:
         limits : tuple
             ``(xmin, xmax, ymin, ymax)`` -- the axis limits actually being
             written. Any of them may be ``None`` if they could not be
-            resolved (an axes with no data at all), in which case the
-            affected guides are skipped with a warning rather than emitting a
-            dataset full of ``None``.
+            resolved (an axes with no data at all), in which case
+            :data:`EMPTY_AXIS_FALLBACK_RANGE` stands in for the missing
+            bound -- the range GLE's own bound-less graph renders, so the
+            guide spans exactly the frame the reader sees (G14). Every
+            resolvable bound is used unchanged.
 
         Returns
         -------
@@ -1748,20 +1762,14 @@ class Axes:
             if not is_visible(entry):
                 continue
             if entry["orient"] == "v":
-                if ymin is None or ymax is None:
-                    self._warn_unresolved("axvline", "y")
-                    continue
                 y0, y1 = self._fraction_to_data(
-                    entry["span_lo"], entry["span_hi"], ymin, ymax
+                    entry["span_lo"], entry["span_hi"], *self._spanned_range(ymin, ymax)
                 )
                 x = np.array([entry["value"], entry["value"]], dtype=float)
                 y = np.array([y0, y1], dtype=float)
             else:
-                if xmin is None or xmax is None:
-                    self._warn_unresolved("axhline", "x")
-                    continue
                 x0, x1 = self._fraction_to_data(
-                    entry["span_lo"], entry["span_hi"], xmin, xmax
+                    entry["span_lo"], entry["span_hi"], *self._spanned_range(xmin, xmax)
                 )
                 x = np.array([x0, x1], dtype=float)
                 y = np.array([entry["value"], entry["value"]], dtype=float)
@@ -1789,8 +1797,9 @@ class Axes:
         """Turn ``self.spans`` into concrete fill-between series.
 
         See :meth:`materialize_reflines`; the same contract applies (nothing
-        is stored back, unresolvable limits skip with a warning, hidden bands
-        materialize into nothing).
+        is stored back, an unresolvable bound falls back to
+        :data:`EMPTY_AXIS_FALLBACK_RANGE`, hidden bands materialize into
+        nothing).
         """
         xmin, xmax, ymin, ymax = limits
         out: List[FillSeries] = []
@@ -1798,21 +1807,15 @@ class Axes:
             if not is_visible(entry):
                 continue
             if entry["orient"] == "v":
-                if ymin is None or ymax is None:
-                    self._warn_unresolved("axvspan", "y")
-                    continue
                 y0, y1 = self._fraction_to_data(
-                    entry["span_lo"], entry["span_hi"], ymin, ymax
+                    entry["span_lo"], entry["span_hi"], *self._spanned_range(ymin, ymax)
                 )
                 x = np.array([entry["start"], entry["end"]], dtype=float)
                 upper = np.array([y1, y1], dtype=float)
                 lower = np.array([y0, y0], dtype=float)
             else:
-                if xmin is None or xmax is None:
-                    self._warn_unresolved("axhspan", "x")
-                    continue
                 x0, x1 = self._fraction_to_data(
-                    entry["span_lo"], entry["span_hi"], xmin, xmax
+                    entry["span_lo"], entry["span_hi"], *self._spanned_range(xmin, xmax)
                 )
                 x = np.array([x0, x1], dtype=float)
                 upper = np.array([entry["end"], entry["end"]], dtype=float)
@@ -1834,13 +1837,21 @@ class Axes:
         return out
 
     @staticmethod
-    def _warn_unresolved(what: str, axis: str) -> None:
-        warnings.warn(
-            f"{what}() was dropped: the {axis}-axis limits could not be "
-            f"resolved (the axes has no data and no explicit set_{axis}lim), "
-            f"so the line/band has no extent to span.",
-            UserWarning,
-            stacklevel=3,
+    def _spanned_range(lo: Optional[float], hi: Optional[float]):
+        """The range a guide spans, with GLE's default standing in for gaps.
+
+        An axes with no data and no explicit limit resolves to ``None`` --
+        gleplot then emits no ``min``/``max`` for that axis and GLE draws its
+        own default 0..1 frame. Materializing over
+        :data:`EMPTY_AXIS_FALLBACK_RANGE` therefore puts the guide across
+        exactly the frame that gets rendered, instead of dropping it (G14,
+        GLEstudio SPEC 14.3). Substitution is per bound, so a half-specified
+        range (``set_ylim(0, None)`` on an empty axes) keeps the bound it has.
+        """
+        fallback_lo, fallback_hi = EMPTY_AXIS_FALLBACK_RANGE
+        return (
+            fallback_lo if lo is None else lo,
+            fallback_hi if hi is None else hi,
         )
 
     def text(
