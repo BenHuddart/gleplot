@@ -1847,6 +1847,15 @@ class Axes:
         exactly the frame that gets rendered, instead of dropping it (G14,
         GLEstudio SPEC 14.3). Substitution is per bound, so a half-specified
         range (``set_ylim(0, None)`` on an empty axes) keeps the bound it has.
+
+        Since G15 a bound can also be ``None`` because the range it resolved
+        to *collapsed to a single value* and was handed back to GLE
+        (:meth:`Figure._defer_degenerate_range`). The fallback then stands in
+        for a frame GLE has not chosen yet -- it expands the point into a
+        nice-number range gleplot deliberately does not compute -- so a guide
+        drawn across such an axis spans 0..1 rather than the rendered frame.
+        It takes a collapsed axis AND a guide spanning it for that to arise,
+        and before G15 that figure did not compile at all.
         """
         fallback_lo, fallback_hi = EMPTY_AXIS_FALLBACK_RANGE
         return (

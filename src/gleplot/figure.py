@@ -2329,6 +2329,16 @@ class Figure:
         explicit x range) and for every log axis (see above). Runs before the
         shared-axis synchronization, so what that unifies is already resolved.
         """
+        # Which bounds are the AXES' own, and which this call is about to
+        # invent. Only the invented ones may be handed back to GLE when the
+        # result collapses (:meth:`_defer_degenerate_range`); a bound the
+        # caller asked for is never dropped without saying so.
+        was_auto = {
+            "x": (ax.xmin is None, ax.xmax is None),
+            "y": (ax.ymin is None, ax.ymax is None),
+            "y2": (ax.y2min is None, ax.y2max is None),
+        }
+
         if ax.xmin is None or ax.xmax is None:
             data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
             if ax.xmin is None:
@@ -2344,6 +2354,77 @@ class Figure:
 
         self._normalize_inverted_log_limits(ax)
         self._apply_log_limits(ax, resolution)
+
+        # Last, so that a log axis is judged on the range its repair produced
+        # (which is always increasing and positive) rather than on the
+        # collapsed one it started from.
+        for which, (lo_auto, hi_auto) in was_auto.items():
+            self._defer_degenerate_range(ax, which, lo_auto, hi_auto)
+
+    # -- degenerate ranges ------------------------------------------------
+    #
+    # An axis can resolve to a single value: one data point, a lone ``axvline``
+    # that is the only thing bounding x, a table with one row. GLE will not
+    # accept that written down -- ``xaxis min 1 max 1`` is "Error: illegal
+    # range for xaxis: min = 1 max = 1" and exit 1, with or without a trailing
+    # ``off``, and the same on ``y2axis`` (measured against GLE 4.3.10).
+    #
+    # GLE can nevertheless DRAW such a graph: left to itself it expands the
+    # point into a nice-number range around it -- measured, again on 4.3.10,
+    # for a single plotted point: (1, 2) -> x 0..2, y 1..3; (5, 7) -> 0..10,
+    # 0..12; (-3, -3) -> -6..0 on both; (0, 0) -> -1..1 on both. So the
+    # emission forbids what the engine allows, and the fix is to stop
+    # emitting: the axis' range is left out of the script and GLE scales it.
+    # Reproducing that arithmetic in Python would be a second, drifting
+    # implementation of a number gleplot never needs to know -- calibration
+    # reads the range GLE chose straight back off the compiled script
+    # (GLEstudio SPEC 6.2), exactly as it does for any other autoscaled axis.
+
+    def _defer_degenerate_range(
+        self, ax: Axes, which: str, lo_auto: bool, hi_auto: bool
+    ) -> None:
+        """Hand ``which``'s range back to GLE if it collapsed to a point.
+
+        Parameters
+        ----------
+        which:
+            ``"x"``, ``"y"`` or ``"y2"``.
+        lo_auto, hi_auto:
+            Whether each bound was derived rather than asked for. A derived
+            bound is simply dropped; GLE re-derives it, better. An explicit
+            one is kept where it can be -- ``set_xlim(5, None)`` over a lone
+            point at x=5 still emits ``xaxis min 5``, and GLE draws 5..10, so
+            the user's bound is the frame edge and only the collapse is gone.
+
+        When BOTH bounds were explicit the range is the caller's own empty
+        one; there is no way to draw it, so it is dropped and said out loud,
+        the way :meth:`_apply_log_limits` reports an impossible log range.
+        """
+        lo, hi = self._axis_limits(ax, which)
+        if lo is None or hi is None or lo != hi:
+            return
+
+        if not lo_auto and not hi_auto:
+            setter = {
+                "x": "set_xlim()",
+                "y": "set_ylim()",
+                "y2": "set_ylim(axis='y2')",
+            }[which]
+            warnings.warn(
+                f"{which}-axis limits are both {lo!r}, an empty range that GLE "
+                'refuses to draw ("illegal range"). Leaving the range out of '
+                "the script, so GLE autoscales around the value instead. Call "
+                f"{setter} with a non-empty range to choose your own.",
+                UserWarning,
+            )
+            lo_auto = hi_auto = True
+
+        self._set_axis_limits(
+            ax,
+            which,
+            None if lo_auto else lo,
+            None if hi_auto else hi,
+        )
 
     def _normalize_inverted_log_limits(self, ax: Axes):
         """Undo an axis inversion on a log axis, which GLE cannot draw.
@@ -2493,7 +2574,10 @@ class Figure:
         return lo is not None and hi is not None and lo > hi
 
     @staticmethod
-    def _set_axis_limits(ax: Axes, which: str, lo: float, hi: float):
+    def _set_axis_limits(
+        ax: Axes, which: str, lo: Optional[float], hi: Optional[float]
+    ):
+        """Write a pair of bounds back onto ``ax``. ``None`` means auto."""
         if which == "x":
             ax.xmin, ax.xmax = lo, hi
         elif which == "y":
@@ -2507,6 +2591,13 @@ class Figure:
         lo_global = None
         hi_global = None
         inverted = False
+
+        # Read before the fill loop overwrites it: a bound nobody set on ANY
+        # panel is one the shared range may hand back to GLE if it collapses
+        # (see _defer_degenerate_range). The union of several panels is rarely
+        # a point, but it is whenever they all sit on the same single value.
+        lo_auto = all(ax.xmin is None for ax in self.axes_list)
+        hi_auto = all(ax.xmax is None for ax in self.axes_list)
 
         for ax in self.axes_list:
             # Calculate data limits if not explicitly set
@@ -2535,6 +2626,7 @@ class Figure:
                 ax.xmin, ax.xmax = hi_global, lo_global
             else:
                 ax.xmin, ax.xmax = lo_global, hi_global
+            self._defer_degenerate_range(ax, "x", lo_auto, hi_auto)
 
     def _synchronize_y_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize y-axis limits across all axes when sharey is enabled."""
@@ -2542,6 +2634,10 @@ class Figure:
         lo_global = None
         hi_global = None
         inverted = False
+
+        # See _synchronize_x_limits.
+        lo_auto = all(ax.ymin is None for ax in self.axes_list)
+        hi_auto = all(ax.ymax is None for ax in self.axes_list)
 
         for ax in self.axes_list:
             # Calculate data limits if not explicitly set
@@ -2566,6 +2662,7 @@ class Figure:
                 ax.ymin, ax.ymax = hi_global, lo_global
             else:
                 ax.ymin, ax.ymax = lo_global, hi_global
+            self._defer_degenerate_range(ax, "y", lo_auto, hi_auto)
 
     def _get_data_xlim(
         self,

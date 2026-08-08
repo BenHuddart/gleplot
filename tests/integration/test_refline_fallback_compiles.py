@@ -171,26 +171,21 @@ def test_the_rendered_page_is_not_blank(tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Pre-existing, NOT a G14 regression: a lone axvline is the only thing "
-        "bounding x, so autoscale resolves x to a degenerate value..value "
-        "range and gleplot emits 'xaxis min 0.5 max 0.5', which GLE rejects "
-        "('illegal range for xaxis'). Identical on the pre-G14 base, and "
-        "identical for a lone ax.plot([1,1],[2,3]) with no guides at all: "
-        "gleplot has no matplotlib-style nonsingular() expansion of a "
-        "degenerate autoscale range. Filed for the supervisor; fixing it is "
-        "outside G14's deliverables (it lives in Figure._resolve_axis_limits, "
-        "not in materialize_reflines) and would change bytes on a resolvable-"
-        "limits path. The G14 half works: the dataset IS emitted spanning "
-        "0..1 (tests/unit/test_refline_fallback.py)."
-    ),
-)
 def test_a_lone_axvline_on_an_empty_axes_compiles(tmp_path):
+    """The SPEC 14.3 headline case: blank project, one vertical guide.
+
+    A strict xfail through G14, a pass since G15. A lone ``axvline`` is the
+    only thing bounding x, so autoscale resolved x to a degenerate
+    ``0.5..0.5`` and gleplot wrote ``xaxis min 0.5 max 0.5``, which GLE
+    rejects ("illegal range for xaxis"). G15 leaves a collapsed range out of
+    the script instead, so x becomes GLE's to scale -- it picks 0..1 here,
+    from the two-point dataset G14 materializes -- while y keeps the fallback
+    range the guide was drawn across.
+    """
     fig = glp.figure(data_prefix="fbc")
     ax = fig.add_subplot(111)
     ax.axvline(0.5)
 
-    _text, (ygmin, ygmax) = _compile_and_probe(fig, tmp_path, ["ygmin", "ygmax"])
+    text, (ygmin, ygmax) = _compile_and_probe(fig, tmp_path, ["ygmin", "ygmax"])
+    assert "xaxis min" not in text and "xaxis max" not in text
     assert (ygmin, ygmax) == pytest.approx(EMPTY_AXIS_FALLBACK_RANGE)
