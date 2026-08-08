@@ -1192,9 +1192,16 @@ def test_gzip_files_are_not_transparently_decompressed(tmp_path):
     GLEstudio's data-import wizard layers on itself (file preparation,
     independent of load_data_file); the new override parameters added here
     do not add gzip support either -- overrides operate on whatever text
-    _read_text produces, gzip or not."""
+    _read_text produces, gzip or not.
+
+    ``gzip.compress`` embeds the current time as an mtime field in the
+    header, so its output is nondeterministic run to run. ``mtime=0``
+    pins that field so the fixture bytes -- and thus the garbled
+    latin-1 decoding asserted on below -- are the same on every run
+    (without it, roughly 1 run in 8 happens to garble into exactly 2
+    rows and flakily fails the `n_rows != 2` assertion below)."""
     p = tmp_path / "f.dat.gz"
-    p.write_bytes(gzip.compress(b"x y\n1 2\n3 4\n"))
+    p.write_bytes(gzip.compress(b"x y\n1 2\n3 4\n", mtime=0))
 
     table = load_data_file(p)
 
