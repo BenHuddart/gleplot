@@ -2690,3 +2690,189 @@ def test_finding22_clip_gle_shaped_reproduction_renders_with_parity(tmp_path):
         f"(diff bbox {diff_bbox}) -- the caption's 'set hei .3' was likely "
         "collapsed into the later 'set hei 10' again"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Finding 23 -- the page-level 'size w h box' outline modifier silently
+# dropped (rendered-fidelity gap, no gate-review corpus fixture but the same
+# family as Findings 17/20's trailing-modifier drops on a GRAPH's own 'bar'/
+# 'size'). ``_parse_preamble``'s 'size' branch recognized only 'w'/'h' and
+# threw away any trailing tokens with no note and no passthrough trace, so a
+# page-level 'size 8 6 box' round-tripped to a plain 'size 8 6' -- the page
+# outline it draws (confirmed empirically against GLE 4.3.10; the manual
+# documents no modifier at all for the page-level form) silently vanished.
+#
+# The page-level grammar is much narrower than a GRAPH's own 'size'/'scale'
+# (GLE/src/gle/graph.cpp's do_remaining_entries, which accepts box/nobox/
+# border/noborder/center/fullsize/math in any combination): empirically,
+# 'size 8 6 box' compiles and draws a border; 'size 8 6 nobox' (or border/
+# noborder/center/fullsize/math/anything else) is a hard GLE parse error,
+# "found 'X', but expecting 'BOX'". There is no page-level way to SAY "no
+# border" beyond omitting the word, so the new ``Figure.page_box`` is a
+# plain bool: 'box' present -> True, absent -> False, anything else at all
+# after 'w h' -> the whole statement kept fully raw (it is not valid GLE to
+# begin with, so guessing at a meaning for it would be dishonest).
+# --------------------------------------------------------------------------- #
+
+
+def test_finding23_size_box_recognized_as_page_box(tmp_path):
+    src = "size 8 6 box\namove 1 1\ncircle 0.3\n"
+    p = _write(tmp_path, "box.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.page_box is True
+    assert fig.figsize == (pytest.approx(8 / 2.54), pytest.approx(6 / 2.54))
+    assert fig.passthrough_header == ["amove 1 1", "circle 0.3"]
+
+
+def test_finding23_size_box_is_case_insensitive(tmp_path):
+    src = "size 8 6 BOX\namove 1 1\ncircle 0.3\n"
+    p = _write(tmp_path, "box_upper.gle", src)
+    rec = parse_gle_figure(p)
+    assert rec.figure.page_box is True
+
+
+def test_finding23_size_without_box_unaffected(tmp_path):
+    """The overwhelming majority shape: a bare 'size w h' with no trailing
+    token at all must be completely unaffected by this fix -- page_box
+    stays False, figsize is recognized exactly as before.
+    """
+    src = "size 8 6\namove 1 1\ncircle 0.3\n"
+    p = _write(tmp_path, "nobox.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.page_box is False
+    assert fig.figsize == (pytest.approx(8 / 2.54), pytest.approx(6 / 2.54))
+    assert fig.passthrough_header == ["amove 1 1", "circle 0.3"]
+
+
+def test_finding23_size_with_invalid_modifier_kept_fully_raw(tmp_path):
+    """'size 8 6 nobox' is not valid GLE at all (GLE 4.3.10 rejects it:
+    "found 'nobox', but expecting 'BOX'") -- there is no meaning to guess
+    at, so the whole statement is kept raw instead of recognizing 'box'-ish
+    intent and silently dropping 'nobox'. Same for any other trailing
+    content ('size 8 6 box extra' is likewise a hard GLE error).
+    """
+    bad_modifiers = (
+        "nobox",
+        "border",
+        "noborder",
+        "center",
+        "fullsize",
+        "math",
+        "box extra",
+    )
+    for bad in bad_modifiers:
+        src = f"size 8 6 {bad}\namove 1 1\ncircle 0.3\n"
+        p = _write(tmp_path, "bad.gle", src)
+        rec = parse_gle_figure(p)
+        fig = rec.figure
+        assert fig.page_box is False, bad
+        assert fig.passthrough_header[0] == f"size 8 6 {bad}", bad
+
+
+def test_finding23_resave_is_byte_exact_fixed_point(tmp_path):
+    src = "size 8 6 box\namove 1 1\ncircle 0.3\n"
+    p = _write(tmp_path, "fp23.gle", src)
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+    assert "size 8 6 box" in text1
+
+
+def test_finding23_page_box_survives_to_dict_from_dict_round_trip():
+    """``page_box`` is a document field, not writer-only state -- it must
+    survive the .glez save/reload round trip (Figure.to_dict/from_dict),
+    not just a single savefig_gle call.
+    """
+    fig = glp.figure()
+    fig.page_box = True
+    restored = Figure.from_dict(fig.to_dict())
+    assert restored.page_box is True
+
+    fig2 = glp.figure()
+    assert fig2.page_box is False
+    restored2 = Figure.from_dict(fig2.to_dict())
+    assert restored2.page_box is False
+
+
+@pytest.mark.gle
+def test_finding23_page_box_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression: compile a 'size w h box' reproducer with real
+    GLE, round-trip it through gleplot, compile the round-trip, and compare
+    the two renders pixel for pixel. Before the fix, the round trip
+    compiled fine but silently dropped 'box' -- the page's own outline
+    (confirmed to render, empirically, in isolation from any graph content)
+    would vanish, which a compile-only check can never catch.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = "size 8 6 box\namove 1 1\ncircle 0.3\n"
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src)
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    im_orig_check = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    white = PIL_Image.new("RGB", im_orig_check.size, (255, 255, 255))
+    ink_bbox = ImageChops.difference(im_orig_check, white).getbbox()
+    assert ink_bbox is not None, "expected page-outline + circle ink somewhere"
+    # The outline must reach every edge of the page -- a full-page border,
+    # not just the circle in the corner.
+    assert ink_bbox[0] <= 2 and ink_bbox[1] <= 2
+    assert ink_bbox[2] >= im_orig_check.size[0] - 2
+    assert ink_bbox[3] >= im_orig_check.size[1] - 2
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    rec = parse_gle_figure(orig)
+    assert rec.figure.page_box is True
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+    assert " box" in rt_gle.read_text(encoding="utf-8")
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert (
+        res_rt.returncode == 0
+    ), f"round-tripped script failed to compile:\n{res_rt.stdout}\n{res_rt.stderr}"
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- the page outline ('box') was likely "
+        "dropped again"
+    )

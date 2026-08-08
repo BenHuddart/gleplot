@@ -755,6 +755,7 @@ class GLEWriter:
         metadata_lines: Optional[List[str]] = None,
         passthrough_header: Optional[List[str]] = None,
         passthrough_before_hei: Optional[List[str]] = None,
+        page_box: bool = False,
     ):
         """Add GLE preamble.
 
@@ -794,6 +795,12 @@ class GLEWriter:
             entirely when falsy, so the overwhelming majority of figures
             (nothing between size/font and hei) emit byte-identically to
             before this parameter existed.
+        page_box : bool, optional
+            GLE's page-level ``size w h box`` outline modifier (see
+            :attr:`gleplot.figure.Figure.page_box`): draws a border around
+            the whole page. False (the default) omits the trailing ``box``
+            token entirely, matching every figure's output before this
+            parameter existed.
         """
         self.lines_gle.extend(
             [
@@ -803,12 +810,13 @@ class GLEWriter:
         )
         if metadata_lines:
             self.lines_gle.extend(metadata_lines)
-        self.lines_gle.extend(
-            [
-                "",
-                f"size {self._format_number(self.width_cm)} {self._format_number(self.height_cm)}",
-            ]
+        size_line = (
+            f"size {self._format_number(self.width_cm)} "
+            f"{self._format_number(self.height_cm)}"
         )
+        if page_box:
+            size_line += " box"
+        self.lines_gle.extend(["", size_line])
         # Only set font if explicitly specified
         if self.style.font:
             self.lines_gle.append(f"set font {self.style.font}")

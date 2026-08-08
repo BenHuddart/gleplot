@@ -582,6 +582,7 @@ _FIGURE_SERIALIZED_ATTRS = {
     "passthrough_before_hei",
     "passthrough_header",
     "passthrough_trailer",
+    "page_box",
     "metadata_extra",
 }
 

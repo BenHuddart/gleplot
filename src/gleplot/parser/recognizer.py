@@ -729,15 +729,21 @@ class _Recognizer:
         figsize = (8.0, 6.0)
         font = ""
         fontsize = 12.0
+        page_box = False
         passthrough_header: List[str] = []
         passthrough_before_hei: List[str] = []
 
         # --- Preamble: everything before the first graph-related node. ---
         first_graph_start = self._first_graph_region_start(nodes, graph_indices)
 
-        figsize, font, fontsize, passthrough_before_hei, passthrough_header = (
-            self._parse_preamble(nodes[:first_graph_start])
-        )
+        (
+            figsize,
+            font,
+            fontsize,
+            page_box,
+            passthrough_before_hei,
+            passthrough_header,
+        ) = self._parse_preamble(nodes[:first_graph_start])
 
         # Build style/graph/marker configs.
         style = GLEStyleConfig()
@@ -757,6 +763,7 @@ class _Recognizer:
             sharey=sharey,
         )
         fig.metadata_extra = metadata_extra
+        fig.page_box = page_box
         fig.passthrough_before_hei = passthrough_before_hei
         fig.passthrough_header = passthrough_header
 
@@ -963,10 +970,14 @@ class _Recognizer:
 
     def _parse_preamble(
         self, pre_nodes
-    ) -> Tuple[Tuple[float, float], str, float, List[str], List[str]]:
+    ) -> Tuple[Tuple[float, float], str, float, bool, List[str], List[str]]:
         figsize = (8.0, 6.0)
         font = ""
         fontsize = 12.0
+        # GLE's page-level 'size w h box' outline modifier (default: no
+        # outline; see the 'size' branch below for the empirically-verified
+        # grammar). Figure.page_box.
+        page_box = False
         passthrough: List[str] = []
         # Lines that sat, in the original, between a recognized 'size'/'set
         # font' and a recognized 'set hei' -- e.g. clip.gle's own
@@ -1054,10 +1065,39 @@ class _Recognizer:
                 toks = _words_and_values(node)
                 if kw == "size" and len(toks) >= 3:
                     w, nxt = _collect_value(toks, 1)
-                    h, _ = _collect_value(toks, nxt)
+                    h, nxt2 = _collect_value(toks, nxt)
                     if w is not None and h is not None:
-                        figsize = (cm_to_inches(w), cm_to_inches(h))
-                        started = True
+                        # The page-level 'size w h' command has its OWN,
+                        # much narrower grammar than a graph's 'size'/
+                        # 'scale' (GLE/src/gle/graph.cpp's do_remaining_
+                        # entries, which accepts box/nobox/border/noborder/
+                        # center/fullsize/math in any combination) --
+                        # confirmed empirically (GLE 4.3.10, gle-manual has
+                        # no documented modifier at all for the page-level
+                        # form): 'size 8 6 box' draws a border around the
+                        # whole page and compiles; 'size 8 6 nobox' (or
+                        # border/noborder/center/fullsize/math/anything
+                        # else) is a hard parse error, "found 'X', but
+                        # expecting 'BOX'". There is no way to SAY "no
+                        # border" at the page level beyond omitting the
+                        # word -- 'box' is the only accepted trailing
+                        # token, and at most one of it.
+                        trailing = toks[nxt2:]
+                        if not trailing:
+                            figsize = (cm_to_inches(w), cm_to_inches(h))
+                            started = True
+                            continue
+                        if len(trailing) == 1 and trailing[0].value.lower() == "box":
+                            figsize = (cm_to_inches(w), cm_to_inches(h))
+                            page_box = True
+                            started = True
+                            continue
+                        # Anything else here is not valid GLE at all (GLE
+                        # itself would refuse to compile it) -- kept fully
+                        # raw rather than guessing at a meaning for it.
+                        # figsize keeps its prior value (the default, or
+                        # whatever an EARLIER 'size' recognized).
+                        _passthrough(self._stmt_text(node))
                         continue
                 if kw == "set" and len(toks) >= 2:
                     sub = toks[1].value.lower()
@@ -1081,7 +1121,7 @@ class _Recognizer:
             for line in self._raw_lines(node):
                 _passthrough(line)
 
-        return figsize, font, fontsize, before_hei, passthrough
+        return figsize, font, fontsize, page_box, before_hei, passthrough
 
     def _metadata_line_numbers(self) -> set:
         """1-based line numbers spanned by the ``! gleplot`` metadata block."""
