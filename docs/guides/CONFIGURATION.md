@@ -113,11 +113,36 @@ the polyline are indistinguishable anyway.
     # Or globally, for every figure created afterwards
     glp.GlobalConfig.graph.smooth_curves = True
 
-The flag is per figure and applies to every line series in it (`plot`,
-`line_from_file`, and the line drawn by `errorbar`). Fills and contour lines
-are never smoothed: GLE's `fill` command takes no `smooth` qualifier, and
-contour polylines come out of GLE's own contouring of the gridded surface,
-where splining would move the level off the surface it was computed from.
+The flag is per figure and is the *default* for every line series in it
+(`plot`, `line_from_file`, and the line drawn by `errorbar`). Fills and
+contour lines are never smoothed: GLE's `fill` command takes no `smooth`
+qualifier, and contour polylines come out of GLE's own contouring of the
+gridded surface, where splining would move the level off the surface it was
+computed from.
+
+#### Per-series smoothing
+
+A `plot()` series can override the figure default, and can use GLE's other
+smoothing option, by setting two fields on the series itself:
+
+    ax.plot(x, y)
+    ax.lines[0]["smooth_mode"] = "smoothm"   # 'none' | 'smooth' | 'smoothm'
+    ax.lines[0]["svg_smooth"] = 3            # Savitzky-Golay iterations
+
+* **`smooth_mode`** — leave it unset to follow `smooth_curves`; set it to
+  override that one series. `'smooth'` is the piecewise-cubic fit described
+  above, which is a fit *of a function of x* (gleplot sorts the series' rows
+  by x for it). `'smoothm'` is GLE's multi-valued variant, for curves that
+  have more than one y per x — a hysteresis loop, a closed contour; those
+  keep their point order. `'none'` switches smoothing off for the series even
+  when the figure default is on.
+* **`svg_smooth`** — the number of passes of GLE's 7-point Savitzky–Golay
+  filter (an integer ≥ 1; unset means off). This is a *filter of the values*,
+  not a fit through them, and is independent of `smooth_mode`: set both and
+  both are applied.
+
+Both are limited to `plot()` line series. Error bars and `line_from_file`
+series still follow the figure-wide flag.
 
 > **Behaviour change in 1.9.0.** Before 1.9.0, `smooth_curves` defaulted to
 > **`True`**: every line gleplot drew was a spline through the data, and no

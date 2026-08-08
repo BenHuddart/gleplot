@@ -40,6 +40,8 @@ from .series import (
     Series,
     _unique_column_names,
     is_visible,
+    normalize_smooth_mode,
+    normalize_svg_smooth,
     sanitize_column_name,
 )
 from .sources import (
@@ -1661,13 +1663,15 @@ class GLEWriter:
         offset: float = 0.0,
         column_names: Optional[List[str]] = None,
         binding: Optional[ColumnBinding] = None,
+        smooth_mode: Optional[str] = None,
+        svg_smooth: Optional[int] = None,
     ):
         """
         Add line plot to graph.
 
         Points are written to the data file, and drawn, in the order given
-        (matplotlib's behavior). The one exception is a smoothed line, which
-        GLE requires to be monotonic in x -- see :meth:`_row_order`.
+        (matplotlib's behavior). The one exception is a ``smooth``-mode line,
+        which GLE requires to be monotonic in x -- see :meth:`_row_order`.
 
         Parameters
         ----------
@@ -1698,6 +1702,15 @@ class GLEWriter:
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
             that table (see :meth:`_write_columns`).
+        smooth_mode : {'none', 'smooth', 'smoothm'}, optional
+            Per-series smoothing (SPEC 14.7). ``None`` -- the default, and
+            what every non-line call site passes -- defers to the figure-wide
+            ``GLEGraphConfig.smooth_curves``; see
+            :meth:`_effective_smooth_mode`.
+        svg_smooth : int, optional
+            Savitzky-Golay iterations (>= 1), or ``None`` for off. Independent
+            of ``smooth_mode``; both may be emitted on one ``dN`` line, in the
+            order :meth:`_line_token` fixes.
         """
         x_array = np.asarray(x)
         y_array = np.asarray(y)
@@ -1708,8 +1721,10 @@ class GLEWriter:
         has_line = linestyle not in ("none", "None", "", " ", None)
 
         # Rows go out in the caller's order unless this series is genuinely
-        # smoothed -- see :meth:`_row_order`.
-        order = self._row_order(x_array, has_line, shared=binding is not None)
+        # ``smooth``-mode smoothed -- see :meth:`_row_order`.
+        order = self._row_order(
+            x_array, has_line, shared=binding is not None, smooth_mode=smooth_mode
+        )
         cols = self._write_columns(
             data_file,
             [("x", x_array[order]), ("y", y_array[order])],
@@ -1744,8 +1759,8 @@ class GLEWriter:
             gle_lwidth = linewidth_pt_to_cm(linewidth)
 
         if has_line:
-            # Line plot; ``smooth`` only when opted in (see _line_token).
-            line_cmd += self._line_token()
+            # Line plot; smoothing only when opted in (see _line_token).
+            line_cmd += self._line_token(smooth_mode, svg_smooth)
             line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
 
             # Use configured line styles from style config. (A stray second
@@ -2773,7 +2788,11 @@ class GLEWriter:
         )
 
     def _row_order(
-        self, x_array: np.ndarray, has_line: bool, shared: bool = False
+        self,
+        x_array: np.ndarray,
+        has_line: bool,
+        shared: bool = False,
+        smooth_mode: Optional[str] = None,
     ) -> np.ndarray:
         """Return the order in which a series' points are written to its .dat.
 
@@ -2781,8 +2800,17 @@ class GLEWriter:
         it. GLE's ``smooth`` fits a piecewise cubic *as a function of x* and
         needs the points in ascending x; handed a non-monotonic dataset it
         draws a tangle. So the rows are sorted by x when, and only when, this
-        series will actually carry the ``smooth`` qualifier: it draws a line
-        and ``smooth_curves`` is on (see :meth:`_line_token`).
+        series' effective smooth mode is exactly ``smooth`` and it draws a
+        line (see :meth:`_effective_smooth_mode`).
+
+        ``smoothm`` is pointedly excluded. It is GLE's *multi-valued* variant
+        (``fitbez(data, multi=true)``, i.e. a parametric fit), chosen
+        precisely for curves that are not functions of x -- a hysteresis
+        loop, a closed contour. Sorting those by x is the very corruption
+        ``smoothm`` exists to avoid, so a ``smoothm`` series keeps the
+        caller's point order like any other. ``svg_smooth`` likewise: the
+        Savitzky-Golay filter is a moving window over the rows as given, and
+        reordering them would change the filtered result.
 
         Everywhere else -- which, since smoothing became opt-in, is the great
         majority of series -- the caller's point order is both the drawing
@@ -2802,15 +2830,39 @@ class GLEWriter:
         table-backed series is the caller's responsibility to keep monotonic
         (exactly as it would be for a hand-written ``.dat``).
         """
-        if has_line and self.graph.smooth_curves and not shared:
+        smooths = self._effective_smooth_mode(smooth_mode) == "smooth"
+        if has_line and smooths and not shared:
             return np.argsort(x_array, kind="stable")
         return np.arange(len(x_array))
 
-    def _line_token(self) -> str:
-        """Return the ``line`` token for a dataset display command.
+    def _effective_smooth_mode(self, smooth_mode: Optional[str] = None) -> str:
+        """The smooth mode one dataset is actually emitted with.
+
+        Per-series beats figure-wide, and *absent* beats neither: a series
+        with no ``smooth_mode`` field (every series written before SPEC 14.7,
+        and every kind but :class:`~gleplot.series.LineSeries` today) defers
+        to ``GLEGraphConfig.smooth_curves``, which is what keeps those files
+        byte-identical. A series that declares a mode wins -- including
+        ``'none'`` on a figure whose default is smoothed, which is the whole
+        point of a per-series override.
+
+        Returns a member of :data:`~gleplot.series.SMOOTH_MODES`, never
+        ``None``, so no caller has to re-derive the fallback.
+        """
+        mode = normalize_smooth_mode(smooth_mode)
+        if mode is not None:
+            return mode
+        return "smooth" if self.graph.smooth_curves else "none"
+
+    def _line_token(
+        self,
+        smooth_mode: Optional[str] = None,
+        svg_smooth: Optional[int] = None,
+    ) -> str:
+        """Return the ``line`` token, with smoothing, for a display command.
 
         Every line-drawing path in this writer goes through here, so the
-        ``smooth`` qualifier is decided in exactly one place.
+        smoothing qualifiers are decided in exactly one place.
 
         GLE's ``smooth`` replaces the polyline through the data with a fitted
         piecewise-cubic spline: the drawn curve then passes near, not through,
@@ -2818,7 +2870,29 @@ class GLEWriter:
         steps, ringing around noise). That is an interpolation of the data,
         not the data, so it is **off unless asked for** -- set
         ``GLEGraphConfig(smooth_curves=True)`` on a figure, or
-        ``GlobalConfig.graph.smooth_curves = True`` globally, to opt in.
+        ``GlobalConfig.graph.smooth_curves = True`` globally, to opt in, or
+        set the per-series ``smooth_mode`` (SPEC 14.7) on the one series that
+        wants it.
+
+        Two independent clauses, one token order
+        ----------------------------------------
+
+        ``smooth_mode`` (``smooth``/``smoothm``) and ``svg_smooth m`` are
+        separate options in GLE's ``dn`` grammar and may both appear on one
+        line -- but **only in this order**. ``graph2.cpp``'s keyword loop is a
+        left-to-right state machine: its ``SVG_SMOOTH`` branch sets the filter
+        *and clears* ``smooth``/``smoothm``, while its ``SMOOTH``/``SMOOTHM``
+        branches leave ``svg_smooth`` alone. So ``d1 line smooth svg_smooth 2``
+        renders identically to ``d1 line svg_smooth 2`` (the ``smooth`` is
+        dead), and only ``d1 line svg_smooth 2 smooth`` applies both. Verified
+        against GLE 4.3.10 by rendering all three. This method therefore
+        always emits ``svg_smooth m`` before the mode token.
+
+        The iteration count is always emitted explicitly. The manual writes
+        the parameter as optional (``dn svg_smooth [m]``), but GLE's parser
+        unconditionally evaluates the next token as an expression, so a
+        trailing bare ``svg_smooth`` is a syntax error ("constant, function,
+        or unary operator expected").
 
         Paths that deliberately never smooth, whatever the setting:
 
@@ -2827,12 +2901,23 @@ class GLEWriter:
         - ``add_contour_line`` -- the ``-cdata.dat`` polylines come out of
           GLE's own contouring of the gridded surface; splining them would
           move the level away from the surface it was computed from.
+        - the marker-only branch of :meth:`add_plot_line` -- a series with
+          ``linestyle='none'`` draws no curve, so there is none to smooth.
+          (GLE's own ``smooth`` keyword would *switch the line on*; emitting
+          it there would draw a line the caller explicitly turned off.)
 
-        Smoothing also constrains point order (it needs monotonic x); that
+        ``smooth`` also constrains point order (it needs monotonic x); that
         consequence is handled in :meth:`_row_order`, the only place a series
         is ever reordered.
         """
-        return " line smooth" if self.graph.smooth_curves else " line"
+        token = " line"
+        iterations = normalize_svg_smooth(svg_smooth)
+        if iterations is not None:
+            token += f" svg_smooth {iterations}"
+        mode = self._effective_smooth_mode(smooth_mode)
+        if mode != "none":
+            token += f" {mode}"
+        return token
 
     @staticmethod
     def _axis_direction(

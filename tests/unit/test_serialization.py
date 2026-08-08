@@ -1036,3 +1036,69 @@ def test_a_visible_flag_does_not_change_the_serialized_shape_of_anything_else():
     assert changed == before["figure"]["axes"][0]["lines"][0]
     after["figure"]["axes"][0]["lines"][0] = before["figure"]["axes"][0]["lines"][0]
     assert after == before
+
+
+# -- Series-class completeness: the smoothing fields ---------------------------
+
+
+#: The smoothing fields live on exactly one kind. GLEstudio SPEC 14.7 scopes
+#: v1.1 smoothing to line series -- the kind where a smoothed curve is
+#: meaningful and GLE's semantics are documented -- so this set is asserted
+#: rather than assumed, the same way ``visible``'s complement is above.
+_SMOOTHING_BEARING_ATTRS = {"lines"}
+_SMOOTHING_FIELDS = ("smooth_mode", "svg_smooth")
+
+
+def test_only_line_series_declares_the_smoothing_fields():
+    for attr, series_cls in SERIES_CLASSES.items():
+        for field in _SMOOTHING_FIELDS:
+            declared = field in series_cls.FIELDS
+            assert declared == (attr in _SMOOTHING_BEARING_ATTRS), (
+                f"{series_cls.__name__}: {field} declared={declared} but the "
+                f"documented set says {attr in _SMOOTHING_BEARING_ATTRS} "
+                "(SPEC 14.7 scopes per-series smoothing to line series)"
+            )
+            if declared:
+                # Declared but absent by default: absent means "defer to the
+                # figure-wide GLEGraphConfig.smooth_curves", which is what
+                # keeps every pre-14.7 project's to_dict bytes unchanged.
+                assert field not in series_cls()
+
+
+def test_smoothing_fields_round_trip_with_their_types_intact():
+    """to_dict -> JSON -> from_dict keeps a str mode and an int count."""
+    fig = _figure_exercising_every_series_kind()
+    lines = [line for ax in fig.axes_list for line in ax.lines]
+    assert lines
+    for line in lines:
+        line["smooth_mode"] = "smoothm"
+        line["svg_smooth"] = 3
+
+    once = fig.to_dict()
+    json.dumps(once)  # the fields must be JSON-safe like everything else
+    twice = Figure.from_dict(once).to_dict()
+    assert twice == once
+
+    restored = [line for ax in Figure.from_dict(once).axes_list for line in ax.lines]
+    assert len(restored) == len(lines)
+    for line in restored:
+        assert line["smooth_mode"] == "smoothm"
+        assert line["svg_smooth"] == 3
+        assert isinstance(line["svg_smooth"], int)
+
+
+def test_smoothing_fields_do_not_change_the_serialized_shape_of_anything_else():
+    """Smoothing one series must not perturb its neighbours' payloads."""
+    fig = _figure_exercising_every_series_kind()
+    before = fig.to_dict()
+
+    fig.axes_list[0].lines[0]["smooth_mode"] = "smooth"
+    fig.axes_list[0].lines[0]["svg_smooth"] = 2
+    after = fig.to_dict()
+
+    changed = after["figure"]["axes"][0]["lines"][0]
+    assert changed.pop("smooth_mode") == "smooth"
+    assert changed.pop("svg_smooth") == 2
+    assert changed == before["figure"]["axes"][0]["lines"][0]
+    after["figure"]["axes"][0]["lines"][0] = before["figure"]["axes"][0]["lines"][0]
+    assert after == before
