@@ -265,7 +265,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import numpy as np
 
@@ -317,6 +317,24 @@ __all__ = ["ImportCategory", "ImportNote", "RecognizedFigure", "parse_gle_figure
 
 
 _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
+
+
+def _bar_stack_names(toks: List[Token]) -> Optional[Tuple[str, str]]:
+    """``(dN, dM)`` for a ``bar dN from dM ...`` statement, else ``None``.
+
+    GLE's stacked-bar form (the manual's 'stacked bar chart' example): ``dN``
+    draws stacked on top of ``dM``. Detected up front, in pass 1, so an
+    EARLIER, independent ``bar dM fill ...`` statement can still be
+    recognized as part of this later stack -- see ``_bar_stack_datasets``
+    and its use in :meth:`_Recognizer._parse_bar_command`.
+    """
+    words = [t.value.lower() for t in toks]
+    for i, word in enumerate(words):
+        if word == "from" and 0 < i < len(words) - 1:
+            prev_word, next_word = words[i - 1], words[i + 1]
+            if _DATASET_RE.match(prev_word) and _DATASET_RE.match(next_word):
+                return prev_word, next_word
+    return None
 
 
 @dataclass
@@ -711,14 +729,21 @@ class _Recognizer:
         figsize = (8.0, 6.0)
         font = ""
         fontsize = 12.0
+        page_box = False
         passthrough_header: List[str] = []
+        passthrough_before_hei: List[str] = []
 
         # --- Preamble: everything before the first graph-related node. ---
         first_graph_start = self._first_graph_region_start(nodes, graph_indices)
 
-        figsize, font, fontsize, passthrough_header = self._parse_preamble(
-            nodes[:first_graph_start]
-        )
+        (
+            figsize,
+            font,
+            fontsize,
+            page_box,
+            passthrough_before_hei,
+            passthrough_header,
+        ) = self._parse_preamble(nodes[:first_graph_start])
 
         # Build style/graph/marker configs.
         style = GLEStyleConfig()
@@ -738,6 +763,8 @@ class _Recognizer:
             sharey=sharey,
         )
         fig.metadata_extra = metadata_extra
+        fig.page_box = page_box
+        fig.passthrough_before_hei = passthrough_before_hei
         fig.passthrough_header = passthrough_header
 
         # --- Graph blocks + interspersed amove/text/trailer. ---
@@ -943,15 +970,66 @@ class _Recognizer:
 
     def _parse_preamble(
         self, pre_nodes
-    ) -> Tuple[Tuple[float, float], str, float, List[str]]:
+    ) -> Tuple[Tuple[float, float], str, float, bool, List[str], List[str]]:
         figsize = (8.0, 6.0)
         font = ""
         fontsize = 12.0
+        # GLE's page-level 'size w h box' outline modifier (default: no
+        # outline; see the 'size' branch below for the empirically-verified
+        # grammar). Figure.page_box.
+        page_box = False
         passthrough: List[str] = []
+        # Lines that sat, in the original, between a recognized 'size'/'set
+        # font' and a recognized 'set hei' -- e.g. clip.gle's own
+        # 'scale .6 .8' (appendix/fig/clip.gle, GLEstudio's rendered-fidelity
+        # corpus). 'hei' is a length in GLE's CURRENT user units, so such a
+        # statement changes what 'set hei' actually renders as; the writer
+        # must reproduce that relative order (GLEWriter.add_preamble emits
+        # this bucket BEFORE its own 'set hei' line, unlike ``passthrough``,
+        # which always goes after). Almost always empty: only 'size'/'set
+        # font' being seen at all (``started``) without 'set hei' having
+        # been seen yet (``hei_seen``) diverts passthrough here instead of
+        # to the normal bucket, so a file with nothing between them (the
+        # overwhelming majority) never populates it.
+        before_hei: List[str] = []
+        started = False
+        hei_seen = False
+        # Only the FIRST 'set font'/'set hei' in the preamble is recognized
+        # onto the model at all -- a SECOND one is a real, later restyle
+        # (GLE's 'current point'-like sticky state: text drawn after it uses
+        # the new value, text already described by the first keeps its own).
+        # Collapsing every occurrence into a single global default (the
+        # previous behavior: the LAST one silently overwrote fontsize/font
+        # with no note and no passthrough) is a genuine rendered-fidelity
+        # bug, not just a re-emission nicety -- appendix/fig/clip.gle's own
+        # 'set hei .3' (a small caption) followed later by 'set hei 10'
+        # (body text) collapsed to a single hei=10 default, so the caption
+        # rendered 33x too large after round-trip. A second occurrence now
+        # falls through to passthrough like any unrecognized statement.
+        font_seen = False
+        # Whether a 'set hei ...' will ever be recognized ANYWHERE in this
+        # preamble at all. Without this guard, a preamble with 'size'/'set
+        # font' but NO 'set hei' statement (the writer's own default then
+        # applies) would have ``started and not hei_seen`` stay true for
+        # the rest of the walk -- there being no 'hei' to eventually land
+        # before -- and every remaining passthrough line would wrongly
+        # divert into ``before_hei`` instead of the normal bucket.
+        will_see_hei = any(
+            isinstance(node, Statement)
+            and node.keyword == "set"
+            and len(_words_and_values(node)) >= 3
+            and _words_and_values(node)[1].value.lower() == "hei"
+            and _collect_value(_words_and_values(node), 2)[0] is not None
+            for node in pre_nodes
+        )
 
         # Track which lines belong to the metadata block, or to a gleplot_<name>
         # sub definition, so we drop them (both are regenerated canonically).
         meta_line_nos = self._meta_lines | self._gleplot_sub_lines
+
+        def _passthrough(text: str) -> None:
+            before = will_see_hei and started and not hei_seen
+            (before_hei if before else passthrough).append(text)
 
         for node in pre_nodes:
             if isinstance(node, OpaqueBlock):
@@ -977,7 +1055,7 @@ class _Recognizer:
                 stripped = text.strip()
                 if stripped in ("! GLE graphics file", "! Generated by gleplot", ""):
                     continue
-                passthrough.append(text)
+                _passthrough(text)
                 continue
 
             if isinstance(node, Statement):
@@ -987,28 +1065,63 @@ class _Recognizer:
                 toks = _words_and_values(node)
                 if kw == "size" and len(toks) >= 3:
                     w, nxt = _collect_value(toks, 1)
-                    h, _ = _collect_value(toks, nxt)
+                    h, nxt2 = _collect_value(toks, nxt)
                     if w is not None and h is not None:
-                        figsize = (cm_to_inches(w), cm_to_inches(h))
+                        # The page-level 'size w h' command has its OWN,
+                        # much narrower grammar than a graph's 'size'/
+                        # 'scale' (GLE/src/gle/graph.cpp's do_remaining_
+                        # entries, which accepts box/nobox/border/noborder/
+                        # center/fullsize/math in any combination) --
+                        # confirmed empirically (GLE 4.3.10, gle-manual has
+                        # no documented modifier at all for the page-level
+                        # form): 'size 8 6 box' draws a border around the
+                        # whole page and compiles; 'size 8 6 nobox' (or
+                        # border/noborder/center/fullsize/math/anything
+                        # else) is a hard parse error, "found 'X', but
+                        # expecting 'BOX'". There is no way to SAY "no
+                        # border" at the page level beyond omitting the
+                        # word -- 'box' is the only accepted trailing
+                        # token, and at most one of it.
+                        trailing = toks[nxt2:]
+                        if not trailing:
+                            figsize = (cm_to_inches(w), cm_to_inches(h))
+                            started = True
+                            continue
+                        if len(trailing) == 1 and trailing[0].value.lower() == "box":
+                            figsize = (cm_to_inches(w), cm_to_inches(h))
+                            page_box = True
+                            started = True
+                            continue
+                        # Anything else here is not valid GLE at all (GLE
+                        # itself would refuse to compile it) -- kept fully
+                        # raw rather than guessing at a meaning for it.
+                        # figsize keeps its prior value (the default, or
+                        # whatever an EARLIER 'size' recognized).
+                        _passthrough(self._stmt_text(node))
                         continue
                 if kw == "set" and len(toks) >= 2:
                     sub = toks[1].value.lower()
-                    if sub == "font" and len(toks) >= 3:
+                    if sub == "font" and len(toks) >= 3 and not font_seen:
                         font = toks[2].value
+                        started = True
+                        font_seen = True
                         continue
-                    if sub == "hei" and len(toks) >= 3:
+                    if sub == "hei" and len(toks) >= 3 and not hei_seen:
                         hei, _ = _collect_value(toks, 2)
                         if hei is not None:
                             fontsize = fontsize_cm_to_pt(hei)
+                            started = True
+                            hei_seen = True
                             continue
                 # Unrecognized preamble statement -> header passthrough.
-                passthrough.append(self._stmt_text(node))
+                _passthrough(self._stmt_text(node))
                 continue
 
             # Opaque block in the preamble -> header passthrough (raw lines).
-            passthrough.extend(self._raw_lines(node))
+            for line in self._raw_lines(node):
+                _passthrough(line)
 
-        return figsize, font, fontsize, passthrough
+        return figsize, font, fontsize, page_box, before_hei, passthrough
 
     def _metadata_line_numbers(self) -> set:
         """1-based line numbers spanned by the ``! gleplot`` metadata block."""
@@ -1157,6 +1270,14 @@ class _Recognizer:
             # consumed indirectly through the alias -- see _parse_let_command
             # and the 'data'-statement reconciliation in _parse_graph_block.
             "_let_source_datasets": set(),
+            # Both dataset names of every 'bar dN from dM ...' (GLE's
+            # stacked-bar form) found ANYWHERE in this block, collected up
+            # front in pass 1 -- so an EARLIER, independent 'bar dM fill
+            # ...' statement can still recognize dM as part of a later
+            # stack and stay raw instead of being modeled twice over (once
+            # as its own BarSeries, once folded into the stack's raw text).
+            # See _parse_bar_command.
+            "_bar_stack_datasets": set(),
         }
         # This graph block's own (begin, end) line span -- the fallback
         # location for a note about the block as a whole (no single statement
@@ -1218,6 +1339,16 @@ class _Recognizer:
                     # already known here in pass 1).
                     self._parse_let_command(_words_and_values(child), datasets, info)
                     continue
+                if kw == "bar":
+                    # Look ahead for GLE's stacked-bar form ('bar dN from dM
+                    # ...') anywhere in the block, before pass 2 decides
+                    # whether an EARLIER, independent 'bar dM fill ...'
+                    # becomes its own BarSeries (see _parse_bar_command). No
+                    # 'continue': pass 2 still needs to dispatch this
+                    # statement itself.
+                    stacked = _bar_stack_names(_words_and_values(child))
+                    if stacked is not None:
+                        cast(set, info["_bar_stack_datasets"]).update(stacked)
                 if kw is not None and _DATASET_RE.match(kw):
                     name = kw
                     if name not in merged_attr_toks:
@@ -1335,6 +1466,22 @@ class _Recognizer:
                 # whole original line would duplicate the modeled portion;
                 # dropping it silently loses the rest. Surface it instead of
                 # guessing.
+                #
+                # This case is now rare in practice: the one recurring
+                # source of it -- a 'bar dM fill ...' modeled independently
+                # while a LATER 'bar dN from dM ...' (GLE's stacked-bar
+                # form) needed dM to stay raw alongside dN -- is headed off
+                # up front by ``_bar_stack_datasets`` (see
+                # _parse_bar_command), which keeps BOTH names raw so this
+                # statement is fully unconsumed instead of mixed. A
+                # genuinely mixed statement still reaching here has no
+                # narrower fix available: synthesizing a second 'data'
+                # clause for just the orphaned names would reference columns
+                # the modeled series' OWN regenerated sidecar no longer
+                # carries (GLEWriter always rewrites an owned series' data
+                # file with exactly the columns it uses -- see
+                # GLEWriter.add_bar_chart/_write_columns), which would
+                # silently corrupt the file instead of fixing the reference.
                 self._note(
                     ImportCategory.DATA,
                     "'"
@@ -2238,6 +2385,22 @@ class _Recognizer:
         if d_name is None or d_name not in datasets:
             info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
             return
+        if d_name in info["_bar_stack_datasets"]:
+            # This dataset ALSO appears in a 'bar dN from dM ...' statement
+            # elsewhere in the block (pass 1's look-ahead, ``_bar_stack_names``)
+            # -- GLE's stacked-bar relationship has no BarSeries model, so
+            # this otherwise-ordinary single-dataset 'bar' must stay raw
+            # alongside it rather than being modeled independently. Modeling
+            # it anyway would have the writer regenerate ITS dataset's own
+            # '.dat' sidecar with only the columns IT uses (GLEWriter always
+            # rewrites an owned series' data file that way -- see
+            # add_bar_chart/_write_columns), silently truncating away the
+            # column(s) the stack statement still needs from that same
+            # file. The stack statement's own "multi-dataset bar group" note
+            # already explains the group to the no-silent-drops contract, so
+            # none is duplicated here.
+            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
+            return
         info["_key_suppress_datasets"].add(d_name)
         data_file, xcol, ycol = datasets[d_name]
         loaded = self._load_series(
@@ -2621,6 +2784,17 @@ class _Recognizer:
                 if v is not None:
                     a["lstyle"] = int(v)
                     a["linestyle"] = LSTYLE_TO_MATPLOTLIB.get(int(v), "-")
+                    # GLE draws a line whenever EITHER the 'line' keyword is
+                    # given OR 'lstyle' names a style at all (GLE's own
+                    # draw-a-line test, graph2.cpp: 'dp[dn]->line ||
+                    # dp[dn]->lstyle[0] != 0') -- 'dN lstyle 2 color red'
+                    # with no 'line' keyword anywhere (the GLE manual's own
+                    # nomiss example) is a real, visible line, not a bare
+                    # dataset. Missing this made has_line False, which fed
+                    # linestyle="none" into the model and, downstream, an
+                    # unconditional 'marker None' from the writer's
+                    # no-line branch (see add_plot_line).
+                    a["has_line"] = True
                     i = nxt
                     continue
                 i += 2

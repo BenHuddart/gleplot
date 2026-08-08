@@ -754,6 +754,8 @@ class GLEWriter:
         include_graph_begin: bool = True,
         metadata_lines: Optional[List[str]] = None,
         passthrough_header: Optional[List[str]] = None,
+        passthrough_before_hei: Optional[List[str]] = None,
+        page_box: bool = False,
     ):
         """Add GLE preamble.
 
@@ -778,6 +780,27 @@ class GLEWriter:
             re-emitted verbatim right after the standard preamble (after
             'set hei ...' + the blank line) and before the first graph
             block/amove. Omitted entirely when falsy (no blank-line churn).
+        passthrough_before_hei : list of str, optional
+            Raw lines recovered from a parsed ``.gle`` file that sat, in the
+            original, between a recognized ``size``/``set font`` and a
+            recognized ``set hei`` -- almost always empty. ``hei`` is a
+            length in GLE's CURRENT user units, so a preceding CTM-affecting
+            statement (``scale .6 .8``, a page-level ``scale``/``rotate``)
+            changes what the writer's own ``set hei`` line actually renders
+            as; unlike ``passthrough_header``, this content is re-emitted
+            BEFORE 'set hei', reproducing that original order instead of
+            always putting the writer's own preamble first (see
+            ``gleplot.parser.recognizer._parse_preamble``, the only producer
+            of this bucket, and its own ``clip.gle`` finding). Omitted
+            entirely when falsy, so the overwhelming majority of figures
+            (nothing between size/font and hei) emit byte-identically to
+            before this parameter existed.
+        page_box : bool, optional
+            GLE's page-level ``size w h box`` outline modifier (see
+            :attr:`gleplot.figure.Figure.page_box`): draws a border around
+            the whole page. False (the default) omits the trailing ``box``
+            token entirely, matching every figure's output before this
+            parameter existed.
         """
         self.lines_gle.extend(
             [
@@ -787,15 +810,18 @@ class GLEWriter:
         )
         if metadata_lines:
             self.lines_gle.extend(metadata_lines)
-        self.lines_gle.extend(
-            [
-                "",
-                f"size {self._format_number(self.width_cm)} {self._format_number(self.height_cm)}",
-            ]
+        size_line = (
+            f"size {self._format_number(self.width_cm)} "
+            f"{self._format_number(self.height_cm)}"
         )
+        if page_box:
+            size_line += " box"
+        self.lines_gle.extend(["", size_line])
         # Only set font if explicitly specified
         if self.style.font:
             self.lines_gle.append(f"set font {self.style.font}")
+        if passthrough_before_hei:
+            self.lines_gle.extend(passthrough_before_hei)
         self.lines_gle.extend(
             [
                 f"set hei {self._format_number(fontsize_pt_to_cm(self.style.fontsize))}",
@@ -1700,10 +1726,17 @@ class GLEWriter:
             if marker:
                 # Marker overlaid on the line (line+markers).
                 line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
-        else:
+        elif marker:
             # No line: marker-only (scatter). Preserve the historical token
             # order ``marker <name> msize <size> color <color>``.
             line_cmd += f" marker {marker} msize {self._format_number(markersize)} color {color}"
+        # else: neither a line nor a marker (e.g. ``ax.plot(x, y,
+        # linestyle='none')`` with no marker -- a real, if pointless,
+        # degenerate case matplotlib itself allows) -- the series draws
+        # nothing, so nothing is emitted here. This branch used to be
+        # unconditional and interpolated ``marker`` even when it was
+        # ``None``, putting the literal text "marker None" into the script
+        # (GLE then rejects it: "invalid marker name 'None'").
 
         # Add y2axis directive if using secondary y-axis
         if yaxis == "y2":
@@ -2175,8 +2208,18 @@ class GLEWriter:
         linewidth: float = 1.0,
         label: Optional[str] = None,
         yaxis: str = "y",
+        marker: Optional[str] = None,
+        markersize: float = 0.1,
     ):
-        """Add a line series that references columns in an external data file."""
+        """Add a line series that references columns in an external data file.
+
+        ``marker``/``markersize`` overlay a marker on the line (GLE natively
+        supports both on one dataset) -- this function is only ever called
+        for a series that already has a line (see ``_build_file_series``'s
+        ``has_line`` branch; a no-line, marker-only reference is emitted via
+        ``add_errorbar_from_file`` instead), so there is no separate
+        no-line/marker-only case to guard here, unlike ``add_plot_line``.
+        """
         d_main = f"d{self.dataset_index}"
         self.dataset_index += 1
 
@@ -2199,6 +2242,9 @@ class GLEWriter:
             line_cmd += f" lstyle {self.style.line_style_dotted}"
         elif linestyle == "-.":
             line_cmd += f" lstyle {self.style.line_style_dashdot}"
+
+        if marker:
+            line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
 
         if yaxis == "y2":
             line_cmd += " y2axis"

@@ -13,8 +13,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import gleplot as glp
 from gleplot import Figure
 from gleplot.parser.recognizer import parse_gle_figure
+from gleplot.parser.units import fontsize_cm_to_pt
 
 
 def _write(tmp_path: Path, name: str, content: str, dats: dict | None = None) -> Path:
@@ -1954,4 +1956,923 @@ def test_finding19_trailing_amove_reproduction_renders_with_parity(tmp_path):
         "round-tripped render diverges from the original in the "
         f"amove-only strip (diff bbox {diff_bbox}) -- the trailing amove's "
         "current point was not preserved"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Finding 20 -- a stacked-bar sibling's dataset silently undefined after
+# round-trip (gate-review MAJOR/rendered-fidelity finding, GLEstudio S8
+# corpus: graph/fig/gc_bargraph1.gle).
+#
+# A bare 'data f.dat' with more than two columns already registers d1..dN
+# (see _parse_data_command's auto-mapping path -- col1=x, cols 2..N=y per the
+# GLE manual; this fix does not touch it). The bug was in '_parse_bar_command'
+# instead: 'bar d2 from d1 fill white' -- GLE's *stacked*-bar form -- has no
+# 'from'-awareness there, so it tokenizes to two dataset-shaped words ('d2',
+# 'd1') and takes the same no-shared-model path as a genuine grouped
+# 'bar d1,d2 fill c1,c2' (Finding 17): kept fully raw. That would have been
+# fine on its own (Finding 17's "fully orphaned -> restore the whole 'data'
+# line" reconciliation already handles it) -- except the EARLIER, independent
+# 'bar d1 fill gray20' statement had ALREADY been modeled as its own
+# BarSeries by the time pass 2 reached the 'from' statement. That series'
+# regenerated 'data' line only defines d1 (the writer only ever knows about
+# the columns ITS OWN modeled series uses), so the still-raw
+# 'bar d2 from d1 fill white' line was left referencing a d2 nothing
+# defined: GLE rejected the regenerated script with "bar dataset d2 not
+# defined" -- a compile failure, not merely a cosmetic difference, so the
+# round trip never even reached image comparison.
+#
+# A tempting narrower fix -- synthesize a second 'data f.dat d2=c1,c3' line
+# just for the orphaned d2 -- turns out to be unsound: GLEWriter.add_bar_chart
+# always REWRITES an owned series' data file with exactly the columns that
+# series uses (_write_columns), so d1's modeled BarSeries would silently
+# truncate the physical file down to its own 2 columns, leaving the
+# synthesized 'c3' reference pointing past the end of a file gleplot itself
+# just shrank. Verified empirically while diagnosing this finding: the naive
+# fix compiles, but only because a manual copy-back of the pristine data
+# file was masking the truncation in ad hoc testing.
+#
+# The correct fix is up-front, in pass 1: scan the whole graph block for
+# 'bar dN from dM ...' statements before dispatching anything, and remember
+# BOTH names in ``_bar_stack_datasets``. When pass 2 later reaches an
+# independent, single-name 'bar dM fill ...' for a name in that set, it stays
+# raw too -- exactly like Finding 17's grouped form -- so BOTH sides of the
+# stack end up unconsumed, the 'data' statement reconciliation restores the
+# WHOLE original line verbatim (Finding 17's existing, tested path), and the
+# underlying data file is never touched by gleplot at all: GLE reads its
+# real, complete, untruncated bytes at compile time.
+# --------------------------------------------------------------------------- #
+
+_MULTI_DAT = "1 3 5\n2 4 6\n3 2 4\n"
+
+
+def test_finding20_stacked_bar_sibling_kept_raw_alongside_its_stack(tmp_path):
+    """The reviewer's exact shape: a lone 'bar d1 ...' would, on its own,
+    become a real BarSeries; the LATER 'bar d2 from d1 ...' (GLE's
+    stacked-bar form) has no shared model and must stay raw (Finding 17).
+    Once the look-ahead recognizes the stack, d1's statement must join it
+    as raw too, instead of being modeled independently and having its
+    'data' line no longer cover d2.
+    """
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "multi.dat"\n'
+        "   bar d1 fill gray20\n"
+        "   bar d2 from d1 fill white\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "bargroup.gle", src, {"multi.dat": _MULTI_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == []  # neither d1 nor d2 became a BarSeries
+    joined = "\n".join(ax.passthrough)
+    assert '   data "multi.dat"' in joined
+    assert "bar d1 fill gray20" in joined
+    assert "bar d2 from d1 fill white" in joined
+    # Original body order preserved: the 'data' statement, then both 'bar'
+    # statements, d1 before d2.
+    assert (
+        joined.index('data "multi.dat"')
+        < joined.index("bar d1 fill gray20")
+        < joined.index("bar d2 from d1")
+    )
+    assert any(w.startswith("structure:") and "d2,d1" in w for w in rec.warnings)
+    # No "mixes datasets"/"may not resolve" note: the statement ended up
+    # FULLY unconsumed, not partially -- the case that note exists for.
+    assert not any(
+        "mixes datasets" in w or "may not resolve" in w for w in rec.warnings
+    )
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+
+    # The ORIGINAL bare 'data' statement is restored verbatim -- gleplot
+    # never claims ownership of this file, so it is never rewritten/
+    # truncated, and GLE's own default auto-mapping (d1=c1,c2, d2=c1,c3)
+    # still applies at compile time exactly as it did in the original.
+    assert 'data "multi.dat"' in text
+    assert "d1=c1,c2" not in text
+    assert "d2=c1,c3" not in text
+
+
+def test_finding20_independent_non_stacked_bars_unaffected(tmp_path):
+    """Sanity check on the look-ahead's precision: two ORDINARY, independent
+    'bar' statements sharing one bare multi-column 'data' statement -- no
+    'from' anywhere -- must still both become real, independently-modeled
+    BarSeries. The stacked-bar detection must not sweep up unrelated 'bar'
+    statements just because they reference datasets from the same file.
+    """
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "multi.dat"\n'
+        "   bar d1 fill gray20\n"
+        "   bar d2 fill white\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "twobars.gle", src, {"multi.dat": _MULTI_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.bars) == 2
+    assert ax.passthrough == []
+    assert not any(
+        w.startswith("structure:") and "bar group" in w for w in rec.warnings
+    )
+
+
+def test_finding20_single_dataset_bare_data_unaffected(tmp_path):
+    """The common case -- a bare 'data' whose only registered dataset IS the
+    one modeled series, with no sibling 'bar ... from ...' anywhere -- must
+    be untouched by this fix: nothing is ever added to
+    ``_bar_stack_datasets``, so the single-name path behaves exactly as
+    before.
+    """
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "one.dat"\n'
+        "   bar d1 fill gray20\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "single_bar.gle", src, {"one.dat": "1 3\n2 4\n3 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.bars) == 1
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+
+    assert text.count("data one.dat") == 1
+    assert not any(
+        "mixes datasets" in w or "may not resolve" in w for w in rec.warnings
+    )
+
+
+def test_finding20_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "multi.dat"\n'
+        "   bar d1 fill gray20\n"
+        "   bar d2 from d1 fill white\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "fp20.gle", src, {"multi.dat": _MULTI_DAT})
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_finding20_stacked_bar_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression: compile the reviewer's reproducer with real
+    GLE, round-trip it through gleplot, compile the round-trip, and compare
+    the two renders pixel for pixel. Before the fix, the round trip did not
+    compile AT ALL ("bar dataset d2 not defined"), so this comparison was
+    never reached.
+
+    The whole graph is passthrough after the fix (see the finding's header
+    note), so the underlying data file is never rewritten -- the one
+    remaining source of legitimate preamble drift is the writer's own
+    page-global 'set hei', which always restates gleplot's default
+    regardless of what the figure uses. An explicit 'set hei 0.42328'
+    (12pt, from fontsize_pt_to_cm) matching that default removes it too, so
+    a real difference in the stack's rendering cannot hide behind
+    unrelated drift: the two full-page renders must be pixel-identical.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = (
+        "size 8 6\n"
+        "set hei 0.42328\n"
+        "amove 1 1\n"
+        "begin graph\n"
+        "   size 6 4\n"
+        "   xaxis min 0 max 4\n"
+        "   yaxis min 0 max 8\n"
+        '   data "multi.dat"\n'
+        "   bar d1 fill gray20\n"
+        "   bar d2 from d1 fill white\n"
+        "end graph\n"
+    )
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src, {"multi.dat": _MULTI_DAT})
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    (rt_dir / "multi.dat").write_text(_MULTI_DAT, encoding="utf-8")
+    rec = parse_gle_figure(orig)
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert res_rt.returncode == 0, (
+        "round-tripped script failed to compile -- the orphaned d2 dataset "
+        f"is likely undefined again:\n{res_rt.stdout}\n{res_rt.stderr}"
+    )
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- the orphaned dataset's stacked bar "
+        "segment was not preserved"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Finding 21 -- a marker-less, line-less series re-emitted as literal
+# ``marker None`` (gate-review MAJOR/rendered-fidelity finding, GLEstudio S8
+# corpus: graph/fig/gc_nomiss.gle).
+#
+# Two independent bugs conspired, and both are fixed here:
+#
+# 1. Root cause (recognizer, ``_scan_series_attrs``): GLE draws a line for a
+#    ``dN`` display command when EITHER the ``line`` keyword is given OR
+#    ``lstyle`` names a style at all -- ``dp[dn]->line || dp[dn]->lstyle[0]
+#    != 0`` in GLE's own ``graph2.cpp``. The recognizer's ``has_line`` only
+#    ever became ``True`` for the literal ``line`` keyword, so
+#    ``d1 lstyle 2 color red`` (the GLE manual's own nomiss example -- no
+#    ``line`` keyword at all, yet a real, visible dotted line) recovered as
+#    ``linestyle="none"``, marker ``None``.
+#
+# 2. Writer bug (``GLEWriter.add_plot_line``'s no-line branch): unconditional
+#    ``f" marker {marker} ..."`` with no ``if marker:`` guard -- the sibling
+#    branch (line+marker) and every other marker-emitting site in the writer
+#    (``add_errorbar``, ``add_errorbar_from_file``) already guard it. Bug 1
+#    fed a ``linestyle="none"``, ``marker=None`` series into this branch and
+#    it emitted the literal text ``marker None``, which GLE rejects
+#    ("invalid marker name 'None'") -- a compile failure. The same branch is
+#    also reachable directly from the scripting API
+#    (``ax.plot(x, y, linestyle='none')`` with no marker -- matplotlib
+#    itself allows this, a real if pointless degenerate case), independent
+#    of any GLE import, confirming this needed a writer-level fix and not
+#    only a recognizer one.
+# --------------------------------------------------------------------------- #
+
+# 3 columns (col1=x, col2=d1's y, col3=d2's y), matching the GLE manual's
+# own tut3.dat this figure reads (graph/fig/gc_nomiss.gle references
+# tutorial/fig/tut3.dat) -- a bare 'data' statement auto-maps d1=c1,c2 AND
+# d2=c1,c3 only when the file actually has 3 columns; a 2-column file would
+# auto-map d1 alone and leave 'd2 ...' an unresolved dataset reference
+# (preserved as raw passthrough), never reaching the code this finding
+# fixes at all.
+_NOMISS_DAT = "1 2 1\n2 6 5\n3 4 3\n4 5 4\n"
+
+
+def test_finding21_bare_lstyle_without_line_keyword_is_a_line(tmp_path):
+    """'d1 lstyle 2 color red', no 'line' keyword anywhere: GLE's own rule
+    (line OR lstyle set) makes this a real line, dotted (lstyle 2). Before
+    the fix this recovered as linestyle="none" with no marker.
+
+    Import-mode (``_meta``) so the object model exposes a real ``LineSeries``
+    with its own ``linestyle``/``marker`` fields to assert on directly,
+    rather than the reference-mode ``FileSeries`` a hand-written file with
+    no metadata block would recover as (see the manual-shaped test below,
+    which exercises that path instead).
+    """
+    src = _meta("nomiss.dat") + (
+        "size 7 4\n"
+        "begin graph\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 color red\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "bare_lstyle.gle", src, {"nomiss.dat": _NOMISS_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.lines) == 1
+    assert ax.scatters == []
+    line = ax.lines[0]
+    assert line["linestyle"] == ":"  # GLE lstyle 2 is dotted
+    assert line["marker"] is None
+    assert line["color"] == "red"
+
+
+def test_finding21_manual_nomiss_reproduction_no_marker_none_leak(tmp_path):
+    """The manual's exact 'nomiss' shape: d1 has no marker and no 'line'
+    keyword (bare 'lstyle'); d2 has both 'nomiss' and a real marker. Neither
+    the regenerated script nor the import warnings may contain the literal
+    text "marker None".
+    """
+    src = (
+        "size 7 4\n"
+        "begin graph\n"
+        '   title "nomiss"\n'
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 color red\n"
+        "   d2 nomiss lstyle 1 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "nomiss.gle", src, {"nomiss.dat": _NOMISS_DAT})
+    rec = parse_gle_figure(p)
+    assert not any("None" in w for w in rec.warnings)
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+
+    assert "None" not in text
+    assert "marker None" not in text
+    # d1 still draws its dotted line; d2 still keeps its real marker.
+    assert "lstyle 2" in text
+    assert "marker diamond" in text
+
+
+def test_finding21_writer_omits_marker_clause_for_lineless_markerless_series():
+    """Writer-level regression, independent of the recognizer/GLE import:
+    ``ax.plot(x, y, linestyle='none')`` with NO marker is a real, if
+    pointless, degenerate case matplotlib itself allows (a LineSeries with
+    marker=None reaches GLEWriter.add_plot_line's no-line branch). Before
+    the fix that branch unconditionally interpolated ``marker`` into an
+    f-string, so it emitted the literal text "marker None" for this case
+    too -- purely a scripting-API bug, no GLE file involved.
+    """
+    fig = glp.figure(data_prefix="f21")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [1, 2, 3], linestyle="none")
+    text, _files = fig._generate_gle_with_files()
+
+    assert "None" not in text
+    assert "marker" not in text  # nothing to draw -- no marker clause at all
+
+
+def test_finding21_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 7 4\n"
+        "begin graph\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 color red\n"
+        "   d2 nomiss lstyle 1 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "fp21.gle", src, {"nomiss.dat": _NOMISS_DAT})
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_finding21_nomiss_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression: compile the manual's 'nomiss' reproducer with
+    real GLE, round-trip it through gleplot, compile the round-trip, and
+    compare the two renders pixel for pixel. Before the fix, the round trip
+    did not compile AT ALL ("invalid marker name 'None'"), so this
+    comparison was never reached.
+
+    An explicit 'set hei' matching gleplot's own default (12pt ==
+    0.42328cm), explicit 'amove'+'size'+axis-range graph placement, and an
+    explicit 'lwidth' matching gleplot's own default line width (1.5pt ==
+    0.05292cm) remove every OTHER source of legitimate preamble/line-style
+    drift -- neither original line specifies 'lwidth' at all, so GLE's own
+    default line width would otherwise differ subtly from what an
+    unspecified linewidth recovers as on the model -- so a real difference
+    in d1's line rendering cannot hide behind them.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = (
+        "size 8 6\n"
+        "set hei 0.42328\n"
+        "amove 1 1\n"
+        "begin graph\n"
+        "   size 6 4\n"
+        "   xaxis min 1 max 4\n"
+        "   yaxis min 0 max 6\n"
+        '   data "nomiss.dat"\n'
+        "   d1 lstyle 2 lwidth 0.05292 color red\n"
+        "   d2 nomiss lstyle 1 lwidth 0.05292 marker diamond msize .2 color blue\n"
+        "end graph\n"
+    )
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src, {"nomiss.dat": _NOMISS_DAT})
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    (rt_dir / "nomiss.dat").write_text(_NOMISS_DAT, encoding="utf-8")
+    rec = parse_gle_figure(orig)
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert res_rt.returncode == 0, (
+        "round-tripped script failed to compile -- 'marker None' is likely "
+        f"back:\n{res_rt.stdout}\n{res_rt.stderr}"
+    )
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- d1's bare-lstyle line was not "
+        "preserved"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Finding 22 -- preamble statements re-emitted at the writer's fixed slots
+# instead of their original relative order/values (gate-review MAJOR/
+# rendered-fidelity finding, GLEstudio S8 corpus: appendix/fig/clip.gle).
+#
+# Two bugs, both in ``_parse_preamble`` (the page-level-only figures this
+# function handles have no 'begin graph' at all, so EVERYTHING is preamble):
+#
+# 1. Ordering: GLEWriter.add_preamble always emits 'size' / 'set font' /
+#    'set hei' first, THEN passthrough_header verbatim. clip.gle's own
+#    preamble is 'size' / 'set font texcmr' / 'scale .6 .8' / 'set hei .3'
+#    -- a page-level 'scale' BETWEEN the recognized font and hei statements.
+#    Re-emitting the writer's own hei line first moves it AHEAD of 'scale',
+#    reversing the original order. (Empirically, GLE 4.3.10 evaluates 'hei'
+#    against whatever CTM is active when a later drawing command actually
+#    executes, not against the CTM active at the 'set hei' statement itself,
+#    so this specific reversal alone does not visibly mis-render a page-level
+#    scale/hei pair -- verified by compiling both orders and diffing
+#    pixel-for-pixel. Fixed anyway: it is still the wrong statement order for
+#    a file whose original order was deliberate, "the honest rule" the
+#    reviewer's diagnosis names, and reproducing it costs nothing when the
+#    bucket is empty for the overwhelming majority of figures.)
+# 2. Multiple recognized statements collapsed to one (the bug that actually
+#    breaks clip.gle's own rendering): '_parse_preamble' recognized EVERY
+#    'set hei'/'set font' in the flat preamble, so a SECOND one silently
+#    overwrote the figure-wide style.fontsize/font with no note and no
+#    passthrough trace -- clip.gle's 'set hei .3' (a small caption) followed
+#    later by 'set hei 10' (body-sized text) collapsed to a single hei=10
+#    default, so the caption rendered roughly 33x too large after round
+#    trip. Only the FIRST 'set font'/'set hei' is recognized now; a second
+#    one falls through to passthrough like any other unrecognized statement,
+#    verbatim, at its original position -- which is also where fix 1's
+#    ordering machinery re-emits it, so the two fixes compose into one
+#    correct preamble walk rather than needing separate machinery.
+# --------------------------------------------------------------------------- #
+
+
+def test_finding22_scale_between_font_and_hei_preserved_before_hei(tmp_path):
+    """clip.gle's own preamble shape: 'scale .6 .8' sits between a
+    recognized 'set font' and a recognized 'set hei'. It must land in the
+    new ``passthrough_before_hei`` bucket (re-emitted before the writer's
+    own 'set hei' line), not the ordinary ``passthrough_header`` bucket
+    (which the writer always emits AFTER 'set hei').
+    """
+    src = (
+        "size 14 18\n"
+        "set font texcmr\n"
+        "scale .6 .8\n"
+        "set hei .3\n"
+        "amove 2 2\n"
+        "text hello\n"
+    )
+    p = _write(tmp_path, "clipshape.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.passthrough_before_hei == ["scale .6 .8"]
+    assert fig.passthrough_header == ["amove 2 2", "text hello"]
+
+    out = tmp_path / "out.gle"
+    fig.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert text.index("scale .6 .8") < text.index("set hei 0.3")
+    assert "set font texcmr" in text
+    assert text.index("set font texcmr") < text.index("scale .6 .8")
+
+
+def test_finding22_second_set_hei_preserved_not_collapsed(tmp_path):
+    """A second 'set hei' in the (graph-less) preamble is a real restyle for
+    whatever is drawn after it, not a redundant re-statement of the first --
+    it must survive verbatim at its original position, not silently
+    overwrite the recognized global default.
+    """
+    src = (
+        "size 14 18\n"
+        "set hei .3\n"
+        "amove 2 15\n"
+        "text Caption\n"
+        "set hei 10\n"
+        "amove 2 5\n"
+        "text Body\n"
+    )
+    p = _write(tmp_path, "twohei.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.style.fontsize == pytest.approx(fontsize_cm_to_pt(0.3))
+    assert fig.passthrough_header == [
+        "amove 2 15",
+        "text Caption",
+        "set hei 10",
+        "amove 2 5",
+        "text Body",
+    ]
+
+    out = tmp_path / "out.gle"
+    fig.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert text.count("set hei") == 2
+    assert "set hei 0.3" in text
+    assert "set hei 10" in text
+    assert (
+        text.index("text Caption") < text.index("set hei 10") < text.index("text Body")
+    )
+
+
+def test_finding22_second_set_font_preserved_not_collapsed(tmp_path):
+    """Same rule, for 'set font' (audited alongside 'set hei' as the other
+    statement '_parse_preamble' can recognize more than once)."""
+    src = (
+        "size 14 18\n"
+        "set font texcmr\n"
+        "amove 2 15\n"
+        "text one\n"
+        "set font pstr\n"
+        "amove 2 5\n"
+        "text two\n"
+    )
+    p = _write(tmp_path, "twofont.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.style.font == "texcmr"
+    assert "set font pstr" in fig.passthrough_header
+
+    out = tmp_path / "out.gle"
+    fig.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert text.count("set font") == 2
+    assert "set font texcmr" in text
+    assert "set font pstr" in text
+
+
+def test_finding22_no_hei_statement_at_all_is_unaffected(tmp_path):
+    """Regression guard for the fix's own failure mode found while building
+    it: a preamble with 'size' (or 'set font') but NO 'set hei' anywhere
+    must NOT have its passthrough wrongly diverted into
+    ``passthrough_before_hei`` forever (there being no 'hei' to land before)
+    -- everything stays in the ordinary ``passthrough_header`` bucket,
+    exactly as before this fix existed.
+    """
+    src = "size 10 8\nsub s\namove 1 1\nrline 2 2\nend sub\n"
+    p = _write(tmp_path, "nohei.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.passthrough_before_hei == []
+    assert fig.passthrough_header == ["sub s", "amove 1 1", "rline 2 2", "end sub"]
+
+
+def test_finding22_resave_is_byte_exact_fixed_point(tmp_path):
+    src = (
+        "size 14 18\n"
+        "set font texcmr\n"
+        "scale .6 .8\n"
+        "set hei .3\n"
+        "amove 2 15\n"
+        "text Caption\n"
+        "set hei 10\n"
+        "amove 2 5\n"
+        "text Body\n"
+    )
+    p = _write(tmp_path, "fp22.gle", src)
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+
+
+@pytest.mark.gle
+def test_finding22_clip_gle_shaped_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression combining both fixes, in the exact shape that
+    exposed them (a small caption at 'set hei .3', scaled by a preceding
+    page-level 'scale', followed by a second 'set hei 10' restyling later
+    text): compile the original with real GLE, round-trip it through
+    gleplot, compile the round-trip, and compare pixel for pixel.
+
+    Before either fix, this reproducer's round trip compiled cleanly but
+    rendered wrong: both 'set hei' statements collapsed into a single
+    'set hei 10', so the caption rendered roughly 33x too large and
+    overlapping the body text -- confirmed by compiling the pre-fix output
+    during development. No 'set hei'/geometry pinning is needed here
+    (unlike Findings 20/21): every length the rendering depends on is
+    already explicit in the source.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = (
+        "size 14 18\n"
+        "set font texcmr\n"
+        "scale .6 .8\n"
+        "set hei .3\n"
+        "amove 2 15\n"
+        "text Caption\n"
+        "set hei 10\n"
+        "amove 2 5\n"
+        "text Body\n"
+    )
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src)
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    rec = parse_gle_figure(orig)
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert (
+        res_rt.returncode == 0
+    ), f"round-tripped script failed to compile:\n{res_rt.stdout}\n{res_rt.stderr}"
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- the caption's 'set hei .3' was likely "
+        "collapsed into the later 'set hei 10' again"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Finding 23 -- the page-level 'size w h box' outline modifier silently
+# dropped (rendered-fidelity gap, no gate-review corpus fixture but the same
+# family as Findings 17/20's trailing-modifier drops on a GRAPH's own 'bar'/
+# 'size'). ``_parse_preamble``'s 'size' branch recognized only 'w'/'h' and
+# threw away any trailing tokens with no note and no passthrough trace, so a
+# page-level 'size 8 6 box' round-tripped to a plain 'size 8 6' -- the page
+# outline it draws (confirmed empirically against GLE 4.3.10; the manual
+# documents no modifier at all for the page-level form) silently vanished.
+#
+# The page-level grammar is much narrower than a GRAPH's own 'size'/'scale'
+# (GLE/src/gle/graph.cpp's do_remaining_entries, which accepts box/nobox/
+# border/noborder/center/fullsize/math in any combination): empirically,
+# 'size 8 6 box' compiles and draws a border; 'size 8 6 nobox' (or border/
+# noborder/center/fullsize/math/anything else) is a hard GLE parse error,
+# "found 'X', but expecting 'BOX'". There is no page-level way to SAY "no
+# border" beyond omitting the word, so the new ``Figure.page_box`` is a
+# plain bool: 'box' present -> True, absent -> False, anything else at all
+# after 'w h' -> the whole statement kept fully raw (it is not valid GLE to
+# begin with, so guessing at a meaning for it would be dishonest).
+# --------------------------------------------------------------------------- #
+
+
+def test_finding23_size_box_recognized_as_page_box(tmp_path):
+    src = "size 8 6 box\namove 1 1\ncircle 0.3\n"
+    p = _write(tmp_path, "box.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.page_box is True
+    assert fig.figsize == (pytest.approx(8 / 2.54), pytest.approx(6 / 2.54))
+    assert fig.passthrough_header == ["amove 1 1", "circle 0.3"]
+
+
+def test_finding23_size_box_is_case_insensitive(tmp_path):
+    src = "size 8 6 BOX\namove 1 1\ncircle 0.3\n"
+    p = _write(tmp_path, "box_upper.gle", src)
+    rec = parse_gle_figure(p)
+    assert rec.figure.page_box is True
+
+
+def test_finding23_size_without_box_unaffected(tmp_path):
+    """The overwhelming majority shape: a bare 'size w h' with no trailing
+    token at all must be completely unaffected by this fix -- page_box
+    stays False, figsize is recognized exactly as before.
+    """
+    src = "size 8 6\namove 1 1\ncircle 0.3\n"
+    p = _write(tmp_path, "nobox.gle", src)
+    rec = parse_gle_figure(p)
+    fig = rec.figure
+    assert fig.page_box is False
+    assert fig.figsize == (pytest.approx(8 / 2.54), pytest.approx(6 / 2.54))
+    assert fig.passthrough_header == ["amove 1 1", "circle 0.3"]
+
+
+def test_finding23_size_with_invalid_modifier_kept_fully_raw(tmp_path):
+    """'size 8 6 nobox' is not valid GLE at all (GLE 4.3.10 rejects it:
+    "found 'nobox', but expecting 'BOX'") -- there is no meaning to guess
+    at, so the whole statement is kept raw instead of recognizing 'box'-ish
+    intent and silently dropping 'nobox'. Same for any other trailing
+    content ('size 8 6 box extra' is likewise a hard GLE error).
+    """
+    bad_modifiers = (
+        "nobox",
+        "border",
+        "noborder",
+        "center",
+        "fullsize",
+        "math",
+        "box extra",
+    )
+    for bad in bad_modifiers:
+        src = f"size 8 6 {bad}\namove 1 1\ncircle 0.3\n"
+        p = _write(tmp_path, "bad.gle", src)
+        rec = parse_gle_figure(p)
+        fig = rec.figure
+        assert fig.page_box is False, bad
+        assert fig.passthrough_header[0] == f"size 8 6 {bad}", bad
+
+
+def test_finding23_resave_is_byte_exact_fixed_point(tmp_path):
+    src = "size 8 6 box\namove 1 1\ncircle 0.3\n"
+    p = _write(tmp_path, "fp23.gle", src)
+    rec1 = parse_gle_figure(p)
+    out1 = tmp_path / "out1.gle"
+    rec1.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+
+    rec2 = parse_gle_figure(out1)
+    out2 = tmp_path / "out2.gle"
+    rec2.figure.savefig_gle(str(out2))
+    text2 = out2.read_text(encoding="utf-8")
+
+    assert text1 == text2
+    assert "size 8 6 box" in text1
+
+
+def test_finding23_page_box_survives_to_dict_from_dict_round_trip():
+    """``page_box`` is a document field, not writer-only state -- it must
+    survive the .glez save/reload round trip (Figure.to_dict/from_dict),
+    not just a single savefig_gle call.
+    """
+    fig = glp.figure()
+    fig.page_box = True
+    restored = Figure.from_dict(fig.to_dict())
+    assert restored.page_box is True
+
+    fig2 = glp.figure()
+    assert fig2.page_box is False
+    restored2 = Figure.from_dict(fig2.to_dict())
+    assert restored2.page_box is False
+
+
+@pytest.mark.gle
+def test_finding23_page_box_reproduction_renders_with_parity(tmp_path):
+    """End-to-end regression: compile a 'size w h box' reproducer with real
+    GLE, round-trip it through gleplot, compile the round-trip, and compare
+    the two renders pixel for pixel. Before the fix, the round trip
+    compiled fine but silently dropped 'box' -- the page's own outline
+    (confirmed to render, empirically, in isolation from any graph content)
+    would vanish, which a compile-only check can never catch.
+    """
+    import shutil
+    import subprocess
+
+    gle_exe = shutil.which("gle") or r"C:\Program Files\GLE\bin\gle.exe"
+    if not Path(gle_exe).exists():
+        pytest.skip("GLE not installed")
+
+    PIL_Image = pytest.importorskip("PIL.Image")
+    from PIL import ImageChops
+
+    src = "size 8 6 box\namove 1 1\ncircle 0.3\n"
+    orig_dir = tmp_path / "orig"
+    orig_dir.mkdir()
+    orig = _write(orig_dir, "repro.gle", src)
+
+    res_orig = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(orig_dir / "out.png"), str(orig)],
+        capture_output=True,
+        text=True,
+        cwd=str(orig_dir),
+    )
+    assert (
+        res_orig.returncode == 0
+    ), f"GLE failed:\n{res_orig.stdout}\n{res_orig.stderr}"
+
+    im_orig_check = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    white = PIL_Image.new("RGB", im_orig_check.size, (255, 255, 255))
+    ink_bbox = ImageChops.difference(im_orig_check, white).getbbox()
+    assert ink_bbox is not None, "expected page-outline + circle ink somewhere"
+    # The outline must reach every edge of the page -- a full-page border,
+    # not just the circle in the corner.
+    assert ink_bbox[0] <= 2 and ink_bbox[1] <= 2
+    assert ink_bbox[2] >= im_orig_check.size[0] - 2
+    assert ink_bbox[3] >= im_orig_check.size[1] - 2
+
+    rt_dir = tmp_path / "rt"
+    rt_dir.mkdir()
+    rec = parse_gle_figure(orig)
+    assert rec.figure.page_box is True
+    rt_gle = rt_dir / "rt.gle"
+    rec.figure.savefig_gle(str(rt_gle))
+    assert " box" in rt_gle.read_text(encoding="utf-8")
+
+    res_rt = subprocess.run(
+        [gle_exe, "-d", "png", "-o", str(rt_dir / "out.png"), str(rt_gle)],
+        capture_output=True,
+        text=True,
+        cwd=str(rt_dir),
+    )
+    assert (
+        res_rt.returncode == 0
+    ), f"round-tripped script failed to compile:\n{res_rt.stdout}\n{res_rt.stderr}"
+
+    im_orig = PIL_Image.open(orig_dir / "out.png").convert("RGB")
+    im_rt = PIL_Image.open(rt_dir / "out.png").convert("RGB")
+    assert im_orig.size == im_rt.size
+
+    diff_bbox = ImageChops.difference(im_orig, im_rt).getbbox()
+    assert diff_bbox is None, (
+        "round-tripped render diverges from the original "
+        f"(diff bbox {diff_bbox}) -- the page outline ('box') was likely "
+        "dropped again"
     )

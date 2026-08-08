@@ -188,6 +188,20 @@ class Figure:
         self.figsize = figsize
         self.dpi = dpi
 
+        # GLE's page-level 'size w h box' modifier: draws a border around
+        # the whole page. Confirmed empirically against GLE 4.3.10 (the
+        # manual documents no modifier at all for the page-level 'size'):
+        # unlike a GRAPH's own 'size'/'scale', which accepts a whole family
+        # of trailing modifiers (box/nobox/border/noborder/center/fullsize/
+        # math -- GLE/src/gle/graph.cpp's do_remaining_entries), the
+        # page-level form accepts ONLY the literal word 'box' and nothing
+        # else; 'size 8 6 nobox' (or any other modifier) is a hard GLE
+        # parse error ("found 'nobox', but expecting 'BOX'"), so there is no
+        # page-level way to SPELL "no border" beyond omitting the word.
+        # False (the default, i.e. no border, matching 'box' simply being
+        # absent) reproduces every existing figure's output byte for byte.
+        self.page_box: bool = False
+
         # Store configuration for passing to writer.
         #
         # When no explicit config is given, take a COPY of the global
@@ -261,14 +275,25 @@ class Figure:
         self.broken_axes: list = []
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
-        # could not map onto the object model, split into two buckets by
-        # where they sit relative to the graph block(s):
+        # could not map onto the object model, split into buckets by where
+        # they sit relative to the graph block(s):
+        #   passthrough_before_hei: preamble lines that sat, in the original,
+        #     between a recognized 'size'/'set font' and a recognized
+        #     'set hei' -- almost always empty. Non-empty only when the
+        #     original had something like 'scale .6 .8' between them: 'hei'
+        #     is in GLE's CURRENT user units, so a preceding 'scale'/similar
+        #     CTM statement changes what the writer's own 'set hei' line
+        #     actually renders as. Re-emitted right after 'set font'
+        #     (if any) but BEFORE the writer's 'set hei' -- the one case
+        #     where the writer cannot simply put its own preamble first (see
+        #     GLEWriter.add_preamble).
         #   passthrough_header: emitted right after the standard preamble
         #     (after 'set hei ...' + blank line), before the first graph
         #     block/amove.
         #   passthrough_trailer: emitted at the very end of the script, after
         #     all graph blocks and deferred text annotations.
         # One entry per source line, no trailing newline. Default: empty.
+        self.passthrough_before_hei: list = []
         self.passthrough_header: list = []
         self.passthrough_trailer: list = []
 
@@ -1429,7 +1454,10 @@ class Figure:
 
         if is_single and no_fabricate:
             writer.add_preamble(
-                include_graph_begin=False, passthrough_header=self.passthrough_header
+                include_graph_begin=False,
+                passthrough_header=self.passthrough_header,
+                passthrough_before_hei=self.passthrough_before_hei,
+                page_box=self.page_box,
             )
             writer.finalize(
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
@@ -1441,7 +1469,10 @@ class Figure:
             # (not by the preamble) so palette subs and the fitz/contour
             # pre-graph blocks can precede it.
             writer.add_preamble(
-                include_graph_begin=False, passthrough_header=self.passthrough_header
+                include_graph_begin=False,
+                passthrough_header=self.passthrough_header,
+                passthrough_before_hei=self.passthrough_before_hei,
+                page_box=self.page_box,
             )
             writer.add_sub_defs(sub_texts)
             rects, _cells = self._layout_rects(writer, resolution)
@@ -1492,7 +1523,10 @@ class Figure:
         else:
             # Multi-subplot layout
             writer.add_preamble(
-                include_graph_begin=False, passthrough_header=self.passthrough_header
+                include_graph_begin=False,
+                passthrough_header=self.passthrough_header,
+                passthrough_before_hei=self.passthrough_before_hei,
+                page_box=self.page_box,
             )
             writer.add_sub_defs(sub_texts)
 
@@ -2083,6 +2117,8 @@ class Figure:
                     linewidth=fs_data.get("linewidth", 1.0),
                     label=fs_data.get("label"),
                     yaxis=fs_data.get("yaxis", "y"),
+                    marker=fs_data.get("marker"),
+                    markersize=fs_data.get("markersize", 0.1),
                 )
             elif series_type == "bar":
                 writer.add_bar_from_file(
@@ -2840,8 +2876,10 @@ class Figure:
             "width_ratios": (
                 list(self.width_ratios) if self.width_ratios is not None else None
             ),
+            "passthrough_before_hei": list(self.passthrough_before_hei),
             "passthrough_header": list(self.passthrough_header),
             "passthrough_trailer": list(self.passthrough_trailer),
+            "page_box": self.page_box,
             "metadata_extra": dict(self.metadata_extra),
             "config": {
                 "style": self.style.to_dict(),
@@ -2993,8 +3031,10 @@ class Figure:
         fig._subplot_adjust = {
             k: float(v) for k, v in (fig_block.get("subplot_adjust") or {}).items()
         }
+        fig.passthrough_before_hei = list(fig_block.get("passthrough_before_hei", []))
         fig.passthrough_header = list(fig_block.get("passthrough_header", []))
         fig.passthrough_trailer = list(fig_block.get("passthrough_trailer", []))
+        fig.page_box = bool(fig_block.get("page_box", False))
         fig.metadata_extra = dict(fig_block.get("metadata_extra", {}))
 
         saved_counter = fig_block.get("global_data_counter", 0)
