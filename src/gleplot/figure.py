@@ -2070,6 +2070,12 @@ class Figure:
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
                     binding=binding,
+                    # Per-series smoothing (SPEC 14.7), the one kind that
+                    # carries it. Passed raw: the writer normalizes and
+                    # resolves the figure-wide fallback in exactly one place
+                    # (GLEWriter._effective_smooth_mode).
+                    smooth_mode=series_data.get("smooth_mode"),
+                    svg_smooth=series_data.get("svg_smooth"),
                 )
             elif kind == "scatter":
                 writer.add_plot_line(

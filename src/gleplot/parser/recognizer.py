@@ -60,12 +60,21 @@ for rendering, applied by the test-side ``normalize()`` helper)
    the recovered figure has them explicit instead -- but they equal the derived
    values, so re-save is byte-identical. (A ``to_dict`` difference the test
    normalizes by re-deriving.)
-7. **Mixed ``smooth`` (hand-written only).** The writer applies ``smooth``
-   globally (``graph.smooth_curves``). If a hand-written file has some line
-   datasets ``smooth`` and some not, the recovered figure sets
-   ``smooth_curves=True`` -- preserving the smoothing that is in the file
-   rather than silently dropping it -- and warns; re-save then applies smooth
-   to all line datasets.
+7. **Smoothing (hand-written only).** Line datasets recover their smoothing
+   exactly: SPEC 14.7's per-series ``smooth_mode``
+   (``none``/``smooth``/``smoothm``) and ``svg_smooth`` iterations are read
+   off the ``dN`` line, so mixed smoothing across a figure round-trips. Two
+   normalizations remain. (a) GLE's ``dn`` keyword loop is a left-to-right
+   state machine in which ``svg_smooth`` clears ``smooth``/``smoothm``, so
+   ``d1 smooth svg_smooth 2`` draws exactly what ``d1 svg_smooth 2`` draws;
+   the recognizer replays that state machine and re-emits the canonical
+   ``svg_smooth 2`` without the dead token (an inert token removed, not a
+   behaviour changed), and ``svg_smooth 0`` recovers as ``1`` because GLE
+   itself coerces it. (b) ``graph.smooth_curves`` is still inferred from the
+   line datasets, because it is what the kinds *without* a per-series field
+   (error bars, file references) follow; a mixed figure sets it ``True`` and
+   warns, and a smoothing clause on one of those kinds that the inferred
+   default cannot reproduce warns rather than disappearing.
 8. **Constant / percentage error -> data column (hand-written only).** A
    ``dN ... err 0.5`` (constant) or ``dN ... err 10%`` (percentage) carries no
    error data column; GLE synthesizes the error at draw time. The recognizer
@@ -203,7 +212,8 @@ notes existed, so it is still the right thing to check with
 - ``ImportCategory.LEGEND`` (``"legend: ..."``)         -- a hand-written
   implicit legend was assumed, or a ``key`` line has unsupported options.
 - ``ImportCategory.SMOOTH`` (``"smooth: ..."``)         -- mixed per-series
-  smooth flags.
+  smooth flags, or a smoothing clause on a dataset kind with no per-series
+  smoothing field (SPEC 14.7).
 - ``ImportCategory.LAYOUT`` (``"layout: ..."``)         -- multi-graph grid
   could not be inferred cleanly (n x 1 fallback), share flags were guessed,
   or graph geometry / an ``amove`` was preserved verbatim rather than
@@ -247,10 +257,12 @@ Category                Span coverage
                         a whole-arrangement conclusion; span is the min/max of
                         whatever amove lines the figure does have (``None`` if
                         none do).
-``smooth``              Always ``None``. The note is a true whole-figure
-                        aggregate over every line dataset (across every graph
-                        block); no single line is more responsible than any
-                        other.
+``smooth``              ``None`` for the mixed-flags note: that one is a true
+                        whole-figure aggregate over every line dataset (across
+                        every graph block), and no single line is more
+                        responsible than any other. Real for the
+                        unmodelled-clause note, which blames the one ``dN``
+                        statement that carried the clause.
 ``programmatic``        Real, single-line: the specific top-level statement
                         whose keyword tripped the guard.
 ``metadata``            The whole ``! gleplot-meta-begin``..``! gleplot-meta-end``
@@ -281,6 +293,7 @@ from ..series import (
     HeatmapSeries,
     LineSeries,
     ScatterSeries,
+    Series,
     TextAnnotation,
 )
 from . import metadata as _metadata
@@ -625,6 +638,16 @@ class _Recognizer:
         # Line numbers of fitz/contour blocks recognized as gleplot-authored
         # (consumed into a series), dropped from passthrough.
         self._consumed_block_lines: set = set()
+        # Per-series smoothing (SPEC 14.7), reconciled in _apply_smooth once
+        # the figure-wide default is known: (LineSeries, mode, svg_iterations).
+        self._smooth_lines: List[Tuple[Series, str, Optional[int]]] = []
+        # Smoothing seen on a dataset kind that has no per-series field
+        # (error bars, file references): (kind, mode, svg_iterations, span).
+        # Also reconciled in _apply_smooth -- only the ones the figure-wide
+        # default cannot reproduce are worth a warning.
+        self._unmodelled_smooth: List[
+            Tuple[str, str, Optional[int], Optional[Tuple[int, int]]]
+        ] = []
 
     # -- notes -------------------------------------------------------------
 
@@ -2666,6 +2689,7 @@ class _Recognizer:
         is_import = self._is_import(data_file)
 
         if is_errorbar:
+            self._observe_unmodelled_smoothing("error-bar", attrs, line_no)
             self._build_errorbar(
                 info,
                 datasets,
@@ -2681,12 +2705,14 @@ class _Recognizer:
             return
 
         if not is_import:
+            self._observe_unmodelled_smoothing("file-reference", attrs, line_no)
             self._build_file_series(info, data_file, xcol, ycol, attrs, has_line)
             return
 
         # Import series: load arrays.
         loaded = self._load_series(data_file, xcol, ycol, line_no=line_no)
         if loaded is None or loaded.get("error"):
+            self._observe_unmodelled_smoothing("file-reference", attrs, line_no)
             self._build_file_series(
                 info,
                 data_file,
@@ -2737,12 +2763,38 @@ class _Recognizer:
             info["_draw_seq_counter"] += 1
             info["lines"].append(entry)
             smooth_flags.append(attrs["smooth"])
+            # Per-series smoothing is stamped on the entry only once the
+            # figure-wide default is known -- see _apply_smooth.
+            self._smooth_lines.append(
+                (entry, attrs["smooth_mode"], attrs["svg_smooth"])
+            )
 
     def _scan_series_attrs(self, toks) -> dict:
-        """Flat scan of dataset attribute tokens (order-tolerant)."""
+        """Flat scan of dataset attribute tokens (order-tolerant).
+
+        Order-tolerant with one deliberate exception: the smoothing keywords.
+        GLE's own ``dn`` keyword loop (``graph2.cpp``) is a left-to-right
+        state machine in which ``svg_smooth`` *clears* ``smooth``/``smoothm``
+        while ``smooth``/``smoothm`` leave ``svg_smooth`` alone, so
+        ``d1 smooth svg_smooth 2`` and ``d1 svg_smooth 2 smooth`` are two
+        different pictures. This scan replays that state machine rather than
+        collecting flags, so the recovered model is what GLE would draw --
+        verified against GLE 4.3.10.
+
+        All three keywords also set GLE's ``line`` flag (a smoothed dataset
+        draws a curve whether or not ``line`` was written), which is why they
+        set ``has_line`` here, exactly as ``lstyle`` already does.
+        """
         a = {
             "has_line": False,
+            # True when the dataset ends up with GLE's ``smooth`` flag set,
+            # i.e. mode is smooth or smoothm. Feeds the figure-wide
+            # smooth_curves inference in :meth:`_apply_smooth`.
             "smooth": False,
+            # SPEC 14.7: 'none' | 'smooth' | 'smoothm', and the Savitzky-Golay
+            # iteration count (>= 1) or None.
+            "smooth_mode": "none",
+            "svg_smooth": None,
             "color": None,
             "lwidth": None,
             "lstyle": None,
@@ -2765,9 +2817,32 @@ class _Recognizer:
                 a["has_line"] = True
                 i += 1
                 continue
-            if w == "smooth":
+            if w in ("smooth", "smoothm"):
+                # graph2.cpp: both set line = true and smooth = true; smoothm
+                # additionally sets the multi-valued flag. Neither touches
+                # svg_smooth.
+                a["has_line"] = True
                 a["smooth"] = True
+                a["smooth_mode"] = w
                 i += 1
+                continue
+            if w == "svg_smooth" and i + 1 < m:
+                # graph2.cpp: svg_iter = next_exp (coerced up to 1 -- "if they
+                # say svg_smooth they want it at least once"), line = true,
+                # and smooth/smoothm are CLEARED.
+                v, nxt = _collect_value(toks, i + 1)
+                if v is None:
+                    # No evaluable argument: GLE itself rejects this line
+                    # ("constant, function, or unary operator expected"), so
+                    # there is no engine behaviour to mirror. Skip the keyword
+                    # and let the remaining tokens scan normally.
+                    i += 1
+                    continue
+                a["has_line"] = True
+                a["svg_smooth"] = max(1, int(v))
+                a["smooth"] = False
+                a["smooth_mode"] = "none"
+                i = nxt
                 continue
             if w == "color" and i + 1 < m:
                 val, nxt = _collect_color(toks, i + 1)
@@ -4603,26 +4678,97 @@ class _Recognizer:
 
     # -- smooth ----------------------------------------------------------
 
-    def _apply_smooth(self, fig, graph_cfg, smooth_flags):
-        if not smooth_flags:
-            # No line datasets: leave the default (False). The writer emits
-            # nothing that depends on it, so byte-identity is unaffected.
+    def _observe_unmodelled_smoothing(self, kind, attrs, line_no):
+        """Record the smoothing state of a kind with no per-series field.
+
+        SPEC 14.7 scopes ``smooth_mode``/``svg_smooth`` to line series, so an
+        error-bar or file-reference dataset is re-emitted with whatever the
+        figure-wide default turns out to be. That cuts *both* ways -- such a
+        dataset can lose a smoothing clause it had, and it can gain one it
+        never had -- so its state is recorded whether or not it is smoothed,
+        and :meth:`_apply_smooth` decides which ones actually change once the
+        default is known.
+
+        Only line-drawing datasets are recorded: the writer emits the
+        qualifier from inside its ``has_line`` branch, so a marker-only
+        dataset is unaffected by the default in either direction.
+        """
+        if not attrs["has_line"]:
             return
-        if all(smooth_flags):
-            graph_cfg.smooth_curves = True
-        elif not any(smooth_flags):
-            graph_cfg.smooth_curves = False
-        else:
-            graph_cfg.smooth_curves = True
-            # No span: this is an aggregate over every line dataset in the
-            # whole figure (mixed True/False across possibly several graph
-            # blocks), not a property of any one of them -- see the span
-            # coverage table in the module docstring.
+        span = (line_no, line_no) if line_no is not None else None
+        self._unmodelled_smooth.append(
+            (kind, attrs["smooth_mode"], attrs["svg_smooth"], span)
+        )
+
+    def _apply_smooth(self, fig, graph_cfg, smooth_flags):
+        """Recover both layers of smoothing: the figure default and per-series.
+
+        ``graph.smooth_curves`` is still a real figure-wide setting -- it is
+        what the writer applies to every line-drawing kind that has no
+        per-series field of its own (error bars, file references) and the
+        default new line series inherit. It is inferred from the line
+        datasets as before.
+
+        On top of it, SPEC 14.7's per-series ``smooth_mode``/``svg_smooth``
+        are stamped onto the recovered :class:`LineSeries` -- but only where
+        they differ from what the figure-wide default already produces. That
+        is the same "absent means the historical behaviour" rule the field
+        itself follows, and it is what keeps a uniformly smoothed (or
+        uniformly unsmoothed) file's recovered ``to_dict`` exactly the shape
+        it had before this field existed.
+        """
+        if smooth_flags:
+            if all(smooth_flags):
+                graph_cfg.smooth_curves = True
+            elif not any(smooth_flags):
+                graph_cfg.smooth_curves = False
+            else:
+                graph_cfg.smooth_curves = True
+                # No span: this is an aggregate over every line dataset in the
+                # whole figure (mixed True/False across possibly several graph
+                # blocks), not a property of any one of them -- see the span
+                # coverage table in the module docstring.
+                self._note(
+                    ImportCategory.SMOOTH,
+                    "mixed per-series smooth flags; each line dataset keeps "
+                    "its own mode, and the figure-wide default (which error "
+                    "bars and file references follow) becomes smooth",
+                )
+        # else: no line datasets -- leave the default (False). The writer
+        # emits nothing that depends on it, so byte-identity is unaffected.
+
+        default_mode = "smooth" if graph_cfg.smooth_curves else "none"
+        for entry, mode, iterations in self._smooth_lines:
+            if mode != default_mode:
+                entry["smooth_mode"] = mode
+            if iterations is not None:
+                entry["svg_smooth"] = iterations
+
+        # Kinds with no per-series field of their own take whatever the
+        # figure-wide default gives them. Warn about exactly the ones that
+        # differ from it -- a smoothed errorbar in a smoothed figure loses
+        # nothing and must not be reported as if it did (SPEC 8.1.4).
+        for kind, mode, iterations, span in self._unmodelled_smooth:
+            if mode == default_mode and iterations is None:
+                continue
             self._note(
                 ImportCategory.SMOOTH,
-                "mixed per-series smooth flags; applying smooth to all "
-                "line datasets on re-save",
+                f"{self._smooth_clause_text(mode, iterations)} on a {kind} "
+                "dataset is not modelled per-series (SPEC 14.7 scopes that to "
+                "line series); it re-saves with the figure-wide default "
+                f"({self._smooth_clause_text(default_mode, None)})",
+                span,
             )
+
+    @staticmethod
+    def _smooth_clause_text(mode, iterations):
+        """Human-readable form of a (mode, iterations) pair, for a note."""
+        parts = []
+        if iterations is not None:
+            parts.append(f"svg_smooth {iterations}")
+        if mode != "none":
+            parts.append(mode)
+        return f"'{' '.join(parts)}'" if parts else "no smoothing"
 
     # -- data-file naming state -----------------------------------------
 

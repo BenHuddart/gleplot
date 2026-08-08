@@ -88,6 +88,40 @@ them, and G11 is per-*series* visibility.
 Hidden is orthogonal to *dangling* (SPEC 3.2, ``DanglingSourceRef``):
 "hidden because asked" and "skipped because broken" are different states
 and neither is ever reported as the other.
+
+How the curve is drawn: ``smooth_mode`` / ``svg_smooth``
+--------------------------------------------------------
+
+:class:`LineSeries` declares two independent smoothing fields (GLEstudio
+SPEC 14.7), mirroring the two independent clauses of GLE's ``dn`` grammar
+(``graph.tex``: ``dn smooth | smoothm`` and ``dn svg_smooth [m]``):
+
+* ``smooth_mode`` -- ``'none'``, ``'smooth'`` or ``'smoothm'``. GLE's
+  ``smooth`` fits a piecewise cubic *as a function of x*
+  (``fitbez(data, multi=false)``); ``smoothm`` is the multi-valued variant
+  (``multi=true``) for curves with more than one y per x -- a hysteresis
+  loop, a closed contour. It is deliberately **not** a boolean: collapsing
+  ``smoothm`` into ``smooth`` would silently redraw such a curve as a
+  function of x.
+* ``svg_smooth`` -- the iteration count of GLE's 7-point Savitzky-Golay
+  filter (``savgol.cpp``), an integer >= 1; absent means off.
+
+Both follow the "absent means the historical behaviour" rule ``visible``
+and ``zorder`` follow. An absent ``smooth_mode`` defers to the figure-wide
+:attr:`gleplot.config.GLEGraphConfig.smooth_curves`, which is exactly what
+every project written before this field did; a *present* one wins for that
+series, including ``'none'`` on a figure whose default is smoothed. The two
+fields are orthogonal: a series may carry either, both or neither, and the
+writer emits ``svg_smooth m`` **before** the mode token because that is the
+only order in which GLE keeps both (``graph2.cpp``'s ``SVG_SMOOTH`` branch
+clears ``smooth``/``smoothm``, while ``SMOOTH`` leaves ``svg_smooth``
+alone). :func:`smooth_mode` and :func:`svg_smooth_iterations` are the
+single readers.
+
+The scope is ``LineSeries`` only (SPEC 14.7). Error bars and file-reference
+series still take the figure-wide flag: GLE would accept the qualifier on
+them, but v1.1 models it only where the semantics are documented and the
+GUI has a control for it.
 """
 
 import re
@@ -112,8 +146,13 @@ __all__ = [
     "Span",
     "SERIES_CLASSES",
     "SERIES_ATTRS",
+    "SMOOTH_MODES",
     "is_visible",
+    "normalize_smooth_mode",
+    "normalize_svg_smooth",
     "sanitize_column_name",
+    "smooth_mode",
+    "svg_smooth_iterations",
 ]
 
 
@@ -131,6 +170,73 @@ def is_visible(series: Mapping[str, Any]) -> bool:
     """
     flag = series.get("visible", True)
     return True if flag is None else bool(flag)
+
+
+#: The three values ``smooth_mode`` may take (GLEstudio SPEC 14.7), spelled
+#: exactly as GLE spells the corresponding ``dn`` keyword so the writer can
+#: emit the token verbatim. ``'none'`` is the explicit "do not smooth this
+#: series", which is NOT the same as the field being absent -- see
+#: :func:`normalize_smooth_mode`.
+SMOOTH_MODES: Tuple[str, ...] = ("none", "smooth", "smoothm")
+
+
+def normalize_smooth_mode(value: Any) -> Optional[str]:
+    """Coerce a stored ``smooth_mode`` to a member of :data:`SMOOTH_MODES`.
+
+    Returns ``None`` for "not declared", which the writer reads as *defer to
+    the figure-wide* ``GLEGraphConfig.smooth_curves``. That is the only
+    reading under which every project written before this field keeps its
+    exact bytes, so absent has to stay distinguishable from ``'none'``.
+
+    A value that is neither absent nor a known mode (a stale string, a
+    boolean from a caller that assumed a flag) also reads as ``None``: an
+    unrecognized mode must never be *guessed* into a smoothing that
+    reinterpolates the data, and deferring to the figure default is the same
+    recoverable direction :func:`is_visible` takes.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    return text if text in SMOOTH_MODES else None
+
+
+def normalize_svg_smooth(value: Any) -> Optional[int]:
+    """Coerce a stored ``svg_smooth`` to an iteration count, or ``None``.
+
+    ``None`` means the filter is off. Iterations are integers >= 1: GLE runs
+    the 7-point Savitzky-Golay pass ``m`` times (``graph2.cpp``, which itself
+    coerces a parsed ``0`` up to ``1`` -- "if they say svg_smooth they want it
+    at least once"). A non-numeric or sub-1 stored value is off rather than
+    an error, for the same reason as :func:`normalize_smooth_mode`: the
+    recoverable direction is drawing the data.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    return count if count >= 1 else None
+
+
+def smooth_mode(series: Mapping[str, Any]) -> Optional[str]:
+    """The declared smooth mode of ``series``, or ``None`` if it defers.
+
+    The single reader of the field; see :func:`normalize_smooth_mode` for
+    what the two "nothing here" cases mean. Kinds that declare no
+    ``smooth_mode`` (everything but :class:`LineSeries`, SPEC 14.7) always
+    defer, which is what returning ``None`` for a missing key already says.
+    """
+    return normalize_smooth_mode(series.get("smooth_mode"))
+
+
+def svg_smooth_iterations(series: Mapping[str, Any]) -> Optional[int]:
+    """Savitzky-Golay iterations for ``series``, or ``None`` when off.
+
+    The single reader of the field. Independent of :func:`smooth_mode`:
+    GLE's two clauses are independent and so are these two fields.
+    """
+    return normalize_svg_smooth(series.get("svg_smooth"))
 
 
 # -- sidecar column-name helpers ---------------------------------------------
@@ -504,12 +610,25 @@ class _XYSeries(Series):
 
 
 class LineSeries(_XYSeries):
-    """A line (optionally marker-decorated) dataset -- ``Axes.plot``."""
+    """A line (optionally marker-decorated) dataset -- ``Axes.plot``.
+
+    The one kind that carries the smoothing fields (SPEC 14.7); see the
+    module docstring for why they are two independent fields and why the
+    mode is not a boolean.
+    """
 
     ATTR = "lines"
     KIND = "line"
     ZORDER_DEFAULT = 3.0
     KIND_RANK = 1
+
+    #: ``'none'`` / ``'smooth'`` / ``'smoothm'``; absent (the default) defers
+    #: to the figure-wide ``GLEGraphConfig.smooth_curves``. See
+    #: :func:`smooth_mode`.
+    smooth_mode: str
+    #: Savitzky-Golay iterations (int >= 1); absent (the default) means off.
+    #: Independent of ``smooth_mode``. See :func:`svg_smooth_iterations`.
+    svg_smooth: int
 
 
 class ScatterSeries(_XYSeries):
