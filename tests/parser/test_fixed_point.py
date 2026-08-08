@@ -26,6 +26,9 @@ import pytest
 import gleplot
 from gleplot import axes as _gleplot_axes
 from gleplot.parser.recognizer import parse_gle_figure
+from gleplot.series import SERIES_CLASSES
+from gleplot.sources import is_inline
+from gleplot.writer import COLORBAR_AUTO_RANGE
 
 from tests.parser import _golden_battery as golden
 from tests.integration import test_project_io as project_battery
@@ -109,3 +112,48 @@ def test_project_battery_fixed_point(builder, tmp_path):
     assert builder.__name__ not in _EXEMPT
     assert data2 == data1, f"{builder.__name__}: data files differ"
     assert text2 == text1, f"{builder.__name__}: GLE text differs"
+
+
+# -- Why the G13 auto states cannot reach this battery ----------------------
+#
+# SPEC 14.5 lets a *reference-backed* grid series defer its ``extent`` and its
+# colorbar range to write time. That would be a fixed-point hazard if a
+# recognized figure could carry one: the second write would recompute from a
+# provider this battery does not have. It cannot -- the recognizer only ever
+# reconstructs concrete numbers out of the script it is reading, and it has no
+# way to invent a ``table_id``. Asserted here rather than merely reasoned
+# about, so the empty exemption set above stays a fact about the code.
+
+
+def _every_series(figure):
+    for ax in figure.axes_list:
+        for attr in SERIES_CLASSES:
+            for series in getattr(ax, attr, []) or []:
+                yield attr, series
+
+
+@pytest.mark.parametrize("name", golden.BUILDER_IDS)
+def test_recognized_figures_carry_no_reference_backed_series(name, tmp_path):
+    """Parser output is inline throughout, so no auto state is reachable."""
+    builder = getattr(golden, name)
+    _gleplot_axes._global_data_file_counter = 0
+    gle_path = tmp_path / "figure.gle"
+    builder().savefig_gle(str(gle_path))
+
+    _gleplot_axes._global_data_file_counter = 0
+    recognized = parse_gle_figure(gle_path).figure
+
+    for attr, series in _every_series(recognized):
+        assert is_inline(series), (
+            f"{name}: recognized {attr} series carries a reference data_source; "
+            "the fixed-point battery would then depend on a data provider"
+        )
+        if attr in ("heatmaps", "contours"):
+            # A concrete extent, never the SPEC 14.5 auto state.
+            assert series.get("extent") is not None
+            assert len(series["extent"]) == 4
+        cb = series.get("colorbar") if attr == "heatmaps" else None
+        if cb:
+            assert COLORBAR_AUTO_RANGE not in cb
+            assert cb["zmin"] is not None and cb["zmax"] is not None
+            assert cb["zstep"] is not None

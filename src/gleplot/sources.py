@@ -439,7 +439,7 @@ class DanglingSourceRef:
         table is missing.
     reason : str
         One of ``'no-provider'``, ``'unknown-table'``, ``'missing-column'``,
-        ``'unknown-kind'``.
+        ``'unknown-kind'``, ``'unusable-data'``.
     """
 
     __slots__ = (
@@ -453,11 +453,20 @@ class DanglingSourceRef:
     )
 
     #: Every value ``reason`` can take, with its wording.
+    #:
+    #: ``'unusable-data'`` is the one reason where the *reference* resolved
+    #: fine and the numbers behind it did not: a grid series whose extent (or
+    #: auto colorbar range) is computed at write time from the resolved
+    #: arrays (SPEC 14.5) cannot be drawn when those arrays are empty or
+    #: degenerate. It is reported like any other skip rather than raised,
+    #: because "nothing about a write raises" is what lets a GUI preview an
+    #: in-progress document -- see :func:`gleplot.writer.resolve_figure`.
     REASONS = {
         "no-provider": "no data provider was supplied for this write",
         "unknown-table": "no table with that id",
         "missing-column": "column(s) not found in the table",
         "unknown-kind": "unrecognized data-source kind",
+        "unusable-data": "the resolved data cannot be plotted (empty or degenerate)",
     }
 
     def __init__(

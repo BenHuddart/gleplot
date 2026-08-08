@@ -50,6 +50,7 @@ from .sources import (
     DanglingSourceWarning,
     DataProvider,
     DataSource,
+    GridRef,
     resolve_reference,
 )
 
@@ -366,6 +367,177 @@ class SourceResolution:
             _warnings.warn(DanglingSourceWarning(ref), stacklevel=3)
 
 
+# -- write-time autos for reference-backed grid series (G13; SPEC 14.5) -------
+#
+# The scripting API bakes a heatmap's/contour's ``extent`` -- and a colorbar's
+# ``zmin``/``zmax``/``zstep`` -- at call time from the arrays it is handed.
+# A *reference-backed* grid series has no arrays at call time: they arrive per
+# write from the provider, and a value baked from an earlier write would go
+# stale the moment a cell changed. So those two things become **absent/auto**
+# states on such a series, and this is where each write turns them back into
+# numbers, from the arrays that write actually resolved.
+#
+# The computations reproduce the creation APIs' defaults exactly -- grid mode
+# ``(0, nx, 0, ny)`` (``Axes.imshow``), points mode the data bounds
+# (``Axes._points_from_args``), the colorbar range ``vmin``/``vmax`` else the
+# data's nan-safe min/max with ``zstep`` = span / nticks (``Figure.colorbar``)
+# -- so an auto value is never a *different* answer from the baked one, only a
+# later one.
+
+#: Marker key on a colorbar dict meaning "this range is computed per write".
+#: Absent (the historical shape, and what the recognizer rebuilds from an
+#: emitted ``gleplot_colorbar_v`` call) means the stored numbers are explicit
+#: and are emitted untouched.
+COLORBAR_AUTO_RANGE = "auto_range"
+
+#: Companion key: the tick-interval count an auto range divides its span by.
+#: Stored only on an auto colorbar, so an explicit one serializes exactly as
+#: it did before G13.
+COLORBAR_NTICKS = "nticks"
+
+#: Colorbar tick-interval count when none was given (``Figure.colorbar``'s).
+DEFAULT_COLORBAR_NTICKS = 5
+
+
+def _grid_values(series: Mapping[str, Any]) -> Optional[np.ndarray]:
+    """The z-values a grid series colours by, or ``None`` if it has none.
+
+    ``'grid'`` mode reads the 2-D ``z`` grid; ``'points'`` mode the 1-D
+    ``zpts`` samples. A missing array yields ``None`` rather than an
+    exception -- the whole point of the auto states is that "no arrays yet"
+    is a legal model state, not a bug.
+    """
+    raw = series.get("zpts") if series.get("source") == "points" else series.get("z")
+    if raw is None:
+        return None
+    values = np.asarray(raw, dtype=float)
+    return values if values.size else None
+
+
+def auto_extent(series: Mapping[str, Any]) -> Optional[List[float]]:
+    """The ``(xmin, xmax, ymin, ymax)`` a resolved grid series' arrays imply.
+
+    Grid mode: ``(0, nx, 0, ny)`` for a ``(ny, nx)`` grid -- index space,
+    which is what :meth:`gleplot.Axes.imshow` defaults to. Points mode: the
+    scattered samples' bounds, which is what :meth:`gleplot.Axes.tripcolor`
+    defaults to.
+
+    Returns ``None`` when the arrays cannot produce a *valid* extent (GLE
+    needs ``xmin < xmax`` and ``ymin < ymax``; see
+    ``gleplot.axes._require_valid_extent``), i.e. an empty grid or scattered
+    samples that are constant in x or y.
+    """
+    if series.get("source") == "points":
+        x = series.get("x")
+        y = series.get("y")
+        if x is None or y is None:
+            return None
+        xa = np.asarray(x, dtype=float).ravel()
+        ya = np.asarray(y, dtype=float).ravel()
+        if xa.size == 0 or ya.size == 0:
+            return None
+        ext = [
+            float(np.min(xa)),
+            float(np.max(xa)),
+            float(np.min(ya)),
+            float(np.max(ya)),
+        ]
+    else:
+        z = series.get("z")
+        if z is None:
+            return None
+        za = np.asarray(z, dtype=float)
+        if za.ndim != 2:
+            return None
+        ny, nx = za.shape
+        ext = [0.0, float(nx), 0.0, float(ny)]
+
+    if not all(np.isfinite(v) for v in ext):
+        return None
+    if not (ext[0] < ext[1] and ext[2] < ext[3]):
+        return None
+    return ext
+
+
+def auto_colorbar_range(
+    series: Mapping[str, Any], nticks: Optional[int] = None
+) -> Optional[Tuple[float, float, float]]:
+    """``(zmin, zmax, zstep)`` for an auto colorbar on a resolved heatmap.
+
+    Same precedence :meth:`gleplot.Figure.colorbar` applies when it has the
+    arrays in hand: an explicit ``vmin``/``vmax`` on the series wins,
+    otherwise the data's nan-safe extreme. Deferring rather than duplicating
+    that rule is what makes a later ``vmin`` edit show up on the bar.
+
+    Returns ``None`` when neither an explicit bound nor usable data is
+    available for one of the ends (an all-NaN or empty grid).
+    """
+    divisions = int(nticks) if nticks else DEFAULT_COLORBAR_NTICKS
+    if divisions < 1:
+        divisions = DEFAULT_COLORBAR_NTICKS
+
+    values = _grid_values(series)
+    finite = None
+    if values is not None:
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            finite = None
+
+    vmin = series.get("vmin")
+    vmax = series.get("vmax")
+    if vmin is not None:
+        zmin = float(vmin)
+    elif finite is not None:
+        zmin = float(np.min(finite))
+    else:
+        return None
+    if vmax is not None:
+        zmax = float(vmax)
+    elif finite is not None:
+        zmax = float(np.max(finite))
+    else:
+        return None
+
+    if not (np.isfinite(zmin) and np.isfinite(zmax)):
+        return None
+    span = zmax - zmin
+    zstep = (span / divisions) if span > 0 else 1.0
+    return zmin, zmax, zstep
+
+
+def apply_grid_write_time_autos(data: Series) -> Optional[str]:
+    """Fill a resolved grid series' auto ``extent`` / colorbar range in place.
+
+    ``data`` is the *copy* :func:`resolve_figure` made for this write, never
+    the document's own series -- an auto value must not be baked back onto the
+    model, or the next write would emit a stale one. The colorbar dict is
+    replaced rather than mutated for the same reason (a series ``copy()`` is
+    shallow, so the dict is shared with the original).
+
+    Returns ``None`` on success, or a short reason string when the resolved
+    arrays cannot produce the value, in which case the caller skips the
+    series.
+    """
+    if data.get("extent") is None:
+        ext = auto_extent(data)
+        if ext is None:
+            return "extent"
+        data["extent"] = ext
+
+    cb = data.get("colorbar")
+    if isinstance(cb, Mapping) and cb.get(COLORBAR_AUTO_RANGE):
+        computed = auto_colorbar_range(data, cb.get(COLORBAR_NTICKS))
+        if computed is None:
+            return "colorbar-range"
+        zmin, zmax, zstep = computed
+        resolved = dict(cb)
+        resolved["zmin"] = zmin
+        resolved["zmax"] = zmax
+        resolved["zstep"] = zstep
+        data["colorbar"] = resolved
+    return None
+
+
 def resolve_figure(
     figure: Any, data_provider: Optional[DataProvider] = None
 ) -> SourceResolution:
@@ -395,6 +567,15 @@ def resolve_figure(
     about data nothing was going to draw; and it never reaches the
     ``table_files`` bookkeeping, so it cannot donate its filename to a shared
     sidecar that only other series write into.
+
+    A resolved :class:`~gleplot.sources.GridRef` series additionally gets its
+    **write-time autos** filled in here (SPEC 14.5, G13): an absent ``extent``
+    and an auto colorbar range become numbers derived from *this* write's
+    arrays, so a cell edit re-flows into both. Only the copy is filled; the
+    document keeps its auto state. Arrays that cannot produce them (an empty
+    grid, scattered samples constant in x or y, an all-NaN grid under an auto
+    colorbar) skip the series with reason ``'unusable-data'`` rather than
+    raising -- see :func:`apply_grid_write_time_autos`.
     """
     resolution = SourceResolution()
     table_files: Dict[str, str] = {}
@@ -439,6 +620,27 @@ def resolve_figure(
                 data = series.copy()
                 for role, values in resolved.values.items():
                     data[role] = values
+
+                if isinstance(raw, GridRef):
+                    # A reference-backed grid series may carry an absent
+                    # ``extent`` and/or an auto colorbar range (SPEC 14.5).
+                    # Now -- with this write's arrays in hand -- is the only
+                    # honest moment to turn either into numbers.
+                    unusable = apply_grid_write_time_autos(data)
+                    if unusable is not None:
+                        resolution._skip(
+                            series,
+                            DanglingSourceRef(
+                                axes_index=axes_index,
+                                series_attr=attr,
+                                series_index=series_index,
+                                label=series.get("label"),
+                                table_id=str(resolved.table_id),
+                                reason="unusable-data",
+                                missing_columns=(),
+                            ),
+                        )
+                        continue
 
                 binding = None
                 if isinstance(raw, ColumnRef):

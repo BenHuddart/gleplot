@@ -811,6 +811,15 @@ class _GridSeries(Series):
     The shared fields are re-declared in full by each subclass rather than
     inherited: field order here is serialization order, and the two kinds
     interleave their common and their own fields differently.
+
+    ``extent`` may be ``None`` on a **reference-backed** grid series (one
+    whose ``data_source`` is a :class:`~gleplot.sources.GridRef`), meaning
+    *auto*: each write computes it from the arrays that write resolved --
+    ``(0, nx, 0, ny)`` in grid mode, the sample bounds in points mode, the
+    same defaults ``Axes.imshow``/``Axes.tripcolor`` bake when handed arrays
+    (SPEC 14.5). A series that owns its arrays always carries a concrete
+    extent, because the creation APIs had the arrays and baked it.
+    See :func:`gleplot.writer.apply_grid_write_time_autos`.
     """
 
     ARRAY_FIELDS = ("z", "x", "y", "zpts")
@@ -843,7 +852,11 @@ class HeatmapSeries(_GridSeries):
     #: Where the numbers come from; absent means InlineData (this
     #: series' own array fields). See :mod:`gleplot.sources`.
     data_source: Optional[DataSource]
-    #: Colorbar declaration dict, or ``None`` for no colorbar.
+    #: Colorbar declaration dict, or ``None`` for no colorbar. Its
+    #: ``zmin``/``zmax``/``zstep`` are concrete numbers, except on a
+    #: reference-backed heatmap that carries ``auto_range = True``, where
+    #: they are ``None`` and each write computes them from the resolved data
+    #: (SPEC 14.5). See :meth:`gleplot.Figure.colorbar`.
     colorbar: Optional[Dict[str, Any]]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
