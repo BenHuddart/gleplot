@@ -274,6 +274,7 @@ Category                Span coverage
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -284,7 +285,16 @@ import numpy as np
 from ..axes import Axes
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..figure import Figure
-from ..guides import GUIDE_CALL_KINDS, REFLINE_LAYER, SPAN_LAYER
+from ..guides import (
+    GUIDE_CALL_KINDS,
+    GUIDE_MARKER_FIELDS,
+    GUIDE_MARKER_KINDS,
+    GUIDE_MARKER_LABEL,
+    GUIDE_MARKER_ORIENTS,
+    GUIDE_MARKER_PREFIX,
+    REFLINE_LAYER,
+    SPAN_LAYER,
+)
 from ..series import (
     BarSeries,
     ContourSeries,
@@ -389,6 +399,21 @@ class RecognizedFigure:
 def _words_and_values(stmt: Statement) -> List[Token]:
     """Tokens of a statement, dropping comments."""
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
+
+
+def _guide_marker_text(node) -> Optional[str]:
+    """The ``! gleplot:guide ...`` text of ``node``, or ``None`` (G18-lite).
+
+    Matched on the literal prefix and nothing else -- a comment-only line is
+    the only place it can appear, and gleplot is the only thing that writes
+    one, so this can never claim a user's comment.
+    """
+    if not isinstance(node, BlankOrComment):
+        return None
+    for tok in node.statement.tokens:
+        if tok.type is TokenType.COMMENT and tok.value.startswith(GUIDE_MARKER_PREFIX):
+            return tok.value
+    return None
 
 
 def _first_statement_of(source_line) -> Statement:
@@ -1272,11 +1297,24 @@ class _Recognizer:
             "heatmaps": [],
             "contours": [],
             # Guides recovered from ``begin layer N`` / ``draw gleplot_*``
-            # blocks (G17). Recognition keys off the literal sub name and
-            # nothing else, so a hand-written two-point line is never
-            # mistaken for one -- see _try_guide_layer_block.
+            # blocks (G17), and from a ``! gleplot:guide`` marker over the
+            # dataset they materialized into (G18-lite). Recognition keys off
+            # the literal sub name / the literal marker and nothing else, so a
+            # hand-written two-point line is never mistaken for one -- see
+            # _try_guide_layer_block and _prescan_guide_markers.
             "reflines": [],
             "spans": [],
+            # dataset name (the first one the guide's 'data' statement
+            # declares) -> the parsed marker claiming it. Consumed when the
+            # dataset's own display command turns out to match what the
+            # marker says; whatever is left when the block ends is a marker
+            # whose emission was edited out from under it, and degrades to a
+            # plain-series parse with a note (see _discard_guide_markers).
+            "_guide_markers": {},
+            # Source lines of every marker comment, matched or not: a marker
+            # is gleplot's own byte and never reaches passthrough, so it can
+            # never be re-emitted beside a dataset it no longer describes.
+            "_guide_marker_lines": set(),
             # Dataset names carrying nothing but a recovered guide's legend
             # entry (the data-free ``dN ... key "..."`` bridge the writer
             # emits right after a labelled refline's draw block). Skipped in
@@ -1363,6 +1401,11 @@ class _Recognizer:
         # pass 1's dataset-merging would otherwise take for a real series.
         guide_blocks = self._prescan_guide_blocks(block, info)
 
+        # Guide provenance markers (G18-lite), bound to the dataset each one
+        # describes. Also scanned up front: the binding has to exist before
+        # pass 2 builds the series that dataset's display command produces.
+        self._prescan_guide_markers(block, info)
+
         for child in block.body:
             if isinstance(child, Statement):
                 if self._skip_meta_stmt(child):
@@ -1418,6 +1461,10 @@ class _Recognizer:
                 info["passthrough"].extend(self._raw_lines(child))
                 continue
             if isinstance(child, BlankOrComment):
+                if child.line_no in info["_guide_marker_lines"]:
+                    # A guide provenance marker: consumed by the prescan, and
+                    # regenerated from the RefLine/Span on the next save.
+                    continue
                 # Blank/comment inside a graph block that the writer never
                 # emits -> preserve as axes passthrough (hand-written).
                 stmt = child.statement
@@ -1550,6 +1597,7 @@ class _Recognizer:
         if restored:
             info["passthrough"][0:0] = restored
 
+        self._discard_guide_markers(info)
         self._reconcile_places_names(info)
         self._reconcile_axis_styling(info)
         return info
@@ -1739,6 +1787,298 @@ class _Recognizer:
             ):
                 return name
         return None
+
+    # -- guides materialized as datasets, marked by a comment (G18-lite) --
+
+    def _prescan_guide_markers(self, block: GraphBlock, info) -> None:
+        """Bind each ``! gleplot:guide`` comment to the dataset it describes.
+
+        The marker carries the model residue the emitted commands cannot
+        state -- kind, orientation, coordinates, fractional extent, a band's
+        label (:mod:`gleplot.guides`) -- and names its guide by *position*:
+        the ``data`` statement it stands immediately above. That statement's
+        first dataset name is the key, so when pass 2 reaches that dataset's
+        own display command it knows to build a ``RefLine``/``Span`` from the
+        two halves rather than the plain series the bytes look like.
+
+        Recognition keys off the literal marker only. A two-point dataset
+        with no marker over it -- anything hand-written, and every ``.gle``
+        gleplot wrote before G18-lite -- parses exactly as it always did.
+        """
+        body = list(block.body)
+        markers = cast(dict, info["_guide_markers"])
+        for i, child in enumerate(body):
+            text = _guide_marker_text(child)
+            if text is None:
+                continue
+            span = (child.line_no, child.line_no)
+            # Consumed here whatever happens next: a marker is gleplot's own
+            # byte, so it must never reach passthrough and be re-emitted
+            # beside a dataset it no longer describes.
+            cast(set, info["_guide_marker_lines"]).add(child.line_no)
+            marker = self._parse_guide_marker(text)
+            if marker is None:
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    "'" + text.strip() + "' is not a readable gleplot guide "
+                    "marker; it was dropped and the dataset below it imports "
+                    "as a plain series",
+                    span,
+                )
+                continue
+            name = self._marked_dataset_name(body, i + 1, marker["kind"])
+            if name is None or name in markers:
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    "'" + text.strip() + "' does not stand over the 'data' "
+                    "statement of the guide it describes; it was dropped and "
+                    "the commands below it import as plain series",
+                    span,
+                )
+                continue
+            marker["span"] = span
+            marker["text"] = text.strip()
+            markers[name] = marker
+
+    def _parse_guide_marker(self, text: str) -> Optional[dict]:
+        """One ``! gleplot:guide`` comment -> its fields, or ``None``.
+
+        Lexed with GLE's own tokenizer, so a negative coordinate and an
+        escaped quote need no bespoke handling. Every required field of the
+        kind must be present exactly once (in any order); an unknown keyword,
+        a repeat, a missing field or a stray token rejects the whole marker
+        rather than half-reading it -- a marker that cannot be read in full
+        describes nothing that could be rebuilt from it.
+        """
+        from .lexer import tokenize_line
+
+        toks = [
+            t
+            for t in tokenize_line(text[len(GUIDE_MARKER_PREFIX) :])
+            if t.type is not TokenType.COMMENT
+        ]
+        if len(toks) < 2:
+            return None
+        kind = toks[0].value.lower()
+        orient = toks[1].value.lower()
+        if kind not in GUIDE_MARKER_KINDS or orient not in GUIDE_MARKER_ORIENTS:
+            return None
+        required = dict(GUIDE_MARKER_FIELDS[kind])
+        fields: Dict[str, List[float]] = {}
+        label: Optional[str] = None
+        i = 2
+        m = len(toks)
+        while i < m:
+            word = toks[i].value.lower()
+            if word == GUIDE_MARKER_LABEL:
+                if kind != "span" or label is not None or i + 1 >= m:
+                    return None
+                if toks[i + 1].type is not TokenType.STRING:
+                    return None
+                label = _string_value(toks[i + 1])
+                i += 2
+                continue
+            arity = required.get(word)
+            if arity is None or word in fields:
+                return None
+            values: List[float] = []
+            j = i + 1
+            for position in range(arity):
+                if position:
+                    # The separator is required, not decoration: GLE's lexer
+                    # reads a leading sign as an operator, so without the
+                    # comma 'range -4 -3' collects as the one expression -7.
+                    if j >= m or toks[j].value != ",":
+                        return None
+                    j += 1
+                value, j = _collect_value(toks, j)
+                if value is None:
+                    return None
+                values.append(value)
+            fields[word] = values
+            i = j
+        if set(fields) != set(required):
+            return None
+        return {"kind": kind, "orient": orient, "fields": fields, "label": label}
+
+    @staticmethod
+    def _marked_dataset_name(body, start: int, kind: str) -> Optional[str]:
+        """The first dataset name of the ``data`` statement a marker stands on.
+
+        Blank lines between the marker and its ``data`` statement are
+        tolerated (gleplot emits none, a human might add one); another marker
+        is not -- that would mean this one's own emission is gone. The
+        dataset count is checked against the kind, so a marker over the wrong
+        statement is rejected here rather than mis-bound.
+        """
+        j = start
+        while j < len(body) and isinstance(body[j], BlankOrComment):
+            if _guide_marker_text(body[j]) is not None:
+                return None
+            j += 1
+        if j >= len(body) or not isinstance(body[j], Statement):
+            return None
+        stmt = body[j]
+        if (stmt.keyword or "").lower() != "data":
+            return None
+        names = [
+            t.value.lower()
+            for t in _words_and_values(stmt)
+            if t.type is TokenType.WORD and _DATASET_RE.match(t.value)
+        ]
+        # A refline is one dataset (x,y); a band is two (x,upper and x,lower).
+        if len(names) != (1 if kind == "refline" else 2):
+            return None
+        return names[0]
+
+    def _take_guide_marker(self, d_name: str, kind: str, info) -> Optional[dict]:
+        """Claim the marker on ``d_name``, if it is one of ``kind``."""
+        marker = cast(dict, info["_guide_markers"]).get(d_name)
+        if marker is None or marker["kind"] != kind:
+            return None
+        return marker
+
+    @staticmethod
+    def _guide_coord_matches(value: float, *found: float) -> bool:
+        """Whether an emitted coordinate is the one the marker claims.
+
+        Both sides are written by ``GLEWriter._format_number`` -- the marker's
+        number and the sidecar's rows alike -- so they agree exactly; the
+        tolerance is for the parse, not for the difference between a guide at
+        1.5 and a guide someone moved to 2.
+        """
+        return all(
+            math.isclose(value, other, rel_tol=1e-9, abs_tol=1e-12) for other in found
+        )
+
+    def _refline_from_marker(self, marker, entry, attrs, d_name, info):
+        """Rebuild a ``RefLine`` from its marker plus its own ``dN`` command.
+
+        Returns ``None`` -- leaving the marker unclaimed, which
+        :meth:`_discard_guide_markers` turns into a note -- whenever the
+        emission and the marker disagree, i.e. whenever one side was edited
+        after the other was written:
+
+        * the dataset is not the two rows a guide materializes into, or its
+          constant coordinate is not the one the marker claims (someone moved
+          the guide by editing the ``.dat``);
+        * the display command carries something no guide emission has: a
+          marker, a ``y2axis`` binding, an offset ``let``, smoothing.
+
+        Never guessed at, never half-applied: the caller then appends the
+        plain ``LineSeries`` it already built, which is exactly what this file
+        recovered before G18-lite.
+        """
+        if attrs["marker"] is not None or attrs["y2axis"]:
+            return None
+        if entry.get("offset") or attrs["smooth_mode"] != "none":
+            return None
+        if attrs["svg_smooth"] is not None:
+            return None
+        x = np.asarray(entry["x"], dtype=float)
+        y = np.asarray(entry["y"], dtype=float)
+        if x.size != 2 or y.size != 2:
+            return None
+        (value,) = marker["fields"]["value"]
+        along = x if marker["orient"] == "v" else y
+        if not self._guide_coord_matches(value, *along.tolist()):
+            return None
+        lo, hi = marker["fields"]["extent"]
+        ref = RefLine(
+            type="refline",
+            orient=marker["orient"],
+            value=value,
+            span_lo=lo,
+            span_hi=hi,
+            # Style, label and sidecar come from the visible commands: the
+            # marker carries only what they cannot state (gleplot.guides).
+            color=entry["color"],
+            linestyle=entry["linestyle"],
+            linewidth=entry["linewidth"],
+            label=entry["label"],
+            data_file=entry["data_file"],
+        )
+        if "column_names" in entry:
+            ref["column_names"] = entry["column_names"]
+        del cast(dict, info["_guide_markers"])[d_name]
+        return ref
+
+    def _span_from_marker(self, marker, entry, d_name, info):
+        """Rebuild a ``Span`` from its marker plus its own ``fill`` command.
+
+        The band's edges are its dataset's two constant columns and its
+        position is the other column's two rows, so the same cross-check as
+        :meth:`_refline_from_marker` applies to both. ``alpha`` comes back
+        1.0 over the emitted colour text, exactly as a hand-written fill's
+        does -- see the ``alpha`` note in :meth:`_parse_fill_command`, and
+        :mod:`gleplot.guides` for why the marker deliberately does not carry
+        it.
+        """
+        if entry.get("offset"):
+            return None
+        x = np.asarray(entry["x"], dtype=float)
+        upper = np.asarray(entry["y1"], dtype=float)
+        lower = np.asarray(entry["y2"], dtype=float)
+        if x.size != 2 or upper.size != 2 or lower.size != 2:
+            return None
+        start, end = marker["fields"]["range"]
+        if marker["orient"] == "v":
+            ok = (
+                self._guide_coord_matches(start, x[0])
+                and self._guide_coord_matches(end, x[1])
+                and self._guide_coord_matches(upper[0], upper[1])
+                and self._guide_coord_matches(lower[0], lower[1])
+            )
+        else:
+            # The x column is this band's fractional extent, already resolved
+            # against the axis range -- unrecoverable, and the marker's own
+            # business (gleplot.guides). Only the edges are cross-checkable.
+            ok = self._guide_coord_matches(
+                end, *upper.tolist()
+            ) and self._guide_coord_matches(start, *lower.tolist())
+        if not ok:
+            return None
+        lo, hi = marker["fields"]["extent"]
+        span = Span(
+            type="span",
+            orient=marker["orient"],
+            start=start,
+            end=end,
+            span_lo=lo,
+            span_hi=hi,
+            color=entry["color"],
+            alpha=entry["alpha"],
+            label=marker["label"],
+            data_file=entry["data_file"],
+        )
+        if "column_names" in entry:
+            span["column_names"] = entry["column_names"]
+        del cast(dict, info["_guide_markers"])[d_name]
+        return span
+
+    def _discard_guide_markers(self, info) -> None:
+        """Note every marker whose emission did not match it, and drop it.
+
+        Reached when the ``.gle`` was edited on one side only: the display
+        command deleted or restyled beyond what a guide emits, the sidecar
+        moved, the dataset never displayed at all. The commands themselves
+        are untouched (they have already become plain series, or passthrough,
+        by the ordinary rules); what is lost is the guide identity the marker
+        claimed, which is the smaller loss and the only one that was already
+        inconsistent with the file.
+        """
+        markers = cast(dict, info["_guide_markers"])
+        for marker in markers.values():
+            self._note(
+                ImportCategory.STRUCTURE,
+                "'"
+                + marker["text"]
+                + "' does not describe the commands beside it (the file was "
+                "edited); the marker was dropped and they import as plain "
+                "series, not as a guide",
+                marker["span"],
+            )
+        markers.clear()
 
     def _reconcile_axis_styling(self, info) -> None:
         """Decide what the parked ``*ticks``/``y2labels on`` lines meant.
@@ -2750,6 +3090,15 @@ class _Recognizer:
         column_names = self._recovered_column_names(f1, [xc1, yc1, yc2])
         if column_names is not None:
             fill_entry["column_names"] = column_names
+        # A marked fill is an axvspan/axhspan that materialized into this
+        # dataset pair (G18-lite); a mismatch stays the plain FillSeries this
+        # method has always built.
+        marker = self._take_guide_marker(d_names[0], "span", info)
+        if marker is not None:
+            span_entry = self._span_from_marker(marker, fill_entry, d_names[0], info)
+            if span_entry is not None:
+                info["spans"].append(span_entry)
+                return
         info["fills"].append(fill_entry)
 
     # -- key -------------------------------------------------------------
@@ -2978,6 +3327,17 @@ class _Recognizer:
             info["_draw_seq_counter"] += 1
             info["scatters"].append(entry)
         else:
+            # A marked line is an axvline/axhline that materialized into this
+            # dataset (G18-lite): it becomes the declaration it came from,
+            # never a drawable, so it takes no ``_draw_seq`` and no smoothing
+            # bookkeeping. A mismatch falls straight through to the plain
+            # LineSeries below -- the pre-G18-lite recovery, unchanged.
+            marker = self._take_guide_marker(d_name, "refline", info)
+            if marker is not None:
+                refline = self._refline_from_marker(marker, entry, attrs, d_name, info)
+                if refline is not None:
+                    info["reflines"].append(refline)
+                    return
             entry["_draw_seq"] = info["_draw_seq_counter"]
             info["_draw_seq_counter"] += 1
             info["lines"].append(entry)
@@ -5020,7 +5380,21 @@ class _Recognizer:
         used = set()
         sidecars = set()
         for ax in fig.axes_list:
-            for s in ax.lines + ax.scatters + ax.bars + ax.fills + ax.errorbars:
+            # Guides count: a dataset-form guide (G18-lite) owns its sidecar
+            # exactly as the plain series it used to be recovered as did, and
+            # the name has to stay reserved -- otherwise the next series
+            # added would be handed a name a guide is still writing to. A
+            # draw-form guide (G17) has no data_file yet at this point; it is
+            # given one below, from the state this loop settles.
+            for s in (
+                ax.lines
+                + ax.scatters
+                + ax.bars
+                + ax.fills
+                + ax.errorbars
+                + ax.reflines
+                + ax.spans
+            ):
                 df = s.get("data_file")
                 if df:
                     used.add(df)

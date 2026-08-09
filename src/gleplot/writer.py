@@ -30,7 +30,14 @@ import numpy as np
 
 from .colors import apply_alpha
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
-from .guides import REFLINE_LAYER, SPAN_LAYER, guide_sub_name, guide_sub_texts
+from .guides import (
+    GUIDE_MARKER_LABEL,
+    GUIDE_MARKER_PREFIX,
+    REFLINE_LAYER,
+    SPAN_LAYER,
+    guide_sub_name,
+    guide_sub_texts,
+)
 from .parser.tables import KEY_POSITIONS_LONG_TO_SHORT
 from .parser.units import (
     fontsize_pt_to_cm,
@@ -3239,6 +3246,77 @@ class GLEWriter:
         cmd += f' key "{self._escape_gle_string(label)}"'
         self.lines_gle.append(cmd)
         return d_name
+
+    # -- the dataset form's provenance marker (G18-lite) ------------------
+
+    def _add_guide_marker(self, kind: str, orient: str, args: List[str]) -> None:
+        """Emit one ``! gleplot:guide ...`` comment line.
+
+        A comment, so the engine never sees it (verified by compiled
+        pixel-diff, ``tests/integration/test_guide_marker_compiles.py``), and
+        the bytes it precedes are unchanged. The grammar, and the rule for
+        what may appear in ``args`` at all, live in :mod:`gleplot.guides`.
+        """
+        self.lines_gle.append(
+            f"    {GUIDE_MARKER_PREFIX} {kind} {orient} " + " ".join(args)
+        )
+
+    def _guide_marker_pair(self, first: float, second: float) -> str:
+        """``a,b`` -- a marker's two-number field, comma-joined and spaceless.
+
+        The comma is not decoration: GLE's lexer reads a leading sign as an
+        operator, so ``-4 -3`` would collect back as the single expression
+        ``-7``. See :mod:`gleplot.guides`.
+        """
+        return f"{self._format_number(first)},{self._format_number(second)}"
+
+    def add_refline_marker(
+        self, orient: str, value: float, span_lo: float, span_hi: float
+    ) -> None:
+        """Mark the two-point dataset that follows as an ``axvline``/``axhline``.
+
+        Emitted immediately before the guide's own ``data`` statement, by
+        :meth:`gleplot.figure.Figure._write_axes_content`, for every guide
+        that materializes (i.e. every guide NOT routed to the draw form by
+        ``Axes.guide_needs_engine_range``).
+        """
+        self._add_guide_marker(
+            "refline",
+            orient,
+            [
+                "value",
+                self._format_number(value),
+                "extent",
+                self._guide_marker_pair(span_lo, span_hi),
+            ],
+        )
+
+    def add_span_marker(
+        self,
+        orient: str,
+        start: float,
+        end: float,
+        span_lo: float,
+        span_hi: float,
+        label: Optional[str],
+    ) -> None:
+        """Mark the fill that follows as an ``axvspan``/``axhspan``.
+
+        ``label`` is emitted only when the band has one: ``fill dA,dB`` has no
+        ``key`` option of its own, so unlike a refline's label a band's has
+        nowhere else to live -- and unlike a refline's it is dropped rather
+        than drawn (the dataset form's legend behaviour is unchanged; see
+        :meth:`add_fill_between`).
+        """
+        args = [
+            "range",
+            self._guide_marker_pair(start, end),
+            "extent",
+            self._guide_marker_pair(span_lo, span_hi),
+        ]
+        if label:
+            args += [GUIDE_MARKER_LABEL, f'"{self._escape_gle_string(label)}"']
+        self._add_guide_marker("span", orient, args)
 
     def _row_order(
         self,

@@ -62,6 +62,13 @@ Like :mod:`gleplot.palettes`, the sub text is a pure function of its name, so
 the recognizer can drop ``sub gleplot_*`` bodies wholesale and regenerate them
 canonically -- which is what keeps the writer -> parse -> writer fixed point
 byte-identical.
+
+This module also fixes the **provenance marker** the other emission form
+carries (G18-lite): the literal-dataset guide is preceded by a structured
+``! gleplot:guide ...`` comment, so it too comes back a ``RefLine``/``Span``
+rather than the plain series it materialized into. See the block comment on
+:data:`GUIDE_MARKER_PREFIX` for the grammar and for what does and does not
+belong in it.
 """
 
 from __future__ import annotations
@@ -76,7 +83,99 @@ __all__ = [
     "guide_sub_text",
     "guide_sub_texts",
     "GUIDE_CALL_KINDS",
+    "GUIDE_MARKER_PREFIX",
+    "GUIDE_MARKER_KINDS",
+    "GUIDE_MARKER_ORIENTS",
+    "GUIDE_MARKER_FIELDS",
+    "GUIDE_MARKER_LABEL",
 ]
+
+
+# -- the dataset-form provenance marker (G18-lite) ---------------------------
+#
+# The other emission form -- the common one -- is a literal two-point dataset
+# plus a ``dN line`` / ``fill dA,dB`` command (``Axes.materialize_reflines`` /
+# ``materialize_spans``). Nothing in those bytes says "this is a guide", so
+# until G18-lite every ``.gle`` re-import silently demoted a RefLine/Span to
+# the LineSeries/FillSeries it had materialized into.
+#
+# A **comment** closes that with zero rendering impact by construction (GLE
+# never reads past ``!``), so the emission stays additive to the byte:
+# sidecars, dataset indices and every visible command are what they always
+# were.
+#
+# Grammar -- one line, immediately above the guide's own ``data`` statement::
+#
+#     ! gleplot:guide refline v value 1.5 extent 0,1
+#     ! gleplot:guide span v range 0.5,1 extent 0.2,0.6 label "band"
+#
+# Keyword-tagged and GLE-lexable: the recognizer runs the same tokenizer and
+# the same ``_collect_value`` / ``_string_value`` helpers it uses on real
+# statements, so an escaped quote needs no bespoke handling here.
+#
+# **The pair separator is a comma, and that is load-bearing.** GLE's lexer
+# reads a sign as an operator, so two space-separated numbers whose second is
+# negative are one expression to ``_collect_value``: ``range -4 -3`` collects
+# as -7, not as (-4, -3). A comma is not a value operator, so it ends the
+# expression -- and it is GLE's own separator for a pair (``d1=c1,c2``,
+# ``fill dA,dB``), so the marker reads like the script around it. No space
+# inside the pair, for the same reason gleplot writes none in a ``bar``
+# comma-list.
+#
+# **The marker carries the model residue and nothing else.** Everything a
+# visible command already states unambiguously is read back from that command,
+# so there is exactly one source of truth per field:
+#
+#   * colour / linestyle / linewidth -> the ``dN line ...`` / ``fill ...``
+#     command;
+#   * a refline's label              -> its ``key "..."`` clause;
+#   * the sidecar and its header row -> the ``data`` statement and the
+#     ``.dat`` file itself.
+#
+# What is left is unrecoverable from the script at any price, and is exactly
+# what the marker exists to carry:
+#
+#   * **kind and orientation** -- derivable only from the *shape* of the
+#     dataset, which recognition is forbidden to key off (a hand-written
+#     two-point line must stay a plain line);
+#   * **the coordinate(s)** -- ``value``, or a band's ``range a b``: they live
+#     in the ``.dat`` sidecar, not in the script;
+#   * **the fractional extent** -- ``extent lo hi`` is an axes fraction, and
+#     the emitted rows are that fraction already resolved against the axis
+#     range; inverting it would need that range to be recoverable, which for
+#     an autoscaled axis it is not;
+#   * **a span's label** -- GLE's ``fill dA,dB`` has no ``key`` option, so the
+#     dataset form has never had anywhere to put it (the draw form has the
+#     same gap; see ``GLEWriter.add_span_draw``). Omitted from the marker when
+#     empty, so an unlabelled band costs no extra bytes.
+#
+# A span's ``alpha`` is deliberately NOT carried: it is folded into the
+# emitted colour by ``colors.apply_alpha`` and comes back folded (alpha 1.0
+# over an ``rgba255(...)`` colour text), exactly as a hand-written fill does
+# and exactly as the G17 draw form does. Carrying it would mean carrying the
+# unfolded colour with it -- two sources of truth for one visible token.
+
+#: Prefix of the dataset-form provenance-marker comment. Distinct from the
+#: metadata block's ``! gleplot: key = value`` lines (no space after the
+#: colon, and a keyword rather than a key) and emitted nowhere else.
+GUIDE_MARKER_PREFIX = "! gleplot:guide"
+
+#: The model kinds a marker can name.
+GUIDE_MARKER_KINDS: Tuple[str, ...] = ("refline", "span")
+
+#: The orientations a marker can name.
+GUIDE_MARKER_ORIENTS: Tuple[str, ...] = ("v", "h")
+
+#: ``kind -> ((keyword, arity), ...)`` for the required numeric fields, in
+#: emission order. The recognizer accepts them in any order but requires all
+#: of them: a marker missing one describes nothing it could rebuild.
+GUIDE_MARKER_FIELDS: Dict[str, Tuple[Tuple[str, int], ...]] = {
+    "refline": (("value", 1), ("extent", 2)),
+    "span": (("range", 2), ("extent", 2)),
+}
+
+#: The optional trailing string field (a band's legend label).
+GUIDE_MARKER_LABEL = "label"
 
 
 #: Graph layer for a ``Span`` draw call -- just under GLE's ``FILL``/``BAR``

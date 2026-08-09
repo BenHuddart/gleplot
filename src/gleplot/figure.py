@@ -2074,10 +2074,30 @@ class Figure:
                 span["alpha"],
                 span["label"],
             )
-        fill_pairs = resolution.pairs(ax.fills) + [
-            (span, span) for span in ax.materialize_spans(limits)
-        ]
-        for fill_series, fill_data in fill_pairs:
+        # The declarations behind the materialized bands, in the same order
+        # (see Axes.dataset_form_guides), so each fill can be preceded by the
+        # provenance marker that makes it re-import as a Span (G18-lite).
+        span_sources = ax.dataset_form_guides(ax.spans, limits)
+        span_fills = ax.materialize_spans(limits)
+        if len(span_sources) != len(span_fills):  # pragma: no cover - invariant
+            raise AssertionError(
+                "materialize_spans and dataset_form_guides disagree: "
+                f"{len(span_fills)} vs {len(span_sources)}"
+            )
+        plain_fills = resolution.pairs(ax.fills)
+        fill_pairs = plain_fills + [(span, span) for span in span_fills]
+        for fill_index, (fill_series, fill_data) in enumerate(fill_pairs):
+            guide_index = fill_index - len(plain_fills)
+            if guide_index >= 0:
+                source = span_sources[guide_index]
+                writer.add_span_marker(
+                    source["orient"],
+                    source["start"],
+                    source["end"],
+                    source["span_lo"],
+                    source["span_hi"],
+                    source["label"],
+                )
             writer.add_fill_between(
                 fill_data["x"],
                 fill_data["y1"],
@@ -2105,7 +2125,20 @@ class Figure:
                 ref["label"],
             )
 
-        for ref_data in ax.materialize_reflines(limits):
+        ref_sources = ax.dataset_form_guides(ax.reflines, limits)
+        ref_datasets = ax.materialize_reflines(limits)
+        if len(ref_sources) != len(ref_datasets):  # pragma: no cover - invariant
+            raise AssertionError(
+                "materialize_reflines and dataset_form_guides disagree: "
+                f"{len(ref_datasets)} vs {len(ref_sources)}"
+            )
+        for source, ref_data in zip(ref_sources, ref_datasets):
+            writer.add_refline_marker(
+                source["orient"],
+                source["value"],
+                source["span_lo"],
+                source["span_hi"],
+            )
             writer.add_plot_line(
                 ref_data["x"],
                 ref_data["y"],

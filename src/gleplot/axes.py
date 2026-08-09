@@ -1771,6 +1771,24 @@ class Axes:
             if is_visible(entry) and self.guide_needs_engine_range(entry, limits)
         ]
 
+    def dataset_form_guides(self, series_list, limits) -> List[Series]:
+        """The visible guides in ``series_list`` that materialize into datasets.
+
+        The exact complement of :meth:`engine_range_guides` among the visible
+        entries -- both filter on the same two predicates -- and therefore
+        positionally aligned, by construction, with what
+        :meth:`materialize_reflines` / :meth:`materialize_spans` return for
+        the same ``limits``. That alignment is what lets the writer put each
+        materialized dataset's provenance marker (G18-lite) back beside the
+        declaration it came from; ``Figure._write_axes_content`` checks the
+        two lists are the same length rather than trusting it silently.
+        """
+        return [
+            entry
+            for entry in series_list
+            if is_visible(entry) and not self.guide_needs_engine_range(entry, limits)
+        ]
+
     def materialize_reflines(self, limits) -> List[LineSeries]:
         """Turn ``self.reflines`` into concrete two-point line series.
 

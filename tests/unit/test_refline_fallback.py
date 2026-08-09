@@ -22,11 +22,21 @@ else moved*. Every figure in ``_refline_battery`` has resolvable limits and
 must emit exactly the bytes the pre-G14 writer produced, which
 ``refline_resolvable_emissions.json`` (captured on base commit 83dcdd9) pins --
 byte for byte, through G14 and G17 alike.
+
+**G18-lite adds one line per materialized guide, and only that.** The snapshot
+was regenerated for it: every guide-bearing entry gained its
+``! gleplot:guide ...`` provenance comment (:mod:`gleplot.guides`) and nothing
+else -- no statement changed, no dataset index moved, no sidecar byte moved.
+That claim is not left to the eye of whoever read the diff:
+``test_the_g18_lite_marker_is_a_pure_insertion`` stubs the marker methods out
+and requires the emission to equal this snapshot with its marker lines
+deleted, which is the pre-G18-lite text this file has pinned all along.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from pathlib import Path
 
@@ -35,6 +45,8 @@ import pytest
 
 import gleplot as glp
 from gleplot.axes import EMPTY_AXIS_FALLBACK_RANGE
+from gleplot.guides import GUIDE_MARKER_PREFIX
+from gleplot.writer import GLEWriter
 
 from . import _refline_battery as rb
 
@@ -399,3 +411,42 @@ def test_resolvable_limits_emit_byte_identically_to_pre_g14(name):
     reference = SNAPSHOT[name]
     assert text == reference["gle"]
     assert files == reference["files"]
+
+
+@pytest.mark.parametrize("name", rb.BUILDER_IDS)
+def test_the_g18_lite_marker_is_a_pure_insertion(name, monkeypatch):
+    """Suppress the marker and the pre-G18-lite bytes come back, exactly.
+
+    This is what "additive bytes only" means, made checkable: the emission
+    with the marker methods stubbed out must equal the snapshot with its
+    marker lines deleted -- same ``data`` statements, same dataset indices,
+    same sidecars, same everything. If adding a comment had shifted a dataset
+    number or a byte of a sidecar, the two sides would not meet.
+    """
+    monkeypatch.setattr(
+        GLEWriter, "add_refline_marker", lambda *a, **k: None, raising=True
+    )
+    monkeypatch.setattr(
+        GLEWriter, "add_span_marker", lambda *a, **k: None, raising=True
+    )
+    text, files = rb.emit(name)
+
+    reference = SNAPSHOT[name]
+    # Whole physical lines, so a trailing newline is neither added nor lost.
+    unmarked = re.sub(
+        r"^[ \t]*" + re.escape(GUIDE_MARKER_PREFIX) + r"[^\n]*\n",
+        "",
+        reference["gle"],
+        flags=re.MULTILINE,
+    )
+    assert text == unmarked
+    assert files == reference["files"]
+
+
+@pytest.mark.parametrize("name", rb.BUILDER_IDS)
+def test_every_marker_in_the_snapshot_stands_over_a_data_statement(name):
+    """The marker's binding is positional, so its position is part of the pin."""
+    lines = [line.strip() for line in SNAPSHOT[name]["gle"].splitlines()]
+    for i, line in enumerate(lines):
+        if line.startswith(GUIDE_MARKER_PREFIX):
+            assert lines[i + 1].startswith("data "), lines[i + 1]
