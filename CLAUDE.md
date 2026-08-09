@@ -27,6 +27,8 @@ Two entry points:
 - `dataio.py` — pure-Python delimited data-file loading (`load_data_file`, `DataTable`); no Qt dependency, shared by parser and GUI.
 - `calibration.py` — **calibration record v2** (GLEstudio SPEC §6.2/§6.3): instruments a *preview copy* of a script (`instrument_script` wraps each graph block in `begin name` and prints `glestudio-cal`/`glestudio-box` records; `inject_text_metrics` adds `glestudio-tw` metrics), parses GLE's stderr back into typed records with surfaced warnings (`parse_calibration_records`), derives the x/y/x2/y2 affine maps, and flags CTM-modifying statements that would silently corrupt geometry (`find_ctm_hazards`). Qt-free and writer-free — instrumentation is a post-generation splice over `parser.syntax`, so the byte-identical fixed point is untouched. The GUI's own overlay still uses the older, narrower `gui/geometry.py` (v1); see that module's docstring.
 
+- `guides.py` — the `sub gleplot_vline`/`hline`/`vspan`/`hspan` sources and their layer constants. A `RefLine`/`Span` normally materializes into a literal two-point dataset at write time; when the axis it spans has an unresolved bound (empty axes, or a range deferred to the engine) there is nothing to measure the fraction against, so it is emitted instead as a graph-block `draw` reading GLE's own `xgmin`/`ygmax` — the guide then spans the frame GLE chose and takes no part in choosing it. Write-time routing only (`Axes.guide_needs_engine_range`): no model field, and every guide whose axis resolves emits exactly the bytes it always did.
+
 ### Parser subpackage (`src/gleplot/parser/`)
 
 Parses **existing `.gle` source back into an object model**. No Qt imports; stdlib only.

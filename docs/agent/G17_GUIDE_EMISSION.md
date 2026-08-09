@@ -1,8 +1,28 @@
 # G17 — guide emission: literal datasets vs engine-range awareness
 
-**Status: design evaluation only. Nothing in `src/` changed on this branch.**
-Recommendation at the end; the supervisor decides whether to schedule the
-implementation (and in which of the two shapes below) before any code lands.
+**Status: IMPLEMENTED. Candidate 1a (§3) was approved and is what this branch
+now ships** — `src/gleplot/guides.py` (the four `gleplot_*line`/`*span` subs
+and the layer constants), the write-time routing in
+`Axes.guide_needs_engine_range` / `Figure._write_axes_content`, the two
+emission methods on `GLEWriter`, and the call-site recogniser at
+`_try_guide_layer_block`. The measurements below stand as recorded; §1.1's
+"before" numbers are re-measured against the live engine, alongside the "after"
+ones, in `tests/integration/test_guide_draw_form_compiles.py`.
+
+Two details settled during implementation that the evaluation had not:
+
+* **Colours travel as strings.** `draw s orange` passes the *variable* `orange`
+  (undefined -> 0 -> black): a GLE colour name is a parser-level constant, not
+  a value a sub parameter can carry. The subs take `clr$` and convert with
+  GLE's `cvtcolor()`, which handles names and colour expressions alike —
+  `cvtcolor("rgba255(255,0,0,128)")` renders pixel-identically to the literal
+  form under `-cairo`.
+* **Recognition also requires the canonical layer number.** A gleplot-authored
+  block whose layer someone edited to change the z-order stays passthrough and
+  is re-emitted verbatim, rather than being recognized and then silently
+  written back at 349/699.
+
+The rest of this note is the original evaluation, unchanged.
 
 Everything numeric here was measured against the installed engine, GLE
 4.3.10 (`/usr/local/bin/gle`). Probe scripts are inlined so the measurements
