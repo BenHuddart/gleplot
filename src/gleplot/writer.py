@@ -1876,6 +1876,7 @@ class GLEWriter:
         label: Optional[str] = None,
         marker: Optional[str] = None,
         markersize: float = 0.1,
+        nomiss: bool = False,
         yaxis: str = "y",
         offset: float = 0.0,
         column_names: Optional[List[str]] = None,
@@ -1908,6 +1909,10 @@ class GLEWriter:
             GLE marker name
         markersize : float
             Marker size for GLE (msize)
+        nomiss : bool
+            When the line has missing values, draw through them instead of
+            leaving a gap (GLE's ``nomiss`` qualifier). No effect when the
+            series draws no line.
         yaxis : str
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
         column_names : list of str, optional
@@ -1977,7 +1982,12 @@ class GLEWriter:
 
         if has_line:
             # Line plot; smoothing only when opted in (see _line_token).
+            # ``nomiss`` follows the smoothing tokens: dn keywords are
+            # order-independent in GLE's kw loop except the documented
+            # svg_smooth-before-mode rule, which _line_token owns.
             line_cmd += self._line_token(smooth_mode, svg_smooth)
+            if nomiss:
+                line_cmd += " nomiss"
             line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
 
             # Use configured line styles from style config. (A stray second
@@ -2645,6 +2655,7 @@ class GLEWriter:
         yaxis: str = "y",
         marker: Optional[str] = None,
         markersize: float = 0.1,
+        nomiss: bool = False,
     ):
         """Add a line series that references columns in an external data file.
 
@@ -2654,6 +2665,9 @@ class GLEWriter:
         ``has_line`` branch; a no-line, marker-only reference is emitted via
         ``add_errorbar_from_file`` instead), so there is no separate
         no-line/marker-only case to guard here, unlike ``add_plot_line``.
+
+        ``nomiss`` : draw the line through a missing value instead of
+        leaving a gap (GLE's ``nomiss`` qualifier).
         """
         d_main = f"d{self.dataset_index}"
         self.dataset_index += 1
@@ -2667,10 +2681,10 @@ class GLEWriter:
         else:
             gle_lwidth = linewidth_pt_to_cm(linewidth)
 
-        line_cmd = (
-            f"    {d_main}{self._line_token()} color {color} "
-            f"lwidth {self._format_number(gle_lwidth)}"
-        )
+        line_cmd = f"    {d_main}{self._line_token()}"
+        if nomiss:
+            line_cmd += " nomiss"
+        line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
         elif linestyle == ":":

@@ -940,6 +940,7 @@ class Axes:
             markersize=gle_markersize,
             linestyle=linestyle,
             linewidth=linewidth,
+            nomiss=False,
             label=label,
             yaxis=yaxis,  # 'y' or 'y2'
             offset=float(offset),
@@ -1263,6 +1264,7 @@ class Axes:
                 color=gle_color,
                 linestyle=linestyle,
                 linewidth=float(linewidth),
+                nomiss=False,
                 label=label,
                 yaxis=yaxis,
             )

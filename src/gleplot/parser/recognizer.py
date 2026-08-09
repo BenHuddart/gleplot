@@ -3493,6 +3493,7 @@ class _Recognizer:
             markersize=markersize,
             linestyle=linestyle,
             linewidth=linewidth,
+            nomiss=attrs["nomiss"],
             label=attrs["label"],
             yaxis="y2" if attrs["y2axis"] else "y",
             offset=info["_dataset_offsets"].get(d_name, 0.0),
@@ -3553,6 +3554,7 @@ class _Recognizer:
             # iteration count (>= 1) or None.
             "smooth_mode": "none",
             "svg_smooth": None,
+            "nomiss": False,
             "color": None,
             "lwidth": None,
             "lstyle": None,
@@ -3601,6 +3603,10 @@ class _Recognizer:
                 a["smooth"] = False
                 a["smooth_mode"] = "none"
                 i = nxt
+                continue
+            if w == "nomiss":
+                a["nomiss"] = True
+                i += 1
                 continue
             if w == "color" and i + 1 < m:
                 val, nxt = _collect_color(toks, i + 1)
@@ -3976,6 +3982,7 @@ class _Recognizer:
                     if attrs["lwidth"] is not None
                     else 1.0
                 ),
+                nomiss=attrs["nomiss"],
                 label=attrs["label"],
                 yaxis="y2" if attrs["y2axis"] else "y",
             )
