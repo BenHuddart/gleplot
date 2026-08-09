@@ -420,3 +420,43 @@ The *rendering* is correct (GLE splits sub-call arguments on whitespace itself
 and only for a band whose two coordinates are both negative. G18-lite's marker
 sidesteps the same hazard by separating pairs with a comma, which is not a
 value operator; the draw form would need a positional argument splitter.
+
+**G17.1 fixed it with exactly that splitter.** `_split_call_words` groups a
+`draw gleplot_*` call's tokens by the token *spans* the lexer already
+records — a gap between two tokens starts a new argument, no gap keeps them
+in the same one — instead of `_collect_value`'s expression grammar. That
+mirrors GLE's own rule (whitespace splits sub-call arguments, full stop)
+exactly: `-4 -3` lexes as `OP '-'` `NUMBER '4'` `OP '-'` `NUMBER '3'`, and the
+one-space gap the writer always emits between arguments (`" ".join(args)` in
+`GLEWriter._add_guide_draw`) falls exactly between the first pair and the
+second, so they now split into two words. A spaceless expression like `2*pi`
+or a signed literal like `-4` (`OP '-'` glued to `NUMBER '4'` with no gap)
+still reads as one argument, because nothing in it has a gap either.
+`_guide_call_args` now calls `_split_call_words` and evaluates each word
+whole with `eval_gle_number` (numeric) or unwraps it if it is a single
+`STRING` token (so an escaped quote or an embedded space in a color/label
+string survives unchanged — nothing about string handling needed to move).
+
+**No-silent-drops, extended to the recognizer's own near-misses.** Before
+G17.1, three shapes that are recognizably gleplot's own — the call name has
+gleplot's guide-sub prefix but isn't one of the four it writes, the call name
+and arity match but the enclosing layer number was edited, or the arity
+itself is wrong (this splitter fix included, since a still-mismatched arg
+count is possible from hand-edited files) — degraded to raw passthrough with
+no note at all, same as a genuinely foreign `draw` or a bare call with no
+`layer` wrapper (which are *not* gleplot's to explain and correctly stay
+silent). `_try_guide_layer_block` now emits a `structure:` `ImportNote` for
+the first three cases, naming the call and what was wrong, matching the
+"no silent drops" rule already applied to the G18-lite marker's own
+tampering cases (§ above).
+
+Fixed on branch `fix/g17-1-subcall-args`, tests in
+`tests/unit/test_refline_fallback.py`: the documented `gleplot_vspan -4 -3`
+case now recovers as a `Span`; the round-trip parametrization
+(`test_a_drawn_guide_round_trips_as_a_guide`) gained an adjacent-negative
+build for all four guide kinds (the refline cases force `span_lo` negative
+directly on the model, since `axvline`/`axhline`'s public API clamps
+`ymin`/`xmin` to `[0, 1]` and so can never reach this shape on its own); and
+`test_a_degraded_gleplot_guide_block_is_never_silent` pins the `structure:`
+note for each near-miss shape and its absence for the two shapes that stay
+silent.

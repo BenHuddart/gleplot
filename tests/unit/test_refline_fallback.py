@@ -288,6 +288,23 @@ def test_resolved_limits_keep_the_literal_dataset():
 # --------------------------------------------------------------------------- #
 
 
+def _neg_adjacent_refline(entry):
+    """Force ``span_lo`` negative, so a refline's ``value lo`` are adjacent.
+
+    ``axvline``/``axhline``'s public API clamps ``ymin``/``xmin`` (here
+    ``span_lo``) to ``[0, 1]`` (matplotlib semantics), so it alone can never
+    reproduce G17.1's merge bug: ``draw gleplot_vline value lo hi ...`` needs
+    ``value`` AND ``lo`` both negative and adjacent, and the public
+    constructor forbids a negative ``lo``. The model enforces nothing at this
+    level -- a ``RefLine`` is a plain dict, and GLEstudio's ``project.json``
+    is authoritative and can set ``span_lo`` to anything -- so this is a
+    state the recognizer still has to read correctly even though the
+    convenience constructor never produces it directly.
+    """
+    entry["span_lo"] = -3.0
+    return entry
+
+
 @pytest.mark.parametrize(
     "build",
     [
@@ -295,8 +312,27 @@ def test_resolved_limits_keep_the_literal_dataset():
         lambda ax: ax.axhline(-2.5, xmin=0.25, xmax=0.75, linewidth=3.0),
         lambda ax: ax.axvspan(0.4, 0.6, color="orange", alpha=0.35),
         lambda ax: ax.axhspan(1.0, 2.0, xmin=0.1, xmax=0.9, label="band"),
+        # G17.1: two adjacent negative coordinates in the draw call's own
+        # argument list, the exact shape documented in
+        # docs/agent/G17_GUIDE_EMISSION.md §6 (`draw gleplot_vspan -4 -3 ...`
+        # used to merge into one `-7` argument and fall to passthrough).
+        lambda ax: _neg_adjacent_refline(
+            ax.axvline(-4.0, color="red", label='say "hi" there')
+        ),
+        lambda ax: _neg_adjacent_refline(ax.axhline(-4.0, linewidth=2.0)),
+        lambda ax: ax.axvspan(-4.0, -3.0, color="orange"),
+        lambda ax: ax.axhspan(-4.0, -3.0, xmin=0.1, xmax=0.9, label="band"),
     ],
-    ids=["axvline", "axhline", "axvspan", "axhspan"],
+    ids=[
+        "axvline",
+        "axhline",
+        "axvspan",
+        "axhspan",
+        "axvline-adjacent-negatives",
+        "axhline-adjacent-negatives",
+        "axvspan-adjacent-negatives",
+        "axhspan-adjacent-negatives",
+    ],
 )
 def test_a_drawn_guide_round_trips_as_a_guide(build, tmp_path):
     """emit -> parse -> model is a RefLine/Span -> emit is byte-identical.
@@ -344,6 +380,36 @@ def test_a_drawn_guide_round_trips_as_a_guide(build, tmp_path):
     assert second.read_text(encoding="utf-8") == first.read_text(encoding="utf-8")
 
 
+def test_the_documented_g17_1_case_recovers_as_a_span(tmp_path):
+    """The exact bytes from docs/agent/G17_GUIDE_EMISSION.md §6, verbatim.
+
+    Before G17.1, ``_guide_call_args`` read ``-4 -3`` as the one expression
+    ``-4-3`` (``_collect_value`` treats a bare ``-`` as a binary operator
+    regardless of the whitespace around it), so this five-argument read
+    fell one short of the six ``gleplot_vspan`` takes and the whole block
+    degraded to raw passthrough. GLE itself splits sub-call arguments on
+    whitespace (probe-verified in the design note), so the *rendering* was
+    always correct -- only the recognizer's identity recovery was wrong.
+    """
+    from gleplot.parser.recognizer import parse_gle_figure
+
+    block = '   begin layer 349\n      draw gleplot_vspan -4 -3 0 1 "LIGHTGRAY" ""\n   end layer'
+    src = tmp_path / "hand.gle"
+    src.write_text(_HAND_WRITTEN.format(block=block), encoding="utf-8")
+
+    recognized = parse_gle_figure(str(src))
+    ax = recognized.figure.axes_list[0]
+
+    assert ax.reflines == []
+    assert len(ax.spans) == 1
+    span = ax.spans[0]
+    assert (span["start"], span["end"]) == (-4.0, -3.0)
+    assert (span["span_lo"], span["span_hi"]) == (0.0, 1.0)
+    assert span["color"] == "LIGHTGRAY"
+    assert ax.passthrough == []
+    assert not any(w.startswith("structure:") for w in recognized.warnings)
+
+
 _HAND_WRITTEN = """\
 ! GLE graphics file
 size 20.32 15.24
@@ -367,8 +433,12 @@ end graph
         "\n   end layer",
         # A bare draw with no layer block around it.
         '   draw gleplot_vline 0.5 0 1 "BLACK" 0.05 1 ""',
+        # gleplot's own guide-sub prefix, but not one of the four calls it
+        # actually writes.
+        '   begin layer 699\n      draw gleplot_typo 1 0 1 "BLACK" 0.05 1 ""'
+        "\n   end layer",
     ],
-    ids=["foreign-sub", "wrong-arity", "edited-layer", "no-layer"],
+    ids=["foreign-sub", "wrong-arity", "edited-layer", "no-layer", "unknown-prefix"],
 )
 def test_only_the_writers_own_shape_is_read_back_as_a_guide(block, tmp_path):
     """Everything else survives verbatim instead of being reinterpreted.
@@ -391,6 +461,73 @@ def test_only_the_writers_own_shape_is_read_back_as_a_guide(block, tmp_path):
     out = tmp_path / "hand-again.gle"
     parsed.savefig_gle(str(out))
     assert block.strip().splitlines()[-1].strip() in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "block,call,expect_note",
+    [
+        (
+            "   begin layer 699\n      draw my_own_marker 1 2\n   end layer",
+            "my_own_marker",
+            False,
+        ),
+        (
+            '   begin layer 699\n      draw gleplot_vline 0.5 0 1 "BLACK"\n   end layer',
+            "gleplot_vline",
+            True,
+        ),
+        (
+            '   begin layer 42\n      draw gleplot_vline 0.5 0 1 "BLACK" 0.05 1 ""'
+            "\n   end layer",
+            "gleplot_vline",
+            True,
+        ),
+        (
+            '   draw gleplot_vline 0.5 0 1 "BLACK" 0.05 1 ""',
+            "gleplot_vline",
+            False,
+        ),
+        (
+            '   begin layer 699\n      draw gleplot_typo 1 0 1 "BLACK" 0.05 1 ""'
+            "\n   end layer",
+            "gleplot_typo",
+            True,
+        ),
+    ],
+    ids=["foreign-sub", "wrong-arity", "edited-layer", "no-layer", "unknown-prefix"],
+)
+def test_a_degraded_gleplot_guide_block_is_never_silent(
+    block, call, expect_note, tmp_path
+):
+    """G17.1: identity loss on a gleplot_*-shaped block is noted, not silent.
+
+    A block that is not even shaped like a gleplot guide call -- no
+    ``gleplot_`` prefix on the call name, or no enclosing layer at all --
+    is not gleplot's own to explain and stays quietly-preserved raw GLE,
+    exactly as before. But a block that IS recognizably gleplot's -- the
+    call has the guide-sub prefix, or the call name and arity match but the
+    layer was edited, or the arity itself is wrong -- degrades to
+    passthrough with a ``structure:`` note now, the same "no silent drops"
+    rule already applied to the G18-lite marker's own tampering cases.
+    """
+    from gleplot.parser.recognizer import parse_gle_figure
+
+    src = tmp_path / "hand.gle"
+    src.write_text(_HAND_WRITTEN.format(block=block), encoding="utf-8")
+
+    recognized = parse_gle_figure(str(src))
+    ax = recognized.figure.axes_list[0]
+    assert ax.reflines == [] and ax.spans == []
+
+    matching = [
+        w
+        for w in recognized.warnings
+        if w.startswith("structure:") and f"'draw {call}'" in w
+    ]
+    if expect_note:
+        assert len(matching) == 1, recognized.warnings
+    else:
+        assert matching == [], matching
 
 
 # --------------------------------------------------------------------------- #

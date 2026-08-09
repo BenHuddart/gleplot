@@ -1640,6 +1640,17 @@ class _Recognizer:
         the z-order -- is left to passthrough and re-emitted verbatim, rather
         than being recognized and then silently written back at the layer the
         model would regenerate.
+
+        A near miss that is still recognizably *ours* -- the call name has
+        gleplot's own prefix, or the call name and arity match but the layer
+        was edited, or the arity itself is wrong -- degrades to passthrough
+        the same way, but no longer silently: identity loss (this used to be
+        a ``RefLine``/``Span`` and comes back a plain ``draw``) gets a
+        ``structure:`` note (G17.1), matching the "no silent drops" rule
+        already applied to the G18-lite marker's own tampering cases. A
+        ``draw`` that is not gleplot-shaped at all (an unrelated sub, or no
+        enclosing layer block) is not gleplot's to explain and stays silent,
+        exactly as before.
         """
         if not isinstance(node, OpaqueBlock) or node.block_type != "layer":
             return None
@@ -1651,12 +1662,33 @@ class _Recognizer:
         if len(toks) < 2 or (stmt.keyword or "").lower() != "draw":
             return None
         call = toks[1].value.lower()
+        span = (stmt.line_no, stmt.line_no)
         kind_orient = GUIDE_CALL_KINDS.get(call)
         if kind_orient is None:
+            if call.startswith("gleplot_"):
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"'draw {call}' has gleplot's own guide-sub prefix but "
+                    "is not one of the four guide calls gleplot writes "
+                    "(gleplot_vline/hline/vspan/hspan); the block was left "
+                    "as raw GLE instead of being read back as a "
+                    "refline/span",
+                    span,
+                )
             return None
         kind, orient = kind_orient
+        model_name = "refline" if kind == "refline" else "span"
         expected_layer = REFLINE_LAYER if kind == "refline" else SPAN_LAYER
-        if self._layer_number(node) != expected_layer:
+        layer_no = self._layer_number(node)
+        if layer_no != expected_layer:
+            where = str(layer_no) if layer_no is not None else "an unreadable layer"
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"'draw {call}' is in layer {where} instead of gleplot's "
+                f"own {expected_layer}; the block was left as raw GLE "
+                f"instead of being read back as a {model_name}",
+                span,
+            )
             return None
         args = self._guide_call_args(toks, 2)
         entry = (
@@ -1665,6 +1697,21 @@ class _Recognizer:
             else self._guide_span(orient, args)
         )
         if entry is None:
+            expected_arity = 7 if kind == "refline" else 6
+            if len(args) != expected_arity:
+                detail = (
+                    f"{len(args)} argument{'s' if len(args) != 1 else ''} "
+                    f"instead of the {expected_arity} gleplot's own {call} "
+                    "takes"
+                )
+            else:
+                detail = f"arguments gleplot's own {call} could not read"
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"'draw {call}' has {detail}; the block was left as raw "
+                f"GLE instead of being read back as a {model_name}",
+                span,
+            )
             return None
         return {"attr": "reflines" if kind == "refline" else "spans", "entry": entry}
 
@@ -1678,28 +1725,59 @@ class _Recognizer:
         return int(value)
 
     @staticmethod
-    def _guide_call_args(toks: List[Token], start: int) -> List[object]:
+    def _split_call_words(toks: List[Token], start: int) -> List[List[Token]]:
+        """Group ``toks[start:]`` into whitespace-delimited runs.
+
+        GLE's own sub-call parser splits arguments on whitespace, full stop
+        (probe-verified, ``docs/agent/G17_GUIDE_EMISSION.md`` §6: ``draw
+        gleplot_vspan -4 -3 0 1 ...`` reads as ``A=-4 B=-3 LO=0 HI=1``, four
+        separate arguments). That is a different rule from
+        :func:`_collect_value`'s expression grammar, which accepts a bare
+        ``-`` as a binary operator regardless of the whitespace around it and
+        so reads ``-4 -3`` as the one expression ``-4-3`` (G17.1). Splitting
+        on the token *spans* recovered from the lexer -- a gap between two
+        tokens starts a new word, no gap keeps them in the same one --
+        mirrors GLE's rule exactly and still keeps a spaceless expression
+        like ``2*pi`` or a signed literal like ``-4`` (lexed as ``OP '-'`` +
+        ``NUMBER '4'`` with no gap between them) together as one argument.
+        """
+        words: List[List[Token]] = []
+        current: List[Token] = []
+        prev_end: Optional[int] = None
+        for tok in toks[start:]:
+            if tok.type is TokenType.COMMENT:
+                break
+            if prev_end is not None and tok.start != prev_end:
+                words.append(current)
+                current = []
+            current.append(tok)
+            prev_end = tok.end
+        if current:
+            words.append(current)
+        return words
+
+    @classmethod
+    def _guide_call_args(cls, toks: List[Token], start: int) -> List[object]:
         """The positional arguments of a ``draw gleplot_*`` call.
 
-        Each is either a number (collected as a value expression, so a
-        negative coordinate stays one argument) or a quoted string. Anything
-        else ends the scan, which makes the caller reject the call rather
-        than half-read it.
+        Split positionally on whitespace (:meth:`_split_call_words`), not by
+        :func:`_collect_value`'s maximal-expression scan -- see that method's
+        docstring for why (G17.1). Each resulting word is either a single
+        quoted string (unwrapped the same way a real statement's string
+        arguments are, so an escaped quote survives) or a numeric expression
+        evaluated whole by :func:`eval_gle_number`. A word that is neither
+        ends the scan, which makes the caller reject the call rather than
+        half-read it.
         """
         out: List[object] = []
-        i = start
-        m = len(toks)
-        while i < m:
-            tok = toks[i]
-            if tok.type is TokenType.STRING:
-                out.append(_string_value(tok))
-                i += 1
+        for word in cls._split_call_words(toks, start):
+            if len(word) == 1 and word[0].type is TokenType.STRING:
+                out.append(_string_value(word[0]))
                 continue
-            value, nxt = _collect_value(toks, i)
+            value = eval_gle_number(word)
             if value is None:
                 break
             out.append(value)
-            i = nxt
         return out
 
     def _guide_refline(self, orient: str, args: List[object]) -> Optional[RefLine]:
