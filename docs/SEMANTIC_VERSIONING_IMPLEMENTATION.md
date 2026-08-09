@@ -59,7 +59,7 @@ Complete guide covering:
 - First release setup
 - Best practices
 
-#### [VERSIONING_QUICK_REF.md](VERSIONING_QUICK_REF.md)
+#### [VERSIONING_QUICK_REF.md](guides/VERSIONING_QUICK_REF.md)
 Quick reference with:
 - Common commit patterns
 - Version bump rules
