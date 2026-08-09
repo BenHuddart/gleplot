@@ -10,6 +10,7 @@ sidecar machinery below is unchanged for inline figures and byte-for-byte
 identical to what it produced before sources existed.
 """
 
+import math
 import warnings as _warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -2013,6 +2014,78 @@ class GLEWriter:
 
         self.lines_gle.append(line_cmd)
 
+    # -- bar width, the one number GLE derives from the data's shape -------
+    #
+    # G16. A GLE bar set is sized by the data, not by the script: ``drawBar``
+    # (``graph2.cpp``) does
+    #
+    #     if (br[b]->width == 0) br[b]->width = min_int/(nbars * 2);
+    #
+    # where ``min_int`` is ``GLEDataPairs::getMinXInterval()`` -- the smallest
+    # gap between CONSECUTIVE x values that is strictly positive -- and
+    # ``nbars`` is how many datasets the one ``bar`` command groups (always 1
+    # here: :meth:`add_bar_chart` emits one command per series). The same
+    # ``getMinXInterval`` widens the x DATA range in ``get_dataset_ranges``,
+    # by half an interval either side, "so that bars are visible".
+    #
+    # A dataset with no positive consecutive gap therefore has no width and no
+    # range: ``getMinXInterval`` returns ``GLE_INF``. Measured on GLE 4.3.10,
+    # all three shapes that reach it are broken today, so nothing that
+    # currently draws can be disturbed by fixing them:
+    #
+    #   * one point (``bar([1], [5])``)  -> "Error: invalid range for
+    #     dimension X", exit 1 (the collapsed range having been deferred by
+    #     G15; written out instead it is "illegal range for xaxis");
+    #   * every x equal (``bar([1, 1], ...)``) -> the same error;
+    #   * a descending x column (``bar([3, 1], ...)``) -> the range is fine,
+    #     so GLE compiles, but width is infinite and every bar polygon comes
+    #     out ``newpath -nan 1.26984 moveto ...``: silent garbage that
+    #     Ghostscript then rejects with "Error: /undefined in -nan".
+    #
+    # The fix is to write down what GLE would have derived, using the one
+    # number the data cannot supply -- the spacing -- as a nominal 1. That is
+    # not a free choice: it is the spacing of the categorical bar chart
+    # ``bar([1], [5])`` is a degenerate case of, it makes the emitted width
+    # exactly the width GLE itself computes for the same heights at two
+    # points (measured: 0.5 data units, half the frame), and taking the range
+    # from the same nominal keeps the two consistent -- ``x ± spacing/2`` is
+    # GLE's own bar-range rule with the missing interval filled in.
+    #
+    # Scaling the nominal with |x| instead (GLE's own single-POINT axis
+    # expansion, which G15 defers to, is ±|x|) was rejected on the measured
+    # evidence: a lone bar at x = 2023 would become a hairline in a 0..4046
+    # frame, where unit spacing gives the year-wide bar the data means.
+
+    #: Bar spacing assumed when GLE cannot measure one from the data.
+    BAR_FALLBACK_SPACING = 1.0
+
+    @staticmethod
+    def gle_bar_min_x_interval(x: np.ndarray) -> float:
+        """GLE's ``GLEDataPairs::getMinXInterval`` for a bar dataset's x column.
+
+        The smallest strictly positive gap between consecutive values, or
+        ``inf`` when there is none -- which is GLE's ``GLE_INF``, and the
+        signal that the engine can size neither the bars nor the x range.
+        """
+        values = np.asarray(x, dtype=float)
+        if values.size < 2:
+            return float("inf")
+        gaps = np.diff(values)
+        positive = gaps[gaps > 0.0]
+        return float(positive.min()) if positive.size else float("inf")
+
+    @classmethod
+    def bar_width_gle_cannot_derive(cls, x: np.ndarray) -> Optional[float]:
+        """The width to write for this bar dataset, or ``None`` to stay quiet.
+
+        ``None`` for every dataset GLE can size itself, which is what keeps
+        the emission byte-identical for bar charts that already draw.
+        """
+        if math.isfinite(cls.gle_bar_min_x_interval(x)):
+            return None
+        # drawBar's own formula, min_int/(nbars*2), with nbars = 1.
+        return cls.BAR_FALLBACK_SPACING / 2.0
+
     def add_bar_chart(
         self,
         x: np.ndarray,
@@ -2079,6 +2152,11 @@ class GLEWriter:
         self.lines_gle.append(cmd)
 
         bar_cmd = f"    bar {d_name} fill {bar_color}"
+        # G16: a dataset whose bar width GLE cannot derive gets it written
+        # down. Every other dataset is left exactly as it was.
+        width = self.bar_width_gle_cannot_derive(x)
+        if width is not None:
+            bar_cmd += f" width {self._format_number(width)}"
         self.lines_gle.append(bar_cmd)
 
         if has_header and not label:
