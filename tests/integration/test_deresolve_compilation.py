@@ -12,7 +12,8 @@ does with it:
 * the errorbar and bar exclusions in ``GLEWriter._deresolve_clause`` are not
   just a policy choice on gleplot's side -- GLE itself ignores ``deresolve``
   for those draw paths, confirmed by byte-identical PostScript with and
-  without the clause (aside from the ``%%Title`` comment savefig_gle embeds).
+  without the clause (aside from the ``%%Title`` and ``%%CreationDate``
+  header comments GLE itself embeds per compile).
 
 Skipped when GLE is not installed.
 """
@@ -291,8 +292,12 @@ end graph
         )
         assert proc.returncode == 0, proc.stderr
         text = (tmp_path / f"{name}.eps").read_text(encoding="utf-8")
-        # Strip the one expected difference (the script's own filename in
-        # the EPS header) before comparing.
-        texts[name] = re.sub(r"%%Title:.*", "", text)
+        # Strip the expected differences before comparing: the script's own
+        # filename in the EPS header, and GLE's %%CreationDate timestamp
+        # (second-granularity -- the two compiles can straddle a second
+        # boundary under load, which is not a real content difference).
+        text = re.sub(r"%%Title:.*", "", text)
+        text = re.sub(r"%%CreationDate:.*", "", text)
+        texts[name] = text
 
     assert texts["with_dere"] == texts["without_dere"]
