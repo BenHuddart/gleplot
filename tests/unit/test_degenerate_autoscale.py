@@ -448,7 +448,16 @@ def test_the_neighbour_snapshot_covers_the_whole_battery():
 
 @pytest.mark.parametrize("name", db.BUILDER_IDS)
 def test_a_resolvable_range_emits_byte_identically_to_pre_g15(name):
-    """Every figure GLE could already compile is untouched, warnings included."""
+    """Every figure GLE could already compile is untouched, warnings included.
+
+    One entry has moved since capture, and only one: G18-lite gave
+    ``guides_over_data`` a ``! gleplot:guide ...`` comment over each of its
+    four materialized guides (:mod:`gleplot.guides`). Comments only -- no
+    statement, no dataset index and no sidecar byte changed, and the wide
+    digest sweep below (which contains no guides at all) is untouched.
+    ``tests/unit/test_refline_fallback.py`` pins that pure-insertion property
+    for the whole guide battery.
+    """
     text, files, raised = db.emit(name)
 
     reference = NEIGHBOUR_SNAPSHOT[name]

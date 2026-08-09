@@ -58,7 +58,15 @@ def test_every_plotted_series_survives(broken_script):
     recognized = parse_gle_figure(broken_script)
     for ax in recognized.figure.axes_list:
         assert len(ax.errorbars) == 1
-        assert len(ax.lines) == 1  # the axhline, recovered as a plain line
+        # The axhline comes back a guide, not the two-point line it
+        # materialized into: the emission carries a provenance marker
+        # (G18-lite). Before that it was recovered as a plain LineSeries --
+        # same picture, but no longer editable as a guide and no longer
+        # re-materialized against the range of the figure it reopened into.
+        assert len(ax.reflines) == 1
+        assert ax.reflines[0]["orient"] == "h"
+        assert ax.reflines[0]["value"] == pytest.approx(0.1)
+        assert len(ax.lines) == 0
 
 
 def test_unmodellable_axis_options_are_preserved_and_warned_about(broken_script):

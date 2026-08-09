@@ -383,3 +383,40 @@ grade, which is why this branch stops here.
    one-line docs fix): it says the guide "spans 0..1 rather than the rendered
    frame", which understates the defect — the fallback dataset also *moves*
    the frame GLE renders.
+
+## 6. Postscript: G18-lite closed the identity gap the other way
+
+Recommendation 2 above — the universal `draw` form, as a versioned emission
+migration — was **not** taken. Ben's decision (2026-08-09) was **G18-lite**:
+leave the dataset form's bytes exactly where they are and give it a
+structured provenance **comment**, recognized on the literal marker:
+
+```gle
+    ! gleplot:guide refline v value 1.5 extent 0,1
+    data rlb_1.dat d5=c1,c2
+    d5 line color RED lwidth 0.07056 lstyle 3 key "threshold"
+```
+
+It buys recommendation 2's payoff — SPEC §14.3 identity survives re-import —
+without any of §4's costs: sidecars are still written, dataset indices do not
+renumber, downstream shapes are untouched, and the only fixture churn is the
+added comment lines themselves (`test_the_g18_lite_marker_is_a_pure_insertion`
+holds the writer to that). The two emission forms therefore both round-trip to
+`RefLine`/`Span` now, keyed on a literal gleplot wrote — a sub name for the
+draw form, a marker comment for the dataset form — and never on the shape of
+the commands. See `gleplot/guides.py` for the marker grammar and for the rule
+that decides what may live in it (the model residue only; anything a visible
+command already states is read back from that command).
+
+The form asymmetry itself (§3) stands, and G18-full stays ledgered.
+
+**One defect found on the way, in G17's own recognizer, not fixed here.**
+`_guide_call_args` reads a draw call's arguments with `_collect_value`, which
+consumes a maximal expression — so two adjacent negative arguments merge:
+`draw gleplot_vspan -4 -3 0 1 "LIGHTGRAY" ""` collects `-4 -3` as `-7`, yields
+five arguments instead of six, and the block falls through to raw passthrough.
+The *rendering* is correct (GLE splits sub-call arguments on whitespace itself
+— probed on 4.3.10: `A=-4 B=-3 LO=0 HI=1`), so this costs identity, not ink,
+and only for a band whose two coordinates are both negative. G18-lite's marker
+sidesteps the same hazard by separating pairs with a comma, which is not a
+value operator; the draw form would need a positional argument splitter.
