@@ -58,16 +58,18 @@ _global_data_file_counter = 0
 #: ``data_contour1.z``.
 _global_sidecar_counters: Dict[str, int] = {}
 
-#: Range assumed for an axis a guide (``axvline``/``axhline``/``axvspan``/
-#: ``axhspan``) has to span when that axis resolves to nothing -- no data, no
-#: explicit ``set_?lim``. It is not arbitrary: it is the range GLE itself
-#: renders for a graph block that gives no axis bounds, measured on GLE
-#: 4.3.10 (``begin graph`` / ``size`` / ``scale 1 1`` / ``end graph`` followed
-#: by ``print xgmin xgmax ygmin ygmax`` -> ``0 1 0 1``), and pinned by
-#: ``tests/integration/test_refline_fallback_compiles.py``. Since gleplot
-#: emits no ``xaxis min/max`` for an unresolved axis, the guide materialized
-#: over this range lands exactly where the compiled frame puts it.
-#: Before G14 such a guide was dropped with a warning instead.
+#: The range GLE itself renders for a graph block that gives no bounds for an
+#: axis, measured on GLE 4.3.10 (``begin graph`` / ``size`` / ``scale 1 1`` /
+#: ``end graph`` followed by ``print xgmin xgmax ygmin ygmax`` -> ``0 1 0 1``)
+#: and pinned by ``tests/integration/test_refline_fallback_compiles.py``.
+#:
+#: G14 used it as the stand-in range to *materialize* a guide over when the
+#: axis it spans resolved to nothing. Since G17 such a guide is emitted as a
+#: ``draw`` reading GLE's own ``xgmin``/``ygmax`` instead
+#: (:mod:`gleplot.guides`), so the constant no longer decides where anything
+#: lands: it survives as the measured statement of what an unbounded GLE axis
+#: does -- the value the draw form reproduces by construction on a truly empty
+#: axes -- and as the safety net in :meth:`Axes._spanned_range`.
 EMPTY_AXIS_FALLBACK_RANGE = (0.0, 1.0)
 
 #: matplotlib ``legend(loc=...)`` strings -> gleplot's long-form key position.
@@ -1734,6 +1736,41 @@ class Axes:
         span = vmax - vmin
         return vmin + lo * span, vmin + hi * span
 
+    @staticmethod
+    def guide_spanned_bounds(entry, limits):
+        """The ``(lo, hi)`` bounds of the axis ``entry`` spans, from ``limits``.
+
+        A ``'v'`` guide (``axvline``/``axvspan``) is positioned in x and spans
+        y; a ``'h'`` guide is the transpose.
+        """
+        xmin, xmax, ymin, ymax = limits
+        return (ymin, ymax) if entry["orient"] == "v" else (xmin, xmax)
+
+    @classmethod
+    def guide_needs_engine_range(cls, entry, limits) -> bool:
+        """Whether this guide has to be drawn against GLE's own range (G17).
+
+        True exactly when a bound of the axis the guide spans is ``None`` at
+        write time -- an axes with nothing to resolve that axis from (G14), or
+        a range that collapsed and was handed back to the engine (G15). Such a
+        guide cannot be materialized into a literal dataset without inventing
+        the very range GLE has yet to choose, so it is emitted as a layered
+        ``draw`` over ``xgmin``/``ygmax`` instead (:mod:`gleplot.guides`).
+
+        False -- the overwhelmingly common case -- keeps the historical
+        two-point dataset emission untouched, byte for byte.
+        """
+        lo, hi = cls.guide_spanned_bounds(entry, limits)
+        return lo is None or hi is None
+
+    def engine_range_guides(self, series_list, limits) -> List[Series]:
+        """The visible guides in ``series_list`` routed to the draw form."""
+        return [
+            entry
+            for entry in series_list
+            if is_visible(entry) and self.guide_needs_engine_range(entry, limits)
+        ]
+
     def materialize_reflines(self, limits) -> List[LineSeries]:
         """Turn ``self.reflines`` into concrete two-point line series.
 
@@ -1741,25 +1778,28 @@ class Axes:
         ----------
         limits : tuple
             ``(xmin, xmax, ymin, ymax)`` -- the axis limits actually being
-            written. Any of them may be ``None`` if they could not be
-            resolved (an axes with no data at all), in which case
-            :data:`EMPTY_AXIS_FALLBACK_RANGE` stands in for the missing
-            bound -- the range GLE's own bound-less graph renders, so the
-            guide spans exactly the frame the reader sees (G14). Every
-            resolvable bound is used unchanged.
+            written.
 
         Returns
         -------
         list of dict
             Line dicts in the same shape ``plot()`` produces, ready for
             ``GLEWriter.add_plot_line``. Nothing is stored back on the axes,
-            so writing a figure twice does not duplicate content. Hidden
-            guides (``visible = False``, SPEC 14.6) materialize into nothing.
+            so writing a figure twice does not duplicate content.
+
+        Two kinds of guide materialize into nothing here: hidden ones
+        (``visible = False``, SPEC 14.6), and -- since G17 -- ones whose
+        spanned axis has an unresolved bound. The latter are the figures the
+        literal dataset got wrong; they are emitted as ``draw`` calls instead
+        (see :meth:`guide_needs_engine_range` and :mod:`gleplot.guides`), and
+        :meth:`engine_range_guides` is how the writer collects them.
         """
         xmin, xmax, ymin, ymax = limits
         out: List[LineSeries] = []
         for entry in self.reflines:
             if not is_visible(entry):
+                continue
+            if self.guide_needs_engine_range(entry, limits):
                 continue
             if entry["orient"] == "v":
                 y0, y1 = self._fraction_to_data(
@@ -1797,14 +1837,15 @@ class Axes:
         """Turn ``self.spans`` into concrete fill-between series.
 
         See :meth:`materialize_reflines`; the same contract applies (nothing
-        is stored back, an unresolvable bound falls back to
-        :data:`EMPTY_AXIS_FALLBACK_RANGE`, hidden bands materialize into
-        nothing).
+        is stored back; hidden bands, and bands across an axis with an
+        unresolved bound, materialize into nothing).
         """
         xmin, xmax, ymin, ymax = limits
         out: List[FillSeries] = []
         for entry in self.spans:
             if not is_visible(entry):
+                continue
+            if self.guide_needs_engine_range(entry, limits):
                 continue
             if entry["orient"] == "v":
                 y0, y1 = self._fraction_to_data(
@@ -1840,22 +1881,38 @@ class Axes:
     def _spanned_range(lo: Optional[float], hi: Optional[float]):
         """The range a guide spans, with GLE's default standing in for gaps.
 
+        **Since G17 this is a safety net, not the live path.** A guide whose
+        spanned axis has an unresolved bound no longer reaches
+        :meth:`materialize_reflines`/:meth:`materialize_spans` at all -- it is
+        emitted as a ``draw`` that reads GLE's own ``xgmin``/``ygmax``
+        (:mod:`gleplot.guides`). This substitution now only applies to a
+        direct call with a ``None`` bound.
+
+        What it used to do, and why that was not good enough
+        ---------------------------------------------------
+
         An axes with no data and no explicit limit resolves to ``None`` --
         gleplot then emits no ``min``/``max`` for that axis and GLE draws its
-        own default 0..1 frame. Materializing over
-        :data:`EMPTY_AXIS_FALLBACK_RANGE` therefore puts the guide across
-        exactly the frame that gets rendered, instead of dropping it (G14,
-        GLEstudio SPEC 14.3). Substitution is per bound, so a half-specified
-        range (``set_ylim(0, None)`` on an empty axes) keeps the bound it has.
+        own default 0..1 frame, so materializing over
+        :data:`EMPTY_AXIS_FALLBACK_RANGE` put the guide across the frame that
+        got rendered instead of dropping it (G14, GLEstudio SPEC 14.3).
+        Substitution is per bound, so a half-specified range
+        (``set_ylim(0, None)`` on an empty axes) keeps the bound it has.
 
         Since G15 a bound can also be ``None`` because the range it resolved
         to *collapsed to a single value* and was handed back to GLE
-        (:meth:`Figure._defer_degenerate_range`). The fallback then stands in
-        for a frame GLE has not chosen yet -- it expands the point into a
-        nice-number range gleplot deliberately does not compute -- so a guide
-        drawn across such an axis spans 0..1 rather than the rendered frame.
-        It takes a collapsed axis AND a guide spanning it for that to arise,
-        and before G15 that figure did not compile at all.
+        (:meth:`Figure._defer_degenerate_range`). There the fallback stood in
+        for a frame GLE had not chosen yet, and the guide came out wrong in
+        **two** ways, not one. It was measured against 0..1 rather than
+        against the rendered frame -- and, because the materialized dataset is
+        a real dataset, its ``0`` and ``1`` rows then *joined GLE's autoscale
+        and moved the frame itself*. Measured on GLE 4.3.10 for
+        ``plot([5], [7])`` + ``axvline(5, ymin=0, ymax=1)``: the engine chose
+        ``ygmin=0 ygmax=7`` (instead of the ``0..12`` it picks for the lone
+        point alone) and the guide, declaring the full frame height, covered
+        14.3 % of it. The circularity is exactly the one
+        :meth:`Figure._refline_axis_values` avoids on gleplot's side of the
+        line, reintroduced inside the engine where gleplot cannot see it.
         """
         fallback_lo, fallback_hi = EMPTY_AXIS_FALLBACK_RANGE
         return (

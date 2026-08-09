@@ -204,11 +204,14 @@ def test_fractional_extent_does_not_feed_back_into_autoscale():
     assert ax.xmin == 0.0 and ax.xmax == 3.0
 
 
-def test_guide_without_resolvable_limits_falls_back_to_gles_own_range():
-    """G14: this used to warn and drop; it now spans GLE's default 0..1 frame.
+def test_guide_without_resolvable_limits_is_drawn_against_gles_own_range():
+    """G14 dropped this with a warning; G17 hands the range to GLE.
 
-    Detail (per orientation, fractional extents, byte-level regression guard
-    for the resolvable paths) in ``tests/unit/test_refline_fallback.py``.
+    With no y range to span there is nothing to materialize a two-point
+    dataset against, so the guide goes out as a ``draw`` reading GLE's own
+    ``ygmin``/``ygmax``. Detail (per orientation, fractional extents,
+    byte-level regression guard for the resolvable paths) in
+    ``tests/unit/test_refline_fallback.py``.
     """
     fig = glp.figure(data_prefix="rl")
     ax = fig.add_subplot(111)
@@ -216,8 +219,9 @@ def test_guide_without_resolvable_limits_falls_back_to_gles_own_range():
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         text, files = fig._generate_gle_with_files()
-    assert entry["data_file"] in text
-    assert _rows(files, entry["data_file"]) == [[1.0, 0.0], [1.0, 1.0]]
+    assert files == {}
+    assert entry["data_file"] not in text
+    assert 'draw gleplot_vline 1 0 1 "BLACK" 0.05292 1 ""' in text
 
 
 # --------------------------------------------------------------------------- #

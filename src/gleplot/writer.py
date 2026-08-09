@@ -30,6 +30,7 @@ import numpy as np
 
 from .colors import apply_alpha
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
+from .guides import REFLINE_LAYER, SPAN_LAYER, guide_sub_name, guide_sub_texts
 from .parser.tables import KEY_POSITIONS_LONG_TO_SHORT
 from .parser.units import (
     fontsize_pt_to_cm,
@@ -868,6 +869,12 @@ class GLEWriter:
             1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         )
         self._pending_graph_text_lines: List[str] = []
+        # Guide subs (gleplot.guides) this write actually called, and where
+        # their definitions belong in the script. Populated as the draw calls
+        # go out and resolved by finalize_guide_subs, because which guides
+        # take the draw form is not known until each axes' limits are.
+        self.used_guide_subs: set = set()
+        self._sub_defs_mark: int = 0
         # Sticky GLE interpreter state as far as add_text is concerned: 'set
         # hei'/'set color'/'set just' persist across `write` statements until
         # changed again (real GLE semantics -- see recognizer._try_one_text,
@@ -2933,10 +2940,37 @@ class GLEWriter:
         Each entry is a full multi-line ``sub ... end sub`` block. A blank
         line separates consecutive subs (and follows the last), matching the
         script's readable block spacing.
+
+        Also marks where a sub definition belongs, so the guide subs -- whose
+        need is only known once the graph blocks have been written -- can be
+        spliced in here later (:meth:`finalize_guide_subs`).
         """
         for text in sub_texts:
             self.lines_gle.extend(text.split("\n"))
             self.lines_gle.append("")
+        self._sub_defs_mark = len(self.lines_gle)
+
+    def finalize_guide_subs(self) -> None:
+        """Splice in the guide subs the guides actually drawn this write need.
+
+        Called once, after every graph block is written: which guides take
+        :mod:`gleplot.guides`' draw form is decided against limits that are
+        still unresolved when :meth:`add_sub_defs` runs, so the definitions
+        are inserted at that method's mark rather than appended in place.
+        (GLE hoists subs, so a later definition would compile too -- the
+        splice is for a readable script and a stable byte layout, not for
+        the engine.)
+
+        Deterministic in the *set* of subs used, never in discovery order.
+        """
+        if not self.used_guide_subs:
+            return
+        lines: List[str] = []
+        for text in guide_sub_texts(self.used_guide_subs):
+            lines.extend(text.split("\n"))
+            lines.append("")
+        at = self._sub_defs_mark
+        self.lines_gle[at:at] = lines
 
     def add_fitz_block(self, points_file: str, extent, gridsize, ncontour):
         """Emit a ``begin fitz`` .. ``end fitz`` block (before ``begin graph``).
@@ -3066,6 +3100,145 @@ class GLEWriter:
             f"gleplot_contour_labels file {_quote_filename(clabels_file)} "
             f'format "{fmt}"'
         )
+
+    # -- guides drawn against GLE's own range (G17) ----------------------
+
+    def _lstyle_for(self, linestyle: str) -> int:
+        """The GLE ``lstyle`` number for a matplotlib linestyle.
+
+        Reads the very same ``style.line_style_*`` fields
+        :meth:`add_plot_line` reads, so the two emission forms of a guide
+        cannot disagree about what ``'--'`` looks like. ``0`` is GLE's own
+        "no style set" sentinel and is what a lineless guide
+        (``linestyle='none'``) is emitted with -- :mod:`gleplot.guides`'
+        subs draw nothing for it, matching the dataset form's do-nothing
+        dataset.
+        """
+        return {
+            "-": self.style.line_style_solid,
+            "--": self.style.line_style_dashed,
+            ":": self.style.line_style_dotted,
+            "-.": self.style.line_style_dashdot,
+        }.get(linestyle, 0)
+
+    def _guide_lwidth_cm(self, linewidth: float) -> float:
+        """A guide's ``lwidth`` in cm, with :meth:`add_plot_line`'s defaulting."""
+        if linewidth == 0 or linewidth == 1:
+            return linewidth_pt_to_cm(self.style.default_linewidth)
+        return linewidth_pt_to_cm(linewidth)
+
+    def _add_guide_draw(self, layer: int, sub_name: str, args: List[str]) -> None:
+        """Emit one ``begin layer N`` / ``draw <sub> args`` / ``end layer``.
+
+        The layer is what reproduces today's stacking exactly; see
+        :mod:`gleplot.guides` for the numbers and their provenance.
+        """
+        self.used_guide_subs.add(sub_name)
+        self.lines_gle.append(f"    begin layer {layer}")
+        self.lines_gle.append(f"        draw {sub_name} " + " ".join(args))
+        self.lines_gle.append("    end layer")
+
+    def add_refline_draw(
+        self,
+        orient: str,
+        value: float,
+        span_lo: float,
+        span_hi: float,
+        color: str,
+        linestyle: str,
+        linewidth: float,
+        label: Optional[str],
+    ):
+        """Emit an ``axvline``/``axhline`` as a layered ``draw`` call (G17).
+
+        Used only when the axis the guide spans has an unresolved bound, so
+        the fraction ``span_lo``..``span_hi`` has to be taken against the
+        range GLE picks rather than one gleplot invents -- see
+        :meth:`gleplot.axes.Axes.guide_needs_engine_range`.
+
+        A labelled guide also gets a **data-free** ``dN`` display line
+        carrying the same style and the ``key`` text. A ``draw`` owns no
+        dataset and so cannot carry a key itself; an empty dataset can, and
+        (verified against GLE 4.3.10) draws no ink and takes no part in
+        autoscale, so the legend entry survives without the literal dataset
+        coming back.
+        """
+        gle_lwidth = self._guide_lwidth_cm(linewidth)
+        self._add_guide_draw(
+            REFLINE_LAYER,
+            guide_sub_name("refline", orient),
+            [
+                self._format_number(value),
+                self._format_number(span_lo),
+                self._format_number(span_hi),
+                f'"{self._escape_gle_string(color)}"',
+                self._format_number(gle_lwidth),
+                str(self._lstyle_for(linestyle)),
+                f'"{self._escape_gle_string(label or "")}"',
+            ],
+        )
+        if label:
+            self.add_guide_key(color, linestyle, gle_lwidth, label)
+
+    def add_span_draw(
+        self,
+        orient: str,
+        start: float,
+        end: float,
+        span_lo: float,
+        span_hi: float,
+        color: str,
+        alpha: float,
+        label: Optional[str],
+    ):
+        """Emit an ``axvspan``/``axhspan`` as a layered ``draw`` call (G17).
+
+        No legend bridge: GLE's ``fill dA,dB`` command has no ``key`` option
+        either, so a band has never had a legend entry and does not gain one
+        here. Its ``label`` still travels as the sub's last argument, drawn by
+        nothing -- otherwise re-opening the file would silently drop a field
+        the model carries. ``alpha`` is folded into the colour exactly as
+        :meth:`add_fill_between` folds it, via
+        :func:`gleplot.colors.apply_alpha`.
+        """
+        self._add_guide_draw(
+            SPAN_LAYER,
+            guide_sub_name("span", orient),
+            [
+                self._format_number(start),
+                self._format_number(end),
+                self._format_number(span_lo),
+                self._format_number(span_hi),
+                f'"{self._escape_gle_string(apply_alpha(color, alpha))}"',
+                f'"{self._escape_gle_string(label or "")}"',
+            ],
+        )
+
+    def add_guide_key(
+        self, color: str, linestyle: str, lwidth_cm: float, label: str
+    ) -> str:
+        """Emit the data-free ``dN`` line that carries a guide's legend entry.
+
+        Token order mirrors :meth:`add_plot_line`'s line branch so the legend
+        swatch is identical to the one the dataset form produces; the only
+        difference is that no ``data`` statement ever gives this dataset any
+        rows. Returns the dataset name.
+        """
+        d_name = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        cmd = f"    {d_name}"
+        if linestyle not in ("none", "None", "", " ", None):
+            cmd += self._line_token()
+            cmd += f" color {color} lwidth {self._format_number(lwidth_cm)}"
+            if linestyle == "--":
+                cmd += f" lstyle {self.style.line_style_dashed}"
+            elif linestyle == ":":
+                cmd += f" lstyle {self.style.line_style_dotted}"
+            elif linestyle == "-.":
+                cmd += f" lstyle {self.style.line_style_dashdot}"
+        cmd += f' key "{self._escape_gle_string(label)}"'
+        self.lines_gle.append(cmd)
+        return d_name
 
     def _row_order(
         self,

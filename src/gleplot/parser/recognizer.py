@@ -284,6 +284,7 @@ import numpy as np
 from ..axes import Axes
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..figure import Figure
+from ..guides import GUIDE_CALL_KINDS, REFLINE_LAYER, SPAN_LAYER
 from ..series import (
     BarSeries,
     ContourSeries,
@@ -292,8 +293,10 @@ from ..series import (
     FillSeries,
     HeatmapSeries,
     LineSeries,
+    RefLine,
     ScatterSeries,
     Series,
+    Span,
     TextAnnotation,
 )
 from . import metadata as _metadata
@@ -1268,6 +1271,18 @@ class _Recognizer:
             "file_series": [],
             "heatmaps": [],
             "contours": [],
+            # Guides recovered from ``begin layer N`` / ``draw gleplot_*``
+            # blocks (G17). Recognition keys off the literal sub name and
+            # nothing else, so a hand-written two-point line is never
+            # mistaken for one -- see _try_guide_layer_block.
+            "reflines": [],
+            "spans": [],
+            # Dataset names carrying nothing but a recovered guide's legend
+            # entry (the data-free ``dN ... key "..."`` bridge the writer
+            # emits right after a labelled refline's draw block). Skipped in
+            # pass 2 rather than fabricated into a phantom series, exactly as
+            # ``_key_suppress_datasets`` is.
+            "_guide_key_datasets": set(),
             "passthrough": [],
             "series_order": [],  # to preserve ordering info if needed
             # Dataset names (e.g. 'd1') consumed by a 'bar'/'fill' command.
@@ -1342,6 +1357,12 @@ class _Recognizer:
         # unmodeled (see the reconciliation below the pass-2 loop).
         data_stmts: List[Tuple[List[str], str, int]] = []
 
+        # Guide draw blocks (G17), keyed by the 'begin layer' line number so
+        # pass 2 can consume the same nodes in body order. Scanned up front
+        # because a labelled guide's legend bridge is a 'dN' statement that
+        # pass 1's dataset-merging would otherwise take for a real series.
+        guide_blocks = self._prescan_guide_blocks(block, info)
+
         for child in block.body:
             if isinstance(child, Statement):
                 if self._skip_meta_stmt(child):
@@ -1388,6 +1409,12 @@ class _Recognizer:
         emitted: set = set()
         for child in block.body:
             if isinstance(child, OpaqueBlock):
+                guide = guide_blocks.get(child.line_no)
+                if guide is not None:
+                    # Recognized guide draw block: becomes a RefLine/Span
+                    # declaration, in body order, instead of raw text.
+                    info[guide["attr"]].append(guide["entry"])
+                    continue
                 info["passthrough"].extend(self._raw_lines(child))
                 continue
             if isinstance(child, BlankOrComment):
@@ -1418,6 +1445,12 @@ class _Recognizer:
             if kw is not None and _DATASET_RE.match(kw):
                 name = kw
                 if name in emitted:
+                    continue
+                if name in info["_guide_key_datasets"]:
+                    # The data-free legend bridge of a recovered guide: the
+                    # label now lives on the RefLine, and the writer
+                    # regenerates this line from it. Consume silently.
+                    emitted.add(name)
                     continue
                 attr_toks = merged_attr_toks.get(name, [])
                 if name in info[
@@ -1520,6 +1553,192 @@ class _Recognizer:
         self._reconcile_places_names(info)
         self._reconcile_axis_styling(info)
         return info
+
+    # -- guides drawn against GLE's own range (G17) -----------------------
+
+    def _prescan_guide_blocks(self, block: GraphBlock, info) -> Dict[int, dict]:
+        """Find the ``begin layer N`` / ``draw gleplot_*`` blocks in ``block``.
+
+        Returns ``{begin-layer line number: {'attr', 'entry'}}`` so pass 2 can
+        turn each one into a ``RefLine``/``Span`` where it stands, and records
+        the legend-bridge dataset names in ``info['_guide_key_datasets']``.
+
+        Recognition is by the literal sub name only (``gleplot_vline`` and
+        friends, :data:`gleplot.guides.GUIDE_CALL_KINDS`) -- never inferred
+        from the shape of a draw call -- so nothing a user wrote by hand can
+        be reclassified as a guide. Anything that does not match is left
+        completely alone and reaches passthrough verbatim, as before.
+        """
+        found: Dict[int, dict] = {}
+        body = list(block.body)
+        for i, child in enumerate(body):
+            guide = self._try_guide_layer_block(child)
+            if guide is None:
+                continue
+            found[child.line_no] = guide
+            bridge = self._guide_key_dataset(body, i + 1, guide["entry"])
+            if bridge is not None:
+                cast(set, info["_guide_key_datasets"]).add(bridge)
+        return found
+
+    def _try_guide_layer_block(self, node) -> Optional[dict]:
+        """Parse one guide draw block, or ``None`` if this is not one.
+
+        Everything about the block has to match what the writer emits: a
+        ``layer`` block, one statement in it, a ``draw`` of a known
+        ``gleplot_*`` guide sub, the right number of arguments, and the
+        canonical layer number for that kind. Anything else -- including a
+        gleplot-authored block whose layer someone has since edited to change
+        the z-order -- is left to passthrough and re-emitted verbatim, rather
+        than being recognized and then silently written back at the layer the
+        model would regenerate.
+        """
+        if not isinstance(node, OpaqueBlock) or node.block_type != "layer":
+            return None
+        inner = [sl for sl in node.inner_lines if sl.text.strip()]
+        if len(inner) != 1:
+            return None
+        stmt = _first_statement_of(inner[0])
+        toks = _words_and_values(stmt)
+        if len(toks) < 2 or (stmt.keyword or "").lower() != "draw":
+            return None
+        call = toks[1].value.lower()
+        kind_orient = GUIDE_CALL_KINDS.get(call)
+        if kind_orient is None:
+            return None
+        kind, orient = kind_orient
+        expected_layer = REFLINE_LAYER if kind == "refline" else SPAN_LAYER
+        if self._layer_number(node) != expected_layer:
+            return None
+        args = self._guide_call_args(toks, 2)
+        entry = (
+            self._guide_refline(orient, args)
+            if kind == "refline"
+            else self._guide_span(orient, args)
+        )
+        if entry is None:
+            return None
+        return {"attr": "reflines" if kind == "refline" else "spans", "entry": entry}
+
+    @staticmethod
+    def _layer_number(node: OpaqueBlock) -> Optional[int]:
+        """``N`` from a ``begin layer N`` opener, or ``None``."""
+        toks = _words_and_values(node.begin)
+        value, _nxt = _collect_value(toks, 2)  # 'begin' 'layer' N
+        if value is None:
+            return None
+        return int(value)
+
+    @staticmethod
+    def _guide_call_args(toks: List[Token], start: int) -> List[object]:
+        """The positional arguments of a ``draw gleplot_*`` call.
+
+        Each is either a number (collected as a value expression, so a
+        negative coordinate stays one argument) or a quoted string. Anything
+        else ends the scan, which makes the caller reject the call rather
+        than half-read it.
+        """
+        out: List[object] = []
+        i = start
+        m = len(toks)
+        while i < m:
+            tok = toks[i]
+            if tok.type is TokenType.STRING:
+                out.append(_string_value(tok))
+                i += 1
+                continue
+            value, nxt = _collect_value(toks, i)
+            if value is None:
+                break
+            out.append(value)
+            i = nxt
+        return out
+
+    def _guide_refline(self, orient: str, args: List[object]) -> Optional[RefLine]:
+        """``value lo hi clr$ lw ls label$`` -> a :class:`RefLine`."""
+        if len(args) != 7:
+            return None
+        value, lo, hi, color, lwidth, lstyle, label = args
+        if not isinstance(color, str) or not isinstance(label, str):
+            return None
+        try:
+            lstyle_i = int(lstyle)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return RefLine(
+            type="refline",
+            orient=orient,
+            value=float(value),  # type: ignore[arg-type]
+            span_lo=float(lo),  # type: ignore[arg-type]
+            span_hi=float(hi),  # type: ignore[arg-type]
+            color=color,
+            # 0 is the writer's spelling of linestyle 'none' (GLE's own "no
+            # style set" sentinel); every other number inverts through the
+            # table built from the very config the writer emitted from.
+            linestyle=(
+                "none" if lstyle_i == 0 else LSTYLE_TO_MATPLOTLIB.get(lstyle_i, "-")
+            ),
+            linewidth=linewidth_cm_to_pt(float(lwidth)),  # type: ignore[arg-type]
+            label=label or None,
+            data_file=None,
+        )
+
+    def _guide_span(self, orient: str, args: List[object]) -> Optional[Span]:
+        """``a b lo hi clr$ label$`` -> a :class:`Span`."""
+        if len(args) != 6:
+            return None
+        start, end, lo, hi, color, label = args
+        if not isinstance(color, str) or not isinstance(label, str):
+            return None
+        return Span(
+            type="span",
+            orient=orient,
+            start=float(start),  # type: ignore[arg-type]
+            end=float(end),  # type: ignore[arg-type]
+            span_lo=float(lo),  # type: ignore[arg-type]
+            span_hi=float(hi),  # type: ignore[arg-type]
+            color=color,
+            # 1.0, not a guessed fraction: ``color`` is the exact GLE colour
+            # text that will be re-emitted, so ``apply_alpha`` must stay a
+            # no-op for the round trip to be byte-identical -- the identical
+            # reasoning to _parse_fill_command's, and the reason an
+            # ``rgba255(...)`` band survives its own transparency.
+            alpha=1.0,
+            label=label or None,
+            data_file=None,
+        )
+
+    @staticmethod
+    def _guide_key_dataset(body, start: int, entry) -> Optional[str]:
+        """The ``dN`` name carrying ``entry``'s legend entry, if it has one.
+
+        The writer emits the data-free bridge immediately after the draw
+        block, and only for a labelled ``RefLine`` (a band has never had a
+        legend entry). Matched on that position AND on the key text, so an
+        unrelated ``dN`` line following a guide is never swallowed.
+        """
+        label = entry.get("label")
+        if entry.get("type") != "refline" or not label:
+            return None
+        j = start
+        while j < len(body) and isinstance(body[j], BlankOrComment):
+            j += 1
+        if j >= len(body) or not isinstance(body[j], Statement):
+            return None
+        stmt = body[j]
+        name = (stmt.keyword or "").lower()
+        if not _DATASET_RE.match(name):
+            return None
+        toks = _words_and_values(stmt)
+        for k, tok in enumerate(toks):
+            if (
+                tok.value.lower() == "key"
+                and k + 1 < len(toks)
+                and toks[k + 1].type is TokenType.STRING
+                and _string_value(toks[k + 1]) == label
+            ):
+                return name
+        return None
 
     def _reconcile_axis_styling(self, info) -> None:
         """Decide what the parked ``*ticks``/``y2labels on`` lines meant.
@@ -4551,6 +4770,12 @@ class _Recognizer:
         ax.texts = info["texts"]
         ax.heatmaps = info["heatmaps"]
         ax.contours = info["contours"]
+        # Guides recovered from their draw blocks (G17). Before G17 a guide
+        # came back as whatever its materialized dataset looked like -- a
+        # plain LineSeries or FillSeries -- losing its SPEC 14.3 identity;
+        # the draw form is self-describing, so these come back as guides.
+        ax.reflines = info["reflines"]
+        ax.spans = info["spans"]
         ax.passthrough = info["passthrough"]
 
         # A series whose sidecar had no real header row (hand-written .dat,
@@ -4558,7 +4783,15 @@ class _Recognizer:
         # 'column_names' recovered above. Regenerate the same stable
         # defaults Axes.from_dict falls back to for pre-Track-E3 projects,
         # so the next save still gets a named header row.
-        for attr in ("lines", "scatters", "bars", "fills", "errorbars"):
+        for attr in (
+            "lines",
+            "scatters",
+            "bars",
+            "fills",
+            "errorbars",
+            "reflines",
+            "spans",
+        ):
             for item in getattr(ax, attr):
                 if "column_names" not in item:
                     defaults = item.default_column_names()
@@ -4641,7 +4874,17 @@ class _Recognizer:
             setattr(ax, f"{prefix}grid_color", ticks["color"])
 
     def _labels_present(self, info) -> bool:
-        for group in ("lines", "scatters", "bars", "errorbars", "file_series"):
+        # 'reflines' counts because a labelled guide really does carry a
+        # 'key' into the block (its data-free legend bridge); 'spans' does
+        # not, because a band has no legend entry in either emission form.
+        for group in (
+            "lines",
+            "scatters",
+            "bars",
+            "errorbars",
+            "file_series",
+            "reflines",
+        ):
             for s in info[group]:
                 if s.get("label"):
                     return True
@@ -4801,6 +5044,19 @@ class _Recognizer:
         elif prefix is not None:
             fig.data_prefix = prefix
             fig._local_data_counter = max_idx + 1
+
+        # A guide recovered from its draw block (G17) owns no sidecar -- the
+        # draw form has none to own. Reserve one anyway, from the figure's own
+        # naming state now that it is settled, so that adding data later (and
+        # thereby resolving the axis the guide spans) puts the guide straight
+        # back onto the literal-dataset path with a name that collides with
+        # nothing.
+        from ..axes import _resolve_data_file
+
+        for ax in fig.axes_list:
+            for guide in list(ax.reflines) + list(ax.spans):
+                if not guide.get("data_file"):
+                    guide["data_file"] = _resolve_data_file(fig, None)
 
     @staticmethod
     def _derive_prefix_from_sidecars(names) -> Tuple[Optional[str], int]:

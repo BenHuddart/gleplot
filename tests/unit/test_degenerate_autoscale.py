@@ -29,7 +29,6 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot.axes import EMPTY_AXIS_FALLBACK_RANGE
 
 from . import _degenerate_battery as db
 
@@ -200,26 +199,32 @@ def test_a_collapsed_secondary_y_range_is_deferred_too():
 # --------------------------------------------------------------------------- #
 
 
-def test_a_lone_axvline_leaves_x_to_the_engine_and_keeps_the_g14_fallback():
+def test_a_lone_axvline_leaves_both_axes_to_the_engine():
+    """Neither axis is written down, and no dataset stands in for either.
+
+    G14 wrote a two-point dataset over 0..1 here. Since G17 the guide is a
+    ``draw`` (``tests/unit/test_refline_fallback.py``), so the block carries
+    no ranges *and* nothing that could imply one.
+    """
     fig, ax = _axes()
     ax.axvline(0.5)
 
     text, files = _generate(fig)
     assert _axis_line(text, "x") is None
     assert _axis_line(text, "y") is None
-    lo, hi = EMPTY_AXIS_FALLBACK_RANGE
-    assert files["dg_0.dat"] == f"x y\n0.5 {lo:g}\n0.5 {hi:g}\n"
+    assert files == {}
+    assert 'draw gleplot_vline 0.5 0 1 "BLACK" 0.05292 1 ""' in text
 
 
-def test_a_lone_axhline_leaves_y_to_the_engine_and_keeps_the_g14_fallback():
+def test_a_lone_axhline_leaves_both_axes_to_the_engine():
     fig, ax = _axes()
     ax.axhline(0.5)
 
     text, files = _generate(fig)
     assert _axis_line(text, "x") is None
     assert _axis_line(text, "y") is None
-    lo, hi = EMPTY_AXIS_FALLBACK_RANGE
-    assert files["dg_0.dat"] == f"x y\n{lo:g} 0.5\n{hi:g} 0.5\n"
+    assert files == {}
+    assert 'draw gleplot_hline 0.5 0 1 "BLACK" 0.05292 1 ""' in text
 
 
 def test_two_guides_still_pin_their_own_axis():
@@ -232,26 +237,30 @@ def test_two_guides_still_pin_their_own_axis():
     assert _axis_line(text, "x") == "xaxis min 0.25 max 0.75"
 
 
-def test_a_guide_spanning_a_deferred_axis_falls_back_to_the_g14_range():
-    """The documented seam between G14 and G15.
+def test_a_guide_spanning_a_deferred_axis_is_handed_to_the_engine():
+    """The seam between G14 and G15, closed by G17.
 
-    A guide's fractional extent is measured against the range gleplot
+    A guide's fractional extent used to be measured against the range gleplot
     resolved. When that range collapsed, gleplot no longer HAS one -- GLE
-    picks it, after the script is written -- so materialization reaches for
-    the same 0..1 fallback it uses for an unbounded axis. The guide is drawn
-    and the figure compiles (it did neither before G15), but the extent is
-    taken against 0..1 rather than against the range GLE went on to choose.
-    Reproducing GLE's nice-number expansion here to close that gap is
-    precisely what G15 declined to do; the case needs a single data point AND
-    a fractional guide across the collapsed axis to arise.
+    picks it, after the script is written -- so materialization reached for
+    the same 0..1 fallback it used for an unbounded axis, and the guide's own
+    ``0``/``1`` rows then joined GLE's autoscale and moved the frame as well.
+    It now goes out as a ``draw`` that reads ``ygmin``/``ygmax`` from inside
+    the block, so the extent is taken against the range GLE actually chose and
+    the guide takes no part in choosing it. Measured against the engine in
+    ``tests/integration/test_guide_draw_form_compiles.py``.
+
+    The lone data point is still the only thing bounding the figure: it keeps
+    its own sidecar, and the guide contributes none.
     """
     fig, ax = _axes()
     ax.plot(np.array([5.0]), np.array([7.0]))  # y collapses to 7..7
     ax.axvline(5.0, ymin=0.0, ymax=1.0)
 
-    _text, files = _generate(fig)
-    lo, hi = EMPTY_AXIS_FALLBACK_RANGE
-    assert files["dg_1.dat"] == f"x y\n5 {lo:g}\n5 {hi:g}\n"
+    text, files = _generate(fig)
+    assert list(files) == ["dg_0.dat"]
+    assert files["dg_0.dat"] == "x y\n5 7\n"
+    assert 'draw gleplot_vline 5 0 1 "BLACK" 0.05292 1 ""' in text
 
 
 # --------------------------------------------------------------------------- #
@@ -376,31 +385,45 @@ def test_a_deferred_figure_is_a_writer_parse_writer_fixed_point(build, tmp_path)
     assert second == first
 
 
-def test_a_materialized_guide_still_costs_the_round_trip_its_fixed_point(tmp_path):
-    """A pre-existing G14 seam, not a G15 regression -- widened by one case.
+@pytest.mark.parametrize(
+    "build_guide,spanned",
+    [
+        (lambda ax: ax.axvline(0.5), "y"),
+        (lambda ax: ax.axvspan(0.4, 0.6), "y"),
+        (lambda ax: ax.axhline(0.5, label="limit"), "x"),
+    ],
+    ids=["axvline", "axvspan", "labelled-axhline"],
+)
+def test_a_drawn_guide_costs_the_round_trip_nothing(build_guide, spanned, tmp_path):
+    """The seam G14 opened and G17 closed -- now a fixed point.
 
-    G14 realizes a guide as a real two-point dataset at write time. On the way
-    back in, the parser sees data, not a declaration, so that dataset now
-    *bounds* the axis it was drawn across -- and if gleplot wrote no range for
-    that axis, the second write autoscales over it and emits one.
+    G14 realized a guide as a real two-point dataset at write time. On the way
+    back in the parser saw data, not a declaration, so that dataset *bounded*
+    the axis it had been drawn across -- and since gleplot had written no
+    range for that axis, the second write autoscaled over it and emitted one
+    (``yaxis min 0 max 1``, verified on the pre-G15 base 1757ce1 for both a
+    lone ``axvline`` and a lone ``axvspan``). G15 moved one more figure into
+    the seam rather than creating it.
 
-    Verified on the pre-G15 base (1757ce1): a lone ``axvline`` and a lone
-    ``axvspan`` on an empty axes already differed on the second write in
-    exactly this way. G15 does not create the seam; it moves one more figure
-    into it -- an axes whose spanned range collapsed, and which therefore
-    stopped writing that range down. Closing it means pinning the spanned axis
-    in the script, which is the emission G15 exists to remove.
+    A guide with nothing to measure against is now emitted as a ``draw``,
+    which owns no data, declares its own kind, and is recognized straight back
+    into a ``RefLine``/``Span``. So there is nothing for autoscale to find and
+    nothing to reconstruct: the two writes agree, byte for byte.
     """
 
     def build():
         fig, ax = _axes()
-        ax.axvline(0.5)
+        build_guide(ax)
         return fig
 
     first, second = _round_trip(build, tmp_path)
-    assert _axis_line(first, "y") is None
-    assert _axis_line(second, "y") == "yaxis min 0 max 1"
-    assert _axis_line(first, "x") is None and _axis_line(second, "x") is None
+    # The axis the guide SPANS is the one at issue: it has nothing to resolve
+    # it, and no re-read dataset invents one on the second write either. (A
+    # band's own edges legitimately bound the axis it is positioned on, and
+    # gleplot writes that range on both passes -- as it always did.)
+    assert _axis_line(first, spanned) is None
+    assert _axis_line(second, spanned) is None
+    assert first == second
 
 
 def test_serialization_gained_no_fields():
