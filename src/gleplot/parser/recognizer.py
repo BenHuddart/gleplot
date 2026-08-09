@@ -345,6 +345,41 @@ __all__ = ["ImportCategory", "ImportNote", "RecognizedFigure", "parse_gle_figure
 _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
 
 
+#: Every ``bar`` sub-command GLE 4.3.10 accepts that gleplot has no model
+#: for (G19). Enumerated from the engine's own parser -- ``do_bar`` in
+#: ``graph.cpp``, whose ``kw(...)`` chain is exhaustive (anything else is
+#: "unrecognised bar sub command") -- rather than from the manual, so the
+#: list cannot be shorter than the grammar:
+#:
+#:     DIST WIDTH 3D NOTOP HORIZ LSTYLE STYLE LWIDTH FROM
+#:     COLOR SIDE TOP FILL PATTERN BACKGROUND
+#:
+#: ``fill`` is :class:`~gleplot.series.BarSeries`' ``colors``; ``width`` is
+#: its ``width`` (G19). ``from`` is GLE's stacked form, which reaches the
+#: multi-dataset branch first (both names are dataset-shaped) and keeps its
+#: own, older note -- it is listed here only so that this table stays a
+#: complete reading of the grammar. Everything else changes what is drawn --
+#: orientation, grouping, 3-D extrusion, edge style, per-bar colouring -- so
+#: a command carrying one is kept whole as raw GLE.
+_BAR_UNMODELLED_OPTIONS = frozenset(
+    {
+        "dist",
+        "3d",
+        "notop",
+        "horiz",
+        "lstyle",
+        "style",
+        "lwidth",
+        "from",
+        "color",
+        "side",
+        "top",
+        "pattern",
+        "background",
+    }
+)
+
+
 def _bar_stack_names(toks: List[Token]) -> Optional[Tuple[str, str]]:
     """``(dN, dM)`` for a ``bar dN from dM ...`` statement, else ``None``.
 
@@ -2926,9 +2961,19 @@ class _Recognizer:
         return "    " + " ".join(t.value for t in toks)
 
     def _parse_bar_command(self, toks, datasets, info, stmt=None):
-        """``bar dN fill COLOR`` (or ``bar dN,dM,... fill c1,c2,...``)"""
+        """``bar dN fill COLOR [width W]`` (or ``bar dN,dM,... fill c1,c2,...``)
+
+        Two of GLE's fifteen ``bar`` sub-commands have a ``BarSeries`` field
+        behind them -- ``fill`` and, since G19, ``width``. The other thirteen
+        are enumerated in :data:`_BAR_UNMODELLED_OPTIONS`, and one of them
+        anywhere on the statement sends the *whole* command to raw
+        passthrough with a note: half-modeling it would drop the rest
+        silently.
+        """
         d_names = []
         color = "RED"
+        width: Optional[float] = None
+        unmodelled: List[str] = []
         i = 1
         m = len(toks)
         while i < m:
@@ -2942,6 +2987,21 @@ class _Recognizer:
                     color = val
                 i = nxt
                 continue
+            elif wl == "width":
+                # GLE takes an expression here (``next_exp``). A literal is
+                # the field; anything _collect_value cannot evaluate -- a
+                # variable, a call -- is a width gleplot cannot carry, so the
+                # statement degrades rather than losing it.
+                val, nxt = _collect_value(toks, i + 1)
+                if val is None:
+                    unmodelled.append(wl)
+                    i += 1
+                    continue
+                width = val
+                i = nxt
+                continue
+            elif wl in _BAR_UNMODELLED_OPTIONS and wl not in unmodelled:
+                unmodelled.append(wl)
             i += 1
 
         if len(d_names) > 1:
@@ -2959,6 +3019,27 @@ class _Recognizer:
                 "multi-dataset bar group ("
                 + ",".join(d_names)
                 + ") kept as raw GLE, not editable",
+                self._stmt_span(stmt),
+            )
+            return
+
+        if unmodelled:
+            # G19. One of GLE's other bar sub-commands. There is no
+            # BarSeries field for it, and no half-way house: modeling the
+            # dataset and its fill while dropping ``horiz`` would turn a
+            # horizontal bar chart into a vertical one, ``3d`` would flatten
+            # it, ``dist`` would regroup it. Same answer as the grouped and
+            # stacked forms above (the 557aa42 precedent) -- keep the WHOLE
+            # command raw, say so, and let the 'data'-statement
+            # reconciliation restore its data line verbatim, so GLE reads
+            # exactly the script the author wrote.
+            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
+            self._note(
+                ImportCategory.STRUCTURE,
+                "bar sub-command(s) "
+                + ", ".join(unmodelled)
+                + " have no model; the whole 'bar' command is kept as raw "
+                "GLE, not editable",
                 self._stmt_span(stmt),
             )
             return
@@ -2994,6 +3075,21 @@ class _Recognizer:
             data_file=data_file,
         )
         if loaded is None or loaded.get("error"):
+            if width is not None:
+                # G19: ``FileSeries`` has no width, so the error-reference
+                # form would drop the one number the author wrote down.
+                # Keep the command raw instead -- GLE reads the real file at
+                # compile time, so the authored script still draws.
+                info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    "bar width on an unresolved dataset ("
+                    + d_name
+                    + ") has no model; the whole 'bar' command is kept as "
+                    "raw GLE, not editable",
+                    self._stmt_span(stmt),
+                )
+                return
             # Broken data -> represent as file_series-style reference w/ error.
             info["file_series"].append(
                 FileSeries(
@@ -3011,6 +3107,11 @@ class _Recognizer:
         entry["x"] = x
         entry["height"] = height
         entry["colors"] = [color] * len(height)
+        if width is not None:
+            # G19. Absent unless the script named one: an unset width is
+            # GLE's to derive, and G16's writer-side derivation depends on
+            # the field staying absent for every bar that already draws.
+            entry["width"] = width
         column_names = self._recovered_column_names(data_file, [xcol, ycol])
         if column_names is not None:
             entry["column_names"] = column_names

@@ -2100,6 +2100,88 @@ class GLEWriter:
         # drawBar's own formula, min_int/(nbars*2), with nbars = 1.
         return cls.BAR_FALLBACK_SPACING / 2.0
 
+    # -- an explicit width, and what it does to the range (G19) ------------
+    #
+    # G19 makes ``width`` a real ``BarSeries`` field, so a caller (or a
+    # hand-written script the recognizer read) can name the number GLE would
+    # otherwise derive. Two questions follow, and both were settled against
+    # the live 4.3.10 binary rather than by reading the source twice:
+    #
+    # 1. Does an explicit width change the range GLE autoscales to? **No.**
+    #    ``get_dataset_ranges`` (graph2.cpp) widens a bar dataset's x data
+    #    range by ``getMinXInterval()/2`` either side -- the *data's* interval,
+    #    never ``br[b]->width``. Measured: a two-point set at x = 1, 2 gets
+    #    ``xgmin/xgmax = 0.4/2.6`` with no width, with ``width 0.2`` and with
+    #    ``width 2`` alike. So gleplot must not start supplying a range for
+    #    bars GLE can measure just because a width was given: those stay
+    #    exactly as they are.
+    #
+    # 2. What half-span should gleplot supply for the datasets GLE *cannot*
+    #    measure (G16's three shapes), when a width is given? The width.
+    #    GLE's two derivations agree for a single-dataset bar set --
+    #    half-interval ``min_int/2`` is *the same number* as the derived width
+    #    ``min_int/(nbars*2)`` at ``nbars = 1`` -- so "half-span = width" is
+    #    the engine's own proportion (a lone bar filling the middle half of
+    #    its frame), and G16's 0.5/0.5 is its no-explicit-width case.
+    #    Measured on a lone bar in a 6 cm frame: half-span = width draws
+    #    3.0 cm of bar for ``width 0.3`` and for ``width 2`` alike, centred;
+    #    holding the half-span at 0.5 instead draws 1.8 cm for ``width 0.3``
+    #    and lets ``width 2`` swallow the frame edge to edge (clipped at
+    #    both ends). One rule, no clipping, no hairlines.
+
+    @staticmethod
+    def bar_explicit_width(series_width: Optional[float]) -> Optional[float]:
+        """A ``BarSeries`` ``width`` field as a usable number, or ``None``.
+
+        ``0`` is GLE's own "no width given" sentinel (``drawBar``:
+        ``if (br[b]->width == 0) br[b]->width = min_int/(nbars*2)``), so it is
+        read here exactly as the engine reads it -- as absent, deferring to
+        the derivation -- rather than emitted as a width that would leave the
+        engine with nothing to size the degenerate shapes by. A non-finite
+        value is no width at all.
+        """
+        if series_width is None:
+            return None
+        value = float(series_width)
+        if value == 0.0 or not math.isfinite(value):
+            return None
+        return value
+
+    @classmethod
+    def bar_width_to_emit(
+        cls, x: np.ndarray, series_width: Optional[float] = None
+    ) -> Optional[float]:
+        """The ``width w`` to put on this dataset's ``bar`` command, or ``None``.
+
+        An explicit width wins outright and suppresses G16's derived one:
+        the caller's number is the answer for every dataset shape, measurable
+        or not.
+        """
+        explicit = cls.bar_explicit_width(series_width)
+        if explicit is not None:
+            return explicit
+        return cls.bar_width_gle_cannot_derive(x)
+
+    @classmethod
+    def bar_range_half_span(
+        cls, x: np.ndarray, series_width: Optional[float] = None
+    ) -> Optional[float]:
+        """Half the x range gleplot must supply for this bar set, or ``None``.
+
+        ``None`` -- the overwhelmingly common answer -- means GLE widens the
+        range itself from the data's own minimum interval, which is what it
+        does whenever that interval is finite, *whatever* width the script
+        names (measured; see the note above). Otherwise the half-span is the
+        width actually being drawn, so the bar keeps the middle half of its
+        frame at any width.
+        """
+        derived = cls.bar_width_gle_cannot_derive(x)
+        if derived is None:
+            return None
+        explicit = cls.bar_explicit_width(series_width)
+        # abs(): a negative width draws a mirrored bar of the same extent.
+        return abs(explicit) if explicit is not None else derived
+
     def add_bar_chart(
         self,
         x: np.ndarray,
@@ -2109,6 +2191,7 @@ class GLEWriter:
         label: Optional[str] = None,
         column_names: Optional[List[str]] = None,
         binding: Optional[ColumnBinding] = None,
+        width: Optional[float] = None,
     ):
         """
         Add bar chart to graph.
@@ -2139,6 +2222,11 @@ class GLEWriter:
             command to neutralize GLE's auto-key-from-header behavior
             (verified empirically: this statement alone draws nothing, and
             makes rendering byte-identical to the headerless case).
+        width : float, optional
+            Bar width in DATA units (G19). ``None`` -- the default -- leaves
+            the sizing to GLE, which is what every bar chart gleplot wrote
+            before this parameter existed; a number is emitted verbatim and
+            suppresses G16's derived width. See ``bar_width_to_emit``.
         """
         x = np.asarray(x, dtype=float)
         heights = np.asarray(heights, dtype=float)
@@ -2166,11 +2254,12 @@ class GLEWriter:
         self.lines_gle.append(cmd)
 
         bar_cmd = f"    bar {d_name} fill {bar_color}"
-        # G16: a dataset whose bar width GLE cannot derive gets it written
-        # down. Every other dataset is left exactly as it was.
-        width = self.bar_width_gle_cannot_derive(x)
-        if width is not None:
-            bar_cmd += f" width {self._format_number(width)}"
+        # G16/G19: an explicit width is written down; failing that, a dataset
+        # whose width GLE cannot derive gets the derived one. Every other
+        # dataset is left exactly as it was.
+        emitted_width = self.bar_width_to_emit(x, width)
+        if emitted_width is not None:
+            bar_cmd += f" width {self._format_number(emitted_width)}"
         self.lines_gle.append(bar_cmd)
 
         if has_header and not label:

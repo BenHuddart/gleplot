@@ -654,6 +654,17 @@ class BarSeries(Series):
     #: One colour per bar; GLE only honours the first, but the list length
     #: is what the GUI edits against.
     colors: Optional[List[str]]
+    #: Bar width in DATA units (GLE's ``bar dN ... width w``), or absent
+    #: (G19). Absent is the historical behaviour and the default: GLE sizes
+    #: the set from the data itself -- ``drawBar`` takes
+    #: ``getMinXInterval()/(nbars*2)`` whenever ``width`` is 0 (its "not
+    #: given" sentinel) -- and gleplot only writes a width down for the
+    #: datasets that derivation cannot serve (G16,
+    #: :meth:`gleplot.writer.GLEWriter.bar_width_gle_cannot_derive`). A
+    #: value here is the caller's own number: it is emitted verbatim and
+    #: suppresses G16's derived one. ``0`` is GLE's own "no width given",
+    #: so it is read as absent rather than emitted.
+    width: Optional[float]
     label: Optional[str]
     data_file: Optional[str]
     column_names: Optional[List[str]]

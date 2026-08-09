@@ -2165,6 +2165,7 @@ class Figure:
                     series_data["label"],
                     column_names=series_data.get("column_names"),
                     binding=binding,
+                    width=series_data.get("width"),
                 )
             elif kind == "line":
                 writer.add_plot_line(
@@ -2780,14 +2781,21 @@ class Figure:
         # itself, with the nominal spacing the bar width comes from -- see
         # ``GLEWriter.bar_width_gle_cannot_derive`` for why that spacing is 1,
         # and why the range and the width have to be read off the same number.
-        half_span = GLEWriter.BAR_FALLBACK_SPACING / 2.0
+        #
+        # G19: a series carrying its own ``width`` supplies that number
+        # instead, so the half-span still equals the width actually drawn.
+        # Only for these same unmeasurable datasets: where GLE can measure an
+        # interval it widens the range from the DATA, ignoring any width the
+        # script names (measured -- see ``GLEWriter.bar_range_half_span``), so
+        # a width must never start pulling a range gleplot did not write.
         for bar_data in resolution.visible(ax.bars):
             raw = np.asarray(bar_data["x"], dtype=float)
             x = _plottable(raw, positive_only)
             if len(x) == 0:
                 continue
             lo, hi = float(x.min()), float(x.max())
-            if lo == hi and GLEWriter.bar_width_gle_cannot_derive(raw) is not None:
+            half_span = GLEWriter.bar_range_half_span(raw, bar_data.get("width"))
+            if lo == hi and half_span is not None:
                 # This dataset both collapses the range and is one the engine
                 # cannot size -- the same predicate the width is written on,
                 # so the two can never disagree about which bars are nominal.
