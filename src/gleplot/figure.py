@@ -2686,7 +2686,6 @@ class Figure:
         x_bearing: Sequence[Sequence[Series]] = (
             resolution.visible(ax.lines),
             resolution.visible(ax.scatters),
-            resolution.visible(ax.bars),
             resolution.visible(ax.errorbars),
         )
         for data_list in x_bearing:
@@ -2697,6 +2696,38 @@ class Figure:
                         xmin = float(x.min())
                     if xmax is None or x.max() > xmax:
                         xmax = float(x.max())
+
+        # Bars are the one series whose x extent is wider than its x values.
+        # GLE's own ``get_dataset_ranges`` pushes a bar dataset's data range
+        # out by half an inter-point interval either side "so that bars are
+        # visible", and gleplot has always left that half-bar to the engine.
+        # The engine cannot supply it when every point of the dataset shares
+        # one x: there is no interval to halve, the range collapses, and G15's
+        # deferral then hands GLE an axis it answers with "invalid range for
+        # dimension X". For exactly those datasets gleplot applies GLE's rule
+        # itself, with the nominal spacing the bar width comes from -- see
+        # ``GLEWriter.bar_width_gle_cannot_derive`` for why that spacing is 1,
+        # and why the range and the width have to be read off the same number.
+        half_span = GLEWriter.BAR_FALLBACK_SPACING / 2.0
+        for bar_data in resolution.visible(ax.bars):
+            raw = np.asarray(bar_data["x"], dtype=float)
+            x = _plottable(raw, positive_only)
+            if len(x) == 0:
+                continue
+            lo, hi = float(x.min()), float(x.max())
+            if lo == hi and GLEWriter.bar_width_gle_cannot_derive(raw) is not None:
+                # This dataset both collapses the range and is one the engine
+                # cannot size -- the same predicate the width is written on,
+                # so the two can never disagree about which bars are nominal.
+                lo, hi = lo - half_span, hi + half_span
+                if positive_only and lo <= 0:
+                    # A log x axis cannot show the widened lower edge; leave
+                    # it to _apply_log_limits, which owns that repair.
+                    lo = hi
+            if xmin is None or lo < xmin:
+                xmin = lo
+            if xmax is None or hi > xmax:
+                xmax = hi
 
         for fill_data in resolution.visible(ax.fills):
             x = _plottable(np.asarray(fill_data["x"]), positive_only)

@@ -13,6 +13,11 @@ if it is measured, so every number in this module comes from the live binary
   is how GLEstudio learns the range and the only channel that has to keep
   working for a deferred axis to be editable on the canvas.
 
+The last section is G16, the one figure G15 could not hand over: a bar chart
+GLE cannot size from its own data. Same discipline -- the width gleplot writes
+is the width the engine picks for the same heights when it has a spacing to
+measure, read off the compiled page.
+
 Skipped when GLE is not installed.
 """
 
@@ -274,29 +279,205 @@ def test_the_rendered_page_is_not_blank(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# The residual GLE cannot fix for us
+# The bar G15 could not draw (G16)
 # --------------------------------------------------------------------------- #
+#
+# G15 left one residual: a bar chart with a single bar. GLE sizes a bar set
+# from its data -- ``drawBar`` takes the width from
+# ``GLEDataPairs::getMinXInterval()``, the smallest strictly positive gap
+# between consecutive x values, and ``get_dataset_ranges`` widens the x data
+# range by half that same interval either side -- so a dataset with no such
+# gap has neither a width nor a range. G16 writes both down, from one nominal
+# spacing. The tests below are the empirical case for that number: what the
+# engine does with the dataset it cannot measure, and what width it picks for
+# the same heights when it *can*.
+
+#: One filled/stroked rectangle in GLE's EPS output. Bars are the only
+#: axis-aligned rectangles in these figures apart from the frame, which is
+#: drawn as a stroked path with a different shape.
+_EPS_RECT = re.compile(
+    rf"newpath ({_NUM}) ({_NUM}) moveto ({_NUM}) \2 l \3 ({_NUM}) l \1 \4 l closepath"
+)
 
 
-def test_a_single_bar_is_still_beyond_the_engine(tmp_path):
-    """Bars are the one series GLE cannot autoscale from a single value.
+def _compile_eps(tmp_path, text, stem):
+    """Compile ``text`` to EPS and return ``(proc, output, eps_text)``."""
+    (tmp_path / f"{stem}.gle").write_text(text, encoding="utf-8")
+    proc = subprocess.run(
+        [str(find_gle()), "-d", "eps", "-verbosity", "0", f"{stem}.gle"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+    out = re.sub(r"\x1b\[[0-9;]*m", "", proc.stdout + proc.stderr)
+    eps = tmp_path / f"{stem}.eps"
+    return (
+        proc,
+        out,
+        eps.read_text(encoding="utf-8", errors="replace") if eps.exists() else "",
+    )
 
-    A bar chart's x range has always had to come from gleplot, because GLE
-    derives the bar width from the spacing *between* the data points; with one
-    bar that spacing is zero and the graph fails with "invalid range for
-    dimension X" whether the (illegal) collapsed range is written or left out.
-    So the deferral neither fixes nor worsens this case -- it changes which
-    error GLE reports. Pinned so that a future fix (upstream or here) is
-    noticed rather than assumed.
+
+def _drawn_bar_widths(tmp_path, text, stem):
+    """The width of every bar GLE actually drew, in DATA units.
+
+    Measured off the PostScript rectangles and converted with the frame
+    mapping GLE reports for the same run, so the answer is the engine's, not
+    a re-derivation of its arithmetic.
     """
+    probed = text.replace(
+        "end graph",
+        'end graph\nprint "PROBE " xgmin " " xgmax " " xg(xgmin) " " xg(xgmax)',
+        1,
+    )
+    proc, out, eps = _compile_eps(tmp_path, probed, stem)
+    assert proc.returncode == 0, f"GLE exited {proc.returncode}:\n{out}"
+    found = re.search(r"PROBE\s+" + r"\s+".join([f"({_NUM})"] * 4), out)
+    assert found is not None, f"GLE did not report the frame:\n{out}"
+    xgmin, xgmax, left_cm, right_cm = (float(g) for g in found.groups())
+    assert "nan" not in eps, "GLE drew NaN coordinates"
+
+    units_per_cm = (xgmax - xgmin) / (right_cm - left_cm)
+    # Each bar is emitted twice (filled, then stroked) and GLE rounds its
+    # PostScript to six significant figures, so equal bars differ in the last
+    # digit or two; deduplicate at the precision the format actually carries.
+    widths = {
+        round((float(m.group(3)) - float(m.group(1))) * units_per_cm, 5)
+        for m in _EPS_RECT.finditer(eps)
+    }
+    return sorted(w for w in widths if w > 0)
+
+
+def _bare_bar_gle(tmp_path, rows, stem, bar_line="    bar d1 fill RED"):
+    """A hand-written bar chart with no axis settings: GLE's own answer."""
+    (tmp_path / f"{stem}.dat").write_text(
+        "".join(f"{x:g} {y:g}\n" for x, y in rows), encoding="utf-8"
+    )
+    return (
+        "size 20.32 15.24\n"
+        "amove 1.69312 1.26984\n"
+        "begin graph\n"
+        "    size 17.992 13.3352\n"
+        "    scale 1 1\n"
+        f'    data "{stem}.dat" d1=c1,c2\n'
+        f"{bar_line}\n"
+        "end graph\n"
+    )
+
+
+def _single_bar_figure(x=1.0, height=5.0):
     fig = glp.figure(data_prefix="dgc")
     ax = fig.add_subplot(111)
-    ax.bar([1], [5])
+    ax.bar([x], [height])
+    return fig
 
-    text = _gleplot_script(fig, tmp_path)
-    assert "xaxis min" not in text
 
-    (tmp_path / "bar.gle").write_text(text, encoding="utf-8")
-    proc, out = _run(tmp_path, "bar.gle")
+def test_gle_still_cannot_size_a_bar_set_it_cannot_measure(tmp_path):
+    """Why anything is emitted at all: the three shapes, and their two failures.
+
+    Left to itself GLE does not decline politely. Where the range collapsed
+    with it, the graph aborts; where it did not, GLE compiles a page whose
+    bars are ``-nan`` rectangles -- accepted by GLE, rejected downstream by
+    Ghostscript. Both are pinned here so the emission below is answering a
+    measured problem.
+    """
+    one = _bare_bar_gle(tmp_path, [(1, 5)], "bare_one")
+    proc, out, _eps = _compile_eps(tmp_path, one, "bare_one")
     assert proc.returncode != 0
     assert "invalid range for dimension X" in out
+
+    equal = _bare_bar_gle(tmp_path, [(1, 5), (1, 3)], "bare_equal")
+    proc, out, _eps = _compile_eps(tmp_path, equal, "bare_equal")
+    assert proc.returncode != 0
+    assert "invalid range for dimension X" in out
+
+    # Descending x, with the range spelled out as gleplot spells it: a range
+    # GLE accepts, and a width it still cannot compute. Nothing stops the
+    # compile -- the bars are simply drawn at NaN.
+    desc = _bare_bar_gle(
+        tmp_path,
+        [(3, 5), (1, 3)],
+        "bare_desc",
+        bar_line="    xaxis min 1 max 3\n    bar d1 fill RED",
+    )
+    proc, out, eps = _compile_eps(tmp_path, desc, "bare_desc")
+    assert proc.returncode == 0, out
+    assert "nan" in eps
+
+
+def test_the_emitted_width_is_the_one_gle_picks_at_unit_spacing(tmp_path):
+    """The rationale, measured: two bars a unit apart get 0.5 from GLE itself.
+
+    ``drawBar``'s ``min_int/(nbars*2)`` with ``min_int`` = 1 and ``nbars`` = 1.
+    gleplot writes that number down for the dataset GLE cannot measure, so a
+    lone bar is drawn exactly as wide as it would have been with a neighbour.
+    """
+    theirs = _drawn_bar_widths(
+        tmp_path, _bare_bar_gle(tmp_path, [(1, 5), (2, 3)], "unit"), "unit"
+    )
+    assert theirs == pytest.approx([0.5], abs=RANGE_TOLERANCE)
+
+    ours = _drawn_bar_widths(
+        tmp_path, _gleplot_script(_single_bar_figure(), tmp_path), "figure"
+    )
+    assert ours == pytest.approx(theirs, abs=RANGE_TOLERANCE)
+    assert "bar d1 fill RED width 0.5" in _gleplot_script(
+        _single_bar_figure(), tmp_path
+    )
+
+
+def test_a_single_bar_compiles_and_lands_inside_its_frame(tmp_path):
+    """The headline flip: the figure G15 pinned as impossible now draws.
+
+    The frame is the bar's own x plus and minus half the nominal spacing, so
+    the 0.5-wide bar sits centred in it with a quarter-spacing of clearance
+    either side -- measured off the compiled page, not asserted from the
+    script.
+    """
+    text = _gleplot_script(_single_bar_figure(x=1.0), tmp_path)
+    assert "    xaxis min 0.5 max 1.5" in text
+
+    probed = text.replace(
+        "end graph",
+        'end graph\nprint "PROBE " xgmin " " xgmax " " xg(xgmin) " " xg(xgmax)',
+        1,
+    )
+    proc, out, eps = _compile_eps(tmp_path, probed, "single")
+    assert proc.returncode == 0, out
+    assert "nan" not in eps
+
+    found = re.search(r"PROBE\s+" + r"\s+".join([f"({_NUM})"] * 4), out)
+    xgmin, xgmax, left_cm, right_cm = (float(g) for g in found.groups())
+    assert (xgmin, xgmax) == pytest.approx((0.5, 1.5), abs=RANGE_TOLERANCE)
+
+    rects = [m for m in _EPS_RECT.finditer(eps)]
+    assert rects, "no bar was drawn"
+    lo_cm = min(float(m.group(1)) for m in rects)
+    hi_cm = max(float(m.group(3)) for m in rects)
+    assert left_cm < lo_cm < hi_cm < right_cm
+
+
+def test_the_rendered_single_bar_page_is_not_blank(tmp_path):
+    """End to end, through the real savefig path (Ghostscript included).
+
+    Before G16 this exact call was the ``-nan`` failure: GLE compiled, and
+    Ghostscript stopped with "Error: /undefined in -nan".
+    """
+    out = _single_bar_figure().savefig(str(tmp_path / "bar.pdf"))
+    assert out.exists() and out.stat().st_size > 0
+    assert out.read_bytes().startswith(b"%PDF")
+
+
+def test_a_lone_bar_beside_other_data_stops_drawing_nan(tmp_path):
+    """The half of the bug an axis range never hid: the polygons themselves."""
+    fig = glp.figure(data_prefix="dgc")
+    ax = fig.add_subplot(111)
+    ax.bar([1.0], [5.0])
+    ax.plot(np.array([0.0, 10.0]), np.array([1.0, 9.0]))
+
+    text = _gleplot_script(fig, tmp_path)
+    assert "    xaxis min 0 max 10" in text
+
+    proc, out, eps = _compile_eps(tmp_path, text, "mixed")
+    assert proc.returncode == 0, out
+    assert "nan" not in eps
