@@ -1387,6 +1387,7 @@ class Axes:
         color: Optional[Union[str, List[str]]] = None,
         label: Optional[str] = None,
         zorder: Optional[float] = None,
+        width: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -1406,6 +1407,16 @@ class Axes:
             due to GLE limitations. Default is 'red'.
         label : str, optional
             Legend label (currently not supported by GLE for bar charts)
+        width : float, optional
+            Bar width in DATA units (G19), GLE's ``bar dN ... width w``.
+            The default, ``None``, is the engine's own behaviour and
+            gleplot's historical one: GLE sizes the set from the data,
+            taking half the smallest gap between consecutive x values.
+            Deliberately *not* matplotlib's constant ``0.8`` default -- every
+            bar chart written before this parameter existed must keep
+            emitting the script it emits now. Note also that ``width`` is a
+            keyword here where matplotlib's is positional: this method's
+            third positional parameter has always been ``color``.
         **kwargs
             Additional arguments
 
@@ -1447,6 +1458,12 @@ class Axes:
             data_file=_resolve_data_file(self.figure, data_name),
             column_names=_build_column_names("x", ["height"], label),
         )
+        if width is not None:
+            # Absent, not None: an unset width is the engine's to derive, and
+            # only a series that actually carries the key gains one in
+            # to_dict() (see BarSeries.width and the "optional fields stay
+            # absent" rule in gleplot.series).
+            bar_data["width"] = float(width)
         self._register_series_draw_meta(bar_data, "bar", zorder)
         self.bars.append(bar_data)
 

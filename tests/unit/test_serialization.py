@@ -658,7 +658,7 @@ def _figure_exercising_every_series_kind():
     ax = fig.add_subplot(311)
     ax.plot([1.0, 2.0], [3.0, 4.0], marker="o", label="line", zorder=7)
     ax.scatter([1.0, 2.0], [3.0, 4.0], label="scatter", zorder=8)
-    ax.bar([1.0, 2.0], [3.0, 4.0], color="red", label="bar", zorder=1)
+    ax.bar([1.0, 2.0], [3.0, 4.0], color="red", label="bar", zorder=1, width=0.4)
     ax.fill_between([1.0, 2.0], [0.0, 1.0], [3.0, 4.0], label="fill")
     ax.errorbar(
         [1.0, 2.0],

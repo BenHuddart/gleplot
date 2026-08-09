@@ -13,10 +13,14 @@ if it is measured, so every number in this module comes from the live binary
   is how GLEstudio learns the range and the only channel that has to keep
   working for a deferred axis to be editable on the canvas.
 
-The last section is G16, the one figure G15 could not hand over: a bar chart
-GLE cannot size from its own data. Same discipline -- the width gleplot writes
-is the width the engine picks for the same heights when it has a spacing to
-measure, read off the compiled page.
+The last two sections are bars. G16 is the one figure G15 could not hand
+over: a bar chart GLE cannot size from its own data. Same discipline -- the
+width gleplot writes is the width the engine picks for the same heights when
+it has a spacing to measure, read off the compiled page. G19 then lets the
+model carry a width of its own, and measures the two facts that decides
+rest on: GLE's bar-range widening ignores an explicit width entirely, and
+the half-span gleplot supplies where the engine cannot measure keeps the bar
+in the middle half of its frame at any width.
 
 Skipped when GLE is not installed.
 """
@@ -481,3 +485,130 @@ def test_a_lone_bar_beside_other_data_stops_drawing_nan(tmp_path):
     proc, out, eps = _compile_eps(tmp_path, text, "mixed")
     assert proc.returncode == 0, out
     assert "nan" not in eps
+
+
+# --------------------------------------------------------------------------- #
+# The width the script names (G19)
+# --------------------------------------------------------------------------- #
+#
+# G16 derives a width for the bar sets GLE cannot measure. G19 lets the model
+# carry one instead, which raises the question this section measures: what an
+# explicit width does to the range. GLE's own answer is "nothing" -- the
+# widening in ``get_dataset_ranges`` reads the DATA's minimum x interval, not
+# ``br[b]->width`` -- so where gleplot has to supply the range itself, the
+# half-span it picks is a gleplot decision, and the numbers below are what it
+# was decided on.
+
+
+def _bare_two_bar_ranges(tmp_path, stem, width_clause):
+    """``(xgmin, xgmax)`` GLE autoscales to for two bars, with ``width_clause``."""
+    text = _bare_bar_gle(
+        tmp_path,
+        [(1, 5), (2, 3)],
+        stem,
+        bar_line=f"    bar d1 fill RED{width_clause}",
+    ).replace("end graph", 'end graph\nprint "PROBE " xgmin " " xgmax', 1)
+    proc, out, _eps = _compile_eps(tmp_path, text, stem)
+    assert proc.returncode == 0, out
+    found = re.search(r"PROBE\s+" + r"\s+".join([f"({_NUM})"] * 2), out)
+    assert found is not None, f"GLE did not report the frame:\n{out}"
+    return tuple(float(g) for g in found.groups())
+
+
+def test_gles_bar_range_is_derived_from_the_data_not_from_the_width(tmp_path):
+    """The measurement the half-span rule rests on.
+
+    ``get_dataset_ranges`` widens a bar dataset's x range by
+    ``getMinXInterval()/2`` either side. The bar's declared ``width`` is not
+    part of that expression, and the engine agrees: the same two bars
+    autoscale to the same frame with no width, with a fifth of the derived
+    one, and with four times it. So gleplot must go on leaving the range of
+    a measurable bar set alone, whatever width the model carries.
+    """
+    without = _bare_two_bar_ranges(tmp_path, "wr_none", "")
+    assert without == pytest.approx((0.4, 2.6), abs=RANGE_TOLERANCE)
+    assert _bare_two_bar_ranges(tmp_path, "wr_narrow", " width 0.2") == without
+    assert _bare_two_bar_ranges(tmp_path, "wr_wide", " width 2") == without
+
+
+@pytest.mark.parametrize("width", [0.3, 2.0], ids=["narrow", "wide"])
+def test_a_lone_bar_of_any_width_still_owns_the_middle_half_of_its_frame(
+    tmp_path, width
+):
+    """The rule gleplot chose: half-span = the width being drawn.
+
+    That is GLE's own proportion. For a single-dataset bar set its two
+    derivations are one number -- the half-span ``min_int/2`` and the width
+    ``min_int/(nbars*2)`` at ``nbars`` = 1 -- so a bar GLE sizes and frames
+    itself fills exactly half its frame. Measured here off the compiled page
+    for a width GLE never chose: 0.3 and 2.0 both draw half of a 6 cm frame,
+    centred, with a quarter-frame of clearance either side.
+    """
+    fig = glp.figure(data_prefix="dgc")
+    ax = fig.add_subplot(111)
+    ax.bar([1.0], [5.0], width=width)
+
+    stem = f"g19_{str(width).replace('.', '_')}"
+    text = _gleplot_script(fig, tmp_path, stem=stem)
+    assert f"    bar d1 fill RED width {width:g}" in text
+
+    drawn = _drawn_bar_widths(tmp_path, text, stem)
+    assert drawn == pytest.approx([width], abs=RANGE_TOLERANCE)
+
+    probed = text.replace(
+        "end graph",
+        'end graph\nprint "PROBE " xgmin " " xgmax " " xg(xgmin) " " xg(xgmax)',
+        1,
+    )
+    proc, out, eps = _compile_eps(tmp_path, probed, f"{stem}_probe")
+    assert proc.returncode == 0, out
+    assert "nan" not in eps
+    found = re.search(r"PROBE\s+" + r"\s+".join([f"({_NUM})"] * 4), out)
+    xgmin, xgmax, left_cm, right_cm = (float(g) for g in found.groups())
+    assert (xgmin, xgmax) == pytest.approx(
+        (1.0 - width, 1.0 + width), abs=RANGE_TOLERANCE
+    )
+
+    rects = list(_EPS_RECT.finditer(eps))
+    assert rects, "no bar was drawn"
+    lo_cm = min(float(m.group(1)) for m in rects)
+    hi_cm = max(float(m.group(3)) for m in rects)
+    frame_cm = right_cm - left_cm
+    # Half the frame, centred -- and clear of both edges, which is what a
+    # fixed 0.5 half-span would have lost: ``width 2`` in a 1-unit frame is
+    # drawn edge to edge, clipped at both ends.
+    assert (hi_cm - lo_cm) == pytest.approx(frame_cm / 2.0, abs=1e-3)
+    assert left_cm < lo_cm < hi_cm < right_cm
+
+
+def test_a_hand_written_single_bar_width_survives_the_round_trip(tmp_path):
+    """The G19 wrinkle, end to end and on the page.
+
+    ``bar d1 width 0.3`` over a one-row file used to come back as G16's
+    derived ``width 0.5``. It now comes back as 0.3 -- and the re-emitted
+    script compiles to a bar 0.3 data units wide, measured off the page,
+    which is what makes the field more than a string that survives.
+    """
+    (tmp_path / "one.dat").write_text("1 5\n", encoding="utf-8")
+    (tmp_path / "hand.gle").write_text(
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "one.dat" d1=c1,c2\n'
+        "   bar d1 fill red width 0.3\n"
+        "end graph\n",
+        encoding="utf-8",
+    )
+
+    figure = glp.open_gle(str(tmp_path / "hand.gle"))
+    (bar,) = figure.axes_list[0].bars
+    assert bar["width"] == 0.3
+
+    out = tmp_path / "round.gle"
+    figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "    bar d1 fill red width 0.3" in text
+    assert "width 0.5" not in text
+
+    assert _drawn_bar_widths(tmp_path, text, "round") == pytest.approx(
+        [0.3], abs=RANGE_TOLERANCE
+    )

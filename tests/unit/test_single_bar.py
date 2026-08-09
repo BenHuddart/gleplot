@@ -309,7 +309,14 @@ def test_the_widened_range_is_the_axes_own_answer_too():
 
 
 def test_serialization_gained_no_fields():
-    """G16 adds no model state: the width is a write-time derivation."""
+    """G16 adds no model state: the width is a write-time derivation.
+
+    G19 later gave ``BarSeries`` a real ``width`` field, but it stays
+    *absent* unless the caller (or a hand-written script) names one, so a
+    bar sized by G16 still serializes exactly as it did -- which is what
+    keeps the derivation, and this module's byte-identity battery, honest.
+    See ``tests/unit/test_bar_width_field.py``.
+    """
     fig, ax = _axes()
     ax.bar([1.0], [5.0])
     before = set(fig.to_dict()["figure"]["axes"][0]["bars"][0])
