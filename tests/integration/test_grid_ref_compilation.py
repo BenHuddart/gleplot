@@ -27,6 +27,7 @@ import pytest
 
 import gleplot as glp
 from gleplot.compiler import GLECompiler
+from tests.integration.conftest import darwin_gle_contour_crash
 from gleplot.series import ContourSeries, HeatmapSeries
 from gleplot.sources import DictDataProvider, GridRef, TableData
 
@@ -170,6 +171,7 @@ def test_a_provider_data_change_alters_the_compiled_colorbar_range(tmp_path):
 
 
 @pytest.mark.gle
+@darwin_gle_contour_crash
 def test_a_points_mode_grid_ref_auto_extent_compiles(tmp_path):
     """The auto extent becomes ``begin fitz``'s ``x from ... to ...``."""
     rng = np.random.default_rng(7)
