@@ -54,19 +54,19 @@ figure(figsize=(8, 6), dpi=100)
 __version__ = "3.2.0"
 __author__ = "gleplot contributors"
 
-from .figure import Figure
 from .axes import Axes, validate_tick_format
 from .brokenaxes import BrokenAxes
-from .colors import rgb_to_gle, get_color_palette
-from .markers import get_gle_marker
-from .mathtext import mathtext_to_gle
+from .colors import get_color_palette, rgb_to_gle
 from .compiler import GLECompiler
 from .config import (
-    GLEStyleConfig,
     GLEGraphConfig,
     GLEMarkerConfig,
+    GLEStyleConfig,
     GlobalConfig,
 )
+from .figure import Figure
+from .markers import get_gle_marker
+from .mathtext import mathtext_to_gle
 
 # Series data sources: where a series' numbers come from. The scripting API
 # always produces InlineData (baked arrays) and never needs these; they are
@@ -221,6 +221,11 @@ def step(*args, **kwargs):
 def stem(*args, **kwargs):
     """Stem plot on current axes. See :meth:`gleplot.Axes.stem`."""
     return gca().stem(*args, **kwargs)
+
+
+def hist(*args, **kwargs):
+    """Histogram on the current axes. See :meth:`gleplot.Axes.hist`."""
+    return gca().hist(*args, **kwargs)
 
 
 def scatter(*args, **kwargs):
@@ -496,6 +501,7 @@ __all__ = [
     "plot",
     "step",
     "stem",
+    "hist",
     "scatter",
     "bar",
     "fill_between",

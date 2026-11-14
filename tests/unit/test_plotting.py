@@ -887,5 +887,221 @@ class TestLineModes(unittest.TestCase):
         self.assertEqual(self.ax.lines[0]['marker'], 'FSQUARE')
 
 
-if __name__ == '__main__':
+class TestHistogram(unittest.TestCase):
+    """Counts via ``let dK = hist``, drawn as a step or adjoining bars."""
+
+    def setUp(self):
+        glp.close()
+        self.fig = glp.figure(data_prefix="hist")
+        self.ax = self.fig.add_subplot(111)
+
+    def tearDown(self):
+        glp.close()
+
+    def _script(self):
+        return self.fig._generate_gle()
+
+    def test_figure_wide_smoothing_does_not_round_the_bin_edges(self):
+        self.fig.graph.smooth_curves = True
+        self.ax.hist([0, 1], bins=4, range=(0, 1), histtype="step")
+        line = next(ln for ln in self._script().splitlines() if "line hist" in ln)
+        self.assertNotIn("smooth", line)
+
+    def test_step_emits_a_let_and_a_hist_line(self):
+        self.ax.hist(
+            [0, 0.2, 0.5, 0.9], bins=20, range=(0, 1), histtype="step", label="n"
+        )
+        script = self._script()
+        self.assertIn("let d2 = hist d1 from 0 to 1 bins 20", script)
+        self.assertIn("d2 line hist color BLUE", script)
+        self.assertIn('key "n"', script)
+        self.assertNotIn("bar d2", script)
+        self.assertEqual(len(self.ax.hists), 1)
+        self.assertEqual(self.ax.hists[0]["histtype"], "step")
+
+    def test_stepfilled_is_a_full_width_bar_on_the_binned_dataset(self):
+        self.ax.hist(
+            [0, 0.2, 0.5, 0.9],
+            bins=20,
+            range=(0, 1),
+            histtype="stepfilled",
+            color="red",
+            label="n",
+        )
+        script = self._script()
+        self.assertIn("let d2 = hist d1 from 0 to 1 bins 20", script)
+        self.assertIn("bar d2 fill RED color RED width 0.05", script)
+        self.assertIn('d2 key "n"', script)
+        self.assertNotIn("line hist", script)
+
+    def test_bar_histtype_warns_and_draws_a_step(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.hist([0, 1], bins=4, range=(0, 1), histtype="bar")
+        self.assertTrue(any("step outline" in str(w.message) for w in caught))
+        self.assertIn("line hist", self._script())
+        self.assertNotIn("bar d", self._script())
+
+    def test_density_align_and_orientation_warn(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.hist(
+                [0, 1],
+                bins=4,
+                range=(0, 1),
+                histtype="step",
+                density=True,
+                align="left",
+                orientation="horizontal",
+            )
+        messages = " ".join(str(w.message) for w in caught)
+        self.assertIn("density", messages)
+        self.assertIn("align", messages)
+        self.assertIn("horizontal", messages)
+        self.assertIn("line hist", self._script())
+
+    def test_range_and_bin_rules(self):
+        import warnings
+
+        returned = self.ax.hist([0.2, 0.8], bins=4, histtype="step")
+        self.assertIs(returned, self.ax)
+        self.assertIn("let d2 = hist d1 from 0.2 to 0.8 bins 4", self._script())
+
+        self.ax.hist([3, 3, 3], bins=2, histtype="step")
+        self.assertIn("from 2.5 to 3.5 bins 2", self._script())
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.hist([0, 1], bins=[0, 1, 3], histtype="step")
+            self.ax.hist([0, 1], bins="auto", range=(0, 1), histtype="step")
+        messages = " ".join(str(w.message) for w in caught)
+        self.assertIn("equal width", messages)
+        self.assertIn("auto", messages)
+        script = self._script()
+        self.assertIn("from 0 to 3 bins 2", script)
+        self.assertIn("bins 10", script)
+
+        self.ax.hist(
+            [0, 1], bins=2, range=(0, 1), histtype="step", color="red", alpha=0.5
+        )
+        self.assertIn("rgba255", self._script())
+
+    def test_a_step_clause_round_trips_without_inventing_bins(self):
+        import tempfile
+        from gleplot.parser.recognizer import parse_gle_figure
+
+        self.ax.hist([0, 0.5, 1], bins=4, range=(0, 1), histtype="step")
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "figure.gle"
+            self.fig.savefig_gle(str(src))
+            text = src.read_text(encoding="utf-8").replace("bins 4", "step 0.25", 1)
+            src.write_text(text, encoding="utf-8")
+            ax = parse_gle_figure(src).figure.axes_list[0]
+            self.assertNotIn("bins", ax.hists[0])
+            self.assertEqual(ax.hists[0]["bin_step"], 0.25)
+            dst = Path(tmp) / "again.gle"
+            ax.figure.savefig_gle(str(dst))
+            self.assertEqual(dst.read_text(encoding="utf-8"), text)
+
+    def test_empty_inverted_range_and_bad_histtype_raise(self):
+        with self.assertRaises(ValueError):
+            self.ax.hist([], bins=4, range=(0, 1), histtype="step")
+        with self.assertRaises(ValueError):
+            self.ax.hist([0, 1], bins=4, range=(1, 0), histtype="step")
+        with self.assertRaises(ValueError):
+            self.ax.hist([0, 1], bins=4, histtype="nope")
+
+    def test_counts_and_axis_limits_follow_gle_binning(self):
+        from gleplot.axes import histogram_counts
+
+        samples = [0, 0, 1, 1, 1]
+        counts = histogram_counts(samples, 0, 2, bins=2)
+        self.assertTrue(np.array_equal(counts, [2, 3]))
+        right = histogram_counts([2], 0, 2, bins=2)
+        self.assertTrue(np.array_equal(right, [0, 1]))
+        outside = histogram_counts([-1, 3], 0, 2, bins=2)
+        self.assertTrue(np.array_equal(outside, [0, 0]))
+        # ``step`` that lands on the window end does not add a further edge.
+        # One that does not divides past ``to``; the sample still in range
+        # falls in that last, wider bin.
+        on_end = histogram_counts([0, 0.5, 1], 0, 1, bin_step=0.5)
+        self.assertTrue(np.array_equal(on_end, [1, 2]))
+        overshoot = histogram_counts([0.9], 0, 1, bin_step=0.4)
+        self.assertTrue(np.array_equal(overshoot, [0, 0, 1]))
+
+        self.ax.hist(samples, bins=2, range=(0, 2), histtype="step")
+        script = self._script()
+        self.assertIn("xaxis min 0 max 2", script)
+        self.assertIn("yaxis min 0 max 3", script)
+
+    def test_step_and_stepfilled_round_trip(self):
+        import tempfile
+
+        from gleplot.parser.recognizer import parse_gle_figure
+
+        self.ax.hist(
+            [0, 0, 1, 1, 1], bins=2, range=(0, 2), histtype="step", label="step"
+        )
+        self.ax.hist(
+            [0.5, 1.5],
+            bins=2,
+            range=(0, 2),
+            histtype="stepfilled",
+            color="red",
+            label="filled",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "figure.gle"
+            self.fig.savefig_gle(str(src))
+            original = src.read_text(encoding="utf-8")
+            recognized = parse_gle_figure(src)
+            ax = recognized.figure.axes_list[0]
+            self.assertEqual(len(ax.hists), 2)
+            self.assertEqual(ax.lines, [])
+            self.assertEqual(ax.bars, [])
+            self.assertTrue(np.allclose(ax.hists[0]["samples"], [0, 0, 1, 1, 1]))
+            self.assertEqual(ax.hists[0]["histtype"], "step")
+            self.assertEqual(ax.hists[1]["histtype"], "stepfilled")
+            self.assertEqual(ax.hists[1]["label"], "filled")
+            dst = Path(tmp) / "again.gle"
+            recognized.figure.savefig_gle(str(dst))
+            self.assertEqual(dst.read_text(encoding="utf-8"), original)
+
+    def test_a_line_hist_of_ordinary_points_stays_a_line(self):
+        import tempfile
+
+        from gleplot.parser.recognizer import parse_gle_figure
+
+        self.ax.plot([0, 1, 2], [1, 2, 1], drawstyle="steps-mid")
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "figure.gle"
+            self.fig.savefig_gle(str(src))
+            ax = parse_gle_figure(src).figure.axes_list[0]
+        self.assertEqual(len(ax.lines), 1)
+        self.assertEqual(ax.lines[0].get("line_mode"), "hist")
+        self.assertEqual(ax.hists, [])
+
+    def test_a_hist_let_without_the_hist_mode_stays_raw(self):
+        import tempfile
+
+        from gleplot.parser.recognizer import parse_gle_figure
+
+        self.ax.hist([0, 1], bins=4, range=(0, 1), histtype="step")
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "figure.gle"
+            self.fig.savefig_gle(str(src))
+            text = src.read_text(encoding="utf-8").replace(" line hist", " line")
+            src.write_text(text, encoding="utf-8")
+            ax = parse_gle_figure(src).figure.axes_list[0]
+        self.assertEqual(ax.hists, [])
+        raw = "\n".join(ax.passthrough)
+        self.assertIn("let d2 = hist d1", raw)
+        self.assertIn("d2 line", raw)
+
+
+if __name__ == "__main__":
     unittest.main()

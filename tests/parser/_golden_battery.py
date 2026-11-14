@@ -392,6 +392,30 @@ def line_modes():
     return fig
 
 
+def histogram():
+    """One step outline and one filled histogram, both labelled."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.hist(
+        [0, 0.2, 0.4, 0.6, 0.9],
+        bins=4,
+        range=(0, 1),
+        histtype="step",
+        color="blue",
+        label="step",
+    )
+    ax.hist(
+        [0.1, 0.3, 0.5, 0.7],
+        bins=4,
+        range=(0, 1),
+        histtype="stepfilled",
+        color="red",
+        label="filled",
+    )
+    ax.legend()
+    return fig
+
+
 def axes_styling_grid_only():
     """The plainest grid: no style clause, no other styling."""
     fig = glp.figure(data_prefix="golden")
@@ -425,6 +449,7 @@ BUILDERS = [
     tripcolor_tricontour_combo,
     custom_tick_labels,
     line_modes,
+    histogram,
     axes_styling_full,
     axes_styling_grid_only,
 ]

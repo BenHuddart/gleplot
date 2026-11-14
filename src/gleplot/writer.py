@@ -30,7 +30,7 @@ from typing import (
 import numpy as np
 
 from .colors import apply_alpha
-from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
+from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
 from .guides import (
     GUIDE_MARKER_LABEL,
     GUIDE_MARKER_PREFIX,
@@ -2244,6 +2244,117 @@ class GLEWriter:
         explicit = cls.bar_explicit_width(series_width)
         # abs(): a negative width draws a mirrored bar of the same extent.
         return abs(explicit) if explicit is not None else derived
+
+    def add_histogram(
+        self,
+        samples: np.ndarray,
+        data_file: str,
+        histtype: str = "step",
+        color: str = "BLUE",
+        linestyle: str = "-",
+        linewidth: float = 1.0,
+        label: Optional[str] = None,
+        yaxis: str = "y",
+        hist_from: Optional[float] = None,
+        hist_to: Optional[float] = None,
+        bins: Optional[float] = None,
+        bin_step: Optional[float] = None,
+        edgecolor: Optional[str] = None,
+        bar_width: Optional[float] = None,
+    ):
+        """Draw a histogram GLE bins itself.
+
+        The sidecar is the raw samples, two columns and no header: the x
+        column is an index ``let hist`` never reads (a one-column file is a
+        ``nox`` dataset, and a header would name that dataset in the legend
+        because ``let`` marks it used). ``let dK = hist dJ`` then bins the y
+        column. ``step`` draws ``dK line hist`` with smoothing pinned off --
+        ``transform_data`` splines before it honours the line mode, so a
+        figure-wide ``smooth_curves`` would round the bin edges.
+        ``stepfilled`` draws ``bar dK`` of one bin width. ``fill x1,dK``
+        cannot: it chords the centres and fills down to the axis minimum,
+        not along the step outline to zero.
+        """
+        values = np.asarray(samples, dtype=float).ravel()
+        index = np.arange(len(values), dtype=float)
+        cols = self._write_columns(data_file, [("x", index), ("y", values)], None)
+        source = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        target = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        self.lines_gle.append(
+            f"    data {_format_data_filename(data_file)} "
+            f"{source}=c{cols[0]},c{cols[1]}"
+        )
+        self.lines_gle.append(
+            self._histogram_let(source, target, hist_from, hist_to, bins, bin_step)
+        )
+
+        if histtype == "stepfilled":
+            # ``color`` on a bar is the stroke. Matching it to the fill keeps
+            # the shared edge of two bins in the fill ink; omitting it leaves
+            # GLE's black stroke, which is what a hand-written bar recovers.
+            bar_cmd = f"    bar {target} fill {color}"
+            if edgecolor is not None:
+                bar_cmd += f" color {edgecolor}"
+            if bar_width is not None:
+                bar_cmd += f" width {self._format_number(bar_width)}"
+            self.lines_gle.append(bar_cmd)
+            if label:
+                quoted = self._quote_gle_key(label)
+                self.lines_gle.append(f"    {target} key {quoted}")
+                self._finish_legend_entry(label)
+            return
+
+        try:
+            width_pt = float(linewidth)
+        except (TypeError, ValueError):
+            width_pt = 1.0
+        if width_pt == 0 or width_pt == 1:
+            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
+        else:
+            gle_lwidth = linewidth_pt_to_cm(width_pt)
+        line_cmd = f"    {target}"
+        line_cmd += self._line_token(smooth_mode="none", line_mode="hist")
+        line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
+        if linestyle == "--":
+            line_cmd += f" lstyle {self.style.line_style_dashed}"
+        elif linestyle == ":":
+            line_cmd += f" lstyle {self.style.line_style_dotted}"
+        elif linestyle == "-.":
+            line_cmd += f" lstyle {self.style.line_style_dashdot}"
+        if yaxis == "y2":
+            line_cmd += " y2axis"
+        line_cmd += self._key_clause(label, has_header=False)
+        self.lines_gle.append(line_cmd)
+        if label:
+            self._finish_legend_entry(label)
+
+    def _histogram_let(
+        self,
+        source: str,
+        target: str,
+        hist_from: Optional[float],
+        hist_to: Optional[float],
+        bins: Optional[float],
+        bin_step: Optional[float],
+    ) -> str:
+        """``let dK = hist dJ`` with only the options the series carries.
+
+        Order is ``from``, ``to``, ``bins``, ``step``. GLE uses ``bins`` when
+        both are present; both are still written so a hand-written pair is
+        not dropped. Omitting ``bins`` does not invent GLE's default of 10.
+        """
+        parts = [f"let {target} = hist {source}"]
+        if hist_from is not None:
+            parts.append(f"from {self._format_number(hist_from)}")
+        if hist_to is not None:
+            parts.append(f"to {self._format_number(hist_to)}")
+        if bins is not None:
+            parts.append(f"bins {self._format_number(bins)}")
+        if bin_step is not None:
+            parts.append(f"step {self._format_number(bin_step)}")
+        return "    " + " ".join(parts)
 
     def add_bar_chart(
         self,

@@ -1,16 +1,17 @@
 """Axes class for gleplot."""
 
-import numpy as np
 import re
 import uuid
 import warnings
-from typing import Any, Optional, List, Sequence, Union, Tuple, Dict
-from .colors import rgb_to_gle
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
+import numpy as np
+
+from .colors import apply_alpha, rgb_to_gle
 from .config import GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
 from .palettes import canonical_cmap
-from .parser.units import markersize_to_msize, capsize_pt_to_cm
 from .parser.tables import (
     KEY_POSITIONS_LONG_TO_SHORT,
     KEY_POSITIONS_SHORT_TO_LONG,
@@ -20,6 +21,7 @@ from .parser.tables import (
     TEXT_VA_VALUES,
     resolve_line_mode,
 )
+from .parser.units import capsize_pt_to_cm, markersize_to_msize
 from .series import (  # noqa: F401  (re-exported: historical import path)
     DRAWABLE_CLASSES,
     SERIES_ATTRS,
@@ -30,6 +32,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     FileSeries,
     FillSeries,
     HeatmapSeries,
+    HistSeries,
     LineSeries,
     RefLine,
     ScatterSeries,
@@ -621,6 +624,126 @@ def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
     return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
 
 
+def histogram_counts(samples, hist_from, hist_to, bins=None, bin_step=None):
+    """Bin counts the way GLE's ``let dK = hist`` does (``GLELet::doHistogram``).
+
+    ``bins`` wins over ``bin_step``, matching the engine: a ``bins`` value
+    other than "not given" selects equal-width bins and the ``step`` clause
+    is ignored. With neither, GLE uses 10 bins. The last bin includes the
+    right edge; every other right edge is exclusive. Samples outside
+    ``[hist_from, hist_to]`` are not counted.
+
+    Returns ``None`` when the window is missing or empty, which is GLE
+    choosing the window itself (axis limits, else a rounded data range).
+    Callers that need matplotlib's data range pass that window in.
+    """
+    if hist_from is None or hist_to is None:
+        return None
+    lo = float(hist_from)
+    hi = float(hist_to)
+    if not (hi > lo) or not np.isfinite(lo) or not np.isfinite(hi):
+        return None
+
+    if bins is not None:
+        n_bins = int(round(float(bins)))
+        if n_bins < 1:
+            return None
+        edges = lo + (hi - lo) * np.arange(n_bins + 1, dtype=float) / n_bins
+    elif bin_step is not None:
+        step = float(bin_step)
+        if not (step > 0) or not np.isfinite(step):
+            return None
+        # graph2.cpp builds the edges in a loop that steps ``i * step`` from
+        # ``from`` so the last edge can sit past ``to`` when step does not
+        # divide the window. Recomputing ``from + i*step`` (rather than
+        # adding step each time) is what that loop does to avoid drift.
+        edges_list = []
+        i = 0
+        value = lo
+        while value < hi:
+            edges_list.append(value)
+            i += 1
+            value = lo + i * step
+        edges_list.append(value)
+        edges = np.asarray(edges_list, dtype=float)
+    else:
+        edges = lo + (hi - lo) * np.arange(11, dtype=float) / 10.0
+
+    if len(edges) < 2:
+        return None
+    values = np.asarray(samples, dtype=float).ravel()
+    values = values[np.isfinite(values)]
+    counts = np.zeros(len(edges) - 1, dtype=float)
+    if len(values) == 0:
+        return counts
+    # side="right" places a value on the left edge of a bin into that bin
+    # (``yv >= edge[j] && yv < edge[j+1]``). The right edge of the window
+    # falls past the last edge and is counted into the last bin, which is
+    # the ``yv == getTo()`` branch in doHistogram.
+    idx = np.searchsorted(edges, values, side="right") - 1
+    last = len(counts) - 1
+    on_hi = values == hi
+    inside = (idx >= 0) & (idx <= last) & ~on_hi
+    if np.any(inside):
+        np.add.at(counts, idx[inside], 1.0)
+    if np.any(on_hi):
+        counts[last] += float(np.count_nonzero(on_hi))
+    return counts
+
+
+def _split_histogram_samples(x):
+    """Read ``Axes.hist``'s ``x`` the way matplotlib does.
+
+    A 1d array is one sample set. A 2d array is one set per column. Any
+    other sequence of sequences is one set per element, lengths free to
+    differ; a sequence of numbers is one set.
+    """
+    if isinstance(x, np.ndarray):
+        if x.ndim == 0:
+            raise ValueError("hist() x must be one or more 1d sample arrays")
+        if x.ndim == 1:
+            return [np.asarray(x, dtype=float)]
+        if x.ndim == 2:
+            if x.shape[1] < 1:
+                raise ValueError("hist() x has no columns")
+            return [np.asarray(x[:, i], dtype=float) for i in range(x.shape[1])]
+        raise ValueError(f"hist() x must be 1d or 2d, got {x.ndim} dimensions")
+    if isinstance(x, (str, bytes)):
+        raise ValueError("hist() x must be one or more 1d sample arrays")
+    try:
+        items = list(x)
+    except TypeError:
+        raise ValueError("hist() x must be one or more 1d sample arrays")
+    if len(items) == 0:
+        raise ValueError("hist() received no samples")
+    first = items[0]
+    if isinstance(first, (str, bytes)):
+        raise ValueError("hist() x must be one or more 1d sample arrays")
+    if np.isscalar(first):
+        return [np.asarray(items, dtype=float)]
+    sets = []
+    for item in items:
+        arr = np.asarray(item, dtype=float)
+        if arr.ndim != 1:
+            raise ValueError("each hist() dataset must be 1-dimensional")
+        sets.append(arr)
+    return sets
+
+
+def _as_bin_count(bins):
+    """An integer bin count, or ``None`` when ``bins`` is something else.
+
+    ``True`` is an ``int`` subclass and is not a bin count.
+    """
+    if isinstance(bins, bool) or bins is None:
+        return None
+    if isinstance(bins, (int, np.integer)):
+        return int(bins)
+    if isinstance(bins, (float, np.floating)) and float(bins).is_integer():
+        return int(bins)
+    return None
+
+
 class Axes:
     """Matplotlib-like axes for plotting."""
 
@@ -820,6 +943,7 @@ class Axes:
         self.lines: List[LineSeries] = []
         self.scatters: List[ScatterSeries] = []
         self.bars: List[BarSeries] = []
+        self.hists: List[HistSeries] = []
         self.fills: List[FillSeries] = []
         self.errorbars: List[ErrorbarSeries] = []
         # External-file series definitions (column references).
@@ -1258,6 +1382,305 @@ class Axes:
         else:
             kwargs["line_mode"] = "impulses"
         return self.plot(x, y, linestyle=linestyle, marker=marker, **kwargs)
+
+    def hist(
+        self,
+        x,
+        bins=10,
+        range=None,
+        density: bool = False,
+        weights=None,
+        cumulative: bool = False,
+        bottom=None,
+        histtype: str = "bar",
+        align: str = "mid",
+        orientation: str = "vertical",
+        rwidth=None,
+        log: bool = False,
+        color=None,
+        label=None,
+        stacked: bool = False,
+        **kwargs,
+    ):
+        """Bin samples and draw the counts.
+
+        GLE bins the samples with ``let dK = hist dJ`` and stores a point at
+        each bin centre. ``histtype='step'`` draws that dataset with
+        ``line hist``. ``histtype='stepfilled'`` draws it as adjoining bars
+        of one bin width from zero: ``fill x1`` would chord the centres and
+        fill to the axis minimum, which is not the histogram.
+
+        The drawn heights are counts, matplotlib's default. ``density``,
+        ``weights``, ``cumulative``, ``bottom``, ``stacked`` and ``rwidth``
+        are accepted and ignored, with a warning. ``histtype='bar'`` and
+        ``'barstacked'`` warn and are drawn as a step outline; bar gaps and
+        stacks belong to the bar grammar. Bins are equal width. The window
+        is always written into the ``let`` (data min/max when ``range`` is
+        omitted, widened by half a unit when every sample is the same
+        value), so GLE does not re-bin over the axis.
+
+        Returns this axes. matplotlib's ``(counts, edges, patches)`` is not
+        available: the counts are computed by GLE at draw time.
+        """
+
+        def warn(message: str) -> None:
+            warnings.warn(message, UserWarning, stacklevel=3)
+
+        if density:
+            warn("hist(density=True) is not supported; drawing counts.")
+        if weights is not None:
+            warn("hist(weights=...) is not supported and was ignored.")
+        if cumulative:
+            warn("hist(cumulative=True) is not supported; drawing raw counts.")
+        if bottom not in (None, 0, 0.0):
+            warn("hist(bottom=...) is not supported. Bins are drawn from zero.")
+        if stacked:
+            warn("hist(stacked=True) is not supported; each series is separate.")
+        if rwidth is not None:
+            warn("hist(rwidth=...) is not supported and was ignored.")
+        if "data" in kwargs:
+            kwargs.pop("data")
+            warn(
+                "hist(data=...) is not supported and was ignored. "
+                "Pass the sample arrays directly."
+            )
+
+        style_name = str(histtype).strip().lower()
+        if style_name in ("bar", "barstacked"):
+            warn(
+                f"hist(histtype={histtype!r}) is drawn as a step outline. "
+                "Bar gaps, edges and stacks wait for the bar grammar."
+            )
+            style_name = "step"
+        elif style_name not in ("step", "stepfilled"):
+            raise ValueError(
+                "histtype must be 'bar', 'barstacked', 'step' or "
+                f"'stepfilled', got {histtype!r}"
+            )
+
+        align_name = str(align).strip().lower()
+        if align_name not in ("left", "mid", "right"):
+            raise ValueError(f"align must be 'left', 'mid' or 'right', got {align!r}")
+        if align_name != "mid":
+            warn(
+                f"hist(align={align!r}) is not supported. GLE stores bin "
+                "centres, so the bars stay centred."
+            )
+
+        orient = str(orientation).strip().lower()
+        if orient not in ("vertical", "horizontal"):
+            raise ValueError(
+                "orientation must be 'vertical' or 'horizontal', "
+                f"got {orientation!r}"
+            )
+        if orient == "horizontal":
+            warn(
+                "hist(orientation='horizontal') is not supported. Drawing "
+                "a vertical histogram."
+            )
+
+        linestyle = kwargs.pop("linestyle", "-")
+        linewidth = kwargs.pop("linewidth", 1)
+        yaxis = kwargs.pop("yaxis", "y")
+        zorder = kwargs.pop("zorder", None)
+        edgecolor = kwargs.pop("edgecolor", None)
+        alpha = kwargs.pop("alpha", None)
+        if kwargs:
+            names = ", ".join(sorted(kwargs))
+            warn(f"hist() ignores unsupported keyword(s): {names}.")
+
+        if yaxis not in ("y", "y2"):
+            raise ValueError(f"yaxis must be 'y' or 'y2', got {yaxis!r}")
+        draw_yaxis = yaxis
+        if style_name == "stepfilled" and yaxis == "y2":
+            warn(
+                "hist(histtype='stepfilled', yaxis='y2') is drawn on the "
+                "primary y axis: GLE's bar command has no y2axis."
+            )
+            draw_yaxis = "y"
+
+        sets = _split_histogram_samples(x)
+        finite_sets = []
+        dropped = False
+        for samples in sets:
+            keep = np.isfinite(samples)
+            if not np.all(keep):
+                dropped = True
+            kept = samples[keep]
+            if len(kept) == 0:
+                raise ValueError("hist() has no finite samples to bin")
+            finite_sets.append(np.asarray(kept, dtype=float))
+        if dropped:
+            warn("hist() dropped non-finite samples.")
+
+        window, n_bins = self._histogram_window(finite_sets, bins, range, warn)
+        colors = self._per_histogram(color, len(finite_sets), broadcast_str=True)
+        labels = self._per_histogram(label, len(finite_sets), broadcast_str=False)
+        edges = self._per_histogram(edgecolor, len(finite_sets), broadcast_str=True)
+        alphas = self._per_histogram(alpha, len(finite_sets), broadcast_str=True)
+        linestyles = self._per_histogram(
+            linestyle, len(finite_sets), broadcast_str=True
+        )
+        linewidths = self._per_histogram(
+            linewidth, len(finite_sets), broadcast_str=True
+        )
+
+        bar_width = (window[1] - window[0]) / n_bins
+        for samples, one_color, one_label, one_edge, one_alpha, one_ls, one_lw in zip(
+            finite_sets, colors, labels, edges, alphas, linestyles, linewidths
+        ):
+            ink = self._resolve_color(one_color)
+            series_alpha = one_alpha
+            if (
+                series_alpha is None
+                and isinstance(one_color, (tuple, list))
+                and len(one_color) == 4
+            ):
+                series_alpha = one_color[3]
+            if series_alpha is not None:
+                ink = apply_alpha(ink, series_alpha)
+            fields = dict(
+                samples=np.asarray(samples, dtype=float),
+                bins=n_bins,
+                hist_from=float(window[0]),
+                hist_to=float(window[1]),
+                histtype=style_name,
+                color=ink,
+                data_file=_resolve_data_file(self.figure),
+            )
+            if one_label is not None:
+                fields["label"] = mathtext_to_gle(str(one_label))
+            if style_name == "step":
+                fields["linestyle"] = "-" if one_ls is None else one_ls
+                fields["linewidth"] = float(1 if one_lw is None else one_lw)
+                fields["yaxis"] = draw_yaxis
+            else:
+                # The stroke is the fill unless the caller named an edge, so
+                # the shared boundary of two bins is not a second ink.
+                stroke = ink
+                if one_edge is not None:
+                    stroke = self._resolve_color(one_edge)
+                    if series_alpha is not None:
+                        stroke = apply_alpha(stroke, series_alpha)
+                fields["edgecolor"] = stroke
+                fields["bar_width"] = float(bar_width)
+                if one_ls not in (None, "-", "solid"):
+                    warn(
+                        "hist(histtype='stepfilled') ignores linestyle: "
+                        "GLE's bar stroke has no lstyle in this form."
+                    )
+                try:
+                    lw_value = float(one_lw) if one_lw is not None else 1.0
+                except (TypeError, ValueError):
+                    lw_value = 1.0
+                if lw_value not in (0.0, 1.0):
+                    warn(
+                        "hist(histtype='stepfilled') ignores linewidth: "
+                        "GLE's bar stroke has no lwidth in this form."
+                    )
+            entry = HistSeries(**fields)
+            self._register_series_draw_meta(entry, "hist", zorder)
+            self.hists.append(entry)
+
+        if log:
+            self.set_yscale("log", axis=draw_yaxis)
+        return self
+
+    def _histogram_window(self, sets, bins, range, warn):
+        """``(lo, hi)`` and the equal-width bin count for one ``hist`` call.
+
+        A sequence of edges that is not equal-width is equalized over its
+        first and last edge: GLE's ``bins`` and ``step`` are one width.
+        """
+        count = _as_bin_count(bins)
+        if count is not None:
+            if count < 1:
+                raise ValueError(f"bins must be at least 1, got {bins!r}")
+            if range is None:
+                pooled = np.concatenate(sets)
+                lo = float(np.min(pooled))
+                hi = float(np.max(pooled))
+                if lo == hi:
+                    lo -= 0.5
+                    hi += 0.5
+            else:
+                lo, hi = self._histogram_range(range)
+            return (lo, hi), count
+
+        if isinstance(bins, str):
+            warn(f"hist(bins={bins!r}) is not supported. Using 10 equal-width bins.")
+            return self._histogram_window(sets, 10, range, warn)
+
+        try:
+            edges = np.asarray(list(bins), dtype=float)
+        except (TypeError, ValueError):
+            raise ValueError(
+                "bins must be an integer or a sequence of edges, " f"got {bins!r}"
+            )
+        if edges.ndim != 1 or len(edges) < 2:
+            raise ValueError("bins edge sequence must contain at least two values")
+        if not np.all(np.isfinite(edges)) or np.any(np.diff(edges) <= 0):
+            raise ValueError("bins edges must be finite and strictly increasing")
+        widths = np.diff(edges)
+        if not np.allclose(widths, widths[0]):
+            warn(
+                "hist() equalized unequal bin edges over "
+                f"[{edges[0]}, {edges[-1]}]. GLE histograms are equal width."
+            )
+        if range is not None:
+            warn("hist() used the bin edges as the window and ignored range.")
+        return (float(edges[0]), float(edges[-1])), int(len(edges) - 1)
+
+    @staticmethod
+    def _histogram_range(range):
+        try:
+            lo, hi = range
+            lo = float(lo)
+            hi = float(hi)
+        except (TypeError, ValueError):
+            raise ValueError(
+                "range must be a pair of finite numbers, got " f"{range!r}"
+            )
+        if not np.isfinite(lo) or not np.isfinite(hi) or not hi > lo:
+            raise ValueError(
+                "range must be a pair of finite numbers with max > min, "
+                f"got {range!r}"
+            )
+        return lo, hi
+
+    @staticmethod
+    def _per_histogram(value, n: int, broadcast_str: bool):
+        """One value per sample set.
+
+        A string broadcasts to every set when ``broadcast_str`` is set (a
+        single colour) and otherwise labels only the first set. A sequence
+        cycles. An RGB(A) tuple is one colour, not one channel per set.
+        """
+        if value is None:
+            return [None] * n
+        if isinstance(value, str):
+            if broadcast_str:
+                return [value] * n
+            out = [None] * n
+            out[0] = value
+            return out
+        if (
+            isinstance(value, tuple)
+            and len(value) in (3, 4)
+            and all(
+                isinstance(c, (int, float)) and not isinstance(c, bool) for c in value
+            )
+        ):
+            return [value] * n
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return [value] * n
+        try:
+            seq = list(value)
+        except TypeError:
+            return [value] * n
+        if len(seq) == 0:
+            return [None] * n
+        return [seq[i % len(seq)] for i in range(n)]
 
     def errorbar(
         self,
@@ -3419,6 +3842,7 @@ class Axes:
             self.lines
             or self.scatters
             or self.bars
+            or self.hists
             or self.fills
             or self.errorbars
             or self.file_series
@@ -3434,6 +3858,7 @@ class Axes:
             self.lines,
             self.scatters,
             self.errorbars,
+            self.hists,
         )
         for plot_list in y2_capable:
             for plot_data in plot_list:
@@ -3665,6 +4090,7 @@ class Axes:
         max_seq = -1
         for attr in (
             "bars",
+            "hists",
             "lines",
             "scatters",
             "errorbars",

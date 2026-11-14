@@ -57,6 +57,7 @@ _FANOUT_SERIES_LISTS = (
     "lines",
     "scatters",
     "bars",
+    "hists",
     "fills",
     "errorbars",
     "file_series",
@@ -319,6 +320,11 @@ class BrokenAxes:
     def step(self, *args, **kwargs):
         """Step plot across every segment."""
         self._fanout("step", *args, **kwargs)
+        return self
+
+    def hist(self, *args, **kwargs):
+        """Histogram across every segment. See :meth:`gleplot.Axes.hist`."""
+        self._fanout("hist", *args, **kwargs)
         return self
 
     def stem(self, *args, **kwargs):

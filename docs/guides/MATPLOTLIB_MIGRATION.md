@@ -110,7 +110,7 @@ GLE draws these as a mode on the same `dN line` command. The points stay in the 
 | `ax.stem(x, y)` | `line impulses`, with a filled-circle head |
 | `ax.plot(..., line_mode="bar")` | `line bar` (histogram outline plus separators). This is not `ax.bar`. |
 
-`line hist` is the outline. Binning a sample into counts is a separate gap (`Axes.hist`).
+`line hist` is an outline through points that are already bin centres. Binning samples into counts is `Axes.hist`, below.
 
 ```python
 ax.step(x, y, where="pre")
@@ -131,6 +131,26 @@ ax.stem(x, y)
 | `stem` `orientation="horizontal"` | warns. Impulses are vertical. |
 | `stem` return value | the axes. There is no `StemContainer`. |
 | `stem(data=...)`, `use_line_collection` | warn and are ignored. |
+
+## Histograms
+
+`ax.hist(samples, bins=20, range=(0, 1), histtype="step")` keeps the samples in the data file. GLE bins them with `let dK = hist dJ from 0 to 1 bins 20` and draws the counts. The heights are counts. The window is the data min and max when `range` is omitted, widened by half a unit when every finite sample is the same value, and it is always written into the `let` so GLE does not re-bin over the axis. A sample on the right edge falls in the last bin; samples outside the window are not counted. Non-finite samples are dropped, with a warning.
+
+| `histtype` | GLE |
+|---|---|
+| `"step"` | `dK line hist`, with smoothing pinned off |
+| `"stepfilled"` | `bar dK fill C color C width W`, one bin wide, from zero. `fill x1,dK` would chord the centres and fill to the axis minimum. The stroke matches the fill so the shared edge of two bins is not a second ink. |
+| `"bar"`, `"barstacked"` | warn, and draw the step outline. Gaps, per-bar edges and stacks wait for the bar grammar. |
+
+| argument | gleplot |
+|---|---|
+| `bins` | an integer, or equal-width edges. Unequal edges warn and are equalized over the first and last edge. `'auto'` and the other string rules warn and use 10 bins. |
+| `density`, `weights`, `cumulative`, `bottom`, `stacked`, `rwidth` | warn and are ignored. The drawing stays counts from zero. |
+| `align` | warns unless it is `'mid'`. GLE stores bin centres. |
+| `orientation="horizontal"` | warns. The histogram is vertical. |
+| `log=True` | sets the y axis to log. |
+| `yaxis="y2"` | a step histogram can use it. A filled one warns and stays on the primary axis: `bar` has no `y2axis`. |
+| return value | the axes. |
 
 ## Key Behavioral Differences
 
