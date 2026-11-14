@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v3.0.0 (2026-11-14)
+
+### Continuous Integration
+
+- Simplify release to PSR v10 and gate PyPI
+  ([`8359a69`](https://github.com/BenHuddart/gleplot/commit/8359a6977f885c43f9e5a6f6c3d12645d73663b0))
+
+### Features
+
+- Remove calibration v2
+  ([`07c3d4e`](https://github.com/BenHuddart/gleplot/commit/07c3d4eba337c72b14d7f298a938793369b65fbb))
+
+- Remove the desktop GUI
+  ([`32eebc5`](https://github.com/BenHuddart/gleplot/commit/32eebc57687e5bc0ec44929d1f0ee5990827acea))
+
+
 <!-- Hand-written notes for work that does not yet have a generated release
      section. python-semantic-release inserts new releases above this comment.
      Delete this section once a generated release covers the same changes. -->
