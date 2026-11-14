@@ -13,7 +13,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 # -- Project information --
 project = "gleplot"
-copyright = "2025, gleplot contributors"
+copyright = "2026, gleplot contributors"
 author = "gleplot contributors"
 
 # Get version from pyproject.toml
@@ -30,7 +30,6 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
-    "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
 ]
 
@@ -40,6 +39,7 @@ exclude_patterns = []
 # -- Options for HTML output --
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
+html_css_files = ["api_fonts.css"]
 
 # Theme options
 html_theme_options = {

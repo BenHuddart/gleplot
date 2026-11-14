@@ -339,27 +339,23 @@ Expected side files include:
 - ``run42_0.dat``
 - ``run42_1.dat`` (if additional plot series are written)
 
-The prefix is pasted straight into GLE's ``data`` command, so it is sanitized
-first: it is lowercased, and any character outside ``[A-Za-z0-9_-]`` becomes an
-underscore (``'run+42'`` becomes ``'run_42'``). A prefix that had characters
-replaced raises a ``UserWarning`` naming both spellings; a pure case change is
-applied silently. Without this, an unsafe prefix produced a script that GLE
-only rejected at compile time.
+The prefix is used verbatim in GLE ``data`` filenames (for example
+``experimentA_0.dat`` when ``data_prefix='experimentA'``). Characters that GLE
+cannot parse in an unquoted filename, path separators, or whitespace raise
+``ValueError`` when the figure is created. See :doc:`getting_started` for the
+full rules.
 
-For per-series naming, pass ``data_name`` to generated-data plot methods:
+For per-series naming, pass ``data_name`` to generated-data plot methods;
+those labels are sanitized into safe filename stems (lowercased, punctuation
+collapsed to underscores).
 
 .. code-block:: python
 
    ax.plot(x, y_obs, data_name='Observed Signal')
    ax.fill_between(x, y_lo, y_hi, data_name='Confidence Band 95')
 
-These names are sanitized to safe filenames, for example:
-
-- ``Observed Signal`` -> ``observed_signal.dat``
-- ``Confidence Band 95`` -> ``confidence_band_95.dat``
-
-If a name is reused, gleplot automatically disambiguates it by suffixing
-``_1``, ``_2``, and so on.
+Example stems: ``observed_signal.dat``, ``confidence_band_95.dat``. Reused
+names are disambiguated with ``_1``, ``_2``, and so on.
 
 You can also combine this with subplots:
 

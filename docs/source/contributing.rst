@@ -91,7 +91,9 @@ Build the documentation locally:
    cd docs
    make html
 
-The built HTML will be in ``docs/build/html/``.
+The built HTML will be in ``docs/build/html/``. Gallery PNGs are generated
+when the documentation site is published. A local build still succeeds when
+those files are absent.
 
 Submitting Changes
 -------------------

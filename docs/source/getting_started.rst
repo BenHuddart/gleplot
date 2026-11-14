@@ -109,8 +109,8 @@ For example, ``fig.savefig('first_plot.pdf', folder=True)`` creates a
 ``first_plot.gleplot`` directory containing the compiled output, the
 intermediate ``.gle`` script, and the generated ``.dat`` files.
 
-New: Custom Data File Names
----------------------------
+Custom data file names
+----------------------
 
 Use ``data_prefix`` when creating a figure (or via ``subplots``) to control the
 data-file naming scheme.
@@ -139,8 +139,8 @@ usable as a GLE data filename. Whitespace, control characters, ``!``, ``"``,
 figure is created, rather than producing a script that fails to compile. See
 ``docs/guides/CONFIGURATION.md`` for the full list.
 
-New: Shared Axes in Subplots
-----------------------------
+Shared axes in subplots
+-----------------------
 
 For aligned multi-panel figures, share the x-axis or y-axis across subplots.
 

@@ -1,157 +1,15 @@
 Examples
-=========
+========
 
-Simple Line Plot
-----------------
+Illustrated plot recipes live in the :doc:`gallery`. This page covers a few
+API details that are easy to miss when porting matplotlib scripts.
 
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   x = np.linspace(0, 2*np.pi, 100)
-   y = np.sin(x)
-
-   fig = glp.figure(figsize=(8, 6))
-   ax = fig.add_subplot(111)
-   ax.plot(x, y, label='sin(x)')
-   ax.set_xlabel('x')
-   ax.set_ylabel('y')
-   ax.set_title('Sine Wave')
-   ax.legend()
-   fig.savefig('sine.pdf')
-
-Multiple Series
----------------
-
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   x = np.linspace(0, 2*np.pi, 100)
-
-   fig = glp.figure(figsize=(10, 6))
-   ax = fig.add_subplot(111)
-
-   ax.plot(x, np.sin(x), label='sin(x)', color='blue')
-   ax.plot(x, np.cos(x), label='cos(x)', color='red', linestyle='--')
-   ax.plot(x, np.tan(x), label='tan(x)', color='green', linestyle=':')
-
-   ax.set_xlabel('Angle (radians)')
-   ax.set_ylabel('Value')
-   ax.set_title('Trigonometric Functions')
-   ax.set_ylim(-3, 3)
-   ax.legend(loc='upper right')
-   ax.grid(True)
-
-   fig.savefig('trig_functions.pdf')
-
-Subplots
---------
-
-Using ``add_subplot(rows, cols, index)``:
-
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   x = np.linspace(0, 10, 100)
-
-   fig = glp.figure(figsize=(12, 8))
-
-   # Plot 1: Line plot
-   ax1 = fig.add_subplot(2, 2, 1)
-   ax1.plot(x, np.sin(x))
-   ax1.set_title('sin(x)')
-
-   # Plot 2: Scatter plot
-   ax2 = fig.add_subplot(2, 2, 2)
-   ax2.scatter(x[::5], np.cos(x[::5]), color='red')
-   ax2.set_title('cos(x)')
-
-   # Plot 3: Bar plot
-   ax3 = fig.add_subplot(2, 2, 3)
-   categories = ['A', 'B', 'C', 'D']
-   values = [10, 24, 36, 18]
-   ax3.bar(categories, values, color='green')
-   ax3.set_title('Bar Chart')
-
-   # Plot 4: Multiple lines
-   ax4 = fig.add_subplot(2, 2, 4)
-   ax4.plot(x, np.sin(x), label='sin')
-   ax4.plot(x, np.cos(x), label='cos')
-   ax4.set_title('Overlaid Functions')
-   ax4.legend()
-
-   fig.savefig('subplots.pdf')
-
-Using the ``subplots()`` convenience function:
-
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   fig, axes = glp.subplots(1, 3, figsize=(18, 5))
-
-   x = np.linspace(0, 2*np.pi, 80)
-   axes[0].plot(x, np.sin(x), color='blue')
-   axes[0].set_title('sin(x)')
-
-   axes[1].plot(x, np.cos(x), color='red')
-   axes[1].set_title('cos(x)')
-
-   axes[2].plot(x, np.tan(x), color='green')
-   axes[2].set_title('tan(x)')
-   axes[2].set_ylim(-5, 5)
-
-   fig.savefig('trig_panels.pdf')
-
-Each subplot generates its own ``begin graph`` / ``end graph`` block
-in the GLE script, positioned via ``amove`` with computed coordinates.
-
-Shared Axes Layouts
--------------------
-
-Stacked plots with a shared x-axis:
-
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   x = np.linspace(0, 10, 200)
-   fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 10))
-
-   axes[0].plot(x, np.sin(x), color='blue')
-   axes[0].set_title('Signal A')
-
-   axes[1].plot(x, np.cos(x), color='red')
-   axes[1].set_title('Signal B')
-
-   axes[2].plot(x, np.sin(x) + np.cos(x), color='green')
-   axes[2].set_title('Combined')
-   axes[2].set_xlabel('Time')
-
-   fig.savefig('shared_x_stack.gle')
-
-Side-by-side plots with a shared y-axis:
-
-.. code-block:: python
-
-   fig, axes = glp.subplots(1, 3, sharey=True, figsize=(16, 5))
-   axes[0].scatter(x[::8], np.sin(x[::8]))
-   axes[1].scatter(x[::8], np.cos(x[::8]))
-   axes[2].scatter(x[::8], np.sin(x[::8]) + np.cos(x[::8]))
-   axes[0].set_ylabel('Amplitude')
-   fig.savefig('shared_y_panels.gle')
-
-Custom Data File Prefix
+Custom data file prefix
 -----------------------
 
-Use ``data_prefix`` to control sidecar ``.dat`` names written next to your GLE file.
+Use ``data_prefix`` to control sidecar ``.dat`` names written next to your GLE
+file. The prefix is used verbatim (invalid characters raise ``ValueError`` when
+the figure is created).
 
 .. code-block:: python
 
@@ -168,16 +26,15 @@ Use ``data_prefix`` to control sidecar ``.dat`` names written next to your GLE f
 
    fig.savefig('calibration_curves.gle')
 
-This writes files such as ``calibration_0.dat`` and ``calibration_1.dat``.
+This writes ``calibration_0.dat``, ``calibration_1.dat``, and so on.
 
-Scatter with Different Sizes
------------------------------
+Scatter with different sizes
+----------------------------
 
-GLE's ``msize`` is a per-dataset attribute, so a series is drawn at one marker
-size and a per-point ``s`` array raises ``ValueError`` -- plot one series per
-size. ``s`` is an area in points\ :sup:`2` (matplotlib's ``scatter``
-convention); pass ``markersize=`` instead for a diameter in points, the
-convention ``plot`` uses.
+GLE's ``msize`` is a per-dataset attribute, so a per-point ``s`` array raises
+``ValueError`` — plot one series per size band. ``s`` is an area in
+points\ :sup:`2` (matplotlib's ``scatter`` convention); pass ``markersize=`` for
+a diameter in points, as ``plot`` uses.
 
 .. code-block:: python
 
@@ -191,7 +48,6 @@ convention ``plot`` uses.
 
    fig = glp.figure(figsize=(8, 6))
    ax = fig.add_subplot(111)
-   # Three size bands -- quadrupling s doubles the drawn marker.
    for lo, hi, s, label in [(0.00, 0.33, 25, 'low'),
                             (0.33, 0.66, 100, 'mid'),
                             (0.66, 1.01, 400, 'high')]:
@@ -203,92 +59,13 @@ convention ``plot`` uses.
    ax.legend()
    fig.savefig('scatter_sizes.pdf')
 
-Filled Area
------------
-
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   x = np.linspace(0, 4*np.pi, 100)
-   y1 = np.sin(x)
-   y2 = np.sin(x) * 0.5
-
-   fig = glp.figure(figsize=(10, 6))
-   ax = fig.add_subplot(111)
-   ax.fill_between(x, y1, y2, alpha=0.3, color='blue', label='Filled area')
-   ax.plot(x, y1, color='darkblue', label='Upper bound')
-   ax.plot(x, y2, color='lightblue', label='Lower bound')
-   ax.set_title('Filled Between Plot')
-   ax.legend()
-   fig.savefig('filled_area.pdf')
-
-Logarithmic Scale
-------------------
-
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   x = np.logspace(0, 3, 100)
-   y = x**2
-
-   fig = glp.figure(figsize=(8, 6))
-   ax = fig.add_subplot(111)
-   ax.plot(x, y)
-   ax.set_xscale('log')
-   ax.set_yscale('log')
-   ax.set_xlabel('X (log scale)')
-   ax.set_ylabel('Y (log scale)')
-   ax.set_title('Power Law on Log-Log Plot')
-   ax.grid(True, which='both')
-   fig.savefig('loglog.pdf')
-
-Error Bars
-----------
-
-Symmetric vertical error bars with a constant value:
-
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   x = np.array([1, 2, 3, 4, 5, 6, 7, 8])
-   y = np.array([2.1, 3.9, 6.2, 7.8, 10.1, 12.3, 13.8, 16.2])
-
-   fig = glp.figure(figsize=(8, 6))
-   ax = fig.add_subplot(111)
-   ax.errorbar(x, y, yerr=0.5, marker='o', fmt='-', color='blue',
-              label='Measurement')
-   ax.set_xlabel('Time (s)')
-   ax.set_ylabel('Distance (m)')
-   ax.set_title('Symmetric Error Bars')
-   ax.legend()
-   fig.savefig('errorbars.pdf')
-
-Asymmetric error bars (different up/down magnitudes):
-
-.. code-block:: python
-
-   ax.errorbar(x, y, yerr=([2, 3, 4, 5, 3], [5, 4, 6, 3, 7]),
-              marker='s', fmt='none', color='red', capsize=0.15)
-
-Both vertical and horizontal error bars:
-
-.. code-block:: python
-
-   ax.errorbar(x, y, yerr=yerr_array, xerr=xerr_array,
-              marker='o', fmt='none', color='blue', capsize=0.1)
-
-Heatmaps and Contour Plots
----------------------------
+Heatmaps and contour plots
+--------------------------
 
 See the `Contour Plots and Heatmaps guide
 <https://github.com/benhuddart/gleplot/blob/main/docs/guides/CONTOUR_AND_HEATMAPS.md>`_
-for the full guide. Minimal gridded example:
+for gridded and scattered raster plots, palettes, and colorbars. A minimal
+gridded example:
 
 .. code-block:: python
 
@@ -312,29 +89,33 @@ for the full guide. Minimal gridded example:
 
    fig.savefig('example_heatmap_imshow.pdf')
 
-``examples/advanced/phase_diagram.py`` builds a full antiferromagnet H-T
-phase diagram from synthetic scattered susceptibility data using
-``tripcolor`` + ``tricontour`` + ``colorbar``, as described in the guide.
+``examples/advanced/phase_diagram.py`` builds a full antiferromagnet H-T phase
+diagram with ``tripcolor``, ``tricontour``, and a colorbar.
 
-Additional Advanced Example Scripts
------------------------------------
+Runnable scripts in the repository
+----------------------------------
 
-The repository includes additional runnable scripts under ``examples/advanced``
-for focused workflows:
+The ``examples/`` tree holds runnable scripts for focused workflows:
 
-- ``text_annotations.py`` - annotation alignment and boxed labels
-- ``per_element_styling.py`` - different style choices per element
-- ``batch_figures.py`` - loop-based generation of many figures
-- ``line_from_file.py`` - model overlays from existing data files
-- ``data_prefix.py`` - deterministic sidecar file naming patterns
-- ``phase_diagram.py`` - susceptibility phase diagram (``tripcolor`` + ``tricontour`` + colorbar)
+- ``text_annotations.py`` — alignment and boxed labels
+- ``per_element_styling.py`` — different styles per element
+- ``batch_figures.py`` — loop-based generation of many figures
+- ``line_from_file.py`` — model overlays from existing data files
+- ``data_prefix.py`` — deterministic sidecar naming
+- ``phase_diagram.py`` — susceptibility phase diagram
 
-The ``examples/basic`` directory also includes ``heatmap_imshow.py`` - a
-simple gridded ``imshow`` + ``contour`` + colorbar example.
+``examples/basic/heatmap_imshow.py`` is a simple gridded ``imshow`` +
+``contour`` example.
 
-Run the full suite from the repository root:
+From the repository root:
 
 .. code-block:: bash
 
    cd examples
    python run_all.py
+
+To regenerate gallery PNGs for the documentation site (requires GLE):
+
+.. code-block:: bash
+
+   python run_and_compile.py
