@@ -35,19 +35,17 @@ fig.savefig('trig.pdf', folder=True)
 
 ## Features
 
-✨ **Matplotlib-Compatible API** - All familiar functions work identically  
-✨ **Direct GLE Generation** - Optimized script output (1-2 KB)  
-✨ **Vector Graphics** - PDF, PNG, EPS export with publication quality  
-✨ **Full Plotting Support** - Lines, scatter, bars, fill_between, errorbar  
-✨ **Error Bars** - Symmetric, asymmetric, vertical and horizontal  
-✨ **File-Based Series** - Plot directly from existing data columns (no extra sidecar files)  
-✨ **Subplots** - Multi-panel figures with flexible grid layouts  
-✨ **Subplot Layout Control** - Fine-tune margins and inter-panel spacing with `subplots_adjust`  
-✨ **Broken X-Axes** - One panel, several adjacent x ranges sharing a y-axis, with configurable break markers  
-✨ **Reference Lines and Spans** - `axvline`/`axhline`/`axvspan`/`axhspan` that track the axis limits  
-✨ **Open and Filled Markers** - matplotlib `fillstyle`/`markerfacecolor` mapped onto GLE's marker families  
-✨ **Publication Ready** - Suitable for all major academic journals  
-✨ **Lightweight** - Pure Python, minimal dependencies  
+- **Matplotlib-compatible API** -- familiar names and call patterns for common plot types
+- **Direct GLE generation** -- compact `.gle` scripts (typically a few kilobytes)
+- **Vector output** -- PDF, PNG, EPS, SVG, and JPG when GLE is installed
+- **Plot types** -- lines, scatter, bars, `fill_between`, `errorbar`, heatmaps, contours, and more
+- **Error bars** -- symmetric, asymmetric, vertical, and horizontal
+- **File-based series** -- plot from existing data columns without extra generated sidecars
+- **Subplots** -- multi-panel figures with flexible grids and `subplots_adjust`
+- **Broken x-axes** -- adjacent x ranges in one panel with configurable break markers
+- **Reference lines and spans** -- `axvline`, `axhline`, `axvspan`, `axhspan`
+- **Markers** -- matplotlib `fillstyle` and `markerfacecolor` mapped to GLE marker families
+- **Lightweight core** -- pure Python with NumPy as the main dependency
 
 ## GUI Editor
 
@@ -64,15 +62,16 @@ gleplot-gui
 ```
 
 ### Features
-✨ **Live Preview** - Debounced, async GLE compile as you edit, as a vector SVG by default (with an automatic, sticky PNG fallback if SVG isn't usable)  
-✨ **On-Canvas Annotations** - Add, drag, double-click-edit, and delete free-form text labels directly on the preview, kept in sync with a dedicated Texts tab  
-✨ **Data Manager** - Load CSV/`.dat` files, pick columns, import data or reference the file in place  
-✨ **Named Data Columns** - Generated `.dat` sidecars carry real column names (from your series labels) instead of anonymous placeholders  
-✨ **Property Panels** - Layout, Figure, Axes, Series, and Texts tabs for point-and-click styling  
-✨ **Native `.gle` Files** - Save and open your work directly as `.gle` (the same format GLE renders) via File ▸ Save / Open -- unrecognized content is preserved as raw GLE  
-✨ **Export Dialog** - PDF, PNG, EPS, SVG, JPG, or raw GLE script, with an optional folder bundle  
-✨ **Undo/Redo** - Full editing history  
-✨ **Programmatic-`.gle` Preview** - Files using GLE programming constructs open as a read-only render + export  
+
+- **Live preview** -- debounced async GLE compile; SVG by default with a sticky PNG fallback when needed
+- **On-canvas annotations** -- add, drag, edit, and delete text labels on the preview (synced with the Texts tab)
+- **Data manager** -- load CSV or `.dat` files, map columns, import or reference in place
+- **Named columns** -- generated `.dat` sidecars use series labels as column names
+- **Property panels** -- Layout, Figure, Axes, Series, and Texts for point-and-click editing
+- **Native `.gle` files** -- save and open plain GLE scripts; unrecognized content is preserved
+- **Export** -- PDF, PNG, EPS, SVG, JPG, raw GLE, optional folder bundle
+- **Undo and redo** -- full editing history
+- **Programmatic `.gle` preview** -- read-only render and export for scripts with GLE programming constructs
 
 ### Requirements
 The editor needs GLE 4.3+ installed and discoverable (via `GLE_PATH` or `PATH`) to render the live preview and export non-`.gle` formats -- see [Installation](#installation) above. The status bar shows the detected GLE path (or "not found").
@@ -83,20 +82,26 @@ See the **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** for a full walkthrough
 
 ## Documentation
 
-📚 **[Live Sphinx Documentation](https://benhuddart.github.io/gleplot/)** - Complete API reference and guides
+**[Sphinx documentation](https://benhuddart.github.io/gleplot/)** — API reference, gallery, and tutorials.
 
-**Key Documentation Resources:**
-- **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** - Desktop editor walkthrough, project files, troubleshooting
-- **[Broken Axes](docs/guides/BROKEN_AXES.md)** - Split x-axes for two-timescale data
-- **[Reference Lines and Spans](docs/guides/REFERENCE_LINES_AND_SPANS.md)** - `axvline`/`axhline`/`axvspan`/`axhspan`
-- **[Colors and Markers](docs/guides/COLORS_AND_MARKERS.md)** - Color/marker mapping, open and white-filled markers
-- **[Configuration System](docs/guides/CONFIGURATION.md)** - Customize gleplot appearance and behavior
-- **[Configuration API](docs/guides/CONFIGURATION_API.md)** - Complete configuration reference  
-- **[Semantic Versioning](docs/guides/VERSIONING.md)** - Automatic version management
-- **[Versioning Quick Reference](docs/guides/VERSIONING_QUICK_REF.md)** - Common version bump patterns
-- **[Testing Quick Reference](docs/guides/TESTING_QUICK_REFERENCE.md)** - Fast commands and examples
-- **[Test Structure](docs/guides/TEST_STRUCTURE.md)** - Test organization and architecture
-- **[Graphics Testing](docs/guides/GRAPHICS_TESTING.md)** - Complete graphics testing documentation
+**User guides**
+
+- **[GUI Editor](docs/guides/GUI_EDITOR.md)** — desktop editor walkthrough and troubleshooting
+- **[Matplotlib migration](docs/guides/MATPLOTLIB_MIGRATION.md)** — API mapping and behavioral differences
+- **[Broken axes](docs/guides/BROKEN_AXES.md)** — split x-axes for two timescales
+- **[Reference lines and spans](docs/guides/REFERENCE_LINES_AND_SPANS.md)** — `axvline`, `axhline`, `axvspan`, `axhspan`
+- **[Colors and markers](docs/guides/COLORS_AND_MARKERS.md)** — color and marker mappings
+- **[Configuration](docs/guides/CONFIGURATION.md)** and **[Configuration API](docs/guides/CONFIGURATION_API.md)** — global and per-figure styling
+- **[Contour and heatmaps](docs/guides/CONTOUR_AND_HEATMAPS.md)** — gridded and scattered raster plots
+- **[File-based series](docs/guides/FILE_BASED_SERIES.md)** — plot from existing columns
+- **[Troubleshooting](docs/guides/TROUBLESHOOTING.md)** — common runtime issues
+
+**Contributing**
+
+- **[Development workflow](docs/guides/DEVELOPMENT_WORKFLOW.md)** — tests, versioning, and releases
+- **[Versioning](docs/guides/VERSIONING.md)** and **[quick reference](docs/guides/VERSIONING_QUICK_REF.md)** — semantic versioning
+- **[Testing quick reference](docs/guides/TESTING_QUICK_REFERENCE.md)** and **[test structure](docs/guides/TEST_STRUCTURE.md)**
+- **[Graphics testing](docs/guides/GRAPHICS_TESTING.md)** — compiled output validation
 
 ## Installation
 
@@ -405,12 +410,12 @@ glp.savefig('plot.pdf')
 
 | Feature | gleplot | matplotlib |
 |---------|---------|------------|
-| **API** | 100% compatible | Reference implementation |
-| **Output** | GLE vector graphics | PNG/PDF raster + vector |
-| **File size** | 1-2 KB script | 50-100 KB PNG |
-| **Compilation** | GLE → PDF/PNG | Built-in |
-| **Learning curve** | None (familiar API) | Moderate |
-| **Use case** | Publication graphics | General-purpose plotting |
+| **API** | Matplotlib-like for supported plot types (see [migration guide](docs/guides/MATPLOTLIB_MIGRATION.md)) | Reference implementation |
+| **Output** | GLE script plus PDF/PNG/EPS/SVG when GLE is installed | Built-in raster and vector backends |
+| **Script size** | Typically a few KB `.gle` plus `.dat` sidecars | N/A (in-memory or image files) |
+| **Rendering** | External `gle` binary | Built-in |
+| **Learning curve** | Low if you already use matplotlib for the same primitives | Moderate |
+| **Use case** | Publication vector figures via GLE | General-purpose plotting |
 
 ## Troubleshooting
 
@@ -454,14 +459,6 @@ gleplot is licensed under GPL-2.0+ (compatible with GLE license).
 - **Matplotlib Documentation**: https://matplotlib.org/
 - **NumPy Documentation**: https://numpy.org/
 
-## Status
-
-✅ **Production Ready**  
-✅ **All Tests Passing**  
-✅ **Multiple Example Categories**  
-✅ **Full Documentation**  
-✅ **Automatic Semantic Versioning**
-
 ## Repository
 
 - **GitHub**: https://github.com/benhuddart/gleplot
@@ -471,5 +468,3 @@ gleplot is licensed under GPL-2.0+ (compatible with GLE license).
 ---
 
 For questions, issues, or feature requests, please [open an issue on GitHub](https://github.com/benhuddart/gleplot/issues).
-
-Happy plotting! 📊

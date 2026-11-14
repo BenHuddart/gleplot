@@ -78,6 +78,9 @@ jobs:
           
           echo "Gallery images prepared in docs/source/_static/gallery/"
 
+      - name: Prepare gallery images for web
+        run: python docs/prepare_gallery.py --strict
+
       - name: Build documentation
         run: |
           cd docs

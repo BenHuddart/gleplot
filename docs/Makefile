@@ -17,7 +17,12 @@ help:
 clean:
 	rm -rf $(BUILDDIR)
 
-html:
+.PHONY: prepare-gallery
+
+prepare-gallery:
+	python3 "$(CURDIR)/prepare_gallery.py"
+
+html: prepare-gallery
 	$(SPHINXBUILD) -b html "$(CURDIR)/source" "$(CURDIR)/$(BUILDDIR)/html" $(SPHINXOPTS) $(O)
 	@echo "Build finished. The HTML pages are in $(CURDIR)/$(BUILDDIR)/html."
 

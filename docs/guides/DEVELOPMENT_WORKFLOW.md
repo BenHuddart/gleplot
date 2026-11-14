@@ -391,7 +391,7 @@ git push origin main --follow-tags
 
 ## Tips & Best Practices
 
-✅ **Do:**
+**Do:**
 
 - Write descriptive commit messages
 - Use scopes: `feat(config):`, `fix(writer):`
@@ -400,7 +400,7 @@ git push origin main --follow-tags
 - Use --dry-run before actual version bumping
 - Review your commits before pushing
 
-❌ **Don't:**
+**Don't:**
 
 - Commit random changes without semantic type
 - Mix features with fixes in one commit

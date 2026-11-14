@@ -114,16 +114,22 @@ def main():
                 data_file.rename(new_name)
             # Write updated GLE file
             gle_file.write_text(gle_content)
-            
+
+            # Semi-transparent fills (rgba) fail unless GLE is invoked with
+            # -cairo. Pass that only for scripts that need it so the other
+            # figures keep the default PostScript device.
+            needs_cairo = "rgba" in gle_content.lower()
+
             # Compile to different formats if GLE is available
             if compiler:
                 formats = ['pdf', 'eps', 'png']
                 for fmt in formats:
                     try:
                         output = compiler.compile(
-                            str(gle_file), 
+                            str(gle_file),
                             output_format=fmt,
-                            dpi=150 if fmt == 'png' else None
+                            dpi=150 if fmt == 'png' else None,
+                            cairo=needs_cairo,
                         )
                         size_kb = output.stat().st_size / 1024
                         print(f"  ✓ {fmt.upper()}: {output.name} ({size_kb:.1f} KB)")

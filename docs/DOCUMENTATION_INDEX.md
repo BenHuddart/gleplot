@@ -268,15 +268,18 @@ gleplot/
 ├── docs/
 │   ├── SEMANTIC_VERSIONING_IMPLEMENTATION.md
 │   └── guides/
+│       ├── GUI_EDITOR.md
 │       ├── CONFIGURATION.md
 │       ├── CONFIGURATION_API.md
 │       ├── TEXT_ANNOTATIONS.md
 │       ├── REFERENCE_LINES_AND_SPANS.md
 │       ├── BROKEN_AXES.md
+│       ├── CONTOUR_AND_HEATMAPS.md
 │       ├── FILE_BASED_SERIES.md
 │       ├── COLORS_AND_MARKERS.md
 │       ├── MATPLOTLIB_MIGRATION.md
 │       ├── TROUBLESHOOTING.md
+│       ├── VIEW_FUNCTION.md
 │       ├── VERSIONING.md
 │       ├── VERSIONING_QUICK_REF.md
 │       ├── DEVELOPMENT_WORKFLOW.md
@@ -305,7 +308,7 @@ gleplot/
 ### If you want to...
 
 **Get started quickly**
-→ Read [README.md](../README.md) then [DEVELOPMENT_WORKFLOW.md](guides/DEVELOPMENT_WORKFLOW.md)
+→ Read [README.md](../README.md), then the [Sphinx Getting Started](https://benhuddart.github.io/gleplot/getting_started.html) page (source: [docs/source/getting_started.rst](source/getting_started.rst))
 
 **Configure gleplot**
 → Read [CONFIGURATION.md](guides/CONFIGURATION.md) then [CONFIGURATION_API.md](guides/CONFIGURATION_API.md)
