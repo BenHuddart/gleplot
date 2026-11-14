@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v3.2.0 (2026-11-14)
+
+### Features
+
+- Draw bar and fill labels in the legend
+  ([`022ec15`](https://github.com/BenHuddart/gleplot/commit/022ec15729b14184470fdf21291c4bb44ab8d61e))
+
+### Testing
+
+- Expect a legend swatch on a labelled span
+  ([`827c996`](https://github.com/BenHuddart/gleplot/commit/827c996c0595d72ba1d64f66cc10c99ae4ac3118))
+
+
 ## v3.1.0 (2026-11-14)
 
 ### Features
