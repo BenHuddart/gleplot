@@ -13,11 +13,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-latest is 26.04, which has no Python 3.9 build in
+        # actions/setup-python. 24.04 still does, and is the image these
+        # jobs ran on before that move.
+        os: [ubuntu-24.04, macos-latest]
         python-version: ['3.9', '3.11']
     env:
       # One flag for the pytest invocation, the file check, and the upload.
-      COVERAGE: ${{ matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest' }}
+      COVERAGE: ${{ matrix.python-version == '3.11' && matrix.os == 'ubuntu-24.04' }}
 
     steps:
       - uses: actions/checkout@v4
