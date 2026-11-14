@@ -77,7 +77,7 @@ Gleplot-specific API stays explicit: `data_prefix`, `data_source`, placement in 
 
 - **Design notes and implementation journals** → [GitHub issues](https://github.com/benhuddart/gleplot/issues), not the repo.
 - **`docs/`** is user and contributor documentation only.
-- **Do not add** files under `docs/agent/` or `tests/agent/` (`docs/agent/` is retired pending removal).
+- **Do not add** files under `docs/agent/` or `tests/agent/`.
 
 ## Tests
 

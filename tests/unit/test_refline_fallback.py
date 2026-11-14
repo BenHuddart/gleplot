@@ -313,9 +313,8 @@ def _neg_adjacent_refline(entry):
         lambda ax: ax.axvspan(0.4, 0.6, color="orange", alpha=0.35),
         lambda ax: ax.axhspan(1.0, 2.0, xmin=0.1, xmax=0.9, label="band"),
         # G17.1: two adjacent negative coordinates in the draw call's own
-        # argument list, the exact shape documented in
-        # docs/agent/G17_GUIDE_EMISSION.md §6 (`draw gleplot_vspan -4 -3 ...`
-        # used to merge into one `-7` argument and fall to passthrough).
+        # argument list (`draw gleplot_vspan -4 -3 ...` used to merge into one
+        # `-7` argument and fall to passthrough before whitespace splitting).
         lambda ax: _neg_adjacent_refline(
             ax.axvline(-4.0, color="red", label='say "hi" there')
         ),
@@ -381,14 +380,14 @@ def test_a_drawn_guide_round_trips_as_a_guide(build, tmp_path):
 
 
 def test_the_documented_g17_1_case_recovers_as_a_span(tmp_path):
-    """The exact bytes from docs/agent/G17_GUIDE_EMISSION.md §6, verbatim.
+    """``draw gleplot_vspan -4 -3 0 1 "LIGHTGRAY" ""`` recovers as a Span.
 
     Before G17.1, ``_guide_call_args`` read ``-4 -3`` as the one expression
     ``-4-3`` (``_collect_value`` treats a bare ``-`` as a binary operator
     regardless of the whitespace around it), so this five-argument read
     fell one short of the six ``gleplot_vspan`` takes and the whole block
     degraded to raw passthrough. GLE itself splits sub-call arguments on
-    whitespace (probe-verified in the design note), so the *rendering* was
+    whitespace (probe-verified on GLE 4.3.10), so the *rendering* was
     always correct -- only the recognizer's identity recovery was wrong.
     """
     from gleplot.parser.recognizer import parse_gle_figure
