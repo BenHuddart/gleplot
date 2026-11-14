@@ -3,6 +3,9 @@ Contributing
 
 We welcome contributions to gleplot! This document provides guidelines for contributing to the project.
 
+For the concise checklist (setup, tests, style, commits), see the root `CONTRIBUTING.md` in the repository:
+https://github.com/benhuddart/gleplot/blob/main/CONTRIBUTING.md
+
 Getting Started
 ---------------
 
@@ -108,11 +111,9 @@ Submitting Changes
 
 3. Update documentation if needed
 
-4. Commit your changes:
-
-   .. code-block:: bash
-
-      git commit -m "Clear, descriptive commit message"
+4. Commit your changes using `conventional commits <https://www.conventionalcommits.org/>`_
+   (for example ``feat: add bar hatch support`` or ``fix: correct log tick limits``).
+   Releases use semantic versioning driven by these prefixes.
 
 5. Push to your fork:
 

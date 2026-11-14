@@ -1,475 +1,71 @@
-# gleplot - Matplotlib-like Plotting for GLE
+# gleplot
 
-A Python library that provides a **matplotlib-compatible API** for creating scientific plots that directly generate GLE (Graphics Layout Engine) scripts for publication-quality vector graphics.
+**gleplot** is a matplotlib-style Python library for scientific figures. It generates [GLE](https://glx.sourceforge.io/) (Graphics Layout Engine) scripts and, when GLE is installed, compiles them to PDF, PNG, EPS, SVG, or JPG. An optional PySide6 desktop editor (`gleplot-gui`) lets you build figures with a live preview.
 
-## Quick Start
+## Documentation
+
+**[Full documentation and API reference](https://benhuddart.github.io/gleplot/)**
+
+- [Getting started](https://benhuddart.github.io/gleplot/getting_started.html) on the published site
+- [GUI editor guide](docs/guides/GUI_EDITOR.md)
+- [Examples](examples/)
+
+## Installation
+
+**Library** (Python 3.7+, numpy):
+
+```bash
+git clone https://github.com/benhuddart/gleplot.git
+cd gleplot
+pip install -e .
+```
+
+**Desktop editor:**
+
+```bash
+pip install "gleplot[gui]"
+gleplot-gui
+```
+
+Prebuilt Windows and macOS apps are on [GitHub Releases](https://github.com/benhuddart/gleplot/releases).
+
+**GLE 4.3+** (optional; needed to compile to PDF/PNG/etc.—saving `.gle` always works):
+
+- Install from [GLE releases](https://github.com/vlabella/GLE/releases/latest)
+- Verify: `gle -info`
+
+Further install notes (Ghostscript, LaTeX, `gle -finddeps`) are in the [getting started guide](https://benhuddart.github.io/gleplot/getting_started.html).
+
+## Quick start
 
 ```python
 import numpy as np
 import gleplot as glp
 
-# Create data
-x = np.linspace(0, 2*np.pi, 100)
+x = np.linspace(0, 2 * np.pi, 100)
 
-# Create figure and plot
 fig = glp.figure(figsize=(8, 6))
 ax = fig.add_subplot(111)
-ax.plot(x, np.sin(x), color='blue', label='sin(x)')
-ax.plot(x, np.cos(x), color='red', linestyle='--', label='cos(x)')
+ax.plot(x, np.sin(x), color="blue", label="sin(x)")
+ax.plot(x, np.cos(x), color="red", linestyle="--", label="cos(x)")
 
-# Configure plot
-ax.set_xlabel('x (radians)')
-ax.set_ylabel('y')
-ax.set_title('Trigonometric Functions')
+ax.set_xlabel("x (radians)")
+ax.set_ylabel("y")
+ax.set_title("Trigonometric Functions")
 ax.legend()
 
-# Save as PDF (auto-compiles via GLE)
-fig.savefig('trig.pdf')
-
-# Or save as GLE script for manual editing
-fig.savefig('trig.gle')
-
-# Keep the script, compiled output, and data sidecars together
-fig.savefig('trig.pdf', folder=True)
+fig.savefig("trig.pdf")
+fig.savefig("trig.gle")
 ```
 
-## Features
+## Also
 
-✨ **Matplotlib-Compatible API** - All familiar functions work identically  
-✨ **Direct GLE Generation** - Optimized script output (1-2 KB)  
-✨ **Vector Graphics** - PDF, PNG, EPS export with publication quality  
-✨ **Full Plotting Support** - Lines, scatter, bars, fill_between, errorbar  
-✨ **Error Bars** - Symmetric, asymmetric, vertical and horizontal  
-✨ **File-Based Series** - Plot directly from existing data columns (no extra sidecar files)  
-✨ **Subplots** - Multi-panel figures with flexible grid layouts  
-✨ **Subplot Layout Control** - Fine-tune margins and inter-panel spacing with `subplots_adjust`  
-✨ **Broken X-Axes** - One panel, several adjacent x ranges sharing a y-axis, with configurable break markers  
-✨ **Reference Lines and Spans** - `axvline`/`axhline`/`axvspan`/`axhspan` that track the axis limits  
-✨ **Open and Filled Markers** - matplotlib `fillstyle`/`markerfacecolor` mapped onto GLE's marker families  
-✨ **Publication Ready** - Suitable for all major academic journals  
-✨ **Lightweight** - Pure Python, minimal dependencies  
-
-## GUI Editor
-
-gleplot also ships a desktop editor (PySide6) for building figures without writing code: load data, pick columns, style series, arrange subplots, annotate, and export -- all with a live preview.
-
-### Install
-```bash
-pip install "gleplot[gui]"
-```
-
-### Launch
-```bash
-gleplot-gui
-```
-
-### Features
-✨ **Live Preview** - Debounced, async GLE compile as you edit, as a vector SVG by default (with an automatic, sticky PNG fallback if SVG isn't usable)  
-✨ **On-Canvas Annotations** - Add, drag, double-click-edit, and delete free-form text labels directly on the preview, kept in sync with a dedicated Texts tab  
-✨ **Data Manager** - Load CSV/`.dat` files, pick columns, import data or reference the file in place  
-✨ **Named Data Columns** - Generated `.dat` sidecars carry real column names (from your series labels) instead of anonymous placeholders  
-✨ **Property Panels** - Layout, Figure, Axes, Series, and Texts tabs for point-and-click styling  
-✨ **Native `.gle` Files** - Save and open your work directly as `.gle` (the same format GLE renders) via File ▸ Save / Open -- unrecognized content is preserved as raw GLE  
-✨ **Export Dialog** - PDF, PNG, EPS, SVG, JPG, or raw GLE script, with an optional folder bundle  
-✨ **Undo/Redo** - Full editing history  
-✨ **Programmatic-`.gle` Preview** - Files using GLE programming constructs open as a read-only render + export  
-
-### Requirements
-The editor needs GLE 4.3+ installed and discoverable (via `GLE_PATH` or `PATH`) to render the live preview and export non-`.gle` formats -- see [Installation](#installation) above. The status bar shows the detected GLE path (or "not found").
-
-Prebuilt Windows and macOS builds are attached to each [GitHub Release](https://github.com/benhuddart/gleplot/releases).
-
-See the **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** for a full walkthrough, and `examples/gui/` for a ready-to-open sample project.
-
-## Documentation
-
-📚 **[Live Sphinx Documentation](https://benhuddart.github.io/gleplot/)** - Complete API reference and guides
-
-**Key Documentation Resources:**
-- **[GUI Editor Guide](docs/guides/GUI_EDITOR.md)** - Desktop editor walkthrough, project files, troubleshooting
-- **[Broken Axes](docs/guides/BROKEN_AXES.md)** - Split x-axes for two-timescale data
-- **[Reference Lines and Spans](docs/guides/REFERENCE_LINES_AND_SPANS.md)** - `axvline`/`axhline`/`axvspan`/`axhspan`
-- **[Colors and Markers](docs/guides/COLORS_AND_MARKERS.md)** - Color/marker mapping, open and white-filled markers
-- **[Configuration System](docs/guides/CONFIGURATION.md)** - Customize gleplot appearance and behavior
-- **[Configuration API](docs/guides/CONFIGURATION_API.md)** - Complete configuration reference  
-- **[Semantic Versioning](docs/guides/VERSIONING.md)** - Automatic version management
-- **[Versioning Quick Reference](docs/guides/VERSIONING_QUICK_REF.md)** - Common version bump patterns
-- **[Testing Quick Reference](docs/guides/TESTING_QUICK_REFERENCE.md)** - Fast commands and examples
-- **[Test Structure](docs/guides/TEST_STRUCTURE.md)** - Test organization and architecture
-- **[Graphics Testing](docs/guides/GRAPHICS_TESTING.md)** - Complete graphics testing documentation
-
-## Installation
-
-### Requirements
-- Python 3.7+
-- numpy
-
-### Optional
-- GLE 4.3+ (for PDF/PNG/EPS compilation)
-  ```bash
-  # Verify installation
-  gle -info
-  ```
-
-  Install GLE from the official upstream sources:
-  - **Preferred (all platforms):** Download prebuilt releases from https://github.com/vlabella/GLE/releases/latest
-    - Windows: `.exe` installer
-    - macOS: `.dmg`
-    - Linux: `.zip`
-  - **Alternative:** Download from the official GLE site: https://glx.sourceforge.io/download/
-  - **Build from source:** Follow the platform-specific build instructions in the upstream README:
-    https://github.com/vlabella/GLE/blob/main/README.md
-
-  GLE upstream also recommends installing runtime dependencies:
-  - Ghostscript
-  - LaTeX distribution (e.g., TeX Live or MiKTeX)
-
-  Quick first-time verification:
-  ```bash
-  # Locate Ghostscript/LaTeX and other runtime dependencies
-  gle -finddeps
-
-  # Confirm GLE is installed and discover paths
-  gle -info
-  ```
-
-### Install gleplot
-```bash
-pip install -e .
-```
-
-Or in development mode:
-```bash
-pip install -e ".[dev]"
-```
-
-## Project Structure
-
-```
-gleplot/
-├── src/gleplot/                    # Source code
-│   ├── __init__.py                # Main API
-│   ├── figure.py                  # Figure class
-│   ├── axes.py                    # Axes class  
-│   ├── colors.py                  # Color utilities
-│   ├── markers.py                 # Marker definitions
-│   ├── dataio.py                  # Delimited data-file loading
-│   ├── writer.py                  # GLE script writer
-│   ├── compiler.py                # GLE compiler wrapper
-│   ├── config.py                  # Configuration system
-│   ├── parser/                    # Parse existing .gle back into the object model
-│   └── gui/                       # PySide6 desktop editor
-│
-├── tests/                          # Test suite
-│   ├── unit/                      # Unit tests
-│   ├── integration/               # Integration tests
-│   ├── parser/                    # GLE parser tests
-│   ├── gui/                       # GUI editor tests
-│   ├── test_gleplot.py            # Core test suite
-│   └── generate_test_graphics.py  # Graphics generation tests
-│
-├── examples/                       # Example scripts
-│   ├── basic/                     # Basic plotting examples
-│   │   ├── line_plots.py
-│   │   ├── scatter_plots.py
-│   │   ├── bar_charts.py
-│   │   └── error_bars.py
-│   ├── advanced/                  # Advanced examples
-│   │   ├── subplots.py
-│   │   ├── shared_axes.py
-│   │   ├── fill_between.py
-│   │   ├── log_scale.py
-│   │   └── combined_plots.py
-│   └── gleplot_examples.py        # Main examples runner
-│
-├── docs/                           # Documentation
-│   ├── guides/                    # User guides
-│   └── source/                    # Sphinx source files
-│
-├── pyproject.toml                 # Package configuration
-├── README.md                       # This file
-└── LICENSE                        # GPL-2.0+
-```
-
-## Usage
-
-### Line Plots
-```python
-ax.plot(x, y, color='blue', linestyle='--', label='data')
-```
-
-### Scatter Plots
-```python
-ax.scatter(x, y, color='red', marker='o', s=50, label='points')
-```
-
-### Bar Charts
-```python
-ax.bar([1, 2, 3], [10, 20, 30], color=['red', 'green', 'blue'])
-```
-
-### Fill Between
-```python
-ax.fill_between(x, y1, y2, color='lightblue', alpha=0.3)
-```
-
-### Error Bars
-```python
-# Symmetric vertical error bars
-ax.errorbar(x, y, yerr=0.5, marker='o', color='blue', label='Data')
-
-# Asymmetric vertical error bars
-ax.errorbar(x, y, yerr=([lower_arr], [upper_arr]), marker='s', fmt='none')
-
-# Both vertical and horizontal error bars
-ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', capsize=3)
-```
-
-### File-Based Series
-```python
-# Error bars from existing file columns (1-based column indices)
-ax.errorbar_from_file(
-  'experiment.dat',
-  x_col=1,
-  y_col=2,
-  yerr_col=3,
-  marker='o',
-  color='blue',
-  label='Measurement'
-)
-
-# Overlay fit/model line from the same file without creating data_*.dat
-ax.line_from_file(
-  'experiment.dat',
-  x_col=1,
-  y_col=4,
-  color='red',
-  linestyle='--',
-  linewidth=2,
-  label='Model fit'
-)
-```
-
-### Foldered Exports
-```python
-# Creates trig.gleplot/trig.pdf, trig.gleplot/trig.gle, and data files
-fig.savefig('trig.pdf', folder=True)
-```
-
-### Secondary Y-Axis
-```python
-# Plot data with different scales on same graph
-fig = glp.figure()
-ax = fig.add_subplot(111)
-
-# Plot on left y-axis (default)
-ax.plot(days, temperature, color='red', label='Temperature', yaxis='y')
-ax.set_ylabel('Temperature (°C)', axis='y')
-ax.set_ylim(10, 30, axis='y')
-
-# Plot on right y-axis
-ax.plot(days, humidity, color='blue', label='Humidity', yaxis='y2')
-ax.set_ylabel('Humidity (%)', axis='y2')
-ax.set_ylim(30, 90, axis='y2')
-
-# Log scale on secondary axis
-ax.set_yscale('log', axis='y2')
-
-ax.legend()
-fig.savefig('dual_axis.pdf')
-```
-
-### Subplots
-```python
-# Using subplots() convenience function
-fig, axes = glp.subplots(2, 2, figsize=(12, 10))
-axes[0].plot(x, y1)        # top-left
-axes[1].scatter(x, y2)     # top-right
-axes[2].bar(x, y3)         # bottom-left
-axes[3].errorbar(x, y4, yerr=err)  # bottom-right
-fig.savefig('grid.pdf')
-
-# Using add_subplot() method
-fig = glp.figure(figsize=(14, 6))
-ax1 = fig.add_subplot(1, 2, 1)  # left panel
-ax2 = fig.add_subplot(1, 2, 2)  # right panel
-
-# Shared axes for tighter layouts (stacked plots)
-fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 10))
-# Only bottom subplot shows x-axis label and ticks
-axes[0].plot(x, signal)
-axes[1].plot(x, noise)
-axes[2].plot(x, combined)
-axes[2].set_xlabel('Time')  # Only need to label bottom
-
-# Shared axes for side-by-side comparisons
-fig, axes = glp.subplots(1, 3, sharey=True, figsize=(18, 5))
-# Only leftmost subplot shows y-axis label and ticks
-axes[0].scatter(x1, y1)
-axes[0].set_ylabel('Response')  # Only need to label left
-axes[1].scatter(x2, y2)
-axes[2].scatter(x3, y3)
-
-# Fine-tune multi-panel layout (matplotlib-compatible)
-fig.subplots_adjust(
-  left=0.12,
-  right=0.98,
-  bottom=0.1,
-  top=0.92,
-  wspace=0.35,
-  hspace=0.4,
-)
-```
-
-### Axis Control
-```python
-ax.set_xlabel('X axis')
-ax.set_ylabel('Y axis')
-ax.set_title('My Plot')
-ax.set_xlim(0, 10)
-ax.set_ylim(0, 100)
-ax.set_xscale('log')
-ax.set_yscale('log')
-ax.legend(loc='upper left')
-```
-
-## Testing
-
-Run the comprehensive test suite:
-```bash
-cd tests
-python -m pytest test_gleplot.py -v
-```
-
-Or run directly:
-```bash
-python test_gleplot.py
-```
-
-**Expected output**: a comprehensive test suite (unit, integration, parser, and GUI tests), all passing
-
-## Examples
-
-Run the example scripts:
-```bash
-cd examples
-python gleplot_examples.py
-```
-
-Or run specific example categories:
-```bash
-# Basic examples
-python basic/line_plots.py
-python basic/scatter_plots.py
-python basic/bar_charts.py
-python basic/error_bars.py
-
-# Advanced examples
-python advanced/subplots.py
-python advanced/shared_axes.py
-python advanced/secondary_yaxis.py
-python advanced/fill_between.py
-python advanced/log_scale.py
-python advanced/combined_plots.py
-python advanced/multiple_styles.py
-```
-
-Each example generates GLE script files and optionally compiles them to PDFs.
-
-## API Reference
-
-### Figure
-```python
-fig = glp.figure(figsize=(8, 6), dpi=100)
-```
-
-### Axes
-```python
-ax = fig.add_subplot(111)
-ax.plot(...)
-ax.scatter(...)
-ax.bar(...)
-ax.fill_between(...)
-```
-
-### Module-level convenience
-```python
-glp.figure()
-glp.plot(x, y)
-glp.scatter(x, y)
-glp.xlabel('X')
-glp.savefig('plot.pdf')
-```
-
-## Comparison: gleplot vs matplotlib
-
-| Feature | gleplot | matplotlib |
-|---------|---------|------------|
-| **API** | 100% compatible | Reference implementation |
-| **Output** | GLE vector graphics | PNG/PDF raster + vector |
-| **File size** | 1-2 KB script | 50-100 KB PNG |
-| **Compilation** | GLE → PDF/PNG | Built-in |
-| **Learning curve** | None (familiar API) | Moderate |
-| **Use case** | Publication graphics | General-purpose plotting |
-
-## Troubleshooting
-
-### GLE not found
-If compilation fails, ensure GLE is installed and in PATH:
-```bash
-which gle
-gle -info
-```
-
-### Import errors
-Make sure gleplot is properly installed:
-```bash
-pip install -e .
-```
-
-### Test failures
-Run tests with verbose output:
-```bash
-python -m pytest tests/ -vv
-```
-
-## Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new features
-4. Run: `python -m pytest tests/`
-5. Submit pull request
+Subplots, file-based series, configuration, and more: see the [usage guide](https://benhuddart.github.io/gleplot/usage.html) and topic guides under [`docs/guides/`](docs/guides/). For the desktop workflow, see the [GUI editor guide](docs/guides/GUI_EDITOR.md).
 
 ## License
 
-gleplot is licensed under GPL-2.0+ (compatible with GLE license).
+gleplot is licensed under **GPL-2.0+** (compatible with GLE).
 
-## References
+## Contributing
 
-- **GLE Documentation**: https://glx.sourceforge.io/
-- **GLE GitHub**: https://github.com/vlabella/GLE
-- **Matplotlib Documentation**: https://matplotlib.org/
-- **NumPy Documentation**: https://numpy.org/
-
-## Status
-
-✅ **Production Ready**  
-✅ **All Tests Passing**  
-✅ **Multiple Example Categories**  
-✅ **Full Documentation**  
-✅ **Automatic Semantic Versioning**
-
-## Repository
-
-- **GitHub**: https://github.com/benhuddart/gleplot
-- **Issues**: https://github.com/benhuddart/gleplot/issues
-- **Documentation**: https://benhuddart.github.io/gleplot/
-
----
-
-For questions, issues, or feature requests, please [open an issue on GitHub](https://github.com/benhuddart/gleplot/issues).
-
-Happy plotting! 📊
+See [CONTRIBUTING.md](CONTRIBUTING.md). Questions and feature requests: [GitHub issues](https://github.com/benhuddart/gleplot/issues).

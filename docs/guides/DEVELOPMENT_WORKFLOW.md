@@ -458,4 +458,4 @@ git log -p
 - [Semantic Versioning Guide](docs/guides/VERSIONING.md)
 - [Configuration API Reference](docs/guides/CONFIGURATION_API.md)
 - [Test Structure Guide](docs/guides/TEST_STRUCTURE.md)
-- [Contributing Guidelines](CONTRIBUTING.md)
+- [Contributing Guidelines](../../CONTRIBUTING.md)
