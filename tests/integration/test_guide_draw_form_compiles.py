@@ -108,10 +108,9 @@ def _deferred_axis_figure():
     return fig
 
 
-#: The pre-G17 emission of :func:`_deferred_axis_figure`, transcribed from the
-#: G17 design note (``docs/agent/G17_GUIDE_EMISSION.md`` §1.1), which captured
-#: it verbatim from the writer on commit ab65e90. Kept here so the "before"
-#: number is a measurement of the real old script and not of a paraphrase.
+#: The pre-G17 emission of :func:`_deferred_axis_figure`, captured verbatim
+#: from the writer on commit ab65e90. Kept here so the "before" number is a
+#: measurement of the real old script and not of a paraphrase.
 _PRE_G17_SCRIPT = """\
 ! GLE graphics file
 size 20.32 15.24

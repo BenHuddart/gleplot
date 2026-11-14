@@ -1764,9 +1764,9 @@ class _Recognizer:
         """Group ``toks[start:]`` into whitespace-delimited runs.
 
         GLE's own sub-call parser splits arguments on whitespace, full stop
-        (probe-verified, ``docs/agent/G17_GUIDE_EMISSION.md`` §6: ``draw
-        gleplot_vspan -4 -3 0 1 ...`` reads as ``A=-4 B=-3 LO=0 HI=1``, four
-        separate arguments). That is a different rule from
+        (probe-verified on GLE 4.3.10: ``draw gleplot_vspan -4 -3 0 1 ...``
+        reads as ``A=-4 B=-3 LO=0 HI=1``, four separate arguments). That is a
+        different rule from
         :func:`_collect_value`'s expression grammar, which accepts a bare
         ``-`` as a binary operator regardless of the whitespace around it and
         so reads ``-4 -3`` as the one expression ``-4-3`` (G17.1). Splitting

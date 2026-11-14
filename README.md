@@ -165,7 +165,6 @@ gleplot/
 │   ├── integration/               # Integration tests
 │   ├── parser/                    # GLE parser tests
 │   ├── gui/                       # GUI editor tests
-│   ├── agent/                     # Agent tests
 │   ├── test_gleplot.py            # Core test suite
 │   └── generate_test_graphics.py  # Graphics generation tests
 │
@@ -185,7 +184,6 @@ gleplot/
 │
 ├── docs/                           # Documentation
 │   ├── guides/                    # User guides
-│   ├── agent/                     # Development notes
 │   └── source/                    # Sphinx source files
 │
 ├── pyproject.toml                 # Package configuration
