@@ -4,12 +4,17 @@ This project uses [Python Semantic Release](https://python-semantic-release.read
 
 ## How It Works
 
-The version number is automatically updated using a two-stage strategy:
+A push to `main` runs the **Tests** workflow. When that run succeeds, and the commit
+is still the tip of `main`, the **Release** workflow
+([`.github/workflows/release.yml`](../.github/workflows/release.yml)) checks commits
+since the last tag. Pull requests do not cut a release. If a `feat`, `fix`, `perf`, or breaking change warrants a bump,
+python-semantic-release updates `pyproject.toml`, `src/gleplot/__init__.py`, and
+`docs/CHANGELOG.md`, builds sdist/wheel artifacts, pushes the release commit and tag, and
+creates a GitHub Release with those artifacts attached.
 
-1. **Conventional Commits first** (recommended)
-2. **File-change fallback heuristics** when commit messages do not include semantic prefixes
-
-This makes releases more robust when commits are valid but not perfectly formatted.
+PyPI upload is a separate job in the same workflow, enabled only when the repository
+variable `PYPI_PUBLISH` is `true` and PyPI Trusted Publishing is configured (see
+[DEVELOPMENT_WORKFLOW.md](guides/DEVELOPMENT_WORKFLOW.md#publishing)).
 
 ## Commit Message Format
 
@@ -23,31 +28,23 @@ This makes releases more robust when commits are valid but not perfectly formatt
 
 ### Types
 
-- **feat**: A new feature (triggers MINOR version bump: 0.0.1 → 0.1.0)
-- **fix**: A bug fix (triggers PATCH version bump: 0.0.1 → 0.0.2)
-- **docs**: Documentation only changes
-- **style**: Code style changes (formatting, missing semicolons, etc.)
-- **refactor**: Code refactoring without changing functionality
+- **feat**: A new feature (triggers MINOR version bump)
+- **fix**: A bug fix (triggers PATCH version bump)
+- **docs**: Documentation only changes (no bump)
+- **style**: Code style changes (no bump)
+- **refactor**: Code refactoring without changing functionality (no bump)
 - **perf**: Performance improvements (triggers PATCH version bump)
-- **test**: Adding or correcting tests
-- **build**: Changes to build system or dependencies
-- **ci**: Changes to CI configuration files
-- **chore**: Other changes that don't modify src or test files
-- **revert**: Reverts a previous commit
+- **test**: Adding or correcting tests (no bump)
+- **build**: Changes to build system or dependencies (no bump)
+- **ci**: Changes to CI configuration files (no bump)
+- **chore**: Other changes that don't modify releasable behaviour (no bump)
+- **revert**: Reverts a previous commit (parsed like the reverted commit)
 
-### Intelligent Fallback (when commit prefixes are missing)
-
-If no `feat:`, `fix:`, `perf:`, or breaking-change marker is found, the version script inspects changed files since the last tag:
-
-- **MINOR bump**: New Python module added under `src/gleplot/`
-- **PATCH bump**: Existing source changes under `src/gleplot/`, or packaging/runtime script changes (`pyproject.toml`, `scripts/`)
-- **NO bump**: Documentation/tests/examples/output-only changes (`docs/`, `tests/`, `examples/`, markdown/rst/text files, generated graphics output folders)
-
-This fallback is conservative and avoids silent missed releases for source code changes.
+Bump rules are configured in `pyproject.toml` under `[tool.semantic_release.commit_parser_options]`.
 
 ### Breaking Changes
 
-To trigger a MAJOR version bump (0.0.1 → 1.0.0), include `BREAKING CHANGE:` in the commit footer or add `!` after the type:
+To trigger a MAJOR version bump, include `BREAKING CHANGE:` in the commit footer or add `!` after the type:
 
 ```
 feat!: remove deprecated plot_old() function
@@ -60,81 +57,50 @@ BREAKING CHANGE: The plot_old() function has been removed. Use plot() instead.
 ### Feature (minor version bump)
 ```bash
 git commit -m "feat: add support for histogram plots"
-# Version: 0.0.1 → 0.1.0
 ```
 
 ### Bug Fix (patch version bump)
 ```bash
 git commit -m "fix: correct color mapping for hex codes"
-# Version: 0.0.1 → 0.0.2
 ```
 
 ### Documentation
 ```bash
 git commit -m "docs: update installation instructions"
-# Version: No change
-```
-
-### Breaking Change (major version bump)
-```bash
-git commit -m "feat!: redesign figure API
-
-BREAKING CHANGE: Figure.save() renamed to Figure.savefig() for matplotlib compatibility"
-# Version: 0.0.1 → 1.0.0
+# No release on docs-only pushes
 ```
 
 ## Creating a Release
 
-### Manual Release
+### Automatic (recommended)
 
-1. Make sure all changes are committed with proper commit messages
-2. Run semantic-release to create a new version:
-   ```bash
-   pip install python-semantic-release
-   semantic-release version
-   ```
-3. Push the changes and tags:
-   ```bash
-   git push origin main --follow-tags
-   ```
+Push conventional commits to `main`. After **Tests** pass, **Release** runs and cuts a
+version when warranted.
 
-### Automated Release (GitHub Actions)
+### Manual local preview
 
-Create `.github/workflows/release.yml`:
+```bash
+pip install -e ".[dev]"
+semantic-release version --noop
+```
 
-```yaml
-name: Release
+### Manual release from GitHub Actions
 
-on:
-  push:
-    branches:
-      - main
+Go to **Actions** → **Release** → **Run workflow**, then choose **auto** or force
+**major** / **minor** / **patch**.
 
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    concurrency: release
-    permissions:
-      contents: write
-      
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          
-      - name: Python Semantic Release
-        uses: python-semantic-release/python-semantic-release@v8.0.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+### Manual local release
+
+```bash
+pip install -e ".[dev]"
+semantic-release version
+git push origin main --follow-tags
 ```
 
 ## Viewing the Current Version
 
 ```bash
-# From pyproject.toml
-grep version pyproject.toml
-
-# From Python
+grep '^version' pyproject.toml
 python -c "import gleplot; print(gleplot.__version__)"
 ```
 
