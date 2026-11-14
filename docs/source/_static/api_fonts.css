@@ -1,0 +1,20 @@
+/* Signature parameters and type names are <em> in the body face.
+   The theme's Lato italic files use font-display: block, so API
+   text stays hidden until those extra faces download. */
+.rst-content em {
+  font-style: normal !important;
+}
+
+/* Sphinx styles dl .k as italic in Lato; signatures are not code blocks. */
+html.writer-html4 .rst-content dl:not(.docutils) .k,
+html.writer-html5
+  .rst-content
+  dl[class]:not(.option-list):not(.field-list):not(.footnote):not(.citation):not(.glossary):not(.simple)
+  .k {
+  font-style: normal !important;
+}
+
+.rst-content cite,
+.rst-content .versionmodified {
+  font-style: normal !important;
+}
