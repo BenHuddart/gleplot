@@ -16,6 +16,8 @@ from .parser.tables import (
     KEY_POSITIONS_SHORT_TO_LONG,
     MATPLOTLIB_TO_LSTYLE,
     NUMBER_FORMAT_KEYWORDS,
+    TEXT_HA_VALUES,
+    TEXT_VA_VALUES,
 )
 from .series import (  # noqa: F401  (re-exported: historical import path)
     DRAWABLE_CLASSES,
@@ -1963,6 +1965,7 @@ class Axes:
         ha: str = "left",
         va: str = "center",
         bbox: Optional[dict] = None,
+        rotation: Optional[float] = None,
         **kwargs,
     ):
         """Add free-form text annotation in data coordinates.
@@ -1977,36 +1980,135 @@ class Axes:
             Text color.
         fontsize : float, optional
             Font size in points.
-        ha : str, optional
-            Horizontal alignment: 'left', 'center', or 'right'.
-        va : str, optional
-            Vertical alignment placeholder for API compatibility.
+        ha : {'left', 'center', 'right'}, optional
+            Horizontal alignment. The alignment point is ``(x, y)``.
+        va : {'top', 'center', 'bottom'}, optional
+            Vertical alignment. GLE's ``set just`` has those three positions
+            and no separate baseline; anything else warns and uses
+            ``'center'``.
         bbox : dict, optional
-            Optional text box settings. Supported key: ``facecolor``.
+            Filled background behind the text. The supported key is
+            ``facecolor`` (``fill`` is accepted as an alias). The box is GLE's
+            ``begin box fill`` with a fixed 0.05 cm pad and no outline.
+            Other keys (``edgecolor``, ``linewidth``, ``pad``, ``boxstyle``,
+            ...) warn and are ignored.
+        rotation : float, optional
+            Counter-clockwise rotation in degrees about the alignment point
+            (GLE ``begin rotate``). ``0`` omits the block.
+        **kwargs
+            Any other matplotlib text keyword warns and is ignored. This is
+            not a general page-drawing API.
         """
         if color is None:
             gle_color = "BLACK"
         else:
             gle_color = rgb_to_gle(color)
 
+        ha_norm = str(ha).strip().lower()
+        if ha_norm not in TEXT_HA_VALUES:
+            warnings.warn(
+                f"text(ha={ha!r}) is not supported; using 'left'. "
+                f"Supported values: {', '.join(repr(v) for v in TEXT_HA_VALUES)}.",
+                UserWarning,
+                stacklevel=2,
+            )
+            ha_norm = "left"
+
+        va_norm = str(va).strip().lower()
+        if va_norm not in TEXT_VA_VALUES:
+            warnings.warn(
+                f"text(va={va!r}) is not supported; using 'center'. "
+                "GLE aligns text to its top, center, or bottom "
+                f"({', '.join(repr(v) for v in TEXT_VA_VALUES)}); "
+                "there is no separate baseline.",
+                UserWarning,
+                stacklevel=2,
+            )
+            va_norm = "center"
+
+        # Same cut as the writer's ``_format_number``: an angle that would
+        # print as ``0`` is not stored, so the dict stays free of a rotation
+        # key the script will not mention.
+        angle = None
+        if rotation is not None:
+            try:
+                angle = float(rotation)
+            except (TypeError, ValueError):
+                warnings.warn(
+                    f"text(rotation={rotation!r}) is not a number and was " "ignored.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                angle = None
+            else:
+                if not np.isfinite(angle):
+                    warnings.warn(
+                        f"text(rotation={rotation!r}) is not finite and was "
+                        "ignored.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    angle = None
+                elif abs(angle) < 1e-10:
+                    angle = None
+
         box_color = None
-        if isinstance(bbox, dict):
-            facecolor = bbox.get("facecolor")
-            if facecolor is not None:
+        if bbox is not None and not isinstance(bbox, dict):
+            warnings.warn(
+                f"text(bbox={bbox!r}) is not a dict and was ignored. "
+                "Pass bbox={'facecolor': ...} to draw a filled background.",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif isinstance(bbox, dict):
+            if "facecolor" in bbox:
+                facecolor = bbox.get("facecolor")
+            elif "fill" in bbox:
+                facecolor = bbox.get("fill")
+            else:
+                facecolor = None
+            unsupported = sorted(
+                key for key in bbox if key not in ("facecolor", "fill")
+            )
+            if unsupported:
+                warnings.warn(
+                    "text(bbox=...) ignores "
+                    f"{unsupported}: only facecolor (alias fill) is emitted, "
+                    "as GLE 'begin box fill'. The outline, pad, and box "
+                    "style have no separate setting.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if facecolor is None:
+                warnings.warn(
+                    "text(bbox=...) has no facecolor; no background box was " "drawn.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
                 box_color = rgb_to_gle(facecolor)
 
-        self.texts.append(
-            TextAnnotation(
-                x=float(x),
-                y=float(y),
-                text=mathtext_to_gle(str(s)),
-                color=gle_color,
-                fontsize=float(fontsize) if fontsize is not None else None,
-                ha=str(ha),
-                va=str(va),
-                box_color=box_color,
+        for name in sorted(kwargs):
+            warnings.warn(
+                f"text({name}=...) is not supported and was ignored. "
+                "Supported arguments: color, fontsize, ha, va, rotation, bbox.",
+                UserWarning,
+                stacklevel=2,
             )
+
+        fields = dict(
+            x=float(x),
+            y=float(y),
+            text=mathtext_to_gle(str(s)),
+            color=gle_color,
+            fontsize=float(fontsize) if fontsize is not None else None,
+            ha=ha_norm,
+            va=va_norm,
+            box_color=box_color,
         )
+        if angle is not None:
+            fields["rotation"] = angle
+        self.texts.append(TextAnnotation(**fields))
         return self
 
     # -- heatmaps & contours --------------------------------------------

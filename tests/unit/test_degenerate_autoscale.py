@@ -500,6 +500,12 @@ def test_the_digest_sweep_covers_both_batteries():
 
 @pytest.mark.parametrize("name,builder", WIDE_CASES, ids=[n for n, _ in WIDE_CASES])
 def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
+    """Breadth lock for the golden and project batteries.
+
+    ``text_annotations`` moved when vertical alignment, rotation, and
+    ``bbox`` started being written. Every other entry is still the script
+    captured before that.
+    """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         text, files = builder()._generate_gle_with_files()

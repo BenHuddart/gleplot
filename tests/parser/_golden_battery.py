@@ -102,7 +102,17 @@ def text_annotations():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
     ax.plot([1, 2, 3], [1, 2, 3])
-    ax.text(1.5, 2.0, "peak", color="red", fontsize=14, ha="center")
+    ax.text(
+        1.5,
+        2.0,
+        "peak",
+        color="red",
+        fontsize=14,
+        ha="center",
+        va="bottom",
+        rotation=45,
+        bbox={"facecolor": "white"},
+    )
     ax.text(2.5, 1.0, "boxed", bbox={"facecolor": "yellow"})
     return fig
 

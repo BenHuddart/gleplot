@@ -75,6 +75,22 @@ those are honoured; every other matplotlib legend kwarg raises a
 ax.legend(loc='upper left', fontsize=6.5, frameon=False)
 ```
 
+## Text
+
+`ax.text(x, y, s)` places a label in data coordinates.
+
+| `text()` argument | gleplot |
+|---|---|
+| `ha` | wired — `left`, `center`, `right` (`set just`). |
+| `va` | wired — `top`, `center`, `bottom`. GLE has no baseline; `baseline` warns and is drawn as `center`. |
+| `rotation` | wired — degrees counter-clockwise about the alignment point (`begin rotate`). |
+| `bbox` | `facecolor` (alias `fill`) draws a filled background (`begin box fill`, 0.05 cm pad, no outline). `edgecolor`, `linewidth`, `pad`, `boxstyle`, and the rest warn. |
+| other keywords (`transform`, `fontweight`, `clip_on`, …) | warn and are ignored. |
+
+```python
+ax.text(1, 2, "peak", va="bottom", rotation=45, bbox={"facecolor": "white"})
+```
+
 ## Key Behavioral Differences
 
 1. Primary output model is GLE script generation.

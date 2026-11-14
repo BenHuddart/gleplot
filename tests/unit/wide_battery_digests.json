@@ -21,7 +21,7 @@
  "golden:subplots_grid_mixed": "746b92a574b7b43eca43a687508982c998cb12415668a8da253ebd72f06189d6",
  "golden:subplots_sharex": "dd80fc3e97e85fd5d8df76dae5b4e94f3240e1a620a35eb836956967f9ff3dc7",
  "golden:subplots_sharex_with_colored_text": "ae2763ab40de35a0e4bd5c34a961fbfc364ee2cc9c4c73ee542a0932e5e09d6a",
- "golden:text_annotations": "df8cec01b068b7859a868e43af174add916fcfc044856b9f526034b06505f0f8",
+ "golden:text_annotations": "933eb6e4bd5cdf00e1b91e682436b1e99b293ef640a32f3a565e581ac5fe2c3b",
  "golden:tripcolor_tricontour_combo": "a4d07db161f35b11697643f876dff7768e98e8ebeefb62e0cf82430eb7b2db23",
  "project:bar": "01e8328c45fe3ed62bec5c9b9d543a368d764dc55e5cd70741515deb8745979a",
  "project:data_prefix_multi": "08f4eca58f07412d310b1f4aee384c8e8cd1b6442042ab2f0786e3e19c2032df",
@@ -41,5 +41,5 @@
  "project:subplots_grid": "e2d0664e800aab5e99be8b14000b98cecfcc73b37eb023bc8812de3b36d690c1",
  "project:subplots_sharex": "d914599e2016ae7c6823279b50de51bfe23f877582af243fa1f290372863769f",
  "project:subplots_sharey_adjust": "bf4b854fde5b9d463cfccd394ba6c78f4b437c43e6ac5d12eef980d29073673f",
- "project:text_annotations": "733b88360a03a5adeb3787e02e2af60147ea3b93b8c42aafb5289cfcfc166223"
+ "project:text_annotations": "1f1f75b1c77a76297bd3920f42a8fd9b225e1818c2302dc8a7ad49ae2f666e4c"
 }
