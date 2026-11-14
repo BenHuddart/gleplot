@@ -156,6 +156,7 @@ def normalize(d: dict) -> dict:
         "lines": ("x", "y"),
         "scatters": ("x", "y"),
         "bars": ("x", "height"),
+        "hists": ("samples",),
         "fills": ("x", "y1", "y2"),
         "errorbars": ("x", "y", "yerr_up", "yerr_down", "xerr_left", "xerr_right"),
     }
@@ -170,7 +171,14 @@ def normalize(d: dict) -> dict:
         # legend tri-state normalization: explicit True with labels -> None.
         labels = any(
             s.get("label")
-            for group in ("lines", "scatters", "bars", "errorbars", "file_series")
+            for group in (
+                "lines",
+                "scatters",
+                "bars",
+                "hists",
+                "errorbars",
+                "file_series",
+            )
             for s in ax.get(group, [])
         )
         if ax.get("legend_on") is True and labels:
@@ -219,12 +227,15 @@ def normalize(d: dict) -> dict:
             if ax.get(key) is not None:
                 ax[key] = _snap_linewidth(ax[key])
 
-        for group in ("lines", "scatters", "errorbars"):
+        for group in ("lines", "scatters", "errorbars", "hists"):
             for s in ax.get(group, []):
                 if "markersize" in s:
                     s["markersize"] = _snap_msize(s["markersize"])
                 if "linewidth" in s:
                     s["linewidth"] = _snap_linewidth(s["linewidth"])
+                for key in ("hist_from", "hist_to", "bar_width", "bin_step"):
+                    if isinstance(s.get(key), (int, float)):
+                        s[key] = _snap_num(s[key])
         for s in ax.get("file_series", []):
             if "markersize" in s:
                 s["markersize"] = _snap_msize(s["markersize"])

@@ -21,6 +21,8 @@ Plotting helpers
 
 .. autofunction:: gleplot.stem
 
+.. autofunction:: gleplot.hist
+
 .. autofunction:: gleplot.scatter
 
 .. autofunction:: gleplot.bar

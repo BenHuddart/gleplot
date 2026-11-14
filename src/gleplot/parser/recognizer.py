@@ -283,6 +283,12 @@ import numpy as np
 
 from ..axes import Axes
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
+from ..dataio import (
+    ColumnExtractionError,
+    classify_data_file,
+    extract_columns,
+    resolve_data_reference,
+)
 from ..figure import Figure
 from ..guides import (
     GUIDE_CALL_KINDS,
@@ -301,6 +307,7 @@ from ..series import (
     FileSeries,
     FillSeries,
     HeatmapSeries,
+    HistSeries,
     LineSeries,
     RefLine,
     ScatterSeries,
@@ -333,12 +340,6 @@ from .units import (
     fontsize_cm_to_pt,
     inches_to_cm,
     linewidth_cm_to_pt,
-)
-from ..dataio import (
-    ColumnExtractionError,
-    classify_data_file,
-    extract_columns,
-    resolve_data_reference,
 )
 
 __all__ = ["ImportCategory", "ImportNote", "RecognizedFigure", "parse_gle_figure"]
@@ -1474,6 +1475,7 @@ class _Recognizer:
             "lines": [],
             "scatters": [],
             "bars": [],
+            "hists": [],
             "fills": [],
             "errorbars": [],
             "file_series": [],
@@ -1533,6 +1535,14 @@ class _Recognizer:
             # consumed indirectly through the alias -- see _parse_let_command
             # and the 'data'-statement reconciliation in _parse_graph_block.
             "_let_source_datasets": set(),
+            # ``let dK = hist dJ ...`` recorded in pass 1, keyed by the
+            # target. The target is not registered as a file dataset: its
+            # points are bin centres GLE computes, and a later plain ``dK
+            # line`` must not be read as a plot of the samples.
+            "_hist_lets": {},
+            # Target -> the let statement's own text, until a modellable
+            # display command consumes it. Anything left is raw GLE.
+            "_hist_let_pending": {},
             # Both dataset names of every 'bar dN from dM ...' (GLE's
             # stacked-bar form) found ANYWHERE in this block, collected up
             # front in pass 1 -- so an EARLIER, independent 'bar dM fill
@@ -1610,8 +1620,14 @@ class _Recognizer:
                 if kw == "let":
                     # 'let dK = dJ+off' -- register dK as an offset alias of dJ
                     # (dJ's 'data' command precedes it in body order, so dJ is
-                    # already known here in pass 1).
-                    self._parse_let_command(_words_and_values(child), datasets, info)
+                    # already known here in pass 1). A 'let dK = hist dJ' is
+                    # recorded separately: the display command that follows
+                    # decides whether it becomes a histogram.
+                    let_toks = _words_and_values(child)
+                    self._parse_let_command(let_toks, datasets, info)
+                    self._record_hist_let(
+                        let_toks, datasets, info, self._stmt_text(child)
+                    )
                     continue
                 if kw == "bar":
                     # Look ahead for GLE's stacked-bar form ('bar dN from dM
@@ -1670,11 +1686,15 @@ class _Recognizer:
                 continue  # already handled in pass 1
             if kw == "let":
                 # Recognized offset alias -> consumed (the offset now lives on
-                # the aliased series). An unrecognized 'let' falls through to
+                # the aliased series). A recorded histogram let is held until
+                # its display command consumes it (or the block ends and it
+                # is flushed as raw GLE). Anything else falls through to
                 # generic dispatch, which preserves it as raw GLE.
                 toks = _words_and_values(child)
                 target = toks[1].value.lower() if len(toks) > 1 else None
                 if target in info["_offset_let_datasets"]:
+                    continue
+                if target in info["_hist_lets"]:
                     continue
             if kw is not None and _DATASET_RE.match(kw):
                 name = kw
@@ -1714,6 +1734,24 @@ class _Recognizer:
                     # column_names on next save).
                     emitted.add(name)
                     continue
+                if (
+                    name in info["_hist_lets"]
+                    and name not in info["_key_suppress_datasets"]
+                ):
+                    # ``dK line hist`` on a ``let dK = hist`` target. A
+                    # following ``dK key`` belongs to a stepfilled bar and
+                    # was consumed by the key-suppression path above.
+                    merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
+                    self._commit_hist_line(
+                        name,
+                        merged,
+                        datasets,
+                        info,
+                        line_no=child.line_no,
+                        raw_stmts=merged_attr_raw.get(name, []),
+                    )
+                    emitted.add(name)
+                    continue
                 emitted.add(name)
                 merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
                 self._build_series_from_attrs(
@@ -1745,6 +1783,18 @@ class _Recognizer:
         # regenerated GLE. Restore any 'data' statement whose datasets are
         # entirely unconsumed, ahead of the passthrough content that (being
         # later in body order) may depend on it.
+        for target, raw in list(info["_hist_let_pending"].items()):
+            info["passthrough"].append(raw)
+            self._note(
+                ImportCategory.DATA,
+                "histogram let "
+                + target
+                + " was not paired with a plain 'line hist' or "
+                "'bar dN fill'; kept as raw GLE",
+                None,
+            )
+        info["_hist_let_pending"].clear()
+
         consumed = (
             set(info["_key_suppress_datasets"]) | emitted | info["_let_source_datasets"]
         )
@@ -3222,6 +3272,251 @@ class _Recognizer:
         # _parse_graph_block.
         info["_let_source_datasets"].add(source)
 
+    def _record_hist_let(self, toks, datasets, info, raw: str) -> None:
+        """Record ``let dK = hist dJ [from a] [to b] [bins n] [step w]``.
+
+        Options may appear in any order, which is how GLE's
+        ``parseHistogram`` reads them. An unknown token, a missing value, or
+        a source dataset this block never declared means this is not a
+        histogram let -- it stays unregistered and pass 2 keeps the line.
+        The target is deliberately not entered in ``datasets``.
+        """
+        if len(toks) < 5:
+            return
+        target = toks[1].value.lower()
+        eq = toks[2]
+        kind = toks[3].value.lower()
+        source = toks[4].value.lower()
+        if not _DATASET_RE.match(target) or not _DATASET_RE.match(source):
+            return
+        if eq.type is not TokenType.OP or eq.value != "=":
+            return
+        if kind != "hist" or source not in datasets:
+            return
+        if target in info["_hist_lets"]:
+            return
+        options = {}
+        i = 5
+        while i < len(toks):
+            key = toks[i].value.lower()
+            if key not in ("from", "to", "bins", "step"):
+                return
+            j = i + 1
+            while j < len(toks) and toks[j].value.lower() not in (
+                "from",
+                "to",
+                "bins",
+                "step",
+            ):
+                j += 1
+            if j == i + 1:
+                return
+            value = eval_gle_number(toks[i + 1 : j])
+            if value is None:
+                return
+            options[key] = float(value)
+            i = j
+        info["_hist_lets"][target] = {
+            "source": source,
+            "hist_from": options.get("from"),
+            "hist_to": options.get("to"),
+            "bins": options.get("bins"),
+            "bin_step": options.get("step"),
+        }
+        info["_hist_let_pending"][target] = raw
+
+    def _abandon_hist(self, info, target, extra_lines, message, span) -> None:
+        """Keep a histogram let, and the display that could not model it."""
+        raw = info["_hist_let_pending"].pop(target, None)
+        if raw:
+            info["passthrough"].append(raw)
+        info["passthrough"].extend(extra_lines)
+        self._note(ImportCategory.DATA, message, span)
+
+    def _commit_hist_line(
+        self, name, toks, datasets, info, line_no=None, raw_stmts=None
+    ) -> None:
+        """``dK line hist`` on a recorded histogram let, or raw GLE."""
+        attrs = self._scan_series_attrs(toks[1:])
+        plain = (
+            self._hist_line_tokens_ok(toks)
+            and attrs["line_mode"] == "hist"
+            and attrs["marker"] is None
+            and not attrs["nomiss"]
+            and not attrs["err_refs"]
+            and not attrs["err_consts"]
+            and attrs["smooth_mode"] == "none"
+            and attrs["svg_smooth"] is None
+        )
+        span = (line_no, line_no) if line_no is not None else None
+        if not plain:
+            self._abandon_hist(
+                info,
+                name,
+                self._dn_passthrough_lines(toks, raw_stmts),
+                "histogram let "
+                + name
+                + " is not a plain 'line hist'; kept as raw GLE",
+                span,
+            )
+            return
+        entry = self._build_hist_series(
+            info,
+            name,
+            datasets,
+            line_no,
+            histtype="step",
+            color=attrs["color"] or "BLUE",
+            linestyle=attrs["linestyle"],
+            linewidth=(
+                linewidth_cm_to_pt(attrs["lwidth"])
+                if attrs["lwidth"] is not None
+                else 1.0
+            ),
+            yaxis="y2" if attrs["y2axis"] else "y",
+            label=attrs["label"],
+        )
+        if entry is None:
+            self._abandon_hist(
+                info,
+                name,
+                self._dn_passthrough_lines(toks, raw_stmts),
+                "histogram let "
+                + name
+                + " could not be read from its sample file; kept as raw GLE",
+                span,
+            )
+
+    @staticmethod
+    def _hist_line_tokens_ok(toks) -> bool:
+        """True when every token is one ``line hist`` may round-trip.
+
+        ``_scan_series_attrs`` skips words it does not know, which would
+        drop them. A histogram line only round-trips color, width, style,
+        key and y2axis.
+        """
+        i = 1
+        m = len(toks)
+        while i < m:
+            word = toks[i].value.lower()
+            if word in ("line", "hist", "y2axis"):
+                i += 1
+                continue
+            if word == "color" and i + 1 < m:
+                _val, nxt = _collect_color(toks, i + 1)
+                if nxt == i + 1:
+                    return False
+                i = nxt
+                continue
+            if word in ("lwidth", "lstyle") and i + 1 < m:
+                val, nxt = _collect_value(toks, i + 1)
+                if val is None:
+                    return False
+                i = nxt
+                continue
+            if word == "key" and i + 1 < m and toks[i + 1].type is TokenType.STRING:
+                i += 2
+                continue
+            return False
+        return True
+
+    def _try_hist_bar(
+        self,
+        d_names,
+        datasets,
+        info,
+        stmt,
+        toks,
+        fill_seen,
+        color,
+        saw_color,
+        edge_color,
+        width,
+        unmodelled,
+    ) -> bool:
+        """Model ``bar dK fill`` on a histogram let. True if this call owned it."""
+        if len(d_names) != 1 or d_names[0] not in info["_hist_lets"]:
+            return False
+        d_name = d_names[0]
+        extras = [word for word in unmodelled if word != "color"]
+        color_bad = saw_color and edge_color is None
+        line = self._bar_fill_passthrough_line(toks, stmt)
+        span = self._stmt_span(stmt)
+        if (
+            d_name in info["_bar_stack_datasets"]
+            or extras
+            or not fill_seen
+            or color_bad
+        ):
+            self._abandon_hist(
+                info,
+                d_name,
+                [line],
+                "histogram let "
+                + d_name
+                + " is not a plain 'bar dN fill'; kept as raw GLE",
+                span,
+            )
+            return True
+        fields = {"histtype": "stepfilled", "color": color}
+        if saw_color:
+            fields["edgecolor"] = edge_color
+        if width is not None:
+            fields["bar_width"] = float(width)
+        entry = self._build_hist_series(
+            info, d_name, datasets, self._opt_line_no(stmt), **fields
+        )
+        if entry is None:
+            self._abandon_hist(
+                info,
+                d_name,
+                [line],
+                "histogram let "
+                + d_name
+                + " could not be read from its sample file; kept as raw GLE",
+                span,
+            )
+            return True
+        info["_key_suppress_datasets"].add(d_name)
+        info["_key_label_owners"][d_name] = entry
+        return True
+
+    def _build_hist_series(self, info, target, datasets, line_no, **fields):
+        """Load the let source's y column and append a ``HistSeries``.
+
+        Returns the entry, or ``None`` when the sample file cannot be read
+        (the caller keeps the let and the display as raw GLE).
+        """
+        record = info["_hist_lets"][target]
+        source = record["source"]
+        data_file, xcol, ycol = datasets[source]
+        loaded = self._load_series(data_file, xcol, ycol, line_no=line_no)
+        if loaded is None or loaded.get("error"):
+            return None
+        stored = dict(fields)
+        stored["samples"] = np.asarray(loaded["y"], dtype=float)
+        stored["data_file"] = data_file
+        for key, integral in (
+            ("hist_from", False),
+            ("hist_to", False),
+            ("bins", True),
+            ("bin_step", False),
+        ):
+            value = record.get(key)
+            if value is None:
+                continue
+            number = float(value)
+            stored[key] = int(number) if integral and number.is_integer() else number
+        if stored.get("label") is None:
+            stored.pop("label", None)
+        entry = HistSeries(**stored)
+        entry["_draw_seq"] = info["_draw_seq_counter"]
+        info["_draw_seq_counter"] += 1
+        info["hists"].append(entry)
+        info["_let_source_datasets"].add(source)
+        info["_hist_let_pending"].pop(target, None)
+        return entry
+
     #: OP token values that may appear glued mid-filename (hyphenated names,
     #: relative paths, and -- defensively -- a literal '+') when assembling
     #: an unquoted filename from contiguous tokens. See ``_read_filename``.
@@ -3306,6 +3601,9 @@ class _Recognizer:
         color = "RED"
         width: Optional[float] = None
         unmodelled: List[str] = []
+        fill_seen = False
+        saw_color = False
+        edge_color = None
         i = 1
         m = len(toks)
         while i < m:
@@ -3317,7 +3615,26 @@ class _Recognizer:
                 val, nxt = _collect_color(toks, i + 1)
                 if val is not None:
                     color = val
+                    fill_seen = True
                 i = nxt
+                continue
+            elif wl == "color":
+                # Ordinary bars still treat ``color`` as unmodelled (it is
+                # the stroke, and BarSeries has no field for it). A histogram
+                # bar reads the same keyword as its edge, so capture the
+                # value before the unmodelled return.
+                saw_color = True
+                if i + 1 < m:
+                    val, nxt = _collect_color(toks, i + 1)
+                    if val is not None:
+                        edge_color = val
+                        i = nxt
+                    else:
+                        i += 1
+                else:
+                    i += 1
+                if "color" not in unmodelled:
+                    unmodelled.append("color")
                 continue
             elif wl == "width":
                 # GLE takes an expression here (``next_exp``). A literal is
@@ -3336,6 +3653,21 @@ class _Recognizer:
                 unmodelled.append(wl)
             i += 1
 
+        if self._try_hist_bar(
+            d_names,
+            datasets,
+            info,
+            stmt,
+            toks,
+            fill_seen,
+            color,
+            saw_color,
+            edge_color,
+            width,
+            unmodelled,
+        ):
+            return
+
         if len(d_names) > 1:
             # A single 'bar' command spanning multiple datasets groups them
             # into GLE's automatic side-by-side layout (see the GLE manual's
@@ -3344,7 +3676,12 @@ class _Recognizer:
             # per-dataset bars. Modeling only the last dataset (the old
             # behavior) silently dropped the rest with no warning, violating
             # the no-silent-drops contract. Keep the whole statement raw
-            # instead.
+            # instead. A histogram let aimed at one of these names has to
+            # precede the bar, or the regenerated script would draw first.
+            for name in d_names:
+                raw = info["_hist_let_pending"].pop(name, None)
+                if raw:
+                    info["passthrough"].append(raw)
             info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
             self._note(
                 ImportCategory.STRUCTURE,
@@ -5785,6 +6122,7 @@ class _Recognizer:
         ax.lines = info["lines"]
         ax.scatters = info["scatters"]
         ax.bars = info["bars"]
+        ax.hists = info["hists"]
         ax.fills = info["fills"]
         ax.errorbars = info["errorbars"]
         ax.file_series = info["file_series"]
@@ -5927,6 +6265,7 @@ class _Recognizer:
             "lines",
             "scatters",
             "bars",
+            "hists",
             "fills",
             "errorbars",
             "file_series",

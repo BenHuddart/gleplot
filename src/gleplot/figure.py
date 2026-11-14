@@ -1,13 +1,28 @@
 """Figure class for gleplot."""
 
-import numpy as np
 import warnings
 from dataclasses import replace
 from pathlib import Path
-from typing import Tuple, Optional, Literal, Sequence, List
-from .axes import Axes, _sanitize_data_stem, _validate_data_prefix
-from .series import Series, is_visible
+from typing import List, Literal, Optional, Sequence, Tuple
+
+import numpy as np
+
+from .axes import (
+    Axes,
+    _sanitize_data_stem,
+    _validate_data_prefix,
+    histogram_counts,
+)
 from .brokenaxes import BrokenAxes
+from .cairo_support import cairo_font_warning, figure_requires_cairo
+from .colors import apply_alpha, rgb_to_gle
+from .compiler import SUFFIX_TO_COMPILE_FORMAT, GLECompiler
+from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
+from .mathtext import mathtext_to_gle
+from .parser import metadata as _gle_metadata
+from .parser.units import fontsize_pt_to_cm
+from .series import Series, is_visible
+from .sources import DataSource, source_of
 from .writer import (
     COLORBAR_AUTO_RANGE,
     COLORBAR_NTICKS,
@@ -19,14 +34,6 @@ from .writer import (
     legend_column_breaks,
     resolve_figure,
 )
-from .sources import DataSource, source_of
-from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
-from .cairo_support import cairo_font_warning, figure_requires_cairo
-from .colors import apply_alpha, rgb_to_gle
-from .mathtext import mathtext_to_gle
-from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
-from .parser import metadata as _gle_metadata
-from .parser.units import fontsize_pt_to_cm
 
 #: Envelope identifiers for the gleplot project-file format.
 PROJECT_FORMAT = "gleplot-project"
@@ -2001,6 +2008,9 @@ class Figure:
             colors = data.get("colors") or ["RED"]
             token = data.get("swatch_color") or colors[0]
             return writer.legend_swatch(colors[0], fill=token)
+        if kind == "hist" and data.get("histtype") == "stepfilled":
+            token = data.get("color") or "BLUE"
+            return writer.legend_swatch(token, fill=token)
         return writer.legend_swatch(
             data.get("color") or "BLUE",
             None if kind == "scatter" else data.get("linestyle", "-"),
@@ -2341,6 +2351,23 @@ class Figure:
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
                     binding=binding,
+                )
+            elif kind == "hist":
+                writer.add_histogram(
+                    series_data["samples"],
+                    series_data["data_file"],
+                    histtype=series_data.get("histtype", "step"),
+                    color=series_data.get("color", "BLUE"),
+                    linestyle=series_data.get("linestyle", "-"),
+                    linewidth=series_data.get("linewidth", 1),
+                    label=series_data.get("label"),
+                    yaxis=series_data.get("yaxis", "y"),
+                    hist_from=series_data.get("hist_from"),
+                    hist_to=series_data.get("hist_to"),
+                    bins=series_data.get("bins"),
+                    bin_step=series_data.get("bin_step"),
+                    edgecolor=series_data.get("edgecolor"),
+                    bar_width=series_data.get("bar_width"),
                 )
             else:
                 writer.add_errorbar(
@@ -2960,6 +2987,31 @@ class Figure:
             if xmax is None or hi > xmax:
                 xmax = hi
 
+        # A histogram's x extent is the bin window, not the sample values and
+        # not the index column written beside them. The step outline and the
+        # full-width bars both reach the edges.
+        for hist in resolution.visible(ax.hists):
+            lo = hist.get("hist_from")
+            hi = hist.get("hist_to")
+            if lo is None or hi is None or not (float(hi) > float(lo)):
+                samples = _plottable(np.asarray(hist["samples"]), positive_only)
+                if len(samples) == 0:
+                    continue
+                lo, hi = float(samples.min()), float(samples.max())
+            else:
+                lo, hi = float(lo), float(hi)
+                if positive_only:
+                    if lo <= 0:
+                        lo = hi if hi > 0 else None
+                    if hi <= 0:
+                        hi = None
+                    if lo is None or hi is None:
+                        continue
+            if xmin is None or lo < xmin:
+                xmin = lo
+            if xmax is None or hi > xmax:
+                xmax = hi
+
         for fill_data in resolution.visible(ax.fills):
             x = _plottable(np.asarray(fill_data["x"]), positive_only)
             if len(x) > 0:
@@ -3038,6 +3090,15 @@ class Figure:
                     )
                 if ymax is None or height.max() > ymax:
                     ymax = float(height.max())
+
+        for hist in resolution.visible(ax.hists):
+            hy0, hy1 = self._histogram_y_extent(hist, positive_only)
+            if hy0 is None:
+                continue
+            if ymin is None or hy0 < ymin:
+                ymin = hy0
+            if ymax is None or hy1 > ymax:
+                ymax = hy1
 
         for fill_data in resolution.visible(ax.fills):
             off = fill_data.get("offset", 0.0)
@@ -3138,7 +3199,43 @@ class Figure:
                     if y2max is None or y.max() > y2max:
                         y2max = float(y.max())
 
+        for hist in resolution.visible(ax.hists):
+            if hist.get("yaxis") != "y2" or hist.get("histtype") == "stepfilled":
+                continue
+            hy0, hy1 = self._histogram_y_extent(hist, positive_only)
+            if hy0 is None:
+                continue
+            if y2min is None or hy0 < y2min:
+                y2min = hy0
+            if y2max is None or hy1 > y2max:
+                y2max = hy1
+
         return y2min, y2max
+
+    @staticmethod
+    def _histogram_y_extent(hist, positive_only: bool):
+        """``(ymin, ymax)`` of one histogram's counts, or ``(None, None)``.
+
+        The step outline and the bars both stand on zero, so a linear axis
+        includes 0. A log axis cannot, and an all-zero histogram has nothing
+        to show -- leaving the range unset lets a degenerate axis defer to
+        GLE instead of writing ``min 0 max 0``.
+        """
+        counts = histogram_counts(
+            hist["samples"],
+            hist.get("hist_from"),
+            hist.get("hist_to"),
+            bins=hist.get("bins"),
+            bin_step=hist.get("bin_step"),
+        )
+        if counts is None or len(counts) == 0 or float(np.max(counts)) == 0.0:
+            return None, None
+        if positive_only:
+            positive = counts[counts > 0]
+            if len(positive) == 0:
+                return None, None
+            return float(positive.min()), float(positive.max())
+        return 0.0, float(np.max(counts))
 
     def view(self, dpi: Optional[int] = None, format: str = "png") -> Optional[object]:
         """

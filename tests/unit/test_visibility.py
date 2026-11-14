@@ -264,6 +264,7 @@ def _one_of_each_kind():
     ax.line_from_file("ext.dat", 1, 2, label="fline")
     ax.axvline(1.5, label="vline")
     ax.axvspan(1.0, 1.2, label="vspan")
+    ax.hist([0.0, 0.4, 0.8], bins=4, range=(0, 1), histtype="step", label="hist")
 
     ax2 = fig.add_subplot(212)
     ax2.imshow(np.arange(12, dtype=float).reshape(3, 4), extent=(0, 4, 0, 3))

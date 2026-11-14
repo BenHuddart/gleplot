@@ -19,7 +19,6 @@ import gleplot as glp
 from gleplot.brokenaxes import BrokenAxes
 from gleplot.writer import GLEWriter
 
-
 T = np.linspace(0.0, 3.0, 40)
 A = np.exp(-T)
 
@@ -360,6 +359,15 @@ def test_step_and_stem_fan_out_with_their_line_modes():
     text, _files = _gle(fig)
     assert text.count(" line steps ") == 2
     assert text.count(" line impulses ") == 2
+
+
+def test_hist_fans_out_onto_one_shared_sidecar():
+    fig, bax = _fig()
+    bax.hist([0.0, 0.5, 1.0], bins=2, range=(0, 1), histtype="step")
+    files = {seg.hists[0]["data_file"] for seg in bax.segments}
+    assert len(files) == 1
+    text, _files = _gle(fig)
+    assert text.count(" line hist ") == len(bax.segments)
 
 
 def test_fanout_returns_the_underlying_return_value_for_guides():

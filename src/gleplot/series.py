@@ -136,6 +136,7 @@ __all__ = [
     "LineSeries",
     "ScatterSeries",
     "BarSeries",
+    "HistSeries",
     "FillSeries",
     "ErrorbarSeries",
     "FileSeries",
@@ -693,6 +694,57 @@ class BarSeries(Series):
         return _build_column_names("x", ["height"], self.get("label"))
 
 
+class HistSeries(Series):
+    """A binned sample count -- ``Axes.hist``.
+
+    The sidecar holds the raw samples (GLE bins them with ``let dK = hist``).
+    ``histtype`` selects the drawing: ``step`` is ``dK line hist``;
+    ``stepfilled`` is ``bar dK`` on that same result, one bin wide, from zero.
+    """
+
+    ATTR = "hists"
+    KIND = "hist"
+    ZORDER_DEFAULT = 2.0
+    KIND_RANK = 4
+    ARRAY_FIELDS = ("samples",)
+
+    samples: np.ndarray
+    #: ``step`` (``line hist``) or ``stepfilled`` (adjoining bars).
+    histtype: str
+    #: Inclusive start of the bin window. Absent: GLE chooses (axis, else data).
+    hist_from: Optional[float]
+    #: Exclusive end of the bin window, except the last bin which includes it.
+    hist_to: Optional[float]
+    #: Equal-width bin count (GLE ``bins``). Absent when ``bin_step`` is set,
+    #: and when both were omitted (GLE's own default of 10).
+    bins: Optional[int]
+    #: Bin width (GLE ``step``). Used only when ``bins`` is absent.
+    bin_step: Optional[float]
+    #: ``stepfilled`` bar width in data units. Absent: GLE derives one, which
+    #: is half the bin and leaves gaps, so the writer sets this for API series.
+    bar_width: Optional[float]
+    color: str
+    #: Stroke on a ``stepfilled`` bar. Absent: GLE's black edge.
+    edgecolor: Optional[str]
+    linestyle: str
+    linewidth: float
+    label: Optional[str]
+    yaxis: str
+    data_file: Optional[str]
+    column_names: Optional[List[str]]
+    data_source: Optional[DataSource]
+    _draw_seq: int
+    zorder: float
+    visible: bool
+
+    def default_column_names(self) -> Optional[List[str]]:
+        # A header would name the *sample* dataset. GLE copies that name into
+        # the legend of every used dataset, and ``let hist`` uses it, so the
+        # samples would appear as their own key. The histogram's label is the
+        # key on the binned dataset instead.
+        return None
+
+
 class FillSeries(Series):
     """A filled band between two curves -- ``Axes.fill_between``."""
 
@@ -1022,6 +1074,7 @@ SERIES_CLASSES: Dict[str, Type[Series]] = {
         ContourSeries,
         RefLine,
         Span,
+        HistSeries,
     )
 }
 

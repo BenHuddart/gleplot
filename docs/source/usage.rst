@@ -283,8 +283,12 @@ Step and stem plots use GLE line modes on the same data:
    ax.step(x, y, where='pre')          # line fsteps
    ax.plot(x, y, drawstyle='steps-mid')  # line hist
    ax.stem(x, y)                       # line impulses
+   ax.hist(samples, bins=20, range=(0, 1), histtype='step')
+   ax.hist(samples, bins=20, range=(0, 1), histtype='stepfilled')
 
-``where`` is ``'pre'`` (default), ``'post'`` or ``'mid'``. See the
+``where`` is ``'pre'`` (default), ``'post'`` or ``'mid'``. ``hist`` draws
+counts: ``step`` is ``line hist`` on GLE's binned dataset, and
+``stepfilled`` is adjoining bars of one bin width. See the
 matplotlib migration guide for the cases GLE draws differently (the
 impulse origin, and the missing stem baseline).
 

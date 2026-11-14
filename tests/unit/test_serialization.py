@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot import axes as glp_axes
 from gleplot import Figure
+from gleplot import axes as glp_axes
 from gleplot.axes import _STYLING_KEYS, Axes
 from gleplot.figure import (
     PROJECT_FORMAT,
@@ -276,9 +276,10 @@ def test_axes_id_not_emitted_into_gle_output():
 
 
 def test_recognized_axes_get_fresh_ids_not_shared_with_source():
-    from gleplot.parser.recognizer import parse_gle_figure
     import tempfile
     from pathlib import Path
+
+    from gleplot.parser.recognizer import parse_gle_figure
 
     fig = _simple_figure()
     original_id = fig.axes_list[0].axes_id
@@ -511,6 +512,7 @@ _AXES_SERIALIZED_ATTRS = {
     "lines",
     "scatters",
     "bars",
+    "hists",
     "fills",
     "errorbars",
     "file_series",
@@ -679,6 +681,15 @@ def _figure_exercising_every_series_kind():
     ax.axhline(2.5, label="hline")
     ax.axvspan(1.0, 1.2, label="vspan")
     ax.axhspan(2.0, 2.2, label="hspan")
+    ax.hist([0.0, 0.4, 0.6], bins=4, range=(0, 1), histtype="step", label="hist")
+    ax.hist(
+        [0.2, 0.5, 0.8],
+        bins=4,
+        range=(0, 1),
+        histtype="stepfilled",
+        color="red",
+        label="filled",
+    )
 
     ax2 = fig.add_subplot(312)
     ax2.imshow(np.arange(12, dtype=float).reshape(3, 4), extent=(0, 4, 0, 3))
@@ -916,6 +927,7 @@ _SOURCE_BEARING_ATTRS = {
     "lines",
     "scatters",
     "bars",
+    "hists",
     "fills",
     "errorbars",
     "heatmaps",
@@ -942,6 +954,7 @@ def test_data_source_round_trips_for_every_class_that_declares_it():
         "lines": ColumnRef("t1", {"x": "a", "y": "b"}),
         "scatters": ColumnRef("t1", {"x": "a", "y": "b"}),
         "bars": ColumnRef("t1", {"x": "a", "height": "b"}),
+        "hists": ColumnRef("t1", {"samples": "a"}),
         "fills": ColumnRef("t1", {"x": "a", "y1": "b", "y2": "c"}),
         "errorbars": ColumnRef("t1", {"x": "a", "y": "b", "yerr_up": "c"}),
         "heatmaps": GridRef("t1", {"z": ["a", "b"]}),
