@@ -367,8 +367,8 @@ class SourceResolution:
     def emit_warnings(self) -> None:
         """Re-raise every record through the :mod:`warnings` machinery.
 
-        The structured records are the primary channel (a GUI reads them off
-        ``Figure.source_warnings``); this is the courtesy channel so a script
+        The structured records are the primary channel on ``Figure.source_warnings``;
+        this is the courtesy channel so a script
         that silently loses a series at least says so on stderr. Each warning
         carries its record on ``.ref``.
         """
@@ -827,7 +827,7 @@ class GLEWriter:
     #: emitted bytes on figures nobody asked to speed up. Chosen well under
     #: the SPEC-cited "~10x speedup at 200k points" measurement, since a
     #: series in the low thousands already costs enough to be worth thinning
-    #: in a debounced live preview.
+    #: in a fast throwaway preview compile.
     MIN_DERESOLVE_POINTS = 1000
 
     def __init__(

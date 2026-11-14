@@ -7,7 +7,6 @@ byte-identical before and after a round-trip. These are format-independent
 model guarantees -- they hold regardless of what's written to disk. (The
 on-disk project format is ``.gle`` itself; see
 :mod:`gleplot.parser.recognizer` / :meth:`~gleplot.figure.Figure.savefig_gle`
-and ``tests/gui/test_file_ops.py`` for the actual file-open/save round-trip.
 The legacy JSON ``.glep`` project format has been removed.)
 
 Each figure is described by a zero-argument *builder* so it can be

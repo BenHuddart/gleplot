@@ -1,16 +1,11 @@
 """Pure-Python delimited data file loading and resolution for gleplot.
 
-This module has no Qt dependency and no dependency on :mod:`gleplot.gui`,
-so it can be imported by the core GLE parser (``gleplot.parser``) as well
-as by the GUI data manager. It provides two layers:
+This module has no Qt dependency so it can be imported by the core GLE
+parser (``gleplot.parser``). It provides two layers:
 
 1. **Loading** (:func:`load_data_file`, :class:`DataTable`): parses
    comma/tab/semicolon/whitespace-delimited text files (``.csv``,
    ``.dat``, ``.txt``, ...) into a column-oriented :class:`DataTable`.
-   This is the original implementation from
-   ``gleplot.gui.data.loader`` (moved here unchanged as part of the
-   GLE-parsing project's Track A3 -- ``gleplot.gui.data.loader`` is now a
-   thin backwards-compatible shim re-exporting these same names).
    :func:`load_data_file` also accepts explicit, keyword-only overrides
    (``delimiter``, ``header``, ``comment_chars``, ``skip_rows``) for
    consumers that need to bypass detection for part or all of a file --
@@ -22,8 +17,8 @@ as by the GUI data manager. It provides two layers:
    ``data "file.dat" d1=c1,c2`` command referenced from a ``.gle`` script
    into loaded numpy arrays, without ever raising for missing/unreadable/
    malformed files -- callers get structured error information back
-   instead, so a broken data reference can be surfaced as a "broken
-   series" in the editor rather than crashing the parse.
+   instead, so a broken data reference can be surfaced in an import report
+   rather than crashing the parse.
 
 Format handling (loading layer)
 --------------------------------

@@ -8,9 +8,9 @@ Complete guide to all documentation files in the gleplot project.
 First-visit overview on GitHub: what gleplot is, link to the published docs, install, and a short quick-start example.
 
 **Contains:**
-- Project overview (library + optional GUI editor)
+- Project overview (library)
 - Link to [live documentation](https://benhuddart.github.io/gleplot/)
-- Installation (library, GUI, optional GLE)
+- Installation (library, optional GLE)
 - Quick start code sample
 - Pointers to usage guides and examples
 - License and link to contributing
@@ -19,30 +19,11 @@ First-visit overview on GitHub: what gleplot is, link to the published docs, ins
 Contributor entry point linked from GitHub issues and pull requests.
 
 **Contains:**
-- Development install (`pip install -e ".[dev,gui]"`)
+- Development install (`pip install -e ".[dev]"`)
 - Test and style commands
 - Conventional commit expectations
 - Pull request checklist
 - Link to [DEVELOPMENT_WORKFLOW.md](guides/DEVELOPMENT_WORKFLOW.md) for full workflow
-
-## Desktop GUI Editor
-
-### [GUI_EDITOR.md](guides/GUI_EDITOR.md)
-Walkthrough of the `gleplot-gui` PySide6 desktop editor.
-
-**Contains:**
-- Installing and launching the editor (prebuilt app, or `pip install -e ".[gui]"` from a clone, then `gleplot-gui`)
-- Loading data, picking columns, and styling series
-- Live preview and the `.gle` native file format
-- Undo/redo, export dialog, and troubleshooting (including GLE-not-found)
-
-## Packaging
-
-Library releases ship as sdist/wheel artifacts on
-[GitHub Releases](https://github.com/benhuddart/gleplot/releases) (and on PyPI once
-`PYPI_PUBLISH` is enabled). Optional desktop packaging specs remain under
-`packaging/` (`pip install -e ".[packaging]"`) for local GUI bundles; CI no longer
-builds installers on each tag.
 
 ## Configuration System Documentation
 
@@ -277,7 +258,6 @@ gleplot/
 ├── docs/
 │   ├── SEMANTIC_VERSIONING_IMPLEMENTATION.md
 │   └── guides/
-│       ├── GUI_EDITOR.md
 │       ├── CONFIGURATION.md
 │       ├── CONFIGURATION_API.md
 │       ├── TEXT_ANNOTATIONS.md

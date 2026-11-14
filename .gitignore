@@ -30,10 +30,6 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
-# ... but our hand-authored, checked-in build spec IS tracked (the release CI
-# runs `pyinstaller packaging/gleplot.spec`; without this negation the *.spec
-# rule above silently kept it out of the repo, so CI builds could never start).
-!packaging/gleplot.spec
 
 # Installer logs
 pip-log.txt
@@ -144,9 +140,8 @@ data_*.dat
 test_graphics_output/
 test_custom_prefix_output/
 
-# ... but shipped example figures ARE tracked (the GUI guide references
-# them; without these negations the example .gle/.dat silently never
-# reached the repository).
+# ... but shipped example figures ARE tracked; without these negations the
+# example .gle/.dat files silently never reached the repository.
 !examples/**/*.gle
 !examples/**/data_*.dat
 # ... the imshow/grid-contour examples ship gleplot-written .z grid sidecars.
@@ -163,7 +158,3 @@ examples/**/*_points*.z
 examples/outputs/
 tests/output/
 docs/source/_static/gallery/
-
-# ... and the shipped GUI/app icon asset is tracked despite the *.png rule
-# above (it is the source of truth for the packaged .ico/.icns).
-!src/gleplot/gui/assets/*.png

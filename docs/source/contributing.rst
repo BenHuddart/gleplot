@@ -28,7 +28,7 @@ Getting Started
 
    .. code-block:: bash
 
-      pip install -e ".[dev,gui]"
+      pip install -e ".[dev]"
 
 5. Create a new branch for your work:
 

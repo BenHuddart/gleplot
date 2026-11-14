@@ -1,13 +1,12 @@
 # gleplot
 
-**gleplot** is a matplotlib-style Python library for scientific figures. It generates [GLE](https://glx.sourceforge.io/) (Graphics Layout Engine) scripts and, when GLE is installed, compiles them to PDF, PNG, EPS, SVG, or JPG. An optional PySide6 desktop editor (`gleplot-gui`) lets you build figures with a live preview.
+**gleplot** is a matplotlib-style Python library for scientific figures. It generates [GLE](https://glx.sourceforge.io/) (Graphics Layout Engine) scripts and, when GLE is installed, compiles them to PDF, PNG, EPS, SVG, or JPG.
 
 ## Documentation
 
 **[Full documentation and API reference](https://benhuddart.github.io/gleplot/)**
 
 - [Getting started](https://benhuddart.github.io/gleplot/getting_started.html) on the published site
-- [GUI editor guide](docs/guides/GUI_EDITOR.md)
 - [Examples](examples/)
 
 ## Installation
@@ -19,15 +18,6 @@ git clone https://github.com/benhuddart/gleplot.git
 cd gleplot
 pip install -e .
 ```
-
-**Desktop editor** (from that same checkout; gleplot is not published on PyPI):
-
-```bash
-pip install -e ".[gui]"
-gleplot-gui
-```
-
-Prebuilt Windows and macOS apps are on [GitHub Releases](https://github.com/benhuddart/gleplot/releases).
 
 **GLE 4.3+** (optional; needed to compile to PDF/PNG/etc.—saving `.gle` always works):
 
@@ -60,7 +50,7 @@ fig.savefig("trig.gle")
 
 ## Also
 
-Subplots, file-based series, configuration, and more: see the [usage guide](https://benhuddart.github.io/gleplot/usage.html) and topic guides under [`docs/guides/`](docs/guides/). For the desktop workflow, see the [GUI editor guide](docs/guides/GUI_EDITOR.md).
+Subplots, file-based series, configuration, and more: see the [usage guide](https://benhuddart.github.io/gleplot/usage.html) and topic guides under [`docs/guides/`](docs/guides/).
 
 ## License
 

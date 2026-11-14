@@ -350,15 +350,11 @@ class TestSavefigCairoWiring:
 
 
 # --------------------------------------------------------------------------- #
-# Regression: the font-substitution warning above (and its GUI-side
-# counterpart in tests/gui/test_export_dialog.py) used to be exercised by
-# setting ``fig.style.font`` IN PLACE on a default-styled figure, which is
-# exactly the pattern that leaked global state before Figure() started
-# copying GlobalConfig.get_style() instead of aliasing it (see
-# gleplot/figure.py and gleplot/config.py -- GlobalConfig's "Copy-at-
-# construction, not shared-by-reference" docstring note). This class proves
-# that leak is gone WITHOUT falling back to the ``style=GLEStyleConfig(...)``
-# workaround the export-dialog tests use.
+# Regression: the font-substitution warning above used to be exercised by
+# setting ``fig.style.font`` in place on a default-styled figure, which
+# leaked global state before ``Figure()`` started copying
+# ``GlobalConfig.get_style()`` instead of aliasing it. This class proves the
+# leak is gone.
 # --------------------------------------------------------------------------- #
 
 

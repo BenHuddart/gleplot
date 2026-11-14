@@ -4,19 +4,16 @@ Shared contract for AI coding agents in this repository. Keep it accurate — **
 
 ## What gleplot is
 
-gleplot is a **matplotlib-compatible Python library** that generates **GLE (Graphics Layout Engine)** scripts for publication-quality vector graphics, plus a **PySide6 desktop editor** for building figures without writing code.
+gleplot is a **matplotlib-compatible Python library** that generates **GLE (Graphics Layout Engine)** scripts for publication-quality vector graphics.
 
-Two entry points:
-
-- **Library API** — `import gleplot as glp`. Familiar matplotlib calls (`figure`, `subplots`, `plot`, `scatter`, `bar`, `fill_between`, `errorbar`, `savefig`, `view`) produce a `.gle` script and, when GLE is installed, compile it to PDF/PNG/EPS/SVG/JPG.
-- **Desktop GUI** — `gleplot-gui` → `gleplot.gui.app:main`. Point-and-click editor with live preview.
+**Library API** — `import gleplot as glp`. Familiar matplotlib calls (`figure`, `subplots`, `plot`, `scatter`, `bar`, `fill_between`, `errorbar`, `savefig`, `view`) produce a `.gle` script and, when GLE is installed, compile it to PDF/PNG/EPS/SVG/JPG.
 
 ## Architecture map
 
 ### Core library (`src/gleplot/`)
 
 - `__init__.py` — public API: `Figure`, `Axes`, config classes, module-level functions (`figure`, `subplots`, `plot`, …), `open_gle()`.
-- `figure.py` — `Figure`: subplot layout, `savefig`, `view`, byte-stable `to_dict()`/`from_dict()` (GUI undo/preview).
+- `figure.py` — `Figure`: subplot layout, `savefig`, `view`, byte-stable `to_dict()`/`from_dict()` (serialization).
 - `axes.py` — `Axes`: plot primitives, log scales, secondary y-axis, `*_from_file` series.
 - `series.py` — typed series classes on `Axes` plus `SERIES_CLASSES` (serialization/emission order). Each class is a `dict` subclass; `to_dict()` stays byte-identical.
 - `sources.py` — `data_source`: `InlineData`, `ColumnRef`/`GridRef`, `DataProvider`, `DanglingSourceRef`. Field name is `data_source` (not heatmap/contour `source`).
@@ -36,24 +33,18 @@ Stdlib only; no Qt.
 - `recognizer.py` — `parse_gle_figure()` → `Figure` + recovery warnings.
 - `tables.py`, `units.py`, `metadata.py` — keywords, units, embedded metadata.
 
-### GUI (`src/gleplot/gui/`)
-
-**`FigureDocument` wraps `Figure` and is the single source of truth.** Panels mutate the figure and call `notify_changed()`. `.gle` is native on-disk format; preview uses `to_dict()` snapshots off the GUI thread.
-
-- `document.py`, `file_ops.py`, `preview.py`, `undo.py`, `main_window.py`, `app.py`, `panels/`, `data/`.
-
 ## Invariants
 
 Do not violate these without an explicit design change and tests.
 
 - **Layout** — `Figure._layout_rects` is the only layout path; a lone plot is 1×1. Recovered `Axes.placement` (explicit `amove`/`size`/`scale 1 1`) wins over grid fractions. Opt-out: `GLEGraphConfig(scale_mode="fullsize")` or `Axes.geometry_passthrough` for unmodelled GLE.
 - **Fixed point** — writer → `parse_gle_figure` → writer is **byte-identical** (GLE + `.dat` sidecars). `tests/parser/test_fixed_point.py` keeps an **empty** exemption set; a failing builder is a bug, not a new exemption.
-- **Figure model** — preview/undo use `to_dict()` snapshots, not the live figure during compile.
+- **Figure model** — `to_dict()` snapshots are the canonical round-trip representation for undo-style callers and previews.
 - **Series** — stay `dict` subclasses; `SERIES_CLASSES` order is emission order.
 - **Layers** — parser, `dataio`, calibration, and writer do **not** import Qt.
 - **Preservation** — unrecognized GLE is preserved; recovery warnings are surfaced, not dropped silently.
 - **Metadata** — v1 files load (implicit placement); first save rewrites to v2 with a `metadata:` warning. No downgrade. Unknown meta versions warn.
-- **GLE optional** — saving `.gle` always works; **GLE is not bundled**. Discovery: GUI override → `GLE_PATH` → `PATH` → well-known paths (`compiler.find_gle`).
+- **GLE optional** — saving `.gle` always works; **GLE is not bundled**. Discovery: `GLE_PATH` → `PATH` → well-known paths (`compiler.find_gle`).
 
 ## Matplotlib compatibility
 
@@ -88,7 +79,6 @@ Keep the suite layered (~100 modules). Prefer extending existing batteries over 
 | `tests/unit` | Object model, emitted script text | — |
 | `tests/parser` | Parse, recovery, fixed point | — |
 | `tests/integration` | Truth after GLE compiles (ink, cairo, accept) | GLE binary, skipped when absent |
-| `tests/gui` | Panels/document mutate figure | PySide6 |
 
 - Add cases to the relevant module or battery (`test_fixed_point.py`, `tests/parser/_golden_battery.py`, `_*_battery.py` helpers). **New file = new behavior area.**
 - No integration test that only duplicates a unit-level script assertion.
@@ -97,15 +87,12 @@ Keep the suite layered (~100 modules). Prefer extending existing batteries over 
 - **Coverage** is a branch finder, not a score to chase: no `fail-under` gate. After your change, run `pytest --cov=gleplot.<module> --cov-report=term-missing` on touched modules; add a test only for branches you changed without an assertion.
 
 ```bash
-pip install -e ".[dev,gui]"
+pip install -e ".[dev]"
 
 pytest tests/ -v
 pytest tests/unit/ -v
 pytest tests/parser/ -v
 pytest tests/integration/ -v
-pytest tests/gui/ -v   # PySide6
-
-gleplot-gui
 ```
 
 ## Conventions
@@ -116,5 +103,4 @@ gleplot-gui
 
 ## Where to look next
 
-- `docs/guides/` (including `GUI_EDITOR.md`, `MATPLOTLIB_MIGRATION.md`), `docs/DOCUMENTATION_INDEX.md`, `docs/source/` (Sphinx).
-- `packaging/` — PyInstaller/desktop builds (`pyproject.toml` `[project.optional-dependencies] packaging`).
+- `docs/guides/` (including `MATPLOTLIB_MIGRATION.md`), `docs/DOCUMENTATION_INDEX.md`, `docs/source/` (Sphinx).

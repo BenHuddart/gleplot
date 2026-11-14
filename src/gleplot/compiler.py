@@ -89,8 +89,8 @@ SUFFIX_TO_COMPILE_FORMAT['.jpeg'] = 'jpg'
 
 #: Formats for which GLE's ``-r`` (raster resolution / DPI) flag is
 #: meaningful. Passing ``-r`` for a vector format (pdf/eps/svg) is harmless --
-#: GLE silently ignores it -- but including it unconditionally (as the GUI
-#: preview used to) obscures which formats it actually affects.
+#: GLE silently ignores it -- but including it unconditionally obscures which
+#: formats it actually affects.
 RASTER_COMPILE_FORMATS = frozenset({'png', 'jpg'})
 
 
@@ -104,22 +104,12 @@ def build_compile_args(
     """Build the GLE command-line arguments for one compile invocation.
 
     This is the single place that decides ``-d``/``-r``/``-cairo``/``-o``
-    argument shape, used by both :meth:`GLECompiler.compile` and the GUI's
-    async compile service (:mod:`gleplot.gui.compile_core`,
-    :mod:`gleplot.gui.compile_service`) so preview and export can never again
-    drift apart the way they had: :meth:`GLECompiler.compile` used to pass an
-    *uppercase* device name (``-d PDF``) and included ``-r`` only for raster
-    formats, while ``gui/preview.py`` passed a *lowercase* device name and
-    included ``-r`` unconditionally (harmless for vector formats -- GLE
-    ignores it -- but inconsistent). Both now go through this function, which
-    lowercases the device name (GLE's ``-d`` is case-insensitive; verified
-    against a real ``gle`` binary) and includes ``-r`` only for
-    :data:`RASTER_COMPILE_FORMATS`.
+    argument shape for :meth:`GLECompiler.compile`. It lowercases the device
+    name (GLE's ``-d`` is case-insensitive; verified against a real ``gle``
+    binary) and includes ``-r`` only for :data:`RASTER_COMPILE_FORMATS`.
 
     Does **not** include the ``gle`` executable path itself -- callers using
-    :mod:`subprocess` prepend it to this list; callers using
-    :class:`~PySide6.QtCore.QProcess` pass it as the separate ``program``
-    argument to ``QProcess.start()``.
+    :mod:`subprocess` prepend it to this list.
 
     Parameters
     ----------
@@ -169,10 +159,8 @@ def build_compile_args(
       against the default (PostScript) font and GLE still exits 0 but drops
       the affected text from the output (a hard, uncaught
       ``PostScript fonts not supported with '-cairo'`` at the point each
-      character would have been drawn) -- exactly the failure mode
-      ``gleplot.gui.preview``'s pre-emptive ``set font texcmr`` injection
-      works around. Passing ``-cairo`` explicitly for an SVG compile lets
-      GLE's own graceful fallback run instead.
+      character would have been drawn). Passing ``-cairo`` explicitly for an
+      SVG compile lets GLE's own graceful fallback run instead.
 
     Returns
     -------

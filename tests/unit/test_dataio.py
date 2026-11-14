@@ -1,20 +1,13 @@
 """Unit tests for gleplot.dataio: loading, resolution, and classification.
 
 Covers:
-- Shim equivalence: gleplot.gui.data.loader re-exports the exact same
-  DataTable/load_data_file objects (proves the shim didn't fork behavior).
-- Qt-freeness: importing gleplot.dataio must not import PySide6 or
-  gleplot.gui.
+- Qt-freeness: importing gleplot.dataio must not import PySide6.
 - resolve_data_reference: relative/absolute/missing/unreadable/malformed.
 - extract_columns: happy path, out-of-bounds, non-numeric.
 - classify_data_file: metadata-list-driven only. With no metadata block
   (import_list is None) every reference is conservatively classified
   'reference' -- the old filename heuristic (and its user-data-overwrite
   false positive) has been removed (Finding 1).
-
-tests/gui/test_data_loader.py and tests/gui/test_data_panel.py are run
-unmodified elsewhere to prove the shim in the GUI context; this file
-covers the new gleplot.dataio surface directly.
 """
 
 import csv
@@ -47,41 +40,19 @@ def _write(tmp_path: Path, name: str, content: str, encoding: str = "utf-8") -> 
 
 
 # ---------------------------------------------------------------------------
-# Shim equivalence
+# Qt-free import assertion
 # ---------------------------------------------------------------------------
 
 
-def test_shim_reexports_same_objects():
-    from gleplot.gui.data.loader import DataTable as ShimDataTable
-    from gleplot.gui.data.loader import load_data_file as shim_load_data_file
+def test_dataio_import_does_not_pull_in_qt():
+    """Importing gleplot.dataio in a fresh subprocess must not import PySide6.
 
-    assert ShimDataTable is DataTable
-    assert shim_load_data_file is load_data_file
-
-
-def test_shim_gui_data_package_reexports_same_objects():
-    from gleplot.gui.data import DataTable as PkgDataTable
-    from gleplot.gui.data import load_data_file as pkg_load_data_file
-
-    assert PkgDataTable is DataTable
-    assert pkg_load_data_file is load_data_file
-
-
-# ---------------------------------------------------------------------------
-# Qt-free / gui-free import assertion
-# ---------------------------------------------------------------------------
-
-
-def test_dataio_import_does_not_pull_in_qt_or_gui():
-    """Importing gleplot.dataio in a fresh subprocess must not import
-    PySide6 or gleplot.gui (the core parser depends on dataio and must
-    stay usable in headless/no-Qt environments).
+    The core parser depends on dataio and must stay usable in headless environments.
     """
     code = (
         "import sys\n"
         "import gleplot.dataio\n"
-        "bad = [m for m in sys.modules if m == 'PySide6' or m.startswith('PySide6.') "
-        "or m == 'gleplot.gui' or m.startswith('gleplot.gui.')]\n"
+        "bad = [m for m in sys.modules if m == 'PySide6' or m.startswith('PySide6.')]\n"
         "print(','.join(bad))\n"
     )
     result = subprocess.run(
@@ -389,15 +360,13 @@ def test_classify_vouched_by_import_list_is_import(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Track E3: named column headers in generated sidecars -- data-dock benefit
+# Named column headers in generated sidecars
 # ---------------------------------------------------------------------------
 #
 # gleplot's own generated sidecars now carry a header row by default (see
 # gleplot.axes.sanitize_column_name / gleplot.writer.GLEWriter.add_data_file).
-# These tests prove load_data_file (the function the GUI's data dock combo
-# boxes are built on -- see gleplot.gui.data.panel) surfaces the REAL column
-# names for such a sidecar with ZERO changes needed on the GUI side: the dock
-# already renders whatever load_data_file().column_names contains.
+# These tests prove load_data_file surfaces those header names as
+# column_names.
 
 
 def test_load_data_file_surfaces_gleplot_header_names(tmp_path):

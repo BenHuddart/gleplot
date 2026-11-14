@@ -84,14 +84,6 @@ before changing anything below):
   so :func:`inject_text_metrics` quotes with whichever delimiter the text does
   not contain, and refuses (with a warning) a string containing both.
 
-Relationship to the v1 path
----------------------------
-:mod:`gleplot.gui.geometry` and ``gui/preview.py`` implement *calibration v1*:
-a 9-field ``gleplot-cal`` record with no secondary ranges, no bounding box and
-no text metrics, consumed only by gleplot's own annotation overlay. v1 is
-deliberately left in place and untouched -- it is a different wire format
-serving a different consumer, and rewiring a working preview to a superset
-format buys gleplot's own GUI nothing. New consumers should use this module.
 """
 
 from __future__ import annotations
