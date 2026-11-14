@@ -18,7 +18,7 @@ https://benhuddart.github.io/gleplot/
 
 - `View the GitHub Repository <https://github.com/BenHuddart/gleplot>`_
 - `Report Issues or Request Features <https://github.com/BenHuddart/gleplot/issues>`_
-- `Contribute to gleplot <contributing>`_
+- :doc:`Contribute to gleplot <contributing>`
 
 .. toctree::
    :maxdepth: 2

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Resize gallery PNGs for web and verify gallery.rst references."""
+"""Resize gallery PNGs for the documentation site.
+
+Without ``--strict``, missing images are reported and the process exits 0 so
+a local ``make html`` still builds. The publish workflow passes ``--strict``
+and fails if any image named in ``gallery.rst`` is absent.
+"""
 
 from __future__ import annotations
 
@@ -36,13 +41,15 @@ def resize_png(path: Path) -> None:
         resized.save(path, optimize=True)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    strict = "--strict" in (argv if argv is not None else sys.argv[1:])
     if not GALLERY_RST.is_file():
         print(f"Missing {GALLERY_RST}", file=sys.stderr)
         return 1
 
+    images = referenced_images()
     missing = []
-    for image_path in referenced_images():
+    for image_path in images:
         if not image_path.is_file():
             missing.append(image_path.name)
             continue
@@ -50,12 +57,24 @@ def main() -> int:
             resize_png(image_path)
 
     if missing:
-        print("Gallery images missing (build aborted):", file=sys.stderr)
+        stream = sys.stderr if strict else sys.stdout
+        print("Gallery images not present:", file=stream)
         for name in sorted(missing):
-            print(f"  {name}", file=sys.stderr)
-        return 1
+            print(f"  {name}", file=stream)
+        if strict:
+            print(
+                "Publish requires every gallery image. Generate them with "
+                "examples/run_and_compile.py before this check.",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            "Continuing without them. A local HTML build still succeeds; "
+            "the publish workflow passes --strict and fails if any are missing."
+        )
+        return 0
 
-    print(f"Gallery OK: {len(referenced_images())} image(s) in {GALLERY_DIR}")
+    print(f"Gallery OK: {len(images)} image(s) in {GALLERY_DIR}")
     return 0
 
 

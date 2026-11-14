@@ -48,6 +48,11 @@ if "%1" == "clean" (
 )
 
 
+if "%1" == "html" (
+	python "%~dp0prepare_gallery.py"
+	if errorlevel 1 exit /b 1
+)
+
 %SPHINXBUILD% -M %1 %ALLSPHINXOPTS% %O%
 goto end
 
