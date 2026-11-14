@@ -73,12 +73,13 @@ jobs:
           if brew tap | grep -qx aws/tap; then
             brew trust aws/tap
           fi
-          # Qt is only linked when BUILD_GUI is on. Boost is optional.
-          # GLE builds its own TeX (inittex); Homebrew texlive is a
-          # 35-formula install and the suite never calls system latex.
-          # Together with Qt (qtwebengine and the rest of Qt) those three
-          # packages were almost all of this step.
+          # Qt is only linked when BUILD_GUI is on. GLE builds its own
+          # TeX (inittex); Homebrew texlive is a 35-formula install and
+          # the suite never calls system latex. Those two packages were
+          # almost all of this step. Boost stays: CMake's find_package is
+          # not REQUIRED, but gle/drawit.cpp includes Boost.Math anyway.
           brew install --quiet \
+            boost \
             cairo \
             ghostscript \
             jpeg-turbo \
