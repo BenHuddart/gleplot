@@ -20,7 +20,7 @@ clean:
 .PHONY: prepare-gallery
 
 prepare-gallery:
-	python "$(CURDIR)/prepare_gallery.py"
+	python3 "$(CURDIR)/prepare_gallery.py"
 
 html: prepare-gallery
 	$(SPHINXBUILD) -b html "$(CURDIR)/source" "$(CURDIR)/$(BUILDDIR)/html" $(SPHINXOPTS) $(O)
