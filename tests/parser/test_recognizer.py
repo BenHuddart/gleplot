@@ -176,8 +176,11 @@ def normalize(d: dict) -> dict:
                 "scatters",
                 "bars",
                 "hists",
+                "fills",
                 "errorbars",
                 "file_series",
+                "reflines",
+                "spans",
             )
             for s in ax.get(group, [])
         )
@@ -480,6 +483,81 @@ def test_broken_fill_becomes_file_series_with_error(tmp_path):
     out2 = tmp_path / "again2.gle"
     reparsed.figure.savefig_gle(str(out2))
     assert out2.read_text(encoding="utf-8") == text
+
+
+def test_axis_clip_and_polygon_fills_round_trip(tmp_path):
+    """``fill x1,dN``, a clipped ``fill dA,dB``, and ``fill dN`` come back."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = [0, 1, 2, 3]
+    ax.fill_between(x, [1, 2, 2, 1], baseline="x1", ymin=0)
+    ax.fill_between(x, [1, 3, 2, 2], [0, 1, 1, 0], xmin=1, xmax=2, color="blue")
+    ax.fill([0, 1, 0.5], [0, 0, 1], color="red")
+    ax.fill_between(x, [1, 2, 2, 1], baseline="x2")
+    gle_path = tmp_path / "f.gle"
+    fig.savefig_gle(str(gle_path))
+
+    recognized = parse_gle_figure(gle_path)
+    fills = recognized.figure.axes_list[0].fills
+    assert [item.get("target") for item in fills] == ["x1", None, "polygon", "x2"]
+    assert fills[0]["ymin"] == 0
+    assert fills[1]["xmin"] == 1 and fills[1]["xmax"] == 2
+    assert "target" not in fills[1]
+    assert fills[2]["y2"] is None
+
+    out = tmp_path / "again.gle"
+    recognized.figure.savefig_gle(str(out))
+    assert out.read_text(encoding="utf-8") == gle_path.read_text(encoding="utf-8")
+    assert "fill d5,x2 color LIGHTBLUE" in out.read_text(encoding="utf-8")
+
+
+def test_unresolved_single_curve_fills_keep_their_form(tmp_path):
+    """A missing sidecar must not turn ``fill x1,dN`` into a two-curve fill."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.fill_between([0, 1, 2], [1, 2, 1], baseline="x1", xmin=0.5)
+    ax.fill([0, 1, 0], [0, 1, 2])
+    ax.fill_between([0, 1, 2], [1, 2, 1], baseline="x2", ymax=4)
+    gle_path = tmp_path / "f.gle"
+    fig.savefig_gle(str(gle_path))
+    for name in ("golden_0.dat", "golden_1.dat", "golden_2.dat"):
+        (tmp_path / name).unlink()
+
+    recognized = parse_gle_figure(gle_path)
+    series = recognized.figure.axes_list[0].file_series
+    assert [item.get("target") for item in series] == ["x1", "polygon", "x2"]
+    assert all("y2_col" not in item for item in series)
+    assert series[0]["xmin"] == 0.5
+    assert series[2]["ymax"] == 4
+
+    out = tmp_path / "again.gle"
+    recognized.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "fill x1,d1 color LIGHTBLUE xmin 0.5" in text
+    assert "fill d2 color LIGHTBLUE" in text
+    assert "fill d3,x2 color LIGHTBLUE ymax 4" in text
+    assert "d1,d2" not in text
+
+
+def test_fill_with_an_extra_operand_or_keyword_stays_raw(tmp_path):
+    """A third dataset or an unknown option is not a modelled fill."""
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        "   data pts.dat d1=c1,c2 d2=c1,c3 d3=c1,c4\n"
+        "   fill d1,d2,d3 color BLUE\n"
+        "   fill d1,d2 lstyle 1\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "raw.gle", src, {"pts.dat": "0 0 1 2\n1 1 2 3\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.fills == []
+    assert any("fill d1,d2,d3" in line for line in ax.passthrough)
+    assert any("lstyle" in line for line in ax.passthrough)
 
 
 # --------------------------------------------------------------------------- #

@@ -292,6 +292,17 @@ counts: ``step`` is ``line hist`` on GLE's binned dataset, and
 matplotlib migration guide for the cases GLE draws differently (the
 impulse origin, and the missing stem baseline).
 
+Fills use GLE's ``fill`` command. Two curves are ``fill dA,dB``. A curve
+can close on the axis instead (``baseline='x1'`` or ``'x2'``), a boolean
+``where`` clips each run with ``xmin`` / ``xmax``, and ``ax.fill(x, y)``
+is a closed polygon (``fill dN``):
+
+.. code-block:: python
+
+   ax.fill_between(x, y, where=(x > 0))
+   ax.fill_between(x, y, baseline='x1')
+   ax.fill(x, y, alpha=0.4)
+
 Saving Figures
 --------------
 

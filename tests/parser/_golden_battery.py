@@ -392,6 +392,25 @@ def line_modes():
     return fig
 
 
+def fill_forms():
+    """Axis fill, a clipped band, and a closed polygon."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = [0, 1, 2, 3]
+    ax.fill_between(x, [1, 2, 2, 1], baseline="x1", color="gray", label="axis")
+    ax.fill_between(
+        x,
+        [1, 3, 2, 2],
+        [0, 1, 1, 0],
+        where=[False, True, True, False],
+        color="blue",
+        alpha=0.4,
+    )
+    ax.fill([0, 1, 0.5], [0, 0, 1], color="red", alpha=0.4, label="poly")
+    ax.legend()
+    return fig
+
+
 def histogram():
     """One step outline and one filled histogram, both labelled."""
     fig = glp.figure(data_prefix="golden")
@@ -449,6 +468,7 @@ BUILDERS = [
     tripcolor_tricontour_combo,
     custom_tick_labels,
     line_modes,
+    fill_forms,
     histogram,
     axes_styling_full,
     axes_styling_grid_only,

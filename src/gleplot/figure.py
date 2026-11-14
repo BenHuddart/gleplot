@@ -941,9 +941,13 @@ class Figure:
         """Bar chart on current axes."""
         return self.gca().bar(x, height, **kwargs)
 
-    def fill_between(self, x, y1, y2, **kwargs):
-        """Fill between on current axes."""
+    def fill_between(self, x, y1, y2=0, **kwargs):
+        """Fill between on current axes. See :meth:`Axes.fill_between`."""
         return self.gca().fill_between(x, y1, y2, **kwargs)
+
+    def fill(self, x, y, *args, **kwargs):
+        """Fill a polygon on the current axes. See :meth:`Axes.fill`."""
+        return self.gca().fill(x, y, *args, **kwargs)
 
     def errorbar(self, x, y, **kwargs):
         """Error bar plot on current axes."""
@@ -2244,7 +2248,7 @@ class Figure:
             writer.add_fill_between(
                 fill_data["x"],
                 fill_data["y1"],
-                fill_data["y2"],
+                fill_data.get("y2"),
                 fill_data["data_file"],
                 fill_data["color"],
                 fill_data["alpha"],
@@ -2253,6 +2257,11 @@ class Figure:
                 binding=resolution.binding(fill_series),
                 label=fill_data.get("label"),
                 swatch_color=fill_data.get("swatch_color"),
+                target=fill_data.get("target"),
+                xmin=fill_data.get("xmin"),
+                xmax=fill_data.get("xmax"),
+                ymin=fill_data.get("ymin"),
+                ymax=fill_data.get("ymax"),
             )
 
         # Reference lines (axvline/axhline), drawn above the shaded bands but
@@ -2424,10 +2433,15 @@ class Figure:
                     fs_data["data_file"],
                     fs_data["x_col"],
                     fs_data["y1_col"],
-                    fs_data["y2_col"],
+                    fs_data.get("y2_col"),
                     color=fs_data.get("color", "LIGHTBLUE"),
                     label=fs_data.get("label"),
                     swatch_color=fs_data.get("swatch_color"),
+                    target=fs_data.get("target"),
+                    xmin=fs_data.get("xmin"),
+                    xmax=fs_data.get("xmax"),
+                    ymin=fs_data.get("ymin"),
+                    ymax=fs_data.get("ymax"),
                 )
             else:
                 writer.add_errorbar_from_file(
@@ -3102,9 +3116,13 @@ class Figure:
 
         for fill_data in resolution.visible(ax.fills):
             off = fill_data.get("offset", 0.0)
-            y1 = np.asarray(fill_data["y1"]) + off
-            y2 = np.asarray(fill_data["y2"]) + off
-            all_y = _plottable(np.concatenate([y1, y2]), positive_only)
+            # An axis or polygon fill has no second curve. The axis edge is
+            # the limit being computed here, so it is not another sample.
+            parts = [np.asarray(fill_data["y1"]) + off]
+            y2 = fill_data.get("y2")
+            if y2 is not None:
+                parts.append(np.asarray(y2) + off)
+            all_y = _plottable(np.concatenate(parts), positive_only)
             if len(all_y) > 0:
                 if ymin is None or all_y.min() < ymin:
                     ymin = float(all_y.min())
@@ -3425,9 +3443,10 @@ class Figure:
         """Whether rendering this figure needs GLE's ``-cairo`` device flag.
 
         True whenever the figure uses semi-transparency anywhere it can
-        appear -- a ``fill_between``/``axvspan``/``axhspan`` with
-        ``alpha < 1`` (:meth:`Axes.fill_between`, :meth:`Axes.axvspan`,
-        :meth:`Axes.axhspan`), or any colour expressed directly as
+        appear -- a ``fill_between``/``fill``/``axvspan``/``axhspan`` with
+        ``alpha < 1`` (:meth:`Axes.fill_between`, :meth:`Axes.fill`,
+        :meth:`Axes.axvspan`, :meth:`Axes.axhspan`), or any colour
+        expressed directly as
         ``rgba(...)``/``rgba255(...)``. See
         :func:`gleplot.cairo_support.figure_requires_cairo` for the exact
         rule and :func:`gleplot.compiler.build_compile_args` for where the

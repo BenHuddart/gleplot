@@ -746,7 +746,15 @@ class HistSeries(Series):
 
 
 class FillSeries(Series):
-    """A filled band between two curves -- ``Axes.fill_between``."""
+    """A filled region -- ``Axes.fill_between`` or ``Axes.fill``.
+
+    Absent ``target`` is the two-curve band ``fill dA,dB``. ``target``
+    ``"x1"`` / ``"x2"`` fills one curve to that axis (``fill x1,dN`` /
+    ``fill dN,x2``). ``"polygon"`` is ``Axes.fill``: ``fill dN`` closes the
+    vertices. ``xmin`` / ``xmax`` / ``ymin`` / ``ymax`` are GLE's clip
+    window; an absent edge is not clipped. On an ``x1`` fill, ``ymin`` is
+    also the line the region closes on (GLE's rule, not a second clip).
+    """
 
     ATTR = "fills"
     ARRAY_FIELDS = ("x", "y1", "y2")
@@ -771,8 +779,17 @@ class FillSeries(Series):
     #: Legend swatch colour when it is not the fill colour. Absent means the
     #: swatch is ``apply_alpha(color, alpha)``.
     swatch_color: Optional[str]
+    #: ``"x1"``, ``"x2"`` or ``"polygon"``. Absent: two-curve ``fill dA,dB``.
+    target: str
+    #: Clip window in data coordinates. Absent: that edge is open.
+    xmin: float
+    xmax: float
+    ymin: float
+    ymax: float
 
     def default_column_names(self) -> Optional[List[str]]:
+        if self.get("target") in ("x1", "x2", "polygon"):
+            return _unique_column_names(["x", "y"])
         return _unique_column_names(["x", "upper", "lower"])
 
 
@@ -868,6 +885,14 @@ class FileSeries(Series):
     visible: bool
     #: Legend swatch colour when a bar or fill ``keyfill`` is not ``color``.
     swatch_color: Optional[str]
+    #: ``'fill'`` variant: ``"x1"``, ``"x2"`` or ``"polygon"``. Absent means
+    #: the two-curve ``fill dA,dB``.
+    target: str
+    #: ``'fill'`` variant clip window. Absent: that edge is open.
+    xmin: float
+    xmax: float
+    ymin: float
+    ymax: float
 
 
 class TextAnnotation(Series):

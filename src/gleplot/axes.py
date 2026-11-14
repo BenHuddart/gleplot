@@ -744,6 +744,150 @@ def _as_bin_count(bins):
     return None
 
 
+def _as_curve(name: str, value, n: int) -> np.ndarray:
+    """Broadcast ``value`` to a length-``n`` float array.
+
+    A scalar (or a length-1 array) becomes a constant curve, which is how
+    matplotlib treats ``fill_between``'s default ``y2=0``.
+    """
+    arr = np.asarray(value, dtype=float)
+    if arr.ndim == 0 or arr.size == 1:
+        return np.full(n, float(np.ravel(arr)[0]))
+    flat = np.ravel(arr)
+    if flat.size != n:
+        raise ValueError(f"{name} has length {flat.size}, expected {n}")
+    return flat
+
+
+def _is_scalar_zero(value) -> bool:
+    """True for the default ``y2=0``, not for an array of zeros."""
+    arr = np.asarray(value)
+    if arr.ndim != 0:
+        return False
+    number = float(arr)
+    return number == 0.0 and np.isfinite(number)
+
+
+def _curve_crossing(x0, diff0, x1, diff1):
+    """x where ``y1 - y2`` crosses 0 between two samples, or None.
+
+    This is the point matplotlib's ``interpolate=True`` adds: the root of
+    the difference, not a midpoint of the boolean mask.
+    """
+    if not (
+        np.isfinite(diff0)
+        and np.isfinite(diff1)
+        and np.isfinite(x0)
+        and np.isfinite(x1)
+    ):
+        return None
+    if diff0 == 0.0 and diff1 == 0.0:
+        return None
+    if diff0 == 0.0:
+        return float(x0)
+    if diff1 == 0.0:
+        return float(x1)
+    if diff0 * diff1 > 0.0:
+        return None
+    frac = diff0 / (diff0 - diff1)
+    return float(x0 + frac * (x1 - x0))
+
+
+def _where_windows(x, y1, y2, where, interpolate: bool):
+    """GLE clip windows for a matplotlib ``where`` mask.
+
+    One dict per contiguous run of True samples long enough to have area.
+    ``xmin`` / ``xmax`` are omitted on a side the run already reaches.
+    ``[]`` means the mask fills nothing. ``None`` means ``x`` is not a
+    finite, strictly monotonic sequence, so a rectangle cannot express
+    the mask.
+    """
+    n = int(len(x))
+    mask = np.asarray(where, dtype=bool)
+    if mask.size != n:
+        raise ValueError(f"where has length {mask.size}, expected {n} to match x")
+    mask = np.ravel(mask)
+    if n == 0 or not np.any(mask):
+        return []
+    if np.all(mask):
+        # No clip. Monotonicity does not matter when every sample is filled.
+        return [{}]
+    if not np.all(np.isfinite(x)):
+        return None
+    delta = np.diff(np.asarray(x, dtype=float))
+    # A repeated x cannot be split by a rectangle: the True and False samples
+    # that share it would both fall inside the clip. Require a strict order.
+    if n >= 2 and not (np.all(delta > 0.0) or np.all(delta < 0.0)):
+        return None
+    if n == 1:
+        return []
+
+    changes = (np.flatnonzero(mask[:-1] != mask[1:]) + 1).tolist()
+    if mask[0]:
+        changes = [0] + changes
+    if mask[-1]:
+        changes.append(n)
+    windows = []
+    for idx0, idx1 in zip(changes[::2], changes[1::2]):
+        left = float(x[idx0])
+        right = float(x[idx1 - 1])
+        crossed = False
+        if interpolate and y2 is not None and idx0 > 0:
+            hit = _curve_crossing(
+                x[idx0 - 1],
+                y1[idx0 - 1] - y2[idx0 - 1],
+                x[idx0],
+                y1[idx0] - y2[idx0],
+            )
+            if hit is not None:
+                left = hit
+                crossed = True
+        if interpolate and y2 is not None and idx1 < n:
+            hit = _curve_crossing(
+                x[idx1 - 1],
+                y1[idx1 - 1] - y2[idx1 - 1],
+                x[idx1],
+                y1[idx1] - y2[idx1],
+            )
+            if hit is not None:
+                right = hit
+                crossed = True
+        if (idx1 - idx0) < 2 and not crossed:
+            # An isolated True has no segment. matplotlib draws no area
+            # unless interpolate extends it to a crossing.
+            continue
+        # The clip is the x-range of the run. Compare with the data extent
+        # so a crossing that lands on the neighboring sample still cuts off
+        # any points beyond it, and a decreasing x uses the same edges.
+        lo = float(min(left, right))
+        hi = float(max(left, right))
+        data_lo = float(np.min(x))
+        data_hi = float(np.max(x))
+        clip = {}
+        if lo > data_lo:
+            clip["xmin"] = lo
+        if hi < data_hi:
+            clip["xmax"] = hi
+        windows.append(clip)
+    return windows
+
+
+def _positional_fill_color(value):
+    """A matplotlib color in ``fill(x, y, color)``, or None if it is data."""
+    if isinstance(value, str):
+        return value
+    if (
+        isinstance(value, (tuple, list))
+        and len(value) in (3, 4)
+        and all(
+            isinstance(item, (int, float)) and not isinstance(item, bool)
+            for item in value
+        )
+    ):
+        return value
+    return None
+
+
 class Axes:
     """Matplotlib-like axes for plotting."""
 
@@ -2218,70 +2362,254 @@ class Axes:
         self,
         x,
         y1,
-        y2,
+        y2=0,
+        where=None,
+        interpolate: bool = False,
+        step=None,
         color: Optional[str] = None,
         alpha: float = 1.0,
         label: Optional[str] = None,
         offset: float = 0.0,
+        baseline: Optional[str] = None,
         **kwargs,
     ):
-        """
-        Fill area between two curves.
+        """Fill between two curves, or from one curve down to an axis.
 
-        Parameters
-        ----------
-        x : array-like
-            x coordinates
-        y1, y2 : array-like
-            Two y series
-        color : str, optional
-            Fill color
-        alpha : float
-            Transparency (0-1). Default 1.0 (opaque), matching matplotlib's
-            ``fill_between`` and keeping every pre-Cairo-support figure's
-            ``.gle`` output byte-identical unless a caller actually asks for
-            transparency. Below 1.0, the fill is genuinely semi-transparent
-            (``gleplot.colors.apply_alpha`` composes an ``rgba255(...)``
-            colour) and rendering it requires GLE's Cairo device, which
-            gleplot's compile pipeline enables automatically -- see
-            :meth:`gleplot.figure.Figure.requires_cairo` and SPEC §6.1/§10.6.
-        label : str, optional
-            Legend label
-        **kwargs
-            Additional arguments
+        Two arrays emit GLE's ``fill dA,dB``. A scalar ``y2`` (the default
+        ``0``) is broadcast to a constant second curve, so a curve that
+        crosses the constant still fills on both sides of it. ``baseline``
+        is the axis form instead: ``"x1"`` emits ``fill x1,dN`` (the curve
+        to the bottom of the y axis) and ``"x2"`` emits ``fill dN,x2`` (to
+        the top). That edge is the axis limit, not y=0.
 
-        Returns
-        -------
-        self
+        ``where`` selects x intervals. Each contiguous run of True samples
+        that has area becomes its own fill, clipped with ``xmin`` / ``xmax``.
+        A run is the samples matplotlib fills between: both ends True, so
+        one isolated True draws nothing. ``interpolate=True`` moves a clip
+        edge to where the two curves cross beside that run. GLE's clip is a
+        rectangle, so an ``x`` that turns around or repeats a value cannot
+        be expressed that way and the mask is ignored, with a warning.
+        ``step`` is accepted and
+        ignored: ``fill`` has no step mode.
+
+        ``xmin``, ``xmax``, ``ymin`` and ``ymax`` keywords are that same
+        clip in data coordinates, not axes fractions. On an ``x1`` fill,
+        ``ymin`` is also the line the region closes on. Passing ``where``
+        together with ``xmin`` or ``xmax`` raises ``ValueError``.
+
+        ``alpha`` below 1 composes an ``rgba255(...)`` colour. Rendering it
+        needs GLE's Cairo device, which the compile pipeline enables.
+
+        Returns this axes. A mask that fills nothing adds no series.
         """
+
+        def warn(message: str) -> None:
+            warnings.warn(message, UserWarning, stacklevel=3)
+
         data_name = kwargs.pop("data_name", None)
-        label = mathtext_to_gle(label)
+        if "data" in kwargs:
+            kwargs.pop("data")
+            warn(
+                "fill_between(data=...) is not supported and was ignored. "
+                "Pass the arrays directly."
+            )
+        facecolor = kwargs.pop("facecolor", None)
+        if facecolor is None:
+            facecolor = kwargs.pop("fc", None)
+        if color is None and facecolor is not None:
+            color = facecolor
+        elif facecolor is not None:
+            warn("fill_between() got both color and facecolor; color wins.")
+        clip = {}
+        for key in ("xmin", "xmax", "ymin", "ymax"):
+            if key in kwargs and kwargs[key] is not None:
+                clip[key] = float(kwargs.pop(key))
+            else:
+                kwargs.pop(key, None)
+        if step is not None:
+            warn(
+                "fill_between(step=) is not a GLE fill mode; the band is "
+                "drawn through the samples."
+            )
+        if kwargs:
+            names = ", ".join(sorted(kwargs))
+            warn(f"fill_between() ignores unsupported keyword(s): {names}.")
 
-        x = np.asarray(x)
-        y1 = np.asarray(y1)
-        y2 = np.asarray(y2)
+        if baseline is not None:
+            baseline = str(baseline).strip().lower()
+            if baseline not in ("x1", "x2"):
+                raise ValueError("baseline must be 'x1' or 'x2', got " f"{baseline!r}")
+            if not _is_scalar_zero(y2):
+                raise ValueError(
+                    "baseline= fills to an axis and replaces y2. "
+                    "Pass the curve as y1, or omit baseline to fill between "
+                    "two curves."
+                )
+        if where is not None and ("xmin" in clip or "xmax" in clip):
+            raise ValueError(
+                "fill_between() takes where= or an xmin/xmax clip, not both"
+            )
+
+        label = mathtext_to_gle(label)
+        x_arr = np.asarray(x, dtype=float)
+        if x_arr.ndim != 1:
+            raise ValueError("fill_between() x must be 1-dimensional")
+        if x_arr.size == 0:
+            raise ValueError("fill_between() needs at least one x value")
+        n = int(x_arr.size)
+        y1_arr = _as_curve("y1", y1, n)
+        y2_arr = None if baseline else _as_curve("y2", y2, n)
+        if baseline and interpolate:
+            warn(
+                "fill_between(interpolate=True) looks for a crossing of the "
+                "two curves. An axis fill has no second curve, so the clip "
+                "stays on the samples."
+            )
+            interpolate = False
 
         if color is None:
-            color = "LIGHTBLUE"
+            gle_color = "LIGHTBLUE"
         else:
-            color = rgb_to_gle(color)
+            gle_color = rgb_to_gle(color)
 
+        if where is None:
+            windows: List[dict] = [dict(clip)]
+        else:
+            found = _where_windows(x_arr, y1_arr, y2_arr, where, bool(interpolate))
+            if found is None:
+                warn(
+                    "fill_between(where=) needs a finite, strictly monotonic x "
+                    "to become a GLE clip window; the mask was ignored."
+                )
+                windows = [dict(clip)]
+            else:
+                windows = []
+                for window in found:
+                    merged = dict(clip)
+                    merged.update(window)
+                    windows.append(merged)
+        if not windows:
+            return self
+
+        single = baseline is not None
+        names = ["x", "y"] if single else ["x", "upper", "lower"]
+        for index, window in enumerate(windows):
+            fields = dict(
+                x=x_arr,
+                y1=y1_arr,
+                color=gle_color,
+                alpha=float(alpha),
+                label=label if index == 0 else None,
+                offset=float(offset),
+                data_file=_resolve_data_file(self.figure, data_name),
+                column_names=_unique_column_names(names),
+            )
+            if single:
+                fields["target"] = baseline
+                fields["y2"] = None
+            else:
+                fields["y2"] = y2_arr
+            fields.update(window)
+            fill_data = FillSeries(**fields)
+            # Call order, so a legend can list this band where it was added.
+            # Fills are not z-ordered drawables; the field is legend order only.
+            self._register_series_draw_meta(fill_data, "fill")
+            self.fills.append(fill_data)
+        return self
+
+    def fill(
+        self,
+        x,
+        y,
+        *args,
+        color: Optional[str] = None,
+        alpha: float = 1.0,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Fill the polygon with vertices ``(x, y)``.
+
+        Emits GLE's ``fill dN``, which closes the last vertex back to the
+        first. This is not a general path: one polygon, no curves or holes.
+        A third positional argument may be a color (``fill(x, y, "b")``).
+        Further polygons in the same call are ignored, with a warning.
+
+        ``alpha`` below 1 is an ``rgba255(...)`` colour, as on
+        :meth:`fill_between`. ``xmin`` / ``xmax`` / ``ymin`` / ``ymax`` clip
+        the polygon in data coordinates. GLE fills the interior and does not
+        stroke an edge, so ``edgecolor`` and ``linewidth`` are ignored.
+        """
+
+        def warn(message: str) -> None:
+            warnings.warn(message, UserWarning, stacklevel=3)
+
+        data_name = kwargs.pop("data_name", None)
+        if "data" in kwargs:
+            kwargs.pop("data")
+            warn(
+                "fill(data=...) is not supported and was ignored. "
+                "Pass the vertex arrays directly."
+            )
+        if args:
+            positional = _positional_fill_color(args[0])
+            if positional is not None:
+                if color is None:
+                    color = positional
+                args = args[1:]
+            if args:
+                warn("fill() models one polygon; extra polygons were ignored.")
+        facecolor = kwargs.pop("facecolor", None)
+        if facecolor is None:
+            facecolor = kwargs.pop("fc", None)
+        if color is None and facecolor is not None:
+            color = facecolor
+        elif facecolor is not None:
+            warn("fill() got both color and facecolor; color wins.")
+        for dropped in ("edgecolor", "linewidth", "linestyle"):
+            if dropped in kwargs:
+                kwargs.pop(dropped)
+                warn(
+                    f"fill({dropped}=) is ignored. GLE's polygon fill does "
+                    "not stroke an edge."
+                )
+        clip = {}
+        for key in ("xmin", "xmax", "ymin", "ymax"):
+            if key in kwargs and kwargs[key] is not None:
+                clip[key] = float(kwargs.pop(key))
+            else:
+                kwargs.pop(key, None)
+        if kwargs:
+            names = ", ".join(sorted(kwargs))
+            warn(f"fill() ignores unsupported keyword(s): {names}.")
+
+        label = mathtext_to_gle(label)
+        x_arr = np.asarray(x, dtype=float)
+        y_arr = np.asarray(y, dtype=float)
+        if x_arr.ndim != 1 or y_arr.ndim != 1:
+            raise ValueError("fill() x and y must be 1-dimensional")
+        if x_arr.size == 0:
+            raise ValueError("fill() needs at least one vertex")
+        if y_arr.size != x_arr.size:
+            raise ValueError(f"fill() y has length {y_arr.size}, expected {x_arr.size}")
+        if color is None:
+            gle_color = "LIGHTBLUE"
+        else:
+            gle_color = rgb_to_gle(color)
         fill_data = FillSeries(
-            x=x,
-            y1=y1,
-            y2=y2,
-            color=color,
-            alpha=alpha,
+            x=x_arr,
+            y1=y_arr,
+            y2=None,
+            color=gle_color,
+            alpha=float(alpha),
             label=label,
-            offset=float(offset),
+            offset=0.0,
+            target="polygon",
             data_file=_resolve_data_file(self.figure, data_name),
-            column_names=_unique_column_names(["x", "upper", "lower"]),
+            column_names=_unique_column_names(["x", "y"]),
+            **clip,
         )
-        # Call order, so a legend can list this band where it was added.
-        # Fills are not z-ordered drawables; the field is legend order only.
         self._register_series_draw_meta(fill_data, "fill")
         self.fills.append(fill_data)
-
         return self
 
     # -- reference lines & shaded spans ----------------------------------

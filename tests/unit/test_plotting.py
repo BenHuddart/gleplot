@@ -231,6 +231,233 @@ class TestFillBetween(unittest.TestCase):
         self.assertEqual(self.ax.lines[0]['data_file'], 'model-range.dat')
         self.assertEqual(self.ax.lines[1]['data_file'], 'model-range_1.dat')
 
+    def _script(self):
+        return self.fig._generate_gle()
+
+    def test_default_y2_is_a_constant_zero_curve(self):
+        """Omitting y2 fills to 0, matplotlib's default, as a second dataset."""
+        self.ax.fill_between([0, 1, 2], [1, -1, 1])
+        series = self.ax.fills[0]
+        self.assertIsNone(series.get("target"))
+        self.assertEqual(list(series["y2"]), [0.0, 0.0, 0.0])
+        script = self._script()
+        self.assertIn("fill d1,d2 color LIGHTBLUE", script)
+        self.assertNotIn("fill x1", script)
+
+    def test_baseline_emits_an_axis_fill(self):
+        self.ax.fill_between([0, 1, 2], [1, 2, 1], baseline="x1", label="down")
+        self.ax.fill_between([0, 1, 2], [1, 2, 1], baseline="x2", ymin=3)
+        script = self._script()
+        self.assertIn("fill x1,d1 color LIGHTBLUE", script)
+        self.assertIn('d1 keyfill LIGHTBLUE key "down"', script)
+        self.assertIn("fill d2,x2 color LIGHTBLUE ymin 3", script)
+        self.assertIsNone(self.ax.fills[0]["y2"])
+        self.assertEqual(self.ax.fills[1]["target"], "x2")
+        self.assertEqual(self.ax.fills[1]["ymin"], 3.0)
+
+    def test_issue_example_fills_to_zero_where_x_is_positive(self):
+        """``fill_between(x, y, where=(x > 0))`` is a constant zero curve, clipped."""
+        x = [-1.0, 0.0, 1.0, 2.0]
+        self.ax.fill_between(x, [1.0, 1.0, 1.0, 1.0], where=[v > 0 for v in x])
+        self.assertEqual(len(self.ax.fills), 1)
+        self.assertEqual(list(self.ax.fills[0]["y2"]), [0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(self.ax.fills[0]["xmin"], 1.0)
+        self.assertIn("fill d1,d2 color LIGHTBLUE xmin 1", self._script())
+
+    def test_where_on_a_decreasing_x_uses_data_edges(self):
+        self.ax.fill_between(
+            [4, 3, 2, 1],
+            [1, 1, 1, 1],
+            [0, 0, 0, 0],
+            where=[False, True, True, False],
+        )
+        self.assertEqual(self.ax.fills[0].get("xmin"), 2.0)
+        self.assertEqual(self.ax.fills[0].get("xmax"), 3.0)
+
+    def test_where_clips_each_true_run(self):
+        x = [0, 1, 2, 3, 4]
+        self.ax.fill_between(
+            x,
+            [1, 1, 1, 1, 1],
+            [0, 0, 0, 0, 0],
+            where=[True, True, False, True, True],
+            label="band",
+        )
+        self.assertEqual(len(self.ax.fills), 2)
+        self.assertEqual(self.ax.fills[0].get("xmax"), 1.0)
+        self.assertNotIn("xmin", self.ax.fills[0])
+        self.assertEqual(self.ax.fills[1].get("xmin"), 3.0)
+        self.assertEqual(self.ax.fills[0]["label"], "band")
+        self.assertIsNone(self.ax.fills[1]["label"])
+        script = self._script()
+        self.assertIn("fill d1,d2 color LIGHTBLUE xmax 1", script)
+        self.assertIn("fill d3,d4 color LIGHTBLUE xmin 3", script)
+
+    def test_isolated_true_draws_nothing(self):
+        self.ax.fill_between([0, 1, 2], [1, 1, 1], where=[False, True, False])
+        self.assertEqual(self.ax.fills, [])
+        self.assertNotIn("fill ", self._script())
+
+    def test_interpolate_moves_the_clip_to_the_crossing(self):
+        self.ax.fill_between(
+            [0, 1, 2],
+            [0, 0, 2],
+            [1, 1, 0],
+            where=[False, False, True],
+            interpolate=True,
+        )
+        self.assertEqual(len(self.ax.fills), 1)
+        self.assertAlmostEqual(self.ax.fills[0]["xmin"], 4.0 / 3.0)
+        self.assertIn("xmin 1.33333", self._script())
+
+    def test_repeated_x_ignores_where(self):
+        """A shared x cannot be split into True and False by a rectangle."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.fill_between(
+                [0, 1, 1, 2],
+                [1, 1, 5, 5],
+                [0, 0, 0, 0],
+                where=[True, True, False, False],
+            )
+        self.assertTrue(any("monotonic" in str(w.message) for w in caught))
+        self.assertEqual(len(self.ax.fills), 1)
+        self.assertNotIn("xmax", self.ax.fills[0])
+
+    def test_polygon_and_axis_fill_round_trip_through_to_dict(self):
+        self.ax.fill([0, 1, 0], [0, 1, 2], alpha=0.4)
+        self.ax.fill_between([0, 1, 2], [1, 2, 1], baseline="x1", ymin=0)
+        restored = glp.Figure.from_dict(self.fig.to_dict())
+        fills = restored.axes_list[0].fills
+        self.assertEqual(fills[0]["target"], "polygon")
+        self.assertIsNone(fills[0]["y2"])
+        self.assertEqual(fills[1]["target"], "x1")
+        self.assertIsNone(fills[1]["y2"])
+        self.assertEqual(fills[1]["ymin"], 0.0)
+        self.assertEqual(restored.to_dict(), self.fig.to_dict())
+
+    def test_non_monotonic_where_warns_and_is_ignored(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.fill_between([0, 2, 1], [1, 1, 1], where=[True, False, True])
+        self.assertTrue(any("monotonic" in str(w.message) for w in caught))
+        self.assertEqual(len(self.ax.fills), 1)
+        self.assertNotIn("xmin", self.ax.fills[0])
+        self.assertNotIn("xmax", self.ax.fills[0])
+
+    def test_where_and_explicit_x_clip_conflict(self):
+        with self.assertRaises(ValueError):
+            self.ax.fill_between([0, 1], [1, 1], where=[True, True], xmin=0)
+
+    def test_baseline_rejects_a_second_curve(self):
+        with self.assertRaises(ValueError):
+            self.ax.fill_between([0, 1], [1, 1], [0, 0], baseline="x1")
+
+    def test_polygon_fill_closes_one_dataset(self):
+        returned = self.ax.fill([0, 1, 0], [0, 1, 2], alpha=0.4, label="tri")
+        self.assertIs(returned, self.ax)
+        series = self.ax.fills[0]
+        self.assertEqual(series["target"], "polygon")
+        self.assertIsNone(series["y2"])
+        script = self._script()
+        self.assertIn("fill d1 color rgba255(", script)
+        self.assertIn("d1 keyfill rgba255(", script)
+        self.assertIn('key "tri"', script)
+        self.assertNotIn("fill d1,d2", script)
+
+    def test_step_and_edge_keywords_warn(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.fill_between([0, 1], [1, 1], step="pre", hatch="//")
+            self.ax.fill(
+                [0, 1, 0],
+                [0, 1, 2],
+                edgecolor="black",
+                linewidth=2,
+                linestyle="--",
+            )
+        messages = " ".join(str(w.message) for w in caught)
+        self.assertIn("step", messages)
+        self.assertIn("hatch", messages)
+        self.assertIn("edgecolor", messages)
+        self.assertIn("linewidth", messages)
+        self.assertIn("linestyle", messages)
+
+    def test_where_length_and_baseline_are_rejected(self):
+        with self.assertRaises(ValueError):
+            self.ax.fill_between([0, 1], [1, 1], where=[True])
+        with self.assertRaises(ValueError):
+            self.ax.fill_between([0, 1], [1, 1], baseline="y")
+        with self.assertRaises(ValueError):
+            self.ax.fill_between([0, 1], [1, 1], [2, 3, 4])
+        with self.assertRaises(ValueError):
+            self.ax.fill([[0, 1], [1, 0]], [0, 1])
+
+    def test_full_mask_and_empty_mask(self):
+        self.ax.fill_between([0, 1, 2], [1, 1, 1], where=[True, True, True])
+        self.assertNotIn("xmin", self.ax.fills[0])
+        self.ax.fill_between([0, 1], [1, 1], where=[False, False])
+        self.assertEqual(len(self.ax.fills), 1)
+
+    def test_non_finite_x_ignores_where(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.fill_between(
+                [0, float("nan"), 2], [1, 1, 1], where=[True, False, True]
+            )
+        self.assertTrue(any("monotonic" in str(w.message) for w in caught))
+        self.assertNotIn("xmin", self.ax.fills[0])
+
+    def test_axis_interpolate_stays_on_the_samples(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.fill_between(
+                [0, 1, 2],
+                [1, 1, 1],
+                baseline="x1",
+                where=[False, True, True],
+                interpolate=True,
+            )
+        self.assertTrue(any("interpolate" in str(w.message) for w in caught))
+        self.assertEqual(self.ax.fills[0]["xmin"], 1.0)
+
+    def test_interpolate_moves_the_right_edge_to_the_crossing(self):
+        self.ax.fill_between(
+            [0, 1, 2],
+            [2, 0, 0],
+            [0, 1, 1],
+            where=[True, False, False],
+            interpolate=True,
+        )
+        self.assertAlmostEqual(self.ax.fills[0]["xmax"], 2.0 / 3.0)
+        self.assertNotIn("xmin", self.ax.fills[0])
+
+    def test_polygon_takes_one_color_and_one_polygon(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.ax.fill(
+                [0, 1, 0],
+                [0, 1, 2],
+                (0.0, 0.0, 1.0),
+                [2, 3, 2],
+                [0, 1, 2],
+            )
+        self.assertTrue(any("extra polygons" in str(w.message) for w in caught))
+        self.assertIn("rgb255(0,0,255)", self.ax.fills[0]["color"])
+        self.assertEqual(len(self.ax.fills), 1)
+
 
 class TestDataPrefixValidation(unittest.TestCase):
     """Test that a figure-level data_prefix is validated, not sanitized.

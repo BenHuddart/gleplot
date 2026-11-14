@@ -239,8 +239,13 @@ def bar(*args, **kwargs):
 
 
 def fill_between(*args, **kwargs):
-    """Fill between on current axes."""
+    """Fill between on current axes. See :meth:`gleplot.Axes.fill_between`."""
     return gca().fill_between(*args, **kwargs)
+
+
+def fill(*args, **kwargs):
+    """Fill a polygon on the current axes. See :meth:`gleplot.Axes.fill`."""
+    return gca().fill(*args, **kwargs)
 
 
 def errorbar(*args, **kwargs):
@@ -505,6 +510,7 @@ __all__ = [
     "scatter",
     "bar",
     "fill_between",
+    "fill",
     "errorbar",
     "text",
     "axvline",

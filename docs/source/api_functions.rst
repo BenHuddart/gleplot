@@ -29,6 +29,8 @@ Plotting helpers
 
 .. autofunction:: gleplot.fill_between
 
+.. autofunction:: gleplot.fill
+
 .. autofunction:: gleplot.errorbar
 
 .. autofunction:: gleplot.imshow
