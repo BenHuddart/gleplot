@@ -27,6 +27,8 @@ Plotting helpers
 
 .. autofunction:: gleplot.bar
 
+.. autofunction:: gleplot.barh
+
 .. autofunction:: gleplot.fill_between
 
 .. autofunction:: gleplot.fill

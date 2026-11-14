@@ -151,26 +151,22 @@ for rendering, applied by the test-side ``normalize()`` helper)
     per-axes rather than as the config field (the config is a writer default,
     not per-axes state); the emitted GLE is identical either way.
 
-14. **Multi-dataset ``bar``/``fill`` groups kept raw (hand-written only).**
-    ``bar dN,dM,... fill c1,c2,...`` groups several datasets into GLE's
-    automatic side-by-side layout (see the GLE manual's
-    ``bar d1,d2,d3 fill gray10,gray40,black`` example); ``BarSeries`` has no
-    concept of a shared group, only an independent per-dataset bar. The whole
-    statement is kept verbatim in the axes passthrough (all datasets and
-    colors intact) with a ``structure:`` warning, instead of silently
-    modeling only one dataset and dropping the rest. When every dataset a
-    ``data`` statement declares ends up referenced only by such passthrough
-    text (nothing then carries its ``data_file`` for the writer to
-    regenerate from), the original ``data`` statement is restored verbatim
-    too, ahead of the passthrough content that depends on it -- otherwise
-    the regenerated file would reference datasets GLE was never told how to
-    load. A ``data`` statement declaring a MIX of modeled and orphaned
-    datasets is not currently reconstructed (re-emitting it whole would
-    duplicate the modeled portion); a ``data:`` warning flags this instead
-    of resolving it silently either way. A one-curve fill
-    (``fill x1,dN``, ``fill dN,x2``, ``fill dN``) whose ``data`` statement
-    also declares other datasets is left verbatim for the same reason:
-    modelling it would rewrite the file down to that one curve.
+14. **Bar groups and stacks are series; a fill that shares their file is not.**
+    ``bar d1,d2 fill c1,c2`` is several :class:`~gleplot.series.BarSeries`
+    that share a ``group`` id and are written back as one command.
+    ``bar d2 from d1`` is one series whose baseline is ``d1``. A command
+    that also carries an unmodelled sub-command (``3d``, ``pattern``,
+    ``style``, ...) stays raw, and so does every bar whose datasets share
+    a ``data`` statement with a ``fill`` the recognizer cannot take: that
+    fill still needs the author's data line, and rewriting the file for
+    the bar would drop the columns it reads. When every dataset a ``data``
+    statement declares ends up referenced only by such passthrough text,
+    the original ``data`` statement is restored verbatim, ahead of the
+    passthrough content that depends on it. A ``data`` statement declaring
+    a mix of modeled and orphaned datasets is not reconstructed; a
+    ``data:`` warning flags it. A one-curve fill (``fill x1,dN``,
+    ``fill dN,x2``, ``fill dN``) whose ``data`` statement also declares
+    other datasets is left verbatim for the same reason.
 
 Tolerances for hand-written input
 ---------------------------------
@@ -352,24 +348,35 @@ _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
 
 
 #: Every ``bar`` sub-command GLE 4.3.10 accepts that gleplot has no model
-#: for (G19). Enumerated from the engine's own parser -- ``do_bar`` in
-#: ``graph.cpp``, whose ``kw(...)`` chain is exhaustive (anything else is
-#: "unrecognised bar sub command") -- rather than from the manual, so the
-#: list cannot be shorter than the grammar:
+#: for. Enumerated from ``do_bar`` in ``graph.cpp``, whose ``kw(...)`` chain
+#: is exhaustive (anything else is "unrecognised bar sub command"):
 #:
 #:     DIST WIDTH 3D NOTOP HORIZ LSTYLE STYLE LWIDTH FROM
 #:     COLOR SIDE TOP FILL PATTERN BACKGROUND
 #:
-#: ``fill`` is :class:`~gleplot.series.BarSeries`' ``colors``; ``width`` is
-#: its ``width`` (G19). ``from`` is GLE's stacked form, which reaches the
-#: multi-dataset branch first (both names are dataset-shaped) and keeps its
-#: own, older note -- it is listed here only so that this table stays a
-#: complete reading of the grammar. Everything else changes what is drawn --
-#: orientation, grouping, 3-D extrusion, edge style, per-bar colouring -- so
-#: a command carrying one is kept whole as raw GLE.
+#: ``fill`` and ``width`` are the original fields. ``color`` / ``lstyle`` /
+#: ``lwidth`` are the edge, ``horiz`` is :meth:`~gleplot.Axes.barh`,
+#: ``from`` is the stack, and ``dist`` is the group spacing. What is left
+#: changes the drawing in a way the series cannot carry (3-D extrusion,
+#: hatch, an unmodelled style), so a command that names one stays raw.
 _BAR_UNMODELLED_OPTIONS = frozenset(
     {
+        "3d",
+        "notop",
+        "side",
+        "top",
+        "pattern",
+        "background",
+        "style",
+    }
+)
+
+#: Keywords ``do_bar`` accepts, modelled or not. A token that is not in
+#: this set is "unrecognised bar sub command" and the command stays raw.
+_BAR_KEYWORDS = frozenset(
+    {
         "dist",
+        "width",
         "3d",
         "notop",
         "horiz",
@@ -380,28 +387,209 @@ _BAR_UNMODELLED_OPTIONS = frozenset(
         "color",
         "side",
         "top",
+        "fill",
         "pattern",
         "background",
     }
 )
 
 
-def _bar_stack_names(toks: List[Token]) -> Optional[Tuple[str, str]]:
-    """``(dN, dM)`` for a ``bar dN from dM ...`` statement, else ``None``.
+def _collect_bar_list(
+    toks: List[Token], start: int, read
+) -> Tuple[Optional[list], int]:
+    """A comma-separated list starting at ``start``.
 
-    GLE's stacked-bar form (the manual's 'stacked bar chart' example): ``dN``
-    draws stacked on top of ``dM``. Detected up front, in pass 1, so an
-    EARLIER, independent ``bar dM fill ...`` statement can still be
-    recognized as part of this later stack -- see ``_bar_stack_datasets``
-    and its use in :meth:`_Recognizer._parse_bar_command`.
+    GLE keeps the commas inside one token (``red,blue``). The gleplot lexer
+    splits them, so a list is value, comma, value. ``read(toks, i)`` returns
+    ``(item or None, next_index)``. ``(None, start)`` when nothing is there.
     """
-    words = [t.value.lower() for t in toks]
-    for i, word in enumerate(words):
-        if word == "from" and 0 < i < len(words) - 1:
-            prev_word, next_word = words[i - 1], words[i + 1]
-            if _DATASET_RE.match(prev_word) and _DATASET_RE.match(next_word):
-                return prev_word, next_word
-    return None
+    item, nxt = read(toks, start)
+    if item is None:
+        return None, start
+    items = [item]
+    while nxt < len(toks) and toks[nxt].type is TokenType.OP and toks[nxt].value == ",":
+        item, nxt2 = read(toks, nxt + 1)
+        if item is None:
+            break
+        items.append(item)
+        nxt = nxt2
+    return items, nxt
+
+
+def _bar_dataset_token(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
+    if start < len(toks) and _DATASET_RE.match(toks[start].value):
+        return toks[start].value.lower(), start + 1
+    return None, start
+
+
+def _bar_color_token(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
+    return _collect_color(toks, start)
+
+
+def _scan_bar_command(toks: List[Token]) -> dict:
+    """The modelled fields of one ``bar`` command, plus why it cannot be one.
+
+    ``fills`` / ``edges`` are ``None`` when the keyword was absent, and the
+    authored list otherwise (a longer list than the dataset count is stored
+    and re-emitted; GLE draws only the first of a one-dataset command).
+    ``unmodelled`` names every keyword that has no field. ``bad_value`` is
+    a width, dist, or lwidth the expression evaluator could not read.
+    """
+    scanned: Dict[str, Any] = {
+        "datasets": [],
+        "from_names": [],
+        "fills": None,
+        "edges": None,
+        "width": None,
+        "dist": None,
+        "linewidth_cm": None,
+        "linestyle": None,
+        "lstyle": None,
+        "horiz": False,
+        "unmodelled": [],
+        "bad_value": False,
+    }
+    i = 1
+    m = len(toks)
+    while i < m:
+        tok = toks[i]
+        if tok.type is TokenType.OP and tok.value == ",":
+            i += 1
+            continue
+        if tok.type is TokenType.WORD and _DATASET_RE.match(tok.value):
+            scanned["datasets"].append(tok.value.lower())
+            i += 1
+            continue
+        break
+
+    def reject(word: str) -> None:
+        if word not in scanned["unmodelled"]:
+            scanned["unmodelled"].append(word)
+
+    while i < m:
+        tok = toks[i]
+        word = tok.value.lower()
+        if tok.type is TokenType.OP:
+            i += 1
+            continue
+        if word == "horiz":
+            scanned["horiz"] = True
+            i += 1
+            continue
+        if word == "notop":
+            reject(word)
+            i += 1
+            continue
+        if word == "3d":
+            reject(word)
+            i += 1
+            for _ in range(2):
+                val, nxt = _collect_value(toks, i)
+                if val is None:
+                    break
+                i = nxt
+            continue
+        if word in ("width", "dist", "lwidth"):
+            val, nxt = _collect_value(toks, i + 1)
+            if val is None:
+                scanned["bad_value"] = True
+                reject(word)
+                i += 1
+                continue
+            if word == "width":
+                scanned["width"] = val
+            elif word == "dist":
+                scanned["dist"] = val
+            else:
+                scanned["linewidth_cm"] = val
+            i = nxt
+            continue
+        if word == "lstyle":
+            text, nxt = _collect_bar_list(toks, i + 1, _bar_lstyle_piece)
+            if not text:
+                scanned["bad_value"] = True
+                reject(word)
+                i += 1
+                continue
+            joined = ",".join(text)
+            mapped = None
+            if len(text) == 1:
+                try:
+                    mapped = LSTYLE_TO_MATPLOTLIB.get(int(text[0]))
+                except (TypeError, ValueError):
+                    mapped = None
+            if mapped:
+                scanned["linestyle"] = mapped
+            else:
+                scanned["lstyle"] = joined
+            i = nxt
+            continue
+        if word == "from":
+            names, nxt = _collect_bar_list(toks, i + 1, _bar_dataset_token)
+            if not names:
+                scanned["bad_value"] = True
+                reject(word)
+                i += 1
+                continue
+            scanned["from_names"] = names
+            i = nxt
+            continue
+        if word in ("fill", "color"):
+            items, nxt = _collect_bar_list(toks, i + 1, _bar_color_token)
+            if not items:
+                scanned["bad_value"] = True
+                reject(word)
+                i += 1
+                continue
+            scanned["fills" if word == "fill" else "edges"] = items
+            i = nxt
+            continue
+        if word in _BAR_UNMODELLED_OPTIONS or word not in _BAR_KEYWORDS:
+            reject(word)
+            i += 1
+            if word == "style" and i < m and toks[i].value.lower() not in _BAR_KEYWORDS:
+                i += 1
+                continue
+            if word in ("side", "top", "pattern", "background"):
+                _items, nxt = _collect_bar_list(toks, i, _bar_color_token)
+                if _items:
+                    i = nxt
+            continue
+        i += 1
+    return scanned
+
+
+def _bar_lstyle_piece(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
+    """One piece of an ``lstyle`` value. A keyword ends the value."""
+    if start >= len(toks):
+        return None, start
+    tok = toks[start]
+    if tok.type is TokenType.WORD and tok.value.lower() in _BAR_KEYWORDS:
+        return None, start
+    return tok.value, start + 1
+
+
+def _bar_scan_is_plain(scanned: dict) -> bool:
+    """A single dataset, a fill, and at most a width.
+
+    That is the shape :class:`~gleplot.series.FileSeries` can still carry
+    when the file cannot be read, and the shape a histogram ``bar dK fill``
+    already owns. Anything else on an unreadable file stays raw.
+    """
+    fills = scanned["fills"]
+    return (
+        len(scanned["datasets"]) == 1
+        and not scanned["from_names"]
+        and not scanned["horiz"]
+        and scanned["dist"] is None
+        and scanned["linestyle"] is None
+        and scanned["lstyle"] is None
+        and scanned["linewidth_cm"] is None
+        and not scanned["edges"]
+        and (fills is None or len(fills) == 1)
+        and not scanned["unmodelled"]
+        and not scanned["bad_value"]
+    )
 
 
 @dataclass
@@ -1546,14 +1734,16 @@ class _Recognizer:
             # Target -> the let statement's own text, until a modellable
             # display command consumes it. Anything left is raw GLE.
             "_hist_let_pending": {},
-            # Both dataset names of every 'bar dN from dM ...' (GLE's
-            # stacked-bar form) found ANYWHERE in this block, collected up
-            # front in pass 1 -- so an EARLIER, independent 'bar dM fill
-            # ...' statement can still recognize dM as part of a later
-            # stack and stay raw instead of being modeled twice over (once
-            # as its own BarSeries, once folded into the stack's raw text).
-            # See _parse_bar_command.
-            "_bar_stack_datasets": set(),
+            # Dataset names whose ``bar`` commands stay raw: an unmodelled
+            # sub-command, a ``fill`` that still needs the original data
+            # line, or a group whose x columns do not match. Filled at the
+            # end of pass 1. See ``_mark_bars_that_stay_raw``.
+            "_bar_hold_raw": set(),
+            # How many bar commands have already claimed each source file.
+            # The first keeps the name; a later independent series gets
+            # ``stem_2.dat`` so the two writes do not clobber one file.
+            "_claimed_bar_files": {},
+            "_bar_group_next": 1,
         }
         # This graph block's own (begin, end) line span -- the fallback
         # location for a note about the block as a whole (no single statement
@@ -1639,16 +1829,6 @@ class _Recognizer:
                         let_toks, datasets, info, self._stmt_text(child)
                     )
                     continue
-                if kw == "bar":
-                    # Look ahead for GLE's stacked-bar form ('bar dN from dM
-                    # ...') anywhere in the block, before pass 2 decides
-                    # whether an EARLIER, independent 'bar dM fill ...'
-                    # becomes its own BarSeries (see _parse_bar_command). No
-                    # 'continue': pass 2 still needs to dispatch this
-                    # statement itself.
-                    stacked = _bar_stack_names(_words_and_values(child))
-                    if stacked is not None:
-                        cast(set, info["_bar_stack_datasets"]).update(stacked)
                 if kw is not None and _DATASET_RE.match(kw):
                     name = kw
                     if name not in merged_attr_toks:
@@ -1658,6 +1838,8 @@ class _Recognizer:
                     merged_attr_toks[name].extend(_words_and_values(child)[1:])
                     merged_attr_raw[name].append(self._stmt_text(child))
                     continue
+
+        self._mark_bars_that_stay_raw(block, datasets, info)
 
         # --- Pass 2: walk the body in order, dispatching non-dN statements
         # (axis/title/key/bar/fill/passthrough) and emitting exactly one series
@@ -1831,14 +2013,11 @@ class _Recognizer:
                 # dropping it silently loses the rest. Surface it instead of
                 # guessing.
                 #
-                # This case is now rare in practice: the one recurring
-                # source of it -- a 'bar dM fill ...' modeled independently
-                # while a LATER 'bar dN from dM ...' (GLE's stacked-bar
-                # form) needed dM to stay raw alongside dN -- is headed off
-                # up front by ``_bar_stack_datasets`` (see
-                # _parse_bar_command), which keeps BOTH names raw so this
-                # statement is fully unconsumed instead of mixed. A
-                # genuinely mixed statement still reaching here has no
+                # A bar that cannot be modeled (an unmodelled sub-command, or
+                # a dataset shared with a fill that stays raw) is held with
+                # every name on its data statement, so this branch is not
+                # how a stack is kept consistent. A genuinely mixed
+                # statement still reaching here has no
                 # narrower fix available: synthesizing a second 'data'
                 # clause for just the orphaned names would reference columns
                 # the modeled series' OWN regenerated sidecar no longer
@@ -3430,34 +3609,35 @@ class _Recognizer:
             return False
         return True
 
-    def _try_hist_bar(
-        self,
-        d_names,
-        datasets,
-        info,
-        stmt,
-        toks,
-        fill_seen,
-        color,
-        saw_color,
-        edge_color,
-        width,
-        unmodelled,
-    ) -> bool:
-        """Model ``bar dK fill`` on a histogram let. True if this call owned it."""
+    def _try_hist_bar(self, scanned, datasets, info, stmt, toks) -> bool:
+        """Model ``bar dK fill`` on a histogram let. True if this call owned it.
+
+        A filled histogram is one dataset, one fill, an optional edge colour
+        and an optional width. ``horiz``, ``from``, a group, or an edge
+        style belong to ordinary bars; on a histogram let they stay raw.
+        """
+        d_names = scanned["datasets"]
         if len(d_names) != 1 or d_names[0] not in info["_hist_lets"]:
             return False
         d_name = d_names[0]
-        extras = [word for word in unmodelled if word != "color"]
-        color_bad = saw_color and edge_color is None
+        fills = scanned["fills"]
+        edges = scanned["edges"]
+        fancy = (
+            scanned["horiz"]
+            or scanned["from_names"]
+            or scanned["dist"] is not None
+            or scanned["linestyle"] is not None
+            or scanned["lstyle"] is not None
+            or scanned["linewidth_cm"] is not None
+            or (fills is not None and len(fills) != 1)
+            or (edges is not None and len(edges) != 1)
+            or scanned["unmodelled"]
+            or scanned["bad_value"]
+            or d_name in info["_bar_hold_raw"]
+        )
         line = self._bar_fill_passthrough_line(toks, stmt)
         span = self._stmt_span(stmt)
-        if (
-            d_name in info["_bar_stack_datasets"]
-            or extras
-            or not fill_seen
-            or color_bad
-        ):
+        if fancy or not fills:
             self._abandon_hist(
                 info,
                 d_name,
@@ -3468,11 +3648,11 @@ class _Recognizer:
                 span,
             )
             return True
-        fields = {"histtype": "stepfilled", "color": color}
-        if saw_color:
-            fields["edgecolor"] = edge_color
-        if width is not None:
-            fields["bar_width"] = float(width)
+        fields = {"histtype": "stepfilled", "color": fills[0]}
+        if edges:
+            fields["edgecolor"] = edges[0]
+        if scanned["width"] is not None:
+            fields["bar_width"] = float(scanned["width"])
         entry = self._build_hist_series(
             info, d_name, datasets, self._opt_line_no(stmt), **fields
         )
@@ -3597,207 +3777,301 @@ class _Recognizer:
             return self._stmt_text(stmt)
         return "    " + " ".join(t.value for t in toks)
 
-    def _parse_bar_command(self, toks, datasets, info, stmt=None):
-        """``bar dN fill COLOR [width W]`` (or ``bar dN,dM,... fill c1,c2,...``)
+    def _mark_bars_that_stay_raw(self, block, datasets, info) -> None:
+        """Names whose ``bar`` commands must stay raw, expanded to the file.
 
-        Two of GLE's fifteen ``bar`` sub-commands have a ``BarSeries`` field
-        behind them -- ``fill`` and, since G19, ``width``. The other thirteen
-        are enumerated in :data:`_BAR_UNMODELLED_OPTIONS`, and one of them
-        anywhere on the statement sends the *whole* command to raw
-        passthrough with a note: half-modeling it would drop the rest
-        silently.
+        A fill that shares the data statement still needs the author's
+        line. An unmodelled sub-command, a ``from`` list that is not the
+        same length as the datasets, or a group whose x columns disagree
+        all do the same: modeling any bar on that file would rewrite the
+        sidecar and drop what the raw command reads.
         """
-        d_names = []
-        color = "RED"
-        width: Optional[float] = None
-        unmodelled: List[str] = []
-        fill_seen = False
-        saw_color = False
-        edge_color = None
-        i = 1
-        m = len(toks)
-        while i < m:
-            w = toks[i].value
-            wl = w.lower()
-            if _DATASET_RE.match(wl):
-                d_names.append(wl)
-            elif wl == "fill" and i + 1 < m:
-                val, nxt = _collect_color(toks, i + 1)
-                if val is not None:
-                    color = val
-                    fill_seen = True
-                i = nxt
+        seed = set()
+        for child in block.body:
+            if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
-            elif wl == "color":
-                # Ordinary bars still treat ``color`` as unmodelled (it is
-                # the stroke, and BarSeries has no field for it). A histogram
-                # bar reads the same keyword as its edge, so capture the
-                # value before the unmodelled return.
-                saw_color = True
-                if i + 1 < m:
-                    val, nxt = _collect_color(toks, i + 1)
-                    if val is not None:
-                        edge_color = val
-                        i = nxt
-                    else:
-                        i += 1
-                else:
-                    i += 1
-                if "color" not in unmodelled:
-                    unmodelled.append("color")
+            toks = _words_and_values(child)
+            if child.keyword == "fill":
+                for tok in toks:
+                    if _DATASET_RE.match(tok.value):
+                        seed.add(tok.value.lower())
                 continue
-            elif wl == "width":
-                # GLE takes an expression here (``next_exp``). A literal is
-                # the field; anything _collect_value cannot evaluate -- a
-                # variable, a call -- is a width gleplot cannot carry, so the
-                # statement degrades rather than losing it.
-                val, nxt = _collect_value(toks, i + 1)
-                if val is None:
-                    unmodelled.append(wl)
-                    i += 1
-                    continue
-                width = val
-                i = nxt
+            if child.keyword != "bar":
                 continue
-            elif wl in _BAR_UNMODELLED_OPTIONS and wl not in unmodelled:
-                unmodelled.append(wl)
-            i += 1
+            scanned = _scan_bar_command(toks)
+            names = list(scanned["datasets"]) + list(scanned["from_names"])
+            if scanned["unmodelled"] or scanned["bad_value"]:
+                seed.update(names)
+                continue
+            if scanned["from_names"] and len(scanned["from_names"]) != len(
+                scanned["datasets"]
+            ):
+                seed.update(names)
+                continue
+            # A histogram let is not a file dataset. The hist path decides
+            # whether ``bar dK fill`` (including its edge colour) is a
+            # stepfilled histogram. Holding it here would abandon that bar.
+            if (
+                scanned["datasets"]
+                and not scanned["from_names"]
+                and all(name in info["_hist_lets"] for name in scanned["datasets"])
+            ):
+                continue
+            if _bar_scan_is_plain(scanned):
+                continue
+            loaded = []
+            failed = False
+            for name in scanned["datasets"] + scanned["from_names"]:
+                if name not in datasets:
+                    failed = True
+                    break
+                data_file, xcol, ycol = datasets[name]
+                row = self._load_series(data_file, xcol, ycol, line_no=child.line_no)
+                if row is None or row.get("error"):
+                    failed = True
+                    break
+                loaded.append(row)
+            if failed or not self._bar_xs_match(loaded):
+                seed.update(names)
+        info["_bar_hold_raw"] = self._expand_bar_hold(info, seed)
 
-        if self._try_hist_bar(
-            d_names,
-            datasets,
-            info,
-            stmt,
-            toks,
-            fill_seen,
-            color,
-            saw_color,
-            edge_color,
-            width,
-            unmodelled,
-        ):
-            return
+    @staticmethod
+    def _expand_bar_hold(info, names):
+        """``names`` plus every sibling declared on the same data statement."""
+        group_map = info.get("_dataset_group", {})
+        held: set = set()
+        pending = list(names)
+        while pending:
+            name = pending.pop()
+            if name in held:
+                continue
+            held.add(name)
+            for sibling in group_map.get(name, ()):
+                if sibling not in held:
+                    pending.append(sibling)
+        return held
 
-        if len(d_names) > 1:
-            # A single 'bar' command spanning multiple datasets groups them
-            # into GLE's automatic side-by-side layout (see the GLE manual's
-            # 'bar d1,d2,d3 fill ...' grouped-bar-chart example) -- there is
-            # no BarSeries concept for a shared group, only independent
-            # per-dataset bars. Modeling only the last dataset (the old
-            # behavior) silently dropped the rest with no warning, violating
-            # the no-silent-drops contract. Keep the whole statement raw
-            # instead. A histogram let aimed at one of these names has to
-            # precede the bar, or the regenerated script would draw first.
-            for name in d_names:
-                raw = info["_hist_let_pending"].pop(name, None)
-                if raw:
-                    info["passthrough"].append(raw)
-            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
-            self._note(
-                ImportCategory.STRUCTURE,
-                "multi-dataset bar group ("
-                + ",".join(d_names)
-                + ") kept as raw GLE, not editable",
-                self._stmt_span(stmt),
-            )
-            return
+    @staticmethod
+    def _bar_xs_match(loaded) -> bool:
+        """True when every loaded dataset has the same x column."""
+        if len(loaded) < 2:
+            return True
+        ref = np.asarray(loaded[0]["x"], dtype=float)
+        for row in loaded[1:]:
+            other = np.asarray(row["x"], dtype=float)
+            if ref.shape != other.shape or not np.allclose(
+                ref, other, rtol=0, atol=0, equal_nan=True
+            ):
+                return False
+        return True
 
-        if unmodelled:
-            # G19. One of GLE's other bar sub-commands. There is no
-            # BarSeries field for it, and no half-way house: modeling the
-            # dataset and its fill while dropping ``horiz`` would turn a
-            # horizontal bar chart into a vertical one, ``3d`` would flatten
-            # it, ``dist`` would regroup it. Same answer as the grouped and
-            # stacked forms above (the 557aa42 precedent) -- keep the WHOLE
-            # command raw, say so, and let the 'data'-statement
-            # reconciliation restore its data line verbatim, so GLE reads
-            # exactly the script the author wrote.
-            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
-            self._note(
-                ImportCategory.STRUCTURE,
+    @staticmethod
+    def _claim_bar_file(info, name: str) -> str:
+        """The sidecar name for this bar command.
+
+        The first command to use a source file keeps that name. A later
+        independent command gets ``stem_2.dat``, because the writer
+        rewrites a series' file in place and two series must not share one.
+        """
+        claimed = info["_claimed_bar_files"]
+        count = claimed.get(name, 0)
+        claimed[name] = count + 1
+        if count == 0:
+            return name
+        path = Path(name)
+        return str(path.with_name(f"{path.stem}_{count + 1}{path.suffix}"))
+
+    def _keep_bar_raw(self, scanned, info, stmt, toks) -> None:
+        """Passthrough for a ``bar`` command, with the note that says why."""
+        for name in scanned["datasets"]:
+            raw = info["_hist_let_pending"].pop(name, None)
+            if raw:
+                info["passthrough"].append(raw)
+        info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
+        if scanned["unmodelled"]:
+            message = (
                 "bar sub-command(s) "
-                + ", ".join(unmodelled)
+                + ", ".join(scanned["unmodelled"])
                 + " have no model; the whole 'bar' command is kept as raw "
-                "GLE, not editable",
-                self._stmt_span(stmt),
+                "GLE, not editable"
             )
+        elif len(scanned["datasets"]) > 1 or scanned["from_names"]:
+            shown = list(scanned["datasets"])
+            for name in scanned["from_names"]:
+                if name not in shown:
+                    shown.append(name)
+            message = (
+                "multi-dataset bar group ("
+                + ",".join(shown)
+                + ") kept as raw GLE, not editable"
+            )
+        else:
+            message = "bar command kept as raw GLE, not editable"
+        self._note(ImportCategory.STRUCTURE, message, self._stmt_span(stmt))
+
+    def _parse_bar_command(self, toks, datasets, info, stmt=None):
+        """``bar``: one series, a group, or a stack. Unmodelled stays raw.
+
+        A group (``bar d1,d2 fill c1,c2``) is one series per dataset, sharing
+        ``group`` and one sidecar. ``from`` stores the baseline and the
+        exact top, so the writer can emit ``bar dTo from dFrom`` without
+        rebuilding the top by subtraction. A command with an unmodelled
+        keyword, or one whose file is shared with a raw ``fill``, is kept
+        whole.
+        """
+        scanned = _scan_bar_command(toks)
+        if self._try_hist_bar(scanned, datasets, info, stmt, toks):
             return
 
-        d_name = d_names[0] if d_names else None
-        if d_name is None or d_name not in datasets:
+        names = list(scanned["datasets"])
+        from_names = list(scanned["from_names"])
+        involved = names + from_names
+        held = any(name in info["_bar_hold_raw"] for name in involved)
+        mismatched_from = bool(from_names) and len(from_names) != len(names)
+        if scanned["unmodelled"] or scanned["bad_value"] or held or mismatched_from:
+            self._keep_bar_raw(scanned, info, stmt, toks)
+            return
+        if not names or any(name not in datasets for name in involved):
             info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
             return
-        if d_name in info["_bar_stack_datasets"]:
-            # This dataset ALSO appears in a 'bar dN from dM ...' statement
-            # elsewhere in the block (pass 1's look-ahead, ``_bar_stack_names``)
-            # -- GLE's stacked-bar relationship has no BarSeries model, so
-            # this otherwise-ordinary single-dataset 'bar' must stay raw
-            # alongside it rather than being modeled independently. Modeling
-            # it anyway would have the writer regenerate ITS dataset's own
-            # '.dat' sidecar with only the columns IT uses (GLEWriter always
-            # rewrites an owned series' data file that way -- see
-            # add_bar_chart/_write_columns), silently truncating away the
-            # column(s) the stack statement still needs from that same
-            # file. The stack statement's own "multi-dataset bar group" note
-            # already explains the group to the no-silent-drops contract, so
-            # none is duplicated here.
-            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
-            return
-        info["_key_suppress_datasets"].add(d_name)
-        data_file, xcol, ycol = datasets[d_name]
-        loaded = self._load_series(
-            data_file, xcol, ycol, line_no=self._opt_line_no(stmt)
-        )
-        entry = BarSeries(
-            colors=None,
-            label=None,
-            data_file=data_file,
-        )
-        if loaded is None or loaded.get("error"):
-            if width is not None:
-                # G19: ``FileSeries`` has no width, so the error-reference
-                # form would drop the one number the author wrote down.
-                # Keep the command raw instead -- GLE reads the real file at
-                # compile time, so the authored script still draws.
-                info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
-                self._note(
-                    ImportCategory.STRUCTURE,
-                    "bar width on an unresolved dataset ("
-                    + d_name
-                    + ") has no model; the whole 'bar' command is kept as "
-                    "raw GLE, not editable",
-                    self._stmt_span(stmt),
-                )
-                return
-            # Broken data -> represent as file_series-style reference w/ error.
-            fs = FileSeries(
-                series_type="bar",
-                data_file=data_file,
-                x_col=xcol,
-                y_col=ycol,
-                color=color,
-                data_error=(loaded or {}).get("error", "unresolved"),
+
+        loaded_to = []
+        loaded_from = []
+        failed = False
+        fail_error = "unresolved"
+        for name in names:
+            data_file, xcol, ycol = datasets[name]
+            row = self._load_series(
+                data_file, xcol, ycol, line_no=self._opt_line_no(stmt)
             )
-            info["file_series"].append(fs)
-            info["_key_label_owners"][d_name] = fs
+            if row is None or row.get("error"):
+                failed = True
+                fail_error = (row or {}).get("error", "unresolved")
+                break
+            loaded_to.append(row)
+        if not failed:
+            for name in from_names:
+                data_file, xcol, ycol = datasets[name]
+                row = self._load_series(
+                    data_file, xcol, ycol, line_no=self._opt_line_no(stmt)
+                )
+                if row is None or row.get("error"):
+                    failed = True
+                    fail_error = (row or {}).get("error", "unresolved")
+                    break
+                loaded_from.append(row)
+        if failed:
+            if _bar_scan_is_plain(scanned) and len(names) == 1:
+                if scanned["width"] is not None:
+                    # FileSeries has no width, so the reference form would
+                    # drop the one number the author wrote down.
+                    info["passthrough"].append(
+                        self._bar_fill_passthrough_line(toks, stmt)
+                    )
+                    self._note(
+                        ImportCategory.STRUCTURE,
+                        "bar width on an unresolved dataset ("
+                        + names[0]
+                        + ") has no model; the whole 'bar' command is kept "
+                        "as raw GLE, not editable",
+                        self._stmt_span(stmt),
+                    )
+                    return
+                data_file, xcol, ycol = datasets[names[0]]
+                fills = scanned["fills"]
+                fs = FileSeries(
+                    series_type="bar",
+                    data_file=data_file,
+                    x_col=xcol,
+                    y_col=ycol,
+                    color=(fills[0] if fills else "RED"),
+                    data_error=fail_error,
+                )
+                info["file_series"].append(fs)
+                info["_key_suppress_datasets"].add(names[0])
+                info["_key_label_owners"][names[0]] = fs
+                return
+            self._keep_bar_raw(scanned, info, stmt, toks)
             return
-        x = loaded["x"]
-        height = loaded["y"]
-        entry["x"] = x
-        entry["height"] = height
-        entry["colors"] = [color] * len(height)
-        if width is not None:
-            # G19. Absent unless the script named one: an unset width is
-            # GLE's to derive, and G16's writer-side derivation depends on
-            # the field staying absent for every bar that already draws.
-            entry["width"] = width
-        column_names = self._recovered_column_names(data_file, [xcol, ycol])
-        if column_names is not None:
-            entry["column_names"] = column_names
-        entry["_draw_seq"] = info["_draw_seq_counter"]
-        info["_draw_seq_counter"] += 1
-        info["bars"].append(entry)
-        info["_key_label_owners"][d_name] = entry
+        if not self._bar_xs_match(loaded_to + loaded_from):
+            self._keep_bar_raw(scanned, info, stmt, toks)
+            return
+
+        source_file = datasets[names[0]][0]
+        data_file = self._claim_bar_file(info, source_file)
+        group_id = None
+        if len(names) > 1:
+            group_id = info["_bar_group_next"]
+            info["_bar_group_next"] += 1
+        fills = scanned["fills"]
+        edges = scanned["edges"]
+        style = {}
+        if scanned["width"] is not None:
+            style["width"] = scanned["width"]
+        if scanned["dist"] is not None:
+            style["dist"] = scanned["dist"]
+        if scanned["horiz"]:
+            style["horiz"] = True
+        if scanned["linestyle"]:
+            style["linestyle"] = scanned["linestyle"]
+        if scanned["lstyle"]:
+            style["lstyle"] = scanned["lstyle"]
+        if scanned["linewidth_cm"] is not None:
+            style["linewidth"] = linewidth_cm_to_pt(scanned["linewidth_cm"])
+
+        for index, name in enumerate(names):
+            row = loaded_to[index]
+            data_file_i, xcol, ycol = datasets[name]
+            y = np.asarray(row["y"], dtype=float)
+            fields = dict(
+                x=np.asarray(row["x"], dtype=float),
+                data_file=data_file,
+                label=None,
+            )
+            if from_names:
+                base = np.asarray(loaded_from[index]["y"], dtype=float)
+                fields["bottom"] = base
+                fields["top"] = y.copy()
+                fields["height"] = y - base
+            else:
+                fields["height"] = y
+            if fills is None:
+                face = "RED"
+            elif index < len(fills):
+                face = fills[index]
+            else:
+                face = "RED"
+            fields["colors"] = [face] * len(y)
+            if group_id is not None and index == 0:
+                fields["fill_list"] = list(fills) if fills is not None else []
+                if edges:
+                    fields["edge_list"] = list(edges)
+            elif group_id is None:
+                if fills is not None and len(fills) != 1:
+                    fields["fill_list"] = list(fills)
+                if edges:
+                    if len(edges) == 1:
+                        fields["edgecolor"] = edges[0]
+                    else:
+                        fields["edge_list"] = list(edges)
+                        fields["edgecolor"] = edges[0]
+            elif edges and index < len(edges) and index != 0:
+                fields["edgecolor"] = edges[index]
+            fields.update(style)
+            if group_id is not None:
+                fields["group"] = group_id
+            entry = BarSeries(**fields)
+            if not from_names:
+                column_names = self._recovered_column_names(data_file_i, [xcol, ycol])
+                if column_names is not None:
+                    entry["column_names"] = column_names
+            entry["_draw_seq"] = info["_draw_seq_counter"]
+            info["_draw_seq_counter"] += 1
+            info["bars"].append(entry)
+            info["_key_suppress_datasets"].add(name)
+            info["_key_label_owners"][name] = entry
+        for name in from_names:
+            info["_key_suppress_datasets"].add(name)
 
     def _parse_fill_command(self, toks, datasets, info, stmt=None):
         """``fill dA,dB``, ``fill x1,dN``, ``fill dN,x2`` or ``fill dN``.

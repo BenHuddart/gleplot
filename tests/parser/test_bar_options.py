@@ -162,21 +162,25 @@ def test_the_degrade_list_is_gles_whole_bar_grammar():
         "pattern",
         "background",
     }
-    modelled = {"fill", "width"}
+    modelled = {
+        "fill",
+        "width",
+        "dist",
+        "horiz",
+        "lstyle",
+        "lwidth",
+        "from",
+        "color",
+    }
     assert set(_BAR_UNMODELLED_OPTIONS) == grammar - modelled
 
 
 @pytest.mark.parametrize(
     "option",
     [
-        "dist 0.1",
         "3d 0.2 0.2",
         "notop",
-        "horiz",
-        "lstyle 12",
         "style ...",
-        "lwidth 0.02",
-        "color blue",
         "side green",
         "top black",
         "pattern grid5",
@@ -211,12 +215,12 @@ def test_several_unmodelled_options_are_named_together(tmp_path):
     p = _write(
         tmp_path,
         "m.gle",
-        _script("bar d1 fill red horiz dist 0.1"),
+        _script("bar d1 fill red 3d 0.2 0.2 pattern grid5"),
         {"two.dat": _TWO_DAT},
     )
     rec = parse_gle_figure(p)
     (note,) = rec.notes
-    assert "horiz" in note.message and "dist" in note.message
+    assert "3d" in note.message and "pattern" in note.message
 
 
 def test_a_width_gleplot_cannot_evaluate_degrades_rather_than_vanishing(tmp_path):
@@ -247,8 +251,9 @@ def test_a_width_on_an_unresolved_dataset_degrades_too(tmp_path):
     assert any("width" in n.message for n in rec.notes)
 
 
-def test_a_stacked_bar_keeps_its_own_older_note(tmp_path):
-    """``from`` reaches the multi-dataset branch first (557aa42); unchanged."""
+def test_a_stacked_bar_is_a_baseline(tmp_path, monkeypatch):
+    """``bar d2 from d1`` stores the baseline and the exact top."""
+    monkeypatch.chdir(tmp_path)
     p = _write(
         tmp_path,
         "s.gle",
@@ -261,14 +266,102 @@ def test_a_stacked_bar_keeps_its_own_older_note(tmp_path):
         {"two.dat": _TWO_DAT},
     )
     rec = parse_gle_figure(p)
-    assert rec.figure.axes_list[0].bars == []
-    assert any("multi-dataset bar group" in n.message for n in rec.notes)
+    (bar,) = rec.figure.axes_list[0].bars
+    assert list(bar["bottom"]) == [5, 3]
+    assert list(bar["top"]) == [5, 3]
+    assert "from" not in "".join(rec.figure.axes_list[0].passthrough)
+    rec.figure.savefig_gle("out.gle")
+    text = Path("out.gle").read_text(encoding="utf-8")
+    assert "bar d2 from d1 fill white" in text
+
+
+def test_horiz_color_and_lstyle_round_trip(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    p = _write(
+        tmp_path,
+        "h.gle",
+        _script("bar d1 fill red color blue lstyle 2 lwidth 0.02 horiz dist 0.4"),
+        {"two.dat": _TWO_DAT},
+    )
+    rec = parse_gle_figure(p)
+    (bar,) = rec.figure.axes_list[0].bars
+    assert bar["horiz"] is True
+    assert bar["edgecolor"] == "blue"
+    assert bar["linestyle"] == ":"  # lstyle 2 is the dotted default
+    assert bar["dist"] == 0.4
+    assert bar["colors"] == ["red", "red"]
+    rec.figure.savefig_gle("out.gle")
+    text = Path("out.gle").read_text(encoding="utf-8")
+    assert "fill red" in text
+    assert "color blue" in text
+    assert "horiz" in text
+    assert "dist 0.4" in text
+    glp.open_gle("out.gle").savefig_gle("again.gle")
+    assert Path("again.gle").read_text(encoding="utf-8") == text
+
+
+def test_a_grouped_bar_shares_one_command(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    body = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "two.dat" d1=c1,c2 d2=c1,c2\n'
+        "   bar d1,d2 fill green,blue width 0.3\n"
+        "end graph\n"
+    )
+    _write(tmp_path, "g.gle", body, {"two.dat": _TWO_DAT})
+    rec = parse_gle_figure("g.gle")
+    bars = rec.figure.axes_list[0].bars
+    assert len(bars) == 2
+    assert bars[0]["group"] == bars[1]["group"]
+    assert bars[0].get("fill_list") == ["green", "blue"]
+    rec.figure.savefig_gle("out.gle")
+    text = Path("out.gle").read_text(encoding="utf-8")
+    assert "bar d1,d2 fill green,blue" in text
+    assert "width 0.3" in text
+    glp.open_gle("out.gle").savefig_gle("again.gle")
+    assert Path("again.gle").read_text(encoding="utf-8") == text
+
+
+def test_a_from_list_of_the_wrong_length_stays_raw(tmp_path):
+    """``from`` is positional. A shorter list would apply to the wrong bars."""
+    body = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "two.dat" d1=c1,c2 d2=c1,c2 d3=c1,c2\n'
+        "   bar d1,d2 from d3 fill red,blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "short.gle", body, {"two.dat": _TWO_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == []
+    assert "   bar d1,d2 from d3 fill red,blue" in ax.passthrough
+
+
+def test_grouped_bars_that_do_not_share_x_stay_raw(tmp_path):
+    (tmp_path / "a.dat").write_text("1 5\n2 3\n", encoding="utf-8")
+    (tmp_path / "b.dat").write_text("1 4\n3 2\n", encoding="utf-8")
+    p = tmp_path / "shift.gle"
+    p.write_text(
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "a.dat" d1=c1,c2\n'
+        '   data "b.dat" d2=c1,c2\n'
+        "   bar d1,d2 fill red,blue\n"
+        "end graph\n",
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == []
+    assert "   bar d1,d2 fill red,blue" in ax.passthrough
 
 
 def test_a_degraded_bar_is_a_parse_emit_parse_fixed_point(tmp_path, monkeypatch):
     """Raw means raw: the command and its data line come back out untouched."""
     monkeypatch.chdir(tmp_path)
-    bar_line = "bar d1 fill red horiz dist 0.1"
+    bar_line = "bar d1 fill red 3d 0.2 0.2 pattern grid5"
     _write(tmp_path, "h.gle", _script(bar_line), {"two.dat": _TWO_DAT})
 
     glp.open_gle("h.gle").savefig_gle("first.gle")

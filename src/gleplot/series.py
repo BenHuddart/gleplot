@@ -662,9 +662,52 @@ class BarSeries(Series):
 
     x: np.ndarray
     height: np.ndarray
-    #: One colour per bar; GLE only honours the first, but the list length
-    #: is what the GUI edits against.
+    #: Face colour of each bar in this dataset. One GLE dataset has one
+    #: fill: a call that asks for a different colour per bar becomes one
+    #: series per bar, and a grouped ``bar d1,d2 fill c1,c2`` is several
+    #: series that share :attr:`group`. A single series whose ``fill`` list
+    #: is longer than one dataset keeps the extra tokens in
+    #: :attr:`fill_list` (GLE stores them and draws the first).
     colors: Optional[List[str]]
+    #: Authored ``fill`` tokens when they are not just :attr:`colors`' first
+    #: entry. The writer emits this list verbatim. Absent on an API series.
+    fill_list: Optional[List[str]]
+    #: Stroke colour (GLE ``color``). Absent: the writer emits no ``color``
+    #: keyword, and GLE strokes in black. ``"none"`` is matplotlib's missing
+    #: edge; GLE has no such edge, so the writer emits ``lwidth 0``.
+    edgecolor: Optional[str]
+    #: Authored ``color`` list when a command names more than one edge.
+    #: Emitted verbatim. Absent when :attr:`edgecolor` is the whole story.
+    edge_list: Optional[List[str]]
+    #: Edge width in points. Absent: nothing is written, and GLE keeps the
+    #: line width already in force. ``0`` is written (it is how a missing
+    #: edge is spelled).
+    linewidth: Optional[float]
+    #: Edge linestyle. Absent: GLE's solid default, and no ``lstyle`` token.
+    #: ``'-'`` is stored only when a script or a caller named the style, so
+    #: a hand-written ``lstyle 1`` is not dropped.
+    linestyle: Optional[str]
+    #: A ``lstyle`` token that is not one of the four matplotlib styles
+    #: (a comma list, or a number the style map does not know). Re-emitted
+    #: as written. Absent when :attr:`linestyle` carries it.
+    lstyle: Optional[str]
+    #: True emits ``horiz`` (matplotlib ``barh``). Absent is vertical, so a
+    #: plain bar keeps the historical dict shape.
+    horiz: bool
+    #: Baseline of each bar (matplotlib ``bottom``, or ``left`` on
+    #: ``barh``). Absent draws from 0 and the y column is the height.
+    #: Present: ``bar dTo from dFrom``. The to-dataset's y is :attr:`top`
+    #: when a script was recovered, otherwise ``bottom + height``.
+    bottom: Optional[np.ndarray]
+    #: Exact to-dataset y recovered from a ``from`` command. The writer
+    #: prefers it so the sidecar stays the bytes that were read.
+    top: Optional[np.ndarray]
+    #: Series that share this id were one ``bar d1,d2,...`` command and are
+    #: written as one. Absent on an independent bar.
+    group: Optional[int]
+    #: ``bar ... dist``, the gap from the left of one bar to the left of
+    #: the next in a group. Absent: GLE's own ``width * 1.4``.
+    dist: Optional[float]
     #: Bar width in DATA units (GLE's ``bar dN ... width w``), or absent
     #: (G19). Absent is the historical behaviour and the default: GLE sizes
     #: the set from the data itself -- ``drawBar`` takes
@@ -691,6 +734,10 @@ class BarSeries(Series):
     swatch_color: Optional[str]
 
     def default_column_names(self) -> Optional[List[str]]:
+        if self.get("bottom") is not None:
+            # The sidecar is the baseline and the top, not the segment
+            # height. The legend label is the ``key``, not the header.
+            return ["x", "bottom", "top"]
         return _build_column_names("x", ["height"], self.get("label"))
 
 

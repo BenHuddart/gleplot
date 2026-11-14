@@ -174,6 +174,199 @@ def _to_float_array(value):
     return np.asarray(value, dtype=float)
 
 
+def _is_one_color(color) -> bool:
+    """True for one colour, false for a per-bar sequence.
+
+    An RGB(A) tuple is one colour. A list of names, or a longer array, is
+    a sequence.
+    """
+    if isinstance(color, str):
+        return True
+    if isinstance(color, np.ndarray):
+        return color.ndim == 0 or (
+            color.ndim == 1
+            and color.size in (3, 4)
+            and np.issubdtype(color.dtype, np.number)
+        )
+    if isinstance(color, (tuple, list)):
+        return (
+            bool(color)
+            and len(color) in (3, 4)
+            and isinstance(color[0], (int, float, np.integer, np.floating))
+        )
+    return False
+
+
+def _gle_bar_color(color) -> str:
+    """A bar colour as a GLE token. ``'none'`` stays ``none``."""
+    if isinstance(color, str) and color.strip().lower() == "none":
+        return "none"
+    return rgb_to_gle(color)
+
+
+def _bar_color_list(color, n: int, default: Optional[str]) -> List[Optional[str]]:
+    """One face or edge colour per bar.
+
+    ``None`` repeats ``default`` (itself ``None`` when the caller omitted
+    the edge). A sequence of one broadcasts. Any other length must match
+    the bars.
+    """
+    if color is None:
+        return [default] * n
+    if _is_one_color(color):
+        return [_gle_bar_color(color)] * n
+    seq = list(color)
+    if len(seq) == 1:
+        return [_gle_bar_color(seq[0])] * n
+    if len(seq) != n:
+        raise ValueError(
+            f"color sequence length {len(seq)} does not match the {n} bars"
+        )
+    return [_gle_bar_color(item) for item in seq]
+
+
+def _bar_style_aliases(kwargs, color, edgecolor, linewidth, linestyle):
+    """Pull matplotlib's short names out of ``kwargs``.
+
+    ``color`` wins over ``facecolor`` / ``fc`` / ``c``. The same for
+    ``edgecolor`` over ``ec``, ``linewidth`` over ``lw``, and ``linestyle``
+    over ``ls``.
+    """
+
+    def take(*names):
+        found = None
+        hit = False
+        for name in names:
+            if name not in kwargs:
+                continue
+            value = kwargs.pop(name)
+            if not hit:
+                found = value
+                hit = True
+        return found, hit
+
+    face, saw_face = take("facecolor", "fc", "c")
+    if saw_face and color is not None:
+        warnings.warn(
+            "bar() got both color and facecolor; color wins.",
+            UserWarning,
+            stacklevel=3,
+        )
+    elif color is None and saw_face:
+        color = face
+    edge, saw_edge = take("ec")
+    if saw_edge and edgecolor is not None:
+        warnings.warn(
+            "bar() got both edgecolor and ec; edgecolor wins.",
+            UserWarning,
+            stacklevel=3,
+        )
+    elif edgecolor is None and saw_edge:
+        edgecolor = edge
+    width, saw_width = take("lw")
+    if saw_width and linewidth is not None:
+        warnings.warn(
+            "bar() got both linewidth and lw; linewidth wins.",
+            UserWarning,
+            stacklevel=3,
+        )
+    elif linewidth is None and saw_width:
+        linewidth = width
+    style, saw_style = take("ls")
+    if saw_style and linestyle is not None:
+        warnings.warn(
+            "bar() got both linestyle and ls; linestyle wins.",
+            UserWarning,
+            stacklevel=3,
+        )
+    elif linestyle is None and saw_style:
+        linestyle = style
+    return color, edgecolor, linewidth, linestyle
+
+
+def _bar_baseline(bottom, n: int):
+    """The baseline array, or ``None`` when the bars start at zero.
+
+    An all-zero baseline is matplotlib's default and is not stored, so a
+    ``bottom=0`` chart keeps the historical script.
+    """
+    if bottom is None:
+        return None
+    arr = np.asarray(bottom, dtype=float)
+    if arr.ndim == 0:
+        if not np.isfinite(arr):
+            raise ValueError("bar() bottom must be finite")
+        if float(arr) == 0.0:
+            return None
+        return np.full(n, float(arr))
+    flat = arr.ravel()
+    if flat.size != n:
+        raise ValueError(f"bar() bottom length {flat.size} does not match the {n} bars")
+    if not np.all(np.isfinite(flat)):
+        raise ValueError("bar() bottom must be finite")
+    if np.all(flat == 0):
+        return None
+    return flat
+
+
+def _bar_edge_style(linewidth, linestyle) -> dict:
+    """Scalar edge width and linestyle. A sequence warns and keeps the first."""
+    result: Dict[str, Any] = {}
+    if linewidth is not None:
+        if np.ndim(linewidth) != 0:
+            warnings.warn(
+                "bar() linewidth is one number per dataset; the first value "
+                "is used.",
+                UserWarning,
+                stacklevel=3,
+            )
+            linewidth = np.ravel(np.asarray(linewidth, dtype=float))[0]
+        value = float(linewidth)
+        if not np.isfinite(value):
+            raise ValueError("bar() linewidth must be finite")
+        result["linewidth"] = value
+    if linestyle is not None:
+        if not isinstance(linestyle, str):
+            warnings.warn(
+                "bar() linestyle is one style per dataset; the first value " "is used.",
+                UserWarning,
+                stacklevel=3,
+            )
+            linestyle = list(linestyle)[0]
+        key = str(linestyle).strip().lower()
+        key = {
+            "solid": "-",
+            "dashed": "--",
+            "dotted": ":",
+            "dashdot": "-.",
+        }.get(key, key)
+        if key not in ("-", "--", ":", "-.", "none"):
+            warnings.warn(
+                f"bar() linestyle {linestyle!r} is not a GLE edge style; "
+                "the edge stays solid.",
+                UserWarning,
+                stacklevel=3,
+            )
+        else:
+            result["linestyle"] = key
+    return result
+
+
+def _bar_width_for_split(x: np.ndarray) -> float:
+    """Thickness of each piece when one ``bar()`` call becomes several.
+
+    A one-point dataset has no gap, so GLE cannot derive a width. Use the
+    width the combined set would have been given: half the smallest positive
+    gap, or the nominal ``0.5`` when there is none.
+    """
+    from .writer import GLEWriter
+
+    derived = GLEWriter.bar_width_gle_cannot_derive(x)
+    if derived is not None:
+        return float(derived)
+    return float(GLEWriter.gle_bar_min_x_interval(x) / 2.0)
+
+
 def _require_finite(arr: np.ndarray, what: str) -> None:
     """Raise ``ValueError`` if ``arr`` holds any NaN or infinity.
 
@@ -2272,32 +2465,48 @@ class Axes:
         self,
         x,
         height,
-        color: Optional[Union[str, List[str]]] = None,
+        color: Optional[Union[str, Sequence]] = None,
         label: Optional[str] = None,
         zorder: Optional[float] = None,
         width: Optional[float] = None,
+        bottom=None,
+        align: str = "center",
+        edgecolor=None,
+        linewidth: Optional[float] = None,
+        linestyle: Optional[str] = None,
         **kwargs,
     ):
         """
-        Create bar chart.
+        Create a bar chart.
 
-        Note: Due to GLE limitations, all bars in a chart use the same color.
-        If a list of colors is provided, only the first color is used.
+        One GLE dataset has one face colour and one edge colour. A colour
+        sequence therefore becomes one series per bar (each its own
+        ``bar dN``), so the bars keep the positions in ``x``. A grouped
+        chart is two calls with the x of the second shifted by the width,
+        which is what matplotlib does; a hand-written ``bar d1,d2 fill
+        c1,c2`` is the engine's own side-by-side form and round-trips as
+        one command.
+
+        ``bottom`` stacks: the bar runs from that baseline to
+        ``bottom + height`` (GLE ``bar dTo from dFrom``). ``edgecolor`` is
+        the stroke (GLE ``color``); ``linewidth`` and ``linestyle`` are
+        ``lwidth`` and ``lstyle``. ``barh`` is the horizontal form.
 
         Parameters
         ----------
         x : array-like
-            Bar positions or categories
+            Bar positions.
         height : array-like
-            Bar heights
-        color : str or list of str, optional
-            Bar color. If a list is provided, only the first color is used
-            due to GLE limitations. Default is 'red'.
+            Bar lengths. With ``bottom``, the top is ``bottom + height``.
+        color : str or sequence, optional
+            Face colour. A sequence must have one entry, or one per bar.
+            Default ``'red'``. ``facecolor`` / ``fc`` / ``c`` are aliases.
         label : str, optional
             Legend label. Emitted as ``dN key`` after the bar; the bar fill
-            is the swatch.
+            is the swatch. On a per-bar colour split, only the first bar
+            carries it.
         width : float, optional
-            Bar width in DATA units (G19), GLE's ``bar dN ... width w``.
+            Bar thickness in DATA units (G19), GLE's ``bar dN ... width w``.
             The default, ``None``, is the engine's own behaviour and
             gleplot's historical one: GLE sizes the set from the data,
             taking half the smallest gap between consecutive x values.
@@ -2306,57 +2515,187 @@ class Axes:
             emitting the script it emits now. Note also that ``width`` is a
             keyword here where matplotlib's is positional: this method's
             third positional parameter has always been ``color``.
+        bottom : float or array-like, optional
+            Baseline. ``0`` (matplotlib's default) draws from zero and is
+            not written. An array must have one value per bar.
+        align : {'center', 'edge'}, optional
+            GLE centers every bar on its x value. ``'edge'`` warns and is
+            drawn centered.
+        edgecolor : str or sequence, optional
+            Stroke colour (GLE ``color``). ``'none'`` emits ``lwidth 0``:
+            GLE has no missing edge. ``ec`` is an alias.
+        linewidth, linestyle : optional
+            Edge width in points and matplotlib linestyle. ``lw`` / ``ls``
+            are aliases. Omitted, the command carries neither keyword.
+        horiz : bool, optional
+            Emit ``horiz``. :meth:`barh` sets this.
         **kwargs
-            Additional arguments
+            ``hatch`` and anything else GLE cannot draw are accepted and
+            warned about.
 
         Returns
         -------
         self
-
-        Examples
-        --------
-        >>> fig = glp.figure()
-        >>> ax = fig.add_subplot(111)
-        >>> categories = np.array([1, 2, 3, 4, 5])
-        >>> values = np.array([10, 24, 36, 18, 7])
-        >>> ax.bar(categories, values, color='blue')
-        >>> fig.savefig('bar_chart.pdf')
         """
         data_name = kwargs.pop("data_name", None)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
+        horiz = bool(kwargs.pop("horiz", False))
+        color, edgecolor, linewidth, linestyle = _bar_style_aliases(
+            kwargs, color, edgecolor, linewidth, linestyle
+        )
+        align_name = str(align).strip().lower()
+        if align_name not in ("center", "edge"):
+            raise ValueError("align must be 'center' or 'edge', got " f"{align!r}")
+        if align_name == "edge":
+            warnings.warn(
+                "bar(align='edge') is drawn centered: GLE places each bar "
+                "on its x value.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if kwargs:
+            names = ", ".join(sorted(str(key) for key in kwargs))
+            warnings.warn(
+                f"bar() ignores unsupported keyword(s): {names}.",
+                UserWarning,
+                stacklevel=2,
+            )
         label = mathtext_to_gle(label)
 
-        x = np.asarray(x, dtype=float)
-        height = np.asarray(height, dtype=float)
+        x = np.asarray(x, dtype=float).ravel()
+        height = np.asarray(height, dtype=float).ravel()
+        if x.shape != height.shape:
+            raise ValueError(
+                f"bar() x and height must have the same length, got "
+                f"{x.size} and {height.size}"
+            )
+        n = int(x.size)
+        if n == 0:
+            raise ValueError("bar() needs at least one bar")
 
-        # Handle color - only first color is used due to GLE limitation
-        if color is None:
-            colors = ["RED"] * len(height)
-        elif isinstance(color, str):
-            colors = [rgb_to_gle(color)] * len(height)
-        else:
-            # Take first color only
-            colors = [rgb_to_gle(color[0])] * len(height)
+        faces = _bar_color_list(color, n, default="RED")
+        edges = _bar_color_list(edgecolor, n, default=None)
+        baseline = _bar_baseline(bottom, n)
+        style = _bar_edge_style(linewidth, linestyle)
 
-        bar_data = BarSeries(
-            x=x,
-            height=height,
-            colors=colors,
+        # One dataset, one face and one edge. Differing colours are separate
+        # series so each bar is a ``bar dN`` at its own x. Uniform colours
+        # stay one series: that is every bar chart gleplot has ever written.
+        vary = len(set(faces)) > 1 or len({edge for edge in edges}) > 1
+        if not vary:
+            self._append_bar(
+                x,
+                height,
+                faces,
+                label,
+                data_name,
+                width,
+                zorder,
+                baseline,
+                edges[0],
+                style,
+                horiz,
+            )
+            return self
+
+        # A one-point dataset has no gap for GLE to measure, so each piece
+        # carries the thickness the combined set would have been given.
+        piece_width = width
+        if piece_width is None:
+            piece_width = _bar_width_for_split(x)
+        for index in range(n):
+            self._append_bar(
+                x[index : index + 1],
+                height[index : index + 1],
+                [faces[index]],
+                label if index == 0 else None,
+                data_name if index == 0 else None,
+                piece_width,
+                zorder,
+                None if baseline is None else baseline[index : index + 1],
+                edges[index],
+                style,
+                horiz,
+            )
+        return self
+
+    def barh(
+        self,
+        y,
+        width,
+        height: Optional[float] = None,
+        left=None,
+        align: str = "center",
+        **kwargs,
+    ):
+        """Horizontal bars. See :meth:`bar`.
+
+        ``width`` is the bar length (matplotlib's second positional) and
+        ``height`` is the thickness. Thickness defaults to GLE's own
+        derivation, the same as :meth:`bar`'s ``width``, not matplotlib's
+        ``0.8``. ``left`` is the baseline (``bar``'s ``bottom``).
+        """
+        if "width" in kwargs:
+            raise TypeError(
+                "barh() got width=: the bar length is the second positional "
+                "argument, and the thickness is height="
+            )
+        return self.bar(
+            y,
+            width,
+            width=height,
+            bottom=left,
+            align=align,
+            horiz=True,
+            **kwargs,
+        )
+
+    def _append_bar(
+        self,
+        x,
+        height,
+        colors,
+        label,
+        data_name,
+        width,
+        zorder,
+        bottom,
+        edgecolor,
+        style,
+        horiz,
+    ):
+        """Store one bar dataset. Optional keys stay absent."""
+        fields = dict(
+            x=np.asarray(x, dtype=float),
+            height=np.asarray(height, dtype=float),
+            colors=list(colors),
             label=label,
             data_file=_resolve_data_file(self.figure, data_name),
-            column_names=_build_column_names("x", ["height"], label),
         )
+        if bottom is not None:
+            base = np.asarray(bottom, dtype=float)
+            # The sidecar column is this top. Keeping it means the next save
+            # writes those values back instead of a fresh subtraction.
+            fields["bottom"] = base
+            fields["top"] = base + np.asarray(height, dtype=float)
+            fields["column_names"] = ["x", "bottom", "top"]
+        else:
+            fields["column_names"] = _build_column_names("x", ["height"], label)
         if width is not None:
-            # Absent, not None: an unset width is the engine's to derive, and
-            # only a series that actually carries the key gains one in
-            # to_dict() (see BarSeries.width and the "optional fields stay
-            # absent" rule in gleplot.series).
-            bar_data["width"] = float(width)
+            # Absent, not None: an unset width is the engine's to derive.
+            fields["width"] = float(width)
+        if edgecolor is not None:
+            fields["edgecolor"] = edgecolor
+        if style.get("linewidth") is not None:
+            fields["linewidth"] = style["linewidth"]
+        if style.get("linestyle") is not None:
+            fields["linestyle"] = style["linestyle"]
+        if horiz:
+            fields["horiz"] = True
+        bar_data = BarSeries(**fields)
         self._register_series_draw_meta(bar_data, "bar", zorder)
         self.bars.append(bar_data)
-
-        return self
 
     def fill_between(
         self,
@@ -4402,6 +4741,13 @@ class Axes:
                 item = series_cls._restore(payload)
                 for key in series_cls.ARRAY_FIELDS:
                     item[key] = _to_float_array(item.get(key))
+                # ``bottom`` / ``top`` are arrays but not in ``ARRAY_FIELDS``:
+                # that loop inserts a missing key, and a bar with no baseline
+                # must keep the key absent so its snapshot stays historical.
+                if series_cls is BarSeries:
+                    for key in ("bottom", "top"):
+                        if key in item and item[key] is not None:
+                            item[key] = _to_float_array(item[key])
                 # Older projects (pre Track E3) have no 'column_names' key at
                 # all on their series; regenerate the same defaults the
                 # plotting methods would produce so the next save still gets

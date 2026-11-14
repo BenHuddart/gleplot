@@ -476,7 +476,7 @@ def _digest(text, files):
 def _wide_battery():
     """The golden + project batteries, as ``(id, builder)`` pairs.
 
-    45 figures between them, covering every series type, subplot shape,
+    The golden and project figures between them, covering every series type, subplot shape,
     legend, colorbar, file-series and passthrough path the writer has -- a
     much wider net than a hand-picked list, at the price of a digest instead
     of readable text. ``degenerate_neighbour_emissions.json`` is the readable

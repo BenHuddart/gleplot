@@ -238,6 +238,11 @@ def bar(*args, **kwargs):
     return gca().bar(*args, **kwargs)
 
 
+def barh(*args, **kwargs):
+    """Horizontal bars on the current axes. See :meth:`gleplot.Axes.barh`."""
+    return gca().barh(*args, **kwargs)
+
+
 def fill_between(*args, **kwargs):
     """Fill between on current axes. See :meth:`gleplot.Axes.fill_between`."""
     return gca().fill_between(*args, **kwargs)
@@ -509,6 +514,7 @@ __all__ = [
     "hist",
     "scatter",
     "bar",
+    "barh",
     "fill_between",
     "fill",
     "errorbar",

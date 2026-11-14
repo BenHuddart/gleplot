@@ -1555,11 +1555,11 @@ def test_finding17_fill_comma_list_stays_byte_verbatim(tmp_path):
 
 
 def test_finding17_multi_dataset_bar_group_not_silently_dropped(tmp_path):
-    """'bar d1,d2 fill green,blue' groups two datasets in one GLE command
-    (GLE manual: 'bar d1,d2,d3 fill gray10,gray40,black' draws them
-    side-by-side). gleplot has no model for a shared bar group, so it must
-    keep the whole statement raw with both datasets and both colors intact,
-    and warn -- not silently model only the last dataset and drop the rest.
+    """'bar d1,d2 fill green,blue' is one side-by-side command.
+
+    Both datasets become series that share a group, and the command is
+    written back with both colours. A fill that shares the file still keeps
+    the command raw (see the orphaned-data test below).
     """
     src = (
         "size 12 9\n"
@@ -1571,14 +1571,15 @@ def test_finding17_multi_dataset_bar_group_not_silently_dropped(tmp_path):
     p = _write(tmp_path, "multibar.gle", src, {"single.dat": _SINGLE_DAT})
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
-    joined = "\n".join(ax.passthrough)
-    assert "bar d1,d2 fill green,blue" in joined
-    assert "blue" in joined  # the previously-dropped dataset's color
-    assert any(
-        w.startswith("structure:") and "bar" in w and "d1,d2" in w for w in rec.warnings
-    )
-    # No BarSeries was fabricated for a group gleplot cannot model.
-    assert ax.bars == []
+    assert ax.passthrough == []
+    assert len(ax.bars) == 2
+    assert ax.bars[0]["group"] == ax.bars[1]["group"]
+    assert ax.bars[0]["colors"][0] == "green"
+    assert ax.bars[1]["colors"][0] == "blue"
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "bar d1,d2 fill green,blue" in text
 
 
 def test_finding17_orphaned_data_statement_is_restored(tmp_path):
@@ -2139,12 +2140,11 @@ _MULTI_DAT = "1 3 5\n2 4 6\n3 2 4\n"
 
 
 def test_finding20_stacked_bar_sibling_kept_raw_alongside_its_stack(tmp_path):
-    """The reviewer's exact shape: a lone 'bar d1 ...' would, on its own,
-    become a real BarSeries; the LATER 'bar d2 from d1 ...' (GLE's
-    stacked-bar form) has no shared model and must stay raw (Finding 17).
-    Once the look-ahead recognizes the stack, d1's statement must join it
-    as raw too, instead of being modeled independently and having its
-    'data' line no longer cover d2.
+    """A base bar and ``bar d2 from d1`` are two series, and the top is exact.
+
+    They share a source file, so the stack is written to its own sidecar.
+    The base stays a bar from zero; the second stores d1's y as the
+    baseline and d2's y as the top.
     """
     src = (
         "size 8 6\n"
@@ -2157,21 +2157,14 @@ def test_finding20_stacked_bar_sibling_kept_raw_alongside_its_stack(tmp_path):
     p = _write(tmp_path, "bargroup.gle", src, {"multi.dat": _MULTI_DAT})
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
-    assert ax.bars == []  # neither d1 nor d2 became a BarSeries
-    joined = "\n".join(ax.passthrough)
-    assert '   data "multi.dat"' in joined
-    assert "bar d1 fill gray20" in joined
-    assert "bar d2 from d1 fill white" in joined
-    # Original body order preserved: the 'data' statement, then both 'bar'
-    # statements, d1 before d2.
-    assert (
-        joined.index('data "multi.dat"')
-        < joined.index("bar d1 fill gray20")
-        < joined.index("bar d2 from d1")
-    )
-    assert any(w.startswith("structure:") and "d2,d1" in w for w in rec.warnings)
-    # No "mixes datasets"/"may not resolve" note: the statement ended up
-    # FULLY unconsumed, not partially -- the case that note exists for.
+    assert len(ax.bars) == 2
+    assert ax.passthrough == []
+    base, stacked = ax.bars
+    assert list(base["height"]) == [3, 4, 2]
+    assert "bottom" not in base
+    assert list(stacked["bottom"]) == [3, 4, 2]
+    assert list(stacked["top"]) == [5, 6, 4]
+    assert base["data_file"] != stacked["data_file"]
     assert not any(
         "mixes datasets" in w or "may not resolve" in w for w in rec.warnings
     )
@@ -2179,14 +2172,9 @@ def test_finding20_stacked_bar_sibling_kept_raw_alongside_its_stack(tmp_path):
     out = tmp_path / "out.gle"
     rec.figure.savefig_gle(str(out))
     text = out.read_text(encoding="utf-8")
-
-    # The ORIGINAL bare 'data' statement is restored verbatim -- gleplot
-    # never claims ownership of this file, so it is never rewritten/
-    # truncated, and GLE's own default auto-mapping (d1=c1,c2, d2=c1,c3)
-    # still applies at compile time exactly as it did in the original.
-    assert 'data "multi.dat"' in text
-    assert "d1=c1,c2" not in text
-    assert "d2=c1,c3" not in text
+    assert "bar d1 fill gray20" in text
+    assert "from" in text
+    assert "fill white" in text
 
 
 def test_finding20_independent_non_stacked_bars_unaffected(tmp_path):
