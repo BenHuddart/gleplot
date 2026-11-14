@@ -230,8 +230,8 @@ def test_a_labelled_drawn_guide_renders_its_legend_entry(tmp_path, kind):
     """The data-free ``dN key`` bridge really does reach the key box.
 
     A ``draw`` owns no dataset and so cannot carry a key. Reflines borrow an
-    empty one; bands have never had a legend entry in either form, so the
-    label is carried through the script for recovery and draws nothing.
+    empty one (``dN key``). Bands borrow one with ``keyfill`` so the swatch is
+    the band colour. Compiling is what puts the entry in the box.
     """
     fig = glp.figure(data_prefix="gl")
     ax = fig.add_subplot(111)
@@ -245,6 +245,6 @@ def test_a_labelled_drawn_guide_renders_its_legend_entry(tmp_path, kind):
     assert out.exists() and out.stat().st_size > 0
 
     text = gle_path.read_text(encoding="utf-8")
-    assert '"threshold"' in text
-    is_refline = bool(ax.reflines)
-    assert (' key "threshold"' in text) is is_refline
+    assert ' key "threshold"' in text
+    if ax.spans:
+        assert "keyfill " in text

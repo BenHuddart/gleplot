@@ -610,15 +610,24 @@ def _as_float(value, default: float) -> float:
 
 
 def _string_value(tok: Token) -> str:
-    """Unwrap a STRING token's value: strip quotes, unescape ``\\"``/``\\'``."""
+    """Unwrap a STRING token's value.
+
+    Strips the surrounding quotes, then undoes both escapes the lexer
+    keeps intact: a backslash before a quote (older gleplot scripts) and
+    a doubled quote (what GLE 4.3.10 actually tokenizes).
+    """
     v = tok.value
     q = tok.quote
     if q and len(v) >= 2 and v[0] == q:
         inner = v[1:-1] if v.endswith(q) else v[1:]
     else:
         inner = v
-    # Writer only escapes '"'; unescape both quote styles defensively.
-    return inner.replace('\\"', '"').replace("\\'", "'")
+    inner = inner.replace('\\"', '"').replace("\\'", "'")
+    if q == '"':
+        inner = inner.replace('""', '"')
+    elif q == "'":
+        inner = inner.replace("''", "'")
+    return inner
 
 
 def _num(tok: Token) -> Optional[float]:
@@ -1011,8 +1020,11 @@ class _Recognizer:
                 pending_amove = None
                 pending_amove_raw = None
                 pending_amove_line = None
+                # A ``begin key`` we emitted for addition-order columns sits
+                # immediately after this graph, before its deferred text.
+                after_key = self._consume_external_legend(nodes, i + 1, axes_info)
                 # Greedily consume deferred text cluster that follows.
-                texts, consumed = self._consume_text_cluster(nodes, i + 1)
+                texts, consumed = self._consume_text_cluster(nodes, after_key)
                 axes_info["texts"] = texts
                 # Then consume any post-graph colorbar / contour-label sub
                 # calls belonging to this axes.
@@ -1452,6 +1464,9 @@ class _Recognizer:
             "key_hei": None,  # 'hei' in cm, or None (= inherit 'set hei')
             "key_nobox": False,
             "key_offset": None,  # (dx_cm, dy_cm) or None
+            "key_compact": False,
+            "key_background": None,  # GLE colour text, or None
+            "key_separators": 0,  # bare ``key separator`` lines -> ncol - 1
             "_draw_seq_counter": 0,  # display-command order = GLE draw order
             "lines": [],
             "scatters": [],
@@ -1498,6 +1513,10 @@ class _Recognizer:
             # this set lets pass 2 recognize and skip it as a suppression
             # marker instead of fabricating a phantom series.
             "_key_suppress_datasets": set(),
+            # Dataset name -> the bar/fill/span/file-series entry that owns
+            # it. A following ``dN key "label"`` or ``dN keyfill C key
+            # "label"`` sets that entry's label instead of becoming a series.
+            "_key_label_owners": {},
             # dataset name (e.g. 'd10') -> vertical offset, for datasets the
             # writer defines via 'let dK = dJ+off' to stack a waterfall/overlay
             # trace at plot time. The recovered series carries the RAW file
@@ -1660,11 +1679,25 @@ class _Recognizer:
                     continue
                 if name in info["_guide_key_datasets"]:
                     # The data-free legend bridge of a recovered guide: the
-                    # label now lives on the RefLine, and the writer
+                    # label now lives on the RefLine or Span, and the writer
                     # regenerates this line from it. Consume silently.
                     emitted.add(name)
                     continue
                 attr_toks = merged_attr_toks.get(name, [])
+                if name in info["_key_suppress_datasets"]:
+                    found = self._suppressed_key_label(attr_toks)
+                    owner = info["_key_label_owners"].get(name)
+                    if found and owner is not None:
+                        # ``dN key "label"`` / ``dN keyfill C key "label"``
+                        # after a bar or fill. The swatch text belongs on
+                        # that series; the line is not a second series.
+                        # A keyfill colour that is not the fill colour is
+                        # kept, so the next save does not repaint the swatch.
+                        label, keyfill = found
+                        owner["label"] = label
+                        self._note_swatch_color(owner, keyfill)
+                        emitted.add(name)
+                        continue
                 if name in info[
                     "_key_suppress_datasets"
                 ] and self._is_bare_key_suppression(attr_toks):
@@ -2004,12 +2037,13 @@ class _Recognizer:
         """The ``dN`` name carrying ``entry``'s legend entry, if it has one.
 
         The writer emits the data-free bridge immediately after the draw
-        block, and only for a labelled ``RefLine`` (a band has never had a
-        legend entry). Matched on that position AND on the key text, so an
-        unrelated ``dN`` line following a guide is never swallowed.
+        block: a line ``dN ... key`` for a labelled ``RefLine``, and
+        ``dN keyfill ... key`` for a labelled ``Span``. Matched on that
+        position AND on the key text, so an unrelated ``dN`` line following
+        a guide is never swallowed.
         """
         label = entry.get("label")
-        if entry.get("type") != "refline" or not label:
+        if entry.get("type") not in ("refline", "span") or not label:
             return None
         j = start
         while j < len(body) and isinstance(body[j], BlankOrComment):
@@ -2021,15 +2055,36 @@ class _Recognizer:
         if not _DATASET_RE.match(name):
             return None
         toks = _words_and_values(stmt)
-        for k, tok in enumerate(toks):
+        matched = False
+        keyfill = None
+        k = 0
+        while k < len(toks):
+            word = toks[k].value.lower() if toks[k].type is TokenType.WORD else None
             if (
-                tok.value.lower() == "key"
+                word == "key"
                 and k + 1 < len(toks)
                 and toks[k + 1].type is TokenType.STRING
                 and _string_value(toks[k + 1]) == label
             ):
-                return name
-        return None
+                matched = True
+                k += 2
+                continue
+            if word == "keyfill":
+                color, nxt = _collect_color(toks, k + 1)
+                if color is None or nxt == k + 1:
+                    return None
+                keyfill = color
+                k = nxt
+                continue
+            k += 1
+        if not matched:
+            return None
+        # A keyfill that is not the band's own colour has to survive the
+        # next save. The draw sub still paints the band; only the swatch
+        # uses this token.
+        if entry.get("type") == "span" and keyfill and keyfill != entry.get("color"):
+            entry["swatch_color"] = keyfill
+        return name
 
     # -- guides materialized as datasets, marked by a comment (G18-lite) --
 
@@ -2465,6 +2520,68 @@ class _Recognizer:
         if val_tok.type is not TokenType.STRING:
             return False
         return _string_value(val_tok) == ""
+
+    @staticmethod
+    def _suppressed_key_label(
+        attr_toks: List[Token],
+    ) -> Optional[Tuple[str, Optional[str]]]:
+        """The label on a bar/fill swatch line, or None if this isn't one.
+
+        Accepted, in either order, and with nothing else present:
+
+        * ``key "label"``
+        * ``keyfill COLOR key "label"``
+
+        Returns ``(label, keyfill_or_None)``. ``COLOR`` is a bare name or a
+        colour expression (``rgba255(...)``), collected the same way as a
+        fill colour. An empty ``key ""`` is not a label; that line stays
+        the header-suppression marker.
+        """
+        i = 0
+        n = len(attr_toks)
+        label = None
+        keyfill = None
+        while i < n:
+            tok = attr_toks[i]
+            word = tok.value.lower() if tok.type is TokenType.WORD else None
+            if (
+                word == "key"
+                and i + 1 < n
+                and attr_toks[i + 1].type is TokenType.STRING
+            ):
+                if label is not None:
+                    return None
+                label = _string_value(attr_toks[i + 1])
+                i += 2
+            elif word == "keyfill":
+                if keyfill is not None:
+                    return None
+                color, nxt = _collect_color(attr_toks, i + 1)
+                if color is None or nxt == i + 1:
+                    return None
+                keyfill = color
+                i = nxt
+            else:
+                return None
+        if not label:
+            return None
+        return label, keyfill
+
+    @staticmethod
+    def _note_swatch_color(owner, keyfill: Optional[str]) -> None:
+        """Keep a keyfill colour that is not the series' own fill colour.
+
+        The field stays absent when the two tokens are the same string, so
+        a script gleplot wrote (they always are) does not grow a new key.
+        """
+        if not keyfill:
+            return
+        if owner.get("colors"):
+            expected = owner["colors"][0]
+        else:
+            expected = owner.get("color")
+        if expected is None or keyfill != expected:
+            owner["swatch_color"] = keyfill
 
     def _build_series_from_attrs(
         self,
@@ -3299,16 +3416,16 @@ class _Recognizer:
                 )
                 return
             # Broken data -> represent as file_series-style reference w/ error.
-            info["file_series"].append(
-                FileSeries(
-                    series_type="bar",
-                    data_file=data_file,
-                    x_col=xcol,
-                    y_col=ycol,
-                    color=color,
-                    data_error=(loaded or {}).get("error", "unresolved"),
-                )
+            fs = FileSeries(
+                series_type="bar",
+                data_file=data_file,
+                x_col=xcol,
+                y_col=ycol,
+                color=color,
+                data_error=(loaded or {}).get("error", "unresolved"),
             )
+            info["file_series"].append(fs)
+            info["_key_label_owners"][d_name] = fs
             return
         x = loaded["x"]
         height = loaded["y"]
@@ -3326,6 +3443,7 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         info["bars"].append(entry)
+        info["_key_label_owners"][d_name] = entry
 
     def _parse_fill_command(self, toks, datasets, info, stmt=None):
         """``fill dA,dB color COLOR``"""
@@ -3358,17 +3476,17 @@ class _Recognizer:
             f1, xc1, yc1, extra_cols=[yc2], line_no=self._opt_line_no(stmt)
         )
         if loaded is None or loaded.get("error"):
-            info["file_series"].append(
-                FileSeries(
-                    series_type="fill",
-                    data_file=f1,
-                    x_col=xc1,
-                    y1_col=yc1,
-                    y2_col=yc2,
-                    color=color,
-                    data_error=(loaded or {}).get("error", "unresolved"),
-                )
+            fs = FileSeries(
+                series_type="fill",
+                data_file=f1,
+                x_col=xc1,
+                y1_col=yc1,
+                y2_col=yc2,
+                color=color,
+                data_error=(loaded or {}).get("error", "unresolved"),
             )
+            info["file_series"].append(fs)
+            info["_key_label_owners"][d_names[0]] = fs
             return
         x = loaded["x"]
         y1 = loaded["y"]
@@ -3407,8 +3525,10 @@ class _Recognizer:
             span_entry = self._span_from_marker(marker, fill_entry, d_names[0], info)
             if span_entry is not None:
                 info["spans"].append(span_entry)
+                info["_key_label_owners"][d_names[0]] = span_entry
                 return
         info["fills"].append(fill_entry)
+        info["_key_label_owners"][d_names[0]] = fill_entry
 
     # -- key -------------------------------------------------------------
 
@@ -3418,8 +3538,14 @@ class _Recognizer:
         if rest == ["off"]:
             info["key_off"] = True
             return
+        # A column break. ``lstyle`` is not what we emit; that line stays raw
+        # so a styled separator is not rewritten as a bare one.
+        if rest == ["separator"]:
+            info["key_separators"] = info.get("key_separators", 0) + 1
+            return
         # The modelled option set, in any order: 'pos P', 'hei H', 'nobox',
-        # 'offset X Y' -- exactly what GLEWriter.add_legend emits. Parse into a scratch
+        # 'offset X Y', 'compact', 'background COLOR' -- exactly what
+        # GLEWriter.add_legend emits. Parse into a scratch
         # dict first so a later unmodelled token leaves ``info`` untouched.
         # Scanned from the Token list (not the lowered strings above) because
         # a negative literal like the writer's own 'offset 1.5 -0.5' tokenizes
@@ -3430,9 +3556,14 @@ class _Recognizer:
             info["key_hei"] = parsed.get("hei", info["key_hei"])
             info["key_nobox"] = parsed.get("nobox", info["key_nobox"])
             info["key_offset"] = parsed.get("offset", info["key_offset"])
+            if parsed.get("compact"):
+                info["key_compact"] = True
+            if parsed.get("background"):
+                info["key_background"] = parsed["background"]
             return
-        # Any richer form ('key pos tr offset 0.2 0.2 compact ...') carries
-        # options we cannot model; a cumulative re-emit would produce a
+        # Any richer form ('margins', 'justify', 'absolute', a styled
+        # separator) carries options we cannot model; a cumulative re-emit
+        # would produce a
         # competing 'key' line. Keep the WHOLE original line as raw GLE
         # (legend untouched) and warn.
         line = (
@@ -3482,7 +3613,7 @@ class _Recognizer:
 
     @classmethod
     def _scan_key_options(cls, toks: List[Token]):
-        """Scan the tokens after ``key`` into ``{pos, hei, nobox, offset}``.
+        """Scan the tokens after ``key`` into the modelled option dict.
 
         Returns ``None`` as soon as a token outside the modelled set appears,
         so the caller can fall back to raw passthrough. A ``pos``/``hei``
@@ -3516,6 +3647,15 @@ class _Recognizer:
                     return None
                 out["offset"] = (dx, dy)
                 i = nxt2
+            elif word == "compact":
+                out["compact"] = True
+                i += 1
+            elif word == "background" and i + 1 < n:
+                color, nxt = _collect_color(toks, i + 1)
+                if color is None or nxt == i + 1:
+                    return None
+                out["background"] = color
+                i = nxt
             else:
                 return None
         return out or None
@@ -4732,6 +4872,121 @@ class _Recognizer:
         except OSError:
             return None
 
+    # -- post-graph addition-order legend --------------------------------
+
+    def _consume_external_legend(self, nodes, start, info) -> int:
+        """Consume a ``begin key`` that restates this graph's legend.
+
+        Only a block whose entries are exactly the labelled series is
+        taken. Anything else stays in the stream and is preserved
+        verbatim, the same as any other opaque block.
+        """
+        if start >= len(nodes) or not isinstance(nodes[start], OpaqueBlock):
+            return start
+        block = nodes[start]
+        if block.block_type != "key":
+            return start
+        parsed = self._parse_external_key(block)
+        if parsed is None:
+            return start
+        if not self._assign_legend_seq(info, parsed["labels"]):
+            return start
+        info["external_key"] = parsed
+        return start + 1
+
+    def _parse_external_key(self, block) -> Optional[dict]:
+        """Modelled options and entry labels of a ``begin key`` block.
+
+        Globals (``position``, ``offset``, ``hei``, ``nobox``, ``compact``,
+        ``background``) have to come before the entries, which is how
+        :meth:`gleplot.writer.GLEWriter.queue_external_legend` writes them.
+        A ``separator`` counts as one column break. Swatch tokens after
+        ``text`` are ignored: the next save rebuilds them from the series.
+        """
+        from .lexer import tokenize_line
+
+        options: dict = {}
+        labels: List[str] = []
+        separators = 0
+        started = False
+        for sl in block.inner_lines:
+            raw = sl.text.strip()
+            if not raw or raw.startswith("!"):
+                continue
+            toks = [t for t in tokenize_line(raw) if t.type is not TokenType.COMMENT]
+            if not toks:
+                continue
+            head = toks[0].value.lower() if toks[0].type is TokenType.WORD else None
+            if head == "separator" and len(toks) == 1:
+                if not labels:
+                    return None
+                separators += 1
+                started = True
+                continue
+            if head == "text":
+                if len(toks) < 2 or toks[1].type is not TokenType.STRING:
+                    return None
+                labels.append(_string_value(toks[1]))
+                started = True
+                continue
+            if started:
+                return None
+            scanned = self._scan_key_options(toks)
+            if not scanned:
+                return None
+            options.update(scanned)
+        if not labels or not options.get("pos"):
+            return None
+        return {
+            "pos": options["pos"],
+            "hei": options.get("hei"),
+            "nobox": bool(options.get("nobox")),
+            "offset": options.get("offset"),
+            "compact": bool(options.get("compact")),
+            "background": options.get("background"),
+            "separators": separators,
+            "labels": labels,
+        }
+
+    @staticmethod
+    def _assign_legend_seq(info, labels: List[str]) -> bool:
+        """Stamp ``legend_seq`` so the next save rebuilds this entry order.
+
+        Returns False, and changes nothing, when ``labels`` is not exactly
+        the labelled series (each label used once).
+        """
+        pool = []
+        for group in (
+            "spans",
+            "fills",
+            "reflines",
+            "bars",
+            "lines",
+            "scatters",
+            "errorbars",
+            "file_series",
+        ):
+            for series in info.get(group, []):
+                if series.get("label"):
+                    pool.append(series)
+        if len(pool) != len(labels):
+            return False
+        used = [False] * len(pool)
+        chosen = []
+        for label in labels:
+            found = None
+            for j, series in enumerate(pool):
+                if not used[j] and series.get("label") == label:
+                    found = j
+                    break
+            if found is None:
+                return False
+            used[found] = True
+            chosen.append(pool[found])
+        for i, series in enumerate(chosen):
+            series["legend_seq"] = i
+        return True
+
     # -- post-graph colorbar / contour-label calls ----------------------
 
     def _consume_post_graph_calls(self, nodes, start, axes_info) -> int:
@@ -5522,7 +5777,24 @@ class _Recognizer:
 
         # Legend tri-state recovery.
         labels_present = self._labels_present(info)
-        if info["key_off"]:
+        external = info.get("external_key")
+        if external:
+            # ``key off`` inside the graph only suppresses the draw-order
+            # key. The visible legend is the ``begin key`` that followed.
+            pos_short = external["pos"]
+            ax.legend_pos = KEY_POSITIONS_SHORT_TO_LONG.get(pos_short, pos_short)
+            ax.legend_on = None if labels_present else True
+            if external.get("hei") is not None:
+                ax.legend_fontsize = fontsize_cm_to_pt(external["hei"])
+            ax.legend_frameon = not external.get("nobox")
+            ax.legend_offset = external.get("offset")
+            if external.get("separators"):
+                ax.legend_ncol = int(external["separators"]) + 1
+            if external.get("compact"):
+                ax.legend_compact = True
+            if external.get("background"):
+                ax.legend_facecolor = external["background"]
+        elif info["key_off"]:
             ax.legend_on = False
         elif info["key_pos"] is not None:
             pos_short = info["key_pos"]
@@ -5547,6 +5819,14 @@ class _Recognizer:
                 ax.legend_on = None
             else:
                 ax.legend_on = None
+
+        nsep = info.get("key_separators") or 0
+        if nsep:
+            ax.legend_ncol = int(nsep) + 1
+        if info.get("key_compact"):
+            ax.legend_compact = True
+        if info.get("key_background"):
+            ax.legend_facecolor = info["key_background"]
 
     def _populate_axes_styling(self, ax, info) -> None:
         """Copy the recognized axes styling onto the model.
@@ -5596,16 +5876,18 @@ class _Recognizer:
             setattr(ax, f"{prefix}grid_color", ticks["color"])
 
     def _labels_present(self, info) -> bool:
-        # 'reflines' counts because a labelled guide really does carry a
-        # 'key' into the block (its data-free legend bridge); 'spans' does
-        # not, because a band has no legend entry in either emission form.
+        # Fills and spans count: a labelled one emits ``keyfill`` (on the
+        # fill's first dataset, or on the data-free span bridge). Reflines
+        # count for the same reason, via their line bridge.
         for group in (
             "lines",
             "scatters",
             "bars",
+            "fills",
             "errorbars",
             "file_series",
             "reflines",
+            "spans",
         ):
             for s in info[group]:
                 if s.get("label"):

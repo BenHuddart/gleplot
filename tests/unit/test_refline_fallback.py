@@ -50,7 +50,6 @@ from gleplot.writer import GLEWriter
 
 from . import _refline_battery as rb
 
-
 SNAPSHOT_PATH = Path(__file__).parent / "refline_resolvable_emissions.json"
 SNAPSHOT = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
 
@@ -180,7 +179,7 @@ def test_a_guide_carries_every_styling_field_the_dataset_form_did():
     ]
     # A draw call owns no dataset and so cannot carry 'key'; the legend entry
     # rides on a separate data-free dN line with the same style.
-    assert '    d1 line color RED lwidth 0.07056 lstyle 3 key "say \\"hi\\""' in text
+    assert '    d1 line color RED lwidth 0.07056 lstyle 3 key "say ""hi"""' in text
 
 
 def test_a_lineless_guide_draws_nothing_but_is_still_declared():

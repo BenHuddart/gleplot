@@ -15,6 +15,7 @@ def _values(text):
 
 # -- basic tokenisation ------------------------------------------------------
 
+
 def test_empty_line_yields_no_tokens():
     assert tokenize_line("") == []
     assert tokenize_line("   \t ") == []
@@ -33,12 +34,13 @@ def test_case_is_preserved_in_value():
 
 
 def test_spans_reconstruct_source():
-    text = 'set  hei   0.5'
+    text = "set  hei   0.5"
     for tok in tokenize_line(text):
-        assert text[tok.start:tok.end] == tok.value
+        assert text[tok.start : tok.end] == tok.value
 
 
 # -- strings -----------------------------------------------------------------
+
 
 def test_double_quoted_string_includes_quotes():
     toks = tokenize_line('write "hello world"')
@@ -52,6 +54,15 @@ def test_escaped_quote_does_not_terminate():
     string_toks = [t for t in toks if t.type is TokenType.STRING]
     assert len(string_toks) == 1
     assert string_toks[0].value == r'"say \"hi\" now"'
+
+
+def test_doubled_quote_is_one_string():
+    """GLE embeds a quote by doubling it, so one string holds 5 and a quote."""
+    toks = tokenize_line('d1 key "5"""')
+    string_toks = [t for t in toks if t.type is TokenType.STRING]
+    assert len(string_toks) == 1
+    assert string_toks[0].value == '"5"""'
+    assert string_toks[0].error is None
 
 
 def test_single_quoted_string_tolerated():
@@ -84,6 +95,7 @@ def test_unterminated_string_is_tolerated_and_flagged():
 
 # -- comments ----------------------------------------------------------------
 
+
 def test_comment_to_end_of_line():
     toks = tokenize_line("size 20 15 ! the page")
     assert toks[-1].type is TokenType.COMMENT
@@ -101,13 +113,15 @@ def test_comment_span_covers_rest_of_line():
     text = "a ! b c d"
     toks = tokenize_line(text)
     comment = toks[-1]
-    assert text[comment.start:comment.end] == "! b c d"
+    assert text[comment.start : comment.end] == "! b c d"
 
 
 # -- numbers -----------------------------------------------------------------
 
-@pytest.mark.parametrize("lit", ["0", "42", "3.14", ".5", "5.", "1e-3", "1E5",
-                                  "6.022e23", "2.5e+10"])
+
+@pytest.mark.parametrize(
+    "lit", ["0", "42", "3.14", ".5", "5.", "1e-3", "1E5", "6.022e23", "2.5e+10"]
+)
 def test_number_literals(lit):
     toks = tokenize_line(lit)
     assert len(toks) == 1
@@ -150,11 +164,15 @@ def test_number_then_word_boundary():
 # start with a digit, e.g. Asymmetry's exported ``data 20_main.dat d1=c1,c2``.
 # See the lexer module docstring's lexical-contract entry for the rule.
 
-@pytest.mark.parametrize("text,expected_value", [
-    ("20_main.dat", "20_main.dat"),
-    ("5.dat", "5.dat"),
-    ("1e5abc", "1e5abc"),
-])
+
+@pytest.mark.parametrize(
+    "text,expected_value",
+    [
+        ("20_main.dat", "20_main.dat"),
+        ("5.dat", "5.dat"),
+        ("1e5abc", "1e5abc"),
+    ],
+)
 def test_digit_glued_to_word_is_single_bareword(text, expected_value):
     toks = tokenize_line(text)
     assert len(toks) == 1
@@ -163,22 +181,34 @@ def test_digit_glued_to_word_is_single_bareword(text, expected_value):
     assert toks[0].span == (0, len(text))
 
 
-@pytest.mark.parametrize("text,expected", [
-    # Terminators immediately after a numeric literal stop the merge, so a
-    # plain number followed by a recognised terminator still lexes as
-    # NUMBER (+ whatever the terminator introduces).
-    ("20,30", [(TokenType.NUMBER, "20"), (TokenType.OP, ","),
-               (TokenType.NUMBER, "30")]),
-    ("20!c", [(TokenType.NUMBER, "20"), (TokenType.COMMENT, "!c")]),
-    ("2(x)", [(TokenType.NUMBER, "2"), (TokenType.OP, "("),
-              (TokenType.WORD, "x"), (TokenType.OP, ")")]),
-    ('20"s"', [(TokenType.NUMBER, "20"), (TokenType.STRING, '"s"')]),
-    # '%' stops the digit-merge (without being a general word terminator),
-    # so a percentage error value ('err 10%') keeps lexing as a NUMBER
-    # followed by a standalone '%' WORD token -- the recognizer's
-    # error-value parsing depends on '%' being its own token.
-    ("10%", [(TokenType.NUMBER, "10"), (TokenType.WORD, "%")]),
-])
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        # Terminators immediately after a numeric literal stop the merge, so a
+        # plain number followed by a recognised terminator still lexes as
+        # NUMBER (+ whatever the terminator introduces).
+        (
+            "20,30",
+            [(TokenType.NUMBER, "20"), (TokenType.OP, ","), (TokenType.NUMBER, "30")],
+        ),
+        ("20!c", [(TokenType.NUMBER, "20"), (TokenType.COMMENT, "!c")]),
+        (
+            "2(x)",
+            [
+                (TokenType.NUMBER, "2"),
+                (TokenType.OP, "("),
+                (TokenType.WORD, "x"),
+                (TokenType.OP, ")"),
+            ],
+        ),
+        ('20"s"', [(TokenType.NUMBER, "20"), (TokenType.STRING, '"s"')]),
+        # '%' stops the digit-merge (without being a general word terminator),
+        # so a percentage error value ('err 10%') keeps lexing as a NUMBER
+        # followed by a standalone '%' WORD token -- the recognizer's
+        # error-value parsing depends on '%' being its own token.
+        ("10%", [(TokenType.NUMBER, "10"), (TokenType.WORD, "%")]),
+    ],
+)
 def test_number_followed_by_terminator_is_not_merged(text, expected):
     toks = tokenize_line(text)
     assert [(t.type, t.value) for t in toks] == expected
@@ -201,6 +231,7 @@ def test_number_glued_to_word_with_embedded_terminator_splits_at_it():
 
 # -- operators ---------------------------------------------------------------
 
+
 def test_dataset_assignment_operators():
     toks = tokenize_line("d1=c1,c2")
     kinds = [(t.type, t.value) for t in toks]
@@ -221,9 +252,19 @@ def test_arithmetic_operators_tokenised():
 
 # -- tolerance / pathological ------------------------------------------------
 
+
 def test_never_raises_on_weird_input():
-    for weird in ['"', "'", "\\", "!!!", "===", "((((", "d1=c1,c2 ! x\"",
-                  "\x00 weird", "12.3.4.5"]:
+    for weird in [
+        '"',
+        "'",
+        "\\",
+        "!!!",
+        "===",
+        "((((",
+        'd1=c1,c2 ! x"',
+        "\x00 weird",
+        "12.3.4.5",
+    ]:
         # Must not raise.
         toks = tokenize_line(weird)
         assert isinstance(toks, list)
@@ -235,4 +276,4 @@ def test_multiple_dots_number_stops_cleanly():
     text = "12.3.4"
     toks = tokenize_line(text)
     for tok in toks:
-        assert text[tok.start:tok.end] == tok.value
+        assert text[tok.start : tok.end] == tok.value

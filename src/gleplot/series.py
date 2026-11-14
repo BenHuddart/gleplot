@@ -680,6 +680,9 @@ class BarSeries(Series):
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
+    #: Legend swatch colour when a ``keyfill`` is not the bar fill. Absent
+    #: means the swatch is the bar fill (``update_key_fill`` already copied it).
+    swatch_color: Optional[str]
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_column_names("x", ["height"], self.get("label"))
@@ -705,6 +708,12 @@ class FillSeries(Series):
     data_source: Optional[DataSource]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
+    #: Call order, for the legend. Fills are not z-ordered drawables, so this
+    #: does not change ink. Absent on a series a script did not record it for.
+    _draw_seq: int
+    #: Legend swatch colour when it is not the fill colour. Absent means the
+    #: swatch is ``apply_alpha(color, alpha)``.
+    swatch_color: Optional[str]
 
     def default_column_names(self) -> Optional[List[str]]:
         return _unique_column_names(["x", "upper", "lower"])
@@ -797,6 +806,8 @@ class FileSeries(Series):
     _draw_seq: int
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
+    #: Legend swatch colour when a bar or fill ``keyfill`` is not ``color``.
+    swatch_color: Optional[str]
 
 
 class TextAnnotation(Series):
@@ -940,6 +951,9 @@ class RefLine(Series):
     column_names: Optional[List[str]]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
+    #: Call order, for the legend. Reference lines are emitted in their own
+    #: layer, so this does not change ink.
+    _draw_seq: int
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_column_names("x", ["y"], self.get("label"))
@@ -968,6 +982,11 @@ class Span(Series):
     column_names: Optional[List[str]]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
+    #: Call order, for the legend. Spans are emitted with the fills, so this
+    #: does not change ink.
+    _draw_seq: int
+    #: Legend swatch colour when it is not the band colour.
+    swatch_color: Optional[str]
 
     def default_column_names(self) -> Optional[List[str]]:
         return _unique_column_names(["x", "upper", "lower"])

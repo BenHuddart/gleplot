@@ -22,6 +22,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    Set,
     Tuple,
     Union,
 )
@@ -789,6 +790,30 @@ DecimationPolicy = Union[
 ]
 
 
+def legend_column_breaks(n_entries: int, ncol: int) -> Set[int]:
+    """1-based entry counts after which to emit ``key separator``.
+
+    Same split as matplotlib's ``np.array_split`` of the entry list: columns
+    are consecutive groups, and the first ``n % ncol`` columns are one entry
+    longer. A requested ``ncol`` larger than the entry count collapses to one
+    entry per column, which is what that split does too. GLE's ``key
+    separator`` (``do_key`` in ``graph.cpp``) starts a new column at that
+    point in the dataset order, so the breaks have to fall between entries
+    and never before the first or after the last.
+    """
+    if ncol <= 1 or n_entries <= 1:
+        return set()
+    ncol = min(int(ncol), int(n_entries))
+    base, extra = divmod(int(n_entries), ncol)
+    sizes = [base + (1 if i < extra else 0) for i in range(ncol)]
+    breaks: Set[int] = set()
+    acc = 0
+    for size in sizes[:-1]:
+        acc += size
+        breaks.add(acc)
+    return breaks
+
+
 class GLEWriter:
     """Writer for GLE script files.
 
@@ -878,6 +903,18 @@ class GLEWriter:
         self.dataset_index = (
             1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         )
+        # Column breaks for the graph key, as 1-based entry counts. Empty
+        # unless this write is showing a legend with ncol > 1. Counted by
+        # _finish_legend_entry as each real key label is emitted, in the
+        # same order Figure._count_legend_entries walked.
+        self._legend_breaks: Set[int] = set()
+        self._legend_entry_count = 0
+        # A ``begin key`` queued for the graph that is about to close.
+        # Flushed by end_graph, immediately after ``end graph``, because
+        # GLE positions that block against the graph that just ended
+        # (``graph_x1``/``graph_y2`` in key.cpp). Cleared on flush so a
+        # later subplot cannot inherit it.
+        self._external_legend: Optional[List[str]] = None
         self._pending_graph_text_lines: List[str] = []
         # Guide subs (gleplot.guides) this write actually called, and where
         # their definitions belong in the script. Populated as the draw calls
@@ -1131,6 +1168,12 @@ class GLEWriter:
         if passthrough:
             self.lines_gle.extend(passthrough)
         self.lines_gle.append("end graph")
+        if self._external_legend:
+            # Before the deferred ``xg()`` text. ``draw_key`` saves and
+            # restores the current point and does not move the graph box,
+            # so the text that follows still addresses this graph.
+            self.lines_gle.extend(self._external_legend)
+            self._external_legend = None
         if self._pending_graph_text_lines:
             self.lines_gle.append("gsave")
             self.lines_gle.extend(self._pending_graph_text_lines)
@@ -2040,6 +2083,7 @@ class GLEWriter:
         )
 
         self.lines_gle.append(line_cmd)
+        self._finish_legend_entry(label)
 
     # -- bar width, the one number GLE derives from the data's shape -------
     #
@@ -2205,6 +2249,7 @@ class GLEWriter:
         column_names: Optional[List[str]] = None,
         binding: Optional[ColumnBinding] = None,
         width: Optional[float] = None,
+        swatch_color: Optional[str] = None,
     ):
         """
         Add bar chart to graph.
@@ -2224,7 +2269,10 @@ class GLEWriter:
             GLE color names for each bar. If multiple colors are provided,
             the first color is used for all bars.
         label : str, optional
-            Legend label (not currently supported by GLE for bar charts)
+            Legend label. GLE's ``bar`` command has no ``key`` option, so
+            the label is a following ``dN key "..."`` statement. ``bar``'s
+            ``fill`` already copies into that dataset's ``key_fill``
+            (``update_key_fill``), which is the swatch the key draws.
         column_names : list of str, optional
             Sidecar header row (e.g. ``['x', 'height']``). Unlike the
             ``dN ... key "..."`` dataset-display commands, GLE's ``bar``
@@ -2275,7 +2323,20 @@ class GLEWriter:
             bar_cmd += f" width {self._format_number(emitted_width)}"
         self.lines_gle.append(bar_cmd)
 
-        if has_header and not label:
+        if label:
+            # After the bar command, so update_key_fill has already stored
+            # the fill on this dataset. A header row's auto-key is overridden
+            # by the same statement, so the unlabeled ``key ""`` is not also
+            # needed.
+            quoted = self._quote_gle_key(label)
+            if swatch_color:
+                self.lines_gle.append(
+                    f"    {d_name} keyfill {swatch_color} key {quoted}"
+                )
+            else:
+                self.lines_gle.append(f"    {d_name} key {quoted}")
+            self._finish_legend_entry(label)
+        elif has_header:
             self.lines_gle.append(f'    {d_name} key ""')
 
     def add_errorbar(
@@ -2596,6 +2657,7 @@ class GLEWriter:
         # at full density -- worse than not decimating at all.
 
         self.lines_gle.append(line_cmd)
+        self._finish_legend_entry(label)
 
     def add_errorbar_from_file(
         self,
@@ -2642,9 +2704,10 @@ class GLEWriter:
             line_cmd += " y2axis"
 
         if label:
-            line_cmd += f' key "{label}"'
+            line_cmd += f" key {self._quote_gle_key(label)}"
 
         self.lines_gle.append(line_cmd)
+        self._finish_legend_entry(label)
 
     def add_plot_line_from_file(
         self,
@@ -2702,9 +2765,10 @@ class GLEWriter:
             line_cmd += " y2axis"
 
         if label:
-            line_cmd += f' key "{label}"'
+            line_cmd += f" key {self._quote_gle_key(label)}"
 
         self.lines_gle.append(line_cmd)
+        self._finish_legend_entry(label)
 
     def add_bar_from_file(
         self,
@@ -2712,6 +2776,8 @@ class GLEWriter:
         x_col: int,
         y_col: int,
         color: str = "RED",
+        label: Optional[str] = None,
+        swatch_color: Optional[str] = None,
     ):
         """Add a bar series that references columns in an external data file.
 
@@ -2726,6 +2792,15 @@ class GLEWriter:
             f"    data {_format_data_filename(data_file)} {d_name}=c{x_col},c{y_col}"
         )
         self.lines_gle.append(f"    bar {d_name} fill {color}")
+        if label:
+            quoted = self._quote_gle_key(label)
+            if swatch_color:
+                self.lines_gle.append(
+                    f"    {d_name} keyfill {swatch_color} key {quoted}"
+                )
+            else:
+                self.lines_gle.append(f"    {d_name} key {quoted}")
+            self._finish_legend_entry(label)
 
     def add_fill_from_file(
         self,
@@ -2734,6 +2809,8 @@ class GLEWriter:
         y1_col: int,
         y2_col: int,
         color: str = "LIGHTBLUE",
+        label: Optional[str] = None,
+        swatch_color: Optional[str] = None,
     ):
         """Add a fill-between series that references columns in an external
         data file.
@@ -2749,6 +2826,12 @@ class GLEWriter:
             f"{d1_name}=c{x_col},c{y1_col} {d2_name}=c{x_col},c{y2_col}"
         )
         self.lines_gle.append(f"    fill {d1_name},{d2_name} color {color}")
+        if label:
+            swatch = swatch_color or color
+            self.lines_gle.append(
+                f"    {d1_name} keyfill {swatch} key {self._quote_gle_key(label)}"
+            )
+            self._finish_legend_entry(label)
 
     def add_fill_between(
         self,
@@ -2761,6 +2844,8 @@ class GLEWriter:
         offset: float = 0.0,
         column_names: Optional[List[str]] = None,
         binding: Optional[ColumnBinding] = None,
+        label: Optional[str] = None,
+        swatch_color: Optional[str] = None,
     ):
         """
         Add fill between two curves.
@@ -2789,9 +2874,15 @@ class GLEWriter:
             through the generic dataset-key mechanism (they're registered
             via the same "used dataset" bookkeeping as any ``dN`` display
             command), so a header row would still risk an auto-key on
-            either one. Neutralize both with standalone ``dN key ""``
-            statements when a header row is present (verified empirically
-            byte-identical to the headerless case).
+            either one. An unlabelled fill neutralizes both with standalone
+            ``dN key ""`` statements when a header row is present (verified
+            empirically byte-identical to the headerless case). A labelled
+            fill puts ``keyfill`` and ``key`` on the first dataset instead:
+            ``fill`` does not copy its colour into ``key_fill`` the way
+            ``bar`` does, so the swatch has to be named. The second dataset
+            still gets ``key ""`` when a header would otherwise auto-key it.
+        label : str, optional
+            Legend label for that swatch.
         binding : ColumnBinding, optional
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
@@ -2824,11 +2915,22 @@ class GLEWriter:
             fill_a, fill_b = d1_name, d2_name
 
         # GLE fill between two datasets: fill d1,d2 color X
-        self.lines_gle.append(
-            f"    fill {fill_a},{fill_b} color {apply_alpha(color, alpha)}"
-        )
+        # The keyfill token is that same colour text, so a round trip does
+        # not rewrite rgba255(...) or a plain name.
+        color_token = apply_alpha(color, alpha)
+        self.lines_gle.append(f"    fill {fill_a},{fill_b} color {color_token}")
 
-        if has_header:
+        if label:
+            # ``swatch_color`` is a keyfill that is not the fill colour
+            # (a hand-written script). Absent means the swatch is the fill.
+            swatch = swatch_color or color_token
+            self.lines_gle.append(
+                f"    {fill_a} keyfill {swatch} key {self._quote_gle_key(label)}"
+            )
+            self._finish_legend_entry(label)
+            if has_header:
+                self.lines_gle.append(f'    {fill_b} key ""')
+        elif has_header:
             self.lines_gle.append(f'    {fill_a} key ""')
             self.lines_gle.append(f'    {fill_b} key ""')
 
@@ -2903,12 +3005,38 @@ class GLEWriter:
         if angle is not None:
             self._pending_graph_text_lines.append("end rotate")
 
+    def set_legend_breaks(self, breaks: Set[int]) -> None:
+        """Where ``key separator`` falls, as 1-based legend-entry counts.
+
+        Set before any series is emitted. ``_finish_legend_entry`` counts
+        real key labels in emission order and writes the separator after
+        the entries named here.
+        """
+        self._legend_breaks = set(breaks)
+        self._legend_entry_count = 0
+
+    def _finish_legend_entry(self, label: Optional[str]) -> None:
+        """Count one legend entry and emit ``key separator`` at a column break.
+
+        A falsy label is not an entry: ``key ""`` only suppresses a header
+        auto-key. The separator is its own statement, inserted into GLE's
+        dataset order at this point (``do_key``'s SEPARATOR branch), so it
+        has to follow the entry's display command and precede the next one.
+        """
+        if not label:
+            return
+        self._legend_entry_count += 1
+        if self._legend_entry_count in self._legend_breaks:
+            self.lines_gle.append("    key separator")
+
     def add_legend(
         self,
         position: Optional[str] = None,
         fontsize: Optional[float] = None,
         frameon: bool = True,
         offset: Optional[tuple] = None,
+        compact: bool = False,
+        background: Optional[str] = None,
     ):
         """Add legend configuration.
 
@@ -2934,12 +3062,22 @@ class GLEWriter:
             positive dy moves DOWN. Negative values push the key outside the
             graph and can move it off-canvas entirely. ``None`` omits the
             token.
+        compact : bool
+            GLE's ``compact``: one field for the line and the marker.
+            ``False`` omits the token.
+        background : str, optional
+            Legend-box fill, GLE's ``background``. ``None`` omits it, which
+            leaves the box transparent. This is not ``boxcolor``: in the
+            4.3.10 source ``boxcolor`` strokes the fill swatch
+            (``g_box_stroke``), and the box fill is ``setBackgroundColor``.
 
         Notes
         -----
-        All options go on the single ``key`` line: the recognizer models
-        ``pos``/``hei``/``nobox`` there (see ``_parse_key_command``), and a
-        second ``key`` command would compete with this one on re-emit.
+        Position, size, box, compact and background go on the single ``key``
+        line (see ``_parse_key_command``). Column breaks are separate
+        ``key separator`` statements emitted beside the entries, because
+        that is where GLE inserts them into the dataset order. A second
+        ``key pos`` line would compete with this one on re-emit.
         """
         # Use provided position or fall back to configured default
         pos = position if position is not None else self.graph.legend_position
@@ -2954,6 +3092,10 @@ class GLEWriter:
             cmd += f" hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
         if not frameon:
             cmd += " nobox"
+        if compact:
+            cmd += " compact"
+        if background:
+            cmd += f" background {background}"
         self.lines_gle.append(cmd)
 
     def add_key_off(self):
@@ -2964,6 +3106,93 @@ class GLEWriter:
         ``key off`` is required to hide the legend for labeled series.
         """
         self.lines_gle.append("    key off")
+
+    def legend_swatch(
+        self,
+        color: str,
+        linestyle: Optional[str] = None,
+        linewidth: Optional[float] = None,
+        marker: Optional[str] = None,
+        markersize: Optional[float] = None,
+        fill: Optional[str] = None,
+    ) -> str:
+        """The ``begin key`` entry tail for one series.
+
+        A fill swatch is ``fill COLOR``. A line swatch restates the colour,
+        width and ``lstyle`` the dataset command would, which is what makes
+        ``entry->lstyle`` non-empty so the key draws a stroke
+        (``key.cpp``). A marker-only series is ``marker`` / ``msize`` /
+        ``color``, the same tokens as the dataset line.
+        """
+        if fill is not None:
+            return f"fill {fill}"
+        parts: List[str] = []
+        has_line = linestyle not in ("none", "None", "", " ", None)
+        if has_line:
+            parts.append(f"color {color}")
+            width = self._guide_lwidth_cm(
+                1.0 if linewidth is None else float(linewidth)
+            )
+            parts.append(f"lwidth {self._format_number(width)}")
+            style = self._lstyle_for(linestyle or "-")
+            if style:
+                parts.append(f"lstyle {style}")
+        if marker:
+            parts.append(f"marker {marker}")
+            if markersize is not None:
+                parts.append(f"msize {self._format_number(markersize)}")
+            if not has_line:
+                parts.append(f"color {color}")
+        return " ".join(parts)
+
+    def queue_external_legend(
+        self,
+        entries: List[tuple],
+        breaks: Set[int],
+        position: Optional[str] = None,
+        fontsize: Optional[float] = None,
+        frameon: bool = True,
+        offset: Optional[tuple] = None,
+        compact: bool = False,
+        background: Optional[str] = None,
+    ) -> None:
+        """Queue a ``begin key`` block for the graph that is about to close.
+
+        ``entries`` is ``(label, swatch)`` in matplotlib addition order.
+        ``breaks`` are the 1-based counts after which a column ends, the
+        same split as :func:`legend_column_breaks`. The block is written
+        by :meth:`end_graph`, after ``end graph``, because that is the
+        graph ``position`` is measured against.
+        """
+        pos = position if position is not None else self.graph.legend_position
+        gle_pos = KEY_POSITIONS_LONG_TO_SHORT.get(pos, pos)
+        lines = ["begin key", f"    position {gle_pos}"]
+        if offset is not None:
+            dx, dy = offset
+            lines.append(
+                f"    offset {self._format_number(float(dx))} "
+                f"{self._format_number(float(dy))}"
+            )
+        if fontsize is not None:
+            lines.append(
+                f"    hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
+            )
+        if not frameon:
+            lines.append("    nobox")
+        if compact:
+            lines.append("    compact")
+        if background:
+            lines.append(f"    background {background}")
+        for i, (label, swatch) in enumerate(entries, start=1):
+            quoted = self._quote_gle_key(label)
+            if swatch:
+                lines.append(f"    text {quoted} {swatch}")
+            else:
+                lines.append(f"    text {quoted}")
+            if i in breaks:
+                lines.append("    separator")
+        lines.append("end key")
+        self._external_legend = lines
 
     def finalize(
         self,
@@ -3332,17 +3561,21 @@ class GLEWriter:
         color: str,
         alpha: float,
         label: Optional[str],
+        swatch_color: Optional[str] = None,
     ):
         """Emit an ``axvspan``/``axhspan`` as a layered ``draw`` call (G17).
 
-        No legend bridge: GLE's ``fill dA,dB`` command has no ``key`` option
-        either, so a band has never had a legend entry and does not gain one
-        here. Its ``label`` still travels as the sub's last argument, drawn by
-        nothing -- otherwise re-opening the file would silently drop a field
-        the model carries. ``alpha`` is folded into the colour exactly as
+        A labelled band also gets a data-free ``dN keyfill ... key`` line.
+        The ``draw`` owns no dataset, and ``fill`` cannot carry ``key``;
+        an empty dataset with ``keyfill`` draws the swatch and (verified
+        on GLE 4.3.10) does not move the autoscale. ``label`` still travels
+        as the sub's last argument too, so the draw block stays
+        self-describing. ``alpha`` is folded into the colour exactly as
         :meth:`add_fill_between` folds it, via
-        :func:`gleplot.colors.apply_alpha`.
+        :func:`gleplot.colors.apply_alpha`, and the swatch uses that same
+        token.
         """
+        color_token = apply_alpha(color, alpha)
         self._add_guide_draw(
             SPAN_LAYER,
             guide_sub_name("span", orient),
@@ -3351,10 +3584,12 @@ class GLEWriter:
                 self._format_number(end),
                 self._format_number(span_lo),
                 self._format_number(span_hi),
-                f'"{self._escape_gle_string(apply_alpha(color, alpha))}"',
+                f'"{self._escape_gle_string(color_token)}"',
                 f'"{self._escape_gle_string(label or "")}"',
             ],
         )
+        if label:
+            self.add_fill_key(swatch_color or color_token, label)
 
     def add_guide_key(
         self, color: str, linestyle: str, lwidth_cm: float, label: str
@@ -3378,8 +3613,25 @@ class GLEWriter:
                 cmd += f" lstyle {self.style.line_style_dotted}"
             elif linestyle == "-.":
                 cmd += f" lstyle {self.style.line_style_dashdot}"
-        cmd += f' key "{self._escape_gle_string(label)}"'
+        cmd += f" key {self._quote_gle_key(label)}"
         self.lines_gle.append(cmd)
+        self._finish_legend_entry(label)
+        return d_name
+
+    def add_fill_key(self, color: str, label: str) -> str:
+        """Data-free fill swatch for a guide that has no dataset of its own.
+
+        ``do_dataset_key`` copies ``key_fill`` onto the legend entry, so a
+        dataset that is never drawn still contributes a filled square when
+        it carries ``keyfill`` and a non-empty ``key``. Returns the dataset
+        name. ``color`` is the same token the fill or the span sub uses.
+        """
+        d_name = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        self.lines_gle.append(
+            f"    {d_name} keyfill {color} key {self._quote_gle_key(label)}"
+        )
+        self._finish_legend_entry(label)
         return d_name
 
     # -- the dataset form's provenance marker (G18-lite) ------------------
@@ -3631,6 +3883,17 @@ class GLEWriter:
         return str(value).replace('"', '\\"')
 
     @staticmethod
+    def _quote_gle_key(label: str) -> str:
+        """A double-quoted GLE string for a legend label.
+
+        GLE 4.3.10 ends a string on a quote that is not immediately
+        doubled (``Tokenizer.cpp``). A backslash does not keep the quote
+        inside the string, so an embedded quote is written as two quote
+        characters. A label with no quote is unchanged.
+        """
+        return '"' + str(label).replace('"', '""') + '"'
+
+    @staticmethod
     def _key_clause(label: Optional[str], has_header: bool) -> str:
         """Build the trailing ``key "..."`` token for a dataset display line.
 
@@ -3658,7 +3921,7 @@ class GLEWriter:
         entirely for an unlabeled series (empty string).
         """
         if label:
-            return f' key "{label}"'
+            return f" key {GLEWriter._quote_gle_key(label)}"
         if has_header:
             return ' key ""'
         return ""

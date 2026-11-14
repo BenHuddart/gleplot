@@ -120,14 +120,16 @@ def test_the_marker_stands_immediately_over_its_own_data_statement():
 
 
 def test_a_labelled_band_carries_the_label_the_fill_command_cannot():
-    """``fill dA,dB`` has no ``key``; the marker is the label's only home."""
+    """``fill dA,dB`` has no ``key``; the marker keeps the span's identity.
+
+    The legend swatch is a separate ``keyfill`` on the first fill dataset.
+    """
     text, _files = _four_kinds(vspan={"label": "band"})._generate_gle_with_files()
     assert (
         '! gleplot:guide span v range 0.5,1 extent 0,1 label "band"'
         in _marker_lines(text)
     )
-    # Unchanged legend behaviour: the band still gets no key of its own.
-    assert 'key "band"' not in text
+    assert "keyfill" in text and 'key "band"' in text
 
 
 def test_a_reflines_label_is_not_duplicated_into_its_marker():
@@ -208,6 +210,11 @@ def test_all_four_kinds_survive_the_round_trip_as_the_model_they_started_as(
         # field, marker-carried or command-carried, is identical.
         if before.get("linewidth") == 1:
             before = dict(before, linewidth=after["linewidth"])
+        # Call order and the recovered begin-key order are how the legend
+        # is sequenced. They are not part of the guide declaration.
+        for key in ("_draw_seq", "legend_seq"):
+            before.pop(key, None)
+            after.pop(key, None)
         assert after == before
 
 
