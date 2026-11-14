@@ -15,6 +15,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         python-version: ['3.9', '3.11']
+    env:
+      # One flag for the pytest invocation, the file check, and the upload.
+      COVERAGE: ${{ matrix.python-version == '3.11' && runner.os == 'Linux' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -124,11 +127,19 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/ -v --tb=short
+          if [ "$COVERAGE" = "true" ]; then
+            pytest tests/ -v --tb=short --cov=gleplot --cov-report=xml
+          else
+            pytest tests/ -v --tb=short
+          fi
+
+      - name: Require coverage report
+        if: env.COVERAGE == 'true'
+        run: test -s coverage.xml
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v3
-        if: matrix.python-version == '3.11' && runner.os == 'Linux'
+        if: env.COVERAGE == 'true'
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
