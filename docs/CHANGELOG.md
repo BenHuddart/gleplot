@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v3.1.0 (2026-11-14)
+
+### Features
+
+- Emit text vertical alignment, rotation, and backgrounds
+  ([`c95857a`](https://github.com/BenHuddart/gleplot/commit/c95857a3b269539fe5e24912923365cc6563d914))
+
+### Testing
+
+- Refresh text annotation emission digests
+  ([`cbb045c`](https://github.com/BenHuddart/gleplot/commit/cbb045ca0a0d531debbcd92777e145b1361b85f9))
+
+
 ## v3.0.0 (2026-11-14)
 
 ### Continuous Integration
