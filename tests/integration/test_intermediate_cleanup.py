@@ -25,6 +25,7 @@ import pytest
 
 import gleplot as glp
 from gleplot.compiler import GLECompiler
+from tests.integration.conftest import darwin_gle_contour_crash
 
 
 def _gle_available() -> bool:
@@ -35,7 +36,10 @@ def _gle_available() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(not _gle_available(), reason="GLE binary not available")
+pytestmark = [
+    pytest.mark.skipif(not _gle_available(), reason="GLE binary not available"),
+    darwin_gle_contour_crash,
+]
 
 
 def _grid_contour(ax, x, y, seed):

@@ -13,11 +13,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-latest is 26.04, which has no Python 3.9 build in
+        # actions/setup-python. 24.04 still does, and is the image these
+        # jobs ran on before that move.
+        os: [ubuntu-24.04, macos-latest]
         python-version: ['3.9', '3.11']
     env:
       # One flag for the pytest invocation, the file check, and the upload.
-      COVERAGE: ${{ matrix.python-version == '3.11' && runner.os == 'Linux' }}
+      COVERAGE: ${{ matrix.python-version == '3.11' && matrix.os == 'ubuntu-24.04' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +73,11 @@ jobs:
           if brew tap | grep -qx aws/tap; then
             brew trust aws/tap
           fi
+          # Qt is only linked when BUILD_GUI is on. GLE builds its own
+          # TeX (inittex); Homebrew texlive is a 35-formula install and
+          # the suite never calls system latex. Those two packages were
+          # almost all of this step. Boost stays: CMake's find_package is
+          # not REQUIRED, but gle/drawit.cpp includes Boost.Math anyway.
           brew install --quiet \
             boost \
             cairo \
@@ -79,12 +87,10 @@ jobs:
             libpng \
             libtiff \
             pixman \
-            qt \
             zstd \
             poppler \
             glib \
-            extra-cmake-modules \
-            texlive
+            extra-cmake-modules
 
       # GLE is pinned to a release tag: building an unpinned upstream master
       # broke CI when it grew a hard docbook-to-man requirement for man
