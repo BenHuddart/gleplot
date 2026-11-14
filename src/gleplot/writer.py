@@ -41,6 +41,7 @@ from .guides import (
 )
 from .parser.tables import (
     KEY_POSITIONS_LONG_TO_SHORT,
+    LINE_MODES,
     text_align_to_just,
     text_box_pad_token,
 )
@@ -1929,6 +1930,7 @@ class GLEWriter:
         binding: Optional[ColumnBinding] = None,
         smooth_mode: Optional[str] = None,
         svg_smooth: Optional[int] = None,
+        line_mode: Optional[str] = None,
     ):
         """
         Add line plot to graph.
@@ -1979,6 +1981,10 @@ class GLEWriter:
             Savitzky-Golay iterations (>= 1), or ``None`` for off. Independent
             of ``smooth_mode``; both may be emitted on one ``dN`` line, in the
             order :meth:`_line_token` fixes.
+        line_mode : {'steps', 'fsteps', 'hist', 'bar', 'impulses'}, optional
+            GLE's ``dn line`` mode, emitted immediately after ``line``.
+            ``None`` (the default, and every call that is not a step or a
+            stem) leaves the historical bare ``line`` token.
         """
         x_array = np.asarray(x)
         y_array = np.asarray(y)
@@ -2031,7 +2037,7 @@ class GLEWriter:
             # ``nomiss`` follows the smoothing tokens: dn keywords are
             # order-independent in GLE's kw loop except the documented
             # svg_smooth-before-mode rule, which _line_token owns.
-            line_cmd += self._line_token(smooth_mode, svg_smooth)
+            line_cmd += self._line_token(smooth_mode, svg_smooth, line_mode)
             if nomiss:
                 line_cmd += " nomiss"
             line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
@@ -2722,6 +2728,7 @@ class GLEWriter:
         marker: Optional[str] = None,
         markersize: float = 0.1,
         nomiss: bool = False,
+        line_mode: Optional[str] = None,
     ):
         """Add a line series that references columns in an external data file.
 
@@ -2747,7 +2754,11 @@ class GLEWriter:
         else:
             gle_lwidth = linewidth_pt_to_cm(linewidth)
 
-        line_cmd = f"    {d_main}{self._line_token()}"
+        # File series have no per-series smooth field, so they inherit
+        # figure-wide smoothing. A line mode must not: fitbez runs before
+        # the mode is drawn and would replace the discrete join.
+        smooth_mode = "none" if line_mode else None
+        line_cmd = f"    {d_main}{self._line_token(smooth_mode, line_mode=line_mode)}"
         if nomiss:
             line_cmd += " nomiss"
         line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
@@ -3776,6 +3787,7 @@ class GLEWriter:
         self,
         smooth_mode: Optional[str] = None,
         svg_smooth: Optional[int] = None,
+        line_mode: Optional[str] = None,
     ) -> str:
         """Return the ``line`` token, with smoothing, for a display command.
 
@@ -3827,8 +3839,28 @@ class GLEWriter:
         ``smooth`` also constrains point order (it needs monotonic x); that
         consequence is handled in :meth:`_row_order`, the only place a series
         is ever reordered.
+
+        A line mode (``steps`` / ``fsteps`` / ``hist`` / ``bar`` /
+        ``impulses``) is a separate assignment in the same keyword loop, so
+        its position relative to ``smooth`` does not change which flags are
+        set. It does change the picture when both are on: ``transform_data``
+        runs ``fitbez`` before ``drawLine`` switches on the mode, and the
+        steps are then drawn through the spline. Callers that want the
+        discrete join pass ``smooth_mode='none'`` (what :meth:`Axes.plot`
+        stores on a line-mode series, and what a file-series line mode
+        passes here).
+        It is emitted immediately after ``line`` -- ``line steps``, the
+        manual's spelling -- and only when the series asked for one. A
+        ``None`` mode leaves the token exactly `` line``, which is what
+        every pre-existing caller writes.
         """
         token = " line"
+        if line_mode is not None:
+            if line_mode not in LINE_MODES:
+                raise ValueError(
+                    f"line_mode must be one of {LINE_MODES}, got {line_mode!r}"
+                )
+            token += f" {line_mode}"
         iterations = normalize_svg_smooth(svg_smooth)
         if iterations is not None:
             token += f" svg_smooth {iterations}"

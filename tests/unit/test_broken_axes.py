@@ -351,6 +351,17 @@ def test_axvspan_only_materializes_where_it_lands():
     assert "1 " in files[left] or "1.0" in files[left]
 
 
+def test_step_and_stem_fan_out_with_their_line_modes():
+    fig, bax = _fig()
+    bax.step([0.01, 1.0], [0.2, 0.4], where="post")
+    bax.stem([0.01, 1.0], [0.2, 0.4])
+    for seg in bax.segments:
+        assert [ln["line_mode"] for ln in seg.lines] == ["steps", "impulses"]
+    text, _files = _gle(fig)
+    assert text.count(" line steps ") == 2
+    assert text.count(" line impulses ") == 2
+
+
 def test_fanout_returns_the_underlying_return_value_for_guides():
     _fig_, bax = _fig()
     entry = bax.axvline(0.5)

@@ -174,7 +174,9 @@ class BrokenAxes:
         self.xlims = xlims
         self.width_ratios = width_ratios
         self.position = tuple(position)
-        self.gap = float(gap) if gap is not None else (0.15 if divider == "slash" else 0.0)
+        self.gap = (
+            float(gap) if gap is not None else (0.15 if divider == "slash" else 0.0)
+        )
         self.divider = divider
         self.divider_color = divider_color
         self.divider_linewidth = divider_linewidth
@@ -253,7 +255,9 @@ class BrokenAxes:
             # Contiguous segments would print the shared boundary value twice,
             # once at the left segment's max and again at the right's min.
             if self.trim_seam_labels and index > 0:
-                seg._remove_first_xtick = self.xlims[index][0] == self.xlims[index - 1][1]
+                seg._remove_first_xtick = (
+                    self.xlims[index][0] == self.xlims[index - 1][1]
+                )
 
     # -- container protocol ---------------------------------------------
 
@@ -310,6 +314,16 @@ class BrokenAxes:
     def plot(self, *args, **kwargs):
         """Plot a line/marker series across every segment."""
         self._fanout("plot", *args, **kwargs)
+        return self
+
+    def step(self, *args, **kwargs):
+        """Step plot across every segment."""
+        self._fanout("step", *args, **kwargs)
+        return self
+
+    def stem(self, *args, **kwargs):
+        """Stem plot across every segment."""
+        self._fanout("stem", *args, **kwargs)
         return self
 
     def scatter(self, *args, **kwargs):

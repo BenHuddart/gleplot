@@ -7,7 +7,7 @@ import warnings
 from typing import Any, Optional, List, Sequence, Union, Tuple, Dict
 from .colors import rgb_to_gle
 from .config import GlobalConfig
-from .markers import get_gle_marker, resolve_marker_fill
+from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
 from .palettes import canonical_cmap
 from .parser.units import markersize_to_msize, capsize_pt_to_cm
@@ -18,6 +18,7 @@ from .parser.tables import (
     NUMBER_FORMAT_KEYWORDS,
     TEXT_HA_VALUES,
     TEXT_VA_VALUES,
+    resolve_line_mode,
 )
 from .series import (  # noqa: F401  (re-exported: historical import path)
     DRAWABLE_CLASSES,
@@ -551,6 +552,60 @@ def validate_tick_format(fmt: str) -> str:
     return text
 
 
+#: Linestyle spellings that mean "draw no curve". Shared with ``plot``.
+_NO_LINE = ("", "none", " ", "None")
+
+#: Single-character colors legal inside a matplotlib format string.
+_FMT_COLOR_CHARS = frozenset("bgrcmykw")
+
+#: Single-character markers legal inside a matplotlib format string.
+_FMT_MARKERS = frozenset(MATPLOTLIB_TO_GLE_MARKERS)
+
+
+def _split_plot_format(fmt):
+    """``(linestyle, marker, color)`` from a matplotlib format string.
+
+    A missing component is ``None``. A blank string or ``'none'`` returns
+    ``('none', 'none', None)``. ``fmt is None`` means the caller did not
+    pass a format, which is not the same as ``'none'``.
+    """
+    if fmt is None:
+        return None, None, None
+    text = str(fmt).strip()
+    if text.lower() in ("", "none"):
+        return "none", "none", None
+    linestyle = None
+    marker = None
+    color = None
+    i = 0
+    n = len(text)
+    while i < n:
+        pair = text[i : i + 2]
+        if pair in ("--", "-."):
+            linestyle = pair
+            i += 2
+            continue
+        char = text[i]
+        if char in "-:":
+            linestyle = char
+            i += 1
+            continue
+        if char == "C" and i + 1 < n and text[i + 1].isdigit():
+            color = pair
+            i += 2
+            continue
+        if char in _FMT_COLOR_CHARS:
+            color = char
+            i += 1
+            continue
+        if char in _FMT_MARKERS:
+            marker = char
+            i += 1
+            continue
+        raise ValueError(f"unrecognized character {char!r} in format string {fmt!r}")
+    return linestyle, marker, color
+
+
 def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
     """Resolve the marker fill mode from the plotting methods' kwargs.
 
@@ -866,6 +921,8 @@ class Axes:
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
         zorder: Optional[float] = None,
+        drawstyle: Optional[str] = None,
+        line_mode: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -899,6 +956,20 @@ class Axes:
             Draw order relative to other data series on the same axes.
             Higher values are drawn on top. When omitted, lines and scatters
             keep gleplot's default layer (lines below scatters and error bars).
+        drawstyle : str, optional
+            ``'default'``, ``'steps'``, ``'steps-pre'``, ``'steps-mid'`` or
+            ``'steps-post'``. ``'default'`` (and omitting it) is a straight
+            polyline. The step styles are GLE line modes: ``'steps'`` and
+            ``'steps-pre'`` emit ``line fsteps`` (matplotlib ``where='pre'``),
+            ``'steps-post'`` emits ``line steps``, and ``'steps-mid'`` emits
+            ``line hist``. ``ds`` is accepted as an alias. An unknown value
+            raises ``ValueError``.
+        line_mode : {'steps', 'fsteps', 'hist', 'bar', 'impulses'}, optional
+            The GLE line mode itself, for a caller that already speaks GLE.
+            ``'impulses'`` is what :meth:`stem` uses; ``'bar'`` is GLE's
+            per-dataset bar outline, not :meth:`bar`. Must agree with
+            ``drawstyle`` when both are passed. Omitted, the series stays a
+            plain ``line`` and the script is unchanged.
         **kwargs
             Additional matplotlib-compatible arguments
 
@@ -912,6 +983,7 @@ class Axes:
             zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
+        mode = resolve_line_mode(drawstyle, line_mode, kwargs.pop("ds", None))
 
         x = np.asarray(x)
         y = np.asarray(y)
@@ -920,7 +992,18 @@ class Axes:
         # marker requested alongside a solid/dashed line must be preserved
         # (not silently dropped). Only when there is *no* line is the series a
         # true scatter.
-        is_scatter = marker is not None and linestyle in ("", "none", " ", "None")
+        is_scatter = marker is not None and linestyle in _NO_LINE
+        # A GLE line mode is a qualifier of ``line``. With the line switched
+        # off there is nothing for it to qualify, and storing it would not
+        # survive a round trip (the writer emits no ``line`` token).
+        if mode and linestyle in _NO_LINE:
+            warnings.warn(
+                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
+                "omits it, so the series is drawn without that mode.",
+                UserWarning,
+                stacklevel=2,
+            )
+            mode = None
 
         # Handle color. Which style default applies depends on what this
         # series turns out to be, which is why it is resolved after
@@ -955,6 +1038,14 @@ class Axes:
             data_file=_resolve_data_file(self.figure, data_name),
             column_names=_build_column_names("x", ["y"], label),
         )
+        if mode:
+            plot_fields["line_mode"] = mode
+            # graph2.cpp transform_data() runs fitbez before drawLine()
+            # switches on the mode, so a figure-wide smooth_curves would
+            # draw the steps through the spline. Pin this series off.
+            # A script that writes both keywords keeps the smooth it asked
+            # for; this only stops the default from applying.
+            plot_fields["smooth_mode"] = "none"
 
         if is_scatter:
             scatter_data = ScatterSeries(**plot_fields)
@@ -966,6 +1057,207 @@ class Axes:
             self.lines.append(line_data)
 
         return self  # Return self for method chaining
+
+    def step(self, x, y, *args, where: str = "pre", **kwargs):
+        """Draw a step plot.
+
+        A thin wrapper around :meth:`plot` that selects a GLE line mode.
+        ``where`` follows matplotlib:
+
+        - ``'pre'`` (default): the interval ``(x[i-1], x[i]]`` has value
+          ``y[i]``. GLE ``line fsteps`` (vertical, then horizontal).
+        - ``'post'``: the interval ``[x[i], x[i+1])`` has value ``y[i]``.
+          GLE ``line steps`` (horizontal, then vertical).
+        - ``'mid'``: the step is halfway between the x positions, and each
+          point is a bin center. GLE ``line hist``.
+
+        A positional format string is accepted and ignored, with a warning:
+        pass ``color``, ``linestyle`` and ``marker`` as keywords. ``where``
+        wins over an explicit ``drawstyle``.
+
+        Returns
+        -------
+        self
+        """
+        where_key = str(where).strip().lower()
+        if where_key not in ("pre", "post", "mid"):
+            raise ValueError(f"where must be 'pre', 'post', or 'mid', got {where!r}")
+        if args:
+            warnings.warn(
+                "step() format strings are not applied; pass color, "
+                "linestyle and marker as keywords.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if "drawstyle" in kwargs or "ds" in kwargs:
+            warnings.warn(
+                "step() sets the drawstyle from where=; the drawstyle "
+                "argument was ignored.",
+                UserWarning,
+                stacklevel=2,
+            )
+            kwargs.pop("drawstyle", None)
+            kwargs.pop("ds", None)
+        kwargs["drawstyle"] = "steps-" + where_key
+        return self.plot(x, y, **kwargs)
+
+    def stem(
+        self,
+        *args,
+        linefmt=None,
+        markerfmt=None,
+        basefmt=None,
+        bottom=0,
+        label: Optional[str] = None,
+        orientation: str = "vertical",
+        **kwargs,
+    ):
+        """Draw a stem plot as GLE ``line impulses``.
+
+        One positional argument is the y values, with ``x = 0 .. n-1``.
+        Two are ``x, y``. The stems and their head markers are one GLE
+        dataset, so they share a color. The default head is a filled
+        circle; pass ``markerfmt='none'`` for stems alone.
+
+        GLE's impulse origin is not matplotlib's ``bottom``. It is 0 when
+        the y range includes 0, otherwise the range edge nearest 0 (the
+        axis range, unless the dataset sets its own). No baseline is drawn.
+        ``orientation='horizontal'`` warns and still draws vertical stems.
+
+        Returns
+        -------
+        self
+            gleplot's other plotting methods return the axes, not a
+            matplotlib ``StemContainer``.
+        """
+        if len(args) == 1:
+            y = np.asarray(args[0])
+            if getattr(y, "ndim", 1) == 0:
+                raise TypeError("stem() y must be a sequence of values")
+            x = np.arange(len(y), dtype=float)
+        elif len(args) == 2:
+            x, y = args
+        else:
+            raise TypeError(
+                f"stem() takes 1 or 2 positional arguments ({len(args)} given)"
+            )
+
+        if "use_line_collection" in kwargs:
+            kwargs.pop("use_line_collection")
+            warnings.warn(
+                "stem(use_line_collection=...) is ignored.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if "data" in kwargs:
+            kwargs.pop("data")
+            warnings.warn(
+                "stem(data=...) is not supported and was ignored. "
+                "Pass the x and y arrays directly.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        orient = str(orientation).strip().lower()
+        if orient not in ("vertical", "horizontal"):
+            raise ValueError(
+                "orientation must be 'vertical' or 'horizontal', "
+                f"got {orientation!r}"
+            )
+        if orient == "horizontal":
+            warnings.warn(
+                "stem(orientation='horizontal') is not supported: GLE "
+                "impulses are vertical. Drawing a vertical stem of the "
+                "given (x, y).",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        try:
+            bottom_value = float(bottom)
+        except (TypeError, ValueError):
+            warnings.warn(
+                f"stem(bottom={bottom!r}) is not a number and was ignored.",
+                UserWarning,
+                stacklevel=2,
+            )
+            bottom_value = 0.0
+        if bottom_value != 0.0:
+            warnings.warn(
+                "stem(bottom=...) does not move GLE's impulse origin. "
+                "Impulses meet 0 when the y range includes 0, otherwise "
+                "the range edge nearest 0. No baseline is drawn.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        if basefmt is not None and str(basefmt).strip().lower() not in ("", "none"):
+            warnings.warn(
+                "stem(basefmt=...) is not drawn. GLE impulses have no "
+                "separate baseline; the verticals end at the impulse origin.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        line_ls, _line_marker, line_color = _split_plot_format(linefmt)
+        _mark_ls, mark_marker, mark_color = _split_plot_format(markerfmt)
+
+        if "linestyle" in kwargs:
+            linestyle = kwargs.pop("linestyle")
+        elif linefmt is None or line_ls is None:
+            linestyle = "-"
+        else:
+            linestyle = line_ls
+
+        if "marker" in kwargs:
+            marker = kwargs.pop("marker")
+        elif markerfmt is None:
+            marker = "o"
+        elif _mark_ls == "none":
+            # 'none' / '' asks for no head marker. A color-only markerfmt
+            # (no 'none', no marker character) keeps the default circle.
+            marker = None
+        else:
+            marker = "o" if mark_marker is None else mark_marker
+
+        if "color" not in kwargs:
+            if (
+                line_color is not None
+                and mark_color is not None
+                and line_color != mark_color
+            ):
+                warnings.warn(
+                    "stem() line and marker colors differ "
+                    f"({line_color!r} vs {mark_color!r}); GLE draws both in "
+                    "the line color, because impulses and markers are one "
+                    "dataset.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                kwargs["color"] = line_color
+            elif line_color is not None:
+                kwargs["color"] = line_color
+            elif mark_color is not None:
+                warnings.warn(
+                    "stem() marker color applies to the impulses too: GLE "
+                    "draws the stems and the markers as one dataset.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                kwargs["color"] = mark_color
+        if label is not None:
+            kwargs["label"] = label
+
+        if linestyle in _NO_LINE:
+            warnings.warn(
+                "stem() draws no stems when the line format is 'none'; "
+                "only markers are emitted.",
+                UserWarning,
+                stacklevel=2,
+            )
+        else:
+            kwargs["line_mode"] = "impulses"
+        return self.plot(x, y, linestyle=linestyle, marker=marker, **kwargs)
 
     def errorbar(
         self,
@@ -1251,19 +1543,35 @@ class Axes:
         linewidth: float = 1,
         label: Optional[str] = None,
         yaxis: str = "y",
+        drawstyle: Optional[str] = None,
+        line_mode: Optional[str] = None,
     ):
         """Plot a line by referencing columns in an external data file.
 
         This avoids creating generated ``data_*.dat`` files for overlay lines.
         Column indices are 1-based to match GLE conventions.
+
+        ``drawstyle`` and ``line_mode`` are the same line modes as
+        :meth:`plot`. ``linestyle='none'`` warns and drops the mode: there
+        is no line for it to qualify. The series is still a line reference;
+        this method has no scatter form.
         """
         if x_col < 1 or y_col < 1:
             raise ValueError("Column indices must be >= 1")
 
         label = mathtext_to_gle(label)
         gle_color = self._resolve_color(color)
+        mode = resolve_line_mode(drawstyle, line_mode)
+        if mode and linestyle in _NO_LINE:
+            warnings.warn(
+                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
+                "omits it, so the series is drawn without that mode.",
+                UserWarning,
+                stacklevel=2,
+            )
+            mode = None
 
-        entry = FileSeries(
+        fields = dict(
             series_type="line",
             data_file=data_file,
             x_col=int(x_col),
@@ -1275,6 +1583,9 @@ class Axes:
             label=label,
             yaxis=yaxis,
         )
+        if mode:
+            fields["line_mode"] = mode
+        entry = FileSeries(**fields)
         self._register_series_draw_meta(entry, "line")
         self.file_series.append(entry)
 

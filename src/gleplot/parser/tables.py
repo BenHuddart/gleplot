@@ -41,6 +41,9 @@ __all__ = [
     "GLE_MARKER_TO_MATPLOTLIB",
     "LSTYLE_TO_MATPLOTLIB",
     "MATPLOTLIB_TO_LSTYLE",
+    "LINE_MODES",
+    "DRAWSTYLE_TO_LINE_MODE",
+    "resolve_line_mode",
     "NUMBER_FORMAT_KEYWORDS",
     "KEY_POSITIONS_LONG_TO_SHORT",
     "KEY_POSITIONS_SHORT_TO_LONG",
@@ -399,6 +402,88 @@ def _build_lstyle_to_matplotlib() -> Dict[int, str]:
 LSTYLE_TO_MATPLOTLIB: Dict[int, str] = _build_lstyle_to_matplotlib()
 
 MATPLOTLIB_TO_LSTYLE: Dict[str, int] = {v: k for k, v in LSTYLE_TO_MATPLOTLIB.items()}
+
+
+# ---------------------------------------------------------------------------
+# Dataset line modes
+# ---------------------------------------------------------------------------
+#
+# GLE 4.3.10 ``src/gle/graph2.cpp`` ``do_dataset``: ``STEPS``, ``FSTEPS``,
+# ``HIST``, ``BAR`` and ``IMPULSES`` each assign ``dp[d]->line_mode`` (the
+# last keyword wins). After the keyword loop, any non-plain mode sets
+# ``line = true`` even when the ``line`` keyword itself was omitted.
+#
+# Drawing (``do_draw_*`` in the same file, and the manual's line-mode list):
+#   steps     (x1,y1) -> (x2,y1) -> (x2,y2)   horizontal, then vertical
+#   fsteps    (x1,y1) -> (x1,y2) -> (x2,y2)   vertical, then horizontal
+#   hist      each point is the center of a bin
+#   bar       hist, plus a separator down to the impulse origin
+#   impulses  a vertical from the impulse origin to each point
+#
+# matplotlib's step drawstyles land on the first three. ``impulses`` is
+# ``Axes.stem``. ``bar`` is this per-dataset line mode, not the graph-level
+# ``bar`` command :meth:`Axes.bar` emits.
+#   steps / steps-pre / where="pre"   -> fsteps
+#   steps-post        / where="post"  -> steps
+#   steps-mid         / where="mid"   -> hist
+
+LINE_MODES: Tuple[str, ...] = ("steps", "fsteps", "hist", "bar", "impulses")
+
+#: matplotlib ``drawstyle`` → GLE line mode. ``None`` is a plain polyline,
+#: so the writer keeps emitting a bare ``line`` and old scripts stay
+#: byte-identical. Keys are matplotlib's own spellings (case-sensitive).
+DRAWSTYLE_TO_LINE_MODE: Dict[str, Optional[str]] = {
+    "default": None,
+    "steps": "fsteps",
+    "steps-pre": "fsteps",
+    "steps-post": "steps",
+    "steps-mid": "hist",
+}
+
+
+def resolve_line_mode(
+    drawstyle: Optional[str] = None,
+    line_mode: Optional[str] = None,
+    ds: Optional[str] = None,
+) -> Optional[str]:
+    """The GLE line mode for a plot call, or ``None`` for a plain polyline.
+
+    ``ds`` is matplotlib's alias of ``drawstyle``. ``line_mode`` is the GLE
+    token itself (see :data:`LINE_MODES`). When a drawstyle and a
+    ``line_mode`` are both given they must name the same mode.
+    """
+    if ds is not None:
+        if drawstyle is None:
+            drawstyle = ds
+        elif _drawstyle_mode(ds) != _drawstyle_mode(drawstyle):
+            raise ValueError(
+                f"drawstyle {drawstyle!r} and ds {ds!r} are different line modes"
+            )
+    from_style = _drawstyle_mode(drawstyle)
+    if line_mode is None:
+        return from_style
+    mode = str(line_mode).strip().lower()
+    if mode not in LINE_MODES:
+        raise ValueError(f"line_mode must be one of {LINE_MODES}, got {line_mode!r}")
+    if from_style is not None and from_style != mode:
+        raise ValueError(
+            f"drawstyle {drawstyle!r} is GLE {from_style!r}, "
+            f"which disagrees with line_mode {line_mode!r}"
+        )
+    return mode
+
+
+def _drawstyle_mode(drawstyle: Optional[str]) -> Optional[str]:
+    if drawstyle is None:
+        return None
+    key = str(drawstyle).strip()
+    try:
+        return DRAWSTYLE_TO_LINE_MODE[key]
+    except KeyError:
+        known = ", ".join(repr(name) for name in DRAWSTYLE_TO_LINE_MODE)
+        raise ValueError(
+            f"drawstyle must be one of {known}, got {drawstyle!r}"
+        ) from None
 
 
 # ---------------------------------------------------------------------------

@@ -379,6 +379,19 @@ def axes_styling_full():
     return fig
 
 
+def line_modes():
+    """Step, histogram-outline and stem line modes on one axes."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = [0, 1, 2, 3]
+    ax.step(x, [1, 2, 2, 1], where="pre", color="blue", label="pre")
+    ax.step(x, [1, 3, 1, 2], where="post", color="red")
+    ax.plot(x, [0, 1, 0, 1], drawstyle="steps-mid", color="green", label="mid")
+    ax.stem(x, [1, 0, 1, 0], label="stem")
+    ax.legend()
+    return fig
+
+
 def axes_styling_grid_only():
     """The plainest grid: no style clause, no other styling."""
     fig = glp.figure(data_prefix="golden")
@@ -411,6 +424,7 @@ BUILDERS = [
     contour_grid_levels_clabel,
     tripcolor_tricontour_combo,
     custom_tick_labels,
+    line_modes,
     axes_styling_full,
     axes_styling_grid_only,
 ]

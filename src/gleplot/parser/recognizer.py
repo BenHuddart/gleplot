@@ -321,6 +321,7 @@ from .syntax import (
 )
 from .tables import (
     KEY_POSITIONS_SHORT_TO_LONG,
+    LINE_MODES,
     LSTYLE_TO_MATPLOTLIB,
     PALETTE_SUB_TO_CMAP,
     text_box_pad_token,
@@ -844,11 +845,13 @@ class _Recognizer:
         # the figure-wide default is known: (LineSeries, mode, svg_iterations).
         self._smooth_lines: List[Tuple[Series, str, Optional[int]]] = []
         # Smoothing seen on a dataset kind that has no per-series field
-        # (error bars, file references): (kind, mode, svg_iterations, span).
+        # (error bars, file references):
+        # (kind, mode, svg_iterations, span, line_mode or None).
         # Also reconciled in _apply_smooth -- only the ones the figure-wide
-        # default cannot reproduce are worth a warning.
+        # default cannot reproduce are worth a warning. A line mode is
+        # pinned unsmoothed by the writer, so it is reconciled separately.
         self._unmodelled_smooth: List[
-            Tuple[str, str, Optional[int], Optional[Tuple[int, int]]]
+            Tuple[str, str, Optional[int], Optional[Tuple[int, int]], Optional[str]]
         ] = []
 
     # -- notes -------------------------------------------------------------
@@ -2270,6 +2273,10 @@ class _Recognizer:
         if attrs["marker"] is not None or attrs["y2axis"]:
             return None
         if entry.get("offset") or attrs["smooth_mode"] != "none":
+            return None
+        # A line mode is not something a guide emission carries. Keeping the
+        # series as a line is what preserves ``steps`` / ``impulses`` / ...
+        if attrs.get("line_mode"):
             return None
         if attrs["svg_smooth"] is not None:
             return None
@@ -3777,6 +3784,8 @@ class _Recognizer:
             info["_draw_seq_counter"] += 1
             info["scatters"].append(entry)
         else:
+            if attrs["line_mode"]:
+                entry["line_mode"] = attrs["line_mode"]
             # A marked line is an axvline/axhline that materialized into this
             # dataset (G18-lite): it becomes the declaration it came from,
             # never a drawable, so it takes no ``_draw_seq`` and no smoothing
@@ -3829,6 +3838,9 @@ class _Recognizer:
             "lwidth": None,
             "lstyle": None,
             "linestyle": "-",
+            # GLE line mode (steps/fsteps/hist/bar/impulses), or None for a
+            # plain polyline. Last keyword wins, matching graph2.cpp.
+            "line_mode": None,
             "marker": None,
             "msize": None,
             "y2axis": False,
@@ -3845,6 +3857,14 @@ class _Recognizer:
             w = t.value.lower()
             if w == "line":
                 a["has_line"] = True
+                i += 1
+                continue
+            if w in LINE_MODES:
+                # graph2.cpp assigns line_mode and, after the keyword loop,
+                # any non-plain mode implies ``line`` even without the
+                # keyword. The last mode keyword wins.
+                a["has_line"] = True
+                a["line_mode"] = w
                 i += 1
                 continue
             if w in ("smooth", "smoothm"):
@@ -3967,6 +3987,25 @@ class _Recognizer:
             i += 1
         return a
 
+    def _note_dropped_line_mode(self, attrs, span) -> None:
+        """Warn when an error-bar dataset's line mode will not be re-emitted.
+
+        The mode is modelled on line series. An error bar that also says
+        ``steps`` (and so on) used to drop the keyword silently because the
+        scanner skipped it. Now that the keyword is recognized, say so.
+        Callers that keep the original ``dN`` line as passthrough must not
+        call this: the mode is still in the script.
+        """
+        mode = attrs.get("line_mode")
+        if not mode:
+            return
+        self._note(
+            ImportCategory.DATA,
+            f"line mode {mode!r} on an error-bar dataset is not modelled "
+            "and was dropped on re-save",
+            span,
+        )
+
     def _build_errorbar(
         self,
         info,
@@ -4049,6 +4088,7 @@ class _Recognizer:
         if not is_import:
             # File-series errorbar reference.
             yerr_col = yerr_up_col if yerr_up_col is not None else None
+            self._note_dropped_line_mode(attrs, span)
             info["file_series"].append(
                 FileSeries(
                     series_type="errorbar",
@@ -4086,6 +4126,7 @@ class _Recognizer:
                 )
                 return
             yerr_col = yerr_up_col if yerr_up_col is not None else None
+            self._note_dropped_line_mode(attrs, span)
             info["file_series"].append(
                 FileSeries(
                     series_type="errorbar",
@@ -4198,6 +4239,7 @@ class _Recognizer:
                 entry["column_names"] = column_names
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
+        self._note_dropped_line_mode(attrs, span)
         info["errorbars"].append(entry)
 
     def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
@@ -4256,6 +4298,8 @@ class _Recognizer:
                 label=attrs["label"],
                 yaxis="y2" if attrs["y2axis"] else "y",
             )
+            if attrs["line_mode"]:
+                entry["line_mode"] = attrs["line_mode"]
             if attrs["marker"] is not None:
                 entry["marker"] = attrs["marker"]
                 entry["markersize"] = markersize
@@ -5944,7 +5988,13 @@ class _Recognizer:
             return
         span = (line_no, line_no) if line_no is not None else None
         self._unmodelled_smooth.append(
-            (kind, attrs["smooth_mode"], attrs["svg_smooth"], span)
+            (
+                kind,
+                attrs["smooth_mode"],
+                attrs["svg_smooth"],
+                span,
+                attrs.get("line_mode"),
+            )
         )
 
     def _apply_smooth(self, fig, graph_cfg, smooth_flags):
@@ -5986,7 +6036,13 @@ class _Recognizer:
 
         default_mode = "smooth" if graph_cfg.smooth_curves else "none"
         for entry, mode, iterations in self._smooth_lines:
-            if mode != default_mode:
+            # A line mode with no smooth keyword must stay unsmoothed even
+            # when that matches the figure default. Otherwise a later
+            # smooth_curves flip splines the points before the join
+            # (graph2.cpp transform_data, then drawLine). An explicit
+            # smooth on the same dataset still follows the default rule.
+            pin_unsmoothed = bool(entry.get("line_mode")) and mode == "none"
+            if mode != default_mode or pin_unsmoothed:
                 entry["smooth_mode"] = mode
             if iterations is not None:
                 entry["svg_smooth"] = iterations
@@ -5995,7 +6051,21 @@ class _Recognizer:
         # figure-wide default gives them. Warn about exactly the ones that
         # differ from it -- a smoothed errorbar in a smoothed figure loses
         # nothing and must not be reported as if it did (SPEC 8.1.4).
-        for kind, mode, iterations, span in self._unmodelled_smooth:
+        for kind, mode, iterations, span, line_mode in self._unmodelled_smooth:
+            if line_mode and mode == "none" and iterations is None:
+                # The writer pins this mode unsmoothed, which is what the
+                # dataset already says.
+                continue
+            if line_mode and (mode != "none" or iterations is not None):
+                self._note(
+                    ImportCategory.SMOOTH,
+                    f"{self._smooth_clause_text(mode, iterations)} on a {kind} "
+                    f"dataset with line mode {line_mode!r} is dropped on "
+                    "re-save. GLE would smooth the points before drawing "
+                    "that mode, which replaces the discrete join.",
+                    span,
+                )
+                continue
             if mode == default_mode and iterations is None:
                 continue
             self._note(

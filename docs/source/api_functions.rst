@@ -17,6 +17,10 @@ Plotting helpers
 
 .. autofunction:: gleplot.plot
 
+.. autofunction:: gleplot.step
+
+.. autofunction:: gleplot.stem
+
 .. autofunction:: gleplot.scatter
 
 .. autofunction:: gleplot.bar

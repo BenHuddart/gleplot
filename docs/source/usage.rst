@@ -276,6 +276,18 @@ Available colors:
    ax.plot(x, y, color='red', linestyle='--', linewidth=2)
    ax.scatter(x, y, color='#0000FF', s=100)
 
+Step and stem plots use GLE line modes on the same data:
+
+.. code-block:: python
+
+   ax.step(x, y, where='pre')          # line fsteps
+   ax.plot(x, y, drawstyle='steps-mid')  # line hist
+   ax.stem(x, y)                       # line impulses
+
+``where`` is ``'pre'`` (default), ``'post'`` or ``'mid'``. See the
+matplotlib migration guide for the cases GLE draws differently (the
+impulse origin, and the missing stem baseline).
+
 Saving Figures
 --------------
 

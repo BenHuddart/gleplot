@@ -918,6 +918,14 @@ class Figure:
         """Plot on current axes."""
         return self.gca().plot(x, y, **kwargs)
 
+    def step(self, x, y, *args, **kwargs):
+        """Step plot on current axes."""
+        return self.gca().step(x, y, *args, **kwargs)
+
+    def stem(self, *args, **kwargs):
+        """Stem plot on current axes."""
+        return self.gca().stem(*args, **kwargs)
+
     def scatter(self, x, y, **kwargs):
         """Scatter on current axes."""
         return self.gca().scatter(x, y, **kwargs)
@@ -2317,6 +2325,7 @@ class Figure:
                     # (GLEWriter._effective_smooth_mode).
                     smooth_mode=series_data.get("smooth_mode"),
                     svg_smooth=series_data.get("svg_smooth"),
+                    line_mode=series_data.get("line_mode"),
                 )
             elif kind == "scatter":
                 writer.add_plot_line(
@@ -2372,6 +2381,7 @@ class Figure:
                     marker=fs_data.get("marker"),
                     markersize=fs_data.get("markersize", 0.1),
                     nomiss=fs_data.get("nomiss", False),
+                    line_mode=fs_data.get("line_mode"),
                 )
             elif series_type == "bar":
                 writer.add_bar_from_file(

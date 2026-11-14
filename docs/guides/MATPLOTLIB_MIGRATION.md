@@ -98,6 +98,40 @@ ax.legend(loc='upper left', fontsize=6.5, frameon=False)
 ax.text(1, 2, "peak", va="bottom", rotation=45, bbox={"facecolor": "white"})
 ```
 
+## Step and stem plots
+
+GLE draws these as a mode on the same `dN line` command. The points stay in the data file; only the join changes.
+
+| call | GLE |
+|---|---|
+| `ax.step(x, y)` / `where="pre"` / `drawstyle="steps"` or `"steps-pre"` | `line fsteps` (vertical, then horizontal) |
+| `ax.step(x, y, where="post")` / `drawstyle="steps-post"` | `line steps` (horizontal, then vertical) |
+| `ax.step(x, y, where="mid")` / `drawstyle="steps-mid"` | `line hist` (each point is a bin center) |
+| `ax.stem(x, y)` | `line impulses`, with a filled-circle head |
+| `ax.plot(..., line_mode="bar")` | `line bar` (histogram outline plus separators). This is not `ax.bar`. |
+
+`line hist` is the outline. Binning a sample into counts is a separate gap (`Axes.hist`).
+
+```python
+ax.step(x, y, where="pre")
+ax.plot(x, y, drawstyle="steps-mid")
+ax.stem(x, y)
+```
+
+| argument | gleplot |
+|---|---|
+| `where` | `'pre'`, `'post'`, `'mid'`. Anything else raises `ValueError`. |
+| `drawstyle` / `ds` | the five matplotlib names above. `'default'` is an ordinary line. An unknown value raises `ValueError`. |
+| `step` format string | warns and is ignored. Pass `color`, `linestyle` and `marker` as keywords. |
+| `linestyle="none"` together with a step style | warns. There is no line for the mode to qualify. `line_from_file` drops the mode the same way and still writes the line reference. |
+| `GLEGraphConfig(smooth_curves=True)` | a step, stem, hist, bar or impulse series stays unsmoothed. GLE would spline the points first and then draw the mode through the spline. A script that writes both keywords keeps the smooth it asked for. |
+| `stem` `linefmt` / `markerfmt` | color, linestyle and marker are applied. Stems and heads are one dataset, so two different colors warn and the line color wins. |
+| `stem` `bottom` | warns unless it is `0`. GLE's origin is 0 when the y range includes 0, otherwise the range edge nearest 0. It is not matplotlib's baseline. |
+| `stem` `basefmt` | warns, unless it asks for no baseline. No baseline is drawn. |
+| `stem` `orientation="horizontal"` | warns. Impulses are vertical. |
+| `stem` return value | the axes. There is no `StemContainer`. |
+| `stem(data=...)`, `use_line_collection` | warn and are ignored. |
+
 ## Key Behavioral Differences
 
 1. Primary output model is GLE script generation.
