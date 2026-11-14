@@ -167,7 +167,10 @@ for rendering, applied by the test-side ``normalize()`` helper)
     load. A ``data`` statement declaring a MIX of modeled and orphaned
     datasets is not currently reconstructed (re-emitting it whole would
     duplicate the modeled portion); a ``data:`` warning flags this instead
-    of resolving it silently either way.
+    of resolving it silently either way. A one-curve fill
+    (``fill x1,dN``, ``fill dN,x2``, ``fill dN``) whose ``data`` statement
+    also declares other datasets is left verbatim for the same reason:
+    modelling it would rewrite the file down to that one curve.
 
 Tolerances for hand-written input
 ---------------------------------
@@ -1616,6 +1619,13 @@ class _Recognizer:
                         data_stmts.append(
                             (names, self._stmt_text(child), child.line_no)
                         )
+                        # An axis or polygon fill uses one of these names.
+                        # Modelling it while the statement still declares
+                        # others would drop this line and rewrite the file
+                        # down to that one curve (see _parse_fill_command).
+                        group = info.setdefault("_dataset_group", {})
+                        for name in names:
+                            group[name] = names
                     continue
                 if kw == "let":
                     # 'let dK = dJ+off' -- register dK as an offset alias of dJ
@@ -3790,87 +3800,168 @@ class _Recognizer:
         info["_key_label_owners"][d_name] = entry
 
     def _parse_fill_command(self, toks, datasets, info, stmt=None):
-        """``fill dA,dB color COLOR``"""
-        # tokens: fill dA , dB color COLOR
-        d_names = []
-        color = "LIGHTBLUE"
+        """``fill dA,dB``, ``fill x1,dN``, ``fill dN,x2`` or ``fill dN``.
+
+        Each form may carry ``color`` and a clip window (``xmin`` / ``xmax``
+        / ``ymin`` / ``ymax``), in any order. Anything else — a third
+        dataset, an unknown keyword — stays raw, so a multi-dataset fill
+        group is not reduced to one series.
+        """
+
+        def passthrough():
+            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
+
         i = 1
         m = len(toks)
+        operands = []
+        option_names = ("color", "xmin", "xmax", "ymin", "ymax")
         while i < m:
-            w = toks[i]
-            wl = w.value.lower()
-            if _DATASET_RE.match(wl):
-                d_names.append(wl)
-            elif wl == "color" and i + 1 < m:
+            word = toks[i].value.lower()
+            if word in option_names:
+                break
+            if toks[i].type is TokenType.OP and toks[i].value == ",":
+                i += 1
+                continue
+            if _DATASET_RE.match(word) or word in ("x1", "x2"):
+                operands.append(word)
+                i += 1
+                continue
+            passthrough()
+            return
+
+        color = "LIGHTBLUE"
+        clips = {}
+        while i < m:
+            word = toks[i].value.lower()
+            if word == "color" and i + 1 < m:
                 val, nxt = _collect_color(toks, i + 1)
-                if val is not None:
-                    color = val
+                if val is None or nxt == i + 1:
+                    passthrough()
+                    return
+                color = val
                 i = nxt
                 continue
-            i += 1
-        if len(d_names) < 2 or d_names[0] not in datasets or d_names[1] not in datasets:
-            info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
+            if word in ("xmin", "xmax", "ymin", "ymax"):
+                val, nxt = _collect_value(toks, i + 1)
+                if val is None:
+                    passthrough()
+                    return
+                clips[word] = val
+                i = nxt
+                continue
+            passthrough()
             return
-        info["_key_suppress_datasets"].add(d_names[0])
-        info["_key_suppress_datasets"].add(d_names[1])
+
+        target = None
+        d_names: List[str] = []
+        if (
+            len(operands) == 2
+            and operands[0] == "x1"
+            and _DATASET_RE.match(operands[1])
+        ):
+            target = "x1"
+            d_names = [operands[1]]
+        elif (
+            len(operands) == 2
+            and operands[1] == "x2"
+            and _DATASET_RE.match(operands[0])
+        ):
+            target = "x2"
+            d_names = [operands[0]]
+        elif len(operands) == 2 and all(_DATASET_RE.match(name) for name in operands):
+            d_names = list(operands)
+        elif len(operands) == 1 and _DATASET_RE.match(operands[0]):
+            target = "polygon"
+            d_names = [operands[0]]
+        else:
+            passthrough()
+            return
+        if any(name not in datasets for name in d_names):
+            passthrough()
+            return
+        if target is not None:
+            # ``data f.dat`` with several columns registers d1, d2, ... .
+            # A one-curve fill owns only one of them. Taking it would make
+            # the statement mixed: the writer rewrites the file to that
+            # curve's columns and the sibling datasets (a grouped ``bar``,
+            # or simply the unused columns) no longer resolve. Leave the
+            # fill verbatim so the original ``data`` line can be restored.
+            # gleplot's own scripts name the one curve explicitly
+            # (``d1=c1,c2``), so those still model.
+            group = info.get("_dataset_group", {}).get(d_names[0], d_names)
+            if any(name not in d_names for name in group):
+                passthrough()
+                return
+
+        for name in d_names:
+            info["_key_suppress_datasets"].add(name)
         f1, xc1, yc1 = datasets[d_names[0]]
-        f2, xc2, yc2 = datasets[d_names[1]]
-        # fill data file has c1=x, c2=y1, c3=y2. d1=c1,c2 ; d2=c1,c3.
+        yc2 = None
+        if target is None:
+            _f2, _xc2, yc2 = datasets[d_names[1]]
         loaded = self._load_series(
-            f1, xc1, yc1, extra_cols=[yc2], line_no=self._opt_line_no(stmt)
+            f1,
+            xc1,
+            yc1,
+            extra_cols=[yc2] if yc2 is not None else None,
+            line_no=self._opt_line_no(stmt),
         )
         if loaded is None or loaded.get("error"):
-            fs = FileSeries(
+            fs_fields = dict(
                 series_type="fill",
                 data_file=f1,
                 x_col=xc1,
                 y1_col=yc1,
-                y2_col=yc2,
                 color=color,
                 data_error=(loaded or {}).get("error", "unresolved"),
             )
+            if target is None:
+                fs_fields["y2_col"] = yc2
+            else:
+                fs_fields["target"] = target
+            fs_fields.update(clips)
+            fs = FileSeries(**fs_fields)
             info["file_series"].append(fs)
             info["_key_label_owners"][d_names[0]] = fs
             return
-        x = loaded["x"]
-        y1 = loaded["y"]
-        y2 = loaded.get(f"c{yc2}")
-        fill_entry = FillSeries(
-            x=x,
-            y1=y1,
+        y2 = loaded.get(f"c{yc2}") if yc2 is not None else None
+        # 1.0 (opaque), not a guessed fraction: ``color`` as parsed here IS
+        # the exact GLE colour text (verbatim, via _collect_color) that will
+        # be re-emitted. apply_alpha passes an rgba expression through
+        # unchanged, and 1.0 keeps a plain colour a no-op, so a round-tripped
+        # fill stays byte-identical (Track G6).
+        fill_fields = dict(
+            x=loaded["x"],
+            y1=loaded["y"],
             y2=y2,
             color=color,
-            # 1.0 (opaque), not a guessed fraction: `color` as parsed here IS
-            # the exact GLE colour text (verbatim, via _collect_color) that
-            # will be re-emitted -- if it already carries its own alpha
-            # (a hand-written `rgba255(...)`), gleplot.colors.apply_alpha
-            # passes an already-formed colour expression through unchanged
-            # regardless of this field (see its docstring), and if it is a
-            # plain colour, 1.0 is the only value that keeps apply_alpha a
-            # no-op so a round-tripped non-alpha fill stays byte-identical
-            # (Track G6; see tests/parser/test_recognizer.py and
-            # tests/parser/_golden_battery.py::fill_between). A guessed
-            # fraction here (this used to be a fixed 0.3, back when alpha was
-            # accepted but never rendered) would make apply_alpha rewrite the
-            # colour on the very next save.
             alpha=1.0,
             label=None,
             offset=info["_dataset_offsets"].get(d_names[0], 0.0),
             data_file=f1,
         )
-        column_names = self._recovered_column_names(f1, [xc1, yc1, yc2])
+        if target is not None:
+            fill_fields["target"] = target
+        fill_fields.update(clips)
+        column_names = self._recovered_column_names(
+            f1, [xc1, yc1] if target is not None else [xc1, yc1, yc2]
+        )
         if column_names is not None:
-            fill_entry["column_names"] = column_names
+            fill_fields["column_names"] = column_names
+        fill_entry = FillSeries(**fill_fields)
         # A marked fill is an axvspan/axhspan that materialized into this
-        # dataset pair (G18-lite); a mismatch stays the plain FillSeries this
-        # method has always built.
-        marker = self._take_guide_marker(d_names[0], "span", info)
-        if marker is not None:
-            span_entry = self._span_from_marker(marker, fill_entry, d_names[0], info)
-            if span_entry is not None:
-                info["spans"].append(span_entry)
-                info["_key_label_owners"][d_names[0]] = span_entry
-                return
+        # dataset pair (G18-lite). A clip window is not part of a span, so
+        # a clipped fill stays a fill and keeps the window.
+        if target is None and not clips:
+            marker = self._take_guide_marker(d_names[0], "span", info)
+            if marker is not None:
+                span_entry = self._span_from_marker(
+                    marker, fill_entry, d_names[0], info
+                )
+                if span_entry is not None:
+                    info["spans"].append(span_entry)
+                    info["_key_label_owners"][d_names[0]] = span_entry
+                    return
         info["fills"].append(fill_entry)
         info["_key_label_owners"][d_names[0]] = fill_entry
 

@@ -63,7 +63,7 @@ compares the three seam styles and shows a three-segment split.
 ### On the returned `BrokenAxes`
 
 **Fanned out to every segment** — declare a series once:
-`plot`, `scatter`, `errorbar`, `bar`, `fill_between`, `line_from_file`,
+`plot`, `scatter`, `errorbar`, `bar`, `fill_between`, `fill`, `line_from_file`,
 `errorbar_from_file`, `axvline`, `axhline`, `axvspan`, `axhspan`.
 
 **Shared state:** `set_ylabel`, `set_ylim`, `get_ylim`, `set_yscale`,

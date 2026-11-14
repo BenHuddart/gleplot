@@ -352,6 +352,11 @@ class BrokenAxes:
         self._fanout("fill_between", *args, **kwargs)
         return self
 
+    def fill(self, *args, **kwargs):
+        """Fill one polygon in every segment."""
+        self._fanout("fill", *args, **kwargs)
+        return self
+
     def line_from_file(self, *args, **kwargs):
         """Reference an external file's columns as a line, in every segment."""
         self._fanout("line_from_file", *args, **kwargs)

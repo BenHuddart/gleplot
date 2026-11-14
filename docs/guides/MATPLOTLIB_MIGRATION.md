@@ -152,6 +152,35 @@ ax.stem(x, y)
 | `yaxis="y2"` | a step histogram can use it. A filled one warns and stays on the primary axis: `bar` has no `y2axis`. |
 | return value | the axes. |
 
+## Fills
+
+`fill_between` still emits `fill dA,dB` for two curves. Three other GLE fill forms are available.
+
+| call | GLE |
+|---|---|
+| `ax.fill_between(x, y1, y2)` | `fill dA,dB`. A scalar `y2` (the default `0`) is a constant second curve, so a curve that crosses it fills on both sides. |
+| `ax.fill_between(x, y, baseline="x1")` | `fill x1,dN`. The region closes on the bottom of the y axis (GLE's x-axis), which is the axis minimum, not the line y=0. |
+| `ax.fill_between(x, y, baseline="x2")` | `fill dN,x2`, closing on the top of the y axis. |
+| `ax.fill_between(..., where=mask)` | one `fill` per contiguous run of True samples, clipped with `xmin` / `xmax`. |
+| `ax.fill(x, y)` | `fill dN`. GLE closes the polygon. |
+
+```python
+ax.fill_between(x, y, where=(x > 0))
+ax.fill_between(x, y, baseline="x1")
+ax.fill(x, y, alpha=0.4)
+```
+
+| argument | gleplot |
+|---|---|
+| `where` | a boolean array the same length as `x`. A run is filled only where neighboring samples are both True, so one isolated True draws nothing. Each run is a clip window on the full curves, and the axis still covers the whole dataset: GLE autoscales from the points, not from the ink. `x` has to be finite and strictly monotonic (no repeated x); otherwise the mask is ignored, with a warning. |
+| `interpolate` | `True` moves a clip edge to where the two curves cross beside that run (matplotlib's intersection, not a midpoint of the mask). An axis fill has no second curve, so this warns and the edge stays on the sample. |
+| `xmin`, `xmax`, `ymin`, `ymax` | the same clip, in data coordinates. These are not `axvspan` fractions. On `baseline="x1"`, `ymin` is also the line the fill closes on: GLE uses that value as the baseline and clips below it. Do not pass `where` together with `xmin` or `xmax`. |
+| `step` | warns and is ignored. `fill` has no step mode. |
+| `fill_betweenx` | not available. These fill forms are vertical. |
+| `fill` extra polygons | the first polygon is drawn. The rest warn and are ignored. |
+| `edgecolor`, `linewidth` on `fill` | warn and are ignored. GLE fills the interior and does not stroke it. |
+| `alpha` | unchanged: below 1 the colour is `rgba255(...)`. |
+
 ## Key Behavioral Differences
 
 1. Primary output model is GLE script generation.

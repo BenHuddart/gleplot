@@ -2924,36 +2924,80 @@ class GLEWriter:
                 self.lines_gle.append(f"    {d_name} key {quoted}")
             self._finish_legend_entry(label)
 
+    def _append_fill(
+        self, head: str, color_token: str, clip: Mapping[str, Any]
+    ) -> None:
+        """One ``fill`` command.
+
+        ``head`` is ``dA,dB``, ``x1,dN``, ``dN,x2`` or ``dN``.
+        """
+        parts = [f"    fill {head} color {color_token}"]
+        for name in ("xmin", "xmax", "ymin", "ymax"):
+            value = clip.get(name)
+            if value is not None:
+                parts.append(f"{name} {self._format_number(float(value))}")
+        self.lines_gle.append(" ".join(parts))
+
+    def _fill_key(
+        self, dataset: str, color_token: str, label, swatch_color, has_header
+    ):
+        """Legend swatch for one fill dataset, or header auto-key suppression."""
+        if label:
+            swatch = swatch_color or color_token
+            self.lines_gle.append(
+                f"    {dataset} keyfill {swatch} key {self._quote_gle_key(label)}"
+            )
+            self._finish_legend_entry(label)
+        elif has_header:
+            self.lines_gle.append(f'    {dataset} key ""')
+
     def add_fill_from_file(
         self,
         data_file: str,
         x_col: int,
         y1_col: int,
-        y2_col: int,
+        y2_col: Optional[int] = None,
         color: str = "LIGHTBLUE",
         label: Optional[str] = None,
         swatch_color: Optional[str] = None,
+        target: Optional[str] = None,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        ymin: Optional[float] = None,
+        ymax: Optional[float] = None,
     ):
-        """Add a fill-between series that references columns in an external
-        data file.
+        """Add a fill that references columns in an external data file.
 
-        Used for a ``fill`` dataset pair the recognizer could not resolve;
-        see :meth:`add_bar_from_file`.
+        Used for a ``fill`` the recognizer could not resolve; see
+        :meth:`add_bar_from_file`. ``target`` selects ``fill x1,dN``,
+        ``fill dN,x2`` or ``fill dN``. Absent ``target`` is the two-curve
+        ``fill dA,dB`` and needs ``y2_col``.
         """
+        clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
         d1_name = f"d{self.dataset_index}"
-        d2_name = f"d{self.dataset_index + 1}"
-        self.dataset_index += 2
+        self.dataset_index += 1
+        if target in ("x1", "x2", "polygon"):
+            self.lines_gle.append(
+                f"    data {_format_data_filename(data_file)} "
+                f"{d1_name}=c{x_col},c{y1_col}"
+            )
+            if target == "x1":
+                head = f"x1,{d1_name}"
+            elif target == "x2":
+                head = f"{d1_name},x2"
+            else:
+                head = d1_name
+            self._append_fill(head, color, clip)
+            self._fill_key(d1_name, color, label, swatch_color, False)
+            return
+        d2_name = f"d{self.dataset_index}"
+        self.dataset_index += 1
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{d1_name}=c{x_col},c{y1_col} {d2_name}=c{x_col},c{y2_col}"
         )
-        self.lines_gle.append(f"    fill {d1_name},{d2_name} color {color}")
-        if label:
-            swatch = swatch_color or color
-            self.lines_gle.append(
-                f"    {d1_name} keyfill {swatch} key {self._quote_gle_key(label)}"
-            )
-            self._finish_legend_entry(label)
+        self._append_fill(f"{d1_name},{d2_name}", color, clip)
+        self._fill_key(d1_name, color, label, swatch_color, False)
 
     def add_fill_between(
         self,
@@ -2968,6 +3012,11 @@ class GLEWriter:
         binding: Optional[ColumnBinding] = None,
         label: Optional[str] = None,
         swatch_color: Optional[str] = None,
+        target: Optional[str] = None,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        ymin: Optional[float] = None,
+        ymax: Optional[float] = None,
     ):
         """
         Add fill between two curves.
@@ -3009,51 +3058,60 @@ class GLEWriter:
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
             that table (see :meth:`_write_columns`).
+        target : str, optional
+            ``"x1"``, ``"x2"`` or ``"polygon"``. Absent keeps the two-curve
+            ``fill dA,dB``. A single-curve form writes only ``x`` and ``y1``.
+        xmin, xmax, ymin, ymax : float, optional
+            GLE clip window. ``None`` omits that edge. On ``target="x1"``,
+            ``ymin`` is also the line the fill closes on.
         """
-        cols = self._write_columns(
-            data_file, [("x", x), ("y1", y1), ("y2", y2)], column_names, binding
-        )
+        single = target in ("x1", "x2", "polygon")
+        if single:
+            # Role name stays ``y1`` so a provider binding, which keys columns
+            # by ARRAY_FIELDS, still finds the curve. The header text is
+            # ``column_names`` (``x``, ``y``), not this role.
+            roles = [("x", x), ("y1", y1)]
+        else:
+            roles = [("x", x), ("y1", y1), ("y2", y2)]
+        cols = self._write_columns(data_file, roles, column_names, binding)
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
+        clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
 
-        # Create two unique dataset names for the fill between operation
         d1_name = f"d{self.dataset_index}"
-        d2_name = f"d{self.dataset_index + 1}"
-        self.dataset_index += 2
-
-        cmd = (
+        self.dataset_index += 1
+        data_cmd = (
             f"    data {_format_data_filename(file_name)} "
-            f"{d1_name}=c{cols[0]},c{cols[1]} {d2_name}=c{cols[0]},c{cols[2]}"
+            f"{d1_name}=c{cols[0]},c{cols[1]}"
         )
-        self.lines_gle.append(cmd)
+        d2_name = None
+        if not single:
+            d2_name = f"d{self.dataset_index}"
+            self.dataset_index += 1
+            data_cmd += f" {d2_name}=c{cols[0]},c{cols[2]}"
+        self.lines_gle.append(data_cmd)
 
-        # A non-zero offset shifts BOTH band edges vertically by the same amount
-        # at plot time (a waterfall band rides with its trace), leaving the .dat
-        # file raw. The displayed/keyed datasets are then the shifted ones.
-        if offset:
-            fill_a = self._apply_offset(d1_name, offset)
-            fill_b = self._apply_offset(d2_name, offset)
+        # A non-zero offset shifts the curve (both edges of a band) at plot
+        # time, leaving the .dat file raw. The keyed dataset is the shifted one.
+        fill_a = self._apply_offset(d1_name, offset) if offset else d1_name
+        if single:
+            if target == "x1":
+                head = f"x1,{fill_a}"
+            elif target == "x2":
+                head = f"{fill_a},x2"
+            else:
+                head = fill_a
+            fill_b = None
         else:
-            fill_a, fill_b = d1_name, d2_name
+            fill_b = self._apply_offset(d2_name, offset) if offset else d2_name
+            head = f"{fill_a},{fill_b}"
 
-        # GLE fill between two datasets: fill d1,d2 color X
         # The keyfill token is that same colour text, so a round trip does
         # not rewrite rgba255(...) or a plain name.
         color_token = apply_alpha(color, alpha)
-        self.lines_gle.append(f"    fill {fill_a},{fill_b} color {color_token}")
-
-        if label:
-            # ``swatch_color`` is a keyfill that is not the fill colour
-            # (a hand-written script). Absent means the swatch is the fill.
-            swatch = swatch_color or color_token
-            self.lines_gle.append(
-                f"    {fill_a} keyfill {swatch} key {self._quote_gle_key(label)}"
-            )
-            self._finish_legend_entry(label)
-            if has_header:
-                self.lines_gle.append(f'    {fill_b} key ""')
-        elif has_header:
-            self.lines_gle.append(f'    {fill_a} key ""')
+        self._append_fill(head, color_token, clip)
+        self._fill_key(fill_a, color_token, label, swatch_color, has_header)
+        if fill_b is not None and has_header:
             self.lines_gle.append(f'    {fill_b} key ""')
 
     def add_text(
