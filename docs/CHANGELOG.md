@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.6.0 (2026-11-14)
+
+### Features
+
+- Model bar colors, horizontal bars, groups, and stacks
+  ([`0603d41`](https://github.com/BenHuddart/gleplot/commit/0603d41a4ed386ac12e040c72a91b91a44ab19d8))
+
+
 ## v3.5.0 (2026-11-14)
 
 ### Features
