@@ -28,6 +28,16 @@ Supported alignment values:
 - Horizontal `ha`: `left`, `center`, `right`
 - Vertical `va`: `top`, `center`, `bottom`
 
+`va` is the vertical half of GLE's `set just` (`tc`, `bc`, `bl`, and the other corner codes). The default `center` keeps the single-word forms `left`, `center`, and `right`, which GLE centers vertically. There is no separate baseline; `va='baseline'` warns and is drawn as `center`.
+
+## Rotation
+
+`rotation` is degrees counter-clockwise about the alignment point (GLE `begin rotate`).
+
+```python
+ax.text(1.0, 1.0, 'peak', va='bottom', ha='center', rotation=45)
+```
+
 ## Font and Color
 
 ```python
@@ -43,9 +53,11 @@ ax.text(
     3.0,
     0.8,
     'Fit region',
-    bbox={'fill': 'white', 'line': 'black', 'lw': 0.5},
+    bbox={'facecolor': 'white'},
 )
 ```
+
+`facecolor` (alias `fill`) is the color of a filled background, drawn with GLE `begin box fill` and a 0.05 cm pad. The box has no outline. `edgecolor`, `linewidth`, `pad`, and `boxstyle` are accepted and ignored, with a warning.
 
 ## Using Module-Level Convenience API
 

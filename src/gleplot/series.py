@@ -817,6 +817,10 @@ class TextAnnotation(Series):
     ha: str
     va: str
     box_color: Optional[str]
+    #: Degrees counter-clockwise about the alignment point (GLE ``begin
+    #: rotate``, which rotates about the current point). Absent means 0, so
+    #: a text that does not rotate keeps the historical dict shape.
+    rotation: float
 
 
 class _GridSeries(Series):

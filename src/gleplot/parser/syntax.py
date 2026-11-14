@@ -51,6 +51,7 @@ __all__ = [
 # Line-level storage
 # --------------------------------------------------------------------------- #
 
+
 @dataclass
 class SourceLine:
     """One physical line of source, stored verbatim for round-tripping.
@@ -80,6 +81,7 @@ class SourceLine:
 # --------------------------------------------------------------------------- #
 # Statement (possibly one of several on a ``;``-separated line)
 # --------------------------------------------------------------------------- #
+
 
 @dataclass
 class Statement:
@@ -145,6 +147,7 @@ class Statement:
 # --------------------------------------------------------------------------- #
 # Block nodes
 # --------------------------------------------------------------------------- #
+
 
 @dataclass
 class GraphBlock:
@@ -226,6 +229,7 @@ Node = Union[Statement, GraphBlock, OpaqueBlock, BlankOrComment]
 # Warnings
 # --------------------------------------------------------------------------- #
 
+
 @dataclass
 class ParseWarning:
     """A recoverable structure problem noted during parsing.
@@ -248,10 +252,24 @@ class ParseWarning:
 # Non-graph block types that are captured opaquely. This is a permissive set:
 # any ``begin <word>`` that is not ``graph`` is treated opaquely regardless of
 # whether it appears here, but the set documents the known GLE block keywords.
-KNOWN_OPAQUE_BLOCKS = frozenset({
-    "text", "tex", "object", "key", "path", "translate", "rotate",
-    "scale", "origin", "clip", "table", "name", "box", "length",
-})
+KNOWN_OPAQUE_BLOCKS = frozenset(
+    {
+        "text",
+        "tex",
+        "object",
+        "key",
+        "path",
+        "translate",
+        "rotate",
+        "scale",
+        "origin",
+        "clip",
+        "table",
+        "name",
+        "box",
+        "length",
+    }
+)
 
 
 @dataclass
@@ -332,6 +350,7 @@ class GleDocument:
 # Statement splitting (quote-aware, respects comments)
 # --------------------------------------------------------------------------- #
 
+
 def split_statements(text: str) -> List[Tuple[str, int]]:
     """Split a physical line into ``;``-separated statement segments.
 
@@ -387,6 +406,7 @@ def split_statements(text: str) -> List[Tuple[str, int]]:
 # --------------------------------------------------------------------------- #
 # Parsing
 # --------------------------------------------------------------------------- #
+
 
 def parse_gle_source(text: str) -> GleDocument:
     """Parse GLE source text into a :class:`GleDocument`.
@@ -526,18 +546,22 @@ def _build_structure(
                 idx = consumed
                 continue
             if target == "":
-                warnings.append(ParseWarning(
-                    stmt.line_no, "'begin' with no block type; treated as statement"
-                ))
+                warnings.append(
+                    ParseWarning(
+                        stmt.line_no, "'begin' with no block type; treated as statement"
+                    )
+                )
                 nodes.append(_wrap_single(stmt))
                 idx += 1
                 continue
             if _is_end(stmt):
                 # A stray 'end' with no matching open block at this level.
-                warnings.append(ParseWarning(
-                    stmt.line_no,
-                    "'end' without matching 'begin'; treated as statement",
-                ))
+                warnings.append(
+                    ParseWarning(
+                        stmt.line_no,
+                        "'end' without matching 'begin'; treated as statement",
+                    )
+                )
                 nodes.append(_wrap_single(stmt))
                 idx += 1
                 continue
@@ -601,40 +625,48 @@ def _consume_block(
                     body.append(_wrap_single(s))
                 j += 1
         # Ran off the end without an 'end graph'.
-        warnings.append(ParseWarning(
-            begin_stmt.line_no, "'begin graph' not closed before end of file"
-        ))
+        warnings.append(
+            ParseWarning(
+                begin_stmt.line_no, "'begin graph' not closed before end of file"
+            )
+        )
         return n_lines, GraphBlock(begin=begin_stmt, end=None, body=body)
 
-    # Opaque block: gather raw inner lines until the MATCHING (or bare) end.
-    # Nested begin/end pairs inside the opaque block (e.g. `begin text ...
-    # end` within `begin key`) must not close the outer block, so track
-    # nesting depth; inner blocks stay raw lines (we do not descend).
+    # Opaque block: gather raw inner lines until the matching (or bare) end.
+    # Nested begin/end pairs stay raw lines (we do not descend). The stack
+    # is the open block names, outermost first. ``end <name>`` pops only
+    # when <name> is the innermost open block; a bare ``end`` pops that
+    # innermost block whatever it is called. A line that merely starts with
+    # ``end`` (``end of caption``) is prose and does not change the stack,
+    # so it cannot close this block or the one nested inside it.
     inner: List[SourceLine] = []
-    depth = 0
+    stack = [target]
     j = begin_idx + 1
     while j < n_lines:
         stmts = per_line[j]
         if len(stmts) == 1:
             s = stmts[0]
-            if _begin_target(s) is not None:
-                depth += 1
-            elif _is_end(s, target) or _is_end_bare(s):
-                if depth == 0:
+            begun = _begin_target(s)
+            if begun is not None:
+                stack.append(begun)
+            elif _is_end(s, stack[-1]):
+                stack.pop()
+                if not stack:
                     return j + 1, OpaqueBlock(
                         block_type=target,
                         begin=begin_stmt,
                         end=s,
                         inner_lines=inner,
                     )
-                depth -= 1
         inner.append(lines[j])
         j += 1
 
-    warnings.append(ParseWarning(
-        begin_stmt.line_no,
-        f"'begin {target}' not closed before end of file",
-    ))
+    warnings.append(
+        ParseWarning(
+            begin_stmt.line_no,
+            f"'begin {target}' not closed before end of file",
+        )
+    )
     return n_lines, OpaqueBlock(
         block_type=target, begin=begin_stmt, end=None, inner_lines=inner
     )
@@ -649,6 +681,7 @@ def _is_end_bare(stmt: Statement) -> bool:
 # --------------------------------------------------------------------------- #
 # Emission helpers
 # --------------------------------------------------------------------------- #
+
 
 def _iter_statements(node: Node) -> List[Statement]:
     """Yield the statements reachable from a node (see ``statements``)."""

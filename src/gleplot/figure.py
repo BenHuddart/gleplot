@@ -2281,7 +2281,9 @@ class Figure:
                 color=text_data.get("color", "BLACK"),
                 fontsize=text_data.get("fontsize"),
                 halign=text_data.get("ha", "left"),
+                valign=text_data.get("va", "center"),
                 box_color=text_data.get("box_color"),
+                rotation=text_data.get("rotation"),
             )
 
         # Add legend if needed. legend_on is tri-state: None means auto

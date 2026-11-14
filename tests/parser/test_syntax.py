@@ -12,8 +12,8 @@ from gleplot.parser.syntax import (
     split_statements,
 )
 
-
 # -- statement splitting -----------------------------------------------------
+
 
 def test_split_no_semicolon():
     segs = split_statements("size 20 15")
@@ -27,7 +27,7 @@ def test_split_two_statements():
 
 def test_split_respects_string_quotes():
     segs = split_statements('write "a ; b"; amove 1 1')
-    assert [s for s, _ in segs] == ['write "a ; b"', ' amove 1 1']
+    assert [s for s, _ in segs] == ['write "a ; b"', " amove 1 1"]
 
 
 def test_split_respects_comment():
@@ -68,8 +68,9 @@ def test_preamble_statements_before_graph():
     doc = parse_gle_source(SINGLE)
     # First nodes are the comment (blank/comment) and 'size' statement.
     assert isinstance(doc.nodes[0], BlankOrComment)  # '! header'
-    size_stmt = next(n for n in doc.nodes if isinstance(n, Statement)
-                     and n.keyword == "size")
+    size_stmt = next(
+        n for n in doc.nodes if isinstance(n, Statement) and n.keyword == "size"
+    )
     assert size_stmt.line_no == 2
 
 
@@ -102,12 +103,10 @@ def test_two_graphs_with_interlude_between():
     # Expect: Statement(size), Statement(amove), GraphBlock, Statement(amove),
     # GraphBlock.
     assert node_kinds.count("GraphBlock") == 2
-    gb_positions = [i for i, n in enumerate(doc.nodes)
-                    if isinstance(n, GraphBlock)]
+    gb_positions = [i for i, n in enumerate(doc.nodes) if isinstance(n, GraphBlock)]
     # There is at least one Statement node between the two graph blocks.
-    between = doc.nodes[gb_positions[0] + 1: gb_positions[1]]
-    assert any(isinstance(n, Statement) and n.keyword == "amove"
-               for n in between)
+    between = doc.nodes[gb_positions[0] + 1 : gb_positions[1]]
+    assert any(isinstance(n, Statement) and n.keyword == "amove" for n in between)
 
 
 # -- opaque blocks -----------------------------------------------------------
@@ -130,19 +129,33 @@ def test_opaque_block_not_descended():
     assert "opaque" in opaque.inner_lines[0].text
 
 
-@pytest.mark.parametrize("block", [
-    "object", "tex", "key", "path", "translate", "rotate", "scale",
-    "origin", "clip", "table", "name", "box", "length",
-])
+@pytest.mark.parametrize(
+    "block",
+    [
+        "object",
+        "tex",
+        "key",
+        "path",
+        "translate",
+        "rotate",
+        "scale",
+        "origin",
+        "clip",
+        "table",
+        "name",
+        "box",
+        "length",
+    ],
+)
 def test_known_opaque_block_types(block):
     src = f"begin {block}\n  stuff\nend {block}\n"
     doc = parse_gle_source(src)
-    assert any(isinstance(n, OpaqueBlock) and n.block_type == block
-               for n in doc.nodes)
+    assert any(isinstance(n, OpaqueBlock) and n.block_type == block for n in doc.nodes)
     assert emit(doc) == src
 
 
 # -- multi-statement lines ---------------------------------------------------
+
 
 def test_multi_statement_line_splits_into_nodes():
     doc = parse_gle_source("set hei 0.5; amove 1 1\n")
@@ -156,6 +169,7 @@ def test_multi_statement_line_splits_into_nodes():
 
 # -- blank / comment preservation --------------------------------------------
 
+
 def test_blank_and_comment_lines_are_nodes():
     doc = parse_gle_source("\n! comment\n   \nsize 1 1\n")
     blanks = [n for n in doc.nodes if isinstance(n, BlankOrComment)]
@@ -163,6 +177,7 @@ def test_blank_and_comment_lines_are_nodes():
 
 
 # -- unbalanced block recovery -----------------------------------------------
+
 
 def test_unclosed_graph_recovers_with_warning():
     doc = parse_gle_source("begin graph\n   d1 line\n")
@@ -187,6 +202,7 @@ def test_unclosed_opaque_recovers_with_warning():
 
 # -- statements() walk -------------------------------------------------------
 
+
 def test_statements_walk_includes_graph_body():
     doc = parse_gle_source(SINGLE)
     keywords = [s.keyword for s in doc.statements()]
@@ -196,6 +212,7 @@ def test_statements_walk_includes_graph_body():
 
 
 # -- modification API --------------------------------------------------------
+
 
 def test_replace_statement_single_line():
     doc = parse_gle_source("size 20 15\nbegin graph\nend graph\n")
@@ -209,7 +226,7 @@ def test_replace_statement_single_line():
 
 
 def test_replace_preserves_indentation():
-    doc = parse_gle_source("begin graph\n    title \"old\"\nend graph")
+    doc = parse_gle_source('begin graph\n    title "old"\nend graph')
     title_stmt = next(s for s in doc.statements() if s.keyword == "title")
     doc.replace_statement(title_stmt, 'title "new"')
     out = emit(doc)
@@ -225,6 +242,7 @@ def test_replace_one_of_multi_statement_line():
 
 
 # -- line ending fidelity ----------------------------------------------------
+
 
 def test_crlf_endings_preserved():
     src = "size 1 1\r\nbegin graph\r\nend graph\r\n"
@@ -251,6 +269,7 @@ class TestOpaqueBlockNesting:
 
     def test_nested_text_in_key_block(self):
         from gleplot.parser.syntax import parse_gle_source, OpaqueBlock, Statement
+
         src = "begin key\nbegin text\nlabel\nend\nend key\n"
         doc = parse_gle_source(src)
         opaques = [n for n in doc.nodes if isinstance(n, OpaqueBlock)]
@@ -265,10 +284,86 @@ class TestOpaqueBlockNesting:
 
     def test_doubly_nested_opaque(self):
         from gleplot.parser.syntax import parse_gle_source, OpaqueBlock
+
         src = "begin object o\nbegin box\nbegin text\nhi\nend\nend\nend object\n"
         doc = parse_gle_source(src)
         opaques = [n for n in doc.nodes if isinstance(n, OpaqueBlock)]
         assert len(opaques) == 1
         assert opaques[0].end is not None
+        assert not doc.warnings
+        assert doc.emit() == src
+
+    def test_named_inner_end_does_not_swallow_the_outer_end(self):
+        """``end box`` inside ``begin rotate`` closes the box, not the rotate.
+
+        Depth used to move only for a bare ``end`` or an ``end`` of the
+        *outer* name, so a named inner end left the rotate unclosed and the
+        following ``end rotate`` was swallowed as an inner line.
+        """
+        from gleplot.parser.syntax import parse_gle_source, OpaqueBlock
+
+        src = (
+            "begin rotate 45\n"
+            "begin box fill white add 0.05 nobox\n"
+            'write "peak"\n'
+            "end box\n"
+            "end rotate\n"
+            'write "after"\n'
+        )
+        doc = parse_gle_source(src)
+        opaques = [n for n in doc.nodes if isinstance(n, OpaqueBlock)]
+        assert len(opaques) == 1
+        blk = opaques[0]
+        assert blk.block_type == "rotate"
+        assert blk.end is not None
+        assert [ln.text for ln in blk.inner_lines] == [
+            "begin box fill white add 0.05 nobox",
+            'write "peak"',
+            "end box",
+        ]
+        assert not doc.warnings
+        assert doc.emit() == src
+
+    def test_prose_end_line_does_not_close_an_open_block(self):
+        """A line that only starts with ``end`` is not a block closer.
+
+        Counting every ``end`` as a nested close let ``end of caption``
+        consume the inner ``begin text``. The following bare ``end`` then
+        closed the object, and the graph that was still inside it became a
+        real axes.
+        """
+        from gleplot.parser.syntax import GraphBlock, OpaqueBlock, parse_gle_source
+
+        src = (
+            "begin object caption\n"
+            "begin text\n"
+            "end of caption\n"
+            "end\n"
+            "begin graph\n"
+            "   size 8 6\n"
+            "   xaxis min 0 max 1\n"
+            "   yaxis min 0 max 1\n"
+            "end graph\n"
+            "end object\n"
+            'write "after"\n'
+        )
+        doc = parse_gle_source(src)
+        opaques = [n for n in doc.nodes if isinstance(n, OpaqueBlock)]
+        assert len(opaques) == 1
+        blk = opaques[0]
+        assert blk.block_type == "object"
+        assert blk.end is not None
+        assert blk.end.raw.strip() == "end object"
+        assert [ln.text for ln in blk.inner_lines] == [
+            "begin text",
+            "end of caption",
+            "end",
+            "begin graph",
+            "   size 8 6",
+            "   xaxis min 0 max 1",
+            "   yaxis min 0 max 1",
+            "end graph",
+        ]
+        assert not any(isinstance(n, GraphBlock) for n in doc.nodes)
         assert not doc.warnings
         assert doc.emit() == src

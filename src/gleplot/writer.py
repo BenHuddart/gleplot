@@ -38,7 +38,11 @@ from .guides import (
     guide_sub_name,
     guide_sub_texts,
 )
-from .parser.tables import KEY_POSITIONS_LONG_TO_SHORT
+from .parser.tables import (
+    KEY_POSITIONS_LONG_TO_SHORT,
+    text_align_to_just,
+    text_box_pad_token,
+)
 from .parser.units import (
     fontsize_pt_to_cm,
     inches_to_cm,
@@ -2837,8 +2841,22 @@ class GLEWriter:
         fontsize: Optional[float] = None,
         halign: str = "left",
         box_color: Optional[str] = None,
+        valign: str = "center",
+        rotation: Optional[float] = None,
     ):
-        """Add text annotation in graph data coordinates."""
+        """Add text annotation in graph data coordinates.
+
+        ``valign`` selects the other half of GLE's ``set just`` (``t``/``c``/``b``).
+        ``rotation`` is degrees counter-clockwise. GLE's ``begin rotate`` turns
+        about the current point, so the block opens after ``amove``: that point
+        is the alignment point, and closing the block keeps the next label
+        unrotated. A background is ``begin box fill`` around the ``write``
+        only. The ``amove`` stays outside the box; on GLE 4.3.10 that is the
+        form that compiles in graph-data coordinates (the box is measured from
+        the text, not from an ``xg()`` expression). ``nobox`` omits the
+        outline, which would otherwise be stroked in the current text colour
+        and is not a separate model field.
+        """
         escaped_text = self._escape_gle_string(text)
 
         if fontsize is not None:
@@ -2851,24 +2869,39 @@ class GLEWriter:
             self._pending_graph_text_lines.append(f"set color {color}")
             self._text_state_color = color
 
-        just_map = {
-            "left": "left",
-            "center": "center",
-            "right": "right",
-        }
-        just = just_map.get(str(halign).lower(), "left")
+        just = text_align_to_just(halign, valign)
         if just != self._text_state_just:
             self._pending_graph_text_lines.append(f"set just {just}")
             self._text_state_just = just
 
-        # Boxed text in graph-data coordinates can produce invalid bounds in
-        # some GLE versions; keep label export robust by emitting plain text.
-        # box_color is currently accepted for API compatibility but ignored.
-        _ = box_color
         self._pending_graph_text_lines.append(
             f"amove xg({self._format_number(x)}) yg({self._format_number(y)})"
         )
+        # Same zero cut as ``_format_number``: an angle it would print as ``0``
+        # is not a rotation, and emitting ``begin rotate 0`` would not round
+        # trip back to an absent ``rotation`` field.
+        angle = None
+        if rotation is not None:
+            try:
+                angle = float(rotation)
+            except (TypeError, ValueError):
+                angle = None
+            if angle is not None and (not math.isfinite(angle) or abs(angle) < 1e-10):
+                angle = None
+        if angle is not None:
+            self._pending_graph_text_lines.append(
+                f"begin rotate {self._format_number(angle)}"
+            )
+        if box_color:
+            pad = text_box_pad_token()
+            self._pending_graph_text_lines.append(
+                f"begin box fill {box_color} add {pad} nobox"
+            )
         self._pending_graph_text_lines.append(f'write "{escaped_text}"')
+        if box_color:
+            self._pending_graph_text_lines.append("end box")
+        if angle is not None:
+            self._pending_graph_text_lines.append("end rotate")
 
     def add_legend(
         self,

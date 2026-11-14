@@ -44,6 +44,12 @@ __all__ = [
     "NUMBER_FORMAT_KEYWORDS",
     "KEY_POSITIONS_LONG_TO_SHORT",
     "KEY_POSITIONS_SHORT_TO_LONG",
+    "TEXT_HA_VALUES",
+    "TEXT_VA_VALUES",
+    "TEXT_BOX_PAD_CM",
+    "text_align_to_just",
+    "text_box_pad_token",
+    "text_just_to_align",
     "PALETTE_SUB_TO_CMAP",
     "CMAP_TO_PALETTE_SUB",
 ]
@@ -487,3 +493,88 @@ CMAP_TO_PALETTE_SUB: Dict[str, str] = {v: k for k, v in PALETTE_SUB_TO_CMAP.item
 KEY_POSITIONS_SHORT_TO_LONG: Dict[str, str] = {
     v: k for k, v in KEY_POSITIONS_LONG_TO_SHORT.items()
 }
+
+
+# ---------------------------------------------------------------------------
+# Free-form text justification (``set just``)
+# ---------------------------------------------------------------------------
+#
+# GLE's ``set just`` is one word or a two-letter code. The two-letter form is
+# vertical then horizontal: ``t``/``c``/``b`` × ``l``/``c``/``r`` (manual,
+# ``set just``: the ``tl tc tr / lc cc rc / bl bc br`` grid).
+#
+# The single-word forms are the vertically-centred row, not the baseline and
+# not the bottom. Measured on GLE 4.3.10: ``set just left`` puts the current
+# point on the vertical centre of the text, the same place as ``lc``; ``center``
+# and ``right`` match ``cc`` and ``rc``. gleplot therefore emits the single
+# word whenever ``va`` is ``center``, which is what every script written before
+# vertical alignment was emitted already said.
+
+TEXT_HA_VALUES: Tuple[str, ...] = ("left", "center", "right")
+TEXT_VA_VALUES: Tuple[str, ...] = ("top", "center", "bottom")
+
+_HA_LETTER = {"left": "l", "center": "c", "right": "r"}
+_VA_LETTER = {"top": "t", "center": "c", "bottom": "b"}
+_CENTERED_JUST = {"l": "left", "c": "center", "r": "right"}
+
+#: ``set just`` token -> ``(ha, va)``. Includes the single-word aliases of the
+#: centred row so a hand-written ``lc`` recovers the same alignment as ``left``.
+_JUST_TO_ALIGN: Dict[str, Tuple[str, str]] = {
+    "left": ("left", "center"),
+    "center": ("center", "center"),
+    "right": ("right", "center"),
+    "tl": ("left", "top"),
+    "tc": ("center", "top"),
+    "tr": ("right", "top"),
+    "lc": ("left", "center"),
+    "cc": ("center", "center"),
+    "rc": ("right", "center"),
+    "bl": ("left", "bottom"),
+    "bc": ("center", "bottom"),
+    "br": ("right", "bottom"),
+}
+
+
+def text_align_to_just(ha: str, va: str) -> str:
+    """GLE ``set just`` token for a matplotlib ``ha``/``va`` pair.
+
+    An unknown ``va`` is treated as ``center`` and an unknown ``ha`` as
+    ``left``, so a restored annotation keeps whichever half is valid.
+    ``Axes.text`` already stores those fallbacks, but ``Figure.from_dict``
+    writes the dict straight through. ``va='center'`` uses the single-word
+    form (``left``/``center``/``right``) so a default annotation stays
+    byte-identical to one emitted before ``va`` was written.
+    """
+    hl = _HA_LETTER.get(str(ha).strip().lower(), "l")
+    vl = _VA_LETTER.get(str(va).strip().lower(), "c")
+    if vl == "c":
+        return _CENTERED_JUST[hl]
+    return vl + hl
+
+
+#: Margin, in cm, that ``begin box add`` puts around a text background.
+#: GLE sizes the box from the ink inside the block; 0.05 cm is the pad
+#: ``contour_labels`` in ``contour.gle`` uses. Not a model field: every box
+#: gleplot draws uses :func:`text_box_pad_token`, and a hand-written box
+#: whose ``add`` token is anything else stays unrecognized.
+TEXT_BOX_PAD_CM = 0.05
+
+
+def text_box_pad_token() -> str:
+    """The ``add`` spelling written for :data:`TEXT_BOX_PAD_CM`.
+
+    Same cut as ``GLEWriter._format_number`` for a modest positive number
+    (``f"{value:.6g}"``). The recognizer accepts only this token, so a pad
+    spelled any other way is not rewritten to this one.
+    """
+    return f"{TEXT_BOX_PAD_CM:.6g}"
+
+
+def text_just_to_align(just: str) -> Optional[Tuple[str, str]]:
+    """``(ha, va)`` for a ``set just`` token, or ``None`` if it is not one.
+
+    The return is the matplotlib pair gleplot stores. ``left`` and ``lc`` both
+    come back as ``('left', 'center')``, and re-emission uses
+    :func:`text_align_to_just`, which writes the single word.
+    """
+    return _JUST_TO_ALIGN.get(str(just).strip().lower())

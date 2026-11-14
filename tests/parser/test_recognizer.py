@@ -277,8 +277,10 @@ def normalize(d: dict) -> dict:
                         if cb.get(k) is not None:
                             cb[k] = _snap_num(cb[k])
 
-        # Text annotations: fontsize round-trips through cm (snap); box_color
-        # is accepted-but-ignored by the writer (never emitted) -> drop.
+        # Text annotations: fontsize round-trips through cm (snap).
+        # ``box_color`` and a non-zero ``rotation`` are emitted and recovered,
+        # so they stay in the comparison. ``va``/``ha`` come back from
+        # ``set just``.
         #
         # Sticky-fontsize normalization: 'set hei' is GLE interpreter-global
         # state (see recognizer._try_one_text / writer.add_text). The writer
@@ -299,7 +301,6 @@ def normalize(d: dict) -> dict:
             emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
             s["fontsize"] = fontsize_cm_to_pt(float(emitted))
             sticky_fs = s["fontsize"]
-            s.pop("box_color", None)
 
     return d
 

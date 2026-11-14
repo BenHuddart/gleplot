@@ -54,6 +54,7 @@ def _meta(*import_dats: str) -> str:
 # Finding 1 -- quoted data filenames
 # --------------------------------------------------------------------------- #
 
+
 def test_finding1_quoted_data_filename_resolves_and_imports(tmp_path):
     src = _meta("data_3.dat") + (
         "size 20.32 15.24\n"
@@ -117,7 +118,7 @@ def test_finding1_header_and_comment_and_ragged(tmp_path):
     # header+comment+ragged whitespace-delimited file.
     dat = (
         "! a comment\n"
-        "x y\n"        # header row
+        "x y\n"  # header row
         "0 0\n"
         "1 2\n"
         "2 4\n"
@@ -143,6 +144,7 @@ def test_finding1_header_and_comment_and_ragged(tmp_path):
 # Finding 2 / 10 -- multi-line dN attribute accumulation + forward references
 # --------------------------------------------------------------------------- #
 
+
 def test_finding2_multiline_dn_attributes_single_series(tmp_path):
     src = (
         "size 20.32 15.24\n"
@@ -153,7 +155,9 @@ def test_finding2_multiline_dn_attributes_single_series(tmp_path):
         '   d1 key "A"\n'
         "end graph\n"
     )
-    p = _write(tmp_path, "m.gle", _meta("data_4.dat") + src, {"data_4.dat": "0 0\n1 1\n"})
+    p = _write(
+        tmp_path, "m.gle", _meta("data_4.dat") + src, {"data_4.dat": "0 0\n1 1\n"}
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     # ONE line series, not three.
@@ -172,7 +176,9 @@ def test_finding10_forward_reference_before_data(tmp_path):
         "   data data_5.dat d1=c1,c2\n"
         "end graph\n"
     )
-    p = _write(tmp_path, "f.gle", _meta("data_5.dat") + src, {"data_5.dat": "0 0\n1 1\n"})
+    p = _write(
+        tmp_path, "f.gle", _meta("data_5.dat") + src, {"data_5.dat": "0 0\n1 1\n"}
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     assert len(ax.lines) == 1
@@ -185,10 +191,12 @@ def test_finding2_last_wins_warns_on_overwrite(tmp_path):
         "begin graph\n"
         "   data data_6.dat d1=c1,c2\n"
         "   d1 line color red\n"
-        "   d1 color blue\n"     # overwrites color -> last wins
+        "   d1 color blue\n"  # overwrites color -> last wins
         "end graph\n"
     )
-    p = _write(tmp_path, "lw.gle", _meta("data_6.dat") + src, {"data_6.dat": "0 0\n1 1\n"})
+    p = _write(
+        tmp_path, "lw.gle", _meta("data_6.dat") + src, {"data_6.dat": "0 0\n1 1\n"}
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     assert len(ax.lines) == 1
@@ -198,6 +206,7 @@ def test_finding2_last_wins_warns_on_overwrite(tmp_path):
 # --------------------------------------------------------------------------- #
 # Finding 3 -- _build_file_series drops line+marker
 # --------------------------------------------------------------------------- #
+
 
 def test_finding3_file_series_line_with_marker(tmp_path):
     # external.csv is NOT a sidecar name -> reference path (file_series).
@@ -215,7 +224,7 @@ def test_finding3_file_series_line_with_marker(tmp_path):
     fs = ax.file_series[0]
     # Line properties are preserved, not dropped by errorbar-classification.
     assert fs["series_type"] == "line"
-    assert fs["linestyle"] == ":"       # lstyle 2 is GLE's dotted style
+    assert fs["linestyle"] == ":"  # lstyle 2 is GLE's dotted style
     assert fs["linewidth"] > 0
     assert fs.get("marker") == "circle"  # marker kept as additional field
 
@@ -223,6 +232,7 @@ def test_finding3_file_series_line_with_marker(tmp_path):
 # --------------------------------------------------------------------------- #
 # Finding 4 -- axis unknown tokens preserved cumulatively
 # --------------------------------------------------------------------------- #
+
 
 def test_finding4_axis_remainder_passthrough(tmp_path):
     src = (
@@ -294,7 +304,9 @@ def test_finding4_axis_remainder_compiles_in_gle(tmp_path):
     # Compile the re-saved file with GLE.
     res = subprocess.run(
         [gle_exe, "-d", "png", "-o", str(tmp_path / "out.png"), str(out)],
-        capture_output=True, text=True, cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
     )
     assert res.returncode == 0, f"GLE failed:\n{res.stdout}\n{res.stderr}"
     assert (tmp_path / "out.png").exists()
@@ -303,6 +315,7 @@ def test_finding4_axis_remainder_compiles_in_gle(tmp_path):
 # --------------------------------------------------------------------------- #
 # Finding 5 -- title / key trailing modifiers kept raw
 # --------------------------------------------------------------------------- #
+
 
 def test_finding5_title_with_options_kept_raw(tmp_path):
     src = (
@@ -383,6 +396,7 @@ def test_finding5_plain_title_still_modeled(tmp_path):
 # Finding 6 -- no fabricated empty graph
 # --------------------------------------------------------------------------- #
 
+
 def test_finding6_graph_in_translate_no_fabricated_graph(tmp_path):
     src = (
         "size 20.32 15.24\n"
@@ -421,6 +435,7 @@ def test_finding6_empty_figure_keeps_default_graph():
 # Finding 7 -- metadata block inside a graph body
 # --------------------------------------------------------------------------- #
 
+
 def test_finding7_metadata_inside_graph_not_duplicated(tmp_path):
     src = (
         "! GLE graphics file\n"
@@ -453,6 +468,7 @@ def test_finding7_metadata_inside_graph_not_duplicated(tmp_path):
 # Finding 8 -- data command auto-mapping
 # --------------------------------------------------------------------------- #
 
+
 def test_finding8_auto_mapping_multicolumn(tmp_path):
     # 'data f.dat' with no dN clauses, 3-column file -> d1=c1,c2 d2=c1,c3.
     src = (
@@ -463,15 +479,20 @@ def test_finding8_auto_mapping_multicolumn(tmp_path):
         "   d2 line color red lwidth 0.05\n"
         "end graph\n"
     )
-    p = _write(tmp_path, "am.gle", _meta("data_50.dat") + src, {"data_50.dat": "0 10 100\n1 20 200\n"})
+    p = _write(
+        tmp_path,
+        "am.gle",
+        _meta("data_50.dat") + src,
+        {"data_50.dat": "0 10 100\n1 20 200\n"},
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     assert len(ax.lines) == 2
     d1 = next(s for s in ax.lines if s["color"] == "blue")
     d2 = next(s for s in ax.lines if s["color"] == "red")
-    assert list(d1["y"]) == [10.0, 20.0]   # c2
+    assert list(d1["y"]) == [10.0, 20.0]  # c2
     assert list(d2["y"]) == [100.0, 200.0]  # c3
-    assert list(d1["x"]) == [0.0, 1.0]      # c1
+    assert list(d1["x"]) == [0.0, 1.0]  # c1
 
 
 def test_finding8_auto_mapping_single_column(tmp_path):
@@ -483,7 +504,9 @@ def test_finding8_auto_mapping_single_column(tmp_path):
         "   d1 line color blue lwidth 0.05\n"
         "end graph\n"
     )
-    p = _write(tmp_path, "am1.gle", _meta("data_51.dat") + src, {"data_51.dat": "5\n6\n7\n"})
+    p = _write(
+        tmp_path, "am1.gle", _meta("data_51.dat") + src, {"data_51.dat": "5\n6\n7\n"}
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     assert len(ax.lines) == 1
@@ -508,6 +531,7 @@ def test_finding8_auto_mapping_unresolved_warns(tmp_path):
 # Finding 9 -- positional dataset names
 # --------------------------------------------------------------------------- #
 
+
 def test_finding9_positional_dataset_names(tmp_path):
     # 'data f.dat d1 d3' -> d1 gets y=c2 (position 0), d3 gets y=c3 (position 1).
     src = (
@@ -518,19 +542,25 @@ def test_finding9_positional_dataset_names(tmp_path):
         "   d3 line color red lwidth 0.05\n"
         "end graph\n"
     )
-    p = _write(tmp_path, "pos.gle", _meta("data_52.dat") + src, {"data_52.dat": "0 10 100\n1 20 200\n"})
+    p = _write(
+        tmp_path,
+        "pos.gle",
+        _meta("data_52.dat") + src,
+        {"data_52.dat": "0 10 100\n1 20 200\n"},
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     assert len(ax.lines) == 2
     d1 = next(s for s in ax.lines if s["color"] == "blue")
     d3 = next(s for s in ax.lines if s["color"] == "red")
-    assert list(d1["y"]) == [10.0, 20.0]   # position 0 -> c2
+    assert list(d1["y"]) == [10.0, 20.0]  # position 0 -> c2
     assert list(d3["y"]) == [100.0, 200.0]  # position 1 -> c3
 
 
 # --------------------------------------------------------------------------- #
 # Finding 11 -- literal / percentage error bars
 # --------------------------------------------------------------------------- #
+
 
 def test_finding11_constant_error_converted(tmp_path):
     src = (
@@ -540,7 +570,12 @@ def test_finding11_constant_error_converted(tmp_path):
         "   d1 marker circle err 0.5\n"
         "end graph\n"
     )
-    p = _write(tmp_path, "err.gle", _meta("data_53.dat") + src, {"data_53.dat": "0 2\n1 4\n2 8\n"})
+    p = _write(
+        tmp_path,
+        "err.gle",
+        _meta("data_53.dat") + src,
+        {"data_53.dat": "0 2\n1 4\n2 8\n"},
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     assert len(ax.errorbars) == 1
@@ -559,7 +594,12 @@ def test_finding11_percentage_error_converted(tmp_path):
         "   d1 marker circle err 10%\n"
         "end graph\n"
     )
-    p = _write(tmp_path, "errp.gle", _meta("data_54.dat") + src, {"data_54.dat": "0 2\n1 4\n2 8\n"})
+    p = _write(
+        tmp_path,
+        "errp.gle",
+        _meta("data_54.dat") + src,
+        {"data_54.dat": "0 2\n1 4\n2 8\n"},
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     assert len(ax.errorbars) == 1
@@ -589,16 +629,22 @@ def test_finding11_constant_error_broken_ref_keeps_raw(tmp_path):
 # Finding 12 -- duplicate data command redefining a dataset
 # --------------------------------------------------------------------------- #
 
+
 def test_finding12_duplicate_data_redefinition_warns(tmp_path):
     src = (
         "size 20.32 15.24\n"
         "begin graph\n"
         "   data data_55.dat d1=c1,c2\n"
-        "   data data_55.dat d1=c1,c3\n"   # redefines d1
+        "   data data_55.dat d1=c1,c3\n"  # redefines d1
         "   d1 line color blue lwidth 0.05\n"
         "end graph\n"
     )
-    p = _write(tmp_path, "dup.gle", _meta("data_55.dat") + src, {"data_55.dat": "0 10 100\n1 20 200\n"})
+    p = _write(
+        tmp_path,
+        "dup.gle",
+        _meta("data_55.dat") + src,
+        {"data_55.dat": "0 10 100\n1 20 200\n"},
+    )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     # Last-wins: d1 uses c3.
@@ -610,6 +656,7 @@ def test_finding12_duplicate_data_redefinition_warns(tmp_path):
 # --------------------------------------------------------------------------- #
 # Finding 13 -- programmatic-construct guard
 # --------------------------------------------------------------------------- #
+
 
 def test_finding13_programmatic_sub_warns(tmp_path):
     src = (
@@ -628,12 +675,7 @@ def test_finding13_programmatic_sub_warns(tmp_path):
 
 
 def test_finding13_for_loop_warns(tmp_path):
-    src = (
-        "size 20.32 15.24\n"
-        "for i = 1 to 3\n"
-        "   amove i i\n"
-        "next i\n"
-    )
+    src = "size 20.32 15.24\n" "for i = 1 to 3\n" "   amove i i\n" "next i\n"
     p = _write(tmp_path, "loop.gle", src)
     rec = parse_gle_figure(p)
     assert any(w.startswith("programmatic:") for w in rec.warnings)
@@ -656,6 +698,7 @@ def test_finding13_normal_file_no_programmatic_warning(tmp_path):
 # CRITICAL FINDING 1 -- hand-written .gle must never overwrite a user's file
 # --------------------------------------------------------------------------- #
 
+
 def _md5(path: Path) -> str:
     import hashlib
 
@@ -671,10 +714,7 @@ def test_critical1_handwritten_gle_does_not_overwrite_user_datafile(tmp_path):
     silently truncated to 'Temperature (K)').
     """
     dat_content = (
-        "Temperature (K) Resistance (Ohm)\n"
-        "1.0 100.0\n"
-        "2.0 200.0\n"
-        "3.0 300.0\n"
+        "Temperature (K) Resistance (Ohm)\n" "1.0 100.0\n" "2.0 200.0\n" "3.0 300.0\n"
     )
     src = (
         "size 20.32 15.24\n"
@@ -699,9 +739,7 @@ def test_critical1_handwritten_gle_does_not_overwrite_user_datafile(tmp_path):
     # Re-save to the SAME .gle path; the referenced data file must be untouched.
     rec.figure.savefig_gle(str(gle))
     after = _md5(dat_path)
-    assert before == after, (
-        "user's data file was silently rewritten by savefig_gle"
-    )
+    assert before == after, "user's data file was silently rewritten by savefig_gle"
     # Belt-and-braces: the multi-word header survived verbatim.
     assert dat_path.read_text() == dat_content
 
@@ -729,7 +767,9 @@ def test_critical1_vouched_sidecar_still_imports(tmp_path):
     assert ax.file_series == []
 
 
-def test_critical1_vouched_sidecar_unsanitary_header_roundtrips_byte_identical(tmp_path):
+def test_critical1_vouched_sidecar_unsanitary_header_roundtrips_byte_identical(
+    tmp_path,
+):
     """ALSO (recognizer invariant): a VOUCHED sidecar whose header was
     hand-edited to an unsanitary value round-trips BYTE-IDENTICALLY -- the
     recovered column_names copy the header verbatim (no re-sanitization), so
@@ -808,7 +848,7 @@ def test_comment_header_vouched_sidecar_does_not_adopt_comment_names(tmp_path):
             "! gleplot-meta-end\n"
             "size 20.32 15.24\n"
             "begin graph\n"
-            f'   data {dat_name} d1=c1,c2\n'
+            f"   data {dat_name} d1=c1,c2\n"
             "   d1 line color blue lwidth 0.05\n"
             "end graph\n"
         )
@@ -825,7 +865,9 @@ def test_comment_header_vouched_sidecar_does_not_adopt_comment_names(tmp_path):
     # (b) Same data, but with a trailing comment line that WOULD qualify as
     # a comment-derived header at the dataio level (table.column_names ==
     # ['x', 'y'], header_source == 'comment').
-    ax_comment, rec_comment = _round_trip("! x y\n0 0\n1 1\n", "owned3.gle", "data_9.dat")
+    ax_comment, rec_comment = _round_trip(
+        "! x y\n0 0\n1 1\n", "owned3.gle", "data_9.dat"
+    )
 
     # Confirm the dataio-level recovery actually fired for sanity (the test
     # would be vacuous otherwise).
@@ -899,6 +941,7 @@ def test_comment_header_vouched_sidecar_does_not_adopt_comment_names(tmp_path):
 # remainder (including already-matched-looking earlier lines) into
 # fig.passthrough_trailer verbatim instead of ax.texts.
 
+
 def test_finding14_sticky_state_recovers_three_unevenly_annotated_clusters(tmp_path):
     """The reported real-world shape: a single 'set hei' shared by multiple
     clusters, a repeated (redundant) 'set just left', and a THIRD cluster with
@@ -910,20 +953,20 @@ def test_finding14_sticky_state_recovers_three_unevenly_annotated_clusters(tmp_p
         "size 10 8\n"
         "begin graph\n"
         "   size 10 8\n"
-        "   xtitle \"X\"\n"
-        "   ytitle \"Y\"\n"
+        '   xtitle "X"\n'
+        '   ytitle "Y"\n'
         "   xaxis min 0 max 3000\n"
         "   yaxis min 0 max 1\n"
         "end graph\n"
         "set hei 0.7\n"
         "set just left\n"
         "amove xg(40) yg(0.34)\n"
-        "write \"beta\"\n"
+        'write "beta"\n'
         "set just left\n"
         "amove xg(40) yg(0.09)\n"
-        "write \"alpha\"\n"
+        'write "alpha"\n'
         "amove xg(2000) yg(0.6)\n"
-        "write \"{\\it{T}} = 0.1 K\"\n"
+        'write "{\\it{T}} = 0.1 K"\n'
     )
     gle = _write(tmp_path, "annot.gle", src)
     rec = parse_gle_figure(gle)
@@ -982,12 +1025,12 @@ def test_finding14_resave_reproduces_minimal_sticky_gle(tmp_path):
         "set hei 0.7\n"
         "set just left\n"
         "amove xg(40) yg(0.34)\n"
-        "write \"beta\"\n"
+        'write "beta"\n'
         "set just left\n"
         "amove xg(40) yg(0.09)\n"
-        "write \"alpha\"\n"
+        'write "alpha"\n'
         "amove xg(2000) yg(0.6)\n"
-        "write \"{\\it{T}} = 0.1 K\"\n"
+        'write "{\\it{T}} = 0.1 K"\n'
     )
     gle = _write(tmp_path, "annot2.gle", src)
     rec = parse_gle_figure(gle)
@@ -1003,7 +1046,7 @@ def test_finding14_resave_reproduces_minimal_sticky_gle(tmp_path):
 
     # Only ONE 'set hei 0.7' for the whole trailing block: color/just are
     # already BLACK/left (the sticky default), so no redundant lines.
-    trailer_lines = resaved.splitlines()[resaved.splitlines().index("end graph") + 1:]
+    trailer_lines = resaved.splitlines()[resaved.splitlines().index("end graph") + 1 :]
     assert trailer_lines.count("set hei 0.7") == 1
     assert not any(l.strip().startswith("set color") for l in trailer_lines)
     assert not any(l.strip().startswith("set just") for l in trailer_lines)
@@ -1028,12 +1071,12 @@ def test_finding14_resave_compiles_in_real_gle(tmp_path):
         "set hei 0.7\n"
         "set just left\n"
         "amove xg(40) yg(0.34)\n"
-        "write \"beta\"\n"
+        'write "beta"\n'
         "set just left\n"
         "amove xg(40) yg(0.09)\n"
-        "write \"alpha\"\n"
+        'write "alpha"\n'
         "amove xg(2000) yg(0.6)\n"
-        "write \"{\\it{T}} = 0.1 K\"\n"
+        'write "{\\it{T}} = 0.1 K"\n'
     )
     gle = _write(tmp_path, "annot3.gle", src)
     rec = parse_gle_figure(gle)
@@ -1042,10 +1085,77 @@ def test_finding14_resave_compiles_in_real_gle(tmp_path):
 
     res = subprocess.run(
         [gle_exe, "-d", "png", "-o", str(tmp_path / "out.png"), str(out)],
-        capture_output=True, text=True, cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
     )
     assert res.returncode == 0, f"GLE failed:\n{res.stdout}\n{res.stderr}"
     assert (tmp_path / "out.png").exists()
+
+
+def test_text_box_with_an_outline_stays_passthrough(tmp_path):
+    """A filled box that still strokes its outline is not our facecolor box.
+
+    gleplot's bbox emits ``begin box fill C add P nobox``. Recognizing a box
+    that omits ``nobox`` would re-save it without the stroke. An angle that
+    is an expression (``2*pi``) is the same kind of near-miss: left alone so
+    re-save does not rewrite it as a decimal.
+    """
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        "   size 10 8\n"
+        "   xaxis min 0 max 10\n"
+        "   yaxis min 0 max 10\n"
+        "end graph\n"
+        "amove xg(1) yg(1)\n"
+        "begin box fill white add 0.05\n"
+        'write "keep"\n'
+        "end box\n"
+        "amove xg(2) yg(2)\n"
+        "begin rotate 2*pi\n"
+        'write "angle"\n'
+        "end rotate\n"
+    )
+    gle = _write(tmp_path, "foreignbox.gle", src)
+    rec = parse_gle_figure(gle)
+    ax = rec.figure.axes_list[0]
+    assert ax.texts == []
+    trailer = "\n".join(rec.figure.passthrough_trailer)
+    assert "begin box fill white add 0.05" in trailer
+    assert 'write "keep"' in trailer
+    assert "begin rotate 2*pi" in trailer
+    assert 'write "angle"' in trailer
+
+
+def test_text_box_with_a_different_pad_stays_passthrough(tmp_path):
+    """A filled box whose ``add`` is not the pad gleplot emits is left alone.
+
+    Recognizing it would re-save ``add 0.2`` as ``add 0.05``.
+    """
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        "   size 10 8\n"
+        "   xaxis min 0 max 10\n"
+        "   yaxis min 0 max 10\n"
+        "end graph\n"
+        "amove xg(0.2) yg(0.3)\n"
+        "begin box fill white add 0.2 nobox\n"
+        'write "keep"\n'
+        "end box\n"
+    )
+    gle = _write(tmp_path, "padbox.gle", src)
+    rec = parse_gle_figure(gle)
+    ax = rec.figure.axes_list[0]
+    assert ax.texts == []
+    trailer = "\n".join(rec.figure.passthrough_trailer)
+    assert "begin box fill white add 0.2 nobox" in trailer
+    assert 'write "keep"' in trailer
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "add 0.2" in out.read_text()
+    assert "add 0.05" not in out.read_text()
 
 
 def test_finding14_optional_set_color_alone_is_sticky(tmp_path):
@@ -1061,9 +1171,9 @@ def test_finding14_optional_set_color_alone_is_sticky(tmp_path):
         "end graph\n"
         "set color RED\n"
         "amove xg(1) yg(1)\n"
-        "write \"first\"\n"
+        'write "first"\n'
         "amove xg(2) yg(2)\n"
-        "write \"second\"\n"
+        'write "second"\n'
     )
     gle = _write(tmp_path, "coloronly.gle", src)
     rec = parse_gle_figure(gle)
@@ -1093,14 +1203,14 @@ def test_finding14_cluster_inside_graph_block_stays_passthrough(tmp_path):
         "   set hei 0.5\n"
         "   set just left\n"
         "   amove xg(1) yg(1)\n"
-        "   write \"inside\"\n"
+        '   write "inside"\n'
         "end graph\n"
     )
     gle = _write(tmp_path, "inside.gle", src)
     rec = parse_gle_figure(gle)
     ax = rec.figure.axes_list[0]
     assert ax.texts == []
-    assert any("write \"inside\"" in line for line in ax.passthrough)
+    assert any('write "inside"' in line for line in ax.passthrough)
 
     # Losslessly re-emitted (still valid, still contains the write).
     out = tmp_path / "resaved.gle"
@@ -1113,6 +1223,7 @@ def test_finding14_cluster_inside_graph_block_stays_passthrough(tmp_path):
 # Finding 15 -- write-string fidelity: backslash + brace content must not be
 # corrupted by string unescaping (only '\"'/"\\'" are ever unescaped).
 # --------------------------------------------------------------------------- #
+
 
 def test_finding15_backslash_brace_string_round_trips_byte_exact(tmp_path):
     """GLE inline-TeX-italics markup like '{\\it{T}} = 0.1 K' contains a
@@ -1128,7 +1239,7 @@ def test_finding15_backslash_brace_string_round_trips_byte_exact(tmp_path):
         "   yaxis min 0 max 10\n"
         "end graph\n"
         "amove xg(1) yg(1)\n"
-        "write \"{\\it{T}} = 0.1 K\"\n"
+        'write "{\\it{T}} = 0.1 K"\n'
     )
     gle = _write(tmp_path, "fidelity.gle", src)
     rec = parse_gle_figure(gle)
@@ -1207,6 +1318,7 @@ def test_finding15_backslash_brace_survives_a_second_round_trip(tmp_path):
 # ordinary passthrough handling untouched when it is NOT actually a text
 # cluster.
 # --------------------------------------------------------------------------- #
+
 
 def test_finding16_blank_line_before_final_cluster_is_recognized(tmp_path):
     """Reproduces the reported real-file shape (synthetic recreation): a
@@ -1412,7 +1524,7 @@ def test_finding17_fill_comma_list_stays_byte_verbatim(tmp_path):
         "size 12 9  box\n"
         "begin graph\n"
         "   SIZE 12 9\n"
-        "   Title \"Bar example\"\n"
+        '   Title "Bar example"\n'
         "   data single.dat\n"
         "   fill x1,d1 color gray10\n"
         "end graph\n"
@@ -1446,8 +1558,7 @@ def test_finding17_multi_dataset_bar_group_not_silently_dropped(tmp_path):
     assert "bar d1,d2 fill green,blue" in joined
     assert "blue" in joined  # the previously-dropped dataset's color
     assert any(
-        w.startswith("structure:") and "bar" in w and "d1,d2" in w
-        for w in rec.warnings
+        w.startswith("structure:") and "bar" in w and "d1,d2" in w for w in rec.warnings
     )
     # No BarSeries was fabricated for a group gleplot cannot model.
     assert ax.bars == []
@@ -1492,7 +1603,7 @@ def test_finding17_manual_single_gle_resave_compiles_in_real_gle(tmp_path):
         "size 12 9  box\n"
         "begin graph\n"
         "   SIZE 12 9\n"
-        "   Title \"Bar example\"\n"
+        '   Title "Bar example"\n'
         "   data single.dat\n"
         "   bar d1,d2 fill green,blue \n"
         "   fill x1,d1 color gray10\n"
@@ -1505,7 +1616,9 @@ def test_finding17_manual_single_gle_resave_compiles_in_real_gle(tmp_path):
 
     res = subprocess.run(
         [gle_exe, "-d", "png", "-o", str(tmp_path / "out.png"), str(out)],
-        capture_output=True, text=True, cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
     )
     assert res.returncode == 0, f"GLE failed:\n{res.stdout}\n{res.stderr}"
     assert (tmp_path / "out.png").exists()
@@ -1669,7 +1782,9 @@ def test_finding18_stack4b_reproduction_resave_compiles_in_real_gle(tmp_path):
 
     res = subprocess.run(
         [gle_exe, "-d", "png", "-o", str(tmp_path / "out.png"), str(out)],
-        capture_output=True, text=True, cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
     )
     assert res.returncode == 0, f"GLE failed:\n{res.stdout}\n{res.stderr}"
     assert (tmp_path / "out.png").exists()
@@ -2876,8 +2991,6 @@ def test_finding23_page_box_reproduction_renders_with_parity(tmp_path):
         f"(diff bbox {diff_bbox}) -- the page outline ('box') was likely "
         "dropped again"
     )
-
-
 
 
 # --------------------------------------------------------------------------- #

@@ -323,6 +323,8 @@ from .tables import (
     KEY_POSITIONS_SHORT_TO_LONG,
     LSTYLE_TO_MATPLOTLIB,
     PALETTE_SUB_TO_CMAP,
+    text_box_pad_token,
+    text_just_to_align,
 )
 from .units import (
     capsize_cm_to_pt,
@@ -466,6 +468,135 @@ def _first_statement_of(source_line) -> Statement:
         sub_index=0,
         source_line=source_line,
     )
+
+
+def _meaningful_statements(lines) -> List[Statement]:
+    """Non-blank statements tokenized from opaque-block inner lines."""
+    out = []
+    for src in lines:
+        stmt = _first_statement_of(src)
+        if not stmt.is_blank:
+            out.append(stmt)
+    return out
+
+
+def _plain_write_string(stmt: Optional[Statement]) -> Optional[str]:
+    """The string of a bare ``write "T"``, or ``None`` if it is not one."""
+    if stmt is None:
+        return None
+    toks = _words_and_values(stmt)
+    if (
+        len(toks) == 2
+        and toks[0].type is TokenType.WORD
+        and toks[0].value.lower() == "write"
+        and toks[1].type is TokenType.STRING
+    ):
+        return _string_value(toks[1])
+    return None
+
+
+def _is_end_named(stmt: Statement, name: str) -> bool:
+    """True for exactly ``end <name>`` and nothing else."""
+    toks = _words_and_values(stmt)
+    return (
+        len(toks) == 2
+        and toks[0].type is TokenType.WORD
+        and toks[0].value.lower() == "end"
+        and toks[1].type is TokenType.WORD
+        and toks[1].value.lower() == name
+    )
+
+
+def _plain_rotate_angle(stmt: Statement) -> Optional[float]:
+    """Angle of ``begin rotate <number>``.
+
+    A single numeric literal, with an optional leading minus. The lexer keeps
+    that minus as its own token (``begin rotate -15``), so both shapes are
+    accepted. An expression (``2*pi``) is left unrecognized so re-save does
+    not rewrite it as a decimal.
+    """
+    toks = _words_and_values(stmt)
+    if len(toks) < 3 or len(toks) > 4:
+        return None
+    if toks[0].value.lower() != "begin" or toks[1].value.lower() != "rotate":
+        return None
+    rest = toks[2:]
+    if (
+        len(rest) == 2
+        and rest[0].type is TokenType.OP
+        and rest[0].value == "-"
+        and rest[1].type is TokenType.NUMBER
+    ):
+        val = _num(rest[1])
+        return None if val is None else -val
+    if len(rest) == 1 and rest[0].type is TokenType.NUMBER:
+        return _num(rest[0])
+    return None
+
+
+def _text_box_fill(stmt: Statement) -> Optional[str]:
+    """Fill colour of ``begin box fill C add P nobox``, or ``None``.
+
+    This is the only background the writer emits, and ``P`` has to be the
+    pad token it writes (:func:`text_box_pad_token`). An outline (no
+    ``nobox``), a different pad, rounded corners, or a different keyword
+    order stays unrecognized so a hand-written box is not rewritten.
+    """
+    toks = _words_and_values(stmt)
+    if len(toks) < 6:
+        return None
+    if toks[0].value.lower() != "begin" or toks[1].value.lower() != "box":
+        return None
+    if toks[2].value.lower() != "fill":
+        return None
+    color, nxt = _collect_color(toks, 3)
+    if color is None or nxt + 2 >= len(toks):
+        return None
+    if toks[nxt].value.lower() != "add":
+        return None
+    if toks[nxt + 1].type is not TokenType.NUMBER:
+        return None
+    if toks[nxt + 1].value != text_box_pad_token():
+        return None
+    if nxt + 3 != len(toks) or toks[nxt + 2].value.lower() != "nobox":
+        return None
+    return color
+
+
+def _rotate_or_box_body(lines) -> Optional[Tuple[str, Optional[str]]]:
+    """Inner lines of ``begin rotate``: a write, or one filled box around it.
+
+    Returns ``(text, box_color)``. ``box_color`` is ``None`` for a bare write.
+    """
+    stmts = _meaningful_statements(lines)
+    if len(stmts) == 1:
+        text = _plain_write_string(stmts[0])
+        if text is None:
+            return None
+        return text, None
+    if len(stmts) != 3:
+        return None
+    color = _text_box_fill(stmts[0])
+    text = _plain_write_string(stmts[1])
+    if color is None or text is None or not _is_end_named(stmts[2], "box"):
+        return None
+    return text, color
+
+
+def _boxed_write(block: OpaqueBlock) -> Optional[Tuple[str, str]]:
+    """A top-level ``begin box`` whose body is exactly one ``write``."""
+    if block.end is None:
+        return None
+    color = _text_box_fill(block.begin)
+    if color is None or not _is_end_named(block.end, "box"):
+        return None
+    stmts = _meaningful_statements(block.inner_lines)
+    if len(stmts) != 1:
+        return None
+    text = _plain_write_string(stmts[0])
+    if text is None:
+        return None
+    return text, color
 
 
 def _as_float(value, default: float) -> float:
@@ -4869,7 +5000,19 @@ class _Recognizer:
             [set color C]
             [set just J]
             amove xg(X) yg(Y)
-            write "T"
+            [begin rotate A
+               [begin box fill C add P nobox]
+               write "T"
+               [end box]
+             end rotate]
+            -- or, with no rotation, the box block or the bare ``write``
+            directly under the ``amove``.
+
+        ``J`` is a horizontal word (``left``/``center``/``right``, vertically
+        centred) or a two-letter code (``tl`` .. ``br``). ``begin rotate`` /
+        ``begin box`` are opaque blocks: the ``write`` lives in the block's
+        inner lines, not as a sibling statement. A box or rotation that is
+        not this exact shape fails the cluster, so the lines stay passthrough.
 
         ``set hei``/``set color``/``set just`` are GLE *interpreter-global*
         state: once set, they apply to every subsequent cluster (including
@@ -4976,7 +5119,7 @@ class _Recognizer:
                 continue
             if sub == "just":
                 just = toks[2].value.lower()
-                if just in ("left", "center", "right"):
+                if text_just_to_align(just) is not None:
                     self._text_just = just
                 i += 1
                 continue
@@ -4996,28 +5139,62 @@ class _Recognizer:
             return start, None
         i += 1
 
-        # 'write "T"' -- mandatory (a blank line may separate the amove from
-        # its write in a hand-edited file; tolerate it the same way).
-        i = self._skip_blanks(nodes, i)
-        stmt = self._as_statement(nodes[i]) if i < n else None
-        if stmt is None or stmt.keyword != "write":
+        # 'write "T"', optionally inside ``begin rotate`` and/or
+        # ``begin box fill ... nobox``. A blank line may separate the amove
+        # from the draw in a hand-edited file; tolerate it the same way.
+        drawn = self._match_text_draw(nodes, i)
+        if drawn is None:
             return start, None
-        toks = _words_and_values(stmt)
-        text_str = self._first_string(toks)
-        if text_str is None:
-            return start, None
-        i += 1
+        i, text_str, box_color, rotation = drawn
 
-        return i, TextAnnotation(
+        ha, va = text_just_to_align(self._text_just) or ("left", "center")
+        fields = dict(
             x=x,
             y=y,
             text=text_str,
             color=self._text_color,
             fontsize=self._text_fontsize,
-            ha=self._text_just,
-            va="center",
-            box_color=None,
+            ha=ha,
+            va=va,
+            box_color=box_color,
         )
+        # Absent means unrotated, matching Axes.text (a zero angle is not
+        # stored, and the writer does not emit ``begin rotate`` for it).
+        if rotation is not None and abs(rotation) >= 1e-10:
+            fields["rotation"] = rotation
+        return i, TextAnnotation(**fields)
+
+    def _match_text_draw(self, nodes, i):
+        """The draw half of one text cluster, after its ``amove``.
+
+        Returns ``(next_index, text, box_color, rotation)`` or ``None``.
+        ``rotation`` is ``None`` when there is no ``begin rotate``. ``box_color``
+        is ``None`` when there is no background box. Anything that is not the
+        writer's shape (an outline, a ``round`` corner, an angle expression)
+        returns ``None`` so the caller leaves the nodes for passthrough.
+        """
+        n = len(nodes)
+        i = self._skip_blanks(nodes, i)
+        node = nodes[i] if i < n else None
+        if isinstance(node, OpaqueBlock) and node.end is not None:
+            if node.block_type == "rotate":
+                angle = _plain_rotate_angle(node.begin)
+                body = _rotate_or_box_body(node.inner_lines)
+                if angle is None or body is None:
+                    return None
+                text_str, box_color = body
+                return i + 1, text_str, box_color, angle
+            if node.block_type == "box":
+                boxed = _boxed_write(node)
+                if boxed is None:
+                    return None
+                text_str, box_color = boxed
+                return i + 1, text_str, box_color, None
+        stmt = self._as_statement(node) if node is not None else None
+        text_str = _plain_write_string(stmt) if stmt is not None else None
+        if text_str is None:
+            return None
+        return i + 1, text_str, None, None
 
     def _skip_blanks(self, nodes, i) -> int:
         """Advance past any run of ``BlankOrComment`` nodes at ``i``.
