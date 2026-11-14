@@ -1,5 +1,11 @@
 # CHANGELOG
 
+<!-- version list -->
+
+<!-- Hand-written notes for work that does not yet have a generated release
+     section. python-semantic-release inserts new releases above this comment.
+     Delete this section once a generated release covers the same changes. -->
+
 ## Unreleased
 
 ### Features

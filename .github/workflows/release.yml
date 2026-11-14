@@ -1,64 +1,131 @@
 name: Release
 
+# After Tests pass on main, cut a release when conventional commits warrant a bump.
+# PyPI upload is a separate job, gated on repository variable PYPI_PUBLISH=true
+# and a configured Trusted Publisher (see docs/guides/DEVELOPMENT_WORKFLOW.md).
+
 on:
-  push:
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type (auto uses commits since last tag)
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - major
+          - minor
+          - patch
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  # Needed by the "Build and attach desktop installers" step, which dispatches
-  # the release-binaries workflow via the GitHub API (gh workflow run).
-  actions: write
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
+    # workflow_run's branches filter is the base branch, so a pull request
+    # into main also completes Tests. Only a push to main may release, and
+    # only while that commit is still the tip (a newer push releases itself).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+    name: Semantic release
     runs-on: ubuntu-latest
-    concurrency: release
-    
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.release.outputs.released == 'true' }}
     steps:
+      # Check out the branch, not the raw SHA. python-semantic-release pushes
+      # git_repo.active_branch and exits when HEAD is detached.
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: >-
+            ${{ github.event_name == 'workflow_run' && 'main' || github.ref }}
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-          
-      - name: Install dependencies
+          persist-credentials: true
+
+      - name: Release only the current tip of main
+        id: gate
+        if: github.event_name == 'workflow_run'
         run: |
-          python -m pip install --upgrade pip
-          pip install python-semantic-release
-          
+          tested="${{ github.event.workflow_run.head_sha }}"
+          git fetch origin main
+          tip="$(git rev-parse origin/main)"
+          if [ "$tip" != "$tested" ]; then
+            echo "origin/main is ${tip}; tested commit is ${tested}."
+            echo "A newer push on main will cut the release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Python Semantic Release
         id: release
-        uses: python-semantic-release/python-semantic-release@v8.3.0
+        if: steps.gate.outputs.skip != 'true'
+        uses: python-semantic-release/python-semantic-release@v10.7.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Publish to GitHub Releases
-        if: steps.release.outputs.released == 'true'
-        uses: python-semantic-release/upload-to-gh-release@main
+          git_committer_name: github-actions
+          git_committer_email: actions@users.noreply.github.com
+          force: >-
+            ${{ github.event_name == 'workflow_dispatch'
+                && github.event.inputs.bump != 'auto'
+                && github.event.inputs.bump
+                || '' }}
+
+      - name: Attach distribution to GitHub Release
+        if: steps.gate.outputs.skip != 'true' && steps.release.outputs.released == 'true'
+        uses: python-semantic-release/publish-action@v10.7.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ steps.release.outputs.tag }}
 
-      # The tag semantic-release just pushed will NOT itself trigger the
-      # tag-listening release-binaries workflow: GitHub deliberately does not
-      # fire workflows from GITHUB_TOKEN-pushed tags (recursion guard). So kick
-      # off the desktop-installer build explicitly here, passing the new tag as
-      # the workflow_dispatch input (release-binaries attaches to that tag).
-      # A workflow_dispatch invoked via the API *does* start a run, so no PAT is
-      # needed. If this ever stops chaining, the workflow can still be run by
-      # hand: `gh workflow run release-binaries.yml -f tag=<tag>`.
-      - name: Build and attach desktop installers
-        if: steps.release.outputs.released == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run release-binaries.yml -f tag=${{ steps.release.outputs.tag }}
+      - name: Upload distribution artifacts
+        if: steps.gate.outputs.skip != 'true' && steps.release.outputs.released == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: distribution-artifacts
+          path: dist
+          if-no-files-found: error
+
+  deploy:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: release
+    if: needs.release.outputs.released == 'true' && vars.PYPI_PUBLISH == 'true'
+    environment:
+      name: pypi
+      url: https://pypi.org/p/gleplot
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: distribution-artifacts
+          path: dist
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          print-hash: true

@@ -145,38 +145,30 @@ ax.plot(x, y, color='blue', linewidth=0.06)
 
 ### 5. Version Management
 
-#### Automatic Version Bumping
+Releases use [Python Semantic Release](https://python-semantic-release.readthedocs.io/)
+via [`.github/workflows/release.yml`](../../.github/workflows/release.yml). After **Tests**
+pass on `main`, the release workflow decides whether conventional commits since the last
+tag warrant a bump.
 
-The versioning system analyzes your commits and automatically determines version bumps:
+#### Preview locally
 
 ```bash
-# Check what version bump would occur
-python scripts/bump_version.py --dry-run
-
-# Output:
-# Found 2 commits
-# Version bump: MINOR (has feat: commits)
-# Current version: 0.0.1 → 0.1.0
+pip install -e ".[dev]"
+semantic-release version --noop
 ```
 
 #### Performing a Release
 
 ```bash
-# Method 1: Automatic (recommended)
-# Push commits to main, GitHub Actions handles everything:
+# Automatic (recommended): push conventional commits to main
 git push origin main
+# Tests → Release (GitHub Release + wheel/sdist when a bump is needed)
 
-# Method 2: Manual local versioning
-python scripts/bump_version.py
-# Updates pyproject.toml and src/gleplot/__init__.py
-# Creates commit and tag
-# Then push:
+# Manual workflow: Actions → Release → Run workflow (optional force bump)
+
+# Manual local release (maintainers only)
+semantic-release version
 git push origin main --follow-tags
-
-# Method 3: Force specific version
-python scripts/bump_version.py --major  # → 1.0.0
-python scripts/bump_version.py --minor  # → 0.1.0
-python scripts/bump_version.py --patch  # → 0.0.2
 ```
 
 #### Versioning Documentation
@@ -190,31 +182,27 @@ python scripts/bump_version.py --patch  # → 0.0.2
 #### Build Distribution
 
 ```bash
-# Install build tools
 pip install build twine
-
-# Build distributions
 python -m build
-
-# Check integrity
 twine check dist/*
-
-# Upload to PyPI (requires authentication)
-twine upload dist/*
 ```
 
-#### GitHub Actions Release
+#### GitHub Actions Release and PyPI
 
-The project includes an automated release workflow:
+The **Release** workflow builds distributions and attaches them to the GitHub Release.
 
-1. **Automatic versioning** on pushes to main
-2. **Manual override** via GitHub Actions workflow dispatch
-3. **Build and release** via PyPI (if configured)
+PyPI upload is **off by default**. To enable it:
 
-**Triggering manual release:**
+1. Register the gleplot project on PyPI (or TestPyPI first).
+2. Add a **Trusted Publisher** on PyPI for this repository,
+   workflow file `release.yml`, environment `pypi`.
+3. Create a GitHub **Environment** named `pypi` (optional approval rules recommended).
+4. Set repository variable `PYPI_PUBLISH` to `true`.
 
-- Go to repository → **Actions** → **Semantic Versioning**
-- Click **Run workflow** → Select bump type → **Run**
+The **Publish to PyPI** job uses OIDC (`pypa/gh-action-pypi-publish`); no long-lived
+API token is stored in the repository.
+
+**Manual workflow dispatch:** Actions → **Release** → Run workflow.
 
 ## Complete Example Workflow
 
@@ -272,18 +260,13 @@ See docs/guides/CONFIGURATION_API.md for usage"
 # 7. Run full test suite
 python -m pytest tests/ -q  # All 114 tests pass
 
-# 8. Check version bump
-python scripts/bump_version.py --dry-run
-# Output: Version bump: MINOR (feat: detected)
+# 8. Preview release (optional)
+semantic-release version --noop
 
 # 9. Push to main
 git push origin main
 
-# 10. GitHub Actions automatically:
-# - Detects feat: commit
-# - Bumps version to 0.1.0
-# - Creates tag v0.1.0
-# - Pushes everything back
+# 10. After Tests pass, Release workflow bumps version, tags, and cuts GitHub Release
 
 # 11. Pull updated version
 git pull origin main --tags
@@ -323,13 +306,9 @@ Now handles both #RRGGBB and #RGB formats correctly."
 # 5. Test
 python -m pytest tests/ -q
 
-# 6. Check version bump
-python scripts/bump_version.py --dry-run
-# Output: Version bump: PATCH (fix: detected)
-
-# 7. Release
+# 6. Release
 git push origin main
-# GitHub Actions creates patch release v0.0.2
+# Tests → Release creates patch tag when fix: commits are present
 ```
 
 ## Quick Commands Reference
@@ -374,19 +353,14 @@ git push origin <branch>
 ### Versioning
 
 ```bash
-# Preview version bump
-python scripts/bump_version.py --dry-run
+# Preview next release
+semantic-release version --noop
 
-# Perform version bump
-python scripts/bump_version.py
-
-# Force specific version
-python scripts/bump_version.py --major
-python scripts/bump_version.py --minor
-python scripts/bump_version.py --patch
-
-# Push version changes
+# Manual local release (rare)
+semantic-release version
 git push origin main --follow-tags
+
+# Or: Actions → Release → Run workflow
 ```
 
 ## Tips & Best Practices
@@ -397,7 +371,7 @@ git push origin main --follow-tags
 - Use scopes: `feat(config):`, `fix(writer):`
 - One logical change per commit
 - Run tests before pushing
-- Use --dry-run before actual version bumping
+- Run `semantic-release version --noop` when unsure what will release
 - Review your commits before pushing
 
 **Don't:**
@@ -410,18 +384,15 @@ git push origin main --follow-tags
 
 ## Troubleshooting
 
-### Git versioning script fails
+### Release workflow does nothing
 
 ```bash
-# Ensure git repository is clean
-git status
-
-# Check git history
-git log --oneline -5
-
-# Run with verbose output
-python scripts/bump_version.py --dry-run
+git log --oneline "$(git describe --tags --abbrev=0 2>/dev/null || echo ROOT)..HEAD"
+semantic-release version --noop
 ```
+
+Ensure commits use `feat:`, `fix:`, or `perf:` (or a breaking-change marker) since the
+last tag. Documentation-only pushes do not release.
 
 ### Tests fail after changes
 
@@ -446,8 +417,7 @@ cat pyproject.toml | grep version
 # Verify commit history
 git log --oneline -10
 
-# Run script with dry-run
-python scripts/bump_version.py --dry-run
+semantic-release version --noop
 
 # Check for BREAKING CHANGE detection
 git log -p

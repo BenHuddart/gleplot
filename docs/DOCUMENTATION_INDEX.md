@@ -36,14 +36,13 @@ Walkthrough of the `gleplot-gui` PySide6 desktop editor.
 - Live preview and the `.gle` native file format
 - Undo/redo, export dialog, and troubleshooting (including GLE-not-found)
 
-## Packaging and Desktop Builds
+## Packaging
 
-Standalone desktop binaries are built from the specs and helpers in the
-repository's `packaging/` directory. The release workflows produce a Windows
-`.exe` installer and a macOS `.dmg`, which are attached to each
-[GitHub Release](https://github.com/benhuddart/gleplot/releases). The build
-tooling is captured by the `packaging` optional-dependency group in
-`pyproject.toml` (`pip install -e ".[packaging]"`).
+Library releases ship as sdist/wheel artifacts on
+[GitHub Releases](https://github.com/benhuddart/gleplot/releases) (and on PyPI once
+`PYPI_PUBLISH` is enabled). Optional desktop packaging specs remain under
+`packaging/` (`pip install -e ".[packaging]"`) for local GUI bundles; CI no longer
+builds installers on each tag.
 
 ## Configuration System Documentation
 
@@ -310,7 +309,7 @@ gleplot/
 │       ├── line_from_file.py
 │       └── data_prefix.py
 └── scripts/
-    └── bump_version.py               # Semantic versioning automation
+    └── build_dmg_background.py       # Optional desktop packaging helper
 ```
 
 ## How to Navigate

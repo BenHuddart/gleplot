@@ -37,7 +37,7 @@ dev = [
     "black>=21.0",
     "flake8>=3.9",
     "mypy>=0.900",
-    "python-semantic-release>=8.0",
+    "python-semantic-release>=10",
     # Raster ink measurement in tests/integration/test_calibration_v2_gle.py:
     # the only way to check a bounding-box record against what GLE drew.
     "Pillow>=9.1",
@@ -115,28 +115,18 @@ markers = [
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 version_variables = ["src/gleplot/__init__.py:__version__"]
-branch = "main"
-upload_to_vcs_release = true
-upload_to_pypi = false
 build_command = "pip install build && python -m build"
 commit_message = "chore: release version {version}"
 
 [tool.semantic_release.changelog]
-template_dir = "templates"
-changelog_file = "docs/CHANGELOG.md"
+mode = "update"
 exclude_commit_patterns = []
 
-[tool.semantic_release.changelog.environment]
-block_start_string = "{%"
-block_end_string = "%}"
-variable_start_string = "{{"
-variable_end_string = "}}"
-comment_start_string = "{#"
-comment_end_string = "#}"
-trim_blocks = false
-lstrip_blocks = false
-newline_sequence = "\n"
-keep_trailing_newline = false
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "docs/CHANGELOG.md"
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = false
 
 [tool.semantic_release.branches.main]
 match = "(main|master)"
