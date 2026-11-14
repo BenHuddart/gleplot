@@ -175,13 +175,64 @@ class TestBarCharts(unittest.TestCase):
         self.assertEqual(self.ax.bars[0]['colors'][0], 'RED')
     
     def test_bar_with_multiple_colors(self):
-        """Test bar with multiple colors falls back to first color."""
+        """A colour sequence is one series per bar, each with a real width."""
         self.ax.bar([1, 2, 3], [10, 20, 30], color=['red', 'green', 'blue'])
-        
-        colors = self.ax.bars[0]['colors']
-        self.assertEqual(colors[0], 'RED')
-        self.assertEqual(colors[1], 'RED')
-        self.assertEqual(colors[2], 'RED')
+
+        self.assertEqual(len(self.ax.bars), 3)
+        self.assertEqual(
+            [bar['colors'][0] for bar in self.ax.bars],
+            ['RED', 'GREEN', 'BLUE'],
+        )
+        self.assertEqual([bar['width'] for bar in self.ax.bars], [0.5, 0.5, 0.5])
+        text = self.fig._generate_gle()
+        self.assertEqual(text.count('bar d'), 3)
+        self.assertIn('fill RED', text)
+        self.assertIn('fill GREEN', text)
+        self.assertIn('fill BLUE', text)
+        self.assertIn('width 0.5', text)
+
+    def test_bar_uniform_color_list_stays_one_series(self):
+        """The same colour repeated is still the historical one-dataset bar."""
+        self.ax.bar([1, 2, 3], [10, 20, 30], color=['red', 'red', 'red'])
+        self.assertEqual(len(self.ax.bars), 1)
+        self.assertEqual(self.ax.bars[0]['colors'], ['RED', 'RED', 'RED'])
+        self.assertNotIn('width', self.ax.bars[0])
+
+    def test_bar_edge_and_stack_and_barh(self):
+        """Stroke, baseline, and horizontal bars reach the script."""
+        self.ax.bar(
+            [1, 2], [3, 4], color='red', edgecolor='k', linewidth=2, linestyle='--'
+        )
+        self.ax.bar([1, 2], [1, 1], bottom=[3, 4], color='white')
+        self.ax.barh([1, 2], [3, 4])
+        text = self.fig._generate_gle()
+        self.assertIn('color BLACK', text)
+        self.assertIn('lstyle', text)
+        self.assertIn('lwidth', text)
+        self.assertIn('from', text)
+        self.assertIn('horiz', text)
+        stacked = self.ax.bars[1]
+        self.assertTrue((stacked['bottom'] == [3, 4]).all())
+        self.assertNotIn('bottom', self.ax.bars[0])
+
+    def test_bar_zero_baseline_is_not_stored(self):
+        self.ax.bar([1, 2], [3, 4], bottom=0)
+        self.assertNotIn('bottom', self.ax.bars[0])
+        self.assertNotIn('from', self.fig._generate_gle())
+
+    def test_bar_align_edge_and_hatch_warn(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.ax.bar([1, 2], [3, 4], align='edge', hatch='//')
+        messages = ' '.join(str(item.message) for item in caught)
+        self.assertIn('centered', messages)
+        self.assertIn('hatch', messages)
+
+    def test_bar_color_length_must_match(self):
+        with self.assertRaises(ValueError):
+            self.ax.bar([1, 2, 3], [4, 5, 6], color=['red', 'blue'])
 
     def test_bar_with_data_name(self):
         """Test semantic data file naming for bar plots."""

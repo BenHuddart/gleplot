@@ -158,6 +158,31 @@ def _format_data_filename(name: str) -> str:
     return name
 
 
+def _group_bar_header(members: Sequence[Mapping[str, Any]], n_columns: int):
+    """A header row for a grouped bar sidecar, or ``None`` to omit one.
+
+    Omitted unless every member already carries column names and those
+    names line up with the columns actually written. A partial header
+    would make GLE invent a legend entry the series did not ask for.
+    """
+    if not members or any(not member.get("column_names") for member in members):
+        return None
+    stacked = any(member.get("bottom") is not None for member in members)
+    names = [str(members[0]["column_names"][0])]
+    for member in members:
+        named = list(member["column_names"])
+        if stacked:
+            if member.get("bottom") is not None and len(named) >= 3:
+                names.extend(str(part) for part in named[1:3])
+            else:
+                names.extend(["bottom", "top"])
+        else:
+            names.append(str(named[1]) if len(named) > 1 else "height")
+    if len(names) != n_columns:
+        return None
+    return names
+
+
 def _quote_filename(name: str) -> str:
     """Always quote a filename for GLE.
 
@@ -2367,6 +2392,16 @@ class GLEWriter:
         binding: Optional[ColumnBinding] = None,
         width: Optional[float] = None,
         swatch_color: Optional[str] = None,
+        edgecolor: Optional[str] = None,
+        edge_list: Optional[Sequence[str]] = None,
+        fill_list: Optional[Sequence[str]] = None,
+        linestyle: Optional[str] = None,
+        lstyle: Optional[str] = None,
+        linewidth: Optional[float] = None,
+        horiz: bool = False,
+        bottom: Optional[np.ndarray] = None,
+        top: Optional[np.ndarray] = None,
+        dist: Optional[float] = None,
     ):
         """
         Add bar chart to graph.
@@ -2413,38 +2448,219 @@ class GLEWriter:
         if colors is None:
             colors = ["RED"] * len(x)
 
-        # GLE reliably supports one fill color per bar dataset.
-        bar_color = colors[0]
-
-        # Create single data file with all bars
-        cols = self._write_columns(
-            data_file, [("x", x), ("height", heights)], column_names, binding
-        )
+        # One fill token per dataset. ``fill_list`` is the authored list,
+        # which may be longer than one: GLE stores the extras and draws
+        # the first. An API series leaves the list absent and the first
+        # colour is the fill.
+        fill_tokens = list(fill_list) if fill_list else [colors[0]]
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
-
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
-        cmd = (
-            f"    data {_format_data_filename(file_name)} "
-            f"{d_name}=c{cols[0]},c{cols[1]}"
-        )
-        self.lines_gle.append(cmd)
-
-        bar_cmd = f"    bar {d_name} fill {bar_color}"
-        # G16/G19: an explicit width is written down; failing that, a dataset
-        # whose width GLE cannot derive gets the derived one. Every other
-        # dataset is left exactly as it was.
         emitted_width = self.bar_width_to_emit(x, width)
-        if emitted_width is not None:
-            bar_cmd += f" width {self._format_number(emitted_width)}"
-        self.lines_gle.append(bar_cmd)
+        d_from = None
 
+        if bottom is not None:
+            base = np.asarray(bottom, dtype=float)
+            tops = np.asarray(top, dtype=float) if top is not None else base + heights
+            names = column_names if column_names and len(column_names) == 3 else None
+            # A header we could not line up with the three columns would
+            # raise in ``_write_columns``. Dropping it also drops the
+            # auto-key, which a label (or the absence of one) already covers.
+            has_header = names is not None or binding is not None
+            cols = self._write_columns(
+                data_file,
+                [("x", x), ("bottom", base), ("top", tops)],
+                names,
+                binding,
+            )
+            d_from = f"d{self.dataset_index}"
+            self.dataset_index += 1
+            d_name = f"d{self.dataset_index}"
+            self.dataset_index += 1
+            self.lines_gle.append(
+                f"    data {_format_data_filename(file_name)} "
+                f"{d_from}=c{cols[0]},c{cols[1]} {d_name}=c{cols[0]},c{cols[2]}"
+            )
+            bar_cmd = f"    bar {d_name} from {d_from} fill {','.join(fill_tokens)}"
+        else:
+            cols = self._write_columns(
+                data_file, [("x", x), ("height", heights)], column_names, binding
+            )
+            d_name = f"d{self.dataset_index}"
+            self.dataset_index += 1
+            self.lines_gle.append(
+                f"    data {_format_data_filename(file_name)} "
+                f"{d_name}=c{cols[0]},c{cols[1]}"
+            )
+            bar_cmd = f"    bar {d_name} fill {','.join(fill_tokens)}"
+
+        bar_cmd += self._bar_qualifiers(
+            edgecolor,
+            edge_list,
+            linestyle,
+            lstyle,
+            linewidth,
+            emitted_width,
+            dist,
+            horiz,
+        )
+        self.lines_gle.append(bar_cmd)
+        # A header names the baseline column too, and GLE would turn that
+        # name into a legend entry. The to-dataset is muted by ``_bar_key``.
+        if d_from is not None and has_header:
+            self.lines_gle.append(f'    {d_from} key ""')
+        self._bar_key(d_name, label, swatch_color, has_header)
+
+    def add_bar_group(self, members: Sequence[Mapping[str, Any]]) -> None:
+        """One ``bar d1,d2,...`` command for series that share a group id.
+
+        The sidecar has the shared x and one y column per member. A member
+        with a baseline adds a from-dataset; its y column is the top.
+        Qualifiers that belong to the command (width, dist, horiz, the
+        edge) are read from the first member.
+        """
+        first = members[0]
+        x = np.asarray(first["x"], dtype=float)
+        # ``from`` is positional: the ith baseline belongs to the ith
+        # dataset. If any member is stacked, every member gets a baseline
+        # (zeros where the caller did not set one) so a later stack is not
+        # applied to an earlier dataset.
+        stacked = any(member.get("bottom") is not None for member in members)
+        columns: List[Tuple[str, np.ndarray]] = [("x", x)]
+        to_slots: List[int] = []
+        from_slots: List[Optional[int]] = []
+        for member in members:
+            height = np.asarray(member["height"], dtype=float)
+            if stacked:
+                if member.get("bottom") is None:
+                    base = np.zeros(height.shape, dtype=float)
+                    tops = height
+                else:
+                    base = np.asarray(member["bottom"], dtype=float)
+                    stored = member.get("top")
+                    tops = (
+                        np.asarray(stored, dtype=float)
+                        if stored is not None
+                        else base + height
+                    )
+                columns.append(("bottom", base))
+                from_slots.append(len(columns) - 1)
+                columns.append(("top", tops))
+                to_slots.append(len(columns) - 1)
+            else:
+                columns.append(("height", height))
+                from_slots.append(None)
+                to_slots.append(len(columns) - 1)
+
+        header = _group_bar_header(members, len(columns))
+        data_file = first["data_file"]
+        cols = self._write_columns(data_file, columns, header, None)
+        from_names: List[str] = []
+        to_names: List[str] = []
+        clause = []
+        for slot, origin in zip(to_slots, from_slots):
+            if origin is not None:
+                from_name = f"d{self.dataset_index}"
+                self.dataset_index += 1
+                from_names.append(from_name)
+                clause.append(f"{from_name}=c{cols[0]},c{cols[origin]}")
+            to_name = f"d{self.dataset_index}"
+            self.dataset_index += 1
+            to_names.append(to_name)
+            clause.append(f"{to_name}=c{cols[0]},c{cols[slot]}")
+        self.lines_gle.append(
+            f"    data {_format_data_filename(data_file)} " + " ".join(clause)
+        )
+
+        # An empty ``fill_list`` is a command that named no fill. Absent
+        # means each member's own first colour, which is what an API group
+        # would say. The two must not collapse: GLE's default for a missing
+        # fill is a gradient, and inventing RED would repaint it.
+        if "fill_list" in first:
+            fills = list(first.get("fill_list") or [])
+        else:
+            fills = [(member.get("colors") or ["RED"])[0] for member in members]
+        bar_cmd = f"    bar {','.join(to_names)}"
+        if any(slot is not None for slot in from_slots):
+            bar_cmd += " from " + ",".join(from_names)
+        if fills:
+            bar_cmd += " fill " + ",".join(fills)
+        bar_cmd += self._bar_qualifiers(
+            first.get("edgecolor"),
+            first.get("edge_list"),
+            first.get("linestyle"),
+            first.get("lstyle"),
+            first.get("linewidth"),
+            self.bar_width_to_emit(x, first.get("width")),
+            first.get("dist"),
+            bool(first.get("horiz")),
+        )
+        self.lines_gle.append(bar_cmd)
+        has_header = header is not None
+        if has_header:
+            for dataset in from_names:
+                self.lines_gle.append(f'    {dataset} key ""')
+        for dataset, member in zip(to_names, members):
+            self._bar_key(
+                dataset,
+                member.get("label"),
+                member.get("swatch_color"),
+                has_header,
+            )
+
+    def _bar_qualifiers(
+        self,
+        edgecolor: Optional[str],
+        edge_list: Optional[Sequence[str]],
+        linestyle: Optional[str],
+        lstyle: Optional[str],
+        linewidth: Optional[float],
+        emitted_width: Optional[float],
+        dist: Optional[float],
+        horiz: bool,
+    ) -> str:
+        """The keywords that follow ``fill`` on a ``bar`` command.
+
+        Empty for a historical ``bar dN fill COLOR`` (and ``width`` is
+        appended in its old place when that is the only extra). ``color``
+        is the stroke. ``lstyle`` / ``lwidth`` are the edge. ``horiz`` and
+        ``dist`` are the orientation and the group spacing.
+        """
+        parts: List[str] = []
+        bare_edge = str(edgecolor).lower() == "none" if edgecolor is not None else False
+        no_stroke = bare_edge or linestyle == "none"
+        if no_stroke:
+            parts.append("lwidth 0")
+        else:
+            edges = list(edge_list) if edge_list else []
+            if not edges and edgecolor:
+                edges = [edgecolor]
+            if edges:
+                parts.append("color " + ",".join(str(item) for item in edges))
+            style = lstyle
+            if not style and linestyle:
+                number = self._lstyle_for(linestyle)
+                if number:
+                    style = str(number)
+            if style:
+                parts.append(f"lstyle {style}")
+            if linewidth is not None:
+                parts.append(
+                    "lwidth "
+                    + self._format_number(linewidth_pt_to_cm(float(linewidth)))
+                )
+        if emitted_width is not None:
+            parts.append(f"width {self._format_number(emitted_width)}")
+        if dist is not None:
+            parts.append(f"dist {self._format_number(float(dist))}")
+        if horiz:
+            parts.append("horiz")
+        if not parts:
+            return ""
+        return " " + " ".join(parts)
+
+    def _bar_key(self, d_name: str, label, swatch_color, has_header: bool) -> None:
+        """Legend entry for one bar dataset, or the header auto-key mute."""
         if label:
-            # After the bar command, so update_key_fill has already stored
-            # the fill on this dataset. A header row's auto-key is overridden
-            # by the same statement, so the unlabeled ``key ""`` is not also
-            # needed.
             quoted = self._quote_gle_key(label)
             if swatch_color:
                 self.lines_gle.append(

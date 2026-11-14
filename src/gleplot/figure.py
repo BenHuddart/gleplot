@@ -86,6 +86,64 @@ def _plottable(values: np.ndarray, positive_only: bool) -> np.ndarray:
     return values[values > 0]
 
 
+def _bar_position_extent(bar_data, positive_only: bool):
+    """``(lo, hi)`` of a bar series on its category axis, or ``None``.
+
+    The widening matches the loop this replaced: only a collapsed range
+    whose width GLE cannot derive is padded, and a log axis keeps the
+    positive edge for ``_apply_log_limits`` to repair.
+    """
+    raw = np.asarray(bar_data["x"], dtype=float)
+    positions = _plottable(raw, positive_only)
+    if len(positions) == 0:
+        return None
+    lo, hi = float(positions.min()), float(positions.max())
+    half_span = GLEWriter.bar_range_half_span(raw, bar_data.get("width"))
+    if lo == hi and half_span is not None:
+        lo, hi = lo - half_span, hi + half_span
+        if positive_only and lo <= 0:
+            lo = hi
+    return lo, hi
+
+
+def _bar_value_extent(bar_data, positive_only: bool):
+    """``(lo, hi, from_zero)`` of a bar series on its value axis, or ``None``.
+
+    ``from_zero`` is the historical rule: the lower end becomes
+    ``min(0, lo)`` only when that lower end actually moves the limit. A
+    baseline uses the bottoms and the tops and does not add zero.
+    """
+    height = np.asarray(bar_data["height"], dtype=float)
+    bottom = bar_data.get("bottom")
+    if bottom is None:
+        values = _plottable(height, positive_only)
+        if len(values) == 0:
+            return None
+        return float(values.min()), float(values.max()), True
+    base = np.asarray(bottom, dtype=float)
+    stored = bar_data.get("top")
+    tops = np.asarray(stored, dtype=float) if stored is not None else base + height
+    values = _plottable(np.concatenate([base, tops]), positive_only)
+    if len(values) == 0:
+        return None
+    return float(values.min()), float(values.max()), False
+
+
+def _apply_bar_value_extent(extent, lo_bound, hi_bound, positive_only: bool):
+    """Fold one bar value-extent into ``(lo_bound, hi_bound)``."""
+    if extent is None:
+        return lo_bound, hi_bound
+    data_lo, data_hi, from_zero = extent
+    if from_zero and not positive_only:
+        if lo_bound is None or data_lo < lo_bound:
+            lo_bound = min(0.0, data_lo)
+    elif lo_bound is None or data_lo < lo_bound:
+        lo_bound = data_lo
+    if hi_bound is None or data_hi > hi_bound:
+        hi_bound = data_hi
+    return lo_bound, hi_bound
+
+
 def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
     """Filter ``data`` down to the keys ``cls`` (a dataclass) accepts.
 
@@ -940,6 +998,10 @@ class Figure:
     def bar(self, x, height, **kwargs):
         """Bar chart on current axes."""
         return self.gca().bar(x, height, **kwargs)
+
+    def barh(self, y, width, height=None, left=None, **kwargs):
+        """Horizontal bars on the current axes. See :meth:`Axes.barh`."""
+        return self.gca().barh(y, width, height, left, **kwargs)
 
     def fill_between(self, x, y1, y2=0, **kwargs):
         """Fill between on current axes. See :meth:`Axes.fill_between`."""
@@ -2308,9 +2370,23 @@ class Figure:
                 column_names=ref_data.get("column_names"),
             )
 
-        for kind, series, series_data in resolution.drawables(ax):
+        drawables = list(resolution.drawables(ax))
+        emitted_groups: set = set()
+        for kind, series, series_data in drawables:
             binding = resolution.binding(series)
             if kind == "bar":
+                group_id = series_data.get("group")
+                if group_id is not None:
+                    if group_id in emitted_groups:
+                        continue
+                    members = [
+                        item[2]
+                        for item in drawables
+                        if item[0] == "bar" and item[2].get("group") == group_id
+                    ]
+                    writer.add_bar_group(members)
+                    emitted_groups.add(group_id)
+                    continue
                 writer.add_bar_chart(
                     series_data["x"],
                     series_data["height"],
@@ -2321,6 +2397,16 @@ class Figure:
                     binding=binding,
                     width=series_data.get("width"),
                     swatch_color=series_data.get("swatch_color"),
+                    edgecolor=series_data.get("edgecolor"),
+                    edge_list=series_data.get("edge_list"),
+                    fill_list=series_data.get("fill_list"),
+                    linestyle=series_data.get("linestyle"),
+                    lstyle=series_data.get("lstyle"),
+                    linewidth=series_data.get("linewidth"),
+                    horiz=bool(series_data.get("horiz")),
+                    bottom=series_data.get("bottom"),
+                    top=series_data.get("top"),
+                    dist=series_data.get("dist"),
                 )
             elif kind == "line":
                 writer.add_plot_line(
@@ -2981,21 +3067,18 @@ class Figure:
         # script names (measured -- see ``GLEWriter.bar_range_half_span``), so
         # a width must never start pulling a range gleplot did not write.
         for bar_data in resolution.visible(ax.bars):
-            raw = np.asarray(bar_data["x"], dtype=float)
-            x = _plottable(raw, positive_only)
-            if len(x) == 0:
+            if bar_data.get("horiz"):
+                xmin, xmax = _apply_bar_value_extent(
+                    _bar_value_extent(bar_data, positive_only),
+                    xmin,
+                    xmax,
+                    positive_only,
+                )
                 continue
-            lo, hi = float(x.min()), float(x.max())
-            half_span = GLEWriter.bar_range_half_span(raw, bar_data.get("width"))
-            if lo == hi and half_span is not None:
-                # This dataset both collapses the range and is one the engine
-                # cannot size -- the same predicate the width is written on,
-                # so the two can never disagree about which bars are nominal.
-                lo, hi = lo - half_span, hi + half_span
-                if positive_only and lo <= 0:
-                    # A log x axis cannot show the widened lower edge; leave
-                    # it to _apply_log_limits, which owns that repair.
-                    lo = hi
+            extent = _bar_position_extent(bar_data, positive_only)
+            if extent is None:
+                continue
+            lo, hi = extent
             if xmin is None or lo < xmin:
                 xmin = lo
             if xmax is None or hi > xmax:
@@ -3093,17 +3176,22 @@ class Figure:
                         ymax = float(y.max())
 
         for bar_data in resolution.visible(ax.bars):
-            height = _plottable(np.asarray(bar_data["height"]), positive_only)
-            if len(height) > 0:
-                if ymin is None or height.min() < ymin:
-                    # Bars are drawn from a zero baseline, so the baseline
-                    # bounds them from below -- except on a log axis, where
-                    # zero is not a value the axis can show at all.
-                    ymin = float(
-                        height.min() if positive_only else min(0, height.min())
-                    )
-                if ymax is None or height.max() > ymax:
-                    ymax = float(height.max())
+            if bar_data.get("horiz"):
+                extent = _bar_position_extent(bar_data, positive_only)
+                if extent is None:
+                    continue
+                lo, hi = extent
+                if ymin is None or lo < ymin:
+                    ymin = lo
+                if ymax is None or hi > ymax:
+                    ymax = hi
+                continue
+            ymin, ymax = _apply_bar_value_extent(
+                _bar_value_extent(bar_data, positive_only),
+                ymin,
+                ymax,
+                positive_only,
+            )
 
         for hist in resolution.visible(ax.hists):
             hy0, hy1 = self._histogram_y_extent(hist, positive_only)

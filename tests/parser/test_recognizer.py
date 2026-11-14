@@ -155,7 +155,7 @@ def normalize(d: dict) -> dict:
     _ARRAY_KEYS = {
         "lines": ("x", "y"),
         "scatters": ("x", "y"),
-        "bars": ("x", "height"),
+        "bars": ("x", "height", "bottom", "top"),
         "hists": ("samples",),
         "fills": ("x", "y1", "y2"),
         "errorbars": ("x", "y", "yerr_up", "yerr_down", "xerr_left", "xerr_right"),

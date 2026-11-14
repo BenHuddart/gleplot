@@ -64,6 +64,45 @@ def bar():
     return fig
 
 
+def bar_edge():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar(
+        [1, 2, 3],
+        [4, 5, 6],
+        color="orange",
+        edgecolor="black",
+        linewidth=1.5,
+        linestyle="--",
+        width=0.4,
+    )
+    return fig
+
+
+def bar_per_color():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [4, 5, 6], color=["red", "green", "blue"], label="bars")
+    ax.legend()
+    return fig
+
+
+def bar_stack():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, 3, 1], color="gray", label="base")
+    ax.bar([1, 2, 3], [1, 1, 2], bottom=[2, 3, 1], color="white", label="top")
+    ax.legend()
+    return fig
+
+
+def barh():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.barh([1, 2, 3], [4, 5, 6], color="teal", height=0.4)
+    return fig
+
+
 def errorbar_symmetric():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -449,6 +488,10 @@ BUILDERS = [
     multi_series_styles,
     scatter,
     bar,
+    bar_edge,
+    bar_per_color,
+    bar_stack,
+    barh,
     errorbar_symmetric,
     errorbar_asymmetric_xy,
     fill_between,

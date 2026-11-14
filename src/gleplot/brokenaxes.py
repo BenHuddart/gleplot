@@ -347,6 +347,11 @@ class BrokenAxes:
         self._fanout("bar", *args, **kwargs)
         return self
 
+    def barh(self, *args, **kwargs):
+        """Draw horizontal bars across every segment."""
+        self._fanout("barh", *args, **kwargs)
+        return self
+
     def fill_between(self, *args, **kwargs):
         """Fill between two curves across every segment."""
         self._fanout("fill_between", *args, **kwargs)

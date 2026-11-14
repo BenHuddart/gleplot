@@ -132,6 +132,23 @@ ax.stem(x, y)
 | `stem` return value | the axes. There is no `StemContainer`. |
 | `stem(data=...)`, `use_line_collection` | warn and are ignored. |
 
+## Bars
+
+`ax.bar(x, height)` emits `bar dN fill RED`. One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. A single colour, including the same colour repeated, stays one command.
+
+`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. `edgecolor='none'` emits `lwidth 0` (GLE has no missing edge). `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered. `hatch` warns and is ignored.
+
+Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 fill c1,c2` is GLE's side-by-side group and round-trips as one command, `dist` included. `3d`, `pattern`, `style`, `side`, `top`, `notop` and `background` have no series field; the whole command stays raw GLE.
+
+| call | GLE |
+|---|---|
+| `ax.bar(x, h, color='green', edgecolor='k')` | `bar dN fill GREEN color BLACK` |
+| `ax.bar(x, h, color=['red', 'blue'])` | one `bar` per bar, explicit `width` |
+| `ax.bar(x, h2, bottom=h1)` | `bar dTo from dFrom` |
+| `ax.barh(y, w)` | `bar dN horiz` |
+
+`width` stays a keyword. The third positional argument is `color`, as it has always been.
+
 ## Histograms
 
 `ax.hist(samples, bins=20, range=(0, 1), histtype="step")` keeps the samples in the data file. GLE bins them with `let dK = hist dJ from 0 to 1 bins 20` and draws the counts. The heights are counts. The window is the data min and max when `range` is omitted, widened by half a unit when every finite sample is the same value, and it is always written into the `let` so GLE does not re-bin over the axis. A sample on the right edge falls in the last bin; samples outside the window are not counted. Non-finite samples are dropped, with a warning.
@@ -140,7 +157,7 @@ ax.stem(x, y)
 |---|---|
 | `"step"` | `dK line hist`, with smoothing pinned off |
 | `"stepfilled"` | `bar dK fill C color C width W`, one bin wide, from zero. `fill x1,dK` would chord the centres and fill to the axis minimum. The stroke matches the fill so the shared edge of two bins is not a second ink. |
-| `"bar"`, `"barstacked"` | warn, and draw the step outline. Gaps, per-bar edges and stacks wait for the bar grammar. |
+| `"bar"`, `"barstacked"` | warn, and draw the step outline. Per-bar faces, edges, groups and stacks are `Axes.bar`. |
 
 | argument | gleplot |
 |---|---|
