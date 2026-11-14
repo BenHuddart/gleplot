@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.3.0 (2026-11-14)
+
+### Features
+
+- Emit step, stem, and histogram outlines as GLE line modes
+  ([`45f91f8`](https://github.com/BenHuddart/gleplot/commit/45f91f801a0962bea3e017f7486bbd926b4ed3da))
+
+
 ## v3.2.0 (2026-11-14)
 
 ### Features
