@@ -15,6 +15,7 @@ Line plot showing sine and cosine with custom colors and line styles.
 .. image:: _static/gallery/example_basic_line_plot.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -43,6 +44,7 @@ Scatter plot with a linear trend line fitted to random data.
 .. image:: _static/gallery/example_scatter_plot.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -79,6 +81,7 @@ Multi-color bar chart showing categorical data.
 .. image:: _static/gallery/example_bar_chart.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -109,6 +112,7 @@ Symmetric vertical error bars showing measurement uncertainty.
 .. image:: _static/gallery/example_symmetric_error_bars.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -139,6 +143,7 @@ Simultaneous horizontal and vertical error bars (uncertainty in both axes), over
 .. image:: _static/gallery/example_combined_errorbars.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -177,6 +182,7 @@ Shaded uncertainty band around a central line.
 .. image:: _static/gallery/example_fill_between.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -208,6 +214,7 @@ Fill regions are coloured differently depending on which curve is on top, using 
 .. image:: _static/gallery/example_fill_between_conditional.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -249,6 +256,7 @@ Log-log plot demonstrating a power-law relationship.
 .. image:: _static/gallery/example_log_scale.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -280,6 +288,7 @@ Demonstration of the available line styles and scatter markers.
 .. image:: _static/gallery/example_multiple_styles.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -312,6 +321,7 @@ Lines, scatter, and fill_between combined in a single axes.
 .. image:: _static/gallery/example_combined_plot.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -352,6 +362,7 @@ Two plots side by side in a single figure.
 .. image:: _static/gallery/example_subplots_1x2.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -384,6 +395,7 @@ Two stacked panels: a fit with error bars on top and its residuals below.
 .. image:: _static/gallery/example_subplots_2x1.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -420,6 +432,7 @@ Four different plot types in a single 2×2 figure: line, scatter, bar, and asymm
 .. image:: _static/gallery/example_subplots_2x2.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -475,6 +488,7 @@ shows x-tick labels, creating a clean aligned layout.
 .. image:: _static/gallery/example_shared_x_axis.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -514,6 +528,7 @@ y-tick labels for direct comparison across conditions.
 .. image:: _static/gallery/example_shared_y_axis.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -555,6 +570,7 @@ and the bottom row shows x-tick labels.
 .. image:: _static/gallery/example_shared_both_axes.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -599,6 +615,7 @@ avoiding the need to generate additional temporary data files.
 .. image:: _static/gallery/example_errorbar_from_file.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 
@@ -706,6 +723,7 @@ variables with different scales from the same dataset.
 .. image:: _static/gallery/example_dual_axis_from_file.png
    :width: 600px
    :align: center
+   :loading: lazy
 
 .. code-block:: python
 

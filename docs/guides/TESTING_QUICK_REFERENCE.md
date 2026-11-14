@@ -118,15 +118,15 @@ def tearDown(self):
 
 ## Test Status
 
-- ✅ Plotting (lines, scatter, bars, fill)
-- ✅ Axis properties (labels, limits, scales, legend)
-- ✅ Color/marker utilities
-- ✅ File I/O (GLE script generation)
-- ✅ Figure API
-- ✅ GLE code generation
-- ✅ Graphics compilation (PDF, EPS, PNG)
-- ✅ Graphics validation (structure, metadata, dimensions)
-- ✅ Cross-format consistency
+- Plotting (lines, scatter, bars, fill)
+- Axis properties (labels, limits, scales, legend)
+- Color/marker utilities
+- File I/O (GLE script generation)
+- Figure API
+- GLE code generation
+- Graphics compilation (PDF, EPS, PNG)
+- Graphics validation (structure, metadata, dimensions)
+- Cross-format consistency
 
 ## Skip Reasons
 
