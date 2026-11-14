@@ -634,6 +634,11 @@ class LineSeries(_XYSeries):
     #: Savitzky-Golay iterations (int >= 1); absent (the default) means off.
     #: Independent of ``smooth_mode``. See :func:`svg_smooth_iterations`.
     svg_smooth: int
+    #: GLE ``dn line`` mode (``steps``, ``fsteps``, ``hist``, ``bar``,
+    #: ``impulses``). Absent means a plain polyline, so a series that never
+    #: asked for one keeps the historical dict shape and the writer emits a
+    #: bare ``line``. See :data:`gleplot.parser.tables.LINE_MODES`.
+    line_mode: str
 
 
 class ScatterSeries(_XYSeries):
@@ -797,6 +802,9 @@ class FileSeries(Series):
     #: ``'line'`` variant only: GLE's ``nomiss`` qualifier (see
     #: ``_XYSeries.nomiss``).
     nomiss: bool
+    #: ``'line'`` variant only: GLE ``dn line`` mode. Absent means a plain
+    #: polyline. See :attr:`LineSeries.line_mode`.
+    line_mode: str
     label: Optional[str]
     capsize: Optional[float]
     yaxis: str

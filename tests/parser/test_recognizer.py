@@ -21,9 +21,9 @@ from pathlib import Path
 import pytest
 
 import gleplot
-from gleplot import Figure, axes as _gleplot_axes
+from gleplot import Figure
+from gleplot import axes as _gleplot_axes
 from gleplot.parser.recognizer import RecognizedFigure, parse_gle_figure
-
 from tests.parser import _golden_battery as golden
 
 
@@ -750,6 +750,104 @@ def test_open_gle_smoke(tmp_path):
     assert isinstance(opened, Figure)
     assert len(opened.axes_list) == 1
     assert opened.axes_list[0].title_text == "single line"
+
+
+def test_line_mode_round_trip_and_implied_line(tmp_path):
+    """A hand-written mode is recovered, and a bare mode keyword implies line.
+
+    GLE sets ``line`` whenever the mode is not plain, so ``d1 fsteps`` with
+    no ``line`` keyword is still a line. Re-saving spells it ``line fsteps``.
+    The last mode keyword wins, matching graph2.cpp.
+    """
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        '   data "modes.dat" d1=c1,c2 d2=c1,c2 d3=c1,c2 d4=c1,c2\n'
+        "   d1 line steps color BLUE lwidth 0.05292\n"
+        "   d2 fsteps color RED\n"
+        "   d3 line steps hist color GREEN\n"
+        "   d4 line bar color BLACK\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "modes.gle", src, {"modes.dat": "0 1\n1 2\n2 1\n"})
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    # No metadata block: every reference stays a file series.
+    assert [fs["line_mode"] for fs in ax.file_series] == [
+        "steps",
+        "fsteps",
+        "hist",
+        "bar",
+    ]
+    assert all(fs["series_type"] == "line" for fs in ax.file_series)
+    out = tmp_path / "modes-again.gle"
+    parse_gle_figure(p).figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert " line steps " in text
+    assert " line fsteps " in text
+    assert " line hist " in text
+    assert " line bar " in text
+    # The bare ``fsteps`` was rewritten with the line keyword it implies.
+    assert "d2 fsteps " not in text
+
+
+def test_line_mode_on_an_errorbar_warns_and_is_dropped(tmp_path):
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        '   data "pts.dat" d1=c1,c2\n'
+        '   data "err.dat" d2=c1,c2\n'
+        "   d1 line steps err d2 color BLUE\n"
+        "end graph\n"
+    )
+    p = _write(
+        tmp_path,
+        "errmode.gle",
+        src,
+        {"pts.dat": "0 1\n1 2\n", "err.dat": "0 0.1\n1 0.2\n"},
+    )
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.lines == []
+    assert "line_mode" not in ax.file_series[0]
+    assert any("line mode 'steps'" in w for w in rec.warnings)
+
+
+def test_an_explicit_smooth_on_a_step_series_round_trips(tmp_path):
+    """A script that asks for both keeps the smooth. The pin only blocks the default."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.step([0, 1, 2], [0, 1, 0], where="post")
+    ax.lines[0]["smooth_mode"] = "smooth"
+    path = tmp_path / "step-smooth.gle"
+    fig.savefig_gle(str(path))
+    cmd = [ln for ln in path.read_text(encoding="utf-8").splitlines() if "steps" in ln]
+    assert len(cmd) == 1
+    assert " smooth" in cmd[0]
+    again = tmp_path / "step-smooth-again.gle"
+    parse_gle_figure(path).figure.savefig_gle(str(again))
+    assert again.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
+
+
+def test_smooth_on_a_file_line_mode_is_dropped(tmp_path):
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        '   data "modes.dat" d1=c1,c2\n'
+        "   d1 line steps smooth color BLUE\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "smooth-steps.gle", src, {"modes.dat": "0 1\n1 2\n2 1\n"})
+    rec = parse_gle_figure(p)
+    assert any("line mode 'steps'" in w and "dropped" in w for w in rec.warnings)
+    out = tmp_path / "smooth-steps-again.gle"
+    rec.figure.savefig_gle(str(out))
+    cmd = [ln for ln in out.read_text(encoding="utf-8").splitlines() if "steps" in ln]
+    assert len(cmd) == 1
+    assert "smooth" not in cmd[0]
 
 
 def test_parse_gle_figure_accepts_raw_text(tmp_path):

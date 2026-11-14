@@ -711,5 +711,181 @@ class TestViewDisplay(unittest.TestCase):
         mock_savefig.assert_called_once()
 
 
+class TestLineModes(unittest.TestCase):
+    """Step, stem and histogram outlines are GLE line modes."""
+
+    def setUp(self):
+        glp.close()
+        self.fig = glp.figure(data_prefix='modes')
+        self.ax = self.fig.add_subplot(111)
+
+    def tearDown(self):
+        glp.close()
+
+    def _draw(self):
+        return [
+            ln.strip()
+            for ln in self.fig._generate_gle().splitlines()
+            if ' line' in ln
+        ]
+
+    def test_plain_plot_stays_a_plain_line(self):
+        self.ax.plot([0, 1, 2], [1, 2, 1])
+        self.assertNotIn('line_mode', self.ax.lines[0])
+        draw = ' '.join(self._draw())
+        for mode in ('steps', 'fsteps', 'hist', 'impulses', 'bar'):
+            self.assertNotIn(' line %s' % mode, draw)
+
+    def test_step_where_selects_the_gle_mode(self):
+        cases = (('pre', 'fsteps'), ('post', 'steps'), ('mid', 'hist'))
+        for where, mode in cases:
+            with self.subTest(where=where):
+                glp.close()
+                fig = glp.figure(data_prefix='modes')
+                ax = fig.add_subplot(111)
+                ax.step([0, 1, 2], [1, 0, 1], where=where, color='black')
+                self.assertEqual(ax.lines[0]['line_mode'], mode)
+                self.assertIn(' line %s ' % mode, fig._generate_gle())
+
+    def test_drawstyle_names_and_the_steps_alias(self):
+        self.ax.plot([0, 1], [1, 2], drawstyle='steps')
+        self.ax.plot([0, 1], [2, 1], ds='steps-post')
+        self.ax.plot([0, 1], [0, 1], drawstyle='default')
+        self.assertEqual(self.ax.lines[0]['line_mode'], 'fsteps')
+        self.assertEqual(self.ax.lines[1]['line_mode'], 'steps')
+        self.assertNotIn('line_mode', self.ax.lines[2])
+
+    def test_unknown_where_or_drawstyle_raises(self):
+        with self.assertRaises(ValueError):
+            self.ax.step([0, 1], [0, 1], where='side')
+        with self.assertRaises(ValueError):
+            self.ax.plot([0, 1], [0, 1], drawstyle='steps-left')
+        with self.assertRaises(ValueError):
+            self.ax.plot([0, 1], [0, 1], line_mode='spline')
+        with self.assertRaises(ValueError):
+            self.ax.plot([0, 1], [0, 1], drawstyle='steps-pre', ds='steps-post')
+        with self.assertRaises(ValueError):
+            self.ax.stem([0, 1], orientation='sideways')
+        with self.assertRaises(TypeError):
+            self.ax.stem()
+        with self.assertWarns(UserWarning):
+            self.ax.stem([0, 1], [1, 2], bottom='low')
+
+    def test_drawstyle_and_line_mode_must_agree(self):
+        with self.assertRaises(ValueError):
+            self.ax.plot(
+                [0, 1], [0, 1], drawstyle='steps-post', line_mode='hist'
+            )
+
+    def test_step_format_string_warns_and_is_not_applied(self):
+        with self.assertWarns(UserWarning):
+            self.ax.step([0, 1], [0, 1], 'r--')
+        self.assertEqual(self.ax.lines[0]['line_mode'], 'fsteps')
+        self.assertEqual(self.ax.lines[0]['color'], 'BLUE')
+
+    def test_line_mode_with_no_line_warns_and_is_dropped(self):
+        with self.assertWarns(UserWarning):
+            self.ax.plot(
+                [0, 1],
+                [0, 1],
+                drawstyle='steps-mid',
+                linestyle='none',
+                marker='o',
+            )
+        self.assertEqual(len(self.ax.scatters), 1)
+        self.assertNotIn('line_mode', self.ax.scatters[0])
+
+    def test_stem_emits_impulses_and_a_head_marker(self):
+        returned = self.ax.stem([0, 1, 2], [1, 0, 1], label='spikes')
+        self.assertIs(returned, self.ax)
+        series = self.ax.lines[0]
+        self.assertEqual(series['line_mode'], 'impulses')
+        self.assertEqual(series['marker'], 'FCIRCLE')
+        self.assertEqual(series['label'], 'spikes')
+        gle = self.fig._generate_gle()
+        self.assertIn(' line impulses ', gle)
+        self.assertIn('marker FCIRCLE', gle)
+
+    def test_stem_of_y_alone_uses_integer_x(self):
+        self.ax.stem([4, 5, 6])
+        np.testing.assert_array_equal(self.ax.lines[0]['x'], [0.0, 1.0, 2.0])
+
+    def test_stem_linefmt_sets_color_and_linestyle(self):
+        self.ax.stem([0, 1], [1, 2], linefmt='r--', markerfmt='none')
+        series = self.ax.lines[0]
+        self.assertEqual(series['color'], 'RED')
+        self.assertEqual(series['linestyle'], '--')
+        self.assertIsNone(series['marker'])
+        self.assertEqual(series['line_mode'], 'impulses')
+
+    def test_stem_gaps_warn(self):
+        with self.assertWarns(UserWarning):
+            self.ax.stem([0, 1], [1, 2], bottom=1)
+        with self.assertWarns(UserWarning):
+            self.ax.stem([0, 1], [1, 2], orientation='horizontal')
+        with self.assertWarns(UserWarning):
+            self.ax.stem([0, 1], [1, 2], basefmt='C3-')
+        self.assertEqual(len(self.ax.lines), 3)
+        self.assertTrue(all(ln['line_mode'] == 'impulses' for ln in self.ax.lines))
+
+    def test_stem_none_line_draws_markers_only(self):
+        with self.assertWarns(UserWarning):
+            self.ax.stem([0, 1], [1, 2], linefmt='none')
+        self.assertEqual(len(self.ax.lines), 0)
+        self.assertEqual(len(self.ax.scatters), 1)
+
+    def test_line_from_file_drawstyle(self):
+        self.ax.line_from_file('wave.csv', 1, 2, drawstyle='steps-mid')
+        self.assertEqual(self.ax.file_series[0]['line_mode'], 'hist')
+        self.assertIn(' line hist ', self.fig._generate_gle())
+
+    def test_line_from_file_drops_a_mode_when_the_line_is_off(self):
+        with self.assertWarns(UserWarning):
+            self.ax.line_from_file(
+                'wave.csv', 1, 2, linestyle='none', drawstyle='steps-mid'
+            )
+        self.assertNotIn('line_mode', self.ax.file_series[0])
+
+    def test_a_line_mode_stays_unsmoothed_when_the_figure_smooths(self):
+        self.fig.graph.smooth_curves = True
+        self.ax.plot([0, 1, 2], [0, 1, 0])
+        self.ax.step([0, 1, 2], [1, 0, 1], where='pre')
+        self.ax.line_from_file('wave.csv', 1, 2, drawstyle='steps-post')
+        self.assertEqual(self.ax.lines[1]['smooth_mode'], 'none')
+        gle = self.fig._generate_gle()
+        step_cmd = [ln for ln in gle.splitlines() if 'fsteps' in ln]
+        file_cmd = [ln for ln in gle.splitlines() if ' line steps ' in ln]
+        self.assertEqual(len(step_cmd), 1)
+        self.assertEqual(len(file_cmd), 1)
+        self.assertNotIn('smooth', step_cmd[0])
+        self.assertNotIn('smooth', file_cmd[0])
+        self.assertIn(' line smooth ', gle)
+
+    def test_line_mode_survives_to_dict(self):
+        self.ax.step([0, 1, 2], [1, 2, 1], where='post')
+        restored = glp.Figure.from_dict(self.fig.to_dict())
+        self.assertEqual(restored.axes_list[0].lines[0]['line_mode'], 'steps')
+
+    def test_module_and_figure_helpers(self):
+        glp.close()
+        fig = glp.figure()
+        fig.step([0, 1], [1, 0], where='mid')
+        glp.stem([0, 1], [1, 0])
+        lines = fig.gca().lines
+        self.assertEqual(
+            [ln['line_mode'] for ln in lines], ['hist', 'impulses']
+        )
+
+    def test_marker_color_only_warns_that_stems_share_it(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.ax.stem([0, 1], [1, 2], markerfmt='gs')
+        self.assertTrue(any(issubclass(w.category, UserWarning) for w in caught))
+        self.assertEqual(self.ax.lines[0]['color'], 'GREEN')
+        self.assertEqual(self.ax.lines[0]['marker'], 'FSQUARE')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -213,6 +213,16 @@ def plot(*args, **kwargs):
     return gca().plot(*args, **kwargs)
 
 
+def step(*args, **kwargs):
+    """Step plot on current axes. See :meth:`gleplot.Axes.step`."""
+    return gca().step(*args, **kwargs)
+
+
+def stem(*args, **kwargs):
+    """Stem plot on current axes. See :meth:`gleplot.Axes.stem`."""
+    return gca().stem(*args, **kwargs)
+
+
 def scatter(*args, **kwargs):
     """Scatter on current axes."""
     return gca().scatter(*args, **kwargs)
@@ -484,6 +494,8 @@ __all__ = [
     "gca",
     "gcf",
     "plot",
+    "step",
+    "stem",
     "scatter",
     "bar",
     "fill_between",
