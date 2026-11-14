@@ -31,7 +31,7 @@ Contributor entry point linked from GitHub issues and pull requests.
 Walkthrough of the `gleplot-gui` PySide6 desktop editor.
 
 **Contains:**
-- Installing and launching the editor (`pip install "gleplot[gui]"`, `gleplot-gui`)
+- Installing and launching the editor (prebuilt app, or `pip install -e ".[gui]"` from a clone, then `gleplot-gui`)
 - Loading data, picking columns, and styling series
 - Live preview and the `.gle` native file format
 - Undo/redo, export dialog, and troubleshooting (including GLE-not-found)

@@ -20,10 +20,10 @@ cd gleplot
 pip install -e .
 ```
 
-**Desktop editor:**
+**Desktop editor** (from that same checkout; gleplot is not published on PyPI):
 
 ```bash
-pip install "gleplot[gui]"
+pip install -e ".[gui]"
 gleplot-gui
 ```
 

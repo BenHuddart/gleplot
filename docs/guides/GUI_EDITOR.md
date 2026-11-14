@@ -19,7 +19,7 @@ It supports two modes:
 
 ## Installation
 
-There are two ways to get the editor: a **prebuilt desktop app** (no Python needed) or **`pip install`** into a Python environment. Either way, GLE itself is a separate prerequisite for live preview and compiled export -- see [Requirements / GLE prerequisite](#requirements--gle-prerequisite).
+There are two ways to get the editor: a **prebuilt desktop app** (no Python needed) or an **editable install from a clone**. Either way, GLE itself is a separate prerequisite for live preview and compiled export -- see [Requirements / GLE prerequisite](#requirements--gle-prerequisite).
 
 ### Option A: prebuilt desktop app
 
@@ -36,10 +36,12 @@ Then install GLE 4.3+ separately from the [GLE releases page](https://github.com
 > xattr -dr com.apple.quarantine /Applications/gleplot.app
 > ```
 
-### Option B: from pip
+### Option B: from a clone
+
+gleplot is not published on PyPI. From a checkout of this repository:
 
 ```bash
-pip install "gleplot[gui]"
+pip install -e ".[gui]"
 gleplot-gui
 ```
 
