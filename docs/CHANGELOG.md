@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.4.0 (2026-11-14)
+
+### Features
+
+- Bin samples with Axes.hist
+  ([`93f1970`](https://github.com/BenHuddart/gleplot/commit/93f19709025710304aec46c0576cbcca963b7bad))
+
+
 ## v3.3.0 (2026-11-14)
 
 ### Features
