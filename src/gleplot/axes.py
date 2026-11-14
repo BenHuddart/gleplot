@@ -625,6 +625,16 @@ class Axes:
         #: ``legend_offset_x``/``legend_offset_y``, themselves ``0, 0`` by
         #: default, i.e. no ``offset`` clause at all).
         self.legend_offset: Optional[Tuple[float, float]] = None
+        # Column count for the graph key. 1 omits ``key separator``. GLE
+        # packs columns the way matplotlib's ``np.array_split`` does, so
+        # the extra entries go in the first columns.
+        self.legend_ncol: int = 1
+        # GLE ``compact``: line and marker share one swatch field.
+        self.legend_compact: bool = False
+        # Legend-box fill, emitted as GLE ``background``. None omits it.
+        # matplotlib's name is ``facecolor``; GLE's ``boxcolor`` is the
+        # fill-swatch stroke, not this.
+        self.legend_facecolor: Optional[str] = None
 
         # Shared axes visibility control
         self._show_xlabel = True
@@ -1213,21 +1223,21 @@ class Axes:
         )
         gle_capsize = capsize_pt_to_cm(capsize) if capsize is not None else None
 
-        self.file_series.append(
-            FileSeries(
-                series_type="errorbar",
-                data_file=data_file,
-                x_col=int(x_col),
-                y_col=int(y_col),
-                yerr_col=int(yerr_col) if yerr_col is not None else None,
-                color=gle_color,
-                marker=gle_marker,
-                markersize=gle_markersize,
-                label=label,
-                capsize=gle_capsize,
-                yaxis=yaxis,
-            )
+        entry = FileSeries(
+            series_type="errorbar",
+            data_file=data_file,
+            x_col=int(x_col),
+            y_col=int(y_col),
+            yerr_col=int(yerr_col) if yerr_col is not None else None,
+            color=gle_color,
+            marker=gle_marker,
+            markersize=gle_markersize,
+            label=label,
+            capsize=gle_capsize,
+            yaxis=yaxis,
         )
+        self._register_series_draw_meta(entry, "errorbar")
+        self.file_series.append(entry)
 
         return self
 
@@ -1253,20 +1263,20 @@ class Axes:
         label = mathtext_to_gle(label)
         gle_color = self._resolve_color(color)
 
-        self.file_series.append(
-            FileSeries(
-                series_type="line",
-                data_file=data_file,
-                x_col=int(x_col),
-                y_col=int(y_col),
-                color=gle_color,
-                linestyle=linestyle,
-                linewidth=float(linewidth),
-                nomiss=False,
-                label=label,
-                yaxis=yaxis,
-            )
+        entry = FileSeries(
+            series_type="line",
+            data_file=data_file,
+            x_col=int(x_col),
+            y_col=int(y_col),
+            color=gle_color,
+            linestyle=linestyle,
+            linewidth=float(linewidth),
+            nomiss=False,
+            label=label,
+            yaxis=yaxis,
         )
+        self._register_series_draw_meta(entry, "line")
+        self.file_series.append(entry)
 
         return self
 
@@ -1406,7 +1416,8 @@ class Axes:
             Bar color. If a list is provided, only the first color is used
             due to GLE limitations. Default is 'red'.
         label : str, optional
-            Legend label (currently not supported by GLE for bar charts)
+            Legend label. Emitted as ``dN key`` after the bar; the bar fill
+            is the swatch.
         width : float, optional
             Bar width in DATA units (G19), GLE's ``bar dN ... width w``.
             The default, ``None``, is the engine's own behaviour and
@@ -1532,6 +1543,9 @@ class Axes:
             data_file=_resolve_data_file(self.figure, data_name),
             column_names=_unique_column_names(["x", "upper", "lower"]),
         )
+        # Call order, so a legend can list this band where it was added.
+        # Fills are not z-ordered drawables; the field is legend order only.
+        self._register_series_draw_meta(fill_data, "fill")
         self.fills.append(fill_data)
 
         return self
@@ -1658,6 +1672,7 @@ class Axes:
             data_file=_resolve_data_file(self.figure, data_name),
             column_names=_build_column_names("x", ["y"], label),
         )
+        self._register_series_draw_meta(entry, "refline")
         self.reflines.append(entry)
         return entry
 
@@ -1744,6 +1759,7 @@ class Axes:
             data_file=_resolve_data_file(self.figure, data_name),
             column_names=_unique_column_names(["x", "upper", "lower"]),
         )
+        self._register_series_draw_meta(entry, "span")
         self.spans.append(entry)
         return entry
 
@@ -1897,19 +1913,20 @@ class Axes:
                 upper = np.array([entry["end"], entry["end"]], dtype=float)
                 lower = np.array([entry["start"], entry["start"]], dtype=float)
 
-            out.append(
-                FillSeries(
-                    x=x,
-                    y1=upper,
-                    y2=lower,
-                    color=entry["color"],
-                    alpha=entry["alpha"],
-                    label=entry["label"],
-                    offset=0.0,
-                    data_file=entry["data_file"],
-                    column_names=entry["column_names"],
-                )
+            fill = FillSeries(
+                x=x,
+                y1=upper,
+                y2=lower,
+                color=entry["color"],
+                alpha=entry["alpha"],
+                label=entry["label"],
+                offset=0.0,
+                data_file=entry["data_file"],
+                column_names=entry["column_names"],
             )
+            if entry.get("swatch_color"):
+                fill["swatch_color"] = entry["swatch_color"]
+            out.append(fill)
         return out
 
     @staticmethod
@@ -2704,10 +2721,17 @@ class Axes:
             Draw the box around the key (default ``True``, as matplotlib).
             ``False`` emits GLE's ``key ... nobox``.
         ncol, ncols : int, optional
-            Only a single column is expressible: GLE builds multi-column keys
-            from ``separator`` commands in a standalone ``begin key`` block,
-            which gleplot does not emit. ``1`` is accepted; anything else
-            warns.
+            Number of columns. Emitted as GLE ``key separator`` between
+            entries, packed like matplotlib (column-major, the first
+            columns one entry longer). ``ncols`` wins when both are passed.
+            An integer less than 1 raises ``ValueError``. A count larger
+            than the number of entries collapses to one entry per column.
+        compact : bool, optional
+            GLE's ``compact``: draw the line and the marker as one swatch.
+            Default ``False`` omits the token. Not a matplotlib keyword.
+        facecolor : color, optional
+            Legend-box fill, emitted as GLE ``background``. ``boxcolor`` is
+            not this: in GLE it strokes the fill swatch, and it warns.
         **kwargs
             Any other matplotlib legend keyword has no GLE ``key`` equivalent
             and warns rather than being silently dropped.
@@ -2762,24 +2786,39 @@ class Axes:
                     ) from None
                 self.legend_offset = (dx, dy)
 
+        # matplotlib gives ``ncols`` precedence over ``ncol`` when both
+        # are passed (legend.py pops ncols second). Same order here.
         for name in ("ncol", "ncols"):
             if name in kwargs:
                 ncol = kwargs.pop(name)
-                if ncol is not None and int(ncol) != 1:
-                    warnings.warn(
-                        f"legend({name}={ncol!r}) is not supported: a GLE "
-                        "graph-block key is always a single column (multiple "
-                        "columns need a standalone 'begin key' block with "
-                        "'separator' commands). Drawing one column.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
+                self.legend_ncol = (
+                    1 if ncol is None else self._resolve_legend_ncol(ncol)
+                )
+
+        if "compact" in kwargs:
+            compact = kwargs.pop("compact")
+            self.legend_compact = False if compact is None else bool(compact)
+
+        if "facecolor" in kwargs:
+            facecolor = kwargs.pop("facecolor")
+            self.legend_facecolor = None if facecolor is None else rgb_to_gle(facecolor)
+
+        if "boxcolor" in kwargs:
+            kwargs.pop("boxcolor")
+            warnings.warn(
+                "legend(boxcolor=...) was ignored. In GLE, boxcolor strokes "
+                "the fill swatch; the legend-box fill is `background`, which "
+                "gleplot takes from legend(facecolor=...).",
+                UserWarning,
+                stacklevel=2,
+            )
 
         for name in sorted(kwargs):
             warnings.warn(
                 f"legend({name}=...) is not supported and was ignored: GLE's "
-                "key command understands only position, text height "
-                "(fontsize), the box (frameon), and offset.",
+                "key command understands position, text height (fontsize), "
+                "the box (frameon), offset, columns (ncol), compact, and "
+                "facecolor (GLE background).",
                 UserWarning,
                 stacklevel=2,
             )
@@ -2806,6 +2845,26 @@ class Axes:
             stacklevel=3,
         )
         return "top right"
+
+    @staticmethod
+    def _resolve_legend_ncol(ncol) -> int:
+        """An integer column count of at least 1.
+
+        ``bool`` is rejected: it is an ``int`` subclass, and ``True`` would
+        otherwise silently become one column.
+        """
+        if isinstance(ncol, bool) or not isinstance(ncol, (int, float)):
+            raise ValueError(f"legend(ncol=...) must be an integer >= 1, got {ncol!r}")
+        try:
+            as_int = int(ncol)
+            as_float = float(ncol)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"legend(ncol=...) must be an integer >= 1, got {ncol!r}"
+            ) from None
+        if as_int < 1 or as_float != as_int:
+            raise ValueError(f"legend(ncol=...) must be an integer >= 1, got {ncol!r}")
+        return as_int
 
     def _resolve_legend_fontsize(self, fontsize) -> float:
         """Resolve a matplotlib ``fontsize`` (number or name) to points."""
@@ -3119,6 +3178,9 @@ class Axes:
             "legend_fontsize": _to_jsonable(self.legend_fontsize),
             "legend_frameon": self.legend_frameon,
             "legend_offset": _to_jsonable(self.legend_offset),
+            "legend_ncol": self.legend_ncol,
+            "legend_compact": self.legend_compact,
+            "legend_facecolor": self.legend_facecolor,
             "show_xlabel": self._show_xlabel,
             "show_ylabel": self._show_ylabel,
             "show_xticks": self._show_xticks,
@@ -3219,6 +3281,11 @@ class Axes:
         ax.legend_offset = (
             None if _offset is None else (float(_offset[0]), float(_offset[1]))
         )
+        # Missing keys = a figure saved before swatches/columns: one column,
+        # no compact token, no box fill. Those defaults emit nothing new.
+        ax.legend_ncol = int(d.get("legend_ncol", 1) or 1)
+        ax.legend_compact = bool(d.get("legend_compact", False))
+        ax.legend_facecolor = d.get("legend_facecolor")
 
         ax._show_xlabel = d.get("show_xlabel", True)
         ax._show_ylabel = d.get("show_ylabel", True)
@@ -3285,7 +3352,16 @@ class Axes:
         ax.passthrough = list(d.get("passthrough", []))
 
         max_seq = -1
-        for attr in ("bars", "lines", "scatters", "errorbars"):
+        for attr in (
+            "bars",
+            "lines",
+            "scatters",
+            "errorbars",
+            "fills",
+            "reflines",
+            "spans",
+            "file_series",
+        ):
             for item in getattr(ax, attr):
                 seq = item.get("_draw_seq")
                 if seq is not None:

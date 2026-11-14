@@ -16,12 +16,13 @@ from .writer import (
     DecimationPolicy,
     GLEWriter,
     SourceResolution,
+    legend_column_breaks,
     resolve_figure,
 )
 from .sources import DataSource, source_of
 from .compiler import GLECompiler, SUFFIX_TO_COMPILE_FORMAT
 from .cairo_support import cairo_font_warning, figure_requires_cairo
-from .colors import rgb_to_gle
+from .colors import apply_alpha, rgb_to_gle
 from .mathtext import mathtext_to_gle
 from .config import GLEStyleConfig, GLEGraphConfig, GLEMarkerConfig, GlobalConfig
 from .parser import metadata as _gle_metadata
@@ -1929,6 +1930,113 @@ class Figure:
         default = (float(self.graph.legend_offset_x), float(self.graph.legend_offset_y))
         return None if default == (0.0, 0.0) else default
 
+    def _legend_entries(
+        self, writer: GLEWriter, ax: Axes, resolution: SourceResolution, limits
+    ) -> List[tuple]:
+        """Labelled series in emission order, each with its key swatch.
+
+        The order is the one ``_write_axes_content`` draws: engine-range
+        spans, plain fills, dataset-form spans, engine-range reflines,
+        dataset-form reflines, z-ordered bars/lines/scatters/errorbars,
+        then file series. Hidden and dangling series are already dropped.
+        An empty label is not an entry.
+
+        The series object is the one that carries ``_draw_seq`` (call
+        order) or ``legend_seq`` (recovered from a ``begin key``). A
+        materialized guide is not that object: the declaration is.
+        """
+        entries: List[tuple] = []
+
+        def add(series, swatch: str) -> None:
+            label = series.get("label")
+            if label:
+                entries.append((series, label, swatch))
+
+        for span in ax.engine_range_guides(ax.spans, limits):
+            token = span.get("swatch_color") or apply_alpha(
+                span["color"], span.get("alpha", 1.0)
+            )
+            add(span, writer.legend_swatch(span["color"], fill=token))
+        for series, fill in resolution.pairs(ax.fills):
+            token = fill.get("swatch_color") or apply_alpha(
+                fill["color"], fill.get("alpha", 1.0)
+            )
+            add(series, writer.legend_swatch(fill["color"], fill=token))
+        for span in ax.dataset_form_guides(ax.spans, limits):
+            token = span.get("swatch_color") or apply_alpha(
+                span["color"], span.get("alpha", 1.0)
+            )
+            add(span, writer.legend_swatch(span["color"], fill=token))
+        for ref in ax.engine_range_guides(ax.reflines, limits):
+            add(
+                ref,
+                writer.legend_swatch(
+                    ref["color"], ref.get("linestyle"), ref.get("linewidth")
+                ),
+            )
+        for ref in ax.dataset_form_guides(ax.reflines, limits):
+            add(
+                ref,
+                writer.legend_swatch(
+                    ref["color"], ref.get("linestyle"), ref.get("linewidth")
+                ),
+            )
+        for kind, series, data in resolution.drawables(ax):
+            add(series, self._drawable_legend_swatch(writer, kind, data))
+        for fs in resolution.visible(ax.file_series):
+            add(fs, self._file_legend_swatch(writer, fs))
+        return entries
+
+    @staticmethod
+    def _drawable_legend_swatch(writer: GLEWriter, kind: str, data) -> str:
+        if kind == "bar":
+            colors = data.get("colors") or ["RED"]
+            token = data.get("swatch_color") or colors[0]
+            return writer.legend_swatch(colors[0], fill=token)
+        return writer.legend_swatch(
+            data.get("color") or "BLUE",
+            None if kind == "scatter" else data.get("linestyle", "-"),
+            data.get("linewidth", 1),
+            data.get("marker"),
+            data.get("markersize"),
+        )
+
+    @staticmethod
+    def _file_legend_swatch(writer: GLEWriter, fs) -> str:
+        kind = fs.get("series_type", "errorbar")
+        if kind in ("bar", "fill"):
+            token = fs.get("swatch_color") or fs.get("color") or "RED"
+            return writer.legend_swatch(fs.get("color") or token, fill=token)
+        return writer.legend_swatch(
+            fs.get("color") or "BLUE",
+            (
+                None
+                if kind == "errorbar" and not fs.get("linestyle")
+                else fs.get("linestyle", "-" if kind == "line" else "none")
+            ),
+            fs.get("linewidth", 1),
+            fs.get("marker"),
+            fs.get("markersize"),
+        )
+
+    @staticmethod
+    def _legend_addition_order(entries: List[tuple]) -> List[int]:
+        """Indices of ``entries`` in matplotlib addition order.
+
+        ``legend_seq`` is the order recovered from a ``begin key``.
+        ``_draw_seq`` is the order the artists were added. If either is
+        missing on any entry, the emission order stands: that is what a
+        script written before call-order was recorded still round-trips as.
+        """
+        series = [item[0] for item in entries]
+        if series and all(s.get("legend_seq") is not None for s in series):
+            keys = [int(s["legend_seq"]) for s in series]
+        elif series and all(s.get("_draw_seq") is not None for s in series):
+            keys = [int(s["_draw_seq"]) for s in series]
+        else:
+            return list(range(len(series)))
+        return sorted(range(len(series)), key=lambda i: (keys[i], i))
+
     def _axis_style(self, ax: Axes, prefix: str) -> AxisStyle:
         """Collect one axis' styling off ``ax`` into a writer :class:`AxisStyle`.
 
@@ -2058,6 +2166,24 @@ class Figure:
         # they belong in the same background layer as fills so the data series
         # always draw on top of their guides.
         limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
+        legend_entries = self._legend_entries(writer, ax, resolution, limits)
+        n_legend = len(legend_entries)
+        show_legend = ax.legend_on if ax.legend_on is not None else n_legend > 0
+        # Addition order is matplotlib's legend order. GLE's in-graph
+        # ``key separator`` is inserted where the statement stands, and a
+        # dataset stays where it was first used, which is draw order. When
+        # those two sequences differ, the graph key is turned off and a
+        # ``begin key`` after ``end graph`` lists the entries in the order
+        # they were added. When they agree, the in-graph key is unchanged.
+        addition = self._legend_addition_order(legend_entries)
+        external_legend = show_legend and addition != list(range(n_legend))
+        # Reset even for a one-column key: the writer is reused across
+        # subplots, and a previous axes' breaks must not leak.
+        ncol = int(getattr(ax, "legend_ncol", 1) or 1)
+        if show_legend and ncol > 1 and not external_legend:
+            writer.set_legend_breaks(legend_column_breaks(n_legend, ncol))
+        else:
+            writer.set_legend_breaks(set())
         for span in ax.engine_range_guides(ax.spans, limits):
             # A band across an axis GLE has yet to scale: drawn against the
             # engine's own range instead of a literal fill over a range
@@ -2071,6 +2197,7 @@ class Figure:
                 span["color"],
                 span["alpha"],
                 span["label"],
+                swatch_color=span.get("swatch_color"),
             )
         # The declarations behind the materialized bands, in the same order
         # (see Axes.dataset_form_guides), so each fill can be preceded by the
@@ -2106,6 +2233,8 @@ class Figure:
                 offset=fill_data.get("offset", 0.0),
                 column_names=fill_data.get("column_names"),
                 binding=resolution.binding(fill_series),
+                label=fill_data.get("label"),
+                swatch_color=fill_data.get("swatch_color"),
             )
 
         # Reference lines (axvline/axhline), drawn above the shaded bands but
@@ -2164,6 +2293,7 @@ class Figure:
                     column_names=series_data.get("column_names"),
                     binding=binding,
                     width=series_data.get("width"),
+                    swatch_color=series_data.get("swatch_color"),
                 )
             elif kind == "line":
                 writer.add_plot_line(
@@ -2249,6 +2379,8 @@ class Figure:
                     fs_data["x_col"],
                     fs_data["y_col"],
                     color=fs_data.get("color", "RED"),
+                    label=fs_data.get("label"),
+                    swatch_color=fs_data.get("swatch_color"),
                 )
             elif series_type == "fill":
                 writer.add_fill_from_file(
@@ -2257,6 +2389,8 @@ class Figure:
                     fs_data["y1_col"],
                     fs_data["y2_col"],
                     color=fs_data.get("color", "LIGHTBLUE"),
+                    label=fs_data.get("label"),
+                    swatch_color=fs_data.get("swatch_color"),
                 )
             else:
                 writer.add_errorbar_from_file(
@@ -2289,29 +2423,36 @@ class Figure:
         # Add legend if needed. legend_on is tri-state: None means auto
         # (show iff labels exist); True/False is an explicit user choice.
         #
-        # Every list goes through the resolution, so a series that is not
-        # drawn cannot vote for a key it will have no entry in: a hidden
-        # series' ``key "..."`` clause is never emitted (its display command
-        # is not either), and an auto legend whose only labelled series are
-        # hidden correctly disappears (SPEC 14.6).
-        legend_sources = (
-            resolution.visible(ax.lines)
-            + resolution.visible(ax.scatters)
-            + resolution.visible(ax.bars)
-            + resolution.visible(ax.errorbars)
-            + resolution.visible(ax.file_series)
-            + resolution.visible(ax.reflines)
-            + resolution.visible(ax.spans)
+        # ``n_legend`` is the same count the separators were placed against,
+        # so a series that is not drawn cannot vote for a key it will have
+        # no entry in (SPEC 14.6). Fills are in that count: their swatch is
+        # a ``keyfill`` line, not a ``key`` on the fill command.
+        labels_present = n_legend > 0
+        legend_kwargs = dict(
+            fontsize=getattr(ax, "legend_fontsize", None),
+            frameon=getattr(ax, "legend_frameon", True),
+            offset=self._legend_offset(ax),
+            compact=bool(getattr(ax, "legend_compact", False)),
+            background=getattr(ax, "legend_facecolor", None),
         )
-        labels_present = any(series.get("label") for series in legend_sources)
-        show_legend = ax.legend_on if ax.legend_on is not None else labels_present
-        if show_legend:
-            writer.add_legend(
-                ax.legend_pos,
-                fontsize=getattr(ax, "legend_fontsize", None),
-                frameon=getattr(ax, "legend_frameon", True),
-                offset=self._legend_offset(ax),
+        if external_legend:
+            # ``key off`` hides the draw-order key. The visible one is the
+            # block queued for end_graph, in addition order.
+            writer.add_key_off()
+            ordered = [(legend_entries[i][1], legend_entries[i][2]) for i in addition]
+            breaks = (
+                legend_column_breaks(n_legend, ncol)
+                if show_legend and ncol > 1
+                else set()
             )
+            writer.queue_external_legend(
+                ordered,
+                breaks,
+                position=ax.legend_pos,
+                **legend_kwargs,
+            )
+        elif show_legend:
+            writer.add_legend(ax.legend_pos, **legend_kwargs)
         elif labels_present:
             # GLE draws an implicit key from per-dataset key "label" tokens;
             # it must be switched off explicitly.

@@ -85,6 +85,7 @@ def normalize(d: dict) -> dict:
     def _drop_draw_seq(node):
         if isinstance(node, dict):
             node.pop("_draw_seq", None)
+            node.pop("legend_seq", None)
             for v in node.values():
                 _drop_draw_seq(v)
         elif isinstance(node, list):

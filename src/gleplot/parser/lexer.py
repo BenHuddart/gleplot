@@ -12,7 +12,10 @@ Lexical contract (verified against GLE 4.3.10 ``token.cpp`` / ``pass.cpp``):
 * ``!`` begins a comment that runs to end of line, *except* inside a
   double-quoted string. The comment text (including the ``!``) is preserved
   verbatim as a ``COMMENT`` token.
-* Strings are double-quoted; ``\\"`` escapes an embedded quote. Single-quoted
+* Strings are double-quoted. GLE 4.3.10 embeds a quote by doubling it
+  (a label 5" is written with the quote character twice); a backslash
+  before a quote is also kept as one string so scripts this writer used
+  to emit still lex. Single-quoted
   strings are tolerated on input (kept verbatim, quote char recorded) but this
   layer never rewrites them.
 * Whitespace is insignificant to structure but every token carries a span into
@@ -51,12 +54,12 @@ from typing import List, Optional
 class TokenType(Enum):
     """Kinds of lexical token produced by :func:`tokenize_line`."""
 
-    WORD = "WORD"          # bareword / identifier / keyword (case preserved)
-    NUMBER = "NUMBER"      # numeric literal (float() parseable)
-    STRING = "STRING"      # quoted string literal (quotes included in value)
-    OP = "OP"             # one of = , ( ) * / + - ^ ;
-    COMMENT = "COMMENT"    # ! ... to end of line (! included)
-    UNKNOWN = "UNKNOWN"    # anything the lexer could not classify
+    WORD = "WORD"  # bareword / identifier / keyword (case preserved)
+    NUMBER = "NUMBER"  # numeric literal (float() parseable)
+    STRING = "STRING"  # quoted string literal (quotes included in value)
+    OP = "OP"  # one of = , ( ) * / + - ^ ;
+    COMMENT = "COMMENT"  # ! ... to end of line (! included)
+    UNKNOWN = "UNKNOWN"  # anything the lexer could not classify
 
 
 # Single-character operators. ``;`` is included so a full-line tokenisation
@@ -193,7 +196,9 @@ def _read_string(text: str, start: int, n: int, quote: str) -> Token:
     """Read a quoted string beginning at ``start`` (the opening quote).
 
     ``\\`` escapes the following character (so ``\\"`` does not close the
-    string). An unterminated string is tolerated: the token spans to end of
+    string). A quote doubled in place is GLE's own embedded quote
+    (``Tokenizer.cpp``): both characters stay in the token and the string
+    continues. An unterminated string is tolerated: the token spans to end of
     line and is flagged with ``error='unterminated-string'``.
     """
     i = start + 1
@@ -203,6 +208,9 @@ def _read_string(text: str, start: int, n: int, quote: str) -> Token:
             i += 2
             continue
         if c == quote:
+            if i + 1 < n and text[i + 1] == quote:
+                i += 2
+                continue
             end = i + 1
             return Token(
                 TokenType.STRING,
@@ -280,5 +288,5 @@ def _read_word(text: str, start: int, n: int) -> Token:
     if i == start:
         # Shouldn't happen (caller guarantees a non-terminator start), but be
         # safe: emit a single-char UNKNOWN token to guarantee progress.
-        return Token(TokenType.UNKNOWN, text[start:start + 1], (start, start + 1))
+        return Token(TokenType.UNKNOWN, text[start : start + 1], (start, start + 1))
     return Token(TokenType.WORD, text[start:i], (start, i))

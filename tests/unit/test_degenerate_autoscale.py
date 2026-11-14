@@ -32,7 +32,6 @@ import gleplot as glp
 
 from . import _degenerate_battery as db
 
-
 NEIGHBOUR_SNAPSHOT = json.loads(
     (Path(__file__).parent / "degenerate_neighbour_emissions.json").read_text(
         encoding="utf-8"
@@ -503,8 +502,10 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     """Breadth lock for the golden and project batteries.
 
     ``text_annotations`` moved when vertical alignment, rotation, and
-    ``bbox`` started being written. Every other entry is still the script
-    captured before that.
+    ``bbox`` started being written. ``multi_series_styles`` and
+    ``exact_rgb_colors`` moved when a legend whose addition order is not
+    the draw order became a ``begin key``. Every other entry is still the
+    script captured before that.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)

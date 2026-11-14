@@ -180,10 +180,23 @@ def test_ncol_one_is_accepted_silently(recwarn):
     assert not recwarn.list
 
 
-def test_ncol_above_one_warns():
+def test_ncol_above_one_is_stored():
     fig, ax = _labeled_figure()
-    with pytest.warns(UserWarning, match="single column"):
-        ax.legend(ncol=2)
+    ax.legend(ncol=2)
+    assert ax.legend_ncol == 2
+
+
+def test_ncols_wins_when_both_are_passed():
+    fig, ax = _labeled_figure()
+    ax.legend(ncol=3, ncols=2)
+    assert ax.legend_ncol == 2
+
+
+@pytest.mark.parametrize("ncol", [0, -1, 1.5, True, "2"])
+def test_ncol_rejects_a_non_positive_integer(ncol):
+    fig, ax = _labeled_figure()
+    with pytest.raises(ValueError):
+        ax.legend(ncol=ncol)
 
 
 @pytest.mark.parametrize(
@@ -252,3 +265,247 @@ def test_broken_axes_legend_forwards_kwargs(tmp_path):
     bax.legend(loc="upper left", fontsize=6.0, segment=0)
     assert bax[0].legend_fontsize == 6.0
     assert bax[0].legend_pos == "top left"
+
+
+def test_column_breaks_match_matplotlib_split():
+    from gleplot.writer import legend_column_breaks
+
+    # np.array_split: first n % ncol columns are one longer.
+    assert legend_column_breaks(5, 2) == {3}
+    assert legend_column_breaks(4, 2) == {2}
+    assert legend_column_breaks(3, 2) == {2}
+    assert legend_column_breaks(2, 2) == {1}
+    assert legend_column_breaks(2, 5) == {1}
+    assert legend_column_breaks(1, 3) == set()
+    assert legend_column_breaks(4, 1) == set()
+
+
+def test_ncol_emits_separator_between_columns(tmp_path):
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1], [0, 1], label="a")
+    ax.plot([0, 1], [1, 0], label="b")
+    ax.plot([0, 1], [0, 0], label="c")
+    ax.legend(ncol=2)
+    gle = _generate_gle(fig, tmp_path)
+    # Three entries, two columns: the break is after the second.
+    assert gle.index('key "b"') < gle.index("key separator") < gle.index('key "c"')
+    assert gle.count("key separator") == 1
+    # Three lines were added in the order they are drawn, so the graph key
+    # can carry the columns. A begin key is only for the other case.
+    assert "begin key" not in gle
+
+
+def test_legend_off_emits_no_separator(tmp_path):
+    fig, ax = _labeled_figure()
+    ax.plot([0, 1], [1, 0], label="other")
+    ax.legend(ncol=2)
+    ax.legend_on = False
+    gle = _generate_gle(fig, tmp_path)
+    assert "key off" in gle
+    assert "key separator" not in gle
+
+
+def test_bar_and_fill_labels_are_swatches(tmp_path):
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.bar([0, 1, 2], [1, 2, 3], color="C0", label="control")
+    ax.fill_between([0, 1, 2], [0, 0, 0], [1, 2, 1], label="band", alpha=0.3)
+    ax.legend(ncol=2)
+    gle = _generate_gle(fig, tmp_path)
+    assert 'key "control"' in gle
+    assert "keyfill" in gle
+    assert 'key "band"' in gle
+    # The fill swatch uses the same colour token as the fill command.
+    fill_line = next(
+        line for line in gle.splitlines() if line.strip().startswith("fill ")
+    )
+    color = fill_line.split("color ", 1)[1]
+    assert f'keyfill {color} key "band"' in gle
+    # The bar was added first. GLE draws the fill first, so the columns
+    # live in a begin key rather than in the dataset order.
+    assert "key off" in gle
+    block = gle.split("begin key", 1)[1]
+    assert (
+        block.index('text "control"')
+        < block.index("separator")
+        < block.index('text "band"')
+    )
+
+
+def test_unlabeled_bar_and_fill_still_suppress_header_keys(tmp_path):
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.bar([0, 1], [1, 2])
+    ax.fill_between([0, 1], [0, 0], [1, 2])
+    gle = _generate_gle(fig, tmp_path)
+    assert 'key "control"' not in gle
+    assert "keyfill" not in gle
+    assert gle.count('key ""') == 3  # one bar dataset, two fill datasets
+    assert "key pos" not in gle
+
+
+def test_compact_and_facecolor_share_the_key_line(tmp_path):
+    fig, ax = _labeled_figure()
+    ax.legend(compact=True, facecolor="green")
+    gle = _generate_gle(fig, tmp_path)
+    assert "key pos tr compact background GREEN" in gle
+
+
+def test_engine_range_span_and_refline_keep_their_swatches(tmp_path):
+    """No data and no limits: the guides are draws, and the swatches are bridges."""
+    from gleplot import open_gle
+
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.axvspan(0.2, 0.4, color="orange", label="window")
+    ax.axvline(0.3, color="red", linestyle="--", label="cut")
+    path = tmp_path / "bridge.gle"
+    fig.savefig_gle(str(path))
+    gle = path.read_text()
+    assert "draw gleplot_vspan" in gle
+    assert "draw gleplot_vline" in gle
+    assert "keyfill" in gle and 'key "window"' in gle
+    assert 'key "cut"' in gle
+    # The span swatch is the data-free bridge, not a fill command.
+    assert "\n    fill " not in gle
+
+    recovered = open_gle(str(path))
+    rax = recovered.axes_list[0]
+    assert any(s.get("label") == "window" for s in rax.spans)
+    assert any(s.get("label") == "cut" for s in rax.reflines)
+    out = tmp_path / "bridge2.gle"
+    recovered.savefig_gle(str(out))
+    assert out.read_text() == gle
+
+
+def test_a_bar_dataset_line_that_is_not_a_swatch_is_not_consumed(tmp_path):
+    """``key`` plus anything else is not the writer's swatch line."""
+    from gleplot.parser.recognizer import parse_gle_figure
+
+    src = tmp_path / "odd.gle"
+    src.write_text(
+        "size 10 8\n"
+        "begin graph\n"
+        "   data d.dat d1=c1,c2\n"
+        "   bar d1 fill red\n"
+        '   d1 key "control" lstyle 1\n'
+        "end graph\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "d.dat").write_text("1 2\n3 4\n", encoding="utf-8")
+    rec = parse_gle_figure(str(src))
+    ax = rec.figure.axes_list[0]
+    # Not the bar's swatch: the extra token keeps it a dataset line of its own.
+    assert ax.bars[0].get("label") is None
+    assert any(s.get("label") == "control" for s in ax.file_series)
+
+
+def test_unresolved_bar_keeps_its_legend_label(tmp_path):
+    from gleplot.parser.recognizer import parse_gle_figure
+
+    src = tmp_path / "missing.gle"
+    src.write_text(
+        "size 10 8\n"
+        "begin graph\n"
+        "   data missing.dat d1=c1,c2\n"
+        "   bar d1 fill red\n"
+        '   d1 key "control"\n'
+        "end graph\n",
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(str(src))
+    ax = rec.figure.axes_list[0]
+    assert ax.file_series[0]["series_type"] == "bar"
+    assert ax.file_series[0]["label"] == "control"
+    out = tmp_path / "missing2.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert 'key "control"' in text
+    assert "bar d1 fill red" in text
+
+
+def test_boxcolor_warns_and_is_not_the_box_fill():
+    fig, ax = _labeled_figure()
+    with pytest.warns(UserWarning, match="boxcolor"):
+        ax.legend(boxcolor="red")
+    assert ax.legend_facecolor is None
+
+
+def test_swatches_and_columns_survive_gle_round_trip(tmp_path):
+    from gleplot import open_gle
+
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1], [0, 1], label="a")
+    ax.bar([0, 1], [1, 2], color="red", label="control")
+    ax.fill_between([0, 1], [0, 0], [1, 2], color="blue", alpha=0.3, label="band")
+    ax.axvspan(0.2, 0.4, color="orange", alpha=0.5, label="window")
+    ax.legend(ncol=2, compact=True, facecolor="#112233")
+    path = tmp_path / "swatch.gle"
+    fig.savefig_gle(str(path))
+    first = path.read_text()
+
+    recovered = open_gle(str(path))
+    rax = recovered.axes_list[0]
+    assert rax.bars[0]["label"] == "control"
+    assert rax.fills[0]["label"] == "band"
+    assert any(s.get("label") == "window" for s in rax.spans)
+    assert rax.legend_ncol == 2
+    assert rax.legend_compact is True
+    assert rax.legend_facecolor is not None
+
+    out = tmp_path / "swatch2.gle"
+    recovered.savefig_gle(str(out))
+    assert out.read_text() == first
+
+
+def test_a_quote_in_a_bar_or_fill_label_round_trips(tmp_path):
+    """GLE embeds a quote by doubling it. A backslash does not."""
+    from gleplot import open_gle
+
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.bar([0, 1], [1, 2], label='5"')
+    ax.fill_between([0, 1], [0, 0], [1, 2], label='a"b')
+    path = tmp_path / "quotes.gle"
+    fig.savefig_gle(str(path))
+    gle = path.read_text()
+    assert 'key "5"""' in gle
+    assert 'key "a""b"' in gle
+
+    recovered = open_gle(str(path))
+    rax = recovered.axes_list[0]
+    assert rax.bars[0]["label"] == '5"'
+    assert rax.fills[0]["label"] == 'a"b'
+    out = tmp_path / "quotes2.gle"
+    recovered.savefig_gle(str(out))
+    assert out.read_text() == gle
+
+
+def test_a_keyfill_colour_unlike_the_fill_is_kept(tmp_path):
+    """A swatch that is not the fill colour must not be repainted on save."""
+    from gleplot.parser.recognizer import parse_gle_figure
+
+    src = tmp_path / "swatch.gle"
+    src.write_text(
+        "size 10 8\n"
+        "begin graph\n"
+        "   data d.dat d1=c1,c2 d2=c1,c3\n"
+        "   fill d1,d2 color blue\n"
+        '   d1 keyfill red key "band"\n'
+        "   key pos tr\n"
+        "end graph\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "d.dat").write_text("0 0 1\n1 0 2\n", encoding="utf-8")
+    rec = parse_gle_figure(str(src))
+    fill = rec.figure.axes_list[0].fills[0]
+    assert fill["label"] == "band"
+    assert fill["color"] == "blue"
+    assert fill["swatch_color"] == "red"
+    out = tmp_path / "swatch2.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "fill d1,d2 color blue" in text
+    assert 'keyfill red key "band"' in text

@@ -56,19 +56,26 @@ fig.savefig('plot.pdf')
 
 ## Legends
 
-`ax.legend()` becomes GLE's graph-block `key` command, which understands only
-a position, a text height and whether to draw a box. The kwargs that map onto
-those are honoured; every other matplotlib legend kwarg raises a
-`UserWarning` instead of being silently dropped.
+`ax.legend()` becomes GLE's graph-block `key` command. The kwargs that map
+onto a `key` option are honoured; every other matplotlib legend kwarg raises
+a `UserWarning` instead of being silently dropped.
+
+`label=` on `bar` and `fill_between` is a real legend entry. GLE's `bar` and
+`fill` commands have no `key` qualifier, so the swatch is a following dataset
+line: `dN key "label"` for a bar (the bar fill is already the swatch) and
+`dN keyfill COLOR key "label"` for a fill. `axvspan` / `axhspan` use the same
+fill swatch.
 
 | `legend()` kwarg | gleplot |
 |---|---|
 | `loc` | wired — all eleven matplotlib strings map onto GLE's nine key anchors (`key pos`). `'best'` is not computed; like matplotlib's own fallback it means top right. GLE short forms (`'tr'`, `'bl'`, …) are accepted too. An unrecognized value warns. |
 | `fontsize` | wired — points converted to cm as `key ... hei`, using the same pt→cm conversion as `set hei`. matplotlib's relative names (`'small'`, `'x-large'`, …) resolve against the figure style's fontsize. |
 | `frameon` | wired — `False` emits `key ... nobox`. |
-| `ncol`/`ncols` | `1` accepted, more warns: a GLE graph-block key is always one column (multiple columns need a standalone `begin key` block with `separator` commands). |
+| `ncol`/`ncols` | wired — entries in the order they were added, packed like matplotlib (column-major; the first columns are one entry longer). When that order is the order GLE draws the series, the breaks are `key separator` inside the graph. When it is not (a fill or a span is drawn before a bar or a line that was added first), the graph key is `key off` and a `begin key` after the graph lists the entries in addition order. `ncols` wins when both are passed. A count larger than the number of entries collapses to one entry per column, and a re-opened script reports that collapsed count. An integer below 1 raises `ValueError`. |
+| `facecolor` | wired — the legend-box fill, emitted as GLE `background`. |
+| `compact` | wired — gleplot/GLE flag, not a matplotlib name. `True` emits `compact` (line and marker share one swatch field). |
 | handles/labels (first positional) | warns — legend text always comes from each series' `label=`. |
-| `title`, `framealpha`, `edgecolor`, `facecolor`, `shadow`, `bbox_to_anchor`, `markerscale`, `borderpad`, `labelspacing`, … | warn — no GLE `key` equivalent. |
+| `title`, `framealpha`, `edgecolor`, `shadow`, `bbox_to_anchor`, `markerscale`, `borderpad`, `labelspacing`, `boxcolor`, … | warn. `boxcolor` is not the box fill: in GLE it strokes the fill swatch. Absolute `justify` positioning is not modelled. |
 
 ```python
 # an 8.6 cm journal column wants legend text smaller than the axis labels
