@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.5.0 (2026-11-14)
+
+### Features
+
+- Fill to an axis, clip bands, and fill polygons
+  ([`8420553`](https://github.com/BenHuddart/gleplot/commit/8420553df25c8b677f0f9770c2bf50e09a71961f))
+
+
 ## v3.4.0 (2026-11-14)
 
 ### Features
