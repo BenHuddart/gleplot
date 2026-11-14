@@ -2449,9 +2449,7 @@ class Figure:
     # emission forbids what the engine allows, and the fix is to stop
     # emitting: the axis' range is left out of the script and GLE scales it.
     # Reproducing that arithmetic in Python would be a second, drifting
-    # implementation of a number gleplot never needs to know -- calibration
-    # reads the range GLE chose straight back off the compiled script
-    # (GLEstudio SPEC 6.2), exactly as it does for any other autoscaled axis.
+    # implementation of a number gleplot never needs to know.
 
     def _defer_degenerate_range(
         self, ax: Axes, which: str, lo_auto: bool, hi_auto: bool

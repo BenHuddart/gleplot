@@ -38,8 +38,7 @@ dev = [
     "flake8>=3.9",
     "mypy>=0.900",
     "python-semantic-release>=10",
-    # Raster ink measurement in tests/integration/test_calibration_v2_gle.py:
-    # the only way to check a bounding-box record against what GLE drew.
+    # Raster ink measurement in integration and parser tests.
     "Pillow>=9.1",
 ]
 docs = [

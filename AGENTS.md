@@ -22,7 +22,6 @@ gleplot is a **matplotlib-compatible Python library** that generates **GLE (Grap
 - `config.py` — `GLEStyleConfig`, `GLEGraphConfig`, `GLEMarkerConfig`, `GlobalConfig`.
 - `colors.py`, `markers.py` — matplotlib→GLE mappings.
 - `dataio.py` — delimited file loading; no Qt.
-- `calibration.py` — calibration record v2; Qt-free post-generation instrumentation over `parser.syntax`.
 - `guides.py` — guide subs and write-time routing (`Axes.guide_needs_engine_range`); no extra model field for engine-range guides.
 
 ### Parser (`src/gleplot/parser/`)
@@ -41,7 +40,7 @@ Do not violate these without an explicit design change and tests.
 - **Fixed point** — writer → `parse_gle_figure` → writer is **byte-identical** (GLE + `.dat` sidecars). `tests/parser/test_fixed_point.py` keeps an **empty** exemption set; a failing builder is a bug, not a new exemption.
 - **Figure model** — `to_dict()` snapshots are the canonical round-trip representation for undo-style callers and previews.
 - **Series** — stay `dict` subclasses; `SERIES_CLASSES` order is emission order.
-- **Layers** — parser, `dataio`, calibration, and writer do **not** import Qt.
+- **Layers** — parser, `dataio`, and writer do **not** import Qt.
 - **Preservation** — unrecognized GLE is preserved; recovery warnings are surfaced, not dropped silently.
 - **Metadata** — v1 files load (implicit placement); first save rewrites to v2 with a `metadata:` warning. No downgrade. Unknown meta versions warn.
 - **GLE optional** — saving `.gle` always works; **GLE is not bundled**. Discovery: `GLE_PATH` → `PATH` → well-known paths (`compiler.find_gle`).

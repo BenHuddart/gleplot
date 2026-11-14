@@ -691,8 +691,7 @@ class DecimationRecord:
     ``(axes_index, series_attr, series_index)`` triple like
     :class:`~gleplot.sources.DanglingSourceRef`: the dataset name is already
     the join key a caller needs, since it is what appears in the generated
-    script it is about to compile (and, for hit-testing parity, the same
-    script it parses for calibration). Threading full series identity through
+    script it is about to compile. Threading full series identity through
     every ``add_plot_line``/``add_errorbar`` call site was judged not worth
     the extra surface for this first cut; add it if a consumer needs it.
 

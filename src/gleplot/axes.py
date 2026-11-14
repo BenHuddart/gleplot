@@ -586,7 +586,7 @@ class Axes:
         #: it survives ``to_dict``/``from_dict`` round-trips and axes
         #: reordering. Deliberately NOT emitted into GLE output (writer.py
         #: never reads this attribute) -- it lives only in the dict/project
-        #: layer (e.g. for calibration consumers). A parsed ``.gle`` file has no
+        #: layer. A parsed ``.gle`` file has no
         #: id to recover, so the recognizer's freshly constructed ``Axes``
         #: objects get a new one here.
         self.axes_id: str = uuid.uuid4().hex
