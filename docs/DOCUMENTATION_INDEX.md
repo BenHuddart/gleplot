@@ -5,16 +5,25 @@ Complete guide to all documentation files in the gleplot project.
 ## Core Documentation
 
 ### [README.md](../README.md)
-Main project file with overview, quick start, and links to all documentation.
+First-visit overview on GitHub: what gleplot is, link to the published docs, install, and a short quick-start example.
 
 **Contains:**
-- Project overview and features
-- Quick start guide
-- Installation instructions
-- Key capabilities
-- Documentation links
-- Contributing guidelines
-- License information
+- Project overview (library + optional GUI editor)
+- Link to [live documentation](https://benhuddart.github.io/gleplot/)
+- Installation (library, GUI, optional GLE)
+- Quick start code sample
+- Pointers to usage guides and examples
+- License and link to contributing
+
+### [CONTRIBUTING.md](../CONTRIBUTING.md)
+Contributor entry point linked from GitHub issues and pull requests.
+
+**Contains:**
+- Development install (`pip install -e ".[dev,gui]"`)
+- Test and style commands
+- Conventional commit expectations
+- Pull request checklist
+- Link to [DEVELOPMENT_WORKFLOW.md](guides/DEVELOPMENT_WORKFLOW.md) for full workflow
 
 ## Desktop GUI Editor
 
@@ -22,7 +31,7 @@ Main project file with overview, quick start, and links to all documentation.
 Walkthrough of the `gleplot-gui` PySide6 desktop editor.
 
 **Contains:**
-- Installing and launching the editor (`pip install "gleplot[gui]"`, `gleplot-gui`)
+- Installing and launching the editor (prebuilt app, or `pip install -e ".[gui]"` from a clone, then `gleplot-gui`)
 - Loading data, picking columns, and styling series
 - Live preview and the `.gle` native file format
 - Undo/redo, export dialog, and troubleshooting (including GLE-not-found)
@@ -264,7 +273,8 @@ Basic examples (`examples/basic/`) also include `heatmap_imshow.py` - gridded `i
 
 ```
 gleplot/
-├── README.md                          # Main documentation entry point
+├── README.md                          # First-visit overview (GitHub)
+├── CONTRIBUTING.md                    # Contributor checklist (GitHub)
 ├── docs/
 │   ├── SEMANTIC_VERSIONING_IMPLEMENTATION.md
 │   └── guides/
@@ -308,7 +318,10 @@ gleplot/
 ### If you want to...
 
 **Get started quickly**
-→ Read [README.md](../README.md), then the [Sphinx Getting Started](https://benhuddart.github.io/gleplot/getting_started.html) page (source: [docs/source/getting_started.rst](source/getting_started.rst))
+→ Read [README.md](../README.md), then the [getting started](https://benhuddart.github.io/gleplot/getting_started.html) page on the published site (source: [docs/source/getting_started.rst](source/getting_started.rst))
+
+**Contribute a change**
+→ Read [CONTRIBUTING.md](../CONTRIBUTING.md), then [DEVELOPMENT_WORKFLOW.md](guides/DEVELOPMENT_WORKFLOW.md) as needed
 
 **Configure gleplot**
 → Read [CONFIGURATION.md](guides/CONFIGURATION.md) then [CONFIGURATION_API.md](guides/CONFIGURATION_API.md)

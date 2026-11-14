@@ -455,7 +455,7 @@ git log -p
 
 ## Related Documentation
 
-- [Semantic Versioning Guide](docs/guides/VERSIONING.md)
-- [Configuration API Reference](docs/guides/CONFIGURATION_API.md)
-- [Test Structure Guide](docs/guides/TEST_STRUCTURE.md)
-- [Contributing Guidelines](CONTRIBUTING.md)
+- [Semantic Versioning Guide](VERSIONING.md)
+- [Configuration API Reference](CONFIGURATION_API.md)
+- [Test Structure Guide](TEST_STRUCTURE.md)
+- [Contributing Guidelines](../../CONTRIBUTING.md)

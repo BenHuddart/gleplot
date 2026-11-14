@@ -3,6 +3,9 @@ Contributing
 
 We welcome contributions to gleplot! This document provides guidelines for contributing to the project.
 
+For the concise checklist (setup, tests, style, commits), see the repository
+`CONTRIBUTING.md <https://github.com/benhuddart/gleplot/blob/main/CONTRIBUTING.md>`_.
+
 Getting Started
 ---------------
 
@@ -25,7 +28,7 @@ Getting Started
 
    .. code-block:: bash
 
-      pip install -e ".[dev]"
+      pip install -e ".[dev,gui]"
 
 5. Create a new branch for your work:
 
@@ -54,13 +57,14 @@ With coverage:
 Code Style
 ~~~~~~~~~~~
 
-We use black for code formatting and flake8 for linting.
+We use black and isort for formatting, and flake8 for linting.
 
 Format your code:
 
 .. code-block:: bash
 
    black src/ tests/
+   isort src/ tests/
 
 Check for linting issues:
 
@@ -105,16 +109,15 @@ Submitting Changes
    .. code-block:: bash
 
       black src/ tests/
+      isort src/ tests/
       flake8 src/ tests/
       mypy src/
 
 3. Update documentation if needed
 
-4. Commit your changes:
-
-   .. code-block:: bash
-
-      git commit -m "Clear, descriptive commit message"
+4. Commit your changes using `conventional commits <https://www.conventionalcommits.org/>`_
+   (for example ``feat: add bar hatch support`` or ``fix: correct log tick limits``).
+   Releases use semantic versioning driven by these prefixes.
 
 5. Push to your fork:
 

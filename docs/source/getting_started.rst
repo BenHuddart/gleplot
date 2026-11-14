@@ -57,11 +57,11 @@ If you'd rather build figures interactively than write Python, gleplot ships a
 PySide6 desktop editor with a live preview. Download a prebuilt Windows or
 macOS app from the `GitHub Releases page
 <https://github.com/benhuddart/gleplot/releases>`_, or install it into a Python
-environment and launch it:
+environment. From the checkout above:
 
 .. code-block:: bash
 
-   pip install "gleplot[gui]"
+   pip install -e ".[gui]"
    gleplot-gui
 
 The editor uses the same GLE install described above for its live preview and

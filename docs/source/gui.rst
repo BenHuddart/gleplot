@@ -17,13 +17,12 @@ Two ways to get the editor:
   The macOS build is unsigned, so the first launch needs a right-click
   |menu| **Open** (or ``xattr -dr com.apple.quarantine`` on the ``.app``).
 
-- **From pip** -- install into a Python environment:
+- **From a clone** -- gleplot is not published on PyPI. From a checkout of this repository:
 
   .. code-block:: bash
 
-     pip install "gleplot[gui]"
-
-Either way, GLE 4.3+ is a separate prerequisite (see below).
+     pip install -e ".[gui]"
+     gleplot-gui
 
 The pip extra adds ``PySide6>=6.5`` on top of gleplot's core dependencies.
 Importing the base ``gleplot`` package never pulls in Qt -- only
