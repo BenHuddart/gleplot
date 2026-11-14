@@ -228,9 +228,6 @@ the writer emits.
   bars in the dataset's colour and an unstyled dataset renders black, so gleplot
   always emits a `color` qualifier on an errorbar dataset. That qualifier carries
   the exact colour, `rgb255(...)` included.
-- The GUI colour picker stores exactly the colour you picked (as `rgb255(...)`)
-  and reopens on that same colour, rather than snapping it to the nearest
-  palette entry.
 - `gleplot.colors.gle_color_to_rgb255()` inverts a stored colour token -- a name
   or an `rgb255(...)`/`rgb(...)` expression -- back to an `(r, g, b)` triple.
 - To snap a colour to the nearest *named* GLE colour on purpose, call

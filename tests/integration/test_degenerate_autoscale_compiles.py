@@ -3,15 +3,12 @@
 A range that collapses to a point is not written into the script at all, on
 the claim that GLE will scale the axis itself. That claim is only worth making
 if it is measured, so every number in this module comes from the live binary
-(cross-cutting rule 2), through three independent channels that have to agree:
+(cross-cutting rule 2), through two independent channels that have to agree:
 
 * ``print xgmin ...`` appended to **gleplot's own script**, compiled exactly
   as written -- a script GLE rejects fails here instead of passing quietly;
 * the same probe on a **hand-written bare-GLE script** plotting the same
-  points, which is what "GLE's own autoscale" means;
-* the **calibration record** (SPEC 6.2) parsed off an instrumented copy, which
-  is how GLEstudio learns the range and the only channel that has to keep
-  working for a deferred axis to be editable on the canvas.
+  points, which is what "GLE's own autoscale" means.
 
 The last two sections are bars. G16 is the one figure G15 could not hand
 over: a bar chart GLE cannot size from its own data. Same discipline -- the
@@ -34,11 +31,6 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot.calibration import (
-    AxesSpec,
-    instrument_script,
-    parse_calibration_records,
-)
 from gleplot.compiler import GLECompiler, find_gle
 
 
@@ -174,34 +166,6 @@ def test_the_deferred_range_is_exactly_what_bare_gle_would_have_chosen(
 
     assert ours == pytest.approx(theirs, abs=RANGE_TOLERANCE)
     assert ours == pytest.approx(list(expected), abs=RANGE_TOLERANCE)
-
-
-def test_the_calibrated_range_is_the_range_gle_reports(tmp_path):
-    """SPEC 6.2 reads the engine's choice back, exactly as for any autoscale.
-
-    This is the assertion GLEstudio depends on: an axis gleplot declined to
-    write is still fully calibrated, so the canvas overlay, hit-testing and
-    "insert here" defaults all have real numbers to work from.
-    """
-    fig = _single_point_figure(1, 2)
-    text = _gleplot_script(fig, tmp_path)
-    axes_id = fig.axes_list[0].axes_id
-
-    printed = _probe(tmp_path, text, ["xgmin", "xgmax", "ygmin", "ygmax"])
-
-    (tmp_path / "inst.gle").write_text(
-        instrument_script(text, [axes_id]).text, encoding="utf-8"
-    )
-    proc, out = _run(tmp_path, "inst.gle")
-    assert proc.returncode == 0, out
-    result = parse_calibration_records(out, [AxesSpec(axes_id)])
-    assert result.warnings == []
-
-    cal = result.calibrations[axes_id]
-    assert cal.x_range == pytest.approx(tuple(printed[:2]), abs=RANGE_TOLERANCE)
-    assert cal.y_range == pytest.approx(tuple(printed[2:]), abs=RANGE_TOLERANCE)
-    assert cal.x_range == pytest.approx((0.0, 2.0), abs=RANGE_TOLERANCE)
-    assert cal.y_range == pytest.approx((1.0, 3.0), abs=RANGE_TOLERANCE)
 
 
 # --------------------------------------------------------------------------- #

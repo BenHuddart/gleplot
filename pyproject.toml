@@ -38,8 +38,7 @@ dev = [
     "flake8>=3.9",
     "mypy>=0.900",
     "python-semantic-release>=10",
-    # Raster ink measurement in tests/integration/test_calibration_v2_gle.py:
-    # the only way to check a bounding-box record against what GLE drew.
+    # Raster ink measurement in integration and parser tests.
     "Pillow>=9.1",
 ]
 docs = [
@@ -52,19 +51,6 @@ gle = [
     # macOS: brew install gle
     # Linux: apt-get install gle (or yum/dnf)
 ]
-gui = [
-    "PySide6>=6.5",
-]
-packaging = [
-    "pyinstaller>=6.0",
-    # 9.1 introduced Image.Resampling, used by packaging/macos_icon.py.
-    "Pillow>=9.1",
-    "dmgbuild>=1.6; sys_platform == 'darwin'",
-]
-
-[project.scripts]
-gleplot-gui = "gleplot.gui.app:main"
-
 [project.urls]
 Homepage = "https://github.com/benhuddart/gleplot"
 Documentation = "https://benhuddart.github.io/gleplot"
@@ -81,12 +67,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-# Ship the app icon inside the wheel so `pip install gleplot[gui]` + gleplot-gui
-# can set its window icon at runtime (the PyInstaller spec bundles it separately).
-"gleplot.gui" = ["assets/*.png"]
-# PEP 561 marker: gleplot is fully typed and mypy-checked in CI, so downstream
-# consumers (e.g. GLEstudio) can type-check against it without an
-# ignore_missing_imports override.
+# PEP 561 marker: gleplot is fully typed and mypy-checked in CI.
 "gleplot" = ["py.typed"]
 
 [tool.black]

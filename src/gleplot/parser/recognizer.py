@@ -128,9 +128,8 @@ for rendering, applied by the test-side ``normalize()`` helper)
       single plots up to metadata v1, and how a hand-written file that says
       nothing about geometry is read. Such a figure re-saves with the explicit
       rect the layout computes for it -- a deliberate one-time geometry change,
-      see the migration policy in :mod:`gleplot.parser.metadata`. Resolving
-      auto against what GLE would actually have chosen needs a calibration
-      render and happens in the editor, not here.
+      see the migration policy in :mod:`gleplot.parser.metadata`. This parser
+      does not resolve auto against the range GLE would have chosen.
     * Anything else real -- ``fullsize``, ``scale h v`` with actual factors, a
       bare ``size`` with no ``scale 1 1``, several statements we do not model
       -- is kept VERBATIM in ``Axes.geometry_passthrough`` and re-emitted in
@@ -5097,7 +5096,7 @@ class _Recognizer:
           cm that the writer re-emits as the same three statements;
         * **auto** -- no geometry at all, or exactly ``scale auto`` (the
           writer's own default emission): nothing is stored, placement stays
-          ``None`` = "GLE decides" until a calibration render resolves it;
+          ``None``, meaning GLE decides;
         * **preserved** -- any other geometry (``fullsize``, ``scale h v``
           with real factors, a bare ``size`` with no ``scale 1 1``, several
           statements in an order we do not model) is kept verbatim in

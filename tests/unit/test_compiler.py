@@ -704,7 +704,7 @@ class TestRemoveGeneratedIntermediates(unittest.TestCase):
 class TestBuildCompileArgs(unittest.TestCase):
     """Tests for build_compile_args(): the single, unified device-flag
     builder (Track G3). Previously GLECompiler.compile() built an uppercase
-    ``-d PDF`` with ``-r`` only for raster formats, while gui/preview.py
+    ``-d PDF`` with ``-r`` only for raster formats, while other call sites
     built a lowercase ``-d svg`` with ``-r`` unconditional (including for
     vector formats, where GLE just ignores it). This is the one place that
     decides the shape now.

@@ -356,9 +356,7 @@ class Figure:
 
         Reset at the start of each generation (mirrors :attr:`source_warnings`),
         so it always describes the latest ``savefig``/``savefig_gle`` rather
-        than accumulating. Intended consumer: GLEstudio's render controller,
-        to show a "preview decimated x N" badge on the series it names and to
-        keep hit-testing locked to the same decimated point set (SPEC §7.1).
+        than accumulating.
         """
         return list(self._preview_decimation_report)
 
@@ -438,9 +436,9 @@ class Figure:
         ax = Axes(self, (rows, cols, idx))
 
         # Derive shared-axes tick/label visibility flags from this figure's
-        # current sharex/sharey settings. Kept as a separate method so the GUI
-        # layout panel can re-apply the identical derivation after the fact
-        # (grid resize / sharing toggle) instead of duplicating the logic.
+        # current sharex/sharey settings. Kept as a separate method so callers
+        # can re-apply the identical derivation after grid resize or sharing
+        # toggles instead of duplicating the logic.
         self._apply_shared_axes_flags(ax)
 
         self.axes_list.append(ax)
@@ -514,8 +512,8 @@ class Figure:
 
         This is the single source of truth for that derivation: ``add_subplot``
         calls it for every new axes, and callers that mutate an axes' position
-        or the figure's sharing after axes already exist (e.g. the GUI layout
-        panel) call it to re-sync the flags to what a fresh ``add_subplot``
+        or the figure's sharing after axes already exist call it to re-sync the
+        flags to what a fresh ``add_subplot``
         would have produced. Changing the rules here changes them everywhere.
         """
         rows, cols, idx = ax.position
@@ -2451,9 +2449,7 @@ class Figure:
     # emission forbids what the engine allows, and the fix is to stop
     # emitting: the axis' range is left out of the script and GLE scales it.
     # Reproducing that arithmetic in Python would be a second, drifting
-    # implementation of a number gleplot never needs to know -- calibration
-    # reads the range GLE chose straight back off the compiled script
-    # (GLEstudio SPEC 6.2), exactly as it does for any other autoscaled axis.
+    # implementation of a number gleplot never needs to know.
 
     def _defer_degenerate_range(
         self, ax: Axes, which: str, lo_auto: bool, hi_auto: bool
@@ -3298,7 +3294,7 @@ class Figure:
         # legitimately contain characters __init__ rejects (a quoted
         # 'data "my file_0.dat"' yields the prefix 'my file'). Re-validating
         # here would make such a figure impossible to round-trip -- and would
-        # break GUI undo/redo, which restores every snapshot through from_dict.
+        # break snapshots restored through ``from_dict``.
         fig.data_prefix = fig_block.get("data_prefix")
 
         fig._local_data_counter = fig_block.get("local_data_counter", 0)

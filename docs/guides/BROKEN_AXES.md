@@ -148,5 +148,3 @@ figure's font size (measured against a native `xtitle` render to ~0.02 cm);
   Nothing is dropped, but the assembly's geometry is re-derived from the
   subplot grid on re-save, so a round-tripped file will not lay out
   identically. Keep the producing script as the source of truth.
-- **The GUI editor** has no broken-axis panel; a figure containing one opens
-  as its segments.

@@ -7,7 +7,7 @@ Thanks for helping improve gleplot. This page covers what you need before openin
 ```bash
 git clone https://github.com/benhuddart/gleplot.git
 cd gleplot
-pip install -e ".[dev,gui]"
+pip install -e ".[dev]"
 ```
 
 ## Tests

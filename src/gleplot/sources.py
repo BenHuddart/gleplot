@@ -3,7 +3,7 @@
 Historically every series baked its numpy arrays into itself at ``plot()``
 time, and that is still exactly what the scripting API does. This module adds
 the *other* possibility -- a series that holds a **reference** into a table
-owned by something outside the figure (a GUI's data manager, a watched file,
+owned by something outside the figure (an external table store, a watched file,
 a database query) and is resolved to concrete arrays only when the ``.gle``
 is written.
 
@@ -459,8 +459,7 @@ class DanglingSourceRef:
     #: auto colorbar range) is computed at write time from the resolved
     #: arrays (SPEC 14.5) cannot be drawn when those arrays are empty or
     #: degenerate. It is reported like any other skip rather than raised,
-    #: because "nothing about a write raises" is what lets a GUI preview an
-    #: in-progress document -- see :func:`gleplot.writer.resolve_figure`.
+    #: because "nothing about a write raises" -- see :func:`gleplot.writer.resolve_figure`.
     REASONS = {
         "no-provider": "no data provider was supplied for this write",
         "unknown-table": "no table with that id",

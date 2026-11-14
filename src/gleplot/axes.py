@@ -581,18 +581,14 @@ class Axes:
         self.figure = figure
         self.position = position
 
-        #: Stable opaque identity for this axes (GLEstudio SPEC 6.2/10.5):
-        #: a uuid4 hex string assigned once at construction and never
-        #: recomputed from position/content, so it survives ``to_dict``/
-        #: ``from_dict`` round-trips and axes reordering. Deliberately NOT
-        #: emitted into GLE output (writer.py never reads this attribute) --
-        #: it lives only in the dict/project layer, where GLEstudio keys its
-        #: calibration records and last-good-calibration store by it instead
-        #: of by positional index (see gui/preview.py's calibration
-        #: injection and gui/geometry.py's AxesCalibration). A parsed .gle
-        #: file has no id to recover, so the recognizer's freshly
-        #: constructed Axes objects simply get a new one here, same as any
-        #: other new Axes.
+        #: Stable opaque identity for this axes: a uuid4 hex string assigned
+        #: once at construction and never recomputed from position/content, so
+        #: it survives ``to_dict``/``from_dict`` round-trips and axes
+        #: reordering. Deliberately NOT emitted into GLE output (writer.py
+        #: never reads this attribute) -- it lives only in the dict/project
+        #: layer. A parsed ``.gle`` file has no
+        #: id to recover, so the recognizer's freshly constructed ``Axes``
+        #: objects get a new one here.
         self.axes_id: str = uuid.uuid4().hex
 
         # Axis properties

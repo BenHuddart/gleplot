@@ -7,14 +7,8 @@ Before this fix, ``Figure()`` with no explicit ``style=``/``graph=``/
 ``fig.style.font = ...`` in place therefore mutated process-global state:
 every other default-styled ``Figure()`` created before or after in the same
 interpreter saw the leaked value, including ``GlobalConfig.style`` itself.
-This was hit twice in practice: GLEstudio's inspector panel had to work
-around it with ``dataclasses.replace(figure.style, ...)`` instead of
-in-place mutation (see the module docstring of
-``glestudio/gui/inspector/figure_panel.py`` in the sibling GLEstudio repo),
-and ``tests/gui/test_export_dialog.py`` (``_make_document_with_font``) had
-to pass an explicit ``style=glp.GLEStyleConfig(font=font)`` per test instead
-of relying on the default -- both are still valid, but no longer load-
-bearing for correctness.
+Embedders that mutated ``fig.style`` in place used to leak global state until
+each ``Figure`` copied ``GlobalConfig`` defaults at construction time.
 
 These tests pin two contracts:
 
