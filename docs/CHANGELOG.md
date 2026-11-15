@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.8.0 (2026-11-15)
+
+### Features
+
+- Add a secondary x axis as a data scale
+  ([`001232a`](https://github.com/BenHuddart/gleplot/commit/001232a7ad8458a5b584768cef4d5f8b449aa007))
+
+
 ## v3.7.0 (2026-11-15)
 
 ### Features
