@@ -193,6 +193,20 @@ def test_a_collapsed_secondary_y_range_is_deferred_too():
     assert (ax.y2min, ax.y2max) == (None, None)
 
 
+def test_a_collapsed_secondary_x_range_is_deferred_too():
+    """``x2axis min v max v`` is the same GLE error; x2 is only ever explicit."""
+    fig, ax = _axes()
+    ax.plot(np.array([1.0, 2.0]), np.array([2.0, 3.0]))
+    ax.plot(np.array([9.0, 9.0]), np.array([1.0, 2.0]), xaxis="x2")
+    ax.set_xlim(5.0, 5.0, axis="x2")
+
+    with pytest.warns(UserWarning, match=r"x2-axis limits are both 5\.0"):
+        text, _files = fig._generate_gle_with_files()
+
+    assert "x2axis min" not in text
+    assert (ax.x2min, ax.x2max) == (None, None)
+
+
 # --------------------------------------------------------------------------- #
 # Guides (SPEC 14.3) -- the case that sent G14 to the supervisor
 # --------------------------------------------------------------------------- #

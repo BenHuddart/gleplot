@@ -709,6 +709,7 @@ _STYLING_KEYS: Tuple[str, ...] = (
     "xformat",
     "yformat",
     "y2format",
+    "x2format",
     "xgrid",
     "ygrid",
     "xgrid_lstyle",
@@ -726,6 +727,9 @@ _STYLING_KEYS: Tuple[str, ...] = (
     "y2label_size",
     "y2label_color",
     "y2label_dist",
+    "x2label_size",
+    "x2label_color",
+    "x2label_dist",
     "xticklabel_size",
     "xticklabel_color",
     "xticklabel_angle",
@@ -735,6 +739,9 @@ _STYLING_KEYS: Tuple[str, ...] = (
     "y2ticklabel_size",
     "y2ticklabel_color",
     "y2ticklabel_angle",
+    "x2ticklabel_size",
+    "x2ticklabel_color",
+    "x2ticklabel_angle",
     "title_size",
     "title_color",
     "title_dist",
@@ -1119,6 +1126,88 @@ def _positional_fill_color(value):
     return None
 
 
+def _apply_xaxis(fields: dict, xaxis: str) -> None:
+    """Record a secondary-x binding, or reject a name GLE cannot draw.
+
+    Absent means the primary x axis, which is what every series stored
+    before ``xaxis`` existed, so the key is written only for ``'x2'``.
+    """
+    if xaxis == "x":
+        return
+    if xaxis != "x2":
+        raise ValueError(f"xaxis must be 'x' or 'x2', got {xaxis!r}")
+    fields["xaxis"] = "x2"
+
+
+class SecondaryXAxis:
+    """The top scale of an axes, as matplotlib's ``Axes.twiny`` returns.
+
+    Not a second subplot. GLE draws the top scale on the same graph, so
+    this view writes that scale: plotting methods bind the series with
+    ``xaxis='x2'``, and the limit, label, and scale setters address it.
+    The y axis stays the one this view was opened on.
+    """
+
+    def __init__(self, axes: "Axes"):
+        self._axes = axes
+
+    def plot(self, *args, **kwargs):
+        kwargs["xaxis"] = "x2"
+        return self._axes.plot(*args, **kwargs)
+
+    def scatter(self, *args, **kwargs):
+        kwargs["xaxis"] = "x2"
+        return self._axes.scatter(*args, **kwargs)
+
+    def errorbar(self, *args, **kwargs):
+        kwargs["xaxis"] = "x2"
+        return self._axes.errorbar(*args, **kwargs)
+
+    def step(self, *args, **kwargs):
+        kwargs["xaxis"] = "x2"
+        return self._axes.step(*args, **kwargs)
+
+    def stem(self, *args, **kwargs):
+        kwargs["xaxis"] = "x2"
+        return self._axes.stem(*args, **kwargs)
+
+    def hist(self, *args, **kwargs):
+        kwargs["xaxis"] = "x2"
+        return self._axes.hist(*args, **kwargs)
+
+    def line_from_file(self, *args, **kwargs):
+        kwargs["xaxis"] = "x2"
+        return self._axes.line_from_file(*args, **kwargs)
+
+    def errorbar_from_file(self, *args, **kwargs):
+        kwargs["xaxis"] = "x2"
+        return self._axes.errorbar_from_file(*args, **kwargs)
+
+    def set_xlim(self, xmin: Optional[float], xmax: Optional[float]):
+        return self._axes.set_xlim(xmin, xmax, axis="x2")
+
+    def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
+        return self._axes.get_xlim(axis="x2")
+
+    def set_xlabel(self, label: str):
+        return self._axes.set_xlabel(label, axis="x2")
+
+    def set_xscale(self, scale: str):
+        return self._axes.set_xscale(scale, axis="x2")
+
+    def set_tick_format(self, fmt: Optional[str]):
+        return self._axes.set_tick_format(fmt, axis="x2")
+
+    def set_ylim(self, ymin: Optional[float], ymax: Optional[float], axis: str = "y"):
+        return self._axes.set_ylim(ymin, ymax, axis=axis)
+
+    def set_ylabel(self, label: str, axis: str = "y"):
+        return self._axes.set_ylabel(label, axis=axis)
+
+    def set_yscale(self, scale: str, axis: str = "y"):
+        return self._axes.set_yscale(scale, axis=axis)
+
+
 class Axes:
     """Matplotlib-like axes for plotting."""
 
@@ -1150,10 +1239,12 @@ class Axes:
         self.xlabel_text = ""
         self.ylabel_text = ""
         self.y2label_text = ""  # Secondary y-axis label
+        self.x2label_text = ""  # Secondary x-axis (top) label
         self.title_text = ""
         self.xscale = "linear"
         self.yscale = "linear"
         self.y2scale = "linear"  # Secondary y-axis scale
+        self.x2scale = "linear"  # Secondary x-axis scale
         # Axis limits. ``None`` = auto (derived from the data at GLE-generation
         # time); a DESCENDING pair inverts the axis (GLE ``negate``). Annotated
         # explicitly: the ``= None`` initializers alone would have a type
@@ -1165,6 +1256,8 @@ class Axes:
         self.ymax: Optional[float] = None
         self.y2min: Optional[float] = None  # Secondary y-axis limits
         self.y2max: Optional[float] = None
+        self.x2min: Optional[float] = None  # Secondary x-axis limits
+        self.x2max: Optional[float] = None
         # Tri-state: None = auto (show a legend iff any series has a label),
         # True/False = explicit user choice (the GUI toggle writes these).
         self.legend_on: Optional[bool] = None
@@ -1227,6 +1320,7 @@ class Axes:
         self.xformat: Optional[str] = None
         self.yformat: Optional[str] = None
         self.y2format: Optional[str] = None
+        self.x2format: Optional[str] = None
 
         #: Functional grid per axis: None (no grid), ``'major'`` (grid lines
         #: at the main ticks) or ``'both'`` (grid lines at main ticks AND
@@ -1272,6 +1366,9 @@ class Axes:
         self.y2label_size: Optional[float] = None
         self.y2label_color: Optional[str] = None
         self.y2label_dist: Optional[float] = None
+        self.x2label_size: Optional[float] = None
+        self.x2label_color: Optional[str] = None
+        self.x2label_dist: Optional[float] = None
 
         #: Tick-label styling: ``xlabels hei/color`` plus ``xaxis angle``
         #: (which rotates the tick labels, not the axis).
@@ -1288,6 +1385,11 @@ class Axes:
         self.y2ticklabel_size: Optional[float] = None
         self.y2ticklabel_color: Optional[str] = None
         self.y2ticklabel_angle: Optional[float] = None
+        #: x2 tick labels are off unless ``x2labels on`` is given, the same
+        #: rule as y2. See :meth:`GLEWriter.add_axes`.
+        self.x2ticklabel_size: Optional[float] = None
+        self.x2ticklabel_color: Optional[str] = None
+        self.x2ticklabel_angle: Optional[float] = None
 
         #: Graph-title styling (GLE ``title "..." hei/color/dist``). GLE's
         #: title belongs to the graph block, so it lives here, per axes,
@@ -1416,6 +1518,7 @@ class Axes:
         linewidth: float = 1,
         label: Optional[str] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
         offset: float = 0.0,
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
@@ -1445,6 +1548,8 @@ class Axes:
             Legend label
         yaxis : str, optional
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
+        xaxis : str, optional
+            Which x-axis to use: 'x' (bottom, default) or 'x2' (top)
         fillstyle : {'full', 'none'}, optional
             ``'none'`` draws an open (outline) marker instead of a filled one.
         markerfacecolor : str, optional
@@ -1537,6 +1642,7 @@ class Axes:
             data_file=_resolve_data_file(self.figure, data_name),
             column_names=_build_column_names("x", ["y"], label),
         )
+        _apply_xaxis(plot_fields, xaxis)
         if mode:
             plot_fields["line_mode"] = mode
             # graph2.cpp transform_data() runs fitbez before drawLine()
@@ -1857,6 +1963,7 @@ class Axes:
         linestyle = kwargs.pop("linestyle", "-")
         linewidth = kwargs.pop("linewidth", 1)
         yaxis = kwargs.pop("yaxis", "y")
+        xaxis = kwargs.pop("xaxis", "x")
         zorder = kwargs.pop("zorder", None)
         edgecolor = kwargs.pop("edgecolor", None)
         alpha = kwargs.pop("alpha", None)
@@ -1866,13 +1973,22 @@ class Axes:
 
         if yaxis not in ("y", "y2"):
             raise ValueError(f"yaxis must be 'y' or 'y2', got {yaxis!r}")
+        if xaxis not in ("x", "x2"):
+            raise ValueError(f"xaxis must be 'x' or 'x2', got {xaxis!r}")
         draw_yaxis = yaxis
+        draw_xaxis = xaxis
         if style_name == "stepfilled" and yaxis == "y2":
             warn(
                 "hist(histtype='stepfilled', yaxis='y2') is drawn on the "
                 "primary y axis: GLE's bar command has no y2axis."
             )
             draw_yaxis = "y"
+        if style_name == "stepfilled" and xaxis == "x2":
+            warn(
+                "hist(histtype='stepfilled', xaxis='x2') is drawn on the "
+                "primary x axis: GLE's bar command has no x2axis."
+            )
+            draw_xaxis = "x"
 
         sets = _split_histogram_samples(x)
         finite_sets = []
@@ -1929,6 +2045,7 @@ class Axes:
                 fields["linestyle"] = "-" if one_ls is None else one_ls
                 fields["linewidth"] = float(1 if one_lw is None else one_lw)
                 fields["yaxis"] = draw_yaxis
+                _apply_xaxis(fields, draw_xaxis)
             else:
                 # The stroke is the fill unless the caller named an edge, so
                 # the shared boundary of two bins is not a second ink.
@@ -2072,6 +2189,7 @@ class Axes:
         capsize: Optional[float] = None,
         capsize_cm: Optional[float] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
         offset: float = 0.0,
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
@@ -2270,6 +2388,7 @@ class Axes:
                 label, yerr_up, yerr_down, xerr_left, xerr_right
             ),
         )
+        _apply_xaxis(errbar_data, xaxis)
         self._register_series_draw_meta(errbar_data, "errorbar", zorder)
         self.errorbars.append(errbar_data)
 
@@ -2287,6 +2406,7 @@ class Axes:
         label: Optional[str] = None,
         capsize: Optional[float] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
         **kwargs,
@@ -2326,6 +2446,7 @@ class Axes:
             capsize=gle_capsize,
             yaxis=yaxis,
         )
+        _apply_xaxis(entry, xaxis)
         self._register_series_draw_meta(entry, "errorbar")
         self.file_series.append(entry)
 
@@ -2341,6 +2462,7 @@ class Axes:
         linewidth: float = 1,
         label: Optional[str] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
         drawstyle: Optional[str] = None,
         line_mode: Optional[str] = None,
     ):
@@ -2381,6 +2503,7 @@ class Axes:
             label=label,
             yaxis=yaxis,
         )
+        _apply_xaxis(fields, xaxis)
         if mode:
             fields["line_mode"] = mode
         entry = FileSeries(**fields)
@@ -2401,6 +2524,7 @@ class Axes:
         marker: str = "o",
         label: Optional[str] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
         markersize: Optional[float] = None,
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
@@ -2493,6 +2617,7 @@ class Axes:
             markersize=markersize,
             label=label,
             yaxis=yaxis,
+            xaxis=xaxis,
             fillstyle=fillstyle,
             markerfacecolor=markerfacecolor,
             zorder=zorder,
@@ -4146,9 +4271,21 @@ class Axes:
         _require_valid_extent(ext)
         return xa, ya, za, ext, gs
 
-    def set_xlabel(self, label: str):
-        """Set x-axis label."""
-        self.xlabel_text = mathtext_to_gle(label)
+    def set_xlabel(self, label: str, axis: str = "x"):
+        """Set x-axis label.
+
+        Parameters
+        ----------
+        label : str
+            Axis label text
+        axis : str, optional
+            Which axis: 'x' (bottom, default) or 'x2' (top)
+        """
+        label = mathtext_to_gle(label)
+        if axis == "x2":
+            self.x2label_text = label
+        else:
+            self.xlabel_text = label
         return self
 
     def set_ylabel(self, label: str, axis: str = "y"):
@@ -4173,9 +4310,20 @@ class Axes:
         self.title_text = mathtext_to_gle(label)
         return self
 
-    def set_xscale(self, scale: str):
-        """Set x-axis scale ('linear' or 'log')."""
-        self.xscale = scale
+    def set_xscale(self, scale: str, axis: str = "x"):
+        """Set x-axis scale.
+
+        Parameters
+        ----------
+        scale : str
+            Scale type: 'linear' or 'log'
+        axis : str, optional
+            Which axis: 'x' (bottom, default) or 'x2' (top)
+        """
+        if axis == "x2":
+            self.x2scale = scale
+        else:
+            self.xscale = scale
         return self
 
     def set_yscale(self, scale: str, axis: str = "y"):
@@ -4194,16 +4342,39 @@ class Axes:
             self.yscale = scale
         return self
 
-    def set_xlim(self, xmin: Optional[float], xmax: Optional[float]):
+    def set_xlim(self, xmin: Optional[float], xmax: Optional[float], axis: str = "x"):
         """Set x-axis limits.
 
         ``None`` puts that bound back on AUTO -- derived from the data at
         GLE-generation time -- which is what an editor's "auto" checkbox
         means and what a freshly created axes carries.
+
+        Parameters
+        ----------
+        xmin, xmax : float or None
+            Axis limits; ``None`` = auto.
+        axis : str, optional
+            Which axis: 'x' (bottom, default) or 'x2' (top)
         """
-        self.xmin = xmin
-        self.xmax = xmax
+        if axis == "x2":
+            self.x2min = xmin
+            self.x2max = xmax
+        else:
+            self.xmin = xmin
+            self.xmax = xmax
         return self
+
+    def twiny(self) -> SecondaryXAxis:
+        """Open the top x axis as its own data scale.
+
+        The returned view plots against that scale (``xaxis='x2'``) and
+        shares this axes' y axis. Limits, log, and the axis label set on
+        the view are the top scale; they do not move the bottom one.
+
+        GLE's top axis is the same graph, not a second subplot, so the
+        view is not an entry of :attr:`Figure.axes_list`.
+        """
+        return SecondaryXAxis(self)
 
     def set_ylim(self, ymin: Optional[float], ymax: Optional[float], axis: str = "y"):
         """Set y-axis limits.
@@ -4633,9 +4804,9 @@ class Axes:
         fmt : str or None
             The format string, or None to clear it (GLE's automatic
             labelling).
-        axis : {'both', 'x', 'y', 'y2'}
-            Which axis to apply it to. ``'both'`` means x and y (not y2,
-            which is a distinct axis with its own data range).
+        axis : {'both', 'x', 'y', 'y2', 'x2'}
+            Which axis to apply it to. ``'both'`` means x and y (not y2
+            or x2, which are distinct axes with their own data ranges).
 
         Returns
         -------
@@ -4650,25 +4821,31 @@ class Axes:
 
         Notes
         -----
-        GLE's y2 (and x2) tick labels are off unless ``y2labels on`` is
-        given, so setting ``axis='y2'`` also turns them on at write time --
-        see :meth:`gleplot.writer.GLEWriter.add_axes`.
+        GLE's y2 and x2 tick labels are off unless ``y2labels on`` /
+        ``x2labels on`` is given, so setting ``axis='y2'`` or ``axis='x2'``
+        also turns them on at write time -- see
+        :meth:`gleplot.writer.GLEWriter.add_axes`.
         """
-        if axis not in ("both", "x", "y", "y2"):
+        if axis not in ("both", "x", "y", "y2", "x2"):
             raise ValueError(
-                f"set_tick_format(axis={axis!r}) must be 'both', 'x', 'y' or 'y2'"
+                "set_tick_format(axis={!r}) must be 'both', 'x', 'y', "
+                "'y2' or 'x2'".format(axis)
             )
         value = None if fmt is None else validate_tick_format(fmt)
         for name in ("x", "y") if axis == "both" else (axis,):
             setattr(self, f"{name}format", value)
         return self
 
-    def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
-        """Get x-axis limits.
+    def get_xlim(self, axis: str = "x") -> Tuple[Optional[float], Optional[float]]:
+        """Get x-axis limits (``None`` = auto).
 
-        Either bound is ``None`` when it is on AUTO -- to be derived from the
-        data at GLE-generation time -- which is how every figure starts out.
+        Parameters
+        ----------
+        axis : str, optional
+            Which axis: 'x' (bottom, default) or 'x2' (top)
         """
+        if axis == "x2":
+            return self.x2min, self.x2max
         return self.xmin, self.xmax
 
     def get_ylim(self, axis: str = "y") -> Tuple[Optional[float], Optional[float]]:
@@ -4714,6 +4891,21 @@ class Axes:
                     return True
         return False
 
+    def has_x2_plots(self) -> bool:
+        """Check if axes has any plots using the x2 axis."""
+        x2_capable: Sequence[Sequence[Series]] = (
+            self.lines,
+            self.scatters,
+            self.errorbars,
+            self.hists,
+            self.file_series,
+        )
+        for plot_list in x2_capable:
+            for plot_data in plot_list:
+                if plot_data.get("xaxis") == "x2":
+                    return True
+        return False
+
     # -- Serialization ----------------------------------------------------
     #
     # The series list order, which keys hold numeric arrays, and the sidecar
@@ -4747,16 +4939,20 @@ class Axes:
             "xlabel_text": self.xlabel_text,
             "ylabel_text": self.ylabel_text,
             "y2label_text": self.y2label_text,
+            "x2label_text": self.x2label_text,
             "title_text": self.title_text,
             "xscale": self.xscale,
             "yscale": self.yscale,
             "y2scale": self.y2scale,
+            "x2scale": self.x2scale,
             "xmin": _to_jsonable(self.xmin),
             "xmax": _to_jsonable(self.xmax),
             "ymin": _to_jsonable(self.ymin),
             "ymax": _to_jsonable(self.ymax),
             "y2min": _to_jsonable(self.y2min),
             "y2max": _to_jsonable(self.y2max),
+            "x2min": _to_jsonable(self.x2min),
+            "x2max": _to_jsonable(self.x2max),
             "legend_on": self.legend_on,
             "legend_pos": self.legend_pos,
             "legend_fontsize": _to_jsonable(self.legend_fontsize),
@@ -4845,16 +5041,20 @@ class Axes:
         ax.xlabel_text = d.get("xlabel_text", "")
         ax.ylabel_text = d.get("ylabel_text", "")
         ax.y2label_text = d.get("y2label_text", "")
+        ax.x2label_text = d.get("x2label_text", "")
         ax.title_text = d.get("title_text", "")
         ax.xscale = d.get("xscale", "linear")
         ax.yscale = d.get("yscale", "linear")
         ax.y2scale = d.get("y2scale", "linear")
+        ax.x2scale = d.get("x2scale", "linear")
         ax.xmin = d.get("xmin")
         ax.xmax = d.get("xmax")
         ax.ymin = d.get("ymin")
         ax.ymax = d.get("ymax")
         ax.y2min = d.get("y2min")
         ax.y2max = d.get("y2max")
+        ax.x2min = d.get("x2min")
+        ax.x2max = d.get("x2max")
         ax.legend_on = d.get("legend_on")  # tri-state; missing key = auto
         ax.legend_pos = d.get("legend_pos", "top right")
         # Missing keys = a pre-1.9.2 payload: inherit the style fontsize and

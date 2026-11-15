@@ -1311,16 +1311,20 @@ class GLEWriter:
         xlabel: Optional[str] = None,
         ylabel: Optional[str] = None,
         y2label: Optional[str] = None,
+        x2label: Optional[str] = None,
         title: Optional[str] = None,
         xlog: bool = False,
         ylog: bool = False,
         y2log: bool = False,
+        x2log: bool = False,
         xmin: Optional[float] = None,
         xmax: Optional[float] = None,
         ymin: Optional[float] = None,
         ymax: Optional[float] = None,
         y2min: Optional[float] = None,
         y2max: Optional[float] = None,
+        x2min: Optional[float] = None,
+        x2max: Optional[float] = None,
         show_xlabel: bool = True,
         show_ylabel: bool = True,
         show_xticks: bool = True,
@@ -1344,6 +1348,8 @@ class GLEWriter:
         xstyle: Optional[AxisStyle] = None,
         ystyle: Optional[AxisStyle] = None,
         y2style: Optional[AxisStyle] = None,
+        x2style: Optional[AxisStyle] = None,
+        x2_series: bool = False,
         title_size: Optional[float] = None,
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
@@ -1356,17 +1362,23 @@ class GLEWriter:
             Axis labels
         y2label : str, optional
             Secondary y-axis (right) label
+        x2label : str, optional
+            Secondary x-axis (top) label
         title : str, optional
             Plot title
         xlog, ylog : bool
             Whether to use logarithmic scale
         y2log : bool
             Whether to use logarithmic scale for y2axis
+        x2log : bool
+            Whether to use logarithmic scale for x2axis
         xmin, xmax, ymin, ymax : float, optional
             Axis limits. A DESCENDING pair inverts the axis, as it does in
             matplotlib; see :meth:`_axis_direction`.
         y2min, y2max : float, optional
             Secondary y-axis limits
+        x2min, x2max : float, optional
+            Secondary x-axis limits
         show_xlabel, show_ylabel : bool
             Whether to display axis TITLES (for shared axes)
         show_xticks, show_yticks : bool
@@ -1396,11 +1408,17 @@ class GLEWriter:
             top/right sides GLE draws by default). This is what lets several
             graph blocks butt up against each other and read as one panel:
             the inner sides are switched off and the seam is drawn separately.
-        xstyle, ystyle, y2style : AxisStyle, optional
+        xstyle, ystyle, y2style, x2style : AxisStyle, optional
             Per-axis styling -- tick-label format, grid, axis-title and
             tick-label size/colour/angle. Omitted (or the default
             ``AxisStyle()``) emits nothing, so an unstyled figure is
             byte-identical to what gleplot wrote before styling existed.
+            x2 has no grid of its own, the same as y2.
+        x2_series : bool
+            True when a dataset is drawn against the top scale. GLE copies
+            ``xaxis log`` onto x2 (``do_axis_part_all``), so a linear top
+            scale that actually carries data has to say ``x2axis lin``
+            afterwards. A figure that never uses the top scale does not.
         title_size, title_color, title_dist : optional
             The graph title's ``hei`` (points), ``color`` and ``dist`` (cm) --
             GLE ``title "..." hei H color C dist D``. GLE's title belongs to
@@ -1423,14 +1441,13 @@ class GLEWriter:
         ``angle``, ``grid``) go after ``dsubticks`` and before
         ``nofirst``/``nolast``/``off``.
 
-        GLE's y2 (and x2) tick labels are off unless ``y2labels on`` is
-        given, so any y2 tick-label property in ``y2style`` also emits
-        ``y2labels on`` -- it would otherwise be inert. So does any other
-        sign the y2 axis is actually configured (``y2min``/``y2max``/
-        ``y2log``/``y2label``): GLE auto-enables y2 labels on its own when a
-        plotted dataset uses the axis, but not when the axis is only
-        configured with no dataset on it, which otherwise compiled with
-        mirrored tick marks and no numbers.
+        GLE's y2 and x2 tick labels are off unless ``y2labels on`` /
+        ``x2labels on`` is given, so any tick-label property on that axis
+        also emits the ``on``. So does any other sign the axis is
+        configured (limits, log, or a title): GLE auto-enables the labels
+        when a plotted dataset uses the axis, but not when the axis is
+        only configured, which otherwise compiled with mirrored tick marks
+        and no numbers.
         """
         if xnames is not None and (xplaces is None or len(xnames) != len(xplaces)):
             raise ValueError("xnames must be the same length as xplaces")
@@ -1439,6 +1456,7 @@ class GLEWriter:
         xstyle = xstyle or _NO_STYLE
         ystyle = ystyle or _NO_STYLE
         y2style = y2style or _NO_STYLE
+        x2style = x2style or _NO_STYLE
         if title:
             opts = self._text_options(title_size, title_color, title_dist)
             self.lines_gle.append(f'    title "{title}"{opts}')
@@ -1464,11 +1482,18 @@ class GLEWriter:
             )
             self.lines_gle.append(f'    y2title "{y2label}"{opts}')
 
+        if x2label:
+            opts = self._text_options(
+                x2style.title_size, x2style.title_color, x2style.title_dist
+            )
+            self.lines_gle.append(f'    x2title "{x2label}"{opts}')
+
         # Handle axis ranges and tick labels
         # Note: We keep the axis and ticks visible but can hide the tick labels
         xmin, xmax, xnegate = self._axis_direction(xmin, xmax)
         ymin, ymax, ynegate = self._axis_direction(ymin, ymax)
         y2min, y2max, y2negate = self._axis_direction(y2min, y2max)
+        x2min, x2max, x2negate = self._axis_direction(x2min, x2max)
 
         x_cmd = "    xaxis"
         if xmin is not None:
@@ -1624,14 +1649,61 @@ class GLEWriter:
             opts = self._text_options(y2style.label_size, y2style.label_color, None)
             self.lines_gle.append(f"    y2labels on{opts}")
 
-        # The top side has no gleplot-level configuration of its own; it is
-        # only ever switched off (inner edge of a broken-axis assembly) --
-        # or switched back on, for the same reason as y2axis above, when the
-        # bottom axis is off and the top one is not.
-        if x2axis_off:
-            self.lines_gle.append("    x2axis off")
-        elif xaxis_off:
-            self.lines_gle.append("    x2axis on")
+        # The top scale. With nothing configured it stays exactly the
+        # broken-axis frame switch: ``x2axis off``, or ``x2axis on`` when
+        # the bottom axis is off and the top one is not. A data scale
+        # (limits, log, linear-vs-copied-log, styling) joins that same
+        # line, after the ``xaxis`` line, because GLE copies an ``xaxis``
+        # command onto x2 (manual: put the x2 settings after the x ones).
+        # ``log`` is copied even though ``min``/``max`` are not
+        # (``graph.cpp`` ``do_axis``: LOG ignores ``craxis``), so a linear
+        # top scale under a log bottom axis has to say ``lin``.
+        x2_on = xaxis_off and not x2axis_off
+        # Tick-label styling only. ``title_dist`` is filled with the
+        # figure's xlabel distance on every axis, including one that has
+        # no top scale, so it must not count as x2 being in use -- that
+        # would write ``x2axis lin`` onto every log-x figure.
+        x2_tick_styled = x2style.has_tick_label_styling()
+        x2_configured = (
+            x2min is not None
+            or x2max is not None
+            or x2log
+            or bool(x2label)
+            or x2_tick_styled
+            or x2_series
+        )
+        x2_lin = xlog and not x2log and x2_configured and not x2axis_off
+        if (
+            x2min is not None
+            or x2max is not None
+            or x2log
+            or x2_lin
+            or x2axis_off
+            or x2_on
+            or x2_tick_styled
+        ):
+            x2_cmd = "    x2axis"
+            if x2min is not None:
+                x2_cmd += f" min {self._format_number(x2min)}"
+            if x2max is not None:
+                x2_cmd += f" max {self._format_number(x2max)}"
+            if x2log:
+                x2_cmd += " log"
+            elif x2_lin:
+                x2_cmd += " lin"
+            if x2negate:
+                x2_cmd += " negate"
+            x2_cmd += self._axis_style_tokens(x2style)
+            if x2axis_off:
+                x2_cmd += " off"
+            elif x2_on:
+                x2_cmd += " on"
+            if x2_cmd != "    x2axis":
+                self.lines_gle.append(x2_cmd)
+        x2_used = x2min is not None or x2max is not None or x2log or bool(x2label)
+        if not x2axis_off and (x2_used or x2style.has_tick_label_styling()):
+            opts = self._text_options(x2style.label_size, x2style.label_color, None)
+            self.lines_gle.append(f"    x2labels on{opts}")
 
     # -- axes styling helpers -------------------------------------------
 
@@ -1643,8 +1715,8 @@ class GLEWriter:
     ) -> str:
         """``[ hei H][ color C][ dist D]`` for a GLE title/labels command.
 
-        Shared by ``title``, ``xtitle``/``ytitle``/``y2title`` and
-        ``xlabels``/``ylabels``/``y2labels``, which all take the same
+        Shared by ``title``, ``xtitle``/``ytitle``/``y2title``/``x2title`` and
+        ``xlabels``/``ylabels``/``y2labels``/``x2labels``, which all take the same
         options in the same order. ``size`` is in matplotlib points and
         becomes GLE's ``hei`` in cm; ``dist`` is already in cm (GLE's own
         unit for it). Returns ``''`` when nothing is set, so the caller can
@@ -1676,8 +1748,23 @@ class GLEWriter:
             out += " grid"
         return out
 
+    @staticmethod
+    def _dataset_axis_clause(xaxis: str = "x", yaxis: str = "y") -> str:
+        """`` x2axis`` / `` y2axis`` for a dataset drawn on a secondary scale.
+
+        GLE's ``dn`` keywords are order-independent. Both, when both are
+        set, are written x2 then y2, which is the order in the manual's
+        dual-scale example.
+        """
+        clause = ""
+        if xaxis == "x2":
+            clause += " x2axis"
+        if yaxis == "y2":
+            clause += " y2axis"
+        return clause
+
     def _add_tick_label_style(self, prefix: str, style: AxisStyle) -> None:
-        """``xlabels hei H color C`` (and y/y2 twins), when anything is set."""
+        """``xlabels hei H color C`` (and y/y2/x2 twins), when anything is set."""
         opts = self._text_options(style.label_size, style.label_color, None)
         if opts:
             self.lines_gle.append(f"    {prefix}labels{opts}")
@@ -1950,6 +2037,7 @@ class GLEWriter:
         markersize: float = 0.1,
         nomiss: bool = False,
         yaxis: str = "y",
+        xaxis: str = "x",
         offset: float = 0.0,
         column_names: Optional[List[str]] = None,
         binding: Optional[ColumnBinding] = None,
@@ -2095,8 +2183,7 @@ class GLEWriter:
         # (GLE then rejects it: "invalid marker name 'None'").
 
         # Add y2axis directive if using secondary y-axis
-        if yaxis == "y2":
-            line_cmd += " y2axis"
+        line_cmd += self._dataset_axis_clause(xaxis, yaxis)
 
         line_cmd += self._key_clause(label, has_header)
         # Preview-only decimation (G7): "" unless a caller opted in AND this
@@ -2280,6 +2367,7 @@ class GLEWriter:
         linewidth: float = 1.0,
         label: Optional[str] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
         hist_from: Optional[float] = None,
         hist_to: Optional[float] = None,
         bins: Optional[float] = None,
@@ -2348,8 +2436,7 @@ class GLEWriter:
             line_cmd += f" lstyle {self.style.line_style_dotted}"
         elif linestyle == "-.":
             line_cmd += f" lstyle {self.style.line_style_dashdot}"
-        if yaxis == "y2":
-            line_cmd += " y2axis"
+        line_cmd += self._dataset_axis_clause(xaxis, yaxis)
         line_cmd += self._key_clause(label, has_header=False)
         self.lines_gle.append(line_cmd)
         if label:
@@ -2689,6 +2776,7 @@ class GLEWriter:
         xerr_right: Optional[np.ndarray] = None,
         capsize: Optional[float] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
         offset: float = 0.0,
         column_names: Optional[List[str]] = None,
         binding: Optional[ColumnBinding] = None,
@@ -2978,8 +3066,7 @@ class GLEWriter:
             line_cmd += f" herrwidth {self._format_number(capsize)}"
 
         # Add y2axis directive if using secondary y-axis
-        if yaxis == "y2":
-            line_cmd += " y2axis"
+        line_cmd += self._dataset_axis_clause(xaxis, yaxis)
 
         line_cmd += self._key_clause(label, has_header)
         # No preview-decimation clause here, deliberately: this dataset
@@ -3004,6 +3091,7 @@ class GLEWriter:
         label: Optional[str] = None,
         capsize: Optional[float] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
     ):
         """Add a marker/errorbar series that references columns in an external data file."""
         d_main = f"d{self.dataset_index}"
@@ -3033,8 +3121,7 @@ class GLEWriter:
             if capsize is not None:
                 line_cmd += f" errwidth {self._format_number(capsize)}"
 
-        if yaxis == "y2":
-            line_cmd += " y2axis"
+        line_cmd += self._dataset_axis_clause(xaxis, yaxis)
 
         if label:
             line_cmd += f" key {self._quote_gle_key(label)}"
@@ -3052,6 +3139,7 @@ class GLEWriter:
         linewidth: float = 1.0,
         label: Optional[str] = None,
         yaxis: str = "y",
+        xaxis: str = "x",
         marker: Optional[str] = None,
         markersize: float = 0.1,
         nomiss: bool = False,
@@ -3099,8 +3187,7 @@ class GLEWriter:
         if marker:
             line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
 
-        if yaxis == "y2":
-            line_cmd += " y2axis"
+        line_cmd += self._dataset_axis_clause(xaxis, yaxis)
 
         if label:
             line_cmd += f" key {self._quote_gle_key(label)}"
