@@ -139,7 +139,8 @@ Bar Plots
 
    ax.bar(x, y, width=0.8, color='green', edgecolor='black', label='bars')
    ax.bar(x, y2, bottom=y)
-   ax.barh(y, width)
+   ax.bar(x, y, yerr=err, capsize=3)
+   ax.barh(y, width, xerr=err)
 
 Fill Between
 ~~~~~~~~~~~~~

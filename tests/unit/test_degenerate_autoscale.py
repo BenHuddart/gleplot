@@ -447,15 +447,16 @@ def test_the_neighbour_snapshot_covers_the_whole_battery():
 
 @pytest.mark.parametrize("name", db.BUILDER_IDS)
 def test_a_resolvable_range_emits_byte_identically_to_pre_g15(name):
-    """Every figure GLE could already compile is untouched, warnings included.
+    """Every figure GLE could already compile is byte-stable, warnings included.
 
-    One entry has moved since capture, and only one: G18-lite gave
-    ``guides_over_data`` a ``! gleplot:guide ...`` comment over each of its
-    four materialized guides (:mod:`gleplot.guides`). Comments only -- no
-    statement, no dataset index and no sidecar byte changed, and the wide
-    digest sweep below (which contains no guides at all) is untouched.
+    Two entries have moved since capture. G18-lite gave ``guides_over_data``
+    a ``! gleplot:guide ...`` comment over each of its four materialized
+    guides (:mod:`gleplot.guides`); comments only, and the wide digest sweep
+    below (which contains no guides) is untouched.
     ``tests/unit/test_refline_fallback.py`` pins that pure-insertion property
-    for the whole guide battery.
+    for the whole guide battery. ``errorbars`` widened its x axis when
+    ``xerr`` started counting toward the autoscaled range, so a horizontal
+    whisker is not clipped.
     """
     text, files, raised = db.emit(name)
 
@@ -504,8 +505,10 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``text_annotations`` moved when vertical alignment, rotation, and
     ``bbox`` started being written. ``multi_series_styles`` and
     ``exact_rgb_colors`` moved when a legend whose addition order is not
-    the draw order became a ``begin key``. Every other entry is still the
-    script captured before that.
+    the draw order became a ``begin key``. ``errorbar_asymmetric_xy`` and
+    ``errorbar_xerr`` moved when an autoscaled x axis started including
+    ``xerr``. ``bar_yerr`` and ``barh_xerr`` are the bar-whisker builders.
+    Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)

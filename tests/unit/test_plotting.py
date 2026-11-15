@@ -239,6 +239,138 @@ class TestBarCharts(unittest.TestCase):
         self.ax.bar([1, 2, 3], [10, 20, 30], data_name='Bar Data #1')
         self.assertEqual(self.ax.bars[0]['data_file'], 'bar_data_1.dat')
 
+    def test_bar_yerr_sits_on_the_tip(self):
+        """Symmetric and asymmetric y errors are whiskers at bottom+height."""
+        self.ax.bar([1, 2, 3], [4, 5, 6], yerr=0.5, capsize=3, label='h')
+        self.assertEqual(len(self.ax.bars), 1)
+        self.assertEqual(len(self.ax.errorbars), 1)
+        eb = self.ax.errorbars[0]
+        np.testing.assert_array_equal(eb['x'], [1, 2, 3])
+        np.testing.assert_array_equal(eb['y'], [4, 5, 6])
+        np.testing.assert_array_equal(eb['yerr_up'], [0.5, 0.5, 0.5])
+        np.testing.assert_array_equal(eb['yerr_down'], [0.5, 0.5, 0.5])
+        self.assertIsNone(eb['xerr_left'])
+        self.assertIsNone(eb['label'])
+        self.assertEqual(eb['linestyle'], 'none')
+        self.assertIsNone(eb['marker'])
+        self.assertEqual(eb['color'], 'BLACK')
+        self.assertEqual(eb['capsize'], 3)
+        text = self.fig._generate_gle()
+        self.assertIn('err ', text)
+        self.assertIn('errwidth', text)
+        self.assertNotIn('herr', text)
+        self.assertEqual(text.count('key "h"'), 1)
+        self.assertEqual(self.ax.ymax, 6.5)
+
+        glp.close()
+        fig = glp.figure()
+        ax = fig.add_subplot(111)
+        ax.bar(
+            [1, 2],
+            [4, 5],
+            bottom=[1, 2],
+            yerr=([0.1, 0.2], [0.3, 0.4]),
+        )
+        eb = ax.errorbars[0]
+        np.testing.assert_array_equal(eb['y'], [5, 7])
+        np.testing.assert_array_equal(eb['yerr_down'], [0.1, 0.2])
+        np.testing.assert_array_equal(eb['yerr_up'], [0.3, 0.4])
+        self.assertIn('errup', fig._generate_gle())
+        self.assertIn('errdown', fig._generate_gle())
+
+    def test_barh_xerr_sits_on_the_tip(self):
+        """Horizontal length errors run from left+width, and widen x."""
+        self.ax.barh([1, 2], [4, 5], left=1, xerr=0.5, yerr=0.25, capsize=4)
+        eb = self.ax.errorbars[0]
+        np.testing.assert_array_equal(eb['x'], [5, 6])
+        np.testing.assert_array_equal(eb['y'], [1, 2])
+        np.testing.assert_array_equal(eb['xerr_left'], [0.5, 0.5])
+        np.testing.assert_array_equal(eb['yerr_up'], [0.25, 0.25])
+        text = self.fig._generate_gle()
+        self.assertIn('horiz', text)
+        self.assertIn('herr ', text)
+        self.assertIn('err ', text)
+        self.assertEqual(self.ax.xmax, 6.5)
+        self.assertEqual(self.ax.ymax, 2.25)
+
+    def test_bar_error_shapes_and_colors(self):
+        """(2, n) is asymmetric; a colour sequence is one whisker series each."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.ax.bar(
+                [1, 2],
+                [3, 4],
+                yerr=np.array([[0.1, 0.2], [0.3, 0.4]]),
+                ecolor=['red', 'blue'],
+                error_kw={'capsize': 2, 'elinewidth': 1.5},
+            )
+        messages = ' '.join(str(item.message) for item in caught)
+        self.assertIn('elinewidth', messages)
+        self.assertEqual(len(self.ax.errorbars), 2)
+        self.assertEqual(
+            [eb['color'] for eb in self.ax.errorbars],
+            ['RED', 'BLUE'],
+        )
+        np.testing.assert_array_equal(self.ax.errorbars[0]['yerr_down'], [0.1])
+        np.testing.assert_array_equal(self.ax.errorbars[1]['yerr_up'], [0.4])
+        self.assertEqual(self.ax.errorbars[0]['capsize'], 2)
+
+        before = len(self.ax.bars)
+        with self.assertRaises(ValueError):
+            self.ax.bar([1, 2, 3], [4, 5, 6], yerr=[0.1, 0.2])
+        self.assertEqual(len(self.ax.bars), before)
+        with self.assertRaises(ValueError):
+            self.ax.bar([1, 2, 3], [4, 5, 6], yerr=float('nan'))
+        with self.assertRaises(ValueError):
+            self.ax.bar([1, 2], [3, 4], xerr=[0.1, float('nan')])
+        with self.assertRaises(TypeError):
+            self.ax.bar([1, 2], [3, 4], yerr=0.1, error_kw='nope')
+
+        glp.close()
+        fig = glp.figure()
+        ax = fig.add_subplot(111)
+        ax.bar([1, 2, 3], [4, 5, 6], yerr=[[0.2], [0.5]], capsize_cm=0.1)
+        eb = ax.errorbars[0]
+        np.testing.assert_array_equal(eb['yerr_down'], [0.2, 0.2, 0.2])
+        np.testing.assert_array_equal(eb['yerr_up'], [0.5, 0.5, 0.5])
+        self.assertEqual(eb['gle_capsize'], 0.1)
+        self.assertEqual(len(ax.errorbars), 1)
+        ax.bar([10, 20, 30], [1, 1, 1], yerr=[0.4], xerr=0.2)
+        whisker = ax.errorbars[1]
+        np.testing.assert_array_equal(whisker['x'], [10, 20, 30])
+        np.testing.assert_array_equal(whisker['y'], [1, 1, 1])
+        np.testing.assert_array_equal(whisker['yerr_up'], [0.4, 0.4, 0.4])
+        np.testing.assert_array_equal(whisker['xerr_right'], [0.2, 0.2, 0.2])
+
+    def test_bar_error_kw_capsize_and_zorder(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            self.ax.bar(
+                [1, 2],
+                [3, 4],
+                yerr=0.2,
+                capsize=5,
+                zorder=4,
+                ecolor='green',
+                error_kw={'ecolor': 'red', 'zorder': 8, 'capsize': 1},
+            )
+        messages = ' '.join(str(item.message) for item in caught)
+        self.assertNotIn('error_kw', messages)
+        eb = self.ax.errorbars[0]
+        self.assertEqual(eb['color'], 'RED')
+        self.assertEqual(eb['capsize'], 1)
+        self.assertEqual(eb['zorder'], 8.01)
+        self.assertEqual(self.ax.bars[0]['zorder'], 4)
+
+    def test_bar_without_errors_adds_no_whisker(self):
+        self.ax.bar([1, 2, 3], [4, 5, 6], capsize=3, ecolor='red')
+        self.assertEqual(self.ax.errorbars, [])
+        self.assertNotIn('err ', self.fig._generate_gle())
+
 
 class TestFillBetween(unittest.TestCase):
     """Test fill_between functionality."""
@@ -727,6 +859,8 @@ class TestErrorBars(unittest.TestCase):
         
         gle = self.fig._generate_gle()
         self.assertIn('herr', gle)
+        self.assertAlmostEqual(self.ax.xmin, 0.7)
+        self.assertAlmostEqual(self.ax.xmax, 3.3)
     
     def test_figure_errorbar_method(self):
         """Test Figure-level errorbar convenience method."""

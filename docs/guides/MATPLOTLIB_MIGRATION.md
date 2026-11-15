@@ -138,6 +138,12 @@ ax.stem(x, y)
 
 `edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. `edgecolor='none'` emits `lwidth 0` (GLE has no missing edge). `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered. `hatch` warns and is ignored.
 
+`yerr` and `xerr` draw whiskers at the tip of each bar. A scalar or a length-n sequence is symmetric. Shape `(2, n)` is asymmetric (first row minus, second row plus); `(2, 1)` broadcasts. The whisker is a separate markerless error-bar series, because GLE's `horiz` swaps axes only while drawing the bar and an `err`/`herr` dataset is not swapped. A vertical bar's tip is `(x, bottom + height)`. A horizontal bar's tip is `(left + width, y)`. `yerr` stays vertical and `xerr` stays horizontal, so `barh(..., xerr=)` is a `herr` along the length.
+
+`ecolor` defaults to black. One colour is one series; a sequence of different colours is one series per bar. `capsize` is the cap width in points (`errwidth` / `herrwidth`). Leave it out and GLE draws its own cap, one third of the font height. `capsize=0` is that same default: GLE reads a zero width as "not given". There is no way to omit the cap. `capsize_cm` is the width in centimetres and overrides `capsize`. `error_kw` may set `ecolor`, `capsize`, `capsize_cm` and `zorder` (the last wins, then 0.01 is added so the whisker sits above the bar). Other `error_kw` keys, including `elinewidth`, warn and are ignored: a markerless error dataset does not carry `lwidth`, so the stem uses the line width already in force. The bar's label is the only legend entry.
+
+An autoscaled x axis now includes `xerr`, the way the y axis already included `yerr`. A horizontal whisker is not clipped by the `xaxis` gleplot writes. This applies to `errorbar` as well as to bars.
+
 Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 fill c1,c2` is GLE's side-by-side group and round-trips as one command, `dist` included. `3d`, `pattern`, `style`, `side`, `top`, `notop` and `background` have no series field; the whole command stays raw GLE.
 
 | call | GLE |
@@ -145,6 +151,8 @@ Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 
 | `ax.bar(x, h, color='green', edgecolor='k')` | `bar dN fill GREEN color BLACK` |
 | `ax.bar(x, h, color=['red', 'blue'])` | one `bar` per bar, explicit `width` |
 | `ax.bar(x, h2, bottom=h1)` | `bar dTo from dFrom` |
+| `ax.bar(x, h, yerr=e, capsize=3)` | `bar dN`, then `dM color BLACK err dE errwidth …` at the tip |
+| `ax.barh(y, w, xerr=e)` | `bar dN horiz`, then `herr` at `(left + w, y)` |
 | `ax.barh(y, w)` | `bar dN horiz` |
 
 `width` stays a keyword. The third positional argument is `color`, as it has always been.
