@@ -367,6 +367,44 @@ def _bar_width_for_split(x: np.ndarray) -> float:
     return float(GLEWriter.gle_bar_min_x_interval(x) / 2.0)
 
 
+def _bar_error_limits(err, n: int, name: str):
+    """``(minus, plus)`` error arrays of length ``n``, or ``(None, None)``.
+
+    Matplotlib's shapes: a scalar, shape ``(n,)`` (symmetric), or shape
+    ``(2, n)`` (first row minus, second row plus). A length-1 sequence and
+    a shape ``(2, 1)`` broadcast across the bars.
+    """
+    if err is None:
+        return None, None
+    try:
+        arr = np.asarray(err, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"bar() {name} must be numeric") from exc
+    if arr.ndim == 0 or (arr.ndim == 1 and arr.size == 1):
+        value = float(np.ravel(arr)[0])
+        if not np.isfinite(value):
+            raise ValueError(f"bar() {name} must be finite")
+        filled = np.full(n, value)
+        return filled, filled.copy()
+    if arr.ndim == 1:
+        if arr.size != n:
+            raise ValueError(
+                f"bar() {name} length {arr.size} does not match the {n} bars"
+            )
+        if not np.all(np.isfinite(arr)):
+            raise ValueError(f"bar() {name} must be finite")
+        return arr.copy(), arr.copy()
+    if arr.ndim == 2 and arr.shape[0] == 2 and arr.shape[1] in (1, n):
+        if not np.all(np.isfinite(arr)):
+            raise ValueError(f"bar() {name} must be finite")
+        if arr.shape[1] == n:
+            return arr[0].copy(), arr[1].copy()
+        lower = np.full(n, float(arr[0, 0]))
+        upper = np.full(n, float(arr[1, 0]))
+        return lower, upper
+    raise ValueError(f"bar() {name} must be a scalar, shape ({n},), or shape (2, {n})")
+
+
 def _require_finite(arr: np.ndarray, what: str) -> None:
     """Raise ``ValueError`` if ``arr`` holds any NaN or infinity.
 
@@ -2474,6 +2512,12 @@ class Axes:
         edgecolor=None,
         linewidth: Optional[float] = None,
         linestyle: Optional[str] = None,
+        yerr=None,
+        xerr=None,
+        ecolor=None,
+        capsize: Optional[float] = None,
+        capsize_cm: Optional[float] = None,
+        error_kw: Optional[dict] = None,
         **kwargs,
     ):
         """
@@ -2527,6 +2571,27 @@ class Axes:
         linewidth, linestyle : optional
             Edge width in points and matplotlib linestyle. ``lw`` / ``ls``
             are aliases. Omitted, the command carries neither keyword.
+        yerr, xerr : float or array-like, optional
+            Vertical and horizontal errors at the bar tip. A scalar or a
+            length-``n`` sequence is symmetric. Shape ``(2, n)`` is
+            asymmetric: the first row is the minus side, the second the
+            plus side. Shape ``(2, 1)`` broadcasts. On a horizontal bar the
+            tip is ``left + width``; ``xerr`` runs along the length.
+        ecolor : color or sequence, optional
+            Whisker colour. Default black. One colour is one error-bar
+            series; a sequence of different colours is one series per bar.
+        capsize : float, optional
+            Cap width in matplotlib points, written as GLE ``errwidth`` /
+            ``herrwidth``. Omitted, the keyword is left off and GLE draws
+            its own cap (one third of the font height). ``capsize=0`` is
+            that same default: GLE treats a zero width as "not given".
+            ``capsize_cm`` is the width in centimetres and wins over
+            ``capsize``.
+        error_kw : dict, optional
+            ``ecolor``, ``capsize``, ``capsize_cm`` and ``zorder`` override
+            the matching arguments. Any other key is ignored, with a
+            warning. A ``zorder`` here, or on the bar, is raised by ``0.01``
+            so the whisker is drawn above the bar.
         horiz : bool, optional
             Emit ``horiz``. :meth:`barh` sets this.
         **kwargs
@@ -2561,6 +2626,30 @@ class Axes:
                 UserWarning,
                 stacklevel=2,
             )
+        if error_kw is None:
+            error_extra: Dict[str, Any] = {}
+        elif isinstance(error_kw, dict):
+            error_extra = dict(error_kw)
+        else:
+            raise TypeError("bar() error_kw must be a dict")
+        if "ecolor" in error_extra:
+            ecolor = error_extra.pop("ecolor")
+        if "capsize" in error_extra:
+            capsize = error_extra.pop("capsize")
+        if "capsize_cm" in error_extra:
+            capsize_cm = error_extra.pop("capsize_cm")
+        err_zorder = error_extra.pop("zorder", None)
+        if err_zorder is None:
+            err_zorder = zorder
+        if err_zorder is not None:
+            err_zorder = float(err_zorder) + 0.01
+        if (yerr is not None or xerr is not None) and error_extra:
+            names = ", ".join(sorted(str(key) for key in error_extra))
+            warnings.warn(
+                f"bar() ignores unsupported error_kw key(s): {names}.",
+                UserWarning,
+                stacklevel=2,
+            )
         label = mathtext_to_gle(label)
 
         x = np.asarray(x, dtype=float).ravel()
@@ -2578,6 +2667,15 @@ class Axes:
         edges = _bar_color_list(edgecolor, n, default=None)
         baseline = _bar_baseline(bottom, n)
         style = _bar_edge_style(linewidth, linestyle)
+        # Reject a bad error before any series is stored, so a raise leaves
+        # the axes as they were.
+        y_lo, y_hi = _bar_error_limits(yerr, n, "yerr")
+        x_lo, x_hi = _bar_error_limits(xerr, n, "xerr")
+        err_colors = None
+        if yerr is not None or xerr is not None:
+            err_colors = _bar_color_list(
+                "black" if ecolor is None else ecolor, n, default="BLACK"
+            )
 
         # One dataset, one face and one edge. Differing colours are separate
         # series so each bar is a ``bar dN`` at its own x. Uniform colours
@@ -2597,27 +2695,40 @@ class Axes:
                 style,
                 horiz,
             )
-            return self
-
-        # A one-point dataset has no gap for GLE to measure, so each piece
-        # carries the thickness the combined set would have been given.
-        piece_width = width
-        if piece_width is None:
-            piece_width = _bar_width_for_split(x)
-        for index in range(n):
-            self._append_bar(
-                x[index : index + 1],
-                height[index : index + 1],
-                [faces[index]],
-                label if index == 0 else None,
-                data_name if index == 0 else None,
-                piece_width,
-                zorder,
-                None if baseline is None else baseline[index : index + 1],
-                edges[index],
-                style,
-                horiz,
-            )
+        else:
+            # A one-point dataset has no gap for GLE to measure, so each piece
+            # carries the thickness the combined set would have been given.
+            piece_width = width
+            if piece_width is None:
+                piece_width = _bar_width_for_split(x)
+            for index in range(n):
+                self._append_bar(
+                    x[index : index + 1],
+                    height[index : index + 1],
+                    [faces[index]],
+                    label if index == 0 else None,
+                    data_name if index == 0 else None,
+                    piece_width,
+                    zorder,
+                    None if baseline is None else baseline[index : index + 1],
+                    edges[index],
+                    style,
+                    horiz,
+                )
+        self._add_bar_errors(
+            x,
+            height,
+            baseline,
+            horiz,
+            y_lo,
+            y_hi,
+            x_lo,
+            x_hi,
+            err_colors,
+            capsize,
+            capsize_cm,
+            err_zorder,
+        )
         return self
 
     def barh(
@@ -2634,7 +2745,9 @@ class Axes:
         ``width`` is the bar length (matplotlib's second positional) and
         ``height`` is the thickness. Thickness defaults to GLE's own
         derivation, the same as :meth:`bar`'s ``width``, not matplotlib's
-        ``0.8``. ``left`` is the baseline (``bar``'s ``bottom``).
+        ``0.8``. ``left`` is the baseline (``bar``'s ``bottom``). ``xerr``
+        and ``yerr`` are the same errors as :meth:`bar`: ``xerr`` runs
+        along the length, from the tip.
         """
         if "width" in kwargs:
             raise TypeError(
@@ -2696,6 +2809,74 @@ class Axes:
         bar_data = BarSeries(**fields)
         self._register_series_draw_meta(bar_data, "bar", zorder)
         self.bars.append(bar_data)
+
+    def _add_bar_errors(
+        self,
+        x,
+        height,
+        baseline,
+        horiz,
+        y_lo,
+        y_hi,
+        x_lo,
+        x_hi,
+        colors,
+        capsize,
+        capsize_cm,
+        zorder,
+    ):
+        """Draw whiskers at the bar tips as a markerless error-bar series.
+
+        GLE's ``horiz`` swaps a bar's axes only inside ``draw_bar``. An
+        ``err`` / ``herr`` dataset is not swapped, so the whisker is a
+        separate series sitting on the tip in graph coordinates:
+        ``(x, top)`` when the bar is vertical, ``(top, y)`` when it is
+        horizontal. ``yerr`` stays vertical and ``xerr`` stays horizontal.
+        The series is the same one :meth:`errorbar` writes, which is what
+        makes the script round-trip.
+        """
+        if colors is None:
+            return
+        tops = np.asarray(height, dtype=float)
+        if baseline is not None:
+            tops = tops + np.asarray(baseline, dtype=float)
+        category = np.asarray(x, dtype=float)
+        if horiz:
+            ex, ey = tops, category
+        else:
+            ex, ey = category, tops
+
+        def _arg(lower, upper, sl=slice(None)):
+            if lower is None:
+                return None
+            return (np.asarray(lower)[sl], np.asarray(upper)[sl])
+
+        common = dict(
+            fmt="none",
+            capsize=capsize,
+            capsize_cm=capsize_cm,
+            zorder=zorder,
+        )
+        if len(set(colors)) == 1:
+            self.errorbar(
+                ex,
+                ey,
+                yerr=_arg(y_lo, y_hi),
+                xerr=_arg(x_lo, x_hi),
+                color=colors[0],
+                **common,
+            )
+            return
+        for index, color in enumerate(colors):
+            sl = slice(index, index + 1)
+            self.errorbar(
+                ex[sl],
+                ey[sl],
+                yerr=_arg(y_lo, y_hi, sl),
+                xerr=_arg(x_lo, x_hi, sl),
+                color=color,
+                **common,
+            )
 
     def fill_between(
         self,

@@ -3041,12 +3041,28 @@ class Figure:
         )
         for data_list in x_bearing:
             for data in data_list:
-                x = _plottable(np.asarray(data["x"]), positive_only)
-                if len(x) > 0:
-                    if xmin is None or x.min() < xmin:
-                        xmin = float(x.min())
-                    if xmax is None or x.max() > xmax:
-                        xmax = float(x.max())
+                x = np.asarray(data["x"], dtype=float)
+                # yerr already widens the y range. xerr has to widen x the
+                # same way, or the explicit ``xaxis`` written below clips a
+                # horizontal whisker (``barh(..., xerr=)`` and ``xerr`` on
+                # ``errorbar``). Series with no x error keep the old path.
+                xerr_left = data.get("xerr_left")
+                xerr_right = data.get("xerr_right")
+                if xerr_left is None and xerr_right is None:
+                    values = x
+                else:
+                    pieces = [x]
+                    if xerr_left is not None:
+                        pieces.append(x - np.asarray(xerr_left, dtype=float))
+                    if xerr_right is not None:
+                        pieces.append(x + np.asarray(xerr_right, dtype=float))
+                    values = np.concatenate(pieces)
+                values = _plottable(values, positive_only)
+                if len(values) > 0:
+                    if xmin is None or values.min() < xmin:
+                        xmin = float(values.min())
+                    if xmax is None or values.max() > xmax:
+                        xmax = float(values.max())
 
         # Bars are the one series whose x extent is wider than its x values.
         # GLE's own ``get_dataset_ranges`` pushes a bar dataset's data range

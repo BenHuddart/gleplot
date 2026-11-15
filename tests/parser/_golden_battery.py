@@ -103,6 +103,28 @@ def barh():
     return fig
 
 
+def bar_yerr():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar(
+        [1, 2, 3],
+        [4, 5, 6],
+        yerr=([0.2, 0.3, 0.4], [0.5, 0.4, 0.3]),
+        capsize=3,
+        color="orange",
+        label="measured",
+    )
+    ax.legend()
+    return fig
+
+
+def barh_xerr():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.barh([1, 2, 3], [4, 5, 6], xerr=0.4, capsize=4, color="teal", left=1)
+    return fig
+
+
 def errorbar_symmetric():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -492,6 +514,8 @@ BUILDERS = [
     bar_per_color,
     bar_stack,
     barh,
+    bar_yerr,
+    barh_xerr,
     errorbar_symmetric,
     errorbar_asymmetric_xy,
     fill_between,

@@ -1,8 +1,8 @@
-"""Per-bar colour, edges, stacks, and horizontal bars compile on GLE.
+"""Bar forms compile on GLE: colours, edges, stacks, and error bars.
 
 The script text is asserted in the unit and parser suites. This checks
-that the forms in issue 45 are scripts GLE accepts. Skipped when the
-binary is missing.
+that the forms in issues 45 and 46 are scripts GLE accepts. Skipped
+when the binary is missing.
 """
 
 from __future__ import annotations
@@ -44,3 +44,20 @@ def test_issue_45_bar_forms_compile(tmp_path):
     ax.legend()
     fig.savefig(str(tmp_path / "bars.png"))
     assert (tmp_path / "bars.png").exists()
+
+
+def test_issue_46_bar_errors_compile(tmp_path):
+    """Symmetric, asymmetric, and horizontal-bar whiskers are scripts GLE accepts."""
+    fig = glp.figure(data_prefix="barerr")
+    ax = fig.add_subplot(111)
+    ax.bar(
+        [1, 2, 3],
+        [2, 3, 4],
+        yerr=([0.2, 0.1, 0.3], [0.4, 0.2, 0.1]),
+        capsize=3,
+        label="v",
+    )
+    ax.barh([1, 2], [3, 4], xerr=0.5, capsize=3, color="teal")
+    ax.legend()
+    fig.savefig(str(tmp_path / "barerr.png"))
+    assert (tmp_path / "barerr.png").exists()
