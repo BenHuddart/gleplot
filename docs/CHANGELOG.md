@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.7.0 (2026-11-15)
+
+### Features
+
+- Draw error bars on bar charts
+  ([`e7737b4`](https://github.com/BenHuddart/gleplot/commit/e7737b43346c7f34c93d79d60fb0f4cedd47513b))
+
+
 ## v3.6.0 (2026-11-14)
 
 ### Features
