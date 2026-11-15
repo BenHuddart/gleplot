@@ -175,6 +175,7 @@ Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 
 | `orientation="horizontal"` | warns. The histogram is vertical. |
 | `log=True` | sets the y axis to log. |
 | `yaxis="y2"` | a step histogram can use it. A filled one warns and stays on the primary axis: `bar` has no `y2axis`. |
+| `xaxis="x2"` | a step histogram can use the top scale. A filled one warns and stays on the primary x axis: `bar` has no `x2axis`. |
 | return value | the axes. |
 
 ## Fills
@@ -205,6 +206,21 @@ ax.fill(x, y, alpha=0.4)
 | `fill` extra polygons | the first polygon is drawn. The rest warn and are ignored. |
 | `edgecolor`, `linewidth` on `fill` | warn and are ignored. GLE fills the interior and does not stroke it. |
 | `alpha` | unchanged: below 1 the colour is `rgba255(...)`. |
+
+## Secondary axes
+
+The right-hand scale is `yaxis="y2"` on a series, with `set_ylim`, `set_ylabel`, `set_yscale` and `set_tick_format` taking `axis="y2"`. The top scale is the same idea, and `ax.twiny()` is the matplotlib view that binds it:
+
+```python
+top = ax.twiny()
+top.plot(x_alt, y)
+top.set_xlim(0, 10)
+top.set_xlabel("wavelength")
+```
+
+`xaxis="x2"` on `plot`, `scatter`, `errorbar`, `step`, `stem`, `hist` (step outline), `line_from_file` and `errorbar_from_file` is the same binding without the view. `set_xlim`, `set_xlabel`, `set_xscale` and `set_tick_format` take `axis="x2"`.
+
+GLE copies an `xaxis` command onto x2. `min` and `max` are not copied, but `log` is, so a linear top scale under a log bottom axis is written `x2axis lin` after the `xaxis` line. A figure whose bottom axis is log and whose top scale is unused does not gain that line. `x2labels on` is written when the top scale has limits, a log scale, a title, or tick-label styling; a series on x2 is enough for GLE to number that axis on its own. There is no x2 grid. A filled histogram cannot use x2, and `bar` has no `x2axis`.
 
 ## Key Behavioral Differences
 

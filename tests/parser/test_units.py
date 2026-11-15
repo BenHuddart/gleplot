@@ -2,8 +2,8 @@
 writer-refactor golden-battery guard (Track A2).
 """
 
-import pickle
 import math
+import pickle
 
 import pytest
 
@@ -12,15 +12,28 @@ from gleplot.parser import units
 
 from . import _golden_battery as gb
 
-
 # -- Property tests: each conversion pair must be an exact inverse ----------
 #
 # No `hypothesis` dependency is installed in this environment, so each pair
 # is swept over a representative range of values (including edge cases like
 # 0, negative, and large magnitudes) rather than using generated strategies.
 
-SWEEP_VALUES = [0.0, 1.0, -1.0, 0.5, 2.54, 6.0, 8.5, 10.0, 12.0, 72.0,
-                100.0, 0.001, -12.5, 1000.0]
+SWEEP_VALUES = [
+    0.0,
+    1.0,
+    -1.0,
+    0.5,
+    2.54,
+    6.0,
+    8.5,
+    10.0,
+    12.0,
+    72.0,
+    100.0,
+    0.001,
+    -12.5,
+    1000.0,
+]
 
 
 class TestInchesCm:
@@ -76,7 +89,9 @@ class TestMarkersize:
             # from float division edge cases across scales).
             pass
         msize = units.markersize_to_msize(markersize, msize_scale)
-        assert units.msize_to_markersize(msize, msize_scale) == pytest.approx(markersize)
+        assert units.msize_to_markersize(msize, msize_scale) == pytest.approx(
+            markersize
+        )
 
     def test_known_value(self):
         # matplotlib default markersize 6 -> msize 0.15 at scale 1.0
@@ -122,8 +137,7 @@ class TestCapsize:
 
 
 GOLDEN_SNAPSHOT = {
-    builder.__name__: builder()._generate_gle_with_files()
-    for builder in gb.BUILDERS
+    builder.__name__: builder()._generate_gle_with_files() for builder in gb.BUILDERS
 }
 
 
@@ -152,10 +166,22 @@ def test_golden_battery_covers_all_series_types():
         builder()._generate_gle_with_files()[0] for builder in gb.BUILDERS
     )
     for expected_token in (
-        "line", "marker", "bar", "err", "herr", "fill", "y2axis",
-        "write \"", "key pos", "begin graph", "lstyle",
+        "line",
+        "marker",
+        "bar",
+        "err",
+        "herr",
+        "fill",
+        "y2axis",
+        "x2axis",
+        'write "',
+        "key pos",
+        "begin graph",
+        "lstyle",
     ):
-        assert expected_token in combined, f"golden battery never emits {expected_token!r}"
+        assert (
+            expected_token in combined
+        ), f"golden battery never emits {expected_token!r}"
 
 
 def _executable_lines(source: str):
@@ -184,7 +210,7 @@ def _executable_lines(source: str):
                 break
         if in_docstring:
             continue
-        if line.startswith('#'):
+        if line.startswith("#"):
             continue
         yield lineno, raw_line
 
@@ -197,8 +223,9 @@ def test_writer_uses_units_module_not_inline_constants():
     complements (not replaces) the golden byte-identical test above.
     """
     import inspect
-    from gleplot import writer as writer_mod
+
     from gleplot import axes as axes_mod
+    from gleplot import writer as writer_mod
 
     # These exact literal substrings were the pre-refactor inline constants;
     # they must no longer appear as arithmetic in the writer/axes *code*
@@ -216,9 +243,9 @@ def test_writer_uses_units_module_not_inline_constants():
         src = inspect.getsource(mod)
         for lineno, line in _executable_lines(src):
             for pattern in banned_patterns:
-                assert pattern not in line, (
-                    f"{mod_name}:{lineno} still has inline {pattern!r}: {line!r}"
-                )
+                assert (
+                    pattern not in line
+                ), f"{mod_name}:{lineno} still has inline {pattern!r}: {line!r}"
 
     writer_src = inspect.getsource(writer_mod)
     axes_src = inspect.getsource(axes_mod)
@@ -228,14 +255,16 @@ def test_writer_uses_units_module_not_inline_constants():
 
 def test_figsize_to_size_cm_matches_units_module():
     """End-to-end check that GLEWriter's ``size`` line uses units.inches_to_cm."""
-    fig = glp.figure(figsize=(8, 6), data_prefix='unitcheck')
+    fig = glp.figure(figsize=(8, 6), data_prefix="unitcheck")
     ax = fig.add_subplot(111)
     ax.plot([1, 2], [1, 2])
     gle_content, _ = fig._generate_gle_with_files()
 
     expected_w = units.inches_to_cm(8)
     expected_h = units.inches_to_cm(6)
-    size_line = next(line for line in gle_content.splitlines() if line.startswith('size '))
+    size_line = next(
+        line for line in gle_content.splitlines() if line.startswith("size ")
+    )
     _, w_str, h_str = size_line.split()
     assert float(w_str) == pytest.approx(expected_w)
     assert float(h_str) == pytest.approx(expected_h)
@@ -246,19 +275,24 @@ class TestInverseSnapping:
 
     def test_markersize_roundtrip_exact_at_nondefault_scale(self):
         from gleplot.parser.units import markersize_to_msize, msize_to_markersize
+
         for ms in (11.7, 300.0, 100.0, 6.0, 1.5, 0.1):
             assert msize_to_markersize(markersize_to_msize(ms, 1.5), 1.5) == ms
 
     def test_fontsize_roundtrip_exact(self):
-        from gleplot.parser.units import fontsize_pt_to_cm, fontsize_cm_to_pt
+        from gleplot.parser.units import fontsize_cm_to_pt, fontsize_pt_to_cm
+
         for pt in (1.5, 6.0, 3.0, 12.0, 10.5):
             assert fontsize_cm_to_pt(fontsize_pt_to_cm(pt)) == pt
 
     def test_capsize_and_linewidth_roundtrip_exact(self):
         from gleplot.parser.units import (
-            capsize_pt_to_cm, capsize_cm_to_pt,
-            linewidth_pt_to_cm, linewidth_cm_to_pt,
+            capsize_cm_to_pt,
+            capsize_pt_to_cm,
+            linewidth_cm_to_pt,
+            linewidth_pt_to_cm,
         )
+
         for pt in (1.0, 1.5, 3.0, 4.5):
             assert capsize_cm_to_pt(capsize_pt_to_cm(pt)) == pt
             assert linewidth_cm_to_pt(linewidth_pt_to_cm(pt)) == pt

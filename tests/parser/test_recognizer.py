@@ -205,7 +205,7 @@ def normalize(d: dict) -> dict:
         ax.pop("placement", None)
 
         # axis limits snap to emitted precision.
-        for lim in ("xmin", "xmax", "ymin", "ymax", "y2min", "y2max"):
+        for lim in ("xmin", "xmax", "ymin", "ymax", "y2min", "y2max", "x2min", "x2max"):
             if ax.get(lim) is not None:
                 ax[lim] = _snap_num(ax[lim])
 
@@ -219,9 +219,11 @@ def normalize(d: dict) -> dict:
             "xlabel_size",
             "ylabel_size",
             "y2label_size",
+            "x2label_size",
             "xticklabel_size",
             "yticklabel_size",
             "y2ticklabel_size",
+            "x2ticklabel_size",
         ):
             if ax.get(key) is not None:
                 emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(ax[key])))

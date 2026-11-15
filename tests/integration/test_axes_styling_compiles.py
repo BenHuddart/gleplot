@@ -176,6 +176,28 @@ def _configured_y2_script(tmp_path):
     return (tmp_path / "with_labels.gle").read_text(encoding="utf-8")
 
 
+def test_a_top_data_scale_compiles(tmp_path):
+    """Limits, a title, and a series on x2, which is the ``twiny`` example."""
+    fig = glp.figure(data_prefix="x2c")
+    ax = fig.add_subplot(111)
+    ax.plot(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.0]))
+    top = ax.twiny()
+    top.plot(np.array([0.0, 5.0, 10.0]), np.array([1.0, 2.0, 3.0]))
+    top.set_xlim(0, 10)
+    top.set_xlabel("wavelength")
+    _assert_compiles(fig, tmp_path, "twiny")
+
+
+def test_a_configured_x2_axis_with_no_series_compiles(tmp_path):
+    """No dataset means GLE will not number x2 unless ``x2labels on`` is written."""
+    fig = glp.figure(data_prefix="x2c")
+    ax = fig.add_subplot(111)
+    ax.plot(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.0]))
+    ax.set_xlim(0, 10, axis="x2")
+    ax.set_xlabel("wavelength", axis="x2")
+    _assert_compiles(fig, tmp_path, "x2configured")
+
+
 def test_a_configured_y2_axis_labels_the_right_axis_even_unstyled(tmp_path):
     """Without ``y2labels on`` GLE draws no y2 numbers at all -- a y2 axis
     that is configured (explicit limits here) but carries no styling and no

@@ -64,13 +64,18 @@ def _styled_figure():
     ax.set_ylabel("Y")
     ax.set_ylabel("Y2", axis="y2")
     ax.set_ylim(0, 10, axis="y2")
+    ax.set_xlabel("X2", axis="x2")
+    ax.set_xlim(0, 4, axis="x2")
     ax.set_tick_format("fix 1", axis="x")
     ax.set_tick_format("sci 2 10", axis="y2")
+    ax.set_tick_format("fix 2", axis="x2")
     ax.grid(True, which="both", linestyle=":", linewidth=0.4, color="gray40")
     ax.title_size, ax.title_color, ax.title_dist = 14.0, "RED", 0.3
     ax.xlabel_size, ax.xlabel_color, ax.xlabel_dist = 10.0, "BLUE", 0.35
     ax.xticklabel_size, ax.xticklabel_color, ax.xticklabel_angle = 7.0, "GREEN", 45.0
     ax.y2ticklabel_size = 6.0
+    ax.x2label_size = 9.0
+    ax.x2ticklabel_angle = 20.0
     return fig, ax
 
 
@@ -110,6 +115,11 @@ def test_the_styling_comes_back_on_the_model_not_in_passthrough(tmp_path):
     assert ax.xticklabel_color == "GREEN" and ax.xticklabel_angle == 45
     assert ax.xticklabel_size == pytest.approx(7.0, rel=1e-4)
     assert ax.y2ticklabel_size == pytest.approx(6.0, rel=1e-4)
+    assert ax.x2format == "fix 2"
+    assert ax.x2label_text == "X2"
+    assert (ax.x2min, ax.x2max) == (0, 4)
+    assert ax.x2label_size == pytest.approx(9.0, rel=1e-4)
+    assert ax.x2ticklabel_angle == 20
 
 
 @pytest.mark.parametrize("which", ["major", "both"])
@@ -135,6 +145,26 @@ def test_an_unstyled_grid_round_trips_without_a_ticks_line(tmp_path):
 
 
 # -- hand-written shapes -----------------------------------------------------
+
+
+def test_a_redundant_x2axis_lin_is_kept(tmp_path):
+    """``lin`` with a linear bottom axis is not something the writer emits."""
+    path = _write(tmp_path, "lin.gle", "   xaxis min 1 max 3\n   x2axis lin\n")
+    recognized = parse_gle_figure(path)
+    assert any(
+        "x2axis lin" in line for line in recognized.figure.axes_list[0].passthrough
+    )
+    second = tmp_path / "two.gle"
+    recognized.figure.savefig_gle(str(second))
+    assert "x2axis lin" in second.read_text(encoding="utf-8")
+
+
+def test_x2axis_off_is_reemitted(tmp_path):
+    path = _write(tmp_path, "off.gle", "   x2axis off\n")
+    recognized = parse_gle_figure(path)
+    second = tmp_path / "two.gle"
+    recognized.figure.savefig_gle(str(second))
+    assert "x2axis off" in second.read_text(encoding="utf-8")
 
 
 def test_a_hand_written_format_and_grid_are_recovered(tmp_path):

@@ -598,6 +598,10 @@ class _XYSeries(Series):
     nomiss: bool
     label: Optional[str]
     yaxis: str
+    #: ``'x2'`` binds the series to the top scale. Absent means the
+    #: primary x axis, so a series stored before this field existed is
+    #: unchanged.
+    xaxis: str
     offset: float
     data_file: Optional[str]
     column_names: Optional[List[str]]
@@ -777,6 +781,10 @@ class HistSeries(Series):
     linewidth: float
     label: Optional[str]
     yaxis: str
+    #: ``'x2'`` binds the histogram to the top scale. Absent means the
+    #: primary x axis. A ``stepfilled`` histogram cannot use it: GLE's
+    #: ``bar`` command has no ``x2axis``.
+    xaxis: str
     data_file: Optional[str]
     column_names: Optional[List[str]]
     data_source: Optional[DataSource]
@@ -867,6 +875,9 @@ class ErrorbarSeries(Series):
     capsize: Optional[float]
     gle_capsize: Optional[float]
     yaxis: str
+    #: ``'x2'`` binds the series to the top scale. Absent means the
+    #: primary x axis.
+    xaxis: str
     offset: float
     data_file: Optional[str]
     column_names: Optional[List[str]]
@@ -924,6 +935,9 @@ class FileSeries(Series):
     label: Optional[str]
     capsize: Optional[float]
     yaxis: str
+    #: ``'x2'`` binds the referenced columns to the top scale. Absent
+    #: means the primary x axis.
+    xaxis: str
     #: Why the referenced data could not be loaded, when it could not be.
     #: Present only on entries the recognizer degraded to a bare reference.
     data_error: str

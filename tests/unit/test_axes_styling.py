@@ -150,8 +150,8 @@ def test_validate_rejects_what_could_not_be_a_format(fmt):
 
 def test_set_tick_format_rejects_an_unknown_axis():
     _, ax = _fig()
-    with pytest.raises(ValueError, match="must be 'both', 'x', 'y' or 'y2'"):
-        ax.set_tick_format("fix 1", axis="x2")
+    with pytest.raises(ValueError, match="must be 'both', 'x', 'y', 'y2' or 'x2'"):
+        ax.set_tick_format("fix 1", axis="z")
 
 
 # -- grids -------------------------------------------------------------------
@@ -350,6 +350,18 @@ def test_y2_tick_label_styling_turns_the_labels_on():
     assert _line_starting(fig, "y2labels") == f"y2labels on hei {hei} color BLUE"
 
 
+def test_x2_title_and_tick_label_styling():
+    fig, ax = _fig()
+    ax.set_xlabel("Top", axis="x2")
+    ax.x2label_size = 8
+    ax.x2ticklabel_size = 7
+    ax.x2ticklabel_color = "BLUE"
+    title_hei = f"{fontsize_pt_to_cm(8):.6g}"
+    label_hei = f"{fontsize_pt_to_cm(7):.6g}"
+    assert _line_starting(fig, "x2title") == f'x2title "Top" hei {title_hei}'
+    assert _line_starting(fig, "x2labels") == f"x2labels on hei {label_hei} color BLUE"
+
+
 # -- graph title -------------------------------------------------------------
 
 
@@ -481,17 +493,21 @@ def _styled_axes(ax):
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_ylabel("Y2", axis="y2")
+    ax.set_xlabel("X2", axis="x2")
     ax.set_tick_format("fix 1", axis="x")
     ax.set_tick_format("sci 2", axis="y")
     ax.set_tick_format("eng 2", axis="y2")
+    ax.set_tick_format("fix 2", axis="x2")
     ax.grid(True, which="both", linestyle=":", linewidth=0.4, color="gray40")
     ax.title_size, ax.title_color, ax.title_dist = 14.0, "RED", 0.3
     ax.xlabel_size, ax.xlabel_color, ax.xlabel_dist = 10.0, "BLUE", 0.35
     ax.ylabel_size, ax.ylabel_color, ax.ylabel_dist = 9.0, "GREEN", 0.36
     ax.y2label_size, ax.y2label_color, ax.y2label_dist = 8.0, "PURPLE", 0.37
+    ax.x2label_size, ax.x2label_color, ax.x2label_dist = 8.5, "BROWN", 0.38
     ax.xticklabel_size, ax.xticklabel_color, ax.xticklabel_angle = 7.0, "ORANGE", 30.0
     ax.yticklabel_size, ax.yticklabel_color, ax.yticklabel_angle = 6.5, "CYAN", 15.0
     ax.y2ticklabel_size, ax.y2ticklabel_color, ax.y2ticklabel_angle = 6.0, "PINK", 45.0
+    ax.x2ticklabel_size, ax.x2ticklabel_color, ax.x2ticklabel_angle = 5.5, "GRAY", 20.0
     return ax
 
 

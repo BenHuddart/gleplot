@@ -754,6 +754,11 @@ class Figure:
     #: Measured 3.28 hei.
     _AUTO_MARGIN_Y2_HEI = 4.0
 
+    #: Same, top edge when any axes carries a secondary x scale. The bottom
+    #: margin (tick labels plus the axis title) is the measured twin of this
+    #: decoration; the top scale draws the same pair above the frame.
+    _AUTO_MARGIN_X2_HEI = 3.0
+
     #: Same, for an edge with no axis title on it: only the outermost tick
     #: label's overhang past the frame corner. Measured worst case 0.52 hei.
     _AUTO_MARGIN_PLAIN_HEI = 1.5
@@ -776,6 +781,28 @@ class Figure:
             or ax.y2min is not None
             or ax.y2max is not None
             or ax.y2scale == "log"
+        )
+
+    @staticmethod
+    def _axes_has_x2(ax: Axes) -> bool:
+        """True if ``ax`` draws a top scale that needs room above the frame.
+
+        Limits, log, a title, tick-label styling, or a series bound to x2.
+        Tick-label styling emits ``x2labels on`` with no dataset to hang
+        those numbers on, so the top margin has to make room for them. A
+        series alone still numbers the top axis: GLE turns those labels on
+        for any dataset that uses it.
+        """
+        return bool(
+            ax.x2label_text
+            or ax.x2min is not None
+            or ax.x2max is not None
+            or ax.x2scale == "log"
+            or ax.x2format is not None
+            or ax.x2ticklabel_size is not None
+            or ax.x2ticklabel_color is not None
+            or ax.x2ticklabel_angle is not None
+            or ax.has_x2_plots()
         )
 
     def _auto_margins_cm(self, writer, resolution) -> Tuple[float, float, float, float]:
@@ -810,11 +837,17 @@ class Figure:
         hei = fontsize_pt_to_cm(self.style.fontsize)
         titled = self._has_titles()
         has_y2 = any(self._axes_has_y2(ax) for ax in self.axes_list)
+        has_x2 = any(self._axes_has_x2(ax) for ax in self.axes_list)
         margin_left = self._AUTO_MARGIN_LEFT_HEI * hei
         margin_bottom = self._AUTO_MARGIN_BOTTOM_HEI * hei
-        margin_top = (
-            self._AUTO_MARGIN_TITLE_HEI if titled else self._AUTO_MARGIN_PLAIN_HEI
-        ) * hei
+        if has_x2:
+            margin_top = self._AUTO_MARGIN_X2_HEI * hei
+            if titled:
+                margin_top += self._AUTO_MARGIN_TITLE_HEI * hei
+        else:
+            margin_top = (
+                self._AUTO_MARGIN_TITLE_HEI if titled else self._AUTO_MARGIN_PLAIN_HEI
+            ) * hei
         margin_right = (
             self._AUTO_MARGIN_Y2_HEI if has_y2 else self._AUTO_MARGIN_PLAIN_HEI
         ) * hei
@@ -2136,12 +2169,14 @@ class Figure:
         """
         graph_cfg = self.graph
         dist_default = (
-            graph_cfg.xlabel_distance if prefix == "x" else graph_cfg.ylabel_distance
+            graph_cfg.xlabel_distance
+            if prefix in ("x", "x2")
+            else graph_cfg.ylabel_distance
         )
         title_dist = getattr(ax, f"{prefix}label_dist")
         return AxisStyle(
             fmt=getattr(ax, f"{prefix}format"),
-            grid=getattr(ax, f"{prefix}grid", None) if prefix != "y2" else None,
+            grid=getattr(ax, f"{prefix}grid", None) if prefix in ("x", "y") else None,
             grid_lstyle=getattr(ax, f"{prefix}grid_lstyle", None),
             grid_lwidth=getattr(ax, f"{prefix}grid_lwidth", None),
             grid_color=getattr(ax, f"{prefix}grid_color", None),
@@ -2184,16 +2219,20 @@ class Figure:
             xlabel=ax.xlabel_text or None,
             ylabel=ax.ylabel_text or None,
             y2label=ax.y2label_text or None,
+            x2label=ax.x2label_text or None,
             title=ax.title_text or None,
             xlog=(ax.xscale == "log"),
             ylog=(ax.yscale == "log"),
             y2log=(ax.y2scale == "log"),
+            x2log=(ax.x2scale == "log"),
             xmin=ax.xmin,
             xmax=ax.xmax,
             ymin=ax.ymin,
             ymax=ax.ymax,
             y2min=ax.y2min,
             y2max=ax.y2max,
+            x2min=ax.x2min,
+            x2max=ax.x2max,
             show_xlabel=ax._show_xlabel,
             show_ylabel=ax._show_ylabel,
             show_xticks=ax._show_xticks,
@@ -2217,6 +2256,8 @@ class Figure:
             xstyle=self._axis_style(ax, "x"),
             ystyle=self._axis_style(ax, "y"),
             y2style=self._axis_style(ax, "y2"),
+            x2style=self._axis_style(ax, "x2"),
+            x2_series=ax.has_x2_plots(),
             title_size=ax.title_size,
             title_color=ax.title_color,
             title_dist=(
@@ -2421,6 +2462,7 @@ class Figure:
                     markersize=series_data.get("markersize", 0.1),
                     nomiss=series_data.get("nomiss", False),
                     yaxis=series_data.get("yaxis", "y"),
+                    xaxis=series_data.get("xaxis", "x"),
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
                     binding=binding,
@@ -2443,6 +2485,7 @@ class Figure:
                     markersize=series_data["markersize"],
                     label=series_data["label"],
                     yaxis=series_data.get("yaxis", "y"),
+                    xaxis=series_data.get("xaxis", "x"),
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
                     binding=binding,
@@ -2457,6 +2500,7 @@ class Figure:
                     linewidth=series_data.get("linewidth", 1),
                     label=series_data.get("label"),
                     yaxis=series_data.get("yaxis", "y"),
+                    xaxis=series_data.get("xaxis", "x"),
                     hist_from=series_data.get("hist_from"),
                     hist_to=series_data.get("hist_to"),
                     bins=series_data.get("bins"),
@@ -2481,6 +2525,7 @@ class Figure:
                     xerr_right=series_data["xerr_right"],
                     capsize=series_data.get("gle_capsize", series_data.get("capsize")),
                     yaxis=series_data.get("yaxis", "y"),
+                    xaxis=series_data.get("xaxis", "x"),
                     offset=series_data.get("offset", 0.0),
                     column_names=series_data.get("column_names"),
                     binding=binding,
@@ -2500,6 +2545,7 @@ class Figure:
                     linewidth=fs_data.get("linewidth", 1.0),
                     label=fs_data.get("label"),
                     yaxis=fs_data.get("yaxis", "y"),
+                    xaxis=fs_data.get("xaxis", "x"),
                     marker=fs_data.get("marker"),
                     markersize=fs_data.get("markersize", 0.1),
                     nomiss=fs_data.get("nomiss", False),
@@ -2541,6 +2587,7 @@ class Figure:
                     label=fs_data.get("label"),
                     capsize=fs_data.get("capsize"),
                     yaxis=fs_data.get("yaxis", "y"),
+                    xaxis=fs_data.get("xaxis", "x"),
                 )
 
         # Add text annotations.
@@ -2690,6 +2737,7 @@ class Figure:
             "x": (ax.xmin is None, ax.xmax is None),
             "y": (ax.ymin is None, ax.ymax is None),
             "y2": (ax.y2min is None, ax.y2max is None),
+            "x2": (ax.x2min is None, ax.x2max is None),
         }
 
         if ax.xmin is None or ax.xmax is None:
@@ -2739,7 +2787,7 @@ class Figure:
         Parameters
         ----------
         which:
-            ``"x"``, ``"y"`` or ``"y2"``.
+            ``"x"``, ``"y"``, ``"y2"`` or ``"x2"``.
         lo_auto, hi_auto:
             Whether each bound was derived rather than asked for. A derived
             bound is simply dropped; GLE re-derives it, better. An explicit
@@ -2760,6 +2808,7 @@ class Figure:
                 "x": "set_xlim()",
                 "y": "set_ylim()",
                 "y2": "set_ylim(axis='y2')",
+                "x2": "set_xlim(axis='x2')",
             }[which]
             warnings.warn(
                 f"{which}-axis limits are both {lo!r}, an empty range that GLE "
@@ -2793,7 +2842,12 @@ class Figure:
         There is no way to spell a reversed log axis in GLE, so the inversion
         is dropped rather than drawn wrong, and said out loud.
         """
-        for which, scale in (("x", ax.xscale), ("y", ax.yscale), ("y2", ax.y2scale)):
+        for which, scale in (
+            ("x", ax.xscale),
+            ("y", ax.yscale),
+            ("y2", ax.y2scale),
+            ("x2", ax.x2scale),
+        ):
             if scale != "log":
                 continue
             lo, hi = self._axis_limits(ax, which)
@@ -2832,19 +2886,25 @@ class Figure:
             ("x", ax.xscale),
             ("y", ax.yscale),
             ("y2", ax.y2scale),
+            ("x2", ax.x2scale),
         ):
             if scale != "log":
                 continue
             lo, hi = self._axis_limits(ax, which)
             fixed = self._log_safe_range(ax, which, lo, hi, resolution)
             if fixed != (lo, hi):
-                setter = "set_xlim" if which == "x" else "set_ylim"
+                setter = {
+                    "x": "set_xlim()",
+                    "x2": "set_xlim(axis='x2')",
+                    "y": "set_ylim()",
+                    "y2": "set_ylim(axis='y2')",
+                }[which]
                 warnings.warn(
                     f"{which}-axis is log-scaled, but the range it resolved "
                     f"to ({lo!r} .. {hi!r}) is not an increasing positive "
                     "one, which GLE refuses to draw. Using "
                     f"{fixed[0]:g} .. {fixed[1]:g} instead, from the positive "
-                    f"values plotted on it. Call {setter}() with a positive "
+                    f"values plotted on it. Call {setter} with a positive "
                     "range to choose your own.",
                     UserWarning,
                 )
@@ -2874,6 +2934,7 @@ class Figure:
             "x": self._get_data_xlim,
             "y": self._get_data_ylim,
             "y2": self._get_data_y2lim,
+            "x2": self._get_data_x2lim,
         }[which]
 
         # What the axis will actually span: the explicit bounds where given,
@@ -2904,6 +2965,8 @@ class Figure:
     def _axis_limits(ax: Axes, which: str) -> Tuple[Optional[float], Optional[float]]:
         if which == "x":
             return (ax.xmin, ax.xmax)
+        if which == "x2":
+            return (ax.x2min, ax.x2max)
         if which == "y":
             return (ax.ymin, ax.ymax)
         return (ax.y2min, ax.y2max)
@@ -2931,6 +2994,8 @@ class Figure:
         """Write a pair of bounds back onto ``ax``. ``None`` means auto."""
         if which == "x":
             ax.xmin, ax.xmax = lo, hi
+        elif which == "x2":
+            ax.x2min, ax.x2max = lo, hi
         elif which == "y":
             ax.ymin, ax.ymax = lo, hi
         else:
@@ -3041,6 +3106,8 @@ class Figure:
         )
         for data_list in x_bearing:
             for data in data_list:
+                if data.get("xaxis") == "x2":
+                    continue
                 x = np.asarray(data["x"], dtype=float)
                 # yerr already widens the y range. xerr has to widen x the
                 # same way, or the explicit ``xaxis`` written below clips a
@@ -3104,6 +3171,8 @@ class Figure:
         # not the index column written beside them. The step outline and the
         # full-width bars both reach the edges.
         for hist in resolution.visible(ax.hists):
+            if hist.get("xaxis") == "x2":
+                continue
             lo = hist.get("hist_from")
             hi = hist.get("hist_to")
             if lo is None or hi is None or not (float(hi) > float(lo)):
@@ -3333,6 +3402,62 @@ class Figure:
                 y2max = hy1
 
         return y2min, y2max
+
+    def _get_data_x2lim(
+        self,
+        ax: Axes,
+        resolution: Optional[SourceResolution] = None,
+        positive_only: bool = False,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Secondary-x limits from the series drawn against x2.
+
+        Same role as :meth:`_get_data_y2lim`: the top scale is left to GLE
+        unless a log axis has to be given a positive range. Series on the
+        primary x axis do not contribute, and these series do not contribute
+        to that primary range either (see :meth:`_get_data_xlim`).
+        """
+        resolution = resolution or SourceResolution()
+        x2min, x2max = None, None
+
+        def _take(values: np.ndarray) -> None:
+            nonlocal x2min, x2max
+            values = _plottable(values, positive_only)
+            if len(values) == 0:
+                return
+            lo = float(values.min())
+            hi = float(values.max())
+            if x2min is None or lo < x2min:
+                x2min = lo
+            if x2max is None or hi > x2max:
+                x2max = hi
+
+        for data_list in (
+            resolution.visible(ax.lines),
+            resolution.visible(ax.scatters),
+            resolution.visible(ax.errorbars),
+        ):
+            for data in data_list:
+                if data.get("xaxis") != "x2":
+                    continue
+                x = np.asarray(data["x"], dtype=float)
+                pieces = [x]
+                if data.get("xerr_left") is not None:
+                    pieces.append(x - np.asarray(data["xerr_left"], dtype=float))
+                if data.get("xerr_right") is not None:
+                    pieces.append(x + np.asarray(data["xerr_right"], dtype=float))
+                _take(np.concatenate(pieces) if len(pieces) > 1 else x)
+
+        for hist in resolution.visible(ax.hists):
+            if hist.get("xaxis") != "x2":
+                continue
+            lo = hist.get("hist_from")
+            hi = hist.get("hist_to")
+            if lo is None or hi is None or not (float(hi) > float(lo)):
+                _take(np.asarray(hist["samples"], dtype=float))
+            else:
+                _take(np.array([float(lo), float(hi)], dtype=float))
+
+        return x2min, x2max
 
     @staticmethod
     def _histogram_y_extent(hist, positive_only: bool):

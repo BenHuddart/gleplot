@@ -85,8 +85,8 @@ for rendering, applied by the test-side ``normalize()`` helper)
    series cannot be loaded (broken ref), the original ``dN`` line is kept in the
    axes passthrough instead and a ``data:`` warning is emitted.
 9. **Axis-remainder passthrough (hand-written only).** Unrecognized ``xaxis``/
-   ``yaxis``/``y2axis`` sub-tokens (``off``/``grid``/``dticks``/``dsubticks``/
-   ``nticks``/``format "..."``/...) are peeled off the recognized
+   ``yaxis``/``y2axis``/``x2axis`` sub-tokens (``off``/``grid``/``dticks``/
+   ``dsubticks``/``nticks``/``format "..."``/...) are peeled off the recognized
    ``min``/``max``/``log``/``nofirst``/``nolast`` (which populate the model) and
    re-emitted as a *supplementary* axis line in the axes passthrough. GLE axis
    lines are cumulative, so the model-emitted axis line + the passthrough line
@@ -1577,6 +1577,7 @@ class _Recognizer:
             "xlabel": None,
             "ylabel": None,
             "y2label": None,
+            "x2label": None,
             "xmin": None,
             "xmax": None,
             "xlog": False,
@@ -1589,6 +1590,15 @@ class _Recognizer:
             "y2max": None,
             "y2log": False,
             "y2negate": False,
+            "x2min": None,
+            "x2max": None,
+            "x2log": False,
+            "x2negate": False,
+            # ``xaxis log`` copies onto x2. ``lin`` is how a script undoes
+            # that. Kept only so a redundant ``lin`` (primary axis not log)
+            # can be handed back to passthrough; the writer recomputes the
+            # token it will actually emit.
+            "x2lin": False,
             "xlabels_off": False,
             "ylabels_off": False,
             # -- axes styling (GLEstudio plan G10) ------------------------
@@ -1604,9 +1614,11 @@ class _Recognizer:
             "xformat": None,
             "yformat": None,
             "y2format": None,
+            "x2format": None,
             "xangle": None,
             "yangle": None,
             "y2angle": None,
+            "x2angle": None,
             "xgrid": False,
             "ygrid": False,
             "xtitle_hei": None,
@@ -1618,12 +1630,17 @@ class _Recognizer:
             "y2title_hei": None,
             "y2title_color": None,
             "y2title_dist": None,
+            "x2title_hei": None,
+            "x2title_color": None,
+            "x2title_dist": None,
             "xlabels_hei": None,
             "xlabels_color": None,
             "ylabels_hei": None,
             "ylabels_color": None,
             "y2labels_hei": None,
             "y2labels_color": None,
+            "x2labels_hei": None,
+            "x2labels_color": None,
             # Deferred lines: an 'xticks'/'xsubticks' style is only part of
             # the model when that axis has a grid (the grid lines ARE the
             # ticks), and a 'y2labels on' is only implied when some y2
@@ -1638,6 +1655,8 @@ class _Recognizer:
             "_ysubticks": None,
             "_y2labels_on_raw": None,
             "_y2labels_on_line": None,
+            "_x2labels_on_raw": None,
+            "_x2labels_on_line": None,
             "nofirst_x": False,
             "nolast_x": False,
             "nofirst_y": False,
@@ -2509,7 +2528,7 @@ class _Recognizer:
         plain ``LineSeries`` it already built, which is exactly what this file
         recovered before G18-lite.
         """
-        if attrs["marker"] is not None or attrs["y2axis"]:
+        if attrs["marker"] is not None or attrs["y2axis"] or attrs.get("x2axis"):
             return None
         if entry.get("offset") or attrs["smooth_mode"] != "none":
             return None
@@ -2624,6 +2643,31 @@ class _Recognizer:
             )
         markers.clear()
 
+    def _x2_lin_will_emit(self, info) -> bool:
+        """Whether :meth:`GLEWriter.add_axes` will write ``x2axis ... lin``.
+
+        Mirrors that method's ``x2_lin``: the primary axis is log, the top
+        scale is linear, and the top scale is actually in use. A ``lin``
+        outside that case is preserved as passthrough instead of dropped.
+        """
+        if not info["xlog"] or info["x2log"]:
+            return False
+        if (
+            info["x2min"] is not None
+            or info["x2max"] is not None
+            or bool(info["x2label"])
+            or info["x2format"] is not None
+            or info["x2angle"] is not None
+            or info["x2labels_hei"] is not None
+            or info["x2labels_color"] is not None
+        ):
+            return True
+        for group in ("lines", "scatters", "errorbars", "hists", "file_series"):
+            for series in info[group]:
+                if series.get("xaxis") == "x2":
+                    return True
+        return False
+
     def _reconcile_axis_styling(self, info) -> None:
         """Decide what the parked ``*ticks``/``y2labels on`` lines meant.
 
@@ -2687,26 +2731,39 @@ class _Recognizer:
                     ),
                 )
                 info[f"_{prefix}subticks"] = None
-        if info["_y2labels_on_raw"] is not None:
+        for prefix in ("y2", "x2"):
+            raw = info[f"_{prefix}labels_on_raw"]
+            if raw is None:
+                continue
             implied = (
-                info["y2format"] is not None
-                or info["y2angle"] is not None
-                or info["y2labels_hei"] is not None
-                or info["y2labels_color"] is not None
-                or info["y2min"] is not None
-                or info["y2max"] is not None
-                or info["y2log"]
-                or bool(info["y2label"])
+                info[f"{prefix}format"] is not None
+                or info[f"{prefix}angle"] is not None
+                or info[f"{prefix}labels_hei"] is not None
+                or info[f"{prefix}labels_color"] is not None
+                or info[f"{prefix}min"] is not None
+                or info[f"{prefix}max"] is not None
+                or info[f"{prefix}log"]
+                or bool(info[f"{prefix}label"])
             )
             if not implied:
-                info["passthrough"].append(info["_y2labels_on_raw"])
-                y2_line = info["_y2labels_on_line"]
+                info["passthrough"].append(raw)
+                line_no = info[f"_{prefix}labels_on_line"]
                 self._note(
                     ImportCategory.STRUCTURE,
-                    "'y2labels on' with nothing to style; kept as "
+                    f"'{prefix}labels on' with nothing to style; kept as "
                     "raw GLE, not editable",
-                    (y2_line, y2_line) if y2_line is not None else None,
+                    (line_no, line_no) if line_no is not None else None,
                 )
+        if info["x2lin"] and not self._x2_lin_will_emit(info):
+            # A ``lin`` the writer will not reproduce (the primary axis is
+            # not log, or the top scale is not in use). Keep the token.
+            info["passthrough"].append("    x2axis lin")
+            self._note(
+                ImportCategory.STRUCTURE,
+                "'x2axis lin' is not part of the top scale this figure "
+                "re-emits; kept as raw GLE",
+                None,
+            )
 
     def _reconcile_places_names(self, info) -> None:
         """Drop a ``*names`` list the writer could never reproduce.
@@ -2883,13 +2940,13 @@ class _Recognizer:
         if kw == "title":
             self._parse_title_line(toks, info, stmt)
             return
-        if kw in ("xtitle", "ytitle", "y2title"):
+        if kw in ("xtitle", "ytitle", "y2title", "x2title"):
             self._parse_axis_title_line(kw, toks, info, stmt)
             return
-        if kw in ("xaxis", "yaxis", "y2axis"):
+        if kw in ("xaxis", "yaxis", "y2axis", "x2axis"):
             self._parse_axis_line(kw, toks, info, stmt)
             return
-        if kw in ("xlabels", "ylabels", "y2labels"):
+        if kw in ("xlabels", "ylabels", "y2labels", "x2labels"):
             self._parse_labels_line(kw, toks, info, stmt)
             return
         if kw in ("xticks", "yticks", "xsubticks", "ysubticks"):
@@ -2922,9 +2979,11 @@ class _Recognizer:
         "xtitle": "x",
         "ytitle": "y",
         "y2title": "y2",
+        "x2title": "x2",
         "xlabels": "x",
         "ylabels": "y",
         "y2labels": "y2",
+        "x2labels": "x2",
     }
 
     def _parse_text_options(self, toks, start):
@@ -3020,10 +3079,11 @@ class _Recognizer:
         """``xlabels [off] [hei H] [color C]`` (and y/y2 twins).
 
         ``off`` is the writer's tick-label suppression for shared axes.
-        ``on`` is modeled only for y2, where it is what makes any y2
-        tick-label property visible at all (GLE draws no y2 labels without
-        it) -- and only if such a property is actually present, which
-        :meth:`_reconcile_axis_styling` decides once the block has been read.
+        ``on`` is modeled for y2 and x2, where it is what makes any
+        tick-label property visible at all (GLE draws no y2/x2 labels
+        without it) -- and only if such a property is actually present,
+        which :meth:`_reconcile_axis_styling` decides once the block has
+        been read.
         ``dist``/``font``/``log`` are not modeled, so a line carrying them is
         kept whole as raw GLE.
         """
@@ -3036,7 +3096,7 @@ class _Recognizer:
             word = tok.value.lower()
             if word == "off" and prefix in ("x", "y"):
                 off = True
-            elif word == "on" and prefix == "y2":
+            elif word == "on" and prefix in ("y2", "x2"):
                 on = True
             else:
                 leftover.append(tok)
@@ -3053,8 +3113,10 @@ class _Recognizer:
         if off:
             info[f"{prefix}labels_off"] = True
         if on:
-            info["_y2labels_on_raw"] = self._stmt_text(stmt)
-            info["_y2labels_on_line"] = stmt.line_no if stmt is not None else None
+            info[f"_{prefix}labels_on_raw"] = self._stmt_text(stmt)
+            info[f"_{prefix}labels_on_line"] = (
+                stmt.line_no if stmt is not None else None
+            )
         info[f"{prefix}labels_hei"] = opts["hei"]
         info[f"{prefix}labels_color"] = opts["color"]
 
@@ -3117,7 +3179,7 @@ class _Recognizer:
     # -- axis line parsing ----------------------------------------------
 
     def _parse_axis_line(self, kw, toks, info, stmt=None):
-        prefix = {"xaxis": "x", "yaxis": "y", "y2axis": "y2"}[kw]
+        prefix = {"xaxis": "x", "yaxis": "y", "y2axis": "y2", "x2axis": "x2"}[kw]
         remainder: List[Token] = []
         negate_toks: List[Token] = []
         i = 1
@@ -3142,6 +3204,12 @@ class _Recognizer:
                 continue
             if w == "log":
                 info[f"{prefix}log"] = True
+                i += 1
+                continue
+            if w == "lin" and prefix == "x2":
+                # Undoes the ``xaxis log`` copy. Whether the writer emits
+                # it again is decided in ``_reconcile_axis_styling``.
+                info["x2lin"] = True
                 i += 1
                 continue
             if w == "negate":
@@ -3172,10 +3240,11 @@ class _Recognizer:
                     i = nxt
                     continue
             if w == "grid" and prefix in ("x", "y"):
-                # y2 has no grid on the model: GLE's grid is the axis' own
-                # ticks stretched across the graph, so 'y2axis grid' would be
-                # the y grid drawn from the other side. Left unrecognized (and
-                # therefore preserved) rather than folded into ygrid.
+                # y2 and x2 have no grid on the model: GLE's grid is the
+                # axis' own ticks stretched across the graph, so
+                # 'y2axis grid' / 'x2axis grid' would redraw the primary
+                # grid from the other side. Left unrecognized (and
+                # therefore preserved) rather than folded into ygrid/xgrid.
                 info[f"{prefix}grid"] = True
                 i += 1
                 continue
@@ -3563,6 +3632,7 @@ class _Recognizer:
                 else 1.0
             ),
             yaxis="y2" if attrs["y2axis"] else "y",
+            **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
             label=attrs["label"],
         )
         if entry is None:
@@ -3588,7 +3658,7 @@ class _Recognizer:
         m = len(toks)
         while i < m:
             word = toks[i].value.lower()
-            if word in ("line", "hist", "y2axis"):
+            if word in ("line", "hist", "y2axis", "x2axis"):
                 i += 1
                 continue
             if word == "color" and i + 1 < m:
@@ -4475,6 +4545,7 @@ class _Recognizer:
             nomiss=attrs["nomiss"],
             label=attrs["label"],
             yaxis="y2" if attrs["y2axis"] else "y",
+            **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
             offset=info["_dataset_offsets"].get(d_name, 0.0),
             data_file=data_file,
         )
@@ -4546,6 +4617,7 @@ class _Recognizer:
             "marker": None,
             "msize": None,
             "y2axis": False,
+            "x2axis": False,
             "label": None,
             "err_refs": {},  # kind -> dataset name (err/errup/errdown/herr/herrleft/herrright)
             "err_consts": {},  # kind -> (value: float, is_percent: bool) for literals
@@ -4673,6 +4745,10 @@ class _Recognizer:
                 continue
             if w == "y2axis":
                 a["y2axis"] = True
+                i += 1
+                continue
+            if w == "x2axis":
+                a["x2axis"] = True
                 i += 1
                 continue
             if w == "key" and i + 1 < m and toks[i + 1].type is TokenType.STRING:
@@ -4804,6 +4880,7 @@ class _Recognizer:
                     label=attrs["label"],
                     capsize=gle_capsize,
                     yaxis="y2" if attrs["y2axis"] else "y",
+                    **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
                 )
             )
             return
@@ -4842,6 +4919,7 @@ class _Recognizer:
                     label=attrs["label"],
                     capsize=gle_capsize,
                     yaxis="y2" if attrs["y2axis"] else "y",
+                    **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
                     data_error=(loaded or {}).get("error", "unresolved"),
                 )
             )
@@ -4914,6 +4992,7 @@ class _Recognizer:
             capsize=stored_capsize,
             gle_capsize=gle_capsize,
             yaxis="y2" if attrs["y2axis"] else "y",
+            **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
             offset=(
                 info["_dataset_offsets"].get(orig_toks[0].value.lower(), 0.0)
                 if orig_toks
@@ -4999,6 +5078,7 @@ class _Recognizer:
                 nomiss=attrs["nomiss"],
                 label=attrs["label"],
                 yaxis="y2" if attrs["y2axis"] else "y",
+                **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
             )
             if attrs["line_mode"]:
                 entry["line_mode"] = attrs["line_mode"]
@@ -5020,6 +5100,7 @@ class _Recognizer:
                 label=attrs["label"],
                 capsize=None,
                 yaxis="y2" if attrs["y2axis"] else "y",
+                **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
             )
         if error is not None:
             entry["data_error"] = error
@@ -6469,15 +6550,18 @@ class _Recognizer:
         ax.xlabel_text = info["xlabel"] or ""
         ax.ylabel_text = info["ylabel"] or ""
         ax.y2label_text = info["y2label"] or ""
+        ax.x2label_text = info["x2label"] or ""
         ax.xscale = "log" if info["xlog"] else "linear"
         ax.yscale = "log" if info["ylog"] else "linear"
         ax.y2scale = "log" if info["y2log"] else "linear"
+        ax.x2scale = "log" if info["x2log"] else "linear"
         # ``negate`` is GLE's spelling of an inverted axis; the model spells
         # the same thing as a descending limit pair, which is what the writer
         # turns back into ``negate`` (see GLEWriter._axis_direction).
         ax.xmin, ax.xmax = _oriented(info["xmin"], info["xmax"], info["xnegate"])
         ax.ymin, ax.ymax = _oriented(info["ymin"], info["ymax"], info["ynegate"])
         ax.y2min, ax.y2max = _oriented(info["y2min"], info["y2max"], info["y2negate"])
+        ax.x2min, ax.x2max = _oriented(info["x2min"], info["x2max"], info["x2negate"])
         ax.xplaces = info["xplaces"]
         ax.yplaces = info["yplaces"]
         ax.xnames = info["xnames"]
@@ -6586,7 +6670,7 @@ class _Recognizer:
         ax.title_size = _pt_or_none(info["title_hei"])
         ax.title_color = info["title_color"]
         ax.title_dist = info["title_dist"]
-        for prefix in ("x", "y", "y2"):
+        for prefix in ("x", "y", "y2", "x2"):
             setattr(ax, f"{prefix}format", info[f"{prefix}format"])
             setattr(ax, f"{prefix}label_size", _pt_or_none(info[f"{prefix}title_hei"]))
             setattr(ax, f"{prefix}label_color", info[f"{prefix}title_color"])

@@ -106,6 +106,18 @@ def test_a_shared_log_axis_grid_compiles(tmp_path):
     _assert_compiles(fig, tmp_path, "shared")
 
 
+def test_a_log_top_scale_compiles(tmp_path):
+    fig = glp.figure(data_prefix="logc")
+    ax = fig.add_subplot(111)
+    ax.plot(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.0]))
+    ax.set_xscale("log")
+    top = ax.twiny()
+    top.plot(np.array([10.0, 20.0, 30.0]), np.array([1.0, 2.0, 3.0]))
+    top.set_xscale("log")
+    top.set_xlim(10, 30)
+    _assert_compiles(fig, tmp_path, "x2log")
+
+
 def test_the_golden_battery_secondary_yaxis_figure_compiles(tmp_path):
     """The builder itself, which is meant to exercise the y2-log writer path."""
     from tests.parser import _golden_battery as golden

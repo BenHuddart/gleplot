@@ -195,6 +195,25 @@ def secondary_yaxis():
     return fig
 
 
+def secondary_xaxis():
+    """Top scale as its own data axis, under a log bottom axis.
+
+    The log bottom axis is what makes GLE copy ``log`` onto x2; the linear
+    top scale has to answer with ``lin``. Limits stay positive on the log
+    axis and include 0 on the linear one.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 2, 3], color="blue", label="energy")
+    ax.set_xscale("log")
+    top = ax.twiny()
+    top.plot([0, 5, 10], [1, 2, 3], color="red", label="wavelength")
+    top.set_xlim(0, 10)
+    top.set_xlabel("wavelength")
+    ax.legend()
+    return fig
+
+
 def legend_positions_all():
     figs = []
     for loc in (
@@ -521,6 +540,7 @@ BUILDERS = [
     fill_between,
     text_annotations,
     secondary_yaxis,
+    secondary_xaxis,
     legend_positions_all,
     legend_full_options,
     subplots_sharex,

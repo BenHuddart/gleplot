@@ -240,6 +240,24 @@ replaced by the smallest positive value plotted. Either repair emits a
 ``UserWarning`` saying what range was used instead; pass a positive range to
 choose your own.
 
+Secondary x axis
+~~~~~~~~~~~~~~~~
+
+``twiny`` opens the top scale as its own data axis. The y axis stays the
+one the view was opened on. Limits, log and the label set on the view
+belong to the top scale.
+
+.. code-block:: python
+
+   top = ax.twiny()
+   top.plot(x_alt, y)
+   top.set_xlim(0, 10)
+   top.set_xlabel('wavelength')
+
+``xaxis='x2'`` is the same binding on ``plot`` and the other series methods.
+GLE copies ``xaxis log`` onto the top axis, so a linear top scale under a
+log bottom axis is written ``x2axis lin``.
+
 Grid
 ~~~~~
 
