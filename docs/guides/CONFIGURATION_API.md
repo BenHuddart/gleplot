@@ -710,6 +710,6 @@ fig = glp.figure(**config)
 ## See Also
 
 - [Configuration Guide](CONFIGURATION.md) - Tutorial-style guide with examples
-- [API Reference](../api.rst) - Complete API documentation
+- [API Reference](https://benhuddart.github.io/gleplot/api.html) - Complete API documentation
 - [GLE Manual](https://www.gle-graphics.org/manual/) - Complete GLE documentation
 """

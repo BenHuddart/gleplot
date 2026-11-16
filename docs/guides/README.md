@@ -1,148 +1,32 @@
 # Guides
 
-This directory contains detailed guides and documentation for various aspects of gleplot.
+Topic guides for gleplot. For installation, a first plot and the API
+reference, start with the [published documentation](https://benhuddart.github.io/gleplot/).
 
-## API and Usage Documentation
+## Plotting
 
-### [VIEW_FUNCTION.md](VIEW_FUNCTION.md)
-Complete guide for the `view()` function for inline display in Jupyter notebooks.
+- [MATPLOTLIB_MIGRATION.md](MATPLOTLIB_MIGRATION.md) — API mapping from matplotlib and where behaviour differs
+- [COLORS_AND_MARKERS.md](COLORS_AND_MARKERS.md) — accepted colour and marker names
+- [TEXT_ANNOTATIONS.md](TEXT_ANNOTATIONS.md) — `text()` and `annotate()` in data coordinates
+- [REFERENCE_LINES_AND_SPANS.md](REFERENCE_LINES_AND_SPANS.md) — `axvline`, `axhline`, `axvspan`, `axhspan`
+- [CONTOUR_AND_HEATMAPS.md](CONTOUR_AND_HEATMAPS.md) — `imshow`, `contour`, `tripcolor`, `tricontour`, `colorbar`
+- [BROKEN_AXES.md](BROKEN_AXES.md) — an x-axis split into segments with `add_broken_xaxes()`
+- [FILE_BASED_SERIES.md](FILE_BASED_SERIES.md) — plotting straight from existing data files
+- [VIEW_FUNCTION.md](VIEW_FUNCTION.md) — inline display in Jupyter with `view()`
 
-**Contents:**
-- Usage examples
-- Parameters and options
-- Jupyter integration
-- Comparison with savefig()
-- Tips and best practices
+## Configuration
 
-### [TEXT_ANNOTATIONS.md](TEXT_ANNOTATIONS.md)
-Guide for data-coordinate text labels, alignment controls, and callout boxes.
+- [CONFIGURATION.md](CONFIGURATION.md) — tutorial: global, per-figure and per-element styling
+- [CONFIGURATION_API.md](CONFIGURATION_API.md) — every option on the `GLE*Config` classes
 
-**Contents:**
-- Basic `text()` usage
-- Alignment (`ha`/`va`) options
-- Boxed annotations
-- Convenience API patterns
+## Problems
 
-### [BROKEN_AXES.md](BROKEN_AXES.md)
-Guide for `add_broken_xaxes()` — one panel, an x-axis split into segments.
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — GLE not found, compile failures, sidecar naming, layout
 
-**Contents:**
-- `BrokenAxes` API: fan-out, shared y state, per-segment tick control
-- Seam styles (`none`/`line`/`slash`) and width ratios
-- How the assembly is built from adjacent GLE graph blocks
-- Parser round-trip limitation
+## Contributing
 
-### [REFERENCE_LINES_AND_SPANS.md](REFERENCE_LINES_AND_SPANS.md)
-Guide for `axvline`, `axhline`, `axvspan` and `axhspan`.
-
-**Contents:**
-- Data coordinates vs. axes-fraction extents
-- Write-time materialization (why a later `set_ylim` still wins)
-- Autoscaling and draw order
-- The `alpha` limitation in GLE 4.3.10
-
-### [FILE_BASED_SERIES.md](FILE_BASED_SERIES.md)
-Guide for plotting directly from existing data files.
-
-**Contents:**
-- `errorbar_from_file()` patterns
-- `line_from_file()` overlays
-- 1-based column indexing
-- Data format and workflow notes
-
-### [CONTOUR_AND_HEATMAPS.md](CONTOUR_AND_HEATMAPS.md)
-Guide for heatmaps and contour plots (`imshow`, `contour`, `tripcolor`, `tricontour`, `colorbar`).
-
-**Contents:**
-- Gridded vs. scattered-data APIs
-- `origin` semantics (default differs from matplotlib)
-- `vmin`/`vmax` and Akima-overshoot pitfalls with scattered data
-- Palette gallery
-- One-heatmap-per-axes limitation and sidecar/generated-file layout
-- Greek letters and math in labels — matplotlib `$...$` mathtext **and** direct GLE markup
-- Worked antiferromagnet phase-diagram example
-- Known colorbar-clipping issue on a lone axes and its workaround
-
-### [COLORS_AND_MARKERS.md](COLORS_AND_MARKERS.md)
-Reference for accepted color and marker mappings.
-
-**Contents:**
-- Matplotlib-to-GLE color mapping
-- Supported named colors
-- Marker symbol mapping
-- Native GLE marker names
-
-### [MATPLOTLIB_MIGRATION.md](MATPLOTLIB_MIGRATION.md)
-Quick-start migration guide from matplotlib plotting code.
-
-**Contents:**
-- API mapping table
-- Porting examples
-- Behavioral differences
-- Migration strategy
-
-### [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-Common issues and practical fixes for save/compile/layout workflows.
-
-**Contents:**
-- Missing GLE executable
-- Compilation failures
-- Sidecar naming issues
-- Shared-axis and layout behavior
-
-## Testing Documentation
-
-### [TESTING_QUICK_REFERENCE.md](TESTING_QUICK_REFERENCE.md)
-Quick reference guide with common testing commands and examples. Start here for fast answers.
-
-**Contents:**
-- Quick test commands
-- Timing information
-- Quick troubleshooting
-- Essential references
-
-### [TEST_STRUCTURE.md](TEST_STRUCTURE.md)
-Complete documentation of the test suite architecture and organization.
-
-**Contents:**
-- Test organization (unit, integration, graphics)
-- Directory structure
-- Test categories and purposes
-- File organization
-
-### [GRAPHICS_TESTING_SUMMARY.md](GRAPHICS_TESTING_SUMMARY.md)
-Overview of the graphics testing implementation and capabilities.
-
-**Contents:**
-- Graphics testing features
-- Test count and coverage
-- File list and purposes
-- CI/CD integration
-
-### [GRAPHICS_TESTING.md](GRAPHICS_TESTING.md)
-Complete user guide for graphics testing with examples and API documentation.
-
-**Contents:**
-- Installation and setup
-- Running graphics tests
-- Test examples
-- Advanced usage
-- Troubleshooting
-- Custom script usage
-
-### [GRAPHICS_TESTING_COMPLETE.md](GRAPHICS_TESTING_COMPLETE.md)
-Implementation details and completion summary of the graphics testing feature.
-
-**Contents:**
-- Implementation phases
-- Files created and modified
-- Feature checklist
-- Future enhancements
-
----
-
-## Related Documentation
-
-- **Project Root**: [README.md](../../README.md) - Main project documentation
-- **Versioning**: [docs/VERSIONING.md](../VERSIONING.md) - Version management
-- **Changelog**: [docs/CHANGELOG.md](../CHANGELOG.md) - Project history
+- [CONTRIBUTING.md](../../CONTRIBUTING.md) — setup, style checks and pull requests
+- [TESTING.md](TESTING.md) — test layers, the `gle` marker, the fixed point
+- [VERSIONING.md](VERSIONING.md) — commit types and how releases are cut
+- [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md) — worked end-to-end examples and PyPI publishing setup
+- [CHANGELOG.md](../CHANGELOG.md) — release history

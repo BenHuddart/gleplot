@@ -1,82 +1,92 @@
-# Semantic Versioning
+# Versioning and releases
 
-gleplot uses **Semantic Versioning 2.0** with [Python Semantic Release](https://python-semantic-release.readthedocs.io/). Version bumps are driven by conventional commit messages on `main`.
+gleplot follows [Semantic Versioning 2.0](https://semver.org/). Releases are
+cut automatically by
+[Python Semantic Release](https://python-semantic-release.readthedocs.io/)
+from [conventional commit](https://www.conventionalcommits.org/) messages on
+`main`.
 
-## Version Format
-
-`MAJOR.MINOR.PATCH` (e.g., `1.2.3`)
-
-- **MAJOR**: Breaking API changes
-- **MINOR**: New backward-compatible features
-- **PATCH**: Bug fixes and performance improvements
-
-## Conventional Commits
+## Commit messages
 
 ```
-<type>[optional scope]: <description>
+<type>(<optional scope>): <subject>
 
-[optional body]
+<optional body>
 
-[optional footer]
+<optional footer>
 ```
 
-### Commit Types that Trigger Version Bumps
+| Type | Version bump |
+|------|--------------|
+| `feat` | minor |
+| `fix`, `perf` | patch |
+| `feat!`, `fix!`, or a `BREAKING CHANGE:` footer | major |
+| `docs`, `style`, `refactor`, `test`, `build`, `ci`, `chore` | none |
 
-| Type | Bump | Example |
-|------|------|---------|
-| `feat:` | MINOR | `feat(colors): add support for RGB hex codes` |
-| `fix:` | PATCH | `fix(axes): correct log scale calculation` |
-| `perf:` | PATCH | `perf(writer): reduce string concatenation` |
-| `feat!:` or `BREAKING CHANGE:` | MAJOR | `feat!: change default font to 'rm'` |
+Examples:
 
-### Non-bumping Commits
+```bash
+git commit -m "feat: add support for histogram plots"
+git commit -m "fix(writer): handle edge case in scale auto"
+git commit -m "docs: update installation instructions"
+```
 
-`docs:`, `style:`, `refactor:`, `test:`, `build:`, `ci:`, and `chore:` do not trigger
-a release by themselves.
+A breaking change:
 
-## Local Preview
+```
+feat!: remove deprecated plot_old() function
+
+BREAKING CHANGE: plot_old() has been removed. Use plot() instead.
+```
+
+The bump rules live in `pyproject.toml` under
+`[tool.semantic_release.commit_parser_options]`.
+
+## How a release happens
+
+1. A push to `main` runs the **Tests** workflow. Pull requests never cut a
+   release.
+2. When Tests succeed and that commit is still the tip of `main`, the
+   **Release** workflow
+   ([`.github/workflows/release.yml`](../../.github/workflows/release.yml))
+   looks at the commits since the last tag.
+3. If they warrant a bump, python-semantic-release updates the version,
+   prepends release notes to [`docs/CHANGELOG.md`](../CHANGELOG.md), builds
+   the sdist and wheel, pushes the release commit and `vX.Y.Z` tag, and
+   creates a GitHub Release with the artifacts attached.
+4. If the repository variable `PYPI_PUBLISH` is `true`, a separate job uploads
+   to PyPI through Trusted Publishing. Setup is described in
+   [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md#6-publishing).
+
+The version is stored in two places, which the release keeps in sync:
+`project.version` in `pyproject.toml` and `__version__` in
+`src/gleplot/__init__.py`. Do not edit either by hand.
+
+## Previewing and forcing a release
+
+Preview what the next release would be, without writing anything:
 
 ```bash
 pip install -e ".[dev]"
-
-# Preview the next version without writing files
 semantic-release version --noop
-
-# Force a bump type (local only)
-semantic-release version --patch --noop
-semantic-release version --minor --noop
-semantic-release version --major --noop
 ```
 
-## Automated Release (GitHub Actions)
+To release by hand, go to **Actions → Release → Run workflow** and choose
+`auto` or force `major`, `minor` or `patch`.
 
-Workflow: [`.github/workflows/release.yml`](../../.github/workflows/release.yml)
+Maintainers can also release locally, which is rarely needed:
 
-1. A push to `main` runs **Tests**. Pull requests do not cut a release.
-2. When that push's **Tests** succeed, and the commit is still the tip of `main`, **Release** runs on that branch.
-3. python-semantic-release may bump version, update the changelog, build wheels, tag, and
-   open a GitHub Release.
-4. If `vars.PYPI_PUBLISH` is `true`, the **Publish to PyPI** job uploads artifacts via
-   Trusted Publishing (OIDC).
+```bash
+semantic-release version
+git push origin main --follow-tags
+```
 
-Manual trigger: **Actions** → **Release** → **Run workflow** (optional force bump).
+## If the Release workflow does nothing
 
-## Version Locations
+- No commit since the last tag has a bumping type. `docs:`, `test:`, `ci:`
+  and the like never release on their own.
+- A newer commit reached `main` before Tests finished; that commit's run cuts
+  the release instead.
+- Tests failed.
 
-The version is maintained in two places (kept in sync by releases):
-
-1. `pyproject.toml` — `project.version`
-2. `src/gleplot/__init__.py` — `__version__`
-
-## Best Practices
-
-1. Use meaningful commit types and scopes (`feat(writer):`, `fix(parser):`).
-2. Mark breaking changes with `feat!:` or a `BREAKING CHANGE:` footer.
-3. Run `semantic-release version --noop` before a large release if you are unsure what will ship.
-
-## References
-
-- [Semantic Versioning 2.0](https://semver.org/)
-- [Conventional Commits 1.0](https://www.conventionalcommits.org/)
-- [VERSIONING.md](../VERSIONING.md) (repository root guide)
-- [VERSIONING_QUICK_REF.md](VERSIONING_QUICK_REF.md)
+`examples/example_versioning_workflow.py` prints a few worked scenarios.
