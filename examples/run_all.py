@@ -75,22 +75,30 @@ def main():
         ("PRL Fig. 2(a)-style panel", example_prl_fig2a_style),
     ]
 
+    failed = []
     for name, example_func in examples:
         try:
             print(f"\n[{name}]")
             example_func()
         except Exception as e:
             print(f"  ✗ Error: {e}")
+            failed.append(name)
             import traceback
 
             traceback.print_exc()
 
     print("\n" + "=" * 60)
-    print("All examples completed!")
+    if failed:
+        print(f"Failed: {', '.join(failed)}")
+    else:
+        print("All examples completed!")
     print("Generated GLE files: example_*.gle")
     print("To compile to PDF: gle example_*.gle -d PDF")
     print("=" * 60 + "\n")
 
+    # Non-zero when any example raised, so CI notices.
+    return 1 if failed else 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

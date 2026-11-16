@@ -38,7 +38,11 @@ from basic import (
 
 
 def main():
-    """Run all examples and compile to PDF, EPS, and PNG."""
+    """Run all examples and compile to PDF, EPS, and PNG.
+
+    Returns the process exit code: 0 when every example ran (and compiled,
+    if GLE is available), 1 otherwise.
+    """
     # Change to output directory
     output_dir = Path(__file__).parent / "outputs"
     output_dir.mkdir(exist_ok=True)
@@ -97,11 +101,11 @@ def main():
             example_both_shared,
             "example_shared_both_axes",
         ),
-        ("Residual Plot Analysis", example_residual_plot, "example_residual_plot"),
+        ("Residual Plot Analysis", example_residual_plot, "example_residual_analysis"),
         (
             "Comparison: Shared vs Non-shared",
             example_comparison_with_without,
-            "example_shared_comparison",
+            ["example_without_shared_axes", "example_with_shared_axes"],
         ),
         (
             "Error bars from file",
@@ -136,45 +140,57 @@ def main():
             # Run example (creates .gle file)
             example_func()
 
-            gle_file = Path(f"{basename}.gle")
-            if not gle_file.exists():
-                print("  ✗ GLE file not created")
+            # An example may write more than one figure.
+            basenames = [basename] if isinstance(basename, str) else basename
+            gle_files = [Path(f"{b}.gle") for b in basenames]
+            missing = [str(f) for f in gle_files if not f.exists()]
+            if missing:
+                print(f"  ✗ GLE file not created: {', '.join(missing)}")
                 failed.append(name)
                 continue
 
             # Rename data files to be example-specific BEFORE compiling
             # This prevents later examples from overwriting data files
             data_files = list(Path(".").glob("data_*.dat"))
-            gle_content = gle_file.read_text()
+            renames = {f.name: f"{basenames[0]}_{f.name}" for f in data_files}
+            compile_failed = False
+            for gle_file in gle_files:
+                gle_content = gle_file.read_text()
+                for old_name, new_name in renames.items():
+                    # Update GLE file to reference renamed data file
+                    gle_content = gle_content.replace(old_name, new_name)
+                gle_file.write_text(gle_content)
             for data_file in data_files:
-                new_name = f"{basename}_{data_file.name}"
-                # Update GLE file to reference renamed data file
-                gle_content = gle_content.replace(str(data_file.name), new_name)
-                # Rename the data file
-                data_file.rename(new_name)
-            # Write updated GLE file
-            gle_file.write_text(gle_content)
+                data_file.rename(renames[data_file.name])
 
-            # Semi-transparent fills (rgba) fail unless GLE is invoked with
-            # -cairo. Pass that only for scripts that need it so the other
-            # figures keep the default PostScript device.
-            needs_cairo = "rgba" in gle_content.lower()
+            for gle_file in gle_files:
+                # Semi-transparent fills (rgba) fail unless GLE is invoked
+                # with -cairo. Pass that only for scripts that need it so the
+                # other figures keep the default PostScript device.
+                needs_cairo = "rgba" in gle_file.read_text().lower()
 
-            # Compile to different formats if GLE is available
-            if compiler:
-                formats = ["pdf", "eps", "png"]
-                for fmt in formats:
-                    try:
-                        output = compiler.compile(
-                            str(gle_file),
-                            output_format=fmt,
-                            dpi=150 if fmt == "png" else None,
-                            cairo=needs_cairo,
-                        )
-                        size_kb = output.stat().st_size / 1024
-                        print(f"  ✓ {fmt.upper()}: {output.name} ({size_kb:.1f} KB)")
-                    except Exception as e:
-                        print(f"  ✗ {fmt.upper()} compilation failed: {e}")
+                # Compile to different formats if GLE is available
+                if compiler:
+                    for fmt in ["pdf", "eps", "png"]:
+                        try:
+                            output = compiler.compile(
+                                str(gle_file),
+                                output_format=fmt,
+                                dpi=150 if fmt == "png" else None,
+                                cairo=needs_cairo,
+                            )
+                            size_kb = output.stat().st_size / 1024
+                            print(
+                                f"  ✓ {fmt.upper()}: {output.name} ({size_kb:.1f} KB)"
+                            )
+                        except Exception as e:
+                            print(f"  ✗ {fmt.upper()} compilation failed: {e}")
+                            compile_failed = True
+
+            if compile_failed:
+                failed.append(name)
+                print()
+                continue
 
             success_count += 1
             print()
@@ -215,6 +231,9 @@ def main():
 
     print("=" * 70 + "\n")
 
+    # Non-zero when any example failed, so CI and the docs build notice.
+    return 1 if failed else 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

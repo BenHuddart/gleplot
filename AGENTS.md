@@ -84,6 +84,8 @@ Then add a builder exercising it to `tests/parser/_golden_battery.py`, which `te
 - **Design notes and implementation journals** → [GitHub issues](https://github.com/benhuddart/gleplot/issues), not the repo.
 - **`docs/`** is user and contributor documentation only.
 - A new public name gets an entry in the Sphinx API pages (`docs/source/api*.rst`) in the same change, not only a guide mention.
+- Docstrings are rendered by Sphinx (numpydoc sections via napoleon) and CI builds the site with `-W`: free text after a `Parameters` list goes under a `Notes` heading, not flush against the list.
+- An example added under `examples/` is registered in `examples/run_and_compile.py` or `examples/run_all.py`; CI runs both and fails if any example raises or does not compile.
 - **Do not add** files under `docs/agent/` or `tests/agent/`.
 
 ## Tests

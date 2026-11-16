@@ -55,7 +55,8 @@ pytestmark = pytest.mark.gle
 write your own availability check. This applies in every directory: a unit or
 parser test that compiles needs the marker too.
 
-Two CI jobs keep this honest. `test` builds a pinned GLE and runs everything;
+Two CI jobs keep this honest. `test` builds a pinned GLE and runs everything
+(on Ubuntu it also runs the examples and a strict Sphinx build);
 `test-without-gle` runs the suite on a machine with no GLE and fails if an
 unmarked test tries to compile.
 
