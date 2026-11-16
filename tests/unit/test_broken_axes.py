@@ -391,6 +391,19 @@ def test_text_outside_every_segment_warns_and_is_dropped():
     assert all(seg.texts == [] for seg in bax.segments)
 
 
+def test_annotate_goes_to_the_text_segment_and_drops_a_cross_seam_arrow():
+    fig = glp.figure(data_prefix="bx")
+    bax = fig.add_broken_xaxes([(0, 1), (5, 10)])
+    same = bax.annotate("a", xy=(6, 1), xytext=(8, 2), arrowprops={"arrowstyle": "->"})
+    assert same is bax[1].texts[0] and same["xy"] == [6.0, 1.0]
+    with pytest.warns(UserWarning, match="crosses into another segment"):
+        far = bax.annotate("b", (0.5, 1), (7, 2), "data", None, {"arrowstyle": "->"})
+    assert far is bax[1].texts[1] and "arrow" not in far
+    with pytest.warns(UserWarning, match="falls in the break"):
+        assert bax.annotate("c", xy=(3, 1)) is None
+    assert bax[0].texts == []
+
+
 # --------------------------------------------------------------------------- #
 # Shared y state, ticks and legend
 # --------------------------------------------------------------------------- #

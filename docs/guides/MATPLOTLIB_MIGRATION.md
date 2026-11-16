@@ -98,6 +98,25 @@ ax.legend(loc='upper left', fontsize=6.5, frameon=False)
 ax.text(1, 2, "peak", va="bottom", rotation=45, bbox={"facecolor": "white"})
 ```
 
+### Annotations
+
+`ax.annotate(text, xy, xytext=..., arrowprops=...)` is a text at `xytext` with an arrow to `xy`, both in data coordinates. The text takes the `text()` keywords above. The arrow is GLE `join` from the text's named box to a saved point at `xy`, so it starts at the box edge (0.05 cm pad) rather than over the text. An `xy` inside the text's own box draws the arrow back across the text, where matplotlib draws nothing: keep `xytext` clear of the point.
+
+| `annotate()` argument | gleplot |
+|---|---|
+| `xytext` | wired. Omitted: the text sits on `xy` and no arrow is drawn. |
+| `xycoords`, `textcoords` | only `'data'`. Anything else (`'offset points'`, `'axes fraction'`, …) warns and the numbers are read as data. |
+| `arrowprops['arrowstyle']` | `'-'`, `'->'`, `'<-'`, `'<->'` (GLE `simple` heads), `'-\|>'`, `'<\|-'`, `'<\|-\|>'` (GLE `filled` heads). No `arrowstyle` (the legacy `shrink`/`width` form) is `'-\|>'`. `'fancy'`, `'simple'`, `'wedge'` and unknown names warn and draw `'-\|>'`. Head-size parameters (`'->,head_width=0.4'`) warn. |
+| `arrowprops` colour | `color`, else `edgecolor`/`ec`, else `facecolor`/`fc`: GLE draws one arrow colour. Default black. |
+| `arrowprops['linewidth']` / `lw` | wired, in points (`set lwidth`). |
+| `connectionstyle` | straight `arc3` only. Curved connections warn and are drawn straight. |
+| `shrinkA`, `shrinkB`, `shrink`, `width`, `headwidth`, `headlength`, `linestyle`, `alpha`, `mutation_scale`, … | warn and are ignored. |
+| `annotation_clip` | warns; the annotation is always drawn. |
+
+```python
+ax.annotate("peak", xy=(2, 3), xytext=(2.4, 3.5), arrowprops={"arrowstyle": "->"})
+```
+
 ## Step and stem plots
 
 GLE draws these as a mode on the same `dN line` command. The points stay in the data file; only the join changes.

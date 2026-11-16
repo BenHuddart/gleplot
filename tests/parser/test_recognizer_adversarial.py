@@ -1175,6 +1175,98 @@ def test_text_box_with_a_different_pad_stays_passthrough(tmp_path):
     assert "add 0.05" not in out.read_text()
 
 
+def test_annotation_near_misses_stay_passthrough(tmp_path):
+    """Named text boxes and ``join`` arrows not in the writer's shape.
+
+    A named box is only gleplot's when its arrow follows; a ``join`` to a
+    ``.tr`` corner or with its ``set`` lines outside a ``gsave`` would be
+    rewritten (or lose state) if recognized, so both stay passthrough.
+    """
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        "   size 10 8\n"
+        "   xaxis min 0 max 10\n"
+        "   yaxis min 0 max 10\n"
+        "end graph\n"
+        "amove xg(1) yg(1)\n"
+        "begin box add 0.05 nobox name lone\n"
+        'write "lone"\n'
+        "end box\n"
+        "amove xg(2) yg(2)\n"
+        "begin box add 0.05 nobox name corner\n"
+        'write "corner"\n'
+        "end box\n"
+        "amove xg(5) yg(5)\n"
+        "save corner_xy\n"
+        "gsave\n"
+        "set color BLACK\n"
+        "set arrowstyle simple\n"
+        "join corner.tr -> corner_xy\n"
+        "grestore\n"
+        "amove xg(3) yg(3)\n"
+        "begin box add 0.05 nobox name loose\n"
+        'write "loose"\n'
+        "end box\n"
+        "amove xg(6) yg(6)\n"
+        "save loose_xy\n"
+        "set color RED\n"
+        "join loose - loose_xy\n"
+    )
+    gle = _write(tmp_path, "annnear.gle", src)
+    rec = parse_gle_figure(gle)
+    assert rec.figure.axes_list[0].texts == []
+    trailer = "\n".join(rec.figure.passthrough_trailer)
+    assert "begin box add 0.05 nobox name lone" in trailer
+    assert "join corner.tr -> corner_xy" in trailer
+    assert "join loose - loose_xy" in trailer
+
+
+def test_hand_written_annotation_arrow_is_recognized(tmp_path):
+    """Any box/point names are accepted when they pair up; re-save renames.
+
+    GLE names are case-sensitive, so ``join label`` after ``name Label``
+    is a GLE error, not an annotation.
+    """
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        "   size 10 8\n"
+        "   xaxis min 0 max 10\n"
+        "   yaxis min 0 max 10\n"
+        "end graph\n"
+        "amove xg(4) yg(6)\n"
+        "begin box add 0.05 nobox name Label\n"
+        'write "peak"\n'
+        "end box\n"
+        "amove xg(2) yg(3)\n"
+        "save tip\n"
+        "gsave\n"
+        "set color BLUE\n"
+        "set lwidth 0.05\n"
+        "set arrowstyle filled\n"
+        "join Label <- tip\n"
+        "grestore\n"
+    )
+    gle = _write(tmp_path, "annhand.gle", src)
+    rec = parse_gle_figure(gle)
+    (text,) = rec.figure.axes_list[0].texts
+    assert text["xy"] == [2.0, 3.0]
+    assert text["arrow"] == "<-"
+    assert text["arrowstyle"] == "filled"
+    assert text["arrow_color"] == "BLUE"
+    assert text["arrow_linewidth"] == pytest.approx(0.05 / 0.03528)
+    assert rec.figure.passthrough_trailer == []
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "join ann1 <- ann1_xy" in out.read_text()
+
+    mismatched = _write(
+        tmp_path, "anncase.gle", src.replace("join Label", "join label")
+    )
+    assert parse_gle_figure(mismatched).figure.axes_list[0].texts == []
+
+
 def test_finding14_optional_set_color_alone_is_sticky(tmp_path):
     """A cluster with only 'set color' (no hei, no just) still matches, and
     a later cluster with no 'set' at all inherits that color.

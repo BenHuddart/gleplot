@@ -16,6 +16,7 @@ from .parser.tables import (
     KEY_POSITIONS_LONG_TO_SHORT,
     KEY_POSITIONS_SHORT_TO_LONG,
     MATPLOTLIB_TO_LSTYLE,
+    MPL_ARROWSTYLE_TO_GLE,
     NUMBER_FORMAT_KEYWORDS,
     TEXT_HA_VALUES,
     TEXT_VA_VALUES,
@@ -1206,6 +1207,21 @@ class SecondaryXAxis:
 
     def set_yscale(self, scale: str, axis: str = "y"):
         return self._axes.set_yscale(scale, axis=axis)
+
+
+def _is_straight_connection(connection: Any) -> bool:
+    """Whether a matplotlib ``connectionstyle`` is a straight ``arc3``."""
+    kind, _, params = str(connection).partition(",")
+    if kind.strip() != "arc3":
+        return False
+    for param in params.split(","):
+        key, _, value = param.partition("=")
+        if key.strip() == "rad":
+            try:
+                return float(value) == 0.0
+            except ValueError:
+                return False
+    return True
 
 
 class Axes:
@@ -3723,6 +3739,30 @@ class Axes:
             Any other matplotlib text keyword warns and is ignored. This is
             not a general page-drawing API.
         """
+        fields = self._text_fields(
+            "text",
+            x,
+            y,
+            s,
+            color=color,
+            fontsize=fontsize,
+            ha=ha,
+            va=va,
+            bbox=bbox,
+            rotation=rotation,
+            kwargs=kwargs,
+        )
+        self.texts.append(TextAnnotation(**fields))
+        return self
+
+    def _text_fields(
+        self, caller, x, y, s, *, color, fontsize, ha, va, bbox, rotation, kwargs
+    ) -> Dict[str, Any]:
+        """Validated :class:`TextAnnotation` fields shared by ``text``/``annotate``.
+
+        ``caller`` names the public method in warnings, which are attributed
+        to that method's caller.
+        """
         if color is None:
             gle_color = "BLACK"
         else:
@@ -3731,22 +3771,22 @@ class Axes:
         ha_norm = str(ha).strip().lower()
         if ha_norm not in TEXT_HA_VALUES:
             warnings.warn(
-                f"text(ha={ha!r}) is not supported; using 'left'. "
+                f"{caller}(ha={ha!r}) is not supported; using 'left'. "
                 f"Supported values: {', '.join(repr(v) for v in TEXT_HA_VALUES)}.",
                 UserWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
             ha_norm = "left"
 
         va_norm = str(va).strip().lower()
         if va_norm not in TEXT_VA_VALUES:
             warnings.warn(
-                f"text(va={va!r}) is not supported; using 'center'. "
+                f"{caller}(va={va!r}) is not supported; using 'center'. "
                 "GLE aligns text to its top, center, or bottom "
                 f"({', '.join(repr(v) for v in TEXT_VA_VALUES)}); "
                 "there is no separate baseline.",
                 UserWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
             va_norm = "center"
 
@@ -3759,18 +3799,19 @@ class Axes:
                 angle = float(rotation)
             except (TypeError, ValueError):
                 warnings.warn(
-                    f"text(rotation={rotation!r}) is not a number and was " "ignored.",
+                    f"{caller}(rotation={rotation!r}) is not a number and was "
+                    "ignored.",
                     UserWarning,
-                    stacklevel=2,
+                    stacklevel=3,
                 )
                 angle = None
             else:
                 if not np.isfinite(angle):
                     warnings.warn(
-                        f"text(rotation={rotation!r}) is not finite and was "
+                        f"{caller}(rotation={rotation!r}) is not finite and was "
                         "ignored.",
                         UserWarning,
-                        stacklevel=2,
+                        stacklevel=3,
                     )
                     angle = None
                 elif abs(angle) < 1e-10:
@@ -3779,10 +3820,10 @@ class Axes:
         box_color = None
         if bbox is not None and not isinstance(bbox, dict):
             warnings.warn(
-                f"text(bbox={bbox!r}) is not a dict and was ignored. "
+                f"{caller}(bbox={bbox!r}) is not a dict and was ignored. "
                 "Pass bbox={'facecolor': ...} to draw a filled background.",
                 UserWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
         elif isinstance(bbox, dict):
             if "facecolor" in bbox:
@@ -3796,28 +3837,32 @@ class Axes:
             )
             if unsupported:
                 warnings.warn(
-                    "text(bbox=...) ignores "
+                    f"{caller}(bbox=...) ignores "
                     f"{unsupported}: only facecolor (alias fill) is emitted, "
                     "as GLE 'begin box fill'. The outline, pad, and box "
                     "style have no separate setting.",
                     UserWarning,
-                    stacklevel=2,
+                    stacklevel=3,
                 )
             if facecolor is None:
                 warnings.warn(
-                    "text(bbox=...) has no facecolor; no background box was " "drawn.",
+                    f"{caller}(bbox=...) has no facecolor; no background box "
+                    "was drawn.",
                     UserWarning,
-                    stacklevel=2,
+                    stacklevel=3,
                 )
             else:
                 box_color = rgb_to_gle(facecolor)
 
+        supported = "color, fontsize, ha, va, rotation, bbox"
+        if caller == "annotate":
+            supported = "xytext, xycoords, textcoords, arrowprops, " + supported
         for name in sorted(kwargs):
             warnings.warn(
-                f"text({name}=...) is not supported and was ignored. "
-                "Supported arguments: color, fontsize, ha, va, rotation, bbox.",
+                f"{caller}({name}=...) is not supported and was ignored. "
+                f"Supported arguments: {supported}.",
                 UserWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
 
         fields = dict(
@@ -3832,8 +3877,169 @@ class Axes:
         )
         if angle is not None:
             fields["rotation"] = angle
-        self.texts.append(TextAnnotation(**fields))
-        return self
+        return fields
+
+    def annotate(
+        self,
+        text: str,
+        xy: Sequence[float],
+        xytext: Optional[Sequence[float]] = None,
+        xycoords: str = "data",
+        textcoords: Optional[str] = None,
+        arrowprops: Optional[dict] = None,
+        annotation_clip: Optional[bool] = None,
+        **kwargs,
+    ) -> TextAnnotation:
+        """Annotate the point ``xy`` with ``text``, optionally with an arrow.
+
+        Parameters
+        ----------
+        text : str
+            The label.
+        xy : (float, float)
+            The annotated point, in data coordinates. The arrow tip.
+        xytext : (float, float), optional
+            Where the text goes, in data coordinates. Default: ``xy`` (and
+            then no arrow is drawn, as in matplotlib, where it has no length).
+        xycoords, textcoords : str
+            Only ``'data'`` is supported. Any other system warns and the
+            numbers are read as data coordinates.
+        arrowprops : dict, optional
+            Draw an arrow from the text to ``xy``. GLE ``join`` starts it at
+            the edge of the text box (0.05 cm pad) and ends it on ``xy``. A
+            ``xy`` inside the text's own box draws the arrow back across
+            the text (matplotlib draws nothing); move ``xytext`` clear.
+            Supported keys:
+
+            * ``arrowstyle``: ``'-'``, ``'->'``, ``'<-'``, ``'<->'`` (open
+              heads, GLE ``simple``) and ``'-|>'``, ``'<|-'``, ``'<|-|>'``
+              (triangle heads, GLE ``filled``). ``'fancy'``, ``'simple'``,
+              ``'wedge'`` warn and draw ``'-|>'``. Without ``arrowstyle``
+              (matplotlib's legacy ``width``/``headwidth``/``shrink`` form)
+              the arrow is ``'-|>'``.
+            * ``color``, else ``edgecolor``/``ec``, else ``facecolor``/``fc``:
+              the one arrow colour. Default black.
+            * ``linewidth``/``lw``: points. Default: GLE's current ``lwidth``.
+
+            Other keys (``connectionstyle`` other than straight ``arc3``,
+            ``shrinkA``/``shrinkB``, ``linestyle``, ``alpha``, head-size
+            parameters, ...) warn and are ignored.
+        annotation_clip : bool, optional
+            Not modelled: the annotation is always drawn. Warns if given.
+        **kwargs
+            Text keywords, as for :meth:`text`: ``color``, ``fontsize``,
+            ``ha``, ``va``, ``rotation``, ``bbox``.
+
+        Returns
+        -------
+        TextAnnotation
+            The stored annotation (also appended to ``self.texts``).
+        """
+        for name, value in (("xycoords", xycoords), ("textcoords", textcoords)):
+            if value is not None and value != "data":
+                warnings.warn(
+                    f"annotate({name}={value!r}) is not supported; the "
+                    "coordinates are read as 'data'.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        if annotation_clip is not None:
+            warnings.warn(
+                "annotate(annotation_clip=...) is not supported and was "
+                "ignored; the annotation is always drawn.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        x, y = (float(v) for v in xy)
+        tx, ty = (x, y) if xytext is None else (float(v) for v in xytext)
+        text_kwargs = {
+            key: kwargs.pop(key, default)
+            for key, default in (
+                ("color", None),
+                ("fontsize", None),
+                ("ha", "left"),
+                ("va", "center"),
+                ("bbox", None),
+                ("rotation", None),
+            )
+        }
+        fields = self._text_fields(
+            "annotate", tx, ty, text, kwargs=kwargs, **text_kwargs
+        )
+        if arrowprops is not None and not isinstance(arrowprops, dict):
+            warnings.warn(
+                f"annotate(arrowprops={arrowprops!r}) is not a dict; no arrow "
+                "was drawn.",
+                UserWarning,
+                stacklevel=2,
+            )
+        elif arrowprops is not None and xytext is not None:
+            fields.update(self._annotate_arrow(x, y, arrowprops))
+        entry = TextAnnotation(**fields)
+        self.texts.append(entry)
+        return entry
+
+    @staticmethod
+    def _annotate_arrow(x: float, y: float, arrowprops: dict) -> Dict[str, Any]:
+        """The arrow fields of an annotation from matplotlib ``arrowprops``."""
+        props = dict(arrowprops)
+        unsupported = []
+        if "arrowstyle" in props:
+            raw = props.pop("arrowstyle")
+            # matplotlib's "->, head_width=0.4" form: the head-size
+            # parameters have no counterpart here.
+            name, _, params = str(raw).partition(",")
+            name = name.strip()
+            if params.strip():
+                unsupported.append(f"arrowstyle parameters {params.strip()!r}")
+            if name in MPL_ARROWSTYLE_TO_GLE:
+                sep, tip = MPL_ARROWSTYLE_TO_GLE[name]
+            else:
+                warnings.warn(
+                    f"annotate(arrowprops={{'arrowstyle': {raw!r}}}) has no GLE "
+                    "equivalent; drawn as '-|>'.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                sep, tip = MPL_ARROWSTYLE_TO_GLE["-|>"]
+        else:
+            # The legacy YAArrow form is a filled arrow.
+            sep, tip = MPL_ARROWSTYLE_TO_GLE["-|>"]
+
+        color = None
+        for key in ("color", "edgecolor", "ec", "facecolor", "fc"):
+            value = props.pop(key, None)
+            if color is None and value is not None:
+                color = value
+
+        linewidth = None
+        for key in ("linewidth", "lw"):
+            value = props.pop(key, None)
+            if linewidth is None and value is not None:
+                linewidth = float(value)
+
+        connection = props.pop("connectionstyle", None)
+        if connection is not None and not _is_straight_connection(connection):
+            unsupported.append("connectionstyle (drawn straight)")
+
+        unsupported.extend(sorted(props))
+        if unsupported:
+            warnings.warn(
+                f"annotate(arrowprops=...) ignores {unsupported}. Supported "
+                "keys: arrowstyle, color, edgecolor/ec, facecolor/fc, "
+                "linewidth/lw.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+        fields: Dict[str, Any] = dict(xy=[x, y], arrow=sep)
+        if tip is not None:
+            fields["arrowstyle"] = tip
+        fields["arrow_color"] = "BLACK" if color is None else rgb_to_gle(color)
+        if linewidth is not None:
+            fields["arrow_linewidth"] = linewidth
+        return fields
 
     # -- heatmaps & contours --------------------------------------------
 

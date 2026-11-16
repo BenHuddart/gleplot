@@ -663,3 +663,30 @@ def text_just_to_align(just: str) -> Optional[Tuple[str, str]]:
     :func:`text_align_to_just`, which writes the single word.
     """
     return _JUST_TO_ALIGN.get(str(just).strip().lower())
+
+
+# -- annotation arrows ------------------------------------------------------
+#
+# ``Axes.annotate`` draws its arrow with ``join`` from the text's named box to
+# a ``save``d point at ``xy``, so GLE clips the start at the box edge (the
+# matplotlib ``patchA`` behaviour) instead of drawing over the text. The
+# separator is the head placement; ``set arrowstyle`` is the tip shape.
+# GLE's own default style is ``filled`` (core.cpp ``g.arrowstyle``), so the
+# writer always states it.
+
+#: GLE ``join`` separators: ``-`` is a bare line.
+ARROW_JOIN_SEPS: Tuple[str, ...] = ("->", "<-", "<->", "-")
+#: GLE ``set arrowstyle`` values gleplot writes.
+ARROW_TIP_STYLES: Tuple[str, ...] = ("simple", "filled")
+
+#: matplotlib ``arrowprops['arrowstyle']`` -> ``(join separator, tip style)``.
+#: Open heads (``->``) are GLE ``simple``, triangle heads (``-|>``) ``filled``.
+MPL_ARROWSTYLE_TO_GLE: Dict[str, Tuple[str, Optional[str]]] = {
+    "-": ("-", None),
+    "->": ("->", "simple"),
+    "<-": ("<-", "simple"),
+    "<->": ("<->", "simple"),
+    "-|>": ("->", "filled"),
+    "<|-": ("<-", "filled"),
+    "<|-|>": ("<->", "filled"),
+}

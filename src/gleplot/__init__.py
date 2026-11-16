@@ -8,7 +8,7 @@ quality vector graphics.
 Features
 --------
 - Matplotlib-compatible API (plot, scatter, bar, fill_between, errorbar)
-- Text annotations in data coordinates (text)
+- Text annotations and arrows in data coordinates (text, annotate)
 - Subplots with flexible grid layouts (subplots, add_subplot)
 - Native vector graphics output (PDF, PNG, EPS)
 - Inline display in Jupyter notebooks (view)
@@ -261,6 +261,11 @@ def errorbar(*args, **kwargs):
 def text(*args, **kwargs):
     """Add text annotation on current axes."""
     return gca().text(*args, **kwargs)
+
+
+def annotate(*args, **kwargs):
+    """Annotate a point on current axes, optionally with an arrow."""
+    return gca().annotate(*args, **kwargs)
 
 
 def axvline(*args, **kwargs):
@@ -519,6 +524,7 @@ __all__ = [
     "fill",
     "errorbar",
     "text",
+    "annotate",
     "axvline",
     "axhline",
     "axvspan",

@@ -193,6 +193,9 @@ Add labels directly in data coordinates.
    import gleplot as glp
    glp.text(1.0, 0.5, 'Reference')
 
+   # text at xytext with an arrow to the point xy
+   ax.annotate('peak', xy=(2, 3), xytext=(2.4, 3.5), arrowprops={'arrowstyle': '->'})
+
 Customizing Axes
 ----------------
 

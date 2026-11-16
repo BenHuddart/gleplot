@@ -978,6 +978,17 @@ class TextAnnotation(Series):
     #: rotate``, which rotates about the current point). Absent means 0, so
     #: a text that does not rotate keeps the historical dict shape.
     rotation: float
+    #: ``Axes.annotate`` arrow, all absent on a plain text. ``xy`` is the
+    #: arrow tip ``[x, y]`` in data coordinates; ``arrow`` is the GLE
+    #: ``join`` separator (``'->'``, ``'<-'``, ``'<->'`` or ``'-'``);
+    #: ``arrowstyle`` is the GLE tip style (``'simple'``/``'filled'``),
+    #: present exactly when ``arrow`` has a head; ``arrow_linewidth`` is in
+    #: points, absent for GLE's ambient ``lwidth``.
+    xy: List[float]
+    arrow: str
+    arrowstyle: str
+    arrow_color: str
+    arrow_linewidth: float
 
 
 class _GridSeries(Series):

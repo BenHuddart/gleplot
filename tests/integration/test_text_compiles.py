@@ -50,3 +50,28 @@ def test_aligned_rotated_boxed_text_compiles(tmp_path):
     fig.savefig(str(out))
     assert out.is_file()
     assert out.stat().st_size > 0
+
+
+def test_annotation_arrows_compile(tmp_path):
+    """``join`` from a named text box to a ``save``d point after ``end graph``."""
+    fig, axes = glp.subplots(1, 2)
+    for ax in axes:
+        ax.plot([0, 1, 2], [0, 1, 0])
+        ax.annotate(
+            "peak", xy=(1, 1), xytext=(1.5, 0.5), arrowprops={"arrowstyle": "->"}
+        )
+        ax.annotate(
+            "turn",
+            xy=(0.5, 0.5),
+            xytext=(0.2, 0.9),
+            rotation=20,
+            bbox={"facecolor": "white"},
+            arrowprops={"arrowstyle": "<|-|>", "color": "red", "lw": 2},
+        )
+        ax.annotate(
+            "line", xy=(2, 0), xytext=(1.6, 0.2), arrowprops={"arrowstyle": "-"}
+        )
+    out = tmp_path / "ann.pdf"
+    fig.savefig(str(out))
+    assert out.is_file()
+    assert out.stat().st_size > 0
