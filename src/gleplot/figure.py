@@ -7,6 +7,8 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from . import axes as _axes_module
+from . import palettes as _pal
 from .axes import (
     Axes,
     _validate_data_prefix,
@@ -15,7 +17,11 @@ from .axes import (
 from .brokenaxes import BrokenAxes
 from .cairo_support import cairo_font_warning, figure_requires_cairo
 from .colors import apply_alpha, rgb_to_gle
-from .compiler import SUFFIX_TO_COMPILE_FORMAT, GLECompiler
+from .compiler import (
+    SUFFIX_TO_COMPILE_FORMAT,
+    GLECompiler,
+    remove_generated_intermediates,
+)
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
 from .mathtext import mathtext_to_gle
 from .parser import metadata as _gle_metadata
@@ -1460,8 +1466,6 @@ class Figure:
             # compile() raises before this line otherwise -- and only for
             # this figure's own known contour/fitz stems (never a glob).
             if not keep_intermediates:
-                from .compiler import remove_generated_intermediates
-
                 remove_generated_intermediates(
                     export_dir, self._engine_intermediate_filenames()
                 )
@@ -1938,8 +1942,6 @@ class Figure:
         calls are emitted and spliced in beside these ones afterwards -- see
         :meth:`gleplot.writer.GLEWriter.finalize_guide_subs`.
         """
-        from . import palettes as _pal
-
         resolution = resolution or SourceResolution()
         used_cmaps = set()
         any_colorbar = False
@@ -2024,8 +2026,6 @@ class Figure:
 
     @staticmethod
     def _palette_call_for(cmap: str) -> str:
-        from . import palettes as _pal
-
         return _pal.palette_call_name(cmap)
 
     def _legend_offset(self, ax: Axes) -> Optional[Tuple[float, float]]:
@@ -3628,7 +3628,6 @@ class Figure:
             JSON-serializable project dictionary.
         """
         from . import __version__
-        from . import axes as _axes_module
 
         figure_block = {
             "figsize": list(self.figsize),
@@ -3733,8 +3732,6 @@ class Figure:
         already using the counter, it never rewinds and risks a future
         collision.
         """
-        from . import axes as _axes_module
-
         fmt = d.get("format")
         if fmt != PROJECT_FORMAT:
             raise ValueError(

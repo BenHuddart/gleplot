@@ -12,9 +12,8 @@ from pathlib import Path
 from typing import List, Literal, Optional, Union
 
 #: Well-known install locations to probe, keyed by ``sys.platform`` prefix.
-#: Entries may be literal paths *or* glob patterns (``*``/``**``): the desktop
-#: GUI ships to users who install GLE in a variety of locations and versioned
-#: directories, so :func:`autodetect_gle` expands every entry with
+#: Entries may be literal paths *or* glob patterns (``*``/``**``): users
+#: install GLE in a variety of locations and versioned directories, so :func:`autodetect_gle` expands every entry with
 #: :func:`glob.glob` and keeps the existing matches. Ordinary ``pip`` / library
 #: use is unaffected (the literal entries below match the common installs).
 _WELL_KNOWN_PATHS = {
@@ -49,19 +48,20 @@ _WELL_KNOWN_PATHS = {
 }
 
 #: Process-global explicit override for the GLE executable, set via
-#: :func:`set_gle_path_override`. This is how the desktop GUI pins the binary
-#: the user chose in **Tools ▸ GLE Setup…**; it takes precedence over every
-#: other discovery source (see :func:`find_gle`). ``None`` means "not set"
-#: (library / CLI default), so nothing changes for non-GUI use.
+#: :func:`set_gle_path_override`. This is how an application built on gleplot
+#: (a GUI with its own "choose GLE" setting, say) pins the binary its user
+#: chose; it takes precedence over every other discovery source (see
+#: :func:`find_gle`). ``None`` means "not set", the default, so nothing
+#: changes for plain library use.
 _gle_path_override: Optional[str] = None
 
 
 def set_gle_path_override(path: Optional[str]) -> None:
     """Pin (or clear) the GLE executable used by :func:`find_gle`.
 
-    The GUI calls this with the user's configured path (persisted in
-    ``QSettings``) so that every component resolving GLE via :func:`find_gle`
-    -- live preview, export, the status bar -- honors the same choice. An
+    gleplot itself never calls this. It is the hook for an application that
+    stores its own GLE path: call it once and everything resolving GLE via
+    :func:`find_gle` honors the same choice. An
     empty string is normalized to ``None`` (i.e. "clear the override and fall
     back to auto-detection").
 
@@ -280,8 +280,8 @@ def autodetect_gle() -> Optional[str]:
     Auto-detect the GLE executable, ignoring any explicit override.
 
     This is the discovery used both as the fallback inside :func:`find_gle`
-    (when no override is set) and directly by the GUI's **GLE Setup** dialog to
-    propose a path regardless of what the user has currently pinned.
+    (when no override is set) and directly by an application that wants to
+    propose a path regardless of what its user has currently pinned.
 
     Discovery precedence (first match wins):
 
@@ -328,8 +328,8 @@ def find_gle() -> Optional[str]:
 
     Discovery precedence (first match wins):
 
-    1. The explicit override set via :func:`set_gle_path_override` (how the
-       GUI pins the user's chosen binary). If the override is set but no longer
+    1. The explicit override set via :func:`set_gle_path_override` (how an
+       application pins its user's chosen binary). If the override is set but no longer
        points at an existing path, a :class:`UserWarning` is emitted and
        discovery falls through to auto-detection rather than failing outright.
     2. Everything :func:`autodetect_gle` checks (``GLE_PATH`` env, then
@@ -680,8 +680,8 @@ class GLECompiler:
         # list (no shell=True) so paths containing spaces are handled safely
         # on all platforms, notably "Program Files" on Windows. Argument
         # shape (device name case, when -r is included) comes from the one
-        # shared builder so this never drifts from the GUI's compile paths
-        # again -- see build_compile_args().
+        # shared builder so callers assembling their own GLE command line
+        # cannot drift from it -- see build_compile_args().
         cmd = [self.gle_path] + build_compile_args(
             output_format,
             output_path,

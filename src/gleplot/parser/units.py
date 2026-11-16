@@ -8,7 +8,7 @@ function instead of re-deriving (and potentially drifting from) the constant.
 Provenance
 ----------
 Each constant below is transcribed verbatim from the call site it replaces, as
-of the pre-refactor state of this branch (``feature/pyside-gui-editor``). The
+when this module was created. The
 refactor that follows this module's creation intentionally does **not**
 "correct" or unify inconsistent constants (e.g. ``0.03528`` vs ``0.0353``)
 -- see :func:`linewidth_pt_to_cm` and :func:`capsize_pt_to_cm` docstrings.

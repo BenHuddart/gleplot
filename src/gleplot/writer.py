@@ -60,6 +60,7 @@ from .series import (
     normalize_smooth_mode,
     normalize_svg_smooth,
     sanitize_column_name,
+    sorted_zorder_drawables,
 )
 from .sources import (
     ColumnRef,
@@ -388,8 +389,6 @@ class SourceResolution:
 
     def drawables(self, ax: Any) -> List[Tuple[str, Series, Series]]:
         """z-ordered ``(kind, original, resolved)`` triples for one axes."""
-        from .axes import sorted_zorder_drawables
-
         out = []
         for kind, series in sorted_zorder_drawables(ax):
             data = self.data(series)

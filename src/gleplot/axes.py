@@ -46,7 +46,9 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     _unique_column_names,
     is_visible,
     sanitize_column_name,
+    sorted_zorder_drawables,
 )
+from .writer import GLEWriter
 
 # Global counter for unique data file names across all figures in a session
 _global_data_file_counter = 0
@@ -99,24 +101,18 @@ MATPLOTLIB_TO_GLE_LEGEND_LOC = {
     "center": "center",
 }
 
-#: matplotlib's relative font-size names as multipliers of the base font size
-#: (matplotlib ``font_manager.font_scalings``). Used to resolve
-#: ``legend(fontsize='small')`` against the figure style's fontsize.
-
-#: Default ``zorder`` for drawable series kinds when the caller omits ``zorder``.
-#: Matches the pre-zorder GLE emission stack: bars, then lines, scatters,
-#: errorbars (later ``dN`` commands draw on top in GLE). Derived from the
-#: series classes, which own the value (``LineSeries.ZORDER_DEFAULT``, ...).
+#: Default ``zorder`` per drawable series kind when the caller omits one.
+#: Derived from the series classes, which own the value
+#: (``LineSeries.ZORDER_DEFAULT``, ...). gleplot itself reads the classes
+#: directly; this mapping is kept as public API for callers that present the
+#: defaults.
 SERIES_ZORDER_DEFAULT: Dict[str, float] = {
     kind: float(cls.ZORDER_DEFAULT or 0.0) for kind, cls in DRAWABLE_CLASSES.items()
 }
 
-#: Stable kind rank for legacy series dicts missing ``_draw_seq``; likewise
-#: derived from the classes (``LineSeries.KIND_RANK``, ...).
-_SERIES_KIND_RANK: Dict[str, int] = {
-    kind: int(cls.KIND_RANK or 0) for kind, cls in DRAWABLE_CLASSES.items()
-}
-
+#: matplotlib's relative font-size names as multipliers of the base font size
+#: (matplotlib ``font_manager.font_scalings``). Used to resolve
+#: ``legend(fontsize='small')`` against the figure style's fontsize.
 MATPLOTLIB_RELATIVE_FONTSIZES = {
     "xx-small": 0.579,
     "x-small": 0.694,
@@ -360,8 +356,6 @@ def _bar_width_for_split(x: np.ndarray) -> float:
     width the combined set would have been given: half the smallest positive
     gap, or the nominal ``0.5`` when there is none.
     """
-    from .writer import GLEWriter
-
     derived = GLEWriter.bar_width_gle_cannot_derive(x)
     if derived is not None:
         return float(derived)
@@ -1275,7 +1269,7 @@ class Axes:
         self.x2min: Optional[float] = None  # Secondary x-axis limits
         self.x2max: Optional[float] = None
         # Tri-state: None = auto (show a legend iff any series has a label),
-        # True/False = explicit user choice (the GUI toggle writes these).
+        # True/False = explicit choice (what an editor's legend toggle writes).
         self.legend_on: Optional[bool] = None
         self.legend_pos = "top right"
         # Legend text height in matplotlib points (None = inherit the figure
@@ -4108,7 +4102,8 @@ class Axes:
         invert : bool
             Invert the colour mapping.
         label : str, optional
-            Series label (not drawn by the colormap itself; kept for the GUI).
+            Series label (not drawn by the colormap itself; kept so an
+            application can list the series by name).
 
         Returns
         -------
@@ -5367,30 +5362,3 @@ class Axes:
         ax._draw_seq_counter = max_seq + 1 if max_seq >= 0 else 0
 
         return ax
-
-
-def sorted_zorder_drawables(ax: "Axes") -> List[Tuple[str, Series]]:
-    """Bars, lines, scatters, and errorbars sorted by ``(zorder, call order)``.
-
-    The kind name and both fallbacks come from the series classes
-    (:data:`gleplot.series.DRAWABLE_CLASSES`), so a new drawable kind only
-    has to declare ``KIND``/``ZORDER_DEFAULT``/``KIND_RANK`` to join the
-    ordering. An explicit ``zorder`` on a series wins; ``_draw_seq`` records
-    the call order and is absent only on pre-zorder projects, where the
-    kind rank reproduces the old fixed emission stack.
-    """
-    items: List[Tuple[float, float, str, Series]] = []
-    for kind, series_cls in DRAWABLE_CLASSES.items():
-        series_list = getattr(ax, series_cls.ATTR)
-        for idx, data in enumerate(series_list):
-            z = (
-                float(data["zorder"])
-                if "zorder" in data
-                else SERIES_ZORDER_DEFAULT[kind]
-            )
-            draw_seq = data.get("_draw_seq")
-            if draw_seq is None:
-                draw_seq = _SERIES_KIND_RANK[kind] * 1_000_000 + idx
-            items.append((z, float(draw_seq), kind, data))
-    items.sort(key=lambda t: (t[0], t[1]))
-    return [(kind, data) for _z, _seq, kind, data in items]

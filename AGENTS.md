@@ -34,7 +34,7 @@ Two layers:
 
 - **Syntax layer** (stdlib only) — `lexer.py`, `syntax.py`, `expr.py` parse/emit with round-trip fidelity when unchanged; `units.py`, `metadata.py`, `report.py` (typed `ImportNote` recovery notes) sit beside them.
 - **Model bridge** — `recognizer.py`: `parse_gle_figure()` → `Figure` + recovery warnings. It imports numpy and the object model (`Axes`, `Figure`, `series`, `dataio`, `GLEWriter`); nothing in the syntax layer may import it.
-- `tables.py` — GLE keyword, colour and marker tables shared with `colors.py`/`markers.py`. It imports `markers` at module level, so `markers.py` and `colors.py` import it inside functions; keep those deferred.
+- `tables.py` — the lookup tables a parser must invert (line styles, key positions, text alignment, …). GLE's raw colour and marker name tables live in `colors.py` and `markers.py` and are re-exported here.
 
 ## Invariants
 
@@ -44,7 +44,7 @@ Do not violate these without an explicit design change and tests.
 - **Fixed point** — writer → `parse_gle_figure` → writer is **byte-identical** (GLE + `.dat` sidecars). `tests/parser/test_fixed_point.py` keeps an **empty** exemption set; a failing builder is a bug, not a new exemption.
 - **Figure model** — `to_dict()` snapshots are the canonical round-trip representation for undo-style callers and previews.
 - **Series** — stay `dict` subclasses; `SERIES_CLASSES` order is emission order.
-- **Layers** — the library has no GUI dependency: nothing under `src/gleplot` imports Qt or IPython at module level. The parser syntax layer is stdlib-only. `series`/`sources` sit below `axes`, which sits below `figure`; the existing cycles (`axes`↔`writer`, `markers`/`colors`↔`parser.tables`) are broken by function-level imports — do not add a module-level import that closes one.
+- **Layers** — the library has no GUI dependency: nothing under `src/gleplot` imports Qt or IPython at module level. The parser syntax layer is stdlib-only. Module-level imports are acyclic: `series`/`sources` and the leaf modules (`colors`, `markers`, `config`) sit below `writer`, then `axes`, then `figure`, then `parser.recognizer`. Do not hide a cycle inside a function: `tests/unit/test_layering.py` checks the graph and holds function-level imports to an explicit list.
 - **Preservation** — unrecognized GLE is preserved; recovery warnings are surfaced, not dropped silently.
 - **Metadata** — v1 files load (implicit placement); first save rewrites to v2 with a `metadata:` warning. No downgrade. Unknown meta versions warn.
 - **GLE optional** — saving `.gle` always works; **GLE is not bundled**. Discovery: `GLE_PATH` → `PATH` → well-known paths (`compiler.find_gle`).
