@@ -915,8 +915,8 @@ class GLEWriter:
             marker if marker is not None else replace(GlobalConfig.get_marker())
         )
 
-        self.lines_gle = []  # GLE script lines
-        self.data_files = {}  # {filename: data_content}
+        self.lines_gle: List[str] = []  # GLE script lines
+        self.data_files: Dict[str, Any] = {}  # {filename: data_content}
         # Sidecars shared by several provider-backed series, keyed by
         # filename. Their content is only complete once every series has
         # contributed, so they are rendered into ``data_files`` by
@@ -951,7 +951,7 @@ class GLEWriter:
         # their definitions belong in the script. Populated as the draw calls
         # go out and resolved by finalize_guide_subs, because which guides
         # take the draw form is not known until each axes' limits are.
-        self.used_guide_subs: set = set()
+        self.used_guide_subs: Set[str] = set()
         self._sub_defs_mark: int = 0
         # Sticky GLE interpreter state as far as add_text is concerned: 'set
         # hei'/'set color'/'set just' persist across `write` statements until
@@ -3311,7 +3311,7 @@ class GLEWriter:
         self,
         x: np.ndarray,
         y1: np.ndarray,
-        y2: np.ndarray,
+        y2: Optional[np.ndarray],
         data_file: str,
         color: str = "LIGHTBLUE",
         alpha: float = 1.0,
@@ -3378,7 +3378,7 @@ class GLEWriter:
             # Role name stays ``y1`` so a provider binding, which keys columns
             # by ARRAY_FIELDS, still finds the curve. The header text is
             # ``column_names`` (``x``, ``y``), not this role.
-            roles = [("x", x), ("y1", y1)]
+            roles: List[Tuple[str, Any]] = [("x", x), ("y1", y1)]
         else:
             roles = [("x", x), ("y1", y1), ("y2", y2)]
         cols = self._write_columns(data_file, roles, column_names, binding)
@@ -3392,7 +3392,7 @@ class GLEWriter:
             f"    data {_format_data_filename(file_name)} "
             f"{d1_name}=c{cols[0]},c{cols[1]}"
         )
-        d2_name = None
+        d2_name: Optional[str] = None
         if not single:
             d2_name = f"d{self.dataset_index}"
             self.dataset_index += 1
@@ -3411,6 +3411,7 @@ class GLEWriter:
                 head = fill_a
             fill_b = None
         else:
+            assert d2_name is not None  # assigned above whenever not single
             fill_b = self._apply_offset(d2_name, offset) if offset else d2_name
             head = f"{fill_a},{fill_b}"
 
@@ -3771,19 +3772,19 @@ class GLEWriter:
         dict
             Mapping of filename to full path
         """
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = Path(output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         files = {}
 
         # Write GLE script
-        gle_file = output_dir / f"{base_filename}.gle"
+        gle_file = out_dir / f"{base_filename}.gle"
         gle_file.write_text(self.get_gle_content(), encoding="utf-8")
         files["script"] = gle_file
 
         # Write data files
         for data_file, content in self.data_files.items():
-            data_path = output_dir / data_file
+            data_path = out_dir / data_file
             data_path.write_text(content, encoding="utf-8")
             files[data_file] = data_path
 
@@ -3866,7 +3867,7 @@ class GLEWriter:
         if not self.used_guide_subs:
             return
         lines: List[str] = []
-        for text in guide_sub_texts(self.used_guide_subs):
+        for text in guide_sub_texts(sorted(self.used_guide_subs)):
             lines.extend(text.split("\n"))
             lines.append("")
         at = self._sub_defs_mark

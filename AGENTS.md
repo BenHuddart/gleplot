@@ -115,7 +115,7 @@ pytest tests/integration/ -v
 
 ## Conventions
 
-- **Format**: black + isort (line-length 88) and flake8 are enforced by the CI `lint` job over `src tests examples docs`. mypy runs there too but is advisory until its existing errors are cleared; do not add new ones. Use the black major pinned in `pyproject.toml`.
+- **Format and types**: black + isort (line-length 88), flake8 and mypy are enforced by the CI `lint` job; black, isort and flake8 over `src tests examples docs`, mypy over `src`. Use the black and mypy majors pinned in `pyproject.toml`. Fix a type error with an annotation or by narrowing, not `# type: ignore`; `warn_return_any` is off because series and data sources are `dict` subclasses whose accessors return `Any` by design.
 - **License**: GPL-2.0+.
 - **Commits**: conventional commits; `python-semantic-release` — `feat` → minor, `fix`/`perf` → patch. Version: `pyproject.toml` and `src/gleplot/__init__.py:__version__`.
 

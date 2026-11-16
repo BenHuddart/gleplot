@@ -34,10 +34,7 @@ jobs:
       - name: flake8
         run: flake8 src tests examples docs
 
-      # Advisory until the existing type errors are cleared; drop
-      # continue-on-error then so new ones fail the job.
       - name: mypy
-        continue-on-error: true
         run: mypy src
 
   # Saving .gle must work, and the suite must stay green, on a machine with

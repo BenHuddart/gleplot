@@ -704,7 +704,7 @@ def load_data_file(
     header_mismatch = header_fields is not None and len(header_fields) != data_col_count
     if header_mismatch:
         warnings.append(
-            f"Header row has {len(header_fields)} field(s) but the data has "
+            f"Header row has {len(header_fields or [])} field(s) but the data has "
             f"{data_col_count} column(s); the header does not align with the "
             "columns (e.g. multi-word names split on whitespace). Using "
             "positional column names (col1..colN) instead."

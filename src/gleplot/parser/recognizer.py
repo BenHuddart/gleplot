@@ -1592,7 +1592,7 @@ class _Recognizer:
 
     def _parse_graph_block(self, block: GraphBlock, marker_cfg, smooth_flags) -> dict:
         """Parse one ``begin graph`` .. ``end graph`` into an axes-info dict."""
-        info = {
+        info: Dict[str, Any] = {
             # Graph-geometry statements ('size'/'scale'/'fullsize') in source
             # order, as _GraphGeometryStmt records. Classified into a
             # placement rect / verbatim geometry passthrough by
@@ -2273,7 +2273,7 @@ class _Recognizer:
         if not isinstance(color, str) or not isinstance(label, str):
             return None
         try:
-            lstyle_i = int(lstyle)  # type: ignore[arg-type]
+            lstyle_i = int(cast(Any, lstyle))
         except (TypeError, ValueError):
             return None
         return RefLine(
@@ -3497,9 +3497,11 @@ class _Recognizer:
             return names
 
         # Explicit and/or positional clauses.
-        for pos, (name, cols) in enumerate(given):
-            if cols is not None:
-                self._register_dataset(name, data_file, cols[0], cols[1], datasets)
+        for pos, (name, explicit) in enumerate(given):
+            if explicit is not None:
+                self._register_dataset(
+                    name, data_file, explicit[0], explicit[1], datasets
+                )
             else:
                 # Positional: y column follows GLE's position-based assignment.
                 ycol = pos + cy_first
@@ -4620,7 +4622,7 @@ class _Recognizer:
         draws a curve whether or not ``line`` was written), which is why they
         set ``has_line`` here, exactly as ``lstyle`` already does.
         """
-        a = {
+        a: Dict[str, Any] = {
             "has_line": False,
             # True when the dataset ends up with GLE's ``smooth`` flag set,
             # i.e. mode is smooth or smoothm. Feeds the figure-wide
@@ -4747,12 +4749,12 @@ class _Recognizer:
                     i += 2
                     continue
                 # Literal constant or percentage: 'err 0.5' or 'err 10%'.
-                val, nxt = _collect_value(toks, i + 1)
-                if val is not None:
+                const, nxt = _collect_value(toks, i + 1)
+                if const is not None:
                     is_percent = nxt < m and toks[nxt].value == "%"
                     if is_percent:
                         nxt += 1
-                    a["err_consts"][w] = (val, is_percent)
+                    a["err_consts"][w] = (const, is_percent)
                     i = nxt
                     continue
                 i += 2
@@ -5439,6 +5441,7 @@ class _Recognizer:
                 i += 1
 
         # cmap resolution.
+        cmap: Optional[str]
         if color:
             cmap = "rainbow"
         elif palette is not None:
@@ -6090,10 +6093,9 @@ class _Recognizer:
         joined = " ".join(t.value for t in toks).lower()
         if "xg" in joined or "yg" in joined:
             return None
-        vals = [_num(t) for t in toks[1:]]
-        vals = [v for v in vals if v is not None]
-        if len(vals) >= 2:
-            return (vals[0], vals[1])
+        nums = [v for v in (_num(t) for t in toks[1:]) if v is not None]
+        if len(nums) >= 2:
+            return (nums[0], nums[1])
         return None
 
     def _consume_text_cluster(self, nodes, start) -> Tuple[List[dict], int]:
@@ -7084,7 +7086,7 @@ class _Recognizer:
         stored ``data_file`` names are re-emitted verbatim anyway).
         """
         pat = re.compile(r"^(.*)_(\d+)\.dat$")
-        prefixes = {}
+        prefixes: Dict[str, List[int]] = {}
         for name in used:
             mobj = pat.match(name)
             if not mobj:

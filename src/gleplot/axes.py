@@ -1221,7 +1221,7 @@ def _is_straight_connection(connection: Any) -> bool:
 class Axes:
     """Matplotlib-like axes for plotting."""
 
-    def __init__(self, figure, position: Tuple[int, int, int] = None):
+    def __init__(self, figure, position: Optional[Tuple[int, ...]] = None):
         """
         Initialize axes.
 
@@ -1421,8 +1421,8 @@ class Axes:
         # None on an ordinary axes; on a segment, ``_break_owner`` is the
         # BrokenAxes back-reference and ``_break_index`` its 0-based position
         # left-to-right.
-        self._break_owner = None
-        self._break_index = None
+        self._break_owner: Any = None
+        self._break_index: Optional[int] = None
 
         # Plot data storage. One list per series kind, each holding the
         # matching :mod:`gleplot.series` class (which owns that kind's field
@@ -2163,7 +2163,7 @@ class Axes:
         if isinstance(value, str):
             if broadcast_str:
                 return [value] * n
-            out = [None] * n
+            out: List[Optional[str]] = [None] * n
             out[0] = value
             return out
         if (
@@ -3147,7 +3147,7 @@ class Axes:
             return self
 
         single = baseline is not None
-        names = ["x", "y"] if single else ["x", "upper", "lower"]
+        band_names = ["x", "y"] if single else ["x", "upper", "lower"]
         for index, window in enumerate(windows):
             fields = dict(
                 x=x_arr,
@@ -3157,7 +3157,7 @@ class Axes:
                 label=label if index == 0 else None,
                 offset=float(offset),
                 data_file=_resolve_data_file(self.figure, data_name),
-                column_names=_unique_column_names(names),
+                column_names=_unique_column_names(band_names),
             )
             if single:
                 fields["target"] = baseline

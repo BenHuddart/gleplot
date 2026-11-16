@@ -40,7 +40,9 @@ dev = [
     "black>=26,<27; python_version >= '3.10'",
     "isort>=5.12",
     "flake8>=6.0",
-    "mypy>=1.8",
+    # Like black, pinned to one major: a new mypy can report new errors, and
+    # the lint job gates on a clean run. mypy 2 needs Python 3.10+.
+    "mypy>=2.3,<3; python_version >= '3.10'",
     "python-semantic-release>=10",
     # Raster ink measurement in integration and parser tests.
     "Pillow>=9.1",
@@ -85,7 +87,9 @@ line_length = 88
 [tool.mypy]
 # No python_version pin: current numpy stubs use syntax mypy rejects when
 # asked to check as 3.9. Runtime support for 3.9 is covered by the test matrix.
-warn_return_any = true
+# Series and data sources are dict subclasses, so most accessors return Any
+# by design; warning on that would mean a cast at every read.
+warn_return_any = false
 warn_unused_configs = true
 disallow_untyped_defs = false
 

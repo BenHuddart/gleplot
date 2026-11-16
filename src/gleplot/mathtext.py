@@ -60,7 +60,7 @@ Examples
 """
 
 import re
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, overload
 
 __all__ = ["mathtext_to_gle", "escape_gle_text"]
 
@@ -334,6 +334,14 @@ TEXT_ESCAPES = {
 # a math->text boundary needs a ``{}`` terminator so GLE does not swallow the
 # following space or merge the macro with following letters.
 _TRAILING_MACRO = re.compile(r"\\[A-Za-z]+$")
+
+
+@overload
+def mathtext_to_gle(s: str) -> str: ...
+
+
+@overload
+def mathtext_to_gle(s: None) -> None: ...
 
 
 def mathtext_to_gle(s: Optional[str]) -> Optional[str]:

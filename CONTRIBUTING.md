@@ -20,7 +20,7 @@ Tests that shell out to the `gle` binary are marked `@pytest.mark.gle` and are s
 
 ## Code style
 
-CI checks black, isort and flake8; mypy is reported but does not yet fail the build. gleplot supports Python 3.9+; the formatters need 3.10+.
+CI checks black, isort, flake8 and mypy, and all four must pass. gleplot supports Python 3.9+; the formatters and mypy need 3.10+.
 
 ```bash
 black src tests examples docs
