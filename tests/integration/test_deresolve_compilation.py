@@ -8,7 +8,9 @@ does with it:
   measurably fewer points than the same dataset without the clause;
 * axis autoscale is computed from the FULL dataset regardless of
   ``deresolve`` -- the specific property GLEstudio's SPEC cites as having
-  been measured (limits unaffected, ~10x speedup at 200k points);
+  been measured (limits unaffected, ~10x speedup at 200k points). The
+  speedup is checked through its cause, the drop in drawn line segments,
+  not by timing;
 * the errorbar and bar exclusions in ``GLEWriter._deresolve_clause`` are not
   just a policy choice on gleplot's side -- GLE itself ignores ``deresolve``
   for those draw paths, confirmed by byte-identical PostScript with and
@@ -22,7 +24,6 @@ from __future__ import annotations
 
 import re
 import subprocess
-import time
 
 import numpy as np
 import pytest
@@ -62,6 +63,11 @@ def _compile_eps(fig, tmp_path, name, **savefig_kwargs):
 def _fill_count(eps_text: str) -> int:
     """Number of filled marker glyphs GLE actually drew."""
     return len(re.findall(r"^fill$", eps_text, flags=re.MULTILINE))
+
+
+def _lineto_count(eps_text: str) -> int:
+    """Number of line segments GLE drew (PostScript ``x y l`` operators)."""
+    return len(re.findall(r" l$", eps_text, flags=re.MULTILINE))
 
 
 def _limits_via_print(fig, tmp_path, name, **generate_kwargs) -> tuple[float, ...]:
@@ -156,33 +162,36 @@ def test_mixed_figure_per_series_decimation_compiles(tmp_path):
     assert (tmp_path / "mixed.pdf").exists()
 
 
-def test_decimated_compile_is_faster(tmp_path):
-    """Directional check of the SPEC-cited speedup (~10x at 200k points).
+def test_decimated_line_draws_far_fewer_segments(tmp_path):
+    """The source of the SPEC-cited speedup, measured without a clock.
 
-    Kept generous (merely faster, not a fixed ratio) so it is not flaky on a
-    loaded CI box; the ratio itself is a documented, separately-verified
-    empirical finding, not something this suite re-benchmarks precisely.
+    A decimated preview compiles faster (~10x at 200k points per the SPEC)
+    because GLE draws far fewer line segments. That count is deterministic;
+    wall-clock time is not. This test used to compare two timings, and on a
+    loaded CI runner the 0.2 s it was looking for was inside the noise, so a
+    failure said nothing about gleplot. The speedup itself remains a
+    documented, separately-verified finding that this suite does not
+    re-benchmark.
     """
-    x, y = _big_xy(n=60000)
+    n, every = 60000, 20
+    x, y = _big_xy(n=n)
 
     fig_full = glp.figure(figsize=(5, 4), data_prefix="perf_full")
     fig_full.add_subplot(111).plot(x, y)
-    full_times = []
-    for i in range(2):
-        t0 = time.perf_counter()
-        fig_full.savefig(str(tmp_path / f"perf_full_{i}.pdf"))
-        full_times.append(time.perf_counter() - t0)
+    full_segments = _lineto_count(_compile_eps(fig_full, tmp_path, "perf_full"))
 
     glp.close()
     fig_dec = glp.figure(figsize=(5, 4), data_prefix="perf_dec")
     fig_dec.add_subplot(111).plot(x, y)
-    dec_times = []
-    for i in range(2):
-        t0 = time.perf_counter()
-        fig_dec.savefig(str(tmp_path / f"perf_dec_{i}.pdf"), preview_decimation=20)
-        dec_times.append(time.perf_counter() - t0)
+    dec_segments = _lineto_count(
+        _compile_eps(fig_dec, tmp_path, "perf_dec", preview_decimation=every)
+    )
 
-    assert min(dec_times) < min(full_times)
+    # The full curve is one segment per point after the first. Decimation
+    # keeps about n/every of them; the rest of the count is axes and ticks,
+    # hence the slack.
+    assert full_segments >= n - 1
+    assert dec_segments < 2 * n // every
 
 
 # --------------------------------------------------------------------------- #
