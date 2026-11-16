@@ -193,7 +193,11 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$HOME/gle" \
             -DBUILD_MANPAGES=OFF \
             -DBUILD_GUI=OFF
-          cmake --build "$RUNNER_TEMP/GLE/build" --config Release --parallel
+          # Bounded: a bare --parallel passes an unlimited -j to make, which
+          # exhausts memory on the macOS runner and took the build from under
+          # 3 minutes to 11.
+          cmake --build "$RUNNER_TEMP/GLE/build" --config Release \
+            --parallel "$(getconf _NPROCESSORS_ONLN)"
           cmake --install "$RUNNER_TEMP/GLE/build" --config Release
 
       - name: Put GLE on PATH
