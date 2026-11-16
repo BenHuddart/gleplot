@@ -139,9 +139,9 @@ ax.plot(x, y, color='blue', linewidth=0.06)
 
 #### Configuration Documentation
 
-- See [docs/guides/CONFIGURATION.md](../docs/guides/CONFIGURATION.md) for tutorial
-- See [docs/guides/CONFIGURATION_API.md](../docs/guides/CONFIGURATION_API.md) for complete API reference
-- See [examples/example_configuration.py](../examples/example_configuration.py) for examples
+- See [docs/guides/CONFIGURATION.md](CONFIGURATION.md) for tutorial
+- See [docs/guides/CONFIGURATION_API.md](CONFIGURATION_API.md) for complete API reference
+- See [examples/example_configuration.py](../../examples/example_configuration.py) for examples
 
 ### 5. Version Management
 
@@ -173,9 +173,8 @@ git push origin main --follow-tags
 
 #### Versioning Documentation
 
-- See [docs/guides/VERSIONING.md](../docs/guides/VERSIONING.md) for detailed guide
-- See [docs/guides/VERSIONING_QUICK_REF.md](../docs/guides/VERSIONING_QUICK_REF.md) for quick reference
-- See [examples/example_versioning_workflow.py](../examples/example_versioning_workflow.py) for examples
+- See [VERSIONING.md](VERSIONING.md) for commit types and the release flow
+- See [examples/example_versioning_workflow.py](../../examples/example_versioning_workflow.py) for examples
 
 ### 6. Publishing
 
@@ -425,7 +424,7 @@ git log -p
 
 ## Related Documentation
 
-- [Semantic Versioning Guide](VERSIONING.md)
+- [Versioning and releases](VERSIONING.md)
 - [Configuration API Reference](CONFIGURATION_API.md)
-- [Test Structure Guide](TEST_STRUCTURE.md)
+- [Testing](TESTING.md)
 - [Contributing Guidelines](../../CONTRIBUTING.md)

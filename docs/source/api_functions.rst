@@ -47,6 +47,16 @@ Plotting helpers
 
 .. autofunction:: gleplot.text
 
+.. autofunction:: gleplot.annotate
+
+.. autofunction:: gleplot.axvline
+
+.. autofunction:: gleplot.axhline
+
+.. autofunction:: gleplot.axvspan
+
+.. autofunction:: gleplot.axhspan
+
 .. autofunction:: gleplot.xlabel
 
 .. autofunction:: gleplot.ylabel
@@ -73,3 +83,5 @@ Utilities
 .. autofunction:: gleplot.get_gle_marker
 
 .. autofunction:: gleplot.mathtext_to_gle
+
+.. autofunction:: gleplot.validate_tick_format

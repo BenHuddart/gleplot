@@ -16,7 +16,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Tests that shell out to the `gle` binary are marked `@pytest.mark.gle` and are skipped when GLE is not installed.
+Tests that shell out to the `gle` binary are marked `@pytest.mark.gle` and are skipped when GLE is not installed. See [docs/guides/TESTING.md](docs/guides/TESTING.md) for the test layers and the fixed-point check.
 
 ## Code style
 

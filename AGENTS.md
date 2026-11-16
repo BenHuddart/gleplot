@@ -119,4 +119,4 @@ pytest tests/integration/ -v
 
 ## Where to look next
 
-- `docs/guides/` (including `MATPLOTLIB_MIGRATION.md`), `docs/DOCUMENTATION_INDEX.md`, `docs/source/` (Sphinx).
+- `docs/guides/README.md` indexes the topic guides (including `MATPLOTLIB_MIGRATION.md`, `TESTING.md`, `VERSIONING.md`); `docs/source/` is the Sphinx site.
