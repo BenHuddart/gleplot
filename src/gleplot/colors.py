@@ -568,7 +568,8 @@ def nearest_gle_color(r: int, g: int, b: int) -> str:
         if rgb == target:
             return name
 
-    best_name = None
+    # COLORS is never empty, so the first iteration always replaces this.
+    best_name = "BLACK"
     best_dist = None
     for name, (cr, cg, cb) in COLORS.items():
         dist = (cr - target[0]) ** 2 + (cg - target[1]) ** 2 + (cb - target[2]) ** 2

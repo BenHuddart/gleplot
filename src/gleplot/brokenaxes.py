@@ -42,7 +42,7 @@ Limitations
 from __future__ import annotations
 
 import warnings
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple, cast
 
 from .axes import Axes
 from .mathtext import mathtext_to_gle
@@ -143,7 +143,9 @@ class BrokenAxes:
         xlabel_dist: Optional[float] = None,
         title_dist: Optional[float] = None,
     ):
-        xlims = [tuple(float(v) for v in pair) for pair in xlims]
+        xlims = [
+            cast(Tuple[float, float], tuple(float(v) for v in pair)) for pair in xlims
+        ]
         if len(xlims) < 2:
             raise ValueError(
                 "a broken x-axis needs at least 2 segments; got "

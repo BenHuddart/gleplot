@@ -3,7 +3,7 @@
 import warnings
 from dataclasses import replace
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 
@@ -19,6 +19,7 @@ from .cairo_support import cairo_font_warning, figure_requires_cairo
 from .colors import apply_alpha, rgb_to_gle
 from .compiler import (
     SUFFIX_TO_COMPILE_FORMAT,
+    CompileFormat,
     GLECompiler,
     remove_generated_intermediates,
 )
@@ -160,6 +161,18 @@ def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
     """
     allowed = cls.__dataclass_fields__.keys()
     return {k: v for k, v in data.items() if k in allowed}
+
+
+def _grid_position(ax: Axes) -> Tuple[int, int, int]:
+    """``(rows, cols, index)`` of an axes that belongs to a figure.
+
+    ``Axes.position`` is optional only because an axes can be constructed
+    detached; every axes a figure lays out was given one by ``add_subplot``.
+    """
+    position = ax.position
+    assert position is not None, "an axes in a figure always has a grid position"
+    rows, cols, idx = position
+    return rows, cols, idx
 
 
 class Figure:
@@ -342,8 +355,8 @@ class Figure:
             [float(r) for r in width_ratios] if width_ratios is not None else None
         )
 
-        self.axes_list = []  # List of Axes objects
-        self._current_axes = None  # Current working axes
+        self.axes_list: List[Axes] = []  # List of Axes objects
+        self._current_axes: Optional[Axes] = None  # Current working axes
         # BrokenAxes assemblies. Their segments are ordinary Axes and live in
         # axes_list like any other subplot (so limits, series and emission all
         # work unchanged); this list only records the grouping, the seam
@@ -587,7 +600,7 @@ class Figure:
         flags to what a fresh ``add_subplot``
         would have produced. Changing the rules here changes them everywhere.
         """
-        rows, cols, idx = ax.position
+        rows, cols, idx = _grid_position(ax)
         # Convert 1-based index to 0-based row/col.
         row = (idx - 1) // cols  # 0 = top row
         col = (idx - 1) % cols  # 0 = left col
@@ -913,8 +926,8 @@ class Figure:
             writer, resolution
         )
 
-        max_rows = max((ax.position[0] for ax in self.axes_list), default=1)
-        max_cols = max((ax.position[1] for ax in self.axes_list), default=1)
+        max_rows = max((_grid_position(ax)[0] for ax in self.axes_list), default=1)
+        max_cols = max((_grid_position(ax)[1] for ax in self.axes_list), default=1)
 
         # With a single cell there are no relative sizes to distribute, so
         # height_ratios/width_ratios are ignored rather than validated -- a
@@ -983,7 +996,7 @@ class Figure:
         rects: List[tuple] = []
         cells: List[tuple] = []
         for ax in self.axes_list:
-            _rows, cols, idx = ax.position
+            _rows, cols, idx = _grid_position(ax)
             # Convert 1-based index to row/col (row-major, top-to-bottom)
             row = (idx - 1) // cols  # 0-based, 0 = top row
             col = (idx - 1) % cols  # 0-based, 0 = left col
@@ -1012,7 +1025,7 @@ class Figure:
     def gca(self) -> Axes:
         """Get current axes (or create if needed)."""
         if self._current_axes is None:
-            self.add_subplot(111)
+            return self.add_subplot(111)
         return self._current_axes
 
     # Convenience plotting methods (plot on current axes)
@@ -1459,7 +1472,10 @@ class Figure:
 
             output_dpi = dpi or self.dpi
             self.compiler.compile(
-                str(base_path), format, dpi=output_dpi, cairo=effective_cairo
+                str(base_path),
+                cast(CompileFormat, format),
+                dpi=output_dpi,
+                cairo=effective_cairo,
             )
 
             # Post-compile cleanup (G8): only on a *successful* compile --
@@ -2616,7 +2632,7 @@ class Figure:
         # no entry in (SPEC 14.6). Fills are in that count: their swatch is
         # a ``keyfill`` line, not a ``key`` on the fill command.
         labels_present = n_legend > 0
-        legend_kwargs = dict(
+        legend_kwargs: Dict[str, Any] = dict(
             fontsize=getattr(ax, "legend_fontsize", None),
             frameon=getattr(ax, "legend_frameon", True),
             offset=self._legend_offset(ax),
@@ -3563,6 +3579,7 @@ class Figure:
                         "Note: PDF inline display limited in Jupyter. Consider using 'png' format."
                     )
                     return tmp_path
+                return None
             else:
                 # Not in notebook - inform user of temp file location
                 print(f"Plot saved to temporary file: {tmp_path}")

@@ -85,6 +85,9 @@ SUPPORTED_COMPILE_FORMATS = frozenset({"pdf", "png", "eps", "jpg", "svg"})
 #: auto-detect a format from a filename can't drift out of sync with what the
 #: compiler actually supports. ``.jpeg`` maps to ``jpg`` since GLE only
 #: recognizes ``jpg`` as a device name.
+#: The formats :meth:`GLECompiler.compile` accepts, as a type.
+CompileFormat = Literal["pdf", "png", "eps", "jpg", "svg"]
+
 SUFFIX_TO_COMPILE_FORMAT = {f".{fmt}": fmt for fmt in SUPPORTED_COMPILE_FORMATS}
 SUFFIX_TO_COMPILE_FORMAT[".jpeg"] = "jpg"
 
@@ -611,15 +614,15 @@ class GLECompiler:
             (``GLE_PATH`` env var, then ``PATH``, then well-known install
             locations).
         """
-        self.gle_path = gle_path or find_gle()
-
-        if not self.gle_path:
+        resolved = gle_path or find_gle()
+        if not resolved:
             raise RuntimeError("GLE not found. Install GLE or provide gle_path.")
+        self.gle_path: str = resolved
 
     def compile(
         self,
         input_file: str,
-        output_format: Literal["pdf", "png", "eps", "jpg", "svg"] = "pdf",
+        output_format: CompileFormat = "pdf",
         dpi: int = 150,
         verbose: bool = False,
         timeout: int = 30,

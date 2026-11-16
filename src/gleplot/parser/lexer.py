@@ -164,8 +164,9 @@ def tokenize_line(text: str) -> List[Token]:
         # signs itself. So the lexer emits '+'/'-' as OP and lets expr.py
         # interpret unary vs binary. Bare numbers still parse here.
         if ch.isdigit() or (ch == "." and i + 1 < n and text[i + 1].isdigit()):
-            tok = _read_number(text, i, n)
-            if tok is not None:
+            number = _read_number(text, i, n)
+            if number is not None:
+                tok = number
                 if tok.end < n and text[tok.end] not in _NUMBER_MERGE_STOPPERS:
                     # The digit run is glued directly to more word
                     # characters with no terminator between them -- e.g.
