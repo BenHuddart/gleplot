@@ -2,8 +2,6 @@
 positions (Track A2).
 """
 
-import pytest
-
 from gleplot.markers import MATPLOTLIB_TO_GLE_MARKERS
 from gleplot.parser import tables
 

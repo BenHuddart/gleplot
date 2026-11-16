@@ -55,7 +55,6 @@ triple they do not model is preserved verbatim rather than dropped.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 __all__ = [

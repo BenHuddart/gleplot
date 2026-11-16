@@ -245,13 +245,13 @@ def _sniff_delimiter(sample_lines: List[str]) -> Optional[str]:
     # rows that lack it are handled as ragged rows (right-padded with NaN)
     # downstream. Prefer the delimiter present on the most rows, breaking
     # ties by the most consistent per-row counts, then by candidate order.
-    non_empty = [l for l in sample_lines if l.strip()]
+    non_empty = [ln for ln in sample_lines if ln.strip()]
     if not non_empty:
         return None
     best_delim = None
     best_key = None
     for delim in _CANDIDATE_DELIMITERS:
-        counts = [l.count(delim) for l in non_empty]
+        counts = [ln.count(delim) for ln in non_empty]
         present = [c for c in counts if c > 0]
         # Require a strict majority of rows to contain the delimiter, so a
         # stray comma in one row of a whitespace file doesn't hijack it.
@@ -634,9 +634,9 @@ def load_data_file(
 
     # Filter out comment and blank lines up front; header/data detection
     # and delimiter sniffing both operate on this filtered list only.
-    content_lines = [l for l in raw_lines if l.strip() and not is_comment_line(l)]
+    content_lines = [ln for ln in raw_lines if ln.strip() and not is_comment_line(ln)]
     comment_lines_skipped = sum(
-        1 for l in raw_lines if l.strip() and is_comment_line(l)
+        1 for ln in raw_lines if ln.strip() and is_comment_line(ln)
     )
 
     if not content_lines:

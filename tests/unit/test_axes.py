@@ -1,12 +1,7 @@
 """Unit tests for axis properties."""
 
 import re
-import sys
 import unittest
-from pathlib import Path
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot as glp
 
@@ -109,9 +104,9 @@ class TestSubplots(unittest.TestCase):
     def test_multiple_subplots(self):
         """Test creating multiple subplots."""
         fig = glp.figure()
-        ax1 = fig.add_subplot(2, 2, 1)
-        ax2 = fig.add_subplot(2, 2, 2)
-        ax3 = fig.add_subplot(2, 2, 3)
+        fig.add_subplot(2, 2, 1)
+        fig.add_subplot(2, 2, 2)
+        fig.add_subplot(2, 2, 3)
         ax4 = fig.add_subplot(2, 2, 4)
 
         self.assertEqual(len(fig.axes_list), 4)
@@ -285,7 +280,6 @@ class TestSubplots(unittest.TestCase):
 
     def test_subplot_mixed_types(self):
         """Test subplots with different plot types."""
-        import numpy as np
 
         fig, axes = glp.subplots(2, 2, figsize=(12, 10))
 

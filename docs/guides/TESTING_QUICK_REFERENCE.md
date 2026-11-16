@@ -195,7 +195,7 @@ View results: `.github/workflows/test.yml`
 2. Follow existing patterns
 3. Use descriptive test names
 4. Add docstrings
-5. Update test imports in `tests/test_gleplot.py`
+5. Mark tests that shell out to GLE with `@pytest.mark.gle`
 6. Run full test suite before committing
 
 ```bash

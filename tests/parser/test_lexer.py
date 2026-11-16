@@ -2,7 +2,7 @@
 
 import pytest
 
-from gleplot.parser.lexer import Token, TokenType, tokenize_line
+from gleplot.parser.lexer import TokenType, tokenize_line
 
 
 def _types(text):

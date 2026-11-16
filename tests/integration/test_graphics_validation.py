@@ -1,12 +1,8 @@
 """Advanced graphics validation tests using image analysis."""
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot as glp
 from gleplot.compiler import GLECompiler

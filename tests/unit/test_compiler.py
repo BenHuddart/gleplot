@@ -2,14 +2,10 @@
 
 import shutil
 import subprocess
-import sys
 import unittest
 import warnings
 from pathlib import Path
 from unittest import mock
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from gleplot.compiler import (
     RASTER_COMPILE_FORMATS,

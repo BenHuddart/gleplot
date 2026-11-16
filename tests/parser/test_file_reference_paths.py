@@ -12,11 +12,9 @@ from pathlib import Path
 import pytest
 
 import gleplot as glp
-from gleplot.compiler import GLECompiler, find_gle
+from gleplot.compiler import GLECompiler
 from gleplot.figure import Figure
 from gleplot.parser.recognizer import parse_gle_figure
-
-requires_gle = pytest.mark.skipif(find_gle() is None, reason="GLE not installed")
 
 
 def _write_data(path: Path) -> None:
@@ -77,7 +75,7 @@ class TestAbsolutize:
         assert fig.axes_list[0].file_series[0]["data_file"] == abs_posix
 
 
-@requires_gle
+@pytest.mark.gle
 class TestPreviewStyleCompile:
     def test_temp_dir_compile_of_relative_references(self, tmp_path):
         """The preview pipeline: parse -> snapshot copy -> absolutize ->

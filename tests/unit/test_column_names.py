@@ -26,8 +26,6 @@ import pytest
 import gleplot as glp
 from gleplot import axes as glp_axes
 from gleplot.axes import (
-    _build_column_names,
-    _build_errorbar_column_names,
     _unique_column_names,
     sanitize_column_name,
 )

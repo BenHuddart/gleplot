@@ -214,8 +214,8 @@ def main():
 
         compiler = GLECompiler()
         print(f"GLE compiler found: {compiler.gle_path}\n")
-    except Exception as e:
-        print(f"Warning: GLE compiler not available. Saving as .gle only.\n")
+    except Exception:
+        print("Warning: GLE compiler not available. Saving as .gle only.\n")
 
     example_global_config()
     example_per_figure_config()
@@ -224,7 +224,7 @@ def main():
     example_line_styles()
 
     print("=" * 50)
-    print(f"All examples completed!")
+    print("All examples completed!")
     print(f"Output saved to: {output_dir}")
     print()
 

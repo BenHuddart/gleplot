@@ -11,14 +11,10 @@ The compiled half of this contract lives in
 """
 
 import re
-import sys
 import warnings
-from pathlib import Path
 
 import numpy as np
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot as glp
 from gleplot.parser.recognizer import parse_gle_figure

@@ -2,9 +2,6 @@
 writer-refactor golden-battery guard (Track A2).
 """
 
-import math
-import pickle
-
 import pytest
 
 import gleplot as glp

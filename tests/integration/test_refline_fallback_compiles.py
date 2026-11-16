@@ -21,21 +21,9 @@ import pytest
 
 import gleplot as glp
 from gleplot.axes import EMPTY_AXIS_FALLBACK_RANGE
-from gleplot.compiler import GLECompiler, find_gle
+from gleplot.compiler import find_gle
 
-
-def _gle_available() -> bool:
-    try:
-        GLECompiler()
-        return True
-    except RuntimeError:
-        return False
-
-
-pytestmark = [
-    pytest.mark.gle,
-    pytest.mark.skipif(not _gle_available(), reason="GLE binary not available"),
-]
+pytestmark = pytest.mark.gle
 
 _NUM = r"[-+]?[\d.]+(?:[eE][-+]?\d+)?"
 

@@ -8,8 +8,6 @@ The gleplot test suite has been organized into a comprehensive structure with un
 ```
 tests/
 ├── __init__.py                          # Test package documentation
-├── test_gleplot.py                      # Backward compatibility wrapper (23 tests)
-│
 ├── unit/                                # Unit tests (10 tests)
 │   ├── __init__.py
 │   ├── test_plotting.py                 # Lines, scatter, bars, fill_between (5 tests)
@@ -138,12 +136,6 @@ def test_compile_to_pdf(self):
         self.skipTest("GLE compiler not available")
 ```
 
-### Backward Compatibility
-The old `test_gleplot.py` file imports all test classes, allowing:
-- Existing test runners to continue working
-- Gradual migration to new structure
-- Single source of truth for test discovery
-
 ### Organized by Functionality
 - Unit tests validate individual functions
 - Integration tests validate workflows
@@ -180,12 +172,6 @@ Create in `tests/integration/test_*.py`:
 class TestNewIntegration(unittest.TestCase):
     def test_workflow(self):
         # Integration test code
-```
-
-### Update Backward Compatibility
-Add import to `tests/test_gleplot.py`:
-```python
-from unit.test_new import TestNewFeature
 ```
 
 ## Best Practices

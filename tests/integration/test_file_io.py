@@ -1,13 +1,10 @@
 """Integration tests for file I/O operations."""
 
 import shutil
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import Mock
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+import pytest
 
 import gleplot as glp
 from tests._tempdir import make_tempdir
@@ -96,6 +93,7 @@ class TestFileIO(unittest.TestCase):
         )
         self.assertFalse(output_file.exists())
 
+    @pytest.mark.gle
     def test_savefig_auto_detects_jpg(self):
         """savefig should auto-detect the 'jpg' format from a .jpg suffix."""
         output_file = self.tempdir / "test.jpg"
@@ -105,6 +103,7 @@ class TestFileIO(unittest.TestCase):
         self.assertTrue(result.exists())
         self.assertGreater(result.stat().st_size, 0)
 
+    @pytest.mark.gle
     def test_savefig_auto_detects_jpeg_as_jpg(self):
         """A .jpeg suffix should compile via GLE's 'jpg' device and produce a .jpg file."""
         output_file = self.tempdir / "test.jpeg"
@@ -114,6 +113,7 @@ class TestFileIO(unittest.TestCase):
         self.assertTrue(result.exists())
         self.assertGreater(result.stat().st_size, 0)
 
+    @pytest.mark.gle
     def test_savefig_auto_detects_svg(self):
         """savefig should auto-detect the 'svg' format from a .svg suffix."""
         output_file = self.tempdir / "test.svg"

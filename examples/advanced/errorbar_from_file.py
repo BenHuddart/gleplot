@@ -80,7 +80,7 @@ def example_errorbar_from_file():
     axes[1].legend()
 
     fig.savefig("example_errorbar_from_file.gle")
-    print(f"  ✓ Saved to example_errorbar_from_file.gle")
+    print("  ✓ Saved to example_errorbar_from_file.gle")
     print(f"  ✓ Data file: {data_file}")
     print("  ✓ No additional data_*.dat files generated!")
 
@@ -147,7 +147,7 @@ def example_dual_axis_from_file():
     ax.legend()
 
     fig.savefig("example_dual_axis_from_file.gle")
-    print(f"  ✓ Saved to example_dual_axis_from_file.gle")
+    print("  ✓ Saved to example_dual_axis_from_file.gle")
     print(f"  ✓ Data file: {data_file}")
 
 

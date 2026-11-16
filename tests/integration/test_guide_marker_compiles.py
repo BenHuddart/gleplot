@@ -22,22 +22,9 @@ from pathlib import Path
 import pytest
 
 import gleplot as glp
-from gleplot.compiler import GLECompiler
 from gleplot.guides import GUIDE_MARKER_PREFIX
 
-
-def _gle_available() -> bool:
-    try:
-        GLECompiler()
-        return True
-    except RuntimeError:
-        return False
-
-
-pytestmark = [
-    pytest.mark.gle,
-    pytest.mark.skipif(not _gle_available(), reason="GLE binary not available"),
-]
+pytestmark = pytest.mark.gle
 
 DPI = 150
 

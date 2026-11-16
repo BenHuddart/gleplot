@@ -10,18 +10,8 @@ from __future__ import annotations
 import pytest
 
 import gleplot as glp
-from gleplot.compiler import GLECompiler
 
-
-def _gle_available() -> bool:
-    try:
-        GLECompiler()
-    except RuntimeError:
-        return False
-    return True
-
-
-pytestmark = pytest.mark.skipif(not _gle_available(), reason="GLE binary not available")
+pytestmark = pytest.mark.gle
 
 
 @pytest.fixture(autouse=True)

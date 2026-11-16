@@ -100,7 +100,6 @@ class EPSAnalyzer:
             content = self.eps_path.read_text(errors="ignore")
             has_header = "%!PS-Adobe" in content or "%!PS" in content
             has_showpage = "showpage" in content
-            has_bounding_box = "%%BoundingBox" in content
 
             return has_header and has_showpage
         except Exception:

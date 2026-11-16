@@ -2812,14 +2812,14 @@ class _Recognizer:
             if places is not None and len(names) == len(places):
                 continue
             lines: List[int] = []
-            for field in (places_field, names_field):
-                raw = info.pop(f"_{field}_raw", None)
-                raw_line = info.pop(f"_{field}_raw_line", None)
+            for key in (places_field, names_field):
+                raw = info.pop(f"_{key}_raw", None)
+                raw_line = info.pop(f"_{key}_raw_line", None)
                 if raw is not None:
                     info["passthrough"].append(raw)
                 if raw_line is not None:
                     lines.append(raw_line)
-                info[field] = None
+                info[key] = None
             self._note(
                 ImportCategory.STRUCTURE,
                 f"{prefix}names/{prefix}places length mismatch; "
@@ -6454,7 +6454,6 @@ class _Recognizer:
     # -- axes assembly ---------------------------------------------------
 
     def _assemble_axes(self, fig, parsed_axes, sharex, sharey):
-        n = len(parsed_axes)
         positions = self._infer_positions(parsed_axes)
 
         for idx, info in enumerate(parsed_axes):

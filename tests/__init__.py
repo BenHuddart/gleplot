@@ -1,19 +1,8 @@
-"""
-Test suite for gleplot library.
+"""gleplot test suite.
 
-Tests are organized into two categories:
-
-Unit tests (tests/unit/):
-    - test_plotting.py: Line plots, scatter plots, bar charts, fill_between
-    - test_axes.py: Axis properties, labels, limits, scales
-    - test_utilities.py: Color and marker conversion utilities
-
-Integration tests (tests/integration/):
-    - test_file_io.py: File I/O operations and GLE script generation
-    - test_api.py: Figure API and GLE code generation
-
-Run all tests with:
-    pytest tests/
-or:
-    python -m pytest tests/ -v
+``unit/`` asserts on the object model and emitted script text, ``parser/`` on
+parsing, recovery and the writer/parser fixed point, and ``integration/`` on
+what GLE actually renders. Tests that shell out to GLE carry
+``@pytest.mark.gle`` and are skipped when the binary is missing (see
+``conftest.py``).
 """

@@ -1,12 +1,7 @@
 """Unit tests for utility functions."""
 
-import sys
 import unittest
 import warnings
-from pathlib import Path
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from gleplot.colors import rgb_to_gle
 from gleplot.markers import get_gle_marker

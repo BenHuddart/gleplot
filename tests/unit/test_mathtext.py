@@ -7,15 +7,11 @@ integration with the API entry points (labels/titles/annotations stored
 translated; emitted ``.gle`` contains the markup).
 """
 
-import sys
-from pathlib import Path
-
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot
 from gleplot import mathtext_to_gle
+from gleplot.mathtext import escape_gle_text
 
 
 # ----------------------------------------------------------------------
@@ -232,7 +228,6 @@ class TestEntryPointsStoreTranslated:
 # renders "a_b", "\char{94}" a caret and "\char{123}"/"\char{125}" braces
 # (a bare "\^"/"\{" are *accents*, not literals).
 # ----------------------------------------------------------------------
-from gleplot.mathtext import escape_gle_text
 
 
 class TestLiteralTextMode:

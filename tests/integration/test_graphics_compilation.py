@@ -1,12 +1,7 @@
 """Integration tests for graphics file generation and validation."""
 
 import shutil
-import sys
 import unittest
-from pathlib import Path
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot as glp
 from gleplot.compiler import GLECompiler
@@ -72,7 +67,6 @@ class TestGraphicsCompilation(unittest.TestCase):
             self.skipTest("GLE compiler not available")
 
         gle_file = self.tempdir / "test.gle"
-        pdf_file = self.tempdir / "test.pdf"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))
@@ -90,7 +84,6 @@ class TestGraphicsCompilation(unittest.TestCase):
             self.skipTest("GLE compiler not available")
 
         gle_file = self.tempdir / "test.gle"
-        eps_file = self.tempdir / "test.eps"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))
@@ -108,7 +101,6 @@ class TestGraphicsCompilation(unittest.TestCase):
             self.skipTest("GLE compiler not available")
 
         gle_file = self.tempdir / "test.gle"
-        png_file = self.tempdir / "test.png"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))

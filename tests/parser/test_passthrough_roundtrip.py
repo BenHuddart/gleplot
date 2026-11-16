@@ -17,7 +17,6 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot import Figure
 from gleplot.parser import emit, parse_gle_source
 
 # --------------------------------------------------------------------------- #

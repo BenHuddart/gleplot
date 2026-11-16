@@ -1,5 +1,11 @@
 [flake8]
 max-line-length = 88
-# E203/W503 conflict with black's slice and operator formatting.
-extend-ignore = E203, W503
+# black owns line length (it cannot wrap long strings or docstrings, so E501
+# would only flag what it leaves); E203/W503 conflict with its formatting.
+extend-ignore = E203, E501, W503
 exclude = .git,__pycache__,build,dist,docs/build,.venv
+per-file-ignores =
+    # Examples and the Sphinx config put src/ on sys.path before importing
+    # gleplot so they run from a checkout without an install.
+    examples/*: E402
+    docs/source/conf.py: E402

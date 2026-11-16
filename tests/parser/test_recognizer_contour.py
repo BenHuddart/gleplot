@@ -13,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 import gleplot as glp
 from gleplot.parser.recognizer import parse_gle_figure

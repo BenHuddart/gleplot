@@ -1,6 +1,5 @@
 """Unit tests for plotting functionality."""
 
-import sys
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -9,14 +8,12 @@ import numpy as np
 
 # Check if IPython is available for conditional testing
 try:
-    import IPython
+    import IPython  # noqa: F401
 
     IPYTHON_AVAILABLE = True
 except ImportError:
     IPYTHON_AVAILABLE = False
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot as glp
 

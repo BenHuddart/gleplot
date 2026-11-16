@@ -268,7 +268,7 @@ class TestOpaqueBlockNesting:
     """MA-review fix: nested begin/end inside opaque blocks."""
 
     def test_nested_text_in_key_block(self):
-        from gleplot.parser.syntax import OpaqueBlock, Statement, parse_gle_source
+        from gleplot.parser.syntax import OpaqueBlock, parse_gle_source
 
         src = "begin key\nbegin text\nlabel\nend\nend key\n"
         doc = parse_gle_source(src)

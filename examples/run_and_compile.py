@@ -36,8 +36,6 @@ from basic import (
     example_symmetric_error_bars,
 )
 
-import gleplot as glp
-
 
 def main():
     """Run all examples and compile to PDF, EPS, and PNG."""
@@ -140,7 +138,7 @@ def main():
 
             gle_file = Path(f"{basename}.gle")
             if not gle_file.exists():
-                print(f"  ✗ GLE file not created")
+                print("  ✗ GLE file not created")
                 failed.append(name)
                 continue
 
@@ -197,7 +195,7 @@ def main():
         print(f"\nFailed: {', '.join(failed)}")
 
     print(f"\nOutput directory: {output_dir}")
-    print(f"Files generated:")
+    print("Files generated:")
 
     # List all generated files
     all_files = sorted(output_dir.glob("example_*"))

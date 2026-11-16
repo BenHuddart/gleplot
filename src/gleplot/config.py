@@ -1,7 +1,7 @@
 """Configuration and style settings for gleplot."""
 
-from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, Optional
 
 
 @dataclass

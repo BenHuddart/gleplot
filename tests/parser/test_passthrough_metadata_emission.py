@@ -295,15 +295,7 @@ class TestImportDataAccuracy:
 # --------------------------------------------------------------------------- #
 
 
-def _gle_available() -> bool:
-    try:
-        GLECompiler()
-        return True
-    except RuntimeError:
-        return False
-
-
-@pytest.mark.skipif(not _gle_available(), reason="GLE not installed")
+@pytest.mark.gle
 def test_metadata_and_passthrough_figure_compiles_with_real_gle():
     """A .gle carrying the metadata block, header/trailer passthrough, and
     axes-local passthrough must still be valid GLE source that the real GLE
