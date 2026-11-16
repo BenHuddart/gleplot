@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.9.0 (2026-11-16)
+
+### Features
+
+- Add Axes.annotate with data-coordinate arrows
+  ([`8b9e202`](https://github.com/BenHuddart/gleplot/commit/8b9e2024a2208e4eb9c66ec001ce60e6c73396b3))
+
+
 ## v3.8.0 (2026-11-15)
 
 ### Features
