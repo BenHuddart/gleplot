@@ -96,7 +96,9 @@ def test_broken_axes_forwards_zorder(tmp_path):
     drawable_blocks = [b for b in graph_blocks if re.search(r"\bd\d+\s", b)]
     assert len(drawable_blocks) == 2
     for block in drawable_blocks:
-        cmds = [ln.strip() for ln in block.splitlines() if re.match(r"\s+d\d+\s+\S", ln)]
+        cmds = [
+            ln.strip() for ln in block.splitlines() if re.match(r"\s+d\d+\s+\S", ln)
+        ]
         assert len(cmds) == 2
         assert "err" in cmds[0]
         assert _command_index(cmds[1]) > _command_index(cmds[0])

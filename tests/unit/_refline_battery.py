@@ -24,7 +24,6 @@ import gleplot as glp
 from gleplot.series import LineSeries
 from gleplot.sources import ColumnRef, DictDataProvider, TableData
 
-
 X = np.array([0.0, 1.0, 2.0, 3.0])
 Y = np.array([0.0, 1.0, 4.0, 9.0])
 

@@ -26,8 +26,6 @@ import pytest
 import gleplot as glp
 from gleplot import axes as glp_axes
 from gleplot.axes import (
-    _build_column_names,
-    _build_errorbar_column_names,
     _unique_column_names,
     sanitize_column_name,
 )
@@ -198,7 +196,8 @@ def test_column_names_unique_within_file_when_label_collides_with_base_name():
 def test_add_data_file_emits_header_row_first_line():
     writer = GLEWriter()
     writer.add_data_file(
-        "d.dat", [np.array([1.0, 2.0]), np.array([3.0, 4.0])],
+        "d.dat",
+        [np.array([1.0, 2.0]), np.array([3.0, 4.0])],
         column_names=["x", "signal"],
     )
     content = writer.data_files["d.dat"]
@@ -217,7 +216,8 @@ def test_add_data_file_rejects_mismatched_column_count():
     writer = GLEWriter()
     with pytest.raises(ValueError):
         writer.add_data_file(
-            "d.dat", [np.array([1.0]), np.array([2.0])],
+            "d.dat",
+            [np.array([1.0]), np.array([2.0])],
             column_names=["x", "y", "extra"],
         )
 

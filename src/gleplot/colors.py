@@ -27,49 +27,66 @@ import re
 import warnings
 from typing import Optional, Tuple, Union
 
-
 # Matplotlib color codes to GLE color names
 MATPLOTLIB_TO_GLE_COLORS = {
-    'b': 'BLUE',
-    'g': 'GREEN',
-    'r': 'RED',
-    'c': 'CYAN',
-    'm': 'MAGENTA',
-    'y': 'YELLOW',
-    'k': 'BLACK',
-    'w': 'WHITE',
+    "b": "BLUE",
+    "g": "GREEN",
+    "r": "RED",
+    "c": "CYAN",
+    "m": "MAGENTA",
+    "y": "YELLOW",
+    "k": "BLACK",
+    "w": "WHITE",
     # Named colors
-    'blue': 'BLUE',
-    'green': 'GREEN',
-    'red': 'RED',
-    'cyan': 'CYAN',
-    'magenta': 'MAGENTA',
-    'yellow': 'YELLOW',
-    'black': 'BLACK',
-    'white': 'WHITE',
-    'orange': 'ORANGE',
-    'purple': 'PURPLE',
-    'brown': 'BROWN',
-    'pink': 'PINK',
-    'gray': 'GRAY',
-    'grey': 'GRAY',
-    'lightblue': 'LIGHTBLUE',
-    'lightgreen': 'LIGHTGREEN',
-    'lightcyan': 'LIGHTCYAN',
-    'lightgray': 'LIGHTGRAY',
-    'lightgrey': 'LIGHTGRAY',
-    'darkblue': 'DARKBLUE',
-    'darkgreen': 'DARKGREEN',
-    'darkred': 'DARKRED',
-    'darkgray': 'DARKGRAY',
-    'darkgrey': 'DARKGRAY',
+    "blue": "BLUE",
+    "green": "GREEN",
+    "red": "RED",
+    "cyan": "CYAN",
+    "magenta": "MAGENTA",
+    "yellow": "YELLOW",
+    "black": "BLACK",
+    "white": "WHITE",
+    "orange": "ORANGE",
+    "purple": "PURPLE",
+    "brown": "BROWN",
+    "pink": "PINK",
+    "gray": "GRAY",
+    "grey": "GRAY",
+    "lightblue": "LIGHTBLUE",
+    "lightgreen": "LIGHTGREEN",
+    "lightcyan": "LIGHTCYAN",
+    "lightgray": "LIGHTGRAY",
+    "lightgrey": "LIGHTGRAY",
+    "darkblue": "DARKBLUE",
+    "darkgreen": "DARKGREEN",
+    "darkred": "DARKRED",
+    "darkgray": "DARKGRAY",
+    "darkgrey": "DARKGRAY",
 }
 
 # Extended GLE color palette
 GLE_COLORS = {
-    'BLUE', 'RED', 'GREEN', 'CYAN', 'MAGENTA', 'YELLOW', 'BLACK', 'WHITE',
-    'ORANGE', 'PURPLE', 'BROWN', 'PINK', 'GRAY', 'LIGHTBLUE', 'LIGHTGREEN',
-    'LIGHTCYAN', 'LIGHTGRAY', 'DARKBLUE', 'DARKGREEN', 'DARKRED', 'DARKGRAY',
+    "BLUE",
+    "RED",
+    "GREEN",
+    "CYAN",
+    "MAGENTA",
+    "YELLOW",
+    "BLACK",
+    "WHITE",
+    "ORANGE",
+    "PURPLE",
+    "BROWN",
+    "PINK",
+    "GRAY",
+    "LIGHTBLUE",
+    "LIGHTGREEN",
+    "LIGHTCYAN",
+    "LIGHTGRAY",
+    "DARKBLUE",
+    "DARKGREEN",
+    "DARKRED",
+    "DARKGRAY",
 }
 
 #: matplotlib's default property cycle (``tab10``), keyed by both the cycle
@@ -78,16 +95,27 @@ GLE_COLORS = {
 #: distinct colours. (They previously all collapsed to a handful of snapped
 #: names, e.g. C4 ``#9467bd`` and C6 ``#e377c2`` both rendering MAGENTA.)
 MATPLOTLIB_CYCLE_HEX = {
-    'c0': '#1f77b4', 'tab:blue': '#1f77b4',
-    'c1': '#ff7f0e', 'tab:orange': '#ff7f0e',
-    'c2': '#2ca02c', 'tab:green': '#2ca02c',
-    'c3': '#d62728', 'tab:red': '#d62728',
-    'c4': '#9467bd', 'tab:purple': '#9467bd',
-    'c5': '#8c564b', 'tab:brown': '#8c564b',
-    'c6': '#e377c2', 'tab:pink': '#e377c2',
-    'c7': '#7f7f7f', 'tab:gray': '#7f7f7f', 'tab:grey': '#7f7f7f',
-    'c8': '#bcbd22', 'tab:olive': '#bcbd22',
-    'c9': '#17becf', 'tab:cyan': '#17becf',
+    "c0": "#1f77b4",
+    "tab:blue": "#1f77b4",
+    "c1": "#ff7f0e",
+    "tab:orange": "#ff7f0e",
+    "c2": "#2ca02c",
+    "tab:green": "#2ca02c",
+    "c3": "#d62728",
+    "tab:red": "#d62728",
+    "c4": "#9467bd",
+    "tab:purple": "#9467bd",
+    "c5": "#8c564b",
+    "tab:brown": "#8c564b",
+    "c6": "#e377c2",
+    "tab:pink": "#e377c2",
+    "c7": "#7f7f7f",
+    "tab:gray": "#7f7f7f",
+    "tab:grey": "#7f7f7f",
+    "c8": "#bcbd22",
+    "tab:olive": "#bcbd22",
+    "c9": "#17becf",
+    "tab:cyan": "#17becf",
 }
 
 #: A GLE colour *expression* -- a function call such as ``rgb255(140,140,140)``,
@@ -194,7 +222,7 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
             return _hex_to_gle(MATPLOTLIB_CYCLE_HEX[color_lower])
 
         # Try hex color
-        if color_lower.startswith('#'):
+        if color_lower.startswith("#"):
             return _hex_to_gle(color_lower)
 
         # Unrecognized name: neither a GLE colour, a matplotlib code/cycle
@@ -213,7 +241,7 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
         )
 
     # Default fallback
-    return 'BLACK'
+    return "BLACK"
 
 
 def rgb255_expr(r: int, g: int, b: int) -> str:
@@ -313,10 +341,10 @@ def _rgb01_to_gle(r: float, g: float, b: float) -> str:
 
 def _hex_to_gle(hex_color: str) -> str:
     """Convert a ``#RRGGBB`` or ``#RGB`` hex string to ``rgb255(...)``."""
-    digits = hex_color.lstrip('#').strip()
+    digits = hex_color.lstrip("#").strip()
 
     if len(digits) == 3:
-        digits = ''.join(ch * 2 for ch in digits)
+        digits = "".join(ch * 2 for ch in digits)
 
     if len(digits) == 6:
         try:
@@ -330,7 +358,7 @@ def _hex_to_gle(hex_color: str) -> str:
                 UserWarning,
                 stacklevel=3,
             )
-            return 'BLACK'
+            return "BLACK"
         return rgb255_expr(r, g, b)
 
     warnings.warn(
@@ -339,14 +367,14 @@ def _hex_to_gle(hex_color: str) -> str:
         UserWarning,
         stacklevel=3,
     )
-    return 'BLACK'
+    return "BLACK"
 
 
-def get_color_palette(name: str = 'default') -> list:
+def get_color_palette(name: str = "default") -> list:
     """Get a preset color palette."""
     palettes = {
-        'default': ['BLUE', 'RED', 'GREEN', 'CYAN', 'MAGENTA', 'YELLOW'],
-        'dark': ['DARKBLUE', 'DARKRED', 'DARKGREEN', 'DARKGRAY'],
-        'light': ['LIGHTBLUE', 'LIGHTGREEN', 'LIGHTCYAN', 'LIGHTGRAY'],
+        "default": ["BLUE", "RED", "GREEN", "CYAN", "MAGENTA", "YELLOW"],
+        "dark": ["DARKBLUE", "DARKRED", "DARKGREEN", "DARKGRAY"],
+        "light": ["LIGHTBLUE", "LIGHTGREEN", "LIGHTCYAN", "LIGHTGRAY"],
     }
-    return palettes.get(name, palettes['default'])
+    return palettes.get(name, palettes["default"])

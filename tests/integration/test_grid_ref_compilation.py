@@ -26,21 +26,11 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot.compiler import GLECompiler
-from tests.integration.conftest import darwin_gle_contour_crash
 from gleplot.series import ContourSeries, HeatmapSeries
 from gleplot.sources import DictDataProvider, GridRef, TableData
+from tests.integration.conftest import darwin_gle_contour_crash
 
-
-def _gle_available() -> bool:
-    try:
-        GLECompiler()
-        return True
-    except RuntimeError:
-        return False
-
-
-pytestmark = pytest.mark.skipif(not _gle_available(), reason="GLE binary not available")
+pytestmark = pytest.mark.gle
 
 
 @pytest.fixture(autouse=True)

@@ -31,15 +31,15 @@ Outputs (next to this file): ``prl_fig2a_style.gle`` + sidecars and
 """
 
 import sys
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot as glp
 from gleplot import GLEStyleConfig
-
 
 # Instrumental background asymmetry (%): the level the relaxation decays to.
 A_BG = 2.4
@@ -55,11 +55,7 @@ TEMPERATURES = [
 
 def asymmetry(t, a_fast, sigma, a_slow, lam):
     """Two-timescale zero-field relaxation function (see module docstring)."""
-    return (
-        a_fast * np.exp(-((sigma * t) ** 2) / 2.0)
-        + a_slow * np.exp(-lam * t)
-        + A_BG
-    )
+    return a_fast * np.exp(-((sigma * t) ** 2) / 2.0) + a_slow * np.exp(-lam * t) + A_BG
 
 
 def sample_times():

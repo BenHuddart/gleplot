@@ -7,7 +7,7 @@ name = "gleplot"
 version = "3.9.0"
 description = "Matplotlib-like plotting library for GLE (Graphics Layout Engine)"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 license = {text = "GPL-2.0+"}
 authors = [
     {name = "gleplot contributors"},
@@ -18,11 +18,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 
@@ -34,9 +33,12 @@ dependencies = [
 dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",
-    "black>=21.0",
-    "flake8>=3.9",
-    "mypy>=0.900",
+    # Formatter output differs between black majors, so CI and local runs
+    # must agree on one. Black 26 needs Python 3.10+; lint runs on 3.12.
+    "black>=26,<27; python_version >= '3.10'",
+    "isort>=5.12",
+    "flake8>=6.0",
+    "mypy>=1.8",
     "python-semantic-release>=10",
     # Raster ink measurement in integration and parser tests.
     "Pillow>=9.1",
@@ -67,12 +69,12 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-# PEP 561 marker: gleplot is fully typed and mypy-checked in CI.
+# PEP 561 marker; mypy runs in the CI lint job.
 "gleplot" = ["py.typed"]
 
 [tool.black]
 line-length = 88
-target-version = ['py37', 'py38', 'py39', 'py310', 'py311']
+target-version = ['py39', 'py310', 'py311', 'py312']
 include = '\.pyi?$'
 
 [tool.isort]
@@ -80,10 +82,16 @@ profile = "black"
 line_length = 88
 
 [tool.mypy]
-python_version = "3.9"
+# No python_version pin: current numpy stubs use syntax mypy rejects when
+# asked to check as 3.9. Runtime support for 3.9 is covered by the test matrix.
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# Optional at runtime (Figure.view in notebooks); not a dependency.
+module = ["IPython.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

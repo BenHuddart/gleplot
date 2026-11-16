@@ -18,8 +18,8 @@ Other modules in this package (``tables``, ``units``, ``metadata``) are owned
 by a parallel track and are intentionally *not* re-exported here.
 """
 
-from .lexer import Token, TokenType, tokenize_line
 from .expr import eval_gle_number, format_gle_number
+from .lexer import Token, TokenType, tokenize_line
 from .syntax import (
     BlankOrComment,
     GleDocument,

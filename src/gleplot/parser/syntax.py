@@ -536,7 +536,6 @@ def _build_structure(
     idx = 0
     while idx < n_lines:
         stmts = per_line[idx]
-        src = lines[idx]
 
         # Multi-statement line, or single non-delimiter line.
         if len(stmts) == 1:

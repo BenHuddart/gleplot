@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 import gleplot as glp
@@ -813,9 +812,6 @@ def test_critical1_vouched_sidecar_unsanitary_header_roundtrips_byte_identical(
         "end graph\n"
     )
     gle = _write(tmp_path, "owned2.gle", src, {"data_9.dat": dat_content})
-    dat_path = tmp_path / "data_9.dat"
-    before = dat_path.read_bytes()
-
     rec = parse_gle_figure(gle)
     ax = rec.figure.axes_list[0]
     assert len(ax.lines) == 1
@@ -1065,8 +1061,8 @@ def test_finding14_resave_reproduces_minimal_sticky_gle(tmp_path):
     # already BLACK/left (the sticky default), so no redundant lines.
     trailer_lines = resaved.splitlines()[resaved.splitlines().index("end graph") + 1 :]
     assert trailer_lines.count("set hei 0.7") == 1
-    assert not any(l.strip().startswith("set color") for l in trailer_lines)
-    assert not any(l.strip().startswith("set just") for l in trailer_lines)
+    assert not any(ln.strip().startswith("set color") for ln in trailer_lines)
+    assert not any(ln.strip().startswith("set just") for ln in trailer_lines)
 
 
 def test_finding14_resave_compiles_in_real_gle(tmp_path):

@@ -16,7 +16,6 @@ import pytest
 import gleplot as glp
 from gleplot.parser.recognizer import parse_gle_figure
 
-
 T = np.linspace(0.0, 3.0, 20)
 A = np.exp(-T)
 

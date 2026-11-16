@@ -2,14 +2,10 @@
 
 import shutil
 import subprocess
-import sys
 import unittest
 import warnings
 from pathlib import Path
 from unittest import mock
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
 
 from gleplot.compiler import (
     RASTER_COMPILE_FORMATS,
@@ -25,7 +21,6 @@ from gleplot.compiler import (
     set_gle_path_override,
 )
 from tests._tempdir import make_tempdir
-
 
 # ---------------------------------------------------------------------------
 # Fixtures: sample GLE compiler output blocks.
@@ -94,14 +89,14 @@ UNPARSEABLE_OUTPUT = "something totally unexpected blew up\nwith no structure at
 #      data "nope.dat"
 #   end graph
 MISSING_DATA_FILE_OUTPUT = (
-    'GLE 4.3.10[missing_data.gle]-C-R-\n'
-    '\n'
+    "GLE 4.3.10[missing_data.gle]-C-R-\n"
+    "\n"
     '>> missing_data.gle (3) |data "nope.dat"|\n'
-    '\n'
+    "\n"
     ">> Error: can't open: 'nope.dat': No such file or directory\n"
-    '\n'
-    '\n'
-    '[missing_data][.eps]\n'
+    "\n"
+    "\n"
+    "[missing_data][.eps]\n"
 )
 
 # unknown_colour.gle:
@@ -110,14 +105,14 @@ MISSING_DATA_FILE_OUTPUT = (
 #   amove 1 1
 #   box 2 2
 UNKNOWN_COLOUR_OUTPUT = (
-    'GLE 4.3.10[unknown_colour.gle]-C-R-\n'
-    '\n'
+    "GLE 4.3.10[unknown_colour.gle]-C-R-\n"
+    "\n"
     '>> unknown_colour.gle (2) |set color "notacolor"|\n'
-    '\n'
+    "\n"
     ">> Error: found 'notacolor', but expecting color or fill specification\n"
-    '\n'
-    '\n'
-    '[unknown_colour][.eps]\n'
+    "\n"
+    "\n"
+    "[unknown_colour][.eps]\n"
 )
 
 # unclosed.gle:
@@ -125,14 +120,14 @@ UNKNOWN_COLOUR_OUTPUT = (
 #   begin graph
 #      title "test"
 UNCLOSED_BLOCK_OUTPUT = (
-    'GLE 4.3.10[unclosed.gle]-C\n'
-    '\n'
+    "GLE 4.3.10[unclosed.gle]-C\n"
+    "\n"
     '>> unclosed.gle (3) |title "test"|\n'
-    '\n'
+    "\n"
     ">> Error: end of file while in block type 'graph' starting on line 2\n"
-    '\n'
-    '\n'
-    'Errors, GLE aborting.\n'
+    "\n"
+    "\n"
+    "Errors, GLE aborting.\n"
 )
 
 # markup_error.gle:
@@ -140,34 +135,34 @@ UNCLOSED_BLOCK_OUTPUT = (
 #   amove 1 1
 #   write "\setfont{notafont}text"
 MARKUP_ERROR_OUTPUT = (
-    'GLE 4.3.10[markup_error.gle]-C-R-\n'
-    '\n'
+    "GLE 4.3.10[markup_error.gle]-C-R-\n"
+    "\n"
     '>> markup_error.gle (3) |write "\\setfont{notafont}text"|\n'
-    '\n'
-    '>> Error: invalid font name {notafont}, expecting one of:\n'
-    '>>        rm, rmi, rmb, rmbi, ss,\n'
-    '>>        ssi, ssb, ssbi, texmi, texsy,\n'
-    '>>        texex, glemark, texcmb, texcmex, texcmitt,\n'
-    '>>        texcmmi, texcmr, texcmss, texcmssb, texcmssi,\n'
-    '>>        texcmsy, texcmti, texcmtt, psagb, psagbo,\n'
-    '>>        psagd, psagdo, psbd, psbdi, psbli,\n'
-    '>>        psc, pscb, pscbo, psco, psh,\n'
-    '>>        pshb, pshbo, pshc, pshcb, pshcbo,\n'
-    '>>        pshcdo, psho, pshn, pshnb, pshnbo,\n'
-    '>>        pshno, psncsb, psncsbi, psncsi, psncsr,\n'
-    '>>        pspb, pspbi, pspi, pspr, pssym,\n'
-    '>>        pstb, pstbi, psti, pstr, pszcmi,\n'
-    '>>        pszd, plba, plcc, plcg, plci,\n'
-    '>>        plcr, plcs, pldr, plge, plgg,\n'
-    '>>        plgi, plsa, plsg, plsr, plss,\n'
-    '>>        plsym1, plsym2, plti, pltr, plba,\n'
-    '>>        plsa, tt, tti, ttb, ttbi,\n'
-    '>>        psbl, arial8, arial8b, arial8i, arial8bi,\n'
-    '>>        cour8, cour8b, cour8i, cour8bi, times8,\n'
-    '>>        times8b, times8i, times8bi\n'
-    '\n'
-    '\n'
-    '[markup_error][.eps]\n'
+    "\n"
+    ">> Error: invalid font name {notafont}, expecting one of:\n"
+    ">>        rm, rmi, rmb, rmbi, ss,\n"
+    ">>        ssi, ssb, ssbi, texmi, texsy,\n"
+    ">>        texex, glemark, texcmb, texcmex, texcmitt,\n"
+    ">>        texcmmi, texcmr, texcmss, texcmssb, texcmssi,\n"
+    ">>        texcmsy, texcmti, texcmtt, psagb, psagbo,\n"
+    ">>        psagd, psagdo, psbd, psbdi, psbli,\n"
+    ">>        psc, pscb, pscbo, psco, psh,\n"
+    ">>        pshb, pshbo, pshc, pshcb, pshcbo,\n"
+    ">>        pshcdo, psho, pshn, pshnb, pshnbo,\n"
+    ">>        pshno, psncsb, psncsbi, psncsi, psncsr,\n"
+    ">>        pspb, pspbi, pspi, pspr, pssym,\n"
+    ">>        pstb, pstbi, psti, pstr, pszcmi,\n"
+    ">>        pszd, plba, plcc, plcg, plci,\n"
+    ">>        plcr, plcs, pldr, plge, plgg,\n"
+    ">>        plgi, plsa, plsg, plsr, plss,\n"
+    ">>        plsym1, plsym2, plti, pltr, plba,\n"
+    ">>        plsa, tt, tti, ttb, ttbi,\n"
+    ">>        psbl, arial8, arial8b, arial8i, arial8bi,\n"
+    ">>        cour8, cour8b, cour8i, cour8bi, times8,\n"
+    ">>        times8b, times8i, times8bi\n"
+    "\n"
+    "\n"
+    "[markup_error][.eps]\n"
 )
 
 # multiple_bad_commands.gle:
@@ -181,18 +176,18 @@ MARKUP_ERROR_OUTPUT = (
 # (Also independently reproduced with 20 distinct unknown commands: GLE
 # prints 20 ">> Error:" lines, only the first preceded by a location block.)
 MULTIPLE_BAD_COMMANDS_OUTPUT = (
-    'GLE 4.3.10[multiple_bad_commands.gle]-C\n'
-    '\n'
-    '>> multiple_bad_commands.gle (2) |frobnicate 1 2 3|\n'
-    '>>                 ^\n'
+    "GLE 4.3.10[multiple_bad_commands.gle]-C\n"
+    "\n"
+    ">> multiple_bad_commands.gle (2) |frobnicate 1 2 3|\n"
+    ">>                 ^\n"
     ">> Error: function 'FROBNICATE' not defined\n"
-    '\n'
+    "\n"
     ">> Error: function 'ZORPTASTIC' not defined\n"
-    '\n'
+    "\n"
     ">> Error: function 'QUUXIFY' not defined\n"
-    '\n'
-    '\n'
-    'Errors, GLE aborting.\n'
+    "\n"
+    "\n"
+    "Errors, GLE aborting.\n"
 )
 
 
@@ -204,9 +199,9 @@ class TestParseGleErrors(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         err = errors[0]
         self.assertIsInstance(err, GLEError)
-        self.assertEqual(err.file, 'bad.gle')
+        self.assertEqual(err.file, "bad.gle")
         self.assertEqual(err.line, 3)
-        self.assertEqual(err.source_line, 'let d1 = sin(x frum 0 to 2*pi')
+        self.assertEqual(err.source_line, "let d1 = sin(x frum 0 to 2*pi")
         # Caret points just past the end of the quoted source (30 chars).
         self.assertEqual(err.column, len(err.source_line))
         self.assertIn("expected closing ')'", err.message)
@@ -215,11 +210,11 @@ class TestParseGleErrors(unittest.TestCase):
         errors = parse_gle_errors(NO_CARET_OUTPUT)
         self.assertEqual(len(errors), 1)
         err = errors[0]
-        self.assertEqual(err.file, 'bad.gle')
+        self.assertEqual(err.file, "bad.gle")
         self.assertEqual(err.line, 5)
         self.assertIsNone(err.column)
-        self.assertEqual(err.source_line, 'some source text')
-        self.assertIn('something went wrong', err.message)
+        self.assertEqual(err.source_line, "some source text")
+        self.assertIn("something went wrong", err.message)
 
     def test_multiple_errors(self):
         errors = parse_gle_errors(MULTI_ERROR_OUTPUT)
@@ -227,11 +222,11 @@ class TestParseGleErrors(unittest.TestCase):
 
         first, second = errors
         self.assertEqual(first.line, 2)
-        self.assertEqual(first.source_line, 'x = 1 +')
-        self.assertIn('expected expression', first.message)
+        self.assertEqual(first.source_line, "x = 1 +")
+        self.assertIn("expected expression", first.message)
 
         self.assertEqual(second.line, 7)
-        self.assertEqual(second.source_line, 'y = foo(')
+        self.assertEqual(second.source_line, "y = foo(")
         self.assertIn("expected closing ')'", second.message)
 
     def test_unparseable_output_falls_back_to_raw_message(self):
@@ -244,8 +239,8 @@ class TestParseGleErrors(unittest.TestCase):
         self.assertEqual(err.message, UNPARSEABLE_OUTPUT.strip())
 
     def test_empty_output_returns_no_errors(self):
-        self.assertEqual(parse_gle_errors(''), [])
-        self.assertEqual(parse_gle_errors('   \n  \n'), [])
+        self.assertEqual(parse_gle_errors(""), [])
+        self.assertEqual(parse_gle_errors("   \n  \n"), [])
 
     # -- Real-GLE regression coverage: blank line stands in for the caret ---
 
@@ -253,7 +248,7 @@ class TestParseGleErrors(unittest.TestCase):
         errors = parse_gle_errors(MISSING_DATA_FILE_OUTPUT)
         self.assertEqual(len(errors), 1)
         err = errors[0]
-        self.assertEqual(err.file, 'missing_data.gle')
+        self.assertEqual(err.file, "missing_data.gle")
         self.assertEqual(err.line, 3)
         self.assertIsNone(err.column)
         self.assertEqual(err.source_line, 'data "nope.dat"')
@@ -261,7 +256,7 @@ class TestParseGleErrors(unittest.TestCase):
             err.message,
             "can't open: 'nope.dat': No such file or directory",
         )
-        self.assertNotEqual(err.message, 'GLE error')
+        self.assertNotEqual(err.message, "GLE error")
 
     def test_unknown_colour_message_survives_blank_caret_line(self):
         errors = parse_gle_errors(UNKNOWN_COLOUR_OUTPUT)
@@ -288,14 +283,14 @@ class TestParseGleErrors(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         err = errors[0]
         self.assertEqual(err.line, 3)
-        self.assertTrue(err.message.startswith(
-            'invalid font name {notafont}, expecting one of:'
-        ))
+        self.assertTrue(
+            err.message.startswith("invalid font name {notafont}, expecting one of:")
+        )
         # The wrapped list of valid font names (continuation lines with no
         # repeated "Error:" prefix) must still be folded into the message,
         # not truncated at the first line.
-        self.assertIn('rm, rmi, rmb, rmbi, ss,', err.message)
-        self.assertIn('times8b, times8i, times8bi', err.message)
+        self.assertIn("rm, rmi, rmb, rmbi, ss,", err.message)
+        self.assertIn("times8b, times8i, times8bi", err.message)
 
     # -- Real-GLE regression coverage: multiple errors, one location only ---
 
@@ -304,9 +299,9 @@ class TestParseGleErrors(unittest.TestCase):
         self.assertEqual(len(errors), 3)
 
         first, second, third = errors
-        self.assertEqual(first.file, 'multiple_bad_commands.gle')
+        self.assertEqual(first.file, "multiple_bad_commands.gle")
         self.assertEqual(first.line, 2)
-        self.assertEqual(first.source_line, 'frobnicate 1 2 3')
+        self.assertEqual(first.source_line, "frobnicate 1 2 3")
         self.assertEqual(first.message, "function 'FROBNICATE' not defined")
 
         # GLE prints no location block for the second/third errors; the
@@ -329,7 +324,7 @@ class TestParseGleErrors(unittest.TestCase):
         )
         errors = parse_gle_errors(output)
         self.assertEqual(len(errors), 1)
-        self.assertEqual(errors[0].source_line, 'abcd efgh')
+        self.assertEqual(errors[0].source_line, "abcd efgh")
         # pipe is at index 16 ('>> file.gle (1) |'); caret at index 21
         # => column = 21 - 16 - 1 = 4
         self.assertEqual(errors[0].column, 4)
@@ -347,64 +342,79 @@ class TestFindGle(unittest.TestCase):
         set_gle_path_override(None)
 
     def test_env_var_takes_priority(self):
-        with mock.patch.dict('os.environ', {'GLE_PATH': str(Path(__file__))}):
-            with mock.patch('gleplot.compiler.shutil.which', return_value='/should/not/be/used'):
+        with mock.patch.dict("os.environ", {"GLE_PATH": str(Path(__file__))}):
+            with mock.patch(
+                "gleplot.compiler.shutil.which", return_value="/should/not/be/used"
+            ):
                 self.assertEqual(find_gle(), str(Path(__file__)))
 
     def test_env_var_ignored_if_nonexistent(self):
-        with mock.patch.dict('os.environ', {'GLE_PATH': 'C:/does/not/exist/gle.exe'}):
-            with mock.patch('gleplot.compiler.shutil.which', return_value='/usr/bin/gle'):
-                self.assertEqual(find_gle(), '/usr/bin/gle')
+        with mock.patch.dict("os.environ", {"GLE_PATH": "C:/does/not/exist/gle.exe"}):
+            with mock.patch(
+                "gleplot.compiler.shutil.which", return_value="/usr/bin/gle"
+            ):
+                self.assertEqual(find_gle(), "/usr/bin/gle")
 
     def test_env_var_nonexistent_emits_warning(self):
-        with mock.patch.dict('os.environ', {'GLE_PATH': 'C:/does/not/exist/gle.exe'}):
-            with mock.patch('gleplot.compiler.shutil.which', return_value='/usr/bin/gle'):
+        with mock.patch.dict("os.environ", {"GLE_PATH": "C:/does/not/exist/gle.exe"}):
+            with mock.patch(
+                "gleplot.compiler.shutil.which", return_value="/usr/bin/gle"
+            ):
                 with warnings.catch_warnings(record=True) as caught:
-                    warnings.simplefilter('always')
+                    warnings.simplefilter("always")
                     find_gle()
                 self.assertTrue(
-                    any('GLE_PATH' in str(w.message) for w in caught),
+                    any("GLE_PATH" in str(w.message) for w in caught),
                     f"expected a warning mentioning GLE_PATH, got: {[str(w.message) for w in caught]}",
                 )
 
     def test_which_used_when_no_env_var(self):
-        with mock.patch.dict('os.environ', {}, clear=False):
+        with mock.patch.dict("os.environ", {}, clear=False):
             import os as _os
-            _os.environ.pop('GLE_PATH', None)
-            with mock.patch('gleplot.compiler.shutil.which', return_value='/usr/local/bin/gle'):
-                self.assertEqual(find_gle(), '/usr/local/bin/gle')
+
+            _os.environ.pop("GLE_PATH", None)
+            with mock.patch(
+                "gleplot.compiler.shutil.which", return_value="/usr/local/bin/gle"
+            ):
+                self.assertEqual(find_gle(), "/usr/local/bin/gle")
 
     def test_falls_back_to_well_known_paths(self):
-        with mock.patch.dict('os.environ', {}, clear=False):
+        with mock.patch.dict("os.environ", {}, clear=False):
             import os as _os
-            _os.environ.pop('GLE_PATH', None)
-            with mock.patch('gleplot.compiler.shutil.which', return_value=None):
-                with mock.patch('gleplot.compiler.sys.platform', 'win32'):
+
+            _os.environ.pop("GLE_PATH", None)
+            with mock.patch("gleplot.compiler.shutil.which", return_value=None):
+                with mock.patch("gleplot.compiler.sys.platform", "win32"):
                     # Well-known entries are now glob patterns expanded against
                     # the real filesystem; make each pattern "match itself" so
                     # the first (literal) win32 path is returned regardless of
                     # the host OS running the test (e.g. Linux CI).
                     with mock.patch(
-                        'gleplot.compiler.glob.glob',
+                        "gleplot.compiler.glob.glob",
                         side_effect=lambda pat, recursive=False: [pat],
                     ):
-                        with mock.patch('gleplot.compiler.Path.exists', return_value=True):
+                        with mock.patch(
+                            "gleplot.compiler.Path.exists", return_value=True
+                        ):
                             result = find_gle()
-                            self.assertEqual(result, r'C:\Program Files\GLE\bin\gle.exe')
+                            self.assertEqual(
+                                result, r"C:\Program Files\GLE\bin\gle.exe"
+                            )
 
     def test_returns_none_when_nothing_found(self):
-        with mock.patch.dict('os.environ', {}, clear=False):
+        with mock.patch.dict("os.environ", {}, clear=False):
             import os as _os
-            _os.environ.pop('GLE_PATH', None)
-            with mock.patch('gleplot.compiler.shutil.which', return_value=None):
-                with mock.patch('gleplot.compiler.Path.exists', return_value=False):
+
+            _os.environ.pop("GLE_PATH", None)
+            with mock.patch("gleplot.compiler.shutil.which", return_value=None):
+                with mock.patch("gleplot.compiler.Path.exists", return_value=False):
                     self.assertIsNone(find_gle())
 
     def test_explicit_gle_path_arg_bypasses_discovery(self):
         # GLECompiler(gle_path=...) should not need to call find_gle() at all.
-        with mock.patch('gleplot.compiler.find_gle') as mock_find:
-            compiler = GLECompiler(gle_path='/explicit/path/to/gle')
-            self.assertEqual(compiler.gle_path, '/explicit/path/to/gle')
+        with mock.patch("gleplot.compiler.find_gle") as mock_find:
+            compiler = GLECompiler(gle_path="/explicit/path/to/gle")
+            self.assertEqual(compiler.gle_path, "/explicit/path/to/gle")
             mock_find.assert_not_called()
 
 
@@ -419,52 +429,55 @@ class TestGlePathOverride(unittest.TestCase):
         # GLE_PATH and PATH (an existing file is required).
         override = str(Path(__file__))
         set_gle_path_override(override)
-        with mock.patch.dict('os.environ', {'GLE_PATH': '/some/other/gle'}):
+        with mock.patch.dict("os.environ", {"GLE_PATH": "/some/other/gle"}):
             with mock.patch(
-                'gleplot.compiler.shutil.which', return_value='/on/path/gle'
+                "gleplot.compiler.shutil.which", return_value="/on/path/gle"
             ):
                 self.assertEqual(find_gle(), override)
 
     def test_missing_override_warns_and_falls_through(self):
-        set_gle_path_override('C:/does/not/exist/gle.exe')
-        with mock.patch.dict('os.environ', {}, clear=False):
+        set_gle_path_override("C:/does/not/exist/gle.exe")
+        with mock.patch.dict("os.environ", {}, clear=False):
             import os as _os
-            _os.environ.pop('GLE_PATH', None)
+
+            _os.environ.pop("GLE_PATH", None)
             with mock.patch(
-                'gleplot.compiler.shutil.which', return_value='/usr/bin/gle'
+                "gleplot.compiler.shutil.which", return_value="/usr/bin/gle"
             ):
                 with warnings.catch_warnings(record=True) as caught:
-                    warnings.simplefilter('always')
+                    warnings.simplefilter("always")
                     result = find_gle()
-                self.assertEqual(result, '/usr/bin/gle')
+                self.assertEqual(result, "/usr/bin/gle")
                 self.assertTrue(
-                    any('does not exist' in str(w.message) for w in caught),
+                    any("does not exist" in str(w.message) for w in caught),
                     f"expected a fall-through warning, got: "
                     f"{[str(w.message) for w in caught]}",
                 )
 
     def test_empty_string_clears_override(self):
         set_gle_path_override(str(Path(__file__)))
-        set_gle_path_override('')  # normalized to "unset"
-        with mock.patch.dict('os.environ', {}, clear=False):
+        set_gle_path_override("")  # normalized to "unset"
+        with mock.patch.dict("os.environ", {}, clear=False):
             import os as _os
-            _os.environ.pop('GLE_PATH', None)
+
+            _os.environ.pop("GLE_PATH", None)
             with mock.patch(
-                'gleplot.compiler.shutil.which', return_value='/usr/bin/gle'
+                "gleplot.compiler.shutil.which", return_value="/usr/bin/gle"
             ):
-                self.assertEqual(find_gle(), '/usr/bin/gle')
+                self.assertEqual(find_gle(), "/usr/bin/gle")
 
     def test_autodetect_ignores_override(self):
         # autodetect_gle() is what the GUI's "Auto-detect" button calls; it must
         # bypass whatever the user has currently pinned.
         set_gle_path_override(str(Path(__file__)))
-        with mock.patch.dict('os.environ', {}, clear=False):
+        with mock.patch.dict("os.environ", {}, clear=False):
             import os as _os
-            _os.environ.pop('GLE_PATH', None)
+
+            _os.environ.pop("GLE_PATH", None)
             with mock.patch(
-                'gleplot.compiler.shutil.which', return_value='/usr/bin/gle'
+                "gleplot.compiler.shutil.which", return_value="/usr/bin/gle"
             ):
-                self.assertEqual(autodetect_gle(), '/usr/bin/gle')
+                self.assertEqual(autodetect_gle(), "/usr/bin/gle")
 
 
 class TestRobustWellKnownDetection(unittest.TestCase):
@@ -476,24 +489,25 @@ class TestRobustWellKnownDetection(unittest.TestCase):
     def test_glob_matches_versioned_install_dir(self):
         # A GLE installed under a versioned dir (e.g. "GLE-4.3.9") is only
         # reachable via the glob patterns, not the two literal paths.
-        versioned = r'C:\Program Files\GLE-4.3.9\bin\gle.exe'
+        versioned = r"C:\Program Files\GLE-4.3.9\bin\gle.exe"
 
         def fake_glob(pattern, recursive=False):
             # Only the wildcard pattern matches the versioned install.
-            if '*' in pattern and pattern.startswith(r'C:\Program Files'):
+            if "*" in pattern and pattern.startswith(r"C:\Program Files"):
                 return [versioned]
             return []
 
-        with mock.patch.dict('os.environ', {}, clear=False):
+        with mock.patch.dict("os.environ", {}, clear=False):
             import os as _os
-            _os.environ.pop('GLE_PATH', None)
-            with mock.patch('gleplot.compiler.shutil.which', return_value=None):
-                with mock.patch('gleplot.compiler.sys.platform', 'win32'):
+
+            _os.environ.pop("GLE_PATH", None)
+            with mock.patch("gleplot.compiler.shutil.which", return_value=None):
+                with mock.patch("gleplot.compiler.sys.platform", "win32"):
                     with mock.patch(
-                        'gleplot.compiler.glob.glob', side_effect=fake_glob
+                        "gleplot.compiler.glob.glob", side_effect=fake_glob
                     ):
                         with mock.patch(
-                            'gleplot.compiler.Path.exists', return_value=True
+                            "gleplot.compiler.Path.exists", return_value=True
                         ):
                             self.assertEqual(find_gle(), versioned)
 
@@ -502,7 +516,9 @@ def _real_gle_available():
     return find_gle() is not None
 
 
-@unittest.skipUnless(_real_gle_available(), "GLE compiler not available on this machine")
+@unittest.skipUnless(
+    _real_gle_available(), "GLE compiler not available on this machine"
+)
 class TestCompileIntegration(unittest.TestCase):
     """Integration-style tests that invoke the real installed GLE binary."""
 
@@ -513,55 +529,49 @@ class TestCompileIntegration(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
-    def _write_good_gle(self, directory: Path, name: str = 'good.gle') -> Path:
+    def _write_good_gle(self, directory: Path, name: str = "good.gle") -> Path:
         gle_file = directory / name
         gle_file.write_text(
-            "size 8 6\n"
-            "begin graph\n"
-            "   title \"Test\"\n"
-            "end graph\n"
+            "size 8 6\n" "begin graph\n" '   title "Test"\n' "end graph\n"
         )
         return gle_file
 
-    def _write_bad_gle(self, directory: Path, name: str = 'bad.gle') -> Path:
+    def _write_bad_gle(self, directory: Path, name: str = "bad.gle") -> Path:
         gle_file = directory / name
         gle_file.write_text(
-            "size 8 6\n"
-            "begin graph\n"
-            "let d1 = sin(x frum 0 to 2*pi\n"
-            "end graph\n"
+            "size 8 6\n" "begin graph\n" "let d1 = sin(x frum 0 to 2*pi\n" "end graph\n"
         )
         return gle_file
 
     def test_compile_pdf_happy_path(self):
         gle_file = self._write_good_gle(self.tempdir)
-        result = self.compiler.compile(str(gle_file), output_format='pdf')
+        result = self.compiler.compile(str(gle_file), output_format="pdf")
         self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, '.pdf')
+        self.assertEqual(result.suffix, ".pdf")
         self.assertGreater(result.stat().st_size, 0)
 
     def test_compile_png_happy_path(self):
         gle_file = self._write_good_gle(self.tempdir)
-        result = self.compiler.compile(str(gle_file), output_format='png', dpi=150)
+        result = self.compiler.compile(str(gle_file), output_format="png", dpi=150)
         self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, '.png')
+        self.assertEqual(result.suffix, ".png")
 
     def test_compile_jpg_happy_path(self):
         gle_file = self._write_good_gle(self.tempdir)
-        result = self.compiler.compile(str(gle_file), output_format='jpg', dpi=150)
+        result = self.compiler.compile(str(gle_file), output_format="jpg", dpi=150)
         self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, '.jpg')
+        self.assertEqual(result.suffix, ".jpg")
 
     def test_compile_eps_happy_path(self):
         gle_file = self._write_good_gle(self.tempdir)
-        result = self.compiler.compile(str(gle_file), output_format='eps')
+        result = self.compiler.compile(str(gle_file), output_format="eps")
         self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, '.eps')
+        self.assertEqual(result.suffix, ".eps")
 
     def test_compile_error_path_raises_gle_compile_error(self):
         gle_file = self._write_bad_gle(self.tempdir)
         with self.assertRaises(GLECompileError) as ctx:
-            self.compiler.compile(str(gle_file), output_format='pdf')
+            self.compiler.compile(str(gle_file), output_format="pdf")
 
         exc = ctx.exception
         self.assertTrue(exc.errors)
@@ -571,50 +581,50 @@ class TestCompileIntegration(unittest.TestCase):
         self.assertIn("expected closing ')'", first.message)
 
         # No output file should have been produced.
-        output_path = gle_file.with_suffix('.pdf')
+        output_path = gle_file.with_suffix(".pdf")
         self.assertFalse(output_path.exists())
 
     def test_compile_missing_input_raises_file_not_found(self):
-        missing = self.tempdir / 'does_not_exist.gle'
+        missing = self.tempdir / "does_not_exist.gle"
         with self.assertRaises(FileNotFoundError):
-            self.compiler.compile(str(missing), output_format='pdf')
+            self.compiler.compile(str(missing), output_format="pdf")
 
     def test_compile_handles_paths_with_spaces(self):
-        spacey_dir = self.tempdir / 'dir with spaces'
+        spacey_dir = self.tempdir / "dir with spaces"
         spacey_dir.mkdir()
-        gle_file = self._write_good_gle(spacey_dir, name='my file.gle')
+        gle_file = self._write_good_gle(spacey_dir, name="my file.gle")
 
-        result = self.compiler.compile(str(gle_file), output_format='png', dpi=150)
+        result = self.compiler.compile(str(gle_file), output_format="png", dpi=150)
         self.assertTrue(result.exists())
-        self.assertEqual(result.name, 'my file.png')
+        self.assertEqual(result.name, "my file.png")
 
     def test_compile_does_not_leave_stray_eps(self):
         # GLE 4.3.3 with -o does not leave a stray .eps for non-eps output
         # formats, so a plain non-eps compile should not produce one.
         gle_file = self._write_good_gle(self.tempdir)
-        result = self.compiler.compile(str(gle_file), output_format='png', dpi=150)
+        result = self.compiler.compile(str(gle_file), output_format="png", dpi=150)
         self.assertTrue(result.exists())
 
-        stray_eps = gle_file.with_suffix('.eps')
+        stray_eps = gle_file.with_suffix(".eps")
         self.assertFalse(stray_eps.exists())
 
     def test_compile_timeout(self):
         gle_file = self._write_good_gle(self.tempdir)
         with mock.patch(
-            'gleplot.compiler.subprocess.run',
-            side_effect=subprocess.TimeoutExpired(cmd='gle', timeout=0.001),
+            "gleplot.compiler.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="gle", timeout=0.001),
         ):
             with self.assertRaises(GLECompileError) as ctx:
-                self.compiler.compile(str(gle_file), output_format='pdf', timeout=0.001)
-            self.assertIn('timed out', str(ctx.exception))
+                self.compiler.compile(str(gle_file), output_format="pdf", timeout=0.001)
+            self.assertIn("timed out", str(ctx.exception))
 
     def test_compile_svg_happy_path(self):
         # SVG emits a benign cairo font warning on stderr but exits 0 and
         # produces a valid file with the installed GLE 4.3.3.
         gle_file = self._write_good_gle(self.tempdir)
-        result = self.compiler.compile(str(gle_file), output_format='svg', dpi=150)
+        result = self.compiler.compile(str(gle_file), output_format="svg", dpi=150)
         self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, '.svg')
+        self.assertEqual(result.suffix, ".svg")
 
 
 class TestRemoveGeneratedIntermediates(unittest.TestCase):
@@ -712,77 +722,77 @@ class TestBuildCompileArgs(unittest.TestCase):
 
     def test_all_supported_formats_produce_lowercase_device_flag(self):
         for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
-            args = build_compile_args(fmt, 'out', 'in.gle')
-            self.assertEqual(args[0], '-d')
+            args = build_compile_args(fmt, "out", "in.gle")
+            self.assertEqual(args[0], "-d")
             self.assertEqual(args[1], fmt.lower())
 
     def test_uppercase_and_mixed_case_input_normalized_to_lowercase(self):
-        for given in ('PDF', 'Pdf', 'pDf'):
-            args = build_compile_args(given, 'out', 'in.gle')
-            self.assertEqual(args[1], 'pdf')
+        for given in ("PDF", "Pdf", "pDf"):
+            args = build_compile_args(given, "out", "in.gle")
+            self.assertEqual(args[1], "pdf")
 
     def test_raster_formats_include_dpi_flag(self):
         for fmt in RASTER_COMPILE_FORMATS:
-            args = build_compile_args(fmt, 'out', 'in.gle', dpi=150)
-            self.assertIn('-r', args)
-            self.assertEqual(args[args.index('-r') + 1], '150')
+            args = build_compile_args(fmt, "out", "in.gle", dpi=150)
+            self.assertIn("-r", args)
+            self.assertEqual(args[args.index("-r") + 1], "150")
 
     def test_vector_formats_omit_dpi_flag_even_when_dpi_given(self):
         vector_formats = SUPPORTED_COMPILE_FORMATS - RASTER_COMPILE_FORMATS
         self.assertTrue(vector_formats)  # sanity: pdf/eps/svg are vector
         for fmt in vector_formats:
-            args = build_compile_args(fmt, 'out', 'in.gle', dpi=300)
-            self.assertNotIn('-r', args)
+            args = build_compile_args(fmt, "out", "in.gle", dpi=300)
+            self.assertNotIn("-r", args)
 
     def test_raster_format_without_dpi_omits_dpi_flag(self):
         # dpi is optional; when the caller doesn't have one to give (or
         # doesn't care), -r must not appear with a garbage value.
-        args = build_compile_args('png', 'out', 'in.gle')
-        self.assertNotIn('-r', args)
+        args = build_compile_args("png", "out", "in.gle")
+        self.assertNotIn("-r", args)
 
     def test_dpi_is_coerced_to_int_string(self):
-        args = build_compile_args('png', 'out', 'in.gle', dpi=150.0)
-        self.assertEqual(args[args.index('-r') + 1], '150')
+        args = build_compile_args("png", "out", "in.gle", dpi=150.0)
+        self.assertEqual(args[args.index("-r") + 1], "150")
 
     def test_output_and_input_paths_appear_last_in_order(self):
-        args = build_compile_args('pdf', 'result.pdf', 'script.gle')
-        self.assertEqual(args[-3:], ['-o', 'result.pdf', 'script.gle'])
+        args = build_compile_args("pdf", "result.pdf", "script.gle")
+        self.assertEqual(args[-3:], ["-o", "result.pdf", "script.gle"])
 
     def test_output_before_input_with_o_flag(self):
-        args = build_compile_args('pdf', 'result.pdf', 'script.gle')
-        o_index = args.index('-o')
-        self.assertEqual(args[o_index + 1], 'result.pdf')
-        self.assertEqual(args[o_index + 2], 'script.gle')
+        args = build_compile_args("pdf", "result.pdf", "script.gle")
+        o_index = args.index("-o")
+        self.assertEqual(args[o_index + 1], "result.pdf")
+        self.assertEqual(args[o_index + 2], "script.gle")
 
     def test_accepts_path_objects(self):
-        args = build_compile_args('pdf', Path('out.pdf'), Path('in.gle'))
-        self.assertIn('out.pdf', args)
-        self.assertIn('in.gle', args)
+        args = build_compile_args("pdf", Path("out.pdf"), Path("in.gle"))
+        self.assertIn("out.pdf", args)
+        self.assertIn("in.gle", args)
 
     def test_unsupported_format_raises_value_error(self):
         with self.assertRaises(ValueError):
-            build_compile_args('bogus', 'out', 'in.gle')
+            build_compile_args("bogus", "out", "in.gle")
 
     # -- cairo: flag construction (Track G6). Deciding *when* to enable it
     #    (figures using alpha) lives in Figure.requires_cairo() /
     #    Figure.savefig(), not here -- this builder only ever does what its
     #    caller tells it, for every device gleplot supports.
     def test_cairo_false_by_default_omits_flag(self):
-        args = build_compile_args('pdf', 'out', 'in.gle')
-        self.assertNotIn('-cairo', args)
+        args = build_compile_args("pdf", "out", "in.gle")
+        self.assertNotIn("-cairo", args)
 
     def test_cairo_true_appends_flag_directly_after_device(self):
-        args = build_compile_args('pdf', 'out', 'in.gle', cairo=True)
-        self.assertIn('-cairo', args)
+        args = build_compile_args("pdf", "out", "in.gle", cairo=True)
+        self.assertIn("-cairo", args)
         # Placed right after -d <fmt>, before -o/-r, matching GLE's "options
         # before filename" convention used throughout this module.
-        self.assertEqual(args[:3], ['-d', 'pdf', '-cairo'])
+        self.assertEqual(args[:3], ["-d", "pdf", "-cairo"])
 
     def test_cairo_and_raster_dpi_compose(self):
-        args = build_compile_args('png', 'out', 'in.gle', dpi=150, cairo=True)
-        self.assertIn('-cairo', args)
-        self.assertIn('-r', args)
-        self.assertEqual(args[args.index('-r') + 1], '150')
+        args = build_compile_args("png", "out", "in.gle", dpi=150, cairo=True)
+        self.assertIn("-cairo", args)
+        self.assertIn("-r", args)
+        self.assertEqual(args[args.index("-r") + 1], "150")
 
     def test_cairo_true_present_for_every_supported_device(self):
         # All devices gleplot supports (pdf/eps/png/jpg/svg) accept -cairo on
@@ -793,14 +803,14 @@ class TestBuildCompileArgs(unittest.TestCase):
         # handling for svg, which is Cairo-backed either way).
         for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
             with self.subTest(fmt=fmt):
-                args = build_compile_args(fmt, 'out', 'in.gle', cairo=True)
-                self.assertIn('-cairo', args)
+                args = build_compile_args(fmt, "out", "in.gle", cairo=True)
+                self.assertIn("-cairo", args)
 
     def test_cairo_false_absent_for_every_supported_device(self):
         for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
             with self.subTest(fmt=fmt):
-                args = build_compile_args(fmt, 'out', 'in.gle', cairo=False)
-                self.assertNotIn('-cairo', args)
+                args = build_compile_args(fmt, "out", "in.gle", cairo=False)
+                self.assertNotIn("-cairo", args)
 
     def test_cairo_omitted_defaults_to_false_for_every_supported_device(self):
         # The default (caller passes nothing) must match cairo=False exactly
@@ -808,9 +818,9 @@ class TestBuildCompileArgs(unittest.TestCase):
         # completely unaffected by this feature existing.
         for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
             with self.subTest(fmt=fmt):
-                default_args = build_compile_args(fmt, 'out', 'in.gle')
+                default_args = build_compile_args(fmt, "out", "in.gle")
                 explicit_false_args = build_compile_args(
-                    fmt, 'out', 'in.gle', cairo=False
+                    fmt, "out", "in.gle", cairo=False
                 )
                 self.assertEqual(default_args, explicit_false_args)
 
@@ -818,17 +828,18 @@ class TestBuildCompileArgs(unittest.TestCase):
         # GLECompiler.compile() must build its command line through the one
         # shared function rather than a parallel inline implementation.
         with mock.patch(
-            'gleplot.compiler.build_compile_args', wraps=build_compile_args,
+            "gleplot.compiler.build_compile_args",
+            wraps=build_compile_args,
         ) as spy:
-            compiler = GLECompiler(gle_path='/explicit/path/to/gle')
-            with mock.patch('gleplot.compiler.subprocess.run') as run:
-                run.return_value = mock.Mock(returncode=0, stdout='', stderr='')
-                with mock.patch('gleplot.compiler.Path.exists', return_value=True):
-                    compiler.compile('in.gle', output_format='png', dpi=150)
+            compiler = GLECompiler(gle_path="/explicit/path/to/gle")
+            with mock.patch("gleplot.compiler.subprocess.run") as run:
+                run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+                with mock.patch("gleplot.compiler.Path.exists", return_value=True):
+                    compiler.compile("in.gle", output_format="png", dpi=150)
         spy.assert_called_once()
         _args, kwargs = spy.call_args
-        self.assertEqual(kwargs.get('dpi'), 150)
-        self.assertEqual(kwargs.get('cairo'), False)
+        self.assertEqual(kwargs.get("dpi"), 150)
+        self.assertEqual(kwargs.get("cairo"), False)
 
     def test_compiler_compile_passes_cairo_true_through(self):
         # GLECompiler.compile(cairo=True) is the explicit-override path
@@ -836,36 +847,39 @@ class TestBuildCompileArgs(unittest.TestCase):
         # must reach build_compile_args -- and therefore the actual GLE
         # command line -- unchanged.
         with mock.patch(
-            'gleplot.compiler.build_compile_args', wraps=build_compile_args,
+            "gleplot.compiler.build_compile_args",
+            wraps=build_compile_args,
         ) as spy:
-            compiler = GLECompiler(gle_path='/explicit/path/to/gle')
-            with mock.patch('gleplot.compiler.subprocess.run') as run:
-                run.return_value = mock.Mock(returncode=0, stdout='', stderr='')
-                with mock.patch('gleplot.compiler.Path.exists', return_value=True):
-                    compiler.compile('in.gle', output_format='pdf', cairo=True)
+            compiler = GLECompiler(gle_path="/explicit/path/to/gle")
+            with mock.patch("gleplot.compiler.subprocess.run") as run:
+                run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+                with mock.patch("gleplot.compiler.Path.exists", return_value=True):
+                    compiler.compile("in.gle", output_format="pdf", cairo=True)
         _args, kwargs = spy.call_args
-        self.assertEqual(kwargs.get('cairo'), True)
+        self.assertEqual(kwargs.get("cairo"), True)
         cmd = run.call_args[0][0]
-        self.assertIn('-cairo', cmd)
+        self.assertIn("-cairo", cmd)
 
 
 class TestGLECompileErrorAttributes(unittest.TestCase):
     """Tests for the GLECompileError exception shape."""
 
     def test_carries_errors_and_raw_output(self):
-        errors = [GLEError(file='f.gle', line=1, column=2, message='oops', source_line='src')]
-        exc = GLECompileError('failed', errors=errors, raw_output='raw text')
+        errors = [
+            GLEError(file="f.gle", line=1, column=2, message="oops", source_line="src")
+        ]
+        exc = GLECompileError("failed", errors=errors, raw_output="raw text")
         self.assertEqual(exc.errors, errors)
-        self.assertEqual(exc.raw_output, 'raw text')
+        self.assertEqual(exc.raw_output, "raw text")
         self.assertIsInstance(exc, RuntimeError)
 
     def test_defaults_to_empty_errors(self):
-        exc = GLECompileError('failed')
+        exc = GLECompileError("failed")
         self.assertEqual(exc.errors, [])
-        self.assertEqual(exc.raw_output, '')
+        self.assertEqual(exc.raw_output, "")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
 
 
@@ -874,6 +888,7 @@ class TestAnsiColoredOutput(unittest.TestCase):
 
     def test_ansi_colored_error_block_parses_with_location(self):
         from gleplot.compiler import parse_gle_errors
+
         raw = (
             "GLE 4.3.9[bad.gle]-C-R-\n"
             "\x1b[0m\x1b[91m>> bad.gle (3) |let d1 = sin(x frum 0 to 2*pi|\n"
@@ -888,6 +903,7 @@ class TestAnsiColoredOutput(unittest.TestCase):
 
     def test_plain_output_unaffected(self):
         from gleplot.compiler import parse_gle_errors
+
         raw = (
             ">> bad.gle (3) |let d1 = sin(x frum 0|\n"
             ">> Error: expected closing ')'\n"

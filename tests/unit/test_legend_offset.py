@@ -24,7 +24,7 @@ def _gle_text(fig, tmp_path):
 
 
 def _key_line(text):
-    lines = [l for l in text.splitlines() if l.strip().startswith("key ")]
+    lines = [ln for ln in text.splitlines() if ln.strip().startswith("key ")]
     assert len(lines) == 1, lines
     return lines[0]
 

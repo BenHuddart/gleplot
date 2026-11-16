@@ -16,17 +16,17 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Tests that shell out to the `gle` binary are skipped when GLE is not installed.
+Tests that shell out to the `gle` binary are marked `@pytest.mark.gle` and are skipped when GLE is not installed.
 
 ## Code style
 
-Match the project tooling:
+CI checks black, isort and flake8; mypy is reported but does not yet fail the build. gleplot supports Python 3.9+; the formatters need 3.10+.
 
 ```bash
-black src/ tests/
-isort src/ tests/
-flake8 src/ tests/
-mypy src/
+black src tests examples docs
+isort src tests examples docs
+flake8 src tests examples docs
+mypy src
 ```
 
 ## Commits

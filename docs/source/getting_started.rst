@@ -14,7 +14,7 @@ Installation
 Requirements
 ~~~~~~~~~~~~
 
-- Python 3.7 or later
+- Python 3.9 or later
 - numpy >= 1.16.0
 
 Install gleplot

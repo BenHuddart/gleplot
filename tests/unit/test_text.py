@@ -1,12 +1,7 @@
 """Unit tests for text annotation support."""
 
-import sys
-from pathlib import Path
 import unittest
 import warnings
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot as glp
 

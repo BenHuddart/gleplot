@@ -10,7 +10,11 @@
 Regression tests for the GUI legend toggle having no effect.
 """
 
+import pytest
+
 import gleplot as glp
+from gleplot.parser.units import fontsize_pt_to_cm
+from gleplot.writer import GLEWriter
 
 
 def _generate_gle(fig, tmp_path):
@@ -86,11 +90,6 @@ def test_tristate_survives_round_trip():
 # ``fontsize`` and ``frameon`` map onto ``hei``/``nobox``; everything else
 # matplotlib offers has no GLE counterpart and must warn rather than vanish.
 # ---------------------------------------------------------------------------
-
-import pytest
-
-from gleplot.parser.units import fontsize_pt_to_cm
-from gleplot.writer import GLEWriter
 
 
 def _hei(points):

@@ -200,9 +200,7 @@ class DataTable:
     def numeric_column_names(self) -> List[str]:
         """Names of columns that are numeric (selectable as plot data)."""
         return [
-            name
-            for name, numeric in zip(self.column_names, self.is_numeric)
-            if numeric
+            name for name, numeric in zip(self.column_names, self.is_numeric) if numeric
         ]
 
     def numeric_column_indices(self) -> List[int]:
@@ -247,13 +245,13 @@ def _sniff_delimiter(sample_lines: List[str]) -> Optional[str]:
     # rows that lack it are handled as ragged rows (right-padded with NaN)
     # downstream. Prefer the delimiter present on the most rows, breaking
     # ties by the most consistent per-row counts, then by candidate order.
-    non_empty = [l for l in sample_lines if l.strip()]
+    non_empty = [ln for ln in sample_lines if ln.strip()]
     if not non_empty:
         return None
     best_delim = None
     best_key = None
     for delim in _CANDIDATE_DELIMITERS:
-        counts = [l.count(delim) for l in non_empty]
+        counts = [ln.count(delim) for ln in non_empty]
         present = [c for c in counts if c > 0]
         # Require a strict majority of rows to contain the delimiter, so a
         # stray comma in one row of a whitespace file doesn't hijack it.
@@ -352,9 +350,7 @@ def _find_last_comment_before_first_data_row(raw_lines: List[str]) -> Optional[s
 #: insensitive, whitespace-tolerant around the ``=``). Group 1 is the 1-based
 #: column index, group 2 is everything after ``=`` (stripped once by the
 #: caller; internal whitespace in the name is preserved verbatim).
-_INDEXED_COMMENT_HEADER_RE = re.compile(
-    r"^c\s*(\d+)\s*=\s*(.*)$", re.IGNORECASE
-)
+_INDEXED_COMMENT_HEADER_RE = re.compile(r"^c\s*(\d+)\s*=\s*(.*)$", re.IGNORECASE)
 
 
 def _comment_block_before_first_data_row(raw_lines: List[str]) -> List[str]:
@@ -638,9 +634,9 @@ def load_data_file(
 
     # Filter out comment and blank lines up front; header/data detection
     # and delimiter sniffing both operate on this filtered list only.
-    content_lines = [l for l in raw_lines if l.strip() and not is_comment_line(l)]
+    content_lines = [ln for ln in raw_lines if ln.strip() and not is_comment_line(ln)]
     comment_lines_skipped = sum(
-        1 for l in raw_lines if l.strip() and is_comment_line(l)
+        1 for ln in raw_lines if ln.strip() and is_comment_line(ln)
     )
 
     if not content_lines:
@@ -705,9 +701,7 @@ def load_data_file(
     # still skip the row as a header (it is not data), but we cannot trust its
     # tokens to name columns 1:1, so we synthesize positional names and warn.
     data_col_count = max(len(row) for row in data_rows)
-    header_mismatch = (
-        header_fields is not None and len(header_fields) != data_col_count
-    )
+    header_mismatch = header_fields is not None and len(header_fields) != data_col_count
     if header_mismatch:
         warnings.append(
             f"Header row has {len(header_fields)} field(s) but the data has "
@@ -1117,7 +1111,5 @@ def classify_data_file(
     if import_list is None:
         return "reference"
     candidates = {referenced_name, Path(referenced_name).name}
-    imported = {str(n) for n in import_list} | {
-        Path(str(n)).name for n in import_list
-    }
+    imported = {str(n) for n in import_list} | {Path(str(n)).name for n in import_list}
     return "import" if candidates & imported else "reference"

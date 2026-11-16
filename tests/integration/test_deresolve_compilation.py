@@ -28,18 +28,9 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot.compiler import GLECompiler, find_gle
+from gleplot.compiler import find_gle
 
-
-def _gle_available() -> bool:
-    try:
-        GLECompiler()
-        return True
-    except RuntimeError:
-        return False
-
-
-pytestmark = pytest.mark.skipif(not _gle_available(), reason="GLE binary not available")
+pytestmark = pytest.mark.gle
 
 _LIMITS_RE = re.compile(
     r"LIMITS\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)"

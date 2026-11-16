@@ -2,10 +2,8 @@
 positions (Track A2).
 """
 
-import pytest
-
-from gleplot.parser import tables
 from gleplot.markers import MATPLOTLIB_TO_GLE_MARKERS
+from gleplot.parser import tables
 
 
 class TestColors:
@@ -21,8 +19,19 @@ class TestColors:
         assert tables.COLORS["BLUE"] == (0, 0, 255)
 
     def test_gray_ramp_present(self):
-        for name in ("GRAY1", "GRAY5", "GRAY10", "GRAY20", "GRAY30", "GRAY40",
-                     "GRAY50", "GRAY60", "GRAY70", "GRAY80", "GRAY90"):
+        for name in (
+            "GRAY1",
+            "GRAY5",
+            "GRAY10",
+            "GRAY20",
+            "GRAY30",
+            "GRAY40",
+            "GRAY50",
+            "GRAY60",
+            "GRAY70",
+            "GRAY80",
+            "GRAY90",
+        ):
             assert name in tables.COLORS
 
     def test_all_values_are_valid_rgb_triples(self):
@@ -66,9 +75,22 @@ class TestMarkers:
         assert len(tables.MARKERS) == 48
 
     def test_known_markers_present(self):
-        for name in ("CIRCLE", "FCIRCLE", "SQUARE", "FSQUARE", "TRIANGLE",
-                     "FTRIANGLE", "DIAMOND", "FDIAMOND", "PLUS", "CROSS",
-                     "STARR", "FSTARR", "DOT", "PCROSS"):
+        for name in (
+            "CIRCLE",
+            "FCIRCLE",
+            "SQUARE",
+            "FSQUARE",
+            "TRIANGLE",
+            "FTRIANGLE",
+            "DIAMOND",
+            "FDIAMOND",
+            "PLUS",
+            "CROSS",
+            "STARR",
+            "FSTARR",
+            "DOT",
+            "PCROSS",
+        ):
             assert name in tables.MARKERS
 
     def test_gle_marker_to_matplotlib_is_inverse_of_writer_map(self):
@@ -120,6 +142,7 @@ class TestLineStyles:
 
     def test_matches_gle_style_config_defaults(self):
         from gleplot.config import GLEStyleConfig
+
         cfg = GLEStyleConfig()
         assert tables.MATPLOTLIB_TO_LSTYLE["--"] == cfg.line_style_dashed
         assert tables.MATPLOTLIB_TO_LSTYLE[":"] == cfg.line_style_dotted
@@ -166,6 +189,7 @@ class TestGreyAliases:
 
     def test_grey_aliases(self):
         from gleplot.parser.tables import gle_color_rgb
+
         assert gle_color_rgb("grey") == gle_color_rgb("gray")
         assert gle_color_rgb("DARKGREY") == gle_color_rgb("DARKGRAY")
         assert gle_color_rgb("lightslategrey") == gle_color_rgb("lightslategray")

@@ -55,27 +55,19 @@ surface.
 """
 
 from typing import (
-    TYPE_CHECKING,
     Any,
     Dict,
     Iterable,
     List,
     Mapping,
     Optional,
+    Protocol,
     Sequence,
     Tuple,
     Union,
 )
 
 import numpy as np
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from typing import Protocol
-else:  # pragma: no cover - Python 3.7 has no typing.Protocol
-    try:
-        from typing import Protocol
-    except ImportError:
-        Protocol = object
 
 __all__ = [
     "DataSource",

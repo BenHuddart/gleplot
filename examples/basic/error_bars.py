@@ -5,11 +5,12 @@ including symmetric, asymmetric, and horizontal error bars.
 """
 
 import sys
-import numpy as np
 from pathlib import Path
 
+import numpy as np
+
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import gleplot as glp
 
@@ -25,15 +26,14 @@ def example_symmetric_error_bars():
     x = np.array([1, 2, 3, 4, 5, 6, 7, 8])
     y = np.array([2.1, 3.9, 6.2, 7.8, 10.1, 12.3, 13.8, 16.2])
 
-    ax.errorbar(x, y, yerr=0.5, marker='o', fmt='-', color='blue',
-                label='Measurement')
+    ax.errorbar(x, y, yerr=0.5, marker="o", fmt="-", color="blue", label="Measurement")
 
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Distance (m)')
-    ax.set_title('Symmetric Error Bars')
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Distance (m)")
+    ax.set_title("Symmetric Error Bars")
     ax.legend()
 
-    fig.savefig('example_symmetric_error_bars.gle')
+    fig.savefig("example_symmetric_error_bars.gle")
     print("  ✓ Saved to example_symmetric_error_bars.gle")
 
 
@@ -51,15 +51,23 @@ def example_asymmetric_error_bars():
     yerr_lower = np.array([2, 3, 4, 5, 3])
     yerr_upper = np.array([5, 4, 6, 3, 7])
 
-    ax.errorbar(x, y, yerr=(yerr_lower, yerr_upper), marker='s',
-                fmt='none', color='red', capsize=4, label='Asymmetric')
+    ax.errorbar(
+        x,
+        y,
+        yerr=(yerr_lower, yerr_upper),
+        marker="s",
+        fmt="none",
+        color="red",
+        capsize=4,
+        label="Asymmetric",
+    )
 
-    ax.set_xlabel('Category')
-    ax.set_ylabel('Value')
-    ax.set_title('Asymmetric Error Bars')
+    ax.set_xlabel("Category")
+    ax.set_ylabel("Value")
+    ax.set_title("Asymmetric Error Bars")
     ax.legend()
 
-    fig.savefig('example_asymmetric_error_bars.gle')
+    fig.savefig("example_asymmetric_error_bars.gle")
     print("  ✓ Saved to example_asymmetric_error_bars.gle")
 
 
@@ -78,15 +86,24 @@ def example_horizontal_error_bars():
     yerr = np.array([0.4, 0.3, 0.5, 0.3, 0.4])
     xerr = np.array([0.2, 0.3, 0.15, 0.25, 0.2])
 
-    ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', fmt='none',
-                color='blue', capsize=3, label='Data ± σ')
+    ax.errorbar(
+        x,
+        y,
+        yerr=yerr,
+        xerr=xerr,
+        marker="o",
+        fmt="none",
+        color="blue",
+        capsize=3,
+        label="Data ± σ",
+    )
 
-    ax.set_xlabel('X measurement')
-    ax.set_ylabel('Y measurement')
-    ax.set_title('Horizontal and Vertical Error Bars')
+    ax.set_xlabel("X measurement")
+    ax.set_ylabel("Y measurement")
+    ax.set_title("Horizontal and Vertical Error Bars")
     ax.legend()
 
-    fig.savefig('example_horizontal_error_bars.gle')
+    fig.savefig("example_horizontal_error_bars.gle")
     print("  ✓ Saved to example_horizontal_error_bars.gle")
 
 
@@ -103,15 +120,23 @@ def example_errorbar_with_line():
     # Error varies with the measurement
     yerr = 0.1 + 0.1 * np.abs(np.cos(x))
 
-    ax.errorbar(x, y, yerr=yerr, marker='o', fmt='-', color='green',
-                capsize=3, label='sin(x) ± δ')
+    ax.errorbar(
+        x,
+        y,
+        yerr=yerr,
+        marker="o",
+        fmt="-",
+        color="green",
+        capsize=3,
+        label="sin(x) ± δ",
+    )
 
-    ax.set_xlabel('x (radians)')
-    ax.set_ylabel('sin(x)')
-    ax.set_title('Error Bars on Line Plot')
+    ax.set_xlabel("x (radians)")
+    ax.set_ylabel("sin(x)")
+    ax.set_title("Error Bars on Line Plot")
     ax.legend()
 
-    fig.savefig('example_errorbars_line.gle')
+    fig.savefig("example_errorbars_line.gle")
     print("  ✓ Saved to example_errorbars_line.gle")
 
 
@@ -128,22 +153,31 @@ def example_combined_errorbars():
     xerr = np.array([0.15, 0.20, 0.10, 0.25, 0.18])
     yerr = np.array([0.3, 0.5, 0.6, 0.8, 1.0])
 
-    ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker='o', fmt='none',
-                color='blue', capsize=4, label='Measured')
+    ax.errorbar(
+        x,
+        y,
+        yerr=yerr,
+        xerr=xerr,
+        marker="o",
+        fmt="none",
+        color="blue",
+        capsize=4,
+        label="Measured",
+    )
 
     x_fit = np.linspace(0.5, 5.5, 100)
-    ax.plot(x_fit, x_fit**2, color='red', linestyle='--', label='y = x\u00b2')
+    ax.plot(x_fit, x_fit**2, color="red", linestyle="--", label="y = x\u00b2")
 
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_title('Combined X and Y Error Bars')
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title("Combined X and Y Error Bars")
     ax.legend()
 
-    fig.savefig('example_combined_errorbars.gle')
+    fig.savefig("example_combined_errorbars.gle")
     print("  ✓ Saved to example_combined_errorbars.gle")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     example_symmetric_error_bars()
     example_asymmetric_error_bars()
     example_horizontal_error_bars()

@@ -16,7 +16,6 @@ import pytest
 import gleplot as glp
 from gleplot import markers as mk
 
-
 X = np.array([0.0, 1.0, 2.0])
 Y = np.array([1.0, 2.0, 3.0])
 

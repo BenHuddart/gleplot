@@ -21,19 +21,10 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot.compiler import GLECompiler, find_gle
-
-
-def _gle_available() -> bool:
-    try:
-        GLECompiler()
-        return True
-    except RuntimeError:
-        return False
-
+from gleplot.compiler import find_gle
 
 pytestmark = [
-    pytest.mark.skipif(not _gle_available(), reason="GLE binary not available"),
+    pytest.mark.gle,
     pytest.mark.filterwarnings("ignore:.*log axis.*:UserWarning"),
 ]
 

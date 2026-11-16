@@ -3,13 +3,12 @@
 import warnings
 from dataclasses import replace
 from pathlib import Path
-from typing import List, Literal, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from .axes import (
     Axes,
-    _sanitize_data_stem,
     _validate_data_prefix,
     histogram_counts,
 )
@@ -3313,7 +3312,6 @@ class Figure:
             yerr_down = eb_data.get("yerr_down")
 
             if len(y) > 0:
-                y_with_err = y.copy()
                 if yerr_up is not None:
                     y_with_err_up = _plottable(y + np.asarray(yerr_up), positive_only)
                     if len(y_with_err_up) > 0 and (
@@ -3568,7 +3566,7 @@ class Figure:
             else:
                 # Not in notebook - inform user of temp file location
                 print(f"Plot saved to temporary file: {tmp_path}")
-                print(f"Open this file to view the plot.")
+                print("Open this file to view the plot.")
                 return tmp_path
 
         except Exception as e:

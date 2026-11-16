@@ -97,8 +97,13 @@ def test_errorbar_offset_keeps_error_dataset_on_raw_column(tmp_path):
     fig = glp.figure(figsize=(8, 6))
     ax = fig.add_subplot(111)
     ax.errorbar(
-        [0, 1, 2], [1, 2, 3], yerr=[0.1, 0.1, 0.1],
-        fmt="none", marker="o", offset=5.0, data_name="eb",
+        [0, 1, 2],
+        [1, 2, 3],
+        yerr=[0.1, 0.1, 0.1],
+        fmt="none",
+        marker="o",
+        offset=5.0,
+        data_name="eb",
     )
     script, dats = _script_and_data(fig, tmp_path)
     # Error magnitudes ride along with the shifted centre: the 'err dN' clause

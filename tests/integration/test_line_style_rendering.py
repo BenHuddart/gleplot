@@ -22,18 +22,8 @@ import re
 import pytest
 
 import gleplot as glp
-from gleplot.compiler import GLECompiler
 
-
-def _gle_available() -> bool:
-    try:
-        GLECompiler()
-        return True
-    except RuntimeError:
-        return False
-
-
-pytestmark = pytest.mark.skipif(not _gle_available(), reason="GLE binary not available")
+pytestmark = pytest.mark.gle
 
 
 def _dash_patterns(eps_path):
