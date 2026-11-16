@@ -29,6 +29,18 @@ flake8 src tests examples docs
 mypy src
 ```
 
+## Docs and examples
+
+CI runs every example and builds the Sphinx site with warnings treated as errors, so a malformed docstring or a broken example fails the pull request. To check locally (GLE required for the gallery images):
+
+```bash
+pip install -e ".[dev,docs]"
+python examples/run_and_compile.py
+mkdir -p docs/source/_static/gallery
+cp examples/outputs/example_*.png docs/source/_static/gallery/
+sphinx-build -W --keep-going -b html docs/source docs/build/html
+```
+
 ## Commits
 
 Use [conventional commits](https://www.conventionalcommits.org/) (`feat`, `fix`, `perf`, …). Releases use `python-semantic-release` (`feat` → minor, `fix`/`perf` → patch).

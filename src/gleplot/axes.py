@@ -4356,7 +4356,10 @@ class Axes:
             Interpolation grid resolution.
         extent : tuple, optional
             ``(xmin, xmax, ymin, ymax)``. Default: data bounds.
-        (remaining kwargs as :meth:`imshow`).
+
+        Notes
+        -----
+        The remaining keyword arguments are as for :meth:`imshow`.
         """
         label = mathtext_to_gle(label)
         if self.heatmaps:
@@ -4417,7 +4420,10 @@ class Axes:
         ----------
         ncontour : int
             ``fitz`` neighbour-point count per interpolation node.
-        (remaining kwargs as :meth:`contour`).
+
+        Notes
+        -----
+        The remaining keyword arguments are as for :meth:`contour`.
         """
         label = mathtext_to_gle(label)
         xa, ya, za, ext, gs = self._points_from_args(x, y, z, gridsize, extent)
@@ -5218,6 +5224,8 @@ class Axes:
             Axes payload produced by :meth:`to_dict`. Unknown keys are
             ignored for forward compatibility.
 
+        Notes
+        -----
         Each series is rebuilt as its :mod:`gleplot.series` class, whose
         ``ARRAY_FIELDS`` say which values are restored to ``float`` numpy
         arrays; optional error arrays that were ``None`` stay ``None``. All
