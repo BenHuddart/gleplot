@@ -11,7 +11,7 @@
 
 ## Installation
 
-**Library** (Python 3.7+, numpy):
+**Library** (Python 3.9+, numpy):
 
 ```bash
 git clone https://github.com/benhuddart/gleplot.git

@@ -1,0 +1,5 @@
+[flake8]
+max-line-length = 88
+# E203/W503 conflict with black's slice and operator formatting.
+extend-ignore = E203, W503
+exclude = .git,__pycache__,build,dist,docs/build,.venv
