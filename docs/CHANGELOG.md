@@ -2,6 +2,45 @@
 
 <!-- version list -->
 
+## v3.9.1 (2026-11-16)
+
+### Bug Fixes
+
+- Discover series fields on Python 3.14
+  ([`b9b518b`](https://github.com/BenHuddart/gleplot/commit/b9b518b886c99d54a27413d86f60a8d2c39bd9eb))
+
+### Build System
+
+- Raise the Python floor to 3.9 and configure the lint tools
+  ([`a5e5779`](https://github.com/BenHuddart/gleplot/commit/a5e5779c183c4b5de11661498a3e37ba854ff7b0))
+
+### Code Style
+
+- Format the tree with black and isort
+  ([`c1f6006`](https://github.com/BenHuddart/gleplot/commit/c1f60062b841d63b4fd47dc9eec3a802fdfcab8d))
+
+### Continuous Integration
+
+- Bound the parallel GLE build
+  ([`c990314`](https://github.com/BenHuddart/gleplot/commit/c990314bb397fc2839fd695acb0cfaf49c32d36e))
+
+- Cache the GLE build and move the version spread to the no-GLE job
+  ([`b99ca06`](https://github.com/BenHuddart/gleplot/commit/b99ca0626d044ab46bb83476794c6a2315bece68))
+
+- Run the no-GLE job on ubuntu-24.04
+  ([`7c0f7f7`](https://github.com/BenHuddart/gleplot/commit/7c0f7f74a4f2a9240708e5db2cacafa371bb0a9f))
+
+### Documentation
+
+- Prune stale pages and complete the API reference
+  ([`aee7dd3`](https://github.com/BenHuddart/gleplot/commit/aee7dd3eee8aa5378c13e67314cbd898aea373f9))
+
+### Testing
+
+- Skip GLE-dependent tests through the gle marker and lint in CI
+  ([`10ba438`](https://github.com/BenHuddart/gleplot/commit/10ba4387844788b89c8aa3e7b6559ad9fe9b9992))
+
+
 ## v3.9.0 (2026-11-16)
 
 ### Features
