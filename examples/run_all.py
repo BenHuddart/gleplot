@@ -4,47 +4,47 @@ import sys
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from basic import (
-    example_basic_line_plot,
-    example_scatter_plot,
-    example_bar_chart,
-    example_symmetric_error_bars,
-    example_asymmetric_error_bars,
-    example_horizontal_error_bars,
-    example_heatmap_imshow,
-)
 from advanced import (
-    example_fill_between,
-    example_log_scale,
-    example_combined_plot,
-    example_multiple_styles,
-    example_sharex_stacked,
-    example_sharey_sidebyside,
-    example_both_shared,
-    example_residual_plot,
-    example_comparison_with_without,
-    example_text_annotations,
-    example_per_element_styling,
     example_batch_figures,
-    example_line_from_file,
-    example_data_prefix,
-    example_line_overlay_from_file,
-    example_phase_diagram,
-    example_broken_axis_slash,
+    example_both_shared,
     example_broken_axis_line,
     example_broken_axis_none,
+    example_broken_axis_slash,
+    example_combined_plot,
+    example_comparison_with_without,
+    example_data_prefix,
+    example_fill_between,
+    example_line_from_file,
+    example_line_overlay_from_file,
+    example_log_scale,
+    example_multiple_styles,
+    example_per_element_styling,
+    example_phase_diagram,
     example_prl_fig2a_style,
+    example_residual_plot,
+    example_sharex_stacked,
+    example_sharey_sidebyside,
+    example_text_annotations,
+)
+from basic import (
+    example_asymmetric_error_bars,
+    example_bar_chart,
+    example_basic_line_plot,
+    example_heatmap_imshow,
+    example_horizontal_error_bars,
+    example_scatter_plot,
+    example_symmetric_error_bars,
 )
 
 
 def main():
     """Run all examples."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("gleplot Examples - Matplotlib-like API for GLE")
-    print("="*60 + "\n")
-    
+    print("=" * 60 + "\n")
+
     examples = [
         ("Basic Line Plot", example_basic_line_plot),
         ("Scatter Plot", example_scatter_plot),
@@ -74,7 +74,7 @@ def main():
         ("Broken X-Axis (three segments)", example_broken_axis_none),
         ("PRL Fig. 2(a)-style panel", example_prl_fig2a_style),
     ]
-    
+
     for name, example_func in examples:
         try:
             print(f"\n[{name}]")
@@ -82,14 +82,15 @@ def main():
         except Exception as e:
             print(f"  ✗ Error: {e}")
             import traceback
+
             traceback.print_exc()
-    
-    print("\n" + "="*60)
+
+    print("\n" + "=" * 60)
     print("All examples completed!")
     print("Generated GLE files: example_*.gle")
     print("To compile to PDF: gle example_*.gle -d PDF")
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

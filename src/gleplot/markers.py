@@ -57,32 +57,32 @@ from typing import Dict, Optional
 # rendering identically; ``fill='none'`` still resolves them to their outline
 # family member (which, for those three, is the same name).
 MATPLOTLIB_TO_GLE_MARKERS = {
-    'o': 'FCIRCLE',      # Circle
-    's': 'FSQUARE',      # Square
-    '^': 'FTRIANGLE',    # Triangle up
-    'v': 'FTRIANGLED',   # Triangle down
-    '<': 'TRIANGLE',     # Triangle left (outline)
-    '>': 'TRIANGLE',     # Triangle right (outline)
-    'D': 'FDIAMOND',     # Diamond
-    '*': 'FSTARR',       # Star
-    'p': 'STARR',        # Pentagon
-    'H': 'HEART',        # Heart
-    'h': 'DIAMOND',      # Hexagon
-    '+': 'PLUS',         # Plus sign
-    'P': 'PLUS',         # Plus alternate
-    'x': 'PCROSS',       # X cross
-    'X': 'PCROSS',       # X cross alternate
-    '.': 'DOT',          # Point
-    ',': 'DOT',          # Pixel
-    '|': 'PLUS',         # Vertical line
-    '_': 'PLUS',         # Horizontal line
+    "o": "FCIRCLE",  # Circle
+    "s": "FSQUARE",  # Square
+    "^": "FTRIANGLE",  # Triangle up
+    "v": "FTRIANGLED",  # Triangle down
+    "<": "TRIANGLE",  # Triangle left (outline)
+    ">": "TRIANGLE",  # Triangle right (outline)
+    "D": "FDIAMOND",  # Diamond
+    "*": "FSTARR",  # Star
+    "p": "STARR",  # Pentagon
+    "H": "HEART",  # Heart
+    "h": "DIAMOND",  # Hexagon
+    "+": "PLUS",  # Plus sign
+    "P": "PLUS",  # Plus alternate
+    "x": "PCROSS",  # X cross
+    "X": "PCROSS",  # X cross alternate
+    ".": "DOT",  # Point
+    ",": "DOT",  # Pixel
+    "|": "PLUS",  # Vertical line
+    "_": "PLUS",  # Horizontal line
     # Appended (see module docstring: order fixes the canonical inverse).
-    'd': 'DIAMOND',      # Thin diamond -- outline partner of 'D'
-    '8': 'FCIRCLE',      # Octagon -- filled, indistinguishable from a circle
-    '1': 'TRIANGLED',    # tri_down  -- spokes of a down triangle
-    '2': 'TRIANGLE',     # tri_up    -- spokes of an up triangle
-    '3': 'TRIANGLE',     # tri_left  -- as '<', GLE has no directed triangle
-    '4': 'TRIANGLE',     # tri_right -- as '>'
+    "d": "DIAMOND",  # Thin diamond -- outline partner of 'D'
+    "8": "FCIRCLE",  # Octagon -- filled, indistinguishable from a circle
+    "1": "TRIANGLED",  # tri_down  -- spokes of a down triangle
+    "2": "TRIANGLE",  # tri_up    -- spokes of an up triangle
+    "3": "TRIANGLE",  # tri_left  -- as '<', GLE has no directed triangle
+    "4": "TRIANGLE",  # tri_right -- as '>'
 }
 
 #: Accepted values for the ``fill`` argument of :func:`get_gle_marker`.
@@ -135,9 +135,7 @@ def apply_marker_fill(gle_marker: Optional[str], fill: str = "full") -> Optional
         If ``fill`` is not one of :data:`MARKER_FILLS`.
     """
     if fill not in MARKER_FILLS:
-        raise ValueError(
-            f"fill must be one of {MARKER_FILLS!r}, got {fill!r}"
-        )
+        raise ValueError(f"fill must be one of {MARKER_FILLS!r}, got {fill!r}")
     if not gle_marker:
         return gle_marker
     name = str(gle_marker).upper()
@@ -164,41 +162,38 @@ MATPLOTLIB_TO_GLE_WHITE_MARKERS = {
 # transcribed from GLE's stdmark[] table).
 GLE_MARKER_TYPES = {
     # Filled markers
-    'FCIRCLE': 'Filled circle',
-    'FSQUARE': 'Filled square',
-    'FTRIANGLE': 'Filled triangle',
-    'FTRIANGLED': 'Filled triangle down',
-    'FDIAMOND': 'Filled diamond',
-    'FSTARR': 'Filled star',
-
+    "FCIRCLE": "Filled circle",
+    "FSQUARE": "Filled square",
+    "FTRIANGLE": "Filled triangle",
+    "FTRIANGLED": "Filled triangle down",
+    "FDIAMOND": "Filled diamond",
+    "FSTARR": "Filled star",
     # Outline markers (transparent interior)
-    'CIRCLE': 'Circle outline',
-    'SQUARE': 'Square outline',
-    'TRIANGLE': 'Triangle outline',
-    'TRIANGLED': 'Triangle outline down',
-    'DIAMOND': 'Diamond outline',
-    'STARR': 'Star outline',
-
+    "CIRCLE": "Circle outline",
+    "SQUARE": "Square outline",
+    "TRIANGLE": "Triangle outline",
+    "TRIANGLED": "Triangle outline down",
+    "DIAMOND": "Diamond outline",
+    "STARR": "Star outline",
     # White-filled markers (opaque interior, masks content underneath)
-    'WCIRCLE': 'Circle, white fill',
-    'WSQUARE': 'Square, white fill',
-    'WTRIANGLE': 'Triangle, white fill',
-    'WTRIANGLED': 'Triangle down, white fill',
-    'WDIAMOND': 'Diamond, white fill',
-    'WSTARR': 'Star, white fill',
-
+    "WCIRCLE": "Circle, white fill",
+    "WSQUARE": "Square, white fill",
+    "WTRIANGLE": "Triangle, white fill",
+    "WTRIANGLED": "Triangle down, white fill",
+    "WDIAMOND": "Diamond, white fill",
+    "WSTARR": "Star, white fill",
     # Symbol markers
-    'DOT': 'Small dot',
-    'PLUS': 'Plus sign',
-    'PCROSS': 'X cross',
-    'CROSS': 'Cross',
-    'CLUB': 'Club symbol',
-    'HEART': 'Heart symbol',
-    'SPADE': 'Spade symbol',
-    'STAR': 'Star symbol',
-    'DAG': 'Dagger symbol',
-    'DDAG': 'Double dagger',
-    'SNAKE': 'Snake symbol',
+    "DOT": "Small dot",
+    "PLUS": "Plus sign",
+    "PCROSS": "X cross",
+    "CROSS": "Cross",
+    "CLUB": "Club symbol",
+    "HEART": "Heart symbol",
+    "SPADE": "Spade symbol",
+    "STAR": "Star symbol",
+    "DAG": "Dagger symbol",
+    "DDAG": "Double dagger",
+    "SNAKE": "Snake symbol",
 }
 
 
@@ -215,8 +210,8 @@ def _gle_marker_names() -> frozenset:
 
 def get_gle_marker(
     matplotlib_marker: str,
-    default: str = 'FCIRCLE',
-    fill: str = 'full',
+    default: str = "FCIRCLE",
+    fill: str = "full",
 ) -> Optional[str]:
     """
     Convert matplotlib marker to GLE marker name.
@@ -267,7 +262,7 @@ def get_gle_marker(
     ):
         return default
 
-    if not matplotlib_marker or matplotlib_marker == 'None':
+    if not matplotlib_marker or matplotlib_marker == "None":
         return None
 
     marker = str(matplotlib_marker).strip()
@@ -298,7 +293,7 @@ def get_gle_marker(
     # 'full' returns the table value verbatim so long-standing mappings that
     # already point at an outline shape ('<'/'>' -> TRIANGLE, 'p' -> STARR,
     # 'h' -> DIAMOND) keep rendering exactly as before.
-    if fill == 'full':
+    if fill == "full":
         return base
     return apply_marker_fill(base, fill)
 

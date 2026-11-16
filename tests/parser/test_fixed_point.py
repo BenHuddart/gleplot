@@ -29,9 +29,8 @@ from gleplot.parser.recognizer import parse_gle_figure
 from gleplot.series import SERIES_CLASSES
 from gleplot.sources import is_inline
 from gleplot.writer import COLORBAR_AUTO_RANGE
-
-from tests.parser import _golden_battery as golden
 from tests.integration import test_project_io as project_battery
+from tests.parser import _golden_battery as golden
 
 #: Builders exempted from byte-identity. Empty, and asserted to stay empty:
 #: this is the SPEC 10.2 exit criterion (see the module docstring).

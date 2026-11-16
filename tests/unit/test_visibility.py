@@ -25,7 +25,8 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot import Figure, axes as _gleplot_axes
+from gleplot import Figure
+from gleplot import axes as _gleplot_axes
 from gleplot.parser.recognizer import parse_gle_figure
 from gleplot.series import SERIES_CLASSES, is_visible
 from gleplot.sources import ColumnRef, DictDataProvider, TableData

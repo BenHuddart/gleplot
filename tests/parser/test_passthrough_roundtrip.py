@@ -20,10 +20,10 @@ import gleplot as glp
 from gleplot import Figure
 from gleplot.parser import emit, parse_gle_source
 
-
 # --------------------------------------------------------------------------- #
 # Figure builders (mirror the integration battery)
 # --------------------------------------------------------------------------- #
+
 
 def _single_line():
     fig = glp.figure(data_prefix="fig")
@@ -41,8 +41,15 @@ def _multi_series_styles():
     x = np.linspace(0, 10, 20)
     ax.plot(x, np.sin(x), color="red", linestyle="--", linewidth=2, label="sin")
     ax.plot(x, np.cos(x), color="green", linestyle=":", label="cos")
-    ax.plot(x, np.sin(x) * 0.5, color="blue", marker="o", linestyle="none",
-            markersize=8, label="half")
+    ax.plot(
+        x,
+        np.sin(x) * 0.5,
+        color="blue",
+        marker="o",
+        linestyle="none",
+        markersize=8,
+        label="half",
+    )
     ax.legend(loc="upper left")
     return fig
 
@@ -50,8 +57,9 @@ def _multi_series_styles():
 def _scatter():
     fig = glp.figure(data_prefix="fig")
     ax = fig.add_subplot(111)
-    ax.scatter([1, 2, 3, 4], [4, 3, 2, 1], color="purple", s=40, marker="s",
-               label="pts")
+    ax.scatter(
+        [1, 2, 3, 4], [4, 3, 2, 1], color="purple", s=40, marker="s", label="pts"
+    )
     ax.legend()
     return fig
 
@@ -67,8 +75,9 @@ def _bar():
 def _errorbar_symmetric():
     fig = glp.figure(data_prefix="fig")
     ax = fig.add_subplot(111)
-    ax.errorbar([1, 2, 3], [2, 4, 6], yerr=0.5, color="red", marker="o",
-                capsize=4, label="sym")
+    ax.errorbar(
+        [1, 2, 3], [2, 4, 6], yerr=0.5, color="red", marker="o", capsize=4, label="sym"
+    )
     ax.legend()
     return fig
 
@@ -76,17 +85,23 @@ def _errorbar_symmetric():
 def _errorbar_asymmetric():
     fig = glp.figure(data_prefix="fig")
     ax = fig.add_subplot(111)
-    ax.errorbar([1, 2, 3], [2, 4, 6],
-                yerr=([0.1, 0.2, 0.3], [0.4, 0.5, 0.6]),
-                color="blue", marker="s", capsize=3)
+    ax.errorbar(
+        [1, 2, 3],
+        [2, 4, 6],
+        yerr=([0.1, 0.2, 0.3], [0.4, 0.5, 0.6]),
+        color="blue",
+        marker="s",
+        capsize=3,
+    )
     return fig
 
 
 def _errorbar_xerr():
     fig = glp.figure(data_prefix="fig")
     ax = fig.add_subplot(111)
-    ax.errorbar([1, 2, 3], [2, 4, 6], yerr=0.3, xerr=0.2, capsize=5,
-                color="green", marker="^")
+    ax.errorbar(
+        [1, 2, 3], [2, 4, 6], yerr=0.3, xerr=0.2, capsize=5, color="green", marker="^"
+    )
     return fig
 
 
@@ -94,8 +109,8 @@ def _fill_between():
     fig = glp.figure(data_prefix="fig")
     ax = fig.add_subplot(111)
     x = np.linspace(0, 5, 10)
-    ax.fill_between(x, np.zeros_like(x), x ** 0.5, color="lightblue", alpha=0.4)
-    ax.plot(x, x ** 0.5, color="blue")
+    ax.fill_between(x, np.zeros_like(x), x**0.5, color="lightblue", alpha=0.4)
+    ax.plot(x, x**0.5, color="blue")
     return fig
 
 
@@ -112,7 +127,7 @@ def _log_scales():
     fig = glp.figure(data_prefix="fig")
     ax = fig.add_subplot(111)
     x = np.array([1, 10, 100, 1000], dtype=float)
-    ax.plot(x, x ** 2, color="blue")
+    ax.plot(x, x**2, color="blue")
     ax.set_xscale("log")
     ax.set_yscale("log")
     return fig
@@ -181,10 +196,19 @@ def _subplots_grid():
 def _file_series():
     fig = glp.figure(data_prefix="fig")
     ax = fig.add_subplot(111)
-    ax.line_from_file("external.dat", 1, 2, color="blue", linestyle="--",
-                      label="line-file")
-    ax.errorbar_from_file("external.dat", 1, 2, yerr_col=3, color="red",
-                          marker="o", capsize=4, label="eb-file")
+    ax.line_from_file(
+        "external.dat", 1, 2, color="blue", linestyle="--", label="line-file"
+    )
+    ax.errorbar_from_file(
+        "external.dat",
+        1,
+        2,
+        yerr_col=3,
+        color="red",
+        marker="o",
+        capsize=4,
+        label="eb-file",
+    )
     ax.legend()
     return fig
 
@@ -242,6 +266,7 @@ BUILDER_IDS = [b.__name__.lstrip("_") for b in BUILDERS]
 # Battery 1: generated figures -> savefig_gle -> parse -> emit, byte-identical
 # --------------------------------------------------------------------------- #
 
+
 @pytest.mark.parametrize("builder", BUILDERS, ids=BUILDER_IDS)
 def test_generated_gle_roundtrips_byte_identical(builder, tmp_path):
     fig = builder()
@@ -254,9 +279,7 @@ def test_generated_gle_roundtrips_byte_identical(builder, tmp_path):
     doc = parse_gle_source(text)
     reemitted = emit(doc)
 
-    assert reemitted == text, (
-        f"round-trip mismatch for {builder.__name__}"
-    )
+    assert reemitted == text, f"round-trip mismatch for {builder.__name__}"
     assert reemitted.encode("utf-8") == original_bytes
     # Well-formed gleplot output must parse without structural warnings.
     assert doc.warnings == [], [str(w) for w in doc.warnings]
@@ -302,7 +325,7 @@ NASTY_CASES = {
         "begin object myobj\n"
         "   this ; is opaque\n"
         '   "with quotes" and ! bangs\n'
-        "   begin graph\n"          # even a nested-looking graph stays opaque
+        "   begin graph\n"  # even a nested-looking graph stays opaque
         "   end graph\n"
         "end object\n"
         "amove 5 5\n"
@@ -316,11 +339,7 @@ NASTY_CASES = {
         "   d1 line\n"
         "! oops, forgot to close the graph\n"
     ),
-    "no_trailing_newline_crlf": (
-        "size 20 15\r\n"
-        "begin graph\r\n"
-        "end graph"
-    ),
+    "no_trailing_newline_crlf": ("size 20 15\r\n" "begin graph\r\n" "end graph"),
 }
 
 
@@ -339,8 +358,10 @@ def test_unbalanced_case_records_warning():
 def test_opaque_case_keeps_nested_graph_opaque():
     doc = parse_gle_source(NASTY_CASES["opaque_blocks"])
     from gleplot.parser.syntax import OpaqueBlock
-    obj = next(n for n in doc.nodes
-               if isinstance(n, OpaqueBlock) and n.block_type == "object")
+
+    obj = next(
+        n for n in doc.nodes if isinstance(n, OpaqueBlock) and n.block_type == "object"
+    )
     # The inner 'begin graph'/'end graph' were kept as raw inner lines, not
     # parsed into a GraphBlock.
     assert len(doc.graphs) == 0

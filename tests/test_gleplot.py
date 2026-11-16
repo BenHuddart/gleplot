@@ -21,53 +21,55 @@ To run tests, use:
     pytest tests/
 """
 
-# Import all tests from reorganized modules for backward compatibility
-from .unit.test_plotting import (
-    TestBasicPlotting,
-    TestScatterPlots,
-    TestBarCharts,
-    TestFillBetween,
-)
-from .unit.test_axes import TestAxisProperties
-from .unit.test_text import TestTextAnnotations
-from .unit.test_utilities import TestColorMapping, TestMarkerMapping
-from .integration.test_file_io import TestFileIO
 from .integration.test_api import TestFigureAPI, TestGLEGeneration
+from .integration.test_file_io import TestFileIO
 from .integration.test_graphics_compilation import (
     TestGraphicsCompilation,
-    TestImageProperties,
     TestGraphicsWithAdvancedFeatures,
+    TestImageProperties,
 )
 from .integration.test_graphics_validation import (
-    TestGraphicsValidation,
     TestGraphicsFormattingConsistency,
+    TestGraphicsValidation,
 )
+from .unit.test_axes import TestAxisProperties
+
+# Import all tests from reorganized modules for backward compatibility
+from .unit.test_plotting import (
+    TestBarCharts,
+    TestBasicPlotting,
+    TestFillBetween,
+    TestScatterPlots,
+)
+from .unit.test_text import TestTextAnnotations
+from .unit.test_utilities import TestColorMapping, TestMarkerMapping
 
 __all__ = [
-    'TestBasicPlotting',
-    'TestScatterPlots',
-    'TestBarCharts',
-    'TestFillBetween',
-    'TestAxisProperties',
-    'TestTextAnnotations',
-    'TestColorMapping',
-    'TestMarkerMapping',
-    'TestFileIO',
-    'TestFigureAPI',
-    'TestGLEGeneration',
-    'TestGraphicsCompilation',
-    'TestImageProperties',
-    'TestGraphicsWithAdvancedFeatures',
-    'TestGraphicsValidation',
-    'TestGraphicsFormattingConsistency',
+    "TestBasicPlotting",
+    "TestScatterPlots",
+    "TestBarCharts",
+    "TestFillBetween",
+    "TestAxisProperties",
+    "TestTextAnnotations",
+    "TestColorMapping",
+    "TestMarkerMapping",
+    "TestFileIO",
+    "TestFigureAPI",
+    "TestGLEGeneration",
+    "TestGraphicsCompilation",
+    "TestImageProperties",
+    "TestGraphicsWithAdvancedFeatures",
+    "TestGraphicsValidation",
+    "TestGraphicsFormattingConsistency",
 ]
 
 
 def run_tests():
     """Run all tests."""
     import unittest
-    unittest.main(argv=[''], exit=False, verbosity=2)
+
+    unittest.main(argv=[""], exit=False, verbosity=2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_tests()

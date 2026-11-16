@@ -69,7 +69,6 @@ from typing import (
 
 import numpy as np
 
-
 __all__ = [
     "DataSource",
     "InlineData",

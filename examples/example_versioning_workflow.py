@@ -52,11 +52,19 @@ def main():
         "Bug Fix Release (Patch Bump)",
         "A fix: commit on main triggers a patch release after Tests pass.",
         [
-            ("cmd", "git commit -m 'fix: correct division by zero in writer module'", ""),
+            (
+                "cmd",
+                "git commit -m 'fix: correct division by zero in writer module'",
+                "",
+            ),
             ("cmd", "git push origin main", ""),
             ("output", "Tests workflow runs → Release workflow runs on success", ""),
             ("cmd", "semantic-release version --noop", ""),
-            ("output", "Locally: would bump PATCH if no release-worthy commits since tag", ""),
+            (
+                "output",
+                "Locally: would bump PATCH if no release-worthy commits since tag",
+                "",
+            ),
         ],
     )
 
@@ -64,7 +72,11 @@ def main():
         "New Feature Release (Minor Bump)",
         "feat: commits since the last tag produce a minor release.",
         [
-            ("cmd", "git commit -m 'feat(markers): add configurable marker shapes'", ""),
+            (
+                "cmd",
+                "git commit -m 'feat(markers): add configurable marker shapes'",
+                "",
+            ),
             ("cmd", "git commit -m 'docs: update marker examples'", ""),
             ("cmd", "git push origin main", ""),
             ("output", "Release: MINOR bump, tag vX.Y.Z, GitHub Release + dist/*", ""),
@@ -96,7 +108,11 @@ def main():
         [
             ("output", "1. Push conventional commits to main", ""),
             ("output", "2. Tests matrix must pass", ""),
-            ("output", "3. Release bumps, tags, updates CHANGELOG, uploads wheels to GitHub", ""),
+            (
+                "output",
+                "3. Release bumps, tags, updates CHANGELOG, uploads wheels to GitHub",
+                "",
+            ),
             ("output", "4. PyPI job runs only when PYPI_PUBLISH=true", ""),
         ],
     )
@@ -113,16 +129,14 @@ def main():
     print(f"\n{'=' * 70}")
     print("WORKFLOW SUMMARY")
     print(f"{'=' * 70}")
-    print(
-        """
+    print("""
 1. WRITE CODE with conventional commits (feat / fix / perf / breaking).
 2. PUSH to main and let Tests pass.
 3. RELEASE workflow cuts GitHub Releases when warranted.
 4. Preview locally: pip install -e ".[dev]" && semantic-release version --noop
 
 See docs/guides/VERSIONING.md and .github/workflows/release.yml.
-"""
-    )
+""")
 
 
 if __name__ == "__main__":

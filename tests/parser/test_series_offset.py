@@ -56,8 +56,13 @@ def test_errorbar_offset_round_trips_with_raw_errors(tmp_path):
     fig = glp.figure(figsize=(8, 6))
     ax = fig.add_subplot(111)
     ax.errorbar(
-        [0.0, 1.0, 2.0], [1.0, 2.0, 3.0], yerr=[0.1, 0.2, 0.3],
-        fmt="none", marker="o", offset=-4.0, data_name="eb",
+        [0.0, 1.0, 2.0],
+        [1.0, 2.0, 3.0],
+        yerr=[0.1, 0.2, 0.3],
+        fmt="none",
+        marker="o",
+        offset=-4.0,
+        data_name="eb",
     )
     gle = _save(fig, tmp_path)
 
@@ -98,8 +103,15 @@ def test_offset_is_idempotent_on_resave(tmp_path):
     """Open -> Save must preserve the offset and the raw data."""
     fig = glp.figure(figsize=(8, 6))
     ax = fig.add_subplot(111)
-    ax.errorbar([0.0, 1.0, 2.0], [1.0, 2.0, 3.0], yerr=[0.1, 0.1, 0.1],
-                fmt="none", marker="o", offset=7.0, data_name="eb")
+    ax.errorbar(
+        [0.0, 1.0, 2.0],
+        [1.0, 2.0, 3.0],
+        yerr=[0.1, 0.1, 0.1],
+        fmt="none",
+        marker="o",
+        offset=7.0,
+        data_name="eb",
+    )
     first = _save(fig, tmp_path, "first.gle")
 
     rec = parse_gle_figure(first)

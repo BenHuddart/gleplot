@@ -12,8 +12,13 @@ class TestEmitMetadata:
         assert md.emit_metadata({}) == []
 
     def test_all_defaults_still_emits_dpi_and_import_data(self):
-        data = {"dpi": 100, "sharex": False, "sharey": False,
-                "msize_scale": 1.0, "import-data": []}
+        data = {
+            "dpi": 100,
+            "sharex": False,
+            "sharey": False,
+            "msize_scale": 1.0,
+            "import-data": [],
+        }
         lines = md.emit_metadata(data)
         assert lines[0] == md.BEGIN_MARKER
         assert lines[-1] == "! gleplot-meta-end"
@@ -63,7 +68,7 @@ class TestEmitMetadata:
 
 class TestParseMetadata:
     def test_no_block_returns_empty(self):
-        data, warnings = md.parse_metadata(["begin graph", "  xtitle \"x\"", "end graph"])
+        data, warnings = md.parse_metadata(["begin graph", '  xtitle "x"', "end graph"])
         assert data == {}
         assert warnings == []
 
@@ -246,13 +251,21 @@ class TestVersionMarkers:
 
 
 class TestEmitParseRoundTrip:
-    @pytest.mark.parametrize("data", [
-        {"dpi": 100, "import-data": []},
-        {"dpi": 150, "sharex": True, "import-data": []},
-        {"dpi": 100, "sharex": True, "sharey": True, "msize_scale": 0.75,
-         "import-data": ["x.dat", "y.dat", "z.dat"]},
-        {"dpi": 300, "import-data": ["only.dat"]},
-    ])
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {"dpi": 100, "import-data": []},
+            {"dpi": 150, "sharex": True, "import-data": []},
+            {
+                "dpi": 100,
+                "sharex": True,
+                "sharey": True,
+                "msize_scale": 0.75,
+                "import-data": ["x.dat", "y.dat", "z.dat"],
+            },
+            {"dpi": 300, "import-data": ["only.dat"]},
+        ],
+    )
     def test_emit_then_parse_recovers_non_default_data(self, data):
         lines = md.emit_metadata(data)
         parsed, warnings = md.parse_metadata(lines)
@@ -277,6 +290,7 @@ class TestListQuoting:
 
     def test_comma_in_filename_roundtrips(self):
         from gleplot.parser.metadata import emit_metadata, parse_metadata
+
         names = ["my, file.dat", "other.dat"]
         lines = emit_metadata({"dpi": 100, "import-data": names})
         parsed, warnings = parse_metadata(lines)
@@ -284,6 +298,7 @@ class TestListQuoting:
 
     def test_quote_in_filename_roundtrips(self):
         from gleplot.parser.metadata import emit_metadata, parse_metadata
+
         names = ['weird "name".dat', "plain.dat", "a, b, c.dat"]
         lines = emit_metadata({"dpi": 100, "import-data": names})
         parsed, _ = parse_metadata(lines)
@@ -291,9 +306,12 @@ class TestListQuoting:
 
     def test_unquoted_lists_still_parse(self):
         from gleplot.parser.metadata import parse_metadata
+
         parsed, _ = parse_metadata(
-            [md.BEGIN_MARKER,
-             "! gleplot: import-data = data_0.dat, data_1.dat",
-             "! gleplot-meta-end"]
+            [
+                md.BEGIN_MARKER,
+                "! gleplot: import-data = data_0.dat, data_1.dat",
+                "! gleplot-meta-end",
+            ]
         )
         assert parsed["import-data"] == ["data_0.dat", "data_1.dat"]

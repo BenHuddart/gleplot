@@ -198,7 +198,8 @@ def test_column_names_unique_within_file_when_label_collides_with_base_name():
 def test_add_data_file_emits_header_row_first_line():
     writer = GLEWriter()
     writer.add_data_file(
-        "d.dat", [np.array([1.0, 2.0]), np.array([3.0, 4.0])],
+        "d.dat",
+        [np.array([1.0, 2.0]), np.array([3.0, 4.0])],
         column_names=["x", "signal"],
     )
     content = writer.data_files["d.dat"]
@@ -217,7 +218,8 @@ def test_add_data_file_rejects_mismatched_column_count():
     writer = GLEWriter()
     with pytest.raises(ValueError):
         writer.add_data_file(
-            "d.dat", [np.array([1.0]), np.array([2.0])],
+            "d.dat",
+            [np.array([1.0]), np.array([2.0])],
             column_names=["x", "y", "extra"],
         )
 

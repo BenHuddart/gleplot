@@ -24,7 +24,6 @@ import gleplot
 from gleplot import axes as _gleplot_axes
 from gleplot.parser.recognizer import RecognizedFigure, parse_gle_figure
 from gleplot.parser.report import ImportCategory, ImportNote
-
 from tests.parser import _golden_battery as golden
 
 

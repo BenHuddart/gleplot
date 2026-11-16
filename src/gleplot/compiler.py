@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
-
 #: Well-known install locations to probe, keyed by ``sys.platform`` prefix.
 #: Entries may be literal paths *or* glob patterns (``*``/``**``): the desktop
 #: GUI ships to users who install GLE in a variety of locations and versioned
@@ -19,30 +18,33 @@ from typing import List, Literal, Optional, Union
 #: :func:`glob.glob` and keeps the existing matches. Ordinary ``pip`` / library
 #: use is unaffected (the literal entries below match the common installs).
 _WELL_KNOWN_PATHS = {
-    'win32': [
-        r'C:\Program Files\GLE\bin\gle.exe',
-        r'C:\Program Files (x86)\GLE\bin\gle.exe',
+    "win32": [
+        r"C:\Program Files\GLE\bin\gle.exe",
+        r"C:\Program Files (x86)\GLE\bin\gle.exe",
         # Versioned / non-default install roots, e.g. "GLE-4.3.9".
-        r'C:\Program Files*\GLE*\bin\gle.exe',
-        r'C:\Program Files*\GLE*\gle.exe',
+        r"C:\Program Files*\GLE*\bin\gle.exe",
+        r"C:\Program Files*\GLE*\gle.exe",
         # Per-user installs (some installers / manual unzips land here).
         os.path.join(
-            os.environ.get('LOCALAPPDATA', r'C:\Users\Default\AppData\Local'),
-            'Programs', 'GLE*', '**', 'gle.exe',
+            os.environ.get("LOCALAPPDATA", r"C:\Users\Default\AppData\Local"),
+            "Programs",
+            "GLE*",
+            "**",
+            "gle.exe",
         ),
     ],
-    'darwin': [
-        '/usr/local/bin/gle',      # Homebrew (Intel)
-        '/opt/homebrew/bin/gle',   # Homebrew (Apple Silicon)
-        '/opt/local/bin/gle',      # MacPorts
-        '/usr/bin/gle',
-        '/Applications/GLE*/**/gle',
+    "darwin": [
+        "/usr/local/bin/gle",  # Homebrew (Intel)
+        "/opt/homebrew/bin/gle",  # Homebrew (Apple Silicon)
+        "/opt/local/bin/gle",  # MacPorts
+        "/usr/bin/gle",
+        "/Applications/GLE*/**/gle",
     ],
-    'default': [
-        '/usr/local/bin/gle',
-        '/opt/homebrew/bin/gle',
-        '/usr/bin/gle',
-        '/snap/bin/gle',           # snap
+    "default": [
+        "/usr/local/bin/gle",
+        "/opt/homebrew/bin/gle",
+        "/usr/bin/gle",
+        "/snap/bin/gle",  # snap
     ],
 }
 
@@ -72,9 +74,10 @@ def set_gle_path_override(path: Optional[str]) -> None:
     global _gle_path_override
     _gle_path_override = path or None
 
+
 #: Output formats (GLE ``-d`` device names, lowercased) that
 #: :meth:`GLECompiler.compile` accepts.
-SUPPORTED_COMPILE_FORMATS = frozenset({'pdf', 'png', 'eps', 'jpg', 'svg'})
+SUPPORTED_COMPILE_FORMATS = frozenset({"pdf", "png", "eps", "jpg", "svg"})
 
 #: Mapping from a file suffix (including the leading dot, lowercased) to the
 #: GLE compile format that should be used to produce it. Kept alongside
@@ -82,16 +85,14 @@ SUPPORTED_COMPILE_FORMATS = frozenset({'pdf', 'png', 'eps', 'jpg', 'svg'})
 #: auto-detect a format from a filename can't drift out of sync with what the
 #: compiler actually supports. ``.jpeg`` maps to ``jpg`` since GLE only
 #: recognizes ``jpg`` as a device name.
-SUFFIX_TO_COMPILE_FORMAT = {
-    f'.{fmt}': fmt for fmt in SUPPORTED_COMPILE_FORMATS
-}
-SUFFIX_TO_COMPILE_FORMAT['.jpeg'] = 'jpg'
+SUFFIX_TO_COMPILE_FORMAT = {f".{fmt}": fmt for fmt in SUPPORTED_COMPILE_FORMATS}
+SUFFIX_TO_COMPILE_FORMAT[".jpeg"] = "jpg"
 
 #: Formats for which GLE's ``-r`` (raster resolution / DPI) flag is
 #: meaningful. Passing ``-r`` for a vector format (pdf/eps/svg) is harmless --
 #: GLE silently ignores it -- but including it unconditionally obscures which
 #: formats it actually affects.
-RASTER_COMPILE_FORMATS = frozenset({'png', 'jpg'})
+RASTER_COMPILE_FORMATS = frozenset({"png", "jpg"})
 
 
 def build_compile_args(
@@ -179,12 +180,12 @@ def build_compile_args(
             f"(supported: {sorted(SUPPORTED_COMPILE_FORMATS)})"
         )
 
-    args = ['-d', fmt]
+    args = ["-d", fmt]
     if cairo:
-        args.append('-cairo')
+        args.append("-cairo")
     if fmt in RASTER_COMPILE_FORMATS and dpi is not None:
-        args.extend(['-r', str(int(dpi))])
-    args.extend(['-o', str(output_path), str(input_path)])
+        args.extend(["-r", str(int(dpi))])
+    args.extend(["-o", str(output_path), str(input_path)])
     return args
 
 
@@ -262,7 +263,7 @@ def _iter_well_known_gle_paths() -> "list[str]":
     wildcards), so versioned / non-standard install directories are matched
     too. Results are de-duplicated while preserving discovery order.
     """
-    patterns = _WELL_KNOWN_PATHS.get(sys.platform, _WELL_KNOWN_PATHS['default'])
+    patterns = _WELL_KNOWN_PATHS.get(sys.platform, _WELL_KNOWN_PATHS["default"])
     seen: set = set()
     found: list = []
     for pattern in patterns:
@@ -300,7 +301,7 @@ def autodetect_gle() -> Optional[str]:
     str, optional
         Path to the GLE executable, or None if it could not be found.
     """
-    env_path = os.environ.get('GLE_PATH')
+    env_path = os.environ.get("GLE_PATH")
     if env_path:
         if Path(env_path).exists():
             return env_path
@@ -310,7 +311,7 @@ def autodetect_gle() -> Optional[str]:
             stacklevel=2,
         )
 
-    which_path = shutil.which('gle')
+    which_path = shutil.which("gle")
     if which_path:
         return which_path
 
@@ -380,7 +381,9 @@ class GLECompileError(RuntimeError):
         The raw combined output produced by the GLE process.
     """
 
-    def __init__(self, message: str, errors: Optional[list] = None, raw_output: str = ''):
+    def __init__(
+        self, message: str, errors: Optional[list] = None, raw_output: str = ""
+    ):
         super().__init__(message)
         self.errors: list = errors if errors is not None else []
         self.raw_output = raw_output
@@ -390,10 +393,10 @@ class GLECompileError(RuntimeError):
 #   >> bad.gle (3) |let d1 = sin(x frum 0 to 2*pi|
 #: ANSI SGR color/style escape sequences (e.g. ``\x1b[91m``) emitted by
 #: GLE builds compiled with CONSOLE_COLORS=ON (the Linux/macOS default).
-_ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-9;]*m')
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 _LOCATION_RE = re.compile(
-    r'^>>\s*(?P<file>.+?)\s*\((?P<line>\d+)\)\s*\|(?P<source>.*)\|\s*$'
+    r"^>>\s*(?P<file>.+?)\s*\((?P<line>\d+)\)\s*\|(?P<source>.*)\|\s*$"
 )
 
 # Matches the caret line, e.g.:
@@ -401,18 +404,18 @@ _LOCATION_RE = re.compile(
 # The caret's absolute column position (from the start of the line) is used,
 # together with the position of the opening '|' on the location line, to
 # compute the column within the quoted source text.
-_CARET_RE = re.compile(r'^>>\s*\^\s*$')
+_CARET_RE = re.compile(r"^>>\s*\^\s*$")
 
 # Matches the message line, e.g.:
 #   >> Error: expected closing ')'
-_MESSAGE_RE = re.compile(r'^>>\s*(?:Error:\s*)?(?P<message>.+)$')
+_MESSAGE_RE = re.compile(r"^>>\s*(?:Error:\s*)?(?P<message>.+)$")
 
 # Matches specifically the line that *starts* an error message, e.g.:
 #   >> Error: expected closing ')'
 # Used to tell a fresh error block apart from a plain continuation line of a
 # multi-line message (e.g. the "expecting one of: ..." list GLE appends after
 # some errors), which repeats the ">> " prefix but never repeats "Error:".
-_ERROR_START_RE = re.compile(r'^>>\s*Error:', re.IGNORECASE)
+_ERROR_START_RE = re.compile(r"^>>\s*Error:", re.IGNORECASE)
 
 
 def _collect_message_lines(lines: list, i: int, n: int) -> tuple:
@@ -455,7 +458,7 @@ def _collect_message_lines(lines: list, i: int, n: int) -> tuple:
             # scanning past it -- it never itself ends the block.
             i += 1
             continue
-        if not raw.startswith('>>'):
+        if not raw.startswith(">>"):
             break
         if _LOCATION_RE.match(raw):
             # A new error's location block starts here; let the caller's
@@ -467,7 +470,7 @@ def _collect_message_lines(lines: list, i: int, n: int) -> tuple:
             break
         msg_match = _MESSAGE_RE.match(raw)
         if msg_match:
-            text = msg_match.group('message').strip()
+            text = msg_match.group("message").strip()
             if text:
                 message_parts.append(text)
                 started = True
@@ -508,7 +511,7 @@ def parse_gle_errors(output: str) -> list:
     # color escapes, which would defeat the location regex below and
     # degrade every error to an unstructured raw-text fallback. Strip them
     # up front; harmless on output that has none (Windows builds).
-    output = _ANSI_ESCAPE_RE.sub('', output)
+    output = _ANSI_ESCAPE_RE.sub("", output)
 
     lines = output.splitlines()
     errors = []
@@ -518,13 +521,13 @@ def parse_gle_errors(output: str) -> list:
     while i < n:
         loc_match = _LOCATION_RE.match(lines[i])
         if loc_match:
-            file = loc_match.group('file')
-            line_no = int(loc_match.group('line'))
-            source_line = loc_match.group('source')
+            file = loc_match.group("file")
+            line_no = int(loc_match.group("line"))
+            source_line = loc_match.group("source")
             # Position of the opening '|' delimiter on the location line,
             # used below to translate the caret's absolute column into a
             # column relative to the start of the quoted source text.
-            pipe_pos = lines[i].index('|')
+            pipe_pos = lines[i].index("|")
             column = None
             i += 1
 
@@ -532,20 +535,22 @@ def parse_gle_errors(output: str) -> list:
             if i < n:
                 caret_match = _CARET_RE.match(lines[i])
                 if caret_match:
-                    caret_pos = lines[i].index('^')
+                    caret_pos = lines[i].index("^")
                     column = max(caret_pos - pipe_pos - 1, 0)
                     i += 1
 
             i, message_parts = _collect_message_lines(lines, i, n)
-            message = ' '.join(message_parts) if message_parts else 'GLE error'
+            message = " ".join(message_parts) if message_parts else "GLE error"
 
-            errors.append(GLEError(
-                file=file,
-                line=line_no,
-                column=column,
-                message=message,
-                source_line=source_line,
-            ))
+            errors.append(
+                GLEError(
+                    file=file,
+                    line=line_no,
+                    column=column,
+                    message=message,
+                    source_line=source_line,
+                )
+            )
             continue
 
         if _ERROR_START_RE.match(lines[i]):
@@ -555,28 +560,32 @@ def parse_gle_errors(output: str) -> list:
             # each subsequent "Error:" line found here starts its own
             # GLEError rather than being silently dropped.
             i, message_parts = _collect_message_lines(lines, i, n)
-            message = ' '.join(message_parts) if message_parts else 'GLE error'
+            message = " ".join(message_parts) if message_parts else "GLE error"
 
-            errors.append(GLEError(
-                file=None,
-                line=None,
-                column=None,
-                message=message,
-                source_line=None,
-            ))
+            errors.append(
+                GLEError(
+                    file=None,
+                    line=None,
+                    column=None,
+                    message=message,
+                    source_line=None,
+                )
+            )
             continue
 
         i += 1
 
     if not errors:
         # Unparseable output: fall back to a single error carrying the raw text.
-        errors.append(GLEError(
-            file=None,
-            line=None,
-            column=None,
-            message=output.strip(),
-            source_line=None,
-        ))
+        errors.append(
+            GLEError(
+                file=None,
+                line=None,
+                column=None,
+                message=output.strip(),
+                source_line=None,
+            )
+        )
 
     return errors
 
@@ -610,7 +619,7 @@ class GLECompiler:
     def compile(
         self,
         input_file: str,
-        output_format: Literal['pdf', 'png', 'eps', 'jpg', 'svg'] = 'pdf',
+        output_format: Literal["pdf", "png", "eps", "jpg", "svg"] = "pdf",
         dpi: int = 150,
         verbose: bool = False,
         timeout: int = 30,
@@ -665,7 +674,7 @@ class GLECompiler:
             raise FileNotFoundError(f"Input file not found: {input_file}")
 
         # Determine output file
-        output_path = input_path.with_suffix(f'.{output_format}')
+        output_path = input_path.with_suffix(f".{output_format}")
 
         # Build command (all options must come before filename). Pass as a
         # list (no shell=True) so paths containing spaces are handled safely
@@ -674,7 +683,11 @@ class GLECompiler:
         # shared builder so this never drifts from the GUI's compile paths
         # again -- see build_compile_args().
         cmd = [self.gle_path] + build_compile_args(
-            output_format, output_path, input_path, dpi=dpi, cairo=cairo,
+            output_format,
+            output_path,
+            input_path,
+            dpi=dpi,
+            cairo=cairo,
         )
 
         try:
@@ -688,7 +701,7 @@ class GLECompiler:
             raise GLECompileError(
                 f"GLE compilation timed out after {timeout}s",
                 errors=[],
-                raw_output='',
+                raw_output="",
             )
 
         # GLE writes most diagnostic/error output to stderr, but some builds
@@ -696,7 +709,7 @@ class GLECompiler:
         # streams so nothing is silently dropped; parse_gle_errors only
         # matches its specific block pattern, so extra non-matching text is
         # harmless.
-        raw_output = '\n'.join(s for s in (result.stdout, result.stderr) if s)
+        raw_output = "\n".join(s for s in (result.stdout, result.stderr) if s)
 
         if verbose or result.returncode != 0:
             if result.stdout:
@@ -726,11 +739,8 @@ class GLECompiler:
         """Get GLE version and info."""
         try:
             result = subprocess.run(
-                [self.gle_path, '-info'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                [self.gle_path, "-info"], capture_output=True, text=True, timeout=5
             )
-            return {'version': result.stdout.strip()}
+            return {"version": result.stdout.strip()}
         except Exception as e:
-            return {'error': str(e)}
+            return {"error": str(e)}

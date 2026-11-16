@@ -24,7 +24,6 @@ import gleplot as glp
 from gleplot.config import GLEStyleConfig
 from gleplot.parser.tables import LSTYLE_TO_MATPLOTLIB, MATPLOTLIB_TO_LSTYLE
 
-
 X = np.array([0.0, 1.0, 2.0])
 Y = np.array([1.0, 2.0, 3.0])
 
@@ -125,7 +124,9 @@ def test_dash_dot_emits_exactly_one_lstyle_token():
 
 
 def test_a_custom_style_config_is_honoured_everywhere():
-    style = GLEStyleConfig(line_style_dashed=9, line_style_dotted=4, line_style_dashdot=7)
+    style = GLEStyleConfig(
+        line_style_dashed=9, line_style_dotted=4, line_style_dashdot=7
+    )
     fig = glp.figure(style=style, data_prefix="lsc")
     ax = fig.add_subplot(111)
     ax.plot(X, Y, linestyle="--", color="black")

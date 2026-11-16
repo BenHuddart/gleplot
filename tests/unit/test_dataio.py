@@ -157,7 +157,9 @@ def test_resolve_unreadable_file_does_not_raise(tmp_path):
 
 
 def _make_table(tmp_path) -> DataTable:
-    p = _write(tmp_path, "t.csv", "x,y,label,z\n1,10,foo,100\n2,20,bar,200\n3,30,baz,300\n")
+    p = _write(
+        tmp_path, "t.csv", "x,y,label,z\n1,10,foo,100\n2,20,bar,200\n3,30,baz,300\n"
+    )
     return load_data_file(p)
 
 
@@ -258,9 +260,7 @@ def test_load_comma_file_with_ragged_single_field_row(tmp_path):
     assert table.is_numeric == [True, True]
     # The lone '2' row was right-padded: x=[0,1,2], y=[0,2,nan].
     np.testing.assert_allclose(table.columns[0], [0.0, 1.0, 2.0])
-    np.testing.assert_allclose(
-        table.columns[1], [0.0, 2.0, np.nan], equal_nan=True
-    )
+    np.testing.assert_allclose(table.columns[1], [0.0, 2.0, np.nan], equal_nan=True)
 
     # And the columns are extractable as numeric plot data.
     result = extract_columns(table, x_col_1based=1, y_col_1based=2)
@@ -287,8 +287,14 @@ def test_load_whitespace_file_not_hijacked_by_stray_comma(tmp_path):
 def test_classify_with_import_list_membership(tmp_path):
     gle_path = tmp_path / "plot.gle"
 
-    assert classify_data_file(gle_path, "data_1.dat", import_list=["data_1.dat"]) == "import"
-    assert classify_data_file(gle_path, "external.dat", import_list=["data_1.dat"]) == "reference"
+    assert (
+        classify_data_file(gle_path, "data_1.dat", import_list=["data_1.dat"])
+        == "import"
+    )
+    assert (
+        classify_data_file(gle_path, "external.dat", import_list=["data_1.dat"])
+        == "reference"
+    )
 
 
 def test_classify_with_import_list_matches_bare_filename(tmp_path):
@@ -297,9 +303,7 @@ def test_classify_with_import_list_matches_bare_filename(tmp_path):
     # import_list entries may be bare names or full paths; referenced_name
     # may likewise be given as a relative path -- match on both forms.
     assert (
-        classify_data_file(
-            gle_path, "subdir/data_1.dat", import_list=["data_1.dat"]
-        )
+        classify_data_file(gle_path, "subdir/data_1.dat", import_list=["data_1.dat"])
         == "import"
     )
 
@@ -320,12 +324,16 @@ def test_classify_no_metadata_is_always_reference(tmp_path):
 
     # Names that used to match the sidecar heuristic are now 'reference'.
     assert classify_data_file(gle_path, "data_1.dat", import_list=None) == "reference"
-    assert classify_data_file(gle_path, "mystudy_42.dat", import_list=None) == "reference"
+    assert (
+        classify_data_file(gle_path, "mystudy_42.dat", import_list=None) == "reference"
+    )
     # Ordinary names were always 'reference'; still are.
     assert classify_data_file(gle_path, "readings.dat", import_list=None) == "reference"
     assert classify_data_file(gle_path, "data.dat", import_list=None) == "reference"
     # Subdirectory / absolute references -- still 'reference'.
-    assert classify_data_file(gle_path, "sub/data_1.dat", import_list=None) == "reference"
+    assert (
+        classify_data_file(gle_path, "sub/data_1.dat", import_list=None) == "reference"
+    )
     absolute = tmp_path / "data_1.dat"
     assert classify_data_file(gle_path, str(absolute), import_list=None) == "reference"
 
@@ -338,7 +346,10 @@ def test_classify_no_metadata_ordinary_user_file_not_overwritten(tmp_path):
     """
     gle_path = tmp_path / "plot.gle"
 
-    assert classify_data_file(gle_path, "results_2024.dat", import_list=None) == "reference"
+    assert (
+        classify_data_file(gle_path, "results_2024.dat", import_list=None)
+        == "reference"
+    )
 
 
 def test_classify_vouched_by_import_list_is_import(tmp_path):
@@ -348,7 +359,9 @@ def test_classify_vouched_by_import_list_is_import(tmp_path):
     gle_path = tmp_path / "plot.gle"
 
     assert (
-        classify_data_file(gle_path, "results_2024.dat", import_list=["results_2024.dat"])
+        classify_data_file(
+            gle_path, "results_2024.dat", import_list=["results_2024.dat"]
+        )
         == "import"
     )
     # A vouched name is import even where the heuristic never would have
@@ -394,7 +407,11 @@ def test_load_data_file_surfaces_gleplot_writer_output_end_to_end(tmp_path):
     writer = GLEWriter()
     writer.add_data_file(
         "series.dat",
-        [np.array([1.0, 2.0, 3.0]), np.array([2.0, 4.0, 6.0]), np.array([0.1, 0.2, 0.3])],
+        [
+            np.array([1.0, 2.0, 3.0]),
+            np.array([2.0, 4.0, 6.0]),
+            np.array([0.1, 0.2, 0.3]),
+        ],
         column_names=["x", "signal", "err"],
     )
     p = tmp_path / "series.dat"
@@ -583,12 +600,7 @@ def test_comment_header_not_immediately_preceding_is_rejected(tmp_path):
     only the LAST qualifying comment line (nearest the data) is used, not
     an earlier one with a different, non-matching token count.
     """
-    content = (
-        "! one\n"
-        "! x y\n"
-        "1.0 2.0\n"
-        "3.0 4.0\n"
-    )
+    content = "! one\n" "! x y\n" "1.0 2.0\n" "3.0 4.0\n"
     p = _write(tmp_path, "fit.dat", content)
 
     table = load_data_file(p)
@@ -649,12 +661,7 @@ def test_indexed_comment_header_unicode_name_preserved(tmp_path):
     into DataTable.column_names -- exercises the utf-8-sig-first decode path
     end to end.
     """
-    content = (
-        "! c 1 = t\n"
-        "! c 2 = rate (μs⁻¹)\n"
-        "0.0 1.0\n"
-        "1.0 2.0\n"
-    )
+    content = "! c 1 = t\n" "! c 2 = rate (μs⁻¹)\n" "0.0 1.0\n" "1.0 2.0\n"
     p = _write(tmp_path, "unicode.dat", content, encoding="utf-8-sig")
 
     table = load_data_file(p)
@@ -667,12 +674,7 @@ def test_indexed_comment_header_case_and_whitespace_tolerant(tmp_path):
     """'c'/'C', and arbitrary whitespace around the index and '=', are all
     tolerated.
     """
-    content = (
-        "!C1=alpha\n"
-        "!   c   2   =   beta  \n"
-        "1 2\n"
-        "3 4\n"
-    )
+    content = "!C1=alpha\n" "!   c   2   =   beta  \n" "1 2\n" "3 4\n"
     p = _write(tmp_path, "case.dat", content)
 
     table = load_data_file(p)

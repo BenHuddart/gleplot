@@ -27,9 +27,9 @@ import pytest
 
 import gleplot as glp
 from gleplot.compiler import GLECompiler
-from tests.integration.conftest import darwin_gle_contour_crash
 from gleplot.series import ContourSeries, HeatmapSeries
 from gleplot.sources import DictDataProvider, GridRef, TableData
+from tests.integration.conftest import darwin_gle_contour_crash
 
 
 def _gle_available() -> bool:

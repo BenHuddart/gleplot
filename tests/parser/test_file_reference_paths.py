@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 import gleplot as glp
-from gleplot.compiler import find_gle, GLECompiler
+from gleplot.compiler import GLECompiler, find_gle
 from gleplot.figure import Figure
 from gleplot.parser.recognizer import parse_gle_figure
 

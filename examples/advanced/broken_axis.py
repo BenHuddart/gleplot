@@ -28,8 +28,9 @@ Outputs (next to this file): ``broken_axis_slash.{gle,pdf}``,
 """
 
 import sys
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -63,9 +64,7 @@ def example_broken_axis_slash():
     rng = np.random.default_rng(3)
 
     # Sample densely where the fast decay lives, sparsely in the tail.
-    t = np.concatenate(
-        [np.linspace(0.0004, 0.02, 26), np.linspace(0.05, 3.0, 45)]
-    )
+    t = np.concatenate([np.linspace(0.0004, 0.02, 26), np.linspace(0.05, 3.0, 45)])
     warm = _relaxation(t) + rng.normal(0.0, 0.25, t.size)
     cold = _relaxation(t, fast_amp=18.0, slow_amp=6.0) + rng.normal(0.0, 0.25, t.size)
 
@@ -82,12 +81,27 @@ def example_broken_axis_slash():
     # Filled vs open markers is the usual way to separate two conditions in
     # one panel; both are declared once and appear in both segments.
     bax.errorbar(
-        t, cold, yerr=0.35, fmt="none", marker="o", markersize=4,
-        color="blue", capsize=2, label="2 K",
+        t,
+        cold,
+        yerr=0.35,
+        fmt="none",
+        marker="o",
+        markersize=4,
+        color="blue",
+        capsize=2,
+        label="2 K",
     )
     bax.errorbar(
-        t, warm, yerr=0.35, fmt="none", marker="s", markersize=4,
-        color="red", capsize=2, fillstyle="none", label="50 K",
+        t,
+        warm,
+        yerr=0.35,
+        fmt="none",
+        marker="s",
+        markersize=4,
+        color="red",
+        capsize=2,
+        fillstyle="none",
+        label="50 K",
     )
 
     # A dashed background-level guide spanning the whole panel, drawn under

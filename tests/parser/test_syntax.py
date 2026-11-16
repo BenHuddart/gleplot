@@ -268,7 +268,7 @@ class TestOpaqueBlockNesting:
     """MA-review fix: nested begin/end inside opaque blocks."""
 
     def test_nested_text_in_key_block(self):
-        from gleplot.parser.syntax import parse_gle_source, OpaqueBlock, Statement
+        from gleplot.parser.syntax import OpaqueBlock, Statement, parse_gle_source
 
         src = "begin key\nbegin text\nlabel\nend\nend key\n"
         doc = parse_gle_source(src)
@@ -283,7 +283,7 @@ class TestOpaqueBlockNesting:
         assert doc.emit() == src
 
     def test_doubly_nested_opaque(self):
-        from gleplot.parser.syntax import parse_gle_source, OpaqueBlock
+        from gleplot.parser.syntax import OpaqueBlock, parse_gle_source
 
         src = "begin object o\nbegin box\nbegin text\nhi\nend\nend\nend object\n"
         doc = parse_gle_source(src)
@@ -300,7 +300,7 @@ class TestOpaqueBlockNesting:
         *outer* name, so a named inner end left the rotate unclosed and the
         following ``end rotate`` was swallowed as an inner line.
         """
-        from gleplot.parser.syntax import parse_gle_source, OpaqueBlock
+        from gleplot.parser.syntax import OpaqueBlock, parse_gle_source
 
         src = (
             "begin rotate 45\n"

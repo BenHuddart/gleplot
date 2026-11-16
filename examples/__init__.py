@@ -16,26 +16,26 @@ Run all examples:
     python -m examples.run_all
 """
 
-from .basic import (
-    example_basic_line_plot,
-    example_scatter_plot,
-    example_bar_chart,
-)
 from .advanced import (
+    example_combined_plot,
     example_fill_between,
     example_log_scale,
-    example_combined_plot,
     example_multiple_styles,
+)
+from .basic import (
+    example_bar_chart,
+    example_basic_line_plot,
+    example_scatter_plot,
 )
 
 __all__ = [
     # Basic examples
-    'example_basic_line_plot',
-    'example_scatter_plot',
-    'example_bar_chart',
+    "example_basic_line_plot",
+    "example_scatter_plot",
+    "example_bar_chart",
     # Advanced examples
-    'example_fill_between',
-    'example_log_scale',
-    'example_combined_plot',
-    'example_multiple_styles',
+    "example_fill_between",
+    "example_log_scale",
+    "example_combined_plot",
+    "example_multiple_styles",
 ]

@@ -45,8 +45,15 @@ def test_broken_xaxis_compiles_for_every_divider_style(tmp_path, divider):
     )
     bax.set_ylim(0.0, 30.0)
     bax.errorbar(
-        T, _asymmetry(T), yerr=0.3, fmt="none", marker="o", markersize=4,
-        color="blue", capsize=2, label="data",
+        T,
+        _asymmetry(T),
+        yerr=0.3,
+        fmt="none",
+        marker="o",
+        markersize=4,
+        color="blue",
+        capsize=2,
+        label="data",
     )
     bax.axhline(2.0, color="gray", linestyle=":")
     bax.set_ylabel("Asymmetry (%)")
@@ -142,9 +149,16 @@ def test_prl_fig2a_style_panel_compiles(tmp_path):
     ):
         model = scale * _asymmetry(t_model) + 2.0
         bax.errorbar(
-            T, scale * _asymmetry(T) + 2.0 + rng.normal(0, 0.3, T.size), yerr=0.3,
-            fmt="none", marker=marker, markersize=3.6, color=color,
-            capsize=1.6, markerfacecolor=face, label=f"{color}",
+            T,
+            scale * _asymmetry(T) + 2.0 + rng.normal(0, 0.3, T.size),
+            yerr=0.3,
+            fmt="none",
+            marker=marker,
+            markersize=3.6,
+            color=color,
+            capsize=1.6,
+            markerfacecolor=face,
+            label=f"{color}",
         )
         bax.plot(t_model, model, color=color, linestyle="--", linewidth=1.0)
 
@@ -182,7 +196,11 @@ def test_height_ratios_five_row_stack_compiles(tmp_path):
     separator row for tick labels, and a 4th panel.
     """
     fig, axes = glp.subplots(
-        5, 1, sharex=True, figsize=(3.386, 5.5), data_prefix="hratio",
+        5,
+        1,
+        sharex=True,
+        figsize=(3.386, 5.5),
+        data_prefix="hratio",
         height_ratios=[3, 3, 3, 1, 4],
     )
     for i, ax in enumerate(axes[:3]):

@@ -224,7 +224,9 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
     # import-data always emitted if the key is present at all (even empty).
     if "import-data" in data:
         seen.add("import-data")
-        lines.append(f"{LINE_PREFIX} import-data = {_format_value('import-data', data['import-data'])}")
+        lines.append(
+            f"{LINE_PREFIX} import-data = {_format_value('import-data', data['import-data'])}"
+        )
 
     # Any remaining (unknown / forward-compat) keys, in insertion order.
     for key, value in data.items():
@@ -338,7 +340,7 @@ def parse_metadata(lines: List[str]) -> Tuple[Dict[str, Any], List[str]]:
             if stripped.startswith("! gleplot-meta-begin"):
                 in_block = True
                 found_block = True
-                rest = stripped[len("! gleplot-meta-begin"):].strip()
+                rest = stripped[len("! gleplot-meta-begin") :].strip()
                 warnings.extend(_version_warnings(rest))
             continue
 
@@ -349,7 +351,7 @@ def parse_metadata(lines: List[str]) -> Tuple[Dict[str, Any], List[str]]:
             warnings.append(f"Skipping malformed metadata line: {line!r}")
             continue
 
-        payload = stripped[len(LINE_PREFIX):].strip()
+        payload = stripped[len(LINE_PREFIX) :].strip()
         if "=" not in payload:
             warnings.append(f"Skipping malformed metadata line (no '='): {line!r}")
             continue

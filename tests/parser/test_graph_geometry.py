@@ -27,7 +27,8 @@ import numpy as np
 import pytest
 
 import gleplot as glp
-from gleplot import Figure, GLEGraphConfig, axes as _gleplot_axes
+from gleplot import Figure, GLEGraphConfig
+from gleplot import axes as _gleplot_axes
 from gleplot.parser import metadata as _metadata
 from gleplot.parser.recognizer import parse_gle_figure
 
@@ -299,8 +300,8 @@ def test_a_legacy_colorbar_size_line_migrates_instead_of_freezing(tmp_path):
     reserves the same width -- rather than freezing a legacy line forever in
     ``geometry_passthrough``.
     """
-    from tests.parser import _golden_battery as golden
     from gleplot.writer import GLEWriter
+    from tests.parser import _golden_battery as golden
 
     fig = golden.heatmap_imshow_colorbar()
     src = _resave(fig, tmp_path, "cbar.gle")
