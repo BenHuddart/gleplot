@@ -17,7 +17,7 @@ Design (see the feature brief / CLAUDE.md conventions):
 * **Idempotent.** ``translate(translate(s)) == translate(s)``: everything the
   translator emits (GLE macros and brace groups belonging to them) is copied
   verbatim on a second pass, so a stored label can be re-translated safely --
-  the GUI panels do exactly that on every edit.
+  an editor built on gleplot does exactly that on every edit.
 * **Graceful degradation.** An odd number of unescaped ``$`` (which matplotlib
   would reject) leaves the string completely unchanged rather than guessing.
 * **Literal by default, math by opt-in** -- matplotlib's own contract. Text
@@ -411,8 +411,8 @@ def escape_gle_text(s: str) -> str:
     Everything else is literal text. The two rules above are also what makes
     the escaping **idempotent**: the escapes it emits (``\\_``,
     ``\\char{94}``) are themselves macro tokens, so escaping twice is
-    escaping once, and a stored label can be re-translated safely (the GUI
-    panels do exactly that on every edit).
+    escaping once, and a stored label can be re-translated safely (an editor
+    built on gleplot does exactly that on every edit).
 
     Parameters
     ----------

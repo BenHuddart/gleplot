@@ -25,7 +25,7 @@ when the figure is rebuilt.
 
 import re
 import warnings
-from typing import Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 # Matplotlib color codes to GLE color names
 MATPLOTLIB_TO_GLE_COLORS = {
@@ -125,9 +125,8 @@ MATPLOTLIB_CYCLE_HEX = {
 #: round trip untouched.
 _COLOR_EXPR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*\([^()]*\)$")
 
-#: Full GLE colour-name table, loaded lazily from the parser's transcription of
-#: GLE's own table (151 names). Kept lazy so ``gleplot.colors`` stays a leaf
-#: module with no import-time dependency on the parser package.
+#: Every colour name GLE recognises out of the box, uppercase: GLE's own
+#: 151-name table plus the names gleplot's matplotlib mapping emits.
 _GLE_COLOR_NAMES = None  # type: Optional[frozenset]
 
 
@@ -135,12 +134,7 @@ def _gle_color_names() -> frozenset:
     """Every colour name GLE recognises out of the box, uppercase."""
     global _GLE_COLOR_NAMES
     if _GLE_COLOR_NAMES is None:
-        try:
-            from .parser.tables import COLORS as _TABLE_COLORS
-
-            _GLE_COLOR_NAMES = frozenset(_TABLE_COLORS) | frozenset(GLE_COLORS)
-        except Exception:  # pragma: no cover - defensive; parser is in-tree
-            _GLE_COLOR_NAMES = frozenset(GLE_COLORS)
+        _GLE_COLOR_NAMES = frozenset(COLORS) | frozenset(GLE_COLORS)
     return _GLE_COLOR_NAMES
 
 
@@ -202,7 +196,7 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
         # -- alias their "gray" equivalents. GLE itself defines these grey
         # spellings as distinct colours (``defineOldGLEColors`` in
         # color.cpp), matching the gray ramp's RGB values, and
-        # gleplot.parser.tables.gle_color_rgb already treats GREY as an
+        # gle_color_rgb already treats GREY as an
         # alias for GRAY when reading a ``.gle`` file; this mirrors that
         # convention on the writing side so a name that round-trips one way
         # round-trips the other too. Without this, e.g. ``rgb_to_gle('grey40')``
@@ -313,12 +307,7 @@ def gle_color_to_rgb255(color: str) -> Optional[Tuple[int, int, int]]:
             return tuple(_clamp255(round(v * 255.0)) for v in vals)  # type: ignore[return-value]
         return tuple(_clamp255(round(v)) for v in vals)  # type: ignore[return-value]
 
-    try:
-        from .parser.tables import gle_color_rgb
-
-        return gle_color_rgb(text)
-    except Exception:  # pragma: no cover - defensive; parser is in-tree
-        return None
+    return gle_color_rgb(text)
 
 
 def _clamp255(value) -> int:
@@ -378,3 +367,212 @@ def get_color_palette(name: str = "default") -> list:
         "light": ["LIGHTBLUE", "LIGHTGREEN", "LIGHTCYAN", "LIGHTGRAY"],
     }
     return palettes.get(name, palettes["default"])
+
+
+# ---------------------------------------------------------------------------
+# Colors
+# ---------------------------------------------------------------------------
+#
+# Transcribed from GLE 4.3.10 ``src/gle/color.cpp`` lines ~131-299
+# (``GLEColorList::defineGrays`` + ``GLEColorList::defineSVGColors``, called
+# from ``defineDefaultColors``), with RGB values decoded from the
+# ``0x01RRGGBB``-format hex literals in ``src/gle/color.h`` lines 66-218
+# (the leading ``0x01`` byte is GLE's internal "color defined" flag, not part
+# of the RGB value). Keys are the canonical uppercase GLE color names as
+# ``defineColor`` registers them; GLE itself is case-insensitive.
+COLORS: Dict[str, Tuple[int, int, int]] = {
+    "ALICEBLUE": (240, 248, 255),
+    "ANTIQUEWHITE": (250, 235, 215),
+    "AQUA": (0, 255, 255),
+    "AQUAMARINE": (127, 255, 212),
+    "AZURE": (240, 255, 255),
+    "BEIGE": (245, 245, 220),
+    "BISQUE": (255, 228, 196),
+    "BLACK": (0, 0, 0),
+    "BLANCHEDALMOND": (255, 235, 205),
+    "BLUE": (0, 0, 255),
+    "BLUEVIOLET": (138, 43, 226),
+    "BROWN": (165, 42, 42),
+    "BURLYWOOD": (222, 184, 135),
+    "CADETBLUE": (95, 158, 160),
+    "CHARTREUSE": (127, 255, 0),
+    "CHOCOLATE": (210, 105, 30),
+    "CORAL": (255, 127, 80),
+    "CORNFLOWERBLUE": (100, 149, 237),
+    "CORNSILK": (255, 248, 220),
+    "CRIMSON": (220, 20, 60),
+    "CYAN": (0, 255, 255),
+    "DARKBLUE": (0, 0, 139),
+    "DARKCYAN": (0, 139, 139),
+    "DARKGOLDENROD": (184, 134, 11),
+    "DARKGRAY": (169, 169, 169),
+    "DARKGREEN": (0, 100, 0),
+    "DARKKHAKI": (189, 183, 107),
+    "DARKMAGENTA": (139, 0, 139),
+    "DARKOLIVEGREEN": (85, 107, 47),
+    "DARKORANGE": (255, 140, 0),
+    "DARKORCHID": (153, 50, 204),
+    "DARKRED": (139, 0, 0),
+    "DARKSALMON": (233, 150, 122),
+    "DARKSEAGREEN": (143, 188, 143),
+    "DARKSLATEBLUE": (72, 61, 139),
+    "DARKSLATEGRAY": (47, 79, 79),
+    "DARKTURQUOISE": (0, 206, 209),
+    "DARKVIOLET": (148, 0, 211),
+    "DEEPPINK": (255, 20, 147),
+    "DEEPSKYBLUE": (0, 191, 255),
+    "DIMGRAY": (105, 105, 105),
+    "DODGERBLUE": (30, 144, 255),
+    "FIREBRICK": (178, 34, 34),
+    "FLORALWHITE": (255, 250, 240),
+    "FORESTGREEN": (34, 139, 34),
+    "FUCHSIA": (255, 0, 255),
+    "GAINSBORO": (220, 220, 220),
+    "GHOSTWHITE": (248, 248, 255),
+    "GOLD": (255, 215, 0),
+    "GOLDENROD": (218, 165, 32),
+    "GRAY": (128, 128, 128),
+    "GRAY1": (253, 253, 253),
+    "GRAY10": (200, 200, 200),
+    "GRAY20": (175, 175, 175),
+    "GRAY30": (150, 150, 150),
+    "GRAY40": (125, 125, 125),
+    "GRAY5": (240, 240, 240),
+    "GRAY50": (100, 100, 100),
+    "GRAY60": (75, 75, 75),
+    "GRAY70": (50, 50, 50),
+    "GRAY80": (25, 25, 25),
+    "GRAY90": (6, 6, 6),
+    "GREEN": (0, 128, 0),
+    "GREENYELLOW": (173, 255, 47),
+    "HONEYDEW": (240, 255, 240),
+    "HOTPINK": (255, 105, 180),
+    "INDIANRED": (205, 92, 92),
+    "INDIGO": (75, 0, 130),
+    "IVORY": (255, 255, 240),
+    "KHAKI": (240, 230, 140),
+    "LAVENDER": (230, 230, 250),
+    "LAVENDERBLUSH": (255, 240, 245),
+    "LAWNGREEN": (124, 252, 0),
+    "LEMONCHIFFON": (255, 250, 205),
+    "LIGHTBLUE": (173, 216, 230),
+    "LIGHTCORAL": (240, 128, 128),
+    "LIGHTCYAN": (224, 255, 255),
+    "LIGHTGOLDENRODYELLOW": (250, 250, 210),
+    "LIGHTGRAY": (211, 211, 211),
+    "LIGHTGREEN": (144, 238, 144),
+    "LIGHTPINK": (255, 182, 193),
+    "LIGHTSALMON": (255, 160, 122),
+    "LIGHTSEAGREEN": (32, 178, 170),
+    "LIGHTSKYBLUE": (135, 206, 250),
+    "LIGHTSLATEGRAY": (119, 136, 153),
+    "LIGHTSTEELBLUE": (176, 196, 222),
+    "LIGHTYELLOW": (255, 255, 224),
+    "LIME": (0, 255, 0),
+    "LIMEGREEN": (50, 205, 50),
+    "LINEN": (250, 240, 230),
+    "MAGENTA": (255, 0, 255),
+    "MAROON": (128, 0, 0),
+    "MEDIUMAQUAMARINE": (102, 205, 170),
+    "MEDIUMBLUE": (0, 0, 205),
+    "MEDIUMORCHID": (186, 85, 211),
+    "MEDIUMPURPLE": (147, 112, 219),
+    "MEDIUMSEAGREEN": (60, 179, 113),
+    "MEDIUMSLATEBLUE": (123, 104, 238),
+    "MEDIUMSPRINGGREEN": (0, 250, 154),
+    "MEDIUMTURQUOISE": (72, 209, 204),
+    "MEDIUMVIOLETRED": (199, 21, 133),
+    "MIDNIGHTBLUE": (25, 25, 112),
+    "MINTCREAM": (245, 255, 250),
+    "MISTYROSE": (255, 228, 225),
+    "MOCCASIN": (255, 228, 181),
+    "NAVAJOWHITE": (255, 222, 173),
+    "NAVY": (0, 0, 128),
+    "OLDLACE": (253, 245, 230),
+    "OLIVE": (128, 128, 0),
+    "OLIVEDRAB": (107, 142, 35),
+    "ORANGE": (255, 165, 0),
+    "ORANGERED": (255, 69, 0),
+    "ORCHID": (218, 112, 214),
+    "PALEGOLDENROD": (238, 232, 170),
+    "PALEGREEN": (152, 251, 152),
+    "PALETURQUOISE": (175, 238, 238),
+    "PALEVIOLETRED": (219, 112, 147),
+    "PAPAYAWHIP": (255, 239, 213),
+    "PEACHPUFF": (255, 218, 185),
+    "PERU": (205, 133, 63),
+    "PINK": (255, 192, 203),
+    "PLUM": (221, 160, 221),
+    "POWDERBLUE": (176, 224, 230),
+    "PURPLE": (128, 0, 128),
+    "RED": (255, 0, 0),
+    "ROSYBROWN": (188, 143, 143),
+    "ROYALBLUE": (65, 105, 225),
+    "SADDLEBROWN": (139, 69, 19),
+    "SALMON": (250, 128, 114),
+    "SANDYBROWN": (244, 164, 96),
+    "SEAGREEN": (46, 139, 87),
+    "SEASHELL": (255, 245, 238),
+    "SIENNA": (160, 82, 45),
+    "SILVER": (192, 192, 192),
+    "SKYBLUE": (135, 206, 235),
+    "SLATEBLUE": (106, 90, 205),
+    "SLATEGRAY": (112, 128, 144),
+    "SNOW": (255, 250, 250),
+    "SPRINGGREEN": (0, 255, 127),
+    "STEELBLUE": (70, 130, 180),
+    "TAN": (210, 180, 140),
+    "TEAL": (0, 128, 128),
+    "THISTLE": (216, 191, 216),
+    "TOMATO": (255, 99, 71),
+    "TURQUOISE": (64, 224, 208),
+    "VIOLET": (238, 130, 238),
+    "WHEAT": (245, 222, 179),
+    "WHITE": (255, 255, 255),
+    "WHITESMOKE": (245, 245, 245),
+    "YELLOW": (255, 255, 0),
+    "YELLOWGREEN": (154, 205, 50),
+}
+
+
+def gle_color_rgb(name: str) -> Optional[Tuple[int, int, int]]:
+    """Look up a GLE color name's RGB triple, case-insensitively.
+
+    British "GREY" spellings (GREY, DARKGREY, LIGHTSLATEGREY, ...) are
+    accepted as aliases for their "GRAY" forms: GLE's legacy color table
+    supports them, and hand-written .gle files use them, so the tolerant
+    parser must too. Returns ``None`` if ``name`` is not recognized.
+    """
+    key = str(name).strip().upper()
+    hit = COLORS.get(key)
+    if hit is None and "GREY" in key:
+        hit = COLORS.get(key.replace("GREY", "GRAY"))
+    return hit
+
+
+def nearest_gle_color(r: int, g: int, b: int) -> str:
+    """Find the GLE color name nearest to an RGB triple.
+
+    Tries an exact match first; falls back to the color with the smallest
+    Euclidean distance in RGB space. Ties are broken by the first match in
+    :data:`COLORS`' iteration order (stable across calls since dicts
+    preserve insertion order).
+
+    Nothing in gleplot's own emission path snaps a color: an arbitrary color
+    is written out exactly as ``rgb255(r,g,b)`` (see
+    :func:`gleplot.colors.rgb_to_gle`). This helper exists for callers who
+    *want* a named approximation -- pass its result back in as the color.
+    """
+    target = (int(r), int(g), int(b))
+    for name, rgb in COLORS.items():
+        if rgb == target:
+            return name
+
+    best_name = None
+    best_dist = None
+    for name, (cr, cg, cb) in COLORS.items():
+        dist = (cr - target[0]) ** 2 + (cg - target[1]) ** 2 + (cb - target[2]) ** 2
+        if best_dist is None or dist < best_dist:
+            best_dist = dist
+            best_name = name
+    return best_name

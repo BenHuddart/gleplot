@@ -29,7 +29,8 @@ what keeps this refactor behaviour-preserving:
   any mapping into a plain ``dict``, and construction inserts fields in the
   declared order, so the serialized shape (and therefore the ``.gle`` and
   ``.dat`` bytes the writer produces) is byte-for-byte what it was.
-* The writer, the recognizer and the GUI panels address series by key
+* The writer, the recognizer and applications built on gleplot address
+  series by key
   (``series["color"]``, ``series.get("label")``, ``"zorder" in series``);
   every one of those call sites keeps working untouched.
 * Optional fields stay *absent* rather than becoming ``None``. ``zorder``
@@ -120,8 +121,7 @@ single readers.
 
 The scope is ``LineSeries`` only (SPEC 14.7). Error bars and file-reference
 series still take the figure-wide flag: GLE would accept the qualifier on
-them, but v1.1 models it only where the semantics are documented and the
-GUI has a control for it.
+them, but v1.1 models it only where the semantics are documented.
 """
 
 import re
@@ -155,6 +155,7 @@ __all__ = [
     "sanitize_column_name",
     "smooth_mode",
     "svg_smooth_iterations",
+    "sorted_zorder_drawables",
 ]
 
 
@@ -475,7 +476,7 @@ class Series(Dict[str, Any]):
     ATTR: str = ""
 
     #: Draw-order kind name for the cross-kind z-ordering in
-    #: ``gleplot.axes.sorted_zorder_drawables``; ``None`` for kinds that are
+    #: ``sorted_zorder_drawables``; ``None`` for kinds that are
     #: not part of that ordering (fills, texts, heatmaps, contours, ...).
     KIND: Optional[str] = None
 
@@ -1202,7 +1203,7 @@ SERIES_ATTRS: Tuple[str, ...] = tuple(SERIES_CLASSES)
 #: The subset that takes part in cross-kind z-ordering, keyed by ``KIND``
 #: and ordered by ``KIND_RANK`` -- i.e. bars, lines, scatters, errorbars,
 #: the fixed emission stack that predates ``zorder`` and is still the
-#: tie-break order in ``gleplot.axes.sorted_zorder_drawables``.
+#: tie-break order in ``sorted_zorder_drawables``.
 DRAWABLE_CLASSES: Dict[str, Type[Series]] = {}
 for _cls in sorted(
     (c for c in SERIES_CLASSES.values() if c.KIND is not None),
@@ -1210,3 +1211,31 @@ for _cls in sorted(
 ):
     DRAWABLE_CLASSES[str(_cls.KIND)] = _cls
 del _cls
+
+
+def sorted_zorder_drawables(ax: Any) -> List[Tuple[str, Series]]:
+    """Bars, lines, scatters, and errorbars sorted by ``(zorder, call order)``.
+
+    ``ax`` is anything carrying the series lists under their ``ATTR`` names,
+    in practice a :class:`gleplot.axes.Axes`. It lives here rather than in
+    ``axes`` so the writer can order drawables without importing ``axes``.
+
+    The kind name and both fallbacks come from :data:`DRAWABLE_CLASSES`, so a
+    new drawable kind only has to declare ``KIND``/``ZORDER_DEFAULT``/
+    ``KIND_RANK`` to join the ordering. An explicit ``zorder`` on a series
+    wins; ``_draw_seq`` records the call order and is absent only on
+    pre-zorder projects, where the kind rank reproduces the old fixed
+    emission stack (bars, then lines, scatters, errorbars).
+    """
+    items: List[Tuple[float, float, str, Series]] = []
+    for kind, series_cls in DRAWABLE_CLASSES.items():
+        default_z = float(series_cls.ZORDER_DEFAULT or 0.0)
+        kind_rank = int(series_cls.KIND_RANK or 0)
+        for idx, data in enumerate(getattr(ax, str(series_cls.ATTR))):
+            z = float(data["zorder"]) if "zorder" in data else default_z
+            draw_seq = data.get("_draw_seq")
+            if draw_seq is None:
+                draw_seq = kind_rank * 1_000_000 + idx
+            items.append((z, float(draw_seq), kind, data))
+    items.sort(key=lambda t: (t[0], t[1]))
+    return [(kind, data) for _z, _seq, kind, data in items]

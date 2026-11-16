@@ -280,7 +280,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import numpy as np
 
-from ..axes import Axes
+from ..axes import Axes, _resolve_data_file
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..dataio import (
     ColumnExtractionError,
@@ -314,9 +314,10 @@ from ..series import (
     Span,
     TextAnnotation,
 )
+from ..writer import GLEWriter
 from . import metadata as _metadata
 from .expr import eval_gle_number
-from .lexer import Token, TokenType
+from .lexer import Token, TokenType, tokenize_line
 from .report import ImportCategory, ImportNote
 from .syntax import (
     BlankOrComment,
@@ -654,8 +655,6 @@ def _first_statement_of(source_line) -> Statement:
     tokenized into statements). The contour/fitz block parsers need their
     tokens, so this tokenizes one line's text into a Statement wrapper.
     """
-    from .lexer import tokenize_line
-
     return Statement(
         tokens=tokenize_line(source_line.text),
         raw=source_line.text,
@@ -2436,8 +2435,6 @@ class _Recognizer:
         rather than half-reading it -- a marker that cannot be read in full
         describes nothing that could be rebuilt from it.
         """
-        from .lexer import tokenize_line
-
         toks = [
             t
             for t in tokenize_line(text[len(GUIDE_MARKER_PREFIX) :])
@@ -5757,8 +5754,6 @@ class _Recognizer:
         A ``separator`` counts as one column break. Swatch tokens after
         ``text`` are ignored: the next save rebuilds them from the series.
         """
-        from .lexer import tokenize_line
-
         options: dict = {}
         labels: List[str] = []
         separators = 0
@@ -6613,8 +6608,6 @@ class _Recognizer:
         reserved = fig._axes_colorbar_reserved_cm(ax)
         if reserved <= 0:
             return False
-        from ..writer import GLEWriter
-
         width_cm = inches_to_cm(fig.figsize[0])
         height_cm = inches_to_cm(fig.figsize[1])
         graph_w = max(width_cm - reserved, width_cm * 0.3)
@@ -7054,7 +7047,6 @@ class _Recognizer:
         # thereby resolving the axis the guide spans) puts the guide straight
         # back onto the literal-dataset path with a name that collides with
         # nothing.
-        from ..axes import _resolve_data_file
 
         for ax in fig.axes_list:
             for guide in list(ax.reflines) + list(ax.spans):

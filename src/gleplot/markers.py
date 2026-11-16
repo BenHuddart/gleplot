@@ -158,7 +158,7 @@ MATPLOTLIB_TO_GLE_WHITE_MARKERS = {
 }
 
 # GLE marker types (documentation for the names gleplot itself emits; the
-# authoritative full list GLE accepts is ``gleplot.parser.tables.MARKERS``,
+# authoritative full list GLE accepts is ``MARKERS`` below,
 # transcribed from GLE's stdmark[] table).
 GLE_MARKER_TYPES = {
     # Filled markers
@@ -195,17 +195,6 @@ GLE_MARKER_TYPES = {
     "DDAG": "Double dagger",
     "SNAKE": "Snake symbol",
 }
-
-
-def _gle_marker_names() -> frozenset:
-    """The full set of marker names GLE accepts (lazy, avoids a cycle).
-
-    ``gleplot.parser.tables`` imports this module to build its inverse marker
-    map, so the import has to happen at call time rather than at module load.
-    """
-    from .parser.tables import MARKERS
-
-    return MARKERS
 
 
 def get_gle_marker(
@@ -276,7 +265,7 @@ def get_gle_marker(
         base = MATPLOTLIB_TO_GLE_MARKERS[marker]
     elif marker.lower() in MATPLOTLIB_TO_GLE_MARKERS:
         base = MATPLOTLIB_TO_GLE_MARKERS[marker.lower()]
-    elif marker.upper() in _gle_marker_names():
+    elif marker.upper() in MARKERS:
         # A literal GLE marker name (e.g. 'wcircle', 'oplus'). Accept it and
         # normalize the spelling to the uppercase form gleplot emits.
         base = marker.upper()
@@ -368,7 +357,7 @@ def is_valid_gle_marker(marker: str) -> bool:
     """
     if not marker:
         return False
-    return str(marker).upper() in _gle_marker_names()
+    return str(marker).upper() in MARKERS
 
 
 def get_marker_size_scale(marker: str) -> float:
@@ -376,3 +365,65 @@ def get_marker_size_scale(marker: str) -> float:
     # GLE marker sizes typically need scaling down from matplotlib
     # Default scale is 0.1-0.15 for good visibility
     return 0.15
+
+
+# ---------------------------------------------------------------------------
+# Markers
+# ---------------------------------------------------------------------------
+#
+# Transcribed from GLE 4.3.10 ``src/gle/pass.cpp`` lines ~2371-2418 (the
+# ``stdmark[]`` array -- the current marker table; NOT the legacy
+# ``stdmark_v35[]`` array that precedes it). This is the full set of marker
+# names GLE's ``marker`` keyword accepts.
+MARKERS = frozenset(
+    {
+        "ASTERISK",
+        "ASTERIX",
+        "CIRCLE",
+        "CLUB",
+        "CROSS",
+        "DAG",
+        "DDAG",
+        "DIAMOND",
+        "DIAMONDZ",
+        "DOT",
+        "FCIRCLE",
+        "FDIAMOND",
+        "FLOWER",
+        "FSQUARE",
+        "FSTARR",
+        "FTRIANGLE",
+        "FTRIANGLED",
+        "HANDPEN",
+        "HEART",
+        "LETTER",
+        "MINUS",
+        "ODOT",
+        "OMINUS",
+        "OPLUS",
+        "OTIMES",
+        "PCROSS",
+        "PHONE",
+        "PLANE",
+        "PLUS",
+        "SCIRCLE",
+        "SNAKE",
+        "SPADE",
+        "SQUARE",
+        "SSQUARE",
+        "STAR",
+        "STAR2",
+        "STAR3",
+        "STAR4",
+        "STARR",
+        "TRIANGLE",
+        "TRIANGLED",
+        "TRIANGLEZ",
+        "WCIRCLE",
+        "WDIAMOND",
+        "WTRIANGLE",
+        "WTRIANGLED",
+        "WSQUARE",
+        "WSTARR",
+    }
+)
