@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 import unittest
+import warnings
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -219,6 +220,194 @@ class TestTextAnnotations(unittest.TestCase):
         with self.assertWarns(UserWarning):
             self.ax.text(0, 0, "x", transform="axes")
         self.assertEqual(self.ax.texts[-1]["text"], "x")
+
+
+class TestAnnotate(unittest.TestCase):
+    """``Axes.annotate``: a text plus a ``join`` arrow from its named box."""
+
+    def setUp(self):
+        glp.close()
+        self.fig = glp.figure()
+        self.ax = self.fig.add_subplot(111)
+        self.ax.plot([0, 1, 2], [0, 1, 0])
+
+    def tearDown(self):
+        glp.close()
+
+    def test_issue_example_emits_named_box_and_join(self):
+        entry = self.ax.annotate(
+            "peak", xy=(2, 3), xytext=(2.4, 3.5), arrowprops={"arrowstyle": "->"}
+        )
+        self.assertIs(entry, self.ax.texts[-1])
+        self.assertEqual((entry["x"], entry["y"]), (2.4, 3.5))
+        self.assertEqual(entry["xy"], [2.0, 3.0])
+        self.assertEqual(entry["arrow"], "->")
+        self.assertEqual(entry["arrowstyle"], "simple")
+        self.assertEqual(entry["arrow_color"], "BLACK")
+        self.assertNotIn("arrow_linewidth", entry)
+        gle = self.fig._generate_gle()
+        block = (
+            "amove xg(2.4) yg(3.5)\n"
+            "begin box add 0.05 nobox name ann1\n"
+            'write "peak"\n'
+            "end box\n"
+            "amove xg(2) yg(3)\n"
+            "save ann1_xy\n"
+            "gsave\n"
+            "set color BLACK\n"
+            "set arrowstyle simple\n"
+            "join ann1 -> ann1_xy\n"
+            "grestore\n"
+        )
+        self.assertIn(block, gle)
+
+    def test_arrowstyle_mapping(self):
+        cases = {
+            "-": ("-", None),
+            "->": ("->", "simple"),
+            "<-": ("<-", "simple"),
+            "<->": ("<->", "simple"),
+            "-|>": ("->", "filled"),
+            "<|-": ("<-", "filled"),
+            "<|-|>": ("<->", "filled"),
+        }
+        for style, (sep, tip) in cases.items():
+            entry = self.ax.annotate(
+                "a", xy=(0, 0), xytext=(1, 1), arrowprops={"arrowstyle": style}
+            )
+            self.assertEqual(entry["arrow"], sep, style)
+            self.assertEqual(entry.get("arrowstyle"), tip, style)
+        gle = self.fig._generate_gle()
+        # '-' has no head, so no arrowstyle line precedes its join.
+        self.assertIn("set color BLACK\njoin ann1 - ann1_xy", gle)
+        # Names are unique per script.
+        self.assertIn("join ann7 <-> ann7_xy", gle)
+
+    def test_legacy_arrowprops_is_a_filled_arrow(self):
+        with self.assertWarns(UserWarning) as cm:
+            entry = self.ax.annotate(
+                "a",
+                xy=(0, 0),
+                xytext=(1, 1),
+                arrowprops={"facecolor": "red", "shrink": 0.05},
+            )
+        self.assertIn("shrink", str(cm.warning))
+        self.assertEqual((entry["arrow"], entry["arrowstyle"]), ("->", "filled"))
+        self.assertEqual(entry["arrow_color"], "RED")
+
+    def test_arrow_colour_precedence_and_linewidth(self):
+        entry = self.ax.annotate(
+            "a",
+            xy=(0, 0),
+            xytext=(1, 1),
+            color="green",
+            arrowprops={"arrowstyle": "->", "ec": "blue", "fc": "red", "lw": 2},
+        )
+        self.assertEqual(entry["color"], "GREEN")
+        self.assertEqual(entry["arrow_color"], "BLUE")
+        self.assertEqual(entry["arrow_linewidth"], 2.0)
+        gle = self.fig._generate_gle()
+        self.assertIn("set color BLUE\nset lwidth 0.07056\nset arrowstyle simple", gle)
+        # The arrow colour is inside gsave: the text colour state is GREEN.
+        self.assertLess(gle.index("set color GREEN"), gle.index("begin box"))
+
+    def test_no_arrow_without_xytext_or_arrowprops(self):
+        a = self.ax.annotate("a", xy=(1, 2), arrowprops={"arrowstyle": "->"})
+        b = self.ax.annotate("b", xy=(1, 2), xytext=(0, 0))
+        for entry in (a, b):
+            self.assertNotIn("arrow", entry)
+        self.assertEqual((a["x"], a["y"]), (1.0, 2.0))
+        self.assertEqual((b["x"], b["y"]), (0.0, 0.0))
+        gle = self.fig._generate_gle()
+        self.assertNotIn("join", gle)
+        self.assertNotIn("name ann", gle)
+
+    def test_unsupported_arguments_warn(self):
+        for kwargs in (
+            {"textcoords": "offset points"},
+            {"xycoords": "axes fraction"},
+            {"annotation_clip": False},
+            {"arrowprops": {"arrowstyle": "fancy"}},
+            {"arrowprops": {"arrowstyle": "->,head_width=0.4"}},
+            {"arrowprops": {"arrowstyle": "->", "connectionstyle": "arc3,rad=0.3"}},
+            {"arrowprops": "->"},
+            {"fontweight": "bold"},
+        ):
+            with self.assertWarns(UserWarning, msg=str(kwargs)):
+                self.ax.annotate("a", xy=(0, 0), xytext=(1, 1), **kwargs)
+        self.assertEqual(self.ax.texts[3]["arrowstyle"], "filled")
+        self.assertNotIn("arrow", self.ax.texts[6])
+        # A straight connection does not warn.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.annotate(
+                "a",
+                xy=(0, 0),
+                xytext=(1, 1),
+                arrowprops={"arrowstyle": "->", "connectionstyle": "arc3, rad=0"},
+            )
+
+    def test_text_keywords_reach_the_text(self):
+        entry = self.ax.annotate(
+            "a",
+            xy=(0, 0),
+            xytext=(1, 1),
+            ha="right",
+            va="top",
+            fontsize=12,
+            rotation=30,
+            bbox={"facecolor": "white"},
+            arrowprops={"arrowstyle": "->"},
+        )
+        self.assertEqual((entry["ha"], entry["va"]), ("right", "top"))
+        self.assertEqual(entry["rotation"], 30.0)
+        self.assertEqual(entry["box_color"], "WHITE")
+        gle = self.fig._generate_gle()
+        self.assertIn(
+            "begin rotate 30\n"
+            "begin box fill WHITE add 0.05 nobox name ann1\n"
+            'write "a"\n'
+            "end box\n"
+            "end rotate\n"
+            "amove xg(0) yg(0)",
+            gle,
+        )
+
+    def test_straight_connectionstyle_spellings_do_not_warn(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            for style in ("arc3", "arc3,rad=0.", "arc3, rad=0.00"):
+                self.ax.annotate(
+                    "a",
+                    xy=(0, 0),
+                    xytext=(1, 1),
+                    arrowprops={"arrowstyle": "->", "connectionstyle": style},
+                )
+        with self.assertWarns(UserWarning):
+            self.ax.annotate(
+                "a",
+                xy=(0, 0),
+                xytext=(1, 1),
+                arrowprops={"connectionstyle": "angle3,angleA=0,angleB=90"},
+            )
+
+    def test_restored_arrow_values_outside_the_gle_set_are_normalized(self):
+        from gleplot.series import TextAnnotation
+
+        self.ax.texts.append(
+            TextAnnotation(
+                x=1, y=1, text="a", xy=[0, 0], arrow="=>", arrowstyle="empty"
+            )
+        )
+        gle = self.fig._generate_gle()
+        self.assertIn("set arrowstyle filled\njoin ann1 -> ann1_xy", gle)
+
+    def test_module_level_annotate_and_dict_round_trip(self):
+        glp.annotate("m", xy=(0, 0), xytext=(1, 1), arrowprops={"arrowstyle": "-|>"})
+        restored = glp.Figure.from_dict(self.fig.to_dict())
+        self.assertEqual(restored.to_dict(), self.fig.to_dict())
+        self.assertEqual(restored._generate_gle(), self.fig._generate_gle())
+        self.assertIn("join ann1 -> ann1_xy", restored._generate_gle())
 
 
 class TestColorStateDoesNotLeakAcrossPanels(unittest.TestCase):

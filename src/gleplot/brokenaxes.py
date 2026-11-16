@@ -408,6 +408,40 @@ class BrokenAxes:
         self.segments[index].text(x, y, s, **kwargs)
         return self
 
+    def annotate(self, text: str, xy: Sequence[float], *args, **kwargs):
+        """Annotate in the segment that contains the text, as :meth:`text`.
+
+        ``xytext`` (or ``xy`` when it is omitted) picks the segment. An arrow
+        whose ``xy`` is in another segment cannot be drawn there (each
+        segment maps only its own range), so it warns and is dropped.
+        Returns the stored annotation, or ``None`` if nothing was drawn.
+        """
+        xytext = args[0] if args else kwargs.get("xytext")
+        anchor_x = float((xy if xytext is None else xytext)[0])
+        index = self.segment_for_x(anchor_x)
+        if index is None:
+            warnings.warn(
+                f"annotate() at x={anchor_x!r} falls in the break between "
+                f"segments {self.xlims!r} and was not drawn.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return None
+        if self.segment_for_x(float(xy[0])) != index:
+            arrowprops = kwargs.pop("arrowprops", None)
+            if len(args) >= 4:
+                # positional (xytext, xycoords, textcoords, arrowprops, ...)
+                arrowprops = args[3] if arrowprops is None else arrowprops
+                args = args[:3] + (None,) + args[4:]
+            if arrowprops is not None:
+                warnings.warn(
+                    f"annotate() arrow to x={xy[0]!r} crosses into another "
+                    "segment and was not drawn.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+        return self.segments[index].annotate(text, xy, *args, **kwargs)
+
     def segment_for_x(self, x: float) -> Optional[int]:
         """Index of the segment whose range contains ``x``, or ``None``.
 

@@ -40,6 +40,8 @@ from .guides import (
     guide_sub_texts,
 )
 from .parser.tables import (
+    ARROW_JOIN_SEPS,
+    ARROW_TIP_STYLES,
     KEY_POSITIONS_LONG_TO_SHORT,
     LINE_MODES,
     text_align_to_just,
@@ -942,6 +944,10 @@ class GLEWriter:
         # later subplot cannot inherit it.
         self._external_legend: Optional[List[str]] = None
         self._pending_graph_text_lines: List[str] = []
+        # Annotation arrows emitted so far: numbers the GLE object names
+        # (``annN`` box, ``annN_xy`` tip) that ``join`` connects. Names are
+        # page-global in GLE, so the count runs across every graph.
+        self._annotation_count = 0
         # Guide subs (gleplot.guides) this write actually called, and where
         # their definitions belong in the script. Populated as the draw calls
         # go out and resolved by finalize_guide_subs, because which guides
@@ -3428,6 +3434,11 @@ class GLEWriter:
         box_color: Optional[str] = None,
         valign: str = "center",
         rotation: Optional[float] = None,
+        xy: Optional[Sequence[float]] = None,
+        arrow: Optional[str] = None,
+        arrowstyle: Optional[str] = None,
+        arrow_color: str = "BLACK",
+        arrow_linewidth: Optional[float] = None,
     ):
         """Add text annotation in graph data coordinates.
 
@@ -3441,6 +3452,12 @@ class GLEWriter:
         the text, not from an ``xg()`` expression). ``nobox`` omits the
         outline, which would otherwise be stroked in the current text colour
         and is not a separate model field.
+
+        With ``arrow`` (an ``Axes.annotate`` arrow to ``xy``), the ``write``
+        is always boxed and the box named, then ``join`` draws from that
+        name to a ``save``d point at ``xy``, so GLE clips the arrow at the
+        box edge. The arrow's ``set`` lines sit in their own
+        ``gsave``/``grestore``: they never touch the sticky text state.
         """
         escaped_text = self._escape_gle_string(text)
 
@@ -3477,16 +3494,46 @@ class GLEWriter:
             self._pending_graph_text_lines.append(
                 f"begin rotate {self._format_number(angle)}"
             )
-        if box_color:
-            pad = text_box_pad_token()
-            self._pending_graph_text_lines.append(
-                f"begin box fill {box_color} add {pad} nobox"
-            )
+        name = None
+        if arrow is not None and xy is not None:
+            self._annotation_count += 1
+            name = f"ann{self._annotation_count}"
+        boxed = bool(box_color) or name is not None
+        if boxed:
+            head = "begin box"
+            if box_color:
+                head += f" fill {box_color}"
+            head += f" add {text_box_pad_token()} nobox"
+            if name is not None:
+                head += f" name {name}"
+            self._pending_graph_text_lines.append(head)
         self._pending_graph_text_lines.append(f'write "{escaped_text}"')
-        if box_color:
+        if boxed:
             self._pending_graph_text_lines.append("end box")
         if angle is not None:
             self._pending_graph_text_lines.append("end rotate")
+        if name is not None:
+            assert xy is not None
+            tip = f"{name}_xy"
+            lines = [
+                f"amove xg({self._format_number(xy[0])}) "
+                f"yg({self._format_number(xy[1])})",
+                f"save {tip}",
+                "gsave",
+                f"set color {arrow_color}",
+            ]
+            if arrow_linewidth is not None:
+                lwidth = linewidth_pt_to_cm(float(arrow_linewidth))
+                lines.append(f"set lwidth {self._format_number(lwidth)}")
+            # A restored dict bypasses Axes.annotate: fall back to the
+            # values the recognizer accepts, as text_align_to_just does.
+            sep = arrow if arrow in ARROW_JOIN_SEPS else "->"
+            if sep != "-":
+                style = arrowstyle if arrowstyle in ARROW_TIP_STYLES else "filled"
+                lines.append(f"set arrowstyle {style}")
+            lines.append(f"join {name} {sep} {tip}")
+            lines.append("grestore")
+            self._pending_graph_text_lines.extend(lines)
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
         """Where ``key separator`` falls, as 1-based legend-entry counts.

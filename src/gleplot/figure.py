@@ -2602,6 +2602,11 @@ class Figure:
                 valign=text_data.get("va", "center"),
                 box_color=text_data.get("box_color"),
                 rotation=text_data.get("rotation"),
+                xy=text_data.get("xy"),
+                arrow=text_data.get("arrow"),
+                arrowstyle=text_data.get("arrowstyle"),
+                arrow_color=text_data.get("arrow_color", "BLACK"),
+                arrow_linewidth=text_data.get("arrow_linewidth"),
             )
 
         # Add legend if needed. legend_on is tri-state: None means auto

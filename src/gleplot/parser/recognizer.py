@@ -326,6 +326,8 @@ from .syntax import (
     parse_gle_source,
 )
 from .tables import (
+    ARROW_JOIN_SEPS,
+    ARROW_TIP_STYLES,
     KEY_POSITIONS_SHORT_TO_LONG,
     LINE_MODES,
     LSTYLE_TO_MATPLOTLIB,
@@ -727,23 +729,28 @@ def _plain_rotate_angle(stmt: Statement) -> Optional[float]:
     return None
 
 
-def _text_box_fill(stmt: Statement) -> Optional[str]:
-    """Fill colour of ``begin box fill C add P nobox``, or ``None``.
+def _text_box_head(stmt: Statement) -> Optional[Tuple[Optional[str], Optional[str]]]:
+    """``(fill, name)`` of ``begin box [fill C] add P nobox [name N]``, or ``None``.
 
-    This is the only background the writer emits, and ``P`` has to be the
-    pad token it writes (:func:`text_box_pad_token`). An outline (no
-    ``nobox``), a different pad, rounded corners, or a different keyword
-    order stays unrecognized so a hand-written box is not rewritten.
+    These are the only boxes the writer emits around a text: a background
+    (``fill``), an annotation's arrow anchor (``name``), or both. ``P`` has
+    to be the pad token it writes (:func:`text_box_pad_token`). An outline
+    (no ``nobox``), a different pad, rounded corners, a box with neither
+    ``fill`` nor ``name``, or a different keyword order stays unrecognized
+    so a hand-written box is not rewritten.
     """
     toks = _words_and_values(stmt)
-    if len(toks) < 6:
+    if len(toks) < 5:
         return None
     if toks[0].value.lower() != "begin" or toks[1].value.lower() != "box":
         return None
-    if toks[2].value.lower() != "fill":
-        return None
-    color, nxt = _collect_color(toks, 3)
-    if color is None or nxt + 2 >= len(toks):
+    color = None
+    nxt = 2
+    if toks[2].value.lower() == "fill":
+        color, nxt = _collect_color(toks, 3)
+        if color is None:
+            return None
+    if nxt + 2 >= len(toks):
         return None
     if toks[nxt].value.lower() != "add":
         return None
@@ -751,37 +758,57 @@ def _text_box_fill(stmt: Statement) -> Optional[str]:
         return None
     if toks[nxt + 1].value != text_box_pad_token():
         return None
-    if nxt + 3 != len(toks) or toks[nxt + 2].value.lower() != "nobox":
+    if toks[nxt + 2].value.lower() != "nobox":
         return None
-    return color
+    nxt += 3
+    name = None
+    if nxt < len(toks):
+        if (
+            nxt + 2 != len(toks)
+            or toks[nxt].value.lower() != "name"
+            or toks[nxt + 1].type is not TokenType.WORD
+        ):
+            return None
+        name = toks[nxt + 1].value
+    if color is None and name is None:
+        return None
+    return color, name
 
 
-def _rotate_or_box_body(lines) -> Optional[Tuple[str, Optional[str]]]:
-    """Inner lines of ``begin rotate``: a write, or one filled box around it.
+def _rotate_or_box_body(
+    lines,
+) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+    """Inner lines of ``begin rotate``: a write, or one box around it.
 
-    Returns ``(text, box_color)``. ``box_color`` is ``None`` for a bare write.
+    Returns ``(text, box_color, box_name)``; the last two are ``None`` for a
+    bare write (see :func:`_text_box_head`).
     """
     stmts = _meaningful_statements(lines)
     if len(stmts) == 1:
         text = _plain_write_string(stmts[0])
         if text is None:
             return None
-        return text, None
+        return text, None, None
     if len(stmts) != 3:
         return None
-    color = _text_box_fill(stmts[0])
+    head = _text_box_head(stmts[0])
     text = _plain_write_string(stmts[1])
-    if color is None or text is None or not _is_end_named(stmts[2], "box"):
+    if head is None or text is None or not _is_end_named(stmts[2], "box"):
         return None
-    return text, color
+    return text, head[0], head[1]
 
 
-def _boxed_write(block: OpaqueBlock) -> Optional[Tuple[str, str]]:
-    """A top-level ``begin box`` whose body is exactly one ``write``."""
+def _boxed_write(
+    block: OpaqueBlock,
+) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+    """A top-level ``begin box`` whose body is exactly one ``write``.
+
+    Returns ``(text, box_color, box_name)`` as :func:`_rotate_or_box_body`.
+    """
     if block.end is None:
         return None
-    color = _text_box_fill(block.begin)
-    if color is None or not _is_end_named(block.end, "box"):
+    head = _text_box_head(block.begin)
+    if head is None or not _is_end_named(block.end, "box"):
         return None
     stmts = _meaningful_statements(block.inner_lines)
     if len(stmts) != 1:
@@ -789,7 +816,7 @@ def _boxed_write(block: OpaqueBlock) -> Optional[Tuple[str, str]]:
     text = _plain_write_string(stmts[0])
     if text is None:
         return None
-    return text, color
+    return text, head[0], head[1]
 
 
 def _as_float(value, default: float) -> float:
@@ -6227,7 +6254,15 @@ class _Recognizer:
         drawn = self._match_text_draw(nodes, i)
         if drawn is None:
             return start, None
-        i, text_str, box_color, rotation = drawn
+        i, text_str, box_color, rotation, box_name = drawn
+        # A named box exists only to anchor an annotation arrow, so the
+        # arrow must follow; a name without one is not the writer's shape.
+        arrow_fields: Dict[str, Any] = {}
+        if box_name is not None:
+            matched = self._match_annotation_arrow(nodes, i, box_name)
+            if matched is None:
+                return start, None
+            i, arrow_fields = matched
 
         ha, va = text_just_to_align(self._text_just) or ("left", "center")
         fields = dict(
@@ -6244,16 +6279,18 @@ class _Recognizer:
         # stored, and the writer does not emit ``begin rotate`` for it).
         if rotation is not None and abs(rotation) >= 1e-10:
             fields["rotation"] = rotation
+        fields.update(arrow_fields)
         return i, TextAnnotation(**fields)
 
     def _match_text_draw(self, nodes, i):
         """The draw half of one text cluster, after its ``amove``.
 
-        Returns ``(next_index, text, box_color, rotation)`` or ``None``.
-        ``rotation`` is ``None`` when there is no ``begin rotate``. ``box_color``
-        is ``None`` when there is no background box. Anything that is not the
-        writer's shape (an outline, a ``round`` corner, an angle expression)
-        returns ``None`` so the caller leaves the nodes for passthrough.
+        Returns ``(next_index, text, box_color, rotation, box_name)`` or
+        ``None``. ``rotation`` is ``None`` when there is no ``begin rotate``.
+        ``box_color``/``box_name`` are ``None`` when the box has no fill /
+        name, or there is no box. Anything that is not the writer's shape
+        (an outline, a ``round`` corner, an angle expression) returns
+        ``None`` so the caller leaves the nodes for passthrough.
         """
         n = len(nodes)
         i = self._skip_blanks(nodes, i)
@@ -6264,19 +6301,110 @@ class _Recognizer:
                 body = _rotate_or_box_body(node.inner_lines)
                 if angle is None or body is None:
                     return None
-                text_str, box_color = body
-                return i + 1, text_str, box_color, angle
+                return (i + 1,) + body[:2] + (angle, body[2])
             if node.block_type == "box":
                 boxed = _boxed_write(node)
                 if boxed is None:
                     return None
-                text_str, box_color = boxed
-                return i + 1, text_str, box_color, None
+                return (i + 1,) + boxed[:2] + (None, boxed[2])
         stmt = self._as_statement(node) if node is not None else None
         text_str = _plain_write_string(stmt) if stmt is not None else None
         if text_str is None:
             return None
-        return i + 1, text_str, None, None
+        return i + 1, text_str, None, None, None
+
+    def _match_annotation_arrow(self, nodes, i, box_name: str):
+        """The ``Axes.annotate`` arrow after a text drawn in box ``box_name``.
+
+        Pattern (exactly the writer's order, blank lines tolerated)::
+
+            amove xg(X) yg(Y)
+            save TIP
+            gsave
+            set color C
+            [set lwidth W]
+            [set arrowstyle S]     -- present exactly when SEP has a head
+            join BOX SEP TIP
+            grestore
+
+        Returns ``(next_index, fields)`` with the arrow fields of
+        :class:`~gleplot.series.TextAnnotation`, or ``None``. The ``set``
+        lines are inside the ``gsave``, so they never touch the sticky text
+        state.
+        """
+        n = len(nodes)
+
+        def tokens_at(k):
+            k = self._skip_blanks(nodes, k)
+            stmt = self._as_statement(nodes[k]) if k < n else None
+            return k, (_words_and_values(stmt) if stmt is not None else [])
+
+        def words(toks, count):
+            return [t.value.lower() for t in toks[:count]]
+
+        i, toks = tokens_at(i)
+        if words(toks, 1) != ["amove"]:
+            return None
+        x, y = self._parse_xg_yg(toks)
+        if x is None or y is None:
+            return None
+
+        i, toks = tokens_at(i + 1)
+        if len(toks) != 2 or words(toks, 1) != ["save"]:
+            return None
+        if toks[1].type is not TokenType.WORD:
+            return None
+        tip = toks[1].value
+
+        i, toks = tokens_at(i + 1)
+        if len(toks) != 1 or words(toks, 1) != ["gsave"]:
+            return None
+
+        i, toks = tokens_at(i + 1)
+        if len(toks) < 3 or words(toks, 2) != ["set", "color"]:
+            return None
+        color, nxt = _collect_color(toks, 2)
+        if color is None or nxt != len(toks):
+            return None
+
+        linewidth = tip_style = None
+        i, toks = tokens_at(i + 1)
+        if len(toks) == 3 and words(toks, 2) == ["set", "lwidth"]:
+            width = _num(toks[2]) if toks[2].type is TokenType.NUMBER else None
+            if width is None:
+                return None
+            linewidth = linewidth_cm_to_pt(width)
+            i, toks = tokens_at(i + 1)
+        if len(toks) == 3 and words(toks, 2) == ["set", "arrowstyle"]:
+            tip_style = toks[2].value.lower()
+            if tip_style not in ARROW_TIP_STYLES:
+                return None
+            i, toks = tokens_at(i + 1)
+
+        # GLE object names are case-sensitive (``join lab`` does not find
+        # ``name Lab``), so they must match exactly.
+        if (
+            len(toks) < 4
+            or words(toks, 1) != ["join"]
+            or toks[1].value != box_name
+            or toks[-1].value != tip
+        ):
+            return None
+        sep = "".join(t.value for t in toks[2:-1])
+        if sep not in ARROW_JOIN_SEPS or (sep == "-") != (tip_style is None):
+            return None
+
+        i, toks = tokens_at(i + 1)
+        if len(toks) != 1 or words(toks, 1) != ["grestore"]:
+            return None
+
+        fields: Dict[str, Any] = {"xy": [x, y], "arrow": sep}
+        if tip_style is not None:
+            fields["arrowstyle"] = tip_style
+        fields["arrow_color"] = color
+        if linewidth is not None:
+            fields["arrow_linewidth"] = linewidth
+        return i + 1, fields
 
     def _skip_blanks(self, nodes, i) -> int:
         """Advance past any run of ``BlankOrComment`` nodes at ``i``.

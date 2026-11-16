@@ -178,6 +178,26 @@ def text_annotations():
     return fig
 
 
+def annotations_with_arrows():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 3, 2])
+    ax.annotate("peak", xy=(2, 3), xytext=(2.4, 3.5), arrowprops={"arrowstyle": "->"})
+    ax.annotate(
+        "both",
+        xy=(1, 1),
+        xytext=(2.5, 1.2),
+        color="red",
+        ha="center",
+        rotation=15,
+        bbox={"facecolor": "yellow"},
+        arrowprops={"arrowstyle": "<|-|>", "color": (0.2, 0.4, 0.6), "lw": 1.5},
+    )
+    ax.annotate("bare", xy=(3, 2), xytext=(2.8, 2.8), arrowprops={"arrowstyle": "-"})
+    ax.annotate("no arrow", xy=(1.2, 2.5))
+    return fig
+
+
 def secondary_yaxis():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -539,6 +559,7 @@ BUILDERS = [
     errorbar_asymmetric_xy,
     fill_between,
     text_annotations,
+    annotations_with_arrows,
     secondary_yaxis,
     secondary_xaxis,
     legend_positions_all,
