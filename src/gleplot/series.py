@@ -125,6 +125,7 @@ GUI has a control for it.
 """
 
 import re
+import sys
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Type
 
 import numpy as np
@@ -427,6 +428,27 @@ def _build_errorbar_column_names(
 # -- the base class -----------------------------------------------------------
 
 
+def _own_annotations(cls: type) -> Mapping[str, Any]:
+    """Names annotated in ``cls``'s own body, in declaration order.
+
+    Python 3.14 evaluates annotations lazily (PEP 649): a class body no
+    longer stores ``__annotations__`` in its namespace, so reading
+    ``vars(cls)`` finds nothing there. Only the names matter here, so ask for
+    forward references rather than forcing every annotation to resolve while
+    the class is still being created.
+    """
+    if sys.version_info >= (3, 14):
+        import annotationlib
+
+        if "__annotate_func__" not in vars(cls) and "__annotations__" not in vars(cls):
+            return {}
+        return annotationlib.get_annotations(
+            cls, format=annotationlib.Format.FORWARDREF
+        )
+    own: Mapping[str, Any] = vars(cls).get("__annotations__", {})
+    return own
+
+
 class Series(Dict[str, Any]):
     """Base class for every typed series: a ``dict`` that knows its schema.
 
@@ -477,8 +499,7 @@ class Series(Dict[str, Any]):
         super().__init_subclass__(**kwargs)
         fields: List[str] = []
         for base in reversed(cls.__mro__):
-            annotations = vars(base).get("__annotations__", {})
-            for name in annotations:
+            for name in _own_annotations(base):
                 # A class-level annotation carrying a value is configuration
                 # (ATTR, ARRAY_FIELDS, ...), not a data field.
                 if name in vars(base) or name.startswith("__"):
