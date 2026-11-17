@@ -150,6 +150,41 @@ def errorbar_asymmetric_xy():
     return fig
 
 
+def errorbar_field_options():
+    """Errorbar fields the other builders leave at their defaults.
+
+    Offset, the y2 and x2 axes, a dashed line with a width and no marker,
+    and bars only (``fmt="none"``).
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = [1, 2, 3]
+    ax.errorbar(
+        x,
+        [2, 4, 6],
+        yerr=0.5,
+        fmt="--",
+        linewidth=2,
+        offset=1.0,
+        color="red",
+        label="dashed",
+    )
+    ax.errorbar(
+        x,
+        [20, 30, 40],
+        yerr=2.0,
+        fmt="none",
+        yaxis="y2",
+        color="blue",
+        label="bars",
+    )
+    ax.errorbar(
+        x, [3, 1, 2], xerr=0.1, marker="o", xaxis="x2", color="green", label="top"
+    )
+    ax.legend()
+    return fig
+
+
 def fill_between():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -578,6 +613,7 @@ BUILDERS = [
     barh_xerr,
     errorbar_symmetric,
     errorbar_asymmetric_xy,
+    errorbar_field_options,
     fill_between,
     text_annotations,
     annotations_with_arrows,
