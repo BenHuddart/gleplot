@@ -2,7 +2,6 @@
 
 import re
 import uuid
-import warnings
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -245,37 +244,29 @@ def _bar_style_aliases(kwargs, color, edgecolor, linewidth, linestyle):
 
     face, saw_face = take("facecolor", "fc", "c")
     if saw_face and color is not None:
-        warnings.warn(
+        warn_external(
             "bar() got both color and facecolor; color wins.",
-            UserWarning,
-            stacklevel=3,
         )
     elif color is None and saw_face:
         color = face
     edge, saw_edge = take("ec")
     if saw_edge and edgecolor is not None:
-        warnings.warn(
+        warn_external(
             "bar() got both edgecolor and ec; edgecolor wins.",
-            UserWarning,
-            stacklevel=3,
         )
     elif edgecolor is None and saw_edge:
         edgecolor = edge
     width, saw_width = take("lw")
     if saw_width and linewidth is not None:
-        warnings.warn(
+        warn_external(
             "bar() got both linewidth and lw; linewidth wins.",
-            UserWarning,
-            stacklevel=3,
         )
     elif linewidth is None and saw_width:
         linewidth = width
     style, saw_style = take("ls")
     if saw_style and linestyle is not None:
-        warnings.warn(
+        warn_external(
             "bar() got both linestyle and ls; linestyle wins.",
-            UserWarning,
-            stacklevel=3,
         )
     elif linestyle is None and saw_style:
         linestyle = style
@@ -312,11 +303,9 @@ def _bar_edge_style(linewidth, linestyle) -> dict:
     result: Dict[str, Any] = {}
     if linewidth is not None:
         if np.ndim(linewidth) != 0:
-            warnings.warn(
+            warn_external(
                 "bar() linewidth is one number per dataset; the first value "
                 "is used.",
-                UserWarning,
-                stacklevel=3,
             )
             linewidth = np.ravel(np.asarray(linewidth, dtype=float))[0]
         value = float(linewidth)
@@ -325,10 +314,8 @@ def _bar_edge_style(linewidth, linestyle) -> dict:
         result["linewidth"] = value
     if linestyle is not None:
         if not isinstance(linestyle, str):
-            warnings.warn(
+            warn_external(
                 "bar() linestyle is one style per dataset; the first value " "is used.",
-                UserWarning,
-                stacklevel=3,
             )
             linestyle = list(linestyle)[0]
         key = str(linestyle).strip().lower()
@@ -339,11 +326,9 @@ def _bar_edge_style(linewidth, linestyle) -> dict:
             "dashdot": "-.",
         }.get(key, key)
         if key not in ("-", "--", ":", "-.", "none"):
-            warnings.warn(
+            warn_external(
                 f"bar() linestyle {linestyle!r} is not a GLE edge style; "
                 "the edge stays solid.",
-                UserWarning,
-                stacklevel=3,
             )
         else:
             result["linestyle"] = key
@@ -1697,18 +1682,14 @@ class Axes:
         if where_key not in ("pre", "post", "mid"):
             raise ValueError(f"where must be 'pre', 'post', or 'mid', got {where!r}")
         if args:
-            warnings.warn(
+            warn_external(
                 "step() format strings are not applied; pass color, "
                 "linestyle and marker as keywords.",
-                UserWarning,
-                stacklevel=2,
             )
         if "drawstyle" in kwargs or "ds" in kwargs:
-            warnings.warn(
+            warn_external(
                 "step() sets the drawstyle from where=; the drawstyle "
                 "argument was ignored.",
-                UserWarning,
-                stacklevel=2,
             )
             kwargs.pop("drawstyle", None)
             kwargs.pop("ds", None)
@@ -1758,18 +1739,14 @@ class Axes:
 
         if "use_line_collection" in kwargs:
             kwargs.pop("use_line_collection")
-            warnings.warn(
+            warn_external(
                 "stem(use_line_collection=...) is ignored.",
-                UserWarning,
-                stacklevel=2,
             )
         if "data" in kwargs:
             kwargs.pop("data")
-            warnings.warn(
+            warn_external(
                 "stem(data=...) is not supported and was ignored. "
                 "Pass the x and y arrays directly.",
-                UserWarning,
-                stacklevel=2,
             )
 
         orient = str(orientation).strip().lower()
@@ -1779,38 +1756,30 @@ class Axes:
                 f"got {orientation!r}"
             )
         if orient == "horizontal":
-            warnings.warn(
+            warn_external(
                 "stem(orientation='horizontal') is not supported: GLE "
                 "impulses are vertical. Drawing a vertical stem of the "
                 "given (x, y).",
-                UserWarning,
-                stacklevel=2,
             )
 
         try:
             bottom_value = float(bottom)
         except (TypeError, ValueError):
-            warnings.warn(
+            warn_external(
                 f"stem(bottom={bottom!r}) is not a number and was ignored.",
-                UserWarning,
-                stacklevel=2,
             )
             bottom_value = 0.0
         if bottom_value != 0.0:
-            warnings.warn(
+            warn_external(
                 "stem(bottom=...) does not move GLE's impulse origin. "
                 "Impulses meet 0 when the y range includes 0, otherwise "
                 "the range edge nearest 0. No baseline is drawn.",
-                UserWarning,
-                stacklevel=2,
             )
 
         if basefmt is not None and str(basefmt).strip().lower() not in ("", "none"):
-            warnings.warn(
+            warn_external(
                 "stem(basefmt=...) is not drawn. GLE impulses have no "
                 "separate baseline; the verticals end at the impulse origin.",
-                UserWarning,
-                stacklevel=2,
             )
 
         line_ls, _line_marker, line_color = _split_plot_format(linefmt)
@@ -1840,34 +1809,28 @@ class Axes:
                 and mark_color is not None
                 and line_color != mark_color
             ):
-                warnings.warn(
+                warn_external(
                     "stem() line and marker colors differ "
                     f"({line_color!r} vs {mark_color!r}); GLE draws both in "
                     "the line color, because impulses and markers are one "
                     "dataset.",
-                    UserWarning,
-                    stacklevel=2,
                 )
                 kwargs["color"] = line_color
             elif line_color is not None:
                 kwargs["color"] = line_color
             elif mark_color is not None:
-                warnings.warn(
+                warn_external(
                     "stem() marker color applies to the impulses too: GLE "
                     "draws the stems and the markers as one dataset.",
-                    UserWarning,
-                    stacklevel=2,
                 )
                 kwargs["color"] = mark_color
         if label is not None:
             kwargs["label"] = label
 
         if linestyle in _NO_LINE:
-            warnings.warn(
+            warn_external(
                 "stem() draws no stems when the line format is 'none'; "
                 "only markers are emitted.",
-                UserWarning,
-                stacklevel=2,
             )
         else:
             kwargs["line_mode"] = "impulses"
@@ -2492,11 +2455,9 @@ class Axes:
         gle_color = self._resolve_color(color)
         mode = resolve_line_mode(drawstyle, line_mode)
         if mode and linestyle in _NO_LINE:
-            warnings.warn(
+            warn_external(
                 f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
                 "omits it, so the series is drawn without that mode.",
-                UserWarning,
-                stacklevel=2,
             )
             mode = None
 
@@ -3757,23 +3718,19 @@ class Axes:
 
         ha_norm = str(ha).strip().lower()
         if ha_norm not in TEXT_HA_VALUES:
-            warnings.warn(
+            warn_external(
                 f"{caller}(ha={ha!r}) is not supported; using 'left'. "
                 f"Supported values: {', '.join(repr(v) for v in TEXT_HA_VALUES)}.",
-                UserWarning,
-                stacklevel=3,
             )
             ha_norm = "left"
 
         va_norm = str(va).strip().lower()
         if va_norm not in TEXT_VA_VALUES:
-            warnings.warn(
+            warn_external(
                 f"{caller}(va={va!r}) is not supported; using 'center'. "
                 "GLE aligns text to its top, center, or bottom "
                 f"({', '.join(repr(v) for v in TEXT_VA_VALUES)}); "
                 "there is no separate baseline.",
-                UserWarning,
-                stacklevel=3,
             )
             va_norm = "center"
 
@@ -3785,20 +3742,16 @@ class Axes:
             try:
                 angle = float(rotation)
             except (TypeError, ValueError):
-                warnings.warn(
+                warn_external(
                     f"{caller}(rotation={rotation!r}) is not a number and was "
                     "ignored.",
-                    UserWarning,
-                    stacklevel=3,
                 )
                 angle = None
             else:
                 if not np.isfinite(angle):
-                    warnings.warn(
+                    warn_external(
                         f"{caller}(rotation={rotation!r}) is not finite and was "
                         "ignored.",
-                        UserWarning,
-                        stacklevel=3,
                     )
                     angle = None
                 elif abs(angle) < 1e-10:
@@ -3806,11 +3759,9 @@ class Axes:
 
         box_color = None
         if bbox is not None and not isinstance(bbox, dict):
-            warnings.warn(
+            warn_external(
                 f"{caller}(bbox={bbox!r}) is not a dict and was ignored. "
                 "Pass bbox={'facecolor': ...} to draw a filled background.",
-                UserWarning,
-                stacklevel=3,
             )
         elif isinstance(bbox, dict):
             if "facecolor" in bbox:
@@ -3823,20 +3774,16 @@ class Axes:
                 key for key in bbox if key not in ("facecolor", "fill")
             )
             if unsupported:
-                warnings.warn(
+                warn_external(
                     f"{caller}(bbox=...) ignores "
                     f"{unsupported}: only facecolor (alias fill) is emitted, "
                     "as GLE 'begin box fill'. The outline, pad, and box "
                     "style have no separate setting.",
-                    UserWarning,
-                    stacklevel=3,
                 )
             if facecolor is None:
-                warnings.warn(
+                warn_external(
                     f"{caller}(bbox=...) has no facecolor; no background box "
                     "was drawn.",
-                    UserWarning,
-                    stacklevel=3,
                 )
             else:
                 box_color = rgb_to_gle(facecolor)
@@ -3845,11 +3792,9 @@ class Axes:
         if caller == "annotate":
             supported = "xytext, xycoords, textcoords, arrowprops, " + supported
         for name in sorted(kwargs):
-            warnings.warn(
+            warn_external(
                 f"{caller}({name}=...) is not supported and was ignored. "
                 f"Supported arguments: {supported}.",
-                UserWarning,
-                stacklevel=3,
             )
 
         fields = dict(
@@ -3924,18 +3869,14 @@ class Axes:
         """
         for name, value in (("xycoords", xycoords), ("textcoords", textcoords)):
             if value is not None and value != "data":
-                warnings.warn(
+                warn_external(
                     f"annotate({name}={value!r}) is not supported; the "
                     "coordinates are read as 'data'.",
-                    UserWarning,
-                    stacklevel=2,
                 )
         if annotation_clip is not None:
-            warnings.warn(
+            warn_external(
                 "annotate(annotation_clip=...) is not supported and was "
                 "ignored; the annotation is always drawn.",
-                UserWarning,
-                stacklevel=2,
             )
 
         x, y = (float(v) for v in xy)
@@ -3955,11 +3896,9 @@ class Axes:
             "annotate", tx, ty, text, kwargs=kwargs, **text_kwargs
         )
         if arrowprops is not None and not isinstance(arrowprops, dict):
-            warnings.warn(
+            warn_external(
                 f"annotate(arrowprops={arrowprops!r}) is not a dict; no arrow "
                 "was drawn.",
-                UserWarning,
-                stacklevel=2,
             )
         elif arrowprops is not None and xytext is not None:
             fields.update(self._annotate_arrow(x, y, arrowprops))
@@ -3983,11 +3922,9 @@ class Axes:
             if name in MPL_ARROWSTYLE_TO_GLE:
                 sep, tip = MPL_ARROWSTYLE_TO_GLE[name]
             else:
-                warnings.warn(
+                warn_external(
                     f"annotate(arrowprops={{'arrowstyle': {raw!r}}}) has no GLE "
                     "equivalent; drawn as '-|>'.",
-                    UserWarning,
-                    stacklevel=3,
                 )
                 sep, tip = MPL_ARROWSTYLE_TO_GLE["-|>"]
         else:
@@ -4012,12 +3949,10 @@ class Axes:
 
         unsupported.extend(sorted(props))
         if unsupported:
-            warnings.warn(
+            warn_external(
                 f"annotate(arrowprops=...) ignores {unsupported}. Supported "
                 "keys: arrowstyle, color, edgecolor/ec, facecolor/fc, "
                 "linewidth/lw.",
-                UserWarning,
-                stacklevel=3,
             )
 
         fields: Dict[str, Any] = dict(xy=[x, y], arrow=sep)
@@ -4699,12 +4634,10 @@ class Axes:
         # sequence. gleplot takes legend text from each series' ``label=``,
         # so an explicit sequence cannot be honoured -- say so.
         if loc is not None and not isinstance(loc, str):
-            warnings.warn(
+            warn_external(
                 "legend(): explicit handles/labels are not supported; legend "
                 "text comes from each series' label= argument. The positional "
                 "argument was ignored.",
-                UserWarning,
-                stacklevel=2,
             )
             loc = "best"
 
@@ -4758,22 +4691,18 @@ class Axes:
 
         if "boxcolor" in kwargs:
             kwargs.pop("boxcolor")
-            warnings.warn(
+            warn_external(
                 "legend(boxcolor=...) was ignored. In GLE, boxcolor strokes "
                 "the fill swatch; the legend-box fill is `background`, which "
                 "gleplot takes from legend(facecolor=...).",
-                UserWarning,
-                stacklevel=2,
             )
 
         for name in sorted(kwargs):
-            warnings.warn(
+            warn_external(
                 f"legend({name}=...) is not supported and was ignored: GLE's "
                 "key command understands position, text height (fontsize), "
                 "the box (frameon), offset, columns (ncol), compact, and "
                 "facecolor (GLE background).",
-                UserWarning,
-                stacklevel=2,
             )
 
         return self
@@ -4791,11 +4720,9 @@ class Axes:
             return KEY_POSITIONS_SHORT_TO_LONG[key]
         if key in KEY_POSITIONS_LONG_TO_SHORT:
             return key
-        warnings.warn(
+        warn_external(
             f"legend(loc={loc!r}) is not a recognized matplotlib location or "
             "GLE key position; using 'upper right'.",
-            UserWarning,
-            stacklevel=3,
         )
         return "top right"
 
@@ -4914,12 +4841,10 @@ class Axes:
         mode = which
         if which == "minor":
             mode = "both"
-            warnings.warn(
+            warn_external(
                 "grid(which='minor'): GLE draws grid lines from the main "
                 "ticks whenever the grid is on, so a minor-only grid is not "
                 "expressible; using which='both'.",
-                UserWarning,
-                stacklevel=2,
             )
 
         lstyle = self._resolve_grid_lstyle(linestyle)

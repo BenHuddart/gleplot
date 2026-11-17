@@ -1,6 +1,5 @@
 """Figure class for gleplot."""
 
-import warnings
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
@@ -1464,11 +1463,9 @@ class Figure:
             if effective_cairo:
                 warning = cairo_font_warning(self.style.font)
                 if warning:
-                    warnings.warn(
+                    warn_external(
                         f"{warning} (figure requires Cairo for its "
                         "semi-transparent colours).",
-                        UserWarning,
-                        stacklevel=2,
                     )
 
             output_dpi = dpi or self.dpi
@@ -3574,13 +3571,11 @@ class Figure:
                     display(img)
                     return None
                 elif format == "pdf":
-                    warnings.warn(
+                    warn_external(
                         f"view(format='pdf') cannot display a PDF inline; it was "
                         f"saved to {tmp_path}, which view() returns. Use "
                         f"view(format='png') to display the figure in the "
                         f"notebook.",
-                        UserWarning,
-                        stacklevel=2,
                     )
                     return tmp_path
                 return None

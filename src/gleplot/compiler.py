@@ -7,10 +7,11 @@ import re
 import shutil
 import subprocess
 import sys
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Literal, Optional, Union
+
+from ._warn import warn_external
 
 _logger = logging.getLogger(__name__)
 
@@ -311,10 +312,9 @@ def autodetect_gle() -> Optional[str]:
     if env_path:
         if Path(env_path).exists():
             return env_path
-        warnings.warn(
+        warn_external(
             f"GLE_PATH is set to {env_path!r} but that path does not exist; "
             "falling back to PATH / well-known install locations.",
-            stacklevel=2,
         )
 
     which_path = shutil.which("gle")
@@ -354,10 +354,9 @@ def find_gle() -> Optional[str]:
     if _gle_path_override:
         if Path(_gle_path_override).exists():
             return _gle_path_override
-        warnings.warn(
+        warn_external(
             f"Configured GLE path {_gle_path_override!r} does not exist; "
             "falling back to auto-detection.",
-            stacklevel=2,
         )
 
     return autodetect_gle()
