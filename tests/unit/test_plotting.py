@@ -1,10 +1,12 @@
 """Unit tests for plotting functionality."""
 
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np
+import pytest
 
 # Check if IPython is available for conditional testing
 try:
@@ -1111,6 +1113,49 @@ class TestViewDisplay(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.suffix, ".png")
         mock_savefig.assert_called_once()
+
+
+@pytest.fixture
+def viewable_figure(tmp_path, monkeypatch):
+    """A figure whose ``view()`` needs no GLE and writes only under tmp_path."""
+    glp.close()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    fig = glp.figure()
+    fig.add_subplot(111).plot([1, 2, 3], [1, 4, 9])
+    fig.compiler = Mock()
+    monkeypatch.setattr(glp.Figure, "savefig", Mock())
+    yield fig
+    glp.close()
+
+
+def test_view_outside_notebook_returns_path_and_prints_nothing(
+    viewable_figure, tmp_path, capsys
+):
+    result = viewable_figure.view()
+
+    assert result.parent == tmp_path
+    assert result.suffix == ".png"
+    assert capsys.readouterr() == ("", "")
+
+
+def test_view_pdf_in_notebook_warns_and_returns_path(viewable_figure, capsys):
+    pytest.importorskip("IPython")
+    with patch("IPython.get_ipython", return_value=Mock(config={"IPKernelApp": 1})):
+        with pytest.warns(UserWarning, match="format='png'") as record:
+            result = viewable_figure.view(format="pdf")
+
+    assert result.suffix == ".pdf"
+    assert record[0].filename == __file__
+    assert capsys.readouterr() == ("", "")
+
+
+def test_show_views_the_current_figure(viewable_figure, tmp_path, capsys):
+    result = glp.show()
+
+    assert result.parent == tmp_path
+    assert result.suffix == ".png"
+    glp.Figure.savefig.assert_called_once()
+    assert capsys.readouterr() == ("", "")
 
 
 class TestLineModes(unittest.TestCase):

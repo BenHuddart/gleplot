@@ -462,8 +462,22 @@ def savefig(filepath: str, **kwargs):
 
 
 def show():
-    """Show current figure (placeholder)."""
-    print(f"Figure saved to {gcf().figsize}")
+    """Show the current figure, as :func:`view` does with its defaults.
+
+    In a Jupyter notebook the figure is displayed inline. Elsewhere it is
+    rendered to a temporary PNG and nothing is printed: open the returned path.
+
+    Returns
+    -------
+    Path or None
+        Path to the temporary file, or None when displayed inline in Jupyter.
+
+    Raises
+    ------
+    RuntimeError
+        If GLE is not installed.
+    """
+    return gcf().view()
 
 
 def view(dpi=None, format="png"):

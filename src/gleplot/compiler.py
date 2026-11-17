@@ -1,6 +1,7 @@
 """GLE compiler wrapper for gleplot."""
 
 import glob
+import logging
 import os
 import re
 import shutil
@@ -10,6 +11,8 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Literal, Optional, Union
+
+_logger = logging.getLogger(__name__)
 
 #: Well-known install locations to probe, keyed by ``sys.platform`` prefix.
 #: Entries may be literal paths *or* glob patterns (``*``/``**``): users
@@ -640,7 +643,11 @@ class GLECompiler:
         dpi : int
             DPI for raster formats (png, jpg)
         verbose : bool
-            Print compiler output
+            Log GLE's output (stdout and stderr) to the ``gleplot.compiler``
+            logger at ``INFO`` level. Nothing reaches the console unless
+            logging is configured, e.g. ``logging.basicConfig(level="INFO")``.
+            On failure the output is in the raised :class:`GLECompileError`
+            whether or not this is set.
         timeout : int
             Maximum number of seconds to allow the GLE process to run.
         cairo : bool
@@ -714,11 +721,8 @@ class GLECompiler:
         # harmless.
         raw_output = "\n".join(s for s in (result.stdout, result.stderr) if s)
 
-        if verbose or result.returncode != 0:
-            if result.stdout:
-                print(result.stdout)
-            if result.stderr:
-                print(result.stderr, file=sys.stderr)
+        if verbose and raw_output:
+            _logger.info("%s", raw_output)
 
         if result.returncode != 0:
             errors = parse_gle_errors(raw_output)
