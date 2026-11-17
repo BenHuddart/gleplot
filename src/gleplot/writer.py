@@ -2255,8 +2255,8 @@ class GLEWriter:
     #
     # where ``min_int`` is ``GLEDataPairs::getMinXInterval()`` -- the smallest
     # gap between CONSECUTIVE x values that is strictly positive -- and
-    # ``nbars`` is how many datasets the one ``bar`` command groups (always 1
-    # here: :meth:`add_bar` emits one command per series). The same
+    # ``nbars`` is how many datasets the one ``bar`` command groups (1 for
+    # :meth:`add_bar`, the member count for :meth:`add_bar_group`). The same
     # ``getMinXInterval`` widens the x DATA range in ``get_dataset_ranges``,
     # by half an interval either side, "so that bars are visible".
     #
