@@ -48,8 +48,11 @@ def test_print_check_finds_calls_at_any_depth():
     assert sorted(_print_call_lines(source)) == [3, 6]
 
 
+_WARN = {"warn", "warn_explicit"}
+
+
 def _direct_warn_calls(source: str) -> List[int]:
-    """Line numbers of every ``warnings.warn`` call in *source*.
+    """Line numbers of every ``warnings.warn``/``warn_explicit`` call in *source*.
 
     Follows the names the module binds: ``import warnings as _w`` and
     ``from warnings import warn`` are caught as well as the plain spelling.
@@ -60,7 +63,7 @@ def _direct_warn_calls(source: str) -> List[int]:
         if isinstance(node, ast.Import):
             modules |= {a.asname or a.name for a in node.names if a.name == "warnings"}
         elif isinstance(node, ast.ImportFrom) and node.module == "warnings":
-            functions |= {a.asname or a.name for a in node.names if a.name == "warn"}
+            functions |= {a.asname or a.name for a in node.names if a.name in _WARN}
     return [
         node.lineno
         for node in ast.walk(tree)
@@ -68,7 +71,7 @@ def _direct_warn_calls(source: str) -> List[int]:
         and (
             (
                 isinstance(node.func, ast.Attribute)
-                and node.func.attr == "warn"
+                and node.func.attr in _WARN
                 and isinstance(node.func.value, ast.Name)
                 and node.func.value.id in modules
             )
@@ -98,9 +101,10 @@ def test_warn_check_follows_import_aliases():
         "warnings.warn('a')\n"
         "_w.warn('b', stacklevel=2)\n"
         "w('c')\n"
+        "warnings.warn_explicit('d', UserWarning, 'f.py', 1)\n"
         "logger.warn('not the warnings module')\n"
     )
-    assert sorted(_direct_warn_calls(source)) == [4, 5, 6]
+    assert sorted(_direct_warn_calls(source)) == [4, 5, 6, 7]
 
 
 # One warning per public entry point, called the two ways a script calls it:
@@ -130,8 +134,8 @@ _ENTRY_POINTS = {
 @pytest.mark.parametrize("name", sorted(_ENTRY_POINTS))
 def test_a_warning_is_attributed_to_the_calling_script(name: str, via: str):
     glp.close()
-    target = glp.subplots()[1] if via == "axes" else glp
     try:
+        target = glp.subplots()[1] if via == "axes" else glp
         with warnings.catch_warnings(record=True) as record:
             warnings.simplefilter("always")
             _ENTRY_POINTS[name](target)
@@ -166,8 +170,8 @@ _METHOD_ENTRY_POINTS = {
 @pytest.mark.parametrize("name", sorted(_METHOD_ENTRY_POINTS))
 def test_a_method_only_warning_is_attributed_to_the_calling_script(name: str):
     glp.close()
-    fig, ax = glp.subplots()
     try:
+        fig, ax = glp.subplots()
         with warnings.catch_warnings(record=True) as record:
             warnings.simplefilter("always")
             _METHOD_ENTRY_POINTS[name](fig, ax)
@@ -184,11 +188,11 @@ def test_a_savefig_warning_is_attributed_to_the_calling_script(
     # A semi-transparent figure in a font Cairo rejects warns at compile time;
     # the stub compiler stands in for GLE, which is never run.
     glp.close()
-    fig = glp.figure(style=glp.GLEStyleConfig(font="rm"))
-    fig.compiler = mock.Mock()
-    fig.add_subplot(111).fill_between(_X, _Y, _Y + 1, alpha=0.5)
-    target = fig if via == "figure" else glp
     try:
+        fig = glp.figure(style=glp.GLEStyleConfig(font="rm"))
+        fig.compiler = mock.Mock()
+        fig.add_subplot(111).fill_between(_X, _Y, _Y + 1, alpha=0.5)
+        target = fig if via == "figure" else glp
         with warnings.catch_warnings(record=True) as record:
             warnings.simplefilter("always")
             target.savefig(str(tmp_path / "out.pdf"))
@@ -204,9 +208,12 @@ def test_a_gle_discovery_warning_is_attributed_to_the_calling_script(
     from gleplot import compiler
 
     monkeypatch.setenv("GLE_PATH", str(tmp_path / "missing-gle"))
-    monkeypatch.setattr(compiler, "_gle_path_override", str(tmp_path / "missing"))
-    with warnings.catch_warnings(record=True) as record:
-        warnings.simplefilter("always")
-        compiler.find_gle()
+    compiler.set_gle_path_override(str(tmp_path / "missing"))
+    try:
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            compiler.find_gle()
+    finally:
+        compiler.set_gle_path_override(None)
     assert len(record) == 2, [str(w.message) for w in record]
     assert {w.filename for w in record} == {__file__}
