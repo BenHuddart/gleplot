@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v3.10.0 (2026-11-17)
+
+### Features
+
+- Deprecate GLEWriter's keyword-argument series methods (#100 stage 4)
+  ([`56a946e`](https://github.com/BenHuddart/gleplot/commit/56a946eae2fb821d2129e2df612e75297ba396d3))
+
+
 ## v3.9.3 (2026-11-17)
 
 ### Bug Fixes
