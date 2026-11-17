@@ -2583,27 +2583,7 @@ class Figure:
 
     @staticmethod
     def _write_errorbar(writer: GLEWriter, series_data, binding) -> None:
-        writer.add_errorbar(
-            series_data["x"],
-            series_data["y"],
-            series_data["data_file"],
-            color=series_data["color"],
-            linestyle=series_data["linestyle"],
-            linewidth=series_data["linewidth"],
-            label=series_data["label"],
-            marker=series_data["marker"],
-            markersize=series_data["markersize"],
-            yerr_up=series_data["yerr_up"],
-            yerr_down=series_data["yerr_down"],
-            xerr_left=series_data["xerr_left"],
-            xerr_right=series_data["xerr_right"],
-            capsize=series_data.get("gle_capsize", series_data.get("capsize")),
-            yaxis=series_data.get("yaxis", "y"),
-            xaxis=series_data.get("xaxis", "x"),
-            offset=series_data.get("offset", 0.0),
-            column_names=series_data.get("column_names"),
-            binding=binding,
-        )
+        writer.add_errorbar_series(series_data, binding=binding)
 
     @staticmethod
     def _write_file_series(

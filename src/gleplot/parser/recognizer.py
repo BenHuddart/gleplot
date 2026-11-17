@@ -5026,7 +5026,7 @@ class _Recognizer:
             # Column indices in the SAME order the writer emits them (x, y,
             # then y-error column(s) collapsed to one when symmetric i.e.
             # yerr_up_col == yerr_down_col, then x-error likewise) -- see
-            # gleplot.writer.GLEWriter.add_errorbar. Constant/percentage
+            # gleplot.writer.GLEWriter.add_errorbar_series. Constant/percentage
             # errors (err_consts) have no backing file column at all (the
             # array was synthesized above), so column_names is left absent
             # and regenerated from stable defaults on next save, same as any

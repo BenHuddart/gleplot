@@ -2,7 +2,7 @@
 
 GLE draws error bars -- and their caps -- in the *dataset's* colour, which is
 only ever set by a ``color`` qualifier on the ``dN`` command; an unstyled
-dataset falls back to black. ``Writer.add_errorbar`` used to emit ``color``
+dataset falls back to black. ``GLEWriter.add_errorbar_series`` used to emit ``color``
 only from inside its marker branch or its line branch, so a bars-only series
 (matplotlib's ``fmt="none"``) produced a bare ``dN err dM`` and rendered black
 bars whatever colour was requested.

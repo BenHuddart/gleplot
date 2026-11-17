@@ -18,7 +18,7 @@ refactor that follows this module's creation intentionally does **not**
   ``self.width_cm = figsize[0] * 2.54``.
 - line width (points) -> GLE ``lwidth`` (cm): factor ``0.03528``, from
   ``src/gleplot/writer.py:332,334,590,592,715,717``
-  (``GLEWriter.add_line``, ``add_errorbar``, ``add_plot_line_from_file``).
+  (``GLEWriter.add_line``, ``add_errorbar_series``, ``add_plot_line_from_file``).
 - font size (points) -> GLE ``set hei`` (cm): divisor ``28.35``, from
   ``src/gleplot/writer.py:71`` (``GLEWriter.add_preamble``) and
   ``src/gleplot/writer.py:779`` (``GLEWriter.add_text``).
@@ -114,7 +114,7 @@ def linewidth_pt_to_cm(points: float) -> float:
     """Convert a matplotlib line width in points to GLE ``lwidth`` cm.
 
     Uses :data:`LINEWIDTH_PT_TO_CM_FACTOR` (``0.03528``), matching
-    ``GLEWriter.add_line``/``add_errorbar``/``add_plot_line_from_file``.
+    ``GLEWriter.add_line``/``add_errorbar_series``/``add_plot_line_from_file``.
     """
     return points * LINEWIDTH_PT_TO_CM_FACTOR
 
