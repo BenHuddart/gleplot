@@ -89,7 +89,7 @@ ax.legend(loc='upper left', fontsize=6.5, frameon=False)
 | `text()` argument | gleplot |
 |---|---|
 | `ha` | wired — `left`, `center`, `right` (`set just`). |
-| `va` | wired — `top`, `center`, `bottom`. GLE has no baseline; `baseline` warns and is drawn as `center`. |
+| `va` | wired — `top`, `center`, `bottom`: the vertical half of `set just` (`tc`, `bc`, `bl`, …). With the default `center`, GLE's single-word `left`, `center` and `right` are used, which GLE centres vertically. GLE has no baseline; `baseline` warns and is drawn as `center`. |
 | `rotation` | wired — degrees counter-clockwise about the alignment point (`begin rotate`). |
 | `bbox` | `facecolor` (alias `fill`) draws a filled background (`begin box fill`, 0.05 cm pad, no outline). `edgecolor`, `linewidth`, `pad`, `boxstyle`, and the rest warn. |
 | other keywords (`transform`, `fontweight`, `clip_on`, …) | warn and are ignored. |

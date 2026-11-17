@@ -604,15 +604,11 @@ class RecognizedFigure:
     figure : Figure
         The reconstructed object model.
     notes : tuple of ImportNote
-        Structured recovery notes (category, message, and a source span where
-        determinable) -- see the module "Warnings taxonomy" for the span
-        coverage achievable per category. This is the source of truth;
-        ``warnings`` is derived from it.
+        Structured recovery notes: category, message, and a source span where
+        one can be determined. ``warnings`` is derived from these.
     warnings : list of str
         Human-readable ``"category: message"`` strings, one per note, in the
-        same order -- kept for backward compatibility with every consumer
-        written against the pre-G4 string API. Computed on each access from
-        :attr:`notes`, never stored independently.
+        same order. Computed on each access from :attr:`notes`.
     """
 
     figure: Figure
@@ -7225,8 +7221,8 @@ def parse_gle_figure(
     Returns
     -------
     RecognizedFigure
-        ``.figure`` is the reconstructed model; ``.warnings`` lists recovery
-        notes (see the module "Warnings taxonomy").
+        ``.figure`` is the reconstructed model; ``.notes`` lists the recovery
+        notes.
     """
     text, gle_path = _resolve_input(path_or_text, base_dir)
     rec = _Recognizer(text, gle_path)

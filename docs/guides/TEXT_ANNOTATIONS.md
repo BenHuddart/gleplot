@@ -23,16 +23,10 @@ ax.text(2.0, 0.2, 'Centered', ha='center', va='center')
 ax.text(2.0, -0.1, 'Right aligned', ha='right', va='center')
 ```
 
-Supported alignment values:
-
-- Horizontal `ha`: `left`, `center`, `right`
-- Vertical `va`: `top`, `center`, `bottom`
-
-`va` is the vertical half of GLE's `set just` (`tc`, `bc`, `bl`, and the other corner codes). The default `center` keeps the single-word forms `left`, `center`, and `right`, which GLE centers vertically. There is no separate baseline; `va='baseline'` warns and is drawn as `center`.
+The accepted `ha` and `va` values, and how they map to GLE's `set just`, are
+in the `text()` table of the [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md).
 
 ## Rotation
-
-`rotation` is degrees counter-clockwise about the alignment point (GLE `begin rotate`).
 
 ```python
 ax.text(1.0, 1.0, 'peak', va='bottom', ha='center', rotation=45)
@@ -57,7 +51,8 @@ ax.text(
 )
 ```
 
-`facecolor` (alias `fill`) is the color of a filled background, drawn with GLE `begin box fill` and a 0.05 cm pad. The box has no outline. `edgecolor`, `linewidth`, `pad`, and `boxstyle` are accepted and ignored, with a warning.
+Which `bbox` keys are drawn, and which are ignored with a warning, is in the
+same `text()` table.
 
 ## Arrows
 
