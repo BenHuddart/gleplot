@@ -17,7 +17,7 @@ All lookup tables that a parser must invert live here in one place:
 - ``LSTYLE_TO_MATPLOTLIB`` / ``MATPLOTLIB_TO_LSTYLE``: GLE ``lstyle`` integer
   <-> matplotlib linestyle string, derived programmatically from the
   ``line_style_*`` fields of ``GLEStyleConfig`` -- the same fields
-  ``GLEWriter.add_plot_line``/``add_errorbar``/``add_plot_line_from_file``
+  ``GLEWriter.add_line``/``add_errorbar``/``add_plot_line_from_file``
   read when emitting -- so the parser's inverse cannot drift from the
   writer's forward choice. Also consumed by ``Axes.errorbar``'s ``fmt``
   parsing.
@@ -109,7 +109,7 @@ GLE_MARKER_TO_MATPLOTLIB: Dict[str, str] = _build_gle_marker_to_matplotlib()
 # DERIVED from ``GLEStyleConfig``'s defaults rather than transcribed, for the
 # same reason ``GLE_MARKER_TO_MATPLOTLIB`` is: the writer emits ``lstyle
 # {style.line_style_dashed}`` for ``'--'``, ``{...dotted}`` for ``':'`` and
-# ``{...dashdot}`` for ``'-.'`` (see ``GLEWriter.add_plot_line`` /
+# ``{...dashdot}`` for ``'-.'`` (see ``GLEWriter.add_line`` /
 # ``add_errorbar`` / ``add_plot_line_from_file``), so building the parser's
 # inverse from the very same fields makes it impossible for the two to drift
 # apart. They previously did: the config said dashed=2/dotted=3 while GLE

@@ -10,7 +10,7 @@ Kind/threshold rule under test (see
 and empirical justification):
 
 * line and scatter (marker-only) series -- routed through
-  :meth:`~gleplot.writer.GLEWriter.add_plot_line` -- get a trailing
+  :meth:`~gleplot.writer.GLEWriter.add_line` -- get a trailing
   `` deresolve N`` clause on their ``dN`` line, but only once the series has
   at least :attr:`~gleplot.writer.GLEWriter.MIN_DERESOLVE_POINTS` rows.
 * errorbar and bar series never get the clause: GLE's ``err``/``herr``

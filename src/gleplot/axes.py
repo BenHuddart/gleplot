@@ -3508,7 +3508,7 @@ class Axes:
         -------
         list of dict
             Line dicts in the same shape ``plot()`` produces, ready for
-            ``GLEWriter.add_plot_line``. Nothing is stored back on the axes,
+            ``GLEWriter.add_line``. Nothing is stored back on the axes,
             so writing a figure twice does not duplicate content.
 
         Two kinds of guide materialize into nothing here: hidden ones

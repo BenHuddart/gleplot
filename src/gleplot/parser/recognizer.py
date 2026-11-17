@@ -4718,7 +4718,7 @@ class _Recognizer:
                     # dataset. Missing this made has_line False, which fed
                     # linestyle="none" into the model and, downstream, an
                     # unconditional 'marker None' from the writer's
-                    # no-line branch (see add_plot_line).
+                    # no-line branch (see GLEWriter.add_line).
                     a["has_line"] = True
                     i = nxt
                     continue
