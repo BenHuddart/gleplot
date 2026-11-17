@@ -103,6 +103,8 @@ The ``examples/`` tree holds runnable scripts for focused workflows:
 - ``line_from_file.py`` — model overlays from existing data files
 - ``data_prefix.py`` — deterministic sidecar naming
 - ``phase_diagram.py`` — susceptibility phase diagram
+- ``secondary_yaxis.py`` — data on a second y-axis
+- ``configuration.py`` — global and per-figure configuration
 
 ``examples/basic/heatmap_imshow.py`` is a simple gridded ``imshow`` +
 ``contour`` example.

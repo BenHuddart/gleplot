@@ -75,6 +75,13 @@ jobs:
       - name: Run tests
         run: pytest tests/ --tb=short
 
+      # PYTHONUTF8: the examples print non-ASCII marks, which a Windows
+      # console encoding cannot represent.
+      - name: Run examples without compiling
+        env:
+          PYTHONUTF8: '1'
+        run: python examples/run_and_compile.py --no-compile
+
   # What varies by operating system here is GLE itself, so one Python per
   # system is enough; test-without-gle covers the Python versions.
   test:

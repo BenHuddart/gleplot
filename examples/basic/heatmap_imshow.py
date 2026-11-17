@@ -45,12 +45,6 @@ def example_heatmap_imshow():
     fig.savefig_gle("example_heatmap_imshow.gle")
     print("  Saved to example_heatmap_imshow.gle")
 
-    try:
-        fig.savefig("example_heatmap_imshow.png", dpi=150)
-        print("  Compiled to example_heatmap_imshow.png")
-    except RuntimeError:
-        print("  GLE not available for compilation; GLE script saved only.")
-
 
 if __name__ == "__main__":
     example_heatmap_imshow()

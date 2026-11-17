@@ -224,7 +224,7 @@ def main(argv=None):
     Returns the process exit code: 0 when every example ran (and compiled),
     1 otherwise.
     """
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description="Run and compile every example.")
     parser.add_argument(
         "--no-compile",
         action="store_true",
@@ -245,8 +245,11 @@ def main(argv=None):
 
         try:
             compiler = GLECompiler()
-        except RuntimeError as e:
-            print(f"✗ {e} Pass --no-compile to run the examples without it.")
+        except RuntimeError:
+            print(
+                "✗ GLE not found. Install GLE, or set GLE_PATH to the gle "
+                "executable; pass --no-compile to run the examples without it."
+            )
             return 1
         print(f"✓ GLE compiler found: {compiler.gle_path}\n")
 
@@ -265,12 +268,17 @@ def main(argv=None):
         try:
             print(f"[{name}]")
 
+            # outputs/ is kept between runs: remove last run's scripts so a
+            # leftover cannot stand in for one the example failed to write.
+            gle_files = [Path(f"{b}.gle") for b in basenames]
+            for gle_file in gle_files:
+                gle_file.unlink(missing_ok=True)
+
             example_func()
 
-            gle_files = [Path(f"{b}.gle") for b in basenames]
             missing_gle = [str(f) for f in gle_files if not f.exists()]
             if missing_gle:
-                print(f"  ✗ GLE file not created: {', '.join(missing_gle)}")
+                print(f"  ✗ GLE file not written: {', '.join(missing_gle)}")
                 failed.append(name)
                 continue
 

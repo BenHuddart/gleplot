@@ -64,14 +64,6 @@ def example_secondary_yaxis():
     fig.savefig_gle(output_file)
     print(f"Saved: {output_file}")
 
-    # Try to compile if GLE is available
-    try:
-        png_file = "secondary_yaxis_temp_humidity.png"
-        fig.savefig(png_file, format="png")
-        print(f"Compiled: {png_file}")
-    except RuntimeError:
-        print("GLE not available for compilation. GLE script saved.")
-
     # Example 2: Exponential growth with different scales
     print("\nCreating exponential growth plot with log scale on y2axis...")
 
@@ -101,13 +93,6 @@ def example_secondary_yaxis():
     output_file2 = "secondary_yaxis_growth.gle"
     fig2.savefig_gle(output_file2)
     print(f"Saved: {output_file2}")
-
-    try:
-        png_file2 = "secondary_yaxis_growth.png"
-        fig2.savefig(png_file2, format="png")
-        print(f"Compiled: {png_file2}")
-    except RuntimeError:
-        print("GLE not available for compilation. GLE script saved.")
 
     # Example 3: Multiple datasets on each axis
     print("\nCreating plot with multiple datasets on each axis...")
@@ -157,13 +142,6 @@ def example_secondary_yaxis():
     fig3.savefig_gle(output_file3)
     print(f"Saved: {output_file3}")
 
-    try:
-        png_file3 = "secondary_yaxis_circuit.png"
-        fig3.savefig(png_file3, format="png")
-        print(f"Compiled: {png_file3}")
-    except RuntimeError:
-        print("GLE not available for compilation. GLE script saved.")
-
     # Example 4: Scatter plot with errorbar on y2axis
     print("\nCreating errorbar plot with secondary y-axis...")
 
@@ -200,13 +178,6 @@ def example_secondary_yaxis():
     output_file4 = "secondary_yaxis_errorbar.gle"
     fig4.savefig_gle(output_file4)
     print(f"Saved: {output_file4}")
-
-    try:
-        png_file4 = "secondary_yaxis_errorbar.png"
-        fig4.savefig(png_file4, format="png")
-        print(f"Compiled: {png_file4}")
-    except RuntimeError:
-        print("GLE not available for compilation. GLE script saved.")
 
     print("\nAll examples created successfully!")
     print("\nUsage notes:")

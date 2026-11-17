@@ -24,27 +24,28 @@ def example_global_config():
     # Note: Use GLE font names, not matplotlib names
     # Valid GLE fonts: rm (serif), ss (sans-serif), tt (monospace), times8, psb, etc.
     print("Setting global font to 'ss' (sans-serif)...")
-    glp.GlobalConfig.style.font = "ss"  # GLE sans-serif font
-    glp.GlobalConfig.style.fontsize = 12
-    glp.GlobalConfig.graph.legend_position = "tl"
+    try:
+        glp.GlobalConfig.style.font = "ss"  # GLE sans-serif font
+        glp.GlobalConfig.style.fontsize = 12
+        glp.GlobalConfig.graph.legend_position = "tl"
 
-    # Create figure (uses global defaults)
-    fig = glp.figure(figsize=(8, 5))
-    ax = fig.add_subplot(111)
+        # Create figure (uses global defaults)
+        fig = glp.figure(figsize=(8, 5))
+        ax = fig.add_subplot(111)
 
-    x = np.linspace(0, 2 * np.pi, 50)
-    ax.plot(x, np.sin(x), "b-", label="sin(x)")
-    ax.plot(x, np.cos(x), "r--", label="cos(x)")
-    ax.set_xlabel("Angle (radians)")
-    ax.set_ylabel("Value")
-    ax.set_title("Global Config Example")
-    ax.legend()
+        x = np.linspace(0, 2 * np.pi, 50)
+        ax.plot(x, np.sin(x), "b-", label="sin(x)")
+        ax.plot(x, np.cos(x), "r--", label="cos(x)")
+        ax.set_xlabel("Angle (radians)")
+        ax.set_ylabel("Value")
+        ax.set_title("Global Config Example")
+        ax.legend()
 
-    fig.savefig("example_global_config.gle")
-    print("✓ Saved to example_global_config.gle\n")
-
-    # Reset for next example
-    glp.GlobalConfig.reset()
+        fig.savefig("example_global_config.gle")
+        print("✓ Saved to example_global_config.gle\n")
+    finally:
+        # Reset so the defaults do not leak into later figures.
+        glp.GlobalConfig.reset()
 
 
 def example_per_figure_config():
