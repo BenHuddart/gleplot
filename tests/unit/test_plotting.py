@@ -1529,3 +1529,40 @@ def test_add_plot_line_keywords_reach_the_emitted_line():
         "    data s.dat d3=c1,c2",
         "    d3 line steps color BLUE lwidth 0.05292",
     ]
+
+
+def test_add_errorbar_keywords_reach_the_emitted_dataset():
+    """The keyword form of ``GLEWriter.add_errorbar_series`` maps every
+    argument to its field (``capsize`` to ``gle_capsize``); gleplot itself no
+    longer calls it, so the mapping is pinned here."""
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    writer.add_errorbar(
+        [0, 1, 2],
+        [1, 2, 3],
+        "e.dat",
+        color="RED",
+        linestyle=":",
+        linewidth=2,
+        label="e",
+        marker="FSQUARE",
+        markersize=0.2,
+        yerr_up=np.array([0.1, 0.2, 0.3]),
+        yerr_down=np.array([0.3, 0.2, 0.1]),
+        xerr_left=np.array([0.1, 0.1, 0.1]),
+        xerr_right=np.array([0.1, 0.1, 0.1]),
+        capsize=0.25,
+        yaxis="y2",
+        xaxis="x2",
+        offset=2.0,
+        column_names=["x", "e", "up", "down", "xe"],
+    )
+    assert writer.lines_gle == [
+        "    data e.dat d1=c1,c2 d2=c1,c3 d3=c1,c4 d4=c1,c5",
+        "    let d5 = d1+2",
+        "    d5 marker FSQUARE msize 0.2 color RED line lwidth 0.07056 lstyle 2"
+        " errup d2 errdown d3 errwidth 0.25 herr d4 herrwidth 0.25"
+        ' x2axis y2axis key "e"',
+    ]
+    assert writer.data_files["e.dat"].splitlines()[0] == "x e up down xe"

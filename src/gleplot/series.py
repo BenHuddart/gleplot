@@ -371,7 +371,7 @@ def _build_errorbar_column_names(
 ) -> List[str]:
     """Build the sidecar header row for an errorbar series.
 
-    Mirrors :meth:`gleplot.writer.GLEWriter.add_errorbar`'s column-building
+    Mirrors :meth:`gleplot.writer.GLEWriter.add_errorbar_series`'s column-building
     order exactly (x, y, then vertical error column(s), then horizontal
     error column(s)), so the header row lines up 1:1 with the data columns
     the writer actually emits:

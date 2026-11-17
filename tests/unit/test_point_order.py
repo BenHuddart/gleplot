@@ -170,7 +170,7 @@ def test_errorbar_asymmetric_and_horizontal_errors_stay_paired():
     )
     rows = _rows(fig)
 
-    # Columns are x, y, then the error magnitudes in the order add_errorbar
+    # Columns are x, y, then the error magnitudes in the order add_errorbar_series
     # appends them: y up/down, then x left/right.
     assert rows.shape == (n, 6)
     expected = np.column_stack([HYST_X, HYST_Y, y_hi, y_lo, x_lo, x_hi])

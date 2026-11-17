@@ -54,6 +54,7 @@ from .parser.units import (
 )
 from .series import (
     SERIES_CLASSES,
+    ErrorbarSeries,
     LineSeries,
     Series,
     _unique_column_names,
@@ -725,7 +726,7 @@ class DecimationRecord:
     :class:`~gleplot.sources.DanglingSourceRef`: the dataset name is already
     the join key a caller needs, since it is what appears in the generated
     script it is about to compile. Threading full series identity through
-    every ``add_line``/``add_errorbar`` call site was judged not worth
+    every ``add_line``/``add_errorbar_series`` call site was judged not worth
     the extra surface for this first cut; add it if a consumer needs it.
 
     Attributes
@@ -1004,7 +1005,7 @@ class GLEWriter:
           errorbar series' main dataset would thin its markers/line while
           leaving every whisker in place -- a misleading, broken-looking
           preview for no compile-time win on the whiskers themselves -- so
-          :meth:`add_errorbar` never calls this.
+          :meth:`add_errorbar_series` never calls this.
         - **bar (`bar dN fill ...`, the graph-level statement
           :meth:`add_bar_chart` emits)**: also EXCLUDED. ``drawBar`` reads
           ``GLEDataPairs(toDataSet)`` directly from the raw dataset, bypassing
@@ -2822,8 +2823,41 @@ class GLEWriter:
         column_names: Optional[List[str]] = None,
         binding: Optional[ColumnBinding] = None,
     ):
+        """Add a plot with error bars from per-field keywords.
+
+        The keyword form of :meth:`add_errorbar_series`: each argument is the
+        :class:`~gleplot.series.ErrorbarSeries` field of the same name, except
+        ``capsize``, which is the emitted cap width in cm (the series'
+        ``gle_capsize``). ``binding`` is passed through. Kept so callers that
+        build GLE through the writer directly keep working.
         """
-        Add plot with error bars to graph.
+        series = ErrorbarSeries(
+            x=x,
+            y=y,
+            data_file=data_file,
+            color=color,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=label,
+            marker=marker,
+            markersize=markersize,
+            yerr_up=yerr_up,
+            yerr_down=yerr_down,
+            xerr_left=xerr_left,
+            xerr_right=xerr_right,
+            gle_capsize=capsize,
+            yaxis=yaxis,
+            xaxis=xaxis,
+            offset=offset,
+            column_names=column_names,
+        )
+        self.add_errorbar_series(series, binding=binding)
+
+    def add_errorbar_series(
+        self, series: Series, binding: Optional[ColumnBinding] = None
+    ):
+        """
+        Add an error-bar series to the graph.
 
         Generates GLE error bar syntax using datasets for error values.
 
@@ -2843,49 +2877,53 @@ class GLEWriter:
 
         Parameters
         ----------
-        x, y : arrays
-            Data coordinates
-        data_file : str
-            External data file name
-        color : str
-            GLE color name
-        linestyle : str
-            Matplotlib linestyle ('-', '--', ':', '-.')
-        linewidth : float
-            Line width
-        label : str, optional
-            Legend label
-        marker : str, optional
-            GLE marker name
-        markersize : float
-            Marker size for GLE (msize)
-        yerr_up : array, optional
-            Upward vertical error bar magnitudes
-        yerr_down : array, optional
-            Downward vertical error bar magnitudes
-        xerr_left : array, optional
-            Leftward horizontal error bar magnitudes
-        xerr_right : array, optional
-            Rightward horizontal error bar magnitudes
-        capsize : float, optional
-            Width of error bar caps in cm
-        yaxis : str
-            Which y-axis to use: 'y' (left, default) or 'y2' (right)
-        column_names : list of str, optional
-            Sidecar header row (e.g. ``['x', 'signal', 'err']``). Only the
-            MAIN dataset's ``key`` clause needs suppressing when unlabeled
-            (see :meth:`_key_clause`) -- error sub-datasets (``d{n}=c1,cN``
-            referenced via ``err``/``errup``/``herr``/...) are never added
-            to GLE's key-rendering "used dataset" order on their own, so
-            they never draw an auto-key regardless of any header-derived
-            name on their column (verified empirically).
+        series : ErrorbarSeries
+            The resolved series: its arrays are present (see
+            :meth:`SourceResolution.data`). ``x``, ``y``, ``data_file``,
+            ``color``, ``linestyle``, ``linewidth``, ``label``, ``marker``,
+            ``markersize`` and the four error arrays (each may be ``None``)
+            are required; every other field is read with the default its
+            absence has always meant.
         binding : ColumnBinding, optional
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
             that table (see :meth:`_write_columns`).
+
+        Notes
+        -----
+        How the fields are emitted:
+
+        - ``linestyle``: a matplotlib linestyle (``'-'``, ``'--'``, ``':'``,
+          ``'-.'``); ``'none'`` or empty draws no line.
+        - ``linewidth``: points; 0 or 1 means the style's default width.
+        - ``gle_capsize``: the cap width in cm. A series without it (one saved
+          before it existed) falls back to ``capsize``.
+        - ``column_names``: the sidecar header row (e.g. ``['x', 'signal',
+          'err']``). Only the MAIN dataset's ``key`` clause needs suppressing
+          when unlabeled (see :meth:`_key_clause`) -- error sub-datasets
+          (``d{n}=c1,cN`` referenced via ``err``/``errup``/``herr``/...) are
+          never added to GLE's key-rendering "used dataset" order on their
+          own, so they never draw an auto-key regardless of any
+          header-derived name on their column (verified empirically).
         """
-        x_array = np.asarray(x)
-        y_array = np.asarray(y)
+        x_array = np.asarray(series["x"])
+        y_array = np.asarray(series["y"])
+        data_file = series["data_file"]
+        color = series["color"]
+        linestyle = series["linestyle"]
+        linewidth = series["linewidth"]
+        label = series["label"]
+        marker = series["marker"]
+        markersize = series["markersize"]
+        yerr_up = series["yerr_up"]
+        yerr_down = series["yerr_down"]
+        xerr_left = series["xerr_left"]
+        xerr_right = series["xerr_right"]
+        capsize = series.get("gle_capsize", series.get("capsize"))
+        yaxis = series.get("yaxis", "y")
+        xaxis = series.get("xaxis", "x")
+        offset = series.get("offset", 0.0)
+        column_names = series.get("column_names")
 
         has_line = linestyle not in ("", "none", " ", "None")
 
@@ -3151,7 +3189,7 @@ class GLEWriter:
         line_cmd = f"    {d_main}"
         # Both branches must set ``color``: GLE draws the error bars in the
         # dataset's colour and an unstyled dataset falls back to black (see
-        # :meth:`add_errorbar`).
+        # :meth:`add_errorbar_series`).
         if marker:
             line_cmd += f" marker {marker} msize {self._format_number(markersize)} color {color}"
         else:

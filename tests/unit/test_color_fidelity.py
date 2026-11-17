@@ -309,7 +309,7 @@ def test_errorbar_bars_only_path_carries_exact_color(capsize, tmp_path):
     """The bars-only ``color <c>`` path (fmt='none') must carry rgb255 too.
 
     GLE draws error bars in the dataset's colour and an unstyled dataset
-    renders black, so ``add_errorbar`` emits a bare ``color`` qualifier for a
+    renders black, so ``add_errorbar_series`` emits a bare ``color`` qualifier for a
     series with neither marker nor line. That qualifier must carry the exact
     colour, not a snapped name.
     """
