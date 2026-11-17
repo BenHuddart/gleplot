@@ -62,8 +62,7 @@ a diameter in points, as ``plot`` uses.
 Heatmaps and contour plots
 --------------------------
 
-See the `Contour Plots and Heatmaps guide
-<https://github.com/benhuddart/gleplot/blob/main/docs/guides/CONTOUR_AND_HEATMAPS.md>`_
+See :doc:`guides/CONTOUR_AND_HEATMAPS`
 for gridded and scattered raster plots, palettes, and colorbars. A minimal
 gridded example:
 

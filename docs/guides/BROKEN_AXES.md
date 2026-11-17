@@ -38,8 +38,8 @@ fig.savefig('fig2a.pdf')
 ```
 
 A full worked panel in the style of PRL 134, 046702 Fig. 2(a) is in
-[`examples/advanced/prl_fig2a_style.py`](../../examples/advanced/prl_fig2a_style.py);
-[`examples/advanced/broken_axis.py`](../../examples/advanced/broken_axis.py)
+[`examples/advanced/prl_fig2a_style.py`](https://github.com/benhuddart/gleplot/blob/main/examples/advanced/prl_fig2a_style.py);
+[`examples/advanced/broken_axis.py`](https://github.com/benhuddart/gleplot/blob/main/examples/advanced/broken_axis.py)
 compares the three seam styles and shows a three-segment split.
 
 ## API

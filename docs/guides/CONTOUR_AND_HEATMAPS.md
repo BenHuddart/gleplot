@@ -238,5 +238,5 @@ ax.set_ylabel(r'T_{N} (K)')                    # renders: T_N (K)
 
 - `examples/basic/heatmap_imshow.py` — simple gridded `imshow` + `contour` + colorbar.
 - `examples/advanced/phase_diagram.py` — the full susceptibility phase-diagram example.
-- `docs/guides/COLORS_AND_MARKERS.md` — matplotlib-style color/marker name mapping (contour `colors=` uses the same mapping).
-- `docs/guides/FILE_BASED_SERIES.md` — for plotting from pre-existing columnar data files (not applicable to the raw `.z`/points sidecars described here).
+- [Colors and Markers](COLORS_AND_MARKERS.md) — matplotlib-style color/marker name mapping (contour `colors=` uses the same mapping).
+- [File-Based Series](FILE_BASED_SERIES.md) — for plotting from pre-existing columnar data files (not applicable to the raw `.z`/points sidecars described here).

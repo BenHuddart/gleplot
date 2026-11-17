@@ -133,7 +133,7 @@ Then add a builder exercising it to `tests/parser/_golden_battery.py`, which `te
 Docs describe what the code does now. A change in behaviour updates every place that describes it, in the same change: the docstring, the Sphinx API page, the topic guide, and any example that shows it.
 
 - **`docs/`** is user and contributor documentation only. Design notes, plans, and implementation journals go in [GitHub issues](https://github.com/benhuddart/gleplot/issues). **Do not add** files under `docs/agent/` or `tests/agent/`, or status/summary markdown anywhere in the repo.
-- Extend an existing guide before adding one. A new guide is listed in `docs/guides/README.md`.
+- Extend an existing guide before adding one. A new guide is a Markdown file in `docs/guides/`, published by a page in `docs/source/guides/` that includes it, and listed in a toctree in `docs/source/guides.rst`. A guide is shown both on GitHub and on the site, so it links to other guides by relative path and to anything else by full URL.
 - A new public name gets an entry in the Sphinx API pages (`docs/source/api*.rst`) in the same change, not only a guide mention.
 - Docstrings are rendered by Sphinx (numpydoc sections via napoleon) and CI builds the site with `-W`: free text after a `Parameters` list goes under a `Notes` heading, not flush against the list.
 - Code shown in docs and docstrings must run against the current API. Do not describe behaviour you have not exercised.
@@ -184,4 +184,4 @@ Places where the code does not yet meet the rules above. None of them is a patte
 
 ## Where to look next
 
-- `docs/guides/README.md` indexes the topic guides (including `MATPLOTLIB_MIGRATION.md`, `TESTING.md`, `VERSIONING.md`); `docs/source/` is the Sphinx site.
+- The Sphinx site under `docs/source/` is the one index; the topic guides in `docs/guides/` are pages of it.
