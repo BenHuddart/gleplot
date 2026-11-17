@@ -59,25 +59,11 @@ jobs:
           # Build gleplot package first
           python -m pip install -e .
           
-          mkdir -p docs/source/_static/gallery
-          
           # Generate example outputs for documentation gallery
           echo "=== Generating example outputs for gallery ==="
-          cd examples
-          python run_and_compile.py
-          
-          # Copy generated PNG files to docs gallery directory
-          if [ -d outputs ]; then
-            echo "Copying PNG files to docs gallery..."
-            cp outputs/example_*.png ../docs/source/_static/gallery/ 2>/dev/null || echo "No PNG files found to copy"
-            echo "PNG files copied:"
-            ls -lh ../docs/source/_static/gallery/*.png 2>/dev/null || echo "No PNG files in gallery"
-          fi
-          cd ..
-          
-          echo "Gallery images prepared in docs/source/_static/gallery/"
+          python examples/run_and_compile.py
 
-      - name: Prepare gallery images for web
+      - name: Copy gallery images into the docs
         run: python docs/prepare_gallery.py --strict
 
       - name: Build documentation

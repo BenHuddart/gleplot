@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_batch_figures():
-    """Generate a batch of related figures in a loop."""
+    """A loop that writes a batch of related figures."""
     print("Creating example: Batch figure generation...")
 
     out_dir = Path("batch_outputs")

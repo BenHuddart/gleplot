@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_basic_line_plot():
-    """Example: Basic line plotting with multiple series."""
+    """Sine and cosine as two line series with their own colours and line styles."""
     print("Creating example: Basic line plot...")
 
     fig = glp.figure(figsize=(8, 6))

@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_bar_chart():
-    """Example: Bar charts with multiple colors."""
+    """Bar chart of categorical data, one colour per bar."""
     print("Creating example: Bar chart...")
 
     fig = glp.figure(figsize=(8, 6))

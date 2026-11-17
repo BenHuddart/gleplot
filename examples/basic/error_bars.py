@@ -16,7 +16,7 @@ import gleplot as glp
 
 
 def example_symmetric_error_bars():
-    """Example: Simple symmetric vertical error bars."""
+    """Symmetric vertical error bars showing measurement uncertainty."""
     print("Creating example: Symmetric error bars...")
 
     fig = glp.figure(figsize=(8, 6))
@@ -38,7 +38,7 @@ def example_symmetric_error_bars():
 
 
 def example_asymmetric_error_bars():
-    """Example: Asymmetric vertical error bars (different up/down)."""
+    """Vertical error bars with different lower and upper extents."""
     print("Creating example: Asymmetric error bars...")
 
     fig = glp.figure(figsize=(8, 6))
@@ -72,7 +72,7 @@ def example_asymmetric_error_bars():
 
 
 def example_horizontal_error_bars():
-    """Example: Both vertical and horizontal error bars."""
+    """Horizontal and vertical error bars on the same points."""
     print("Creating example: Horizontal + vertical error bars...")
 
     fig = glp.figure(figsize=(8, 6))
@@ -108,7 +108,9 @@ def example_horizontal_error_bars():
 
 
 def example_errorbar_with_line():
-    """Example: Error bars on a line plot (connect points)."""
+    """Error bars on points joined by a line, with an uncertainty that varies
+    along the curve.
+    """
     print("Creating example: Error bars with line...")
 
     fig = glp.figure(figsize=(8, 6))
@@ -141,7 +143,9 @@ def example_errorbar_with_line():
 
 
 def example_combined_errorbars():
-    """Example: Simultaneous horizontal and vertical error bars."""
+    """Simultaneous horizontal and vertical error bars (uncertainty in both
+    axes), overlaid with a fitted curve.
+    """
     print("Creating example: Combined X and Y error bars...")
 
     fig = glp.figure(figsize=(8, 6))

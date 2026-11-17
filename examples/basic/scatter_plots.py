@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_scatter_plot():
-    """Example: Scatter plots with trend line."""
+    """Scatter of random data with a linear trend line fitted to it."""
     print("Creating example: Scatter plot...")
 
     fig = glp.figure(figsize=(8, 6))

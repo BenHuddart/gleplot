@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_log_scale():
-    """Example: Logarithmic scaling."""
+    """Log-log plot of a power-law relationship."""
     print("Creating example: Log scale...")
 
     fig = glp.figure(figsize=(8, 6))

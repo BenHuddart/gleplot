@@ -1,28 +1,45 @@
 #!/usr/bin/env python3
-"""Resize gallery PNGs for the documentation site.
+"""Copy the example PNGs into the documentation gallery and resize them.
+
+The gallery shows every example in ``EXAMPLES`` in
+``examples/run_and_compile.py``. Run that script first; this one copies the
+PNG it wrote for each ``.gle`` output from ``examples/outputs/`` to
+``docs/source/_static/gallery/``.
 
 Without ``--strict``, missing images are reported and the process exits 0 so
 a local ``make html`` still builds. The publish workflow passes ``--strict``
-and fails if any image named in ``gallery.rst`` is absent.
+and fails if any gallery image is absent.
 """
 
 from __future__ import annotations
 
-import re
+import shutil
 import sys
 from pathlib import Path
 
 DOCS_DIR = Path(__file__).resolve().parent
-SOURCE_DIR = DOCS_DIR / "source"
-GALLERY_RST = SOURCE_DIR / "gallery.rst"
-GALLERY_DIR = SOURCE_DIR / "_static" / "gallery"
+EXAMPLES_DIR = DOCS_DIR.parent / "examples"
+OUTPUTS_DIR = EXAMPLES_DIR / "outputs"
+GALLERY_DIR = DOCS_DIR / "source" / "_static" / "gallery"
 MAX_WIDTH = 800
 
 
-def referenced_images() -> list[Path]:
-    text = GALLERY_RST.read_text(encoding="utf-8")
-    names = re.findall(r"\.\. image:: _static/gallery/([^\s]+)", text)
-    return [GALLERY_DIR / name for name in names]
+def registered_examples() -> list:
+    """Return ``EXAMPLES`` from ``examples/run_and_compile.py``."""
+    if str(EXAMPLES_DIR) not in sys.path:
+        sys.path.insert(0, str(EXAMPLES_DIR))
+    import run_and_compile
+
+    return run_and_compile.EXAMPLES
+
+
+def gallery_images() -> list[str]:
+    """Return each example output's PNG path, relative to the gallery folder."""
+    return [
+        f"{basename}.png"
+        for _, _, basenames in registered_examples()
+        for basename in basenames
+    ]
 
 
 def resize_png(path: Path) -> None:
@@ -43,22 +60,22 @@ def resize_png(path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     strict = "--strict" in (argv if argv is not None else sys.argv[1:])
-    if not GALLERY_RST.is_file():
-        print(f"Missing {GALLERY_RST}", file=sys.stderr)
-        return 1
 
-    images = referenced_images()
+    images = gallery_images()
     missing = []
-    for image_path in images:
-        if not image_path.is_file():
-            missing.append(image_path.name)
+    for name in images:
+        source = OUTPUTS_DIR / name
+        if not source.is_file():
+            missing.append(name)
             continue
-        if image_path.suffix.lower() == ".png":
-            resize_png(image_path)
+        target = GALLERY_DIR / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        resize_png(target)
 
     if missing:
         stream = sys.stderr if strict else sys.stdout
-        print("Gallery images not present:", file=stream)
+        print(f"Gallery images not present in {OUTPUTS_DIR}:", file=stream)
         for name in sorted(missing):
             print(f"  {name}", file=stream)
         if strict:

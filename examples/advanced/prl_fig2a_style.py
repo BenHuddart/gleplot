@@ -70,7 +70,9 @@ def sample_times():
 
 
 def example_prl_fig2a_style():
-    """Build and save the PRL Fig. 2(a)-style panel."""
+    """A journal-style single panel with a broken time axis, fit curves over
+    the data, and a background line spanning both segments.
+    """
     rng = np.random.default_rng(20260728)
     t = sample_times()
     # Fit curves are drawn from a dense grid so the dashes stay smooth across

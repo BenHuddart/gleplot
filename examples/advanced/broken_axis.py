@@ -53,7 +53,9 @@ def _save(fig, stem):
 
 
 def example_broken_axis_slash():
-    """Two segments, double-slash break marks, filled and open markers."""
+    """A broken x-axis in two segments with double-slash break marks, and
+    filled and open markers.
+    """
     print("Creating example: broken x-axis with double-slash break marks...")
     rng = np.random.default_rng(3)
 

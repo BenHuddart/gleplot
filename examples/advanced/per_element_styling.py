@@ -12,7 +12,9 @@ import gleplot as glp
 
 
 def example_per_element_styling():
-    """Show style differences applied per plotted element."""
+    """Colour, line style, width, and marker set separately on each element of
+    one axes.
+    """
     print("Creating example: Per-element styling...")
 
     x = np.linspace(0.0, 6.0, 80)

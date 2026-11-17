@@ -44,7 +44,6 @@ https://benhuddart.github.io/gleplot/
    :caption: Gallery
 
    gallery
-   examples
 
 .. toctree::
    :maxdepth: 1

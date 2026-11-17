@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_combined_plot():
-    """Example: Combined plot types."""
+    """Lines, scatter, and ``fill_between`` combined in a single axes."""
     print("Creating example: Combined plot types...")
 
     fig = glp.figure(figsize=(10, 7))

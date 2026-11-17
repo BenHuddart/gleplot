@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_text_annotations():
-    """Demonstrate text placement, alignment, and annotation boxes."""
+    """Text placement, alignment, and boxed labels."""
     print("Creating example: Text annotations...")
 
     x = np.linspace(0.0, 10.0, 200)
