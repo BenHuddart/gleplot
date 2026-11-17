@@ -3521,7 +3521,10 @@ class Figure:
         Returns
         -------
         Path or None
-            Path to the generated file, or None when displayed inline in Jupyter.
+            Path to the generated temporary file, or None when the figure was
+            displayed inline in Jupyter. Nothing is printed; outside a notebook,
+            open the returned path to see the figure. A PDF cannot be shown
+            inline, so in a notebook ``format='pdf'`` warns and returns the path.
 
         Raises
         ------
@@ -3573,18 +3576,17 @@ class Figure:
                     display(img)
                     return None
                 elif format == "pdf":
-                    # For PDF, try to display or provide a link
-                    print(f"PDF saved to: {tmp_path}")
-                    print(
-                        "Note: PDF inline display limited in Jupyter. Consider using 'png' format."
+                    warnings.warn(
+                        f"view(format='pdf') cannot display a PDF inline; it was "
+                        f"saved to {tmp_path}, which view() returns. Use "
+                        f"view(format='png') to display the figure in the "
+                        f"notebook.",
+                        UserWarning,
+                        stacklevel=2,
                     )
                     return tmp_path
                 return None
-            else:
-                # Not in notebook - inform user of temp file location
-                print(f"Plot saved to temporary file: {tmp_path}")
-                print("Open this file to view the plot.")
-                return tmp_path
+            return tmp_path
 
         except Exception as e:
             # Clean up on error

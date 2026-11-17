@@ -1,11 +1,14 @@
 """Unit tests for the GLE compiler wrapper."""
 
+import logging
 import shutil
 import subprocess
 import unittest
 import warnings
 from pathlib import Path
 from unittest import mock
+
+import pytest
 
 from gleplot.compiler import (
     RASTER_COMPILE_FORMATS,
@@ -910,3 +913,32 @@ class TestAnsiColoredOutput(unittest.TestCase):
         )
         errors = parse_gle_errors(raw)
         self.assertEqual(errors[0].line, 3)
+
+
+def _fake_gle_run(returncode):
+    return mock.Mock(returncode=returncode, stdout="gle stdout", stderr="gle stderr")
+
+
+def test_failed_compile_reports_output_only_in_the_exception(capsys):
+    compiler = GLECompiler(gle_path="/explicit/path/to/gle")
+    with mock.patch("gleplot.compiler.subprocess.run", return_value=_fake_gle_run(1)):
+        with mock.patch("gleplot.compiler.Path.exists", return_value=True):
+            with pytest.raises(GLECompileError) as excinfo:
+                compiler.compile("in.gle")
+
+    assert "gle stdout" in excinfo.value.raw_output
+    assert "gle stderr" in excinfo.value.raw_output
+    assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("verbose", [False, True])
+def test_compile_output_goes_to_the_logger_only_when_verbose(verbose, capsys, caplog):
+    compiler = GLECompiler(gle_path="/explicit/path/to/gle")
+    caplog.set_level(logging.INFO, logger="gleplot.compiler")
+    with mock.patch("gleplot.compiler.subprocess.run", return_value=_fake_gle_run(0)):
+        with mock.patch("gleplot.compiler.Path.exists", return_value=True):
+            compiler.compile("in.gle", verbose=verbose)
+
+    logged = [r.getMessage() for r in caplog.records if r.name == "gleplot.compiler"]
+    assert logged == (["gle stdout\ngle stderr"] if verbose else [])
+    assert capsys.readouterr() == ("", "")

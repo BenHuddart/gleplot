@@ -94,7 +94,7 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 - Reject a bad argument **when the call is made**, not later at `savefig`. Raise `ValueError` (or `TypeError` for a wrong type) with a message that names the argument, shows the value received, and lists what is accepted.
 - Anything gleplot accepts but cannot honour, or recovers imperfectly from a file, gets a `UserWarning` with a `stacklevel` that points at the caller's line. Nothing is dropped silently.
 - A message is written for someone who knows matplotlib and has never read this source: say what to do next, in terms of the public API.
-- No `print()` in library code. Results go through return values, exceptions, and warnings.
+- No `print()` in library code; `tests/unit/test_source_rules.py` checks this. Results go through return values, exceptions, and warnings. Diagnostic output a user opts into goes through the `gleplot` logger.
 
 ### Compatibility
 
@@ -180,7 +180,6 @@ Places where the code does not yet meet the rules above. None of them is a patte
 
 - **Series logic is spread over five modules.** The "Adding a series field" checklist exists because one field is declared, set, emitted, passed through, and recovered in five separate places. The intended form is one description per series kind that those places read. Until then, follow the checklist. [#100](https://github.com/benhuddart/gleplot/issues/100)
 - **Oversized dispatch functions**: `Figure._write_axes_content`, `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
-- **`print()` in library code**: `compiler.py`, `figure.py` (`view`), `__init__.py` (`show`). [#106](https://github.com/benhuddart/gleplot/issues/106)
 - **`warnings.warn` calls without `stacklevel`**: a handful in `src/`. [#107](https://github.com/benhuddart/gleplot/issues/107)
 - **Tests outside the rules**: `tests/_tempdir.py` and its callers write under `build/test-temp`; some older modules use `unittest.TestCase`. [#99](https://github.com/benhuddart/gleplot/issues/99)
 - **Unchecked layering claim**: no test asserts that the library imports no GUI toolkit and that IPython stays inside `Figure.view`; `tests/unit/test_layering.py` only covers gleplot's own modules. [#108](https://github.com/benhuddart/gleplot/issues/108)

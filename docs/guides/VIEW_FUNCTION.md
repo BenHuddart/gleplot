@@ -7,7 +7,7 @@ The `view()` function allows you to display gleplot figures inline in Jupyter no
 The `view()` function automatically detects whether you're running in a Jupyter notebook environment and handles display accordingly:
 
 - **In Jupyter notebooks**: Displays the plot inline using IPython.display
-- **In regular Python scripts**: Saves to a temporary file and prints the path
+- **In regular Python scripts**: Saves to a temporary file and returns its path. Nothing is printed; open the returned path to see the figure.
 
 ## Usage
 
@@ -66,8 +66,10 @@ glp.view()
 
 ## Returns
 
-- **In Jupyter**: Returns `None` after displaying inline via IPython.display
+- **In Jupyter**: Returns `None` after displaying inline via IPython.display. With `format='pdf'`, which cannot be displayed inline, it emits a `UserWarning` and returns the path instead.
 - **Outside Jupyter**: Returns a Path object pointing to the temporary file
+
+`glp.show()` is the same as `glp.view()` with its defaults.
 
 ## Requirements
 
@@ -133,7 +135,7 @@ fig.view(dpi=300)
 ## Comparison with `savefig()`
 
 - **`savefig()`**: Saves to a permanent file with a specified name and location
-- **`view()`**: Creates a temporary file and displays it inline (in Jupyter) or prints the temp file path
+- **`view()`**: Creates a temporary file and displays it inline (in Jupyter) or returns the temp file path
 
 Both functions require GLE to be installed for compilation.
 
