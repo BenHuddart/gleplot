@@ -16,7 +16,6 @@ Covers, beyond the byte-identical fixed-point guard in ``test_fixed_point.py``:
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -248,7 +247,9 @@ def normalize(d: dict) -> dict:
             # Compare it with that directory removed.
             error = s.get("data_error")
             if isinstance(error, str):
-                s["data_error"] = re.sub(r"\S*/(?=\S+$)", "", error)
+                head, sep, path = error.partition(": ")
+                if sep:
+                    s["data_error"] = head + sep + Path(path).name
             if "markersize" in s:
                 s["markersize"] = _snap_msize(s["markersize"])
             if "linewidth" in s:
