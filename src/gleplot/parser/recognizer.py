@@ -1744,7 +1744,7 @@ class _Recognizer:
             # The writer emits a standalone 'dN key ""' statement right after
             # 'bar'/'fill' to neutralize GLE's auto-key-from-header behavior
             # (bar/fill have no 'key' sub-option of their own -- see
-            # gleplot.writer.GLEWriter.add_bar_chart/add_fill_between). That
+            # gleplot.writer.GLEWriter.add_bar/add_fill_between). That
             # bare 'dN key ""' would otherwise look like a brand-new,
             # unlabeled line/scatter series to the generic dN-dispatch below;
             # this set lets pass 2 recognize and skip it as a suppression
@@ -1960,7 +1960,7 @@ class _Recognizer:
                     # 'dN key ""' with no other attributes, following a
                     # 'bar'/'fill' command that already consumed this
                     # dataset -- the writer's auto-key-from-header
-                    # suppression marker (see writer.add_bar_chart /
+                    # suppression marker (see writer.add_bar /
                     # add_fill_between), not a real second series. Consume
                     # silently: no series, no passthrough (matches what the
                     # writer will regenerate from the bar/fill entry's
@@ -2064,7 +2064,7 @@ class _Recognizer:
                 # the modeled series' OWN regenerated sidecar no longer
                 # carries (GLEWriter always rewrites an owned series' data
                 # file with exactly the columns it uses -- see
-                # GLEWriter.add_bar_chart/_write_columns), which would
+                # GLEWriter.add_bar/_write_columns), which would
                 # silently corrupt the file instead of fixing the reference.
                 self._note(
                     ImportCategory.DATA,
@@ -2830,7 +2830,7 @@ class _Recognizer:
 
         Used to recognize the writer's auto-key-from-header suppression
         marker (a standalone ``dN key ""`` statement emitted after a
-        ``bar``/``fill`` command -- see ``writer.add_bar_chart`` /
+        ``bar``/``fill`` command -- see ``writer.add_bar`` /
         ``add_fill_between``) so it isn't mistaken for a real second series
         on that dataset. Exactly 2 tokens: the ``key`` keyword and an empty
         string literal.

@@ -96,6 +96,28 @@ def bar_stack():
     return fig
 
 
+def bar_recovered_fields():
+    """Bar fields only a recovered script sets, set here on the series.
+
+    A fill list longer than the one dataset, an edge colour list, a raw
+    ``lstyle``, a key swatch colour, a stored baseline top and ``dist``.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2], [5, 3], color="red", label="first")
+    ax.bar([1, 2], [1, 1], bottom=[5, 3], color="white", label="stacked")
+    first, stacked = ax.bars
+    first["fill_list"] = ["RED", "BLUE"]
+    first["edgecolor"] = "BLACK"
+    first["edge_list"] = ["BLACK", "GRAY"]
+    first["lstyle"] = "9"
+    first["swatch_color"] = "GREEN"
+    stacked["top"] = [6.0, 4.0]
+    stacked["dist"] = 0.4
+    ax.legend()
+    return fig
+
+
 def barh():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -608,6 +630,7 @@ BUILDERS = [
     bar_edge,
     bar_per_color,
     bar_stack,
+    bar_recovered_fields,
     barh,
     bar_yerr,
     barh_xerr,

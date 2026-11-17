@@ -320,7 +320,7 @@ class TestHeaderRowRenderingUnchanged:
     asked for one. gleplot's writer neutralizes this by always emitting an
     explicit ``key`` clause (the real label, or ``key ""``) whenever a
     header row is present -- see ``writer.GLEWriter._key_clause`` /
-    ``add_bar_chart`` / ``add_fill_between``.
+    ``add_bar`` / ``add_fill_between``.
 
     This test proves the fix holds for a REAL GLE compile: a battery figure
     covering every generated-sidecar series type (line labeled + unlabeled,
