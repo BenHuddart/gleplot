@@ -41,7 +41,7 @@ cp examples/outputs/example_*.png docs/source/_static/gallery/
 sphinx-build -W --keep-going -b html docs/source docs/build/html
 ```
 
-Both example runners write into `examples/outputs/`, which is ignored, and an example writes to the current directory rather than next to its own source. No generated figure or data file is committed, so running the examples leaves `git status` clean.
+Both example runners write into `examples/outputs/`, which is ignored, and an example writes to the current directory rather than next to its own source. No generated figure or data file is committed, so running the runners leaves `git status` clean.
 
 ## Commits
 

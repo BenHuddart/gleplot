@@ -41,9 +41,11 @@ from basic import (
 
 
 def main():
-    """Run all examples, writing their output to ``examples/outputs/``."""
-    output_dir = Path(__file__).parent / "outputs"
-    output_dir.mkdir(exist_ok=True)
+    """Run all examples, writing their output to ``examples/outputs/run_all/``."""
+    # Not outputs/ itself: run_and_compile.py renames every data_*.dat it
+    # finds there, so this runner's sidecars must not land beside its own.
+    output_dir = Path(__file__).parent / "outputs" / "run_all"
+    output_dir.mkdir(parents=True, exist_ok=True)
     os.chdir(output_dir)
 
     print("\n" + "=" * 60)

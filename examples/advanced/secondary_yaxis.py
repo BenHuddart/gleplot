@@ -60,14 +60,14 @@ def main():
     ax.legend()
 
     # Save the figure
-    output_file = Path("secondary_yaxis_temp_humidity.gle")
-    fig.savefig_gle(str(output_file))
+    output_file = "secondary_yaxis_temp_humidity.gle"
+    fig.savefig_gle(output_file)
     print(f"Saved: {output_file}")
 
     # Try to compile if GLE is available
     try:
-        png_file = Path("secondary_yaxis_temp_humidity.png")
-        fig.savefig(str(png_file), format="png")
+        png_file = "secondary_yaxis_temp_humidity.png"
+        fig.savefig(png_file, format="png")
         print(f"Compiled: {png_file}")
     except RuntimeError:
         print("GLE not available for compilation. GLE script saved.")
@@ -98,13 +98,13 @@ def main():
 
     ax2.legend()
 
-    output_file2 = Path("secondary_yaxis_growth.gle")
-    fig2.savefig_gle(str(output_file2))
+    output_file2 = "secondary_yaxis_growth.gle"
+    fig2.savefig_gle(output_file2)
     print(f"Saved: {output_file2}")
 
     try:
-        png_file2 = Path("secondary_yaxis_growth.png")
-        fig2.savefig(str(png_file2), format="png")
+        png_file2 = "secondary_yaxis_growth.png"
+        fig2.savefig(png_file2, format="png")
         print(f"Compiled: {png_file2}")
     except RuntimeError:
         print("GLE not available for compilation. GLE script saved.")
@@ -153,13 +153,13 @@ def main():
     ax3.set_title("AC Circuit: Voltage and Current vs Time")
     ax3.legend()
 
-    output_file3 = Path("secondary_yaxis_circuit.gle")
-    fig3.savefig_gle(str(output_file3))
+    output_file3 = "secondary_yaxis_circuit.gle"
+    fig3.savefig_gle(output_file3)
     print(f"Saved: {output_file3}")
 
     try:
-        png_file3 = Path("secondary_yaxis_circuit.png")
-        fig3.savefig(str(png_file3), format="png")
+        png_file3 = "secondary_yaxis_circuit.png"
+        fig3.savefig(png_file3, format="png")
         print(f"Compiled: {png_file3}")
     except RuntimeError:
         print("GLE not available for compilation. GLE script saved.")
@@ -197,13 +197,13 @@ def main():
     ax4.set_title("Dual-Axis Measurements with Error Bars")
     ax4.legend()
 
-    output_file4 = Path("secondary_yaxis_errorbar.gle")
-    fig4.savefig_gle(str(output_file4))
+    output_file4 = "secondary_yaxis_errorbar.gle"
+    fig4.savefig_gle(output_file4)
     print(f"Saved: {output_file4}")
 
     try:
-        png_file4 = Path("secondary_yaxis_errorbar.png")
-        fig4.savefig(str(png_file4), format="png")
+        png_file4 = "secondary_yaxis_errorbar.png"
+        fig4.savefig(png_file4, format="png")
         print(f"Compiled: {png_file4}")
     except RuntimeError:
         print("GLE not available for compilation. GLE script saved.")
