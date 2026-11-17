@@ -2427,24 +2427,7 @@ class Figure:
                     source["span_hi"],
                     source["label"],
                 )
-            writer.add_fill_between(
-                fill_data["x"],
-                fill_data["y1"],
-                fill_data.get("y2"),
-                fill_data["data_file"],
-                fill_data["color"],
-                fill_data["alpha"],
-                offset=fill_data.get("offset", 0.0),
-                column_names=fill_data.get("column_names"),
-                binding=resolution.binding(fill_series),
-                label=fill_data.get("label"),
-                swatch_color=fill_data.get("swatch_color"),
-                target=fill_data.get("target"),
-                xmin=fill_data.get("xmin"),
-                xmax=fill_data.get("xmax"),
-                ymin=fill_data.get("ymin"),
-                ymax=fill_data.get("ymax"),
-            )
+            writer.add_fill(fill_data, binding=resolution.binding(fill_series))
 
     @staticmethod
     def _write_reflines(writer: GLEWriter, ax: Axes, limits) -> None:

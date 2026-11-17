@@ -1604,3 +1604,50 @@ def test_add_bar_chart_keywords_reach_the_emitted_bar():
         "    bar d3 from d2 fill WHITE lstyle 9",
     ]
     assert writer.data_files == {"a.dat": "x a\n1 5\n2 3\n", "b.dat": "1 5 6\n2 3 4\n"}
+
+
+def test_add_fill_between_keywords_reach_the_emitted_fill():
+    """The keyword form of ``GLEWriter.add_fill`` maps every argument to its
+    field; gleplot itself no longer calls it, so the mapping is pinned here."""
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    writer.add_fill_between(
+        [0, 1],
+        [2, 3],
+        [1, 1],
+        "a.dat",
+        color="GREEN",
+        alpha=1.0,
+        offset=0.5,
+        column_names=["x", "u", "l"],
+        label="a",
+        swatch_color="BLACK",
+        xmin=0.2,
+        xmax=0.8,
+    )
+    writer.add_fill_between(
+        [0, 1],
+        [1, 2],
+        None,
+        "b.dat",
+        color="ORANGE",
+        alpha=0.5,
+        target="x1",
+        ymin=0.5,
+        ymax=2.5,
+    )
+    assert writer.lines_gle == [
+        "    data a.dat d1=c1,c2 d2=c1,c3",
+        "    let d3 = d1+0.5",
+        "    let d4 = d2+0.5",
+        "    fill d3,d4 color GREEN xmin 0.2 xmax 0.8",
+        '    d3 keyfill BLACK key "a"',
+        '    d4 key ""',
+        "    data b.dat d5=c1,c2",
+        "    fill x1,d5 color rgba255(255,165,0,128) ymin 0.5 ymax 2.5",
+    ]
+    assert writer.data_files == {
+        "a.dat": "x u l\n0 2 1\n1 3 1\n",
+        "b.dat": "0 1\n1 2\n",
+    }
