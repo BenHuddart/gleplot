@@ -1493,3 +1493,39 @@ class TestHistogram:
         raw = "\n".join(ax.passthrough)
         assert "let d2 = hist d1" in raw
         assert "d2 line" in raw
+
+
+def test_add_plot_line_keywords_reach_the_emitted_line():
+    """The keyword form of ``GLEWriter.add_line`` maps every argument to its
+    field; in gleplot only scatters still call it, so the line fields are
+    pinned here."""
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    writer.add_plot_line(
+        [0, 1, 2],
+        [1, 2, 3],
+        "k.dat",
+        color="RED",
+        linestyle="--",
+        linewidth=2,
+        label="k",
+        marker="FCIRCLE",
+        markersize=0.2,
+        nomiss=True,
+        yaxis="y2",
+        xaxis="x2",
+        offset=1.5,
+        column_names=["x", "k"],
+        smooth_mode="smoothm",
+        svg_smooth=2,
+    )
+    writer.add_plot_line([0, 1, 2], [1, 2, 3], "s.dat", line_mode="steps")
+    assert writer.lines_gle == [
+        "    data k.dat d1=c1,c2",
+        "    let d2 = d1+1.5",
+        "    d2 line svg_smooth 2 smoothm nomiss color RED lwidth 0.07056 lstyle 3"
+        ' marker FCIRCLE msize 0.2 x2axis y2axis key "k"',
+        "    data s.dat d3=c1,c2",
+        "    d3 line steps color BLUE lwidth 0.05292",
+    ]
