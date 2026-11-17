@@ -570,6 +570,35 @@ def contour_grid_levels_clabel():
     return fig
 
 
+def contour_field_options():
+    """Contour fields the other builders leave at their defaults.
+
+    A dashed, wider gridded contour at GLE's default levels, and a dotted
+    scattered contour with no ``ncontour`` (which only a recovered script
+    leaves unset, so it is cleared on the series here); neither is labelled.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 4, 5)
+    y = np.linspace(0, 3, 4)
+    Z = x[None, :] + y[:, None]
+    ax.contour(x, y, Z, colors="red", linewidths=2, linestyles="--")
+    xs = np.array([0.0, 4.0, 0.0, 4.0, 2.0])
+    ys = np.array([0.0, 0.0, 3.0, 3.0, 1.5])
+    ax.tricontour(
+        xs,
+        ys,
+        xs * ys,
+        gridsize=(5, 4),
+        extent=(0, 4, 0, 3),
+        levels=[2.0, 6.0],
+        colors="blue",
+        linestyles=":",
+    )
+    ax.contours[1]["ncontour"] = None
+    return fig
+
+
 def tripcolor_tricontour_combo():
     """Scattered tripcolor + tricontour on one axes, with a colorbar."""
     fig = glp.figure(figsize=(8, 6), data_prefix="golden")
@@ -836,6 +865,7 @@ BUILDERS = [
     heatmap_imshow_colorbar,
     heatmap_field_options,
     contour_grid_levels_clabel,
+    contour_field_options,
     tripcolor_tricontour_combo,
     custom_tick_labels,
     line_modes,

@@ -1978,14 +1978,7 @@ class Figure:
             writer.add_heatmap_data(hm)
 
         for ct in resolution.visible(ax.contours):
-            if ct["source"] == "points":
-                writer.add_points_sidecar(ct["data_file"], ct["x"], ct["y"], ct["zpts"])
-                writer.add_fitz_block(
-                    ct["data_file"], ct["extent"], ct["gridsize"], ct["ncontour"]
-                )
-            else:
-                writer.add_z_sidecar(ct["data_file"], ct["z"], ct["extent"], "lower")
-            writer.add_contour_block(_grid_z_file(ct), ct["levels"])
+            writer.add_contour_data(ct)
 
     def _emit_post_graph_calls(
         self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
@@ -1995,9 +1988,7 @@ class Figure:
         for hm in resolution.visible(ax.heatmaps):
             writer.add_heatmap_colorbar(hm)
         for ct in resolution.visible(ax.contours):
-            if ct.get("clabel"):
-                clabels = _grid_z_file(ct)[:-2] + "-clabels.dat"
-                writer.add_clabel_call(clabels, ct["clabel_fmt"])
+            writer.add_contour_labels(ct)
 
     def _legend_offset(self, ax: Axes) -> Optional[Tuple[float, float]]:
         """This axes' legend offset in cm, or the figure-wide default.
@@ -2271,10 +2262,7 @@ class Figure:
     ) -> None:
         """Contour polylines, above the heatmaps and below every series."""
         for ct in resolution.visible(ax.contours):
-            cdata = _grid_z_file(ct)[:-2] + "-cdata.dat"
-            writer.add_contour_line(
-                cdata, ct["color"], ct["linewidth"], ct["linestyle"]
-            )
+            writer.add_contour(ct)
 
     def _prepare_legend(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution, limits
