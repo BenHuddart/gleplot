@@ -108,52 +108,48 @@ def _resolve(
     ]
 
 
-def _imports(name: str, path: Path, known: Set[str]):
-    """``(module_level, deferred)`` sets of gleplot modules ``name`` imports."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    is_package = path.name == "__init__.py"
-    top: Set[str] = set()
-    deferred: Set[str] = set()
+def _import_nodes(path: Path):
+    """Every import statement in ``path``, as ``(node, inside_a_function)``."""
 
-    def visit(node: ast.AST, nested: bool) -> None:
+    def visit(node: ast.AST, nested: bool):
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.Import, ast.ImportFrom)):
-                for target in _resolve(name, is_package, child, known):
-                    if target in known and target != name:
-                        (deferred if nested else top).add(target)
+                yield child, nested
             is_scope = isinstance(
                 child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
             )
-            visit(child, nested or is_scope)
+            yield from visit(child, nested or is_scope)
 
-    visit(tree, False)
+    return visit(ast.parse(path.read_text(encoding="utf-8")), False)
+
+
+def _imports(name: str, path: Path, known: Set[str]):
+    """``(module_level, deferred)`` sets of gleplot modules ``name`` imports."""
+    is_package = path.name == "__init__.py"
+    top: Set[str] = set()
+    deferred: Set[str] = set()
+    for node, nested in _import_nodes(path):
+        for target in _resolve(name, is_package, node, known):
+            if target in known and target != name:
+                (deferred if nested else top).add(target)
     return top, deferred - top
 
 
 def _third_party_imports(path: Path):
     """``(module_level, deferred)`` top-level third-party packages ``path`` imports."""
     stdlib = set(sys.stdlib_module_names) | NEWER_STDLIB
-    tree = ast.parse(path.read_text(encoding="utf-8"))
     top: Set[str] = set()
     deferred: Set[str] = set()
-
-    def visit(node: ast.AST, nested: bool) -> None:
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.Import):
-                roots = [alias.name.split(".")[0] for alias in child.names]
-            elif isinstance(child, ast.ImportFrom) and child.level == 0:
-                roots = [(child.module or "").split(".")[0]]
-            else:
-                roots = []
-            for root in roots:
-                if root not in stdlib and root != "gleplot":
-                    (deferred if nested else top).add(root)
-            is_scope = isinstance(
-                child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
-            )
-            visit(child, nested or is_scope)
-
-    visit(tree, False)
+    for node, nested in _import_nodes(path):
+        if isinstance(node, ast.Import):
+            roots = [alias.name.split(".")[0] for alias in node.names]
+        elif node.level == 0:
+            roots = [(node.module or "").split(".")[0]]
+        else:
+            continue
+        for root in roots:
+            if root not in stdlib and root != "gleplot":
+                (deferred if nested else top).add(root)
     return top, deferred - top
 
 
@@ -165,9 +161,11 @@ def _runtime_dependencies() -> Set[str]:
     mapping here.
     """
     text = PYPROJECT.read_text(encoding="utf-8")
-    block = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    # Quoted strings may hold ``]`` (extras) and the other quote (markers).
+    strings = r"(?:[^\]\"']|\"[^\"]*\"|'[^']*')*"
+    block = re.search(rf"^dependencies\s*=\s*\[({strings})\]", text, re.M)
     assert block, f"no [project].dependencies list in {PYPROJECT}"
-    specs = re.findall(r"[\"']([^\"']+)[\"']", block.group(1))
+    specs = [m.group(2) for m in re.finditer(r"([\"'])(.*?)\1", block.group(1))]
     names = (re.match(r"[A-Za-z0-9_.-]+", spec) for spec in specs)
     return {m.group(0).replace("-", "_") for m in names if m}
 
@@ -299,6 +297,6 @@ def test_import_does_not_load_ipython():
         env=env,
         capture_output=True,
         text=True,
-        check=True,
     )
+    assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "False"
