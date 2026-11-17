@@ -2526,23 +2526,7 @@ class Figure:
 
     @staticmethod
     def _write_hist(writer: GLEWriter, series_data) -> None:
-        writer.add_histogram(
-            series_data["samples"],
-            series_data["data_file"],
-            histtype=series_data.get("histtype", "step"),
-            color=series_data.get("color", "BLUE"),
-            linestyle=series_data.get("linestyle", "-"),
-            linewidth=series_data.get("linewidth", 1),
-            label=series_data.get("label"),
-            yaxis=series_data.get("yaxis", "y"),
-            xaxis=series_data.get("xaxis", "x"),
-            hist_from=series_data.get("hist_from"),
-            hist_to=series_data.get("hist_to"),
-            bins=series_data.get("bins"),
-            bin_step=series_data.get("bin_step"),
-            edgecolor=series_data.get("edgecolor"),
-            bar_width=series_data.get("bar_width"),
-        )
+        writer.add_hist(series_data)
 
     @staticmethod
     def _write_errorbar(writer: GLEWriter, series_data, binding) -> None:

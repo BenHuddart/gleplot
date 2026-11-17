@@ -57,6 +57,7 @@ from .series import (
     BarSeries,
     ErrorbarSeries,
     FillSeries,
+    HistSeries,
     LineSeries,
     Series,
     _unique_column_names,
@@ -2419,7 +2420,37 @@ class GLEWriter:
         edgecolor: Optional[str] = None,
         bar_width: Optional[float] = None,
     ):
+        """Draw a histogram GLE bins itself, from per-field keywords.
+
+        The keyword form of :meth:`add_hist`: each argument is the
+        :class:`~gleplot.series.HistSeries` field of the same name. Kept so
+        callers that build GLE through the writer directly keep working.
+        """
+        series = HistSeries(
+            samples=samples,
+            data_file=data_file,
+            histtype=histtype,
+            color=color,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=label,
+            yaxis=yaxis,
+            xaxis=xaxis,
+            hist_from=hist_from,
+            hist_to=hist_to,
+            bins=bins,
+            bin_step=bin_step,
+            edgecolor=edgecolor,
+            bar_width=bar_width,
+        )
+        self.add_hist(series)
+
+    def add_hist(self, series: Series):
         """Draw a histogram GLE bins itself.
+
+        ``series`` is the resolved :class:`~gleplot.series.HistSeries`:
+        ``samples`` and ``data_file`` are required, and every other field is
+        read with the default its absence has always meant.
 
         The sidecar is the raw samples, two columns and no header: the x
         column is an index ``let hist`` never reads (a one-column file is a
@@ -2432,6 +2463,21 @@ class GLEWriter:
         cannot: it chords the centres and fills down to the axis minimum,
         not along the step outline to zero.
         """
+        samples = series["samples"]
+        data_file = series["data_file"]
+        histtype = series.get("histtype", "step")
+        color = series.get("color", "BLUE")
+        linestyle = series.get("linestyle", "-")
+        linewidth = series.get("linewidth", 1)
+        label = series.get("label")
+        yaxis = series.get("yaxis", "y")
+        xaxis = series.get("xaxis", "x")
+        hist_from = series.get("hist_from")
+        hist_to = series.get("hist_to")
+        bins = series.get("bins")
+        bin_step = series.get("bin_step")
+        edgecolor = series.get("edgecolor")
+        bar_width = series.get("bar_width")
         values = np.asarray(samples, dtype=float).ravel()
         index = np.arange(len(values), dtype=float)
         cols = self._write_columns(data_file, [("x", index), ("y", values)], None)

@@ -1651,3 +1651,46 @@ def test_add_fill_between_keywords_reach_the_emitted_fill():
         "a.dat": "x u l\n0 2 1\n1 3 1\n",
         "b.dat": "0 1\n1 2\n",
     }
+
+
+def test_add_histogram_keywords_reach_the_emitted_histogram():
+    """The keyword form of ``GLEWriter.add_hist`` maps every argument to its
+    field; gleplot itself no longer calls it, so the mapping is pinned here."""
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    writer.add_histogram(
+        [0.1, 0.6],
+        "a.dat",
+        histtype="step",
+        color="GREEN",
+        linestyle=":",
+        linewidth=2,
+        label="a",
+        yaxis="y2",
+        xaxis="x2",
+        hist_from=0,
+        hist_to=1,
+        bins=2,
+    )
+    writer.add_histogram(
+        [0.1, 0.6],
+        "b.dat",
+        histtype="stepfilled",
+        color="RED",
+        label="b",
+        hist_from=0,
+        hist_to=1,
+        bin_step=0.5,
+        edgecolor="BLACK",
+        bar_width=0.5,
+    )
+    assert writer.lines_gle == [
+        "    data a.dat d1=c1,c2",
+        "    let d2 = hist d1 from 0 to 1 bins 2",
+        '    d2 line hist color GREEN lwidth 0.07056 lstyle 2 x2axis y2axis key "a"',
+        "    data b.dat d3=c1,c2",
+        "    let d4 = hist d3 from 0 to 1 step 0.5",
+        "    bar d4 fill RED color BLACK width 0.5",
+        '    d4 key "b"',
+    ]
