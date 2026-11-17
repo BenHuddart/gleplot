@@ -4447,6 +4447,53 @@ class GLEWriter:
             label=cb.get("label"),
         )
 
+    def add_contour_data(self, series: Series):
+        """Write a contour's sidecar, ``fitz`` if scattered, and contour block.
+
+        Emitted before the graph that draws it (see :meth:`add_contour`).
+        ``series`` is the resolved :class:`~gleplot.series.ContourSeries`. A
+        ``'grid'`` contour writes its ``z`` array, at ``extent``, as a ``.z``
+        sidecar (always ``origin='lower'``). A ``'points'`` contour writes its
+        ``x``/``y``/``zpts`` samples and a ``begin fitz`` block that grids
+        them at ``gridsize`` over ``extent``, with ``ncontour`` when set. The
+        ``begin contour`` block then traces ``levels``, or GLE's default
+        levels when there are none.
+        """
+        data_file = series["data_file"]
+        if series["source"] == "points":
+            self.add_points_sidecar(data_file, series["x"], series["y"], series["zpts"])
+            self.add_fitz_block(
+                data_file, series["extent"], series["gridsize"], series["ncontour"]
+            )
+        else:
+            self.add_z_sidecar(data_file, series["z"], series["extent"], "lower")
+        self.add_contour_block(_grid_z_file(series), series["levels"])
+
+    def add_contour(self, series: Series):
+        """Draw a contour's traced lines inside its graph block.
+
+        ``series`` is the resolved :class:`~gleplot.series.ContourSeries`;
+        the lines are the ``-cdata.dat`` file its contour block generates,
+        drawn in ``color`` at ``linewidth`` and ``linestyle``.
+        """
+        cdata = _grid_z_file(series)[:-2] + "-cdata.dat"
+        self.add_contour_line(
+            cdata, series["color"], series["linewidth"], series["linestyle"]
+        )
+
+    def add_contour_labels(self, series: Series):
+        """Emit the contour-label sub call after a contour's graph, if asked.
+
+        ``series`` is the resolved :class:`~gleplot.series.ContourSeries`.
+        With ``clabel`` set, the labels come from the ``-clabels.dat`` file
+        its contour block generates, formatted with ``clabel_fmt``; without
+        it nothing is written.
+        """
+        if not series.get("clabel"):
+            return
+        clabels = _grid_z_file(series)[:-2] + "-clabels.dat"
+        self.add_clabel_call(clabels, series["clabel_fmt"])
+
     def add_colormap(
         self,
         z_file: str,
