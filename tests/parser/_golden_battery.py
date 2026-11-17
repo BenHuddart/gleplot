@@ -589,6 +589,26 @@ def fill_forms():
     return fig
 
 
+def fill_field_options():
+    """Fill fields the other builders leave at their defaults.
+
+    An offset band with its own key swatch colour (a recovered ``keyfill``),
+    and a fill to the top axis clipped in y.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = [0, 1, 2, 3]
+    ax.fill_between(
+        x, [2, 3, 3, 2], [1, 1, 1, 1], offset=0.5, color="green", label="shifted"
+    )
+    ax.fills[0]["swatch_color"] = "BLACK"
+    ax.fill_between(
+        x, [1, 2, 2, 1], baseline="x2", ymin=0.5, ymax=2.5, color="orange", label="top"
+    )
+    ax.legend()
+    return fig
+
+
 def histogram():
     """One step outline and one filled histogram, both labelled."""
     fig = glp.figure(data_prefix="golden")
@@ -658,6 +678,7 @@ BUILDERS = [
     line_modes,
     line_field_options,
     fill_forms,
+    fill_field_options,
     histogram,
     axes_styling_full,
     axes_styling_grid_only,
