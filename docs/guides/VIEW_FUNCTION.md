@@ -148,6 +148,5 @@ Both functions require GLE to be installed for compilation.
 
 ## See Also
 
-- [example_view.py](../../examples/example_view.py) - Python script examples
 - [example_view_notebook.ipynb](../../examples/example_view_notebook.ipynb) - Jupyter notebook examples
 - [Figure.savefig()](../source/api.rst) - For saving to permanent files

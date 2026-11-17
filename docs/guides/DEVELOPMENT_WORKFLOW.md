@@ -141,7 +141,7 @@ ax.plot(x, y, color='blue', linewidth=0.06)
 
 - See [docs/guides/CONFIGURATION.md](CONFIGURATION.md) for tutorial
 - See [docs/guides/CONFIGURATION_API.md](CONFIGURATION_API.md) for complete API reference
-- See [examples/example_configuration.py](../../examples/example_configuration.py) for examples
+- See [examples/advanced/configuration.py](../../examples/advanced/configuration.py) for examples
 
 ### 5. Version Management
 
@@ -174,7 +174,6 @@ git push origin main --follow-tags
 #### Versioning Documentation
 
 - See [VERSIONING.md](VERSIONING.md) for commit types and the release flow
-- See [examples/example_versioning_workflow.py](../../examples/example_versioning_workflow.py) for examples
 
 ### 6. Publishing
 
@@ -326,8 +325,6 @@ python -m pytest tests/integration/ -v  # Integration only
 
 # Run examples
 python examples/run_and_compile.py
-python examples/example_configuration.py
-python examples/example_versioning_workflow.py
 
 # Check version
 cat src/gleplot/__init__.py | grep __version__

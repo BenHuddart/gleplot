@@ -41,7 +41,7 @@ cp examples/outputs/example_*.png docs/source/_static/gallery/
 sphinx-build -W --keep-going -b html docs/source docs/build/html
 ```
 
-Both example runners write into `examples/outputs/`, which is ignored, and an example writes to the current directory rather than next to its own source. No generated figure or data file is committed, so running the runners leaves `git status` clean.
+`examples/run_and_compile.py` holds the one list of examples. Add a new example there: the run fails on an `example_*` function under `examples/basic/` or `examples/advanced/` that is not listed. Without GLE, `python examples/run_and_compile.py --no-compile` runs the examples without compiling them. The runner writes into `examples/outputs/`, which is ignored, and an example writes to the current directory rather than next to its own source. No generated figure or data file is committed, so running the examples leaves `git status` clean.
 
 ## Commits
 

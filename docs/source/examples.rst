@@ -107,15 +107,12 @@ The ``examples/`` tree holds runnable scripts for focused workflows:
 ``examples/basic/heatmap_imshow.py`` is a simple gridded ``imshow`` +
 ``contour`` example.
 
-From the repository root:
+To run every example and compile it to PDF, EPS and PNG in
+``examples/outputs/`` (requires GLE; these PNGs are the gallery images):
 
 .. code-block:: bash
 
-   cd examples
-   python run_all.py
+   python examples/run_and_compile.py
 
-To regenerate gallery PNGs for the documentation site (requires GLE):
-
-.. code-block:: bash
-
-   python run_and_compile.py
+Without GLE, ``--no-compile`` runs the examples and writes only the ``.gle``
+scripts and their data files.

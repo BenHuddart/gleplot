@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 import gleplot as glp
 
 
-def main():
+def example_secondary_yaxis():
     """Create example plots with secondary y-axis."""
 
     # Example 1: Temperature and Humidity on same plot
@@ -219,4 +219,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    example_secondary_yaxis()
