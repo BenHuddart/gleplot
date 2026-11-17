@@ -1,4 +1,4 @@
-"""gleplot Configuration API Reference
+# Configuration API Reference
 
 This document provides detailed API reference for gleplot's configuration system.
 
@@ -174,7 +174,7 @@ ax.plot([1, 2, 3], [2, 3, 4], linewidth=3)  # Overrides with 3pt
 
 Default color for lines and plot elements.
 
-**Valid values:** GLE color names (see [Colors](#colors))
+**Valid values:** GLE color names (see [Colors and Markers](COLORS_AND_MARKERS.md))
 **Default:** 'BLUE'
 **Type:** str
 **Mutable:** Yes
@@ -484,7 +484,7 @@ GLEMarkerConfig(
 
 Default marker type for scatter plots when none is specified.
 
-**Valid values:** See [Markers](#markers)
+**Valid values:** See [Colors and Markers](COLORS_AND_MARKERS.md)
 **Default:** `'fcircle'` (filled circle)
 **Type:** str
 **Mutable:** Yes
@@ -712,4 +712,3 @@ fig = glp.figure(**config)
 - [Configuration Guide](CONFIGURATION.md) - Tutorial-style guide with examples
 - [API Reference](https://benhuddart.github.io/gleplot/api.html) - Complete API documentation
 - [GLE Manual](https://www.gle-graphics.org/manual/) - Complete GLE documentation
-"""

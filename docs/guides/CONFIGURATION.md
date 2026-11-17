@@ -1,4 +1,4 @@
-"""Configuration Guide for gleplot
+# Configuration Guide
 
 This guide explains how to customize gleplot's appearance and behavior through the
 configuration system.
@@ -504,4 +504,3 @@ performance impact. Configurations are only used during GLE script generation
 - `fullsize` leaves no automatic margins
 - Use `scale_mode='auto'` (default) for automatic spacing
 - Or manually adjust with `title_distance`, `xlabel_distance`, `ylabel_distance`
-"""

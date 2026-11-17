@@ -48,10 +48,10 @@ The bump rules live in `pyproject.toml` under
    release.
 2. When Tests succeed and that commit is still the tip of `main`, the
    **Release** workflow
-   ([`.github/workflows/release.yml`](../../.github/workflows/release.yml))
+   ([`.github/workflows/release.yml`](https://github.com/benhuddart/gleplot/blob/main/.github/workflows/release.yml))
    looks at the commits since the last tag.
 3. If they warrant a bump, python-semantic-release updates the version,
-   prepends release notes to [`docs/CHANGELOG.md`](../CHANGELOG.md), builds
+   prepends release notes to [`docs/CHANGELOG.md`](https://github.com/benhuddart/gleplot/blob/main/docs/CHANGELOG.md), builds
    the sdist and wheel, pushes the release commit and `vX.Y.Z` tag, and
    creates a GitHub Release with the artifacts attached.
 4. If the repository variable `PYPI_PUBLISH` is `true`, a separate job uploads
