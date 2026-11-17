@@ -1566,3 +1566,41 @@ def test_add_errorbar_keywords_reach_the_emitted_dataset():
         ' x2axis y2axis key "e"',
     ]
     assert writer.data_files["e.dat"].splitlines()[0] == "x e up down xe"
+
+
+def test_add_bar_chart_keywords_reach_the_emitted_bar():
+    """The keyword form of ``GLEWriter.add_bar`` maps every argument to its
+    field (``heights`` to ``height``); gleplot itself no longer calls it, so
+    the mapping is pinned here."""
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    writer.add_bar_chart(
+        [1, 2],
+        [5, 3],
+        "a.dat",
+        ["RED", "RED"],
+        "a",
+        column_names=["x", "a"],
+        width=0.3,
+        swatch_color="GREEN",
+        edgecolor="BLACK",
+        edge_list=["BLACK", "GRAY"],
+        fill_list=["RED", "BLUE"],
+        linestyle="--",
+        linewidth=1.5,
+        horiz=True,
+        dist=0.4,
+    )
+    writer.add_bar_chart(
+        [1, 2], [1, 1], "b.dat", ["WHITE"], None, bottom=[5, 3], top=[6, 4], lstyle="9"
+    )
+    assert writer.lines_gle == [
+        "    data a.dat d1=c1,c2",
+        "    bar d1 fill RED,BLUE color BLACK,GRAY lstyle 3 lwidth 0.05292"
+        " width 0.3 dist 0.4 horiz",
+        '    d1 keyfill GREEN key "a"',
+        "    data b.dat d2=c1,c2 d3=c1,c3",
+        "    bar d3 from d2 fill WHITE lstyle 9",
+    ]
+    assert writer.data_files == {"a.dat": "x a\n1 5\n2 3\n", "b.dat": "1 5 6\n2 3 4\n"}

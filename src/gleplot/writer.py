@@ -54,6 +54,7 @@ from .parser.units import (
 )
 from .series import (
     SERIES_CLASSES,
+    BarSeries,
     ErrorbarSeries,
     LineSeries,
     Series,
@@ -1007,7 +1008,7 @@ class GLEWriter:
           preview for no compile-time win on the whiskers themselves -- so
           :meth:`add_errorbar_series` never calls this.
         - **bar (`bar dN fill ...`, the graph-level statement
-          :meth:`add_bar_chart` emits)**: also EXCLUDED. ``drawBar`` reads
+          :meth:`add_bar` emits)**: also EXCLUDED. ``drawBar`` reads
           ``GLEDataPairs(toDataSet)`` directly from the raw dataset, bypassing
           ``transform_data`` entirely. Compiling identical ``bar`` fixtures
           with and without a prior ``dN deresolve 3`` on the bar's dataset
@@ -2255,7 +2256,7 @@ class GLEWriter:
     # where ``min_int`` is ``GLEDataPairs::getMinXInterval()`` -- the smallest
     # gap between CONSECUTIVE x values that is strictly positive -- and
     # ``nbars`` is how many datasets the one ``bar`` command groups (always 1
-    # here: :meth:`add_bar_chart` emits one command per series). The same
+    # here: :meth:`add_bar` emits one command per series). The same
     # ``getMinXInterval`` widens the x DATA range in ``get_dataset_ranges``,
     # by half an interval either side, "so that bars are visible".
     #
@@ -2532,46 +2533,98 @@ class GLEWriter:
         top: Optional[np.ndarray] = None,
         dist: Optional[float] = None,
     ):
-        """
-        Add bar chart to graph.
+        """Add a bar chart from per-field keywords.
 
-        Uses a single fill color for all bars due to GLE bar rendering
-        limitations in downstream format conversion.
+        The keyword form of :meth:`add_bar`: each argument is the
+        :class:`~gleplot.series.BarSeries` field of the same name, except
+        ``heights``, which is the series' ``height``. ``binding`` is passed
+        through. Kept so callers that build GLE through the writer directly
+        keep working.
+        """
+        series = BarSeries(
+            x=x,
+            height=heights,
+            data_file=data_file,
+            colors=colors,
+            label=label,
+            column_names=column_names,
+            width=width,
+            swatch_color=swatch_color,
+            edgecolor=edgecolor,
+            edge_list=edge_list,
+            fill_list=fill_list,
+            linestyle=linestyle,
+            lstyle=lstyle,
+            linewidth=linewidth,
+            horiz=horiz,
+            bottom=bottom,
+            top=top,
+            dist=dist,
+        )
+        self.add_bar(series, binding=binding)
+
+    def add_bar(self, series: Series, binding: Optional[ColumnBinding] = None):
+        """
+        Add one bar series to the graph as its own ``bar`` command.
+
+        A series that shares a ``group`` with others goes through
+        :meth:`add_bar_group` instead.
 
         Parameters
         ----------
-        x : array
-            Bar positions (categories)
-        heights : array
-            Bar heights
-        data_file : str
-            Data file name
-        colors : list of str, optional
-            GLE color names for each bar. If multiple colors are provided,
-            the first color is used for all bars.
-        label : str, optional
-            Legend label. GLE's ``bar`` command has no ``key`` option, so
-            the label is a following ``dN key "..."`` statement. ``bar``'s
-            ``fill`` already copies into that dataset's ``key_fill``
-            (``update_key_fill``), which is the swatch the key draws.
-        column_names : list of str, optional
-            Sidecar header row (e.g. ``['x', 'height']``). Unlike the
-            ``dN ... key "..."`` dataset-display commands, GLE's ``bar``
-            command has its own restricted sub-grammar with NO ``key``
-            option at all (``bar dN fill COLOR key ""`` is a parse error).
-            So when a header row is present, an explicit standalone
-            ``dN key ""`` statement is emitted right after the ``bar``
-            command to neutralize GLE's auto-key-from-header behavior
-            (verified empirically: this statement alone draws nothing, and
-            makes rendering byte-identical to the headerless case).
-        width : float, optional
-            Bar width in DATA units (G19). ``None`` -- the default -- leaves
-            the sizing to GLE, which is what every bar chart gleplot wrote
-            before this parameter existed; a number is emitted verbatim and
-            suppresses G16's derived width. See ``bar_width_to_emit``.
+        series : BarSeries
+            The resolved series: its arrays are present (see
+            :meth:`SourceResolution.data`). ``x``, ``height``, ``data_file``,
+            ``colors`` (may be ``None``) and ``label`` are required; every
+            other field is read with the default its absence has always
+            meant.
+        binding : ColumnBinding, optional
+            Present when this series was resolved from a provider table; its
+            columns then go into a sidecar shared with the other series on
+            that table (see :meth:`_write_columns`).
+
+        Notes
+        -----
+        How the fields are emitted:
+
+        - ``colors``: GLE color names for each bar; the first is the fill.
+          ``None`` fills with ``RED``.
+        - ``label``: GLE's ``bar`` command has no ``key`` option, so the label
+          is a following ``dN key "..."`` statement. ``bar``'s ``fill``
+          already copies into that dataset's ``key_fill``
+          (``update_key_fill``), which is the swatch the key draws.
+        - ``column_names``: the sidecar header row (e.g. ``['x', 'height']``).
+          Unlike the ``dN ... key "..."`` dataset-display commands, GLE's
+          ``bar`` command has its own restricted sub-grammar with NO ``key``
+          option at all (``bar dN fill COLOR key ""`` is a parse error). So
+          when a header row is present, an explicit standalone ``dN key ""``
+          statement is emitted right after the ``bar`` command to neutralize
+          GLE's auto-key-from-header behavior (verified empirically: this
+          statement alone draws nothing, and makes rendering byte-identical
+          to the headerless case).
+        - ``width``: bar width in DATA units (G19). Absent leaves the sizing
+          to GLE, which is what every bar chart gleplot wrote before the field
+          existed; a number is emitted verbatim and suppresses G16's derived
+          width. See ``bar_width_to_emit``.
         """
-        x = np.asarray(x, dtype=float)
-        heights = np.asarray(heights, dtype=float)
+        x = np.asarray(series["x"], dtype=float)
+        heights = np.asarray(series["height"], dtype=float)
+        data_file = series["data_file"]
+        colors = series["colors"]
+        label = series["label"]
+        column_names = series.get("column_names")
+        width = series.get("width")
+        swatch_color = series.get("swatch_color")
+        edgecolor = series.get("edgecolor")
+        edge_list = series.get("edge_list")
+        fill_list = series.get("fill_list")
+        linestyle = series.get("linestyle")
+        lstyle = series.get("lstyle")
+        linewidth = series.get("linewidth")
+        horiz = bool(series.get("horiz"))
+        bottom = series.get("bottom")
+        top = series.get("top")
+        dist = series.get("dist")
 
         # Default to RED if no colors provided
         if colors is None:

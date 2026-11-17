@@ -2204,7 +2204,7 @@ def test_finding19_trailing_amove_reproduction_renders_with_parity(tmp_path):
 # round trip never even reached image comparison.
 #
 # A tempting narrower fix -- synthesize a second 'data f.dat d2=c1,c3' line
-# just for the orphaned d2 -- turns out to be unsound: GLEWriter.add_bar_chart
+# just for the orphaned d2 -- turns out to be unsound: GLEWriter.add_bar
 # always REWRITES an owned series' data file with exactly the columns that
 # series uses (_write_columns), so d1's modeled BarSeries would silently
 # truncate the physical file down to its own 2 columns, leaving the

@@ -2517,27 +2517,7 @@ class Figure:
 
     @staticmethod
     def _write_bar(writer: GLEWriter, series_data, binding) -> None:
-        writer.add_bar_chart(
-            series_data["x"],
-            series_data["height"],
-            series_data["data_file"],
-            series_data["colors"],
-            series_data["label"],
-            column_names=series_data.get("column_names"),
-            binding=binding,
-            width=series_data.get("width"),
-            swatch_color=series_data.get("swatch_color"),
-            edgecolor=series_data.get("edgecolor"),
-            edge_list=series_data.get("edge_list"),
-            fill_list=series_data.get("fill_list"),
-            linestyle=series_data.get("linestyle"),
-            lstyle=series_data.get("lstyle"),
-            linewidth=series_data.get("linewidth"),
-            horiz=bool(series_data.get("horiz")),
-            bottom=series_data.get("bottom"),
-            top=series_data.get("top"),
-            dist=series_data.get("dist"),
-        )
+        writer.add_bar(series_data, binding=binding)
 
     @staticmethod
     def _write_line(writer: GLEWriter, series_data, binding) -> None:
