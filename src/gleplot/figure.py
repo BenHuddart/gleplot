@@ -2508,21 +2508,7 @@ class Figure:
 
     @staticmethod
     def _write_scatter(writer: GLEWriter, series_data, binding) -> None:
-        writer.add_plot_line(
-            series_data["x"],
-            series_data["y"],
-            series_data["data_file"],
-            color=series_data["color"],
-            linestyle=series_data.get("linestyle", "none"),
-            marker=series_data["marker"],
-            markersize=series_data["markersize"],
-            label=series_data["label"],
-            yaxis=series_data.get("yaxis", "y"),
-            xaxis=series_data.get("xaxis", "x"),
-            offset=series_data.get("offset", 0.0),
-            column_names=series_data.get("column_names"),
-            binding=binding,
-        )
+        writer.add_scatter(series_data, binding=binding)
 
     @staticmethod
     def _write_hist(writer: GLEWriter, series_data) -> None:

@@ -2237,7 +2237,7 @@ class GLEWriter:
         # branches above (line, with or without an overlaid marker, and
         # marker-only/scatter) since both draw through transform_data().
         # ``kind`` is derived from ``has_line``, not from the series class:
-        # scatters reach here through add_plot_line, which carries them in a
+        # scatters reach here through add_scatter, which carries them in a
         # LineSeries. Every line (including reference lines, which never
         # carry a marker) has a line, and no scatter does -- exactly
         # gleplot's own KIND split for these two series classes.
@@ -2247,6 +2247,41 @@ class GLEWriter:
 
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
+
+    def add_scatter(self, series: Series, binding: Optional[ColumnBinding] = None):
+        """Add a marker-only series to the graph.
+
+        Drawn by :meth:`add_line`, from the fields a scatter has always been
+        written with. ``linewidth``, ``nomiss`` and the smoothing fields are
+        not among them: a scatter is drawn as if they were absent.
+
+        Parameters
+        ----------
+        series : ScatterSeries
+            The resolved series: its arrays are present (see
+            :meth:`SourceResolution.data`). ``x``, ``y``, ``data_file``,
+            ``color``, ``marker``, ``markersize`` and ``label`` are required;
+            every other field is read with the default its absence has always
+            meant.
+        binding : ColumnBinding, optional
+            Passed to :meth:`add_line`.
+        """
+        line = LineSeries(
+            x=series["x"],
+            y=series["y"],
+            data_file=series["data_file"],
+            color=series["color"],
+            linestyle=series.get("linestyle", "none"),
+            linewidth=1.0,
+            label=series["label"],
+            marker=series["marker"],
+            markersize=series["markersize"],
+            yaxis=series.get("yaxis", "y"),
+            xaxis=series.get("xaxis", "x"),
+            offset=series.get("offset", 0.0),
+            column_names=series.get("column_names"),
+        )
+        self.add_line(line, binding=binding)
 
     # -- bar width, the one number GLE derives from the data's shape -------
     #
