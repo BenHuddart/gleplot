@@ -113,7 +113,7 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 - Keep the diff to the task. A drive-by refactor or reformat goes in its own change.
 - Comments explain **invariants** or **GLE constraints**, not obvious code, and not the history of the change.
 - **Python ≥3.9**; no new dependency for a small feature.
-- A function does one thing. Do not add another series kind or another option to a function that already branches over many; give the new case its own method and call it. The dispatchers this applies to most are `Figure._write_axes_content`, `GLEWriter.add_axes` and `_Recognizer._parse_graph_block`.
+- A function does one thing. Do not add another series kind or another option to a function that already branches over many; give the new case its own method and call it. The dispatchers this applies to most are `Figure._write_drawables`, `GLEWriter.add_axes` and `_Recognizer._parse_graph_block`.
 - A module has the one job the map gives it. Line count alone is not a reason to split `writer.py`, `axes.py`, or `recognizer.py`; a split follows a real seam and is agreed with the maintainer first, because it moves every import and the layering test with it.
 
 ### Adding a series field
@@ -123,7 +123,7 @@ A field on a series class is usually touched in five places; missing one breaks 
 1. the class annotation in `series.py` (absent means the historical behaviour — do not default to `None`),
 2. the `Axes` method that sets it,
 3. the `GLEWriter.add_*` method that emits it,
-4. the call in `Figure._write_axes_content` that passes it through,
+4. the `Figure._write_*` method that passes it through: one per drawable kind (`_write_line`, `_write_bar`, …), else the phase that writes the series (`_write_fills`, `_write_reflines`, `_write_file_series`, …),
 5. the `_Recognizer` branch that recovers it.
 
 Then add a builder exercising it to `tests/parser/_golden_battery.py`, which `test_fixed_point.py` runs.
@@ -181,7 +181,7 @@ More detail, including the output analyzers: `docs/guides/TESTING.md`.
 Places where the code does not yet meet the rules above. None of them is a pattern to follow. Each entry is deleted by the change that fixes it. The plan for each fix lives in the linked issue, and [#111](https://github.com/benhuddart/gleplot/issues/111) tracks the order.
 
 - **Series logic is spread over five modules.** The "Adding a series field" checklist exists because one field is declared, set, emitted, passed through, and recovered in five separate places. The intended form is one description per series kind that those places read. Until then, follow the checklist. [#100](https://github.com/benhuddart/gleplot/issues/100)
-- **Oversized dispatch functions**: `Figure._write_axes_content`, `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
+- **Oversized dispatch functions**: `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
 
 ## Where to look next
 

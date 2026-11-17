@@ -1,6 +1,6 @@
 """Figure class for gleplot."""
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
@@ -173,6 +173,23 @@ def _grid_position(ax: Axes) -> Tuple[int, int, int]:
     assert position is not None, "an axes in a figure always has a grid position"
     rows, cols, idx = position
     return rows, cols, idx
+
+
+@dataclass(frozen=True)
+class _LegendLayout:
+    """One axes' key, worked out before its series are written.
+
+    ``entries`` are ``(series, label, swatch)`` in emission order and
+    ``addition`` their indices in matplotlib addition order. ``external``
+    means the in-graph key is off and a ``begin key`` block lists the
+    entries in addition order instead.
+    """
+
+    entries: List[tuple]
+    show: bool
+    addition: List[int]
+    external: bool
+    ncol: int
 
 
 class Figure:
@@ -2224,10 +2241,32 @@ class Figure:
             The write's source resolution. Omitted (``None``) means "every
             series is inline", which is what a direct caller outside
             :meth:`_generate_gle_with_files` gets.
+
+        Notes
+        -----
+        The axis setup comes first. The content phases then run in drawing
+        order, back to front: heatmaps and contours, then the background
+        guides and fills, then the z-ordered data series, file series and
+        texts, and the key last. :meth:`_prepare_legend` runs before any
+        series is written, because the key's column breaks must be set on
+        the writer before the datasets they fall between.
         """
         resolution = resolution or SourceResolution()
+        self._write_axis_setup(writer, ax)
+        self._write_heatmaps(writer, ax, resolution)
+        self._write_contours(writer, ax, resolution)
+        limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
+        legend = self._prepare_legend(writer, ax, resolution, limits)
+        self._write_spans(writer, ax, limits)
+        self._write_fills(writer, ax, resolution, limits)
+        self._write_reflines(writer, ax, limits)
+        self._write_drawables(writer, ax, resolution)
+        self._write_file_series(writer, ax, resolution)
+        self._write_texts(writer, ax)
+        self._write_legend(writer, ax, legend)
 
-        # Axis properties
+    def _write_axis_setup(self, writer: GLEWriter, ax: Axes) -> None:
+        """Titles, scales, ranges, ticks and grid of the graph block."""
         writer.add_axes(
             xlabel=ax.xlabel_text or None,
             ylabel=ax.ylabel_text or None,
@@ -2280,8 +2319,10 @@ class Figure:
             ),
         )
 
-        # Heatmap colormap (drawn behind everything as the background) and
-        # contour polylines, before the ordinary series (fills, bars, ...).
+    def _write_heatmaps(
+        self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
+    ) -> None:
+        """Heatmap colormaps, drawn behind everything as the background."""
         for hm in resolution.visible(ax.heatmaps):
             writer.add_colormap(
                 self._heatmap_z_file(hm),
@@ -2293,39 +2334,53 @@ class Figure:
                 hm["interpolation"],
             )
 
+    def _write_contours(
+        self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
+    ) -> None:
+        """Contour polylines, above the heatmaps and below every series."""
         for ct in resolution.visible(ax.contours):
             cdata = self._contour_z_file(ct)[:-2] + "-cdata.dat"
             writer.add_contour_line(
                 cdata, ct["color"], ct["linewidth"], ct["linestyle"]
             )
 
-        # Add fill regions (background). axvspan/axhspan bands are realized
-        # here too: they are declarations until the axis limits are known, and
-        # they belong in the same background layer as fills so the data series
-        # always draw on top of their guides.
-        limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
-        legend_entries = self._legend_entries(writer, ax, resolution, limits)
-        n_legend = len(legend_entries)
-        show_legend = ax.legend_on if ax.legend_on is not None else n_legend > 0
+    def _prepare_legend(
+        self, writer: GLEWriter, ax: Axes, resolution: SourceResolution, limits
+    ) -> _LegendLayout:
+        """Work out this axes' key and set the writer's column breaks.
+
+        The breaks are set before any series is emitted, because GLE's
+        in-graph ``key separator`` is written where the dataset stands.
+        """
+        entries = self._legend_entries(writer, ax, resolution, limits)
+        n_legend = len(entries)
+        show = ax.legend_on if ax.legend_on is not None else n_legend > 0
         # Addition order is matplotlib's legend order. GLE's in-graph
         # ``key separator`` is inserted where the statement stands, and a
         # dataset stays where it was first used, which is draw order. When
         # those two sequences differ, the graph key is turned off and a
         # ``begin key`` after ``end graph`` lists the entries in the order
         # they were added. When they agree, the in-graph key is unchanged.
-        addition = self._legend_addition_order(legend_entries)
-        external_legend = show_legend and addition != list(range(n_legend))
+        addition = self._legend_addition_order(entries)
+        external = show and addition != list(range(n_legend))
         # Reset even for a one-column key: the writer is reused across
         # subplots, and a previous axes' breaks must not leak.
         ncol = int(getattr(ax, "legend_ncol", 1) or 1)
-        if show_legend and ncol > 1 and not external_legend:
+        if show and ncol > 1 and not external:
             writer.set_legend_breaks(legend_column_breaks(n_legend, ncol))
         else:
             writer.set_legend_breaks(set())
+        return _LegendLayout(entries, show, addition, external, ncol)
+
+    @staticmethod
+    def _write_spans(writer: GLEWriter, ax: Axes, limits) -> None:
+        """axvspan/axhspan bands across an axis GLE has yet to scale.
+
+        Drawn against the engine's own range instead of a literal fill over
+        a range gleplot would have to invent (G17; see gleplot.guides). The
+        other bands are fills, written by :meth:`_write_fills`.
+        """
         for span in ax.engine_range_guides(ax.spans, limits):
-            # A band across an axis GLE has yet to scale: drawn against the
-            # engine's own range instead of a literal fill over a range
-            # gleplot would have to invent (G17; see gleplot.guides).
             writer.add_span_draw(
                 span["orient"],
                 span["start"],
@@ -2337,6 +2392,17 @@ class Figure:
                 span["label"],
                 swatch_color=span.get("swatch_color"),
             )
+
+    @staticmethod
+    def _write_fills(
+        writer: GLEWriter, ax: Axes, resolution: SourceResolution, limits
+    ) -> None:
+        """Fill regions, then the axvspan/axhspan bands realized as fills.
+
+        The bands are declarations until the axis limits are known, and they
+        belong in the same background layer as fills so the data series
+        always draw on top of their guides.
+        """
         # The declarations behind the materialized bands, in the same order
         # (see Axes.dataset_form_guides), so each fill can be preceded by the
         # provenance marker that makes it re-import as a Span (G18-lite).
@@ -2380,9 +2446,14 @@ class Figure:
                 ymax=fill_data.get("ymax"),
             )
 
-        # Reference lines (axvline/axhline), drawn above the shaded bands but
-        # still below every data series. Same split as the bands above: a
-        # guide whose spanned axis is GLE's to scale goes out as a draw call.
+    @staticmethod
+    def _write_reflines(writer: GLEWriter, ax: Axes, limits) -> None:
+        """Reference lines (axvline/axhline).
+
+        Drawn above the shaded bands but still below every data series.
+        Same split as the bands: a guide whose spanned axis is GLE's to
+        scale goes out as a draw call, the rest as marked datasets.
+        """
         for ref in ax.engine_range_guides(ax.reflines, limits):
             writer.add_refline_draw(
                 ref["orient"],
@@ -2424,15 +2495,23 @@ class Figure:
                 column_names=ref_data.get("column_names"),
             )
 
-        drawables = list(resolution.drawables(ax))
+    def _write_drawables(
+        self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
+    ) -> None:
+        """Bars, lines, scatters, histograms and errorbars, in z-order.
+
+        A bar group is written once, at its first member, as one ``bar``
+        statement over all its members.
+        """
+        drawables = resolution.drawables(ax)
         emitted_groups: set = set()
         for kind, series, series_data in drawables:
             binding = resolution.binding(series)
             if kind == "bar":
                 group_id = series_data.get("group")
-                if group_id is not None:
-                    if group_id in emitted_groups:
-                        continue
+                if group_id is None:
+                    self._write_bar(writer, series_data, binding)
+                elif group_id not in emitted_groups:
                     members = [
                         item[2]
                         for item in drawables
@@ -2440,112 +2519,137 @@ class Figure:
                     ]
                     writer.add_bar_group(members)
                     emitted_groups.add(group_id)
-                    continue
-                writer.add_bar_chart(
-                    series_data["x"],
-                    series_data["height"],
-                    series_data["data_file"],
-                    series_data["colors"],
-                    series_data["label"],
-                    column_names=series_data.get("column_names"),
-                    binding=binding,
-                    width=series_data.get("width"),
-                    swatch_color=series_data.get("swatch_color"),
-                    edgecolor=series_data.get("edgecolor"),
-                    edge_list=series_data.get("edge_list"),
-                    fill_list=series_data.get("fill_list"),
-                    linestyle=series_data.get("linestyle"),
-                    lstyle=series_data.get("lstyle"),
-                    linewidth=series_data.get("linewidth"),
-                    horiz=bool(series_data.get("horiz")),
-                    bottom=series_data.get("bottom"),
-                    top=series_data.get("top"),
-                    dist=series_data.get("dist"),
-                )
             elif kind == "line":
-                writer.add_plot_line(
-                    series_data["x"],
-                    series_data["y"],
-                    series_data["data_file"],
-                    color=series_data["color"],
-                    linestyle=series_data["linestyle"],
-                    linewidth=series_data["linewidth"],
-                    label=series_data["label"],
-                    marker=series_data.get("marker"),
-                    markersize=series_data.get("markersize", 0.1),
-                    nomiss=series_data.get("nomiss", False),
-                    yaxis=series_data.get("yaxis", "y"),
-                    xaxis=series_data.get("xaxis", "x"),
-                    offset=series_data.get("offset", 0.0),
-                    column_names=series_data.get("column_names"),
-                    binding=binding,
-                    # Per-series smoothing (SPEC 14.7), the one kind that
-                    # carries it. Passed raw: the writer normalizes and
-                    # resolves the figure-wide fallback in exactly one place
-                    # (GLEWriter._effective_smooth_mode).
-                    smooth_mode=series_data.get("smooth_mode"),
-                    svg_smooth=series_data.get("svg_smooth"),
-                    line_mode=series_data.get("line_mode"),
-                )
+                self._write_line(writer, series_data, binding)
             elif kind == "scatter":
-                writer.add_plot_line(
-                    series_data["x"],
-                    series_data["y"],
-                    series_data["data_file"],
-                    color=series_data["color"],
-                    linestyle=series_data.get("linestyle", "none"),
-                    marker=series_data["marker"],
-                    markersize=series_data["markersize"],
-                    label=series_data["label"],
-                    yaxis=series_data.get("yaxis", "y"),
-                    xaxis=series_data.get("xaxis", "x"),
-                    offset=series_data.get("offset", 0.0),
-                    column_names=series_data.get("column_names"),
-                    binding=binding,
-                )
+                self._write_scatter(writer, series_data, binding)
             elif kind == "hist":
-                writer.add_histogram(
-                    series_data["samples"],
-                    series_data["data_file"],
-                    histtype=series_data.get("histtype", "step"),
-                    color=series_data.get("color", "BLUE"),
-                    linestyle=series_data.get("linestyle", "-"),
-                    linewidth=series_data.get("linewidth", 1),
-                    label=series_data.get("label"),
-                    yaxis=series_data.get("yaxis", "y"),
-                    xaxis=series_data.get("xaxis", "x"),
-                    hist_from=series_data.get("hist_from"),
-                    hist_to=series_data.get("hist_to"),
-                    bins=series_data.get("bins"),
-                    bin_step=series_data.get("bin_step"),
-                    edgecolor=series_data.get("edgecolor"),
-                    bar_width=series_data.get("bar_width"),
-                )
+                self._write_hist(writer, series_data)
             else:
-                writer.add_errorbar(
-                    series_data["x"],
-                    series_data["y"],
-                    series_data["data_file"],
-                    color=series_data["color"],
-                    linestyle=series_data["linestyle"],
-                    linewidth=series_data["linewidth"],
-                    label=series_data["label"],
-                    marker=series_data["marker"],
-                    markersize=series_data["markersize"],
-                    yerr_up=series_data["yerr_up"],
-                    yerr_down=series_data["yerr_down"],
-                    xerr_left=series_data["xerr_left"],
-                    xerr_right=series_data["xerr_right"],
-                    capsize=series_data.get("gle_capsize", series_data.get("capsize")),
-                    yaxis=series_data.get("yaxis", "y"),
-                    xaxis=series_data.get("xaxis", "x"),
-                    offset=series_data.get("offset", 0.0),
-                    column_names=series_data.get("column_names"),
-                    binding=binding,
-                )
+                self._write_errorbar(writer, series_data, binding)
 
-        # Add external-file series (no generated data files). Walked through
-        # the resolution like every other list, so a hidden one is skipped.
+    @staticmethod
+    def _write_bar(writer: GLEWriter, series_data, binding) -> None:
+        writer.add_bar_chart(
+            series_data["x"],
+            series_data["height"],
+            series_data["data_file"],
+            series_data["colors"],
+            series_data["label"],
+            column_names=series_data.get("column_names"),
+            binding=binding,
+            width=series_data.get("width"),
+            swatch_color=series_data.get("swatch_color"),
+            edgecolor=series_data.get("edgecolor"),
+            edge_list=series_data.get("edge_list"),
+            fill_list=series_data.get("fill_list"),
+            linestyle=series_data.get("linestyle"),
+            lstyle=series_data.get("lstyle"),
+            linewidth=series_data.get("linewidth"),
+            horiz=bool(series_data.get("horiz")),
+            bottom=series_data.get("bottom"),
+            top=series_data.get("top"),
+            dist=series_data.get("dist"),
+        )
+
+    @staticmethod
+    def _write_line(writer: GLEWriter, series_data, binding) -> None:
+        writer.add_plot_line(
+            series_data["x"],
+            series_data["y"],
+            series_data["data_file"],
+            color=series_data["color"],
+            linestyle=series_data["linestyle"],
+            linewidth=series_data["linewidth"],
+            label=series_data["label"],
+            marker=series_data.get("marker"),
+            markersize=series_data.get("markersize", 0.1),
+            nomiss=series_data.get("nomiss", False),
+            yaxis=series_data.get("yaxis", "y"),
+            xaxis=series_data.get("xaxis", "x"),
+            offset=series_data.get("offset", 0.0),
+            column_names=series_data.get("column_names"),
+            binding=binding,
+            # Per-series smoothing (SPEC 14.7), the one kind that
+            # carries it. Passed raw: the writer normalizes and
+            # resolves the figure-wide fallback in exactly one place
+            # (GLEWriter._effective_smooth_mode).
+            smooth_mode=series_data.get("smooth_mode"),
+            svg_smooth=series_data.get("svg_smooth"),
+            line_mode=series_data.get("line_mode"),
+        )
+
+    @staticmethod
+    def _write_scatter(writer: GLEWriter, series_data, binding) -> None:
+        writer.add_plot_line(
+            series_data["x"],
+            series_data["y"],
+            series_data["data_file"],
+            color=series_data["color"],
+            linestyle=series_data.get("linestyle", "none"),
+            marker=series_data["marker"],
+            markersize=series_data["markersize"],
+            label=series_data["label"],
+            yaxis=series_data.get("yaxis", "y"),
+            xaxis=series_data.get("xaxis", "x"),
+            offset=series_data.get("offset", 0.0),
+            column_names=series_data.get("column_names"),
+            binding=binding,
+        )
+
+    @staticmethod
+    def _write_hist(writer: GLEWriter, series_data) -> None:
+        writer.add_histogram(
+            series_data["samples"],
+            series_data["data_file"],
+            histtype=series_data.get("histtype", "step"),
+            color=series_data.get("color", "BLUE"),
+            linestyle=series_data.get("linestyle", "-"),
+            linewidth=series_data.get("linewidth", 1),
+            label=series_data.get("label"),
+            yaxis=series_data.get("yaxis", "y"),
+            xaxis=series_data.get("xaxis", "x"),
+            hist_from=series_data.get("hist_from"),
+            hist_to=series_data.get("hist_to"),
+            bins=series_data.get("bins"),
+            bin_step=series_data.get("bin_step"),
+            edgecolor=series_data.get("edgecolor"),
+            bar_width=series_data.get("bar_width"),
+        )
+
+    @staticmethod
+    def _write_errorbar(writer: GLEWriter, series_data, binding) -> None:
+        writer.add_errorbar(
+            series_data["x"],
+            series_data["y"],
+            series_data["data_file"],
+            color=series_data["color"],
+            linestyle=series_data["linestyle"],
+            linewidth=series_data["linewidth"],
+            label=series_data["label"],
+            marker=series_data["marker"],
+            markersize=series_data["markersize"],
+            yerr_up=series_data["yerr_up"],
+            yerr_down=series_data["yerr_down"],
+            xerr_left=series_data["xerr_left"],
+            xerr_right=series_data["xerr_right"],
+            capsize=series_data.get("gle_capsize", series_data.get("capsize")),
+            yaxis=series_data.get("yaxis", "y"),
+            xaxis=series_data.get("xaxis", "x"),
+            offset=series_data.get("offset", 0.0),
+            column_names=series_data.get("column_names"),
+            binding=binding,
+        )
+
+    @staticmethod
+    def _write_file_series(
+        writer: GLEWriter, ax: Axes, resolution: SourceResolution
+    ) -> None:
+        """Series read from external files (no generated data files).
+
+        Walked through the resolution like every other list, so a hidden
+        one is skipped.
+        """
         for fs_data in resolution.visible(ax.file_series):
             series_type = fs_data.get("series_type", "errorbar")
             if series_type == "line":
@@ -2603,7 +2707,8 @@ class Figure:
                     xaxis=fs_data.get("xaxis", "x"),
                 )
 
-        # Add text annotations.
+    @staticmethod
+    def _write_texts(writer: GLEWriter, ax: Axes) -> None:
         for text_data in ax.texts:
             writer.add_text(
                 x=text_data["x"],
@@ -2622,14 +2727,18 @@ class Figure:
                 arrow_linewidth=text_data.get("arrow_linewidth"),
             )
 
-        # Add legend if needed. legend_on is tri-state: None means auto
-        # (show iff labels exist); True/False is an explicit user choice.
-        #
-        # ``n_legend`` is the same count the separators were placed against,
-        # so a series that is not drawn cannot vote for a key it will have
-        # no entry in (SPEC 14.6). Fills are in that count: their swatch is
-        # a ``keyfill`` line, not a ``key`` on the fill command.
-        labels_present = n_legend > 0
+    def _write_legend(self, writer: GLEWriter, ax: Axes, legend: _LegendLayout) -> None:
+        """The key, if one is shown, else ``key off`` where GLE needs it.
+
+        ``legend_on`` is tri-state: None means auto (show iff labels
+        exist); True/False is an explicit user choice.
+
+        The entry count is the same one the separators were placed against,
+        so a series that is not drawn cannot vote for a key it will have no
+        entry in (SPEC 14.6). Fills are in that count: their swatch is a
+        ``keyfill`` line, not a ``key`` on the fill command.
+        """
+        n_legend = len(legend.entries)
         legend_kwargs: Dict[str, Any] = dict(
             fontsize=getattr(ax, "legend_fontsize", None),
             frameon=getattr(ax, "legend_frameon", True),
@@ -2637,14 +2746,16 @@ class Figure:
             compact=bool(getattr(ax, "legend_compact", False)),
             background=getattr(ax, "legend_facecolor", None),
         )
-        if external_legend:
+        if legend.external:
             # ``key off`` hides the draw-order key. The visible one is the
             # block queued for end_graph, in addition order.
             writer.add_key_off()
-            ordered = [(legend_entries[i][1], legend_entries[i][2]) for i in addition]
+            ordered = [
+                (legend.entries[i][1], legend.entries[i][2]) for i in legend.addition
+            ]
             breaks = (
-                legend_column_breaks(n_legend, ncol)
-                if show_legend and ncol > 1
+                legend_column_breaks(n_legend, legend.ncol)
+                if legend.show and legend.ncol > 1
                 else set()
             )
             writer.queue_external_legend(
@@ -2653,9 +2764,9 @@ class Figure:
                 position=ax.legend_pos,
                 **legend_kwargs,
             )
-        elif show_legend:
+        elif legend.show:
             writer.add_legend(ax.legend_pos, **legend_kwargs)
-        elif labels_present:
+        elif n_legend > 0:
             # GLE draws an implicit key from per-dataset key "label" tokens;
             # it must be switched off explicitly.
             writer.add_key_off()
