@@ -633,6 +633,45 @@ def histogram():
     return fig
 
 
+def histogram_field_options():
+    """Histogram fields the other builders leave at their defaults.
+
+    A dashed, wider step outline on the y2 and x2 axes, a stepfilled
+    histogram with an edge colour, and a bin width (``bin_step``) in place of
+    a bin count, which only a recovered script sets.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    samples = [0.1, 0.3, 0.35, 0.6, 0.8]
+    ax.hist(
+        samples,
+        bins=4,
+        range=(0, 1),
+        histtype="step",
+        linestyle="--",
+        linewidth=2,
+        yaxis="y2",
+        xaxis="x2",
+        color="green",
+        label="dashed",
+    )
+    ax.hist(
+        samples,
+        bins=4,
+        range=(0, 1),
+        histtype="stepfilled",
+        edgecolor="black",
+        color="red",
+        label="edged",
+    )
+    ax.hist(samples, bins=4, range=(0, 1), histtype="step", color="blue")
+    stepped = ax.hists[2]
+    del stepped["bins"]
+    stepped["bin_step"] = 0.25
+    ax.legend()
+    return fig
+
+
 def axes_styling_grid_only():
     """The plainest grid: no style clause, no other styling."""
     fig = glp.figure(data_prefix="golden")
@@ -680,6 +719,7 @@ BUILDERS = [
     fill_forms,
     fill_field_options,
     histogram,
+    histogram_field_options,
     axes_styling_full,
     axes_styling_grid_only,
 ]
