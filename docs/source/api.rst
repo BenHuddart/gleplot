@@ -2,7 +2,8 @@ API Reference
 =============
 
 The public Python API is documented below. For narrative guides see
-:doc:`usage` and :doc:`getting_started`.
+:doc:`getting_started` and the user guide, starting with
+:doc:`guides/FIGURES_AND_SUBPLOTS`.
 
 .. toctree::
    :maxdepth: 1

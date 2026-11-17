@@ -362,36 +362,8 @@ Get the current configuration of a figure:
 
 ## Layout and Output Naming Configuration
 
-### Subplot Layout Tuning with `subplots_adjust`
-
-Use `Figure.subplots_adjust(...)` to control margins and spacing when subplot
-labels, legends, or titles need extra room.
-
-    import gleplot as glp
-    import numpy as np
-
-    fig, axes = glp.subplots(2, 2, figsize=(10, 8))
-    x = np.linspace(0, 10, 100)
-
-    for i, ax in enumerate(axes, start=1):
-        ax.plot(x, np.sin(x + i), label=f'Panel {i}')
-        ax.legend()
-
-    fig.subplots_adjust(
-        left=0.12,
-        right=0.98,
-        bottom=0.10,
-        top=0.93,
-        wspace=0.35,
-        hspace=0.40,
-    )
-
-Validation rules follow matplotlib conventions:
-
-- `left < right`
-- `bottom < top`
-- `wspace >= 0`
-- `hspace >= 0`
+Margins and panel spacing (`subplots_adjust`) are in
+[Figures and Subplots](FIGURES_AND_SUBPLOTS.md).
 
 ### Data Sidecar Naming with `data_prefix`
 
@@ -412,8 +384,17 @@ Typical side files:
 - `run42_0.dat`
 - `run42_1.dat` (if additional series are generated)
 
-For semantic per-series names, use the `data_name` keyword in generated-data
-methods such as `plot()` and `fill_between()`.
+`subplots` takes `data_prefix` too:
+
+    fig, axes = glp.subplots(2, 1, sharex=True, data_prefix='experimentB')
+
+For semantic per-series names, pass `data_name` to generated-data methods such
+as `plot()` and `fill_between()`. The label is sanitized into a filename stem
+(lowercased, punctuation collapsed to underscores), and reused names are
+disambiguated with `_1`, `_2`, and so on:
+
+    ax.plot(x, y_obs, data_name='Observed Signal')            # observed_signal.dat
+    ax.fill_between(x, y_lo, y_hi, data_name='Confidence Band 95')  # confidence_band_95.dat
 
 #### Allowed characters
 

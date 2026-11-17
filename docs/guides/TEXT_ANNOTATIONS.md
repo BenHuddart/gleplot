@@ -59,6 +59,18 @@ ax.text(
 
 `facecolor` (alias `fill`) is the color of a filled background, drawn with GLE `begin box fill` and a 0.05 cm pad. The box has no outline. `edgecolor`, `linewidth`, `pad`, and `boxstyle` are accepted and ignored, with a warning.
 
+## Arrows
+
+`ax.annotate` places the text at `xytext` with an arrow to the point `xy`,
+both in data coordinates:
+
+```python
+ax.annotate('peak', xy=(1.0, 1.3), xytext=(1.4, 1.6), arrowprops={'arrowstyle': '->'})
+```
+
+The arrow styles and the `arrowprops` keys that are honoured are listed in the
+[Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md).
+
 ## Using Module-Level Convenience API
 
 ```python

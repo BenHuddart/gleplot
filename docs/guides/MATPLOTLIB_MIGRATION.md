@@ -228,18 +228,7 @@ ax.fill(x, y, alpha=0.4)
 
 ## Secondary axes
 
-The right-hand scale is `yaxis="y2"` on a series, with `set_ylim`, `set_ylabel`, `set_yscale` and `set_tick_format` taking `axis="y2"`. The top scale is the same idea, and `ax.twiny()` is the matplotlib view that binds it:
-
-```python
-top = ax.twiny()
-top.plot(x_alt, y)
-top.set_xlim(0, 10)
-top.set_xlabel("wavelength")
-```
-
-`xaxis="x2"` on `plot`, `scatter`, `errorbar`, `step`, `stem`, `hist` (step outline), `line_from_file` and `errorbar_from_file` is the same binding without the view. `set_xlim`, `set_xlabel`, `set_xscale` and `set_tick_format` take `axis="x2"`.
-
-GLE copies an `xaxis` command onto x2. `min` and `max` are not copied, but `log` is, so a linear top scale under a log bottom axis is written `x2axis lin` after the `xaxis` line. A figure whose bottom axis is log and whose top scale is unused does not gain that line. `x2labels on` is written when the top scale has limits, a log scale, a title, or tick-label styling; a series on x2 is enough for GLE to number that axis on its own. There is no x2 grid. A filled histogram cannot use x2, and `bar` has no `x2axis`.
+The right-hand scale is `yaxis="y2"` on a series, and `ax.twiny()` opens the top scale. Both are described in [Axes and Legends](AXES_AND_LEGENDS.md).
 
 ## Key Behavioral Differences
 
