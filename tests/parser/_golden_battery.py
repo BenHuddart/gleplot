@@ -570,6 +570,32 @@ def line_field_options():
     return fig
 
 
+def scatter_field_options():
+    """Scatter fields the other builders leave at their defaults.
+
+    A labelled scatter on the y2 and x2 axes, a marker-only ``plot`` shifted
+    by ``offset``, and an unlabelled scatter, whose header row still needs
+    an empty ``key``.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = [0, 1, 2, 3]
+    ax.scatter(x, [3, 1, 2, 0], color="green", marker="^", yaxis="y2", label="top")
+    ax.scatter(x, [1, 2, 3, 4], color="red", marker="o", xaxis="x2", label="right")
+    ax.plot(
+        x,
+        [0, 1, 0, 1],
+        color="blue",
+        linestyle="none",
+        marker="s",
+        offset=0.5,
+        label="shifted",
+    )
+    ax.scatter(x, [2, 2, 1, 1], color="black", marker="x")
+    ax.legend()
+    return fig
+
+
 def fill_forms():
     """Axis fill, a clipped band, and a closed polygon."""
     fig = glp.figure(data_prefix="golden")
@@ -716,6 +742,7 @@ BUILDERS = [
     custom_tick_labels,
     line_modes,
     line_field_options,
+    scatter_field_options,
     fill_forms,
     fill_field_options,
     histogram,
