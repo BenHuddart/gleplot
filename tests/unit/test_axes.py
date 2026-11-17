@@ -1,22 +1,22 @@
 """Unit tests for axis properties."""
 
 import re
-import unittest
+
+import pytest
 
 import gleplot as glp
 
 
-class TestAxisProperties(unittest.TestCase):
+class TestAxisProperties:
     """Test axis property setting."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         """Create fresh figure for each test."""
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
-
-    def tearDown(self):
-        """Clean up after each test."""
+        yield
         glp.close()
 
     def test_axis_labels(self):
@@ -25,45 +25,44 @@ class TestAxisProperties(unittest.TestCase):
         self.ax.set_ylabel("Y axis")
         self.ax.set_title("Test Plot")
 
-        self.assertEqual(self.ax.xlabel_text, "X axis")
-        self.assertEqual(self.ax.ylabel_text, "Y axis")
-        self.assertEqual(self.ax.title_text, "Test Plot")
+        assert self.ax.xlabel_text == "X axis"
+        assert self.ax.ylabel_text == "Y axis"
+        assert self.ax.title_text == "Test Plot"
 
     def test_axis_limits(self):
         """Test setting axis limits."""
         self.ax.set_xlim(0, 10)
         self.ax.set_ylim(0, 100)
 
-        self.assertEqual(self.ax.xmin, 0)
-        self.assertEqual(self.ax.xmax, 10)
-        self.assertEqual(self.ax.ymin, 0)
-        self.assertEqual(self.ax.ymax, 100)
+        assert self.ax.xmin == 0
+        assert self.ax.xmax == 10
+        assert self.ax.ymin == 0
+        assert self.ax.ymax == 100
 
     def test_axis_scales(self):
         """Test setting axis scales."""
         self.ax.set_xscale("log")
         self.ax.set_yscale("log")
 
-        self.assertEqual(self.ax.xscale, "log")
-        self.assertEqual(self.ax.yscale, "log")
+        assert self.ax.xscale == "log"
+        assert self.ax.yscale == "log"
 
     def test_legend(self):
         """Test adding legend."""
         self.ax.legend(loc="upper left")
 
-        self.assertTrue(self.ax.legend_on)
-        self.assertEqual(self.ax.legend_pos, "top left")
+        assert self.ax.legend_on
+        assert self.ax.legend_pos == "top left"
 
 
-class TestSubplots(unittest.TestCase):
+class TestSubplots:
     """Test subplot (multi-graph) functionality."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         """Create fresh figure for each test."""
         glp.close()
-
-    def tearDown(self):
-        """Clean up after each test."""
+        yield
         glp.close()
 
     @staticmethod
@@ -91,15 +90,15 @@ class TestSubplots(unittest.TestCase):
         fig = glp.figure()
         ax = fig.add_subplot(2, 3, 4)
 
-        self.assertEqual(ax.position, (2, 3, 4))
-        self.assertEqual(len(fig.axes_list), 1)
+        assert ax.position == (2, 3, 4)
+        assert len(fig.axes_list) == 1
 
     def test_add_subplot_shorthand(self):
         """Test add_subplot with single int shorthand (e.g., 221)."""
         fig = glp.figure()
         ax = fig.add_subplot(221)
 
-        self.assertEqual(ax.position, (2, 2, 1))
+        assert ax.position == (2, 2, 1)
 
     def test_multiple_subplots(self):
         """Test creating multiple subplots."""
@@ -109,32 +108,32 @@ class TestSubplots(unittest.TestCase):
         fig.add_subplot(2, 2, 3)
         ax4 = fig.add_subplot(2, 2, 4)
 
-        self.assertEqual(len(fig.axes_list), 4)
+        assert len(fig.axes_list) == 4
         # Current axes should be the last one added
-        self.assertIs(fig._current_axes, ax4)
+        assert fig._current_axes is ax4
 
     def test_subplots_function_single(self):
         """Test subplots() convenience function for single plot."""
         fig, ax = glp.subplots()
 
-        self.assertIsInstance(fig, glp.Figure)
-        self.assertIsInstance(ax, glp.Axes)
-        self.assertEqual(len(fig.axes_list), 1)
+        assert isinstance(fig, glp.Figure)
+        assert isinstance(ax, glp.Axes)
+        assert len(fig.axes_list) == 1
 
     def test_subplots_function_grid(self):
         """Test subplots() convenience function for grid."""
         fig, axes = glp.subplots(2, 3)
 
-        self.assertIsInstance(axes, list)
-        self.assertEqual(len(axes), 6)
-        self.assertEqual(fig.figsize, (18, 8))  # 6*3, 4*2
+        assert isinstance(axes, list)
+        assert len(axes) == 6
+        assert fig.figsize == (18, 8)  # 6*3, 4*2
 
     def test_subplots_function_custom_figsize(self):
         """Test subplots() with custom figsize."""
         fig, axes = glp.subplots(2, 2, figsize=(10, 8))
 
-        self.assertEqual(fig.figsize, (10, 8))
-        self.assertEqual(len(axes), 4)
+        assert fig.figsize == (10, 8)
+        assert len(axes) == 4
 
     def test_subplot_independent_axes(self):
         """Test that subplots have independent axis properties."""
@@ -144,10 +143,10 @@ class TestSubplots(unittest.TestCase):
         axes[1].set_title("Right")
         axes[1].set_xlabel("x2")
 
-        self.assertEqual(axes[0].title_text, "Left")
-        self.assertEqual(axes[1].title_text, "Right")
-        self.assertEqual(axes[0].xlabel_text, "x1")
-        self.assertEqual(axes[1].xlabel_text, "x2")
+        assert axes[0].title_text == "Left"
+        assert axes[1].title_text == "Right"
+        assert axes[0].xlabel_text == "x1"
+        assert axes[1].xlabel_text == "x2"
 
     def test_subplot_independent_data(self):
         """Test that subplots hold independent data."""
@@ -155,10 +154,10 @@ class TestSubplots(unittest.TestCase):
         axes[0].plot([1, 2, 3], [1, 4, 9])
         axes[1].scatter([1, 2, 3], [3, 2, 1])
 
-        self.assertEqual(len(axes[0].lines), 1)
-        self.assertEqual(len(axes[0].scatters), 0)
-        self.assertEqual(len(axes[1].lines), 0)
-        self.assertEqual(len(axes[1].scatters), 1)
+        assert len(axes[0].lines) == 1
+        assert len(axes[0].scatters) == 0
+        assert len(axes[1].lines) == 0
+        assert len(axes[1].scatters) == 1
 
     def test_single_subplot_gle_is_explicitly_placed(self):
         """A single subplot is the 1x1 case: one placed graph block.
@@ -172,12 +171,12 @@ class TestSubplots(unittest.TestCase):
         ax.plot([1, 2, 3], [1, 4, 9])
 
         gle = fig._generate_gle()
-        self.assertEqual(gle.count("amove"), 1)
-        self.assertNotIn("scale auto", gle)
-        self.assertIn("    scale 1 1", gle)
+        assert gle.count("amove") == 1
+        assert "scale auto" not in gle
+        assert "    scale 1 1" in gle
         # Should have exactly one begin/end graph
-        self.assertEqual(gle.count("begin graph"), 1)
-        self.assertEqual(gle.count("end graph"), 1)
+        assert gle.count("begin graph") == 1
+        assert gle.count("end graph") == 1
 
     def test_multi_subplot_gle_has_amove(self):
         """Test that multi-subplot generates amove positioning."""
@@ -188,9 +187,9 @@ class TestSubplots(unittest.TestCase):
         ax2.scatter([1, 2, 3], [3, 2, 1])
 
         gle = fig._generate_gle()
-        self.assertIn("amove", gle)
-        self.assertEqual(gle.count("begin graph"), 2)
-        self.assertEqual(gle.count("end graph"), 2)
+        assert "amove" in gle
+        assert gle.count("begin graph") == 2
+        assert gle.count("end graph") == 2
 
     def test_2x2_subplot_gle_structure(self):
         """Test GLE structure of a 2x2 subplot grid."""
@@ -202,13 +201,13 @@ class TestSubplots(unittest.TestCase):
 
         gle = fig._generate_gle()
         # Should have 4 graph blocks
-        self.assertEqual(gle.count("begin graph"), 4)
-        self.assertEqual(gle.count("end graph"), 4)
+        assert gle.count("begin graph") == 4
+        assert gle.count("end graph") == 4
         # Each should have a title
         for i in range(1, 5):
-            self.assertIn(f'title "Plot {i}"', gle)
+            assert f'title "Plot {i}"' in gle
         # Should have explicit size for each subplot
-        self.assertIn("size", gle)
+        assert "size" in gle
 
     def test_subplots_adjust_changes_multiplot_geometry(self):
         """subplots_adjust should alter amove geometry in generated GLE."""
@@ -218,17 +217,17 @@ class TestSubplots(unittest.TestCase):
 
         gle_default = fig._generate_gle()
         default_points = self._extract_amove_points(gle_default)
-        self.assertEqual(len(default_points), 3)
+        assert len(default_points) == 3
         default_x = default_points[0][0]
 
         fig.subplots_adjust(left=0.2, right=0.98, bottom=0.12, top=0.95, hspace=0.45)
         gle_adjusted = fig._generate_gle()
         adjusted_points = self._extract_amove_points(gle_adjusted)
-        self.assertEqual(len(adjusted_points), 3)
+        assert len(adjusted_points) == 3
         adjusted_x = adjusted_points[0][0]
 
         # Increased normalized left margin should shift all subplots right.
-        self.assertGreater(adjusted_x, default_x)
+        assert adjusted_x > default_x
 
     def test_subplots_adjust_wspace_hspace_reduce_cell_size(self):
         """Positive wspace/hspace should reduce per-panel graph size."""
@@ -239,30 +238,30 @@ class TestSubplots(unittest.TestCase):
         default_sizes = self._extract_sizes(fig._generate_gle())
         # First size command is global canvas size; subsequent entries are subplot sizes.
         default_subplot_sizes = default_sizes[1:]
-        self.assertEqual(len(default_subplot_sizes), 4)
+        assert len(default_subplot_sizes) == 4
 
         fig.subplots_adjust(wspace=0.6, hspace=0.5)
         adjusted_sizes = self._extract_sizes(fig._generate_gle())
         adjusted_subplot_sizes = adjusted_sizes[1:]
-        self.assertEqual(len(adjusted_subplot_sizes), 4)
+        assert len(adjusted_subplot_sizes) == 4
 
-        self.assertLess(adjusted_subplot_sizes[0][0], default_subplot_sizes[0][0])
-        self.assertLess(adjusted_subplot_sizes[0][1], default_subplot_sizes[0][1])
+        assert adjusted_subplot_sizes[0][0] < default_subplot_sizes[0][0]
+        assert adjusted_subplot_sizes[0][1] < default_subplot_sizes[0][1]
 
     def test_subplots_adjust_validation_errors(self):
         """subplots_adjust should validate bounds and axis ordering."""
         fig = glp.figure()
 
-        with self.assertRaisesRegex(ValueError, r"left must be within \[0, 1\]"):
+        with pytest.raises(ValueError, match=r"left must be within \[0, 1\]"):
             fig.subplots_adjust(left=-0.01)
 
-        with self.assertRaisesRegex(ValueError, r"wspace must be >= 0"):
+        with pytest.raises(ValueError, match=r"wspace must be >= 0"):
             fig.subplots_adjust(wspace=-0.5)
 
-        with self.assertRaisesRegex(ValueError, "left must be less than right"):
+        with pytest.raises(ValueError, match="left must be less than right"):
             fig.subplots_adjust(left=0.8, right=0.3)
 
-        with self.assertRaisesRegex(ValueError, "bottom must be less than top"):
+        with pytest.raises(ValueError, match="bottom must be less than top"):
             fig.subplots_adjust(bottom=0.7, top=0.2)
 
     def test_subplots_adjust_invalid_update_does_not_mutate_state(self):
@@ -270,13 +269,13 @@ class TestSubplots(unittest.TestCase):
         fig = glp.figure()
         fig.subplots_adjust(left=0.15, right=0.9, top=0.95, bottom=0.1)
 
-        with self.assertRaisesRegex(ValueError, "left must be less than right"):
+        with pytest.raises(ValueError, match="left must be less than right"):
             fig.subplots_adjust(right=0.1)
 
-        self.assertEqual(fig._subplot_adjust["left"], 0.15)
-        self.assertEqual(fig._subplot_adjust["right"], 0.9)
-        self.assertEqual(fig._subplot_adjust["top"], 0.95)
-        self.assertEqual(fig._subplot_adjust["bottom"], 0.1)
+        assert fig._subplot_adjust["left"] == 0.15
+        assert fig._subplot_adjust["right"] == 0.9
+        assert fig._subplot_adjust["top"] == 0.95
+        assert fig._subplot_adjust["bottom"] == 0.1
 
     def test_subplot_mixed_types(self):
         """Test subplots with different plot types."""
@@ -290,36 +289,32 @@ class TestSubplots(unittest.TestCase):
 
         gle = fig._generate_gle()
         # Should contain all plot types
-        self.assertIn("line", gle)
-        self.assertIn("marker", gle)
-        self.assertIn("bar", gle)
-        self.assertIn("err", gle)
+        assert "line" in gle
+        assert "marker" in gle
+        assert "bar" in gle
+        assert "err" in gle
 
-    def test_subplot_savefig(self):
+    def test_subplot_savefig(self, tmp_path):
         """Test saving multi-subplot figure."""
-        import os
-        import tempfile
-
         fig, axes = glp.subplots(1, 2)
         axes[0].plot([1, 2, 3], [1, 4, 9])
         axes[1].scatter([1, 2, 3], [3, 2, 1])
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "subplots.gle")
-            fig.savefig(path)
-            self.assertTrue(os.path.exists(path))
-            content = open(path).read()
-            self.assertIn("amove", content)
-            self.assertEqual(content.count("begin graph"), 2)
+        path = tmp_path / "subplots.gle"
+        fig.savefig(str(path))
+        assert path.exists()
+        content = path.read_text()
+        assert "amove" in content
+        assert content.count("begin graph") == 2
 
 
-class TestGridRatios(unittest.TestCase):
+class TestGridRatios:
     """Test height_ratios/width_ratios on the multi-subplot grid."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         glp.close()
-
-    def tearDown(self):
+        yield
         glp.close()
 
     @staticmethod
@@ -341,7 +336,7 @@ class TestGridRatios(unittest.TestCase):
             )
         ]
 
-    def assertEmittedAlmostEqual(self, actual, expected):
+    def assert_emitted_almost_equal(self, actual, expected):
         """Compare quantities read back from emitted GLE text.
 
         The writer emits 6 significant digits (GLEWriter._format_number), so
@@ -350,7 +345,7 @@ class TestGridRatios(unittest.TestCase):
         divide. Anything tighter tests the margins' decimal expansion rather
         than the layout.
         """
-        self.assertAlmostEqual(actual, expected, delta=1e-5 * max(1.0, abs(expected)))
+        assert actual == pytest.approx(expected, abs=1e-5 * max(1.0, abs(expected)))
 
     def test_default_omitted_height_ratios_is_byte_identical(self):
         """Omitting height_ratios must reproduce the pre-existing equal-row output."""
@@ -369,7 +364,7 @@ class TestGridRatios(unittest.TestCase):
         _gleplot_axes._global_data_file_counter = 0
         explicit_none = build(height_ratios=None, width_ratios=None)._generate_gle()
 
-        self.assertEqual(without, explicit_none)
+        assert without == explicit_none
 
     def test_height_ratios_scales_row_sizes_proportionally(self):
         """A 3:1 height_ratios pair should split the plotting height 3:1."""
@@ -381,11 +376,11 @@ class TestGridRatios(unittest.TestCase):
 
         gle = fig._generate_gle()
         sizes = self._extract_sizes(gle)[1:]  # drop the page 'size' command
-        self.assertEqual(len(sizes), 2)
+        assert len(sizes) == 2
         top_h, bottom_h = sizes[0][1], sizes[1][1]
-        self.assertEmittedAlmostEqual(top_h / bottom_h, 3.0)
+        self.assert_emitted_almost_equal(top_h / bottom_h, 3.0)
         # Widths are unaffected by height_ratios.
-        self.assertAlmostEqual(sizes[0][0], sizes[1][0], places=6)
+        assert sizes[0][0] == pytest.approx(sizes[1][0], abs=5e-7)
 
     def test_width_ratios_scales_column_sizes_proportionally(self):
         """A 1:3 width_ratios pair should split the plotting width 1:3."""
@@ -395,9 +390,9 @@ class TestGridRatios(unittest.TestCase):
 
         gle = fig._generate_gle()
         sizes = self._extract_sizes(gle)[1:]
-        self.assertEqual(len(sizes), 2)
+        assert len(sizes) == 2
         left_w, right_w = sizes[0][0], sizes[1][0]
-        self.assertEmittedAlmostEqual(right_w / left_w, 3.0)
+        self.assert_emitted_almost_equal(right_w / left_w, 3.0)
 
     def test_height_ratios_five_row_stack_with_short_separator(self):
         """3 flush panels + a short separator row + a 4th panel, PRL-shaped."""
@@ -409,42 +404,44 @@ class TestGridRatios(unittest.TestCase):
 
         gle = fig._generate_gle()
         sizes = self._extract_sizes(gle)[1:]
-        self.assertEqual(len(sizes), 5)
+        assert len(sizes) == 5
         heights = [h for _, h in sizes]
         # sharex=True -> zero vertical gap, so heights sum exactly to the
         # available plotting height (figure height minus margins).
         for a, b in ((0, 1), (1, 2)):
-            self.assertAlmostEqual(heights[a], heights[b], places=6)
-        self.assertEmittedAlmostEqual(heights[0] / heights[3], 3.0)
-        self.assertEmittedAlmostEqual(heights[4] / heights[3], 4.0)
+            assert heights[a] == pytest.approx(heights[b], abs=5e-7)
+        self.assert_emitted_almost_equal(heights[0] / heights[3], 3.0)
+        self.assert_emitted_almost_equal(heights[4] / heights[3], 4.0)
 
         # Panels are flush (sharex -> zero vspace): each row's top edge
         # meets the previous row's bottom edge exactly.
         amoves = self._extract_amove_points(gle)
-        self.assertEqual(len(amoves), 5)
+        assert len(amoves) == 5
         for i in range(4):
             top_of_next = amoves[i + 1][1] + heights[i + 1]
             bottom_of_this = amoves[i][1]
-            self.assertEmittedAlmostEqual(top_of_next, bottom_of_this)
+            self.assert_emitted_almost_equal(top_of_next, bottom_of_this)
 
     def test_height_ratios_length_mismatch_raises(self):
         fig, axes = glp.subplots(3, 1, height_ratios=[1, 2])
-        with self.assertRaisesRegex(
-            ValueError, r"height_ratios has length 2, but the subplot grid has 3 rows"
+        with pytest.raises(
+            ValueError,
+            match=r"height_ratios has length 2, but the subplot grid has 3 rows",
         ):
             fig._generate_gle()
 
     def test_width_ratios_length_mismatch_raises(self):
         fig, axes = glp.subplots(1, 2, width_ratios=[1, 2, 3])
-        with self.assertRaisesRegex(
-            ValueError, r"width_ratios has length 3, but the subplot grid has 2 columns"
+        with pytest.raises(
+            ValueError,
+            match=r"width_ratios has length 3, but the subplot grid has 2 columns",
         ):
             fig._generate_gle()
 
     def test_non_positive_ratio_raises(self):
         fig, axes = glp.subplots(2, 1, height_ratios=[1, 0])
-        with self.assertRaisesRegex(
-            ValueError, "height_ratios entries must all be positive"
+        with pytest.raises(
+            ValueError, match="height_ratios entries must all be positive"
         ):
             fig._generate_gle()
 
@@ -458,8 +455,8 @@ class TestGridRatios(unittest.TestCase):
 
         gle = fig._generate_gle()
         sizes = self._extract_sizes(gle)[1:]
-        self.assertEqual(len(sizes), 2)
-        self.assertAlmostEqual(sizes[0][1] / sizes[1][1], 3.0, places=6)
+        assert len(sizes) == 2
+        assert sizes[0][1] / sizes[1][1] == pytest.approx(3.0, abs=5e-7)
 
     def test_single_row_width_ratios_ignored_for_single_axes(self):
         """A single (1,1,1) axes must ignore height_ratios/width_ratios entirely."""
@@ -469,20 +466,19 @@ class TestGridRatios(unittest.TestCase):
         # Must not raise even though height_ratios has length 3 (there is
         # only ever 1 row on the single-axes path, which never validates it).
         gle = fig._generate_gle()
-        self.assertIn("begin graph", gle)
+        assert "begin graph" in gle
 
 
-class TestSecondaryYAxis(unittest.TestCase):
+class TestSecondaryYAxis:
     """Test secondary y-axis (y2axis) functionality."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         """Create fresh figure for each test."""
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
-
-    def tearDown(self):
-        """Clean up after each test."""
+        yield
         glp.close()
 
     def test_y2_label(self):
@@ -490,34 +486,34 @@ class TestSecondaryYAxis(unittest.TestCase):
         self.ax.set_ylabel("Primary Y", axis="y")
         self.ax.set_ylabel("Secondary Y", axis="y2")
 
-        self.assertEqual(self.ax.ylabel_text, "Primary Y")
-        self.assertEqual(self.ax.y2label_text, "Secondary Y")
+        assert self.ax.ylabel_text == "Primary Y"
+        assert self.ax.y2label_text == "Secondary Y"
 
     def test_y2_limits(self):
         """Test setting y2axis limits."""
         self.ax.set_ylim(0, 100, axis="y")
         self.ax.set_ylim(0, 1000, axis="y2")
 
-        self.assertEqual(self.ax.ymin, 0)
-        self.assertEqual(self.ax.ymax, 100)
-        self.assertEqual(self.ax.y2min, 0)
-        self.assertEqual(self.ax.y2max, 1000)
+        assert self.ax.ymin == 0
+        assert self.ax.ymax == 100
+        assert self.ax.y2min == 0
+        assert self.ax.y2max == 1000
 
     def test_y2_scale(self):
         """Test setting y2axis scale."""
         self.ax.set_yscale("linear", axis="y")
         self.ax.set_yscale("log", axis="y2")
 
-        self.assertEqual(self.ax.yscale, "linear")
-        self.assertEqual(self.ax.y2scale, "log")
+        assert self.ax.yscale == "linear"
+        assert self.ax.y2scale == "log"
 
     def test_get_y2_limits(self):
         """Test getting y2axis limits."""
         self.ax.set_ylim(10, 20, axis="y2")
 
         y2min, y2max = self.ax.get_ylim(axis="y2")
-        self.assertEqual(y2min, 10)
-        self.assertEqual(y2max, 20)
+        assert y2min == 10
+        assert y2max == 20
 
     def test_plot_on_y2axis(self):
         """Test plotting on y2axis."""
@@ -528,8 +524,8 @@ class TestSecondaryYAxis(unittest.TestCase):
 
         self.ax.plot(x, y, yaxis="y2", label="Y2 Data")
 
-        self.assertEqual(len(self.ax.lines), 1)
-        self.assertEqual(self.ax.lines[0]["yaxis"], "y2")
+        assert len(self.ax.lines) == 1
+        assert self.ax.lines[0]["yaxis"] == "y2"
 
     def test_scatter_on_y2axis(self):
         """Test scatter plot on y2axis."""
@@ -540,8 +536,8 @@ class TestSecondaryYAxis(unittest.TestCase):
 
         self.ax.scatter(x, y, yaxis="y2", label="Y2 Scatter")
 
-        self.assertEqual(len(self.ax.scatters), 1)
-        self.assertEqual(self.ax.scatters[0]["yaxis"], "y2")
+        assert len(self.ax.scatters) == 1
+        assert self.ax.scatters[0]["yaxis"] == "y2"
 
     def test_errorbar_on_y2axis(self):
         """Test errorbar plot on y2axis."""
@@ -553,8 +549,8 @@ class TestSecondaryYAxis(unittest.TestCase):
 
         self.ax.errorbar(x, y, yerr=yerr, yaxis="y2", label="Y2 Error")
 
-        self.assertEqual(len(self.ax.errorbars), 1)
-        self.assertEqual(self.ax.errorbars[0]["yaxis"], "y2")
+        assert len(self.ax.errorbars) == 1
+        assert self.ax.errorbars[0]["yaxis"] == "y2"
 
     def test_mixed_y_and_y2_plots(self):
         """Test mixing plots on y and y2 axes."""
@@ -565,9 +561,9 @@ class TestSecondaryYAxis(unittest.TestCase):
         self.ax.plot(x, x**2, yaxis="y", label="Y Data")
         self.ax.plot(x, x**3, yaxis="y2", label="Y2 Data")
 
-        self.assertEqual(len(self.ax.lines), 2)
-        self.assertEqual(self.ax.lines[0]["yaxis"], "y")
-        self.assertEqual(self.ax.lines[1]["yaxis"], "y2")
+        assert len(self.ax.lines) == 2
+        assert self.ax.lines[0]["yaxis"] == "y"
+        assert self.ax.lines[1]["yaxis"] == "y2"
 
     def test_has_y2_plots(self):
         """Test has_y2_plots helper method."""
@@ -576,15 +572,15 @@ class TestSecondaryYAxis(unittest.TestCase):
         x = np.array([1, 2, 3])
 
         # Initially no y2 plots
-        self.assertFalse(self.ax.has_y2_plots())
+        assert not self.ax.has_y2_plots()
 
         # Add plot on y axis
         self.ax.plot(x, x**2, yaxis="y")
-        self.assertFalse(self.ax.has_y2_plots())
+        assert not self.ax.has_y2_plots()
 
         # Add plot on y2 axis
         self.ax.plot(x, x**3, yaxis="y2")
-        self.assertTrue(self.ax.has_y2_plots())
+        assert self.ax.has_y2_plots()
 
     def test_y2_gle_generation(self):
         """Test that y2axis generates correct GLE code."""
@@ -602,9 +598,9 @@ class TestSecondaryYAxis(unittest.TestCase):
         gle = self.fig._generate_gle()
 
         # Check for y2axis directives
-        self.assertIn('y2title "Secondary"', gle)
-        self.assertIn("y2axis min 0 max 30", gle)
-        self.assertIn("y2axis", gle)  # y2axis keyword on plot command
+        assert 'y2title "Secondary"' in gle
+        assert "y2axis min 0 max 30" in gle
+        assert "y2axis" in gle  # y2axis keyword on plot command
 
     def test_y2_log_scale_gle(self):
         """Test that y2axis log scale generates correct GLE code."""
@@ -617,7 +613,7 @@ class TestSecondaryYAxis(unittest.TestCase):
         self.ax.set_yscale("log", axis="y2")
 
         gle = self.fig._generate_gle()
-        self.assertIn("y2axis log", gle)
+        assert "y2axis log" in gle
 
     def test_y2_with_figure_convenience_methods(self):
         """Test y2axis with figure-level ylabel convenience method."""
@@ -625,11 +621,11 @@ class TestSecondaryYAxis(unittest.TestCase):
         self.fig.ylabel("Secondary Y", axis="y2")
 
         ax = self.fig.gca()
-        self.assertEqual(ax.ylabel_text, "Primary Y")
-        self.assertEqual(ax.y2label_text, "Secondary Y")
+        assert ax.ylabel_text == "Primary Y"
+        assert ax.y2label_text == "Secondary Y"
 
 
-class TestDecorationMargins(unittest.TestCase):
+class TestDecorationMargins:
     """One margin policy for every layout shape (Figure._auto_margins_cm).
 
     The compiled proof that these margins are big enough lives in
@@ -637,10 +633,10 @@ class TestDecorationMargins(unittest.TestCase):
     These assertions are on the model alone, so they run everywhere.
     """
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         glp.close()
-
-    def tearDown(self):
+        yield
         glp.close()
 
     @staticmethod
@@ -664,8 +660,7 @@ class TestDecorationMargins(unittest.TestCase):
         """The grid's outer decoration is the lone plot's decoration."""
         lone = self._margins(self._build(1, 1))
         for shape in ((1, 2), (2, 1), (2, 2), (3, 3)):
-            with self.subTest(shape=shape):
-                self.assertEqual(self._margins(self._build(*shape)), lone)
+            assert self._margins(self._build(*shape)) == lone
 
     def test_shared_axes_do_not_get_their_own_margins(self):
         """Sharing suppresses INNER labels; the outer edges are unchanged."""
@@ -675,15 +670,14 @@ class TestDecorationMargins(unittest.TestCase):
             {"sharey": True},
             {"sharex": True, "sharey": True},
         ):
-            with self.subTest(**kwargs):
-                self.assertEqual(self._margins(self._build(2, 2, **kwargs)), plain)
+            assert self._margins(self._build(2, 2, **kwargs)) == plain
 
     def test_grid_margins_scale_with_the_font_size(self):
         """A fixed-cm margin that fits at 12 pt clips at 18 pt; these do not."""
         small = self._margins(self._build(2, 2, style=glp.GLEStyleConfig(fontsize=9)))
         large = self._margins(self._build(2, 2, style=glp.GLEStyleConfig(fontsize=18)))
         for a, b in zip(small, large):
-            self.assertAlmostEqual(b / a, 2.0, places=6)
+            assert b / a == pytest.approx(2.0, abs=5e-7)
 
     def test_grid_left_margin_covers_a_y_title_plus_wide_tick_labels(self):
         """The measured requirement the old fixed 1.0 cm / 1.5 cm missed.
@@ -696,33 +690,25 @@ class TestDecorationMargins(unittest.TestCase):
 
         fig = self._build(2, 2)
         left = self._margins(fig)[0]
-        self.assertGreaterEqual(left, 3.11 * fontsize_pt_to_cm(fig.style.fontsize))
-        self.assertGreater(left, 1.32)
+        assert left >= 3.11 * fontsize_pt_to_cm(fig.style.fontsize)
+        assert left > 1.32
 
     def test_a_titled_grid_reserves_more_top_margin(self):
         titled = self._build(2, 2)
         titled.axes_list[0].set_title("panel")
-        self.assertGreater(
-            self._margins(titled)[3], self._margins(self._build(2, 2))[3]
-        )
+        assert self._margins(titled)[3] > self._margins(self._build(2, 2))[3]
 
     def test_a_grid_with_a_secondary_y_axis_reserves_more_right_margin(self):
         with_y2 = self._build(1, 2)
         with_y2.axes_list[-1].set_ylabel("current", axis="y2")
-        self.assertGreater(
-            self._margins(with_y2)[1], self._margins(self._build(1, 2))[1]
-        )
+        assert self._margins(with_y2)[1] > self._margins(self._build(1, 2))[1]
 
     def test_subplots_adjust_still_overrides_the_computed_margins(self):
         fig = self._build(2, 2)
         fig.subplots_adjust(left=0.25, right=0.9, bottom=0.2, top=0.8)
         left, right, bottom, top = self._margins(fig)
         width_cm, height_cm = 8 * 2.54, 6 * 2.54
-        self.assertAlmostEqual(left, 0.25 * width_cm, places=6)
-        self.assertAlmostEqual(right, 0.1 * width_cm, places=6)
-        self.assertAlmostEqual(bottom, 0.2 * height_cm, places=6)
-        self.assertAlmostEqual(top, 0.2 * height_cm, places=6)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert left == pytest.approx(0.25 * width_cm, abs=5e-7)
+        assert right == pytest.approx(0.1 * width_cm, abs=5e-7)
+        assert bottom == pytest.approx(0.2 * height_cm, abs=5e-7)
+        assert top == pytest.approx(0.2 * height_cm, abs=5e-7)

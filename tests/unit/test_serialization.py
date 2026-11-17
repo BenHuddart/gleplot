@@ -275,18 +275,14 @@ def test_axes_id_not_emitted_into_gle_output():
     assert fig.axes_list[0].axes_id not in text
 
 
-def test_recognized_axes_get_fresh_ids_not_shared_with_source():
-    import tempfile
-    from pathlib import Path
-
+def test_recognized_axes_get_fresh_ids_not_shared_with_source(tmp_path):
     from gleplot.parser.recognizer import parse_gle_figure
 
     fig = _simple_figure()
     original_id = fig.axes_list[0].axes_id
-    with tempfile.TemporaryDirectory() as tmp:
-        gle_path = Path(tmp) / "figure.gle"
-        fig.savefig_gle(str(gle_path))
-        recognized = parse_gle_figure(gle_path)
+    gle_path = tmp_path / "figure.gle"
+    fig.savefig_gle(str(gle_path))
+    recognized = parse_gle_figure(gle_path)
     new_id = recognized.figure.axes_list[0].axes_id
     assert isinstance(new_id, str) and new_id
     assert new_id != original_id

@@ -1,33 +1,34 @@
 """Unit tests for text annotation support."""
 
-import unittest
 import warnings
+
+import pytest
 
 import gleplot as glp
 
 
-class TestTextAnnotations(unittest.TestCase):
+class TestTextAnnotations:
     """Test in-plot text annotation APIs and GLE output."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
-
-    def tearDown(self):
+        yield
         glp.close()
 
     def test_axes_text_storage(self):
         self.ax.text(1.0, 2.0, "Peak A", color="red", fontsize=11, ha="center")
 
-        self.assertEqual(len(self.ax.texts), 1)
+        assert len(self.ax.texts) == 1
         entry = self.ax.texts[0]
-        self.assertEqual(entry["x"], 1.0)
-        self.assertEqual(entry["y"], 2.0)
-        self.assertEqual(entry["text"], "Peak A")
-        self.assertEqual(entry["color"], "RED")
-        self.assertEqual(entry["ha"], "center")
-        self.assertEqual(entry["fontsize"], 11.0)
+        assert entry["x"] == 1.0
+        assert entry["y"] == 2.0
+        assert entry["text"] == "Peak A"
+        assert entry["color"] == "RED"
+        assert entry["ha"] == "center"
+        assert entry["fontsize"] == 11.0
 
     def test_text_generates_gle_commands(self):
         self.ax.plot([0, 1, 2], [0.2, 0.5, 0.3], color="blue")
@@ -35,15 +36,15 @@ class TestTextAnnotations(unittest.TestCase):
 
         gle = self.fig._generate_gle()
 
-        self.assertIn("amove xg(1.25) yg(0.45)", gle)
-        self.assertIn('write "Comp 1"', gle)
+        assert "amove xg(1.25) yg(0.45)" in gle
+        assert 'write "Comp 1"' in gle
         # 'BLACK'/'left' are GLE's own defaults (and the sticky state the
         # writer starts in), so a text using them needs no 'set color'/'set
         # just' restated -- the writer skips redundant lines that would not
         # change anything (see GLEWriter.add_text sticky-state tracking).
-        self.assertNotIn("set color BLACK", gle)
-        self.assertNotIn("set just left", gle)
-        self.assertLess(gle.find("end graph"), gle.find("amove xg(1.25) yg(0.45)"))
+        assert "set color BLACK" not in gle
+        assert "set just left" not in gle
+        assert gle.find("end graph") < gle.find("amove xg(1.25) yg(0.45)")
 
     def test_text_with_non_default_just_emits_set_just(self):
         # A halign that differs from GLE's sticky default ('left') must still
@@ -53,42 +54,42 @@ class TestTextAnnotations(unittest.TestCase):
 
         gle = self.fig._generate_gle()
 
-        self.assertIn("set just center", gle)
-        self.assertIn('write "Comp 1"', gle)
+        assert "set just center" in gle
+        assert 'write "Comp 1"' in gle
 
     def test_module_level_text(self):
         glp.figure()
         glp.text(0.5, 0.25, "A")
 
         ax = glp.gca()
-        self.assertEqual(len(ax.texts), 1)
+        assert len(ax.texts) == 1
 
     def test_figure_level_text(self):
         self.fig.text(0.2, 0.8, "Figure API")
-        self.assertEqual(len(self.ax.texts), 1)
-        self.assertEqual(self.ax.texts[0]["text"], "Figure API")
+        assert len(self.ax.texts) == 1
+        assert self.ax.texts[0]["text"] == "Figure API"
 
     def test_text_escapes_quotes_for_gle(self):
         self.ax.text(1.0, 1.0, 'He said "hello"')
         gle = self.fig._generate_gle()
-        self.assertIn('write "He said \\"hello\\""', gle)
+        assert 'write "He said \\"hello\\""' in gle
 
     def test_text_accepts_bbox_facecolor(self):
         self.ax.text(0.1, 0.2, "boxed", bbox={"facecolor": "yellow"})
-        self.assertEqual(self.ax.texts[0]["box_color"], "YELLOW")
+        assert self.ax.texts[0]["box_color"] == "YELLOW"
 
     def test_text_bbox_fill_is_an_alias_for_facecolor(self):
         self.ax.text(0.1, 0.2, "boxed", bbox={"fill": "yellow"})
-        self.assertEqual(self.ax.texts[0]["box_color"], "YELLOW")
+        assert self.ax.texts[0]["box_color"] == "YELLOW"
 
     def test_default_alignment_is_vertical_center_without_a_set_just(self):
         self.ax.plot([0, 1], [0, 1])
         self.ax.text(0.5, 0.5, "note", ha="left", va="center")
         gle = self.fig._generate_gle()
-        self.assertNotIn("set just", gle)
-        self.assertNotIn("begin rotate", gle)
-        self.assertNotIn("begin box", gle)
-        self.assertNotIn("rotation", self.ax.texts[0])
+        assert "set just" not in gle
+        assert "begin rotate" not in gle
+        assert "begin box" not in gle
+        assert "rotation" not in self.ax.texts[0]
 
     def test_vertical_alignment_uses_two_letter_just(self):
         self.ax.plot([0, 1], [0, 1])
@@ -98,11 +99,11 @@ class TestTextAnnotations(unittest.TestCase):
         # so the writer has to restate ``left``.
         self.ax.text(0.5, 0.5, "mid", ha="left", va="center")
         gle = self.fig._generate_gle()
-        self.assertIn("set just tc", gle)
-        self.assertIn("set just br", gle)
-        self.assertIn("set just left", gle)
-        self.assertLess(gle.index("set just tc"), gle.index("set just br"))
-        self.assertLess(gle.index("set just br"), gle.index("set just left"))
+        assert "set just tc" in gle
+        assert "set just br" in gle
+        assert "set just left" in gle
+        assert gle.index("set just tc") < gle.index("set just br")
+        assert gle.index("set just br") < gle.index("set just left")
 
     def test_rotation_and_bbox_emit_blocks_around_the_write(self):
         self.ax.plot([0, 1, 2], [0, 1, 0])
@@ -116,35 +117,32 @@ class TestTextAnnotations(unittest.TestCase):
             bbox={"facecolor": "white"},
         )
         gle = self.fig._generate_gle()
-        self.assertIn("set just bc", gle)
-        self.assertIn("begin rotate 45", gle)
-        self.assertIn("begin box fill WHITE add 0.05 nobox", gle)
-        self.assertIn('write "peak"', gle)
-        self.assertLess(gle.index("amove xg(1) yg(1)"), gle.index("begin rotate 45"))
-        self.assertLess(gle.index("begin rotate 45"), gle.index("begin box fill WHITE"))
-        self.assertLess(gle.index("begin box fill WHITE"), gle.index('write "peak"'))
-        self.assertLess(gle.index('write "peak"'), gle.index("end box"))
-        self.assertLess(gle.index("end box"), gle.index("end rotate"))
-        self.assertEqual(self.ax.texts[0]["rotation"], 45.0)
-        self.assertEqual(self.ax.texts[0]["va"], "bottom")
+        assert "set just bc" in gle
+        assert "begin rotate 45" in gle
+        assert "begin box fill WHITE add 0.05 nobox" in gle
+        assert 'write "peak"' in gle
+        assert gle.index("amove xg(1) yg(1)") < gle.index("begin rotate 45")
+        assert gle.index("begin rotate 45") < gle.index("begin box fill WHITE")
+        assert gle.index("begin box fill WHITE") < gle.index('write "peak"')
+        assert gle.index('write "peak"') < gle.index("end box")
+        assert gle.index("end box") < gle.index("end rotate")
+        assert self.ax.texts[0]["rotation"] == 45.0
+        assert self.ax.texts[0]["va"] == "bottom"
 
     def test_zero_rotation_is_not_stored_or_emitted(self):
         self.ax.text(0, 0, "flat", rotation=0)
         gle = self.fig._generate_gle()
-        self.assertNotIn("rotation", self.ax.texts[0])
-        self.assertNotIn("begin rotate", gle)
+        assert "rotation" not in self.ax.texts[0]
+        assert "begin rotate" not in gle
 
     def test_negative_rotation_emits_a_signed_angle(self):
         self.ax.plot([0, 1], [0, 1])
         self.ax.text(0.5, 0.5, "tilt", rotation=-30)
         gle = self.fig._generate_gle()
-        self.assertIn("begin rotate -30", gle)
-        self.assertIn("end rotate", gle)
+        assert "begin rotate -30" in gle
+        assert "end rotate" in gle
 
-    def test_rgb_bbox_round_trips_through_the_parser(self):
-        import os
-        import tempfile
-
+    def test_rgb_bbox_round_trips_through_the_parser(self, tmp_path):
         from gleplot.parser.recognizer import parse_gle_figure
 
         self.ax.plot([0, 1], [0, 1])
@@ -158,16 +156,15 @@ class TestTextAnnotations(unittest.TestCase):
             color=(0.2, 0.4, 0.6),
             bbox={"facecolor": (1, 1, 0)},
         )
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "t.gle")
-            self.fig.savefig_gle(path)
-            got = parse_gle_figure(path).figure.axes_list[0].texts[0]
-        self.assertEqual(got["text"], "mark")
-        self.assertEqual(got["ha"], "left")
-        self.assertEqual(got["va"], "top")
-        self.assertEqual(got["rotation"], -15.0)
-        self.assertEqual(got["color"], "rgb255(51,102,153)")
-        self.assertEqual(got["box_color"], "rgb255(255,255,0)")
+        path = str(tmp_path / "t.gle")
+        self.fig.savefig_gle(path)
+        got = parse_gle_figure(path).figure.axes_list[0].texts[0]
+        assert got["text"] == "mark"
+        assert got["ha"] == "left"
+        assert got["va"] == "top"
+        assert got["rotation"] == -15.0
+        assert got["color"] == "rgb255(51,102,153)"
+        assert got["box_color"] == "rgb255(255,255,0)"
 
     def test_unknown_va_on_a_restored_text_keeps_ha(self):
         """A dict that bypasses ``Axes.text`` still keeps a valid ``ha``.
@@ -186,60 +183,60 @@ class TestTextAnnotations(unittest.TestCase):
             TextAnnotation(x=0.2, y=0.8, text="high", ha="nope", va="top")
         )
         gle = self.fig._generate_gle()
-        self.assertIn("set just right", gle)
-        self.assertIn("set just tl", gle)
-        self.assertLess(gle.index("set just right"), gle.index("set just tl"))
+        assert "set just right" in gle
+        assert "set just tl" in gle
+        assert gle.index("set just right") < gle.index("set just tl")
 
     def test_unsupported_text_arguments_warn(self):
-        with self.assertWarns(UserWarning):
+        with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", va="baseline")
-        self.assertEqual(self.ax.texts[-1]["va"], "center")
-        with self.assertWarns(UserWarning):
+        assert self.ax.texts[-1]["va"] == "center"
+        with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", ha="justified")
-        self.assertEqual(self.ax.texts[-1]["ha"], "left")
-        with self.assertWarns(UserWarning):
+        assert self.ax.texts[-1]["ha"] == "left"
+        with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", bbox={"facecolor": "white", "edgecolor": "black"})
-        self.assertEqual(self.ax.texts[-1]["box_color"], "WHITE")
-        with self.assertWarns(UserWarning):
+        assert self.ax.texts[-1]["box_color"] == "WHITE"
+        with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", bbox="white")
-        self.assertIsNone(self.ax.texts[-1]["box_color"])
-        with self.assertWarns(UserWarning):
+        assert self.ax.texts[-1]["box_color"] is None
+        with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", bbox={})
-        self.assertIsNone(self.ax.texts[-1]["box_color"])
-        with self.assertWarns(UserWarning):
+        assert self.ax.texts[-1]["box_color"] is None
+        with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", rotation="sideways")
-        self.assertNotIn("rotation", self.ax.texts[-1])
-        with self.assertWarns(UserWarning):
+        assert "rotation" not in self.ax.texts[-1]
+        with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", rotation=float("nan"))
-        self.assertNotIn("rotation", self.ax.texts[-1])
-        with self.assertWarns(UserWarning):
+        assert "rotation" not in self.ax.texts[-1]
+        with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", transform="axes")
-        self.assertEqual(self.ax.texts[-1]["text"], "x")
+        assert self.ax.texts[-1]["text"] == "x"
 
 
-class TestAnnotate(unittest.TestCase):
+class TestAnnotate:
     """``Axes.annotate``: a text plus a ``join`` arrow from its named box."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
         self.ax.plot([0, 1, 2], [0, 1, 0])
-
-    def tearDown(self):
+        yield
         glp.close()
 
     def test_issue_example_emits_named_box_and_join(self):
         entry = self.ax.annotate(
             "peak", xy=(2, 3), xytext=(2.4, 3.5), arrowprops={"arrowstyle": "->"}
         )
-        self.assertIs(entry, self.ax.texts[-1])
-        self.assertEqual((entry["x"], entry["y"]), (2.4, 3.5))
-        self.assertEqual(entry["xy"], [2.0, 3.0])
-        self.assertEqual(entry["arrow"], "->")
-        self.assertEqual(entry["arrowstyle"], "simple")
-        self.assertEqual(entry["arrow_color"], "BLACK")
-        self.assertNotIn("arrow_linewidth", entry)
+        assert entry is self.ax.texts[-1]
+        assert (entry["x"], entry["y"]) == (2.4, 3.5)
+        assert entry["xy"] == [2.0, 3.0]
+        assert entry["arrow"] == "->"
+        assert entry["arrowstyle"] == "simple"
+        assert entry["arrow_color"] == "BLACK"
+        assert "arrow_linewidth" not in entry
         gle = self.fig._generate_gle()
         block = (
             "amove xg(2.4) yg(3.5)\n"
@@ -254,7 +251,7 @@ class TestAnnotate(unittest.TestCase):
             "join ann1 -> ann1_xy\n"
             "grestore\n"
         )
-        self.assertIn(block, gle)
+        assert block in gle
 
     def test_arrowstyle_mapping(self):
         cases = {
@@ -270,25 +267,26 @@ class TestAnnotate(unittest.TestCase):
             entry = self.ax.annotate(
                 "a", xy=(0, 0), xytext=(1, 1), arrowprops={"arrowstyle": style}
             )
-            self.assertEqual(entry["arrow"], sep, style)
-            self.assertEqual(entry.get("arrowstyle"), tip, style)
+            assert entry["arrow"] == sep, style
+            assert entry.get("arrowstyle") == tip, style
         gle = self.fig._generate_gle()
         # '-' has no head, so no arrowstyle line precedes its join.
-        self.assertIn("set color BLACK\njoin ann1 - ann1_xy", gle)
+        assert "set color BLACK\njoin ann1 - ann1_xy" in gle
         # Names are unique per script.
-        self.assertIn("join ann7 <-> ann7_xy", gle)
+        assert "join ann7 <-> ann7_xy" in gle
 
     def test_legacy_arrowprops_is_a_filled_arrow(self):
-        with self.assertWarns(UserWarning) as cm:
+        with pytest.warns(UserWarning) as record:
             entry = self.ax.annotate(
                 "a",
                 xy=(0, 0),
                 xytext=(1, 1),
                 arrowprops={"facecolor": "red", "shrink": 0.05},
             )
-        self.assertIn("shrink", str(cm.warning))
-        self.assertEqual((entry["arrow"], entry["arrowstyle"]), ("->", "filled"))
-        self.assertEqual(entry["arrow_color"], "RED")
+        first = next(w for w in record if issubclass(w.category, UserWarning))
+        assert "shrink" in str(first.message)
+        assert (entry["arrow"], entry["arrowstyle"]) == ("->", "filled")
+        assert entry["arrow_color"] == "RED"
 
     def test_arrow_colour_precedence_and_linewidth(self):
         entry = self.ax.annotate(
@@ -298,24 +296,24 @@ class TestAnnotate(unittest.TestCase):
             color="green",
             arrowprops={"arrowstyle": "->", "ec": "blue", "fc": "red", "lw": 2},
         )
-        self.assertEqual(entry["color"], "GREEN")
-        self.assertEqual(entry["arrow_color"], "BLUE")
-        self.assertEqual(entry["arrow_linewidth"], 2.0)
+        assert entry["color"] == "GREEN"
+        assert entry["arrow_color"] == "BLUE"
+        assert entry["arrow_linewidth"] == 2.0
         gle = self.fig._generate_gle()
-        self.assertIn("set color BLUE\nset lwidth 0.07056\nset arrowstyle simple", gle)
+        assert "set color BLUE\nset lwidth 0.07056\nset arrowstyle simple" in gle
         # The arrow colour is inside gsave: the text colour state is GREEN.
-        self.assertLess(gle.index("set color GREEN"), gle.index("begin box"))
+        assert gle.index("set color GREEN") < gle.index("begin box")
 
     def test_no_arrow_without_xytext_or_arrowprops(self):
         a = self.ax.annotate("a", xy=(1, 2), arrowprops={"arrowstyle": "->"})
         b = self.ax.annotate("b", xy=(1, 2), xytext=(0, 0))
         for entry in (a, b):
-            self.assertNotIn("arrow", entry)
-        self.assertEqual((a["x"], a["y"]), (1.0, 2.0))
-        self.assertEqual((b["x"], b["y"]), (0.0, 0.0))
+            assert "arrow" not in entry
+        assert (a["x"], a["y"]) == (1.0, 2.0)
+        assert (b["x"], b["y"]) == (0.0, 0.0)
         gle = self.fig._generate_gle()
-        self.assertNotIn("join", gle)
-        self.assertNotIn("name ann", gle)
+        assert "join" not in gle
+        assert "name ann" not in gle
 
     def test_unsupported_arguments_warn(self):
         for kwargs in (
@@ -328,10 +326,10 @@ class TestAnnotate(unittest.TestCase):
             {"arrowprops": "->"},
             {"fontweight": "bold"},
         ):
-            with self.assertWarns(UserWarning, msg=str(kwargs)):
+            with pytest.warns(UserWarning):
                 self.ax.annotate("a", xy=(0, 0), xytext=(1, 1), **kwargs)
-        self.assertEqual(self.ax.texts[3]["arrowstyle"], "filled")
-        self.assertNotIn("arrow", self.ax.texts[6])
+        assert self.ax.texts[3]["arrowstyle"] == "filled"
+        assert "arrow" not in self.ax.texts[6]
         # A straight connection does not warn.
         with warnings.catch_warnings():
             warnings.simplefilter("error")
@@ -354,18 +352,17 @@ class TestAnnotate(unittest.TestCase):
             bbox={"facecolor": "white"},
             arrowprops={"arrowstyle": "->"},
         )
-        self.assertEqual((entry["ha"], entry["va"]), ("right", "top"))
-        self.assertEqual(entry["rotation"], 30.0)
-        self.assertEqual(entry["box_color"], "WHITE")
+        assert (entry["ha"], entry["va"]) == ("right", "top")
+        assert entry["rotation"] == 30.0
+        assert entry["box_color"] == "WHITE"
         gle = self.fig._generate_gle()
-        self.assertIn(
+        assert (
             "begin rotate 30\n"
             "begin box fill WHITE add 0.05 nobox name ann1\n"
             'write "a"\n'
             "end box\n"
             "end rotate\n"
-            "amove xg(0) yg(0)",
-            gle,
+            "amove xg(0) yg(0)" in gle
         )
 
     def test_straight_connectionstyle_spellings_do_not_warn(self):
@@ -378,7 +375,7 @@ class TestAnnotate(unittest.TestCase):
                     xytext=(1, 1),
                     arrowprops={"arrowstyle": "->", "connectionstyle": style},
                 )
-        with self.assertWarns(UserWarning):
+        with pytest.warns(UserWarning):
             self.ax.annotate(
                 "a",
                 xy=(0, 0),
@@ -395,17 +392,17 @@ class TestAnnotate(unittest.TestCase):
             )
         )
         gle = self.fig._generate_gle()
-        self.assertIn("set arrowstyle filled\njoin ann1 -> ann1_xy", gle)
+        assert "set arrowstyle filled\njoin ann1 -> ann1_xy" in gle
 
     def test_module_level_annotate_and_dict_round_trip(self):
         glp.annotate("m", xy=(0, 0), xytext=(1, 1), arrowprops={"arrowstyle": "-|>"})
         restored = glp.Figure.from_dict(self.fig.to_dict())
-        self.assertEqual(restored.to_dict(), self.fig.to_dict())
-        self.assertEqual(restored._generate_gle(), self.fig._generate_gle())
-        self.assertIn("join ann1 -> ann1_xy", restored._generate_gle())
+        assert restored.to_dict() == self.fig.to_dict()
+        assert restored._generate_gle() == self.fig._generate_gle()
+        assert "join ann1 -> ann1_xy" in restored._generate_gle()
 
 
-class TestColorStateDoesNotLeakAcrossPanels(unittest.TestCase):
+class TestColorStateDoesNotLeakAcrossPanels:
     """Regression test for the 2026-07-29 library gap found by the
     Gd3Ru4Al12 analysis repo's ``analysis/musr/prl_lf_jomega.py``: a
     coloured text ending one subplot panel must not colour the axes/ticks
@@ -424,10 +421,10 @@ class TestColorStateDoesNotLeakAcrossPanels(unittest.TestCase):
     panel's 'begin graph'.
     """
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         glp.close()
-
-    def tearDown(self):
+        yield
         glp.close()
 
     def _two_panel_figure(self):
@@ -442,22 +439,20 @@ class TestColorStateDoesNotLeakAcrossPanels(unittest.TestCase):
     def test_coloured_text_flush_is_wrapped_in_gsave_grestore(self):
         gle = self._two_panel_figure()._generate_gle()
 
-        self.assertEqual(gle.count("gsave"), gle.count("grestore"))
-        self.assertGreaterEqual(gle.count("gsave"), 1)
+        assert gle.count("gsave") == gle.count("grestore")
+        assert gle.count("gsave") >= 1
 
         first_end_graph = gle.index("end graph")
         second_begin_graph = gle.index("begin graph", first_end_graph)
         between_panels = gle[first_end_graph:second_begin_graph]
 
-        self.assertIn("gsave", between_panels)
-        self.assertIn("set color GREEN", between_panels)
-        self.assertIn("grestore", between_panels)
+        assert "gsave" in between_panels
+        assert "set color GREEN" in between_panels
+        assert "grestore" in between_panels
         # Order matters: gsave, then the colour change, then grestore.
-        self.assertLess(
-            between_panels.index("gsave"), between_panels.index("set color GREEN")
-        )
-        self.assertLess(
-            between_panels.index("set color GREEN"), between_panels.index("grestore")
+        assert between_panels.index("gsave") < between_panels.index("set color GREEN")
+        assert between_panels.index("set color GREEN") < between_panels.index(
+            "grestore"
         )
 
     def test_second_panel_axes_are_not_preceded_by_a_lingering_colour(self):
@@ -472,8 +467,4 @@ class TestColorStateDoesNotLeakAcrossPanels(unittest.TestCase):
         second_begin_graph = gle.index("begin graph", gle.index("end graph"))
         after_restore = gle[last_grestore:second_begin_graph]
 
-        self.assertNotIn("set color", after_restore)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert "set color" not in after_restore
