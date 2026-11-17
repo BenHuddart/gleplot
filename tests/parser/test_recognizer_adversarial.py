@@ -1767,7 +1767,7 @@ def test_finding17_resave_is_byte_exact_fixed_point(tmp_path):
 # (_passthrough_original_dn) rejoined the ORIGINAL TOKENS with a single
 # space each, turning 'err 10%' into 'err 10 %', which GLE rejects with
 # "unrecognised GRAPH DN sub command: '%'". The fix threads each dataset's
-# verbatim source line(s) (collected in _parse_graph_block's pass 1,
+# verbatim source line(s) (collected in _collect_datasets, pass 1,
 # alongside merged_attr_toks) down to the keep-raw sites instead of
 # reconstructing from tokens; the same helper (_dn_passthrough_lines) also
 # covers the unknown-dataset-ref and unresolved-contour-cdata keep-raw

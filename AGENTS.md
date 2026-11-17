@@ -180,7 +180,7 @@ More detail, including the output analyzers: `docs/guides/TESTING.md`.
 
 Places where the code does not yet meet the rules above. None of them is a pattern to follow. Each entry is deleted by the change that fixes it. The plan for each fix lives in the linked issue, and [#111](https://github.com/benhuddart/gleplot/issues/111) tracks the order.
 
-- **Oversized dispatch functions**: `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
+- **Oversized dispatch functions**: `GLEWriter.add_axes` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
 
 ## Where to look next
 

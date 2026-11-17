@@ -965,6 +965,32 @@ class _GraphGeometryStmt:
     line_no: Optional[int] = None
 
 
+@dataclass
+class _GraphDatasets:
+    """What pass 1 over one graph block collects, for pass 2 and after.
+
+    ``datasets`` maps each dataset name to its (file, x column, y column);
+    dataset refs are graph-local. ``merged_attr_toks`` holds each dataset's
+    attribute tokens from all of its ``dN ...`` lines (the leading ``dN``
+    excluded), in first-appearance order; ``merged_attr_raw`` holds the
+    verbatim text of those lines, so a dataset kept as passthrough
+    (unresolved file, unconvertible errorbar, ...) re-emits the ORIGINAL
+    line(s) byte-for-byte instead of rejoining tokens with inserted spaces
+    -- see _dn_passthrough_lines / the 'err 10%' -> 'err 10 %' corruption
+    this guards against (GLE rejects the space). ``data_stmts`` pairs the
+    raw text of each ``data`` statement with the names it declares and its
+    source line, in body order, so one whose datasets all end up unmodeled
+    can be restored. ``emitted`` is filled by pass 2: the dataset names whose
+    ``dN`` statement has been handled.
+    """
+
+    datasets: Dict[str, Tuple[str, int, int]] = field(default_factory=dict)
+    merged_attr_toks: Dict[str, List[Token]] = field(default_factory=dict)
+    merged_attr_raw: Dict[str, List[str]] = field(default_factory=dict)
+    data_stmts: List[Tuple[List[str], str, int]] = field(default_factory=list)
+    emitted: set = field(default_factory=set)
+
+
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
     """GLE ``hei`` in cm -> matplotlib points, passing None through."""
     return None if hei is None else fontsize_cm_to_pt(hei)
@@ -1587,7 +1613,54 @@ class _Recognizer:
     # -- graph block -----------------------------------------------------
 
     def _parse_graph_block(self, block: GraphBlock, marker_cfg, smooth_flags) -> dict:
-        """Parse one ``begin graph`` .. ``end graph`` into an axes-info dict."""
+        """Parse one ``begin graph`` .. ``end graph`` into an axes-info dict.
+
+        Pass 1 collects the block's datasets and merges each one's ``dN``
+        lines; pass 2 walks the body in order, dispatching every statement and
+        building one series per dataset the first time its name appears.
+        """
+        info = self._new_graph_info(block)
+
+        # Guide draw blocks (G17), keyed by the 'begin layer' line number so
+        # pass 2 can consume the same nodes in body order. Scanned up front
+        # because a labelled guide's legend bridge is a 'dN' statement that
+        # pass 1's dataset-merging would otherwise take for a real series.
+        guide_blocks = self._prescan_guide_blocks(block, info)
+
+        # Guide provenance markers (G18-lite), bound to the dataset each one
+        # describes. Also scanned up front: the binding has to exist before
+        # pass 2 builds the series that dataset's display command produces.
+        self._prescan_guide_markers(block, info)
+
+        pass1 = self._collect_datasets(block, info)
+        self._mark_bars_that_stay_raw(block, pass1.datasets, info)
+
+        for child in block.body:
+            if isinstance(child, OpaqueBlock):
+                guide = guide_blocks.get(child.line_no)
+                if guide is not None:
+                    # Recognized guide draw block: becomes a RefLine/Span
+                    # declaration, in body order, instead of raw text.
+                    info[guide["attr"]].append(guide["entry"])
+                else:
+                    info["passthrough"].extend(self._raw_lines(child))
+            elif isinstance(child, BlankOrComment):
+                self._parse_graph_comment(child, info)
+            elif isinstance(child, Statement) and not self._skip_meta_stmt(child):
+                self._dispatch_graph_statement(
+                    child, pass1, info, marker_cfg, smooth_flags
+                )
+
+        self._flush_hist_lets(info)
+        self._restore_orphaned_data_stmts(pass1, info)
+        self._discard_guide_markers(info)
+        self._reconcile_places_names(info)
+        self._reconcile_axis_styling(info)
+        return info
+
+    @staticmethod
+    def _new_graph_info(block: GraphBlock) -> Dict[str, Any]:
+        """The empty axes-info dict that parsing ``block`` fills in."""
         info: Dict[str, Any] = {
             # Graph-geometry statements ('size'/'scale'/'fullsize') in source
             # order, as _GraphGeometryStmt records. Classified into a
@@ -1689,7 +1762,7 @@ class _Recognizer:
             "ynames": None,
             # Raw source text of a parsed '*places'/'*names' line, kept only
             # so it can be restored to passthrough verbatim if a later
-            # length-mismatch check (see _parse_graph_block) finds the pairing
+            # length-mismatch check (see _reconcile_places_names) finds the pairing
             # unrepresentable on the model.
             "_xplaces_raw": None,
             "_yplaces_raw": None,
@@ -1765,7 +1838,7 @@ class _Recognizer:
             "_offset_let_datasets": set(),
             # Names of 'let' SOURCE datasets (the dJ in 'let dK = dJ+off'),
             # consumed indirectly through the alias -- see _parse_let_command
-            # and the 'data'-statement reconciliation in _parse_graph_block.
+            # and the 'data'-statement reconciliation in _restore_orphaned_data_stmts.
             "_let_source_datasets": set(),
             # ``let dK = hist dJ ...`` recorded in pass 1, keyed by the
             # target. The target is not registered as a file dataset: its
@@ -1795,214 +1868,169 @@ class _Recognizer:
             block.begin.line_no,
             block.end.line_no if block.end is not None else block.begin.line_no,
         )
+        return info
 
-        # Local dataset map for THIS block (dataset refs are graph-local).
-        datasets: Dict[str, Tuple[str, int, int]] = {}
+    def _collect_datasets(self, block: GraphBlock, info) -> _GraphDatasets:
+        """Pass 1: collect data commands and merge each dataset's ``dN`` lines.
 
-        # --- Pass 1: collect data commands and merge per-dataset attribute
-        # tokens across multiple 'dN ...' lines. This fixes forward references
-        # ('d1 line ...' appearing before its 'data' command) and multi-line
-        # attribute accumulation ('d1 line' / 'd1 lwidth X' / 'd1 key "A"' on
-        # separate lines are ONE series, not three).
-        #
-        # merged_attr_toks: name(lower) -> flat token list (attributes only,
-        # excluding the leading 'dN'), in first-appearance order.
-        merged_attr_toks: Dict[str, List[Token]] = {}
-        dataset_order: List[str] = []
-
-        # merged_attr_raw: name(lower) -> verbatim source text of each 'dN
-        # ...' statement contributing to that dataset's merged attributes, in
-        # the same order as merged_attr_toks was built. Used when a dataset
-        # ends up kept as passthrough (unresolved file, unconvertible
-        # errorbar, etc.) so the fallback can re-emit the ORIGINAL line(s)
-        # byte-for-byte instead of rejoining tokens with inserted spaces --
-        # see _dn_passthrough_lines / the 'err 10%' -> 'err 10 %' corruption
-        # this guards against (GLE rejects the space).
-        merged_attr_raw: Dict[str, List[str]] = {}
-
-        # Raw text of each 'data' statement, paired with the dataset names it
-        # declares and its source line, in body order -- used after pass 2 to
-        # restore a 'data' statement whose datasets ended up entirely
-        # unmodeled (see the reconciliation below the pass-2 loop).
-        data_stmts: List[Tuple[List[str], str, int]] = []
-
-        # Guide draw blocks (G17), keyed by the 'begin layer' line number so
-        # pass 2 can consume the same nodes in body order. Scanned up front
-        # because a labelled guide's legend bridge is a 'dN' statement that
-        # pass 1's dataset-merging would otherwise take for a real series.
-        guide_blocks = self._prescan_guide_blocks(block, info)
-
-        # Guide provenance markers (G18-lite), bound to the dataset each one
-        # describes. Also scanned up front: the binding has to exist before
-        # pass 2 builds the series that dataset's display command produces.
-        self._prescan_guide_markers(block, info)
-
+        This fixes forward references ('d1 line ...' appearing before its
+        'data' command) and multi-line attribute accumulation ('d1 line' /
+        'd1 lwidth X' / 'd1 key "A"' on separate lines are ONE series, not
+        three).
+        """
+        pass1 = _GraphDatasets()
         for child in block.body:
-            if isinstance(child, Statement):
-                if self._skip_meta_stmt(child):
-                    continue
-                kw = child.keyword
-                if kw == "data":
-                    names = self._parse_data_command(
-                        _words_and_values(child), datasets, line_no=child.line_no
-                    )
-                    if names:
-                        data_stmts.append(
-                            (names, self._stmt_text(child), child.line_no)
-                        )
-                        # An axis or polygon fill uses one of these names.
-                        # Modelling it while the statement still declares
-                        # others would drop this line and rewrite the file
-                        # down to that one curve (see _parse_fill_command).
-                        group = info.setdefault("_dataset_group", {})
-                        for name in names:
-                            group[name] = names
-                    continue
-                if kw == "let":
-                    # 'let dK = dJ+off' -- register dK as an offset alias of dJ
-                    # (dJ's 'data' command precedes it in body order, so dJ is
-                    # already known here in pass 1). A 'let dK = hist dJ' is
-                    # recorded separately: the display command that follows
-                    # decides whether it becomes a histogram.
-                    let_toks = _words_and_values(child)
-                    self._parse_let_command(let_toks, datasets, info)
-                    self._record_hist_let(
-                        let_toks, datasets, info, self._stmt_text(child)
-                    )
-                    continue
-                if kw is not None and _DATASET_RE.match(kw):
-                    name = kw
-                    if name not in merged_attr_toks:
-                        merged_attr_toks[name] = []
-                        merged_attr_raw[name] = []
-                        dataset_order.append(name)
-                    merged_attr_toks[name].extend(_words_and_values(child)[1:])
-                    merged_attr_raw[name].append(self._stmt_text(child))
-                    continue
-
-        self._mark_bars_that_stay_raw(block, datasets, info)
-
-        # --- Pass 2: walk the body in order, dispatching non-dN statements
-        # (axis/title/key/bar/fill/passthrough) and emitting exactly one series
-        # per merged dataset the first time that dataset name is encountered.
-        emitted: set = set()
-        for child in block.body:
-            if isinstance(child, OpaqueBlock):
-                guide = guide_blocks.get(child.line_no)
-                if guide is not None:
-                    # Recognized guide draw block: becomes a RefLine/Span
-                    # declaration, in body order, instead of raw text.
-                    info[guide["attr"]].append(guide["entry"])
-                    continue
-                info["passthrough"].extend(self._raw_lines(child))
+            if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
-            if isinstance(child, BlankOrComment):
-                if child.line_no in info["_guide_marker_lines"]:
-                    # A guide provenance marker: consumed by the prescan, and
-                    # regenerated from the RefLine/Span on the next save.
-                    continue
-                # Blank/comment inside a graph block that the writer never
-                # emits -> preserve as axes passthrough (hand-written).
-                stmt = child.statement
-                if self._skip_meta_stmt(stmt):
-                    continue
-                text = stmt.source_line.text if stmt.source_line else stmt.raw
-                info["passthrough"].append(text)
-                continue
-            if not isinstance(child, Statement):
-                continue
-            if self._skip_meta_stmt(child):
-                continue
-
             kw = child.keyword
             if kw == "data":
-                continue  # already handled in pass 1
-            if kw == "let":
-                # Recognized offset alias -> consumed (the offset now lives on
-                # the aliased series). A recorded histogram let is held until
-                # its display command consumes it (or the block ends and it
-                # is flushed as raw GLE). Anything else falls through to
-                # generic dispatch, which preserves it as raw GLE.
-                toks = _words_and_values(child)
-                target = toks[1].value.lower() if len(toks) > 1 else None
-                if target in info["_offset_let_datasets"]:
-                    continue
-                if target in info["_hist_lets"]:
-                    continue
-            if kw is not None and _DATASET_RE.match(kw):
-                name = kw
-                if name in emitted:
-                    continue
-                if name in info["_guide_key_datasets"]:
-                    # The data-free legend bridge of a recovered guide: the
-                    # label now lives on the RefLine or Span, and the writer
-                    # regenerates this line from it. Consume silently.
-                    emitted.add(name)
-                    continue
-                attr_toks = merged_attr_toks.get(name, [])
-                if name in info["_key_suppress_datasets"]:
-                    found = self._suppressed_key_label(attr_toks)
-                    owner = info["_key_label_owners"].get(name)
-                    if found and owner is not None:
-                        # ``dN key "label"`` / ``dN keyfill C key "label"``
-                        # after a bar or fill. The swatch text belongs on
-                        # that series; the line is not a second series.
-                        # A keyfill colour that is not the fill colour is
-                        # kept, so the next save does not repaint the swatch.
-                        label, keyfill = found
-                        owner["label"] = label
-                        self._note_swatch_color(owner, keyfill)
-                        emitted.add(name)
-                        continue
-                if name in info[
-                    "_key_suppress_datasets"
-                ] and self._is_bare_key_suppression(attr_toks):
-                    # 'dN key ""' with no other attributes, following a
-                    # 'bar'/'fill' command that already consumed this
-                    # dataset -- the writer's auto-key-from-header
-                    # suppression marker (see writer.add_bar /
-                    # add_fill), not a real second series. Consume
-                    # silently: no series, no passthrough (matches what the
-                    # writer will regenerate from the bar/fill entry's
-                    # column_names on next save).
-                    emitted.add(name)
-                    continue
-                if (
-                    name in info["_hist_lets"]
-                    and name not in info["_key_suppress_datasets"]
-                ):
-                    # ``dK line hist`` on a ``let dK = hist`` target. A
-                    # following ``dK key`` belongs to a stepfilled bar and
-                    # was consumed by the key-suppression path above.
-                    merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
-                    self._commit_hist_line(
-                        name,
-                        merged,
-                        datasets,
-                        info,
-                        line_no=child.line_no,
-                        raw_stmts=merged_attr_raw.get(name, []),
-                    )
-                    emitted.add(name)
-                    continue
-                emitted.add(name)
-                merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
-                self._build_series_from_attrs(
-                    name,
-                    merged,
-                    datasets,
-                    info,
-                    marker_cfg,
-                    smooth_flags,
-                    line_no=child.line_no,
-                    raw_stmts=merged_attr_raw.get(name, []),
+                names = self._parse_data_command(
+                    _words_and_values(child), pass1.datasets, line_no=child.line_no
                 )
-                continue
+                if names:
+                    pass1.data_stmts.append(
+                        (names, self._stmt_text(child), child.line_no)
+                    )
+                    # An axis or polygon fill uses one of these names.
+                    # Modelling it while the statement still declares
+                    # others would drop this line and rewrite the file
+                    # down to that one curve (see _parse_fill_command).
+                    group = info.setdefault("_dataset_group", {})
+                    for name in names:
+                        group[name] = names
+            elif kw == "let":
+                # 'let dK = dJ+off' -- register dK as an offset alias of dJ
+                # (dJ's 'data' command precedes it in body order, so dJ is
+                # already known here in pass 1). A 'let dK = hist dJ' is
+                # recorded separately: the display command that follows
+                # decides whether it becomes a histogram.
+                let_toks = _words_and_values(child)
+                self._parse_let_command(let_toks, pass1.datasets, info)
+                self._record_hist_let(
+                    let_toks, pass1.datasets, info, self._stmt_text(child)
+                )
+            elif kw is not None and _DATASET_RE.match(kw):
+                if kw not in pass1.merged_attr_toks:
+                    pass1.merged_attr_toks[kw] = []
+                    pass1.merged_attr_raw[kw] = []
+                pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
+                pass1.merged_attr_raw[kw].append(self._stmt_text(child))
+        return pass1
 
-            self._dispatch_graph_statement(
-                child, info, datasets, marker_cfg, smooth_flags
+    def _parse_graph_comment(self, child: BlankOrComment, info) -> None:
+        """Keep a blank line or comment inside a graph block as passthrough."""
+        if child.line_no in info["_guide_marker_lines"]:
+            # A guide provenance marker: consumed by the prescan, and
+            # regenerated from the RefLine/Span on the next save.
+            return
+        # Blank/comment inside a graph block that the writer never
+        # emits -> preserve as axes passthrough (hand-written).
+        stmt = child.statement
+        if self._skip_meta_stmt(stmt):
+            return
+        text = stmt.source_line.text if stmt.source_line else stmt.raw
+        info["passthrough"].append(text)
+
+    def _let_is_consumed(self, toks, info) -> bool:
+        """True if pass 1 already modeled this ``let`` statement.
+
+        A recognized offset alias is consumed (the offset now lives on the
+        aliased series). A recorded histogram let is held until its display
+        command consumes it (or the block ends and it is flushed as raw GLE).
+        Anything else is preserved as raw GLE.
+        """
+        target = toks[1].value.lower() if len(toks) > 1 else None
+        return target in info["_offset_let_datasets"] or target in info["_hist_lets"]
+
+    def _parse_dataset_line(
+        self, stmt, pass1: _GraphDatasets, info, marker_cfg, smooth_flags
+    ) -> None:
+        """Build the series for a ``dN`` statement from its merged attributes.
+
+        Only the first statement naming a dataset builds anything; the rest
+        were merged into it in pass 1.
+        """
+        name = stmt.keyword
+        if name in pass1.emitted:
+            return
+        if name in info["_guide_key_datasets"]:
+            # The data-free legend bridge of a recovered guide: the
+            # label now lives on the RefLine or Span, and the writer
+            # regenerates this line from it. Consume silently.
+            pass1.emitted.add(name)
+            return
+        attr_toks = pass1.merged_attr_toks.get(name, [])
+        if name in info["_key_suppress_datasets"]:
+            found = self._suppressed_key_label(attr_toks)
+            owner = info["_key_label_owners"].get(name)
+            if found and owner is not None:
+                # ``dN key "label"`` / ``dN keyfill C key "label"``
+                # after a bar or fill. The swatch text belongs on
+                # that series; the line is not a second series.
+                # A keyfill colour that is not the fill colour is
+                # kept, so the next save does not repaint the swatch.
+                label, keyfill = found
+                owner["label"] = label
+                self._note_swatch_color(owner, keyfill)
+                pass1.emitted.add(name)
+                return
+        if name in info["_key_suppress_datasets"] and self._is_bare_key_suppression(
+            attr_toks
+        ):
+            # 'dN key ""' with no other attributes, following a
+            # 'bar'/'fill' command that already consumed this
+            # dataset -- the writer's auto-key-from-header
+            # suppression marker (see writer.add_bar /
+            # add_fill), not a real second series. Consume
+            # silently: no series, no passthrough (matches what the
+            # writer will regenerate from the bar/fill entry's
+            # column_names on next save).
+            pass1.emitted.add(name)
+            return
+        if name in info["_hist_lets"] and name not in info["_key_suppress_datasets"]:
+            # ``dK line hist`` on a ``let dK = hist`` target. A
+            # following ``dK key`` belongs to a stepfilled bar and
+            # was consumed by the key-suppression path above.
+            merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
+            self._commit_hist_line(
+                name,
+                merged,
+                pass1.datasets,
+                info,
+                line_no=stmt.line_no,
+                raw_stmts=pass1.merged_attr_raw.get(name, []),
             )
+            pass1.emitted.add(name)
+            return
+        pass1.emitted.add(name)
+        merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
+        self._build_series_from_attrs(
+            name,
+            merged,
+            pass1.datasets,
+            info,
+            marker_cfg,
+            smooth_flags,
+            line_no=stmt.line_no,
+            raw_stmts=pass1.merged_attr_raw.get(name, []),
+        )
 
+    def _flush_hist_lets(self, info) -> None:
+        """Keep a histogram ``let`` no display command consumed as raw GLE."""
+        for target, raw in list(info["_hist_let_pending"].items()):
+            info["passthrough"].append(raw)
+            self._note(
+                ImportCategory.DATA,
+                "histogram let "
+                + target
+                + " was not paired with a plain 'line hist' or "
+                "'bar dN fill'; kept as raw GLE",
+                None,
+            )
+        info["_hist_let_pending"].clear()
+
+    def _restore_orphaned_data_stmts(self, pass1: _GraphDatasets, info) -> None:
+        """Re-emit a ``data`` statement none of whose datasets became a series."""
         # A 'data' statement's own text is never itself modeled -- pass 1
         # only uses it to populate ``datasets`` for lookups, on the
         # assumption that whichever series ends up consuming each dataset
@@ -2016,33 +2044,23 @@ class _Recognizer:
         # regenerated GLE. Restore any 'data' statement whose datasets are
         # entirely unconsumed, ahead of the passthrough content that (being
         # later in body order) may depend on it.
-        for target, raw in list(info["_hist_let_pending"].items()):
-            info["passthrough"].append(raw)
-            self._note(
-                ImportCategory.DATA,
-                "histogram let "
-                + target
-                + " was not paired with a plain 'line hist' or "
-                "'bar dN fill'; kept as raw GLE",
-                None,
-            )
-        info["_hist_let_pending"].clear()
-
         consumed = (
-            set(info["_key_suppress_datasets"]) | emitted | info["_let_source_datasets"]
+            set(info["_key_suppress_datasets"])
+            | pass1.emitted
+            | info["_let_source_datasets"]
         )
         # A dataset may also be consumed indirectly, referenced by NAME from
         # another dataset's own attributes rather than having a 'dN ...'
         # line of its own -- e.g. errorbar's 'd1 ... err d2 ...' points at a
         # sibling dataset holding the error column. Such a reference is
         # resolved by the consuming series' own 'data_file'/columns, so it
-        # is not orphaned even though it never appears in ``emitted``.
-        for attr_toks in merged_attr_toks.values():
+        # is not orphaned even though it never appears in ``pass1.emitted``.
+        for attr_toks in pass1.merged_attr_toks.values():
             for t in attr_toks:
                 if _DATASET_RE.match(t.value):
                     consumed.add(t.value.lower())
         restored: List[str] = []
-        for names, raw, data_line_no in data_stmts:
+        for names, raw, data_line_no in pass1.data_stmts:
             if not any(n in consumed for n in names):
                 restored.append(raw)
             elif not all(n in consumed for n in names):
@@ -2077,11 +2095,6 @@ class _Recognizer:
                 )
         if restored:
             info["passthrough"][0:0] = restored
-
-        self._discard_guide_markers(info)
-        self._reconcile_places_names(info)
-        self._reconcile_axis_styling(info)
-        return info
 
     # -- guides drawn against GLE's own range (G17) -----------------------
 
@@ -2938,24 +2951,25 @@ class _Recognizer:
             raw_stmts=raw_stmts,
         )
 
-    def _dispatch_graph_statement(self, stmt, info, datasets, marker_cfg, smooth_flags):
+    def _dispatch_graph_statement(
+        self, stmt, pass1: _GraphDatasets, info, marker_cfg, smooth_flags
+    ):
+        """Pass 2: hand one graph-block statement to the parser for its keyword."""
         kw = stmt.keyword
         toks = _words_and_values(stmt)
         if not toks:
             return
 
+        if kw == "data":
+            return  # already handled in pass 1
+        if kw == "let" and self._let_is_consumed(toks, info):
+            return
+        if kw is not None and _DATASET_RE.match(kw):
+            self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
+            return
+        datasets = pass1.datasets
         if kw in ("size", "scale", "fullsize"):
-            # Graph geometry. Recorded verbatim (plus its parsed arguments)
-            # and classified later by _apply_geometry -- never dropped.
-            info["geometry_stmts"].append(
-                _GraphGeometryStmt(
-                    keyword=kw,
-                    words=[t.value.lower() for t in toks[1:]],
-                    values=_collect_values(toks, 1),
-                    raw=self._stmt_text(stmt),
-                    line_no=self._opt_line_no(stmt),
-                )
-            )
+            self._parse_geometry_line(kw, toks, info, stmt)
             return
         if kw == "title":
             self._parse_title_line(toks, info, stmt)
@@ -2975,8 +2989,6 @@ class _Recognizer:
         if kw in ("xplaces", "yplaces", "xnames", "ynames"):
             self._parse_places_or_names_line(kw, toks, info, stmt)
             return
-        # NOTE: 'data' and 'dN' statements are handled by the two-pass driver
-        # in _parse_graph_block, not here.
         if kw == "bar":
             self._parse_bar_command(toks, datasets, info, stmt)
             return
@@ -2992,6 +3004,22 @@ class _Recognizer:
 
         # Unrecognized statement inside a graph block -> axes passthrough.
         info["passthrough"].append(self._stmt_text(stmt))
+
+    def _parse_geometry_line(self, kw, toks, info, stmt) -> None:
+        """Record a ``size``/``scale``/``fullsize`` statement.
+
+        Recorded verbatim (plus its parsed arguments) and classified later by
+        _apply_geometry -- never dropped.
+        """
+        info["geometry_stmts"].append(
+            _GraphGeometryStmt(
+                keyword=kw,
+                words=[t.value.lower() for t in toks[1:]],
+                values=_collect_values(toks, 1),
+                raw=self._stmt_text(stmt),
+                line_no=self._opt_line_no(stmt),
+            )
+        )
 
     # -- text styling (title / axis titles / tick labels) ----------------
 
@@ -3344,7 +3372,7 @@ class _Recognizer:
         does not fully parse as a number list (``*places``) or string list
         (``*names``) is kept verbatim in the axes passthrough instead --
         final ``*places``/``*names`` pairing (length match) is checked once
-        the whole graph block has been read, in :meth:`_parse_graph_block`.
+        the whole graph block has been read, in :meth:`_reconcile_places_names`.
         """
         is_names = kw.endswith("names")
         prefix = "x" if kw.startswith("x") else "y"
@@ -3549,7 +3577,7 @@ class _Recognizer:
         # 'source' is consumed by this alias (its file/columns are what the
         # aliased series actually reads) even though it never gets its own
         # 'dN ...' statement -- see the 'data'-statement reconciliation in
-        # _parse_graph_block.
+        # _restore_orphaned_data_stmts.
         info["_let_source_datasets"].add(source)
 
     def _record_hist_let(self, toks, datasets, info, raw: str) -> None:
