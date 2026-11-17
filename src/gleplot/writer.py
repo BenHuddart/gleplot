@@ -4698,6 +4698,45 @@ class GLEWriter:
         if label:
             self.add_guide_key(color, linestyle, gle_lwidth, label)
 
+    def add_span(self, series: Series):
+        """Draw a span as a layered ``draw`` call (G17).
+
+        ``series`` is the :class:`~gleplot.series.Span` declaration; its
+        ``orient``, ``start``/``end``, ``span_lo``/``span_hi``, ``color``,
+        ``alpha``, ``label`` and ``swatch_color`` go to
+        :meth:`add_span_draw`.
+        """
+        self.add_span_draw(
+            series["orient"],
+            series["start"],
+            series["end"],
+            series["span_lo"],
+            series["span_hi"],
+            series["color"],
+            series["alpha"],
+            series["label"],
+            swatch_color=series.get("swatch_color"),
+        )
+
+    def add_span_dataset(self, series: Series, fill: Series):
+        """Draw a span as a marked fill.
+
+        ``series`` is the :class:`~gleplot.series.Span` declaration and
+        ``fill`` the :class:`~gleplot.series.FillSeries` that
+        ``Axes.materialize_spans`` built from it. The marker (see
+        :meth:`add_span_marker`) goes immediately before the fill's ``data``
+        statement, which is how a re-read file binds the two.
+        """
+        self.add_span_marker(
+            series["orient"],
+            series["start"],
+            series["end"],
+            series["span_lo"],
+            series["span_hi"],
+            series["label"],
+        )
+        self.add_fill(fill)
+
     def add_span_draw(
         self,
         orient: str,
