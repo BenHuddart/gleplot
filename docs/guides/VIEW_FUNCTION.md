@@ -149,4 +149,4 @@ Both functions require GLE to be installed for compilation.
 ## See Also
 
 - [example_view_notebook.ipynb](https://github.com/benhuddart/gleplot/blob/main/examples/example_view_notebook.ipynb) - Jupyter notebook examples
-- [Figure.savefig()](https://benhuddart.github.io/gleplot/api_figure.html) - For saving to permanent files
+- [Figure.savefig()](https://benhuddart.github.io/gleplot/api_figure.html#gleplot.Figure.savefig) - For saving to permanent files
