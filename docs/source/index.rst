@@ -39,6 +39,7 @@ https://benhuddart.github.io/gleplot/
    guides/FILE_BASED_SERIES
    guides/VIEW_FUNCTION
    guides/CONFIGURATION
+   guides/OPENING_GLE_FILES
 
 .. toctree::
    :maxdepth: 1

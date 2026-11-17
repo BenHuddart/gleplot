@@ -27,13 +27,9 @@ __all__ = ["ImportCategory", "ImportNote"]
 class ImportCategory(str, Enum):
     """The recovery-note categories the recognizer emits.
 
-    Members match the string prefixes documented in the recognizer's
-    "Warnings taxonomy" exactly (``ImportCategory.DATA.value == "data"``),
-    so :attr:`ImportNote.rendered` reproduces the historical
-    ``"data: ..."``-style warning strings unchanged. ``mathtext`` (SPEC
-    8.1.5) is a v1.1 category with no current emission site -- listed here
-    only in the sense that adding it later is a matter of a new member plus
-    emission sites, not a taxonomy redesign.
+    Each member's value is the prefix of :attr:`ImportNote.rendered`
+    (``ImportCategory.DATA.value == "data"``). What each category means is in
+    the "Opening GLE Files" guide.
     """
 
     METADATA = "metadata"
@@ -54,18 +50,15 @@ class ImportNote:
     category : ImportCategory
         What kind of recovery this is (see :class:`ImportCategory`).
     message : str
-        Human-readable description, exactly the text that used to follow
-        ``"category: "`` in the old warning string.
+        Human-readable description of what was recovered and how.
     source_span : (int, int) or None
         1-indexed, inclusive ``(start_line, end_line)`` into the *original*
         file, when the recognizer can point at the source that produced the
         note. ``None`` when no single location is responsible -- either the
         note is a whole-figure aggregate (e.g. mixed ``smooth`` flags across
         every line dataset) or the underlying helper is shared by too many
-        call sites to attribute a location without guessing. See
-        :mod:`gleplot.parser.recognizer`'s module docstring for the
-        per-category span-coverage table. A single-line note has
-        ``start_line == end_line``.
+        call sites to attribute a location without guessing. A single-line
+        note has ``start_line == end_line``.
     """
 
     category: ImportCategory
@@ -74,7 +67,7 @@ class ImportNote:
 
     @property
     def rendered(self) -> str:
-        """The historical ``"category: message"`` warning string."""
+        """The note as a ``"category: message"`` string."""
         return f"{self.category.value}: {self.message}"
 
     def __str__(self) -> str:  # pragma: no cover - convenience only

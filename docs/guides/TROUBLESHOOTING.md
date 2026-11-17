@@ -51,8 +51,8 @@ Symptoms:
 
 Fixes:
 
-1. Use figure-level `data_prefix` for deterministic naming.
-2. Use per-series `data_name` for semantic labels where supported.
+Name them with `data_prefix` on the figure or `data_name` on a series; see
+[Configuration](CONFIGURATION.md).
 
 ## Text or Legend Overlaps
 
