@@ -527,6 +527,27 @@ def heatmap_imshow_colorbar():
     return fig
 
 
+def heatmap_field_options():
+    """Heatmap fields the other builders leave at their defaults.
+
+    A grayscale ``origin='upper'`` image sampled ``nearest`` at an explicit
+    pixel count, and an inverted rainbow image: the two colormap modes that
+    write no ``palette`` sub.
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    Z = np.arange(12, dtype=float).reshape(3, 4)
+    left.imshow(
+        Z,
+        extent=(0, 4, 0, 3),
+        origin="upper",
+        cmap="gray",
+        interpolation="nearest",
+        pixels=(40, 30),
+    )
+    right.imshow(Z, extent=(0, 4, 0, 3), cmap="rainbow", invert=True)
+    return fig
+
+
 def contour_grid_levels_clabel():
     """Gridded contour (contour(x, y, Z)) with explicit levels + clabels."""
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
@@ -813,6 +834,7 @@ BUILDERS = [
     exact_rgb_colors,
     custom_figsize_and_dpi,
     heatmap_imshow_colorbar,
+    heatmap_field_options,
     contour_grid_levels_clabel,
     tripcolor_tricontour_combo,
     custom_tick_labels,

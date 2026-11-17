@@ -37,6 +37,7 @@ from .writer import (
     DecimationPolicy,
     GLEWriter,
     SourceResolution,
+    _grid_z_file,
     legend_column_breaks,
     resolve_figure,
 )
@@ -1796,27 +1797,6 @@ class Figure:
 
     # -- contour / heatmap helpers --------------------------------------
 
-    @staticmethod
-    def _heatmap_z_file(hm: dict) -> str:
-        """The ``.z`` grid file a heatmap's ``colormap`` references.
-
-        Grid heatmaps reference their written ``.z`` sidecar directly; scattered
-        (points) heatmaps reference the ``.z`` file GLE's ``fitz`` generates
-        (points base with the ``.dat`` extension replaced by ``.z``).
-        """
-        df = hm["data_file"]
-        if hm["source"] == "grid":
-            return df
-        return df[:-4] + ".z" if df.endswith(".dat") else df + ".z"
-
-    @staticmethod
-    def _contour_z_file(ct: dict) -> str:
-        """The ``.z`` grid file a contour block reads (see :meth:`_heatmap_z_file`)."""
-        df = ct["data_file"]
-        if ct["source"] == "grid":
-            return df
-        return df[:-4] + ".z" if df.endswith(".dat") else df + ".z"
-
     def _engine_intermediate_filenames(self) -> "list[str]":
         """Exact basenames of GLE-generated intermediates this figure can produce.
 
@@ -1835,7 +1815,7 @@ class Figure:
 
         - Every contour (grid- or points-sourced) can produce
           ``<stem>-cdata.dat``, ``<stem>-clabels.dat`` and
-          ``<stem>-cvalues.dat``, where ``<stem>`` is :meth:`_contour_z_file`
+          ``<stem>-cvalues.dat``, where ``<stem>`` is ``_grid_z_file``
           with its ``.z`` extension stripped.
         - A points-sourced (``fitz``) heatmap or contour additionally
           produces the gridded ``<points-stem>.z`` file itself -- that ``.z``
@@ -1848,7 +1828,7 @@ class Figure:
         names: "list[str]" = []
         for ax in self.axes_list:
             for ct in ax.contours:
-                z_file = self._contour_z_file(ct)
+                z_file = _grid_z_file(ct)
                 stem = z_file[:-2] if z_file.endswith(".z") else z_file
                 names.append(f"{stem}-cdata.dat")
                 names.append(f"{stem}-clabels.dat")
@@ -1857,21 +1837,8 @@ class Figure:
                     names.append(z_file)  # the fitz-generated .z itself
             for hm in ax.heatmaps:
                 if hm.get("source") == "points":
-                    names.append(self._heatmap_z_file(hm))
+                    names.append(_grid_z_file(hm))
         return names
-
-    @staticmethod
-    def _cmap_mode(cmap: str):
-        """Map a canonical cmap name to a ``colormap`` emission mode tuple.
-
-        Returns ``('gray', None)`` (grayscale, no clause), ``('color', None)``
-        (GLE built-in rainbow), or ``('palette', 'gleplot_<name>')``.
-        """
-        if cmap == "gray":
-            return ("gray", None)
-        if cmap == "rainbow":
-            return ("color", None)
-        return ("palette", f"gleplot_{cmap}")
 
     # -- colorbar layout reservation ------------------------------------
     #
@@ -2008,17 +1975,7 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         for hm in resolution.visible(ax.heatmaps):
-            if hm["source"] == "points":
-                writer.add_points_sidecar(hm["data_file"], hm["x"], hm["y"], hm["zpts"])
-                # tripcolor's fitz omits ncontour (GLE default), keeping the
-                # heatmap model's ncontour honestly None.
-                writer.add_fitz_block(
-                    hm["data_file"], hm["extent"], hm["gridsize"], None
-                )
-            else:
-                writer.add_z_sidecar(
-                    hm["data_file"], hm["z"], hm["extent"], hm["origin"]
-                )
+            writer.add_heatmap_data(hm)
 
         for ct in resolution.visible(ax.contours):
             if ct["source"] == "points":
@@ -2028,7 +1985,7 @@ class Figure:
                 )
             else:
                 writer.add_z_sidecar(ct["data_file"], ct["z"], ct["extent"], "lower")
-            writer.add_contour_block(self._contour_z_file(ct), ct["levels"])
+            writer.add_contour_block(_grid_z_file(ct), ct["levels"])
 
     def _emit_post_graph_calls(
         self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
@@ -2036,28 +1993,11 @@ class Figure:
         """Write the post-graph colorbar and contour-label sub calls."""
         resolution = resolution or SourceResolution()
         for hm in resolution.visible(ax.heatmaps):
-            cb = hm.get("colorbar")
-            if not cb:
-                continue
-            palette_call = self._palette_call_for(hm["cmap"])
-            writer.add_colorbar_call(
-                sep=cb["sep"],
-                zmin=cb["zmin"],
-                zmax=cb["zmax"],
-                zstep=cb["zstep"],
-                palette_call=palette_call,
-                width=cb["width"],
-                fmt=cb["format"],
-                label=cb.get("label"),
-            )
+            writer.add_heatmap_colorbar(hm)
         for ct in resolution.visible(ax.contours):
             if ct.get("clabel"):
-                clabels = self._contour_z_file(ct)[:-2] + "-clabels.dat"
+                clabels = _grid_z_file(ct)[:-2] + "-clabels.dat"
                 writer.add_clabel_call(clabels, ct["clabel_fmt"])
-
-    @staticmethod
-    def _palette_call_for(cmap: str) -> str:
-        return _pal.palette_call_name(cmap)
 
     def _legend_offset(self, ax: Axes) -> Optional[Tuple[float, float]]:
         """This axes' legend offset in cm, or the figure-wide default.
@@ -2324,22 +2264,14 @@ class Figure:
     ) -> None:
         """Heatmap colormaps, drawn behind everything as the background."""
         for hm in resolution.visible(ax.heatmaps):
-            writer.add_colormap(
-                self._heatmap_z_file(hm),
-                hm["pixels"],
-                self._cmap_mode(hm["cmap"]),
-                hm["vmin"],
-                hm["vmax"],
-                hm["invert"],
-                hm["interpolation"],
-            )
+            writer.add_heatmap(hm)
 
     def _write_contours(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
     ) -> None:
         """Contour polylines, above the heatmaps and below every series."""
         for ct in resolution.visible(ax.contours):
-            cdata = self._contour_z_file(ct)[:-2] + "-cdata.dat"
+            cdata = _grid_z_file(ct)[:-2] + "-cdata.dat"
             writer.add_contour_line(
                 cdata, ct["color"], ct["linewidth"], ct["linestyle"]
             )

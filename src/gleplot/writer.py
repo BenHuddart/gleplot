@@ -28,6 +28,7 @@ from typing import (
 
 import numpy as np
 
+from . import palettes as _pal
 from ._warn import warn_external
 from .colors import apply_alpha
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
@@ -202,6 +203,19 @@ def _quote_filename(name: str) -> str:
     always valid, so it is applied unconditionally in these contexts.
     """
     return '"' + str(name).replace('"', '\\"') + '"'
+
+
+def _grid_z_file(series: Mapping[str, Any]) -> str:
+    """The ``.z`` grid file a heatmap's ``colormap`` or a contour block reads.
+
+    A grid series reads its written ``.z`` sidecar directly; a points series
+    reads the ``.z`` file GLE's ``fitz`` generates (the points sidecar's
+    name with ``.dat`` replaced by ``.z``).
+    """
+    df = series["data_file"]
+    if series["source"] == "grid":
+        return df
+    return df[:-4] + ".z" if df.endswith(".dat") else df + ".z"
 
 
 # -- provider-table sidecars ---------------------------------------------------
@@ -4364,6 +4378,74 @@ class GLEWriter:
             vals = " ".join(self._format_number(v) for v in levels)
             self.lines_gle.append(f"   values {vals}")
         self.lines_gle.append("end contour")
+
+    def add_heatmap_data(self, series: Series):
+        """Write a heatmap's sidecar and, for scattered samples, its ``fitz``.
+
+        Emitted before the graph that draws it (see :meth:`add_heatmap`).
+        ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`. A
+        ``'grid'`` heatmap writes its ``z`` array, at ``extent`` and in
+        ``origin`` row order, as a ``.z`` sidecar. A ``'points'`` heatmap
+        writes its ``x``/``y``/``zpts`` samples and a ``begin fitz`` block
+        that grids them at ``gridsize`` over ``extent``; ``ncontour`` is
+        omitted, so GLE's default applies.
+        """
+        data_file = series["data_file"]
+        if series["source"] == "points":
+            self.add_points_sidecar(data_file, series["x"], series["y"], series["zpts"])
+            self.add_fitz_block(data_file, series["extent"], series["gridsize"], None)
+        else:
+            self.add_z_sidecar(
+                data_file, series["z"], series["extent"], series["origin"]
+            )
+
+    def add_heatmap(self, series: Series):
+        """Emit a heatmap's ``colormap`` statement inside its graph block.
+
+        ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`.
+        ``cmap`` picks the colour mode: ``'gray'`` writes no colour clause,
+        ``'rainbow'`` is GLE's built-in ``color``, and any other name is the
+        ``gleplot_<cmap>`` palette sub.
+        """
+        cmap = series["cmap"]
+        cmap_mode: Tuple[str, Optional[str]]
+        if cmap == "gray":
+            cmap_mode = ("gray", None)
+        elif cmap == "rainbow":
+            cmap_mode = ("color", None)
+        else:
+            cmap_mode = ("palette", f"gleplot_{cmap}")
+        self.add_colormap(
+            _grid_z_file(series),
+            series["pixels"],
+            cmap_mode,
+            series["vmin"],
+            series["vmax"],
+            series["invert"],
+            series["interpolation"],
+        )
+
+    def add_heatmap_colorbar(self, series: Series):
+        """Emit the colorbar sub call after a heatmap's graph, if it has one.
+
+        ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`;
+        its ``colorbar`` dict (see :meth:`gleplot.Figure.colorbar`) holds the
+        call's range, size, format and label. A heatmap without one writes
+        nothing.
+        """
+        cb = series.get("colorbar")
+        if not cb:
+            return
+        self.add_colorbar_call(
+            sep=cb["sep"],
+            zmin=cb["zmin"],
+            zmax=cb["zmax"],
+            zstep=cb["zstep"],
+            palette_call=_pal.palette_call_name(series["cmap"]),
+            width=cb["width"],
+            fmt=cb["format"],
+            label=cb.get("label"),
+        )
 
     def add_colormap(
         self,
