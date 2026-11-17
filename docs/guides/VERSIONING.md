@@ -88,5 +88,3 @@ git push origin main --follow-tags
 - A newer commit reached `main` before Tests finished; that commit's run cuts
   the release instead.
 - Tests failed.
-
-`examples/example_versioning_workflow.py` prints a few worked scenarios.

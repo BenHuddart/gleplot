@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import numpy as np
 
@@ -24,27 +24,28 @@ def example_global_config():
     # Note: Use GLE font names, not matplotlib names
     # Valid GLE fonts: rm (serif), ss (sans-serif), tt (monospace), times8, psb, etc.
     print("Setting global font to 'ss' (sans-serif)...")
-    glp.GlobalConfig.style.font = "ss"  # GLE sans-serif font
-    glp.GlobalConfig.style.fontsize = 12
-    glp.GlobalConfig.graph.legend_position = "tl"
+    try:
+        glp.GlobalConfig.style.font = "ss"  # GLE sans-serif font
+        glp.GlobalConfig.style.fontsize = 12
+        glp.GlobalConfig.graph.legend_position = "tl"
 
-    # Create figure (uses global defaults)
-    fig = glp.figure(figsize=(8, 5))
-    ax = fig.add_subplot(111)
+        # Create figure (uses global defaults)
+        fig = glp.figure(figsize=(8, 5))
+        ax = fig.add_subplot(111)
 
-    x = np.linspace(0, 2 * np.pi, 50)
-    ax.plot(x, np.sin(x), "b-", label="sin(x)")
-    ax.plot(x, np.cos(x), "r--", label="cos(x)")
-    ax.set_xlabel("Angle (radians)")
-    ax.set_ylabel("Value")
-    ax.set_title("Global Config Example")
-    ax.legend()
+        x = np.linspace(0, 2 * np.pi, 50)
+        ax.plot(x, np.sin(x), "b-", label="sin(x)")
+        ax.plot(x, np.cos(x), "r--", label="cos(x)")
+        ax.set_xlabel("Angle (radians)")
+        ax.set_ylabel("Value")
+        ax.set_title("Global Config Example")
+        ax.legend()
 
-    fig.savefig(Path(__file__).parent / "output" / "example_global_config.pdf")
-    print("✓ Saved to example_global_config.pdf\n")
-
-    # Reset for next example
-    glp.GlobalConfig.reset()
+        fig.savefig("example_global_config.gle")
+        print("✓ Saved to example_global_config.gle\n")
+    finally:
+        # Reset so the defaults do not leak into later figures.
+        glp.GlobalConfig.reset()
 
 
 def example_per_figure_config():
@@ -74,8 +75,8 @@ def example_per_figure_config():
     ax1.set_title("Publication Quality")
     ax1.legend()
 
-    fig1.savefig(Path(__file__).parent / "output" / "example_publication.pdf")
-    print("✓ Saved to example_publication.pdf")
+    fig1.savefig("example_publication.gle")
+    print("✓ Saved to example_publication.gle")
 
     # Style for Figure 2: Presentation quality
     pres_style = glp.GLEStyleConfig(
@@ -98,8 +99,8 @@ def example_per_figure_config():
     ax2.set_title("Presentation Quality")
     ax2.legend()
 
-    fig2.savefig(Path(__file__).parent / "output" / "example_presentation.pdf")
-    print("✓ Saved to example_presentation.pdf\n")
+    fig2.savefig("example_presentation.gle")
+    print("✓ Saved to example_presentation.gle\n")
 
 
 def example_marker_config():
@@ -124,8 +125,8 @@ def example_marker_config():
     ax.set_title("Custom Marker Appearance")
     ax.legend()
 
-    fig.savefig(Path(__file__).parent / "output" / "example_markers.pdf")
-    print("✓ Saved to example_markers.pdf\n")
+    fig.savefig("example_markers.gle")
+    print("✓ Saved to example_markers.gle\n")
 
 
 def example_smooth_curves():
@@ -147,8 +148,8 @@ def example_smooth_curves():
     ax1.set_ylabel("y")
     ax1.legend()
 
-    fig1.savefig(Path(__file__).parent / "output" / "example_smooth.pdf")
-    print("✓ Saved to example_smooth.pdf")
+    fig1.savefig("example_smooth.gle")
+    print("✓ Saved to example_smooth.gle")
 
     # Figure without smooth curves (the default: a polyline through the points)
     graph_sharp = glp.GLEGraphConfig(smooth_curves=False)
@@ -161,8 +162,8 @@ def example_smooth_curves():
     ax2.set_ylabel("y")
     ax2.legend()
 
-    fig2.savefig(Path(__file__).parent / "output" / "example_sharp.pdf")
-    print("✓ Saved to example_sharp.pdf\n")
+    fig2.savefig("example_sharp.gle")
+    print("✓ Saved to example_sharp.gle\n")
 
 
 def example_line_styles():
@@ -196,38 +197,13 @@ def example_line_styles():
     ax.set_title("Line Style Examples")
     ax.legend(loc="upper right")
 
-    fig.savefig(Path(__file__).parent / "output" / "example_line_styles.pdf")
-    print("✓ Saved to example_line_styles.pdf\n")
+    fig.savefig("example_line_styles.gle")
+    print("✓ Saved to example_line_styles.gle\n")
 
 
-def main():
-    """Run all configuration examples."""
-    output_dir = Path(__file__).parent / "output"
-    output_dir.mkdir(exist_ok=True)
-
-    print("\ngleplot Configuration Examples")
-    print("=" * 50)
-    print()
-
-    try:
-        from gleplot.compiler import GLECompiler
-
-        compiler = GLECompiler()
-        print(f"GLE compiler found: {compiler.gle_path}\n")
-    except Exception:
-        print("Warning: GLE compiler not available. Saving as .gle only.\n")
-
+if __name__ == "__main__":
     example_global_config()
     example_per_figure_config()
     example_marker_config()
     example_smooth_curves()
     example_line_styles()
-
-    print("=" * 50)
-    print("All examples completed!")
-    print(f"Output saved to: {output_dir}")
-    print()
-
-
-if __name__ == "__main__":
-    main()

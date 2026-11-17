@@ -7,6 +7,13 @@ from .broken_axis import (
     example_broken_axis_slash,
 )
 from .combined_plots import example_combined_plot
+from .configuration import (
+    example_global_config,
+    example_line_styles,
+    example_marker_config,
+    example_per_figure_config,
+    example_smooth_curves,
+)
 from .data_prefix import example_data_prefix
 from .errorbar_from_file import (
     example_dual_axis_from_file,
@@ -20,6 +27,7 @@ from .multiple_styles import example_multiple_styles
 from .per_element_styling import example_per_element_styling
 from .phase_diagram import example_phase_diagram
 from .prl_fig2a_style import example_prl_fig2a_style
+from .secondary_yaxis import example_secondary_yaxis
 from .shared_axes import (
     example_both_shared,
     example_comparison_with_without,
@@ -63,4 +71,10 @@ __all__ = [
     "example_broken_axis_line",
     "example_broken_axis_none",
     "example_prl_fig2a_style",
+    "example_secondary_yaxis",
+    "example_global_config",
+    "example_per_figure_config",
+    "example_marker_config",
+    "example_smooth_curves",
+    "example_line_styles",
 ]

@@ -13,7 +13,7 @@ Advanced examples:
     - multiple_styles: Multiple line styles and markers
 
 Run all examples:
-    python -m examples.run_all
+    python examples/run_and_compile.py
 """
 
 from .advanced import (

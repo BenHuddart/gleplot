@@ -130,12 +130,6 @@ def example_phase_diagram():
     fig.savefig_gle("example_phase_diagram.gle")
     print("  Saved to example_phase_diagram.gle")
 
-    try:
-        fig.savefig("example_phase_diagram.png", dpi=150)
-        print("  Compiled to example_phase_diagram.png")
-    except RuntimeError:
-        print("  GLE not available for compilation; GLE script saved only.")
-
 
 if __name__ == "__main__":
     example_phase_diagram()

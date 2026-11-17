@@ -75,6 +75,13 @@ jobs:
       - name: Run tests
         run: pytest tests/ --tb=short
 
+      # PYTHONUTF8: the examples print non-ASCII marks, which a Windows
+      # console encoding cannot represent.
+      - name: Run examples without compiling
+        env:
+          PYTHONUTF8: '1'
+        run: python examples/run_and_compile.py --no-compile
+
   # What varies by operating system here is GLE itself, so one Python per
   # system is enough; test-without-gle covers the Python versions.
   test:
@@ -233,9 +240,14 @@ jobs:
       # the strict build needs are compiled by the examples.
       - name: Run examples
         if: matrix.os == 'ubuntu-24.04'
+        run: python examples/run_and_compile.py
+
+      # Examples write only to the ignored examples/outputs/.
+      - name: Check the examples left the tree clean
+        if: matrix.os == 'ubuntu-24.04'
         run: |
-          python examples/run_and_compile.py
-          python examples/run_all.py
+          git status --porcelain
+          test -z "$(git status --porcelain)"
 
       - name: Build documentation (warnings are errors)
         if: matrix.os == 'ubuntu-24.04'

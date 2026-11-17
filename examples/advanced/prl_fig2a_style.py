@@ -26,8 +26,7 @@ Conventions on show, all of them things the target figure relies on:
   segment's at the seam;
 * double-slash break marks on the top and bottom frame lines.
 
-Outputs (in the current directory): ``prl_fig2a_style.gle`` + sidecars and
-``prl_fig2a_style.pdf``.
+Outputs (in the current directory): ``prl_fig2a_style.gle`` + sidecars.
 """
 
 import sys
@@ -71,7 +70,7 @@ def sample_times():
 
 
 def example_prl_fig2a_style():
-    """Build, save and compile the PRL Fig. 2(a)-style panel."""
+    """Build and save the PRL Fig. 2(a)-style panel."""
     rng = np.random.default_rng(20260728)
     t = sample_times()
     # Fit curves are drawn from a dense grid so the dashes stay smooth across
@@ -146,11 +145,6 @@ def example_prl_fig2a_style():
 
     fig.savefig_gle("prl_fig2a_style.gle")
     print("Saved: prl_fig2a_style.gle")
-    try:
-        fig.savefig("prl_fig2a_style.pdf")
-        print("Compiled: prl_fig2a_style.pdf")
-    except RuntimeError:
-        print("GLE not available for compilation. GLE script saved.")
     return fig
 
 
