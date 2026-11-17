@@ -608,12 +608,16 @@ class _XYSeries(Series):
     type: str
     x: np.ndarray
     y: np.ndarray
-    color: str
+    #: ``None`` is a recovered ``dN`` line that set no colour: the writer
+    #: writes none, and GLE draws in the current colour.
+    color: Optional[str]
     marker: Optional[str]
     markersize: float
     linestyle: str
-    linewidth: float
-    #: GLE's ``nomiss`` qualifier: draw the line through a missing value
+    #: ``None`` is a recovered ``dN`` line that drew a line but set no
+    #: ``lwidth``: the writer writes none (GLE's current line width).
+    linewidth: Optional[float]
+    #: GLE's ``nomiss qualifier: draw the line through a missing value
     #: instead of leaving a gap (GLE default: gap). Only meaningful when a
     #: line is drawn, but preserved verbatim on scatter-only series too so a
     #: hand-written file that sets it never loses the setting on re-save.
@@ -796,11 +800,15 @@ class HistSeries(Series):
     #: ``stepfilled`` bar width in data units. Absent: GLE derives one, which
     #: is half the bin and leaves gaps, so the writer sets this for API series.
     bar_width: Optional[float]
-    color: str
+    #: ``None`` is a recovered ``dN`` line that set no colour: the writer
+    #: writes none, and GLE draws in the current colour.
+    color: Optional[str]
     #: Stroke on a ``stepfilled`` bar. Absent: GLE's black edge.
     edgecolor: Optional[str]
     linestyle: str
-    linewidth: float
+    #: ``None`` is a recovered ``dN`` line that drew a line but set no
+    #: ``lwidth``: the writer writes none (GLE's current line width).
+    linewidth: Optional[float]
     label: Optional[str]
     yaxis: str
     #: ``'x2'`` binds the histogram to the top scale. Absent means the
@@ -886,11 +894,15 @@ class ErrorbarSeries(Series):
     yerr_down: Optional[np.ndarray]
     xerr_left: Optional[np.ndarray]
     xerr_right: Optional[np.ndarray]
-    color: str
+    #: ``None`` is a recovered ``dN`` line that set no colour: the writer
+    #: writes none, and GLE draws in the current colour.
+    color: Optional[str]
     marker: Optional[str]
     markersize: float
     linestyle: str
-    linewidth: float
+    #: ``None`` is a recovered ``dN`` line that drew a line but set no
+    #: ``lwidth``: the writer writes none (GLE's current line width).
+    linewidth: Optional[float]
     label: Optional[str]
     #: Cap size as the caller gave it (matplotlib points, or cm when set
     #: through ``capsize_cm``); ``gle_capsize`` is the emitted cm value.
@@ -943,11 +955,15 @@ class FileSeries(Series):
     y2_col: int
     #: ``'errorbar'`` variant.
     yerr_col: Optional[int]
-    color: str
+    #: ``None`` (``'line'`` and ``'errorbar'`` variants) is a recovered
+    #: ``dN`` line that set no colour: the writer writes none.
+    color: Optional[str]
     marker: Optional[str]
     markersize: float
     linestyle: str
-    linewidth: float
+    #: ``None`` (``'line'`` variant) is a recovered ``dN`` line that set no
+    #: ``lwidth``: the writer writes none.
+    linewidth: Optional[float]
     #: ``'line'`` variant only: GLE's ``nomiss`` qualifier (see
     #: ``_XYSeries.nomiss``).
     nomiss: bool

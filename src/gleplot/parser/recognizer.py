@@ -1008,11 +1008,12 @@ def _dn_fields(attrs: Dict[str, Any]) -> Dict[str, Any]:
     """Series fields every ``dN`` display line maps the same way, from its attributes.
 
     ``attrs`` is :meth:`_Recognizer._scan_series_attrs` output. A line with no
-    ``color`` recovers as gleplot's default series colour, BLUE; ``xaxis`` is
-    set only for a dataset on the top axis.
+    ``color`` recovers ``color=None``: GLE draws it in the current colour, and
+    the writer leaves ``color`` out again. ``xaxis`` is set only for a dataset
+    on the top axis.
     """
     fields: Dict[str, Any] = {
-        "color": attrs["color"] or "BLUE",
+        "color": attrs["color"],
         "label": attrs["label"],
         "yaxis": "y2" if attrs["y2axis"] else "y",
     }
@@ -1029,12 +1030,17 @@ def _dn_markersize(attrs: Dict[str, Any]) -> float:
     return attrs["msize"] if attrs["msize"] is not None else 0.15
 
 
-def _dn_linewidth(attrs: Dict[str, Any]) -> float:
-    """A ``dN`` line's ``lwidth`` in matplotlib points (1.0 when absent).
+def _dn_linewidth(attrs: Dict[str, Any]) -> Optional[float]:
+    """A ``dN`` line's ``lwidth`` in matplotlib points.
 
-    The model stores points; the writer converts back to cm.
+    The model stores points; the writer converts back to cm. ``None`` when
+    the dataset draws a line but sets no ``lwidth``: GLE draws it at the
+    current line width, and the writer leaves ``lwidth`` out again. 1.0 when
+    it draws no line, since no width is written for it.
     """
-    return linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
+    if attrs["lwidth"] is not None:
+        return linewidth_cm_to_pt(attrs["lwidth"])
+    return None if attrs["has_line"] else 1.0
 
 
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
@@ -2633,7 +2639,8 @@ class _Recognizer:
           constant coordinate is not the one the marker claims (someone moved
           the guide by editing the ``.dat``);
         * the display command carries something no guide emission has: a
-          marker, a ``y2axis`` binding, an offset ``let``, smoothing.
+          marker, a ``y2axis`` binding, an offset ``let``, smoothing;
+        * or lacks the ``color`` and ``lwidth`` every guide emission writes.
 
         Never guessed at, never half-applied: the caller then appends the
         plain ``LineSeries`` it already built, which is exactly what this file
@@ -2648,6 +2655,8 @@ class _Recognizer:
         if attrs.get("line_mode"):
             return None
         if attrs["svg_smooth"] is not None:
+            return None
+        if entry["color"] is None or entry["linewidth"] is None:
             return None
         x = np.asarray(entry["x"], dtype=float)
         y = np.asarray(entry["y"], dtype=float)
@@ -5596,7 +5605,9 @@ class _Recognizer:
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
         color = attrs["color"] or "BLACK"
-        linewidth = _dn_linewidth(attrs)
+        linewidth = (
+            linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
+        )
         lstyle = attrs["lstyle"]  # int or None (None = solid)
 
         cblock = self._contour_blocks.get(zfile, {})

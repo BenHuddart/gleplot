@@ -1823,3 +1823,23 @@ def test_add_text_keywords_reach_the_emitted_text():
         "grestore",
         "grestore",
     ]
+
+
+@pytest.mark.parametrize(
+    "draw",
+    [
+        lambda ax, **kw: ax.plot([0, 1], [0, 1], **kw),
+        lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw),
+    ],
+    ids=["plot", "errorbar"],
+)
+def test_linewidth_none_means_the_default_width(draw):
+    """matplotlib reads ``linewidth=None`` as the default width."""
+
+    def script(**kw):
+        glp.close()
+        fig = glp.figure(data_prefix="lw")
+        draw(fig.add_subplot(111), **kw)
+        return fig._generate_gle_with_files()[0]
+
+    assert script(linewidth=None) == script()
