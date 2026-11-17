@@ -3231,11 +3231,12 @@ class Axes:
     #
     # 1. The concrete end points are computed at WRITE time, not call time
     #    (:meth:`materialize_reflines` / :meth:`materialize_spans`, called from
-    #    ``Figure._write_axes_content`` after the axis limits are resolved).
-    #    So a later ``set_ylim`` -- or autoscaling from data added after the
-    #    axvline call -- is respected, exactly as in matplotlib. The generated
-    #    ``.dat`` sidecar name, by contrast, is reserved at CALL time so it is
-    #    stable across repeated saves of the same figure.
+    #    ``Figure._write_fills`` and ``Figure._write_reflines`` after the axis
+    #    limits are resolved). So a later ``set_ylim`` -- or autoscaling from
+    #    data added after the axvline call -- is respected, exactly as in
+    #    matplotlib. The generated ``.dat`` sidecar name, by contrast, is
+    #    reserved at CALL time so it is stable across repeated saves of the
+    #    same figure.
     #
     # 2. Spans are emitted with the ``fill``s and reference lines immediately
     #    after them, i.e. before bars/lines/scatters/errorbars, so data always
@@ -3484,8 +3485,9 @@ class Axes:
         :meth:`materialize_reflines` / :meth:`materialize_spans` return for
         the same ``limits``. That alignment is what lets the writer put each
         materialized dataset's provenance marker (G18-lite) back beside the
-        declaration it came from; ``Figure._write_axes_content`` checks the
-        two lists are the same length rather than trusting it silently.
+        declaration it came from; ``Figure._write_fills`` and
+        ``Figure._write_reflines`` check the two lists are the same length
+        rather than trusting it silently.
         """
         return [
             entry

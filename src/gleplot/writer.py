@@ -4193,7 +4193,7 @@ class GLEWriter:
         """Mark the two-point dataset that follows as an ``axvline``/``axhline``.
 
         Emitted immediately before the guide's own ``data`` statement, by
-        :meth:`gleplot.figure.Figure._write_axes_content`, for every guide
+        :meth:`gleplot.figure.Figure._write_reflines`, for every guide
         that materializes (i.e. every guide NOT routed to the draw form by
         ``Axes.guide_needs_engine_range``).
         """
