@@ -56,6 +56,7 @@ from .series import (
     SERIES_CLASSES,
     BarSeries,
     ErrorbarSeries,
+    FillSeries,
     LineSeries,
     Series,
     _unique_column_names,
@@ -1022,7 +1023,7 @@ class GLEWriter:
           datasets a fill references are not symmetric: one is commonly a
           ``let``-derived offset copy that would need the SAME factor
           applied for the polygon to stay a consistent shape (decimating
-          only one boundary produces a warped fill), and :meth:`add_fill_between`
+          only one boundary produces a warped fill), and :meth:`add_fill`
           does not currently track a shared row count/eligibility across
           both sides. Left for a follow-up if fill-heavy previews turn out
           to need it.
@@ -3453,53 +3454,95 @@ class GLEWriter:
         ymin: Optional[float] = None,
         ymax: Optional[float] = None,
     ):
+        """Add a fill from per-field keywords.
+
+        The keyword form of :meth:`add_fill`: each argument is the
+        :class:`~gleplot.series.FillSeries` field of the same name, and
+        ``binding`` is passed through. Kept so callers that build GLE through
+        the writer directly keep working.
         """
-        Add fill between two curves.
+        series = FillSeries(
+            x=x,
+            y1=y1,
+            y2=y2,
+            data_file=data_file,
+            color=color,
+            alpha=alpha,
+            offset=offset,
+            column_names=column_names,
+            label=label,
+            swatch_color=swatch_color,
+            target=target,
+            xmin=xmin,
+            xmax=xmax,
+            ymin=ymin,
+            ymax=ymax,
+        )
+        self.add_fill(series, binding=binding)
+
+    def add_fill(self, series: Series, binding: Optional[ColumnBinding] = None):
+        """
+        Add a filled region: between two curves, to an axis, or a polygon.
 
         Parameters
         ----------
-        x, y1, y2 : arrays
-            x coordinates and two y series
-        data_file : str
-            External data file name
-        color : str
-            GLE fill color
-        alpha : float
-            Transparency (0-1). Below 1, ``color`` is re-expressed as a GLE
-            ``rgba255(...)`` colour expression (:func:`gleplot.colors.
-            apply_alpha`) so the transparency is real in the generated
-            script; rendering it requires GLE's ``-cairo`` device (SPEC
-            §6.1/§10.6, :meth:`gleplot.figure.Figure.requires_cairo`). At
-            ``alpha >= 1.0`` (the default) ``color`` is written verbatim,
-            unchanged from every pre-Cairo-support ``.gle`` this method has
-            ever produced.
-        column_names : list of str, optional
-            Sidecar header row (e.g. ``['x', 'upper', 'lower']``). GLE's
-            ``fill dA,dB color X`` command (like ``bar``) has no ``key``
-            option of its own, but the two datasets it references still go
-            through the generic dataset-key mechanism (they're registered
-            via the same "used dataset" bookkeeping as any ``dN`` display
-            command), so a header row would still risk an auto-key on
-            either one. An unlabelled fill neutralizes both with standalone
-            ``dN key ""`` statements when a header row is present (verified
-            empirically byte-identical to the headerless case). A labelled
-            fill puts ``keyfill`` and ``key`` on the first dataset instead:
-            ``fill`` does not copy its colour into ``key_fill`` the way
-            ``bar`` does, so the swatch has to be named. The second dataset
-            still gets ``key ""`` when a header would otherwise auto-key it.
-        label : str, optional
-            Legend label for that swatch.
+        series : FillSeries
+            The resolved series: its arrays are present (see
+            :meth:`SourceResolution.data`). ``x``, ``y1``, ``data_file``,
+            ``color`` and ``alpha`` are required; every other field is read
+            with the default its absence has always meant.
         binding : ColumnBinding, optional
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
             that table (see :meth:`_write_columns`).
-        target : str, optional
-            ``"x1"``, ``"x2"`` or ``"polygon"``. Absent keeps the two-curve
-            ``fill dA,dB``. A single-curve form writes only ``x`` and ``y1``.
-        xmin, xmax, ymin, ymax : float, optional
-            GLE clip window. ``None`` omits that edge. On ``target="x1"``,
-            ``ymin`` is also the line the fill closes on.
+
+        Notes
+        -----
+        How the fields are emitted:
+
+        - ``alpha``: below 1, ``color`` is re-expressed as a GLE
+          ``rgba255(...)`` colour expression (:func:`gleplot.colors.
+          apply_alpha`) so the transparency is real in the generated script;
+          rendering it requires GLE's ``-cairo`` device (SPEC §6.1/§10.6,
+          :meth:`gleplot.figure.Figure.requires_cairo`). At ``alpha >= 1.0``
+          ``color`` is written verbatim, unchanged from every pre-Cairo-support
+          ``.gle`` this method has ever produced.
+        - ``column_names``: the sidecar header row (e.g. ``['x', 'upper',
+          'lower']``). GLE's ``fill dA,dB color X`` command (like ``bar``) has
+          no ``key`` option of its own, but the two datasets it references
+          still go through the generic dataset-key mechanism (they're
+          registered via the same "used dataset" bookkeeping as any ``dN``
+          display command), so a header row would still risk an auto-key on
+          either one. An unlabelled fill neutralizes both with standalone
+          ``dN key ""`` statements when a header row is present (verified
+          empirically byte-identical to the headerless case). A labelled fill
+          puts ``keyfill`` and ``key`` on the first dataset instead: ``fill``
+          does not copy its colour into ``key_fill`` the way ``bar`` does, so
+          the swatch has to be named. The second dataset still gets
+          ``key ""`` when a header would otherwise auto-key it.
+        - ``label``: the legend label for that swatch.
+        - ``target``: ``"x1"``, ``"x2"`` or ``"polygon"``. Absent keeps the
+          two-curve ``fill dA,dB``. A single-curve form writes only ``x`` and
+          ``y1``.
+        - ``xmin``, ``xmax``, ``ymin``, ``ymax``: GLE's clip window. An
+          absent edge is omitted. On ``target="x1"``, ``ymin`` is also the
+          line the fill closes on.
         """
+        x = series["x"]
+        y1 = series["y1"]
+        y2 = series.get("y2")
+        data_file = series["data_file"]
+        color = series["color"]
+        alpha = series["alpha"]
+        offset = series.get("offset", 0.0)
+        column_names = series.get("column_names")
+        label = series.get("label")
+        swatch_color = series.get("swatch_color")
+        target = series.get("target")
+        xmin = series.get("xmin")
+        xmax = series.get("xmax")
+        ymin = series.get("ymin")
+        ymax = series.get("ymax")
         single = target in ("x1", "x2", "polygon")
         if single:
             # Role name stays ``y1`` so a provider binding, which keys columns
@@ -4228,7 +4271,7 @@ class GLEWriter:
         on GLE 4.3.10) does not move the autoscale. ``label`` still travels
         as the sub's last argument too, so the draw block stays
         self-describing. ``alpha`` is folded into the colour exactly as
-        :meth:`add_fill_between` folds it, via
+        :meth:`add_fill` folds it, via
         :func:`gleplot.colors.apply_alpha`, and the swatch uses that same
         token.
         """
@@ -4350,7 +4393,7 @@ class GLEWriter:
         ``key`` option of its own, so unlike a refline's label a band's has
         nowhere else to live -- and unlike a refline's it is dropped rather
         than drawn (the dataset form's legend behaviour is unchanged; see
-        :meth:`add_fill_between`).
+        :meth:`add_fill`).
         """
         args = [
             "range",
@@ -4472,7 +4515,7 @@ class GLEWriter:
 
         Paths that deliberately never smooth, whatever the setting:
 
-        - ``add_fill_between`` -- GLE's ``fill dA,dB`` command takes no
+        - ``add_fill`` -- GLE's ``fill dA,dB`` command takes no
           ``smooth`` qualifier, so a band edge is always a polyline.
         - ``add_contour_line`` -- the ``-cdata.dat`` polylines come out of
           GLE's own contouring of the gridded surface; splining them would

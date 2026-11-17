@@ -1744,7 +1744,7 @@ class _Recognizer:
             # The writer emits a standalone 'dN key ""' statement right after
             # 'bar'/'fill' to neutralize GLE's auto-key-from-header behavior
             # (bar/fill have no 'key' sub-option of their own -- see
-            # gleplot.writer.GLEWriter.add_bar/add_fill_between). That
+            # gleplot.writer.GLEWriter.add_bar/add_fill). That
             # bare 'dN key ""' would otherwise look like a brand-new,
             # unlabeled line/scatter series to the generic dN-dispatch below;
             # this set lets pass 2 recognize and skip it as a suppression
@@ -1961,7 +1961,7 @@ class _Recognizer:
                     # 'bar'/'fill' command that already consumed this
                     # dataset -- the writer's auto-key-from-header
                     # suppression marker (see writer.add_bar /
-                    # add_fill_between), not a real second series. Consume
+                    # add_fill), not a real second series. Consume
                     # silently: no series, no passthrough (matches what the
                     # writer will regenerate from the bar/fill entry's
                     # column_names on next save).
@@ -2831,7 +2831,7 @@ class _Recognizer:
         Used to recognize the writer's auto-key-from-header suppression
         marker (a standalone ``dN key ""`` statement emitted after a
         ``bar``/``fill`` command -- see ``writer.add_bar`` /
-        ``add_fill_between``) so it isn't mistaken for a real second series
+        ``add_fill``) so it isn't mistaken for a real second series
         on that dataset. Exactly 2 tokens: the ``key`` keyword and an empty
         string literal.
         """

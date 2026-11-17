@@ -192,7 +192,7 @@ def test_a_lineless_guide_draws_nothing_but_is_still_declared():
 
 
 def test_a_translucent_band_keeps_its_rgba_colour():
-    """Alpha is folded into the colour exactly as ``add_fill_between`` folds it."""
+    """Alpha is folded into the colour exactly as ``add_fill`` folds it."""
     fig, ax = _empty_axes()
     ax.axvspan(0.4, 0.6, color="orange", alpha=0.35)
     text, _files = _generate(fig)
