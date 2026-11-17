@@ -296,16 +296,14 @@ class TestSubplots:
 
     def test_subplot_savefig(self, tmp_path):
         """Test saving multi-subplot figure."""
-        import os
-
         fig, axes = glp.subplots(1, 2)
         axes[0].plot([1, 2, 3], [1, 4, 9])
         axes[1].scatter([1, 2, 3], [3, 2, 1])
 
-        path = os.path.join(tmp_path, "subplots.gle")
-        fig.savefig(path)
-        assert os.path.exists(path)
-        content = open(path).read()
+        path = tmp_path / "subplots.gle"
+        fig.savefig(str(path))
+        assert path.exists()
+        content = path.read_text()
         assert "amove" in content
         assert content.count("begin graph") == 2
 

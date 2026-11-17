@@ -143,8 +143,6 @@ class TestTextAnnotations:
         assert "end rotate" in gle
 
     def test_rgb_bbox_round_trips_through_the_parser(self, tmp_path):
-        import os
-
         from gleplot.parser.recognizer import parse_gle_figure
 
         self.ax.plot([0, 1], [0, 1])
@@ -158,7 +156,7 @@ class TestTextAnnotations:
             color=(0.2, 0.4, 0.6),
             bbox={"facecolor": (1, 1, 0)},
         )
-        path = os.path.join(tmp_path, "t.gle")
+        path = str(tmp_path / "t.gle")
         self.fig.savefig_gle(path)
         got = parse_gle_figure(path).figure.axes_list[0].texts[0]
         assert got["text"] == "mark"
@@ -278,13 +276,15 @@ class TestAnnotate:
         assert "join ann7 <-> ann7_xy" in gle
 
     def test_legacy_arrowprops_is_a_filled_arrow(self):
-        with pytest.warns(UserWarning, match="shrink"):
+        with pytest.warns(UserWarning) as record:
             entry = self.ax.annotate(
                 "a",
                 xy=(0, 0),
                 xytext=(1, 1),
                 arrowprops={"facecolor": "red", "shrink": 0.05},
             )
+        first = next(w for w in record if issubclass(w.category, UserWarning))
+        assert "shrink" in str(first.message)
         assert (entry["arrow"], entry["arrowstyle"]) == ("->", "filled")
         assert entry["arrow_color"] == "RED"
 
