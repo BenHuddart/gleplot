@@ -81,20 +81,13 @@ semantic-release version
 git push origin main --follow-tags
 ```
 
-To check a build locally:
-
-```bash
-pip install build twine
-python -m build
-twine check dist/*
-```
-
 ## Publishing to PyPI
 
-The **Release** workflow always attaches the sdist and wheel to the GitHub
-Release. Upload to PyPI is off until a maintainer enables it:
+Each release attaches the sdist and wheel to its GitHub Release. Upload to
+PyPI is off until a maintainer enables it:
 
-1. Register the gleplot project on PyPI (or TestPyPI first).
+1. Register the gleplot project on PyPI. The workflow uploads to PyPI only,
+   not TestPyPI.
 2. Add a **Trusted Publisher** on PyPI for this repository, workflow file
    `release.yml`, environment `pypi`.
 3. Create a GitHub **Environment** named `pypi` (approval rules are
@@ -104,6 +97,14 @@ Release. Upload to PyPI is off until a maintainer enables it:
 The **Publish to PyPI** job authenticates through OIDC
 (`pypa/gh-action-pypi-publish`), so no long-lived API token is stored in the
 repository.
+
+To check a build locally:
+
+```bash
+pip install build twine
+python -m build
+twine check dist/*
+```
 
 ## If the Release workflow does nothing
 
