@@ -50,6 +50,7 @@ dev = [
 docs = [
     "sphinx>=4.0",
     "sphinx-rtd-theme>=1.0",
+    "myst-parser>=0.18",
 ]
 gle = [
     # GLE must be installed separately from system package manager

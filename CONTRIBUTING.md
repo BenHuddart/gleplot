@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve gleplot. This page covers what you need before opening a pull request. For commit types and how releases are cut, see [docs/guides/VERSIONING.md](docs/guides/VERSIONING.md).
+Thanks for helping improve gleplot. This page covers what you need before opening a pull request. For commit types and how releases are cut, see [docs/guides/VERSIONING.md](https://github.com/benhuddart/gleplot/blob/main/docs/guides/VERSIONING.md).
 
 ## Setup
 
@@ -16,7 +16,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Tests that shell out to the `gle` binary are marked `@pytest.mark.gle` and are skipped when GLE is not installed. See [docs/guides/TESTING.md](docs/guides/TESTING.md) for the test layers and the fixed-point check.
+Tests that shell out to the `gle` binary are marked `@pytest.mark.gle` and are skipped when GLE is not installed. See [docs/guides/TESTING.md](https://github.com/benhuddart/gleplot/blob/main/docs/guides/TESTING.md) for the test layers and the fixed-point check.
 
 ## Code style
 
@@ -45,7 +45,7 @@ sphinx-build -W --keep-going -b html docs/source docs/build/html
 
 ## Commits
 
-Use [conventional commits](https://www.conventionalcommits.org/). The type decides the release; [docs/guides/VERSIONING.md](docs/guides/VERSIONING.md) lists what each one does.
+Use [conventional commits](https://www.conventionalcommits.org/). The type decides the release; [docs/guides/VERSIONING.md](https://github.com/benhuddart/gleplot/blob/main/docs/guides/VERSIONING.md) lists what each one does.
 
 ## Pull requests
 
