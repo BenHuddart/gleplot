@@ -12,6 +12,7 @@ identity, guarding the "zero behavior change" requirement for Track A2.
 import numpy as np
 
 import gleplot as glp
+from gleplot.series import FileSeries
 
 
 def single_line():
@@ -388,6 +389,80 @@ def file_series():
     return fig
 
 
+def file_series_field_options():
+    """File-series fields the ``file_series`` builder leaves at their defaults.
+
+    A wide stepped line on the y2 axis with a marker and ``nomiss``, a
+    marker-less errorbar reference with no error column on the x2 axis, and
+    the bar and fill references the recognizer keeps for a file it cannot
+    read: a labelled bar with a swatch colour, a clipped two-curve fill, a
+    fill to ``x1`` and a labelled polygon fill. ``marker``, ``markersize``
+    and ``nomiss`` on a line reference, and every bar and fill reference,
+    come only from a recovered script, so they are set on the series here.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.line_from_file(
+        "external.dat",
+        1,
+        2,
+        color="green",
+        linewidth=2,
+        yaxis="y2",
+        drawstyle="steps-pre",
+        label="stepped",
+    )
+    ax.file_series[0].update(marker="CIRCLE", markersize=0.2, nomiss=True)
+    ax.errorbar_from_file("external.dat", 1, 3, color="red", marker=None, xaxis="x2")
+    ax.file_series.extend(
+        [
+            FileSeries(
+                series_type="bar",
+                data_file="external.dat",
+                x_col=1,
+                y_col=4,
+                color="ORANGE",
+                label="bars",
+                swatch_color="RED",
+                data_error="Data file not found: external.dat",
+            ),
+            FileSeries(
+                series_type="fill",
+                data_file="external.dat",
+                x_col=1,
+                y1_col=2,
+                y2_col=3,
+                color="GRAY10",
+                xmin=0.5,
+                ymax=2.0,
+                data_error="Data file not found: external.dat",
+            ),
+            FileSeries(
+                series_type="fill",
+                data_file="external.dat",
+                x_col=1,
+                y1_col=2,
+                color="GRAY20",
+                target="x1",
+                data_error="Data file not found: external.dat",
+            ),
+            FileSeries(
+                series_type="fill",
+                data_file="external.dat",
+                x_col=1,
+                y1_col=3,
+                color="BLUE",
+                target="polygon",
+                label="polygon",
+                swatch_color="CYAN",
+                data_error="Data file not found: external.dat",
+            ),
+        ]
+    )
+    ax.legend()
+    return fig
+
+
 def large_markersize_and_linewidth():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -733,6 +808,7 @@ BUILDERS = [
     subplots_sharex_with_colored_text,
     subplots_grid_mixed,
     file_series,
+    file_series_field_options,
     large_markersize_and_linewidth,
     exact_rgb_colors,
     custom_figsize_and_dpi,
