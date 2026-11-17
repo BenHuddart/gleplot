@@ -27,6 +27,5 @@ reference, start with the [published documentation](https://benhuddart.github.io
 
 - [CONTRIBUTING.md](../../CONTRIBUTING.md) — setup, style checks and pull requests
 - [TESTING.md](TESTING.md) — test layers, the `gle` marker, the fixed point
-- [VERSIONING.md](VERSIONING.md) — commit types and how releases are cut
-- [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md) — worked end-to-end examples and PyPI publishing setup
+- [VERSIONING.md](VERSIONING.md) — commit types, how releases are cut, PyPI publishing setup
 - [CHANGELOG.md](../CHANGELOG.md) — release history

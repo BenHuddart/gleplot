@@ -2,7 +2,7 @@ name: Release
 
 # After Tests pass on main, cut a release when conventional commits warrant a bump.
 # PyPI upload is a separate job, gated on repository variable PYPI_PUBLISH=true
-# and a configured Trusted Publisher (see docs/guides/DEVELOPMENT_WORKFLOW.md).
+# and a configured Trusted Publisher (see docs/guides/VERSIONING.md).
 
 on:
   workflow_run:

@@ -181,7 +181,7 @@ Places where the code does not yet meet the rules above. None of them is a patte
 
 - **Series logic is spread over five modules.** The "Adding a series field" checklist exists because one field is declared, set, emitted, passed through, and recovered in five separate places. The intended form is one description per series kind that those places read. Until then, follow the checklist. [#100](https://github.com/benhuddart/gleplot/issues/100)
 - **Oversized dispatch functions**: `Figure._write_axes_content`, `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
-- **Contributor docs repeat each other**: `CONTRIBUTING.md`, `docs/source/contributing.rst`, `docs/guides/DEVELOPMENT_WORKFLOW.md` and `docs/guides/VERSIONING.md` each restate setup, checks, and release rules. [#98](https://github.com/benhuddart/gleplot/issues/98), [#104](https://github.com/benhuddart/gleplot/issues/104)
+- **Contributor docs repeat each other**: `CONTRIBUTING.md` and `docs/source/contributing.rst` each restate setup, checks, and release rules. [#104](https://github.com/benhuddart/gleplot/issues/104)
 
 ## Where to look next
 
