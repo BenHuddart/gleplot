@@ -283,9 +283,12 @@ def normalize(d: dict) -> dict:
         # vmin/vmax to the emitted GLE precision; the colorbar's z-range comes
         # back from the emitted call. Snap BOTH sides to those precisions. The
         # recovered ``z`` grid is always y-increasing origin='lower' (documented
-        # normalization) -- our builders use origin='lower' so no flip needed.
+        # normalization), so an origin='upper' grid is flipped to match.
         for group in ("heatmaps", "contours"):
             for s in ax.get(group, []):
+                if s.get("origin") == "upper" and s.get("z") is not None:
+                    s["z"] = [list(row) for row in s["z"]][::-1]
+                    s["origin"] = "lower"
                 if s.get("z") is not None:
                     s["z"] = _snap_deep(s["z"])
                 for k in ("x", "y", "zpts", "extent", "levels"):
