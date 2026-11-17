@@ -2533,22 +2533,7 @@ class Figure:
     @staticmethod
     def _write_texts(writer: GLEWriter, ax: Axes) -> None:
         for text_data in ax.texts:
-            writer.add_text(
-                x=text_data["x"],
-                y=text_data["y"],
-                text=text_data["text"],
-                color=text_data.get("color", "BLACK"),
-                fontsize=text_data.get("fontsize"),
-                halign=text_data.get("ha", "left"),
-                valign=text_data.get("va", "center"),
-                box_color=text_data.get("box_color"),
-                rotation=text_data.get("rotation"),
-                xy=text_data.get("xy"),
-                arrow=text_data.get("arrow"),
-                arrowstyle=text_data.get("arrowstyle"),
-                arrow_color=text_data.get("arrow_color", "BLACK"),
-                arrow_linewidth=text_data.get("arrow_linewidth"),
-            )
+            writer.add_text_annotation(text_data)
 
     def _write_legend(self, writer: GLEWriter, ax: Axes, legend: _LegendLayout) -> None:
         """The key, if one is shown, else ``key off`` where GLE needs it.

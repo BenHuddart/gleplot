@@ -1764,3 +1764,62 @@ def test_from_file_keywords_reach_the_emitted_references():
         "    data a.dat d7=c1,c2",
         "    fill d7,x2 color BLUE",
     ]
+
+
+def test_add_text_keywords_reach_the_emitted_text():
+    """The keyword form of ``GLEWriter.add_text_annotation`` maps every
+    argument to its field (``halign``/``valign`` to ``ha``/``va``); gleplot
+    itself no longer calls it, so the mapping is pinned here."""
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    writer.add_text(
+        1,
+        2,
+        "plain",
+        color="RED",
+        fontsize=14,
+        halign="right",
+        valign="top",
+        box_color="YELLOW",
+        rotation=30,
+    )
+    writer.add_text(
+        3,
+        4,
+        "arrow",
+        xy=[5, 6],
+        arrow="->",
+        arrowstyle="filled",
+        arrow_color="BLUE",
+        arrow_linewidth=2,
+    )
+    writer.end_graph()
+    assert writer.lines_gle == [
+        "end graph",
+        "gsave",
+        "set hei 0.493827",
+        "set color RED",
+        "set just tr",
+        "amove xg(1) yg(2)",
+        "begin rotate 30",
+        "begin box fill YELLOW add 0.05 nobox",
+        'write "plain"',
+        "end box",
+        "end rotate",
+        "set color BLACK",
+        "set just left",
+        "amove xg(3) yg(4)",
+        "begin box add 0.05 nobox name ann1",
+        'write "arrow"',
+        "end box",
+        "amove xg(5) yg(6)",
+        "save ann1_xy",
+        "gsave",
+        "set color BLUE",
+        "set lwidth 0.07056",
+        "set arrowstyle filled",
+        "join ann1 -> ann1_xy",
+        "grestore",
+        "grestore",
+    ]
