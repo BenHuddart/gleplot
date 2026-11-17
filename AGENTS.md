@@ -3,7 +3,7 @@
 Shared contract for AI coding agents in this repository. It has two kinds of content, and they fail differently:
 
 - **The map** (what gleplot is, the architecture map) describes the code. Where it disagrees with the code, the code is right: correct the map in the same change.
-- **The rules** (everything else) describe the repository as it should be. Where existing code breaks a rule, the rule is right. That code is debt, not precedent: do not copy it and do not add to it. Bring it into line when your change already rewrites it; otherwise leave it for its own change. What is known to fall short is listed under [Known debt](#known-debt).
+- **The rules** (everything else) describe the repository as it should be. Where existing code breaks a rule, the rule is right. That code is debt, not precedent: do not copy it and do not add to it. Bring it into line when your change already rewrites it; otherwise leave it for its own change.
 
 ## What gleplot is
 
@@ -114,7 +114,7 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 - Keep the diff to the task. A drive-by refactor or reformat goes in its own change.
 - Comments explain **invariants** or **GLE constraints**, not obvious code, and not the history of the change.
 - **Python ≥3.9**; no new dependency for a small feature.
-- A function does one thing. Do not add another series kind or another option to a function that already branches over many; give the new case its own method and call it. The dispatchers this applies to most are `Figure._write_drawables`, `GLEWriter.add_axes` and `_Recognizer._parse_graph_block`.
+- A function does one thing. Do not add another series kind or another option to a function that already branches over many; give the new case its own method and call it.
 - A module has the one job the map gives it. Line count alone is not a reason to split `writer.py`, `axes.py`, or `recognizer.py`; a split follows a real seam and is agreed with the maintainer first, because it moves every import and the layering test with it.
 
 ### Adding a series field
@@ -175,12 +175,6 @@ More detail, including the output analyzers: `docs/guides/TESTING.md`.
 - Moving, renaming, adding, or removing a module updates the architecture map in the same change. Changing an invariant updates its bullet and the test that guards it together.
 - This file holds rules and a map, not a tutorial or a history. If a rule can be enforced by a test or a lint check, add the check and shorten the rule to a pointer.
 - Add a rule only for a mistake that has actually happened or would be expensive. Remove a rule when the thing it guarded is gone.
-
-## Known debt
-
-Places where the code does not yet meet the rules above. None of them is a pattern to follow. Each entry is deleted by the change that fixes it. The plan for each fix lives in the linked issue, and [#111](https://github.com/benhuddart/gleplot/issues/111) tracks the order.
-
-- **Oversized dispatch function**: `_Recognizer.run` runs to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
 
 ## Where to look next
 

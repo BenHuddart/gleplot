@@ -847,6 +847,25 @@ def axes_styling_grid_only():
     return fig
 
 
+def contour_in_second_subplot():
+    """A contour on the second subplot: its block sits between the graphs."""
+    fig, axs = glp.subplots(1, 2, data_prefix="golden")
+    axs[0].plot([0, 1], [0, 1])
+    x = np.linspace(0, 4, 5)
+    y = np.linspace(0, 3, 4)
+    axs[1].contour(x, y, x[None, :] + y[:, None], levels=[2.0])
+    return fig
+
+
+def trailer_stray_amoves():
+    """Two ``amove``s after the last graph: neither prefixes a graph block."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4])
+    fig.passthrough_trailer = ["amove 1 1", "amove 2 2"]
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -893,6 +912,8 @@ BUILDERS = [
     histogram_field_options,
     axes_styling_full,
     axes_styling_grid_only,
+    contour_in_second_subplot,
+    trailer_stray_amoves,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

@@ -991,6 +991,19 @@ class _GraphDatasets:
     emitted: Set[str] = field(default_factory=set)
 
 
+@dataclass
+class _PendingAmove:
+    """A page-level ``amove`` that may yet place the next graph block.
+
+    ``raw`` is its verbatim source line, so it can be preserved if no graph
+    block follows; ``line_no`` its 1-indexed source line.
+    """
+
+    position: Tuple[float, float]
+    raw: str
+    line_no: Optional[int]
+
+
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
     """GLE ``hei`` in cm -> matplotlib points, passing None through."""
     return None if hei is None else fontsize_cm_to_pt(hei)
@@ -1133,7 +1146,45 @@ class _Recognizer:
 
     def run(self) -> RecognizedFigure:
         doc = parse_gle_source(self.text)
+        self._scan_document(doc)
+        meta = self._read_metadata()
 
+        # Walk the top-level nodes, splitting into preamble / graph blocks /
+        # deferred-text clusters / trailer.
+        nodes = list(doc.nodes)
+
+        # Detect a graph swallowed into an opaque transform wrapper (begin
+        # translate/scale/rotate/origin ... begin graph ...). We do NOT descend
+        # into transform wrappers (documented limitation) -- the whole wrapper is
+        # preserved as raw GLE -- but we warn so the editor can flag it.
+        self._warn_graph_in_transform(nodes)
+
+        # Locate graph blocks and the amove that precedes each (multi-plot).
+        graph_indices = [i for i, n in enumerate(nodes) if isinstance(n, GraphBlock)]
+
+        # --- Preamble: everything before the first graph-related node. ---
+        first_graph_start = self._first_graph_region_start(nodes, graph_indices)
+        fig = self._new_figure(meta, nodes[:first_graph_start])
+
+        # --- Graph blocks + interspersed amove/text/trailer. ---
+        smooth_flags: List[bool] = []  # per line-dataset across the whole fig
+        parsed_axes, fig.passthrough_trailer = self._parse_graph_region(
+            nodes, first_graph_start, fig.marker_config, smooth_flags
+        )
+
+        # --- Assemble axes into the figure. ---
+        self._assemble_axes(fig, parsed_axes, fig.sharex, fig.sharey)
+
+        # --- smooth handling (global). ---
+        self._apply_smooth(fig, fig.graph, smooth_flags)
+
+        # --- data-file naming state for byte-identical re-save. ---
+        self._finalize_data_state(fig)
+
+        return RecognizedFigure(figure=fig, notes=tuple(self.notes))
+
+    def _scan_document(self, doc) -> None:
+        """Whole-file scans the per-node passes depend on, and their notes."""
         # Line ranges of gleplot_<name> subs (palette/colorbar/clabel), dropped
         # like metadata and regenerated canonically from the model on re-save.
         self._gleplot_sub_lines = self._scan_gleplot_sub_lines()
@@ -1161,7 +1212,8 @@ class _Recognizer:
         # Guard: files using GLE programming constructs are not safe to edit.
         self._check_programmatic_constructs(doc.nodes)
 
-        # Metadata block (parsed from the whole file, tolerantly).
+    def _read_metadata(self) -> Dict[str, Any]:
+        """The metadata block, parsed from the whole file, tolerantly."""
         meta, meta_warnings = _metadata.parse_metadata(self.text.splitlines())
         meta_span = (
             (min(self._meta_lines), max(self._meta_lines)) if self._meta_lines else None
@@ -1170,7 +1222,10 @@ class _Recognizer:
             self._note(ImportCategory.METADATA, meta_msg, meta_span)
         if "import-data" in meta:
             self._import_list = list(meta.get("import-data") or [])
+        return meta
 
+    def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
+        """The ``Figure`` described by the metadata and the preamble."""
         dpi = int(meta.get("dpi", 100))
         sharex = bool(meta.get("sharex", False))
         sharey = bool(meta.get("sharey", False))
@@ -1181,29 +1236,6 @@ class _Recognizer:
             if k not in ("dpi", "sharex", "sharey", "msize_scale", "import-data")
         }
 
-        # Walk the top-level nodes, splitting into preamble / graph blocks /
-        # deferred-text clusters / trailer.
-        nodes = list(doc.nodes)
-
-        # Detect a graph swallowed into an opaque transform wrapper (begin
-        # translate/scale/rotate/origin ... begin graph ...). We do NOT descend
-        # into transform wrappers (documented limitation) -- the whole wrapper is
-        # preserved as raw GLE -- but we warn so the editor can flag it.
-        self._warn_graph_in_transform(nodes)
-
-        # Locate graph blocks and the amove that precedes each (multi-plot).
-        graph_indices = [i for i, n in enumerate(nodes) if isinstance(n, GraphBlock)]
-
-        figsize = (8.0, 6.0)
-        font = ""
-        fontsize = 12.0
-        page_box = False
-        passthrough_header: List[str] = []
-        passthrough_before_hei: List[str] = []
-
-        # --- Preamble: everything before the first graph-related node. ---
-        first_graph_start = self._first_graph_region_start(nodes, graph_indices)
-
         (
             figsize,
             font,
@@ -1211,7 +1243,7 @@ class _Recognizer:
             page_box,
             passthrough_before_hei,
             passthrough_header,
-        ) = self._parse_preamble(nodes[:first_graph_start])
+        ) = self._parse_preamble(pre_nodes)
 
         # Build style/graph/marker configs.
         style = GLEStyleConfig()
@@ -1221,6 +1253,8 @@ class _Recognizer:
         marker_cfg = GLEMarkerConfig()
         marker_cfg.msize_scale = msize_scale
 
+        # Figure keeps explicit configs by reference: _apply_smooth relies on
+        # ``fig.graph`` being this ``graph_cfg``.
         fig = Figure(
             figsize=figsize,
             dpi=dpi,
@@ -1234,46 +1268,37 @@ class _Recognizer:
         fig.page_box = page_box
         fig.passthrough_before_hei = passthrough_before_hei
         fig.passthrough_header = passthrough_header
+        return fig
 
-        # --- Graph blocks + interspersed amove/text/trailer. ---
-        # Collect (amove_position, GraphBlock, deferred_text_nodes) tuples plus
-        # trailing passthrough.
+    # -- graph region ------------------------------------------------------
+
+    def _parse_graph_region(
+        self,
+        nodes,
+        start: int,
+        marker_cfg: GLEMarkerConfig,
+        smooth_flags: List[bool],
+    ) -> Tuple[List[dict], List[str]]:
+        """The graph blocks and the page-level statements between and after them.
+
+        Returns the parsed info of each graph block, in order, and the trailer
+        passthrough lines.
+        """
         parsed_axes: List[dict] = []
-        smooth_flags: List[bool] = []  # per line-dataset across the whole fig
-
-        i = first_graph_start
         trailer: List[str] = []
-        pending_amove: Optional[Tuple[float, float]] = None
-        # Verbatim source line of ``pending_amove``, so an amove that does not
-        # become a placement rect can still be preserved (see _apply_geometry).
-        pending_amove_raw: Optional[str] = None
-        # 1-indexed source line of that same ``amove``, so notes about it
-        # (layout: preserved verbatim / used for grid inference) can carry a
-        # real span instead of ``None``.
-        pending_amove_line: Optional[int] = None
+        # The ``amove`` that will place the next graph block, if one does.
+        pending: Optional[_PendingAmove] = None
 
+        i = start
         n = len(nodes)
         while i < n:
             node = nodes[i]
             if isinstance(node, GraphBlock):
-                axes_info = self._parse_graph_block(node, marker_cfg, smooth_flags)
-                axes_info["amove"] = pending_amove
-                axes_info["amove_raw"] = pending_amove_raw
-                axes_info["amove_line_no"] = pending_amove_line
-                pending_amove = None
-                pending_amove_raw = None
-                pending_amove_line = None
-                # A ``begin key`` we emitted for addition-order columns sits
-                # immediately after this graph, before its deferred text.
-                after_key = self._consume_external_legend(nodes, i + 1, axes_info)
-                # Greedily consume deferred text cluster that follows.
-                texts, consumed = self._consume_text_cluster(nodes, after_key)
-                axes_info["texts"] = texts
-                # Then consume any post-graph colorbar / contour-label sub
-                # calls belonging to this axes.
-                consumed = self._consume_post_graph_calls(nodes, consumed, axes_info)
+                axes_info, i = self._parse_placed_graph(
+                    nodes, i, pending, marker_cfg, smooth_flags
+                )
                 parsed_axes.append(axes_info)
-                i = consumed
+                pending = None
                 continue
 
             # Non-graph node between/after graphs.
@@ -1286,28 +1311,17 @@ class _Recognizer:
                 # block" either. It can never become a placement prefix now:
                 # flush it byte-verbatim into the trailer, in stream order,
                 # rather than silently overwriting and losing it.
-                if pending_amove_raw is not None:
-                    trailer.append(pending_amove_raw)
-                pending_amove = amove
-                pending_amove_raw = self._stmt_text(node)
-                pending_amove_line = getattr(node, "line_no", None)
+                if pending is not None:
+                    trailer.append(pending.raw)
+                pending = _PendingAmove(
+                    position=amove,
+                    raw=self._stmt_text(node),
+                    line_no=getattr(node, "line_no", None),
+                )
                 i += 1
                 continue
 
-            # Blank line directly separating subplots: skip silently only when
-            # between graphs (writer emits a blank between subplots). Otherwise
-            # it is trailer content.
-            if isinstance(node, BlankOrComment) and self._more_graphs_after(nodes, i):
-                i += 1
-                continue
-
-            # fitz/contour blocks consumed into a recognized series (their
-            # geometry lives on the model; regenerated on re-save).
-            if (
-                isinstance(node, OpaqueBlock)
-                and node.block_type in ("fitz", "contour")
-                and node.begin.line_no in self._consumed_block_lines
-            ):
+            if self._is_regenerated_page_node(nodes, i):
                 i += 1
                 continue
 
@@ -1316,11 +1330,9 @@ class _Recognizer:
             # real statement sits between it and the next graph block (if
             # any) -- flush it ahead of this node, byte-verbatim, preserving
             # stream order.
-            if pending_amove_raw is not None:
-                trailer.append(pending_amove_raw)
-                pending_amove = None
-                pending_amove_raw = None
-                pending_amove_line = None
+            if pending is not None:
+                trailer.append(pending.raw)
+                pending = None
             trailer.extend(self._raw_lines(node))
             i += 1
 
@@ -1329,24 +1341,57 @@ class _Recognizer:
         # byte-verbatim as the last trailer statement instead of dropping it
         # (see module docstring: an amove is either consumed as a placement
         # prefix or preserved verbatim, never silently lost).
-        if pending_amove_raw is not None:
-            trailer.append(pending_amove_raw)
-            pending_amove = None
-            pending_amove_raw = None
-            pending_amove_line = None
+        if pending is not None:
+            trailer.append(pending.raw)
 
-        fig.passthrough_trailer = trailer
+        return parsed_axes, trailer
 
-        # --- Assemble axes into the figure. ---
-        self._assemble_axes(fig, parsed_axes, sharex, sharey)
+    def _parse_placed_graph(
+        self,
+        nodes,
+        i: int,
+        pending: Optional[_PendingAmove],
+        marker_cfg: GLEMarkerConfig,
+        smooth_flags: List[bool],
+    ) -> Tuple[dict, int]:
+        """The graph block at ``nodes[i]``, its ``amove``, and what follows it.
 
-        # --- smooth handling (global). ---
-        self._apply_smooth(fig, graph_cfg, smooth_flags)
+        Returns the graph's parsed info and the index of the first node after
+        everything consumed with it.
+        """
+        axes_info = self._parse_graph_block(nodes[i], marker_cfg, smooth_flags)
+        axes_info["amove"] = pending.position if pending is not None else None
+        # Verbatim source line of the amove, so one that does not become a
+        # placement rect can still be preserved (see _apply_geometry), and its
+        # 1-indexed source line, so notes about it can carry a real span.
+        axes_info["amove_raw"] = pending.raw if pending is not None else None
+        axes_info["amove_line_no"] = pending.line_no if pending is not None else None
+        # A ``begin key`` we emitted for addition-order columns sits
+        # immediately after this graph, before its deferred text.
+        after_key = self._consume_external_legend(nodes, i + 1, axes_info)
+        # Greedily consume deferred text cluster that follows.
+        texts, consumed = self._consume_text_cluster(nodes, after_key)
+        axes_info["texts"] = texts
+        # Then consume any post-graph colorbar / contour-label sub
+        # calls belonging to this axes.
+        return axes_info, self._consume_post_graph_calls(nodes, consumed, axes_info)
 
-        # --- data-file naming state for byte-identical re-save. ---
-        self._finalize_data_state(fig)
+    def _is_regenerated_page_node(self, nodes, i: int) -> bool:
+        """Whether ``nodes[i]``, outside any graph, is regenerated on re-save."""
+        node = nodes[i]
+        # Blank line directly separating subplots: skip silently only when
+        # between graphs (writer emits a blank between subplots). Otherwise
+        # it is trailer content.
+        if isinstance(node, BlankOrComment) and self._more_graphs_after(nodes, i):
+            return True
 
-        return RecognizedFigure(figure=fig, notes=tuple(self.notes))
+        # fitz/contour blocks consumed into a recognized series (their
+        # geometry lives on the model; regenerated on re-save).
+        return (
+            isinstance(node, OpaqueBlock)
+            and node.block_type in ("fitz", "contour")
+            and node.begin.line_no in self._consumed_block_lines
+        )
 
     # -- programmatic-construct guard -----------------------------------
 
