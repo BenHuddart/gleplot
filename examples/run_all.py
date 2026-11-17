@@ -1,5 +1,6 @@
 """Run all gleplot examples."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -40,7 +41,13 @@ from basic import (
 
 
 def main():
-    """Run all examples."""
+    """Run all examples, writing their output to ``examples/outputs/run_all/``."""
+    # Not outputs/ itself: run_and_compile.py renames every data_*.dat it
+    # finds there, so this runner's sidecars must not land beside its own.
+    output_dir = Path(__file__).parent / "outputs" / "run_all"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    os.chdir(output_dir)
+
     print("\n" + "=" * 60)
     print("gleplot Examples - Matplotlib-like API for GLE")
     print("=" * 60 + "\n")

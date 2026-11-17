@@ -138,7 +138,7 @@ Docs describe what the code does now. A change in behaviour updates every place 
 - Docstrings are rendered by Sphinx (numpydoc sections via napoleon) and CI builds the site with `-W`: free text after a `Parameters` list goes under a `Notes` heading, not flush against the list.
 - Code shown in docs and docstrings must run against the current API. Do not describe behaviour you have not exercised.
 - An example added under `examples/` is registered in `examples/run_and_compile.py` or `examples/run_all.py`; CI runs both and fails if any example raises or does not compile.
-- The `.gle`, `.dat` and `.z` files tracked under `examples/` are shipped sample figures (`.gitignore` re-includes them on purpose). Commit a regenerated one only when its example or the emission behind it changed; everything else an example or test writes stays untracked.
+- Examples write only to `examples/outputs/`, which is ignored. No generated figure or sidecar is committed.
 - State facts once. Link to a guide instead of repeating it, and do not put counts or version numbers in prose that nothing will keep current.
 
 ## Tests
@@ -181,7 +181,7 @@ Places where the code does not yet meet the rules above. None of them is a patte
 
 - **Series logic is spread over five modules.** The "Adding a series field" checklist exists because one field is declared, set, emitted, passed through, and recovered in five separate places. The intended form is one description per series kind that those places read. Until then, follow the checklist. [#100](https://github.com/benhuddart/gleplot/issues/100)
 - **Oversized dispatch functions**: `Figure._write_axes_content`, `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
-- **Two example runners**: `examples/run_all.py` and `examples/run_and_compile.py` list overlapping examples. The intended form is one registry that both CI and the docs gallery read. [#110](https://github.com/benhuddart/gleplot/issues/110), [#101](https://github.com/benhuddart/gleplot/issues/101)
+- **Two example runners**: `examples/run_all.py` and `examples/run_and_compile.py` list overlapping examples, and the scripts at the top of `examples/` are in neither (`example_configuration.py` still writes to `examples/output/`). The intended form is one registry that both CI and the docs gallery read. [#110](https://github.com/benhuddart/gleplot/issues/110)
 - **Contributor docs repeat each other**: `CONTRIBUTING.md`, `docs/source/contributing.rst`, `docs/guides/DEVELOPMENT_WORKFLOW.md` and `docs/guides/VERSIONING.md` each restate setup, checks, and release rules. [#98](https://github.com/benhuddart/gleplot/issues/98), [#104](https://github.com/benhuddart/gleplot/issues/104)
 
 ## Where to look next
