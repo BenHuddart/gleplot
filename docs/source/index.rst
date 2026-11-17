@@ -19,16 +19,64 @@ https://benhuddart.github.io/gleplot/
 - :doc:`Contribute to gleplot <contributing>`
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+   :maxdepth: 1
+   :caption: Getting started
 
    getting_started
+
+.. toctree::
+   :maxdepth: 1
+   :caption: User guide
+
    usage
+   guides/COLORS_AND_MARKERS
+   guides/TEXT_ANNOTATIONS
+   guides/REFERENCE_LINES_AND_SPANS
+   guides/CONTOUR_AND_HEATMAPS
+   guides/BROKEN_AXES
+   guides/FILE_BASED_SERIES
+   guides/VIEW_FUNCTION
+   guides/CONFIGURATION
+   guides/CONFIGURATION_API
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Gallery
+
    gallery
-   guides
-   api
    examples
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Coming from matplotlib
+
+   guides/MATPLOTLIB_MIGRATION
+
+.. toctree::
+   :maxdepth: 1
+   :caption: API reference
+
+   api
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Troubleshooting
+
+   guides/TROUBLESHOOTING
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Contributing
+
    contributing
+   guides/TESTING
+   guides/VERSIONING
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Changelog
+
+   changelog
 
 Features
 --------

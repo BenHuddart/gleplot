@@ -50,7 +50,7 @@ fig.savefig("trig.gle")
 
 ## Also
 
-Subplots, file-based series, configuration, and more: see the [usage guide](https://benhuddart.github.io/gleplot/usage.html) and the [topic guides](https://benhuddart.github.io/gleplot/guides.html).
+Subplots, file-based series, configuration, and more: see the [usage guide](https://benhuddart.github.io/gleplot/usage.html) and the topic guides listed under *User guide* on the [documentation site](https://benhuddart.github.io/gleplot/).
 
 ## License
 
