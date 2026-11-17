@@ -2,6 +2,40 @@
 
 <!-- version list -->
 
+## v3.9.2 (2026-11-17)
+
+### Bug Fixes
+
+- Stop printing from library code; make show() view the figure
+  ([`34e04c0`](https://github.com/BenHuddart/gleplot/commit/34e04c006af2d008860c474d77bcafc0efadf259))
+
+### Continuous Integration
+
+- Clear the mypy errors and make the type check gate the build
+  ([`2c26a2f`](https://github.com/BenHuddart/gleplot/commit/2c26a2f9bcaf56bdf7ad8a8a55ee6122cd3805d7))
+
+- Run the examples and a strict Sphinx build on pull requests
+  ([`c65d78e`](https://github.com/BenHuddart/gleplot/commit/c65d78eaea30f4b18652097a31f63f49d1ca77e2))
+
+### Documentation
+
+- Link each known-debt entry to its issue
+  ([`2f6ad2f`](https://github.com/BenHuddart/gleplot/commit/2f6ad2f0833c80938e08121e7162ef6729012011))
+
+- State the agent contract as the target form and list known debt
+  ([`bddd2ce`](https://github.com/BenHuddart/gleplot/commit/bddd2cea9178fee8c20d06d3b528a3b007adef80))
+
+### Refactoring
+
+- Make module-level imports acyclic and test the layering
+  ([`06cf064`](https://github.com/BenHuddart/gleplot/commit/06cf064dfcb5224927a56748c6f3149078dd0a7a))
+
+### Testing
+
+- Count drawn segments instead of timing the decimated compile
+  ([`4e6a277`](https://github.com/BenHuddart/gleplot/commit/4e6a277af30d6c92f74839fb6cb7c14fa2650421))
+
+
 ## v3.9.1 (2026-11-16)
 
 ### Bug Fixes
