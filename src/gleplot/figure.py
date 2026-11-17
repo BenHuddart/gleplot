@@ -2358,16 +2358,7 @@ class Figure:
         scale goes out as a draw call, the rest as marked datasets.
         """
         for ref in ax.engine_range_guides(ax.reflines, limits):
-            writer.add_refline_draw(
-                ref["orient"],
-                ref["value"],
-                ref["span_lo"],
-                ref["span_hi"],
-                ref["color"],
-                ref["linestyle"],
-                ref["linewidth"],
-                ref["label"],
-            )
+            writer.add_refline(ref)
 
         ref_sources = ax.dataset_form_guides(ax.reflines, limits)
         ref_datasets = ax.materialize_reflines(limits)
@@ -2377,13 +2368,7 @@ class Figure:
                 f"{len(ref_datasets)} vs {len(ref_sources)}"
             )
         for source, ref_data in zip(ref_sources, ref_datasets):
-            writer.add_refline_marker(
-                source["orient"],
-                source["value"],
-                source["span_lo"],
-                source["span_hi"],
-            )
-            writer.add_line(ref_data)
+            writer.add_refline_dataset(source, ref_data)
 
     def _write_drawables(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
