@@ -176,16 +176,16 @@ More detail, including the output analyzers: `docs/guides/TESTING.md`.
 
 ## Known debt
 
-Places where the code does not yet meet the rules above. None of them is a pattern to follow. Each entry is deleted by the change that fixes it; the plan for a fix lives in a GitHub issue, not here.
+Places where the code does not yet meet the rules above. None of them is a pattern to follow. Each entry is deleted by the change that fixes it. The plan for each fix lives in the linked issue, and [#111](https://github.com/benhuddart/gleplot/issues/111) tracks the order.
 
-- **Series logic is spread over five modules.** The "Adding a series field" checklist exists because one field is declared, set, emitted, passed through, and recovered in five separate places. The intended form is one description per series kind that those places read. Until then, follow the checklist.
-- **Oversized dispatch functions**: `Figure._write_axes_content`, `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines.
-- **`print()` in library code**: `compiler.py`, `figure.py` (`view`), `__init__.py` (`show`).
-- **`warnings.warn` calls without `stacklevel`**: a handful in `src/`.
-- **Tests outside the rules**: `tests/_tempdir.py` and its callers write under `build/test-temp`; some older modules use `unittest.TestCase`.
-- **Unchecked layering claim**: no test asserts that the library imports no GUI toolkit and that IPython stays inside `Figure.view`; `tests/unit/test_layering.py` only covers gleplot's own modules.
-- **Two example runners**: `examples/run_all.py` and `examples/run_and_compile.py` list overlapping examples. The intended form is one registry that both CI and the docs gallery read.
-- **Contributor docs repeat each other**: `CONTRIBUTING.md`, `docs/source/contributing.rst`, `docs/guides/DEVELOPMENT_WORKFLOW.md` and `docs/guides/VERSIONING.md` each restate setup, checks, and release rules.
+- **Series logic is spread over five modules.** The "Adding a series field" checklist exists because one field is declared, set, emitted, passed through, and recovered in five separate places. The intended form is one description per series kind that those places read. Until then, follow the checklist. [#100](https://github.com/benhuddart/gleplot/issues/100)
+- **Oversized dispatch functions**: `Figure._write_axes_content`, `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
+- **`print()` in library code**: `compiler.py`, `figure.py` (`view`), `__init__.py` (`show`). [#106](https://github.com/benhuddart/gleplot/issues/106)
+- **`warnings.warn` calls without `stacklevel`**: a handful in `src/`. [#107](https://github.com/benhuddart/gleplot/issues/107)
+- **Tests outside the rules**: `tests/_tempdir.py` and its callers write under `build/test-temp`; some older modules use `unittest.TestCase`. [#99](https://github.com/benhuddart/gleplot/issues/99)
+- **Unchecked layering claim**: no test asserts that the library imports no GUI toolkit and that IPython stays inside `Figure.view`; `tests/unit/test_layering.py` only covers gleplot's own modules. [#108](https://github.com/benhuddart/gleplot/issues/108)
+- **Two example runners**: `examples/run_all.py` and `examples/run_and_compile.py` list overlapping examples. The intended form is one registry that both CI and the docs gallery read. [#110](https://github.com/benhuddart/gleplot/issues/110), [#101](https://github.com/benhuddart/gleplot/issues/101)
+- **Contributor docs repeat each other**: `CONTRIBUTING.md`, `docs/source/contributing.rst`, `docs/guides/DEVELOPMENT_WORKFLOW.md` and `docs/guides/VERSIONING.md` each restate setup, checks, and release rules. [#98](https://github.com/benhuddart/gleplot/issues/98), [#104](https://github.com/benhuddart/gleplot/issues/104)
 
 ## Where to look next
 
