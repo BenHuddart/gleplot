@@ -41,9 +41,9 @@ Limitations
 
 from __future__ import annotations
 
-import warnings
 from typing import List, Optional, Sequence, Tuple, cast
 
+from ._warn import warn_external
 from .axes import Axes
 from .mathtext import mathtext_to_gle
 
@@ -400,11 +400,9 @@ class BrokenAxes:
         """
         index = self.segment_for_x(x)
         if index is None:
-            warnings.warn(
+            warn_external(
                 f"text() at x={x!r} falls in the break between segments "
                 f"{self.xlims!r} and was not drawn.",
-                UserWarning,
-                stacklevel=2,
             )
             return self
         self.segments[index].text(x, y, s, **kwargs)
@@ -422,11 +420,9 @@ class BrokenAxes:
         anchor_x = float((xy if xytext is None else xytext)[0])
         index = self.segment_for_x(anchor_x)
         if index is None:
-            warnings.warn(
+            warn_external(
                 f"annotate() at x={anchor_x!r} falls in the break between "
                 f"segments {self.xlims!r} and was not drawn.",
-                UserWarning,
-                stacklevel=2,
             )
             return None
         if self.segment_for_x(float(xy[0])) != index:
@@ -436,11 +432,9 @@ class BrokenAxes:
                 arrowprops = args[3] if arrowprops is None else arrowprops
                 args = args[:3] + (None,) + args[4:]
             if arrowprops is not None:
-                warnings.warn(
+                warn_external(
                     f"annotate() arrow to x={xy[0]!r} crosses into another "
                     "segment and was not drawn.",
-                    UserWarning,
-                    stacklevel=2,
                 )
         return self.segments[index].annotate(text, xy, *args, **kwargs)
 

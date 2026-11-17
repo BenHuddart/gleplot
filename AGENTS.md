@@ -93,7 +93,7 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 ### Errors and warnings
 
 - Reject a bad argument **when the call is made**, not later at `savefig`. Raise `ValueError` (or `TypeError` for a wrong type) with a message that names the argument, shows the value received, and lists what is accepted.
-- Anything gleplot accepts but cannot honour, or recovers imperfectly from a file, gets a `UserWarning` with a `stacklevel` that points at the caller's line. Nothing is dropped silently. Where one fixed level cannot be right (the warning is reached at more than one depth, or through a `glp.*` function), use `_warn.warn_external`. `tests/unit/test_source_rules.py` fails on a `warnings.warn` without one.
+- Anything gleplot accepts but cannot honour, or recovers imperfectly from a file, gets a `UserWarning` raised through `_warn.warn_external`, which attributes it to the caller's line however deep the call. Nothing is dropped silently. `tests/unit/test_source_rules.py` fails on a `warnings.warn` called anywhere else.
 - A message is written for someone who knows matplotlib and has never read this source: say what to do next, in terms of the public API.
 - No `print()` in library code; `tests/unit/test_source_rules.py` checks this. Results go through return values, exceptions, and warnings. Diagnostic output a user opts into goes through the `gleplot` logger.
 
@@ -181,7 +181,6 @@ Places where the code does not yet meet the rules above. None of them is a patte
 
 - **Series logic is spread over five modules.** The "Adding a series field" checklist exists because one field is declared, set, emitted, passed through, and recovered in five separate places. The intended form is one description per series kind that those places read. Until then, follow the checklist. [#100](https://github.com/benhuddart/gleplot/issues/100)
 - **Oversized dispatch functions**: `Figure._write_axes_content`, `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
-- **Fixed `stacklevel`s reached through `glp.*`**: most `Axes` warnings still pass a fixed level, which is right for `ax.method(...)` and points into `__init__.py` for `glp.method(...)`. [#115](https://github.com/benhuddart/gleplot/issues/115)
 - **Tests outside the rules**: `tests/_tempdir.py` and its callers write under `build/test-temp`; some older modules use `unittest.TestCase`. [#99](https://github.com/benhuddart/gleplot/issues/99)
 - **Unchecked layering claim**: no test asserts that the library imports no GUI toolkit and that IPython stays inside `Figure.view`; `tests/unit/test_layering.py` only covers gleplot's own modules. [#108](https://github.com/benhuddart/gleplot/issues/108)
 - **Two example runners**: `examples/run_all.py` and `examples/run_and_compile.py` list overlapping examples. The intended form is one registry that both CI and the docs gallery read. [#110](https://github.com/benhuddart/gleplot/issues/110), [#101](https://github.com/benhuddart/gleplot/issues/101)
