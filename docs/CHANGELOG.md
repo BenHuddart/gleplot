@@ -2,6 +2,200 @@
 
 <!-- version list -->
 
+## v3.9.3 (2026-11-17)
+
+### Bug Fixes
+
+- Keep a dataset line's missing colour and width missing on re-save
+  ([#134](https://github.com/BenHuddart/gleplot/pull/134),
+  [`28fe11a`](https://github.com/BenHuddart/gleplot/commit/28fe11a0be17e8d6dc0336d2285aa0e77803d2a4))
+
+### Documentation
+
+- Add the Opening GLE files guide
+  ([`bddb657`](https://github.com/BenHuddart/gleplot/commit/bddb657ce136855c8570ecc7fe4cc09c93d09bcc))
+
+- Generate the gallery from the examples registry
+  ([`8caed17`](https://github.com/BenHuddart/gleplot/commit/8caed17f850b9a71e8fb55e11aa28b2f6119feeb))
+
+- Regroup the site navigation into the sections of #104
+  ([`0597117`](https://github.com/BenHuddart/gleplot/commit/0597117b5794525206bbf5cca7032ee4729c7620))
+
+- Replace CONFIGURATION_API.md with the generated reference
+  ([`2c311b7`](https://github.com/BenHuddart/gleplot/commit/2c311b7146a978b9d7d6b37fc543021ef2c52f6c))
+
+- Split the usage page into user-guide topics
+  ([`158342b`](https://github.com/BenHuddart/gleplot/commit/158342bbeac968081a5a372ed0aebaf60d4383dc))
+
+- **contributing**: Build the contributing page from CONTRIBUTING.md
+  ([`8d67254`](https://github.com/BenHuddart/gleplot/commit/8d67254215d56aea8d75d597162c3df52c1b11a3))
+
+- **examples**: Keep run_all output apart from run_and_compile's
+  ([`3084fe2`](https://github.com/BenHuddart/gleplot/commit/3084fe2aa0a2241fbbaf5fe1ef291466996b9782))
+
+- **examples**: Stop committing generated example output
+  ([`97d4ca3`](https://github.com/BenHuddart/gleplot/commit/97d4ca3231c8e428de708117d13127e72dca874c))
+
+- **guides**: Fold the PyPI publishing setup into VERSIONING.md
+  ([`8180911`](https://github.com/BenHuddart/gleplot/commit/81809114fbb74b6862e3112190c88572d8b0708d))
+
+- **guides**: Keep the PyPI publishing steps true to release.yml
+  ([`27b9c3e`](https://github.com/BenHuddart/gleplot/commit/27b9c3e4a0ccab6c4884ab21d9a9c0364b727a2a))
+
+- **guides**: Link the guides index and sibling guides from the site
+  ([`6602888`](https://github.com/BenHuddart/gleplot/commit/6602888da59e86f4a5afcf3648ec7e5eef46b446))
+
+- **guides**: Publish the topic guides on the Sphinx site
+  ([`0a2fcd5`](https://github.com/BenHuddart/gleplot/commit/0a2fcd5fc0df4492adae5026107373b96db0e692))
+
+### Refactoring
+
+- Attribute warnings to the caller's line and check for stacklevel
+  ([`ec81e84`](https://github.com/BenHuddart/gleplot/commit/ec81e842c89b817f6eee0386fe7e1d2a3690074d))
+
+- Clarify the per-phase write methods in AGENTS.md and the dispatcher docstring
+  ([`afd3249`](https://github.com/BenHuddart/gleplot/commit/afd3249b3b5f248fb6b9be110576ef1c1699363f))
+
+- Map dN display attributes to series fields in one place (#100 stage 3)
+  ([`a04487b`](https://github.com/BenHuddart/gleplot/commit/a04487b0337c72c31ec459085296923e27c0ce1d))
+
+- Pass bar series to the writer whole (#100 stage 2)
+  ([`b74b17e`](https://github.com/BenHuddart/gleplot/commit/b74b17eacfc1bb13e299f620db8c953d082cd1bb))
+
+- Pass contours to the writer whole ([#147](https://github.com/BenHuddart/gleplot/pull/147),
+  [`0b49be2`](https://github.com/BenHuddart/gleplot/commit/0b49be25930fd65dd5393cf28ccc96a43aea8667))
+
+- Pass errorbar series to the writer whole (#100 stage 2)
+  ([`99a52a9`](https://github.com/BenHuddart/gleplot/commit/99a52a9911016fb76be6ace590b68b497afac6fc))
+
+- Pass file series to the writer whole (#100 stage 2)
+  ([`31ff30a`](https://github.com/BenHuddart/gleplot/commit/31ff30ad32eb979d780dcbf2ba690b530ff6ebe2))
+
+- Pass fill series to the writer whole (#100 stage 2)
+  ([`d4eef29`](https://github.com/BenHuddart/gleplot/commit/d4eef298ea0a9819502af32ab848e8e67661302b))
+
+- Pass heatmaps to the writer whole ([#147](https://github.com/BenHuddart/gleplot/pull/147),
+  [`c5deccb`](https://github.com/BenHuddart/gleplot/commit/c5deccb360f3d4545e58f7f30839314e40b45f51))
+
+- Pass histogram series to the writer whole (#100 stage 2)
+  ([`e5b4243`](https://github.com/BenHuddart/gleplot/commit/e5b424325509d5291ff51d10f2998dc4fa0b1f53))
+
+- Pass line series to the writer whole (#100 stage 1)
+  ([`f2dcda4`](https://github.com/BenHuddart/gleplot/commit/f2dcda439d17dcc4704d4a506e8bbd44722e3ef9))
+
+- Pass reference lines to the writer whole ([#147](https://github.com/BenHuddart/gleplot/pull/147),
+  [`d4e60c7`](https://github.com/BenHuddart/gleplot/commit/d4e60c70d9ba6536e75d6cad45928d123ec64737))
+
+- Pass scatter series to the writer whole (#100 stage 2)
+  ([`dbd98cb`](https://github.com/BenHuddart/gleplot/commit/dbd98cb8c0eca75740880cad75b9cbb3f748dbc0))
+
+- Pass spans to the writer whole ([#147](https://github.com/BenHuddart/gleplot/pull/147),
+  [`17c5b76`](https://github.com/BenHuddart/gleplot/commit/17c5b768f1a45006f8008816da53b3aca517a972))
+
+- Pass text annotations to the writer whole ([#147](https://github.com/BenHuddart/gleplot/pull/147),
+  [`2a04db5`](https://github.com/BenHuddart/gleplot/commit/2a04db5fee08497a7b453c5fc42bbc93095238d1))
+
+- Route every library warning through warn_external
+  ([`1923c6c`](https://github.com/BenHuddart/gleplot/commit/1923c6ce7650eeead087b060b10b99b58287ece2))
+
+- Say nbars can exceed 1 for a grouped bar in the G16 note
+  ([`17bb811`](https://github.com/BenHuddart/gleplot/commit/17bb81194804f90865ebbf9a5218a1fced9ea77d))
+
+- Split _Recognizer._parse_graph_block into named steps
+  ([#109](https://github.com/BenHuddart/gleplot/pull/109),
+  [`c6bfc76`](https://github.com/BenHuddart/gleplot/commit/c6bfc7693690e6990a072806b3b1e6d60b4cffb5))
+
+- Split _Recognizer.run into its phases ([#109](https://github.com/BenHuddart/gleplot/pull/109),
+  [`c38c674`](https://github.com/BenHuddart/gleplot/commit/c38c674ddd6e29b1ee3be274eb80978b272190f1))
+
+- Split Figure._write_axes_content into per-phase methods
+  ([`06616eb`](https://github.com/BenHuddart/gleplot/commit/06616eb05c138d547bc74beffb05f263fe5caf8b))
+
+- Split GLEWriter.add_axes into per-axis steps
+  ([#109](https://github.com/BenHuddart/gleplot/pull/109),
+  [`52d7bd8`](https://github.com/BenHuddart/gleplot/commit/52d7bd82bafd3b9f913ad5adf1de38a1862d1118))
+
+- Tidy the graph-block pass state ([#109](https://github.com/BenHuddart/gleplot/pull/109),
+  [`30d9824`](https://github.com/BenHuddart/gleplot/commit/30d9824c7c2920cc2e44b9e3f3c769c0a0aea80c))
+
+- **examples**: Leave compiling to the runner
+  ([`f4cf69d`](https://github.com/BenHuddart/gleplot/commit/f4cf69dc66eacaaed2c6d16c848c88ceb4547807))
+
+- **examples**: One registry and one runner for the examples
+  ([`82c4e59`](https://github.com/BenHuddart/gleplot/commit/82c4e594ba82f6b2f1c2bb2fed5fd997f999b1ab))
+
+### Testing
+
+- Add a golden builder for the bar fields no builder set
+  ([`df5b7c7`](https://github.com/BenHuddart/gleplot/commit/df5b7c766ce35dc34dfc3b4ffd92bdc98329f4a3))
+
+- Add a golden builder for the contour fields no builder set
+  ([`76202d1`](https://github.com/BenHuddart/gleplot/commit/76202d1d90987c979a04c60fed0cfb8e6db74095))
+
+- Add a golden builder for the errorbar fields no builder set
+  ([`35f5f58`](https://github.com/BenHuddart/gleplot/commit/35f5f58d71b3d7abadd2e55405dba2d5ba860df6))
+
+- Add a golden builder for the file-series fields no builder set
+  ([`c95ee4f`](https://github.com/BenHuddart/gleplot/commit/c95ee4f1e8111befd0093c075b7e63ed705a8a97))
+
+- Add a golden builder for the fill fields no builder set
+  ([`af79979`](https://github.com/BenHuddart/gleplot/commit/af79979b73bf25dd6a146455307e700549ae1b14))
+
+- Add a golden builder for the heatmap fields no builder set
+  ([`c961055`](https://github.com/BenHuddart/gleplot/commit/c9610555d91a50028a1f2e9e15e30e0619291e4c))
+
+- Add a golden builder for the histogram fields no builder set
+  ([`f704b9f`](https://github.com/BenHuddart/gleplot/commit/f704b9fe5928f9f61295f1a7ba7abdfbbb7839f6))
+
+- Add a golden builder for the line fields no builder set
+  ([`3cb454e`](https://github.com/BenHuddart/gleplot/commit/3cb454e856efb42d76316278d68d46abf0f21a7b))
+
+- Add a golden builder for the scatter fields no builder set
+  ([`6a9297d`](https://github.com/BenHuddart/gleplot/commit/6a9297d25114a71a090445d5d859bc5e379767c3))
+
+- Check warn_explicit too and keep attribution-test cleanup in finally
+  ([`77f4afb`](https://github.com/BenHuddart/gleplot/commit/77f4afb091d3d61b7c929bac59da62e54f54b96e))
+
+- Convert the remaining unittest modules to pytest and remove tests/_tempdir.py
+  ([`c31f43d`](https://github.com/BenHuddart/gleplot/commit/c31f43dfa9ea7f6d4e12cb9603f0d659d0d313de))
+
+- Cover an unloadable error-bar dataset before folding the dN field mapping
+  ([`1dbe6e3`](https://github.com/BenHuddart/gleplot/commit/1dbe6e35049756f9550ceb2cef92ad9ff915ea11))
+
+- Cover the page-level trailer branches before splitting _Recognizer.run
+  ([`3208a7a`](https://github.com/BenHuddart/gleplot/commit/3208a7a30c24968681dffad673fdd34189882678))
+
+- Cover the y-side tick options before splitting GLEWriter.add_axes
+  ([`c3e5931`](https://github.com/BenHuddart/gleplot/commit/c3e59318bdfc2b73113106f0ad1c0142cfce50b7))
+
+- Hold third-party imports to the declared runtime dependencies
+  ([`230073d`](https://github.com/BenHuddart/gleplot/commit/230073db0bd9d0077963a0bc4372cbfbd6a81ee5))
+
+- Keep an unpaired histogram let as raw GLE with a note
+  ([`f3e3c6c`](https://github.com/BenHuddart/gleplot/commit/f3e3c6cc4ddfc77d0741c36052e501a6754a0490))
+
+- Keep the first-UserWarning check and use pathlib for tmp_path joins
+  ([`d370292`](https://github.com/BenHuddart/gleplot/commit/d37029256dfa88031ea91238be8d88f8a33f0c88))
+
+- Move the unpaired histogram let test to the parser layer
+  ([`47b78d6`](https://github.com/BenHuddart/gleplot/commit/47b78d60a2b338ee092e522ef02c04322c16d721))
+
+- Pin add_plot_line's keyword mapping and repoint stale comments
+  ([`dd55e04`](https://github.com/BenHuddart/gleplot/commit/dd55e04833c8a878c8fe250eee5da5d7c7f0d24a))
+
+- Round-trip a styled, fractional draw-form reference line
+  ([`8284cad`](https://github.com/BenHuddart/gleplot/commit/8284cada1e6b1b4b3b3a7a8e3786b4465d7b9809))
+
+- Round-trip a styled, fractional draw-form span
+  ([`7c270ed`](https://github.com/BenHuddart/gleplot/commit/7c270ed932c71863aaeeccf54a0935b4af950ee1))
+
+- Share one import walker and parse dependency specs robustly
+  ([`36d9598`](https://github.com/BenHuddart/gleplot/commit/36d9598601964f10829b95614739cb64c2c3f5d7))
+
+- Strip the directory from data_error with Path, not a slash regex
+  ([`e269e10`](https://github.com/BenHuddart/gleplot/commit/e269e10f069febd7a9071700a2b866e98048acc1))
+
+
 ## v3.9.2 (2026-11-17)
 
 ### Bug Fixes
