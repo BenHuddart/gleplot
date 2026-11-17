@@ -966,3 +966,20 @@ def test_parse_gle_figure_accepts_raw_text(tmp_path):
     rec = parse_gle_figure(src, base_dir=tmp_path)
     assert isinstance(rec, RecognizedFigure)
     assert len(rec.figure.axes_list) == 1
+
+
+def test_a_hist_let_with_no_display_command_stays_raw(tmp_path):
+    fig = gleplot.figure(data_prefix="hist")
+    fig.add_subplot(111).hist([0, 1], bins=4, range=(0, 1), histtype="step")
+    src = tmp_path / "figure.gle"
+    fig.savefig_gle(str(src))
+    lines = src.read_text(encoding="utf-8").splitlines()
+    src.write_text(
+        "\n".join(ln for ln in lines if " line hist" not in ln) + "\n",
+        encoding="utf-8",
+    )
+    recognized = parse_gle_figure(src)
+    ax = recognized.figure.axes_list[0]
+    assert ax.hists == []
+    assert any("let d2 = hist d1" in ln for ln in ax.passthrough)
+    assert any("histogram let d2 was not paired" in w for w in recognized.warnings)

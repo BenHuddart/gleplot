@@ -1494,21 +1494,6 @@ class TestHistogram:
         assert "let d2 = hist d1" in raw
         assert "d2 line" in raw
 
-    def test_a_hist_let_with_no_display_command_stays_raw(self, tmp_path):
-        from gleplot.parser.recognizer import parse_gle_figure
-
-        self.ax.hist([0, 1], bins=4, range=(0, 1), histtype="step")
-        src = tmp_path / "figure.gle"
-        self.fig.savefig_gle(str(src))
-        lines = src.read_text(encoding="utf-8").splitlines()
-        text = "\n".join(ln for ln in lines if " line hist" not in ln) + "\n"
-        src.write_text(text, encoding="utf-8")
-        recognized = parse_gle_figure(src)
-        ax = recognized.figure.axes_list[0]
-        assert ax.hists == []
-        assert any("let d2 = hist d1" in ln for ln in ax.passthrough)
-        assert any("histogram let d2 was not paired" in w for w in recognized.warnings)
-
 
 def test_add_plot_line_keywords_reach_the_emitted_line():
     """The keyword form of ``GLEWriter.add_line`` maps every argument to its
