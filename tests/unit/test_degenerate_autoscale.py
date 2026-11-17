@@ -445,8 +445,20 @@ def test_a_deferred_figure_is_a_writer_parse_writer_fixed_point(build, tmp_path)
             ),
             "y",
         ),
+        (
+            lambda ax: ax.axhspan(
+                0.4, 0.6, xmin=0.1, xmax=0.7, color="orange", alpha=0.5, label="band"
+            ).update(swatch_color="RED"),
+            "x",
+        ),
     ],
-    ids=["axvline", "axvspan", "labelled-axhline", "styled-axvline"],
+    ids=[
+        "axvline",
+        "axvspan",
+        "labelled-axhline",
+        "styled-axvline",
+        "styled-axhspan",
+    ],
 )
 def test_a_drawn_guide_costs_the_round_trip_nothing(build_guide, spanned, tmp_path):
     """The seam G14 opened and G17 closed -- now a fixed point.

@@ -2301,17 +2301,7 @@ class Figure:
         other bands are fills, written by :meth:`_write_fills`.
         """
         for span in ax.engine_range_guides(ax.spans, limits):
-            writer.add_span_draw(
-                span["orient"],
-                span["start"],
-                span["end"],
-                span["span_lo"],
-                span["span_hi"],
-                span["color"],
-                span["alpha"],
-                span["label"],
-                swatch_color=span.get("swatch_color"),
-            )
+            writer.add_span(span)
 
     @staticmethod
     def _write_fills(
@@ -2333,21 +2323,11 @@ class Figure:
                 "materialize_spans and dataset_form_guides disagree: "
                 f"{len(span_fills)} vs {len(span_sources)}"
             )
-        plain_fills = resolution.pairs(ax.fills)
-        fill_pairs = plain_fills + [(span, span) for span in span_fills]
-        for fill_index, (fill_series, fill_data) in enumerate(fill_pairs):
-            guide_index = fill_index - len(plain_fills)
-            if guide_index >= 0:
-                source = span_sources[guide_index]
-                writer.add_span_marker(
-                    source["orient"],
-                    source["start"],
-                    source["end"],
-                    source["span_lo"],
-                    source["span_hi"],
-                    source["label"],
-                )
+        for fill_series, fill_data in resolution.pairs(ax.fills):
             writer.add_fill(fill_data, binding=resolution.binding(fill_series))
+        # A materialized band is built after resolution, so it has no binding.
+        for source, span_fill in zip(span_sources, span_fills):
+            writer.add_span_dataset(source, span_fill)
 
     @staticmethod
     def _write_reflines(writer: GLEWriter, ax: Axes, limits) -> None:
