@@ -75,3 +75,69 @@ napoleon_numpy_docstring = True
 napoleon_include_init_method = False
 napoleon_include_private_with_doc = False
 napoleon_include_special_with_doc = True
+
+
+# -- Example gallery --
+# The gallery is generated from EXAMPLES in examples/run_and_compile.py, so it
+# shows exactly the examples CI runs, with their code as it is in the file.
+import ast
+import inspect
+import textwrap
+
+from docutils import nodes
+from docutils.statemachine import StringList
+from sphinx.util.docutils import SphinxDirective
+from sphinx.util.nodes import nested_parse_with_titles
+
+sys.path.insert(0, str(project_root / "docs"))
+from prepare_gallery import registered_examples
+
+SOURCE_URL = "https://github.com/BenHuddart/gleplot/blob/main/"
+
+
+def _code_without_docstring(func):
+    """Return the source of ``func`` without its docstring, which is the caption."""
+    lines, _ = inspect.getsourcelines(func)
+    function = ast.parse(textwrap.dedent("".join(lines))).body[0]
+    if ast.get_docstring(function) is None:
+        raise ValueError(
+            f"{func.__module__}.{func.__name__} has no docstring; the gallery "
+            "uses an example's docstring as its caption"
+        )
+    docstring = function.body[0]
+    return "".join(lines[: docstring.lineno - 1] + lines[docstring.end_lineno :])
+
+
+class ExampleGallery(SphinxDirective):
+    """One section per registered example: caption, images, code, source link."""
+
+    def run(self):
+        rst = []
+        self.env.note_dependency(str(project_root / "examples" / "run_and_compile.py"))
+        for title, func, basenames in registered_examples():
+            path = Path(inspect.getsourcefile(func)).resolve()
+            self.env.note_dependency(str(path))
+            relpath = path.relative_to(project_root).as_posix()
+            code = _code_without_docstring(func)
+            rst += [title, "-" * len(title), "", inspect.getdoc(func), ""]
+            for basename in basenames:
+                rst += [
+                    f".. image:: /_static/gallery/{basename}.png",
+                    "   :width: 600px",
+                    "   :align: center",
+                    "   :loading: lazy",
+                    f"   :alt: {title}",
+                    "",
+                ]
+            rst += [".. code-block:: python", ""]
+            rst += [f"   {line}" if line.strip() else "" for line in code.splitlines()]
+            rst += ["", f"Source: `{relpath} <{SOURCE_URL}{relpath}>`_", ""]
+        container = nodes.Element()
+        nested_parse_with_titles(
+            self.state, StringList(rst, source=self.get_source_info()[0]), container
+        )
+        return container.children
+
+
+def setup(app):
+    app.add_directive("example-gallery", ExampleGallery)

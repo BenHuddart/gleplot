@@ -45,7 +45,9 @@ import gleplot as glp
 
 
 def example_phase_diagram():
-    """Example: susceptibility phase diagram (tripcolor + tricontour + colorbar)."""
+    """Susceptibility phase diagram from scattered data: ``tripcolor``,
+    ``tricontour``, and a colorbar, with line cuts in a second panel.
+    """
     print("Creating example: Antiferromagnet phase diagram...")
 
     rng = np.random.default_rng(11)

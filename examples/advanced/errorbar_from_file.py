@@ -17,7 +17,9 @@ import gleplot as glp
 
 
 def example_errorbar_from_file():
-    """Example: Plot error bars by referencing columns in an existing data file."""
+    """Error bars drawn from columns of an existing data file, so no extra
+    ``.dat`` file is written.
+    """
     print("Creating example: Error bars from file...")
 
     # Create a data file with experimental measurements
@@ -86,7 +88,7 @@ def example_errorbar_from_file():
 
 
 def example_dual_axis_from_file():
-    """Example: Dual y-axis plot using file column references."""
+    """Two columns of one data file on the left and right y-axes."""
     print("Creating example: Dual axis from file...")
 
     # Create a data file
@@ -152,7 +154,7 @@ def example_dual_axis_from_file():
 
 
 def example_line_overlay_from_file():
-    """Example: Overlay measured points and fit line from one file."""
+    """Measured points and a fit line, both read from columns of one data file."""
     print("Creating example: Line overlay from file...")
 
     data_file = Path("fit_results.dat")

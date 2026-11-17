@@ -18,7 +18,9 @@ import gleplot as glp
 
 
 def example_sharex_stacked():
-    """Example: Stacked plots with shared x-axis."""
+    """Three stacked plots sharing a common x-axis. Only the bottom panel shows
+    x tick labels.
+    """
     print("Creating example: Stacked plots with shared x-axis...")
 
     # Shared x-axis is ideal for time series or data at the same x positions
@@ -55,7 +57,9 @@ def example_sharex_stacked():
 
 
 def example_sharey_sidebyside():
-    """Example: Side-by-side plots with shared y-axis."""
+    """Three side-by-side plots sharing a common y-axis. Only the leftmost panel
+    shows y tick labels, for direct comparison across conditions.
+    """
     print("Creating example: Side-by-side plots with shared y-axis...")
 
     # Shared y-axis is ideal for comparing different conditions at the same scale
@@ -92,7 +96,9 @@ def example_sharey_sidebyside():
 
 
 def example_both_shared():
-    """Example: 2x2 grid with both axes shared."""
+    """Four panels with both axes shared. Only the left column shows y tick
+    labels and only the bottom row shows x tick labels.
+    """
     print("Creating example: 2x2 grid with both axes shared...")
 
     # Sharing both axes creates a very tight, unified layout
@@ -134,7 +140,9 @@ def example_both_shared():
 
 
 def example_residual_plot():
-    """Example: Data and residuals with shared x-axis (common in data analysis)."""
+    """Measured data and a linear fit above, the residuals below, on a shared
+    x-axis.
+    """
     print("Creating example: Data with residuals (shared x-axis)...")
 
     fig, axes = glp.subplots(2, 1, sharex=True, figsize=(10, 8))
@@ -167,7 +175,7 @@ def example_residual_plot():
 
 
 def example_comparison_with_without():
-    """Example: Direct comparison showing benefit of shared axes."""
+    """The same three panels drawn without and then with ``sharex=True``."""
     print("Creating example: Comparison (with vs without shared axes)...")
 
     # Without shared axes (standard spacing)

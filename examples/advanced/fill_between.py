@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_fill_between():
-    """Example: Fill between curves."""
+    """Shaded uncertainty band around a central line."""
     print("Creating example: Fill between...")
 
     fig = glp.figure(figsize=(8, 6))
@@ -39,7 +39,9 @@ def example_fill_between():
 
 
 def example_fill_between_conditional():
-    """Example: Conditional fill_between using where= parameter."""
+    """Fill regions coloured differently depending on which curve is on top,
+    using the ``where=`` parameter.
+    """
     print("Creating example: Conditional fill between...")
 
     fig = glp.figure(figsize=(8, 6))

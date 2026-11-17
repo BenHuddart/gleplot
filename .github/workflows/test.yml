@@ -253,8 +253,6 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
         run: |
           pip install -e ".[docs]"
-          mkdir -p docs/source/_static/gallery
-          cp examples/outputs/example_*.png docs/source/_static/gallery/
           python docs/prepare_gallery.py --strict
           sphinx-build -W --keep-going -b html docs/source "$RUNNER_TEMP/docs-html"
 

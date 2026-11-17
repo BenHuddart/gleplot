@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_multiple_styles():
-    """Example: Multiple line styles and markers."""
+    """The four line styles and a scatter series in one axes."""
     print("Creating example: Multiple styles...")
 
     fig = glp.figure(figsize=(10, 6))

@@ -16,7 +16,10 @@ import gleplot as glp
 
 
 def example_secondary_yaxis():
-    """Create example plots with secondary y-axis."""
+    """Four figures with a second data set on the right-hand y-axis
+    (``yaxis='y2'``): temperature and humidity, two growth curves with a log
+    scale on the right, voltages and currents in a circuit, and error bars.
+    """
 
     # Example 1: Temperature and Humidity on same plot
     print("Creating temperature and humidity plot with secondary y-axis...")

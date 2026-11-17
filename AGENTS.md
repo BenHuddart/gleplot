@@ -137,7 +137,7 @@ Docs describe what the code does now. A change in behaviour updates every place 
 - A new public name gets an entry in the Sphinx API pages (`docs/source/api*.rst`) in the same change, not only a guide mention.
 - Docstrings are rendered by Sphinx (numpydoc sections via napoleon) and CI builds the site with `-W`: free text after a `Parameters` list goes under a `Notes` heading, not flush against the list.
 - Code shown in docs and docstrings must run against the current API. Do not describe behaviour you have not exercised.
-- An example added under `examples/` is added to the registry in `examples/run_and_compile.py`; CI runs and compiles every registered example and fails on one that is not registered.
+- An example added under `examples/` is added to the registry in `examples/run_and_compile.py`; CI runs and compiles every registered example and fails on one that is not registered. The gallery is generated from the registry, and an example's docstring is its caption there.
 - Examples write only to `examples/outputs/`, which is ignored. No generated figure or sidecar is committed.
 - State facts once. Link to a guide instead of repeating it, and do not put counts or version numbers in prose that nothing will keep current.
 

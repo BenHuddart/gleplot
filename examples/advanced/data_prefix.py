@@ -12,7 +12,9 @@ import gleplot as glp
 
 
 def example_data_prefix():
-    """Demonstrate deterministic data sidecar naming with data_prefix."""
+    """Sidecar ``.dat`` files named by ``data_prefix`` on the figure and
+    ``data_name`` on each series.
+    """
     print("Creating example: data_prefix naming...")
 
     x = np.linspace(0.0, 1.0, 60)

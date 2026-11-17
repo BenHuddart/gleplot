@@ -72,7 +72,7 @@ from basic import (
 )
 
 # (title, function, the .gle files it writes, without the suffix).
-# The gallery reads the PNGs by these names: keep them stable.
+# The docs gallery is generated from this list and shows each one's PNG.
 EXAMPLES = [
     ("Basic Line Plot", example_basic_line_plot, ["example_basic_line_plot"]),
     ("Scatter Plot", example_scatter_plot, ["example_scatter_plot"]),

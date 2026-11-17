@@ -16,7 +16,9 @@ import gleplot as glp
 
 
 def example_global_config():
-    """Example 1: Modify global defaults that apply to all new figures."""
+    """Defaults changed on ``GlobalConfig`` apply to every new figure until
+    ``GlobalConfig.reset()``.
+    """
     print("Example 1: Global Configuration")
     print("=" * 50)
 
@@ -49,7 +51,9 @@ def example_global_config():
 
 
 def example_per_figure_config():
-    """Example 2: Create figures with different configurations."""
+    """Two figures with their own ``GLEStyleConfig`` and ``GLEGraphConfig``:
+    one for publication, one for presentation.
+    """
     print("Example 2: Per-Figure Configuration")
     print("=" * 50)
 
@@ -104,7 +108,7 @@ def example_per_figure_config():
 
 
 def example_marker_config():
-    """Example 3: Customize marker appearance."""
+    """Default marker and size set with ``GLEMarkerConfig``."""
     print("Example 3: Marker Configuration")
     print("=" * 50)
 
@@ -130,7 +134,7 @@ def example_marker_config():
 
 
 def example_smooth_curves():
-    """Example 4: Control smooth curve rendering."""
+    """The same data drawn with ``smooth_curves=True`` and as a polyline."""
     print("Example 4: Smooth Curves Configuration")
     print("=" * 50)
 
@@ -167,7 +171,7 @@ def example_smooth_curves():
 
 
 def example_line_styles():
-    """Example 5: Customize line style codes."""
+    """Line style codes set with ``GLEStyleConfig``."""
     print("Example 5: Custom Line Styles")
     print("=" * 50)
 

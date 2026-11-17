@@ -12,7 +12,9 @@ import gleplot as glp
 
 
 def example_line_from_file():
-    """Plot measured points and overlay a model line from one file."""
+    """A model line overlaid on measured points from one existing data file,
+    without writing a generated ``data_*.dat`` file for the line.
+    """
     print("Creating example: line_from_file...")
 
     data_file = Path("line_from_file_data.dat")

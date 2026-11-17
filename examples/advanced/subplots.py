@@ -17,7 +17,7 @@ import gleplot as glp
 
 
 def example_side_by_side():
-    """Example: Two plots side by side (1x2 grid)."""
+    """Two plots side by side in a 1x2 grid."""
     print("Creating example: Side-by-side subplots...")
 
     fig, axes = glp.subplots(1, 2, figsize=(14, 6))
@@ -43,7 +43,7 @@ def example_side_by_side():
 
 
 def example_stacked():
-    """Example: Two plots stacked vertically (2x1 grid)."""
+    """Two stacked panels: a fit with error bars on top and its residuals below."""
     print("Creating example: Stacked subplots...")
 
     fig, axes = glp.subplots(2, 1, figsize=(8, 10))
@@ -74,7 +74,9 @@ def example_stacked():
 
 
 def example_2x2_grid():
-    """Example: 2x2 grid with different plot types."""
+    """Four plot types in a 2x2 grid: line, scatter, bar, and asymmetric error
+    bars.
+    """
     print("Creating example: 2x2 subplot grid...")
 
     fig, axes = glp.subplots(2, 2, figsize=(12, 10))
@@ -129,7 +131,7 @@ def example_2x2_grid():
 
 
 def example_1x3_comparison():
-    """Example: 1x3 grid comparing function transformations."""
+    """Three panels in a row comparing families of functions."""
     print("Creating example: 1x3 comparison...")
 
     fig, axes = glp.subplots(1, 3, figsize=(18, 5))

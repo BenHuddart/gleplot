@@ -12,7 +12,7 @@ import gleplot as glp
 
 
 def example_heatmap_imshow():
-    """Example: imshow of a gridded 2-D Gaussian with a contour overlay and colorbar.
+    """``imshow`` of a gridded 2-D Gaussian with a contour overlay and a colorbar.
 
     A single ``add_subplot(111)`` axes -- the canonical form. gleplot reserves
     room to the right of the graph for the colorbar automatically, so the bar,
