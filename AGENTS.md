@@ -99,7 +99,7 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 
 ### Compatibility
 
-- Removing or renaming a public name, changing a default, or changing emitted GLE for an existing script is a **breaking change**. It needs the maintainer's agreement and a `feat!`/`fix!` commit.
+- Removing or renaming a public name, changing a default, or changing emitted GLE for an existing script is a **breaking change**. It needs the maintainer's agreement and a `feat!`/`fix!` commit. Honouring a keyword that gleplot accepted with a `UserWarning` saying it had no effect is not breaking: the warning already told the user it was ignored.
 - Emitted GLE is output users keep under version control. Do not reorder or reformat it as a side effect of another change.
 - Private names (leading underscore) may change freely. Do not add a compatibility alias or shim for one.
 
