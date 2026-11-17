@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve gleplot. This page covers what you need before opening a pull request. For versioning, releases, and day-to-day workflow, see [docs/guides/DEVELOPMENT_WORKFLOW.md](docs/guides/DEVELOPMENT_WORKFLOW.md).
+Thanks for helping improve gleplot. This page covers what you need before opening a pull request. For commit types and how releases are cut, see [docs/guides/VERSIONING.md](docs/guides/VERSIONING.md).
 
 ## Setup
 
@@ -45,7 +45,7 @@ sphinx-build -W --keep-going -b html docs/source docs/build/html
 
 ## Commits
 
-Use [conventional commits](https://www.conventionalcommits.org/) (`feat`, `fix`, `perf`, …). Releases use `python-semantic-release` (`feat` → minor, `fix`/`perf` → patch).
+Use [conventional commits](https://www.conventionalcommits.org/). The type decides the release; [docs/guides/VERSIONING.md](docs/guides/VERSIONING.md) lists what each one does.
 
 ## Pull requests
 

@@ -55,8 +55,8 @@ The bump rules live in `pyproject.toml` under
    the sdist and wheel, pushes the release commit and `vX.Y.Z` tag, and
    creates a GitHub Release with the artifacts attached.
 4. If the repository variable `PYPI_PUBLISH` is `true`, a separate job uploads
-   to PyPI through Trusted Publishing. Setup is described in
-   [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md#6-publishing).
+   to PyPI through Trusted Publishing; see
+   [Publishing to PyPI](#publishing-to-pypi).
 
 The version is stored in two places, which the release keeps in sync:
 `project.version` in `pyproject.toml` and `__version__` in
@@ -80,6 +80,30 @@ Maintainers can also release locally, which is rarely needed:
 semantic-release version
 git push origin main --follow-tags
 ```
+
+To check a build locally:
+
+```bash
+pip install build twine
+python -m build
+twine check dist/*
+```
+
+## Publishing to PyPI
+
+The **Release** workflow always attaches the sdist and wheel to the GitHub
+Release. Upload to PyPI is off until a maintainer enables it:
+
+1. Register the gleplot project on PyPI (or TestPyPI first).
+2. Add a **Trusted Publisher** on PyPI for this repository, workflow file
+   `release.yml`, environment `pypi`.
+3. Create a GitHub **Environment** named `pypi` (approval rules are
+   recommended).
+4. Set the repository variable `PYPI_PUBLISH` to `true`.
+
+The **Publish to PyPI** job authenticates through OIDC
+(`pypa/gh-action-pypi-publish`), so no long-lived API token is stored in the
+repository.
 
 ## If the Release workflow does nothing
 
