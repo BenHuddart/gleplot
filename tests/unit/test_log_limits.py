@@ -71,6 +71,20 @@ def test_the_replacement_is_warned_about():
         fig._generate_gle()
 
 
+def test_the_replacement_warning_names_the_callers_savefig(tmp_path):
+    fig = figure_with([1.0, 2.0, 3.0], ylim=(0, 400))
+    with pytest.warns(UserWarning, match=r"y-axis is log-scaled") as record:
+        fig.savefig(str(tmp_path / "fig.gle"))
+    assert [w.filename for w in record] == [__file__]
+
+
+def test_the_replacement_warning_names_the_callers_module_level_savefig(tmp_path):
+    figure_with([1.0, 2.0, 3.0], ylim=(0, 400))
+    with pytest.warns(UserWarning, match=r"y-axis is log-scaled") as record:
+        glp.savefig(str(tmp_path / "fig.gle"))
+    assert [w.filename for w in record] == [__file__]
+
+
 def test_the_repaired_limits_are_stored_on_the_axes():
     """What the figure now means -- so the GUI's panels show it too."""
     fig = figure_with([1.0, 2.0, 3.0], ylim=(0, 400))

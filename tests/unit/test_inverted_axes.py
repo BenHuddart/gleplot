@@ -159,6 +159,14 @@ def test_the_log_normalization_says_so():
         fig._generate_gle()
 
 
+def test_the_log_normalization_warning_names_the_callers_savefig_gle(tmp_path):
+    fig = plot(ylim=(100, 1))
+    fig.axes_list[0].set_yscale("log")
+    with pytest.warns(UserWarning, match="cannot invert a log axis") as record:
+        fig.savefig_gle(str(tmp_path / "fig.gle"))
+    assert [w.filename for w in record] == [__file__]
+
+
 def test_a_descending_log_axis_reaching_zero_is_still_made_positive():
     """The two repairs compose: undo the inversion, then fix the range."""
     fig = plot(ylim=(3, 0))

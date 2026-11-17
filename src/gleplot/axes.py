@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
+from ._warn import warn_external
 from .colors import apply_alpha, rgb_to_gle
 from .config import GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
@@ -1611,11 +1612,9 @@ class Axes:
         # off there is nothing for it to qualify, and storing it would not
         # survive a round trip (the writer emits no ``line`` token).
         if mode and linestyle in _NO_LINE:
-            warnings.warn(
+            warn_external(
                 f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
                 "omits it, so the series is drawn without that mode.",
-                UserWarning,
-                stacklevel=2,
             )
             mode = None
 
@@ -1915,7 +1914,7 @@ class Axes:
         """
 
         def warn(message: str) -> None:
-            warnings.warn(message, UserWarning, stacklevel=3)
+            warn_external(message)
 
         if density:
             warn("hist(density=True) is not supported; drawing counts.")
@@ -2748,18 +2747,14 @@ class Axes:
         if align_name not in ("center", "edge"):
             raise ValueError("align must be 'center' or 'edge', got " f"{align!r}")
         if align_name == "edge":
-            warnings.warn(
+            warn_external(
                 "bar(align='edge') is drawn centered: GLE places each bar "
                 "on its x value.",
-                UserWarning,
-                stacklevel=2,
             )
         if kwargs:
             names = ", ".join(sorted(str(key) for key in kwargs))
-            warnings.warn(
+            warn_external(
                 f"bar() ignores unsupported keyword(s): {names}.",
-                UserWarning,
-                stacklevel=2,
             )
         if error_kw is None:
             error_extra: Dict[str, Any] = {}
@@ -2780,10 +2775,8 @@ class Axes:
             err_zorder = float(err_zorder) + 0.01
         if (yerr is not None or xerr is not None) and error_extra:
             names = ", ".join(sorted(str(key) for key in error_extra))
-            warnings.warn(
+            warn_external(
                 f"bar() ignores unsupported error_kw key(s): {names}.",
-                UserWarning,
-                stacklevel=2,
             )
         label = mathtext_to_gle(label)
 
@@ -3059,7 +3052,7 @@ class Axes:
         """
 
         def warn(message: str) -> None:
-            warnings.warn(message, UserWarning, stacklevel=3)
+            warn_external(message)
 
         data_name = kwargs.pop("data_name", None)
         if "data" in kwargs:
@@ -3196,7 +3189,7 @@ class Axes:
         """
 
         def warn(message: str) -> None:
-            warnings.warn(message, UserWarning, stacklevel=3)
+            warn_external(message)
 
         data_name = kwargs.pop("data_name", None)
         if "data" in kwargs:

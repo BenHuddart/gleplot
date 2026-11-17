@@ -44,8 +44,9 @@ exposed explicitly rather than being reachable only by naming a raw GLE
 marker.
 """
 
-import warnings
 from typing import Dict, Optional
+
+from ._warn import warn_external
 
 # Matplotlib to GLE marker mapping (the *filled* / default family).
 #
@@ -270,12 +271,10 @@ def get_gle_marker(
         # normalize the spelling to the uppercase form gleplot emits.
         base = marker.upper()
     else:
-        warnings.warn(
+        warn_external(
             f"Unrecognized marker {matplotlib_marker!r}: it is neither a "
             f"matplotlib marker code nor a GLE marker name. Falling back to "
             f"{default!r}.",
-            UserWarning,
-            stacklevel=2,
         )
         base = default
 
@@ -322,11 +321,9 @@ def resolve_marker_fill(
             return "none"
         if style == "full":
             return "full"
-        warnings.warn(
+        warn_external(
             f"fillstyle={fillstyle!r} has no GLE equivalent (GLE markers are "
             "either solid, outline, or white-filled); using a solid marker.",
-            UserWarning,
-            stacklevel=2,
         )
         return "full"
 
@@ -338,13 +335,11 @@ def resolve_marker_fill(
         return "none"
     if face in _WHITE_SPELLINGS:
         return "white"
-    warnings.warn(
+    warn_external(
         f"markerfacecolor={markerfacecolor!r} is ignored: GLE draws a marker "
         "in a single colour, so a face colour differing from the series "
         "colour cannot be represented. Use markerfacecolor='none' for an "
         "open marker or 'white' for a white-filled one.",
-        UserWarning,
-        stacklevel=2,
     )
     return "full"
 

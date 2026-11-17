@@ -55,6 +55,7 @@ If you touched a docstring, a page under `docs/`, or an example, also run the do
 - `mathtext.py` — matplotlib `$...$` mathtext → GLE text markup.
 - `palettes.py` — colormap stop tables and the self-contained palette subs emitted for heatmaps/contours.
 - `cairo_support.py` — decides when a figure needs GLE's `-cairo` device and warns about fonts it rejects.
+- `_warn.py` — `warn_external`: a warning attributed to the first frame outside gleplot. A leaf module.
 
 ### Parser (`src/gleplot/parser/`)
 
@@ -72,7 +73,7 @@ Do not violate these without an explicit design change and tests.
 - **Fixed point** — writer → `parse_gle_figure` → writer is **byte-identical** (GLE + `.dat` sidecars). `tests/parser/test_fixed_point.py` keeps an **empty** exemption set; a failing builder is a bug, not a new exemption.
 - **Figure model** — `to_dict()` snapshots are the canonical round-trip representation for undo-style callers and previews.
 - **Series** — stay `dict` subclasses; `SERIES_CLASSES` order is emission order.
-- **Layers** — nothing under `src/gleplot` imports a GUI toolkit, and IPython is imported only inside `Figure.view`. The parser syntax layer is stdlib-only. Module-level imports are acyclic: `series`/`sources` and the leaf modules (`colors`, `markers`, `config`) sit below `writer`, then `axes`, then `figure`, then `parser.recognizer`. Do not hide a cycle inside a function: `tests/unit/test_layering.py` checks the graph and holds function-level imports to an explicit list.
+- **Layers** — nothing under `src/gleplot` imports a GUI toolkit, and IPython is imported only inside `Figure.view`. The parser syntax layer is stdlib-only. Module-level imports are acyclic: `series`/`sources` and the leaf modules (`_warn`, `colors`, `markers`, `config`) sit below `writer`, then `axes`, then `figure`, then `parser.recognizer`. Do not hide a cycle inside a function: `tests/unit/test_layering.py` checks the graph and holds function-level imports to an explicit list.
 - **Preservation** — unrecognized GLE is preserved; recovery warnings are surfaced, not dropped silently.
 - **Metadata** — v1 files load (implicit placement); first save rewrites to v2 with a `metadata:` warning. No downgrade. Unknown meta versions warn.
 - **GLE optional** — saving `.gle` always works without GLE. Discovery: `GLE_PATH` → `PATH` → well-known paths (`compiler.find_gle`).
@@ -92,7 +93,7 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 ### Errors and warnings
 
 - Reject a bad argument **when the call is made**, not later at `savefig`. Raise `ValueError` (or `TypeError` for a wrong type) with a message that names the argument, shows the value received, and lists what is accepted.
-- Anything gleplot accepts but cannot honour, or recovers imperfectly from a file, gets a `UserWarning` with a `stacklevel` that points at the caller's line. Nothing is dropped silently.
+- Anything gleplot accepts but cannot honour, or recovers imperfectly from a file, gets a `UserWarning` with a `stacklevel` that points at the caller's line. Nothing is dropped silently. Where one fixed level cannot be right (the warning is reached at more than one depth, or through a `glp.*` function), use `_warn.warn_external`. `tests/unit/test_source_rules.py` fails on a `warnings.warn` without one.
 - A message is written for someone who knows matplotlib and has never read this source: say what to do next, in terms of the public API.
 - No `print()` in library code; `tests/unit/test_source_rules.py` checks this. Results go through return values, exceptions, and warnings. Diagnostic output a user opts into goes through the `gleplot` logger.
 
@@ -180,7 +181,7 @@ Places where the code does not yet meet the rules above. None of them is a patte
 
 - **Series logic is spread over five modules.** The "Adding a series field" checklist exists because one field is declared, set, emitted, passed through, and recovered in five separate places. The intended form is one description per series kind that those places read. Until then, follow the checklist. [#100](https://github.com/benhuddart/gleplot/issues/100)
 - **Oversized dispatch functions**: `Figure._write_axes_content`, `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
-- **`warnings.warn` calls without `stacklevel`**: a handful in `src/`. [#107](https://github.com/benhuddart/gleplot/issues/107)
+- **Fixed `stacklevel`s reached through `glp.*`**: most `Axes` warnings still pass a fixed level, which is right for `ax.method(...)` and points into `__init__.py` for `glp.method(...)`. [#115](https://github.com/benhuddart/gleplot/issues/115)
 - **Tests outside the rules**: `tests/_tempdir.py` and its callers write under `build/test-temp`; some older modules use `unittest.TestCase`. [#99](https://github.com/benhuddart/gleplot/issues/99)
 - **Unchecked layering claim**: no test asserts that the library imports no GUI toolkit and that IPython stays inside `Figure.view`; `tests/unit/test_layering.py` only covers gleplot's own modules. [#108](https://github.com/benhuddart/gleplot/issues/108)
 - **Two example runners**: `examples/run_all.py` and `examples/run_and_compile.py` list overlapping examples. The intended form is one registry that both CI and the docs gallery read. [#110](https://github.com/benhuddart/gleplot/issues/110), [#101](https://github.com/benhuddart/gleplot/issues/101)

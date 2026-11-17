@@ -179,6 +179,17 @@ def test_a_range_the_caller_asked_for_is_dropped_but_not_in_silence():
     assert _axis_line(text, "y") == "yaxis min 2 max 3"
 
 
+def test_the_empty_range_warning_names_the_callers_savefig(tmp_path):
+    fig, ax = _axes()
+    ax.plot(np.array([1.0, 2.0]), np.array([2.0, 3.0]))
+    ax.set_xlim(5.0, 5.0)
+
+    with pytest.warns(UserWarning, match="limits are both") as record:
+        fig.savefig(str(tmp_path / "fig.gle"))
+
+    assert [w.filename for w in record] == [__file__]
+
+
 def test_a_collapsed_secondary_y_range_is_deferred_too():
     """``y2axis min v max v`` is the same GLE error; y2 is only ever explicit."""
     fig, ax = _axes()
@@ -314,6 +325,24 @@ def test_a_shared_axis_whose_union_collapses_is_deferred_on_every_panel():
     text, _files = _generate(fig)
     assert "xaxis min" not in text
     assert all(ax.xmin is None and ax.xmax is None for ax in axes)
+
+
+def test_a_shared_empty_range_warning_names_the_callers_savefig(tmp_path):
+    """Reached through the shared-axis synchronization, via ``glp.savefig``.
+
+    Each panel pins one bound over a lone point at x=5, so neither collapses
+    on its own; the union of the two explicit bounds is the empty 5..5.
+    """
+    fig, (top, bottom) = glp.subplots(2, 1, sharex=True, data_prefix="dg")
+    for ax in (top, bottom):
+        ax.plot(np.array([5.0]), np.array([2.0]))
+    top.set_xlim(5.0, None)
+    bottom.set_xlim(None, 5.0)
+
+    with pytest.warns(UserWarning, match="limits are both") as record:
+        glp.savefig(str(tmp_path / "fig.gle"))
+
+    assert [w.filename for w in record] == [__file__, __file__]
 
 
 def test_a_shared_axis_whose_union_resolves_is_untouched():
