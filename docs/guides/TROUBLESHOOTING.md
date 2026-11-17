@@ -68,12 +68,9 @@ Fixes:
 
 ## Shared Axes Not Displaying All Labels
 
-This is expected behavior.
-
-- `sharex=True`: only bottom row shows x labels/ticks
-- `sharey=True`: only leftmost column shows y labels/ticks
-
-Disable sharing if each panel must show all tick labels.
+This is expected: shared axes label only the outer panels, as described in
+[Figures and Subplots](FIGURES_AND_SUBPLOTS.md). Disable sharing if each panel
+must show all tick labels.
 
 ## Lines Look More Angular Than They Used To
 

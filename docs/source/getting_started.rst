@@ -1,12 +1,7 @@
 Getting Started
 ===============
 
-This guide is designed as a short, practical path:
-
-1. Install dependencies
-2. Generate your first plot
-3. Learn how output files are created
-4. Use shared axes and custom data file names
+Install gleplot, make a first plot, and see which files it writes.
 
 Installation
 ------------
@@ -86,61 +81,29 @@ When you call ``savefig``, gleplot writes:
 - one or more external ``.dat`` files containing plotting data
 
 By default, data files use a global pattern like ``data_0.dat``, ``data_1.dat``, etc.
+To name them yourself, see ``data_prefix`` and ``data_name`` in
+:doc:`guides/CONFIGURATION`.
 
-If you want to keep each export self-contained, pass ``folder=True`` to ``savefig``.
-For example, ``fig.savefig('first_plot.pdf', folder=True)`` creates a
-``first_plot.gleplot`` directory containing the compiled output, the
-intermediate ``.gle`` script, and the generated ``.dat`` files.
-
-Custom data file names
-----------------------
-
-Use ``data_prefix`` when creating a figure (or via ``subplots``) to control the
-data-file naming scheme.
+The file extension picks the output. A ``.gle`` script is always written and
+needs nothing else; ``.pdf``, ``.png``, ``.eps``, ``.svg`` and ``.jpg`` are
+compiled by GLE:
 
 .. code-block:: python
 
-   import numpy as np
-   import gleplot as glp
+   fig.savefig('plot.gle')
+   fig.savefig('plot.pdf')
+   fig.savefig('plot.png', dpi=300)
+   fig.savefig('plot.eps')
+   fig.savefig('/path/to/output/plot.pdf')
 
-   x = np.linspace(0, 1, 20)
-   y = x**2
+To keep each export self-contained, pass ``folder=True``.
+``fig.savefig('plot.pdf', folder=True)`` creates a ``plot.gleplot`` directory
+containing ``plot.pdf``, the intermediate ``plot.gle`` script, and the
+generated ``.dat`` files.
 
-   fig = glp.figure(data_prefix='experimentA')
-   ax = fig.add_subplot(111)
-   ax.plot(x, y)
-   fig.savefig('experimentA_plot.gle')
+Next steps
+----------
 
-This produces files such as:
-
-- ``experimentA_plot.gle``
-- ``experimentA_0.dat``
-
-The prefix is used verbatim (note the preserved capital ``A``), so it must be
-usable as a GLE data filename. Whitespace, control characters, ``!``, ``"``,
-``+`` and the path separators ``/`` and ``\`` raise ``ValueError`` when the
-figure is created, rather than producing a script that fails to compile. See
-:doc:`guides/CONFIGURATION` for the full list.
-
-Shared axes in subplots
------------------------
-
-For aligned multi-panel figures, share the x-axis or y-axis across subplots.
-
-.. code-block:: python
-
-   import numpy as np
-   import gleplot as glp
-
-   x = np.linspace(0, 10, 200)
-   fig, axes = glp.subplots(3, 1, sharex=True, figsize=(8, 10))
-
-   axes[0].plot(x, np.sin(x))
-   axes[1].plot(x, np.cos(x))
-   axes[2].plot(x, np.sin(x) + np.cos(x))
-   axes[2].set_xlabel('time')
-
-   fig.savefig('shared_x_example.gle')
-
-With ``sharex=True``, only the bottom row shows x tick labels and x-axis label.
-With ``sharey=True``, only the leftmost column shows y tick labels and y-axis label.
+The user guide covers each topic in turn, starting with
+:doc:`guides/FIGURES_AND_SUBPLOTS` and :doc:`guides/PLOT_TYPES`. The
+:doc:`gallery` shows every example with its code.
