@@ -4623,6 +4623,39 @@ class GLEWriter:
         self.lines_gle.append(f"        draw {sub_name} " + " ".join(args))
         self.lines_gle.append("    end layer")
 
+    def add_refline(self, series: Series):
+        """Draw a reference line as a layered ``draw`` call (G17).
+
+        ``series`` is the :class:`~gleplot.series.RefLine` declaration; its
+        ``orient``, ``value``, ``span_lo``/``span_hi``, ``color``,
+        ``linestyle``, ``linewidth`` and ``label`` go to
+        :meth:`add_refline_draw`, which says when this form is used.
+        """
+        self.add_refline_draw(
+            series["orient"],
+            series["value"],
+            series["span_lo"],
+            series["span_hi"],
+            series["color"],
+            series["linestyle"],
+            series["linewidth"],
+            series["label"],
+        )
+
+    def add_refline_dataset(self, series: Series, line: Series):
+        """Draw a reference line as a marked two-point dataset.
+
+        ``series`` is the :class:`~gleplot.series.RefLine` declaration and
+        ``line`` the :class:`~gleplot.series.LineSeries` that
+        ``Axes.materialize_reflines`` built from it. The marker (see
+        :meth:`add_refline_marker`) goes immediately before the line's
+        ``data`` statement, which is how a re-read file binds the two.
+        """
+        self.add_refline_marker(
+            series["orient"], series["value"], series["span_lo"], series["span_hi"]
+        )
+        self.add_line(line)
+
     def add_refline_draw(
         self,
         orient: str,
@@ -4777,7 +4810,7 @@ class GLEWriter:
         """Mark the two-point dataset that follows as an ``axvline``/``axhline``.
 
         Emitted immediately before the guide's own ``data`` statement, by
-        :meth:`gleplot.figure.Figure._write_reflines`, for every guide
+        :meth:`add_refline_dataset`, for every guide
         that materializes (i.e. every guide NOT routed to the draw form by
         ``Axes.guide_needs_engine_range``).
         """
