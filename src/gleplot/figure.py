@@ -2528,61 +2528,7 @@ class Figure:
         one is skipped.
         """
         for fs_data in resolution.visible(ax.file_series):
-            series_type = fs_data.get("series_type", "errorbar")
-            if series_type == "line":
-                writer.add_plot_line_from_file(
-                    fs_data["data_file"],
-                    fs_data["x_col"],
-                    fs_data["y_col"],
-                    color=fs_data.get("color", "BLUE"),
-                    linestyle=fs_data.get("linestyle", "-"),
-                    linewidth=fs_data.get("linewidth", 1.0),
-                    label=fs_data.get("label"),
-                    yaxis=fs_data.get("yaxis", "y"),
-                    xaxis=fs_data.get("xaxis", "x"),
-                    marker=fs_data.get("marker"),
-                    markersize=fs_data.get("markersize", 0.1),
-                    nomiss=fs_data.get("nomiss", False),
-                    line_mode=fs_data.get("line_mode"),
-                )
-            elif series_type == "bar":
-                writer.add_bar_from_file(
-                    fs_data["data_file"],
-                    fs_data["x_col"],
-                    fs_data["y_col"],
-                    color=fs_data.get("color", "RED"),
-                    label=fs_data.get("label"),
-                    swatch_color=fs_data.get("swatch_color"),
-                )
-            elif series_type == "fill":
-                writer.add_fill_from_file(
-                    fs_data["data_file"],
-                    fs_data["x_col"],
-                    fs_data["y1_col"],
-                    fs_data.get("y2_col"),
-                    color=fs_data.get("color", "LIGHTBLUE"),
-                    label=fs_data.get("label"),
-                    swatch_color=fs_data.get("swatch_color"),
-                    target=fs_data.get("target"),
-                    xmin=fs_data.get("xmin"),
-                    xmax=fs_data.get("xmax"),
-                    ymin=fs_data.get("ymin"),
-                    ymax=fs_data.get("ymax"),
-                )
-            else:
-                writer.add_errorbar_from_file(
-                    fs_data["data_file"],
-                    fs_data["x_col"],
-                    fs_data["y_col"],
-                    yerr_col=fs_data.get("yerr_col"),
-                    color=fs_data["color"],
-                    marker=fs_data.get("marker"),
-                    markersize=fs_data.get("markersize", 0.1),
-                    label=fs_data.get("label"),
-                    capsize=fs_data.get("capsize"),
-                    yaxis=fs_data.get("yaxis", "y"),
-                    xaxis=fs_data.get("xaxis", "x"),
-                )
+            writer.add_file_series(fs_data)
 
     @staticmethod
     def _write_texts(writer: GLEWriter, ax: Axes) -> None:
