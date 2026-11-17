@@ -276,7 +276,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import numpy as np
 
@@ -980,15 +980,15 @@ class _GraphDatasets:
     this guards against (GLE rejects the space). ``data_stmts`` pairs the
     raw text of each ``data`` statement with the names it declares and its
     source line, in body order, so one whose datasets all end up unmodeled
-    can be restored. ``emitted`` is filled by pass 2: the dataset names whose
-    ``dN`` statement has been handled.
+    can be restored. ``emitted`` starts empty and is filled by pass 2: the
+    dataset names whose ``dN`` statement has been handled.
     """
 
     datasets: Dict[str, Tuple[str, int, int]] = field(default_factory=dict)
     merged_attr_toks: Dict[str, List[Token]] = field(default_factory=dict)
     merged_attr_raw: Dict[str, List[str]] = field(default_factory=dict)
     data_stmts: List[Tuple[List[str], str, int]] = field(default_factory=list)
-    emitted: set = field(default_factory=set)
+    emitted: Set[str] = field(default_factory=set)
 
 
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
@@ -1931,7 +1931,8 @@ class _Recognizer:
         text = stmt.source_line.text if stmt.source_line else stmt.raw
         info["passthrough"].append(text)
 
-    def _let_is_consumed(self, toks, info) -> bool:
+    @staticmethod
+    def _let_is_consumed(toks, info) -> bool:
         """True if pass 1 already modeled this ``let`` statement.
 
         A recognized offset alias is consumed (the offset now lives on the
@@ -2967,7 +2968,6 @@ class _Recognizer:
         if kw is not None and _DATASET_RE.match(kw):
             self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
             return
-        datasets = pass1.datasets
         if kw in ("size", "scale", "fullsize"):
             self._parse_geometry_line(kw, toks, info, stmt)
             return
@@ -2990,10 +2990,10 @@ class _Recognizer:
             self._parse_places_or_names_line(kw, toks, info, stmt)
             return
         if kw == "bar":
-            self._parse_bar_command(toks, datasets, info, stmt)
+            self._parse_bar_command(toks, pass1.datasets, info, stmt)
             return
         if kw == "fill":
-            self._parse_fill_command(toks, datasets, info, stmt)
+            self._parse_fill_command(toks, pass1.datasets, info, stmt)
             return
         if kw == "key":
             self._parse_key_command(toks, info, stmt)
