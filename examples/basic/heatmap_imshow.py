@@ -42,19 +42,12 @@ def example_heatmap_imshow():
 
     fig.colorbar(label="amplitude")
 
-    # Save the GLE script + its .z / points sidecars next to this script (the
-    # tracked-example convention: the .gle and its input sidecars live beside
-    # the .py). PDF/PNG and GLE's own -cdata/-clabels/-cvalues derivatives are
-    # build products (gitignored), so compilation is optional.
-    output_dir = Path(__file__).parent
-    gle_file = output_dir / "example_heatmap_imshow.gle"
-    fig.savefig_gle(str(gle_file))
-    print(f"  Saved to {gle_file}")
+    fig.savefig_gle("example_heatmap_imshow.gle")
+    print("  Saved to example_heatmap_imshow.gle")
 
     try:
-        png_file = output_dir / "example_heatmap_imshow.png"
-        fig.savefig(str(png_file), dpi=150)
-        print(f"  Compiled to {png_file}")
+        fig.savefig("example_heatmap_imshow.png", dpi=150)
+        print("  Compiled to example_heatmap_imshow.png")
     except RuntimeError:
         print("  GLE not available for compilation; GLE script saved only.")
 

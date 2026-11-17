@@ -23,7 +23,7 @@ per-segment tick intervals -- necessary because GLE's automatic tick choice
 is made per graph block, and a narrow segment's ticks would otherwise collide
 with a wide neighbour's at the seam.
 
-Outputs (next to this file): ``broken_axis_slash.{gle,pdf}``,
+Outputs (in the current directory): ``broken_axis_slash.{gle,pdf}``,
 ``broken_axis_line.{gle,pdf}``, ``broken_axis_none.{gle,pdf}``.
 """
 
@@ -48,12 +48,11 @@ def _relaxation(t, fast_amp=14.0, fast_rate=90.0, slow_amp=10.0, slow_rate=1.1):
 
 
 def _save(fig, stem):
-    out_dir = Path(__file__).parent
-    fig.savefig_gle(str(out_dir / f"{stem}.gle"))
-    print(f"Saved: {out_dir / f'{stem}.gle'}")
+    fig.savefig_gle(f"{stem}.gle")
+    print(f"Saved: {stem}.gle")
     try:
-        fig.savefig(str(out_dir / f"{stem}.pdf"))
-        print(f"Compiled: {out_dir / f'{stem}.pdf'}")
+        fig.savefig(f"{stem}.pdf")
+        print(f"Compiled: {stem}.pdf")
     except RuntimeError:
         print("GLE not available for compilation. GLE script saved.")
 

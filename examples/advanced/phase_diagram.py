@@ -127,19 +127,12 @@ def example_phase_diagram():
     ax2.set_ylim(0, 1.2)
     ax2.legend()
 
-    # Save the GLE script + its points sidecars next to this script (the
-    # tracked-example convention: the .gle and its input sidecars live beside
-    # the .py). PDF/PNG and GLE's own -cdata/-clabels/-cvalues derivatives are
-    # build products (gitignored), so compilation is optional.
-    output_dir = Path(__file__).parent
-    gle_file = output_dir / "example_phase_diagram.gle"
-    fig.savefig_gle(str(gle_file))
-    print(f"  Saved to {gle_file}")
+    fig.savefig_gle("example_phase_diagram.gle")
+    print("  Saved to example_phase_diagram.gle")
 
     try:
-        png_file = output_dir / "example_phase_diagram.png"
-        fig.savefig(str(png_file), dpi=150)
-        print(f"  Compiled to {png_file}")
+        fig.savefig("example_phase_diagram.png", dpi=150)
+        print("  Compiled to example_phase_diagram.png")
     except RuntimeError:
         print("  GLE not available for compilation; GLE script saved only.")
 

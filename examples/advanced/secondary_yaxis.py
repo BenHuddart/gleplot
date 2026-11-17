@@ -60,13 +60,13 @@ def main():
     ax.legend()
 
     # Save the figure
-    output_file = Path(__file__).parent / "secondary_yaxis_temp_humidity.gle"
+    output_file = Path("secondary_yaxis_temp_humidity.gle")
     fig.savefig_gle(str(output_file))
     print(f"Saved: {output_file}")
 
     # Try to compile if GLE is available
     try:
-        png_file = Path(__file__).parent / "secondary_yaxis_temp_humidity.png"
+        png_file = Path("secondary_yaxis_temp_humidity.png")
         fig.savefig(str(png_file), format="png")
         print(f"Compiled: {png_file}")
     except RuntimeError:
@@ -98,12 +98,12 @@ def main():
 
     ax2.legend()
 
-    output_file2 = Path(__file__).parent / "secondary_yaxis_growth.gle"
+    output_file2 = Path("secondary_yaxis_growth.gle")
     fig2.savefig_gle(str(output_file2))
     print(f"Saved: {output_file2}")
 
     try:
-        png_file2 = Path(__file__).parent / "secondary_yaxis_growth.png"
+        png_file2 = Path("secondary_yaxis_growth.png")
         fig2.savefig(str(png_file2), format="png")
         print(f"Compiled: {png_file2}")
     except RuntimeError:
@@ -153,12 +153,12 @@ def main():
     ax3.set_title("AC Circuit: Voltage and Current vs Time")
     ax3.legend()
 
-    output_file3 = Path(__file__).parent / "secondary_yaxis_circuit.gle"
+    output_file3 = Path("secondary_yaxis_circuit.gle")
     fig3.savefig_gle(str(output_file3))
     print(f"Saved: {output_file3}")
 
     try:
-        png_file3 = Path(__file__).parent / "secondary_yaxis_circuit.png"
+        png_file3 = Path("secondary_yaxis_circuit.png")
         fig3.savefig(str(png_file3), format="png")
         print(f"Compiled: {png_file3}")
     except RuntimeError:
@@ -197,12 +197,12 @@ def main():
     ax4.set_title("Dual-Axis Measurements with Error Bars")
     ax4.legend()
 
-    output_file4 = Path(__file__).parent / "secondary_yaxis_errorbar.gle"
+    output_file4 = Path("secondary_yaxis_errorbar.gle")
     fig4.savefig_gle(str(output_file4))
     print(f"Saved: {output_file4}")
 
     try:
-        png_file4 = Path(__file__).parent / "secondary_yaxis_errorbar.png"
+        png_file4 = Path("secondary_yaxis_errorbar.png")
         fig4.savefig(str(png_file4), format="png")
         print(f"Compiled: {png_file4}")
     except RuntimeError:

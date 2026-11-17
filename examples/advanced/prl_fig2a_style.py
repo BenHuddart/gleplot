@@ -26,7 +26,7 @@ Conventions on show, all of them things the target figure relies on:
   segment's at the seam;
 * double-slash break marks on the top and bottom frame lines.
 
-Outputs (next to this file): ``prl_fig2a_style.gle`` + sidecars and
+Outputs (in the current directory): ``prl_fig2a_style.gle`` + sidecars and
 ``prl_fig2a_style.pdf``.
 """
 
@@ -144,12 +144,11 @@ def example_prl_fig2a_style():
     bax[1].set_xticks(dticks=1.0)
     bax.legend(loc="upper right")
 
-    out_dir = Path(__file__).parent
-    fig.savefig_gle(str(out_dir / "prl_fig2a_style.gle"))
-    print(f"Saved: {out_dir / 'prl_fig2a_style.gle'}")
+    fig.savefig_gle("prl_fig2a_style.gle")
+    print("Saved: prl_fig2a_style.gle")
     try:
-        fig.savefig(str(out_dir / "prl_fig2a_style.pdf"))
-        print(f"Compiled: {out_dir / 'prl_fig2a_style.pdf'}")
+        fig.savefig("prl_fig2a_style.pdf")
+        print("Compiled: prl_fig2a_style.pdf")
     except RuntimeError:
         print("GLE not available for compilation. GLE script saved.")
     return fig
