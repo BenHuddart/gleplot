@@ -123,7 +123,7 @@ A field on a series class is usually touched in five places; missing one breaks 
 1. the class annotation in `series.py` (absent means the historical behaviour — do not default to `None`),
 2. the `Axes` method that sets it,
 3. the `GLEWriter.add_*` method that emits it,
-4. the per-kind `Figure._write_<kind>` method (`_write_line`, `_write_bar`, …, or `_write_file_series`) that passes it through,
+4. the `Figure._write_*` method that passes it through: one per drawable kind (`_write_line`, `_write_bar`, …), else the phase that writes the series (`_write_fills`, `_write_reflines`, `_write_file_series`, …),
 5. the `_Recognizer` branch that recovers it.
 
 Then add a builder exercising it to `tests/parser/_golden_battery.py`, which `test_fixed_point.py` runs.

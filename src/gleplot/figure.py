@@ -2244,9 +2244,12 @@ class Figure:
 
         Notes
         -----
-        The phases run in drawing order, back to front: heatmaps and
-        contours, then the background guides and fills, then the z-ordered
-        data series, file series and texts, and the key last.
+        The axis setup comes first. The content phases then run in drawing
+        order, back to front: heatmaps and contours, then the background
+        guides and fills, then the z-ordered data series, file series and
+        texts, and the key last. :meth:`_prepare_legend` runs before any
+        series is written, because the key's column breaks must be set on
+        the writer before the datasets they fall between.
         """
         resolution = resolution or SourceResolution()
         self._write_axis_setup(writer, ax)
