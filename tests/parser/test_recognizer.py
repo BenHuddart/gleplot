@@ -386,6 +386,36 @@ def test_broken_data_becomes_file_series_with_error(tmp_path):
     assert "data golden_0.dat d1=c1,c2" in text
 
 
+def test_broken_errorbar_becomes_file_series_with_error(tmp_path):
+    """``dN ... err dM`` against a missing data file -> FileSeries('errorbar')."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = golden.errorbar_symmetric()
+    gle_path = tmp_path / "f.gle"
+    fig.savefig_gle(str(gle_path))
+
+    (tmp_path / "golden_0.dat").unlink()
+
+    recognized = parse_gle_figure(gle_path)
+    ax = recognized.figure.axes_list[0]
+
+    assert ax.errorbars == []
+    assert dict(ax.file_series[0]) == {
+        "series_type": "errorbar",
+        "data_file": "golden_0.dat",
+        "x_col": 1,
+        "y_col": 2,
+        "yerr_col": 3,
+        "color": "RED",
+        "marker": "FCIRCLE",
+        "markersize": 0.15,
+        "label": "sym",
+        "capsize": 0.1412,
+        "yaxis": "y",
+        "data_error": f"Data file not found: {tmp_path / 'golden_0.dat'}",
+    }
+    assert any(w.startswith("data:") for w in recognized.warnings)
+
+
 def test_broken_bar_becomes_file_series_with_error(tmp_path):
     """``bar dN fill COLOR`` against a missing data file -> FileSeries('bar')."""
     _gleplot_axes._global_data_file_counter = 0

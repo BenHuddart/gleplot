@@ -240,8 +240,8 @@ Category                Span coverage
                         wrapper spans its ``begin``..``end``) and use the min/max
                         line of the statements actually responsible.
 ``data``                Real for every site: the series-build call chain
-                        (``_build_series_from_attrs`` -> ``_parse_series_command``
-                        -> ``_build_errorbar`` / ``_build_contour_from_cdata`` /
+                        (``_parse_series_command`` -> ``_build_errorbar`` /
+                        ``_build_contour_from_cdata`` /
                         ``_load_series``) threads the triggering ``dN``/``bar``/
                         ``fill`` statement's line down to every data-resolution
                         failure raised while building that series.
@@ -1002,6 +1002,39 @@ class _PendingAmove:
     position: Tuple[float, float]
     raw: str
     line_no: Optional[int]
+
+
+def _dn_fields(attrs: Dict[str, Any]) -> Dict[str, Any]:
+    """Series fields every ``dN`` display line maps the same way, from its attributes.
+
+    ``attrs`` is :meth:`_Recognizer._scan_series_attrs` output. A line with no
+    ``color`` recovers as gleplot's default series colour, BLUE; ``xaxis`` is
+    set only for a dataset on the top axis.
+    """
+    fields: Dict[str, Any] = {
+        "color": attrs["color"] or "BLUE",
+        "label": attrs["label"],
+        "yaxis": "y2" if attrs["y2axis"] else "y",
+    }
+    if attrs.get("x2axis"):
+        fields["xaxis"] = "x2"
+    return fields
+
+
+def _dn_markersize(attrs: Dict[str, Any]) -> float:
+    """A ``dN`` line's ``msize``, kept raw since the writer emits it verbatim.
+
+    GLE's default ``msize`` is 0.15.
+    """
+    return attrs["msize"] if attrs["msize"] is not None else 0.15
+
+
+def _dn_linewidth(attrs: Dict[str, Any]) -> float:
+    """A ``dN`` line's ``lwidth`` in matplotlib points (1.0 when absent).
+
+    The model stores points; the writer converts back to cm.
+    """
+    return linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
 
 
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
@@ -2050,8 +2083,7 @@ class _Recognizer:
             return
         pass1.emitted.add(name)
         merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
-        self._build_series_from_attrs(
-            name,
+        self._parse_series_command(
             merged,
             pass1.datasets,
             info,
@@ -2965,38 +2997,6 @@ class _Recognizer:
         if expected is None or keyfill != expected:
             owner["swatch_color"] = keyfill
 
-    def _build_series_from_attrs(
-        self,
-        name,
-        merged_toks,
-        datasets,
-        info,
-        marker_cfg,
-        smooth_flags,
-        line_no=None,
-        raw_stmts=None,
-    ):
-        """Build one series from a dataset's merged attribute tokens.
-
-        ``line_no`` is the first body-order statement that named this
-        dataset (the same anchor pass 1 merged its attributes from), threaded
-        through so notes raised while building the series carry a real span.
-
-        ``raw_stmts`` is the verbatim source text of each physical 'dN ...'
-        statement that fed ``merged_toks`` (usually just one), threaded
-        through so a passthrough fallback can re-emit byte-identical source
-        instead of rejoining tokens with inserted spaces.
-        """
-        self._parse_series_command(
-            merged_toks,
-            datasets,
-            info,
-            marker_cfg,
-            smooth_flags,
-            line_no=line_no,
-            raw_stmts=raw_stmts,
-        )
-
     def _dispatch_graph_statement(
         self, stmt, pass1: _GraphDatasets, info, marker_cfg, smooth_flags
     ):
@@ -3719,16 +3719,9 @@ class _Recognizer:
             datasets,
             line_no,
             histtype="step",
-            color=attrs["color"] or "BLUE",
             linestyle=attrs["linestyle"],
-            linewidth=(
-                linewidth_cm_to_pt(attrs["lwidth"])
-                if attrs["lwidth"] is not None
-                else 1.0
-            ),
-            yaxis="y2" if attrs["y2axis"] else "y",
-            **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
-            label=attrs["label"],
+            linewidth=_dn_linewidth(attrs),
+            **_dn_fields(attrs),
         )
         if entry is None:
             self._abandon_hist(
@@ -4546,7 +4539,18 @@ class _Recognizer:
         line_no=None,
         raw_stmts=None,
     ):
-        """Parse a ``dN ...`` dataset display command into a series entry."""
+        """Parse a ``dN ...`` dataset display command into a series entry.
+
+        ``toks`` are the dataset's merged attribute tokens, led by ``dN``.
+        ``line_no`` is the first body-order statement that named this
+        dataset (the same anchor pass 1 merged its attributes from), threaded
+        through so notes raised while building the series carry a real span.
+
+        ``raw_stmts`` is the verbatim source text of each physical 'dN ...'
+        statement that fed ``toks`` (usually just one), threaded through so a
+        passthrough fallback can re-emit byte-identical source instead of
+        rejoining tokens with inserted spaces.
+        """
         d_name = toks[0].value.lower()
         attrs = self._scan_series_attrs(toks[1:])
 
@@ -4617,14 +4621,6 @@ class _Recognizer:
         x = loaded["x"]
         y = loaded["y"]
 
-        # markersize/linewidth are stored on the object model in their GLE-emit
-        # form: markersize is the raw GLE ``msize`` value, linewidth is the
-        # matplotlib-points value (writer converts pt->cm). msize is emitted
-        # verbatim, so keep it raw. Default GLE msize when absent is 0.15.
-        markersize = attrs["msize"] if attrs["msize"] is not None else 0.15
-        linewidth = (
-            linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
-        )
         linestyle = attrs["linestyle"] if has_line else "none"
 
         is_scatter = has_marker and not has_line
@@ -4632,15 +4628,12 @@ class _Recognizer:
             type="scatter" if is_scatter else "line",
             x=x,
             y=y,
-            color=attrs["color"] or "BLUE",
             marker=attrs["marker"],
-            markersize=markersize,
+            markersize=_dn_markersize(attrs),
             linestyle=linestyle,
-            linewidth=linewidth,
+            linewidth=_dn_linewidth(attrs),
             nomiss=attrs["nomiss"],
-            label=attrs["label"],
-            yaxis="y2" if attrs["y2axis"] else "y",
-            **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
+            **_dn_fields(attrs),
             offset=info["_dataset_offsets"].get(d_name, 0.0),
             data_file=data_file,
         )
@@ -4949,10 +4942,7 @@ class _Recognizer:
         stored_capsize = capsize_cm_to_pt(cap_cm) if cap_cm is not None else None
 
         marker = attrs["marker"]
-        markersize = attrs["msize"] if attrs["msize"] is not None else 0.15
-        linewidth = (
-            linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
-        )
+        markersize = _dn_markersize(attrs)
         # The writer emits ' line lwidth ...' when a linestyle is present with a
         # marker; a marker-only errorbar with no 'line' token has linestyle
         # 'none'. Recover linestyle from lstyle / presence of line.
@@ -4969,13 +4959,10 @@ class _Recognizer:
                     x_col=xcol,
                     y_col=ycol,
                     yerr_col=yerr_col,
-                    color=attrs["color"] or "BLUE",
                     marker=marker,
                     markersize=markersize,
-                    label=attrs["label"],
                     capsize=gle_capsize,
-                    yaxis="y2" if attrs["y2axis"] else "y",
-                    **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
+                    **_dn_fields(attrs),
                 )
             )
             return
@@ -5008,13 +4995,10 @@ class _Recognizer:
                     x_col=xcol,
                     y_col=ycol,
                     yerr_col=yerr_col,
-                    color=attrs["color"] or "BLUE",
                     marker=marker,
                     markersize=markersize,
-                    label=attrs["label"],
                     capsize=gle_capsize,
-                    yaxis="y2" if attrs["y2axis"] else "y",
-                    **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
+                    **_dn_fields(attrs),
                     data_error=(loaded or {}).get("error", "unresolved"),
                 )
             )
@@ -5078,16 +5062,13 @@ class _Recognizer:
             yerr_down=yerr_down,
             xerr_left=xerr_left,
             xerr_right=xerr_right,
-            color=attrs["color"] or "BLUE",
             marker=marker,
             markersize=markersize,
             linestyle=linestyle,
-            linewidth=linewidth,
-            label=attrs["label"],
+            linewidth=_dn_linewidth(attrs),
             capsize=stored_capsize,
             gle_capsize=gle_capsize,
-            yaxis="y2" if attrs["y2axis"] else "y",
-            **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
+            **_dn_fields(attrs),
             offset=(
                 info["_dataset_offsets"].get(orig_toks[0].value.lower(), 0.0)
                 if orig_toks
@@ -5151,7 +5132,7 @@ class _Recognizer:
     def _build_file_series(
         self, info, data_file, xcol, ycol, attrs, has_line, error=None
     ):
-        markersize = attrs["msize"] if attrs["msize"] is not None else 0.15
+        markersize = _dn_markersize(attrs)
         # Branch on has_line ALONE: a 'd1 line marker circle lwidth X' reference
         # is a line (carrying line/lwidth/linestyle) that ALSO has a marker --
         # not an errorbar. Losing the line/lwidth/linestyle by classifying it as
@@ -5163,17 +5144,10 @@ class _Recognizer:
                 data_file=data_file,
                 x_col=xcol,
                 y_col=ycol,
-                color=attrs["color"] or "BLUE",
                 linestyle=attrs["linestyle"],
-                linewidth=(
-                    linewidth_cm_to_pt(attrs["lwidth"])
-                    if attrs["lwidth"] is not None
-                    else 1.0
-                ),
+                linewidth=_dn_linewidth(attrs),
                 nomiss=attrs["nomiss"],
-                label=attrs["label"],
-                yaxis="y2" if attrs["y2axis"] else "y",
-                **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
+                **_dn_fields(attrs),
             )
             if attrs["line_mode"]:
                 entry["line_mode"] = attrs["line_mode"]
@@ -5189,13 +5163,10 @@ class _Recognizer:
                 x_col=xcol,
                 y_col=ycol,
                 yerr_col=None,
-                color=attrs["color"] or "BLUE",
                 marker=attrs["marker"],
                 markersize=markersize,
-                label=attrs["label"],
                 capsize=None,
-                yaxis="y2" if attrs["y2axis"] else "y",
-                **({"xaxis": "x2"} if attrs.get("x2axis") else {}),
+                **_dn_fields(attrs),
             )
         if error is not None:
             entry["data_error"] = error
@@ -5625,9 +5596,7 @@ class _Recognizer:
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
         color = attrs["color"] or "BLACK"
-        linewidth = (
-            linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
-        )
+        linewidth = _dn_linewidth(attrs)
         lstyle = attrs["lstyle"]  # int or None (None = solid)
 
         cblock = self._contour_blocks.get(zfile, {})
