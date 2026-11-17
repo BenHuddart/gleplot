@@ -68,6 +68,10 @@ class GLEStyleConfig:
     9           dashed (long, sparse)
     ==========  ==================
 
+    Any GLE ``lstyle`` code is accepted, not only 1-9. GLE reads a code of
+    more than one digit as alternating run lengths, black then white: ``42``
+    is a dash four units long followed by a gap two units long.
+
     gleplot previously defaulted to dashed=2 / dotted=3 / dashdot=4, i.e.
     ``linestyle='--'`` drew a dotted line and ``':'`` drew a dashed one. Do
     not "restore" those numbers: they were transposed, and dashed-vs-dotted
@@ -144,7 +148,11 @@ class GLEGraphConfig:
         Draw line series as a fitted spline through the points (GLE's
         ``smooth`` keyword) instead of as a polyline joining them.
         **Opt-in**: a smoothed curve is an interpolation, not the data, so
-        it must never be applied without being asked for. Default: False
+        it must never be applied without being asked for. Applies to
+        :meth:`~gleplot.Axes.plot`, :meth:`~gleplot.Axes.line_from_file` and
+        the line drawn by :meth:`~gleplot.Axes.errorbar`. Fills, contour
+        lines, and step, stem and histogram lines are never smoothed.
+        Default: False
 
     show_grid : bool
         Figure-wide default grid: when True, every axes that has not called

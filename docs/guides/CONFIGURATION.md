@@ -45,8 +45,8 @@ Controls text and line rendering:
 
     style = glp.GLEStyleConfig(
         font='helvetica',          # 'texcmr' (default), 'helvetica', 'timesroman', etc.
-        fontsize=10,               # Points (1-100)
-        default_linewidth=1.0,     # Line width in points (default: 1pt = 0.035cm)
+        fontsize=10,               # Points (default: 12)
+        default_linewidth=1.0,     # Line width in points (default: 1.5)
         default_color='BLUE',      # Default line color
         default_marker_color='BLUE',  # Default marker color
     )
@@ -225,23 +225,10 @@ points.
 
 ### Legend Positions
 
-Short form (2-letter):
-- `'tr'` - Top right (default)
-- `'tl'` - Top left
-- `'br'` - Bottom right
-- `'bl'` - Bottom left
-- `'tc'` - Top center
-- `'bc'` - Bottom center
-- `'lc'` - Left center
-- `'rc'` - Right center
-- `'cc'` - Center
-
-Long form (accepted by both `figure()` and `ax.legend()`):
-- `'top right'`
-- `'top left'`
-- `'bottom right'`
-- `'bottom left'`
-- `'center'`
+`legend_position` takes GLE's two-letter key positions (`'tr'`, `'tl'`, …) or
+the long forms such as `'top right'`. The full list is under
+`GLEGraphConfig.legend_position` in the
+[configuration API reference](https://benhuddart.github.io/gleplot/api_configuration.html).
 
 ## Marker Configuration (GLEMarkerConfig)
 
@@ -425,43 +412,9 @@ Reset all global configurations to defaults:
 
 ## Configuration Objects Reference
 
-### GLEStyleConfig
-
-Attributes:
-- `font` (str) - Font name. Default: 'texcmr'
-- `fontsize` (float) - Font size in points. Default: 10
-- `default_linewidth` (float) - Default line width in points. Default: 1.0
-- `default_color` (str) - Default line color. Default: 'BLUE'
-- `default_marker_color` (str) - Default marker color. Default: 'BLUE'
-- `line_style_solid` (int) - GLE style for solid lines. Default: 1
-- `line_style_dashed` (int) - GLE style for dashed lines. Default: 3
-- `line_style_dotted` (int) - GLE style for dotted lines. Default: 2
-- `line_style_dashdot` (int) - GLE style for dash-dot lines. Default: 6
-
-### GLEGraphConfig
-
-Attributes:
-- `scale_mode` (str) - ['auto', 'fixed', 'fullsize']. Default: 'auto'
-- `title_distance` (Optional[float]) - Figure-wide default for
-  `Axes.title_dist` (GLE `title ... dist`), cm. Default: None (GLE's spacing)
-- `xlabel_distance` (Optional[float]) - Same for `Axes.xlabel_dist`
-  (`xtitle ... dist`). Default: None
-- `ylabel_distance` (Optional[float]) - Same for `Axes.ylabel_dist` /
-  `Axes.y2label_dist`. Default: None
-- `legend_position` (str) - Legend position code. Default: 'tr'
-- `legend_offset_x` (float) - Legend x-offset (cm). Default: 0.0
-- `legend_offset_y` (float) - Legend y-offset (cm). Default: 0.0
-- `smooth_curves` (bool) - Spline-smooth line series (GLE `smooth`); sorts a
-  smoothed series by x, which `smooth` requires. Default: False
-- `show_grid` (bool) - Figure-wide default grid on every axes created after
-  it is set; `Axes.grid()` overrides per axes. Default: False
-
-### GLEMarkerConfig
-
-Attributes:
-- `default_marker` (str) - Default marker type. Default: 'fcircle'
-- `msize_scale` (float) - Marker size scale factor. Default: 1.0
-- `mdist` (Optional[float]) - Marker distance. Default: None
+Every field of `GLEStyleConfig`, `GLEGraphConfig`, `GLEMarkerConfig` and
+`GlobalConfig`, with its default, is in the
+[configuration API reference](https://benhuddart.github.io/gleplot/api_configuration.html).
 
 ## Performance Notes
 

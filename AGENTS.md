@@ -136,6 +136,7 @@ Docs describe what the code does now. A change in behaviour updates every place 
 - Extend an existing guide before adding one. A new guide is a Markdown file in `docs/guides/`, published by a page in `docs/source/guides/` that includes it, and listed in the toctree for its section in `docs/source/index.rst`. A guide is shown both on GitHub and on the site, so it links to other guides by relative path and to anything else by full URL.
 - A new public name gets an entry in the Sphinx API pages (`docs/source/api*.rst`) in the same change, not only a guide mention.
 - Docstrings are rendered by Sphinx (numpydoc sections via napoleon) and CI builds the site with `-W`: free text after a `Parameters` list goes under a `Notes` heading, not flush against the list.
+- Reference material is generated from docstrings. Do not hand-write an option table in a guide.
 - Code shown in docs and docstrings must run against the current API. Do not describe behaviour you have not exercised.
 - An example added under `examples/` is added to the registry in `examples/run_and_compile.py`; CI runs and compiles every registered example and fails on one that is not registered. The gallery is generated from the registry, and an example's docstring is its caption there.
 - Examples write only to `examples/outputs/`, which is ignored. No generated figure or sidecar is committed.
