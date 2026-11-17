@@ -1,17 +1,16 @@
 """Integration tests for graphics file generation and validation."""
 
-import shutil
-import unittest
+import pytest
 
 import gleplot as glp
 from gleplot.compiler import GLECompiler
-from tests._tempdir import make_tempdir
 
 
-class TestGraphicsCompilation(unittest.TestCase):
+class TestGraphicsCompilation:
     """Test compilation of GLE files to graphics formats."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self, tmp_path):
         """Create test figure and temporary directory."""
         glp.close()
         self.fig = glp.figure(figsize=(8, 6))
@@ -25,200 +24,159 @@ class TestGraphicsCompilation(unittest.TestCase):
         self.ax.set_title("Test Plot for Graphics Compilation")
         self.ax.legend()
 
-        self.tempdir = make_tempdir()
-
-        # Initialize compiler
-        try:
-            self.compiler = GLECompiler()
-            self.gle_available = True
-        except RuntimeError:
-            self.gle_available = False
-
-    def tearDown(self):
-        """Clean up after each test."""
+        self.tempdir = tmp_path
+        yield
         glp.close()
-        # Clean up temp files (skip if KEEP_TEST_FILES is set)
-        import os
 
-        if not os.environ.get("KEEP_TEST_FILES"):
-            shutil.rmtree(self.tempdir, ignore_errors=True)
-        else:
-            print(f"\nTest files preserved in: {self.tempdir}")
+    @pytest.fixture
+    def compiler(self):
+        return GLECompiler()
 
     def test_save_gle_script(self):
         """Test saving GLE script file."""
         gle_file = self.tempdir / "test.gle"
         result = self.fig.savefig(str(gle_file))
 
-        self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, ".gle")
+        assert result.exists()
+        assert result.suffix == ".gle"
 
         # Verify GLE content
         content = result.read_text()
-        self.assertIn("begin graph", content)
-        self.assertIn("end graph", content)
-        self.assertIn("X Axis", content)
-        self.assertIn("Y Axis", content)
-        self.assertIn("Test Plot", content)
+        assert "begin graph" in content
+        assert "end graph" in content
+        assert "X Axis" in content
+        assert "Y Axis" in content
+        assert "Test Plot" in content
 
-    def test_compile_to_pdf(self):
+    @pytest.mark.gle
+    def test_compile_to_pdf(self, compiler):
         """Test compiling GLE to PDF format."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))
 
         # Compile to PDF
-        result = self.compiler.compile(str(gle_file), output_format="pdf")
+        result = compiler.compile(str(gle_file), output_format="pdf")
 
-        self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, ".pdf")
-        self.assertTrue(result.stat().st_size > 0)
+        assert result.exists()
+        assert result.suffix == ".pdf"
+        assert result.stat().st_size > 0
 
-    def test_compile_to_eps(self):
+    @pytest.mark.gle
+    def test_compile_to_eps(self, compiler):
         """Test compiling GLE to EPS format."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))
 
         # Compile to EPS
-        result = self.compiler.compile(str(gle_file), output_format="eps")
+        result = compiler.compile(str(gle_file), output_format="eps")
 
-        self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, ".eps")
-        self.assertTrue(result.stat().st_size > 0)
+        assert result.exists()
+        assert result.suffix == ".eps"
+        assert result.stat().st_size > 0
 
-    def test_compile_to_png(self):
+    @pytest.mark.gle
+    def test_compile_to_png(self, compiler):
         """Test compiling GLE to PNG format."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))
 
         # Compile to PNG with specific DPI
-        result = self.compiler.compile(str(gle_file), output_format="png", dpi=150)
+        result = compiler.compile(str(gle_file), output_format="png", dpi=150)
 
-        self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, ".png")
-        self.assertTrue(result.stat().st_size > 0)
+        assert result.exists()
+        assert result.suffix == ".png"
+        assert result.stat().st_size > 0
 
+    @pytest.mark.gle
     def test_save_pdf_in_folder(self):
         """Test compiled exports keep all generated files in a dedicated folder."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         pdf_file = self.tempdir / "test.pdf"
         result = self.fig.savefig(str(pdf_file), folder=True)
 
         export_dir = self.tempdir / "test.gleplot"
-        self.assertEqual(result, export_dir / "test.pdf")
-        self.assertTrue(result.exists())
-        self.assertTrue((export_dir / "test.gle").exists())
-        self.assertGreaterEqual(len(list(export_dir.glob("*.dat"))), 1)
-        self.assertFalse(pdf_file.exists())
+        assert result == export_dir / "test.pdf"
+        assert result.exists()
+        assert (export_dir / "test.gle").exists()
+        assert len(list(export_dir.glob("*.dat"))) >= 1
+        assert not pdf_file.exists()
 
-    def test_pdf_contains_elements(self):
+    @pytest.mark.gle
+    def test_pdf_contains_elements(self, compiler):
         """Test that PDF contains expected text elements."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))
 
         # Compile to PDF
-        pdf_file = self.compiler.compile(str(gle_file), output_format="pdf")
+        pdf_file = compiler.compile(str(gle_file), output_format="pdf")
 
         # Read PDF content (basic check)
         content = pdf_file.read_bytes()
 
         # PDF should contain the expected structure
-        self.assertTrue(content.startswith(b"%PDF"))
-        self.assertIn(b"stream", content)
-        self.assertIn(b"endstream", content)
+        assert content.startswith(b"%PDF")
+        assert b"stream" in content
+        assert b"endstream" in content
 
-    def test_eps_contains_elements(self):
+    @pytest.mark.gle
+    def test_eps_contains_elements(self, compiler):
         """Test that EPS contains expected PostScript elements."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))
 
         # Compile to EPS
-        eps_file = self.compiler.compile(str(gle_file), output_format="eps")
+        eps_file = compiler.compile(str(gle_file), output_format="eps")
 
         # Read EPS content
         content = eps_file.read_text(errors="ignore")
 
         # EPS should be valid PostScript
-        self.assertIn("%!PS-Adobe", content)
-        self.assertIn("showpage", content)
+        assert "%!PS-Adobe" in content
+        assert "showpage" in content
 
-    def test_png_valid_header(self):
+    @pytest.mark.gle
+    def test_png_valid_header(self, compiler):
         """Test that PNG has valid image header."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
 
         # Create GLE file
         self.fig.savefig(str(gle_file))
 
         # Compile to PNG
-        png_file = self.compiler.compile(str(gle_file), output_format="png", dpi=150)
+        png_file = compiler.compile(str(gle_file), output_format="png", dpi=150)
 
         # Read PNG header
         content = png_file.read_bytes()
 
         # PNG signature
         png_signature = b"\x89PNG\r\n\x1a\n"
-        self.assertTrue(content.startswith(png_signature))
+        assert content.startswith(png_signature)
 
 
-class TestImageProperties(unittest.TestCase):
+@pytest.mark.gle
+class TestImageProperties:
     """Test properties of generated graphics files."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self, tmp_path):
         """Set up test fixtures."""
         glp.close()
-        self.tempdir = make_tempdir()
-
-        # Initialize compiler
-        try:
-            self.compiler = GLECompiler()
-            self.gle_available = True
-        except RuntimeError:
-            self.gle_available = False
-
-    def tearDown(self):
-        """Clean up after each test."""
+        self.tempdir = tmp_path
+        self.compiler = GLECompiler()
+        yield
         glp.close()
-        import os
-
-        if not os.environ.get("KEEP_TEST_FILES"):
-            shutil.rmtree(self.tempdir, ignore_errors=True)
-        else:
-            print(f"\nTest files preserved in: {self.tempdir}")
 
     def test_pdf_file_size_reasonable(self):
         """Test that PDF file size is reasonable."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = glp.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
         ax.plot([1, 2, 3], [1, 2, 3])
@@ -230,14 +188,11 @@ class TestImageProperties(unittest.TestCase):
 
         # PDF should be at least a few KB
         file_size = pdf_file.stat().st_size
-        self.assertGreater(file_size, 1024)  # At least 1KB
-        self.assertLess(file_size, 10 * 1024 * 1024)  # Less than 10MB
+        assert file_size > 1024  # At least 1KB
+        assert file_size < 10 * 1024 * 1024  # Less than 10MB
 
     def test_eps_file_size_reasonable(self):
         """Test that EPS file size is reasonable."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = glp.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
         ax.plot([1, 2, 3], [1, 2, 3])
@@ -249,14 +204,11 @@ class TestImageProperties(unittest.TestCase):
 
         # EPS should be at least a few KB
         file_size = eps_file.stat().st_size
-        self.assertGreater(file_size, 1024)  # At least 1KB
-        self.assertLess(file_size, 10 * 1024 * 1024)  # Less than 10MB
+        assert file_size > 1024  # At least 1KB
+        assert file_size < 10 * 1024 * 1024  # Less than 10MB
 
     def test_png_file_size_reasonable(self):
         """Test that PNG file size is reasonable."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = glp.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
         ax.plot([1, 2, 3], [1, 2, 3])
@@ -268,39 +220,25 @@ class TestImageProperties(unittest.TestCase):
 
         # PNG should be at least a few KB
         file_size = png_file.stat().st_size
-        self.assertGreater(file_size, 1024)  # At least 1KB
-        self.assertLess(file_size, 10 * 1024 * 1024)  # Less than 10MB
+        assert file_size > 1024  # At least 1KB
+        assert file_size < 10 * 1024 * 1024  # Less than 10MB
 
 
-class TestGraphicsWithAdvancedFeatures(unittest.TestCase):
+@pytest.mark.gle
+class TestGraphicsWithAdvancedFeatures:
     """Test graphics generation with advanced gleplot features."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self, tmp_path):
         """Set up test fixtures."""
         glp.close()
-        self.tempdir = make_tempdir()
-
-        try:
-            self.compiler = GLECompiler()
-            self.gle_available = True
-        except RuntimeError:
-            self.gle_available = False
-
-    def tearDown(self):
-        """Clean up after each test."""
+        self.tempdir = tmp_path
+        self.compiler = GLECompiler()
+        yield
         glp.close()
-        import os
-
-        if not os.environ.get("KEEP_TEST_FILES"):
-            shutil.rmtree(self.tempdir, ignore_errors=True)
-        else:
-            print(f"\nTest files preserved in: {self.tempdir}")
 
     def test_compile_with_fill_between(self):
         """Test compiling plot with fill_between to PDF."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = glp.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
 
@@ -321,14 +259,11 @@ class TestGraphicsWithAdvancedFeatures(unittest.TestCase):
         # auto-detection via requires_cairo()), so the flag must be explicit.
         pdf_file = self.compiler.compile(str(gle_file), output_format="pdf", cairo=True)
 
-        self.assertTrue(pdf_file.exists())
-        self.assertGreater(pdf_file.stat().st_size, 1024)
+        assert pdf_file.exists()
+        assert pdf_file.stat().st_size > 1024
 
     def test_compile_with_log_scale(self):
         """Test compiling plot with log scale to PDF."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = glp.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
 
@@ -345,14 +280,11 @@ class TestGraphicsWithAdvancedFeatures(unittest.TestCase):
 
         pdf_file = self.compiler.compile(str(gle_file), output_format="pdf")
 
-        self.assertTrue(pdf_file.exists())
-        self.assertGreater(pdf_file.stat().st_size, 1024)
+        assert pdf_file.exists()
+        assert pdf_file.stat().st_size > 1024
 
     def test_compile_with_multiple_colors(self):
         """Test compiling plot with multiple colors to PNG."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = glp.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
 
@@ -373,11 +305,12 @@ class TestGraphicsWithAdvancedFeatures(unittest.TestCase):
 
         png_file = self.compiler.compile(str(gle_file), output_format="png", dpi=150)
 
-        self.assertTrue(png_file.exists())
-        self.assertGreater(png_file.stat().st_size, 1024)
+        assert png_file.exists()
+        assert png_file.stat().st_size > 1024
 
 
-class TestHeaderRowRenderingUnchanged(unittest.TestCase):
+@pytest.mark.gle
+class TestHeaderRowRenderingUnchanged:
     """Track E3: named sidecar column headers must not change GLE rendering.
 
     GLE auto-detects a non-numeric first row of a data file as a column
@@ -397,21 +330,13 @@ class TestHeaderRowRenderingUnchanged(unittest.TestCase):
     pre-Track-E3 (headerless, no explicit key for unlabeled series) output.
     """
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self, tmp_path):
         glp.close()
-        self.tempdir = make_tempdir()
-        try:
-            self.compiler = GLECompiler()
-            self.gle_available = True
-        except RuntimeError:
-            self.gle_available = False
-
-    def tearDown(self):
+        self.tempdir = tmp_path
+        self.compiler = GLECompiler()
+        yield
         glp.close()
-        import os
-
-        if not os.environ.get("KEEP_TEST_FILES"):
-            shutil.rmtree(self.tempdir, ignore_errors=True)
 
     def _build_battery_figure(self):
         import numpy as np
@@ -476,9 +401,6 @@ class TestHeaderRowRenderingUnchanged(unittest.TestCase):
         return stripped_text, stripped_data
 
     def test_battery_figure_renders_identically_with_and_without_headers(self):
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = self._build_battery_figure()
         with_headers_dir = self.tempdir / "with_headers"
         with_headers_dir.mkdir()
@@ -491,14 +413,11 @@ class TestHeaderRowRenderingUnchanged(unittest.TestCase):
             for p in with_headers_dir.glob("*.dat")
         }
         # Sanity: headers are actually present (the feature is active).
-        self.assertTrue(
-            any(
-                not _looks_like_data_row(content.splitlines()[0])
-                for content in data_files.values()
-            ),
-            "expected at least one sidecar with a header row",
-        )
-        self.assertIn('key ""', gle_text)
+        assert any(
+            not _looks_like_data_row(content.splitlines()[0])
+            for content in data_files.values()
+        ), "expected at least one sidecar with a header row"
+        assert 'key ""' in gle_text
 
         pre_change_dir = self.tempdir / "pre_change"
         pre_change_dir.mkdir()
@@ -514,11 +433,9 @@ class TestHeaderRowRenderingUnchanged(unittest.TestCase):
             str(pre_change_dir / "battery.gle"), output_format="png", dpi=100
         )
 
-        self.assertEqual(
-            with_headers_png.read_bytes(),
-            pre_change_png.read_bytes(),
-            "sidecar header rows changed the compiled PNG output",
-        )
+        assert (
+            with_headers_png.read_bytes() == pre_change_png.read_bytes()
+        ), "sidecar header rows changed the compiled PNG output"
 
 
 def _looks_like_data_row(line: str) -> bool:
@@ -535,7 +452,3 @@ def _looks_like_data_row(line: str) -> bool:
         except ValueError:
             return False
     return True
-
-
-if __name__ == "__main__":
-    unittest.main()

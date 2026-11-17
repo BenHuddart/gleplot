@@ -1,49 +1,44 @@
 """Integration tests for file I/O operations."""
 
-import shutil
-import unittest
 from unittest.mock import Mock
 
 import pytest
 
 import gleplot as glp
-from tests._tempdir import make_tempdir
 
 
-class TestFileIO(unittest.TestCase):
+class TestFileIO:
     """Test file I/O operations."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self, tmp_path):
         """Create fresh figure and temp directory for each test."""
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
         self.ax.plot([1, 2, 3], [1, 4, 9], label="test")
 
-        self.tempdir = make_tempdir()
-
-    def tearDown(self):
-        """Clean up after each test."""
+        self.tempdir = tmp_path
+        yield
         glp.close()
-        shutil.rmtree(self.tempdir, ignore_errors=True)
 
     def test_save_gle_script(self):
         """Test saving as GLE script."""
         output_file = self.tempdir / "test.gle"
         result = self.fig.savefig_gle(str(output_file))
 
-        self.assertTrue(result.exists())
+        assert result.exists()
         content = result.read_text()
-        self.assertIn("begin graph", content)
-        self.assertIn("end graph", content)
+        assert "begin graph" in content
+        assert "end graph" in content
 
     def test_save_with_gle_extension(self):
         """Test saving with .gle extension."""
         output_file = self.tempdir / "test.gle"
         result = self.fig.savefig(str(output_file))
 
-        self.assertTrue(result.exists())
-        self.assertEqual(result.suffix, ".gle")
+        assert result.exists()
+        assert result.suffix == ".gle"
 
     def test_gle_content_has_data(self):
         """Test GLE content includes data files."""
@@ -51,7 +46,7 @@ class TestFileIO(unittest.TestCase):
         result = self.fig.savefig(str(output_file))
 
         content = result.read_text()
-        self.assertIn("data_", content)
+        assert "data_" in content
 
     def test_save_gle_script_in_folder(self):
         """Test saving a GLE export into a dedicated folder."""
@@ -59,11 +54,11 @@ class TestFileIO(unittest.TestCase):
         result = self.fig.savefig_gle(str(output_file), folder=True)
 
         export_dir = self.tempdir / "test.gleplot"
-        self.assertEqual(result, export_dir / "test.gle")
-        self.assertTrue(result.exists())
-        self.assertTrue(export_dir.is_dir())
-        self.assertGreaterEqual(len(list(export_dir.glob("*.dat"))), 1)
-        self.assertFalse(output_file.exists())
+        assert result == export_dir / "test.gle"
+        assert result.exists()
+        assert export_dir.is_dir()
+        assert len(list(export_dir.glob("*.dat"))) >= 1
+        assert not output_file.exists()
 
     def test_save_without_extension_in_folder_defaults_to_gle(self):
         """Test folder exports also work when savefig infers the .gle suffix."""
@@ -71,10 +66,10 @@ class TestFileIO(unittest.TestCase):
         result = self.fig.savefig(str(output_file), folder=True)
 
         export_dir = self.tempdir / "batch_run.gleplot"
-        self.assertEqual(result, export_dir / "batch_run.gle")
-        self.assertTrue(result.exists())
-        self.assertGreaterEqual(len(list(export_dir.glob("*.dat"))), 1)
-        self.assertFalse((self.tempdir / "batch_run.gle").exists())
+        assert result == export_dir / "batch_run.gle"
+        assert result.exists()
+        assert len(list(export_dir.glob("*.dat"))) >= 1
+        assert not (self.tempdir / "batch_run.gle").exists()
 
     def test_save_compiled_output_in_folder_uses_foldered_gle_path(self):
         """Test compiled exports route the intermediate GLE file into the folder."""
@@ -85,13 +80,13 @@ class TestFileIO(unittest.TestCase):
         result = self.fig.savefig(str(output_file), folder=True)
 
         export_dir = self.tempdir / "report.gleplot"
-        self.assertEqual(result, export_dir / "report.pdf")
-        self.assertTrue((export_dir / "report.gle").exists())
-        self.assertGreaterEqual(len(list(export_dir.glob("*.dat"))), 1)
+        assert result == export_dir / "report.pdf"
+        assert (export_dir / "report.gle").exists()
+        assert len(list(export_dir.glob("*.dat"))) >= 1
         compiler.compile.assert_called_once_with(
             str(export_dir / "report.gle"), "pdf", dpi=self.fig.dpi, cairo=False
         )
-        self.assertFalse(output_file.exists())
+        assert not output_file.exists()
 
     @pytest.mark.gle
     def test_savefig_auto_detects_jpg(self):
@@ -99,9 +94,9 @@ class TestFileIO(unittest.TestCase):
         output_file = self.tempdir / "test.jpg"
         result = self.fig.savefig(str(output_file))
 
-        self.assertEqual(result.suffix, ".jpg")
-        self.assertTrue(result.exists())
-        self.assertGreater(result.stat().st_size, 0)
+        assert result.suffix == ".jpg"
+        assert result.exists()
+        assert result.stat().st_size > 0
 
     @pytest.mark.gle
     def test_savefig_auto_detects_jpeg_as_jpg(self):
@@ -109,9 +104,9 @@ class TestFileIO(unittest.TestCase):
         output_file = self.tempdir / "test.jpeg"
         result = self.fig.savefig(str(output_file))
 
-        self.assertEqual(result.suffix, ".jpg")
-        self.assertTrue(result.exists())
-        self.assertGreater(result.stat().st_size, 0)
+        assert result.suffix == ".jpg"
+        assert result.exists()
+        assert result.stat().st_size > 0
 
     @pytest.mark.gle
     def test_savefig_auto_detects_svg(self):
@@ -119,17 +114,17 @@ class TestFileIO(unittest.TestCase):
         output_file = self.tempdir / "test.svg"
         result = self.fig.savefig(str(output_file))
 
-        self.assertEqual(result.suffix, ".svg")
-        self.assertTrue(result.exists())
-        self.assertGreater(result.stat().st_size, 0)
+        assert result.suffix == ".svg"
+        assert result.exists()
+        assert result.stat().st_size > 0
 
     def test_savefig_unknown_suffix_defaults_to_gle(self):
         """An unrecognized suffix should preserve the existing default: .gle only."""
         output_file = self.tempdir / "test.unknownext"
         result = self.fig.savefig(str(output_file))
 
-        self.assertEqual(result.suffix, ".gle")
-        self.assertTrue(result.exists())
+        assert result.suffix == ".gle"
+        assert result.exists()
 
     def test_save_gle_script_uses_utf8_for_unicode_labels(self):
         """GLE scripts should preserve Unicode labels across platforms."""
@@ -140,12 +135,8 @@ class TestFileIO(unittest.TestCase):
         result = self.fig.savefig_gle(str(output_file))
 
         raw = result.read_bytes()
-        self.assertIn(label.encode("utf-8"), raw)
-        self.assertEqual(
-            raw.decode("utf-8").splitlines(),
-            result.read_text(encoding="utf-8").splitlines(),
+        assert label.encode("utf-8") in raw
+        assert (
+            raw.decode("utf-8").splitlines()
+            == result.read_text(encoding="utf-8").splitlines()
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

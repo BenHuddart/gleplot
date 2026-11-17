@@ -32,7 +32,6 @@ from gleplot.compiler import GLECompiler
 from gleplot.parser import metadata as gle_metadata
 from gleplot.parser import parse_gle_source
 from gleplot.parser.syntax import BlankOrComment, Statement
-from tests._tempdir import make_tempdir
 
 # --------------------------------------------------------------------------- #
 # Bucket emission positions
@@ -296,7 +295,7 @@ class TestImportDataAccuracy:
 
 
 @pytest.mark.gle
-def test_metadata_and_passthrough_figure_compiles_with_real_gle():
+def test_metadata_and_passthrough_figure_compiles_with_real_gle(tmp_path):
     """A .gle carrying the metadata block, header/trailer passthrough, and
     axes-local passthrough must still be valid GLE source that the real GLE
     binary accepts -- the metadata block is a comment block and passthrough
@@ -311,8 +310,7 @@ def test_metadata_and_passthrough_figure_compiles_with_real_gle():
     ax.set_ylabel("y")
     ax.passthrough = ["! recovered axes-local comment"]
 
-    tempdir = make_tempdir()
-    gle_file = tempdir / "passthrough_metadata.gle"
+    gle_file = tmp_path / "passthrough_metadata.gle"
     fig.savefig_gle(str(gle_file))
 
     compiler = GLECompiler()

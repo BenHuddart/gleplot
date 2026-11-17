@@ -1,8 +1,6 @@
 """Advanced graphics validation tests using image analysis."""
 
-import tempfile
-import unittest
-from pathlib import Path
+import pytest
 
 import gleplot as glp
 from gleplot.compiler import GLECompiler
@@ -14,45 +12,29 @@ from .graphics_analysis import (
     validate_graphics_file,
 )
 
+pytestmark = pytest.mark.gle
 
-class TestGraphicsValidation(unittest.TestCase):
+
+class TestGraphicsValidation:
     """Test validation of generated graphics files using image analysis."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self, tmp_path):
         """Set up test fixtures."""
         glp.close()
-        self.tempdir = Path(tempfile.mkdtemp())
-
-        try:
-            self.compiler = GLECompiler()
-            self.gle_available = True
-        except RuntimeError:
-            self.gle_available = False
+        self.tempdir = tmp_path
+        self.compiler = GLECompiler()
 
         # Create a test figure
         self.fig = glp.figure(figsize=(8, 6))
         self.ax = self.fig.add_subplot(111)
         self.ax.plot([1, 2, 3, 4, 5], [1, 4, 2, 5, 3], label="Test", color="blue")
         self.ax.set_title("Test Graphics")
-
-    def tearDown(self):
-        """Clean up after each test."""
+        yield
         glp.close()
-        import os
-
-        if not os.environ.get("KEEP_TEST_FILES"):
-            if self.tempdir.exists():
-                for f in self.tempdir.glob("*"):
-                    f.unlink()
-                self.tempdir.rmdir()
-        else:
-            print(f"\nTest files preserved in: {self.tempdir}")
 
     def test_validate_pdf_structure(self):
         """Test PDF structure validation."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
         self.fig.savefig(str(gle_file))
 
@@ -60,14 +42,11 @@ class TestGraphicsValidation(unittest.TestCase):
 
         # Validate using analyzer
         analyzer = PDFAnalyzer(pdf_file)
-        self.assertTrue(analyzer.is_valid_pdf())
-        self.assertTrue(analyzer.has_valid_structure())
+        assert analyzer.is_valid_pdf()
+        assert analyzer.has_valid_structure()
 
     def test_validate_eps_structure(self):
         """Test EPS structure validation."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
         self.fig.savefig(str(gle_file))
 
@@ -75,14 +54,11 @@ class TestGraphicsValidation(unittest.TestCase):
 
         # Validate using analyzer
         analyzer = EPSAnalyzer(eps_file)
-        self.assertTrue(analyzer.is_valid_eps())
-        self.assertTrue(analyzer.has_valid_structure())
+        assert analyzer.is_valid_eps()
+        assert analyzer.has_valid_structure()
 
     def test_validate_png_structure(self):
         """Test PNG structure validation."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
         self.fig.savefig(str(gle_file))
 
@@ -90,13 +66,10 @@ class TestGraphicsValidation(unittest.TestCase):
 
         # Validate using analyzer
         analyzer = PNGAnalyzer(png_file)
-        self.assertTrue(analyzer.is_valid_png())
+        assert analyzer.is_valid_png()
 
     def test_pdf_has_page_info(self):
         """Test that PDF has page count information."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
         self.fig.savefig(str(gle_file))
 
@@ -107,13 +80,10 @@ class TestGraphicsValidation(unittest.TestCase):
 
         # Should have at least 1 page
         if page_count is not None:
-            self.assertGreaterEqual(page_count, 1)
+            assert page_count >= 1
 
     def test_eps_has_bounding_box(self):
         """Test that EPS has bounding box information."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
         self.fig.savefig(str(gle_file))
 
@@ -124,15 +94,12 @@ class TestGraphicsValidation(unittest.TestCase):
 
         # Should have valid bounding box (x1, y1, x2, y2)
         if bbox is not None:
-            self.assertEqual(len(bbox), 4)
-            self.assertLess(bbox[0], bbox[2])  # x1 < x2
-            self.assertLess(bbox[1], bbox[3])  # y1 < y2
+            assert len(bbox) == 4
+            assert bbox[0] < bbox[2]  # x1 < x2
+            assert bbox[1] < bbox[3]  # y1 < y2
 
     def test_png_has_dimensions(self):
         """Test that PNG has valid image dimensions."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
         self.fig.savefig(str(gle_file))
 
@@ -143,16 +110,13 @@ class TestGraphicsValidation(unittest.TestCase):
 
         # Should have valid dimensions
         if dimensions is not None:
-            self.assertEqual(len(dimensions), 2)
+            assert len(dimensions) == 2
             width, height = dimensions
-            self.assertGreater(width, 0)
-            self.assertGreater(height, 0)
+            assert width > 0
+            assert height > 0
 
     def test_png_color_depth(self):
         """Test that PNG has valid color depth."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
         self.fig.savefig(str(gle_file))
 
@@ -163,70 +127,49 @@ class TestGraphicsValidation(unittest.TestCase):
 
         # Valid bit depths are 1, 2, 4, 8, 16
         if bit_depth is not None:
-            self.assertIn(bit_depth, [1, 2, 4, 8, 16])
+            assert bit_depth in [1, 2, 4, 8, 16]
 
     def test_validate_graphics_file_helper(self):
         """Test the generic graphics file validation helper."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         gle_file = self.tempdir / "test.gle"
         self.fig.savefig(str(gle_file))
 
         # Test PDF
         pdf_file = self.compiler.compile(str(gle_file), output_format="pdf")
         result = validate_graphics_file(pdf_file)
-        self.assertTrue(result["exists"])
-        self.assertEqual(result["format"], "pdf")
-        self.assertTrue(result["valid"])
+        assert result["exists"]
+        assert result["format"] == "pdf"
+        assert result["valid"]
 
         # Test EPS
         eps_file = self.compiler.compile(str(gle_file), output_format="eps")
         result = validate_graphics_file(eps_file)
-        self.assertTrue(result["exists"])
-        self.assertEqual(result["format"], "eps")
-        self.assertTrue(result["valid"])
+        assert result["exists"]
+        assert result["format"] == "eps"
+        assert result["valid"]
 
         # Test PNG
         png_file = self.compiler.compile(str(gle_file), output_format="png", dpi=150)
         result = validate_graphics_file(png_file)
-        self.assertTrue(result["exists"])
-        self.assertEqual(result["format"], "png")
-        self.assertTrue(result["valid"])
+        assert result["exists"]
+        assert result["format"] == "png"
+        assert result["valid"]
 
 
-class TestGraphicsFormattingConsistency(unittest.TestCase):
+class TestGraphicsFormattingConsistency:
     """Test formatting consistency across different graphics formats."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self, tmp_path):
         """Set up test fixtures."""
         glp.close()
-        self.tempdir = Path(tempfile.mkdtemp())
-
-        try:
-            self.compiler = GLECompiler()
-            self.gle_available = True
-        except RuntimeError:
-            self.gle_available = False
-
-    def tearDown(self):
-        """Clean up after each test."""
+        self.tempdir = tmp_path
+        self.compiler = GLECompiler()
+        yield
         glp.close()
-        import os
-
-        if not os.environ.get("KEEP_TEST_FILES"):
-            if self.tempdir.exists():
-                for f in self.tempdir.glob("*"):
-                    f.unlink()
-                self.tempdir.rmdir()
-        else:
-            print(f"\nTest files preserved in: {self.tempdir}")
 
     def test_same_figure_multiple_formats(self):
         """Test that same figure can be compiled to multiple formats."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = glp.figure(figsize=(8, 6))
         ax = fig.add_subplot(111)
         ax.plot([1, 2, 3, 4, 5], [1, 4, 2, 5, 3], color="blue", label="Series")
@@ -246,23 +189,20 @@ class TestGraphicsFormattingConsistency(unittest.TestCase):
 
         # All should exist and have reasonable sizes
         for f in [pdf_file, eps_file, png_file]:
-            self.assertTrue(f.exists())
-            self.assertGreater(f.stat().st_size, 1024)
+            assert f.exists()
+            assert f.stat().st_size > 1024
 
         # Validate each format
         pdf_result = validate_graphics_file(pdf_file)
         eps_result = validate_graphics_file(eps_file)
         png_result = validate_graphics_file(png_file)
 
-        self.assertTrue(pdf_result["valid"])
-        self.assertTrue(eps_result["valid"])
-        self.assertTrue(png_result["valid"])
+        assert pdf_result["valid"]
+        assert eps_result["valid"]
+        assert png_result["valid"]
 
     def test_complex_plot_all_formats(self):
         """Test complex plot formatting across all formats."""
-        if not self.gle_available:
-            self.skipTest("GLE compiler not available")
-
         fig = glp.figure(figsize=(10, 8))
         ax = fig.add_subplot(111)
 
@@ -303,8 +243,4 @@ class TestGraphicsFormattingConsistency(unittest.TestCase):
         # All should be valid
         for f in [pdf_file, eps_file, png_file]:
             result = validate_graphics_file(f)
-            self.assertTrue(result["valid"], f"Invalid {result['format']} file")
-
-
-if __name__ == "__main__":
-    unittest.main()
+            assert result["valid"], f"Invalid {result['format']} file"

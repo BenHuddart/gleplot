@@ -118,8 +118,7 @@ decoding images where they can:
 
 ## Writing a test
 
-- Use pytest functions and the `tmp_path` fixture. Some older modules use
-  `unittest.TestCase`; do not copy that style into new tests.
+- Use pytest functions and the `tmp_path` fixture.
 - Call `glp.close()` before and after tests that use the module-level
   `glp.plot(...)` API, so figures do not leak between tests.
 - Run `black`, `isort` and `flake8` over `tests`; the CI `lint` job checks

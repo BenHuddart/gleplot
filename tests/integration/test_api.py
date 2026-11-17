@@ -1,48 +1,46 @@
 """Integration tests for Figure API and GLE generation."""
 
-import unittest
+import pytest
 
 import gleplot as glp
-from tests._tempdir import make_tempdir
 
 
-class TestFigureAPI(unittest.TestCase):
+class TestFigureAPI:
     """Test Figure class API."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         """Create test figure."""
         glp.close()
-
-    def tearDown(self):
-        """Clean up."""
+        yield
         glp.close()
 
     def test_figure_creation(self):
         """Test creating a figure."""
         fig = glp.figure()
-        self.assertIsNotNone(fig)
-        self.assertEqual(fig.figsize, (8, 6))
+        assert fig is not None
+        assert fig.figsize == (8, 6)
 
     def test_figure_custom_size(self):
         """Test figure with custom size."""
         fig = glp.figure(figsize=(10, 8))
-        self.assertEqual(fig.figsize, (10, 8))
+        assert fig.figsize == (10, 8)
 
     def test_add_subplot(self):
         """Test adding subplot."""
         fig = glp.figure()
         ax = fig.add_subplot(111)
 
-        self.assertIsNotNone(ax)
-        self.assertEqual(len(fig.axes_list), 1)
+        assert ax is not None
+        assert len(fig.axes_list) == 1
 
     def test_gca_creates_axes(self):
         """Test gca() creates axes if needed."""
         fig = glp.figure()
         ax = fig.gca()
 
-        self.assertIsNotNone(ax)
-        self.assertEqual(len(fig.axes_list), 1)
+        assert ax is not None
+        assert len(fig.axes_list) == 1
 
     def test_convenience_functions(self):
         """Test module-level convenience functions."""
@@ -54,35 +52,32 @@ class TestFigureAPI(unittest.TestCase):
         fig = glp.gcf()
         ax = fig.gca()
 
-        self.assertEqual(len(ax.lines), 1)
-        self.assertEqual(len(ax.scatters), 1)
-        self.assertEqual(len(ax.bars), 1)
-        self.assertEqual(len(ax.texts), 1)
+        assert len(ax.lines) == 1
+        assert len(ax.scatters) == 1
+        assert len(ax.bars) == 1
+        assert len(ax.texts) == 1
 
-    def test_module_savefig_supports_folder_option(self):
+    def test_module_savefig_supports_folder_option(self, tmp_path):
         """Test top-level savefig forwards the folder option."""
-        tempdir = make_tempdir()
-
         glp.plot([1, 2, 3], [1, 4, 9])
-        result = glp.savefig(str(tempdir / "api_plot.gle"), folder=True)
+        result = glp.savefig(str(tmp_path / "api_plot.gle"), folder=True)
 
-        export_dir = tempdir / "api_plot.gleplot"
-        self.assertEqual(result, export_dir / "api_plot.gle")
-        self.assertTrue(result.exists())
-        self.assertGreaterEqual(len(list(export_dir.glob("*.dat"))), 1)
+        export_dir = tmp_path / "api_plot.gleplot"
+        assert result == export_dir / "api_plot.gle"
+        assert result.exists()
+        assert len(list(export_dir.glob("*.dat"))) >= 1
 
 
-class TestGLEGeneration(unittest.TestCase):
+class TestGLEGeneration:
     """Test GLE script generation."""
 
-    def setUp(self):
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
         """Create test figure with plot."""
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
-
-    def tearDown(self):
-        """Clean up."""
+        yield
         glp.close()
 
     def test_gle_preamble(self):
@@ -91,9 +86,9 @@ class TestGLEGeneration(unittest.TestCase):
 
         gle = self.fig._generate_gle()
 
-        self.assertIn("begin graph", gle)
-        self.assertIn("end graph", gle)
-        self.assertIn("size", gle)
+        assert "begin graph" in gle
+        assert "end graph" in gle
+        assert "size" in gle
 
     def test_gle_with_labels(self):
         """Test GLE includes axis labels."""
@@ -104,9 +99,9 @@ class TestGLEGeneration(unittest.TestCase):
 
         gle = self.fig._generate_gle()
 
-        self.assertIn("xtitle", gle)
-        self.assertIn("ytitle", gle)
-        self.assertIn("title", gle)
+        assert "xtitle" in gle
+        assert "ytitle" in gle
+        assert "title" in gle
 
     def test_gle_with_log_scale(self):
         """Test GLE includes log scale."""
@@ -116,15 +111,11 @@ class TestGLEGeneration(unittest.TestCase):
         gle = self.fig._generate_gle()
 
         # Check that xaxis has log keyword (format: "xaxis min X max Y log")
-        self.assertIn("xaxis", gle)
-        self.assertIn("log", gle)
+        assert "xaxis" in gle
+        assert "log" in gle
         # Verify log appears on an xaxis line
         for line in gle.split("\n"):
             if "xaxis" in line and "log" in line:
                 break
         else:
-            self.fail("xaxis with log scale not found in GLE output")
-
-
-if __name__ == "__main__":
-    unittest.main()
+            pytest.fail("xaxis with log scale not found in GLE output")
