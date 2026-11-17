@@ -1511,7 +1511,7 @@ class Axes:
         color: Optional[str] = None,
         marker: Optional[str] = None,
         markersize: float = 6,
-        linewidth: float = 1,
+        linewidth: Optional[float] = 1,
         label: Optional[str] = None,
         yaxis: str = "y",
         xaxis: str = "x",
@@ -1538,8 +1538,8 @@ class Axes:
             Marker symbol ('o', 's', '^', etc.) - omit for line only
         markersize : float
             Marker size (matplotlib convention, 1-100)
-        linewidth : float
-            Line width
+        linewidth : float or None
+            Line width in points; ``None`` means the default width.
         label : str, optional
             Legend label
         yaxis : str, optional
@@ -1619,6 +1619,11 @@ class Axes:
         gle_markersize = markersize_to_msize(
             markersize, self.figure.marker_config.msize_scale
         )
+
+        # matplotlib reads None as the default width; 1 is the writer's
+        # "style default" (see GLEWriter.add_line).
+        if linewidth is None:
+            linewidth = 1
 
         plot_fields = dict(
             type=plot_type,
@@ -2156,7 +2161,7 @@ class Axes:
         color: Optional[str] = None,
         marker: Optional[str] = None,
         markersize: float = 6,
-        linewidth: float = 1,
+        linewidth: Optional[float] = 1,
         label: Optional[str] = None,
         capsize: Optional[float] = None,
         capsize_cm: Optional[float] = None,
@@ -2190,8 +2195,8 @@ class Axes:
             Marker symbol ('o', 's', '^', etc.)
         markersize : float
             Marker size (matplotlib convention, 1-100)
-        linewidth : float
-            Line width
+        linewidth : float or None
+            Line width in points; ``None`` means the default width.
         label : str, optional
             Legend label
         capsize : float, optional
@@ -2336,6 +2341,11 @@ class Axes:
                 xerr_right = err_arr
 
         data_name = kwargs.pop("data_name", None)
+
+        # matplotlib reads None as the default width; 1 is the writer's
+        # "style default" (see GLEWriter.add_errorbar_series).
+        if linewidth is None:
+            linewidth = 1
 
         errbar_data = ErrorbarSeries(
             type="errorbar",

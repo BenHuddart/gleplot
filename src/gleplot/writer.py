@@ -2159,7 +2159,10 @@ class GLEWriter:
         - ``linestyle``: a matplotlib linestyle (``'-'``, ``'--'``, ``':'``,
           ``'-.'``); ``'none'`` or empty draws no line, leaving a marker-only
           dataset.
-        - ``linewidth``: points; 0 or 1 means the style's default width.
+        - ``color``: ``None`` writes no ``color``, so GLE draws in the current
+          colour (a recovered dataset line that set none).
+        - ``linewidth``: points; 0 or 1 means the style's default width, and
+          ``None`` writes no ``lwidth`` (GLE's current line width).
         - ``nomiss``: draw a line through missing values instead of leaving a
           gap (GLE's ``nomiss`` qualifier). No effect when no line is drawn.
         - ``column_names``: the sidecar header row (e.g. ``['x', 'signal']``).
@@ -2232,13 +2235,6 @@ class GLEWriter:
         # Generate line command
         line_cmd = f"    {display_name}"
 
-        # Convert matplotlib linewidth (points) to GLE lwidth (cm)
-        # If linewidth is 0 or 1, use default from style config
-        if linewidth == 0 or linewidth == 1:
-            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
-        else:
-            gle_lwidth = linewidth_pt_to_cm(linewidth)
-
         if has_line:
             # Line plot; smoothing only when opted in (see _line_token).
             # ``nomiss`` follows the smoothing tokens: dn keywords are
@@ -2247,7 +2243,7 @@ class GLEWriter:
             line_cmd += self._line_token(smooth_mode, svg_smooth, line_mode)
             if nomiss:
                 line_cmd += " nomiss"
-            line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
+            line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
 
             # Use configured line styles from style config. (A stray second
             # ``lstyle 4`` used to follow the dash-dot case here, overriding
@@ -2267,7 +2263,8 @@ class GLEWriter:
         elif marker:
             # No line: marker-only (scatter). Preserve the historical token
             # order ``marker <name> msize <size> color <color>``.
-            line_cmd += f" marker {marker} msize {self._format_number(markersize)} color {color}"
+            line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
+            line_cmd += self._color_clause(color)
         # else: neither a line nor a marker (e.g. ``ax.plot(x, y,
         # linestyle='none')`` with no marker -- a real, if pointless,
         # degenerate case matplotlib itself allows) -- the series draws
@@ -2592,17 +2589,14 @@ class GLEWriter:
                 self._finish_legend_entry(label)
             return
 
-        try:
-            width_pt = float(linewidth)
-        except (TypeError, ValueError):
-            width_pt = 1.0
-        if width_pt == 0 or width_pt == 1:
-            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
-        else:
-            gle_lwidth = linewidth_pt_to_cm(width_pt)
+        if linewidth is not None:
+            try:
+                linewidth = float(linewidth)
+            except (TypeError, ValueError):
+                linewidth = 1.0
         line_cmd = f"    {target}"
         line_cmd += self._line_token(smooth_mode="none", line_mode="hist")
-        line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
+        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
         elif linestyle == ":":
@@ -3253,12 +3247,6 @@ class GLEWriter:
         # Build the main dataset display command
         line_cmd = f"    {display_name}"
 
-        # Convert linewidth
-        if linewidth == 0 or linewidth == 1:
-            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
-        else:
-            gle_lwidth = linewidth_pt_to_cm(linewidth)
-
         # Add line/marker styling
         has_line = linestyle not in ("", "none", " ", "None")
         # GLE draws error bars (and their caps) in the DATASET's colour, which
@@ -3268,13 +3256,12 @@ class GLEWriter:
         color_emitted = False
 
         if marker:
-            line_cmd += f" marker {marker} msize {self._format_number(markersize)} color {color}"
+            line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
+            line_cmd += self._color_clause(color)
             color_emitted = True
             # Also add line if linestyle is not 'none'
             if has_line:
-                line_cmd += (
-                    f"{self._line_token()} lwidth {self._format_number(gle_lwidth)}"
-                )
+                line_cmd += self._line_token() + self._lwidth_clause(linewidth)
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
                 elif linestyle == ":":
@@ -3284,7 +3271,7 @@ class GLEWriter:
         else:
             if has_line:
                 line_cmd += self._line_token()
-                line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
+                line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
                 color_emitted = True
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
@@ -3301,7 +3288,7 @@ class GLEWriter:
         # matches :meth:`_add_errorbar_file_series`'s marker-less form
         # (``dN color <c> err dM``).
         if not color_emitted:
-            line_cmd += f" color {color}"
+            line_cmd += self._color_clause(color)
 
         # Add vertical error bar commands
         if "yerr" in err_datasets:
@@ -3432,11 +3419,11 @@ class GLEWriter:
         line_cmd = f"    {d_main}"
         # Both branches must set ``color``: GLE draws the error bars in the
         # dataset's colour and an unstyled dataset falls back to black (see
-        # :meth:`add_errorbar_series`).
+        # :meth:`add_errorbar_series`). ``None`` is a recovered reference
+        # that set none, and keeps none.
         if marker:
-            line_cmd += f" marker {marker} msize {self._format_number(markersize)} color {color}"
-        else:
-            line_cmd += f" color {color}"
+            line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
+        line_cmd += self._color_clause(color)
 
         if d_yerr is not None:
             line_cmd += f" err {d_yerr}"
@@ -3525,11 +3512,6 @@ class GLEWriter:
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"
         )
 
-        if linewidth == 0 or linewidth == 1:
-            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
-        else:
-            gle_lwidth = linewidth_pt_to_cm(linewidth)
-
         # File series have no per-series smooth field, so they inherit
         # figure-wide smoothing. A line mode must not: fitbez runs before
         # the mode is drawn and would replace the discrete join.
@@ -3537,7 +3519,7 @@ class GLEWriter:
         line_cmd = f"    {d_main}{self._line_token(smooth_mode, line_mode=line_mode)}"
         if nomiss:
             line_cmd += " nomiss"
-        line_cmd += f" color {color} lwidth {self._format_number(gle_lwidth)}"
+        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
         elif linestyle == ":":
@@ -4617,6 +4599,29 @@ class GLEWriter:
             f"gleplot_contour_labels file {_quote_filename(clabels_file)} "
             f'format "{fmt}"'
         )
+
+    @staticmethod
+    def _color_clause(color: Optional[str]) -> str:
+        """`` color <color>`` for a dataset line, or nothing for ``None``.
+
+        ``None`` is a recovered dataset line that set no colour; GLE draws it
+        in the current colour.
+        """
+        return "" if color is None else f" color {color}"
+
+    def _lwidth_clause(self, linewidth: Optional[float]) -> str:
+        """`` lwidth <cm>`` for a width in points, or nothing for ``None``.
+
+        0 or 1 means the style's default width. ``None`` is a recovered
+        dataset line that set no width; GLE draws it at the current width.
+        """
+        if linewidth is None:
+            return ""
+        if linewidth == 0 or linewidth == 1:
+            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
+        else:
+            gle_lwidth = linewidth_pt_to_cm(linewidth)
+        return f" lwidth {self._format_number(gle_lwidth)}"
 
     # -- guides drawn against GLE's own range (G17) ----------------------
 

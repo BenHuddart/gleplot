@@ -8,6 +8,7 @@ gleplot-authored files; these target *hand-written* tolerance.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ import gleplot as glp
 from gleplot import Figure
 from gleplot.parser.recognizer import parse_gle_figure
 from gleplot.parser.units import fontsize_cm_to_pt
+from tests.parser import _golden_battery as golden
 
 
 def _write(tmp_path: Path, name: str, content: str, dats: dict | None = None) -> Path:
@@ -3237,3 +3239,107 @@ def test_nomiss_reproduction_with_real_missing_value_renders_with_parity(tmp_pat
         "round-trip, so it now gaps at the missing value where the "
         "original drew through it"
     )
+
+
+# --------------------------------------------------------------------------- #
+# #134 -- a dataset line with no 'color' or 'lwidth' gained gleplot's defaults
+#
+# A hand-written 'd1 line' (no colour, no width) re-saved as 'd1 line color
+# BLUE lwidth 0.05292': the recognizer filled in gleplot's own defaults, so
+# the re-saved line was drawn in a colour and width the original never asked
+# for. GLE draws such a dataset in the current colour and line width. The
+# recovered series now carries color=None / linewidth=None, and the writer
+# leaves the qualifier out, so the re-saved line draws as the original did.
+# --------------------------------------------------------------------------- #
+
+_STYLE_WORDS = ("color", "lwidth")
+
+
+def _dn_style_words(text: str, d_name: str) -> set:
+    """``color``/``lwidth`` qualifiers on the ``d_name`` display line."""
+    line = next(ln for ln in text.splitlines() if ln.split()[:1] == [d_name]).lower()
+    return {w for w in _STYLE_WORDS if w in line.split()}
+
+
+def _resave_twice(tmp_path: Path, src_path: Path) -> tuple:
+    out1 = tmp_path / "out1.gle"
+    parse_gle_figure(src_path).figure.savefig_gle(str(out1))
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    return out1.read_text(encoding="utf-8"), out2.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "display",
+    [
+        "d1 line",
+        "d1 line color red",
+        "d1 line lwidth 0.1",
+        "d1 line steps",
+        "d1 marker circle",
+        "d1 marker circle err d2",
+        "d1 err d2",
+    ],
+)
+def test_issue134_file_reference_gains_no_color_or_lwidth(tmp_path, display):
+    """A hand-written reference re-saves with only the qualifiers it had."""
+    src = (
+        "size 8 6\n"
+        "begin graph\n"
+        "   data ref.dat d1=c1,c2 d2=c1,c3\n"
+        f"   {display}\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "ref.gle", src, {"ref.dat": "0 0 1\n1 1 1\n2 4 1\n"})
+    text1, text2 = _resave_twice(tmp_path, p)
+    assert _dn_style_words(text1, "d1") == _dn_style_words(src, "d1")
+    assert text1 == text2
+
+
+def _axhline():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1], [0, 1])
+    ax.axhline(0.5, color="red")
+    return fig
+
+
+def _hist_step():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.hist([0.1, 0.2, 0.5, 0.7, 0.9], bins=3, histtype="step")
+    return fig
+
+
+@pytest.mark.parametrize(
+    "build, d_name",
+    [
+        (golden.single_line, "d1"),
+        (golden.errorbar_symmetric, "d1"),
+        (_hist_step, "d2"),
+        # A guide's line always carries both; without them it stays a line.
+        (_axhline, "d1"),
+    ],
+    ids=["line", "errorbar", "hist-step", "refline"],
+)
+def test_issue134_import_series_gains_no_color_or_lwidth(tmp_path, build, d_name):
+    """A gleplot-written series edited to drop its colour and width keeps
+    neither on re-save, for each kind recovered with arrays."""
+    written = tmp_path / "w.gle"
+    build().savefig_gle(str(written))
+    lines = written.read_text(encoding="utf-8").splitlines()
+    for i, ln in enumerate(lines):
+        if ln.split()[:1] == [d_name]:
+            lines[i] = re.sub(r" (color|lwidth) \S+", "", ln)
+    edited = tmp_path / "edited.gle"
+    edited.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # A guide always writes its colour and width; one without them is
+    # recovered as the plain line it now is.
+    for ax in parse_gle_figure(edited).figure.axes_list:
+        for ref in ax.reflines:
+            assert ref["color"] is not None and ref["linewidth"] is not None
+
+    text1, text2 = _resave_twice(tmp_path, edited)
+    assert _dn_style_words(text1, d_name) == set()
+    assert text1 == text2
