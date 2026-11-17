@@ -2441,7 +2441,7 @@ def test_finding20_stacked_bar_reproduction_renders_with_parity(tmp_path):
 #    ``line`` keyword at all, yet a real, visible dotted line) recovered as
 #    ``linestyle="none"``, marker ``None``.
 #
-# 2. Writer bug (``GLEWriter.add_plot_line``'s no-line branch): unconditional
+# 2. Writer bug (``GLEWriter.add_line``'s no-line branch): unconditional
 #    ``f" marker {marker} ..."`` with no ``if marker:`` guard -- the sibling
 #    branch (line+marker) and every other marker-emitting site in the writer
 #    (``add_errorbar``, ``add_errorbar_from_file``) already guard it. Bug 1
@@ -2528,7 +2528,7 @@ def test_finding21_writer_omits_marker_clause_for_lineless_markerless_series():
     """Writer-level regression, independent of the recognizer/GLE import:
     ``ax.plot(x, y, linestyle='none')`` with NO marker is a real, if
     pointless, degenerate case matplotlib itself allows (a LineSeries with
-    marker=None reaches GLEWriter.add_plot_line's no-line branch). Before
+    marker=None reaches GLEWriter.add_line's no-line branch). Before
     the fix that branch unconditionally interpolated ``marker`` into an
     f-string, so it emitted the literal text "marker None" for this case
     too -- purely a scripting-API bug, no GLE file involved.

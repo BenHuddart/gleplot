@@ -2480,20 +2480,7 @@ class Figure:
                 source["span_lo"],
                 source["span_hi"],
             )
-            writer.add_plot_line(
-                ref_data["x"],
-                ref_data["y"],
-                ref_data["data_file"],
-                color=ref_data["color"],
-                linestyle=ref_data["linestyle"],
-                linewidth=ref_data["linewidth"],
-                label=ref_data["label"],
-                marker=None,
-                markersize=ref_data["markersize"],
-                yaxis="y",
-                offset=0.0,
-                column_names=ref_data.get("column_names"),
-            )
+            writer.add_line(ref_data)
 
     def _write_drawables(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
@@ -2554,30 +2541,7 @@ class Figure:
 
     @staticmethod
     def _write_line(writer: GLEWriter, series_data, binding) -> None:
-        writer.add_plot_line(
-            series_data["x"],
-            series_data["y"],
-            series_data["data_file"],
-            color=series_data["color"],
-            linestyle=series_data["linestyle"],
-            linewidth=series_data["linewidth"],
-            label=series_data["label"],
-            marker=series_data.get("marker"),
-            markersize=series_data.get("markersize", 0.1),
-            nomiss=series_data.get("nomiss", False),
-            yaxis=series_data.get("yaxis", "y"),
-            xaxis=series_data.get("xaxis", "x"),
-            offset=series_data.get("offset", 0.0),
-            column_names=series_data.get("column_names"),
-            binding=binding,
-            # Per-series smoothing (SPEC 14.7), the one kind that
-            # carries it. Passed raw: the writer normalizes and
-            # resolves the figure-wide fallback in exactly one place
-            # (GLEWriter._effective_smooth_mode).
-            smooth_mode=series_data.get("smooth_mode"),
-            svg_smooth=series_data.get("svg_smooth"),
-            line_mode=series_data.get("line_mode"),
-        )
+        writer.add_line(series_data, binding=binding)
 
     @staticmethod
     def _write_scatter(writer: GLEWriter, series_data, binding) -> None:

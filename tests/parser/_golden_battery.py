@@ -492,6 +492,27 @@ def line_modes():
     return fig
 
 
+def line_field_options():
+    """Line fields no other builder sets: offset, ``nomiss`` and smoothing.
+
+    ``nomiss``, ``smooth_mode`` and ``svg_smooth`` have no ``plot`` keyword;
+    a recovered file sets them, so they are set on the series here. The
+    figure-wide default is smooth so that every line is smoothed: the
+    recognizer infers that default from the lines, and a mix would change it.
+    """
+    fig = glp.figure(data_prefix="golden", graph=glp.GLEGraphConfig(smooth_curves=True))
+    ax = fig.add_subplot(111)
+    x = [0, 1, 2, 3]
+    ax.plot(x, [1, 2, 1, 2], color="blue", offset=1.5, label="shifted")
+    ax.plot(x, [0, 1, 0, 1], color="red", label="joined")
+    ax.plot(x, [2, 3, 2, 3], color="green", label="smoothed")
+    ax.lines[1]["nomiss"] = True
+    ax.lines[2]["smooth_mode"] = "smoothm"
+    ax.lines[2]["svg_smooth"] = 2
+    ax.legend()
+    return fig
+
+
 def fill_forms():
     """Axis fill, a clipped band, and a closed polygon."""
     fig = glp.figure(data_prefix="golden")
@@ -576,6 +597,7 @@ BUILDERS = [
     tripcolor_tricontour_combo,
     custom_tick_labels,
     line_modes,
+    line_field_options,
     fill_forms,
     histogram,
     axes_styling_full,

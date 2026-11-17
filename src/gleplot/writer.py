@@ -54,6 +54,7 @@ from .parser.units import (
 )
 from .series import (
     SERIES_CLASSES,
+    LineSeries,
     Series,
     _unique_column_names,
     is_visible,
@@ -724,7 +725,7 @@ class DecimationRecord:
     :class:`~gleplot.sources.DanglingSourceRef`: the dataset name is already
     the join key a caller needs, since it is what appears in the generated
     script it is about to compile. Threading full series identity through
-    every ``add_plot_line``/``add_errorbar`` call site was judged not worth
+    every ``add_line``/``add_errorbar`` call site was judged not worth
     the extra surface for this first cut; add it if a consumer needs it.
 
     Attributes
@@ -993,7 +994,7 @@ class GLEWriter:
           drawing. Confirmed: a 10-point marker-only dataset with
           ``deresolve 3`` draws 5 markers (points 0,3,6,9 plus GLE's
           always-keep-the-last-point rule -- 9 repeated) versus 10 without.
-          This is the only family :meth:`add_plot_line` calls this for.
+          This is the only family :meth:`add_line` calls this for.
         - **errorbar (`err`/`errup`/`errdown`/`herr`/...)**: intentionally
           EXCLUDED. ``draw_err`` -> ``getErrorBarData`` builds the whisker
           geometry straight from the dataset's raw, undecimated arrays --
@@ -1030,7 +1031,7 @@ class GLEWriter:
         diffing identical PostScript output), so this is always appended
         last for a minimal, single-clause diff against the undecorated line.
 
-        ``kind`` (``'line'`` or ``'scatter'`` -- :meth:`add_plot_line` is the
+        ``kind`` (``'line'`` or ``'scatter'`` -- :meth:`add_line` is the
         only caller, for exactly these two families) is not used to decide
         eligibility here; it is purely payload for a callable
         :data:`DecimationPolicy`'s :class:`DecimationCandidate`, so a policy
@@ -2050,8 +2051,37 @@ class GLEWriter:
         svg_smooth: Optional[int] = None,
         line_mode: Optional[str] = None,
     ):
+        """Add a line plot from per-field keywords.
+
+        The keyword form of :meth:`add_line`: each argument is the
+        :class:`~gleplot.series.LineSeries` field of the same name, and
+        ``binding`` is passed through. Kept so callers that build GLE through
+        the writer directly keep working.
         """
-        Add line plot to graph.
+        series = LineSeries(
+            x=x,
+            y=y,
+            data_file=data_file,
+            color=color,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=label,
+            marker=marker,
+            markersize=markersize,
+            nomiss=nomiss,
+            yaxis=yaxis,
+            xaxis=xaxis,
+            offset=offset,
+            column_names=column_names,
+            smooth_mode=smooth_mode,
+            svg_smooth=svg_smooth,
+            line_mode=line_mode,
+        )
+        self.add_line(series, binding=binding)
+
+    def add_line(self, series: Series, binding: Optional[ColumnBinding] = None):
+        """
+        Add a line series to the graph.
 
         Points are written to the data file, and drawn, in the order given
         (matplotlib's behavior). The one exception is a ``smooth``-mode line,
@@ -2059,53 +2089,60 @@ class GLEWriter:
 
         Parameters
         ----------
-        x, y : arrays
-            Data coordinates
-        data_file : str
-            External data file name
-        color : str
-            GLE color name
-        linestyle : str
-            Matplotlib linestyle ('-', '--', ':', '-.')
-        linewidth : float
-            Line width
-        label : str, optional
-            Legend label
-        marker : str, optional
-            GLE marker name
-        markersize : float
-            Marker size for GLE (msize)
-        nomiss : bool
-            When the line has missing values, draw through them instead of
-            leaving a gap (GLE's ``nomiss`` qualifier). No effect when the
-            series draws no line.
-        yaxis : str
-            Which y-axis to use: 'y' (left, default) or 'y2' (right)
-        column_names : list of str, optional
-            Sidecar header row (e.g. ``['x', 'signal']``). When given, an
-            explicit ``key`` clause is always emitted (the real label, or
-            ``key ""`` when unlabeled) to neutralize GLE's auto-key-from-
-            header behavior -- see :meth:`_key_clause`.
+        series : LineSeries
+            The resolved series: its arrays are present (see
+            :meth:`SourceResolution.data`). ``x``, ``y``, ``data_file``,
+            ``color``, ``linestyle``, ``linewidth`` and ``label`` are required;
+            every other field is read with the default its absence has always
+            meant.
         binding : ColumnBinding, optional
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
             that table (see :meth:`_write_columns`).
-        smooth_mode : {'none', 'smooth', 'smoothm'}, optional
-            Per-series smoothing (SPEC 14.7). ``None`` -- the default, and
-            what every non-line call site passes -- defers to the figure-wide
-            ``GLEGraphConfig.smooth_curves``; see
-            :meth:`_effective_smooth_mode`.
-        svg_smooth : int, optional
-            Savitzky-Golay iterations (>= 1), or ``None`` for off. Independent
-            of ``smooth_mode``; both may be emitted on one ``dN`` line, in the
-            order :meth:`_line_token` fixes.
-        line_mode : {'steps', 'fsteps', 'hist', 'bar', 'impulses'}, optional
-            GLE's ``dn line`` mode, emitted immediately after ``line``.
-            ``None`` (the default, and every call that is not a step or a
-            stem) leaves the historical bare ``line`` token.
+
+        Notes
+        -----
+        How the fields are emitted:
+
+        - ``linestyle``: a matplotlib linestyle (``'-'``, ``'--'``, ``':'``,
+          ``'-.'``); ``'none'`` or empty draws no line, leaving a marker-only
+          dataset.
+        - ``linewidth``: points; 0 or 1 means the style's default width.
+        - ``nomiss``: draw a line through missing values instead of leaving a
+          gap (GLE's ``nomiss`` qualifier). No effect when no line is drawn.
+        - ``column_names``: the sidecar header row (e.g. ``['x', 'signal']``).
+          When present, an explicit ``key`` clause is always emitted (the real
+          label, or ``key ""`` when unlabeled) to neutralize GLE's
+          auto-key-from-header behavior -- see :meth:`_key_clause`.
+        - ``smooth_mode`` (``'none'``, ``'smooth'``, ``'smoothm'``): per-series
+          smoothing (SPEC 14.7). Absent defers to the figure-wide
+          ``GLEGraphConfig.smooth_curves``; see :meth:`_effective_smooth_mode`.
+        - ``svg_smooth``: Savitzky-Golay iterations (>= 1); absent means off.
+          Independent of ``smooth_mode``; both may be emitted on one ``dN``
+          line, in the order :meth:`_line_token` fixes.
+        - ``line_mode`` (``'steps'``, ``'fsteps'``, ``'hist'``, ``'bar'``,
+          ``'impulses'``): GLE's ``dn line`` mode, emitted immediately after
+          ``line``. Absent leaves the bare ``line`` token.
         """
-        x_array = np.asarray(x)
-        y_array = np.asarray(y)
+        x_array = np.asarray(series["x"])
+        y_array = np.asarray(series["y"])
+        data_file = series["data_file"]
+        color = series["color"]
+        linestyle = series["linestyle"]
+        linewidth = series["linewidth"]
+        label = series["label"]
+        marker = series.get("marker")
+        markersize = series.get("markersize", 0.1)
+        nomiss = series.get("nomiss", False)
+        yaxis = series.get("yaxis", "y")
+        xaxis = series.get("xaxis", "x")
+        offset = series.get("offset", 0.0)
+        column_names = series.get("column_names")
+        # Passed on raw: the writer normalizes and resolves the figure-wide
+        # fallback in one place (_effective_smooth_mode).
+        smooth_mode = series.get("smooth_mode")
+        svg_smooth = series.get("svg_smooth")
+        line_mode = series.get("line_mode")
 
         # A "no line" state is signalled by a linestyle of none/empty. GLE
         # supports markers on line datasets natively (``d1 line marker circle
@@ -2195,12 +2232,11 @@ class GLEWriter:
         # series is large enough -- see _deresolve_clause. Applies to both
         # branches above (line, with or without an overlaid marker, and
         # marker-only/scatter) since both draw through transform_data().
-        # ``kind`` is derived from ``has_line`` rather than threaded in as a
-        # parameter: every "line" call (including reference lines, which
-        # never carry a marker) sets it True, every "scatter" call (marker-
-        # only, no line) sets it False -- exactly gleplot's own KIND split
-        # for these two series classes, with no new parameter needed on
-        # add_plot_line or its three call sites in figure.py.
+        # ``kind`` is derived from ``has_line``, not from the series class:
+        # scatters reach here through add_plot_line, which carries them in a
+        # LineSeries. Every line (including reference lines, which never
+        # carry a marker) has a line, and no scatter does -- exactly
+        # gleplot's own KIND split for these two series classes.
         line_cmd += self._deresolve_clause(
             display_name, label, len(x_array), "line" if has_line else "scatter"
         )
@@ -3157,7 +3193,7 @@ class GLEWriter:
         for a series that already has a line (see ``_build_file_series``'s
         ``has_line`` branch; a no-line, marker-only reference is emitted via
         ``add_errorbar_from_file`` instead), so there is no separate
-        no-line/marker-only case to guard here, unlike ``add_plot_line``.
+        no-line/marker-only case to guard here, unlike ``add_line``.
 
         ``nomiss`` : draw the line through a missing value instead of
         leaving a gap (GLE's ``nomiss`` qualifier).
@@ -4008,7 +4044,7 @@ class GLEWriter:
         """The GLE ``lstyle`` number for a matplotlib linestyle.
 
         Reads the very same ``style.line_style_*`` fields
-        :meth:`add_plot_line` reads, so the two emission forms of a guide
+        :meth:`add_line` reads, so the two emission forms of a guide
         cannot disagree about what ``'--'`` looks like. ``0`` is GLE's own
         "no style set" sentinel and is what a lineless guide
         (``linestyle='none'``) is emitted with -- :mod:`gleplot.guides`'
@@ -4023,7 +4059,7 @@ class GLEWriter:
         }.get(linestyle, 0)
 
     def _guide_lwidth_cm(self, linewidth: float) -> float:
-        """A guide's ``lwidth`` in cm, with :meth:`add_plot_line`'s defaulting."""
+        """A guide's ``lwidth`` in cm, with :meth:`add_line`'s defaulting."""
         if linewidth == 0 or linewidth == 1:
             return linewidth_pt_to_cm(self.style.default_linewidth)
         return linewidth_pt_to_cm(linewidth)
@@ -4126,7 +4162,7 @@ class GLEWriter:
     ) -> str:
         """Emit the data-free ``dN`` line that carries a guide's legend entry.
 
-        Token order mirrors :meth:`add_plot_line`'s line branch so the legend
+        Token order mirrors :meth:`add_line`'s line branch so the legend
         swatch is identical to the one the dataset form produces; the only
         difference is that no ``data`` statement ever gives this dataset any
         rows. Returns the dataset name.
@@ -4350,7 +4386,7 @@ class GLEWriter:
         - ``add_contour_line`` -- the ``-cdata.dat`` polylines come out of
           GLE's own contouring of the gridded surface; splining them would
           move the level away from the surface it was computed from.
-        - the marker-only branch of :meth:`add_plot_line` -- a series with
+        - the marker-only branch of :meth:`add_line` -- a series with
           ``linestyle='none'`` draws no curve, so there is none to smooth.
           (GLE's own ``smooth`` keyword would *switch the line on*; emitting
           it there would draw a line the caller explicitly turned off.)
