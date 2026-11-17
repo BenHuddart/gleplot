@@ -431,6 +431,13 @@ def test_scalar_tick_interval_applies_to_all_segments():
     assert all(seg.xdsubticks == 0.5 for seg in bax.segments)
 
 
+def test_y_tick_intervals_are_written_on_every_segment():
+    fig, bax = _fig()
+    bax.set_yticks(dticks=0.25, dsubticks=0.05)
+    text, _files = _gle(fig)
+    assert text.count("    yaxis min 0 max 1 dticks 0.25 dsubticks 0.05") == 2
+
+
 def test_tick_interval_sequence_of_the_wrong_length_raises():
     _fig_, bax = _fig()
     with pytest.raises(ValueError, match="one per"):

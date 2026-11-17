@@ -636,6 +636,21 @@ def custom_tick_labels():
     return fig
 
 
+def tick_label_nofirst_nolast():
+    """``nofirst``/``nolast`` on both x and y.
+
+    No layout sets ``nofirst`` on y; a recovered ``yaxis ... nofirst`` does,
+    so the flags are set on the axes here.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], color="blue", label="quad")
+    ax._remove_first_xtick = ax._remove_last_xtick = True
+    ax._remove_first_ytick = ax._remove_last_ytick = True
+    ax.legend()
+    return fig
+
+
 def axes_styling_full():
     """Every axes-styling field at once: formats, a subtick grid with style,
     axis-title and tick-label size/colour/angle, and a styled graph title."""
@@ -868,6 +883,7 @@ BUILDERS = [
     contour_field_options,
     tripcolor_tricontour_combo,
     custom_tick_labels,
+    tick_label_nofirst_nolast,
     line_modes,
     line_field_options,
     scatter_field_options,
