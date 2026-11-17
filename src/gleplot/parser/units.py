@@ -18,10 +18,10 @@ refactor that follows this module's creation intentionally does **not**
   ``self.width_cm = figsize[0] * 2.54``.
 - line width (points) -> GLE ``lwidth`` (cm): factor ``0.03528``, from
   ``src/gleplot/writer.py:332,334,590,592,715,717``
-  (``GLEWriter.add_line``, ``add_errorbar_series``, ``add_plot_line_from_file``).
+  (``GLEWriter.add_line``, ``add_errorbar_series``, ``add_file_series``).
 - font size (points) -> GLE ``set hei`` (cm): divisor ``28.35``, from
   ``src/gleplot/writer.py:71`` (``GLEWriter.add_preamble``) and
-  ``src/gleplot/writer.py:779`` (``GLEWriter.add_text``).
+  ``src/gleplot/writer.py:779`` (``GLEWriter.add_text_annotation``).
 - matplotlib ``markersize``/``s`` -> GLE ``msize``: factor
   ``0.025 * msize_scale``, from ``src/gleplot/axes.py:231`` (``Axes.plot``),
   ``src/gleplot/axes.py:350`` (``Axes.errorbar``), and
@@ -67,8 +67,8 @@ INCH_TO_CM = 2.54
 LINEWIDTH_PT_TO_CM_FACTOR = 0.03528
 
 # points -> cm divisor for font/text height (``set hei``), as used by
-# GLEWriter.add_preamble and GLEWriter.add_text. 28.35 points/cm is the
-# conventional PostScript approximation (72 pt/in / 2.54 cm/in = 28.346...).
+# GLEWriter.add_preamble and GLEWriter.add_text_annotation. 28.35 points/cm
+# is the conventional PostScript approximation (72 pt/in / 2.54 cm/in = 28.346...).
 FONTSIZE_PT_TO_CM_DIVISOR = 28.35
 
 # matplotlib markersize/scatter-size -> GLE msize factor (before msize_scale),
@@ -114,7 +114,7 @@ def linewidth_pt_to_cm(points: float) -> float:
     """Convert a matplotlib line width in points to GLE ``lwidth`` cm.
 
     Uses :data:`LINEWIDTH_PT_TO_CM_FACTOR` (``0.03528``), matching
-    ``GLEWriter.add_line``/``add_errorbar_series``/``add_plot_line_from_file``.
+    ``GLEWriter.add_line``/``add_errorbar_series``/``add_file_series``.
     """
     return points * LINEWIDTH_PT_TO_CM_FACTOR
 
@@ -132,7 +132,7 @@ def fontsize_pt_to_cm(points: float) -> float:
     """Convert a font size in points to a GLE ``set hei`` value in cm.
 
     Uses :data:`FONTSIZE_PT_TO_CM_DIVISOR` (``28.35``), matching
-    ``GLEWriter.add_preamble``/``add_text``.
+    ``GLEWriter.add_preamble``/``add_text_annotation``.
     """
     return points / FONTSIZE_PT_TO_CM_DIVISOR
 

@@ -862,6 +862,16 @@ def legend_column_breaks(n_entries: int, ncol: int) -> Set[int]:
     return breaks
 
 
+def _warn_keyword_form(name: str, series_class: str, method: str) -> None:
+    """Deprecation warning for a keyword form of a series entry point."""
+    warn_external(
+        f"GLEWriter.{name}() is deprecated and will be removed in a future major "
+        f"release. Build a gleplot.series.{series_class} and call "
+        f"GLEWriter.{method}(series) instead.",
+        DeprecationWarning,
+    )
+
+
 class GLEWriter:
     """Writer for GLE script files.
 
@@ -974,14 +984,14 @@ class GLEWriter:
         # take the draw form is not known until each axes' limits are.
         self.used_guide_subs: Set[str] = set()
         self._sub_defs_mark: int = 0
-        # Sticky GLE interpreter state as far as add_text is concerned: 'set
+        # Sticky GLE interpreter state as far as add_text_annotation is concerned: 'set
         # hei'/'set color'/'set just' persist across `write` statements until
         # changed again (real GLE semantics -- see recognizer._try_one_text,
         # the read-side counterpart). Tracking the currently-active emitted
-        # value here lets add_text skip a redundant 'set ...' line when a
+        # value here lets add_text_annotation skip a redundant 'set ...' line when a
         # later text asks for the same value already in effect, instead of
         # restating it. Seeded with the preamble's 'set hei' (already emitted
-        # unconditionally by add_preamble) so the first add_text call also
+        # unconditionally by add_preamble) so the first add_text_annotation call also
         # skips a redundant 'set hei' when its fontsize matches the style
         # default.
         self._text_state_hei_cm: Optional[str] = self._format_number(
@@ -1201,9 +1211,9 @@ class GLEWriter:
 
         Notes
         -----
-        The deferred graph-data-coordinate text queued by :meth:`add_text`
-        (``_pending_graph_text_lines``) is flushed here, AFTER 'end graph' --
-        that is deliberate (GLE's ``xg()``/``yg()`` need the graph that just
+        The deferred graph-data-coordinate text queued by
+        :meth:`add_text_annotation` (``_pending_graph_text_lines``) is flushed
+        here, AFTER 'end graph' -- that is deliberate (GLE's ``xg()``/``yg()`` need the graph that just
         closed) but it means any 'set color'/'set hei'/'set just' the text
         needed is emitted at the PAGE level, where it is sticky interpreter
         state exactly like the broken-axis seam decoration (see the comment
@@ -1234,7 +1244,7 @@ class GLEWriter:
             # grestore reverted the ambient GLE state to what it was before
             # this panel's gsave (i.e. the script-start default: BLACK,
             # style-default height, left-justified) -- resync the sticky
-            # trackers to match, or the NEXT panel's add_text calls would
+            # trackers to match, or the NEXT panel's add_text_annotation calls would
             # wrongly skip restating a 'set color'/'set hei'/'set just' that
             # real GLE no longer has in effect.
             self._text_state_hei_cm = self._format_number(
@@ -2107,9 +2117,12 @@ class GLEWriter:
 
         The keyword form of :meth:`add_line`: each argument is the
         :class:`~gleplot.series.LineSeries` field of the same name, and
-        ``binding`` is passed through. Kept so callers that build GLE through
-        the writer directly keep working.
+        ``binding`` is passed through.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.LineSeries` and call :meth:`add_line` instead.
         """
+        _warn_keyword_form("add_plot_line", "LineSeries", "add_line")
         series = LineSeries(
             x=x,
             y=y,
@@ -2503,9 +2516,12 @@ class GLEWriter:
         """Draw a histogram GLE bins itself, from per-field keywords.
 
         The keyword form of :meth:`add_hist`: each argument is the
-        :class:`~gleplot.series.HistSeries` field of the same name. Kept so
-        callers that build GLE through the writer directly keep working.
+        :class:`~gleplot.series.HistSeries` field of the same name.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.HistSeries` and call :meth:`add_hist` instead.
         """
+        _warn_keyword_form("add_histogram", "HistSeries", "add_hist")
         series = HistSeries(
             samples=samples,
             data_file=data_file,
@@ -2662,9 +2678,12 @@ class GLEWriter:
         The keyword form of :meth:`add_bar`: each argument is the
         :class:`~gleplot.series.BarSeries` field of the same name, except
         ``heights``, which is the series' ``height``. ``binding`` is passed
-        through. Kept so callers that build GLE through the writer directly
-        keep working.
+        through.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.BarSeries` and call :meth:`add_bar` instead.
         """
+        _warn_keyword_form("add_bar_chart", "BarSeries", "add_bar")
         series = BarSeries(
             x=x,
             height=heights,
@@ -3005,9 +3024,13 @@ class GLEWriter:
         The keyword form of :meth:`add_errorbar_series`: each argument is the
         :class:`~gleplot.series.ErrorbarSeries` field of the same name, except
         ``capsize``, which is the emitted cap width in cm (the series'
-        ``gle_capsize``). ``binding`` is passed through. Kept so callers that
-        build GLE through the writer directly keep working.
+        ``gle_capsize``). ``binding`` is passed through.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.ErrorbarSeries` and call
+        :meth:`add_errorbar_series` instead.
         """
+        _warn_keyword_form("add_errorbar", "ErrorbarSeries", "add_errorbar_series")
         series = ErrorbarSeries(
             x=x,
             y=y,
@@ -3371,9 +3394,12 @@ class GLEWriter:
 
         The keyword form of :meth:`add_file_series` for ``series_type
         'errorbar'``: each argument is the :class:`~gleplot.series.FileSeries`
-        field of the same name. Kept so callers that build GLE through the
-        writer directly keep working.
+        field of the same name.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.FileSeries` and call :meth:`add_file_series` instead.
         """
+        _warn_keyword_form("add_errorbar_from_file", "FileSeries", "add_file_series")
         series = FileSeries(
             series_type="errorbar",
             data_file=data_file,
@@ -3458,9 +3484,12 @@ class GLEWriter:
 
         The keyword form of :meth:`add_file_series` for ``series_type
         'line'``: each argument is the :class:`~gleplot.series.FileSeries`
-        field of the same name. Kept so callers that build GLE through the
-        writer directly keep working.
+        field of the same name.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.FileSeries` and call :meth:`add_file_series` instead.
         """
+        _warn_keyword_form("add_plot_line_from_file", "FileSeries", "add_file_series")
         series = FileSeries(
             series_type="line",
             data_file=data_file,
@@ -3551,9 +3580,12 @@ class GLEWriter:
 
         The keyword form of :meth:`add_file_series` for ``series_type
         'bar'``: each argument is the :class:`~gleplot.series.FileSeries`
-        field of the same name. Kept so callers that build GLE through the
-        writer directly keep working.
+        field of the same name.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.FileSeries` and call :meth:`add_file_series` instead.
         """
+        _warn_keyword_form("add_bar_from_file", "FileSeries", "add_file_series")
         series = FileSeries(
             series_type="bar",
             data_file=data_file,
@@ -3641,9 +3673,12 @@ class GLEWriter:
 
         The keyword form of :meth:`add_file_series` for ``series_type
         'fill'``: each argument is the :class:`~gleplot.series.FileSeries`
-        field of the same name. Kept so callers that build GLE through the
-        writer directly keep working.
+        field of the same name.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.FileSeries` and call :meth:`add_file_series` instead.
         """
+        _warn_keyword_form("add_fill_from_file", "FileSeries", "add_file_series")
         series = FileSeries(
             series_type="fill",
             data_file=data_file,
@@ -3726,9 +3761,12 @@ class GLEWriter:
 
         The keyword form of :meth:`add_fill`: each argument is the
         :class:`~gleplot.series.FillSeries` field of the same name, and
-        ``binding`` is passed through. Kept so callers that build GLE through
-        the writer directly keep working.
+        ``binding`` is passed through.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.FillSeries` and call :meth:`add_fill` instead.
         """
+        _warn_keyword_form("add_fill_between", "FillSeries", "add_fill")
         series = FillSeries(
             x=x,
             y1=y1,
@@ -3883,9 +3921,13 @@ class GLEWriter:
         The keyword form of :meth:`add_text_annotation`: ``halign`` and
         ``valign`` are the :class:`~gleplot.series.TextAnnotation` fields
         ``ha`` and ``va``, and every other argument is the field of the same
-        name. Kept so callers that build GLE through the writer directly keep
-        working.
+        name.
+
+        Deprecated, and removed in a future major release: build a
+        :class:`~gleplot.series.TextAnnotation` and call
+        :meth:`add_text_annotation` instead.
         """
+        _warn_keyword_form("add_text", "TextAnnotation", "add_text_annotation")
         series = TextAnnotation(
             x=x,
             y=y,
