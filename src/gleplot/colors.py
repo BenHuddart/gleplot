@@ -24,8 +24,9 @@ when the figure is rebuilt.
 """
 
 import re
-import warnings
 from typing import Dict, Optional, Tuple, Union
+
+from ._warn import warn_external
 
 # Matplotlib color codes to GLE color names
 MATPLOTLIB_TO_GLE_COLORS = {
@@ -226,12 +227,10 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
         # established pattern this follows. The BLACK fallback is
         # deliberately kept (existing callers/tests depend on it), but it no
         # longer happens silently.
-        warnings.warn(
+        warn_external(
             f"Unrecognized colour {color!r}: it is neither a GLE colour "
             f"name, a matplotlib colour code, nor a hex string. Falling "
             f"back to BLACK.",
-            UserWarning,
-            stacklevel=2,
         )
 
     # Default fallback
@@ -341,20 +340,16 @@ def _hex_to_gle(hex_color: str) -> str:
             g = int(digits[2:4], 16)
             b = int(digits[4:6], 16)
         except ValueError:
-            warnings.warn(
+            warn_external(
                 f"Unrecognized colour {hex_color!r}: not a valid hex string. "
                 f"Falling back to BLACK.",
-                UserWarning,
-                stacklevel=3,
             )
             return "BLACK"
         return rgb255_expr(r, g, b)
 
-    warnings.warn(
+    warn_external(
         f"Unrecognized colour {hex_color!r}: not a valid hex string "
         f"(expected #RGB or #RRGGBB). Falling back to BLACK.",
-        UserWarning,
-        stacklevel=3,
     )
     return "BLACK"
 

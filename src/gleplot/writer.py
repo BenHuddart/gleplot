@@ -11,7 +11,6 @@ identical to what it produced before sources existed.
 """
 
 import math
-import warnings as _warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import (
@@ -29,6 +28,7 @@ from typing import (
 
 import numpy as np
 
+from ._warn import warn_external
 from .colors import apply_alpha
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
 from .guides import (
@@ -405,7 +405,7 @@ class SourceResolution:
         carries its record on ``.ref``.
         """
         for ref in self.warnings:
-            _warnings.warn(DanglingSourceWarning(ref), stacklevel=3)
+            warn_external(DanglingSourceWarning(ref))
 
 
 # -- write-time autos for reference-backed grid series (G13; SPEC 14.5) -------

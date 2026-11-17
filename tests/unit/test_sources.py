@@ -468,6 +468,16 @@ def test_no_provider_is_a_dangling_reference_not_a_crash():
     assert warned.message.ref == ref
 
 
+def test_a_dangling_reference_warning_names_the_callers_savefig(tmp_path):
+    fig = glp.figure(data_prefix="u")
+    _add_line_ref(fig.add_subplot(111), "t1", "time", "signal", "u_0.dat")
+
+    with pytest.warns(DanglingSourceWarning) as record:
+        fig.savefig(str(tmp_path / "fig.gle"))
+
+    assert [w.filename for w in record] == [__file__]
+
+
 def test_unknown_table_is_dangling():
     fig = glp.figure(data_prefix="u")
     ax = fig.add_subplot(111)

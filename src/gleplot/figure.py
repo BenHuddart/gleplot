@@ -9,6 +9,7 @@ import numpy as np
 
 from . import axes as _axes_module
 from . import palettes as _pal
+from ._warn import warn_external
 from .axes import (
     Axes,
     _validate_data_prefix,
@@ -2830,12 +2831,11 @@ class Figure:
                 "y2": "set_ylim(axis='y2')",
                 "x2": "set_xlim(axis='x2')",
             }[which]
-            warnings.warn(
+            warn_external(
                 f"{which}-axis limits are both {lo!r}, an empty range that GLE "
                 'refuses to draw ("illegal range"). Leaving the range out of '
                 "the script, so GLE autoscales around the value instead. Call "
                 f"{setter} with a non-empty range to choose your own.",
-                UserWarning,
             )
             lo_auto = hi_auto = True
 
@@ -2873,12 +2873,11 @@ class Figure:
             lo, hi = self._axis_limits(ax, which)
             if lo is None or hi is None or lo <= hi:
                 continue
-            warnings.warn(
+            warn_external(
                 f"{which}-axis has descending limits ({lo!r} .. {hi!r}), "
                 "which would invert it, but GLE cannot invert a log axis "
                 f"(its 'negate' does not reverse the decades). Drawing "
                 f"{hi!r} .. {lo!r} the usual way round instead.",
-                UserWarning,
             )
             self._set_axis_limits(ax, which, hi, lo)
 
@@ -2919,14 +2918,13 @@ class Figure:
                     "y": "set_ylim()",
                     "y2": "set_ylim(axis='y2')",
                 }[which]
-                warnings.warn(
+                warn_external(
                     f"{which}-axis is log-scaled, but the range it resolved "
                     f"to ({lo!r} .. {hi!r}) is not an increasing positive "
                     "one, which GLE refuses to draw. Using "
                     f"{fixed[0]:g} .. {fixed[1]:g} instead, from the positive "
                     f"values plotted on it. Call {setter} with a positive "
                     "range to choose your own.",
-                    UserWarning,
                 )
                 self._set_axis_limits(ax, which, *fixed)
 
