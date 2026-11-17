@@ -61,6 +61,7 @@ from .series import (
     HistSeries,
     LineSeries,
     Series,
+    TextAnnotation,
     _unique_column_names,
     is_visible,
     normalize_smooth_mode,
@@ -3849,9 +3850,40 @@ class GLEWriter:
         arrow_color: str = "BLACK",
         arrow_linewidth: Optional[float] = None,
     ):
+        """Add a text annotation from per-field keywords.
+
+        The keyword form of :meth:`add_text_annotation`: ``halign`` and
+        ``valign`` are the :class:`~gleplot.series.TextAnnotation` fields
+        ``ha`` and ``va``, and every other argument is the field of the same
+        name. Kept so callers that build GLE through the writer directly keep
+        working.
+        """
+        series = TextAnnotation(
+            x=x,
+            y=y,
+            text=text,
+            color=color,
+            fontsize=fontsize,
+            ha=halign,
+            va=valign,
+            box_color=box_color,
+            rotation=rotation,
+            xy=xy,
+            arrow=arrow,
+            arrowstyle=arrowstyle,
+            arrow_color=arrow_color,
+            arrow_linewidth=arrow_linewidth,
+        )
+        self.add_text_annotation(series)
+
+    def add_text_annotation(self, series: Series):
         """Add text annotation in graph data coordinates.
 
-        ``valign`` selects the other half of GLE's ``set just`` (``t``/``c``/``b``).
+        ``series`` is a :class:`~gleplot.series.TextAnnotation`: ``x``,
+        ``y`` and ``text`` are required, and every other field is read with
+        the default its absence has always meant.
+
+        ``va`` selects the other half of GLE's ``set just`` (``t``/``c``/``b``).
         ``rotation`` is degrees counter-clockwise. GLE's ``begin rotate`` turns
         about the current point, so the block opens after ``amove``: that point
         is the alignment point, and closing the block keeps the next label
@@ -3868,6 +3900,20 @@ class GLEWriter:
         box edge. The arrow's ``set`` lines sit in their own
         ``gsave``/``grestore``: they never touch the sticky text state.
         """
+        x = series["x"]
+        y = series["y"]
+        text = series["text"]
+        color = series.get("color", "BLACK")
+        fontsize = series.get("fontsize")
+        halign = series.get("ha", "left")
+        valign = series.get("va", "center")
+        box_color = series.get("box_color")
+        rotation = series.get("rotation")
+        xy = series.get("xy")
+        arrow = series.get("arrow")
+        arrowstyle = series.get("arrowstyle")
+        arrow_color = series.get("arrow_color", "BLACK")
+        arrow_linewidth = series.get("arrow_linewidth")
         escaped_text = self._escape_gle_string(text)
 
         if fontsize is not None:

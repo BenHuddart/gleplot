@@ -45,7 +45,7 @@ If you touched a docstring, a page under `docs/`, or an example, also run the do
 - `axes.py` — `Axes`: plot primitives, log scales, secondary axes, `*_from_file` series.
 - `series.py` — typed series classes on `Axes` plus `SERIES_CLASSES` (serialization/emission order). Each class is a `dict` subclass; `to_dict()` stays byte-identical.
 - `sources.py` — `data_source`: `InlineData`, `ColumnRef`/`GridRef`, `DataProvider`, `DanglingSourceRef`. Field name is `data_source` (not heatmap/contour `source`).
-- `writer.py` — object model → GLE text; write-time `resolve_figure` / `SourceResolution`. `data_provider` is per `savefig`, never stored on the figure; warnings on `Figure.source_warnings`. Each data-series kind (line, scatter, error bar, bar, fill, histogram, file series) has one entry point that takes the series.
+- `writer.py` — object model → GLE text; write-time `resolve_figure` / `SourceResolution`. `data_provider` is per `savefig`, never stored on the figure; warnings on `Figure.source_warnings`. Each data-series kind (line, scatter, error bar, bar, fill, histogram, file series), and text annotations, has one entry point that takes the series.
 - `compiler.py` — `GLECompiler`, `find_gle()`; external `gle` binary.
 - `config.py` — `GLEStyleConfig`, `GLEGraphConfig`, `GLEMarkerConfig`, `GlobalConfig`.
 - `colors.py`, `markers.py` — matplotlib→GLE mappings.
@@ -126,7 +126,7 @@ A field on a series class is touched in four places; missing one breaks the fixe
 3. the `GLEWriter` method for that kind, which reads it from the series,
 4. the `_Recognizer` branch that recovers it.
 
-Texts, heatmaps, contours, reference lines and spans are not there yet (see [Known debt](#known-debt)): for those, the `Figure` method that passes the field to the writer is a fifth place.
+Heatmaps, contours, reference lines and spans are not there yet (see [Known debt](#known-debt)): for those, the `Figure` method that passes the field to the writer is a fifth place.
 
 Then add a builder exercising it to `tests/parser/_golden_battery.py`, which `test_fixed_point.py` runs.
 
@@ -182,7 +182,7 @@ More detail, including the output analyzers: `docs/guides/TESTING.md`.
 
 Places where the code does not yet meet the rules above. None of them is a pattern to follow. Each entry is deleted by the change that fixes it. The plan for each fix lives in the linked issue, and [#111](https://github.com/benhuddart/gleplot/issues/111) tracks the order.
 
-- **Five series kinds are still written field by field.** `TextAnnotation`, `HeatmapSeries`, `ContourSeries`, `RefLine` and `Span` are unpacked in `Figure` and passed to `GLEWriter` one argument at a time, so a field on one of them is also touched in the `Figure` method that writes it. [#147](https://github.com/benhuddart/gleplot/issues/147)
+- **Four series kinds are still written field by field.** `HeatmapSeries`, `ContourSeries`, `RefLine` and `Span` are unpacked in `Figure` and passed to `GLEWriter` one argument at a time, so a field on one of them is also touched in the `Figure` method that writes it. [#147](https://github.com/benhuddart/gleplot/issues/147)
 - **Oversized dispatch functions**: `GLEWriter.add_axes`, `_Recognizer._parse_graph_block` and `_Recognizer.run` each run to hundreds of lines. [#109](https://github.com/benhuddart/gleplot/issues/109)
 
 ## Where to look next
