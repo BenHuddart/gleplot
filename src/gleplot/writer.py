@@ -1486,165 +1486,182 @@ class GLEWriter:
         if title:
             opts = self._text_options(title_size, title_color, title_dist)
             self.lines_gle.append(f'    title "{title}"{opts}')
+        # show_xlabel/show_ylabel control the axis title (e.g. "Time (s)"),
+        # not the tick marks.
+        if show_xlabel:
+            self._add_axis_title("x", xlabel, xstyle)
+        if show_ylabel:
+            self._add_axis_title("y", ylabel, ystyle)
+        self._add_axis_title("y2", y2label, y2style)
+        self._add_axis_title("x2", x2label, x2style)
 
-        # Only show axis titles if requested
-        # Note: show_xlabel controls the title (e.g. "Time (s)"), not the tick marks
-        if xlabel and show_xlabel:
+        self._add_primary_axis(
+            "x",
+            xmin,
+            xmax,
+            log=xlog,
+            dticks=xdticks,
+            dsubticks=xdsubticks,
+            style=xstyle,
+            nofirst=remove_first_xtick,
+            nolast=remove_last_xtick,
+            off=xaxis_off,
+            places=xplaces,
+            names=xnames,
+            show_ticks=show_xticks,
+        )
+        self._add_primary_axis(
+            "y",
+            ymin,
+            ymax,
+            log=ylog,
+            dticks=ydticks,
+            dsubticks=ydsubticks,
+            style=ystyle,
+            nofirst=remove_first_ytick,
+            nolast=remove_last_ytick,
+            off=yaxis_off,
+            places=yplaces,
+            names=ynames,
+            show_ticks=show_yticks,
+        )
+        self._add_y2_axis(
+            y2min,
+            y2max,
+            log=y2log,
+            label=y2label,
+            style=y2style,
+            off=y2axis_off,
+            yaxis_off=yaxis_off,
+        )
+        self._add_x2_axis(
+            x2min,
+            x2max,
+            log=x2log,
+            label=x2label,
+            style=x2style,
+            off=x2axis_off,
+            xaxis_off=xaxis_off,
+            xlog=xlog,
+            x2_series=x2_series,
+        )
+
+    def _add_axis_title(
+        self, prefix: str, label: Optional[str], style: AxisStyle
+    ) -> None:
+        """``xtitle "..."`` (and y/y2/x2 twins), when the label is set."""
+        if label:
             opts = self._text_options(
-                xstyle.title_size, xstyle.title_color, xstyle.title_dist
+                style.title_size, style.title_color, style.title_dist
             )
-            self.lines_gle.append(f'    xtitle "{xlabel}"{opts}')
+            self.lines_gle.append(f'    {prefix}title "{label}"{opts}')
 
-        if ylabel and show_ylabel:
-            opts = self._text_options(
-                ystyle.title_size, ystyle.title_color, ystyle.title_dist
-            )
-            self.lines_gle.append(f'    ytitle "{ylabel}"{opts}')
+    def _add_primary_axis(
+        self,
+        prefix: str,
+        lo: Optional[float],
+        hi: Optional[float],
+        *,
+        log: bool,
+        dticks: Optional[float],
+        dsubticks: Optional[float],
+        style: AxisStyle,
+        nofirst: bool,
+        nolast: bool,
+        off: bool,
+        places: Optional[List[float]],
+        names: Optional[List[str]],
+        show_ticks: bool,
+    ) -> None:
+        """The ``xaxis``/``yaxis`` line, its places/names, labels and grid."""
+        lo, hi, negate = self._axis_direction(lo, hi)
+        bare = f"    {prefix}axis"
+        cmd = bare
+        if lo is not None:
+            cmd += f" min {self._format_number(lo)}"
+        if hi is not None:
+            cmd += f" max {self._format_number(hi)}"
+        if log:
+            cmd += " log"
+        if negate:
+            cmd += " negate"
+        if dticks is not None:
+            cmd += f" dticks {self._format_number(dticks)}"
+        if dsubticks is not None:
+            cmd += f" dsubticks {self._format_number(dsubticks)}"
+        cmd += self._axis_style_tokens(style)
+        if nofirst:
+            cmd += " nofirst"  # Remove first tick label to prevent overlap
+        if nolast:
+            cmd += " nolast"  # Remove last tick label to prevent overlap
+        if off:
+            cmd += " off"
+        if cmd != bare:
+            self.lines_gle.append(cmd)
 
-        # Add y2axis title if provided
-        if y2label:
-            opts = self._text_options(
-                y2style.title_size, y2style.title_color, y2style.title_dist
-            )
-            self.lines_gle.append(f'    y2title "{y2label}"{opts}')
-
-        if x2label:
-            opts = self._text_options(
-                x2style.title_size, x2style.title_color, x2style.title_dist
-            )
-            self.lines_gle.append(f'    x2title "{x2label}"{opts}')
-
-        # Handle axis ranges and tick labels
-        # Note: We keep the axis and ticks visible but can hide the tick labels
-        xmin, xmax, xnegate = self._axis_direction(xmin, xmax)
-        ymin, ymax, ynegate = self._axis_direction(ymin, ymax)
-        y2min, y2max, y2negate = self._axis_direction(y2min, y2max)
-        x2min, x2max, x2negate = self._axis_direction(x2min, x2max)
-
-        x_cmd = "    xaxis"
-        if xmin is not None:
-            x_cmd += f" min {self._format_number(xmin)}"
-        if xmax is not None:
-            x_cmd += f" max {self._format_number(xmax)}"
-        if xlog:
-            x_cmd += " log"
-        if xnegate:
-            x_cmd += " negate"
-        if xdticks is not None:
-            x_cmd += f" dticks {self._format_number(xdticks)}"
-        if xdsubticks is not None:
-            x_cmd += f" dsubticks {self._format_number(xdsubticks)}"
-        x_cmd += self._axis_style_tokens(xstyle)
-        if remove_first_xtick:
-            x_cmd += " nofirst"  # Remove first tick label to prevent overlap
-        if remove_last_xtick:
-            x_cmd += " nolast"  # Remove last tick label to prevent overlap
-        if xaxis_off:
-            x_cmd += " off"
-
-        # Add xaxis command if it has parameters
-        if x_cmd != "    xaxis":
-            self.lines_gle.append(x_cmd)
-
-        if xplaces is not None:
+        if places is not None:
             self.lines_gle.append(
-                "    xplaces " + " ".join(self._format_number(v) for v in xplaces)
+                f"    {prefix}places "
+                + " ".join(self._format_number(v) for v in places)
             )
-        if xnames is not None:
+        if names is not None:
             self.lines_gle.append(
-                "    xnames "
-                + " ".join(f'"{self._escape_gle_string(n)}"' for n in xnames)
+                f"    {prefix}names "
+                + " ".join(f'"{self._escape_gle_string(n)}"' for n in names)
             )
 
-        # Hide x-axis tick labels if requested (but keep the ticks themselves),
+        # Hide the tick labels if requested (but keep the ticks themselves),
         # or style them; styling labels that are switched off would be a no-op.
-        if not show_xticks:
-            self.lines_gle.append("    xlabels off")
+        if not show_ticks:
+            self.lines_gle.append(f"    {prefix}labels off")
         else:
-            self._add_tick_label_style("x", xstyle)
-        self._add_grid_style("x", xstyle)
+            self._add_tick_label_style(prefix, style)
+        self._add_grid_style(prefix, style)
 
-        # Same for y-axis
-        y_cmd = "    yaxis"
-        if ymin is not None:
-            y_cmd += f" min {self._format_number(ymin)}"
-        if ymax is not None:
-            y_cmd += f" max {self._format_number(ymax)}"
-        if ylog:
-            y_cmd += " log"
-        if ynegate:
-            y_cmd += " negate"
-        if ydticks is not None:
-            y_cmd += f" dticks {self._format_number(ydticks)}"
-        if ydsubticks is not None:
-            y_cmd += f" dsubticks {self._format_number(ydsubticks)}"
-        y_cmd += self._axis_style_tokens(ystyle)
-        if remove_first_ytick:
-            y_cmd += " nofirst"  # Remove first tick label to prevent overlap
-        if remove_last_ytick:
-            y_cmd += " nolast"  # Remove last tick label to prevent overlap
-        if yaxis_off:
-            y_cmd += " off"
+    def _add_y2_axis(
+        self,
+        lo: Optional[float],
+        hi: Optional[float],
+        *,
+        log: bool,
+        label: Optional[str],
+        style: AxisStyle,
+        off: bool,
+        yaxis_off: bool,
+    ) -> None:
+        """The ``y2axis`` line and ``y2labels on``, when y2 is configured.
 
-        # Add yaxis command if it has parameters
-        if y_cmd != "    yaxis":
-            self.lines_gle.append(y_cmd)
-
-        if yplaces is not None:
-            self.lines_gle.append(
-                "    yplaces " + " ".join(self._format_number(v) for v in yplaces)
-            )
-        if ynames is not None:
-            self.lines_gle.append(
-                "    ynames "
-                + " ".join(f'"{self._escape_gle_string(n)}"' for n in ynames)
-            )
-
-        # Hide y-axis tick labels if requested (but keep the ticks themselves)
-        if not show_yticks:
-            self.lines_gle.append("    ylabels off")
-        else:
-            self._add_tick_label_style("y", ystyle)
-        self._add_grid_style("y", ystyle)
-
-        # Handle y2axis (secondary y-axis) if limits or log scale specified.
-        #
-        # GLE mirrors the primary axis onto the opposite side by default, and
-        # that mirroring is what draws the closing edge of the box. Switching
-        # the primary axis off takes the mirror with it: ``yaxis ... off``
-        # silently removes the RIGHT-hand frame line too, even though nothing
-        # asked for it. That is a real bug for a broken-axis assembly, whose
-        # rightmost segment always has ``yaxis off`` (the y axis belongs to
-        # the leftmost segment) and always wants its outer edge drawn -- the
-        # panel otherwise renders open on the right and reads as clipped.
-        # Re-assert the mirror explicitly whenever the primary side is off
-        # and the mirror was not itself turned off.
-        y2_on = yaxis_off and not y2axis_off
-        y2_styled = y2style is not _NO_STYLE and y2style != _NO_STYLE
-        if (
-            y2min is not None
-            or y2max is not None
-            or y2log
-            or y2axis_off
-            or y2_on
-            or y2_styled
-        ):
-            y2_cmd = "    y2axis"
-            if y2min is not None:
-                y2_cmd += f" min {self._format_number(y2min)}"
-            if y2max is not None:
-                y2_cmd += f" max {self._format_number(y2max)}"
-            if y2log:
-                y2_cmd += " log"
-            if y2negate:
-                y2_cmd += " negate"
-            y2_cmd += self._axis_style_tokens(y2style)
-            if y2axis_off:
-                y2_cmd += " off"
+        GLE mirrors the primary axis onto the opposite side by default, and
+        that mirroring is what draws the closing edge of the box. Switching
+        the primary axis off takes the mirror with it: ``yaxis ... off``
+        silently removes the RIGHT-hand frame line too, even though nothing
+        asked for it. That is a real bug for a broken-axis assembly, whose
+        rightmost segment always has ``yaxis off`` (the y axis belongs to
+        the leftmost segment) and always wants its outer edge drawn -- the
+        panel otherwise renders open on the right and reads as clipped.
+        Re-assert the mirror explicitly whenever the primary side is off
+        and the mirror was not itself turned off.
+        """
+        lo, hi, negate = self._axis_direction(lo, hi)
+        y2_on = yaxis_off and not off
+        y2_styled = style is not _NO_STYLE and style != _NO_STYLE
+        if lo is not None or hi is not None or log or off or y2_on or y2_styled:
+            cmd = "    y2axis"
+            if lo is not None:
+                cmd += f" min {self._format_number(lo)}"
+            if hi is not None:
+                cmd += f" max {self._format_number(hi)}"
+            if log:
+                cmd += " log"
+            if negate:
+                cmd += " negate"
+            cmd += self._axis_style_tokens(style)
+            if off:
+                cmd += " off"
             elif y2_on:
-                y2_cmd += " on"
-            if y2_cmd != "    y2axis":
-                self.lines_gle.append(y2_cmd)
+                cmd += " on"
+            if cmd != "    y2axis":
+                self.lines_gle.append(cmd)
         # GLE draws no y2 tick labels unless asked (manual: "xlabels on ...
         # the default for the x and y axis, but not for the x2 and y2 axis"),
         # so a y2 format/hei/color/angle is inert without 'y2labels on'.
@@ -1665,70 +1682,85 @@ class GLEWriter:
         # it. There is no dataset to trigger GLE's auto-enable, so the axis
         # compiled happily and drew mirrored tick marks with no numbers.
         # Emitting 'y2labels on' whenever the y2 axis is configured at all
-        # -- the same explicit-limits/log/title signal ``y2min``/``y2max``/
-        # ``y2log``/``y2label`` already used just above to decide whether to
-        # emit the ``y2axis`` line -- fixes that case and is a harmless,
-        # idempotent no-op for the already-working series case (GLE has no
-        # "on but no numbers" state to disturb).
-        y2_used = y2min is not None or y2max is not None or y2log or bool(y2label)
-        if not y2axis_off and (y2_used or y2style.has_tick_label_styling()):
-            opts = self._text_options(y2style.label_size, y2style.label_color, None)
+        # (explicit limits, log scale or a title) fixes that case and is a
+        # harmless, idempotent no-op for the already-working series case
+        # (GLE has no "on but no numbers" state to disturb).
+        y2_used = lo is not None or hi is not None or log or bool(label)
+        if not off and (y2_used or style.has_tick_label_styling()):
+            opts = self._text_options(style.label_size, style.label_color, None)
             self.lines_gle.append(f"    y2labels on{opts}")
 
-        # The top scale. With nothing configured it stays exactly the
-        # broken-axis frame switch: ``x2axis off``, or ``x2axis on`` when
-        # the bottom axis is off and the top one is not. A data scale
-        # (limits, log, linear-vs-copied-log, styling) joins that same
-        # line, after the ``xaxis`` line, because GLE copies an ``xaxis``
-        # command onto x2 (manual: put the x2 settings after the x ones).
-        # ``log`` is copied even though ``min``/``max`` are not
-        # (``graph.cpp`` ``do_axis``: LOG ignores ``craxis``), so a linear
-        # top scale under a log bottom axis has to say ``lin``.
-        x2_on = xaxis_off and not x2axis_off
+    def _add_x2_axis(
+        self,
+        lo: Optional[float],
+        hi: Optional[float],
+        *,
+        log: bool,
+        label: Optional[str],
+        style: AxisStyle,
+        off: bool,
+        xaxis_off: bool,
+        xlog: bool,
+        x2_series: bool,
+    ) -> None:
+        """The top scale: the ``x2axis`` line and ``x2labels on``.
+
+        With nothing configured it stays exactly the broken-axis frame
+        switch: ``x2axis off``, or ``x2axis on`` when the bottom axis is off
+        and the top one is not. A data scale (limits, log,
+        linear-vs-copied-log, styling) joins that same line, after the
+        ``xaxis`` line, because GLE copies an ``xaxis`` command onto x2
+        (manual: put the x2 settings after the x ones). ``log`` is copied
+        even though ``min``/``max`` are not (``graph.cpp`` ``do_axis``: LOG
+        ignores ``craxis``), so a linear top scale under a log bottom axis
+        has to say ``lin``.
+        """
+        lo, hi, negate = self._axis_direction(lo, hi)
+        x2_on = xaxis_off and not off
         # Tick-label styling only. ``title_dist`` is filled with the
         # figure's xlabel distance on every axis, including one that has
         # no top scale, so it must not count as x2 being in use -- that
         # would write ``x2axis lin`` onto every log-x figure.
-        x2_tick_styled = x2style.has_tick_label_styling()
+        x2_tick_styled = style.has_tick_label_styling()
         x2_configured = (
-            x2min is not None
-            or x2max is not None
-            or x2log
-            or bool(x2label)
+            lo is not None
+            or hi is not None
+            or log
+            or bool(label)
             or x2_tick_styled
             or x2_series
         )
-        x2_lin = xlog and not x2log and x2_configured and not x2axis_off
+        x2_lin = xlog and not log and x2_configured and not off
         if (
-            x2min is not None
-            or x2max is not None
-            or x2log
+            lo is not None
+            or hi is not None
+            or log
             or x2_lin
-            or x2axis_off
+            or off
             or x2_on
             or x2_tick_styled
         ):
-            x2_cmd = "    x2axis"
-            if x2min is not None:
-                x2_cmd += f" min {self._format_number(x2min)}"
-            if x2max is not None:
-                x2_cmd += f" max {self._format_number(x2max)}"
-            if x2log:
-                x2_cmd += " log"
+            cmd = "    x2axis"
+            if lo is not None:
+                cmd += f" min {self._format_number(lo)}"
+            if hi is not None:
+                cmd += f" max {self._format_number(hi)}"
+            if log:
+                cmd += " log"
             elif x2_lin:
-                x2_cmd += " lin"
-            if x2negate:
-                x2_cmd += " negate"
-            x2_cmd += self._axis_style_tokens(x2style)
-            if x2axis_off:
-                x2_cmd += " off"
+                cmd += " lin"
+            if negate:
+                cmd += " negate"
+            cmd += self._axis_style_tokens(style)
+            if off:
+                cmd += " off"
             elif x2_on:
-                x2_cmd += " on"
-            if x2_cmd != "    x2axis":
-                self.lines_gle.append(x2_cmd)
-        x2_used = x2min is not None or x2max is not None or x2log or bool(x2label)
-        if not x2axis_off and (x2_used or x2style.has_tick_label_styling()):
-            opts = self._text_options(x2style.label_size, x2style.label_color, None)
+                cmd += " on"
+            if cmd != "    x2axis":
+                self.lines_gle.append(cmd)
+        x2_used = lo is not None or hi is not None or log or bool(label)
+        if not off and (x2_used or style.has_tick_label_styling()):
+            opts = self._text_options(style.label_size, style.label_color, None)
             self.lines_gle.append(f"    x2labels on{opts}")
 
     # -- axes styling helpers -------------------------------------------
