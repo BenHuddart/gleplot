@@ -1694,3 +1694,73 @@ def test_add_histogram_keywords_reach_the_emitted_histogram():
         "    bar d4 fill RED color BLACK width 0.5",
         '    d4 key "b"',
     ]
+
+
+def test_from_file_keywords_reach_the_emitted_references():
+    """The keyword forms of ``GLEWriter.add_file_series`` map every argument
+    to its field; gleplot itself no longer calls them, so the mapping is
+    pinned here."""
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    writer.add_plot_line_from_file(
+        "a.dat",
+        1,
+        2,
+        color="GREEN",
+        linestyle="--",
+        linewidth=2,
+        label="line",
+        yaxis="y2",
+        xaxis="x2",
+        marker="CIRCLE",
+        markersize=0.2,
+        nomiss=True,
+        line_mode="steps",
+    )
+    writer.add_errorbar_from_file(
+        "a.dat",
+        1,
+        2,
+        yerr_col=3,
+        color="RED",
+        marker="FSQUARE",
+        markersize=0.3,
+        label="err",
+        capsize=0.1,
+        yaxis="y2",
+        xaxis="x2",
+    )
+    writer.add_bar_from_file(
+        "a.dat", 1, 4, color="ORANGE", label="bar", swatch_color="BLACK"
+    )
+    writer.add_fill_from_file(
+        "a.dat",
+        1,
+        2,
+        3,
+        color="GRAY10",
+        label="band",
+        swatch_color="GRAY20",
+        xmin=0.5,
+        xmax=1.5,
+        ymin=0,
+        ymax=2,
+    )
+    writer.add_fill_from_file("a.dat", 1, 2, color="BLUE", target="x2")
+    assert writer.lines_gle == [
+        "    data a.dat d1=c1,c2",
+        "    d1 line steps nomiss color GREEN lwidth 0.07056 lstyle 3 "
+        'marker CIRCLE msize 0.2 x2axis y2axis key "line"',
+        "    data a.dat d2=c1,c2 d3=c1,c3",
+        "    d2 marker FSQUARE msize 0.3 color RED err d3 errwidth 0.1 "
+        'x2axis y2axis key "err"',
+        "    data a.dat d4=c1,c4",
+        "    bar d4 fill ORANGE",
+        '    d4 keyfill BLACK key "bar"',
+        "    data a.dat d5=c1,c2 d6=c1,c3",
+        "    fill d5,d6 color GRAY10 xmin 0.5 xmax 1.5 ymin 0 ymax 2",
+        '    d5 keyfill GRAY20 key "band"',
+        "    data a.dat d7=c1,c2",
+        "    fill d7,x2 color BLUE",
+    ]

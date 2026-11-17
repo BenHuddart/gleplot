@@ -56,6 +56,7 @@ from .series import (
     SERIES_CLASSES,
     BarSeries,
     ErrorbarSeries,
+    FileSeries,
     FillSeries,
     HistSeries,
     LineSeries,
@@ -3250,7 +3251,7 @@ class GLEWriter:
         # the bars black no matter what colour was requested. Emit it here so
         # every errorbar dataset carries its series colour, at any dataset
         # index and for any capsize (including ``capsize=0``). The token order
-        # matches :meth:`add_errorbar_from_file`'s marker-less form
+        # matches :meth:`_add_errorbar_file_series`'s marker-less form
         # (``dN color <c> err dM``).
         if not color_emitted:
             line_cmd += f" color {color}"
@@ -3293,6 +3294,31 @@ class GLEWriter:
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
 
+    def add_file_series(self, series: Series):
+        """Add a series that references columns of an external data file.
+
+        No sidecar is written: the ``data`` command names the file and
+        columns as given.
+
+        Parameters
+        ----------
+        series : FileSeries
+            ``series_type`` picks the GLE shape: ``'line'``, ``'bar'``,
+            ``'fill'``, or ``'errorbar'`` (also when absent). ``data_file``
+            and the variant's column fields are required, and so is
+            ``color`` for an errorbar reference; every other field is read
+            with the default its absence has always meant.
+        """
+        series_type = series.get("series_type", "errorbar")
+        if series_type == "line":
+            self._add_line_file_series(series)
+        elif series_type == "bar":
+            self._add_bar_file_series(series)
+        elif series_type == "fill":
+            self._add_fill_file_series(series)
+        else:
+            self._add_errorbar_file_series(series)
+
     def add_errorbar_from_file(
         self,
         data_file: str,
@@ -3307,7 +3333,42 @@ class GLEWriter:
         yaxis: str = "y",
         xaxis: str = "x",
     ):
-        """Add a marker/errorbar series that references columns in an external data file."""
+        """Add an errorbar file reference from per-field keywords.
+
+        The keyword form of :meth:`add_file_series` for ``series_type
+        'errorbar'``: each argument is the :class:`~gleplot.series.FileSeries`
+        field of the same name. Kept so callers that build GLE through the
+        writer directly keep working.
+        """
+        series = FileSeries(
+            series_type="errorbar",
+            data_file=data_file,
+            x_col=x_col,
+            y_col=y_col,
+            yerr_col=yerr_col,
+            color=color,
+            marker=marker,
+            markersize=markersize,
+            label=label,
+            capsize=capsize,
+            yaxis=yaxis,
+            xaxis=xaxis,
+        )
+        self.add_file_series(series)
+
+    def _add_errorbar_file_series(self, series: Series):
+        """A marker/errorbar series that references columns in an external file."""
+        data_file = series["data_file"]
+        x_col = series["x_col"]
+        y_col = series["y_col"]
+        yerr_col = series.get("yerr_col")
+        color = series["color"]
+        marker = series.get("marker")
+        markersize = series.get("markersize", 0.1)
+        label = series.get("label")
+        capsize = series.get("capsize")
+        yaxis = series.get("yaxis", "y")
+        xaxis = series.get("xaxis", "x")
         d_main = f"d{self.dataset_index}"
         self.dataset_index += 1
 
@@ -3359,18 +3420,57 @@ class GLEWriter:
         nomiss: bool = False,
         line_mode: Optional[str] = None,
     ):
-        """Add a line series that references columns in an external data file.
+        """Add a line file reference from per-field keywords.
+
+        The keyword form of :meth:`add_file_series` for ``series_type
+        'line'``: each argument is the :class:`~gleplot.series.FileSeries`
+        field of the same name. Kept so callers that build GLE through the
+        writer directly keep working.
+        """
+        series = FileSeries(
+            series_type="line",
+            data_file=data_file,
+            x_col=x_col,
+            y_col=y_col,
+            color=color,
+            linestyle=linestyle,
+            linewidth=linewidth,
+            label=label,
+            yaxis=yaxis,
+            xaxis=xaxis,
+            marker=marker,
+            markersize=markersize,
+            nomiss=nomiss,
+            line_mode=line_mode,
+        )
+        self.add_file_series(series)
+
+    def _add_line_file_series(self, series: Series):
+        """A line series that references columns in an external data file.
 
         ``marker``/``markersize`` overlay a marker on the line (GLE natively
         supports both on one dataset) -- this function is only ever called
         for a series that already has a line (see ``_build_file_series``'s
-        ``has_line`` branch; a no-line, marker-only reference is emitted via
-        ``add_errorbar_from_file`` instead), so there is no separate
+        ``has_line`` branch; a no-line, marker-only reference is an
+        ``'errorbar'`` reference instead), so there is no separate
         no-line/marker-only case to guard here, unlike ``add_line``.
 
         ``nomiss`` : draw the line through a missing value instead of
         leaving a gap (GLE's ``nomiss`` qualifier).
         """
+        data_file = series["data_file"]
+        x_col = series["x_col"]
+        y_col = series["y_col"]
+        color = series.get("color", "BLUE")
+        linestyle = series.get("linestyle", "-")
+        linewidth = series.get("linewidth", 1.0)
+        label = series.get("label")
+        yaxis = series.get("yaxis", "y")
+        xaxis = series.get("xaxis", "x")
+        marker = series.get("marker")
+        markersize = series.get("markersize", 0.1)
+        nomiss = series.get("nomiss", False)
+        line_mode = series.get("line_mode")
         d_main = f"d{self.dataset_index}"
         self.dataset_index += 1
 
@@ -3418,13 +3518,38 @@ class GLEWriter:
         label: Optional[str] = None,
         swatch_color: Optional[str] = None,
     ):
-        """Add a bar series that references columns in an external data file.
+        """Add a bar file reference from per-field keywords.
+
+        The keyword form of :meth:`add_file_series` for ``series_type
+        'bar'``: each argument is the :class:`~gleplot.series.FileSeries`
+        field of the same name. Kept so callers that build GLE through the
+        writer directly keep working.
+        """
+        series = FileSeries(
+            series_type="bar",
+            data_file=data_file,
+            x_col=x_col,
+            y_col=y_col,
+            color=color,
+            label=label,
+            swatch_color=swatch_color,
+        )
+        self.add_file_series(series)
+
+    def _add_bar_file_series(self, series: Series):
+        """A bar series that references columns in an external data file.
 
         Used for a ``bar`` dataset the recognizer could not resolve (e.g. a
         missing data file): re-emits the ``data``/``bar`` shape verbatim so
         GLE fails with its own honest missing-file error rather than
         gleplot silently degrading the bar into a plain dataset.
         """
+        data_file = series["data_file"]
+        x_col = series["x_col"]
+        y_col = series["y_col"]
+        color = series.get("color", "RED")
+        label = series.get("label")
+        swatch_color = series.get("swatch_color")
         d_name = f"d{self.dataset_index}"
         self.dataset_index += 1
         self.lines_gle.append(
@@ -3483,14 +3608,47 @@ class GLEWriter:
         ymin: Optional[float] = None,
         ymax: Optional[float] = None,
     ):
-        """Add a fill that references columns in an external data file.
+        """Add a fill file reference from per-field keywords.
+
+        The keyword form of :meth:`add_file_series` for ``series_type
+        'fill'``: each argument is the :class:`~gleplot.series.FileSeries`
+        field of the same name. Kept so callers that build GLE through the
+        writer directly keep working.
+        """
+        series = FileSeries(
+            series_type="fill",
+            data_file=data_file,
+            x_col=x_col,
+            y1_col=y1_col,
+            y2_col=y2_col,
+            color=color,
+            label=label,
+            swatch_color=swatch_color,
+            target=target,
+            xmin=xmin,
+            xmax=xmax,
+            ymin=ymin,
+            ymax=ymax,
+        )
+        self.add_file_series(series)
+
+    def _add_fill_file_series(self, series: Series):
+        """A fill that references columns in an external data file.
 
         Used for a ``fill`` the recognizer could not resolve; see
-        :meth:`add_bar_from_file`. ``target`` selects ``fill x1,dN``,
+        :meth:`_add_bar_file_series`. ``target`` selects ``fill x1,dN``,
         ``fill dN,x2`` or ``fill dN``. Absent ``target`` is the two-curve
         ``fill dA,dB`` and needs ``y2_col``.
         """
-        clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
+        data_file = series["data_file"]
+        x_col = series["x_col"]
+        y1_col = series["y1_col"]
+        y2_col = series.get("y2_col")
+        color = series.get("color", "LIGHTBLUE")
+        label = series.get("label")
+        swatch_color = series.get("swatch_color")
+        target = series.get("target")
+        clip = {name: series.get(name) for name in ("xmin", "xmax", "ymin", "ymax")}
         d1_name = f"d{self.dataset_index}"
         self.dataset_index += 1
         if target in ("x1", "x2", "polygon"):

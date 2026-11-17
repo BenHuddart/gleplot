@@ -242,6 +242,14 @@ def normalize(d: dict) -> dict:
                     if isinstance(s.get(key), (int, float)):
                         s[key] = _snap_num(s[key])
         for s in ax.get("file_series", []):
+            # The recognizer's account of the file it could not read names
+            # the absolute path it looked in, which differs per directory.
+            # Compare it with that directory removed.
+            error = s.get("data_error")
+            if isinstance(error, str):
+                head, sep, path = error.partition(": ")
+                if sep:
+                    s["data_error"] = head + sep + Path(path).name
             if "markersize" in s:
                 s["markersize"] = _snap_msize(s["markersize"])
             if "linewidth" in s:
