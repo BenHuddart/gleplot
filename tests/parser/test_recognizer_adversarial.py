@@ -1901,10 +1901,10 @@ def test_finding18_stack4b_reproduction_resave_compiles_in_real_gle(tmp_path):
 # (gate-review Blocker 1).
 #
 # A top-level 'amove' only ever reached ``fig.passthrough_trailer`` when a
-# ``GraphBlock`` immediately followed it (the only site that read
-# ``pending_amove``/``pending_amove_raw``). Any amove after the LAST graph
-# block, or with a non-graph statement as its immediate successor, set
-# ``pending_amove_raw`` and then had it silently overwritten or dropped when
+# ``GraphBlock`` immediately followed it (the only site that read the
+# pending amove). Any amove after the LAST graph
+# block, or with a non-graph statement as its immediate successor, became
+# the pending amove and then had it silently overwritten or dropped when
 # the loop ended or fell through to the generic trailer-append branch --
 # despite the module docstring's invariant that an unconsumed amove is always
 # preserved verbatim. Because 'amove' sets GLE's *current point*, the drop is
@@ -1913,7 +1913,7 @@ def test_finding18_stack4b_reproduction_resave_compiles_in_real_gle(tmp_path):
 #
 # Audited both of the reviewer's repro shapes against the flush site:
 #   * 'begin graph ... end graph / amove 1 1 / circle 0.3' -- hits the main
-#     graph/trailer walk (recognizer.py, the ``while i < n`` loop) and drops
+#     graph/trailer walk (``_Recognizer._parse_graph_region``) and drops
 #     'amove 1 1' at end-of-loop.
 #   * 'sub s / amove 1 1 / rline 2 2 / amove 3 3 / circle 1' *by itself* (no
 #     graph block anywhere in the file) does NOT reproduce the drop -- with no
@@ -1925,7 +1925,7 @@ def test_finding18_stack4b_reproduction_resave_compiles_in_real_gle(tmp_path):
 #     block, however, walks the buggy loop and drops both amoves (see
 #     ``test_finding19_double_amove_after_graph_both_preserved`` below) --
 #     confirming this is the ONE flush site, not two, and that the fix here
-#     (flush ``pending_amove_raw`` verbatim into ``trailer`` (a) before any
+#     (flush the pending amove verbatim into ``trailer`` (a) before any
 #     non-amove/non-graph node is appended to the trailer and (b) at
 #     end-of-loop, instead of only inside the ``GraphBlock`` branch) covers
 #     both repro shapes.
