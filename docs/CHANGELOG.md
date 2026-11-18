@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v4.9.0 (2026-11-18)
+
+### Features
+
+- Reversed colormap names (cmap="RdBu_r") ([#179](https://github.com/BenHuddart/gleplot/pull/179),
+  [`c6cbd23`](https://github.com/BenHuddart/gleplot/commit/c6cbd23548ec92f7264b96b9a2d65d080ae63f52))
+
+- Review fixes for reversed colormap names ([#179](https://github.com/BenHuddart/gleplot/pull/179),
+  [`4044569`](https://github.com/BenHuddart/gleplot/commit/404456956002372351bb64d654172c870f842d69))
+
+
 ## v4.8.0 (2026-11-18)
 
 ### Features
