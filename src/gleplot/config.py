@@ -1,8 +1,19 @@
 """Configuration and style settings for gleplot."""
 
 import math
+import numbers
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
+
+#: GLE's ``set cap`` and ``set join`` words, in GLE's own numbering order, so
+#: the first is GLE's default.
+LINE_CAPS = ("butt", "round", "square")
+LINE_JOINS = ("mitre", "round", "bevel")
+
+_LINE_WORDS = {
+    "line_cap": (LINE_CAPS, "matplotlib's 'projecting' is 'square'."),
+    "line_join": (LINE_JOINS, "matplotlib's 'miter' is 'mitre'."),
+}
 
 
 @dataclass
@@ -49,6 +60,24 @@ class GLEStyleConfig:
     line_style_dashdot : int
         GLE line style for dash-dot lines (-.). Default: 6
 
+    line_cap : {'butt', 'round', 'square'} or None
+        How every line in the figure ends (GLE ``set cap``). ``'square'`` is
+        matplotlib's ``'projecting'``. None (the default) writes nothing and
+        leaves GLE's own ``butt``.
+
+    line_join : {'mitre', 'round', 'bevel'} or None
+        How every line in the figure turns a corner (GLE ``set join``).
+        ``'mitre'`` is matplotlib's ``'miter'``. None (the default) writes
+        nothing and leaves GLE's own ``mitre``.
+
+    dashlen : float or None
+        Length in cm of the shortest dash in every line style (GLE ``set
+        dashlen``). The ``lstyle`` digits are multiples of it, so a larger
+        value stretches dashes and gaps alike. GLE does not scale dashes
+        with the line width, so a thick dashed line can read as dotted;
+        raise ``dashlen`` to open it up. None (the default) writes nothing
+        and leaves GLE's own 0.04 cm.
+
     Notes
     -----
     The ``line_style_*`` defaults are the GLE ``lstyle`` numbers that actually
@@ -91,6 +120,37 @@ class GLEStyleConfig:
     line_style_dashed: int = 3
     line_style_dotted: int = 2
     line_style_dashdot: int = 6
+    line_cap: Optional[str] = None
+    line_join: Optional[str] = None
+    dashlen: Optional[float] = None
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Checked on every assignment, not only at construction:
+        # ``fig.style.line_cap = ...`` is a documented way to restyle.
+        if value is not None and name in _LINE_WORDS:
+            words, hint = _LINE_WORDS[name]
+            if not isinstance(value, str):
+                raise TypeError(
+                    f"{name} must be a string or None; got {value!r}. "
+                    f"Accepted: {list(words)}."
+                )
+            if value not in words:
+                raise ValueError(
+                    f"{name} must be one of {list(words)} or None; got "
+                    f"{value!r}. {hint}"
+                )
+        if value is not None and name == "dashlen":
+            if not isinstance(value, numbers.Real) or isinstance(value, bool):
+                raise TypeError(
+                    f"dashlen must be a number of cm or None; got {value!r}."
+                )
+            # GLE's g_set_line_styled ignores 0; a negative dash is no dash.
+            if not (math.isfinite(value) and float(value) > 0):
+                raise ValueError(
+                    f"dashlen must be a positive length in cm or None; got "
+                    f"{value!r}. None keeps GLE's own 0.04 cm."
+                )
+        super().__setattr__(name, value)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""

@@ -166,6 +166,19 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 
 A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` does not take them: GLE thins the markers but not the whiskers under `deresolve`.
 
+## Line caps and joins
+
+matplotlib caps and joins each line on its own; GLE sets them once for the
+whole figure. Set them with `GLEStyleConfig(line_cap=..., line_join=...)`,
+described in the [Configuration Guide](CONFIGURATION.md). `plot` accepts
+`solid_capstyle`, `dash_capstyle`, `solid_joinstyle` and `dash_joinstyle` with
+matplotlib's values. One that asks for what the figure already draws is
+honoured; one that differs warns and is not applied. As in matplotlib, the
+`solid_*` keywords concern a solid line and the `dash_*` ones a dashed line.
+`'projecting'` is GLE's `square` and `'miter'` is its `mitre`. With nothing
+set, GLE draws butt caps and mitre joins, not matplotlib's projecting solid
+caps and round joins.
+
 ## Bars
 
 `ax.bar(x, height)` emits `bar dN fill RED`. One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. A single colour, including the same colour repeated, stays one command.

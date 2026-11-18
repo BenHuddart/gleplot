@@ -1048,6 +1048,16 @@ def pie_field_options():
     return fig
 
 
+def line_cap_join_dashlen():
+    """Page-level ``set cap``/``set join``/``set dashlen`` from the style."""
+    style = glp.GLEStyleConfig(line_cap="round", line_join="bevel", dashlen=0.125)
+    fig = glp.figure(style=style, data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 0], color="black", linewidth=4)
+    ax.plot([0, 1, 2], [1, 0, 1], color="red", linestyle="--")
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -1104,6 +1114,7 @@ BUILDERS = [
     trailer_stray_amoves,
     pie_chart,
     pie_field_options,
+    line_cap_join_dashlen,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

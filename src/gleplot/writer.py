@@ -1230,6 +1230,7 @@ class GLEWriter:
         Includes:
         - Page size setup
         - Font configuration (from style config)
+        - Line cap, join and dash length (from style config, when set)
         - Optionally begins the first graph block
 
         Parameters
@@ -1288,6 +1289,16 @@ class GLEWriter:
         # Only set font if explicitly specified
         if self.style.font:
             self.lines_gle.append(f"set font {self.style.font}")
+        # Page-level state that every later stroke inherits; 'dashlen' must
+        # precede the first 'lstyle' that should use it.
+        if self.style.line_cap is not None:
+            self.lines_gle.append(f"set cap {self.style.line_cap}")
+        if self.style.line_join is not None:
+            self.lines_gle.append(f"set join {self.style.line_join}")
+        if self.style.dashlen is not None:
+            # Not _format_number: its 6 digits would alter a hand-written
+            # value on re-save, and it writes a tiny length as 0.
+            self.lines_gle.append(f"set dashlen {float(self.style.dashlen):.15g}")
         if passthrough_before_hei:
             self.lines_gle.extend(passthrough_before_hei)
         self.lines_gle.extend(
