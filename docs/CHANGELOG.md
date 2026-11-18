@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v3.18.0 (2026-11-18)
+
+### Features
+
+- Axes through the origin with Axes.set_math_mode
+  ([#74](https://github.com/BenHuddart/gleplot/pull/74),
+  [`0a1163b`](https://github.com/BenHuddart/gleplot/commit/0a1163be0a81e7e423ae956defaf77a6e44f3e6a))
+
+- Figure-wide line cap, join and dash length ([#80](https://github.com/BenHuddart/gleplot/pull/80),
+  [`99b3234`](https://github.com/BenHuddart/gleplot/commit/99b3234108915d6eff86ebbaf15028e16f98edf1))
+
+- Transparent and grayscale output options on savefig
+  ([#79](https://github.com/BenHuddart/gleplot/pull/79),
+  [`60f66f4`](https://github.com/BenHuddart/gleplot/commit/60f66f486d41303215746d9dfb081f89fe49a89c))
+
+- Warn when math mode cannot show the axes ([#74](https://github.com/BenHuddart/gleplot/pull/74),
+  [`0fcb306`](https://github.com/BenHuddart/gleplot/commit/0fcb306238c9e9bb7bb83c55bec56e294e863f56))
+
+- Warn where savefig's transparent and grayscale cannot act
+  ([#79](https://github.com/BenHuddart/gleplot/pull/79),
+  [`d5e4ff8`](https://github.com/BenHuddart/gleplot/commit/d5e4ff8a71712b17044e37c13d3a7787402c7dc9))
+
+
 ## v3.17.0 (2026-11-18)
 
 ### Features
