@@ -80,6 +80,43 @@ from .sources import (
     resolve_reference,
 )
 
+#: The sub behind every pie slice (:meth:`GLEWriter.add_wedge`). Called after
+#: ``end graph``, where ``xg()``/``yg()`` still address the graph just closed.
+#: Like the palette and guide subs, its text depends on nothing but its name,
+#: so the parser drops the body and the writer regenerates it.
+WEDGE_SUB = """sub gleplot_wedge cx cy r a1 a2 clr$ lbl$ ld pct$ pd
+   ! Pie slice: centre (cx, cy) and radius r in data units, from a1 to a2
+   ! degrees counter-clockwise from +x. The scale is the smaller of the two
+   ! axes' cm per unit, so the slice stays circular in any graph shape.
+   ! lbl$ goes ld radii out, left-justified right of x = 0 and right-
+   ! justified left of it; pct$ goes pd radii out, centred. An empty string
+   ! writes nothing. Text uses the current hei and colour.
+   local s = xg(cx+1)-xg(cx)
+   if yg(cy+1)-yg(cy) < s then s = yg(cy+1)-yg(cy)
+   local m = torad((a1+a2)/2)
+   amove xg(cx) yg(cy)
+   begin path fill (cvtcolor(clr$))
+      ! Without a move inside the path, it starts at the arc, not the centre.
+      rmove 0 0
+      arc r*s a1 a2
+      closepath
+   end path
+   if lbl$ <> "" then
+      amove xg(cx)+ld*r*s*cos(m) yg(cy)+ld*r*s*sin(m)
+      if cx+ld*r*cos(m) > 0 then
+         set just left
+      else
+         set just right
+      end if
+      write lbl$
+   end if
+   if pct$ <> "" then
+      amove xg(cx)+pd*r*s*cos(m) yg(cy)+pd*r*s*sin(m)
+      set just center
+      write pct$
+   end if
+end sub"""
+
 
 @dataclass(frozen=True)
 class AxisStyle:
@@ -1028,7 +1065,7 @@ class GLEWriter:
             fontsize_pt_to_cm(self.style.fontsize)
         )
         self._text_state_color: str = "BLACK"
-        self._text_state_just: str = "left"
+        self._text_state_just: Optional[str] = "left"
 
         # Preview-only deresolve decimation (G7; SPEC 6.1/10.7). Per-call,
         # never persisted: see the class docstring and _deresolve_clause.
@@ -1454,6 +1491,7 @@ class GLEWriter:
         yaxis_off: bool = False,
         x2axis_off: bool = False,
         y2axis_off: bool = False,
+        frame_off: bool = False,
         xstyle: Optional[AxisStyle] = None,
         ystyle: Optional[AxisStyle] = None,
         y2style: Optional[AxisStyle] = None,
@@ -1518,6 +1556,11 @@ class GLEWriter:
             top/right sides GLE draws by default). This is what lets several
             graph blocks butt up against each other and read as one panel:
             the inner sides are switched off and the seam is drawn separately.
+        frame_off : bool
+            Hide every axis line and tick mark (``xside off``, ``yside off``,
+            ``xticks off``, ``yticks off``; GLE copies them onto x2/y2) but
+            keep the axes, and with them the graph title, which GLE draws
+            with the top axis and ``x2axis off`` would hide.
         xstyle, ystyle, y2style, x2style : AxisStyle, optional
             Per-axis styling -- tick-label format, grid, axis-title and
             tick-label size/colour/angle. Omitted (or the default
@@ -1629,6 +1672,11 @@ class GLEWriter:
             xlog=xlog,
             x2_series=x2_series,
         )
+        if frame_off:
+            for prefix in ("x", "y"):
+                self.lines_gle.append(f"    {prefix}side off")
+            for prefix in ("x", "y"):
+                self.lines_gle.append(f"    {prefix}ticks off")
 
     def _add_axis_title(
         self, prefix: str, label: Optional[str], style: AxisStyle
@@ -4240,6 +4288,41 @@ class GLEWriter:
             lines.append(f"join {name} {sep} {tip}")
             lines.append("grestore")
             self._pending_graph_text_lines.extend(lines)
+
+    def add_wedge(self, series: Series) -> None:
+        """Queue one pie slice for after ``end graph``.
+
+        ``series`` is a :class:`~gleplot.series.Wedge`. It goes out as a
+        ``gleplot_wedge`` call (:data:`WEDGE_SUB`) in the same deferred block
+        as the text annotations: GLE 4.3.10's PostScript driver loses the
+        font of text written inside a graph-block ``draw`` after the first
+        one, because it caches the font across the ``gsave``/``grestore``
+        GLE wraps each ``draw`` in.
+
+        The sub writes its text in the current height and colour. The height
+        is set here through the same sticky tracker the annotations use. The
+        colour is the block's starting ``BLACK``, because the figure writes
+        an axes' wedges before its annotations. The sub leaves ``set just``
+        changed, so that tracker is cleared and the next annotation states
+        its own.
+        """
+        fontsize = series.get("fontsize")
+        if fontsize is not None:
+            hei_cm = self._format_number(fontsize_pt_to_cm(float(fontsize)))
+            if hei_cm != self._text_state_hei_cm:
+                self._pending_graph_text_lines.append(f"set hei {hei_cm}")
+                self._text_state_hei_cm = hei_cm
+        label = self._escape_gle_string(series.get("label") or "")
+        autotext = self._escape_gle_string(series.get("autotext") or "")
+        num = self._format_number
+        self._pending_graph_text_lines.append(
+            f"gleplot_wedge {num(series['x'])} {num(series['y'])} "
+            f"{num(series['r'])} {num(series['theta1'])} {num(series['theta2'])} "
+            f'"{self._escape_gle_string(series["color"])}" "{label}" '
+            f'{num(series["labeldistance"])} "{autotext}" '
+            f'{num(series["pctdistance"])}'
+        )
+        self._text_state_just = None
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
         """Where ``key separator`` falls, as 1-based legend-entry counts.

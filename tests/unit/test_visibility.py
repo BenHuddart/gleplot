@@ -277,6 +277,7 @@ def _one_of_each_kind():
         np.arange(12, dtype=float).reshape(3, 4),
         levels=[2.0, 6.0],
     )
+    ax2.pie([1.0, 2.0], labels=["p", "q"])
     return fig
 
 

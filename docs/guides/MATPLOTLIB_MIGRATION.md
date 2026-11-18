@@ -12,6 +12,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.scatter(...)` | same |
 | `ax.errorbar(...)` | same |
 | `ax.fill_between(...)` | same |
+| `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
 | `ax.set_xlabel(...)` | same |
 | `ax.set_ylabel(...)` | same |
 | `ax.set_title(...)` | same |
@@ -189,6 +190,26 @@ Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 
 | `ax.barh(y, w)` | `bar dN horiz` |
 
 `width` stays a keyword. The third positional argument is `color`, as it has always been.
+
+## Pie charts
+
+GLE has no pie command. `ax.pie(x)` stores one `Wedge` per value and writes each as a `gleplot_wedge` call after the graph block. The subroutine is defined once at the top of the script, so the output does not depend on GLE's include path. Each wedge is filled with no outline. Its label sits `labeldistance` radii out, and its `autopct` text sits `pctdistance` radii out, as in matplotlib. The radius is measured on the axis with fewer centimetres per unit, so the pie stays round in a subplot that is not square. Both limits are set to `center` ± 1.25. The axis lines, ticks and tick labels are hidden, and the title stays.
+
+```python
+ax.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=90)
+```
+
+| `pie()` argument | gleplot |
+|---|---|
+| `labels`, `colors`, `autopct`, `pctdistance`, `labeldistance`, `startangle`, `radius`, `counterclock`, `center`, `normalize` | wired. Without `colors`, the wedges cycle `'C0'` to `'C9'`. |
+| `textprops` | `fontsize` (alias `size`) sets the text height. Other keys warn. The text is black. |
+| `explode` | warns when an offset is not zero; the wedges are drawn in place. |
+| `wedgeprops` | warns. A donut hole (`width`) and wedge outlines are not drawn. |
+| `shadow`, `hatch`, `rotatelabels` | warn and are ignored. |
+| `frame=True` | keeps the axes, but the limits are still `center` ± 1.25 rather than autoscaled. Warns. |
+| return value | `(wedges, texts)`, or `(wedges, texts, autotexts)` with `autopct`. The texts are the strings drawn, not `Text` objects. |
+
+Labels are drawn beside the wedges; they are not legend entries. The wedges are drawn above anything else plotted on the same axes. A wedge's text height, like an `ax.text` height, stays in force for the text drawn after it on that axes.
 
 ## Histograms
 

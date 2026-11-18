@@ -45,6 +45,8 @@ Plotting helpers
 
 .. autofunction:: gleplot.colorbar
 
+.. autofunction:: gleplot.pie
+
 .. autofunction:: gleplot.text
 
 .. autofunction:: gleplot.annotate

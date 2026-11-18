@@ -10,6 +10,7 @@ from .error_bars import (
 )
 from .heatmap_imshow import example_heatmap_imshow
 from .line_plots import example_basic_line_plot
+from .pie_charts import example_pie_chart
 from .scatter_plots import example_scatter_plot
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "example_errorbar_with_line",
     "example_combined_errorbars",
     "example_heatmap_imshow",
+    "example_pie_chart",
 ]

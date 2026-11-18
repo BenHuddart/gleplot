@@ -332,7 +332,27 @@ def normalize(d: dict) -> dict:
         # are therefore normalized to the STICKY-RESOLVED height, seeded from
         # the style default (the preamble's unconditional 'set hei'), matching
         # the value real GLE would use when rendering each text in sequence.
+        #
+        # Pie wedges are written ahead of the texts and take part in the same
+        # sticky height; their numbers come back at the emitted precision.
         sticky_fs = style.get("fontsize")
+        for s in ax.get("wedges", []):
+            for k in (
+                "x",
+                "y",
+                "r",
+                "theta1",
+                "theta2",
+                "labeldistance",
+                "pctdistance",
+            ):
+                s[k] = _snap_num(s[k])
+            fs = s.get("fontsize")
+            if fs is None:
+                fs = sticky_fs
+            emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
+            s["fontsize"] = fontsize_cm_to_pt(float(emitted))
+            sticky_fs = s["fontsize"]
         for s in ax.get("texts", []):
             fs = s.get("fontsize")
             if fs is None:

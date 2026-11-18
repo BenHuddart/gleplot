@@ -67,6 +67,7 @@ from basic import (
     example_errorbar_with_line,
     example_heatmap_imshow,
     example_horizontal_error_bars,
+    example_pie_chart,
     example_scatter_plot,
     example_symmetric_error_bars,
 )
@@ -77,6 +78,7 @@ EXAMPLES = [
     ("Basic Line Plot", example_basic_line_plot, ["example_basic_line_plot"]),
     ("Scatter Plot", example_scatter_plot, ["example_scatter_plot"]),
     ("Bar Chart", example_bar_chart, ["example_bar_chart"]),
+    ("Pie Chart", example_pie_chart, ["example_pie_chart"]),
     (
         "Symmetric Error Bars",
         example_symmetric_error_bars,
