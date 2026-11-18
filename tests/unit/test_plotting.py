@@ -1801,6 +1801,10 @@ class TestFit:
             self.ax.fit([0, 1], [0, 1, 2], "a*x")
         assert self.ax.fits == []
 
+    def test_rejects_data_that_is_not_numbers(self):
+        with pytest.raises(TypeError, match="fit\\(\\) x must be a sequence"):
+            self.ax.fit(["a", "b"], [1, 2], "k*x")
+
     def test_rejects_data_with_no_finite_point(self):
         with pytest.raises(ValueError, match="at least one point"):
             self.ax.fit([0.0, np.nan], [np.nan, 1.0], "a*x")

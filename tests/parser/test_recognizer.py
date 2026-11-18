@@ -1463,6 +1463,8 @@ def test_a_fit_let_gleplot_cannot_model_stays_raw_in_place(tmp_path, body):
     for line in body:
         if line.startswith("let "):
             assert f"    {line}\n" in written
+    # The fit still has the dataset it reads.
+    assert "d.dat d1=" in written
 
 
 def test_a_fit_let_on_the_callers_own_file_stays_raw(tmp_path):

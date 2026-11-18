@@ -885,7 +885,8 @@ class FitSeries(Series):
 
     The sidecar holds the data, read as a dataset that is never drawn. It
     has no header: GLE keys every dataset a ``let`` uses, so a header would
-    give the data its own legend entry. ``let dK = fit dJ with <expression> [from a] [to b] [step h]`` fits the
+    give the data its own legend entry.
+    ``let dK = fit dJ with <expression> [from a] [to b] [step h]`` fits the
     coefficients and samples the fitted curve, which ``dK line`` draws.
     """
 

@@ -1108,17 +1108,19 @@ def _glued_run(toks: List[Token], start: int) -> Tuple[str, int]:
     return "".join(tok.value for tok in toks[start:end]), end
 
 
-def _read_let_range(toks: List[Token], i: int, fields: Dict[str, Any]) -> bool:
+def _read_let_range(
+    toks: List[Token], i: int, fields: Dict[str, Any], fit: bool = False
+) -> bool:
     """Read ``from``/``to``/``step`` options from ``toks[i:]`` into ``fields``.
 
     Each takes a plain number, so the value written back is the one read.
-    A fit let's ``with <expression>`` is read too, when ``fields`` names
-    a ``_fit_source``. False on any other token, or an option given twice.
+    With ``fit``, a fit let's ``with <expression>`` is read too. False on
+    any other token, or an option given twice.
     """
     names = {"from": "let_from", "to": "let_to", "step": "let_step"}
     while i < len(toks):
         word = toks[i].value.lower()
-        if word == "with" and "_fit_source" in fields and i + 1 < len(toks):
+        if word == "with" and fit and i + 1 < len(toks):
             if "expression" in fields:
                 return False
             expression, i = _glued_run(toks, i + 1)
@@ -4041,7 +4043,7 @@ class _Recognizer:
         if target in info["_function_lets"]:
             return
         fields: Dict[str, Any] = {"_fit_source": source}
-        if _read_let_range(toks, 5, fields) and "expression" in fields:
+        if _read_let_range(toks, 5, fields, fit=True) and "expression" in fields:
             info["_function_lets"][target] = fields
 
     def _keep_plain_function_lets(self, block, pass1: _GraphDatasets, info) -> None:

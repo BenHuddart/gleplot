@@ -2462,8 +2462,15 @@ class Axes:
         The data bounds the x and y ranges, as for :meth:`plot`, and
         ``xmin`` and ``xmax`` widen the x range.
         """
-        x_arr = np.asarray(x, dtype=float).ravel()
-        y_arr = np.asarray(y, dtype=float).ravel()
+        arrays = []
+        for name, value in (("x", x), ("y", y)):
+            try:
+                arrays.append(np.asarray(value, dtype=float).ravel())
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"fit() {name} must be a sequence of numbers, got {value!r}"
+                ) from None
+        x_arr, y_arr = arrays
         if x_arr.shape != y_arr.shape:
             raise ValueError(
                 f"fit() x and y must have the same length, got "
