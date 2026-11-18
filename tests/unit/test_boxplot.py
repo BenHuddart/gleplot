@@ -232,3 +232,50 @@ def test_non_finite_samples_are_rejected():
     _fig, ax = glp.subplots()
     with pytest.raises(ValueError, match="box 1 has NaN"):
         ax.boxplot([[1, 2], [1, float("nan")]])
+
+
+def test_a_user_median_outside_the_whiskers_widens_the_y_range():
+    fig, ax = glp.subplots()
+    ax.boxplot([1, 2, 3, 4], usermedians=[50])
+    assert _setting(_script(fig), "yaxis") == "yaxis min 1 max 50"
+
+
+def test_a_box_near_zero_stays_in_a_log_x_range():
+    fig, ax = glp.subplots()
+    ax.boxplot([[1, 2, 3], [4, 5, 6]], positions=[0.2, 1])
+    ax.set_xscale("log")
+    # The half-unit padding reaches below zero, which the log axis drops.
+    with pytest.warns(UserWarning, match="log-scaled"):
+        text = _script(fig)
+    assert _setting(text, "xaxis").startswith("xaxis min 0.2 max 1.5")
+
+
+def test_numpy_false_and_zero_hide_fliers_and_caps():
+    fig, ax = glp.subplots()
+    ax.boxplot(SAMPLE, showfliers=np.False_, showcaps=0)
+    assert _box_lines(_script(fig)) == ["gleplot_box 1 0.15 0 1 3.25 5.5 7.75 9"]
+
+
+def test_a_string_of_tick_labels_is_one_label_per_character():
+    fig, ax = glp.subplots()
+    ax.boxplot([[1, 2], [3, 4]], tick_labels="ab")
+    assert _setting(_script(fig), "xnames") == 'xnames "a" "b"'
+
+
+def test_matplotlib_defaults_spelled_out_do_not_warn(recwarn):
+    _fig, ax = glp.subplots()
+    ax.boxplot(SAMPLE, notch=False, meanline=0, label="", showbox=True)
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+def test_each_returned_key_is_its_own_list():
+    _fig, ax = glp.subplots()
+    result = ax.boxplot(SAMPLE)
+    result["fliers"].clear()
+    assert len(result["boxes"]) == 1
+
+
+def test_an_array_of_more_than_two_dimensions_is_rejected():
+    _fig, ax = glp.subplots()
+    with pytest.raises(ValueError, match=r"2 or fewer dimensions; got .*\(2, 2, 2\)"):
+        ax.boxplot(np.zeros((2, 2, 2)))

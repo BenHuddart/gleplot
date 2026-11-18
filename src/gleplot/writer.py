@@ -123,12 +123,25 @@ end sub"""
 #: matplotlib's default: 1 pt black lines, a ``'C1'`` median, black open
 #: circle fliers and a ``'C2'`` triangle mean, both of markersize 6. Each sub
 #: saves and restores the graphics state, so it changes no ``set`` state.
+#: Being outside the graph block, nothing clips them: the box is clipped to
+#: the graph's frame (widened by half its line width), and a flier or mean outside the axis ranges is skipped,
+#: as GLE skips a dataset's out-of-range markers.
 BOX_SUB = """sub gleplot_box x w cw lo q1 med q3 hi
    ! Box plot box: from q1 to q3, w data units wide, centred on x, with a
    ! median line at med and whiskers out to lo and hi, capped cw data units
    ! wide (0 draws no caps).
    gsave
    set lwidth 0.03528 color black cap butt
+   ! The clip reaches half a line width past the frame, so a cap or whisker
+   ! lying on the frame is drawn whole.
+   local h = 0.03528/2
+   local x0 = min(xg(xgmin),xg(xgmax))-h
+   local y0 = min(yg(ygmin),yg(ygmax))-h
+   begin clip
+   begin path clip
+      amove x0 y0
+      box max(xg(xgmin),xg(xgmax))+h-x0 max(yg(ygmin),yg(ygmax))+h-y0
+   end path
    amove xg(x-w/2) yg(q1)
    box xg(x+w/2)-xg(x-w/2) yg(q3)-yg(q1)
    amove xg(x) yg(q1)
@@ -144,25 +157,30 @@ BOX_SUB = """sub gleplot_box x w cw lo q1 med q3 hi
    set color rgb255(255,127,14)
    amove xg(x-w/2) yg(med)
    aline xg(x+w/2) yg(med)
+   end clip
    grestore
 end sub
 
 sub gleplot_box_flier x y
-   ! One point beyond a box plot whisker.
-   gsave
-   set lwidth 0.03528 color black
-   amove xg(x) yg(y)
-   marker circle 0.15
-   grestore
+   ! One point beyond a box plot whisker, if inside the axis ranges.
+   if (x >= xgmin) and (x <= xgmax) and (y >= ygmin) and (y <= ygmax) then
+      gsave
+      set lwidth 0.03528 color black
+      amove xg(x) yg(y)
+      marker circle 0.15
+      grestore
+   end if
 end sub
 
 sub gleplot_box_mean x y
-   ! A box plot mean.
-   gsave
-   set color rgb255(44,160,44)
-   amove xg(x) yg(y)
-   marker ftriangle 0.15
-   grestore
+   ! A box plot mean, if inside the axis ranges.
+   if (x >= xgmin) and (x <= xgmax) and (y >= ygmin) and (y <= ygmax) then
+      gsave
+      set color rgb255(44,160,44)
+      amove xg(x) yg(y)
+      marker ftriangle 0.15
+      grestore
+   end if
 end sub"""
 
 

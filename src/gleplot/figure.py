@@ -3174,13 +3174,12 @@ class Figure:
                     xmax = float(x1)
 
         # A box spans its width, and at least half a unit either side of its
-        # position: matplotlib's boxplot widens the x range to that.
+        # position: matplotlib's boxplot widens the x range to that. On a log
+        # axis a padded end at or below zero drops out, the position stays.
         for box in resolution.visible(ax.boxes):
+            pos = float(box["x"])
             half = max(0.5, float(box["width"]) / 2)
-            ends = _plottable(
-                np.array([box["x"] - half, box["x"] + half], dtype=float),
-                positive_only,
-            )
+            ends = _plottable(np.array([pos - half, pos, pos + half]), positive_only)
             if len(ends) > 0:
                 if xmin is None or ends.min() < xmin:
                     xmin = float(ends.min())
@@ -3313,7 +3312,7 @@ class Figure:
                     ymax = float(y1)
 
         for box in resolution.visible(ax.boxes):
-            parts = [box["whislo"], box["q1"], box["q3"], box["whishi"]]
+            parts = [box["whislo"], box["q1"], box["med"], box["q3"], box["whishi"]]
             parts.extend(box["fliers"])
             if box.get("mean") is not None:
                 parts.append(box["mean"])

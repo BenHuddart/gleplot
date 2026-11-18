@@ -247,7 +247,7 @@ ax.boxplot(samples, widths=0.4, tick_labels=["a", "b", "c"])
 | `zorder`, `label`, `data` | warn and are ignored. Boxes have no legend entry. |
 | return value | a dict with matplotlib's keys (`'boxes'`, `'medians'`, `'whiskers'`, `'caps'`, `'fliers'`, `'means'`), each holding the list of `Box` entries. One entry holds every part of its box; there are no `Line2D` objects. |
 
-Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are drawn above anything else plotted on the same axes. The x range covers each box and half a unit either side of its position, and the y range covers the whiskers and the drawn fliers and means, with no margin.
+Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are drawn above anything else plotted on the same axes, clipped to the frame (a whisker or cap lying on the frame is drawn whole); a flier or mean outside the axis ranges is not drawn. The x range covers each box and half a unit either side of its position, whatever `manage_ticks` is, and the y range covers the whiskers, the median and the drawn fliers and means, with no margin.
 
 ## Histograms
 

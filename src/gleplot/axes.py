@@ -4919,9 +4919,11 @@ class Axes:
         Notes
         -----
         The boxes are drawn after the graph block, above the axes' other
-        series. The x range covers each box and half a unit either side of
-        its position, as matplotlib's does; the y range covers the whiskers
-        and the drawn fliers and means.
+        series, clipped to the frame; a flier or mean outside the axis
+        ranges is not drawn. The x range covers each box and half a unit
+        either side of its position, as matplotlib's does with
+        ``manage_ticks``; the y range covers the whiskers, the median and
+        the drawn fliers and means.
         """
         if vert is not None:
             orientation = "vertical" if vert else "horizontal"
@@ -4931,6 +4933,11 @@ class Axes:
                 "'vertical' box plots can be drawn."
             )
 
+        if isinstance(x, np.ndarray) and x.ndim > 2:
+            raise ValueError(
+                f"boxplot(x) must have 2 or fewer dimensions; got an array of "
+                f"shape {x.shape}."
+            )
         if isinstance(x, np.ndarray) and x.ndim == 2:
             groups = [x[:, j] for j in range(x.shape[1])]
         elif isinstance(x, np.ndarray) or all(np.ndim(v) == 0 for v in x):
@@ -4949,7 +4956,7 @@ class Axes:
         def per_box(name, value, default):
             if value is None:
                 return list(default)
-            if np.ndim(value) == 0:
+            if np.ndim(value) == 0 and not isinstance(value, str):
                 return [value] * n
             items = list(value)
             if len(items) != n:
@@ -4976,6 +4983,8 @@ class Axes:
                 f"boxplot(whis={whis!r}) must be a number, or a pair of "
                 "percentiles such as (5, 95)."
             )
+        showcaps = True if showcaps is None else bool(showcaps)
+        showfliers = True if showfliers is None else bool(showfliers)
         if sym == "":
             showfliers = False
         elif sym is not None:
@@ -4983,24 +4992,24 @@ class Axes:
                 f"boxplot(sym={sym!r}) is not supported; fliers are drawn as "
                 "black open circles. Pass sym='' to hide them."
             )
-        for name, value in (
-            ("notch", notch),
-            ("patch_artist", patch_artist),
-            ("bootstrap", bootstrap),
-            ("conf_intervals", conf_intervals),
-            ("meanline", meanline),
-            ("showbox", showbox is False),
-            ("boxprops", boxprops),
-            ("flierprops", flierprops),
-            ("medianprops", medianprops),
-            ("meanprops", meanprops),
-            ("capprops", capprops),
-            ("whiskerprops", whiskerprops),
+        for name, asked in (
+            ("notch", bool(notch)),
+            ("patch_artist", bool(patch_artist)),
+            ("bootstrap", bootstrap is not None),
+            ("conf_intervals", conf_intervals is not None),
+            ("meanline", bool(meanline)),
+            ("showbox", showbox is not None and not showbox),
+            ("boxprops", boxprops is not None),
+            ("flierprops", flierprops is not None),
+            ("medianprops", medianprops is not None),
+            ("meanprops", meanprops is not None),
+            ("capprops", capprops is not None),
+            ("whiskerprops", whiskerprops is not None),
             ("zorder", zorder is not None),
-            ("label", label),
+            ("label", label is not None and len(label) > 0),
             ("data", data is not None),
         ):
-            if value is not None and value is not False:
+            if asked:
                 warn_external(
                     f"boxplot({name}=...) is not supported and was ignored. "
                     "See the matplotlib migration guide."
@@ -5030,13 +5039,13 @@ class Axes:
                 type="box",
                 x=pos[i],
                 width=box_widths[i],
-                capwidth=cap_widths[i] if showcaps is not False else 0.0,
+                capwidth=cap_widths[i] if showcaps else 0.0,
                 whislo=float(whislo),
                 q1=q1,
                 med=med if medians[i] is None else float(medians[i]),
                 q3=q3,
                 whishi=float(whishi),
-                fliers=[float(f) for f in fliers] if showfliers is not False else [],
+                fliers=[float(f) for f in fliers] if showfliers else [],
                 mean=float(values.mean()) if showmeans else None,
             )
             self.boxes.append(entry)
@@ -5054,7 +5063,7 @@ class Axes:
                 self.xnames = old + new
             self.xplaces = places + pos
         keys = ("whiskers", "caps", "boxes", "medians", "fliers", "means")
-        return {key: boxes for key in keys}
+        return {key: list(boxes) for key in keys}
 
     # -- heatmaps & contours --------------------------------------------
 
