@@ -1272,6 +1272,7 @@ class Figure:
                 "heatmap's axes, so cax is ignored. Pass ax= (or nothing) instead."
             )
         hm = self._colorbar_heatmap(mappable, ax)
+        owner = next(a for a in self.axes_list if any(h is hm for h in a.heatmaps))
 
         values = hm["z"] if hm["source"] == "grid" else hm["zpts"]
         have_values = values is not None and np.asarray(values).size > 0
@@ -1293,7 +1294,7 @@ class Figure:
             else:
                 sep = 0.3
         cb = {
-            "label": bearing[0]._text(label),
+            "label": owner._text(label),
             "format": str(format),
             "width": float(width),
             "sep": float(sep),
