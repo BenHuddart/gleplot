@@ -212,6 +212,53 @@ class TestTextAnnotations:
         with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", transform="axes")
         assert self.ax.texts[-1]["text"] == "x"
+        assert "transform" not in self.ax.texts[-1]
+
+
+class TestAxesFractionText:
+    """``Axes.text(transform=ax.transAxes)`` places text in frame fractions."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
+        glp.close()
+        self.fig = glp.figure()
+        self.ax = self.fig.add_subplot(111)
+        self.ax.plot([0, 1, 2], [0, 1, 0])
+        yield
+        glp.close()
+
+    def test_trans_axes_measures_the_frame_gle_drew(self):
+        self.ax.text(0.05, 0.95, "(b)", transform=self.ax.transAxes, va="top")
+        assert self.ax.texts[0]["transform"] == "axes"
+        gle = self.fig._generate_gle()
+        assert (
+            "amove min(xg(xgmin),xg(xgmax))+0.05*abs(xg(xgmax)-xg(xgmin)) "
+            "min(yg(ygmin),yg(ygmax))+0.95*abs(yg(ygmax)-yg(ygmin))"
+        ) in gle
+        assert gle.index("end graph") < gle.index('write "(b)"')
+
+    def test_trans_data_is_the_default(self):
+        self.ax.text(1, 0.5, "d", transform=self.ax.transData)
+        assert "transform" not in self.ax.texts[0]
+        assert "amove xg(1) yg(0.5)" in self.fig._generate_gle()
+
+    def test_another_axes_transform_warns_and_reads_data(self):
+        other = self.fig.add_subplot(122)
+        with pytest.warns(UserWarning, match="different axes"):
+            self.ax.text(1, 0.5, "d", transform=other.transAxes)
+        assert "transform" not in self.ax.texts[0]
+
+    def test_round_trips_through_the_parser(self, tmp_path):
+        from gleplot.parser.recognizer import parse_gle_figure
+
+        self.ax.text(1, 0.5, "data")
+        self.ax.text(0.5, -0.1, "frac", transform=self.ax.transAxes, ha="center")
+        path = str(tmp_path / "t.gle")
+        self.fig.savefig_gle(path)
+        data, frac = parse_gle_figure(path).figure.axes_list[0].texts
+        assert "transform" not in data
+        assert (frac["x"], frac["y"], frac["transform"]) == (0.5, -0.1, "axes")
+        assert frac["ha"] == "center"
 
 
 class TestAnnotate:

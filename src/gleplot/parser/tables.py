@@ -310,8 +310,9 @@ LEGEND_SPACING_TO_KEY: Dict[str, str] = {
     "borderpad": "margins",
 }
 
-# A ``begin key`` ``absolute`` coordinate for an axes fraction ``{}`` of the
-# graph that has just ended. ``min``/``abs`` keep fraction 0 at the left
+# A page coordinate for an axes fraction ``{}`` of the graph that has just
+# ended: a ``begin key`` ``absolute`` anchor, or the ``amove`` of an
+# ``Axes.text(transform=ax.transAxes)``. ``min``/``abs`` keep fraction 0 at the left
 # (bottom) of the box on a ``negate`` axis, as matplotlib's axes coordinates do.
 KEY_ANCHOR_X = "min(xg(xgmin),xg(xgmax))+{}*abs(xg(xgmax)-xg(xgmin))"
 KEY_ANCHOR_Y = "min(yg(ygmin),yg(ygmax))+{}*abs(yg(ygmax)-yg(ygmin))"

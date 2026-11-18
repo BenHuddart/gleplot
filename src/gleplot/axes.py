@@ -97,6 +97,23 @@ def _cartesian_only(method: _Method) -> _Method:
     return cast(_Method, wrapper)
 
 
+class _Transform:
+    """``Axes.transAxes`` / ``Axes.transData``: a coordinate system ``text`` reads.
+
+    Only a marker. gleplot draws no transform itself: the GLE script places
+    axes-fraction text against the graph box GLE drew.
+    """
+
+    __slots__ = ("axes", "kind")
+
+    def __init__(self, axes: "Axes", kind: str):
+        self.axes = axes
+        self.kind = kind
+
+    def __repr__(self) -> str:
+        return f"<gleplot {self.kind} transform>"
+
+
 # Global counter for unique data file names across all figures in a session
 _global_data_file_counter = 0
 
@@ -5072,7 +5089,8 @@ class Axes:
         Parameters
         ----------
         x, y : float
-            Data coordinates.
+            Data coordinates, or axes fractions with
+            ``transform=ax.transAxes``.
         s : str
             Text to render.
         color : str, optional
@@ -5094,10 +5112,24 @@ class Axes:
         rotation : float, optional
             Counter-clockwise rotation in degrees about the alignment point
             (GLE ``begin rotate``). ``0`` omits the block.
+        transform : optional
+            ``ax.transAxes`` reads ``x`` and ``y`` as fractions of this axes'
+            frame: ``(0, 0)`` is its bottom-left corner and ``(1, 1)`` its
+            top-right, whatever the limits, scale or direction of the axes.
+            ``ax.transData`` (or leaving it out) means data coordinates. Any
+            other transform warns and the position is read as data
+            coordinates.
         **kwargs
             Any other matplotlib text keyword warns and is ignored. This is
             not a general page-drawing API.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, ax = glp.subplots()
+        >>> _ = ax.text(0.05, 0.95, "(b)", transform=ax.transAxes, va="top")
         """
+        transform = self._text_transform(kwargs.pop("transform", None))
         fields = self._text_fields(
             "text",
             x,
@@ -5111,8 +5143,45 @@ class Axes:
             rotation=rotation,
             kwargs=kwargs,
         )
+        if transform is not None:
+            fields["transform"] = transform
         self.texts.append(TextAnnotation(**fields))
         return self
+
+    def _text_transform(self, transform) -> Optional[str]:
+        """The ``TextAnnotation.transform`` for ``text(transform=...)``.
+
+        None is data coordinates, the absent field.
+        """
+        if transform is None:
+            return None
+        if isinstance(transform, _Transform) and transform.axes is self:
+            return None if transform.kind == "data" else transform.kind
+        if isinstance(transform, _Transform):
+            reason = "it belongs to a different axes"
+        else:
+            reason = "only this axes' transAxes and transData are supported"
+        warn_external(
+            f"text(transform={transform!r}) was ignored: {reason}. The "
+            "position was read as data coordinates. Call text() on the axes "
+            "the transform belongs to, with transform=ax.transAxes for axes "
+            "fractions.",
+        )
+        return None
+
+    @property
+    def transAxes(self) -> _Transform:
+        """Axes fractions, for ``text(transform=ax.transAxes)``.
+
+        ``(0, 0)`` is the bottom-left corner of the frame and ``(1, 1)`` the
+        top-right, as in matplotlib.
+        """
+        return _Transform(self, "axes")
+
+    @property
+    def transData(self) -> _Transform:
+        """Data coordinates, for ``text(transform=ax.transData)``: the default."""
+        return _Transform(self, "data")
 
     def _text_fields(
         self, caller, x, y, s, *, color, fontsize, ha, va, bbox, rotation, kwargs

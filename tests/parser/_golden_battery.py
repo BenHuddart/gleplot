@@ -249,6 +249,31 @@ def text_annotations():
     return fig
 
 
+def axes_fraction_text():
+    """Text in axes fractions (``transform=ax.transAxes``) on a log x axis
+    and an inverted y axis, around a data-coordinate text that shares its
+    sticky ``set`` state."""
+    fig, axes = glp.subplots(1, 2, data_prefix="golden")
+    left, right = axes
+    left.plot([1, 10, 100], [1, 2, 3])
+    left.set_xscale("log")
+    left.text(0.05, 0.95, "(a)", transform=left.transAxes, ha="left", va="top")
+    left.text(10, 2, "data", transform=left.transData)
+    left.text(
+        0.5,
+        0.1,
+        "boxed",
+        transform=left.transAxes,
+        ha="center",
+        rotation=30,
+        bbox={"facecolor": "yellow"},
+    )
+    right.plot([0, 1], [0, 1])
+    right.set_ylim(1, 0)
+    right.text(1.02, -0.05, "(b)", transform=right.transAxes, color="red")
+    return fig
+
+
 def annotations_with_arrows():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1490,6 +1515,7 @@ BUILDERS = [
     errorbar_field_options,
     fill_between,
     text_annotations,
+    axes_fraction_text,
     annotations_with_arrows,
     secondary_yaxis,
     axis_helpers,

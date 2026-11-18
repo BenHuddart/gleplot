@@ -1171,7 +1171,7 @@ class FileSeries(Series):
 
 
 class TextAnnotation(Series):
-    """Free-form text drawn in data coordinates -- ``Axes.text``.
+    """Free-form text drawn in data coordinates or axes fractions -- ``Axes.text``.
 
     The one kind with no ``visible`` field: SPEC 7.5's structure tree lists
     texts as their own branch beside the series, and G11 is per-*series*
@@ -1192,6 +1192,9 @@ class TextAnnotation(Series):
     #: rotate``, which rotates about the current point). Absent means 0, so
     #: a text that does not rotate keeps the historical dict shape.
     rotation: float
+    #: ``'axes'``: ``x`` and ``y`` are fractions of the frame
+    #: (``Axes.text(transform=ax.transAxes)``). Absent means data coordinates.
+    transform: str
     #: ``Axes.annotate`` arrow, all absent on a plain text. ``xy`` is the
     #: arrow tip ``[x, y]`` in data coordinates; ``arrow`` is the GLE
     #: ``join`` separator (``'->'``, ``'<-'``, ``'<->'`` or ``'-'``);

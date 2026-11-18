@@ -5004,11 +5004,16 @@ class GLEWriter:
         self.add_text_annotation(series)
 
     def add_text_annotation(self, series: Series):
-        """Add text annotation in graph data coordinates.
+        """Add text annotation in graph data coordinates or axes fractions.
 
         ``series`` is a :class:`~gleplot.series.TextAnnotation`: ``x``,
         ``y`` and ``text`` are required, and every other field is read with
         the default its absence has always meant.
+
+        With ``transform='axes'``, ``x`` and ``y`` are fractions of the frame
+        GLE drew, in the ``KEY_ANCHOR_X``/``_Y`` form a ``bbox_to_anchor``
+        legend uses. The text is written after ``end graph``, where
+        ``xgmin`` ... ``ygmax`` still describe this graph.
 
         ``va`` selects the other half of GLE's ``set just`` (``t``/``c``/``b``).
         ``rotation`` is degrees counter-clockwise. GLE's ``begin rotate`` turns
@@ -5058,9 +5063,14 @@ class GLEWriter:
             self._pending_graph_text_lines.append(f"set just {just}")
             self._text_state_just = just
 
-        self._pending_graph_text_lines.append(
-            f"amove xg({self._format_number(x)}) yg({self._format_number(y)})"
-        )
+        if series.get("transform") == "axes":
+            position = (
+                f"{KEY_ANCHOR_X.format(self._format_number(x))} "
+                f"{KEY_ANCHOR_Y.format(self._format_number(y))}"
+            )
+        else:
+            position = f"xg({self._format_number(x)}) yg({self._format_number(y)})"
+        self._pending_graph_text_lines.append(f"amove {position}")
         # Same zero cut as ``_format_number``: an angle it would print as ``0``
         # is not a rotation, and emitting ``begin rotate 0`` would not round
         # trip back to an absent ``rotation`` field.
