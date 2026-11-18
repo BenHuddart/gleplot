@@ -1350,7 +1350,8 @@ class GLEWriter:
         Includes:
         - Page size setup
         - Font configuration (from style config)
-        - Line cap, join and dash length (from style config, when set)
+        - Line cap, join and dash length, and LaTeX labels (from style
+          config, when set)
         - Optionally begins the first graph block
 
         Parameters
@@ -1419,6 +1420,8 @@ class GLEWriter:
             # Not _format_number: its 6 digits would alter a hand-written
             # value on re-save, and it writes a tiny length as 0.
             self.lines_gle.append(f"set dashlen {float(self.style.dashlen):.15g}")
+        if self.style.usetex:
+            self.lines_gle.append("set texlabels 1")
         if passthrough_before_hei:
             self.lines_gle.extend(passthrough_before_hei)
         self.lines_gle.extend(

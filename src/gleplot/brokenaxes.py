@@ -45,7 +45,6 @@ from typing import List, Optional, Sequence, Tuple, cast
 
 from ._warn import warn_external
 from .axes import Axes
-from .mathtext import mathtext_to_gle
 
 #: Accepted ``divider`` styles.
 DIVIDER_STYLES = ("none", "line", "slash")
@@ -453,12 +452,12 @@ class BrokenAxes:
 
     def set_xlabel(self, label: str):
         """Set the x title, drawn centred under the whole assembly."""
-        self.xlabel_text = mathtext_to_gle(label)
+        self.xlabel_text = self.segments[0]._text(label)
         return self
 
     def set_title(self, label: str):
         """Set the title, drawn centred above the whole assembly."""
-        self.title_text = mathtext_to_gle(label)
+        self.title_text = self.segments[0]._text(label)
         return self
 
     def set_ylabel(self, label: str, axis: str = "y"):

@@ -93,6 +93,32 @@ thick dashed line can read as dotted until `dashlen` is raised. matplotlib's
 per-line `solid_capstyle` and friends are covered in
 [Migrating from matplotlib](MATPLOTLIB_MIGRATION.md).
 
+### LaTeX Labels (`usetex`)
+
+`usetex=True` typesets every label with LaTeX, as matplotlib's `text.usetex`
+does, so a figure for a LaTeX document can share its fonts and math:
+
+    fig = glp.figure(style=glp.GLEStyleConfig(usetex=True))
+    ax = fig.add_subplot(111)
+    ax.set_xlabel(r'$\mu_0 H$ (T)')
+    fig.savefig('plot.pdf')
+
+The script gets GLE's `set texlabels 1`. Titles, axis labels, tick labels,
+legend entries, `text` and `annotate` strings reach LaTeX as written: `$...$`
+is LaTeX math rather than gleplot's mathtext translation, and text outside it
+must be valid LaTeX, so an underscore is `\_` and a percent sign `\%` (pie
+`autopct` percent signs are escaped for you, as in matplotlib). Set it when
+creating the figure: a label set before `usetex` was turned on keeps its GLE
+markup. The `font` setting does not reach LaTeX labels, and their size is the
+standard LaTeX size nearest `fontsize`.
+
+Saving the `.gle` script needs nothing extra. Compiling needs a LaTeX
+installation that GLE can run, and a LaTeX error fails the compile with
+LaTeX's message in the `GLECompileError`. PDF, EPS, PNG and JPG work; SVG
+raises `ValueError`, because GLE cannot put LaTeX in SVG. GLE keeps LaTeX's
+working files in a `.gle` directory beside the script, which is safe to
+delete.
+
 ## Graph Configuration (GLEGraphConfig)
 
 Controls graph layout and rendering:

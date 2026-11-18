@@ -1631,3 +1631,54 @@ def test_line_state_that_cannot_be_modelled_stays_raw(tmp_path, preamble, cap):
     rec.figure.savefig_gle(str(out))
     text = out.read_text(encoding="utf-8")
     assert "\n".join(raw) in text
+
+
+def test_hand_written_texlabels_is_recognized_and_labels_stay_latex(tmp_path):
+    src = (
+        "size 10 8\n"
+        "set texlabels 1\n"
+        "set hei 0.4\n"
+        "begin graph\n"
+        '   xtitle "$\\mu_0 H$ (T)"\n'
+        "   xaxis min 0 max 1\n"
+        "end graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src))
+    fig = rec.figure
+    assert fig.style.usetex is True
+    assert fig.passthrough_header == []
+    ax = fig.axes_list[0]
+    assert ax.xlabel_text == r"$\mu_0 H$ (T)"
+    # A label set after loading also reaches LaTeX untranslated.
+    ax.set_ylabel(r"$\chi$")
+    assert ax.ylabel_text == r"$\chi$"
+    out = tmp_path / "again.gle"
+    fig.savefig_gle(str(out))
+    assert "set texlabels 1\nset hei 0.4\n" in out.read_text(encoding="utf-8")
+
+
+def test_texlabels_after_a_texpreamble_block_is_recognized(tmp_path):
+    block = ["begin texpreamble", "   \\usepackage{amsmath}", "end texpreamble"]
+    src = (
+        "size 10 8\n" + "\n".join(block) + "\nset texlabels 1\nbegin graph\nend graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src))
+    assert rec.figure.style.usetex is True
+    assert rec.figure.passthrough_header == block
+
+
+@pytest.mark.parametrize(
+    "preamble",
+    [
+        # GLE's own default; recognizing it would drop the line.
+        "set texlabels 0",
+        # After a drawing statement: moving it up would send that text to LaTeX.
+        'amove 1 1\nwrite "a_b"\nset texlabels 1',
+        "set texlabels 1 ! LaTeX",
+    ],
+)
+def test_texlabels_that_cannot_be_modelled_stays_raw(tmp_path, preamble):
+    src = "size 10 8\nset hei 0.4\n" + preamble + "\nbegin graph\nend graph\n"
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src))
+    assert rec.figure.style.usetex is False
+    assert rec.figure.passthrough_header == preamble.splitlines()
