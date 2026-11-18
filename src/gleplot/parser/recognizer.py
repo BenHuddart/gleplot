@@ -332,6 +332,7 @@ from ..writer import (
     MDATA_SUB_PREFIX,
     POLAR_GRID_LAYER,
     GLEWriter,
+    polar_degree_mark,
     polar_label_decimals,
     polar_ring_step,
     polar_window,
@@ -1548,6 +1549,8 @@ class _Recognizer:
         # The radial limit of the polar axes whose label call the text
         # cluster after its graph may start with; None when none is due.
         self._polar_labels_rmax: Optional[float] = None
+        # The degree mark that call ends with (GLE or LaTeX text).
+        self._polar_degree = polar_degree_mark(False)
         # Contour/heatmap recognition state.
         # Line numbers spanned by gleplot_<name> subroutine definitions
         # (palette / colorbar / contour-labels). Dropped everywhere, like the
@@ -1717,6 +1720,7 @@ class _Recognizer:
 
         # Build style/graph/marker configs.
         style = GLEStyleConfig(**page_state)
+        self._polar_degree = polar_degree_mark(bool(style.usetex))
         style.font = font
         style.fontsize = fontsize
         graph_cfg = GLEGraphConfig()
@@ -8052,9 +8056,9 @@ class _Recognizer:
     def _is_polar_labels_call(self, stmt) -> bool:
         """Whether ``stmt`` is the label call of the polar axes just parsed.
 
-        It must be ``gleplot_polar_labels rmax step dp`` with the values
+        It must be ``gleplot_polar_labels rmax step dp deg$`` with the values
         :meth:`gleplot.writer.GLEWriter.add_polar_frame` writes for that
-        axes' radial limit.
+        axes' radial limit and the figure's ``usetex``.
         """
         rmax = self._polar_labels_rmax
         if rmax is None:
@@ -8062,9 +8066,13 @@ class _Recognizer:
         step = polar_ring_step(rmax)
         expected = [rmax, step, polar_label_decimals(step)]
         args = self._guide_call_args(_words_and_values(stmt), 1)
-        return len(args) == 3 and all(
-            isinstance(v, (int, float)) and float(v) == e
-            for v, e in zip(args, expected)
+        return (
+            len(args) == 4
+            and args[3] == self._polar_degree
+            and all(
+                isinstance(v, (int, float)) and float(v) == e
+                for v, e in zip(args[:3], expected)
+            )
         )
 
     def _wedge_call(self, stmt) -> Optional[Wedge]:

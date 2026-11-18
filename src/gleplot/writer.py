@@ -246,10 +246,10 @@ POLAR_SUB = """sub gleplot_polar_grid rmax step
    grestore
 end sub
 
-sub gleplot_polar_labels rmax step dp
+sub gleplot_polar_labels rmax step dp deg$
    ! Polar tick labels: the angle every 45 degrees outside the rmax ring,
-   ! and each ring's radius with dp decimals along 22.5 degrees. Text uses
-   ! the current hei and colour.
+   ! followed by deg$, and each ring's radius with dp decimals along 22.5
+   ! degrees. Text uses the current hei and colour.
    gsave
    local s = xg(1)-xg(0)
    local a = 0
@@ -258,7 +258,7 @@ sub gleplot_polar_labels rmax step dp
    set just cc
    for k = 0 to 7
       a = k*pi/4
-      t$ = format$(45*k,"fix 0")+"^{\\circ}"
+      t$ = format$(45*k,"fix 0")+deg$
       d = rmax*s+0.15+(abs(cos(a))*twidth(t$)+abs(sin(a))*theight(t$))/2
       amove xg(0)+d*cos(a) yg(0)+d*sin(a)
       write t$
@@ -287,6 +287,11 @@ def polar_ring_step(rmax: float) -> float:
         if factor * magnitude >= raw * (1 - 1e-9):
             return float(f"{factor * magnitude:.6g}")
     return 10.0 * magnitude  # pragma: no cover - 10 always qualifies
+
+
+def polar_degree_mark(usetex: bool) -> str:
+    """The degree sign after a polar angle label, in GLE or LaTeX text."""
+    return "$^{\\circ}$" if usetex else "^{\\circ}"
 
 
 def polar_label_decimals(step: float) -> int:
@@ -4985,7 +4990,7 @@ class GLEWriter:
         self.lines_gle.append("    end layer")
         self._pending_graph_text_lines.append(
             f"gleplot_polar_labels {num(rmax)} {num(step)} "
-            f"{polar_label_decimals(step)}"
+            f'{polar_label_decimals(step)} "{polar_degree_mark(self.style.usetex)}"'
         )
         self._polar_graph = True
 

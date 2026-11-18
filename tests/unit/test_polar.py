@@ -100,8 +100,20 @@ def test_the_labels_are_written_after_end_graph():
     fig, ax = _polar()
     ax.plot([0, 1], [1, 2])
     _lines, text = _graph_lines(fig)
-    after = text.split("end graph", 1)[1].split()
-    assert after[:6] == ["gsave", "gleplot_polar_labels", "2", "0.5", "1", "grestore"]
+    after = text.split("end graph", 1)[1].splitlines()
+    assert after[1:4] == [
+        "gsave",
+        'gleplot_polar_labels 2 0.5 1 "^{\\circ}"',
+        "grestore",
+    ]
+
+
+def test_with_usetex_the_degree_mark_is_latex_math():
+    style = glp.GLEStyleConfig(usetex=True)
+    fig = glp.figure(data_prefix="pl", style=style)
+    fig.add_subplot(projection="polar").plot([0, 1], [1, 2])
+    _lines, text = _graph_lines(fig)
+    assert 'gleplot_polar_labels 2 0.5 1 "$^{\\circ}$"' in text
 
 
 def test_a_cartesian_axes_beside_a_polar_one_is_unchanged():

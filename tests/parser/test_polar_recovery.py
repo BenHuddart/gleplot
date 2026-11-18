@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
 
@@ -84,7 +86,7 @@ def test_a_grid_with_another_ring_step_stays_raw(tmp_path):
 
 def test_a_missing_label_call_is_noted(tmp_path):
     path = _written(tmp_path)
-    text = path.read_text().replace("gleplot_polar_labels 2.5 0.5 1\n", "")
+    text = re.sub(r"gleplot_polar_labels .*\n", "", path.read_text())
     recognized = _recognize(path, text)
     assert recognized.figure.axes_list[0]._polar
     assert any("gleplot_polar_labels" in w for w in recognized.warnings)
@@ -193,4 +195,12 @@ def test_a_blank_line_before_the_label_call_is_tolerated(tmp_path):
     again = tmp_path / "again.gle"
     recognized.figure.savefig(str(again))
     assert again.read_text().count("gleplot_polar_labels 2.5") == 1
+    assert recognized.warnings == []
+
+
+def test_a_usetex_polar_axes_round_trips(tmp_path):
+    fig = glp.figure(data_prefix="pr", style=glp.GLEStyleConfig(usetex=True))
+    fig.add_subplot(projection="polar").plot([0, 1], [1, 2])
+    first, second, recognized = _round_trip(tmp_path, fig)
+    assert second == first
     assert recognized.warnings == []
