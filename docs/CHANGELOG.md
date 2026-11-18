@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v4.4.0 (2026-11-18)
+
+### Features
+
+- Axes.image raises NotImplementedError on a polar axes
+  ([#59](https://github.com/BenHuddart/gleplot/pull/59),
+  [`895f3c7`](https://github.com/BenHuddart/gleplot/commit/895f3c7895d08187a93a8b7b04314621f091ace9))
+
+- Place image files in data coordinates with Axes.image
+  ([#59](https://github.com/BenHuddart/gleplot/pull/59),
+  [`ec71e09`](https://github.com/BenHuddart/gleplot/commit/ec71e09b4a72547a93716ff637b8f8881a6d6f04))
+
+- Review fixes for Axes.image ([#59](https://github.com/BenHuddart/gleplot/pull/59),
+  [`b57b781`](https://github.com/BenHuddart/gleplot/commit/b57b7810bf6745deae2d38901b636971c2857dee))
+
+
 ## v4.3.0 (2026-11-18)
 
 ### Features
