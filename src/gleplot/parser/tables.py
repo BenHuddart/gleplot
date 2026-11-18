@@ -32,6 +32,7 @@ Provenance is documented per table below.
 
 from __future__ import annotations
 
+import re
 from typing import Dict, Optional, Tuple
 
 from .. import markers as _markers
@@ -67,6 +68,9 @@ __all__ = [
     "CMAP_TO_PALETTE_SUB",
     "FIT_MODEL_TO_ROUTINE",
     "FIT_ROUTINE_TO_MODEL",
+    "FIT_RESULT_PLACEHOLDERS",
+    "FIT_PLACEHOLDER_RE",
+    "FIT_PLACEHOLDER_SPEC_RE",
 ]
 
 
@@ -465,3 +469,25 @@ FIT_MODEL_TO_ROUTINE: Dict[str, str] = {
 }
 
 FIT_ROUTINE_TO_MODEL: Dict[str, str] = {v: k for k, v in FIT_MODEL_TO_ROUTINE.items()}
+
+#: The label placeholders a model fit fills from its routine's result
+#: variables, in the order GLE writes those: ``let dK = linfit dJ v1 v2 v3``.
+#: ``logefit``, ``log10fit`` and ``powxfit`` store the exponent ``b`` first
+#: and the prefactor ``a`` second, the reverse of the GLE manual (measured
+#: on GLE 4.3.10).
+FIT_RESULT_PLACEHOLDERS: Dict[str, Tuple[str, str, str]] = {
+    "linear": ("slope", "offset", "rsq"),
+    "exp": ("exponent", "prefactor", "rsq"),
+    "exp10": ("exponent", "prefactor", "rsq"),
+    "power": ("exponent", "prefactor", "rsq"),
+}
+
+#: A result placeholder in a model fit's label, ``{name}`` or
+#: ``{name:spec}``; the spec is checked against
+#: :data:`FIT_PLACEHOLDER_SPEC_RE`.
+FIT_PLACEHOLDER_RE = re.compile(
+    r"\{(slope|offset|prefactor|exponent|rsq)(?::([^{}]*))?\}"
+)
+
+#: The placeholder specs GLE's ``format$`` can match: ``.Nf`` and ``.Ne``.
+FIT_PLACEHOLDER_SPEC_RE = re.compile(r"\.(\d+)([fe])")

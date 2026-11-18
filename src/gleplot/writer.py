@@ -44,6 +44,9 @@ from .parser.tables import (
     ARROW_JOIN_SEPS,
     ARROW_TIP_STYLES,
     FIT_MODEL_TO_ROUTINE,
+    FIT_PLACEHOLDER_RE,
+    FIT_PLACEHOLDER_SPEC_RE,
+    FIT_RESULT_PLACEHOLDERS,
     KEY_ANCHOR_X,
     KEY_ANCHOR_Y,
     KEY_POSITIONS_LONG_TO_SHORT,
@@ -1386,6 +1389,13 @@ class GLEWriter:
         # (``graph_x1``/``graph_y2`` in key.cpp). Cleared on flush so a
         # later subplot cannot inherit it.
         self._external_legend: Optional[List[str]] = None
+        # The GLE string expression that is the key text of each model fit
+        # whose label shows its results, by id of the series. GLE evaluates
+        # an in-graph key before the fit runs, so only the ``begin key``
+        # after ``end graph`` shows the values. The count numbers the fits'
+        # result variables, which are global to the script.
+        self._fit_keys: Dict[int, str] = {}
+        self._fit_result_count = 0
         self._pending_graph_text_lines: List[str] = []
         # True inside the graph block of a polar axes (add_polar_frame): its
         # curves are drawn through the polar ``let`` (see _polar_dataset).
@@ -3501,11 +3511,71 @@ class GLEWriter:
             f"    data {_format_data_filename(series['data_file'])} "
             f"{source}=c{cols[0]},c{cols[1]}"
         )
-        if "model" in series:
-            definition = f"{FIT_MODEL_TO_ROUTINE[series['model']]} {source}"
-        else:
-            definition = f"fit {source} with {series['expression']}"
-        self._let_curve(definition, series)
+        if "model" not in series:
+            self._let_curve(f"fit {source} with {series['expression']}", series)
+            return
+        definition = f"{FIT_MODEL_TO_ROUTINE[series['model']]} {source}"
+        if not self.fit_label_shows_results(series):
+            self._let_curve(definition, series)
+            return
+        # The routine's result variables, in GLE's order, then the key
+        # text built from them.
+        self._fit_result_count += 1
+        names = FIT_RESULT_PLACEHOLDERS[series["model"]]
+        variables = {n: f"fit{self._fit_result_count}_{n}" for n in names}
+        self._fit_keys[id(series)] = self._fit_key_expression(series, variables)
+        self._let_curve(definition, series, [" ".join(variables.values())])
+
+    @staticmethod
+    def _fit_placeholders(series: Series) -> list:
+        """The placeholders in a model fit's label its model fills.
+
+        Others, as :meth:`gleplot.axes.Axes.fit` rejects them, are text.
+        """
+        model = series.get("model")
+        if model is None:
+            return []
+        names = FIT_RESULT_PLACEHOLDERS[model]
+        return [
+            m
+            for m in FIT_PLACEHOLDER_RE.finditer(series.get("label") or "")
+            if m.group(1) in names
+            and (m.group(2) is None or FIT_PLACEHOLDER_SPEC_RE.fullmatch(m.group(2)))
+        ]
+
+    @classmethod
+    def fit_label_shows_results(cls, series: Series) -> bool:
+        """Whether ``series`` is a model fit whose label has a placeholder."""
+        return bool(cls._fit_placeholders(series))
+
+    @classmethod
+    def _fit_key_expression(cls, series: Series, variables: Dict[str, str]) -> str:
+        """The fit's label as a GLE string expression of its ``variables``.
+
+        ``{name:.Nf}`` is ``format$(v,"fix N")`` and ``{name:.Ne}`` the
+        ``sci`` format that writes the same text as Python; a bare
+        ``{name}`` is ``num$(v)``. The expression has no space outside its
+        quotes, so GLE reads it as one ``key`` or ``text`` argument.
+        """
+        label = series["label"]
+        parts = []
+        pos = 0
+        for match in cls._fit_placeholders(series):
+            if match.start() > pos:
+                parts.append(f'"{label[pos:match.start()]}"')
+            var = variables[match.group(1)]
+            spec = match.group(2)
+            if spec is None:
+                parts.append(f"num$({var})")
+            elif spec.endswith("f"):
+                parts.append(f'format$({var},"fix {int(spec[1:-1])}")')
+            else:
+                digits = int(spec[1:-1]) + 1
+                parts.append(f'format$({var},"sci {digits} e expdigits 2 expsign")')
+            pos = match.end()
+        if pos < len(label):
+            parts.append(f'"{label[pos:]}"')
+        return "+".join(parts)
 
     def add_derived(
         self, series: Series, sources: Sequence[Series], ranges: Sequence[Series]
@@ -3559,7 +3629,11 @@ class GLEWriter:
         line_cmd += self._lwidth_clause(series.get("linewidth"))
         if linestyle in ("--", ":", "-."):
             line_cmd += f" lstyle {self._lstyle_for(linestyle)}"
-        line_cmd += self._key_clause(label, has_header=False)
+        expression = self._fit_keys.get(id(series))
+        if expression is not None:
+            line_cmd += f" key {expression}"
+        else:
+            line_cmd += self._key_clause(label, has_header=False)
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
 
@@ -5298,7 +5372,9 @@ class GLEWriter:
     ) -> None:
         """Queue a ``begin key`` block for the graph that is about to close.
 
-        ``entries`` is ``(label, swatch)`` in matplotlib addition order.
+        ``entries`` is ``(series, label, swatch)`` in matplotlib addition
+        order. A model fit whose label shows its results gets the key text
+        :meth:`add_fit` built, which reads the variables the fit has set.
         ``breaks`` are the 1-based counts after which a column ends, the
         same split as :func:`legend_column_breaks`. The block is written
         by :meth:`end_graph`, after ``end graph``, because that is the
@@ -5317,8 +5393,8 @@ class GLEWriter:
             lines.append(f"    position {corner}")
         lines.extend(f"    {option}" for option in self._key_options(key))
         textcolor = f" textcolor {key.labelcolor}" if key.labelcolor else ""
-        for i, (label, swatch) in enumerate(entries, start=1):
-            quoted = self._quote_gle_key(label)
+        for i, (series, label, swatch) in enumerate(entries, start=1):
+            quoted = self._fit_keys.get(id(series)) or self._quote_gle_key(label)
             if swatch:
                 lines.append(f"    text {quoted} {swatch}{textcolor}")
             else:

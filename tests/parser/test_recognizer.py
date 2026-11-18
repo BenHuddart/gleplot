@@ -1663,8 +1663,47 @@ def test_a_closed_form_fit_let_becomes_a_model_fit_series(tmp_path, routine, mod
         # Options gleplot does not model.
         ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x+b rsq r", "d2 line"),
         ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x+b xmin 1", "d2 line"),
-        ("data d.dat d1=c1,c2", "let d2 = linfit d1 slope offset rsq", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = linfit d1 rsq r", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = linfit d1 s s", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = linfit d1 limit_data o r", "d2 line"),
         ("data d.dat d1=c1,c2", "let d2 = powxfit d1 xmin 1", "d2 line"),
+        # A plain key that would read back as a placeholder, a key format
+        # the writer does not write, and a result variable read elsewhere.
+        ("data d.dat d1=c1,c2", "let d2 = linfit d1", 'd2 line key "{slope}"'),
+        (
+            "data d.dat d1=c1,c2",
+            "let d2 = linfit d1 s o r",
+            'd2 line key "a "+format$(s,"fix 2 nozeroes")',
+        ),
+        *(
+            ("data d.dat d1=c1,c2", "let d2 = linfit d1 s o r", f"d2 line key {key}")
+            for key in (
+                '"{slope} "+num$(s)',
+                '"a"+s',
+                '"a"+num$(s)+',
+                "num$(1)",
+            )
+        ),
+        ("data d.dat d1=c1,c2", "let d2 = linfit d1", 'd2 line key "a"+"b"'),
+        (
+            "data d.dat d1=c1,c2",
+            "let d2 = linfit d1 s o r",
+            "d2 line",
+            'title "slope \\expr{s}"',
+        ),
+        (
+            "data d.dat d1=c1,c2",
+            "let d2 = linfit d1 s o r",
+            'd2 line key "a "+num$(s)',
+            "let d3 = s*x",
+            "d3 line",
+        ),
+        (
+            "data d.dat d1=c1,c2",
+            "let d2 = linfit d1 s o r",
+            'd2 line key "a "+num$(s)',
+            "d1 marker circle",
+        ),
         ("data d.dat d1=c1,c2", "let d2 = logefit d1 limit_data_x", "d2 line"),
         ("data d.dat d1=c1,c2", "let d2 = linfit d1 with a*x", "d2 line"),
         # GLE ignores a routine's step, which Axes.fit rejects.
@@ -1714,6 +1753,72 @@ def test_a_fit_let_on_the_callers_own_file_stays_raw(tmp_path):
     rec.figure.savefig_gle(str(out))
     assert "".join(f"    {line}\n" for line in body) in out.read_text("utf-8")
     assert (tmp_path / "d.dat").read_text("utf-8") == "0 1\n1 3\n2 5\n"
+
+
+def test_result_variables_named_nowhere_else_are_dropped(tmp_path):
+    src = _fit_file(
+        tmp_path,
+        "data d.dat d1=c1,c2",
+        "let d2 = linfit d1 slope offset rsq",
+        "d2 line",
+    )
+    rec = parse_gle_figure(src)
+    [fit] = rec.figure.axes_list[0].fits
+    assert fit["model"] == "linear"
+    assert "    let d2 = linfit d1\n" in rec.figure._generate_gle()
+
+
+def test_a_key_of_result_variables_becomes_placeholders(tmp_path):
+    src = _fit_file(
+        tmp_path,
+        "data d.dat d1=c1,c2",
+        "let d2 = logefit d1 from 1 to 3 E P R",
+        'd2 line key "a="+format$(p,"sci 3 e expdigits 2 expsign")+" b="+num$(e)'
+        '+" r "+format$(r,"fix 3")',
+    )
+    rec = parse_gle_figure(src)
+    ax = rec.figure.axes_list[0]
+    [fit] = ax.fits
+    assert fit["label"] == "a={prefactor:.2e} b={exponent} r {rsq:.3f}"
+    assert ax.passthrough == []
+    expression = (
+        '"a="+format$(fit1_prefactor,"sci 3 e expdigits 2 expsign")+" b="+'
+        'num$(fit1_exponent)+" r "+format$(fit1_rsq,"fix 3")'
+    )
+    text = rec.figure._generate_gle()
+    assert (
+        "    let d2 = logefit d1 from 1 to 3 fit1_exponent fit1_prefactor fit1_rsq\n"
+        f"    d2 line key {expression}\n"
+    ) in text
+    assert f"    text {expression}" in text
+
+
+def test_result_variables_read_by_another_key_stay_raw(tmp_path):
+    # The GLE manual's example: the variables are set up before the graph
+    # and shown by a key of their own.
+    (tmp_path / "d.dat").write_text("0 1\n1 3\n2 5\n", encoding="utf-8")
+    body = (
+        "! gleplot-meta-begin v2\n! gleplot: import-data = d.dat\n"
+        "! gleplot-meta-end\n"
+        "size 12 9\n"
+        "s = 0; o = 0; r = 0\n"
+        "begin graph\n"
+        "    size 12 9\n"
+        "    data d.dat d1=c1,c2\n"
+        "    let d2 = linfit d1 s o r\n"
+        "    d2 line\n"
+        "end graph\n"
+        "begin key\n"
+        '    text "slope "+format$(s,"fix 2")\n'
+        "end key\n"
+    )
+    src = tmp_path / "fit.gle"
+    src.write_text(body, encoding="utf-8")
+    rec = parse_gle_figure(src)
+    assert rec.figure.axes_list[0].fits == []
+    text = rec.figure._generate_gle()
+    assert "    let d2 = linfit d1 s o r\n" in text
+    assert '    text "slope "+format$(s,"fix 2")\n' in text
 
 
 def _derived_file(tmp_path, *body):

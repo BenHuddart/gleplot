@@ -2964,7 +2964,7 @@ class Figure:
         for wedge in resolution.visible(ax.wedges):
             writer.add_wedge(wedge)
         self._write_texts(writer, ax)
-        self._write_legend(writer, ax, legend)
+        self._write_legend(writer, ax, legend, resolution)
 
     def _write_axis_setup(
         self, writer: GLEWriter, ax: Axes, frame: Optional[Tuple[float, float]]
@@ -3099,8 +3099,12 @@ class Figure:
         addition = self._legend_addition_order(entries)
         # An anchor or a text colour exists only in a ``begin key`` block,
         # which is measured against the graph that has just ended.
+        # So does a fit's result: GLE evaluates the in-graph key before it
+        # runs the fit.
         needs_block = n_legend > 0 and (
-            ax.legend_bbox_to_anchor is not None or ax.legend_labelcolor is not None
+            ax.legend_bbox_to_anchor is not None
+            or ax.legend_labelcolor is not None
+            or any(writer.fit_label_shows_results(entry[0]) for entry in entries)
         )
         external = show and (needs_block or addition != list(range(n_legend)))
         # Reset even for a one-column key: the writer is reused across
@@ -3276,7 +3280,13 @@ class Figure:
         for text_data in ax.texts:
             writer.add_text_annotation(text_data)
 
-    def _write_legend(self, writer: GLEWriter, ax: Axes, legend: _LegendLayout) -> None:
+    def _write_legend(
+        self,
+        writer: GLEWriter,
+        ax: Axes,
+        legend: _LegendLayout,
+        resolution: SourceResolution,
+    ) -> None:
         """The key, if one is shown, else ``key off`` where GLE needs it.
 
         ``legend_on`` is tri-state: None means auto (show iff labels
@@ -3312,8 +3322,12 @@ class Figure:
             # ``key off`` hides the draw-order key. The visible one is the
             # block queued for end_graph, in addition order.
             writer.add_key_off()
+            # The writer knows each series as written: its resolved form.
             ordered = [
-                (legend.entries[i][1], legend.entries[i][2]) for i in legend.addition
+                (resolution.data(series) or series, label, swatch)
+                for series, label, swatch in (
+                    legend.entries[i] for i in legend.addition
+                )
             ]
             breaks = (
                 legend_column_breaks(n_legend, legend.ncol)
