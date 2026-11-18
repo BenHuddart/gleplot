@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v4.3.0 (2026-11-18)
+
+### Features
+
+- Heatmap from an expression with Axes.function2d
+  ([#77](https://github.com/BenHuddart/gleplot/pull/77),
+  [`04e3104`](https://github.com/BenHuddart/gleplot/commit/04e31040b0be299548789a68a1c2d526698bb62e))
+
+- Review fixes for function2d ([#77](https://github.com/BenHuddart/gleplot/pull/77),
+  [`83b6542`](https://github.com/BenHuddart/gleplot/commit/83b6542e453b3cc9ea0e9dc13b62e2e55979c50e))
+
+
 ## v4.2.0 (2026-11-18)
 
 ### Features
