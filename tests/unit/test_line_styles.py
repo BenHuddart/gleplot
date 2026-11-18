@@ -157,3 +157,134 @@ def test_contour_linestyle_uses_the_corrected_mapping():
     assert Axes._linestyle_to_lstyle("-.") == 6
     # Solid deliberately yields None: no lstyle token at all (GLE's default).
     assert Axes._linestyle_to_lstyle("-") is None
+
+
+# --------------------------------------------------------------------------- #
+# Line caps, joins and dash length (page-level 'set' commands)
+# --------------------------------------------------------------------------- #
+
+
+def _preamble(fig):
+    """The lines between ``size`` and the blank line after ``set hei``."""
+    lines = _gle(fig).splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("size "))
+    return lines[start + 1 : lines.index("", start + 1)]
+
+
+def test_line_cap_join_and_dashlen_are_written_before_set_hei():
+    style = GLEStyleConfig(line_cap="square", line_join="round", dashlen=0.1)
+    fig = glp.figure(style=style)
+    fig.add_subplot(111).plot(X, Y, linestyle="--")
+    assert _preamble(fig) == [
+        "set cap square",
+        "set join round",
+        "set dashlen 0.1",
+        "set hei 0.42328",
+    ]
+
+
+def test_unset_line_cap_join_and_dashlen_write_nothing():
+    fig = glp.figure()
+    fig.add_subplot(111).plot(X, Y)
+    assert _preamble(fig) == ["set hei 0.42328"]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("line_cap", "projecting"),
+        ("line_cap", "ROUND"),
+        ("line_join", "miter"),
+        ("dashlen", 0),
+        ("dashlen", -0.1),
+        ("dashlen", float("nan")),
+    ],
+)
+def test_style_rejects_a_bad_line_end_value(field, value):
+    with pytest.raises(ValueError, match=field):
+        GLEStyleConfig(**{field: value})
+    # Assigning later is checked too, and leaves the old value in place.
+    style = GLEStyleConfig()
+    with pytest.raises(ValueError, match=field):
+        setattr(style, field, value)
+    assert getattr(style, field) is None
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("line_cap", 1), ("line_join", 2), ("dashlen", "0.1"), ("dashlen", True)],
+)
+def test_style_rejects_a_line_end_value_of_the_wrong_type(field, value):
+    with pytest.raises(TypeError, match=field):
+        GLEStyleConfig(**{field: value})
+
+
+def test_dashlen_accepts_any_real_number():
+    assert _preamble_of(GLEStyleConfig(dashlen=np.float32(0.5))) == "set dashlen 0.5"
+    assert _preamble_of(GLEStyleConfig(dashlen=1)) == "set dashlen 1"
+    # Written in full, so a hand-written value survives a re-save.
+    assert _preamble_of(GLEStyleConfig(dashlen=0.12345678)) == (
+        "set dashlen 0.12345678"
+    )
+
+
+def _preamble_of(style):
+    fig = glp.figure(style=style)
+    fig.add_subplot(111).plot(X, Y)
+    return _preamble(fig)[0]
+
+
+def test_a_matching_per_series_keyword_is_honoured_silently(recwarn):
+    fig = glp.figure(style=GLEStyleConfig(line_cap="round", line_join="bevel"))
+    ax = fig.add_subplot(111)
+    ax.plot(X, Y, solid_capstyle="round", solid_joinstyle="bevel")
+    ax.plot(X, Y, linestyle="--", dash_capstyle="round", dash_joinstyle="bevel")
+    # GLE's defaults, when the figure sets nothing, are butt caps and mitre joins.
+    plain = glp.figure().add_subplot(111)
+    plain.plot(X, Y, solid_capstyle="butt", solid_joinstyle="miter")
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+def test_projecting_is_gle_square(recwarn):
+    fig = glp.figure(style=GLEStyleConfig(line_cap="square"))
+    fig.add_subplot(111).plot(X, Y, solid_capstyle="projecting")
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+def test_a_differing_per_series_keyword_warns_and_changes_nothing():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    with pytest.warns(UserWarning, match=r"solid_capstyle='round'.*line_cap='round'"):
+        ax.plot(X, Y, solid_capstyle="round")
+    with pytest.warns(UserWarning, match=r"dash_joinstyle='miter'.*line_join='mitre'"):
+        glp.figure(style=GLEStyleConfig(line_join="round")).add_subplot(111).plot(
+            X, Y, linestyle=":", dash_joinstyle="miter"
+        )
+    assert _preamble(fig) == ["set hei 0.42328"]
+
+
+def test_keywords_for_the_other_kind_of_line_are_ignored(recwarn):
+    """As in matplotlib: ``dash_*`` does not style a solid line, nor
+    ``solid_*`` a dashed one, and neither styles a marker-only series."""
+    ax = glp.figure().add_subplot(111)
+    ax.plot(X, Y, dash_capstyle="round", dash_joinstyle="bevel")
+    ax.plot(X, Y, linestyle="--", solid_capstyle="round")
+    ax.plot(X, Y, linestyle="none", marker="o", solid_capstyle="round")
+    # The writer draws no line for None.
+    ax.plot(X, Y, linestyle=None, solid_capstyle="round")
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+def test_a_linestyle_the_writer_draws_solid_is_a_solid_line():
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match="solid_capstyle"):
+        ax.plot(X, Y, linestyle="dashed", solid_capstyle="round")
+    assert _lstyles(_gle(ax.figure)) == []
+
+
+def test_an_unknown_per_series_value_is_rejected_at_the_call():
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=r"solid_capstyle.*'square'"):
+        ax.plot(X, Y, solid_capstyle="square")
+    with pytest.raises(TypeError, match="dash_joinstyle"):
+        ax.plot(X, Y, linestyle="--", dash_joinstyle=1)

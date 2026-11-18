@@ -9,7 +9,7 @@ import numpy as np
 
 from ._warn import warn_external
 from .colors import apply_alpha, rgb_to_gle
-from .config import GlobalConfig
+from .config import LINE_CAPS, LINE_JOINS, GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
 from .palettes import canonical_cmap
@@ -936,6 +936,56 @@ def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
     return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
 
 
+_MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
+_MPL_JOINSTYLES = {"miter": "mitre", "round": "round", "bevel": "bevel"}
+
+#: matplotlib's per-line cap and join keywords -> (whether it styles a solid
+#: or a dashed line, the GLEStyleConfig field, GLE's default, matplotlib
+#: value -> GLE word).
+_LINE_END_KEYWORDS = {
+    "solid_capstyle": (True, "line_cap", LINE_CAPS[0], _MPL_CAPSTYLES),
+    "dash_capstyle": (False, "line_cap", LINE_CAPS[0], _MPL_CAPSTYLES),
+    "solid_joinstyle": (True, "line_join", LINE_JOINS[0], _MPL_JOINSTYLES),
+    "dash_joinstyle": (False, "line_join", LINE_JOINS[0], _MPL_JOINSTYLES),
+}
+
+
+def _pop_line_ends(kwargs: dict, linestyle, style) -> None:
+    """Take matplotlib's cap and join keywords out of a ``plot`` call.
+
+    GLE caps and joins every line in the figure alike (``set cap``/``set
+    join``), so a keyword is honoured only when it asks for what the
+    figure already draws, and warns otherwise. Like matplotlib, the
+    ``solid_*`` keywords concern a solid line, the ``dash_*`` ones a dashed
+    line, and neither a series drawn without a line.
+    """
+    # The writer's own tests: no line for None or a _NO_LINE value, and a
+    # dash only where the linestyle maps to an lstyle.
+    drawn = linestyle is not None and linestyle not in _NO_LINE
+    solid = Axes._linestyle_to_lstyle(linestyle) is None
+    for keyword, (for_solid, field, gle_default, words) in _LINE_END_KEYWORDS.items():
+        value = kwargs.pop(keyword, None)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            raise TypeError(
+                f"{keyword} must be a string; got {value!r}. "
+                f"Accepted: {list(words)}."
+            )
+        if value not in words:
+            raise ValueError(f"{keyword} must be one of {list(words)}; got {value!r}.")
+        if not drawn or solid != for_solid:
+            continue
+        figure_word = getattr(style, field) or gle_default
+        if words[value] != figure_word:
+            warn_external(
+                f"plot({keyword}={value!r}) is not applied: GLE sets "
+                f"{field.replace('_', ' ')}s for the whole figure, which "
+                f"draws {figure_word!r}. Pass style=GLEStyleConfig("
+                f"{field}={words[value]!r}) to figure() to change every line.",
+            )
+
+
 def histogram_counts(samples, hist_from, hist_to, bins=None, bin_step=None):
     """Bin counts the way GLE's ``let dK = hist`` does (``GLELet::doHistogram``).
 
@@ -1844,7 +1894,12 @@ class Axes:
             is open. ``xmin`` must be below ``xmax``, ``ymin`` below
             ``ymax``.
         **kwargs
-            Additional matplotlib-compatible arguments
+            Additional matplotlib-compatible arguments. ``solid_capstyle``,
+            ``dash_capstyle``, ``solid_joinstyle`` and ``dash_joinstyle``
+            take matplotlib's values; GLE caps and joins every line in the
+            figure alike, so one that differs from the figure's
+            :class:`~gleplot.GLEStyleConfig` ``line_cap``/``line_join``
+            warns and is not applied.
 
         Returns
         -------
@@ -1855,6 +1910,7 @@ class Axes:
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
+        _pop_line_ends(kwargs, linestyle, self._style())
         label = mathtext_to_gle(label)
         mode = resolve_line_mode(drawstyle, line_mode, kwargs.pop("ds", None))
         qualifiers = _dataset_qualifiers(

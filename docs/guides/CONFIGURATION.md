@@ -75,6 +75,24 @@ The numbers are GLE's own `lstyle` codes, and they are not in
 solid/dashed/dotted/dash-dot order: GLE renders 2 as dotted, 3 as dashed and 6
 as dash-dot. The defaults above are the codes that match their names.
 
+### Line Caps, Joins and Dash Length
+
+GLE sets how lines end, how they turn corners, and how long a dash is for the
+whole page, so these are figure-wide:
+
+    style = glp.GLEStyleConfig(
+        line_cap='round',    # GLE `set cap`: 'butt', 'round' or 'square'
+        line_join='round',   # GLE `set join`: 'mitre', 'round' or 'bevel'
+        dashlen=0.1,         # GLE `set dashlen`, in cm
+    )
+
+Each is `None` by default, which writes nothing and keeps GLE's own butt caps,
+mitre joins and 0.04 cm dash unit. The digits of an `lstyle` code are
+multiples of `dashlen`. GLE does not lengthen dashes for a thicker line, so a
+thick dashed line can read as dotted until `dashlen` is raised. matplotlib's
+per-line `solid_capstyle` and friends are covered in
+[Migrating from matplotlib](MATPLOTLIB_MIGRATION.md).
+
 ## Graph Configuration (GLEGraphConfig)
 
 Controls graph layout and rendering:

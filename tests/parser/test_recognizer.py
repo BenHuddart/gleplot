@@ -1497,3 +1497,60 @@ def test_a_fit_let_on_the_callers_own_file_stays_raw(tmp_path):
     rec.figure.savefig_gle(str(out))
     assert "".join(f"    {line}\n" for line in body) in out.read_text("utf-8")
     assert (tmp_path / "d.dat").read_text("utf-8") == "0 1\n1 3\n2 5\n"
+
+
+# --------------------------------------------------------------------------- #
+# Page-level line state: set cap / set join / set dashlen
+# --------------------------------------------------------------------------- #
+
+
+def _line_state(fig):
+    return fig.style.line_cap, fig.style.line_join, fig.style.dashlen
+
+
+def test_hand_written_line_state_is_recognized_and_rewritten_in_place(tmp_path):
+    src = (
+        "size 10 8\n"
+        "set hei 0.4\n"
+        "set dashlen .2\n"
+        "set JOIN Round\n"
+        "set cap square\n"
+        "begin graph\n"
+        "   xaxis min 0 max 1\n"
+        "end graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src))
+    assert _line_state(rec.figure) == ("square", "round", 0.2)
+    assert rec.figure.passthrough_header == []
+    out = tmp_path / "again.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "set cap square\nset join round\nset dashlen 0.2\nset hei 0.4\n" in text
+
+
+@pytest.mark.parametrize(
+    "preamble,cap",
+    [
+        # After a drawing statement: moving it up would restyle that stroke.
+        ("amove 1 1\nrline 1 0\nset cap round", None),
+        # The first is recognized; a second one restyles what follows it.
+        ("set cap round\namove 1 1\nset cap butt", "round"),
+        # An expression, an unknown word, a non-positive length, two settings.
+        ("set dashlen 2*0.1", None),
+        ("set cap pointy", None),
+        ("set dashlen 0", None),
+        ("set cap round join bevel", None),
+        # Recognizing it would drop the comment.
+        ("set cap round ! rounded ends", None),
+    ],
+)
+def test_line_state_that_cannot_be_modelled_stays_raw(tmp_path, preamble, cap):
+    src = "size 10 8\nset hei 0.4\n" + preamble + "\nbegin graph\nend graph\n"
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src))
+    assert _line_state(rec.figure) == (cap, None, None)
+    raw = preamble.splitlines()[1 if cap else 0 :]
+    assert rec.figure.passthrough_header == raw
+    out = tmp_path / "again.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "\n".join(raw) in text
