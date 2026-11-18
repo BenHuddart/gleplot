@@ -1826,7 +1826,8 @@ class _Recognizer:
         frame_off_lines = self._prescan_frame_off(block)
         info["frame_off"] = bool(frame_off_lines)
         math_line = self._prescan_math(block)
-        info["math_mode"] = True if math_line is not None else None
+        if math_line is not None:
+            info["math_mode"] = True
 
         pass1 = self._collect_datasets(block, info)
         self._mark_bars_that_stay_raw(block, pass1.datasets, info)
@@ -1958,6 +1959,8 @@ class _Recognizer:
             "ysymticks": None,
             "xnoticks": None,
             "ynoticks": None,
+            # A bare 'math' ahead of everything but geometry (_prescan_math).
+            "math_mode": None,
             # (prefix, keyword) of every axis-line option kept as raw GLE.
             # Raw lines are written at the end of the block, so a later
             # occurrence of the same option is not modeled either: it would

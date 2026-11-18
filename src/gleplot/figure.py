@@ -2229,6 +2229,30 @@ class Figure:
 
     def _write_axis_setup(self, writer: GLEWriter, ax: Axes) -> None:
         """Titles, scales, ranges, ticks and grid of the graph block."""
+        if ax.math_mode:
+            for name, other, scale, lo, hi in (
+                ("x", "y", ax.xscale, ax.xmin, ax.xmax),
+                ("y", "x", ax.yscale, ax.ymin, ax.ymax),
+            ):
+                if scale == "log":
+                    warn_external(
+                        f"set_math_mode() draws the axes through 0, which a log "
+                        f"{name} axis does not contain, so GLE cannot draw this "
+                        f"figure. Use a linear {name} scale, or call "
+                        "set_math_mode(False)."
+                    )
+                elif (
+                    lo is not None
+                    and hi is not None
+                    and not min(lo, hi) <= 0 <= max(lo, hi)
+                ):
+                    warn_external(
+                        f"set_math_mode() draws the {other} axis at {name} = 0, "
+                        f"which is outside the {name} limits ({lo:g}, {hi:g}), "
+                        f"so that axis is not shown. Include 0 with "
+                        f"set_{name}lim, or call set_math_mode(False)."
+                    )
+            writer.add_math_mode()
         writer.add_axes(
             xlabel=ax.xlabel_text or None,
             ylabel=ax.ylabel_text or None,
@@ -2281,7 +2305,6 @@ class Figure:
                 else self.graph.title_distance
             ),
             title_font=ax.title_font,
-            math=bool(ax.math_mode),
         )
 
     def _write_heatmaps(

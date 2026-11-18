@@ -521,28 +521,66 @@ def test_set_xticks_rejects_bad_placement(kwargs, error):
         ax.set_xticks(**kwargs)
 
 
-def test_math_mode_is_written_straight_after_the_geometry():
+def _origin_fig():
+    """An axes in math mode whose limits both include 0."""
     fig, ax = _fig()
+    ax.set_xlim(-1, 4)
+    ax.set_ylim(-1, 9)
+    ax.set_math_mode()
+    return fig, ax
+
+
+def test_math_mode_is_written_straight_after_the_geometry():
+    fig, ax = _origin_fig()
     ax.set_title("T")
-    assert ax.set_math_mode() is ax
     lines = _graph_lines(fig)
     assert lines[lines.index("scale 1 1") + 1 :][:2] == ["math", 'title "T"']
 
 
 def test_math_mode_false_goes_back_to_a_framing_box():
-    fig, ax = _fig()
-    ax.set_math_mode()
-    ax.set_math_mode(False)
+    fig, ax = _origin_fig()
+    assert ax.set_math_mode(False) is ax
     assert ax.math_mode is None
     assert "math" not in _graph_lines(fig)
 
 
 def test_math_mode_is_written_in_every_subplot_that_asks_for_it():
     fig, (left, right) = glp.subplots(1, 2, data_prefix="style")
-    left.plot([1, 2], [1, 2])
-    right.plot([1, 2], [1, 2])
+    left.plot([-1, 2], [-1, 2])
+    right.plot([-1, 2], [-1, 2])
     right.set_math_mode()
     assert fig._generate_gle().count("    math\n") == 1
+
+
+def test_math_mode_warns_on_a_log_axis():
+    fig, ax = _origin_fig()
+    ax.set_ylim(1, 9)
+    ax.set_yscale("log")
+    with pytest.warns(UserWarning, match="log y axis") as record:
+        fig._generate_gle()
+    assert len(record) == 1
+
+
+def test_math_mode_warns_when_zero_is_outside_the_limits():
+    fig, ax = _origin_fig()
+    ax.set_ylim(1, 9)
+    with pytest.warns(UserWarning, match=r"x axis at y = 0.*y limits \(1, 9\)"):
+        fig._generate_gle()
+
+
+def test_math_mode_through_the_origin_does_not_warn():
+    fig, ax = _origin_fig()
+    ax.set_xlim(3, -3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fig._generate_gle()
+
+
+def test_y2_limits_after_math_mode_still_turn_the_right_axis_on():
+    fig, ax = _origin_fig()
+    ax.set_ylim(0, 20, axis="y2")
+    lines = _graph_lines(fig)
+    assert lines.index("math") < lines.index("y2labels on")
 
 
 def test_set_math_mode_rejects_a_non_bool():
@@ -682,6 +720,8 @@ def _styled_axes(ax):
         ax.set_axis_line(axis, color=color, linewidth=width)
     ax.set_xticks(nticks=4, ftick=1, shift=0.2, symticks=True, noticks=[2])
     ax.set_yticks(nticks=3, ftick=0, shift=0.1, symticks=True, noticks=[4, 9])
+    ax.set_xlim(-1, 4)
+    ax.set_ylim(-1, 9)
     ax.set_math_mode()
     return ax
 

@@ -5329,8 +5329,12 @@ class Axes:
 
         Notes
         -----
-        GLE moves both axes together: there is no way to move only one of
-        them to zero.
+        Both axes move together; moving only one of them is not supported.
+        A right or top axis that is in use (a ``yaxis='y2'`` series, a y2 or
+        x2 label or limit) is still drawn. Both limits need to include 0:
+        a log axis cannot be drawn this way, and an axis whose crossing
+        point is outside the other's limits is not shown. ``savefig`` warns
+        in both cases.
         """
         if not isinstance(on, (bool, np.bool_)):
             raise TypeError(f"set_math_mode(on={on!r}) must be True or False")

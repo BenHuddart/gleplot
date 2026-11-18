@@ -1452,6 +1452,15 @@ class GLEWriter:
         """
         self.lines_gle.extend(lines)
 
+    def add_math_mode(self) -> None:
+        """GLE ``math``: the x and y axes cross at (0, 0).
+
+        Call it before :meth:`add_axes`. ``math`` resets the axis offsets,
+        ``symticks`` and x2/y2 ``on`` set before it, so the axis lines
+        written after it can still override what it sets.
+        """
+        self.lines_gle.append("    math")
+
     def add_axes(
         self,
         xlabel: Optional[str] = None,
@@ -1501,7 +1510,6 @@ class GLEWriter:
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
         title_font: Optional[str] = None,
-        math: bool = False,
     ):
         """Add axis configuration.
 
@@ -1578,8 +1586,6 @@ class GLEWriter:
             ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
             the graph block, which is why gleplot models it per-axes and not
             per-figure.
-        math : bool
-            Write GLE's ``math``: the x and y axes cross at (0, 0).
 
         Raises
         ------
@@ -1590,8 +1596,8 @@ class GLEWriter:
         Notes
         -----
         Emission order inside the graph block matters to GLE, and the order
-        here is: ``math``, the ``title``/``*title`` texts, then per axis its
-        ``xaxis`` line, ``xplaces``/``xnames``, ``xlabels``, and its grid tick styling
+        here is: the ``title``/``*title`` texts, then per axis its ``xaxis``
+        line, ``xplaces``/``xnames``, ``xlabels``, and its grid tick styling
         (``xticks``/``xsubticks``) -- x before y before y2, with ``x2axis``
         last, as before. New tokens on the ``xaxis`` line (``format``,
         ``angle``, ``grid``) go after ``dsubticks`` and before
@@ -1613,10 +1619,6 @@ class GLEWriter:
         ystyle = ystyle or _NO_STYLE
         y2style = y2style or _NO_STYLE
         x2style = x2style or _NO_STYLE
-        if math:
-            # First, so the axis lines after it can still override what
-            # 'math' sets (axis offsets, symticks, x2/y2 off).
-            self.lines_gle.append("    math")
         if title:
             opts = self._text_options(title_size, title_color, title_dist, title_font)
             self.lines_gle.append(f'    title "{title}"{opts}')
