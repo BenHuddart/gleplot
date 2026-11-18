@@ -153,6 +153,38 @@ def test_imshow_brewer_qualitative_is_stepped():
     assert lines[-1].strip() == "return rgb(0.600000,0.600000,0.600000)"
 
 
+def test_imshow_reversed_cmap_flips_z_in_its_own_sub():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    hm = ax.imshow(np.zeros((2, 2)), cmap="RdBu_r")
+    fig.colorbar(hm)
+    text, _ = _gle(fig)
+    assert hm["cmap"] == "rdbu_r"
+    assert "palette gleplot_rdbu_r" in text
+    # The colorbar draws the same reversed palette.
+    assert 'palette "gleplot_rdbu_r"' in text
+    assert "sub gleplot_rdbu z" not in text
+    sub = text.split("sub gleplot_rdbu_r z\n", 1)[1]
+    assert sub.startswith("   z = 1-z\n")
+    forward = palettes.palette_sub_text("RdBu").split("\n", 1)[1]
+    assert sub.split("end sub", 1)[0] + "end sub" == "   z = 1-z\n" + forward
+
+
+@pytest.mark.parametrize(
+    "cmap, canonical", [("gray_r", "gray_r"), ("jet_r", "rainbow_r")]
+)
+def test_imshow_reversed_builtin_cmap_emits_a_sub(cmap, canonical):
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.zeros((2, 2)), cmap=cmap)
+    text, _ = _gle(fig)
+    assert ax.heatmaps[0]["cmap"] == canonical
+    line = [ln for ln in text.splitlines() if ln.lstrip().startswith("colormap")][0]
+    assert line.endswith(f"palette gleplot_{canonical}")
+    assert "color" not in line.split()
+    assert f"sub gleplot_{canonical} z\n   z = 1-z\n" in text
+
+
 def test_unknown_cmap_raises():
     fig = glp.figure()
     ax = fig.add_subplot(111)
@@ -160,6 +192,9 @@ def test_unknown_cmap_raises():
         ax.imshow(np.zeros((2, 2)), cmap="turbo")
     # The accepted names are listed as matplotlib spells them.
     assert "RdYlBu" in str(err.value)
+    assert "'_r'" in str(err.value)
+    with pytest.raises(ValueError, match="Unknown cmap 'viridis_r_r'"):
+        ax.imshow(np.zeros((2, 2)), cmap="viridis_r_r")
 
 
 # --------------------------------------------------------------------------- #
