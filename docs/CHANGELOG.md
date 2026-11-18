@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v3.17.0 (2026-11-18)
+
+### Features
+
+- Accept numpy numbers and size names in pie, one text per wedge
+  ([#56](https://github.com/BenHuddart/gleplot/pull/56),
+  [`5d6a075`](https://github.com/BenHuddart/gleplot/commit/5d6a075bec5a767e95e726aa1760448136af6290))
+
+- Pie charts with Axes.pie and glp.pie ([#56](https://github.com/BenHuddart/gleplot/pull/56),
+  [`e9aaeb7`](https://github.com/BenHuddart/gleplot/commit/e9aaeb7e5f879f49ae057cb3513da36510d58ec4))
+
+
 ## v3.16.0 (2026-11-18)
 
 ### Bug Fixes
