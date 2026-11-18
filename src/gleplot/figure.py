@@ -1351,6 +1351,8 @@ class Figure:
         cairo: Optional[bool] = None,
         keep_intermediates: bool = False,
         preview_decimation: Optional[DecimationPolicy] = None,
+        transparent: Optional[bool] = None,
+        grayscale: bool = False,
         **kwargs,
     ) -> Path:
         """
@@ -1414,12 +1416,24 @@ class Figure:
             ``format`` output (PDF/PNG/...), just from a decimated preview
             script -- pass it for a live-preview compile, not for a save the
             user will treat as their document.
+        transparent : bool, optional
+            Give a PNG an alpha channel instead of a white background (GLE's
+            ``-transparent``). ``None`` means ``False``. PDF, EPS and SVG
+            output has no background to remove; JPEG has no alpha channel, so
+            ``True`` warns there. Compile-time only, so ignored when
+            ``format`` is ``'gle'``.
+        grayscale : bool, optional
+            gleplot keyword, not a matplotlib one: compile with every colour
+            converted to its grey level (GLE's ``-nocolor``). Compile-time
+            only, so ignored when ``format`` is ``'gle'``.
         folder : bool, optional
             If True, place the exported file, the intermediate ``.gle``
             script, and generated data files in a sibling
             ``<name>.gleplot`` directory.
         **kwargs
-            Additional arguments
+            Additional arguments. matplotlib's ``bbox_inches``,
+            ``pad_inches`` and ``facecolor`` are accepted and warn: the page
+            is always ``figsize``, and its background is not settable.
 
         Returns
         -------
@@ -1445,6 +1459,19 @@ class Figure:
         before cleanup runs, so its intermediates (if any were written) are
         never removed -- they may help diagnose the failure.
         """
+        page_size = "the page is the figure's figsize; set figsize to resize it."
+        for name, reason in (
+            ("bbox_inches", page_size),
+            ("pad_inches", page_size),
+            (
+                "facecolor",
+                "GLE paints PNG and JPEG on white and PDF, EPS and SVG on no "
+                "background; pass transparent=True for a PNG without one.",
+            ),
+        ):
+            value = kwargs.pop(name, None)
+            if value is not None and not (isinstance(value, str) and value == "auto"):
+                warn_external(f"savefig({name}=...) has no effect: {reason}")
         output_path, export_dir = self._resolve_export_paths(
             filepath,
             folder=kwargs.pop("folder", False),
@@ -1510,6 +1537,8 @@ class Figure:
                 cast(CompileFormat, format),
                 dpi=output_dpi,
                 cairo=effective_cairo,
+                transparent=bool(transparent),
+                grayscale=grayscale,
             )
 
             # Post-compile cleanup (G8): only on a *successful* compile --

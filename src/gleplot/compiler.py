@@ -108,13 +108,16 @@ def build_compile_args(
     input_path: Union[str, Path],
     dpi: Optional[int] = None,
     cairo: bool = False,
+    transparent: bool = False,
+    grayscale: bool = False,
 ) -> List[str]:
     """Build the GLE command-line arguments for one compile invocation.
 
-    This is the single place that decides ``-d``/``-r``/``-cairo``/``-o``
-    argument shape for :meth:`GLECompiler.compile`. It lowercases the device
-    name (GLE's ``-d`` is case-insensitive; verified against a real ``gle``
-    binary) and includes ``-r`` only for :data:`RASTER_COMPILE_FORMATS`.
+    This is the single place that decides ``-d``/``-cairo``/``-nocolor``/
+    ``-transparent``/``-r``/``-o`` argument shape for
+    :meth:`GLECompiler.compile`. It lowercases the device name (GLE's ``-d``
+    is case-insensitive; verified against a real ``gle`` binary) and
+    includes ``-r`` only for :data:`RASTER_COMPILE_FORMATS`.
 
     Does **not** include the ``gle`` executable path itself -- callers using
     :mod:`subprocess` prepend it to this list.
@@ -145,6 +148,13 @@ def build_compile_args(
         :meth:`gleplot.figure.Figure.savefig` passes
         ``figure.requires_cairo()`` automatically; other callers pass an
         explicit override.
+    transparent : bool, optional
+        When ``True`` and ``output_format`` is ``png``, appends
+        ``-transparent`` (an alpha channel instead of a white background).
+        GLE ignores the flag on every other device, so it is left out there.
+    grayscale : bool, optional
+        When ``True``, appends ``-nocolor``: GLE converts every colour to its
+        grey level, on every device.
 
     Notes
     -----
@@ -190,6 +200,10 @@ def build_compile_args(
     args = ["-d", fmt]
     if cairo:
         args.append("-cairo")
+    if grayscale:
+        args.append("-nocolor")
+    if transparent and fmt == "png":
+        args.append("-transparent")
     if fmt in RASTER_COMPILE_FORMATS and dpi is not None:
         args.extend(["-r", str(int(dpi))])
     args.extend(["-o", str(output_path), str(input_path)])
@@ -629,6 +643,8 @@ class GLECompiler:
         verbose: bool = False,
         timeout: int = 30,
         cairo: bool = False,
+        transparent: bool = False,
+        grayscale: bool = False,
     ) -> Path:
         """
         Compile GLE file to output format.
@@ -662,6 +678,13 @@ class GLECompiler:
             ``figure.requires_cairo()`` here automatically; pass an explicit
             ``True``/``False`` yourself when compiling a ``.gle`` file this
             compiler didn't write (or to force the flag either way).
+        transparent : bool
+            Give a PNG an alpha channel instead of a white background (GLE's
+            ``-transparent``). PDF, EPS and SVG output has no background to
+            remove. JPEG has no alpha channel, so ``True`` warns there.
+        grayscale : bool
+            Convert every colour to its grey level (GLE's ``-nocolor``), on
+            every format.
 
         Returns
         -------
@@ -685,6 +708,12 @@ class GLECompiler:
         # Determine output file
         output_path = input_path.with_suffix(f".{output_format}")
 
+        if transparent and output_format.lower() == "jpg":
+            warn_external(
+                "transparent=True has no effect on a JPEG, which has no alpha "
+                "channel; save as PNG for a transparent background."
+            )
+
         # Build command (all options must come before filename). Pass as a
         # list (no shell=True) so paths containing spaces are handled safely
         # on all platforms, notably "Program Files" on Windows. Argument
@@ -697,6 +726,8 @@ class GLECompiler:
             input_path,
             dpi=dpi,
             cairo=cairo,
+            transparent=transparent,
+            grayscale=grayscale,
         )
 
         try:

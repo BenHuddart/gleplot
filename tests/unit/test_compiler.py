@@ -8,6 +8,7 @@ from unittest import mock
 
 import pytest
 
+import gleplot as glp
 from gleplot.compiler import (
     RASTER_COMPILE_FORMATS,
     SUPPORTED_COMPILE_FORMATS,
@@ -833,6 +834,91 @@ class TestBuildCompileArgs:
         assert kwargs.get("cairo") is True
         cmd = run.call_args[0][0]
         assert "-cairo" in cmd
+
+
+def test_grayscale_adds_nocolor_on_every_format():
+    for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
+        assert "-nocolor" in build_compile_args(fmt, "out", "in.gle", grayscale=True)
+        assert "-nocolor" not in build_compile_args(fmt, "out", "in.gle")
+
+
+def test_transparent_adds_the_flag_only_for_png():
+    for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
+        args = build_compile_args(fmt, "out", "in.gle", transparent=True)
+        assert ("-transparent" in args) == (fmt == "png")
+
+
+def test_output_options_come_before_the_output_and_input_paths():
+    args = build_compile_args(
+        "png", "out", "in.gle", dpi=150, cairo=True, transparent=True, grayscale=True
+    )
+    assert args == [
+        "-d",
+        "png",
+        "-cairo",
+        "-nocolor",
+        "-transparent",
+        "-r",
+        "150",
+        "-o",
+        "out",
+        "in.gle",
+    ]
+
+
+def _run_compile(**kwargs):
+    compiler = GLECompiler(gle_path="/explicit/path/to/gle")
+    with mock.patch("gleplot.compiler.subprocess.run") as run:
+        run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+        with mock.patch("gleplot.compiler.Path.exists", return_value=True):
+            compiler.compile("in.gle", **kwargs)
+    return run.call_args[0][0]
+
+
+def test_compile_passes_transparent_and_grayscale_to_gle():
+    cmd = _run_compile(output_format="png", transparent=True, grayscale=True)
+    assert "-transparent" in cmd
+    assert "-nocolor" in cmd
+
+
+def test_compile_warns_that_a_jpeg_cannot_be_transparent():
+    with pytest.warns(UserWarning, match="save as PNG") as record:
+        _run_compile(output_format="jpg", transparent=True)
+    assert record[0].filename == __file__
+
+
+def test_savefig_passes_transparent_and_grayscale_to_the_compiler(tmp_path):
+    fig = glp.figure()
+    fig.add_subplot(111).plot([1, 2], [1, 2])
+    fig.compiler = mock.Mock()
+    fig.savefig(str(tmp_path / "a.png"))
+    _args, kwargs = fig.compiler.compile.call_args
+    assert (kwargs["transparent"], kwargs["grayscale"]) == (False, False)
+    fig.savefig(str(tmp_path / "a.png"), transparent=True, grayscale=True)
+    _args, kwargs = fig.compiler.compile.call_args
+    assert (kwargs["transparent"], kwargs["grayscale"]) == (True, True)
+
+
+@pytest.mark.parametrize(
+    "name, value",
+    [("bbox_inches", "tight"), ("pad_inches", 0.2), ("facecolor", "white")],
+)
+def test_savefig_warns_on_matplotlib_page_keywords(tmp_path, name, value):
+    fig = glp.figure()
+    fig.add_subplot(111).plot([1, 2], [1, 2])
+    with pytest.warns(UserWarning, match=f"savefig\\({name}=") as record:
+        fig.savefig(str(tmp_path / "a.gle"), **{name: value})
+    assert record[0].filename == __file__
+
+
+def test_savefig_page_keyword_defaults_do_not_warn(tmp_path):
+    fig = glp.figure()
+    fig.add_subplot(111).plot([1, 2], [1, 2])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fig.savefig(
+            str(tmp_path / "a.gle"), bbox_inches=None, pad_inches=None, facecolor="auto"
+        )
 
 
 class TestGLECompileErrorAttributes:

@@ -261,6 +261,22 @@ ax.fill(x, y, alpha=0.4)
 | `edgecolor`, `linewidth` on `fill` | warn and are ignored. GLE fills the interior and does not stroke it. |
 | `alpha` | unchanged: below 1 the colour is `rgba255(...)`. |
 
+## Saving
+
+`savefig` writes the `.gle` script and, for a `.pdf`, `.png`, `.eps`, `.svg`
+or `.jpg` name, compiles it with GLE.
+
+| `savefig()` keyword | gleplot |
+|---|---|
+| `transparent` | wired — a PNG gets an alpha channel instead of a white background (GLE `-transparent`). PDF, EPS and SVG have no background to begin with. A JPEG has no alpha channel, so `True` warns there. |
+| `grayscale` | gleplot keyword, not a matplotlib one: every colour becomes its grey level (GLE `-nocolor`), in every format. |
+| `bbox_inches`, `pad_inches`, `facecolor` | warn. The page is always the figure's `figsize`, and its background is not settable. |
+
+```python
+fig.savefig("plot.png", transparent=True)
+fig.savefig("plot.pdf", grayscale=True)
+```
+
 ## Secondary axes
 
 The right-hand scale is `yaxis="y2"` on a series, and `ax.twiny()` opens the top scale. Both are described in [Axes and Legends](AXES_AND_LEGENDS.md).

@@ -161,6 +161,21 @@ class TestGraphicsCompilation:
         png_signature = b"\x89PNG\r\n\x1a\n"
         assert content.startswith(png_signature)
 
+    @pytest.mark.gle
+    @pytest.mark.parametrize(
+        "options, colour_type",
+        [
+            ({}, 2),  # RGB
+            ({"transparent": True}, 6),  # RGB + alpha
+            ({"grayscale": True}, 0),  # grey
+        ],
+    )
+    def test_png_output_options_set_the_colour_type(self, options, colour_type):
+        png_file = self.fig.savefig(str(self.tempdir / "test.png"), **options)
+
+        # The IHDR colour type byte: 8 signature + 8 chunk header + 9.
+        assert png_file.read_bytes()[25] == colour_type
+
 
 @pytest.mark.gle
 class TestImageProperties:
