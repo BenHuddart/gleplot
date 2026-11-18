@@ -1043,6 +1043,21 @@ def fit_curves():
     return fig
 
 
+def closed_form_fits():
+    """The four closed-form fits: ranged, styled and labelled, and bare."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(1.0, 4.0, 7)
+    y = 1.5 * x**1.3
+    ax.scatter(x, y)
+    ax.fit(x, y, model="linear", xmin=0.5, xmax=4.5, label="linear")
+    ax.fit(x, y, model="exp", color="red", linestyle=":")
+    ax.fit(x, y, model="exp10", linewidth=2)
+    ax.fit(x, y, model="power", xmin=1, label="power")
+    ax.legend()
+    return fig
+
+
 def histogram_field_options():
     """Histogram fields the other builders leave at their defaults.
 
@@ -1250,6 +1265,7 @@ BUILDERS = [
     histogram,
     function_curves,
     fit_curves,
+    closed_form_fits,
     histogram_field_options,
     axes_styling_full,
     axis_lines_fonts_and_tick_placement,

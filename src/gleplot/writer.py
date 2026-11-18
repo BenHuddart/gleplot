@@ -43,6 +43,7 @@ from .guides import (
 from .parser.tables import (
     ARROW_JOIN_SEPS,
     ARROW_TIP_STYLES,
+    FIT_MODEL_TO_ROUTINE,
     KEY_ANCHOR_X,
     KEY_ANCHOR_Y,
     KEY_POSITIONS_LONG_TO_SHORT,
@@ -3048,7 +3049,8 @@ class GLEWriter:
 
         ``series`` is a :class:`~gleplot.series.FitSeries`. The data is a
         headerless sidecar read as ``dJ`` and never drawn; ``let dK = fit dJ
-        with <expression>`` then fits it, and ``dK`` is drawn as for
+        with <expression>``, or the routine for its ``model`` (``let dK =
+        linfit dJ``), then fits it, and ``dK`` is drawn as for
         :meth:`add_function`.
         """
         cols = self._write_columns(
@@ -3060,7 +3062,11 @@ class GLEWriter:
             f"    data {_format_data_filename(series['data_file'])} "
             f"{source}=c{cols[0]},c{cols[1]}"
         )
-        self._let_curve(f"fit {source} with {series['expression']}", series)
+        if "model" in series:
+            definition = f"{FIT_MODEL_TO_ROUTINE[series['model']]} {source}"
+        else:
+            definition = f"fit {source} with {series['expression']}"
+        self._let_curve(definition, series)
 
     def _let_curve(self, definition: str, series: Series) -> None:
         """``let dK = <definition> [from a] [to b] [step h]`` and its line."""

@@ -100,6 +100,27 @@ curve is drawn, as for `function`; all of the data is fitted. The fitted
 values stay inside GLE, so to use them in Python, or to start from other
 values, fit in Python and `plot` the result.
 
+For a straight line, an exponential or a power law, give `model` instead of
+an expression, and GLE fits it in closed form with its own routine:
+
+```python
+ax.fit(x, y, model='linear')       # let d2 = linfit d1         y = a*x+b
+ax.fit(x, y, model='exp', xmin=0)  # let d2 = logefit d1 from 0  y = a*exp(b*x)
+ax.fit(x, y, model='exp10')        # let d2 = log10fit d1       y = a*10^(b*x)
+ax.fit(x, y, model='power')        # let d2 = powxfit d1        y = a*x^b
+```
+
+A model needs points at two or more distinct x. The last three fit a
+straight line to the logs of the data, so they need y above 0, and `power`
+needs x above 0 too. `xmin` and `xmax` set where the curve is drawn, but
+`step` does not apply: GLE always draws a model at 100 points.
+
+In a hand-written routine with result variables (`let d2 = logefit d1 s o
+r`), GLE puts the exponent `b` of `logefit`, `log10fit` and `powxfit` in the
+first variable and the prefactor `a` in the second, the reverse of what the
+GLE manual says. gleplot keeps such a `let`, and one with a `step`, a data
+window or a `limit_data` option, as raw GLE.
+
 ## Marker spacing, thinning and clipping
 
 ```python

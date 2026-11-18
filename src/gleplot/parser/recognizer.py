@@ -339,6 +339,7 @@ from .syntax import (
 from .tables import (
     ARROW_JOIN_SEPS,
     ARROW_TIP_STYLES,
+    FIT_ROUTINE_TO_MODEL,
     KEY_ANCHOR_X,
     KEY_ANCHOR_Y,
     KEY_POSITIONS_SHORT_TO_LONG,
@@ -4317,15 +4318,23 @@ class _Recognizer:
     def _record_fit_let(self, toks, datasets, info) -> None:
         """Record ``let dK = fit dJ with <expression> [from a] [to b] [step h]``.
 
-        GLE reads the options in any order. The expression is read as for
+        Or ``let dK = <routine> dJ [from a] [to b]`` for one of the
+        closed-form routines in
+        :data:`~gleplot.parser.tables.FIT_ROUTINE_TO_MODEL`. GLE reads the
+        options in any order. The expression is read as for
         :meth:`_record_function_let`, and ``dJ`` must be a dataset this
         block's ``data`` commands declare. Any other option (``rsq``,
-        ``eqstr``, a data window, result variables) stays raw GLE. The
-        record joins the function lets: the same rules decide whether it
-        is modelled, and :meth:`_keep_plain_function_lets` adds the ones
-        for its data.
+        ``eqstr``, a data window, a ``limit_data`` option, result variables,
+        a routine's ``step``, which GLE ignores) stays raw GLE. The record
+        joins the function lets: the same rules decide whether it is
+        modelled, and :meth:`_keep_plain_function_lets` adds the ones for
+        its data.
         """
-        if len(toks) < 7 or toks[3].value.lower() != "fit":
+        if len(toks) < 5:
+            return
+        routine = toks[3].value.lower()
+        model = FIT_ROUTINE_TO_MODEL.get(routine)
+        if routine != "fit" and model is None:
             return
         target = toks[1].value.lower()
         source = toks[4].value.lower()
@@ -4337,7 +4346,14 @@ class _Recognizer:
         if target in info["_function_lets"]:
             return
         fields: Dict[str, Any] = {"_fit_source": source}
-        if _read_let_range(toks, 5, fields, fit=True) and "expression" in fields:
+        if model is not None:
+            fields["model"] = model
+        if not _read_let_range(toks, 5, fields, fit=model is None):
+            return
+        # Axes.fit rejects a step with a model, since GLE ignores it.
+        if model is not None and "let_step" not in fields:
+            info["_function_lets"][target] = fields
+        elif "expression" in fields:
             info["_function_lets"][target] = fields
 
     def _keep_plain_function_lets(self, block, pass1: _GraphDatasets, info) -> None:

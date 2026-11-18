@@ -2,7 +2,8 @@
 
 The script text is asserted in ``tests/unit/test_plotting.py``. This checks
 what a string match cannot: that the ``let`` gleplot writes, with and
-without a range, beside ordinary data, is a script GLE accepts.
+without a range, beside ordinary data, is a script GLE accepts, for an
+expression fit and for each closed-form routine.
 """
 
 from __future__ import annotations
@@ -44,6 +45,21 @@ def test_fit_curves_compile(tmp_path):
     ax.fit(x, y, "k*x+m", linestyle="--")
     ax.legend()
     out = tmp_path / "fit.pdf"
+    fig.savefig(str(out))
+    assert out.is_file()
+    assert out.stat().st_size > 0
+
+
+def test_closed_form_fits_compile(tmp_path):
+    fig = glp.figure(data_prefix="cff")
+    ax = fig.add_subplot(111)
+    x = [1.0, 2.0, 3.0, 4.0]
+    y = [1.1, 2.9, 5.2, 8.1]
+    ax.scatter(x, y)
+    for model in ("linear", "exp", "exp10", "power"):
+        ax.fit(x, y, model=model, xmin=0.5, xmax=4.5, label=model)
+    ax.legend()
+    out = tmp_path / "closed.pdf"
     fig.savefig(str(out))
     assert out.is_file()
     assert out.stat().st_size > 0

@@ -65,6 +65,8 @@ __all__ = [
     "text_just_to_align",
     "PALETTE_SUB_TO_CMAP",
     "CMAP_TO_PALETTE_SUB",
+    "FIT_MODEL_TO_ROUTINE",
+    "FIT_ROUTINE_TO_MODEL",
 ]
 
 
@@ -448,3 +450,18 @@ MPL_ARROWSTYLE_TO_GLE: Dict[str, Tuple[str, Optional[str]]] = {
 #: GLE ``xlabels log`` modes: which sub-decades of a log axis get a label
 #: (``graph.cpp`` ``do_labels``).
 LOG_LABEL_MODES: Tuple[str, ...] = ("off", "l1", "l25", "l25b", "n1")
+
+# -- closed-form fits -------------------------------------------------------
+#
+# ``Axes.fit(model=...)`` -> the GLE ``let`` routine that fits it
+# (graph2.cpp ``GLELet::doFitFunction``): ``y = a*x+b``, ``y = a*exp(b*x)``,
+# ``y = a*10^(b*x)`` and ``y = a*x^b``, each by ordinary least squares:
+# ``linfit`` on the data, the others on its logs (y, and x for ``powxfit``).
+FIT_MODEL_TO_ROUTINE: Dict[str, str] = {
+    "linear": "linfit",
+    "exp": "logefit",
+    "exp10": "log10fit",
+    "power": "powxfit",
+}
+
+FIT_ROUTINE_TO_MODEL: Dict[str, str] = {v: k for k, v in FIT_MODEL_TO_ROUTINE.items()}
