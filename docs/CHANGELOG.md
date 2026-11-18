@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v3.12.0 (2026-11-18)
+
+### Features
+
+- Plot() mdist, deresolve and per-series clip window
+  ([#50](https://github.com/BenHuddart/gleplot/pull/50),
+  [`07163ee`](https://github.com/BenHuddart/gleplot/commit/07163ee300301af84941f018207914d890d76eae))
+
+
 ## v3.11.0 (2026-11-18)
 
 ### Documentation
