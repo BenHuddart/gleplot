@@ -2588,13 +2588,14 @@ class Figure:
         return right, below
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/colorbar/clabel/wedge/box/rug/polar/image subs needed.
+        """Gather the palette/colorbar/clabel/wedge/box/rug/polar/image subs.
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs sorted by name, then the vertical and horizontal colorbar
         subs (each if any bar uses it), then the contour-labels sub (if any
         clabel), then the pie-wedge sub (if any wedge), then the box-plot subs
-        (if any box), then the rug subs (if any rug), then one per-point marker-size sub per marker that a
+        (if any box), then the rug subs (if any rug has a tick), then one
+        per-point marker-size sub per marker that a
         scatter with ``mdata`` uses, sorted by name, then the polar subs
         (if any polar axes), then the image subs (if any placed image).
         Skipped (dangling) series contribute nothing, so a write that drops
@@ -2639,7 +2640,9 @@ class Figure:
             subs.append(WEDGE_SUB)
         if any(resolution.visible(ax.boxes) for ax in self.axes_list):
             subs.append(BOX_SUB)
-        if any(resolution.visible(ax.rugs) for ax in self.axes_list):
+        if any(
+            r["ticks"] for ax in self.axes_list for r in resolution.visible(ax.rugs)
+        ):
             subs.append(RUG_SUB)
         sized_markers: Set[str] = set()
         for ax in self.axes_list:

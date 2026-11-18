@@ -59,9 +59,12 @@ def test_every_edge_of_each_axis_is_accepted(axis, position):
     ]
 
 
-def test_no_rug_no_sub():
+@pytest.mark.parametrize("values", [None, []])
+def test_no_tick_no_sub(values):
     fig, ax = glp.subplots()
     ax.plot([0, 1], [0, 1])
+    if values is not None:
+        ax.rug(values)
     assert "gleplot_xrug" not in _script(fig)
 
 
@@ -112,6 +115,7 @@ def test_polar_axes_rejects_a_rug():
         ({"length": 0}, "length=0"),
         ({"length": float("nan")}, "length=nan"),
         ({"linewidth": -1}, "linewidth=-1"),
+        ({"linewidth": 0}, "linewidth=0"),
     ],
 )
 def test_bad_arguments_raise_at_the_call(kwargs, message):
@@ -125,3 +129,11 @@ def test_non_finite_values_raise():
     _fig, ax = glp.subplots()
     with pytest.raises(ValueError, match="finite"):
         ax.rug([1.0, np.nan])
+
+
+@pytest.mark.parametrize("kwargs", [{"length": None}, {"linewidth": "2"}])
+def test_a_length_or_width_that_is_not_a_number_is_a_type_error(kwargs):
+    _fig, ax = glp.subplots()
+    name = next(iter(kwargs))
+    with pytest.raises(TypeError, match=f"rug\\({name}="):
+        ax.rug([1.0], **kwargs)

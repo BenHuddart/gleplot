@@ -335,6 +335,7 @@ from ..writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_GRID_LAYER,
+    RUG_EDGES,
     GLEWriter,
     image_sub_name,
     polar_degree_mark,
@@ -701,8 +702,7 @@ class RecognizedFigure:
 
 
 #: The rug subs (:data:`gleplot.writer.RUG_SUB`) and the axis each draws on.
-_RUG_CALLS = {"gleplot_xrug": "x", "gleplot_yrug": "y"}
-_RUG_EDGES = {"x": ("bottom", "top", "both"), "y": ("left", "right", "both")}
+_RUG_CALLS = {f"gleplot_{axis}rug": axis for axis in RUG_EDGES}
 
 
 def _is_rug_call(keyword: str, args: List[object]) -> bool:
@@ -713,7 +713,7 @@ def _is_rug_call(keyword: str, args: List[object]) -> bool:
     return (
         all(isinstance(v, (int, float)) for v in (value, length, lwidth))
         and isinstance(color, str)
-        and position in _RUG_EDGES[_RUG_CALLS[keyword]]
+        and position in RUG_EDGES[_RUG_CALLS[keyword]]
     )
 
 

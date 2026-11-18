@@ -73,7 +73,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     sanitize_column_name,
     sorted_zorder_drawables,
 )
-from .writer import GLEWriter, image_sub_name
+from .writer import RUG_EDGES, GLEWriter, image_sub_name
 
 _Method = TypeVar("_Method", bound=Callable[..., Any])
 
@@ -5824,7 +5824,10 @@ class Axes:
         ------
         ValueError
             For an unknown ``axis`` or ``position``, non-finite values, a
-            zero or non-finite ``length``, or a negative ``linewidth``.
+            zero or non-finite ``length``, or a ``linewidth`` that is not
+            more than 0.
+        TypeError
+            For a ``length`` or ``linewidth`` that is not a number.
 
         Notes
         -----
@@ -5832,16 +5835,21 @@ class Axes:
         series; a value outside the axis range draws no tick. The values
         widen the autoscaled range of their axis.
         """
-        edges = {"x": ("bottom", "top", "both"), "y": ("left", "right", "both")}
-        if axis not in edges:
+        if axis not in RUG_EDGES:
             raise ValueError(f"rug(axis={axis!r}) must be 'x' or 'y'.")
         if position is None:
-            position = edges[axis][0]
-        if position not in edges[axis]:
+            position = RUG_EDGES[axis][0]
+        if position not in RUG_EDGES[axis]:
             raise ValueError(
                 f"rug(position={position!r}) with axis={axis!r} must be one of "
-                f"{', '.join(repr(p) for p in edges[axis])}."
+                f"{', '.join(repr(p) for p in RUG_EDGES[axis])}."
             )
+        for name, value in (("length", length), ("linewidth", linewidth)):
+            if isinstance(value, bool) or not isinstance(value, Real):
+                raise TypeError(
+                    f"rug({name}={value!r}) must be a number; got "
+                    f"{type(value).__name__}."
+                )
         values = np.asarray(x, dtype=float).ravel()
         if not np.all(np.isfinite(values)):
             raise ValueError(
@@ -5853,10 +5861,10 @@ class Axes:
                 f"rug(length={length!r}) must be a non-zero length in cm; a "
                 "negative length points out of the axes."
             )
-        if not np.isfinite(linewidth) or linewidth < 0:
+        if not np.isfinite(linewidth) or linewidth <= 0:
             raise ValueError(
                 f"rug(linewidth={linewidth!r}) must be a line width in points, "
-                "0 or more."
+                "more than 0."
             )
         entry = Rug(
             type="rug",

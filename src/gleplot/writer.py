@@ -365,6 +365,10 @@ def image_sub_name(path: str) -> Optional[str]:
     return _IMAGE_SUB_BY_SUFFIX.get(Path(path).suffix.lower())
 
 
+#: The frame edges a rug can stand on, per axis; the first is the default.
+#: The ticks of an ``axis`` rug are ``gleplot_<axis>rug`` calls.
+RUG_EDGES = {"x": ("bottom", "top", "both"), "y": ("left", "right", "both")}
+
 #: The subs behind every rug tick (:meth:`GLEWriter.add_rug`), called after
 #: ``end graph`` like :data:`BOX_SUB`. A positive ``len`` points into the
 #: axes, as GLE's ``ticks length`` does. The frame edges are the min and max
@@ -5132,7 +5136,6 @@ class GLEWriter:
             f"        draw {sub} {_quote_filename(series['file'])} {extent}"
         )
         self.lines_gle.append("    end layer")
-
 
     def add_rug(self, series: Series) -> None:
         """Queue one rug for after ``end graph``.
