@@ -78,6 +78,16 @@ class GLEStyleConfig:
         raise ``dashlen`` to open it up. None (the default) writes nothing
         and leaves GLE's own 0.04 cm.
 
+    usetex : bool
+        Typeset every label with LaTeX (GLE ``set texlabels 1``), as
+        matplotlib's ``text.usetex`` does: titles, axis labels, tick labels,
+        legend entries and text annotations. Strings reach LaTeX as written,
+        so ``$...$`` is LaTeX math rather than gleplot's mathtext translation,
+        and text outside it must be valid LaTeX (``\\_`` for an underscore).
+        Labels already set keep their GLE markup, so set this when creating
+        the figure. Compiling needs a LaTeX installation; SVG output is not
+        available. Default: False
+
     Notes
     -----
     The ``line_style_*`` defaults are the GLE ``lstyle`` numbers that actually
@@ -123,6 +133,7 @@ class GLEStyleConfig:
     line_cap: Optional[str] = None
     line_join: Optional[str] = None
     dashlen: Optional[float] = None
+    usetex: bool = False
 
     def __setattr__(self, name: str, value: Any) -> None:
         # Checked on every assignment, not only at construction:
@@ -150,6 +161,11 @@ class GLEStyleConfig:
                     f"dashlen must be a positive length in cm or None; got "
                     f"{value!r}. None keeps GLE's own 0.04 cm."
                 )
+        if name == "usetex" and not isinstance(value, bool):
+            raise TypeError(
+                f"usetex must be True or False; got {value!r} of type "
+                f"{type(value).__name__}."
+            )
         super().__setattr__(name, value)
 
     def to_dict(self) -> Dict[str, Any]:

@@ -7,6 +7,8 @@ integration with the API entry points (labels/titles/annotations stored
 translated; emitted ``.gle`` contains the markup).
 """
 
+import warnings
+
 import pytest
 
 import gleplot
@@ -329,3 +331,81 @@ class TestLiteralTextModeEntryPoints:
         ax.set_ylabel(r"$\chi_{mol}$ (emu mol$^{-1}$)")
         assert ax.lines[0]["label"] == r"\alpha{} decay"
         assert ax.ylabel_text == r"\chi_{mol} (emu mol^{-1})"
+
+
+# ----------------------------------------------------------------------
+# GLEStyleConfig(usetex=True): GLE hands labels to LaTeX untranslated
+# ----------------------------------------------------------------------
+class TestUsetex:
+    def _axes(self):
+        fig = gleplot.figure(style=gleplot.GLEStyleConfig(usetex=True))
+        return fig, fig.add_subplot(111)
+
+    def test_labels_are_stored_and_written_as_given(self):
+        fig, ax = self._axes()
+        ax.plot([1, 2], [1, 2], label=r"$\beta$ decay")
+        ax.set_xlabel(r"$\mu_0 H$ (T)")
+        ax.set_title(r"lambda\_tail")
+        ax.text(1.0, 1.0, r"$\sqrt{5}$")
+        ax.set_xticks([1, 2], [r"$a$", "b"])
+        assert ax.lines[0]["label"] == r"$\beta$ decay"
+        assert ax.xlabel_text == r"$\mu_0 H$ (T)"
+        assert ax.title_text == r"lambda\_tail"
+        assert ax.texts[0]["text"] == r"$\sqrt{5}$"
+        assert ax.xnames == ["$a$", "b"]
+        text = fig._generate_gle()
+        assert "\nset texlabels 1\nset hei " in text
+        assert r'xtitle "$\mu_0 H$ (T)"' in text
+
+    def test_default_writes_no_texlabels(self):
+        fig = gleplot.figure()
+        fig.add_subplot(111).set_xlabel(r"$\mu$")
+        assert "texlabels" not in fig._generate_gle()
+
+    def test_colorbar_and_broken_axes_labels(self):
+        import numpy as np
+
+        fig, ax = self._axes()
+        ax.imshow(np.arange(9).reshape(3, 3))
+        assert fig.colorbar(label=r"$\rho$")["label"] == r"$\rho$"
+        bax = gleplot.BrokenAxes(fig, [(0, 1), (2, 3)])
+        bax.set_xlabel(r"$t$ (s)")
+        bax.set_title(r"$T_N$")
+        assert (bax.xlabel_text, bax.title_text) == (r"$t$ (s)", r"$T_N$")
+
+    def test_boxplot_tick_labels(self):
+        _, ax = self._axes()
+        ax.boxplot([[1, 2, 3], [2, 3, 4]], tick_labels=[r"$\alpha$", "b"])
+        assert ax.xnames == [r"$\alpha$", "b"]
+
+    def test_pie_autopct_percent_is_escaped_like_matplotlib(self):
+        _, ax = self._axes()
+        _, _, autotexts = ax.pie([1, 3], autopct=r"%1.0f%%")
+        assert autotexts == [r"25\%", r"75\%"]
+        assert ax.wedges[0]["autotext"] == r"25\%"
+
+    def test_usetex_must_be_a_bool(self):
+        with pytest.raises(TypeError, match="usetex must be True or False"):
+            gleplot.GLEStyleConfig(usetex=1)
+        style = gleplot.GLEStyleConfig()
+        with pytest.raises(TypeError, match="'yes'"):
+            style.usetex = "yes"
+
+    @pytest.mark.parametrize("folder", [False, True])
+    def test_svg_is_refused_before_anything_is_written(self, tmp_path, folder):
+        fig, ax = self._axes()
+        ax.plot([1, 2], [1, 2])
+        with pytest.raises(ValueError, match="cannot write SVG"):
+            fig.savefig(str(tmp_path / "new" / "fig.svg"), folder=folder)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_no_cairo_font_warning_when_latex_draws_the_labels(self, tmp_path):
+        from unittest import mock
+
+        fig, ax = self._axes()
+        ax.plot([1, 2], [1, 2])
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fig.savefig(str(tmp_path / "fig.pdf"), cairo=True)
+        assert fig.compiler.compile.call_args.kwargs["cairo"] is True

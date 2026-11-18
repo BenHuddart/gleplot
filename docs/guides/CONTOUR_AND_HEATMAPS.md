@@ -193,6 +193,9 @@ python basic/heatmap_imshow.py
 
 You can write labels in **either** matplotlib-style `$...$` mathtext **or** GLE's own TeX-like markup — both reach the same result. Every display string entering the model (axis titles, series `label=`, `title`/`text`, `colorbar(label=)`, …) is translated at store time by `gleplot.mathtext_to_gle`, so matplotlib users get Greek/math rendering without learning GLE markup.
 
+To typeset labels with LaTeX itself instead, see `usetex` in the
+[Configuration Guide](CONFIGURATION.md); the translation below is then skipped.
+
 ### matplotlib mathtext (`$...$`)
 
 Anything between unescaped `$` delimiters is treated as math and translated to GLE markup; text outside the delimiters is escaped so it renders **literally** (see "Plain text is literal" below):

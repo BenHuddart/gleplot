@@ -1135,6 +1135,18 @@ def boxplot_field_options():
     return fig
 
 
+def usetex_labels():
+    """Page-level ``set texlabels 1``; labels reach LaTeX as written."""
+    fig = glp.figure(style=glp.GLEStyleConfig(usetex=True), data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], label=r"$y = x^2$")
+    ax.set_xlabel(r"$\mu_0 H$ (T)")
+    ax.set_title(r"run\_01")
+    ax.text(1, 2, r"$\sqrt{5}$")
+    ax.legend()
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -1197,6 +1209,7 @@ BUILDERS = [
     line_cap_join_dashlen,
     boxplot_chart,
     boxplot_field_options,
+    usetex_labels,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

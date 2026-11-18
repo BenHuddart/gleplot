@@ -109,6 +109,11 @@ ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0), handlelength=1.5,
 ax.text(1, 2, "peak", va="bottom", rotation=45, bbox={"facecolor": "white"})
 ```
 
+matplotlib's `text.usetex` is `GLEStyleConfig(usetex=True)`, set for the
+figure rather than in `rcParams`; see the
+[Configuration Guide](CONFIGURATION.md). There is no per-text `usetex=`
+keyword.
+
 ### Annotations
 
 `ax.annotate(text, xy, xytext=..., arrowprops=...)` is a text at `xytext` with an arrow to `xy`, both in data coordinates. The text takes the `text()` keywords above. The arrow is GLE `join` from the text's named box to a saved point at `xy`, so it starts at the box edge (0.05 cm pad) rather than over the text. An `xy` inside the text's own box draws the arrow back across the text, where matplotlib draws nothing: keep `xytext` clear of the point.

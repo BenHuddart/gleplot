@@ -943,15 +943,24 @@ def _oriented(
 
 
 #: Page-level ``set`` words recognized onto :class:`GLEStyleConfig` fields.
-_LINE_STATE_FIELDS = {"cap": "line_cap", "join": "line_join", "dashlen": "dashlen"}
+_PAGE_STATE_FIELDS = {
+    "cap": "line_cap",
+    "join": "line_join",
+    "dashlen": "dashlen",
+    "texlabels": "usetex",
+}
 
 
-def _line_state_value(field: str, tok: Token) -> Any:
+def _page_state_value(field: str, tok: Token) -> Any:
     """The ``GLEStyleConfig.<field>`` value of a ``set`` argument, or None.
 
     None leaves the statement raw: a word or length ``GLEStyleConfig``
-    rejects, or a length written as an expression.
+    rejects, a length written as an expression, or a ``texlabels`` switch
+    spelled other than the writer's ``1`` (``0`` is GLE's default, and
+    dropping it would lose the line).
     """
+    if field == "usetex":
+        return True if tok.value == "1" else None
     if field != "dashlen":
         value: Any = tok.value.lower()
     elif tok.type is TokenType.NUMBER:
@@ -1467,13 +1476,13 @@ class _Recognizer:
             font,
             fontsize,
             page_box,
-            line_state,
+            page_state,
             passthrough_before_hei,
             passthrough_header,
         ) = self._parse_preamble(pre_nodes)
 
         # Build style/graph/marker configs.
-        style = GLEStyleConfig(**line_state)
+        style = GLEStyleConfig(**page_state)
         style.font = font
         style.fontsize = fontsize
         graph_cfg = GLEGraphConfig()
@@ -1754,12 +1763,13 @@ class _Recognizer:
         # rendered 33x too large after round-trip. A second occurrence now
         # falls through to passthrough like any unrecognized statement.
         font_seen = False
-        # 'set cap'/'set join'/'set dashlen' -> GLEStyleConfig line_cap/
-        # line_join/dashlen. The writer emits them before any passthrough,
-        # so only a first occurrence that no drawing statement precedes is
-        # recognized: re-emitted earlier, it still reaches every stroke it
-        # reached before. Anything later stays raw where it was.
-        line_state: Dict[str, Any] = {}
+        # 'set cap'/'set join'/'set dashlen'/'set texlabels' ->
+        # GLEStyleConfig line_cap/line_join/dashlen/usetex. The writer emits
+        # them before any passthrough, so only a first occurrence that no
+        # drawing statement precedes is recognized: re-emitted earlier, it
+        # still reaches every stroke and label it reached before. Anything
+        # later stays raw where it was.
+        page_state: Dict[str, Any] = {}
         statement_passed = False
         # Whether a 'set hei ...' will ever be recognized ANYWHERE in this
         # preamble at all. Without this guard, a preamble with 'size'/'set
@@ -1869,27 +1879,30 @@ class _Recognizer:
                             started = True
                             hei_seen = True
                             continue
-                    field = _LINE_STATE_FIELDS.get(sub)
+                    field = _PAGE_STATE_FIELDS.get(sub)
                     # Exactly three tokens: a trailing comment would be lost.
                     if (
                         field is not None
-                        and field not in line_state
+                        and field not in page_state
                         and not statement_passed
                         and len(node.tokens) == 3
                     ):
-                        value = _line_state_value(field, toks[2])
+                        value = _page_state_value(field, toks[2])
                         if value is not None:
-                            line_state[field] = value
+                            page_state[field] = value
                             continue
                 # Unrecognized preamble statement -> header passthrough.
                 _passthrough(self._stmt_text(node))
                 continue
 
             # Opaque block in the preamble -> header passthrough (raw lines).
+            # A texpreamble block draws nothing, so the page state after it
+            # (GLE's usual 'set texlabels 1') is still recognized.
+            drawn = getattr(node, "block_type", "") != "texpreamble"
             for line in self._raw_lines(node):
-                _passthrough(line)
+                _passthrough(line, statement=drawn)
 
-        return figsize, font, fontsize, page_box, line_state, before_hei, passthrough
+        return figsize, font, fontsize, page_box, page_state, before_hei, passthrough
 
     def _metadata_line_numbers(self) -> set:
         """1-based line numbers spanned by the ``! gleplot`` metadata block."""

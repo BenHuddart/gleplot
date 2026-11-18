@@ -25,7 +25,6 @@ from .compiler import (
     remove_generated_intermediates,
 )
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
-from .mathtext import mathtext_to_gle
 from .parser import metadata as _gle_metadata
 from .parser.units import fontsize_pt_to_cm
 from .series import Series, is_visible
@@ -1197,7 +1196,7 @@ class Figure:
         divisions = int(nticks) if nticks else DEFAULT_COLORBAR_NTICKS
 
         cb = {
-            "label": mathtext_to_gle(label),
+            "label": bearing[0]._text(label),
             "format": str(format),
             "width": float(width),
             "sep": float(sep),
@@ -1371,6 +1370,8 @@ class Figure:
             file suffix (``.jpeg`` maps to ``jpg``); an unrecognized or
             missing suffix defaults to saving the ``.gle`` script only.
             If format is given but the file extension differs, format wins.
+            SVG raises ``ValueError`` for a figure whose style has
+            ``usetex=True``: GLE cannot put LaTeX labels in SVG.
         dpi : int, optional
             DPI for raster formats
         cairo : bool, optional
@@ -1488,7 +1489,6 @@ class Figure:
             filepath,
             folder=kwargs.pop("folder", False),
         )
-        export_dir.mkdir(parents=True, exist_ok=True)
 
         # Determine output format from the file suffix. Driven by
         # SUFFIX_TO_COMPILE_FORMAT (shared with GLECompiler) so this can't
@@ -1496,6 +1496,15 @@ class Figure:
         # Unknown/missing suffixes (including '.gle') default to 'gle'.
         if format is None:
             format = SUFFIX_TO_COMPILE_FORMAT.get(output_path.suffix.lower(), "gle")
+        if self.style.usetex and format.lower() == "svg":
+            # GLE fails with "LaTeX expressions not supported in '.svg'".
+            raise ValueError(
+                f"savefig({str(filepath)!r}) cannot write SVG for a figure with "
+                "style usetex=True: GLE typesets LaTeX labels only in PDF, EPS, "
+                "PNG and JPG output. Save to one of those, or set "
+                "fig.style.usetex = False before adding labels."
+            )
+        export_dir.mkdir(parents=True, exist_ok=True)
 
         # Write GLE script and data files
         base_path = output_path.with_suffix(".gle")
@@ -1536,7 +1545,8 @@ class Figure:
                 )
 
             effective_cairo = self.requires_cairo() if cairo is None else cairo
-            if effective_cairo:
+            # Under usetex LaTeX draws every label, so no GLE font is used.
+            if effective_cairo and not self.style.usetex:
                 # Only titles that are written: one with no text, or an x/y
                 # title hidden by shared axes, puts no font in the script.
                 title_fonts = [

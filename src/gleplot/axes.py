@@ -1791,6 +1791,14 @@ class Axes:
         """
         return getattr(self.figure, "style", None) or GlobalConfig.get_style()
 
+    def _text(self, s):
+        """Display text ``s`` as stored: GLE markup, or as given for LaTeX.
+
+        Under ``GLEStyleConfig.usetex`` GLE hands every label to LaTeX, which
+        must receive the string the user wrote.
+        """
+        return s if self._style().usetex else mathtext_to_gle(s)
+
     def _resolve_color(self, color, marker_only: bool = False) -> str:
         """Resolve a series colour argument to a GLE colour.
 
@@ -1925,7 +1933,7 @@ class Axes:
             zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         mode = resolve_line_mode(drawstyle, line_mode, kwargs.pop("ds", None))
         qualifiers = _dataset_qualifiers(
             mdist, deresolve, deresolve_average, xmin, xmax, ymin, ymax
@@ -2376,7 +2384,7 @@ class Axes:
                 data_file=_resolve_data_file(self.figure),
             )
             if one_label is not None:
-                fields["label"] = mathtext_to_gle(str(one_label))
+                fields["label"] = self._text(str(one_label))
             if style_name == "step":
                 fields["linestyle"] = "-" if one_ls is None else one_ls
                 fields["linewidth"] = float(1 if one_lw is None else one_lw)
@@ -2647,7 +2655,7 @@ class Axes:
                 f"{caller}() linewidth must be a number of points, got {linewidth!r}"
             ) from None
         if label is not None:
-            fields["label"] = mathtext_to_gle(str(label))
+            fields["label"] = self._text(str(label))
         return fields
 
     def _histogram_window(self, sets, bins, range, warn):
@@ -2837,7 +2845,7 @@ class Axes:
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
 
@@ -3008,7 +3016,7 @@ class Axes:
         read_options = _file_read_options(skiprows, comment, max_rows)
 
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         gle_color = self._resolve_color(color)
 
         gle_marker = get_gle_marker(marker, fill=marker_fill) if marker else None
@@ -3075,7 +3083,7 @@ class Axes:
         _check_file_columns(x_col, y_col=y_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
 
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         gle_color = self._resolve_color(color)
         mode = resolve_line_mode(drawstyle, line_mode)
         if mode and linestyle in _NO_LINE:
@@ -3184,7 +3192,7 @@ class Axes:
         -------
         self
         """
-        label = mathtext_to_gle(label)
+        label = self._text(label)
 
         if markersize is None:
             if s is None:
@@ -3366,7 +3374,7 @@ class Axes:
             warn_external(
                 f"bar() ignores unsupported error_kw key(s): {names}.",
             )
-        label = mathtext_to_gle(label)
+        label = self._text(label)
 
         x = np.asarray(x, dtype=float).ravel()
         height = np.asarray(height, dtype=float).ravel()
@@ -3686,7 +3694,7 @@ class Axes:
                 "fill_between() takes where= or an xmin/xmax clip, not both"
             )
 
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         x_arr = np.asarray(x, dtype=float)
         if x_arr.ndim != 1:
             raise ValueError("fill_between() x must be 1-dimensional")
@@ -3818,7 +3826,7 @@ class Axes:
             names = ", ".join(sorted(kwargs))
             warn(f"fill() ignores unsupported keyword(s): {names}.")
 
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         x_arr = np.asarray(x, dtype=float)
         y_arr = np.asarray(y, dtype=float)
         if x_arr.ndim != 1 or y_arr.ndim != 1:
@@ -3955,7 +3963,7 @@ class Axes:
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         gle_color = "BLACK" if color is None else rgb_to_gle(color)
 
         entry = RefLine(
@@ -4042,7 +4050,7 @@ class Axes:
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         gle_color = "LIGHTGRAY" if color is None else rgb_to_gle(color)
 
         entry = Span(
@@ -4429,7 +4437,7 @@ class Axes:
         fields = dict(
             x=float(x),
             y=float(y),
-            text=mathtext_to_gle(str(s)),
+            text=self._text(str(s)),
             color=gle_color,
             fontsize=float(fontsize) if fontsize is not None else None,
             ha=ha_norm,
@@ -4773,13 +4781,17 @@ class Axes:
             if labeldistance is not None:
                 shown = "" if label is None else str(label)
                 texts.append(shown)
-                text = mathtext_to_gle(shown) if shown else None
+                text = self._text(shown) if shown else None
             autotext = None
             if autopct is not None:
                 pct = 100.0 * float(frac)
                 raw = autopct % pct if isinstance(autopct, str) else autopct(pct)
-                autotext = mathtext_to_gle(str(raw))
-                autotexts.append(str(raw))
+                raw = str(raw)
+                if self._style().usetex:
+                    # As matplotlib does: LaTeX reads a bare % as a comment.
+                    raw = re.sub(r"(?<!\\)%", r"\\%", raw)
+                autotext = self._text(raw)
+                autotexts.append(raw)
             entry = Wedge(
                 type="wedge",
                 x=cx,
@@ -5071,7 +5083,7 @@ class Axes:
                 if names is None:
                     new = [f"{p:g}" for p in pos]
                 else:
-                    new = [str(mathtext_to_gle(str(s))) for s in names]
+                    new = [str(self._text(str(s))) for s in names]
                 self.xnames = old + new
             self.xplaces = places + pos
         keys = ("whiskers", "caps", "boxes", "medians", "fliers", "means")
@@ -5152,7 +5164,7 @@ class Axes:
         dict
             The stored heatmap series dict.
         """
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         if origin not in ("lower", "upper"):
             raise ValueError("origin must be 'lower' or 'upper'")
         z = np.asarray(Z, dtype=float)
@@ -5246,7 +5258,7 @@ class Axes:
         dict
             The stored contour series dict.
         """
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         z, ext = self._grid_from_args(args)
         levels_resolved = self._resolve_levels(levels, z)
         # Explicit levels that all lie outside the data range would make GLE's
@@ -5403,7 +5415,7 @@ class Axes:
         -----
         The remaining keyword arguments are as for :meth:`imshow`.
         """
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         if self.heatmaps:
             raise ValueError(
                 "GLE supports at most one heatmap (colormap) per axes; "
@@ -5467,7 +5479,7 @@ class Axes:
         -----
         The remaining keyword arguments are as for :meth:`contour`.
         """
-        label = mathtext_to_gle(label)
+        label = self._text(label)
         xa, ya, za, ext, gs = self._points_from_args(x, y, z, gridsize, extent)
         # For explicit-level or count resolution we approximate the grid range
         # from the scattered z-values (GLE grids at compile time).
@@ -5536,7 +5548,7 @@ class Axes:
             font``). ``None`` keeps the current font.
         """
         prefix = "x2" if axis == "x2" else "x"
-        setattr(self, f"{prefix}label_text", mathtext_to_gle(label))
+        setattr(self, f"{prefix}label_text", self._text(label))
         if fontname is not None:
             setattr(self, f"{prefix}label_font", _gle_font_name(fontname, "set_xlabel"))
         return self
@@ -5557,7 +5569,7 @@ class Axes:
             the current font.
         """
         prefix = "y2" if axis == "y2" else "y"
-        setattr(self, f"{prefix}label_text", mathtext_to_gle(label))
+        setattr(self, f"{prefix}label_text", self._text(label))
         if fontname is not None:
             setattr(self, f"{prefix}label_font", _gle_font_name(fontname, "set_ylabel"))
         return self
@@ -5573,7 +5585,7 @@ class Axes:
             GLE font for the title (GLE ``title ... font``). ``None`` keeps
             the current font.
         """
-        self.title_text = mathtext_to_gle(label)
+        self.title_text = self._text(label)
         if fontname is not None:
             self.title_font = _gle_font_name(fontname, "set_title")
         return self
@@ -5823,7 +5835,7 @@ class Axes:
         if labels is not None:
             # Tick labels are user-supplied display text like any other, so
             # they get the same mathtext translation / literal escaping.
-            self.xnames = [str(mathtext_to_gle(str(lbl))) for lbl in labels]
+            self.xnames = [str(self._text(str(lbl))) for lbl in labels]
         if dticks is not None:
             self.xdticks = float(dticks)
         if dsubticks is not None:
@@ -5850,7 +5862,7 @@ class Axes:
         if ticks is not None:
             self.yplaces = [float(t) for t in ticks]
         if labels is not None:
-            self.ynames = [str(mathtext_to_gle(str(lbl))) for lbl in labels]
+            self.ynames = [str(self._text(str(lbl))) for lbl in labels]
         if dticks is not None:
             self.ydticks = float(dticks)
         if dsubticks is not None:
