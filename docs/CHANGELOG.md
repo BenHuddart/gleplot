@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v4.6.0 (2026-11-18)
+
+### Features
+
+- Fit results in the legend with Axes.fit label placeholders
+  ([#75](https://github.com/BenHuddart/gleplot/pull/75),
+  [`6546a26`](https://github.com/BenHuddart/gleplot/commit/6546a2664dc8879805c6603b6b6195b741e776b4))
+
+- Review fixes for fit result legends ([#75](https://github.com/BenHuddart/gleplot/pull/75),
+  [`1c4a429`](https://github.com/BenHuddart/gleplot/commit/1c4a4294ab2ed718df52db56ebe59d09f618fbdc))
+
+
 ## v4.5.0 (2026-11-18)
 
 ### Features
