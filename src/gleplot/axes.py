@@ -5715,6 +5715,7 @@ class Axes:
 
     # -- placed images --------------------------------------------------
 
+    @_cartesian_only
     def image(self, fname, extent) -> PlacedImage:
         """Place an image file over a rectangle in data coordinates.
 

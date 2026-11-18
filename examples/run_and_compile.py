@@ -69,8 +69,8 @@ from basic import (
     example_heatmap_imshow,
     example_horizontal_error_bars,
     example_pie_chart,
-    example_polar_plot,
     example_placed_image,
+    example_polar_plot,
     example_scatter_plot,
     example_symmetric_error_bars,
 )
