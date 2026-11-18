@@ -8,7 +8,8 @@ quality vector graphics.
 Features
 --------
 - Matplotlib-compatible API (plot, scatter, bar, fill_between, errorbar)
-- Text annotations and arrows in data coordinates (text, annotate)
+- Text annotations and arrows in data coordinates or axes fractions (text,
+  annotate)
 - Subplots with flexible grid layouts (subplots, add_subplot)
 - Native vector graphics output (PDF, PNG, EPS)
 - Inline display in Jupyter notebooks (view)

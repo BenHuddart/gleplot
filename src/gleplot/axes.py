@@ -110,6 +110,14 @@ class _Transform:
         self.axes = axes
         self.kind = kind
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, _Transform):
+            return NotImplemented
+        return self.axes is other.axes and self.kind == other.kind
+
+    def __hash__(self) -> int:
+        return hash((id(self.axes), self.kind))
+
     def __repr__(self) -> str:
         return f"<gleplot {self.kind} transform>"
 
@@ -5084,7 +5092,7 @@ class Axes:
         rotation: Optional[float] = None,
         **kwargs,
     ):
-        """Add free-form text annotation in data coordinates.
+        """Add free-form text annotation in data coordinates or axes fractions.
 
         Parameters
         ----------
@@ -5269,6 +5277,8 @@ class Axes:
                 box_color = rgb_to_gle(facecolor)
 
         supported = "color, fontsize, ha, va, rotation, bbox"
+        if caller == "text":
+            supported += ", transform"
         if caller == "annotate":
             supported = "xytext, xycoords, textcoords, arrowprops, " + supported
         for name in sorted(kwargs):

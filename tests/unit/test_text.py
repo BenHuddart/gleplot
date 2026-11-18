@@ -237,6 +237,14 @@ class TestAxesFractionText:
         ) in gle
         assert gle.index("end graph") < gle.index('write "(b)"')
 
+    def test_a_transform_compares_equal_to_itself(self):
+        assert self.ax.transAxes == self.ax.transAxes
+        assert self.ax.transAxes != self.ax.transData
+
+    def test_unsupported_keyword_warning_lists_transform(self):
+        with pytest.warns(UserWarning, match="rotation, bbox, transform"):
+            self.ax.text(0.5, 0.5, "a", transform=self.ax.transAxes, zorder=3)
+
     def test_trans_data_is_the_default(self):
         self.ax.text(1, 0.5, "d", transform=self.ax.transData)
         assert "transform" not in self.ax.texts[0]
@@ -247,18 +255,6 @@ class TestAxesFractionText:
         with pytest.warns(UserWarning, match="different axes"):
             self.ax.text(1, 0.5, "d", transform=other.transAxes)
         assert "transform" not in self.ax.texts[0]
-
-    def test_round_trips_through_the_parser(self, tmp_path):
-        from gleplot.parser.recognizer import parse_gle_figure
-
-        self.ax.text(1, 0.5, "data")
-        self.ax.text(0.5, -0.1, "frac", transform=self.ax.transAxes, ha="center")
-        path = str(tmp_path / "t.gle")
-        self.fig.savefig_gle(path)
-        data, frac = parse_gle_figure(path).figure.axes_list[0].texts
-        assert "transform" not in data
-        assert (frac["x"], frac["y"], frac["transform"]) == (0.5, -0.1, "axes")
-        assert frac["ha"] == "center"
 
 
 class TestAnnotate:

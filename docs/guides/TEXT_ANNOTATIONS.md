@@ -1,6 +1,7 @@
 # Text Annotations
 
-Use `Axes.text()` (or module-level `gleplot.text()`) to place text directly in data coordinates.
+Use `Axes.text()` (or module-level `gleplot.text()`) to place text directly in data coordinates,
+or in fractions of the axes frame with `transform=ax.transAxes`.
 
 ## Basic Usage
 
@@ -25,6 +26,17 @@ ax.text(2.0, -0.1, 'Right aligned', ha='right', va='center')
 
 The accepted `ha` and `va` values, and how they map to GLE's `set just`, are
 in the `text()` table of the [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md).
+
+## Axes Fractions
+
+Pass `transform=ax.transAxes` to place text relative to the frame instead of
+the data, as in matplotlib: `(0, 0)` is the bottom-left corner and `(1, 1)`
+the top-right, whatever the limits, scale or direction of the axes. A panel
+label stays in its corner when the data changes:
+
+```python
+ax.text(0.05, 0.95, '(a)', transform=ax.transAxes, va='top')
+```
 
 ## Rotation
 
