@@ -889,7 +889,9 @@ class FitSeries(Series):
     has no header: GLE keys every dataset a ``let`` uses, so a header would
     give the data its own legend entry.
     ``let dK = fit dJ with <expression> [from a] [to b] [step h]`` fits the
-    coefficients and samples the fitted curve, which ``dK line`` draws.
+    coefficients and samples the fitted curve, which ``dK line`` draws. A
+    series with a ``model`` instead has no expression, and its ``let`` is
+    the closed-form routine for that model: ``let dK = linfit dJ ...``.
     """
 
     ATTR = "fits"
@@ -901,7 +903,12 @@ class FitSeries(Series):
     x: np.ndarray
     y: np.ndarray
     #: A GLE expression in ``x``; every other name in it is a coefficient.
+    #: Absent on a ``model`` fit.
     expression: str
+    #: ``"linear"``, ``"exp"``, ``"exp10"`` or ``"power"``: the key of
+    #: :data:`gleplot.parser.tables.FIT_MODEL_TO_ROUTINE`. Absent on an
+    #: ``expression`` fit.
+    model: str
     #: ``from``, ``to`` and ``step`` of the ``let``, as on
     #: :class:`FunctionSeries`.
     let_from: float

@@ -14,6 +14,7 @@ from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_f
 from .mathtext import mathtext_to_gle
 from .palettes import canonical_cmap
 from .parser.tables import (
+    FIT_MODEL_TO_ROUTINE,
     KEY_POSITIONS_LONG_TO_SHORT,
     KEY_POSITIONS_SHORT_TO_LONG,
     LEGEND_SPACING_TO_KEY,
@@ -2535,9 +2536,9 @@ class Axes:
         the curve is scaled by GLE. Beside other data, call :meth:`set_ylim`
         if the curve leaves that data's range.
         """
+        self._check_let_expression("function", expression)
         fields = self._let_curve_fields(
             "function",
-            expression,
             xmin,
             xmax,
             step,
@@ -2546,6 +2547,7 @@ class Axes:
             linewidth,
             label,
         )
+        fields["expression"] = expression
         entry = FunctionSeries(**fields)
         self._register_series_draw_meta(entry, "function", zorder)
         self.functions.append(entry)
@@ -2555,7 +2557,7 @@ class Axes:
         self,
         x,
         y,
-        expression: str,
+        expression: Optional[str] = None,
         xmin: Optional[float] = None,
         xmax: Optional[float] = None,
         step: Optional[float] = None,
@@ -2564,21 +2566,34 @@ class Axes:
         linewidth: float = 1,
         label: Optional[str] = None,
         zorder: Optional[float] = None,
+        model: Optional[str] = None,
     ):
         """Draw the curve GLE fits to ``x`` and ``y``.
 
-        Written as ``let dK = fit dJ with expression from xmin to xmax step
-        step``. GLE finds the coefficients, the names in ``expression``
-        other than ``x``, that fit the data best by least squares, and draws
-        the fitted curve. The data itself is not drawn: plot it with
-        :meth:`scatter` or :meth:`plot`. To fit in Python instead, draw the
-        fitted curve with :meth:`plot`.
+        Give either ``expression`` or ``model``. With ``expression``, written
+        as ``let dK = fit dJ with expression from xmin to xmax step step``,
+        GLE finds the coefficients, the names in ``expression`` other than
+        ``x``, that fit the data best by least squares. With ``model``, GLE
+        fits one of four curves in closed form with its own routine:
+
+        ============  ===================  ============
+        ``model``     curve                GLE routine
+        ============  ===================  ============
+        ``"linear"``  ``y = a*x+b``        ``linfit``
+        ``"exp"``     ``y = a*exp(b*x)``   ``logefit``
+        ``"exp10"``   ``y = a*10^(b*x)``   ``log10fit``
+        ``"power"``   ``y = a*x^b``        ``powxfit``
+        ============  ===================  ============
+
+        Either way GLE draws the fitted curve. The data itself is not drawn:
+        plot it with :meth:`scatter` or :meth:`plot`. To fit in Python
+        instead, draw the fitted curve with :meth:`plot`.
 
         Parameters
         ----------
         x, y : array-like
             The data to fit, of equal length.
-        expression : str
+        expression : str, optional
             A GLE expression in ``x``, such as ``"a*exp(-x/b)+c"``. It is
             written as given, without spaces.
         xmin, xmax : float, optional
@@ -2586,7 +2601,8 @@ class Axes:
             x axis range. Every point is fitted either way.
         step : float, optional
             Distance between curve samples. Omitted, GLE takes 100 points.
-            On a log x axis GLE reads ``step`` as the number of points.
+            On a log x axis GLE reads ``step`` as the number of points. Not
+            with ``model``: GLE always draws a model at 100 points.
         color : str, optional
             Line colour; the style's default colour when omitted.
         linestyle : {'-', '--', ':', '-.'}
@@ -2597,6 +2613,11 @@ class Axes:
             Legend entry.
         zorder : float, optional
             Drawing order, as for :meth:`plot`.
+        model : {'linear', 'exp', 'exp10', 'power'}, optional
+            A curve GLE fits in closed form, in place of ``expression``. It
+            needs points at two or more distinct x. ``"exp"`` and
+            ``"exp10"`` need every y above 0, and ``"power"`` every x and y
+            above 0: GLE fits a straight line to their logs.
 
         Returns
         -------
@@ -2605,10 +2626,16 @@ class Axes:
 
         Notes
         -----
-        GLE starts every coefficient at 0 and keeps the fitted values to
-        itself, so they cannot be read back in Python. To start from other
-        values, or to use the fitted ones, fit in Python and draw the curve
-        with :meth:`plot`.
+        GLE starts every coefficient of an ``expression`` at 0, and keeps
+        the fitted values to itself, so they cannot be read back in Python.
+        To start from other values, or to use the fitted ones, fit in Python
+        and draw the curve with :meth:`plot`.
+
+        In a hand-written ``let dK = logefit dJ slope offset rsq`` (and the
+        same for ``log10fit`` and ``powxfit``), GLE stores the exponent
+        ``b`` in the first variable and the prefactor ``a`` in the second,
+        the other way round from what the GLE manual says. gleplot keeps
+        such a ``let`` as raw GLE.
 
         The data bounds the x and y ranges, as for :meth:`plot`, and
         ``xmin`` and ``xmax`` widen the x range.
@@ -2627,11 +2654,25 @@ class Axes:
                 f"fit() x and y must have the same length, got "
                 f"{x_arr.size} and {y_arr.size}"
             )
-        if not np.any(np.isfinite(x_arr) & np.isfinite(y_arr)):
+        finite = np.isfinite(x_arr) & np.isfinite(y_arr)
+        if not np.any(finite):
             raise ValueError("fit() needs at least one point with finite x and y")
+        if model is None:
+            if expression is None:
+                raise ValueError(
+                    "fit() needs an expression such as 'a*exp(-x/b)+c' or a "
+                    "model such as 'linear'; got neither"
+                )
+            self._check_let_expression("fit", expression)
+        else:
+            if expression is not None:
+                raise ValueError(
+                    f"fit() takes an expression or a model, not both; got "
+                    f"expression={expression!r} and model={model!r}"
+                )
+            self._check_fit_model(model, x_arr[finite], y_arr[finite], step)
         fields = self._let_curve_fields(
             "fit",
-            expression,
             xmin,
             xmax,
             step,
@@ -2640,6 +2681,10 @@ class Axes:
             linewidth,
             label,
         )
+        if model is None:
+            fields["expression"] = expression
+        else:
+            fields["model"] = model
         fields["x"] = x_arr
         fields["y"] = y_arr
         fields["data_file"] = _resolve_data_file(self.figure)
@@ -2648,10 +2693,64 @@ class Axes:
         self.fits.append(entry)
         return self
 
+    @staticmethod
+    def _check_fit_model(model, x, y, step) -> None:
+        """Reject a ``fit`` ``model`` GLE cannot fit to the finite ``x``, ``y``."""
+        if not isinstance(model, str):
+            raise TypeError(
+                f"fit() model must be a str such as 'linear', got "
+                f"{type(model).__name__}"
+            )
+        if model not in FIT_MODEL_TO_ROUTINE:
+            raise ValueError(
+                f"fit() model must be one of "
+                f"{', '.join(map(repr, FIT_MODEL_TO_ROUTINE))}, got {model!r}"
+            )
+        # GLE writes the fitted curve as a new ``let ... from a to b``, so a
+        # step never reaches it.
+        if step is not None:
+            raise ValueError(
+                f"fit() step has no effect with a model (GLE draws the curve at "
+                f"100 points), got step={step!r}; leave it out"
+            )
+        # The routines fit log(y), and powxfit log(x) too, by ordinary least
+        # squares, which aborts GLE on under two points or one distinct x.
+        logs = []
+        if model in ("exp", "exp10", "power"):
+            logs.append(("y", y))
+        if model == "power":
+            logs.append(("x", x))
+        for name, values in logs:
+            if np.any(values <= 0):
+                raise ValueError(
+                    f"fit() model {model!r} needs every {name} above 0, got "
+                    f"{name}={float(values[values <= 0][0])!r}; drop those points "
+                    f"or use an expression"
+                )
+        if np.unique(x).size < 2:
+            raise ValueError(
+                f"fit() model {model!r} needs points at two or more distinct x, "
+                f"got x={x.tolist()!r}"
+            )
+
+    @staticmethod
+    def _check_let_expression(caller, expression) -> None:
+        """Reject an expression :meth:`function` or :meth:`fit` cannot write."""
+        example = "sin(x)" if caller == "function" else "a*exp(-x/b)+c"
+        if not isinstance(expression, str):
+            raise TypeError(
+                f"{caller}() expression must be a str such as {example!r}, got "
+                f"{type(expression).__name__}"
+            )
+        problem = _function_expression_problem(expression)
+        if problem is not None:
+            raise ValueError(
+                f"{caller}() expression {expression!r} cannot be used: {problem}."
+            )
+
     def _let_curve_fields(
         self,
         caller,
-        expression,
         xmin,
         xmax,
         step,
@@ -2664,17 +2763,6 @@ class Axes:
 
         Returns the series fields they set, named for ``caller`` in errors.
         """
-        example = "sin(x)" if caller == "function" else "a*exp(-x/b)+c"
-        if not isinstance(expression, str):
-            raise TypeError(
-                f"{caller}() expression must be a str such as {example!r}, got "
-                f"{type(expression).__name__}"
-            )
-        problem = _function_expression_problem(expression)
-        if problem is not None:
-            raise ValueError(
-                f"{caller}() expression {expression!r} cannot be used: {problem}."
-            )
         if linestyle not in ("-", "--", ":", "-."):
             raise ValueError(
                 f"{caller}() linestyle must be '-', '--', ':' or '-.', "
@@ -2700,7 +2788,7 @@ class Axes:
                 f"{caller}() needs xmin < xmax, got xmin={xmin!r}, xmax={xmax!r}"
             )
 
-        fields: Dict[str, Any] = {"expression": expression}
+        fields: Dict[str, Any] = {}
         for name, key in (
             ("xmin", "let_from"),
             ("xmax", "let_to"),

@@ -1813,10 +1813,63 @@ class TestFit:
         with pytest.raises(ValueError, match=r"fit\(\) expression .* first space"):
             self.ax.fit([0, 1], [0, 1], "a * x")
         with pytest.raises(TypeError, match="such as 'a\\*exp"):
-            self.ax.fit([0, 1], [0, 1], None)
+            self.ax.fit([0, 1], [0, 1], 3)
         with pytest.raises(ValueError, match=r"fit\(\) step must be positive"):
             self.ax.fit([0, 1], [0, 1], "a*x", step=-1)
         assert self.ax.fits == []
+
+    @pytest.mark.parametrize(
+        "model, routine",
+        [
+            ("linear", "linfit"),
+            ("exp", "logefit"),
+            ("exp10", "log10fit"),
+            ("power", "powxfit"),
+        ],
+    )
+    def test_a_model_writes_its_closed_form_routine(self, model, routine):
+        self.ax.fit([1, 2, 3], [2.0, 4.0, 8.0], model=model, xmin=0.5)
+        assert (
+            "    data ft_0.dat d1=c1,c2\n"
+            f"    let d2 = {routine} d1 from 0.5\n"
+            "    d2 line color BLUE lwidth 0.05292\n"
+        ) in self._script()
+        assert "expression" not in self.ax.fits[0]
+
+    @pytest.mark.parametrize(
+        "args, kwargs, message",
+        [
+            ((), {}, "needs an expression .* or a model .*got neither"),
+            (("a*x",), {"model": "linear"}, "not both; got expression='a\\*x'"),
+            ((), {"model": "quadratic"}, "'linear', 'exp', 'exp10', 'power', got"),
+            ((), {"model": "exp"}, "'exp' needs every y above 0, got y=-1.0"),
+            ((), {"model": "power"}, "'power' needs every y above 0, got y=-1.0"),
+            ((), {"model": "linear", "step": 0.1}, "step has no effect with a model"),
+        ],
+    )
+    def test_rejects_a_bad_expression_and_model_choice(self, args, kwargs, message):
+        with pytest.raises(ValueError, match=message):
+            self.ax.fit([0, 1, 2], [-1.0, 1.0, 2.0], *args, **kwargs)
+        assert self.ax.fits == []
+
+    def test_rejects_a_model_that_is_not_a_str(self):
+        with pytest.raises(TypeError, match="model must be a str .* got list"):
+            self.ax.fit([0, 1], [0, 1], model=["linear"])
+
+    def test_power_rejects_x_at_or_below_zero(self):
+        with pytest.raises(
+            ValueError, match="'power' needs every x above 0, got x=0.0"
+        ):
+            self.ax.fit([0, 1, 2], [1.0, 1.0, 2.0], model="power")
+
+    @pytest.mark.parametrize("x", [[1.0], [2.0, 2.0, 2.0]])
+    def test_a_model_needs_two_distinct_x(self, x):
+        with pytest.raises(ValueError, match="two or more distinct x, got x="):
+            self.ax.fit(x, [1.0] * len(x), model="linear")
+
+    def test_a_log_model_ignores_points_that_are_not_finite(self):
+        self.ax.fit([np.nan, 1, 2], [-1.0, 1.0, 2.0], model="exp10")
+        assert self.ax.fits[0]["model"] == "exp10"
 
 
 def test_add_plot_line_keywords_reach_the_emitted_line():

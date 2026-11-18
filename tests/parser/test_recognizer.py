@@ -1523,12 +1523,48 @@ def test_a_fit_let_on_a_gleplot_sidecar_becomes_a_fit_series(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "routine, model",
+    [
+        ("linfit", "linear"),
+        ("logefit", "exp"),
+        ("log10fit", "exp10"),
+        ("powxfit", "power"),
+    ],
+)
+def test_a_closed_form_fit_let_becomes_a_model_fit_series(tmp_path, routine, model):
+    src = _fit_file(
+        tmp_path,
+        "data d.dat d1=c1,c2",
+        f"let d2 = {routine} d1 to 3 from 1",
+        "d2 line",
+    )
+    rec = parse_gle_figure(src)
+    ax = rec.figure.axes_list[0]
+    [fit] = ax.fits
+    assert fit["model"] == model
+    assert "expression" not in fit
+    assert (fit["let_from"], fit["let_to"]) == (1.0, 3.0)
+    assert "let_step" not in fit
+    assert ax.passthrough == []
+    assert (
+        "    data d.dat d1=c1,c2\n"
+        f"    let d2 = {routine} d1 from 1 to 3\n"
+        "    d2 line\n"
+    ) in rec.figure._generate_gle()
+
+
+@pytest.mark.parametrize(
     "body",
     [
         # Options gleplot does not model.
         ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x+b rsq r", "d2 line"),
         ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x+b xmin 1", "d2 line"),
-        ("data d.dat d1=c1,c2", "let d2 = linfit d1", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = linfit d1 slope offset rsq", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = powxfit d1 xmin 1", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = logefit d1 limit_data_x", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = linfit d1 with a*x", "d2 line"),
+        # GLE ignores a routine's step, which Axes.fit rejects.
+        ("data d.dat d1=c1,c2", "let d2 = log10fit d1 step 0.5", "d2 line"),
         ("data d.dat d1=c1,c2", "let d2 = fit d1", "d2 line"),
         ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x + b", "d2 line"),
         # The data is drawn too, shares its statement or its file, or the
