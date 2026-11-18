@@ -396,7 +396,15 @@ class BrokenAxes:
         graph's coordinate mapping, so it cannot be fanned out: a segment
         whose range excludes ``x`` would draw the label outside its box. If no
         segment contains ``x`` the call warns and does nothing.
+
+        With ``transform=seg.transAxes`` for one of the segments, ``x`` and
+        ``y`` are fractions of that segment's frame and the text goes there.
         """
+        transform = kwargs.get("transform")
+        for seg in self.segments:
+            if transform == seg.transAxes:
+                seg.text(x, y, s, **kwargs)
+                return self
         index = self.segment_for_x(x)
         if index is None:
             warn_external(

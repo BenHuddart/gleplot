@@ -383,6 +383,14 @@ def test_text_goes_to_the_segment_that_contains_x():
     assert len(bax[1].texts) == 1
 
 
+def test_axes_fraction_text_goes_to_the_segment_of_its_transform():
+    fig = glp.figure(data_prefix="bx")
+    bax = fig.add_broken_xaxes([(100, 200), (300, 400)])
+    bax.text(0.05, 0.95, "(a)", transform=bax[0].transAxes)
+    assert bax[0].texts[0]["transform"] == "axes"
+    assert bax[1].texts == []
+
+
 def test_text_outside_every_segment_warns_and_is_dropped():
     fig = glp.figure(data_prefix="bx")
     bax = fig.add_broken_xaxes([(0, 1), (5, 10)])

@@ -1522,16 +1522,21 @@ def _key_anchor_fraction(text: str, template: str) -> Optional[float]:
         return None
 
 
-def _key_anchor(raw: str) -> Optional[Tuple[float, float]]:
-    """``(x, y)`` axes fractions of the writer's ``absolute X Y``, else None."""
+def _axes_fraction_point(raw: str, keyword: str) -> Optional[Tuple[float, float]]:
+    """``(x, y)`` axes fractions of the writer's ``KEYWORD X Y``, else None."""
     words = raw.split()
-    if len(words) != 3 or words[0].lower() != "absolute":
+    if len(words) != 3 or words[0].lower() != keyword:
         return None
     x = _key_anchor_fraction(words[1], KEY_ANCHOR_X)
     y = _key_anchor_fraction(words[2], KEY_ANCHOR_Y)
     if x is None or y is None:
         return None
     return (x, y)
+
+
+def _key_anchor(raw: str) -> Optional[Tuple[float, float]]:
+    """``(x, y)`` axes fractions of the writer's ``absolute X Y``, else None."""
+    return _axes_fraction_point(raw, "absolute")
 
 
 def _legend_spacing(cm_by_word, fontsize, fig) -> Dict[str, float]:
@@ -8270,7 +8275,7 @@ class _Recognizer:
             [set hei H]
             [set color C]
             [set just J]
-            amove xg(X) yg(Y)
+            amove xg(X) yg(Y)      -- or KEY_ANCHOR_X/_Y for axes fractions
             [begin rotate A
                [begin box fill C add P nobox]
                write "T"
@@ -8426,7 +8431,11 @@ class _Recognizer:
         stmt = self._as_statement(nodes[i]) if i < n else None
         if stmt is None or stmt.keyword != "amove":
             return start, None
-        x, y = self._parse_xg_yg(_words_and_values(stmt))
+        fraction = _axes_fraction_point(stmt.raw, "amove")
+        if fraction is not None:
+            x, y = fraction
+        else:
+            x, y = self._parse_xg_yg(_words_and_values(stmt))
         if x is None or y is None:
             return start, None
         i += 1
@@ -8462,6 +8471,8 @@ class _Recognizer:
         # stored, and the writer does not emit ``begin rotate`` for it).
         if rotation is not None and abs(rotation) >= 1e-10:
             fields["rotation"] = rotation
+        if fraction is not None:
+            fields["transform"] = "axes"
         fields.update(arrow_fields)
         return i, TextAnnotation(**fields)
 

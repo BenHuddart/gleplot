@@ -103,7 +103,8 @@ ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0), handlelength=1.5,
 
 ## Text
 
-`ax.text(x, y, s)` places a label in data coordinates.
+`ax.text(x, y, s)` places a label in data coordinates, or in fractions of the
+axes frame with `transform=ax.transAxes`.
 
 | `text()` argument | gleplot |
 |---|---|
@@ -111,10 +112,12 @@ ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0), handlelength=1.5,
 | `va` | wired — `top`, `center`, `bottom`: the vertical half of `set just` (`tc`, `bc`, `bl`, …). With the default `center`, GLE's single-word `left`, `center` and `right` are used, which GLE centres vertically. GLE has no baseline; `baseline` warns and is drawn as `center`. |
 | `rotation` | wired — degrees counter-clockwise about the alignment point (`begin rotate`). |
 | `bbox` | `facecolor` (alias `fill`) draws a filled background (`begin box fill`, 0.05 cm pad, no outline). `edgecolor`, `linewidth`, `pad`, `boxstyle`, and the rest warn. |
-| other keywords (`transform`, `fontweight`, `clip_on`, …) | warn and are ignored. |
+| `transform` | `ax.transAxes` places the text in axes fractions: `(0, 0)` is the bottom-left corner of the frame and `(1, 1)` the top-right, on a log or inverted axis too. `ax.transData` is the default. Any other transform, including another axes' `transAxes`, warns and the position is read as data coordinates. |
+| other keywords (`fontweight`, `clip_on`, …) | warn and are ignored. |
 
 ```python
 ax.text(1, 2, "peak", va="bottom", rotation=45, bbox={"facecolor": "white"})
+ax.text(0.05, 0.95, "(a)", transform=ax.transAxes, va="top")  # panel label
 ```
 
 matplotlib's `text.usetex` is `GLEStyleConfig(usetex=True)`, set for the

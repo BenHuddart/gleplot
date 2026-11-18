@@ -212,6 +212,49 @@ class TestTextAnnotations:
         with pytest.warns(UserWarning):
             self.ax.text(0, 0, "x", transform="axes")
         assert self.ax.texts[-1]["text"] == "x"
+        assert "transform" not in self.ax.texts[-1]
+
+
+class TestAxesFractionText:
+    """``Axes.text(transform=ax.transAxes)`` places text in frame fractions."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
+        glp.close()
+        self.fig = glp.figure()
+        self.ax = self.fig.add_subplot(111)
+        self.ax.plot([0, 1, 2], [0, 1, 0])
+        yield
+        glp.close()
+
+    def test_trans_axes_measures_the_frame_gle_drew(self):
+        self.ax.text(0.05, 0.95, "(b)", transform=self.ax.transAxes, va="top")
+        assert self.ax.texts[0]["transform"] == "axes"
+        gle = self.fig._generate_gle()
+        assert (
+            "amove min(xg(xgmin),xg(xgmax))+0.05*abs(xg(xgmax)-xg(xgmin)) "
+            "min(yg(ygmin),yg(ygmax))+0.95*abs(yg(ygmax)-yg(ygmin))"
+        ) in gle
+        assert gle.index("end graph") < gle.index('write "(b)"')
+
+    def test_a_transform_compares_equal_to_itself(self):
+        assert self.ax.transAxes == self.ax.transAxes
+        assert self.ax.transAxes != self.ax.transData
+
+    def test_unsupported_keyword_warning_lists_transform(self):
+        with pytest.warns(UserWarning, match="rotation, bbox, transform"):
+            self.ax.text(0.5, 0.5, "a", transform=self.ax.transAxes, zorder=3)
+
+    def test_trans_data_is_the_default(self):
+        self.ax.text(1, 0.5, "d", transform=self.ax.transData)
+        assert "transform" not in self.ax.texts[0]
+        assert "amove xg(1) yg(0.5)" in self.fig._generate_gle()
+
+    def test_another_axes_transform_warns_and_reads_data(self):
+        other = self.fig.add_subplot(122)
+        with pytest.warns(UserWarning, match="different axes"):
+            self.ax.text(1, 0.5, "d", transform=other.transAxes)
+        assert "transform" not in self.ax.texts[0]
 
 
 class TestAnnotate:
