@@ -676,6 +676,25 @@ def axes_styling_full():
     return fig
 
 
+def axis_lines_fonts_and_tick_placement():
+    """Title fonts, axis-line colour and width, and GLE tick placement."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2, 3], [0, 1, 4, 9], color="blue", label="quad")
+    ax.set_ylim(0, 20, axis="y2")
+    ax.set_title("Fonts", fontname="texcmb")
+    ax.set_xlabel("t", fontname="texcmr")
+    ax.set_ylabel("y", fontname="texcmss")
+    ax.set_ylabel("y2", axis="y2", fontname="texcmtt")
+    ax.set_axis_line(color="gray", linewidth=1.2)
+    ax.set_axis_line("x2", color="red")
+    ax.set_axis_line("y2", linewidth=0.5)
+    ax.set_xticks(nticks=4, ftick=0, shift=0.25, noticks=[2])
+    ax.set_yticks(symticks=True, noticks=[1, 4])
+    ax.legend()
+    return fig
+
+
 def line_modes():
     """Step, histogram-outline and stem line modes on one axes."""
     fig = glp.figure(data_prefix="golden")
@@ -911,6 +930,7 @@ BUILDERS = [
     histogram,
     histogram_field_options,
     axes_styling_full,
+    axis_lines_fonts_and_tick_placement,
     axes_styling_grid_only,
     contour_in_second_subplot,
     trailer_stray_amoves,

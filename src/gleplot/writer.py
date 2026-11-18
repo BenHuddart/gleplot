@@ -116,6 +116,16 @@ class AxisStyle:
         ``hei`` (points) and ``color`` of the tick labels (GLE ``xlabels``).
     label_angle : float, optional
         Tick-label rotation in degrees (GLE ``xaxis angle``).
+    title_font : str, optional
+        GLE font of this axis' title -- ``xtitle "..." font F``.
+    side_color, side_lwidth : optional
+        Colour and width (points) of the axis line -- GLE ``xside color C
+        lwidth W``.
+    nticks, ftick, shift, symticks : optional
+        Tick placement on the ``xaxis`` line: ``nticks N``, ``ftick F``,
+        ``shift S`` (cm) and a bare ``symticks`` when True.
+    noticks : list of float, optional
+        Positions with no tick -- GLE ``xnoticks p1 p2 ...``.
 
     Notes
     -----
@@ -135,6 +145,14 @@ class AxisStyle:
     label_size: Optional[float] = None
     label_color: Optional[str] = None
     label_angle: Optional[float] = None
+    title_font: Optional[str] = None
+    side_color: Optional[str] = None
+    side_lwidth: Optional[float] = None
+    nticks: Optional[int] = None
+    ftick: Optional[float] = None
+    shift: Optional[float] = None
+    symticks: Optional[bool] = None
+    noticks: Optional[List[float]] = None
 
     def has_tick_label_styling(self) -> bool:
         """True if anything here changes how the tick labels are drawn.
@@ -1389,6 +1407,7 @@ class GLEWriter:
         title_size: Optional[float] = None,
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
+        title_font: Optional[str] = None,
     ):
         """Add axis configuration.
 
@@ -1455,9 +1474,9 @@ class GLEWriter:
             ``xaxis log`` onto x2 (``do_axis_part_all``), so a linear top
             scale that actually carries data has to say ``x2axis lin``
             afterwards. A figure that never uses the top scale does not.
-        title_size, title_color, title_dist : optional
-            The graph title's ``hei`` (points), ``color`` and ``dist`` (cm) --
-            GLE ``title "..." hei H color C dist D``. GLE's title belongs to
+        title_size, title_color, title_dist, title_font : optional
+            The graph title's ``hei`` (points), ``color``, ``dist`` (cm) and
+            ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
             the graph block, which is why gleplot models it per-axes and not
             per-figure.
 
@@ -1494,7 +1513,7 @@ class GLEWriter:
         y2style = y2style or _NO_STYLE
         x2style = x2style or _NO_STYLE
         if title:
-            opts = self._text_options(title_size, title_color, title_dist)
+            opts = self._text_options(title_size, title_color, title_dist, title_font)
             self.lines_gle.append(f'    title "{title}"{opts}')
         # show_xlabel/show_ylabel control the axis title (e.g. "Time (s)"),
         # not the tick marks.
@@ -1562,7 +1581,7 @@ class GLEWriter:
         """``xtitle "..."`` (and y/y2/x2 twins), when the label is set."""
         if label:
             opts = self._text_options(
-                style.title_size, style.title_color, style.title_dist
+                style.title_size, style.title_color, style.title_dist, style.title_font
             )
             self.lines_gle.append(f'    {prefix}title "{label}"{opts}')
 
@@ -1619,6 +1638,11 @@ class GLEWriter:
                 f"    {prefix}names "
                 + " ".join(f'"{self._escape_gle_string(n)}"' for n in names)
             )
+        if style.noticks is not None:
+            self.lines_gle.append(
+                f"    {prefix}noticks "
+                + " ".join(self._format_number(v) for v in style.noticks)
+            )
 
         # Hide the tick labels if requested (but keep the ticks themselves),
         # or style them; styling labels that are switched off would be a no-op.
@@ -1627,6 +1651,7 @@ class GLEWriter:
         else:
             self._add_tick_label_style(prefix, style)
         self._add_grid_style(prefix, style)
+        self._add_axis_line_style(prefix, style)
 
     def _add_y2_axis(
         self,
@@ -1699,6 +1724,7 @@ class GLEWriter:
         if not off and (y2_used or style.has_tick_label_styling()):
             opts = self._text_options(style.label_size, style.label_color, None)
             self.lines_gle.append(f"    y2labels on{opts}")
+        self._add_axis_line_style("y2", style)
 
     def _add_x2_axis(
         self,
@@ -1772,6 +1798,7 @@ class GLEWriter:
         if not off and (x2_used or style.has_tick_label_styling()):
             opts = self._text_options(style.label_size, style.label_color, None)
             self.lines_gle.append(f"    x2labels on{opts}")
+        self._add_axis_line_style("x2", style)
 
     # -- axes styling helpers -------------------------------------------
 
@@ -1780,12 +1807,14 @@ class GLEWriter:
         size: Optional[float] = None,
         color: Optional[str] = None,
         dist: Optional[float] = None,
+        font: Optional[str] = None,
     ) -> str:
-        """``[ hei H][ color C][ dist D]`` for a GLE title/labels command.
+        """``[ hei H][ color C][ font F][ dist D]`` for a GLE title/labels command.
 
         Shared by ``title``, ``xtitle``/``ytitle``/``y2title``/``x2title`` and
         ``xlabels``/``ylabels``/``y2labels``/``x2labels``, which all take the same
-        options in the same order. ``size`` is in matplotlib points and
+        options in the same order (the manual's). gleplot sets ``font`` only
+        on titles. ``size`` is in matplotlib points and
         becomes GLE's ``hei`` in cm; ``dist`` is already in cm (GLE's own
         unit for it). Returns ``''`` when nothing is set, so the caller can
         concatenate unconditionally.
@@ -1795,17 +1824,19 @@ class GLEWriter:
             out += f" hei {self._format_number(fontsize_pt_to_cm(float(size)))}"
         if color is not None:
             out += f" color {color}"
+        if font is not None:
+            out += f" font {font}"
         if dist is not None:
             out += f" dist {self._format_number(float(dist))}"
         return out
 
     def _axis_style_tokens(self, style: AxisStyle) -> str:
-        """``[ format "F"][ angle A][ grid]`` for an ``xaxis``-family line.
+        """``[ format "F"][ angle A][ grid]`` and the tick placement tokens.
 
-        These three live on the axis command itself rather than in a
-        statement of their own (manual: ``xaxis format``, ``xaxis angle``,
-        ``xaxis grid``), so they are appended to the line the caller is
-        already building.
+        These live on the axis command itself rather than in a statement of
+        their own (manual: ``xaxis format``, ``xaxis angle``, ``xaxis
+        grid``, ``xaxis nticks``/``ftick``/``shift``/``symticks``), so they
+        are appended to the line the caller is already building.
         """
         out = ""
         if style.fmt is not None:
@@ -1814,7 +1845,31 @@ class GLEWriter:
             out += f" angle {self._format_number(float(style.label_angle))}"
         if style.grid is not None:
             out += " grid"
+        if style.nticks is not None:
+            out += f" nticks {int(style.nticks)}"
+        if style.ftick is not None:
+            out += f" ftick {self._format_number(float(style.ftick))}"
+        if style.shift is not None:
+            out += f" shift {self._format_number(float(style.shift))}"
+        if style.symticks:
+            out += " symticks"
         return out
+
+    def _add_axis_line_style(self, prefix: str, style: AxisStyle) -> None:
+        """``xside color C lwidth W`` (and y/y2/x2 twins), when either is set.
+
+        GLE copies an ``xside`` onto x2 and a ``yside`` onto y2, so the
+        caller writes x and y before x2 and y2: a later ``x2side`` then
+        restyles the top line on its own.
+        """
+        opts = ""
+        if style.side_color is not None:
+            opts += f" color {style.side_color}"
+        if style.side_lwidth is not None:
+            width = linewidth_pt_to_cm(float(style.side_lwidth))
+            opts += f" lwidth {self._format_number(width)}"
+        if opts:
+            self.lines_gle.append(f"    {prefix}side{opts}")
 
     @staticmethod
     def _dataset_axis_clause(xaxis: str = "x", yaxis: str = "y") -> str:

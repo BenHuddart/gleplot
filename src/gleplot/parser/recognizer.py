@@ -94,7 +94,7 @@ for rendering, applied by the test-side ``normalize()`` helper)
    Original source spacing is preserved (so ``dticks pi/2`` stays valid). A
    ``structure:`` warning is emitted.
 10. **title/key with unsupported options kept raw (hand-written only).** A
-    ``title "T" hei 0.6 font roman`` or ``key pos tr hei 0.3 nobox offset ...``
+    ``title "T" hei 0.6 off`` or ``key pos tr hei 0.3 nobox offset ...``
     carries modifiers that cannot be modeled and for which cumulative
     re-emission would produce a *competing* title/key line. The WHOLE original
     line is preserved in the axes passthrough, the model field is left unset
@@ -280,7 +280,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import numpy as np
 
-from ..axes import Axes, _resolve_data_file
+from ..axes import _GLE_FONT_NAME, Axes, _resolve_data_file
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..dataio import (
     ColumnExtractionError,
@@ -1820,6 +1820,33 @@ class _Recognizer:
             "y2labels_color": None,
             "x2labels_hei": None,
             "x2labels_color": None,
+            # Title fonts ('title'/'xtitle ... font F'), axis lines ('xside
+            # color C lwidth W') and tick placement ('xaxis nticks/ftick/
+            # shift/symticks', 'xnoticks ...'). None = absent, as above.
+            "title_font": None,
+            "xtitle_font": None,
+            "ytitle_font": None,
+            "y2title_font": None,
+            "x2title_font": None,
+            "xside": None,
+            "yside": None,
+            "y2side": None,
+            "x2side": None,
+            "xnticks": None,
+            "ynticks": None,
+            "xftick": None,
+            "yftick": None,
+            "xshift": None,
+            "yshift": None,
+            "xsymticks": None,
+            "ysymticks": None,
+            "xnoticks": None,
+            "ynoticks": None,
+            # (prefix, keyword) of every axis-line option kept as raw GLE.
+            # Raw lines are written at the end of the block, so a later
+            # occurrence of the same option is not modeled either: it would
+            # be written before the raw one and lose to it.
+            "_raw_axis_opts": set(),
             # Deferred lines: an 'xticks'/'xsubticks' style is only part of
             # the model when that axis has a grid (the grid lines ARE the
             # ticks), and a 'y2labels on' is only implied when some y2
@@ -3043,6 +3070,12 @@ class _Recognizer:
         if kw in ("xplaces", "yplaces", "xnames", "ynames"):
             self._parse_places_or_names_line(kw, toks, info, stmt)
             return
+        if kw in ("xnoticks", "ynoticks"):
+            self._parse_noticks_line(kw, toks, info, stmt)
+            return
+        if kw in ("xside", "yside", "y2side", "x2side"):
+            self._parse_side_line(kw, toks, info, stmt)
+            return
         if kw == "bar":
             self._parse_bar_command(toks, pass1.datasets, info, stmt)
             return
@@ -3089,15 +3122,15 @@ class _Recognizer:
     }
 
     def _parse_text_options(self, toks, start):
-        """Peel ``hei H`` / ``color C`` / ``dist D`` off a title/labels line.
+        """Peel ``hei H`` / ``color C`` / ``font F`` / ``dist D`` off a line.
 
-        These three options are shared by GLE's ``title``, ``xtitle`` family
-        and ``xlabels`` family, in any order. Returns
-        ``(options, remainder)``: a dict with ``hei``/``color``/``dist``
-        (None where absent) and the tokens that were none of them, which the
-        caller decides what to do with -- there is no "ignore the rest" path.
+        These options are shared by GLE's ``title``, ``xtitle`` family and
+        ``xlabels`` family, in any order. Returns ``(options, remainder)``:
+        a dict with ``hei``/``color``/``font``/``dist`` (None where absent)
+        and the tokens that were none of them, which the caller decides
+        what to do with -- there is no "ignore the rest" path.
         """
-        opts = {"hei": None, "color": None, "dist": None}
+        opts = {"hei": None, "color": None, "font": None, "dist": None}
         remainder: List[Token] = []
         i = start
         m = len(toks)
@@ -3115,6 +3148,15 @@ class _Recognizer:
                     opts["color"] = color
                     i = nxt
                     continue
+            elif (
+                w == "font"
+                and i + 1 < m
+                and toks[i + 1].type is TokenType.WORD
+                and _GLE_FONT_NAME.match(toks[i + 1].value)
+            ):
+                opts["font"] = toks[i + 1].value
+                i += 2
+                continue
             remainder.append(toks[i])
             i += 1
         return opts, remainder
@@ -3128,10 +3170,10 @@ class _Recognizer:
         return None
 
     def _parse_title_line(self, toks, info, stmt) -> None:
-        """``title "T" [hei H] [color C] [dist D]``.
+        """``title "T" [hei H] [color C] [font F] [dist D]``.
 
-        Anything else on the line (``font roman``, a second string, a token
-        before the text) cannot be represented, and GLE's ``title`` is a
+        Anything else on the line (``off``, a second string, a token before
+        the text) cannot be represented, and GLE's ``title`` is a
         single command -- a supplementary line would replace it rather than
         add to it, the way a second ``xaxis`` line accumulates. So an
         unrepresentable title keeps its WHOLE original line as raw GLE and
@@ -3152,12 +3194,13 @@ class _Recognizer:
         info["title_hei"] = opts["hei"]
         info["title_color"] = opts["color"]
         info["title_dist"] = opts["dist"]
+        info["title_font"] = opts["font"]
 
     def _parse_axis_title_line(self, kw, toks, info, stmt) -> None:
-        """``xtitle "L" [hei H] [color C] [dist D]`` (and y/y2 twins).
+        """``xtitle "L" [hei H] [color C] [font F] [dist D]`` (and y/y2 twins).
 
-        Same all-or-nothing rule as :meth:`_parse_title_line`: ``adist``,
-        ``font`` and ``y2title``'s ``rotate`` are not modeled, and an axis
+        Same all-or-nothing rule as :meth:`_parse_title_line`: ``adist``
+        and ``y2title``'s ``rotate`` are not modeled, and an axis
         title is a single command, so such a line is preserved verbatim
         instead of being re-emitted shorn of its options.
         """
@@ -3176,6 +3219,7 @@ class _Recognizer:
         info[f"{prefix}title_hei"] = opts["hei"]
         info[f"{prefix}title_color"] = opts["color"]
         info[f"{prefix}title_dist"] = opts["dist"]
+        info[f"{prefix}title_font"] = opts["font"]
 
     def _parse_labels_line(self, kw, toks, info, stmt) -> None:
         """``xlabels [off] [hei H] [color C]`` (and y/y2 twins).
@@ -3186,8 +3230,8 @@ class _Recognizer:
         without it) -- and only if such a property is actually present,
         which :meth:`_reconcile_axis_styling` decides once the block has
         been read.
-        ``dist``/``font``/``log`` are not modeled, so a line carrying them is
-        kept whole as raw GLE.
+        ``dist``/``font``/``log`` are not modeled on tick labels, so a line
+        carrying them is kept whole as raw GLE.
         """
         prefix = self._TEXT_PREFIX[kw]
         opts, remainder = self._parse_text_options(toks, 1)
@@ -3202,7 +3246,11 @@ class _Recognizer:
                 on = True
             else:
                 leftover.append(tok)
-        if leftover or (off and (opts["hei"] is not None or opts["color"] is not None)):
+        if (
+            leftover
+            or opts["font"] is not None
+            or (off and (opts["hei"] is not None or opts["color"] is not None))
+        ):
             # Unmodeled option, or styling on labels that are switched off
             # (which the writer would drop): keep the line verbatim.
             info["passthrough"].append(self._stmt_text(stmt))
@@ -3341,6 +3389,10 @@ class _Recognizer:
                     info[f"{prefix}angle"] = value
                     i = nxt
                     continue
+            nxt = self._take_tick_placement(w, toks, i, prefix, info)
+            if nxt is not None:
+                i = nxt
+                continue
             if w == "grid" and prefix in ("x", "y"):
                 # y2 and x2 have no grid on the model: GLE's grid is the
                 # axis' own ticks stretched across the graph, so
@@ -3357,6 +3409,7 @@ class _Recognizer:
             # passthrough. e.g. 'xaxis min 0 max 2*pi dticks pi/2 grid' ->
             # model gets min/max; passthrough gets 'xaxis dticks pi/2 grid'.
             remainder.append(toks[i])
+            info["_raw_axis_opts"].add((prefix, w))
             # A recognized keyword may take a value; unrecognized ones we cannot
             # know the arity of, so we copy tokens verbatim one at a time (their
             # own values ride along as further 'remainder' tokens).
@@ -3383,6 +3436,112 @@ class _Recognizer:
                 "a supplementary axis line (cumulative); not editable",
                 self._stmt_span(stmt),
             )
+
+    @staticmethod
+    def _take_tick_placement(w, toks, i, prefix, info) -> Optional[int]:
+        """Model ``nticks``/``ftick``/``shift``/``symticks`` at ``toks[i]``.
+
+        Returns the index after the option when it is one of them, on x or
+        y, and fits the model; otherwise None. A repeat, a fractional
+        ``nticks`` or ``symticks on|off`` is left to the remainder, which
+        keeps it as raw GLE, and so is any later occurrence of the same
+        option (see ``_raw_axis_opts``).
+        """
+        if prefix not in ("x", "y") or (prefix, w) in info["_raw_axis_opts"]:
+            return None
+        m = len(toks)
+        if w == "symticks":
+            following = toks[i + 1].value.lower() if i + 1 < m else ""
+            if following in ("on", "off") or info[f"{prefix}symticks"]:
+                return None
+            info[f"{prefix}symticks"] = True
+            return i + 1
+        if w not in ("nticks", "ftick", "shift") or info[f"{prefix}{w}"] is not None:
+            return None
+        value, nxt = _collect_value(toks, i + 1)
+        if value is None:
+            return None
+        if w == "nticks":
+            if not float(value).is_integer() or value < 1:
+                return None
+            value = int(value)
+        info[f"{prefix}{w}"] = value
+        return nxt
+
+    def _parse_noticks_line(self, kw, toks, info, stmt) -> None:
+        """``xnoticks p1 p2 ...`` (and y): positions with no tick.
+
+        GLE replaces the list on every ``xnoticks``, so a second line is
+        kept as raw GLE after the modeled one, which keeps the last list
+        in force.
+        """
+        prefix = kw[0]
+        values: List[float] = []
+        i = 1
+        while i < len(toks):
+            value, i = _collect_value(toks, i)
+            if value is None:
+                values = []
+                break
+            values.append(value)
+        if not values or info[f"{prefix}noticks"] is not None:
+            info["passthrough"].append(self._stmt_text(stmt))
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"unrecognized {kw} line preserved as raw GLE, not editable",
+                self._stmt_span(stmt),
+            )
+            return
+        info[f"{prefix}noticks"] = values
+
+    def _parse_side_line(self, kw, toks, info, stmt) -> None:
+        """``xside [color C] [lwidth W]`` (and y/y2/x2): the axis line.
+
+        ``off``, ``on`` and ``lstyle`` are not modeled, and neither is a
+        repeated line, so those stay raw GLE. GLE copies an ``xside`` onto
+        x2, and the writer puts ``xside`` before ``x2side``, so an
+        ``xside`` that comes after a modeled ``x2side`` stays raw GLE too:
+        re-emitted at the end of the block it still overrides the top line,
+        as it did. For the same reason an ``xside`` after a raw ``xaxis
+        color``/``lwidth`` (which set the line too, and which GLE also
+        copies onto x2) stays raw.
+        """
+        prefix = kw[: -len("side")]
+        color: Optional[str] = None
+        lwidth: Optional[float] = None
+        ok = len(toks) > 1
+        i = 1
+        while i < len(toks) and ok:
+            word = toks[i].value.lower()
+            if word == "color" and color is None:
+                color, i = _collect_color(toks, i + 1)
+                ok = color is not None
+            elif word == "lwidth" and lwidth is None:
+                lwidth, i = _collect_value(toks, i + 1)
+                ok = lwidth is not None
+            else:
+                ok = False
+        mirror = {"x": "x2side", "y": "y2side"}.get(prefix)
+        sources = {prefix, {"x2": "x", "y2": "y"}.get(prefix, prefix)}
+        raw_before = any(
+            (source, word) in info["_raw_axis_opts"]
+            for source in sources
+            for word in ("color", "lwidth")
+        )
+        if (
+            not ok
+            or raw_before
+            or info[kw] is not None
+            or (mirror and info[mirror] is not None)
+        ):
+            info["passthrough"].append(self._stmt_text(stmt))
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"unrecognized {kw} line preserved as raw GLE, not editable",
+                self._stmt_span(stmt),
+            )
+            return
+        info[kw] = {"color": color, "lwidth": lwidth}
 
     def _render_remainder(self, remainder, stmt) -> str:
         """Reconstruct remainder tokens preserving original source spacing.
@@ -6841,7 +7000,16 @@ class _Recognizer:
         ax.title_size = _pt_or_none(info["title_hei"])
         ax.title_color = info["title_color"]
         ax.title_dist = info["title_dist"]
+        ax.title_font = info["title_font"]
         for prefix in ("x", "y", "y2", "x2"):
+            setattr(ax, f"{prefix}label_font", info[f"{prefix}title_font"])
+            side = info[f"{prefix}side"]
+            if side is not None:
+                setattr(ax, f"{prefix}side_color", side["color"])
+                if side["lwidth"] is not None:
+                    setattr(
+                        ax, f"{prefix}side_lwidth", linewidth_cm_to_pt(side["lwidth"])
+                    )
             setattr(ax, f"{prefix}format", info[f"{prefix}format"])
             setattr(ax, f"{prefix}label_size", _pt_or_none(info[f"{prefix}title_hei"]))
             setattr(ax, f"{prefix}label_color", info[f"{prefix}title_color"])
@@ -6854,6 +7022,8 @@ class _Recognizer:
             setattr(ax, f"{prefix}ticklabel_color", info[f"{prefix}labels_color"])
             setattr(ax, f"{prefix}ticklabel_angle", info[f"{prefix}angle"])
         for prefix in ("x", "y"):
+            for name in ("nticks", "ftick", "shift", "symticks", "noticks"):
+                setattr(ax, f"{prefix}{name}", info[f"{prefix}{name}"])
             if not info[f"{prefix}grid"]:
                 continue
             setattr(

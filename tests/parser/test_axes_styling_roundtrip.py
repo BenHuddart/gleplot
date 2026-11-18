@@ -240,8 +240,8 @@ def test_a_bare_y2labels_on_is_preserved(tmp_path):
 
 
 def test_an_axis_title_with_an_unmodelled_option_stays_whole(tmp_path):
-    """``adist``/``font`` have no model field, and an axis title is a single
-    command -- re-emitting it shorn of them would silently drop them."""
+    """``adist`` has no model field, and an axis title is a single command
+    -- re-emitting it shorn of it would silently drop it."""
     path = _write(tmp_path, "adist.gle", '   xtitle "X" hei 0.3 adist 0.4\n')
     recognized = parse_gle_figure(path)
     ax = recognized.figure.axes_list[0]
@@ -279,3 +279,85 @@ def test_an_rgb_expression_grid_colour_round_trips(tmp_path):
     assert "rgb255(140,140,140)" in text1
     assert text2 == text1
     assert recognized.figure.axes_list[0].xgrid_color == "rgb255(140,140,140)"
+
+
+def test_hand_written_fonts_axis_lines_and_tick_placement_are_recovered(tmp_path):
+    path = _write(
+        tmp_path,
+        "gap10.gle",
+        '   title "T" font texcmb\n'
+        '   ytitle "Y" hei 0.3 font psh\n'
+        "   xaxis nticks 5 ftick -2*pi shift 0.1 symticks\n"
+        "   ynoticks 1 2\n"
+        "   xside lwidth 0.05 color rgb255(140,140,140)\n",
+    )
+    recognized = parse_gle_figure(path)
+    ax = recognized.figure.axes_list[0]
+    assert ax.passthrough == []
+    assert (ax.title_font, ax.ylabel_font) == ("texcmb", "psh")
+    assert (ax.xnticks, ax.xshift, ax.xsymticks) == (5, 0.1, True)
+    assert ax.xftick == pytest.approx(-6.283185307179586)
+    assert ax.ynoticks == [1.0, 2.0]
+    assert ax.xside_color == "rgb255(140,140,140)"
+    assert ax.xside_lwidth == pytest.approx(1.417, rel=1e-3)
+
+
+@pytest.mark.parametrize(
+    "body,kept",
+    [
+        # Options the model does not have keep the whole line.
+        ("   xside off\n", "xside off"),
+        ("   yside color RED lstyle 2\n", "yside color RED lstyle 2"),
+        ("   xlabels font psh\n", "xlabels font psh"),
+        ("   xnoticks a\n", "xnoticks a"),
+        # symticks on|off and a fractional nticks are not the bare form.
+        ("   xaxis symticks off\n", "xaxis symticks off"),
+        ("   yaxis nticks 2.5\n", "yaxis nticks 2.5"),
+        ("   xaxis shift auto\n", "xaxis shift auto"),
+        # Tick placement is modelled on x and y only.
+        ("   y2axis nticks 4\n", "y2axis nticks 4"),
+    ],
+)
+def test_unmodelled_axis_line_and_tick_forms_stay_raw(tmp_path, body, kept):
+    recognized = parse_gle_figure(_write(tmp_path, "raw.gle", body))
+    ax = recognized.figure.axes_list[0]
+    assert any(kept in line for line in ax.passthrough), ax.passthrough
+    assert ax.xside_color is ax.yside_color is None
+    assert ax.xnticks is ax.ynticks is ax.xsymticks is None
+
+
+def test_a_second_noticks_line_stays_raw_after_the_first(tmp_path):
+    """GLE replaces the list on each line, so the later one must still come
+    last when the block is written again."""
+    path = _write(tmp_path, "two.gle", "   xnoticks 1\n   xnoticks 2\n")
+    ax = parse_gle_figure(path).figure.axes_list[0]
+    assert ax.xnoticks == [1.0]
+    assert any("xnoticks 2" in line for line in ax.passthrough)
+
+
+def test_an_xside_after_its_x2side_stays_raw(tmp_path):
+    """GLE copies ``xside`` onto the top line. The writer puts ``xside``
+    first, so a later one is kept raw to keep overriding ``x2side``."""
+    path = _write(tmp_path, "order.gle", "   x2side color RED\n   xside color BLUE\n")
+    ax = parse_gle_figure(path).figure.axes_list[0]
+    assert ax.x2side_color == "RED"
+    assert ax.xside_color is None
+    assert any("xside color BLUE" in line for line in ax.passthrough)
+
+
+@pytest.mark.parametrize(
+    "body,raw",
+    [
+        # The first occurrence is raw GLE, written at the end of the block,
+        # so a modeled second one would be written before it and lose.
+        ("   xaxis symticks off\n   xaxis symticks\n", "xaxis symticks"),
+        ("   yaxis nticks 2.5\n   yaxis nticks 4\n", "yaxis nticks 4"),
+        # 'xaxis lwidth' / 'color' also set the line, on x and on x2.
+        ("   xaxis lwidth 0.1\n   xside lwidth 0.05\n", "xside lwidth 0.05"),
+        ("   xaxis color BLUE\n   x2side color RED\n", "x2side color RED"),
+    ],
+)
+def test_a_later_option_after_a_raw_one_stays_raw_in_order(tmp_path, body, raw):
+    ax = parse_gle_figure(_write(tmp_path, "order2.gle", body)).figure.axes_list[0]
+    assert ax.passthrough[-1].strip() == raw, ax.passthrough
+    assert ax.xsymticks is ax.ynticks is ax.xside_lwidth is ax.x2side_color is None

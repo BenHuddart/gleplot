@@ -391,6 +391,136 @@ def test_title_is_per_axes_so_each_subplot_carries_its_own():
     assert 'title "B"\n' in text
 
 
+# -- title fonts -------------------------------------------------------------
+
+
+def test_title_fonts_are_emitted_on_the_title_lines():
+    fig, ax = _fig()
+    ax.set_title("T", fontname="texcmb")
+    ax.set_xlabel("X", fontname="texcmr")
+    ax.set_ylabel("Y2", axis="y2", fontname="psh")
+    assert _line_starting(fig, "title ") == 'title "T" font texcmb'
+    assert _line_starting(fig, "xtitle") == 'xtitle "X" font texcmr'
+    assert _line_starting(fig, "y2title") == 'y2title "Y2" font psh'
+
+
+def test_a_title_font_sits_between_color_and_dist():
+    fig, ax = _fig()
+    ax.set_xlabel("X", fontname="texcmr")
+    ax.xlabel_color, ax.xlabel_dist = "RED", 0.4
+    assert _line_starting(fig, "xtitle") == 'xtitle "X" color RED font texcmr dist 0.4'
+
+
+def test_the_twiny_view_passes_fontname_through():
+    fig, ax = _fig()
+    top = ax.twiny()
+    top.set_xlabel("W", fontname="texcmr")
+    top.set_ylabel("Y", fontname="psh")
+    assert _line_starting(fig, "x2title") == 'x2title "W" font texcmr'
+    assert _line_starting(fig, "ytitle") == 'ytitle "Y" font psh'
+
+
+def test_relabelling_without_fontname_keeps_the_font():
+    fig, ax = _fig()
+    ax.set_xlabel("X", fontname="texcmr")
+    ax.set_xlabel("New")
+    assert _line_starting(fig, "xtitle") == 'xtitle "New" font texcmr'
+
+
+@pytest.mark.parametrize(
+    "fontname,error", [("", ValueError), ("two words", ValueError), (3, TypeError)]
+)
+def test_a_bad_fontname_is_rejected_at_the_call(fontname, error):
+    _, ax = _fig()
+    with pytest.raises(error, match="fontname"):
+        ax.set_title("T", fontname=fontname)
+
+
+# -- axis lines --------------------------------------------------------------
+
+
+def test_axis_line_both_styles_x_and_y_with_one_side_line_each():
+    fig, ax = _fig()
+    ax.set_axis_line(color="gray", linewidth=1.5)  # 1.5 pt = 0.05292 cm
+    assert _line_starting(fig, "xside") == "xside color GRAY lwidth 0.05292"
+    assert _line_starting(fig, "yside") == "yside color GRAY lwidth 0.05292"
+    assert not any(line.startswith(("x2side", "y2side")) for line in _graph_lines(fig))
+
+
+def test_the_top_and_right_lines_come_after_the_ones_gle_copies_onto_them():
+    fig, ax = _fig()
+    ax.set_axis_line("x2", color="red")
+    ax.set_axis_line("y2", color="blue")
+    ax.set_axis_line(color="gray")
+    lines = _graph_lines(fig)
+    assert lines.index("xside color GRAY") < lines.index("x2side color RED")
+    assert lines.index("yside color GRAY") < lines.index("y2side color BLUE")
+
+
+def test_an_axis_line_does_not_turn_the_y2_labels_on():
+    fig, ax = _fig()
+    ax.set_axis_line("y2", linewidth=0.5)
+    assert not any("y2labels" in line for line in _graph_lines(fig))
+
+
+@pytest.mark.parametrize(
+    "kwargs,error",
+    [
+        ({"axis": "z"}, ValueError),
+        ({"linewidth": -1}, ValueError),
+        ({"linewidth": float("nan")}, ValueError),
+        ({"linewidth": "thick"}, TypeError),
+    ],
+)
+def test_set_axis_line_rejects_nonsense(kwargs, error):
+    _, ax = _fig()
+    with pytest.raises(error, match="set_axis_line"):
+        ax.set_axis_line(**kwargs)
+
+
+# -- tick placement ----------------------------------------------------------
+
+
+def test_tick_placement_is_emitted_on_the_axis_line():
+    fig, ax = _fig()
+    ax.set_xticks(nticks=5, ftick=0.5, shift=0.2, symticks=True)
+    assert _line_starting(fig, "xaxis") == (
+        "xaxis min 1 max 3 nticks 5 ftick 0.5 shift 0.2 symticks"
+    )
+
+
+def test_noticks_is_its_own_statement_and_an_empty_list_clears_it():
+    fig, ax = _fig()
+    ax.set_yticks(noticks=[2, 4.5])
+    assert _line_starting(fig, "ynoticks") == "ynoticks 2 4.5"
+    ax.set_yticks(noticks=[])
+    assert not any(line.startswith("ynoticks") for line in _graph_lines(fig))
+
+
+def test_symticks_false_goes_back_to_the_default():
+    fig, ax = _fig()
+    ax.set_xticks(symticks=True)
+    ax.set_xticks(symticks=False)
+    assert "symticks" not in _line_starting(fig, "xaxis")
+
+
+@pytest.mark.parametrize(
+    "kwargs,error",
+    [
+        ({"nticks": 0}, ValueError),
+        ({"nticks": 2.5}, ValueError),
+        ({"nticks": True}, ValueError),
+        ({"ftick": "start"}, TypeError),
+        ({"shift": float("inf")}, ValueError),
+        ({"noticks": [1, None]}, TypeError),
+    ],
+)
+def test_set_xticks_rejects_bad_placement(kwargs, error):
+    _, ax = _fig()
+    with pytest.raises(error, match="set_xticks"):
+        ax.set_xticks(**kwargs)
+
+
 # -- figure-wide distance defaults (the ex-dead GLEGraphConfig fields) -------
 
 
@@ -508,6 +638,20 @@ def _styled_axes(ax):
     ax.yticklabel_size, ax.yticklabel_color, ax.yticklabel_angle = 6.5, "CYAN", 15.0
     ax.y2ticklabel_size, ax.y2ticklabel_color, ax.y2ticklabel_angle = 6.0, "PINK", 45.0
     ax.x2ticklabel_size, ax.x2ticklabel_color, ax.x2ticklabel_angle = 5.5, "GRAY", 20.0
+    ax.set_title("T", fontname="texcmb")
+    ax.set_xlabel("X", fontname="texcmr")
+    ax.set_ylabel("Y", fontname="texcmss")
+    ax.set_ylabel("Y2", axis="y2", fontname="texcmtt")
+    ax.set_xlabel("X2", axis="x2", fontname="texcmti")
+    for axis, color, width in (
+        ("x", "RED", 1.0),
+        ("y", "BLUE", 1.5),
+        ("y2", "GREEN", 0.5),
+        ("x2", "PURPLE", 0.75),
+    ):
+        ax.set_axis_line(axis, color=color, linewidth=width)
+    ax.set_xticks(nticks=4, ftick=1, shift=0.2, symticks=True, noticks=[2])
+    ax.set_yticks(nticks=3, ftick=0, shift=0.1, symticks=True, noticks=[4, 9])
     return ax
 
 

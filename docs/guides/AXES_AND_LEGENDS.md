@@ -15,6 +15,15 @@ Labels take matplotlib mathtext between `$...$`. See
 [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md) for Greek letters and
 GLE's own text markup.
 
+`fontname=` sets the font of one title, as a GLE font name such as
+`'texcmr'` or `'psh'`. It is written as `font` on that `title` or `xtitle`
+line. Leave it out to keep the current font.
+
+```python
+ax.set_title('Plot Title', fontname='texcmb')
+ax.set_xlabel('t (s)', fontname='texcmr')
+```
+
 ## Limits
 
 ```python
@@ -80,6 +89,31 @@ GLE copies an `xaxis` command onto x2. `min` and `max` are not copied, but `log`
 ```python
 ax.grid(True)                 # major grid
 ax.grid(True, which='both')   # major and minor grid
+```
+
+## Axis lines and tick placement
+
+`set_axis_line` sets the colour and width (points) of an axis line, written
+as GLE's `xside`. The ticks, tick labels and grid keep their colour.
+
+```python
+ax.set_axis_line(color='gray', linewidth=1.2)   # the x and y lines
+ax.set_axis_line('x2', color='red')             # the top line on its own
+```
+
+GLE copies the x line's style onto the top line and the y line's onto the
+right one, so `'x'` or `'both'` styles all four sides unless `'x2'` or `'y2'`
+is set too.
+
+`set_xticks` and `set_yticks` also take GLE's own placement keywords:
+`nticks` (number of major ticks), `ftick` (where the first one goes),
+`shift` (move the tick labels along the axis, in cm), `symticks=True` (ticks
+inside and outside the frame) and `noticks` (positions with no tick). GLE
+copies them onto the top and right axes.
+
+```python
+ax.set_xticks(nticks=5, ftick=0)
+ax.set_yticks(symticks=True, noticks=[0])
 ```
 
 ## Legends

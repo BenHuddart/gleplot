@@ -1479,12 +1479,29 @@ class Figure:
 
             effective_cairo = self.requires_cairo() if cairo is None else cairo
             if effective_cairo:
-                warning = cairo_font_warning(self.style.font)
-                if warning:
-                    warn_external(
-                        f"{warning} (figure requires Cairo for its "
-                        "semi-transparent colours).",
+                # Only titles that are written: one with no text, or an x/y
+                # title hidden by shared axes, puts no font in the script.
+                title_fonts = [
+                    getattr(ax, f"{name}_font")
+                    for ax in self.axes_list
+                    for name, shown in (
+                        ("title", True),
+                        ("xlabel", ax._show_xlabel),
+                        ("ylabel", ax._show_ylabel),
+                        ("y2label", True),
+                        ("x2label", True),
                     )
+                    if shown
+                    and getattr(ax, f"{name}_font")
+                    and getattr(ax, f"{name}_text")
+                ]
+                for font in dict.fromkeys([self.style.font, *title_fonts]):
+                    warning = cairo_font_warning(font)
+                    if warning:
+                        warn_external(
+                            f"{warning} (figure requires Cairo for its "
+                            "semi-transparent colours).",
+                        )
 
             output_dpi = dpi or self.dpi
             self.compiler.compile(
@@ -2147,6 +2164,14 @@ class Figure:
             label_size=getattr(ax, f"{prefix}ticklabel_size"),
             label_color=getattr(ax, f"{prefix}ticklabel_color"),
             label_angle=getattr(ax, f"{prefix}ticklabel_angle"),
+            title_font=getattr(ax, f"{prefix}label_font"),
+            side_color=getattr(ax, f"{prefix}side_color"),
+            side_lwidth=getattr(ax, f"{prefix}side_lwidth"),
+            nticks=getattr(ax, f"{prefix}nticks", None),
+            ftick=getattr(ax, f"{prefix}ftick", None),
+            shift=getattr(ax, f"{prefix}shift", None),
+            symticks=getattr(ax, f"{prefix}symticks", None),
+            noticks=getattr(ax, f"{prefix}noticks", None),
         )
 
     def _write_axes_content(
@@ -2248,6 +2273,7 @@ class Figure:
                 if ax.title_dist is not None
                 else self.graph.title_distance
             ),
+            title_font=ax.title_font,
         )
 
     def _write_heatmaps(
