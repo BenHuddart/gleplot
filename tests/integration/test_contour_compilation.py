@@ -111,12 +111,12 @@ def test_constant_field_colorbar_compiles(tmp_path):
 
 
 def test_all_palettes_compile(tmp_path):
-    """Every supported palette's emitted sub compiles as a heatmap + colorbar."""
+    """Every supported palette, and its reversed form, compiles with a colorbar."""
     from gleplot.palettes import SUPPORTED_CMAPS
 
     y, x = np.mgrid[0:20, 0:24]
     Z = np.sin(x / 5.0) * np.cos(y / 4.0)
-    for cmap in SUPPORTED_CMAPS:
+    for cmap in [name + r for name in SUPPORTED_CMAPS for r in ("", "_r")]:
         fig = glp.figure(figsize=(6, 5), data_prefix=f"pal_{cmap}")
         ax = fig.add_subplot(111)
         ax.imshow(Z, extent=(0, 10, 0, 8), cmap=cmap)

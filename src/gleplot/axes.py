@@ -6085,8 +6085,9 @@ class Axes:
             ``'upper'`` default). ``'upper'`` flips the rows when writing the
             ``.z`` sidecar.
         cmap : str, optional
-            Palette name (see :data:`gleplot.palettes.SUPPORTED_CMAPS`). When
-            ``None``, uses the figure graph config's ``default_cmap``.
+            Palette name (see :data:`gleplot.palettes.SUPPORTED_CMAPS`), or
+            one with ``_r`` appended for its reversed form, as in matplotlib.
+            When ``None``, uses the figure graph config's ``default_cmap``.
         vmin, vmax : float, optional
             Colour normalization range (GLE ``zmin``/``zmax``). ``None`` uses
             GLE's data-range default.

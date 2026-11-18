@@ -325,11 +325,15 @@ KEY_ANCHOR_Y = "min(yg(ygmin),yg(ygmax))+{}*abs(yg(ygmax)-yg(ygmin))"
 # gleplot_<name>`` clause back to the canonical cmap name via this table (and
 # treats any OTHER palette sub name as an unknown/foreign palette -> passthrough
 # with a warning). It is built from ``gleplot.palettes.SUPPORTED_CMAPS``: every
-# palette that requires an emitted sub. ``gray``/``rainbow`` need no sub and
-# never appear as a ``palette`` clause (grayscale = no clause; rainbow = the
-# ``color`` switch).
+# palette, forward or reversed (``_r``), that requires an emitted sub.
+# ``gray``/``rainbow`` need no sub and never appear as a ``palette`` clause
+# (grayscale = no clause; rainbow = the ``color`` switch); their reversed forms
+# do.
 PALETTE_SUB_TO_CMAP: Dict[str, str] = {
-    f"gleplot_{c}": c for c in map(canonical_cmap, SUPPORTED_CMAPS) if cmap_needs_sub(c)
+    f"gleplot_{c}": c
+    for base in map(canonical_cmap, SUPPORTED_CMAPS)
+    for c in (base, base + "_r")
+    if cmap_needs_sub(c)
 }
 
 CMAP_TO_PALETTE_SUB: Dict[str, str] = {v: k for k, v in PALETTE_SUB_TO_CMAP.items()}

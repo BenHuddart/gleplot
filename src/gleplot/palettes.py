@@ -34,6 +34,18 @@ like matplotlib's ``ListedColormap``.
 ``gray`` (GLE grayscale default) and ``rainbow``/``jet`` (GLE built-in
 ``color`` rainbow) need no subroutine at all.
 
+Reversed maps
+-------------
+Every name also has a reversed form with ``_r`` appended, as in matplotlib
+(``RdBu_r`` is ``RdBu`` read from 1 down to 0). Each is its own
+``gleplot_<name>_r`` sub, so the colorbar subs, which take only the palette
+name, draw it reversed too: the forward body with ``z = 1-z`` first, or, for a
+stepped (qualitative) map, its colours listed backwards. GLE's
+``colormap ... invert`` switch flips the normalized z in the same way but only
+for the image, and gleplot already exposes it as ``imshow(invert=True)``.
+``gray_r`` and ``rainbow_r`` have no built-in switch to fall back on, so they
+are subs too, reproducing GLE's grayscale ramp and its ``color`` rainbow.
+
 Canonical text
 --------------
 :func:`palette_sub_text` is a pure function of the palette name, so the emitted
@@ -132,10 +144,11 @@ def _hex_stops(colours: str) -> List[Tuple[str, str, str]]:
 _CMAP_ALIASES: Dict[str, str] = {"jet": "rainbow"}
 
 #: Every cmap name accepted by ``imshow``/``tripcolor`` (before alias
-#: canonicalization).  Names are matched case-insensitively; canonical names
-#: are lowercase: the values of :data:`_CMAP_ALIASES`, every key of
-#: :data:`PALETTE_STOPS` and :data:`_LISTED_STOPS`, and
-#: ``gray``/``rainbow``/``coolwarm``.
+#: canonicalization), each also accepted with ``_r`` appended for its reversed
+#: form.  Names are matched case-insensitively; canonical names are lowercase:
+#: the values of :data:`_CMAP_ALIASES`, every key of :data:`PALETTE_STOPS` and
+#: :data:`_LISTED_STOPS`, and ``gray``/``rainbow``/``coolwarm``, each with or
+#: without the ``_r`` suffix.
 SUPPORTED_CMAPS: Tuple[str, ...] = (
     "gray",
     "rainbow",
@@ -288,25 +301,32 @@ _LISTED_STOPS: Dict[str, List[Tuple[str, str, str]]] = {
 def canonical_cmap(cmap: str) -> str:
     """Canonicalize a user-facing cmap name (lowercase; ``jet`` -> ``rainbow``).
 
+    A reversed name keeps its suffix: ``RdBu_r`` -> ``rdbu_r``,
+    ``jet_r`` -> ``rainbow_r``.
+
     Raises
     ------
     ValueError
-        If ``cmap`` is not one of :data:`SUPPORTED_CMAPS`.
+        If ``cmap`` is not one of :data:`SUPPORTED_CMAPS`, with or without
+        ``_r`` appended.
     """
     key = str(cmap).strip().lower()
-    key = _CMAP_ALIASES.get(key, key)
-    if key not in _CANONICAL_CMAPS:
+    base, suffix = (key[:-2], "_r") if key.endswith("_r") else (key, "")
+    base = _CMAP_ALIASES.get(base, base)
+    if base not in _CANONICAL_CMAPS:
         supported = ", ".join(SUPPORTED_CMAPS)
         raise ValueError(
-            f"Unknown cmap {cmap!r}; supported palettes (any case): {supported}"
+            f"Unknown cmap {cmap!r}; supported palettes (any case, and each "
+            f"with '_r' appended for its reversed form): {supported}"
         )
-    return key
+    return base + suffix
 
 
 def cmap_needs_sub(cmap: str) -> bool:
     """True if ``cmap`` (canonical) requires an emitted ``gleplot_<name>`` sub.
 
-    ``gray`` (grayscale default) and ``rainbow`` (built-in ``color``) do not.
+    ``gray`` (grayscale default) and ``rainbow`` (built-in ``color``) do not;
+    their reversed forms do.
     """
     return canonical_cmap(cmap) not in ("gray", "rainbow")
 
@@ -426,10 +446,49 @@ _COOLWARM_SUB = "\n".join(
 )
 
 
+#: The body (every line after ``sub gleplot_<name> z``) of GLE's grayscale
+#: ramp, black at 0 and white at 1. Only ``gray_r`` is a sub: ``gray`` itself is
+#: the ``colormap`` default.
+_GRAY_BODY = "\n".join(
+    [
+        "   if z < 0 then z = 0",
+        "   if z > 1 then z = 1",
+        "   return rgb(z,z,z)",
+        "end sub",
+    ]
+)
+
+#: The body of GLE's built-in ``color`` rainbow, transcribed from
+#: ``GLEBitmapCreateColorPalette`` (GLE ``src/gle/bitmap/img2ps.cpp``): six
+#: equal linear segments black->violet->blue->cyan->green->yellow->red->white,
+#: the first split in thirds. Only ``rainbow_r`` is a sub: ``rainbow`` itself
+#: is the ``colormap ... color`` switch.
+_RAINBOW_BODY = "\n".join(
+    [
+        "   ! GLE's built-in colormap color rainbow (see palettes.py)",
+        "   if z < 0 then z = 0",
+        "   if z > 1 then z = 1",
+        "   local s = 6*z",
+        "   if s < 1/3 then return rgb(s,0,s)",
+        "   if s < 2/3 then return rgb(1/3,0,s)",
+        "   if s < 1 then return rgb(1-s,0,s)",
+        "   if s < 2 then return rgb(0,s-1,1)",
+        "   if s < 3 then return rgb(0,1,3-s)",
+        "   if s < 4 then return rgb(s-3,1,0)",
+        "   if s < 5 then return rgb(1,5-s,0)",
+        "   return rgb(1,s-5,s-5)",
+        "end sub",
+    ]
+)
+
+
 def palette_sub_text(cmap: str) -> Optional[str]:
     """Canonical ``sub gleplot_<name> z ... end sub`` text for ``cmap``.
 
-    Returns ``None`` for ``gray``/``rainbow`` (no sub needed).
+    Returns ``None`` for ``gray``/``rainbow`` (no sub needed). A reversed
+    stepped map lists its colours backwards, so a band boundary ``k/N`` falls
+    in the band above it as in matplotlib. Any other reversed name is the
+    forward body with ``z = 1-z`` as its first statement.
     """
     c = canonical_cmap(cmap)
     if not cmap_needs_sub(c):
@@ -438,7 +497,18 @@ def palette_sub_text(cmap: str) -> Optional[str]:
         return _COOLWARM_SUB
     if c in _LISTED_STOPS:
         return _listed_sub_text(c, _LISTED_STOPS[c])
-    return _stops_sub_text(c, PALETTE_STOPS[c])
+    if c in PALETTE_STOPS:
+        return _stops_sub_text(c, PALETTE_STOPS[c])
+    base = c[:-2]
+    if base in _LISTED_STOPS:
+        return _listed_sub_text(c, _LISTED_STOPS[base][::-1])
+    if base == "gray":
+        body = _GRAY_BODY
+    elif base == "rainbow":
+        body = _RAINBOW_BODY
+    else:
+        body = str(palette_sub_text(base)).split("\n", 1)[1]
+    return f"sub gleplot_{c} z\n   z = 1-z\n{body}"
 
 
 # ---------------------------------------------------------------------------

@@ -240,7 +240,8 @@ class GLEGraphConfig:
 
     default_cmap : str
         Default colour map used by ``imshow``/``tripcolor`` when ``cmap`` is
-        not passed. One of the names in :data:`gleplot.palettes.SUPPORTED_CMAPS`.
+        not passed. One of the names in :data:`gleplot.palettes.SUPPORTED_CMAPS`,
+        or one with ``_r`` appended for its reversed form.
         Default: 'viridis'
 
     colormap_pixels : int

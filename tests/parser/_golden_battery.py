@@ -700,6 +700,20 @@ def heatmap_brewer_palettes():
     return fig
 
 
+def heatmap_reversed_palettes():
+    """Reversed cmaps: a ramp with its colorbar, a stepped set, both built-ins."""
+    fig, (ramp, stepped, gray, rainbow) = glp.subplots(
+        2, 2, figsize=(9, 8), data_prefix="golden"
+    )
+    Z = np.arange(12, dtype=float).reshape(3, 4)
+    hm = ramp.imshow(Z, extent=(0, 4, 0, 3), cmap="RdBu_r")
+    fig.colorbar(hm, ax=ramp)
+    stepped.imshow(Z, extent=(0, 4, 0, 3), cmap="Set1_r")
+    gray.imshow(Z, extent=(0, 4, 0, 3), cmap="gray_r")
+    rainbow.imshow(Z, extent=(0, 4, 0, 3), cmap="jet_r")
+    return fig
+
+
 def heatmap_function():
     """An expression heatmap with a colorbar."""
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
@@ -1497,6 +1511,7 @@ BUILDERS = [
     heatmap_grid_colorbars,
     heatmap_field_options,
     heatmap_brewer_palettes,
+    heatmap_reversed_palettes,
     heatmap_function,
     heatmap_function_field_options,
     contour_grid_levels_clabel,
