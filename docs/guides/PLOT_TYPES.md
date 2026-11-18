@@ -197,6 +197,24 @@ ax.boxplot([[1, 2, 3, 4, 9], [2, 3, 4]], tick_labels=['A', 'B'])
 One vertical box per sample set: quartiles, whiskers at 1.5 times the
 interquartile range, and the points beyond them.
 
+## Polar plots
+
+```python
+fig = glp.figure()
+ax = fig.add_subplot(projection='polar')
+ax.plot(theta, r, label='data')
+ax.function('cos(2*x)')
+ax.set_ylim(0, 1.5)
+```
+
+`plot` and `scatter` take theta in radians and the radius. `function` reads
+`x` in its expression as theta, from 0 to 2π unless `xmin`/`xmax` say
+otherwise. A grid of rings and spokes, labelled with the angles and radii,
+replaces the frame. `set_ylim(0, rmax)` sets the outer ring; otherwise it is
+the largest radius in the data, rounded up to a ring, or 1 for function
+curves alone. Legends and the title work as on any axes. Other plotting
+methods raise `NotImplementedError` on a polar axes.
+
 ## Other plot types
 
 - Heatmaps and contours: [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).

@@ -15,6 +15,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
 | `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
+| `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
 | `ax.set_xlabel(...)` | same |
 | `ax.set_ylabel(...)` | same |
 | `ax.set_title(...)` | same |
@@ -276,6 +277,26 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 | `format` | a GLE `format$` string such as `'fix 2'`, not a `'%.2f'` format. |
 | `location`, `fraction`, `shrink`, `aspect`, `pad`, `ticks`, `extend` | not accepted. Use `orientation`, `width`, `sep` and `nticks`. |
 | a contour set as `mappable` | not supported: contour lines draw in one colour, so there is no scale to show. |
+
+## Polar axes
+
+GLE has no polar axis. `fig.add_subplot(projection='polar')` hides the graph's axes and draws a grid of rings and spokes with a `gleplot_polar_grid` call in layer 200, below the curves. The angle and radius labels are written by a `gleplot_polar_labels` call after the graph block. Both subroutines are defined once at the top of the script. Each curve's data file keeps theta and r, and a `let dK = dJ*cos(x),dJ*sin(x)` turns them into the x and y GLE draws, so markers, line styles and legend entries work as on any axes. The x and y ranges are chosen so both axes have the same scale and the angle labels fit inside the frame; the rings stay round in a subplot that is not square.
+
+```python
+ax = fig.add_subplot(projection="polar")
+ax.plot(theta, r, marker="o", label="r")
+ax.set_ylim(0, 2)
+```
+
+| matplotlib | gleplot |
+|---|---|
+| `ax.plot(theta, r)`, `ax.scatter(theta, r)` | same. `plot()`'s `yaxis`, `xaxis`, `offset`, `drawstyle`/`line_mode` and the `xmin`/`xmax`/`ymin`/`ymax` clip window raise `ValueError`. |
+| `ax.set_ylim(0, rmax)`, `ax.set_ylim(top=...)` | `ax.set_ylim(0, rmax)` or `ax.set_ylim(None, rmax)`. A lower limit other than 0 raises `ValueError`. Left unset, the outer ring is the largest radius in the data rounded up to a ring, or 1 when the axes has only function curves. |
+| `ax.set_rmax`, `set_rticks`, `set_thetagrids`, `set_theta_zero_location`, `set_theta_direction`, `set_rlabel_position` | not available. Rings are evenly spaced, at most five; spokes and angle labels are every 45°, counter-clockwise from the right; ring labels lie along 22.5°. |
+| `ax.bar`, `ax.fill`, `ax.errorbar`, `ax.text`, `ax.grid`, `ax.set_xlim` and the other plotting and cartesian axis methods | raise `NotImplementedError` on a polar axes. |
+| `plt.subplots(subplot_kw={'projection': 'polar'})` | not available; use `fig.add_subplot(..., projection='polar')`. |
+
+The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar axes: GLE would smooth the drawn x and y, which need not be in order.
 
 ## Histograms
 

@@ -69,6 +69,7 @@ from basic import (
     example_heatmap_imshow,
     example_horizontal_error_bars,
     example_pie_chart,
+    example_polar_plot,
     example_scatter_plot,
     example_symmetric_error_bars,
 )
@@ -81,6 +82,7 @@ EXAMPLES = [
     ("Bar Chart", example_bar_chart, ["example_bar_chart"]),
     ("Pie Chart", example_pie_chart, ["example_pie_chart"]),
     ("Box Plot", example_box_plot, ["example_box_plot"]),
+    ("Polar Plot", example_polar_plot, ["example_polar_plot"]),
     (
         "Symmetric Error Bars",
         example_symmetric_error_bars,

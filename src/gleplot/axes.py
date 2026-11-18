@@ -1,5 +1,6 @@
 """Axes class for gleplot."""
 
+import functools
 import re
 import uuid
 from numbers import Real
@@ -59,6 +60,23 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     sorted_zorder_drawables,
 )
 from .writer import GLEWriter
+
+
+def _cartesian_only(method):
+    """Make ``method`` raise ``NotImplementedError`` on a polar axes."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if self._polar:
+            raise NotImplementedError(
+                f"{method.__name__}() is not supported on a polar axes. A polar "
+                "axes draws plot(), scatter() and function() curves; see the "
+                "plot types guide."
+            )
+        return method(self, *args, **kwargs)
+
+    return wrapper
+
 
 # Global counter for unique data file names across all figures in a session
 _global_data_file_counter = 0
@@ -1860,6 +1878,9 @@ class Axes:
         self._y2axis_off = False
         # Every axis line and tick mark hidden, the axes kept (Axes.pie).
         self._frame_off = False
+        # A polar axes (Figure.add_subplot(projection='polar')): x is theta
+        # in radians, y is r, and ylim is (0, rmax).
+        self._polar = False
 
         # Broken-axis membership (see :mod:`gleplot.brokenaxes`). Both stay
         # None on an ordinary axes; on a segment, ``_break_owner`` is the
@@ -2090,6 +2111,26 @@ class Axes:
         qualifiers = _dataset_qualifiers(
             mdist, deresolve, deresolve_average, xmin, xmax, ymin, ymax
         )
+        if self._polar:
+            cartesian = [
+                name
+                for name, used in (
+                    ("yaxis", yaxis != "y"),
+                    ("xaxis", xaxis != "x"),
+                    ("offset", offset != 0),
+                    ("drawstyle", bool(mode)),
+                    ("xmin", xmin is not None),
+                    ("xmax", xmax is not None),
+                    ("ymin", ymin is not None),
+                    ("ymax", ymax is not None),
+                )
+                if used
+            ]
+            if cartesian:
+                raise ValueError(
+                    f"plot({cartesian[0]}=...) is not supported on a polar axes; "
+                    "leave it at its default."
+                )
         if kwargs.pop("markevery", None) is not None:
             warn_external(
                 "plot(markevery=...) is ignored: GLE cannot mark every Nth "
@@ -2181,6 +2222,7 @@ class Axes:
 
         return self  # Return self for method chaining
 
+    @_cartesian_only
     def step(self, x, y, *args, where: str = "pre", **kwargs):
         """Draw a step plot.
 
@@ -2220,6 +2262,7 @@ class Axes:
         kwargs["drawstyle"] = "steps-" + where_key
         return self.plot(x, y, **kwargs)
 
+    @_cartesian_only
     def stem(
         self,
         *args,
@@ -2360,6 +2403,7 @@ class Axes:
             kwargs["line_mode"] = "impulses"
         return self.plot(x, y, linestyle=linestyle, marker=marker, **kwargs)
 
+    @_cartesian_only
     def hist(
         self,
         x,
@@ -2598,7 +2642,8 @@ class Axes:
             A GLE expression in ``x``, such as ``"sin(x)"`` or
             ``"exp(-x^2/2)"``. It is written as given, without spaces.
         xmin, xmax : float, optional
-            The sampled range. Omitted, GLE uses the x axis range.
+            The sampled range. Omitted, GLE uses the x axis range; on a polar
+            axes, ``x`` is theta and the range is 0 to 2 pi.
         step : float, optional
             Distance between samples. Omitted, GLE takes 100 points. On a
             log x axis GLE reads ``step`` as the number of points.
@@ -2623,9 +2668,13 @@ class Axes:
         gleplot does not evaluate the expression, so ``xmin`` and ``xmax``
         widen the x range but nothing widens the y range. Alone on an axes,
         the curve is scaled by GLE. Beside other data, call :meth:`set_ylim`
-        if the curve leaves that data's range.
+        if the curve leaves that data's range. On a polar axes the radial
+        limit is 1 unless data or :meth:`set_ylim` sets it.
         """
         self._check_let_expression("function", expression)
+        if self._polar:
+            xmin = 0.0 if xmin is None else xmin
+            xmax = 2 * np.pi if xmax is None else xmax
         fields = self._let_curve_fields(
             "function",
             xmin,
@@ -2642,6 +2691,7 @@ class Axes:
         self.functions.append(entry)
         return self
 
+    @_cartesian_only
     def fit(
         self,
         x,
@@ -3223,6 +3273,7 @@ class Axes:
             return [None] * n
         return [seq[i % len(seq)] for i in range(n)]
 
+    @_cartesian_only
     def errorbar(
         self,
         x,
@@ -3448,6 +3499,7 @@ class Axes:
 
         return self
 
+    @_cartesian_only
     def errorbar_from_file(
         self,
         data_file: str,
@@ -3514,6 +3566,7 @@ class Axes:
 
         return self
 
+    @_cartesian_only
     def line_from_file(
         self,
         data_file: str,
@@ -3737,6 +3790,7 @@ class Axes:
             series["column_names"] = series.default_column_names()
         return self
 
+    @_cartesian_only
     def bar(
         self,
         x,
@@ -3988,6 +4042,7 @@ class Axes:
         )
         return self
 
+    @_cartesian_only
     def barh(
         self,
         y,
@@ -4140,6 +4195,7 @@ class Axes:
                 **common,
             )
 
+    @_cartesian_only
     def fill_between(
         self,
         x,
@@ -4299,6 +4355,7 @@ class Axes:
             self.fills.append(fill_data)
         return self
 
+    @_cartesian_only
     def fill(
         self,
         x,
@@ -4430,6 +4487,7 @@ class Axes:
             raise ValueError(f"{names} must be within [0, 1], got ({lo}, {hi})")
         return lo, hi
 
+    @_cartesian_only
     def axvline(
         self,
         x: float = 0.0,
@@ -4474,6 +4532,7 @@ class Axes:
             "v", x, ymin, ymax, color, linestyle, linewidth, label, kwargs
         )
 
+    @_cartesian_only
     def axhline(
         self,
         y: float = 0.0,
@@ -4521,6 +4580,7 @@ class Axes:
         self.reflines.append(entry)
         return entry
 
+    @_cartesian_only
     def axvspan(
         self,
         xmin: float,
@@ -4564,6 +4624,7 @@ class Axes:
         """
         return self._add_span("v", xmin, xmax, ymin, ymax, color, alpha, label, kwargs)
 
+    @_cartesian_only
     def axhspan(
         self,
         ymin: float,
@@ -4818,6 +4879,7 @@ class Axes:
             fallback_hi if hi is None else hi,
         )
 
+    @_cartesian_only
     def text(
         self,
         x: float,
@@ -4986,6 +5048,7 @@ class Axes:
             fields["rotation"] = angle
         return fields
 
+    @_cartesian_only
     def annotate(
         self,
         text: str,
@@ -5138,6 +5201,7 @@ class Axes:
             fields["arrow_linewidth"] = linewidth
         return fields
 
+    @_cartesian_only
     def pie(
         self,
         x,
@@ -5362,6 +5426,7 @@ class Axes:
             return wedges, texts, autotexts
         return wedges, texts
 
+    @_cartesian_only
     def boxplot(
         self,
         x,
@@ -5653,6 +5718,7 @@ class Axes:
             return None
         return MATPLOTLIB_TO_LSTYLE.get(linestyle)
 
+    @_cartesian_only
     def imshow(
         self,
         Z,
@@ -5749,6 +5815,7 @@ class Axes:
         self.heatmaps.append(hm)
         return hm
 
+    @_cartesian_only
     def contour(
         self,
         *args,
@@ -5918,6 +5985,7 @@ class Axes:
             return [float(v) for v in np.linspace(zmin, zmax, n + 2)[1:-1]]
         return [float(v) for v in levels]
 
+    @_cartesian_only
     def tripcolor(
         self,
         x,
@@ -5985,6 +6053,7 @@ class Axes:
         self.heatmaps.append(hm)
         return hm
 
+    @_cartesian_only
     def tricontour(
         self,
         x,
@@ -6187,6 +6256,7 @@ class Axes:
                 setattr(self, f"{name}side_lwidth", width)
         return self
 
+    @_cartesian_only
     def set_math_mode(self, on: bool = True):
         """Draw the x and y axes through the origin (GLE ``math``).
 
@@ -6226,6 +6296,7 @@ class Axes:
         self.math_mode = True if on else None
         return self
 
+    @_cartesian_only
     def set_xscale(self, scale: str, axis: str = "x"):
         """Set x-axis scale.
 
@@ -6242,6 +6313,7 @@ class Axes:
             self.xscale = scale
         return self
 
+    @_cartesian_only
     def set_yscale(self, scale: str, axis: str = "y"):
         """Set y-axis scale.
 
@@ -6258,6 +6330,7 @@ class Axes:
             self.yscale = scale
         return self
 
+    @_cartesian_only
     def set_xlim(self, xmin: Optional[float], xmax: Optional[float], axis: str = "x"):
         """Set x-axis limits.
 
@@ -6280,6 +6353,7 @@ class Axes:
             self.xmax = xmax
         return self
 
+    @_cartesian_only
     def twiny(self) -> SecondaryXAxis:
         """Open the top x axis as its own data scale.
 
@@ -6301,7 +6375,27 @@ class Axes:
             Axis limits; ``None`` = auto (see :meth:`set_xlim`).
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+
+        Notes
+        -----
+        On a polar axes these are the radial limits: ``ymin`` must be 0 or
+        ``None``, and ``ymax``, the outer ring, positive or ``None``.
         """
+        if self._polar:
+            if axis != "y":
+                raise ValueError(
+                    f"set_ylim(axis={axis!r}) is not supported on a polar axes; "
+                    "use axis='y'."
+                )
+            if ymin not in (None, 0):
+                raise ValueError(
+                    f"set_ylim(ymin={ymin!r}) is not supported on a polar axes: "
+                    "the radial axis starts at 0. Pass 0 or None."
+                )
+            if ymax is not None and not ymax > 0:
+                raise ValueError(
+                    f"set_ylim(ymax={ymax!r}) on a polar axes must be positive."
+                )
         if axis == "y2":
             self.y2min = ymin
             self.y2max = ymax
@@ -6310,6 +6404,7 @@ class Axes:
             self.ymax = ymax
         return self
 
+    @_cartesian_only
     def set_xticks(
         self,
         ticks=None,
@@ -6403,6 +6498,7 @@ class Axes:
         )
         return self
 
+    @_cartesian_only
     def set_yticks(
         self,
         ticks=None,
@@ -6881,6 +6977,7 @@ class Axes:
             raise ValueError(f"{argument}={fontsize!r}) must be positive")
         return size
 
+    @_cartesian_only
     def grid(
         self,
         visible: Optional[bool] = None,
@@ -7026,6 +7123,7 @@ class Axes:
             )
         return int(mapping[key])
 
+    @_cartesian_only
     def set_tick_format(self, fmt: Optional[str], axis: str = "both"):
         """Set the tick-label number format (GLE ``xaxis format "<fmt>"``).
 
@@ -7256,6 +7354,9 @@ class Axes:
         for attr in SERIES_ATTRS:
             payload[attr] = [_to_jsonable(s) for s in getattr(self, attr)]
         payload["passthrough"] = list(self.passthrough)
+        if self._polar:
+            # Only on a polar axes, so every other payload is unchanged.
+            payload["polar"] = True
         return payload
 
     @classmethod
@@ -7361,6 +7462,7 @@ class Axes:
         ax._x2axis_off = d.get("x2axis_off", False)
         ax._y2axis_off = d.get("y2axis_off", False)
         ax._frame_off = d.get("frame_off", False)
+        ax._polar = d.get("polar", False)
         # ``_break_owner`` is a back-reference rebound by Figure.from_dict
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")
