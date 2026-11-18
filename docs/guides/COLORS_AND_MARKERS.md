@@ -217,11 +217,14 @@ the writer emits.
   Passing **both is ambiguous, and `markersize` wins**: it is a size rather
   than an area, so honouring it needs no conversion. (Before 1.9.0 `markersize`
   was swallowed by `**kwargs` and silently ignored, drawing the default size.)
-- Per-point sizes (`s=[10, 20, 30]`) are **not** supported and raise
-  `ValueError`: GLE's `msize` is a per-dataset attribute, so one series draws
-  one marker size. Plot one series per size. (Before 1.9.0 this emitted an
-  array into the script -- `msize [0.094 0.212 0.284]` -- which is not valid
-  GLE.)
+- Per-point sizes make a bubble chart: pass one value per point for `s` or
+  `markersize`, e.g. `ax.scatter(x, y, s=population / 1e6)`. GLE scales a
+  marker per point (`mdata`) only when a subroutine draws it, so the script
+  gets a `gleplot_mdata_<marker>` sub that draws the built-in marker, and the
+  sizes go into the series' data file as an extra column. The legend marker's
+  area is halfway between the largest and smallest point's, as in
+  matplotlib's legend. Sizes must be finite and not negative, and cannot be
+  combined with `mdist` or `deresolve`.
 - If a color or marker cannot be resolved, gleplot falls back to defaults (`BLACK` for color, `FCIRCLE` for marker).
 - Error bars take the series `color`, and so do their caps -- including bars-only
   series (`fmt='none'`, no marker and no line) and `capsize=0`. GLE draws error

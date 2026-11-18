@@ -938,6 +938,30 @@ def scatter_field_options():
     return fig
 
 
+def scatter_per_point_sizes():
+    """Per-point marker sizes (GLE ``mdata`` through a generated marker sub).
+
+    ``s`` and ``markersize`` arrays, two marker shapes sharing nothing, an
+    offset, the top axis and a clip window, and a size of 0.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = [0, 1, 2, 3]
+    ax.scatter(x, [1, 2, 3, 4], s=[10, 40, 90, 0], color="red", label="bubbles")
+    ax.scatter(
+        x,
+        [4, 3, 2, 1],
+        markersize=[2, 4, 6, 8],
+        marker="s",
+        fillstyle="none",
+        offset=0.5,
+        xaxis="x2",
+        ymax=3.0,
+    )
+    ax.legend()
+    return fig
+
+
 def fill_forms():
     """Axis fill, a clipped band, and a closed polygon."""
     fig = glp.figure(data_prefix="golden")
@@ -1260,6 +1284,7 @@ BUILDERS = [
     line_field_options,
     dataset_qualifiers,
     scatter_field_options,
+    scatter_per_point_sizes,
     fill_forms,
     fill_field_options,
     histogram,

@@ -324,7 +324,7 @@ from ..series import (
     TextAnnotation,
     Wedge,
 )
-from ..writer import GLEWriter
+from ..writer import MDATA_SUB_PREFIX, GLEWriter
 from . import metadata as _metadata
 from .expr import eval_gle_number
 from .lexer import Token, TokenType, tokenize_line
@@ -347,6 +347,7 @@ from .tables import (
     LINE_MODES,
     LOG_LABEL_MODES,
     LSTYLE_TO_MATPLOTLIB,
+    MARKERS,
     PALETTE_SUB_TO_CMAP,
     text_box_pad_token,
     text_just_to_align,
@@ -364,6 +365,10 @@ __all__ = ["ImportCategory", "ImportNote", "RecognizedFigure", "parse_gle_figure
 
 
 _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
+
+#: ``define marker gleplot_X gleplot_X`` (lower-cased): the line that makes a
+#: generated per-point-size sub a marker (``writer.mdata_sub_text``).
+_GLEPLOT_DEFINE_MARKER_RE = re.compile(r"^define\s+marker\s+(gleplot_\w+)\s+\1$")
 
 
 #: Every ``bar`` sub-command GLE 4.3.10 accepts that gleplot has no model
@@ -2235,6 +2240,10 @@ class _Recognizer:
             # consumed indirectly through the alias -- see _parse_let_command
             # and the 'data'-statement reconciliation in _restore_orphaned_data_stmts.
             "_let_source_datasets": set(),
+            # Datasets whose ``dN`` line stays raw GLE because of an
+            # unmodelled ``mdata``, with the size dataset it names. Their
+            # ``data`` statement is kept too: nothing else writes it.
+            "_raw_mdata_datasets": set(),
             # ``let dK = hist dJ ...`` recorded in pass 1, keyed by the
             # target. The target is not registered as a file dataset: its
             # points are bin centres GLE computes, and a later plain ``dK
@@ -2455,18 +2464,21 @@ class _Recognizer:
         # regenerated GLE. Restore any 'data' statement whose datasets are
         # entirely unconsumed, ahead of the passthrough content that (being
         # later in body order) may depend on it.
+        raw_mdata = info["_raw_mdata_datasets"]
         consumed = (
             set(info["_key_suppress_datasets"])
             | pass1.emitted
             | info["_let_source_datasets"]
-        )
+        ) - raw_mdata
         # A dataset may also be consumed indirectly, referenced by NAME from
         # another dataset's own attributes rather than having a 'dN ...'
         # line of its own -- e.g. errorbar's 'd1 ... err d2 ...' points at a
         # sibling dataset holding the error column. Such a reference is
         # resolved by the consuming series' own 'data_file'/columns, so it
         # is not orphaned even though it never appears in ``pass1.emitted``.
-        for attr_toks in pass1.merged_attr_toks.values():
+        for name, attr_toks in pass1.merged_attr_toks.items():
+            if name in raw_mdata:
+                continue
             for t in attr_toks:
                 if _DATASET_RE.match(t.value):
                     consumed.add(t.value.lower())
@@ -5394,6 +5406,12 @@ class _Recognizer:
                 )
                 return
 
+        if attrs["mdata"] is not None:
+            self._build_sized_scatter(
+                info, d_name, datasets, attrs, toks, line_no, raw_stmts
+            )
+            return
+
         has_line = attrs["has_line"]
         has_marker = attrs["marker"] is not None
         is_errorbar = bool(attrs["err_refs"]) or bool(attrs["err_consts"])
@@ -5490,6 +5508,81 @@ class _Recognizer:
                 (entry, attrs["smooth_mode"], attrs["svg_smooth"])
             )
 
+    def _build_sized_scatter(
+        self, info, d_name, datasets, attrs, toks, line_no, raw_stmts
+    ) -> None:
+        """A ``dN`` line with ``mdata`` -> a scatter with per-point sizes.
+
+        Modelled only in the form :meth:`GLEWriter.add_scatter` writes: a
+        marker-only dataset whose marker is a ``gleplot_mdata_<marker>`` sub
+        and whose sizes are a column of the same imported file. Anything else
+        (a marker sub of the user's own, a built-in marker, which GLE draws
+        at one size whatever ``mdata`` says, a line, error bars) stays raw
+        GLE with a note.
+        """
+        data_file, xcol, ycol = datasets[d_name]
+        marker = str(attrs["marker"] or "").lower()
+        builtin = marker[len(MDATA_SUB_PREFIX) :].upper()
+        sizes_ref = datasets.get(attrs["mdata"])
+        loaded: Dict[str, Any] = {}
+        if (
+            marker.startswith(MDATA_SUB_PREFIX)
+            and builtin in MARKERS
+            and not attrs["has_line"]
+            and not attrs["err_refs"]
+            and not attrs["err_consts"]
+            and sizes_ref is not None
+            and sizes_ref[0] == data_file
+            and self._is_import(data_file)
+        ):
+            loaded = self._load_series(
+                data_file, xcol, ycol, extra_cols=[sizes_ref[2]], line_no=line_no
+            )
+        sizes = None
+        if sizes_ref is not None and not loaded.get("error"):
+            sizes = loaded.get(f"c{sizes_ref[2]}")
+        if sizes is None or len(sizes) != len(loaded["x"]):
+            info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
+            info["_raw_mdata_datasets"].update((d_name, attrs["mdata"]))
+            # A file that could not be read already has its own note.
+            why = (
+                "its data could not be read"
+                if loaded.get("error")
+                else "they are modelled only on a marker-only scatter gleplot "
+                "wrote, with the sizes in its own data file"
+            )
+            self._note(
+                ImportCategory.DATA,
+                f"per-point marker sizes ('mdata') on {d_name} were not "
+                f"modelled because {why}; the dataset line was kept as raw "
+                "GLE, not editable",
+                (line_no, line_no) if line_no is not None else None,
+            )
+            return
+        entry = ScatterSeries(
+            type="scatter",
+            x=loaded["x"],
+            y=loaded["y"],
+            marker=builtin,
+            markersize=_dn_markersize(attrs),
+            linestyle="none",
+            linewidth=_dn_linewidth(attrs),
+            nomiss=attrs["nomiss"],
+            **_dn_fields(attrs),
+            offset=info["_dataset_offsets"].get(d_name, 0.0),
+            data_file=data_file,
+            mdata=np.asarray(sizes, dtype=float),
+        )
+        entry.update(attrs["qualifiers"])
+        column_names = self._recovered_column_names(
+            data_file, [xcol, ycol, sizes_ref[2]]
+        )
+        if column_names is not None:
+            entry["column_names"] = column_names
+        entry["_draw_seq"] = info["_draw_seq_counter"]
+        info["_draw_seq_counter"] += 1
+        info["scatters"].append(entry)
+
     def _scan_series_attrs(self, toks) -> dict:
         """Flat scan of dataset attribute tokens (order-tolerant).
 
@@ -5526,6 +5619,8 @@ class _Recognizer:
             "line_mode": None,
             "marker": None,
             "msize": None,
+            # ``mdata dK``: the dataset of per-point marker sizes, or None.
+            "mdata": None,
             "y2axis": False,
             "x2axis": False,
             "label": None,
@@ -5640,6 +5735,10 @@ class _Recognizer:
                 continue
             if w == "marker" and i + 1 < m:
                 a["marker"] = toks[i + 1].value
+                i += 2
+                continue
+            if w == "mdata" and i + 1 < m:
+                a["mdata"] = toks[i + 1].value.lower()
                 i += 2
                 continue
             if w == "msize" and i + 1 < m:
@@ -6063,6 +6162,10 @@ class _Recognizer:
             if not in_sub:
                 if low.startswith("sub gleplot_"):
                     in_sub = True
+                    nums.add(idx)
+                elif _GLEPLOT_DEFINE_MARKER_RE.match(low):
+                    # The ``define marker`` naming a per-point-size sub
+                    # (writer.mdata_sub_text) is part of that sub.
                     nums.add(idx)
                 continue
             nums.add(idx)

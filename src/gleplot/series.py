@@ -699,6 +699,15 @@ class ScatterSeries(_XYSeries):
     ZORDER_DEFAULT = 4.0
     KIND_RANK = 2
 
+    #: GLE ``mdata``: each point's marker size as a multiple of
+    #: ``markersize``, one per point. Absent: every marker at ``markersize``.
+    mdata: np.ndarray
+
+    def default_column_names(self) -> Optional[List[str]]:
+        if "mdata" in self:
+            return _build_column_names("x", ["y", "mdata"], self.get("label"))
+        return super().default_column_names()
+
 
 class BarSeries(Series):
     """A bar chart -- ``Axes.bar``."""
