@@ -1688,6 +1688,12 @@ def test_a_closed_form_fit_let_becomes_a_model_fit_series(tmp_path, routine, mod
         (
             "data d.dat d1=c1,c2",
             "let d2 = linfit d1 s o r",
+            "d2 line",
+            'title "slope \\expr{s}"',
+        ),
+        (
+            "data d.dat d1=c1,c2",
+            "let d2 = linfit d1 s o r",
             'd2 line key "a "+num$(s)',
             "let d3 = s*x",
             "d3 line",

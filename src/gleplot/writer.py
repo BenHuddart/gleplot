@@ -45,6 +45,7 @@ from .parser.tables import (
     ARROW_TIP_STYLES,
     FIT_MODEL_TO_ROUTINE,
     FIT_PLACEHOLDER_RE,
+    FIT_PLACEHOLDER_SPEC_RE,
     FIT_RESULT_PLACEHOLDERS,
     KEY_ANCHOR_X,
     KEY_ANCHOR_Y,
@@ -3522,31 +3523,44 @@ class GLEWriter:
         self._fit_result_count += 1
         names = FIT_RESULT_PLACEHOLDERS[series["model"]]
         variables = {n: f"fit{self._fit_result_count}_{n}" for n in names}
-        self._fit_keys[id(series)] = self._fit_key_expression(
-            series["label"], variables
-        )
+        self._fit_keys[id(series)] = self._fit_key_expression(series, variables)
         self._let_curve(definition, series, [" ".join(variables.values())])
 
     @staticmethod
-    def fit_label_shows_results(series: Series) -> bool:
-        """Whether ``series`` is a model fit whose label has a placeholder."""
-        return (
-            series.get("model") is not None
-            and FIT_PLACEHOLDER_RE.search(series.get("label") or "") is not None
-        )
+    def _fit_placeholders(series: Series) -> list:
+        """The placeholders in a model fit's label its model fills.
 
-    @staticmethod
-    def _fit_key_expression(label: str, variables: Dict[str, str]) -> str:
-        """``label`` as a GLE string expression of the fit's ``variables``.
+        Others, as :meth:`gleplot.axes.Axes.fit` rejects them, are text.
+        """
+        model = series.get("model")
+        if model is None:
+            return []
+        names = FIT_RESULT_PLACEHOLDERS[model]
+        return [
+            m
+            for m in FIT_PLACEHOLDER_RE.finditer(series.get("label") or "")
+            if m.group(1) in names
+            and (m.group(2) is None or FIT_PLACEHOLDER_SPEC_RE.fullmatch(m.group(2)))
+        ]
+
+    @classmethod
+    def fit_label_shows_results(cls, series: Series) -> bool:
+        """Whether ``series`` is a model fit whose label has a placeholder."""
+        return bool(cls._fit_placeholders(series))
+
+    @classmethod
+    def _fit_key_expression(cls, series: Series, variables: Dict[str, str]) -> str:
+        """The fit's label as a GLE string expression of its ``variables``.
 
         ``{name:.Nf}`` is ``format$(v,"fix N")`` and ``{name:.Ne}`` the
         ``sci`` format that writes the same text as Python; a bare
         ``{name}`` is ``num$(v)``. The expression has no space outside its
         quotes, so GLE reads it as one ``key`` or ``text`` argument.
         """
+        label = series["label"]
         parts = []
         pos = 0
-        for match in FIT_PLACEHOLDER_RE.finditer(label):
+        for match in cls._fit_placeholders(series):
             if match.start() > pos:
                 parts.append(f'"{label[pos:match.start()]}"')
             var = variables[match.group(1)]

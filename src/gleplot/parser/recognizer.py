@@ -275,7 +275,6 @@ from __future__ import annotations
 import copy
 import math
 import re
-from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
@@ -1647,11 +1646,9 @@ class _Recognizer:
     def __init__(self, text: str, gle_path: Path):
         self.text = text
         self.gle_path = gle_path
-        # How often each word is named in the file (lower case), counted on
-        # first use, and the lines of a ``begin key`` right after the graph
-        # being parsed: a fit's result variables may be named only by its
-        # let, its key, and that block restating the key.
-        self._word_counts: Optional[Dict[str, int]] = None
+        # The lines of a ``begin key`` right after the graph being parsed:
+        # a fit's result variables may be named only by its let, its key,
+        # and that block restating the key.
         self._key_after_graph: List[str] = []
         self.notes: List[ImportNote] = []
         # dataset name (lower) -> (data_file, xcol_1based, ycol_1based)
@@ -5002,7 +4999,8 @@ class _Recognizer:
             while end < len(toks) and toks[end].value.lower() in _FIT_LET_WORDS:
                 end += 1
             names = [tok.value.lower() for tok in toks[end:]]
-            if len(set(names)) != len(names):
+            statement = " ".join(tok.value for tok in toks)
+            if any(_mention_count([statement], name) != 1 for name in names):
                 return
             if names:
                 fields["_result_vars"] = names
@@ -5102,7 +5100,6 @@ class _Recognizer:
         )
         run: Optional[str] = None
         label: Optional[str] = None
-        mentions: Counter = Counter()
         if start is not None:
             text, end = _glued_run(attr_toks, start)
             key = attr_toks[start:end]
@@ -5114,9 +5111,6 @@ class _Recognizer:
                 label = _fit_label_from_key(key, names)
                 if label is None:
                     return None
-                mentions = Counter(
-                    t.value.lower() for t in key if t.type is TokenType.WORD
-                )
                 attr_toks[start:end] = [
                     Token(
                         TokenType.STRING,
@@ -5137,22 +5131,14 @@ class _Recognizer:
                     and _glued_run(entry, 1)[0] == run
                 ):
                     restated += 1
-        counts = self._file_word_counts()
+        # Counted in the raw text, so a name inside a string or a
+        # ``\expr{}`` counts too.
+        lines = self.text.splitlines()
         for var in variables:
-            if counts.get(var, 0) != 1 + mentions[var] * (1 + restated):
+            in_key = _mention_count([run], var) if run is not None else 0
+            if _mention_count(lines, var) != 1 + in_key * (1 + restated):
                 return None
         return attr_toks, run, label
-
-    def _file_word_counts(self) -> Dict[str, int]:
-        """How many times each word (lower case) is named in the file."""
-        if self._word_counts is None:
-            self._word_counts = Counter(
-                tok.value.lower()
-                for line in self.text.splitlines()
-                for tok in tokenize_line(line)
-                if tok.type is TokenType.WORD
-            )
-        return self._word_counts
 
     def _non_dataset_texts(self, block, skip=()) -> List[str]:
         """The text of every statement in ``block`` but its ``dN`` lines.

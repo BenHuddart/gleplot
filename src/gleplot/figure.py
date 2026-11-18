@@ -2964,7 +2964,7 @@ class Figure:
         for wedge in resolution.visible(ax.wedges):
             writer.add_wedge(wedge)
         self._write_texts(writer, ax)
-        self._write_legend(writer, ax, legend)
+        self._write_legend(writer, ax, legend, resolution)
 
     def _write_axis_setup(
         self, writer: GLEWriter, ax: Axes, frame: Optional[Tuple[float, float]]
@@ -3280,7 +3280,13 @@ class Figure:
         for text_data in ax.texts:
             writer.add_text_annotation(text_data)
 
-    def _write_legend(self, writer: GLEWriter, ax: Axes, legend: _LegendLayout) -> None:
+    def _write_legend(
+        self,
+        writer: GLEWriter,
+        ax: Axes,
+        legend: _LegendLayout,
+        resolution: SourceResolution,
+    ) -> None:
         """The key, if one is shown, else ``key off`` where GLE needs it.
 
         ``legend_on`` is tri-state: None means auto (show iff labels
@@ -3316,7 +3322,13 @@ class Figure:
             # ``key off`` hides the draw-order key. The visible one is the
             # block queued for end_graph, in addition order.
             writer.add_key_off()
-            ordered = [legend.entries[i] for i in legend.addition]
+            # The writer knows each series as written: its resolved form.
+            ordered = [
+                (resolution.data(series) or series, label, swatch)
+                for series, label, swatch in (
+                    legend.entries[i] for i in legend.addition
+                )
+            ]
             breaks = (
                 legend_column_breaks(n_legend, legend.ncol)
                 if legend.show and legend.ncol > 1

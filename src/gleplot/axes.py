@@ -2797,18 +2797,13 @@ class Axes:
         With ``model``, the label can show what GLE fitted. Each of these
         placeholders is replaced by a number when GLE draws the legend:
 
-        ============================  =====================================
-        ``model``                     placeholders
-        ============================  =====================================
-        ``"linear"``                  ``{slope}`` (a), ``{offset}`` (b),
-                                      ``{rsq}``
-        ``"exp"``, ``"exp10"``,       ``{prefactor}`` (a), ``{exponent}``
-        ``"power"``                   (b), ``{rsq}``
-        ============================  =====================================
+        - ``"linear"``: ``{slope}`` (a), ``{offset}`` (b) and ``{rsq}``;
+        - ``"exp"``, ``"exp10"`` and ``"power"``: ``{prefactor}`` (a),
+          ``{exponent}`` (b) and ``{rsq}``.
 
         ``{rsq}`` is the r-squared of the fit. Add ``:.Nf`` for N decimal
-        places or ``:.Ne`` for scientific notation, as in a Python format
-        string: ``label="slope {slope:.2f}, r$^2$ {rsq:.3f}"``. Such a
+        places or ``:.Ne`` for scientific notation, the same format specs
+        as in Python: ``label="slope {slope:.2f}, r$^2$ {rsq:.3f}"``. Such a
         legend is drawn after the graph, as for ``bbox_to_anchor``, because
         GLE fits the data only once the graph is drawn. A placeholder of
         another model, another format, or a ``"`` in a label with a
@@ -3177,12 +3172,17 @@ class Axes:
                 f"fit() label {label!r} cannot contain a double quote beside a "
                 f"placeholder; use two single quotes instead"
             )
-        # Mathtext would escape the braces, so each placeholder passes
-        # through it as a private-use marker.
+        if self._style().usetex:
+            return label
+        # Each placeholder passes through mathtext as a braced private-use
+        # marker, so it is still one group after ``^`` or ``_`` in math.
+        # Outside math, mathtext escapes those braces, which go again.
         index = iter(range(len(found)))
-        marked = FIT_PLACEHOLDER_RE.sub(lambda m: f"\ue000{next(index)}\ue001", label)
+        marked = FIT_PLACEHOLDER_RE.sub(
+            lambda m: f"{{\ue000{next(index)}\ue001}}", label
+        )
         return re.sub(
-            "\ue000(\\d+)\ue001",
+            r"(?:\\char\{123\})?\ue000(\d+)\ue001(?:\\char\{125\})?",
             lambda m: found[int(m.group(1))].group(0),
             self._text(marked),
         )

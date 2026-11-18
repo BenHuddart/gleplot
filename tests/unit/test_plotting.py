@@ -1965,6 +1965,31 @@ class TestFit:
         ax.fit([1, 2, 3], [2.0, 4.0, 5.0], model="linear", label="$r^2={rsq:.3f}$")
         assert 'key "$r^2="+format$(fit1_rsq,"fix 3")+"$"' in fig._generate_gle()
 
+    def test_a_placeholder_can_be_a_superscript(self):
+        self.ax.fit(
+            [1, 2, 3], [2.0, 4.0, 5.0], model="power", label="$x^{exponent:.1f}$"
+        )
+        assert self.ax.fits[0]["label"] == "x^{{exponent:.1f}}"
+        assert 'key "x^{"+format$(fit1_exponent,"fix 1")+"}"' in self._script()
+
+    def test_a_label_placeholder_its_model_does_not_fill_is_text(self):
+        # Axes.fit rejects it; a label set on the series directly is written
+        # as text rather than failing at save.
+        self.ax.fit([1, 2, 3], [2.0, 4.0, 5.0], model="linear", label="fit")
+        self.ax.fits[0]["label"] = "{prefactor} {slope:x}"
+        assert 'key "{prefactor} {slope:x}"' in self._script()
+
+    def test_a_reference_backed_fit_shows_its_results(self):
+        from gleplot.sources import ColumnRef, DictDataProvider, TableData
+
+        self.ax.fit([1, 2], [1.0, 2.0], model="linear", label="s={slope:.2f}")
+        self.ax.fits[0]["data_source"] = ColumnRef("t1", {"x": "a", "y": "b"})
+        provider = DictDataProvider(
+            {"t1": TableData.from_mapping({"a": [1.0, 2.0], "b": [1.0, 3.0]})}
+        )
+        text, _files = self.fig._generate_gle_with_files(data_provider=provider)
+        assert '    text "s="+format$(fit1_slope,"fix 2") color' in text
+
     @pytest.mark.parametrize(
         "model, label, message",
         [
