@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from numbers import Real
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -4570,7 +4571,8 @@ class Axes:
             Not supported: warns. Wedges have no outline.
         textprops : dict, optional
             ``fontsize`` (alias ``size``) sets the label and percentage
-            height in points. Other keys warn.
+            height, in points or as a matplotlib size name such as
+            ``'large'``. Other keys warn.
         center : (float, float)
             Pie centre in data coordinates.
         frame : bool
@@ -4591,7 +4593,8 @@ class Axes:
             ``autopct`` is given. ``wedges`` are the stored
             :class:`~gleplot.series.Wedge` entries (also appended to
             ``self.wedges``); ``texts`` and ``autotexts`` are the strings
-            drawn.
+            drawn, one per wedge (``texts`` is empty when ``labeldistance``
+            is ``None``).
 
         Notes
         -----
@@ -4646,11 +4649,11 @@ class Axes:
                 f"pie(autopct={autopct!r}) must be a format string such as "
                 "'%1.1f%%' or a function taking the percentage."
             )
-        if isinstance(radius, bool) or not isinstance(radius, (int, float)):
+        if not isinstance(radius, Real):
             raise TypeError(f"pie(radius={radius!r}) must be a real number.")
         if radius <= 0:
             raise ValueError(f"pie(radius={radius!r}) must be positive.")
-        if isinstance(startangle, bool) or not isinstance(startangle, (int, float)):
+        if not isinstance(startangle, Real):
             raise TypeError(f"pie(startangle={startangle!r}) must be a real number.")
 
         for name, value in (
@@ -4667,7 +4670,7 @@ class Axes:
         fontsize = None
         for key, value in (textprops or {}).items():
             if key in ("fontsize", "size"):
-                fontsize = float(value)
+                fontsize = self._resolve_fontsize(value, f"pie(textprops={key!r}")
             else:
                 warn_external(
                     f"pie(textprops={{{key!r}: ...}}) is not supported and was "
@@ -4678,6 +4681,11 @@ class Axes:
             palette = [f"C{i}" for i in range(10)]
         else:
             palette = list(colors)
+            if not palette:
+                raise ValueError(
+                    "pie(colors=[]) needs at least one colour; pass None for "
+                    "matplotlib's default cycle."
+                )
         cx, cy = float(center[0]), float(center[1])
         wedges: List[Wedge] = []
         texts: List[str] = []
@@ -4686,9 +4694,10 @@ class Axes:
         for i, (frac, label) in enumerate(zip(fracs, label_list)):
             theta2 = theta1 + frac if counterclock else theta1 - frac
             text = None
-            if labeldistance is not None and label is not None and str(label):
-                text = mathtext_to_gle(str(label))
-                texts.append(str(label))
+            if labeldistance is not None:
+                shown = "" if label is None else str(label)
+                texts.append(shown)
+                text = mathtext_to_gle(shown) if shown else None
             autotext = None
             if autopct is not None:
                 pct = 100.0 * float(frac)
@@ -5555,7 +5564,7 @@ class Axes:
         if "fontsize" in kwargs:
             fontsize = kwargs.pop("fontsize")
             self.legend_fontsize = (
-                None if fontsize is None else self._resolve_legend_fontsize(fontsize)
+                None if fontsize is None else self._resolve_fontsize(fontsize)
             )
 
         if "frameon" in kwargs:
@@ -5655,20 +5664,24 @@ class Axes:
             raise ValueError(f"legend(ncol=...) must be an integer >= 1, got {ncol!r}")
         return as_int
 
-    def _resolve_legend_fontsize(self, fontsize) -> float:
-        """Resolve a matplotlib ``fontsize`` (number or name) to points."""
+    def _resolve_fontsize(self, fontsize, argument: str = "legend(fontsize") -> float:
+        """Resolve a matplotlib ``fontsize`` (number or name) to points.
+
+        ``argument`` is the call up to the value, e.g. ``"legend(fontsize"``,
+        and names the argument in the error.
+        """
         if isinstance(fontsize, str):
             name = fontsize.strip().lower()
             if name not in MATPLOTLIB_RELATIVE_FONTSIZES:
                 raise ValueError(
-                    f"legend(fontsize={fontsize!r}) is not a number or one of "
+                    f"{argument}={fontsize!r}) is not a number or one of "
                     f"{sorted(MATPLOTLIB_RELATIVE_FONTSIZES)}"
                 )
             style = getattr(self.figure, "style", None) or GlobalConfig.get_style()
             return float(style.fontsize) * MATPLOTLIB_RELATIVE_FONTSIZES[name]
         size = float(fontsize)
         if size <= 0:
-            raise ValueError(f"legend(fontsize={fontsize!r}) must be positive")
+            raise ValueError(f"{argument}={fontsize!r}) must be positive")
         return size
 
     def grid(

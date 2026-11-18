@@ -202,12 +202,12 @@ ax.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=90)
 | `pie()` argument | gleplot |
 |---|---|
 | `labels`, `colors`, `autopct`, `pctdistance`, `labeldistance`, `startangle`, `radius`, `counterclock`, `center`, `normalize` | wired. Without `colors`, the wedges cycle `'C0'` to `'C9'`. |
-| `textprops` | `fontsize` (alias `size`) sets the text height. Other keys warn. The text is black. |
+| `textprops` | `fontsize` (alias `size`) sets the text height, in points or as a size name such as `'large'`. Other keys warn. The text is black. |
 | `explode` | warns when an offset is not zero; the wedges are drawn in place. |
 | `wedgeprops` | warns. A donut hole (`width`) and wedge outlines are not drawn. |
 | `shadow`, `hatch`, `rotatelabels` | warn and are ignored. |
 | `frame=True` | keeps the axes, but the limits are still `center` ± 1.25 rather than autoscaled. Warns. |
-| return value | `(wedges, texts)`, or `(wedges, texts, autotexts)` with `autopct`. The texts are the strings drawn, not `Text` objects. |
+| return value | `(wedges, texts)`, or `(wedges, texts, autotexts)` with `autopct`. The texts are the strings drawn, one per wedge, not `Text` objects. |
 
 Labels are drawn beside the wedges; they are not legend entries. The wedges are drawn above anything else plotted on the same axes. A wedge's text height, like an `ax.text` height, stays in force for the text drawn after it on that axes.
 

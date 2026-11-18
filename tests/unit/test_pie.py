@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 import gleplot as glp
@@ -134,6 +135,29 @@ def test_textprops_fontsize_sets_the_text_height():
     assert ax.wedges[0]["fontsize"] == 14.0
 
 
+def test_textprops_takes_a_matplotlib_size_name():
+    fig, ax = glp.subplots()
+    ax.pie([1, 1], textprops={"fontsize": "large"})
+    assert ax.wedges[0]["fontsize"] == pytest.approx(fig.style.fontsize * 1.2)
+    with pytest.raises(ValueError, match="textprops='fontsize'"):
+        ax.pie([1, 1], textprops={"fontsize": "huge"})
+
+
+def test_texts_has_one_entry_per_wedge():
+    fig, ax = glp.subplots()
+    _wedges, texts = ax.pie([1, 1, 1], labels=["a", None, "c"])
+    assert texts == ["a", "", "c"]
+    assert [w["label"] for w in ax.wedges] == ["a", None, "c"]
+    _wedges, texts = ax.pie([1, 1])
+    assert texts == ["", ""]
+
+
+def test_numpy_numbers_are_real_numbers():
+    fig, ax = glp.subplots()
+    ax.pie([1, 1], startangle=np.int64(90), radius=np.int32(1))
+    assert ax.wedges[0]["theta1"] == 90.0
+
+
 def test_module_level_pie_uses_the_current_axes():
     glp.figure()
     wedges, _texts = glp.pie([1, 2])
@@ -186,6 +210,7 @@ def test_frame_true_keeps_the_axes():
         ([1, 2], {"radius": "1"}, TypeError, "real number"),
         ([1, 2], {"startangle": None}, TypeError, "real number"),
         ([1, 2], {"autopct": 3}, TypeError, "format string"),
+        ([1, 2], {"colors": []}, ValueError, "at least one colour"),
     ],
 )
 def test_bad_arguments_are_rejected_at_the_call(x, kwargs, error, match):
