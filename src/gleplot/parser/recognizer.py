@@ -1825,6 +1825,9 @@ class _Recognizer:
 
         frame_off_lines = self._prescan_frame_off(block)
         info["frame_off"] = bool(frame_off_lines)
+        math_line = self._prescan_math(block)
+        if math_line is not None:
+            info["math_mode"] = True
 
         pass1 = self._collect_datasets(block, info)
         self._mark_bars_that_stay_raw(block, pass1.datasets, info)
@@ -1840,7 +1843,9 @@ class _Recognizer:
                     info["passthrough"].extend(self._raw_lines(child))
             elif isinstance(child, BlankOrComment):
                 self._parse_graph_comment(child, info)
-            elif isinstance(child, Statement) and child.line_no in frame_off_lines:
+            elif isinstance(child, Statement) and (
+                child.line_no in frame_off_lines or child.line_no == math_line
+            ):
                 continue
             elif isinstance(child, Statement) and not self._skip_meta_stmt(child):
                 self._dispatch_graph_statement(
@@ -1954,6 +1959,8 @@ class _Recognizer:
             "ysymticks": None,
             "xnoticks": None,
             "ynoticks": None,
+            # A bare 'math' ahead of everything but geometry (_prescan_math).
+            "math_mode": None,
             # (prefix, keyword) of every axis-line option kept as raw GLE.
             # Raw lines are written at the end of the block, so a later
             # occurrence of the same option is not modeled either: it would
@@ -2362,6 +2369,28 @@ class _Recognizer:
         if any(len(lines) != 1 for lines in found.values()):
             return set()
         return {lines[0] for lines in found.values()}
+
+    @staticmethod
+    def _prescan_math(block: GraphBlock) -> Optional[int]:
+        """Line number of a bare ``math`` recovered as ``Axes.math_mode``.
+
+        Only a ``math`` that nothing but graph geometry precedes is
+        recovered, because the writer puts it there. ``math`` overrides axis
+        offsets, ``symticks`` and x2/y2 ``on`` set before it, so moving a
+        later one to the top could change the plot: it stays raw GLE.
+        """
+        for child in block.body:
+            if isinstance(child, BlankOrComment):
+                continue
+            if not isinstance(child, Statement):
+                return None
+            kw = (child.keyword or "").lower()
+            if kw in ("size", "scale", "fullsize"):
+                continue
+            if kw == "math" and len(_words_and_values(child)) == 1:
+                return child.line_no
+            return None
+        return None
 
     def _prescan_guide_blocks(self, block: GraphBlock, info) -> Dict[int, dict]:
         """Find the ``begin layer N`` / ``draw gleplot_*`` blocks in ``block``.
@@ -7473,6 +7502,7 @@ class _Recognizer:
             )
             setattr(ax, f"{prefix}ticklabel_color", info[f"{prefix}labels_color"])
             setattr(ax, f"{prefix}ticklabel_angle", info[f"{prefix}angle"])
+        ax.math_mode = info["math_mode"]
         for prefix in ("x", "y"):
             for name in ("nticks", "ftick", "shift", "symticks", "noticks"):
                 setattr(ax, f"{prefix}{name}", info[f"{prefix}{name}"])

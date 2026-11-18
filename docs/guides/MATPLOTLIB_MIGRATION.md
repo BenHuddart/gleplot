@@ -17,6 +17,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.set_ylabel(...)` | same |
 | `ax.set_title(...)` | same |
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
+| `ax.spines['left'].set_position('zero')` and `ax.spines['bottom'].set_position('zero')` | `ax.set_math_mode()` |
 | `ax.legend(...)` | same |
 | `plt.savefig(...)` | `fig.savefig(...)` or `glp.savefig(...)` |
 

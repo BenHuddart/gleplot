@@ -758,6 +758,16 @@ def axis_lines_fonts_and_tick_placement():
     return fig
 
 
+def math_mode_axes():
+    """Axes crossing at the origin (GLE math mode)."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([-2, -1, 0, 1, 2], [3, 0, -1, 0, 3], color="blue")
+    ax.set_title("Math mode")
+    ax.set_math_mode()
+    return fig
+
+
 def line_modes():
     """Step, histogram-outline and stem line modes on one axes."""
     fig = glp.figure(data_prefix="golden")
@@ -1099,6 +1109,7 @@ BUILDERS = [
     histogram_field_options,
     axes_styling_full,
     axis_lines_fonts_and_tick_placement,
+    math_mode_axes,
     axes_styling_grid_only,
     contour_in_second_subplot,
     trailer_stray_amoves,

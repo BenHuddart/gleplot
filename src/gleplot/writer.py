@@ -1452,6 +1452,15 @@ class GLEWriter:
         """
         self.lines_gle.extend(lines)
 
+    def add_math_mode(self) -> None:
+        """GLE ``math``: the x and y axes cross at (0, 0).
+
+        Call it before :meth:`add_axes`. ``math`` resets the axis offsets,
+        ``symticks`` and x2/y2 ``on`` set before it, so the axis lines
+        written after it can still override what it sets.
+        """
+        self.lines_gle.append("    math")
+
     def add_axes(
         self,
         xlabel: Optional[str] = None,
