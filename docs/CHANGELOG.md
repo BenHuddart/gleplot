@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v3.19.0 (2026-11-18)
+
+### Features
+
+- Clip box plots to the frame, review fixes for boxplot
+  ([#57](https://github.com/BenHuddart/gleplot/pull/57),
+  [`6aa1634`](https://github.com/BenHuddart/gleplot/commit/6aa1634725b5c3b4d98b2d510a7e69b1672264d6))
+
+- Legend bbox_to_anchor, spacing keywords and labelcolor
+  ([#87](https://github.com/BenHuddart/gleplot/pull/87),
+  [`957f957`](https://github.com/BenHuddart/gleplot/commit/957f9579e785282b09150242848f3b622f03b30b))
+
+- Tick marks, minor ticks and log sub-labels ([#73](https://github.com/BenHuddart/gleplot/pull/73),
+  [`047e1ef`](https://github.com/BenHuddart/gleplot/commit/047e1ef5e6ed421daf9766e0f06c0913459f9855))
+
+- Vertical box plots with Axes.boxplot and glp.boxplot
+  ([#57](https://github.com/BenHuddart/gleplot/pull/57),
+  [`a8fe0b5`](https://github.com/BenHuddart/gleplot/commit/a8fe0b582100f75dc8a449929314349784a172c2))
+
+### Testing
+
+- Pin round trip of hand-written custom marker definitions
+  ([`724180b`](https://github.com/BenHuddart/gleplot/commit/724180ba0c6df53c3dded130fa2f06af62661337))
+
+
 ## v3.18.0 (2026-11-18)
 
 ### Features
