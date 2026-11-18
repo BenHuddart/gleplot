@@ -701,12 +701,16 @@ def heatmap_brewer_palettes():
 
 
 def heatmap_reversed_palettes():
-    """Reversed cmaps: a palette sub's, with its colorbar, and a built-in's."""
-    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    """Reversed cmaps: a ramp with its colorbar, a stepped set, both built-ins."""
+    fig, (ramp, stepped, gray, rainbow) = glp.subplots(
+        2, 2, figsize=(9, 8), data_prefix="golden"
+    )
     Z = np.arange(12, dtype=float).reshape(3, 4)
-    hm = left.imshow(Z, extent=(0, 4, 0, 3), cmap="RdBu_r")
-    fig.colorbar(hm, ax=left)
-    right.imshow(Z, extent=(0, 4, 0, 3), cmap="jet_r")
+    hm = ramp.imshow(Z, extent=(0, 4, 0, 3), cmap="RdBu_r")
+    fig.colorbar(hm, ax=ramp)
+    stepped.imshow(Z, extent=(0, 4, 0, 3), cmap="Set1_r")
+    gray.imshow(Z, extent=(0, 4, 0, 3), cmap="gray_r")
+    rainbow.imshow(Z, extent=(0, 4, 0, 3), cmap="jet_r")
     return fig
 
 

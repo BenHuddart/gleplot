@@ -185,6 +185,19 @@ def test_imshow_reversed_builtin_cmap_emits_a_sub(cmap, canonical):
     assert f"sub gleplot_{canonical} z\n   z = 1-z\n" in text
 
 
+def test_imshow_reversed_qualitative_lists_its_colours_backwards():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.zeros((2, 2)), cmap="Set1_r")
+    text, _ = _gle(fig)
+    sub = text.split("sub gleplot_set1_r z\n", 1)[1].split("end sub", 1)[0]
+    # matplotlib's Set1_r: the nine bands in reverse, a boundary k/9 in the
+    # band above it, as for the forward map.
+    lines = sub.strip().splitlines()
+    assert lines[0].strip() == "if z < 1/9 then return rgb(0.600000,0.600000,0.600000)"
+    assert lines[-1].strip() == "return rgb(0.894118,0.101961,0.109804)"
+
+
 def test_unknown_cmap_raises():
     fig = glp.figure()
     ax = fig.add_subplot(111)

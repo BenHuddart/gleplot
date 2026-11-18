@@ -38,8 +38,9 @@ Reversed maps
 -------------
 Every name also has a reversed form with ``_r`` appended, as in matplotlib
 (``RdBu_r`` is ``RdBu`` read from 1 down to 0). Each is its own
-``gleplot_<name>_r`` sub: the forward body with ``z = 1-z`` first, so the
-colorbar subs, which take only the palette name, draw it reversed too. GLE's
+``gleplot_<name>_r`` sub, so the colorbar subs, which take only the palette
+name, draw it reversed too: the forward body with ``z = 1-z`` first, or, for a
+stepped (qualitative) map, its colours listed backwards. GLE's
 ``colormap ... invert`` switch flips the normalized z in the same way but only
 for the image, and gleplot already exposes it as ``imshow(invert=True)``.
 ``gray_r`` and ``rainbow_r`` have no built-in switch to fall back on, so they
@@ -445,11 +446,11 @@ _COOLWARM_SUB = "\n".join(
 )
 
 
-#: GLE's grayscale ramp (black at 0, white at 1) as a sub. Only its reversed
-#: form is emitted: ``gray`` itself is the ``colormap`` default.
-_GRAY_SUB = "\n".join(
+#: The body (every line after ``sub gleplot_<name> z``) of GLE's grayscale
+#: ramp, black at 0 and white at 1. Only ``gray_r`` is a sub: ``gray`` itself is
+#: the ``colormap`` default.
+_GRAY_BODY = "\n".join(
     [
-        "sub gleplot_gray z",
         "   if z < 0 then z = 0",
         "   if z > 1 then z = 1",
         "   return rgb(z,z,z)",
@@ -457,14 +458,13 @@ _GRAY_SUB = "\n".join(
     ]
 )
 
-#: GLE's built-in ``color`` rainbow as a sub, transcribed from
+#: The body of GLE's built-in ``color`` rainbow, transcribed from
 #: ``GLEBitmapCreateColorPalette`` (GLE ``src/gle/bitmap/img2ps.cpp``): six
 #: equal linear segments black->violet->blue->cyan->green->yellow->red->white,
-#: the first split in thirds. Only its reversed form is emitted: ``rainbow``
-#: itself is the ``colormap ... color`` switch.
-_RAINBOW_SUB = "\n".join(
+#: the first split in thirds. Only ``rainbow_r`` is a sub: ``rainbow`` itself
+#: is the ``colormap ... color`` switch.
+_RAINBOW_BODY = "\n".join(
     [
-        "sub gleplot_rainbow z",
         "   ! GLE's built-in colormap color rainbow (see palettes.py)",
         "   if z < 0 then z = 0",
         "   if z > 1 then z = 1",
@@ -482,31 +482,32 @@ _RAINBOW_SUB = "\n".join(
 )
 
 
-def _forward_sub_text(c: str) -> str:
-    """The ``sub gleplot_<c> z`` text for a canonical, unreversed name ``c``."""
-    if c == "gray":
-        return _GRAY_SUB
-    if c == "rainbow":
-        return _RAINBOW_SUB
-    if c == "coolwarm":
-        return _COOLWARM_SUB
-    if c in _LISTED_STOPS:
-        return _listed_sub_text(c, _LISTED_STOPS[c])
-    return _stops_sub_text(c, PALETTE_STOPS[c])
-
-
 def palette_sub_text(cmap: str) -> Optional[str]:
     """Canonical ``sub gleplot_<name> z ... end sub`` text for ``cmap``.
 
-    Returns ``None`` for ``gray``/``rainbow`` (no sub needed). A reversed name
-    is the forward sub, renamed, with ``z = 1-z`` as its first statement.
+    Returns ``None`` for ``gray``/``rainbow`` (no sub needed). A reversed
+    stepped map lists its colours backwards, so a band boundary ``k/N`` falls
+    in the band above it as in matplotlib. Any other reversed name is the
+    forward body with ``z = 1-z`` as its first statement.
     """
     c = canonical_cmap(cmap)
     if not cmap_needs_sub(c):
         return None
-    if not c.endswith("_r"):
-        return _forward_sub_text(c)
-    body = _forward_sub_text(c[:-2]).split("\n", 1)[1]
+    if c == "coolwarm":
+        return _COOLWARM_SUB
+    if c in _LISTED_STOPS:
+        return _listed_sub_text(c, _LISTED_STOPS[c])
+    if c in PALETTE_STOPS:
+        return _stops_sub_text(c, PALETTE_STOPS[c])
+    base = c[:-2]
+    if base in _LISTED_STOPS:
+        return _listed_sub_text(c, _LISTED_STOPS[base][::-1])
+    if base == "gray":
+        body = _GRAY_BODY
+    elif base == "rainbow":
+        body = _RAINBOW_BODY
+    else:
+        body = str(palette_sub_text(base)).split("\n", 1)[1]
     return f"sub gleplot_{c} z\n   z = 1-z\n{body}"
 
 
