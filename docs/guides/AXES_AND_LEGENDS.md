@@ -39,6 +39,10 @@ counts downwards:
 ax.set_ylim(500, 0)    # zero at the top, 500 at the bottom
 ```
 
+`ax.invert_yaxis()` (and `invert_xaxis`) does the same by swapping the
+limits. gleplot has no inverted-but-automatic axis, so an automatic limit is
+replaced by the end of the data plotted so far: plot first, then invert.
+
 The one exception is a log axis, which GLE cannot invert; a descending log
 range is drawn the usual way round, with a `UserWarning`.
 
@@ -48,6 +52,9 @@ range is drawn the usual way round, with a `UserWarning`.
 ax.set_xscale('log')
 ax.set_yscale('log')
 ```
+
+`ax.semilogx(x, y)`, `ax.semilogy(x, y)` and `ax.loglog(x, y)` set the scale
+and call `plot`.
 
 A log axis can only show strictly positive values, and GLE refuses to compile
 a script that asks it to do otherwise. gleplot therefore resolves log limits
@@ -67,6 +74,16 @@ ax.plot(x, temperature, label='Temperature')
 ax.plot(x, humidity, label='Humidity', yaxis='y2')
 ax.set_ylabel('Temperature (°C)', axis='y')
 ax.set_ylabel('Humidity (%)', axis='y2')
+```
+
+`ax.twinx()` is the matplotlib view of the same scale. The x axis stays the
+one the view was opened on; limits, log, tick format and the label set on the
+view belong to the right scale:
+
+```python
+right = ax.twinx()
+right.plot(x, humidity, label='Humidity')
+right.set_ylabel('Humidity (%)')
 ```
 
 The top scale is the same idea, and `ax.twiny()` is the matplotlib view that

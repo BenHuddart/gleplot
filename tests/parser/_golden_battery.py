@@ -286,6 +286,27 @@ def secondary_yaxis():
     return fig
 
 
+def axis_helpers():
+    """matplotlib's axis helpers: twinx, invert, semilogy, tick labels, and
+    a second panel with ``axis('off')``."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(121)
+    ax.semilogy([1, 2, 3], [1, 10, 100], color="blue", label="left")
+    right = ax.twinx()
+    right.plot([1, 2, 3], [5, 6, 7], color="red", label="right")
+    right.set_ylim(0, 10)
+    right.invert_yaxis()
+    right.set_ylabel("right y")
+    ax.invert_xaxis()
+    ax.set_xticks([1, 2, 3])
+    ax.set_xticklabels(["a", "b", "c"])
+    ax.legend()
+    off = fig.add_subplot(122)
+    off.plot([1, 2, 3], [1, 4, 9], color="blue")
+    off.axis("off")
+    return fig
+
+
 def secondary_xaxis():
     """Top scale as its own data axis, under a log bottom axis.
 
@@ -1429,6 +1450,7 @@ BUILDERS = [
     text_annotations,
     annotations_with_arrows,
     secondary_yaxis,
+    axis_helpers,
     secondary_xaxis,
     legend_positions_all,
     legend_full_options,

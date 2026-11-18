@@ -17,6 +17,12 @@ Plotting helpers
 
 .. autofunction:: gleplot.plot
 
+.. autofunction:: gleplot.semilogx
+
+.. autofunction:: gleplot.semilogy
+
+.. autofunction:: gleplot.loglog
+
 .. autofunction:: gleplot.step
 
 .. autofunction:: gleplot.stem
@@ -60,6 +66,12 @@ Plotting helpers
 .. autofunction:: gleplot.axvspan
 
 .. autofunction:: gleplot.axhspan
+
+.. autofunction:: gleplot.twinx
+
+.. autofunction:: gleplot.twiny
+
+.. autofunction:: gleplot.axis
 
 .. autofunction:: gleplot.xlabel
 

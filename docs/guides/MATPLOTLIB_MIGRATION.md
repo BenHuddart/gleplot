@@ -22,6 +22,11 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
 | `ax.spines['left'].set_position('zero')` and `ax.spines['bottom'].set_position('zero')` | `ax.set_math_mode()` |
 | `ax.legend(...)` | same |
+| `ax.twinx()` / `ax.twiny()` | same, a view of the right or top scale, see [Secondary axes](#secondary-axes); `twinx`'s `axes_class`, `delta_zorder` and other keywords warn |
+| `ax.invert_xaxis()` / `ax.invert_yaxis()` | same; automatic limits are fixed to the data plotted so far, so plot first. On a `twinx()`/`twiny()` view, set the limits first |
+| `ax.semilogx(...)` / `semilogy` / `loglog` | same; `base` other than 10, `subs` and `nonpositive` warn |
+| `ax.set_xticklabels(labels)` / `set_yticklabels` | same, after `set_xticks(ticks)`; `minor=True` and text properties warn |
+| `ax.axis('off')` / `ax.set_axis_off()` | same, but the axis labels stay (with a warning); `'equal'`, `'scaled'`, `'image'`, `'square'` and `emit=False` warn |
 | `plt.savefig(...)` | `fig.savefig(...)` or `glp.savefig(...)` |
 
 ## Minimal Porting Example
@@ -371,7 +376,7 @@ fig.savefig("plot.pdf", grayscale=True)
 
 ## Secondary axes
 
-The right-hand scale is `yaxis="y2"` on a series, and `ax.twiny()` opens the top scale. Both are described in [Axes and Legends](AXES_AND_LEGENDS.md).
+The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `ax.twiny()` opens the top scale. Both are described in [Axes and Legends](AXES_AND_LEGENDS.md).
 
 ## Key Behavioral Differences
 
