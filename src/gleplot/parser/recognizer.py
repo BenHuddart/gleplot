@@ -6702,10 +6702,11 @@ class _Recognizer:
     # -- post-graph colorbar / contour-label calls ----------------------
 
     def _consume_post_graph_calls(self, nodes, start, axes_info) -> int:
-        """Consume ``gleplot_colorbar_v`` / ``gleplot_contour_labels`` calls.
+        """Consume ``gleplot_colorbar_v|h`` / ``gleplot_contour_labels`` calls.
 
         Each call is preceded by its own ``amove`` (``xg(xgmax)+S yg(ygmin)`` for
-        the colorbar, ``0 0`` for the labels). Attaches the recovered colorbar
+        a vertical colorbar, ``xg(xgmin) yg(ygmin)-S`` for a horizontal one,
+        ``0 0`` for the labels). Attaches the recovered colorbar
         to this axes' heatmap and sets ``clabel`` on the matching contour.
         Returns the index of the first node not consumed.
         """
@@ -6731,7 +6732,7 @@ class _Recognizer:
             return None
         kw = st.keyword
         toks = _words_and_values(st)
-        if kw == "gleplot_colorbar_v":
+        if kw in ("gleplot_colorbar_v", "gleplot_colorbar_h"):
             self._apply_colorbar_call(toks, amove_sep, axes_info)
             return j + 1
         if kw == "gleplot_contour_labels":
@@ -6741,18 +6742,30 @@ class _Recognizer:
 
     @staticmethod
     def _amove_colorbar_sep(toks) -> Optional[float]:
-        """Recover ``S`` from ``amove xg(xgmax)+S yg(ygmin)`` (else None)."""
+        """Recover ``S`` from a colorbar's ``amove`` (else None).
+
+        ``xg(xgmax)+S yg(ygmin)`` places a vertical bar and
+        ``xg(xgmin) yg(ygmin)-S`` a horizontal one (``+|S|`` when ``S < 0``).
+        """
         text = " ".join(t.value for t in toks)
         m = re.search(r"xgmax\s*\)\s*\+\s*([0-9.eE+-]+)", text)
-        if m:
-            try:
-                return float(m.group(1))
-            except ValueError:
+        sign = 1.0
+        if m is None:
+            m = re.search(r"ygmin\s*\)\s*([+-])\s*([0-9.eE+-]+)", text)
+            if m is None:
                 return None
-        return None
+            sign = -1.0 if m.group(1) == "+" else 1.0
+        try:
+            return sign * float(m.group(m.lastindex or 1))
+        except ValueError:
+            return None
 
     def _apply_colorbar_call(self, toks, sep, axes_info) -> None:
-        args = self._named_args(toks[1:])
+        # A vertical bar's thickness is its ``wd`` and its length the ``hi``
+        # expression; a horizontal bar's are the other way round.
+        horizontal = toks[0].value.lower() == "gleplot_colorbar_h"
+        thickness, length = ("hi", "wd") if horizontal else ("wd", "hi")
+        args = self._named_args(toks[1:], expr_arg=length)
         heatmaps = axes_info.get("heatmaps") or []
         if not heatmaps:
             return
@@ -6760,12 +6773,14 @@ class _Recognizer:
         cb = {
             "label": args.get("label") or None,
             "format": args.get("format") or "fix 1",
-            "width": _as_float(args.get("wd"), 0.5),
+            "width": _as_float(args.get(thickness), 0.5),
             "sep": sep if sep is not None else 0.3,
             "zmin": _as_float(args.get("zmin"), 0.0),
             "zmax": _as_float(args.get("zmax"), 1.0),
             "zstep": _as_float(args.get("zstep"), 0.0),
         }
+        if horizontal:
+            cb["orientation"] = "horizontal"
         hm["colorbar"] = cb
 
     def _apply_clabel_call(self, toks, axes_info) -> None:
@@ -6795,19 +6810,21 @@ class _Recognizer:
             contours[0]["clabel_fmt"] = fmt
 
     #: Recognized colorbar/clabel call argument names (used to delimit the
-    #: unmodeled ``hi <expr>`` height argument).
+    #: unmodeled bar-length expression argument).
     _CALL_ARG_NAMES = frozenset(
         {"zmin", "zmax", "zstep", "palette", "wd", "hi", "format", "label", "file"}
     )
 
-    def _named_args(self, toks) -> dict:
+    def _named_args(self, toks, expr_arg: str = "hi") -> dict:
         """Parse GLE named-argument call tokens ``name value name value ...``.
 
         String values (quoted) are unwrapped; numeric values are collected with
         the expression-tolerant :func:`_collect_value` (so signed numbers like
-        ``-1`` are read whole). The ``hi yg(...)-yg(...)`` height argument is a
-        multi-token expression that is not modeled (the colorbar always spans
-        the graph height); it is skipped up to the next recognized arg name.
+        ``-1`` are read whole). ``expr_arg`` names the colorbar's length
+        argument (``hi yg(...)-yg(...)`` on a vertical bar, ``wd
+        xg(...)-xg(...)`` on a horizontal one): a multi-token expression that
+        is not modeled (the bar always spans the graph), skipped up to the
+        next recognized arg name.
         """
         args: dict = {}
         i = 0
@@ -6817,7 +6834,7 @@ class _Recognizer:
             i += 1
             if i >= m:
                 break
-            if name == "hi":
+            if name == expr_arg:
                 while i < m and toks[i].value.lower() not in self._CALL_ARG_NAMES:
                     i += 1
                 continue
@@ -7573,7 +7590,7 @@ class _Recognizer:
         """
         if len(stmts) != 1 or stmts[0].keyword != "size":
             return False
-        reserved = fig._axes_colorbar_reserved_cm(ax)
+        reserved, _below = fig._axes_colorbar_reserved_cm(ax)
         if reserved <= 0:
             return False
         width_cm = inches_to_cm(fig.figsize[0])

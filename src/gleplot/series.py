@@ -1189,7 +1189,9 @@ class HeatmapSeries(_GridSeries):
     #: ``zmin``/``zmax``/``zstep`` are concrete numbers, except on a
     #: reference-backed heatmap that carries ``auto_range = True``, where
     #: they are ``None`` and each write computes them from the resolved data
-    #: (SPEC 14.5). See :meth:`gleplot.Figure.colorbar`.
+    #: (SPEC 14.5). Its ``orientation`` key is ``'horizontal'`` for a bar
+    #: below the axes; absent means vertical. See
+    #: :meth:`gleplot.Figure.colorbar`.
     colorbar: Optional[Dict[str, Any]]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool

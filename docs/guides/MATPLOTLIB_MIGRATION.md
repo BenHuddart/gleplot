@@ -14,6 +14,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.fill_between(...)` | same |
 | `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
 | `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
+| `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
 | `ax.set_xlabel(...)` | same |
 | `ax.set_ylabel(...)` | same |
 | `ax.set_title(...)` | same |
@@ -255,6 +256,19 @@ ax.boxplot(samples, widths=0.4, tick_labels=["a", "b", "c"])
 | return value | a dict with matplotlib's keys (`'boxes'`, `'medians'`, `'whiskers'`, `'caps'`, `'fliers'`, `'means'`), each holding the list of `Box` entries. One entry holds every part of its box; there are no `Line2D` objects. |
 
 Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are drawn above anything else plotted on the same axes, clipped to the frame (a whisker or cap lying on the frame is drawn whole); a flier or mean outside the axis ranges is not drawn. The x range covers each box and half a unit either side of its position, whatever `manage_ticks` is, and the y range covers the whiskers, the median and the drawn fliers and means, with no margin.
+
+## Colorbars
+
+`fig.colorbar(im, ax=ax)` takes the heatmap `imshow` or `tripcolor` returned, so each axes of a grid can carry its own bar. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+
+| `colorbar()` argument | gleplot |
+|---|---|
+| `mappable`, `ax`, `orientation`, `label` | wired. `ax` must be the axes that holds `mappable`; a list of axes is rejected. |
+| `cax` | warns and is ignored. The bar is drawn beside its heatmap's axes. |
+| `use_gridspec` | accepted. The grid always makes room for the bar. |
+| `format` | a GLE `format$` string such as `'fix 2'`, not a `'%.2f'` format. |
+| `location`, `fraction`, `shrink`, `aspect`, `pad`, `ticks`, `extend` | not accepted. Use `orientation`, `width`, `sep` and `nticks`. |
+| a contour set as `mappable` | not supported: contour lines draw in one colour, so there is no scale to show. |
 
 ## Histograms
 

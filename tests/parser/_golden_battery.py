@@ -616,6 +616,26 @@ def heatmap_imshow_colorbar():
     return fig
 
 
+def heatmap_grid_colorbars():
+    """A 2x2 grid of heatmaps, each with its own bar on its own scale.
+
+    Vertical bars beside the left column, horizontal ones under the right
+    column: inner and outer gaps in both directions, and both colorbar subs.
+    """
+    fig, _axs = glp.subplots(2, 2, figsize=(10, 8), data_prefix="golden")
+    y, x = np.mgrid[0:6, 0:8]
+    for k, ax in enumerate(fig.axes_list):
+        hm = ax.imshow((k + 1) * x * y, cmap=("viridis", "magma")[k % 2])
+        fig.colorbar(
+            hm,
+            ax=ax,
+            label=f"z{k}",
+            orientation=("vertical", "horizontal")[k % 2],
+            width=0.4,
+        )
+    return fig
+
+
 def heatmap_field_options():
     """Heatmap fields the other builders leave at their defaults.
 
@@ -1187,6 +1207,7 @@ BUILDERS = [
     exact_rgb_colors,
     custom_figsize_and_dpi,
     heatmap_imshow_colorbar,
+    heatmap_grid_colorbars,
     heatmap_field_options,
     heatmap_brewer_palettes,
     contour_grid_levels_clabel,
