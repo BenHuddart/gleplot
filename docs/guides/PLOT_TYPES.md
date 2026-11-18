@@ -134,6 +134,15 @@ ax.pie([15, 30, 45, 10], labels=['A', 'B', 'C', 'D'], autopct='%1.1f%%')
 One wedge per value, with no outline. The axes' lines and ticks are hidden
 and its title stays.
 
+## Box plots
+
+```python
+ax.boxplot([[1, 2, 3, 4, 9], [2, 3, 4]], tick_labels=['A', 'B'])
+```
+
+One vertical box per sample set: quartiles, whiskers at 1.5 times the
+interquartile range, and the points beyond them.
+
 ## Other plot types
 
 - Heatmaps and contours: [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).

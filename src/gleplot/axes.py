@@ -29,6 +29,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     SERIES_ATTRS,
     SERIES_CLASSES,
     BarSeries,
+    Box,
     ContourSeries,
     ErrorbarSeries,
     FileSeries,
@@ -1728,6 +1729,7 @@ class Axes:
         self.reflines: List[RefLine] = []
         self.spans: List[Span] = []
         self.wedges: List[Wedge] = []  # pie slices
+        self.boxes: List[Box] = []  # box plot boxes
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model. Emitted verbatim inside this
@@ -4798,6 +4800,262 @@ class Axes:
             return wedges, texts, autotexts
         return wedges, texts
 
+    def boxplot(
+        self,
+        x,
+        *,
+        notch=None,
+        sym=None,
+        vert=None,
+        orientation="vertical",
+        whis=None,
+        positions=None,
+        widths=None,
+        patch_artist=None,
+        bootstrap=None,
+        usermedians=None,
+        conf_intervals=None,
+        meanline=None,
+        showmeans=None,
+        showcaps=None,
+        showbox=None,
+        showfliers=None,
+        boxprops=None,
+        tick_labels=None,
+        flierprops=None,
+        medianprops=None,
+        meanprops=None,
+        capprops=None,
+        whiskerprops=None,
+        manage_ticks=True,
+        autorange=False,
+        zorder=None,
+        capwidths=None,
+        label=None,
+        data=None,
+    ):
+        """Draw a vertical box plot: one box per sample set in ``x``.
+
+        Parameters
+        ----------
+        x : array-like or sequence of array-like
+            The samples. A 1-D array or a list of numbers is one box; a 2-D
+            array is one box per column; a sequence of arrays is one box per
+            array. Values must be finite.
+        notch : bool, optional
+            Not supported: ``True`` warns and the box is drawn unnotched.
+        sym : str, optional
+            ``''`` hides the fliers. Any other value warns: fliers are black
+            open circles.
+        vert : bool, optional
+            Deprecated in matplotlib; ``False`` asks for horizontal boxes,
+            which are not supported yet and raise ``ValueError``.
+        orientation : {'vertical'}
+            Only ``'vertical'`` is supported; ``'horizontal'`` raises
+            ``ValueError``.
+        whis : float or (float, float), default: 1.5
+            A float puts the whisker ends at the farthest data within
+            ``whis`` times the interquartile range of the box. A pair gives
+            the percentiles of the whisker ends. Data beyond the whiskers are
+            drawn as fliers.
+        positions : array-like, optional
+            Box positions along x. Default ``1, 2, ..., N``.
+        widths : float or array-like, optional
+            Box widths in data units. Default ``0.15 * (max(positions) -
+            min(positions))``, clipped to between 0.15 and 0.5.
+        patch_artist : bool, optional
+            Not supported: ``True`` warns; boxes are not filled.
+        bootstrap, conf_intervals : optional
+            Only used for notches, which are not supported: warn.
+        usermedians : array-like, optional
+            One median per box; ``None`` entries are computed.
+        meanline : bool, optional
+            Not supported: ``True`` warns; the mean is a marker.
+        showmeans : bool, default: False
+            Draw each box's mean as a green triangle.
+        showcaps : bool, default: True
+            Draw the caps at the whisker ends.
+        showbox : bool, default: True
+            Not supported: ``False`` warns and the box is drawn.
+        showfliers : bool, default: True
+            Draw the points beyond the whiskers.
+        boxprops, flierprops, medianprops : dict, optional
+            Not supported: warn. The style is matplotlib's default.
+        meanprops, capprops, whiskerprops : dict, optional
+            Not supported: warn.
+        tick_labels : sequence of str, optional
+            One x tick label per box, used with ``manage_ticks``.
+        manage_ticks : bool, default: True
+            Put x ticks at the box positions, labelled with ``tick_labels``
+            when given.
+        autorange : bool, default: False
+            When a box's first and third quartiles are equal, put its
+            whiskers at the data minimum and maximum.
+        zorder : float, optional
+            Not supported: warns. Boxes are drawn above the other series.
+        capwidths : float or array-like, optional
+            Cap widths in data units. Default half the box width.
+        label : str or sequence of str, optional
+            Not supported: warns. Boxes have no legend entry.
+        data : optional
+            Not supported: warns. Pass the samples directly.
+
+        Returns
+        -------
+        dict
+            Matplotlib's keys -- ``'boxes'``, ``'medians'``, ``'whiskers'``,
+            ``'caps'``, ``'fliers'`` and ``'means'`` -- each mapped to the
+            list of stored :class:`~gleplot.series.Box` entries (also
+            appended to ``self.boxes``). One entry holds every part of its
+            box.
+
+        Raises
+        ------
+        ValueError
+            For horizontal boxes, non-finite samples, a ``whis`` that is
+            neither a number nor a pair, or a per-box argument whose length
+            is not the number of boxes.
+
+        Notes
+        -----
+        The boxes are drawn after the graph block, above the axes' other
+        series. The x range covers each box and half a unit either side of
+        its position, as matplotlib's does; the y range covers the whiskers
+        and the drawn fliers and means.
+        """
+        if vert is not None:
+            orientation = "vertical" if vert else "horizontal"
+        if orientation != "vertical":
+            raise ValueError(
+                f"boxplot(orientation={orientation!r}) is not supported; only "
+                "'vertical' box plots can be drawn."
+            )
+
+        if isinstance(x, np.ndarray) and x.ndim == 2:
+            groups = [x[:, j] for j in range(x.shape[1])]
+        elif isinstance(x, np.ndarray) or all(np.ndim(v) == 0 for v in x):
+            groups = [x]
+        else:
+            groups = list(x)
+        samples = [np.asarray(g, dtype=float).ravel() for g in groups]
+        n = len(samples)
+        for i, values in enumerate(samples):
+            if not np.all(np.isfinite(values)):
+                raise ValueError(
+                    f"boxplot(x) must be finite; box {i} has NaN or infinite "
+                    "values. Drop them before plotting."
+                )
+
+        def per_box(name, value, default):
+            if value is None:
+                return list(default)
+            if np.ndim(value) == 0:
+                return [value] * n
+            items = list(value)
+            if len(items) != n:
+                raise ValueError(
+                    f"boxplot({name}=...) needs one value per box ({n}); "
+                    f"got {len(items)}."
+                )
+            return items
+
+        pos = [float(p) for p in per_box("positions", positions, range(1, n + 1))]
+        default_width = float(np.clip(0.15 * np.ptp(pos), 0.15, 0.5)) if pos else 0.5
+        box_widths = [float(w) for w in per_box("widths", widths, [default_width] * n)]
+        cap_widths = [
+            float(c)
+            for c in per_box("capwidths", capwidths, [w / 2 for w in box_widths])
+        ]
+        medians = per_box("usermedians", usermedians, [None] * n)
+        names = None if tick_labels is None else per_box("tick_labels", tick_labels, [])
+
+        if whis is None:
+            whis = 1.5
+        if not (isinstance(whis, Real) or np.shape(whis) == (2,)):
+            raise ValueError(
+                f"boxplot(whis={whis!r}) must be a number, or a pair of "
+                "percentiles such as (5, 95)."
+            )
+        if sym == "":
+            showfliers = False
+        elif sym is not None:
+            warn_external(
+                f"boxplot(sym={sym!r}) is not supported; fliers are drawn as "
+                "black open circles. Pass sym='' to hide them."
+            )
+        for name, value in (
+            ("notch", notch),
+            ("patch_artist", patch_artist),
+            ("bootstrap", bootstrap),
+            ("conf_intervals", conf_intervals),
+            ("meanline", meanline),
+            ("showbox", showbox is False),
+            ("boxprops", boxprops),
+            ("flierprops", flierprops),
+            ("medianprops", medianprops),
+            ("meanprops", meanprops),
+            ("capprops", capprops),
+            ("whiskerprops", whiskerprops),
+            ("zorder", zorder is not None),
+            ("label", label),
+            ("data", data is not None),
+        ):
+            if value is not None and value is not False:
+                warn_external(
+                    f"boxplot({name}=...) is not supported and was ignored. "
+                    "See the matplotlib migration guide."
+                )
+
+        boxes: List[Box] = []
+        for i, values in enumerate(samples):
+            if len(values) == 0:
+                continue
+            q1, med, q3 = (float(q) for q in np.percentile(values, [25, 50, 75]))
+            iqr = q3 - q1
+            reach = (0, 100) if iqr == 0 and autorange else whis
+            if isinstance(reach, Real):
+                loval, hival = q1 - reach * iqr, q3 + reach * iqr
+            else:
+                loval, hival = np.percentile(values, reach)
+            inside_hi = values[values <= hival]
+            whishi = (
+                q3 if len(inside_hi) == 0 or inside_hi.max() < q3 else inside_hi.max()
+            )
+            inside_lo = values[values >= loval]
+            whislo = (
+                q1 if len(inside_lo) == 0 or inside_lo.min() > q1 else inside_lo.min()
+            )
+            fliers = np.concatenate([values[values < whislo], values[values > whishi]])
+            entry = Box(
+                type="box",
+                x=pos[i],
+                width=box_widths[i],
+                capwidth=cap_widths[i] if showcaps is not False else 0.0,
+                whislo=float(whislo),
+                q1=q1,
+                med=med if medians[i] is None else float(medians[i]),
+                q3=q3,
+                whishi=float(whishi),
+                fliers=[float(f) for f in fliers] if showfliers is not False else [],
+                mean=float(values.mean()) if showmeans else None,
+            )
+            self.boxes.append(entry)
+            boxes.append(entry)
+
+        if manage_ticks:
+            # Matplotlib adds the positions to the ticks already there.
+            places = list(self.xplaces or [])
+            if names is not None or self.xnames:
+                old = list(self.xnames or [f"{p:g}" for p in places])
+                if names is None:
+                    new = [f"{p:g}" for p in pos]
+                else:
+                    new = [str(mathtext_to_gle(str(s))) for s in names]
+                self.xnames = old + new
+            self.xplaces = places + pos
+        keys = ("whiskers", "caps", "boxes", "medians", "fliers", "means")
+        return {key: boxes for key in keys}
+
     # -- heatmaps & contours --------------------------------------------
 
     def _resolve_cmap(self, cmap: Optional[str]) -> str:
@@ -6026,6 +6284,7 @@ class Axes:
             or self.reflines
             or self.spans
             or self.wedges
+            or self.boxes
         )
 
     def has_y2_plots(self) -> bool:

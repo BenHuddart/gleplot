@@ -118,6 +118,54 @@ WEDGE_SUB = """sub gleplot_wedge cx cy r a1 a2 clr$ lbl$ ld pct$ pd
 end sub"""
 
 
+#: The subs behind every box of a box plot (:meth:`GLEWriter.add_box`),
+#: called after ``end graph`` like :data:`WEDGE_SUB`. The style is
+#: matplotlib's default: 1 pt black lines, a ``'C1'`` median, black open
+#: circle fliers and a ``'C2'`` triangle mean, both of markersize 6. Each sub
+#: saves and restores the graphics state, so it changes no ``set`` state.
+BOX_SUB = """sub gleplot_box x w cw lo q1 med q3 hi
+   ! Box plot box: from q1 to q3, w data units wide, centred on x, with a
+   ! median line at med and whiskers out to lo and hi, capped cw data units
+   ! wide (0 draws no caps).
+   gsave
+   set lwidth 0.03528 color black cap butt
+   amove xg(x-w/2) yg(q1)
+   box xg(x+w/2)-xg(x-w/2) yg(q3)-yg(q1)
+   amove xg(x) yg(q1)
+   aline xg(x) yg(lo)
+   amove xg(x) yg(q3)
+   aline xg(x) yg(hi)
+   if cw > 0 then
+      amove xg(x-cw/2) yg(lo)
+      aline xg(x+cw/2) yg(lo)
+      amove xg(x-cw/2) yg(hi)
+      aline xg(x+cw/2) yg(hi)
+   end if
+   set color rgb255(255,127,14)
+   amove xg(x-w/2) yg(med)
+   aline xg(x+w/2) yg(med)
+   grestore
+end sub
+
+sub gleplot_box_flier x y
+   ! One point beyond a box plot whisker.
+   gsave
+   set lwidth 0.03528 color black
+   amove xg(x) yg(y)
+   marker circle 0.15
+   grestore
+end sub
+
+sub gleplot_box_mean x y
+   ! A box plot mean.
+   gsave
+   set color rgb255(44,160,44)
+   amove xg(x) yg(y)
+   marker ftriangle 0.15
+   grestore
+end sub"""
+
+
 @dataclass(frozen=True)
 class AxisStyle:
     """Styling for ONE axis (x, y or y2) of a graph block.
@@ -4343,6 +4391,31 @@ class GLEWriter:
             f'{num(series["pctdistance"])}'
         )
         self._text_state_just = None
+
+    def add_box(self, series: Series) -> None:
+        """Queue one box of a box plot for after ``end graph``.
+
+        ``series`` is a :class:`~gleplot.series.Box`. It goes out as a
+        ``gleplot_box`` call (:data:`BOX_SUB`), then a ``gleplot_box_flier``
+        call per flier and a ``gleplot_box_mean`` call when it has a mean,
+        in the deferred block the text annotations use, so the boxes are
+        drawn over the graph unclipped, like the pie wedges.
+        """
+        num = self._format_number
+        x = num(float(series["x"]))
+        values = " ".join(
+            num(float(series[key]))
+            for key in ("width", "capwidth", "whislo", "q1", "med", "q3", "whishi")
+        )
+        self._pending_graph_text_lines.append(f"gleplot_box {x} {values}")
+        for flier in series["fliers"]:
+            self._pending_graph_text_lines.append(
+                f"gleplot_box_flier {x} {num(float(flier))}"
+            )
+        if series.get("mean") is not None:
+            self._pending_graph_text_lines.append(
+                f"gleplot_box_mean {x} {num(float(series['mean']))}"
+            )
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
         """Where ``key separator`` falls, as 1-based legend-entry counts.

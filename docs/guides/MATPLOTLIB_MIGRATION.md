@@ -13,6 +13,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.errorbar(...)` | same |
 | `ax.fill_between(...)` | same |
 | `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
+| `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
 | `ax.set_xlabel(...)` | same |
 | `ax.set_ylabel(...)` | same |
 | `ax.set_title(...)` | same |
@@ -224,6 +225,29 @@ ax.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=90)
 | return value | `(wedges, texts)`, or `(wedges, texts, autotexts)` with `autopct`. The texts are the strings drawn, one per wedge, not `Text` objects. |
 
 Labels are drawn beside the wedges; they are not legend entries. The wedges are drawn above anything else plotted on the same axes. A wedge's text height, like an `ax.text` height, stays in force for the text drawn after it on that axes.
+
+## Box plots
+
+GLE has no box plot command. `ax.boxplot(x)` computes each box's quartiles, whiskers and fliers in Python, as matplotlib does, stores one `Box` per sample set and writes each as a `gleplot_box` call after the graph block, followed by a `gleplot_box_flier` call per flier and a `gleplot_box_mean` call with `showmeans=True`. The subroutines are defined once at the top of the script. The style is matplotlib's default: black 1 pt lines, an orange median, black open circle fliers and a green triangle mean.
+
+```python
+ax.boxplot(samples, widths=0.4, tick_labels=["a", "b", "c"])
+```
+
+| `boxplot()` argument | gleplot |
+|---|---|
+| `whis`, `positions`, `widths`, `capwidths`, `usermedians`, `showmeans`, `showcaps`, `showfliers`, `autorange`, `tick_labels`, `manage_ticks` | wired, with matplotlib's defaults. `widths` and `capwidths` are in data units. |
+| `orientation='horizontal'`, `vert=False` | raise `ValueError`: only vertical box plots are drawn. |
+| `sym` | `''` hides the fliers. Any other value warns; fliers are black open circles. |
+| `notch`, `bootstrap`, `conf_intervals` | warn; boxes are not notched. |
+| `patch_artist` | warns; boxes are not filled. |
+| `meanline` | warns; the mean is a marker. |
+| `showbox=False` | warns; the box is drawn. |
+| `boxprops`, `flierprops`, `medianprops`, `meanprops`, `capprops`, `whiskerprops` | warn; the style is matplotlib's default. |
+| `zorder`, `label`, `data` | warn and are ignored. Boxes have no legend entry. |
+| return value | a dict with matplotlib's keys (`'boxes'`, `'medians'`, `'whiskers'`, `'caps'`, `'fliers'`, `'means'`), each holding the list of `Box` entries. One entry holds every part of its box; there are no `Line2D` objects. |
+
+Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are drawn above anything else plotted on the same axes. The x range covers each box and half a unit either side of its position, and the y range covers the whiskers and the drawn fliers and means, with no margin.
 
 ## Histograms
 

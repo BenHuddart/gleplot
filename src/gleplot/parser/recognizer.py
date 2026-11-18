@@ -306,6 +306,7 @@ from ..guides import (
 )
 from ..series import (
     BarSeries,
+    Box,
     ContourSeries,
     ErrorbarSeries,
     FileSeries,
@@ -1540,8 +1541,9 @@ class _Recognizer:
         after_key = self._consume_external_legend(nodes, i + 1, axes_info)
         # Greedily consume deferred text cluster that follows.
         texts, consumed = self._consume_text_cluster(nodes, after_key)
-        axes_info["texts"] = [t for t in texts if not isinstance(t, Wedge)]
+        axes_info["texts"] = [t for t in texts if not isinstance(t, (Wedge, Box))]
         axes_info["wedges"] = [t for t in texts if isinstance(t, Wedge)]
+        axes_info["boxes"] = [t for t in texts if isinstance(t, Box)]
         # Then consume any post-graph colorbar / contour-label sub
         # calls belonging to this axes.
         return axes_info, self._consume_post_graph_calls(nodes, consumed, axes_info)
@@ -6918,6 +6920,8 @@ class _Recognizer:
             if wedge is None:
                 return start, None
             return i + 1, wedge
+        if stmt is not None and (stmt.keyword or "").lower() == "gleplot_box":
+            return self._box_calls(nodes, i, start)
 
         # 'amove xg(X) yg(Y)' -- mandatory: this is what makes the run of
         # 'set' statements above a text cluster rather than unrelated
@@ -6966,6 +6970,56 @@ class _Recognizer:
             fields["rotation"] = rotation
         fields.update(arrow_fields)
         return i, TextAnnotation(**fields)
+
+    def _box_calls(self, nodes, i, start) -> Tuple[int, Optional[Box]]:
+        """A ``gleplot_box`` call at ``i`` and its flier and mean calls.
+
+        Returns ``(next_index, box)``, or ``(start, None)`` when the box call
+        is malformed. The ``gleplot_box_flier`` calls and then at most one
+        ``gleplot_box_mean`` call that follow it at the same x belong to it;
+        anything else ends the box and is left to the caller.
+        """
+        args = self._guide_call_args(_words_and_values(nodes[i]), 1)
+        if len(args) != 8 or not all(isinstance(v, (int, float)) for v in args):
+            return start, None
+        x, w, cw, lo, q1, med, q3, hi = (float(cast(float, v)) for v in args)
+        fliers: List[float] = []
+        mean: Optional[float] = None
+        n = len(nodes)
+        i += 1
+        while mean is None:
+            j = self._skip_blanks(nodes, i)
+            stmt = self._as_statement(nodes[j]) if j < n else None
+            if stmt is None:
+                break
+            kw = (stmt.keyword or "").lower()
+            if kw not in ("gleplot_box_flier", "gleplot_box_mean"):
+                break
+            point = self._guide_call_args(_words_and_values(stmt), 1)
+            if (
+                len(point) != 2
+                or not all(isinstance(v, (int, float)) for v in point)
+                or float(cast(float, point[0])) != x
+            ):
+                break
+            if kw == "gleplot_box_mean":
+                mean = float(cast(float, point[1]))
+            else:
+                fliers.append(float(cast(float, point[1])))
+            i = j + 1
+        return i, Box(
+            type="box",
+            x=x,
+            width=w,
+            capwidth=cw,
+            whislo=lo,
+            q1=q1,
+            med=med,
+            q3=q3,
+            whishi=hi,
+            fliers=fliers,
+            mean=mean,
+        )
 
     def _wedge_call(self, stmt) -> Optional[Wedge]:
         """A ``gleplot_wedge`` call -> a :class:`Wedge`, or ``None``.
@@ -7434,6 +7488,7 @@ class _Recognizer:
         ax.file_series = info["file_series"]
         ax.texts = info["texts"]
         ax.wedges = info["wedges"]
+        ax.boxes = info["boxes"]
         ax.heatmaps = info["heatmaps"]
         ax.contours = info["contours"]
         # Guides recovered from their draw blocks (G17). Before G17 a guide

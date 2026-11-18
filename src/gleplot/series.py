@@ -149,6 +149,7 @@ __all__ = [
     "RefLine",
     "Span",
     "Wedge",
+    "Box",
     "SERIES_CLASSES",
     "SERIES_ATTRS",
     "SMOOTH_MODES",
@@ -1323,6 +1324,36 @@ class Wedge(Series):
     visible: bool
 
 
+class Box(Series):
+    """One box of a box plot -- ``Axes.boxplot`` stores one per sample set.
+
+    Drawn after the graph block by the ``gleplot_box`` sub, then one
+    ``gleplot_box_flier`` call per flier and a ``gleplot_box_mean`` call
+    when the mean is shown.
+    """
+
+    ATTR = "boxes"
+
+    type: str
+    #: Position, in data coordinates along x.
+    x: float
+    #: Box and cap widths, in data units; a ``capwidth`` of 0 draws no caps.
+    width: float
+    capwidth: float
+    #: Whisker ends, quartiles and median, in data coordinates along y.
+    whislo: float
+    q1: float
+    med: float
+    q3: float
+    whishi: float
+    #: Points beyond the whiskers, drawn as markers.
+    fliers: List[float]
+    #: Drawn as a marker; ``None`` draws none.
+    mean: Optional[float]
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
+
+
 # -- registry -----------------------------------------------------------------
 
 #: Every series list an axes owns, in the order they are serialized by
@@ -1349,6 +1380,7 @@ SERIES_CLASSES: Dict[str, Type[Series]] = {
         FunctionSeries,
         FitSeries,
         Wedge,
+        Box,
     )
 }
 

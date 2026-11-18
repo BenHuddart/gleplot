@@ -524,6 +524,7 @@ _AXES_SERIALIZED_ATTRS = {
     "reflines",
     "spans",
     "wedges",
+    "boxes",
     "passthrough",
     # Explicit page geometry: the placement rect (SPEC 3.3) and the verbatim
     # geometry statements kept for GLE geometry that inverts to no rect.
@@ -714,6 +715,7 @@ def _figure_exercising_every_series_kind():
     ax3.tripcolor(pts_x, pts_y, pts_z, gridsize=(4, 4))
     ax3.tricontour(pts_x, pts_y, pts_z, gridsize=(4, 4), ncontour=2)
     ax3.pie([1.0, 2.0], labels=["p", "q"], autopct="%d%%", textprops={"size": 9})
+    ax3.boxplot([[1.0, 2.0, 3.0, 9.0], [2.0, 4.0]], showmeans=True)
     return fig
 
 

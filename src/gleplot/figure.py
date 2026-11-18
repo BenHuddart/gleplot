@@ -31,6 +31,7 @@ from .parser.units import fontsize_pt_to_cm
 from .series import Series, is_visible
 from .sources import DataSource, source_of
 from .writer import (
+    BOX_SUB,
     COLORBAR_AUTO_RANGE,
     COLORBAR_NTICKS,
     DEFAULT_COLORBAR_NTICKS,
@@ -2001,12 +2002,12 @@ class Figure:
         return reserved
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/colorbar/clabel/wedge subs this figure needs.
+        """Gather the palette/colorbar/clabel/wedge/box subs this figure needs.
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs sorted by name, then the colorbar sub (if any colorbar),
         then the contour-labels sub (if any clabel), then the pie-wedge sub
-        (if any wedge). Skipped (dangling) grid series contribute nothing, so
+        (if any wedge), then the box-plot subs (if any box). Skipped (dangling) grid series contribute nothing, so
         a write that drops the only heatmap does not leave an unused palette
         sub behind.
 
@@ -2041,6 +2042,8 @@ class Figure:
             subs.append(_pal.contour_labels_sub_text())
         if any(resolution.visible(ax.wedges) for ax in self.axes_list):
             subs.append(WEDGE_SUB)
+        if any(resolution.visible(ax.boxes) for ax in self.axes_list):
+            subs.append(BOX_SUB)
         return subs
 
     def _emit_pre_graph_blocks(
@@ -2263,8 +2266,8 @@ class Figure:
         -----
         The axis setup comes first. The content phases then run in drawing
         order, back to front: heatmaps and contours, then the background
-        guides and fills, then the z-ordered data series, file series, pie
-        wedges and texts, and the key last. :meth:`_prepare_legend` runs
+        guides and fills, then the z-ordered data series, file series, box
+        plots, pie wedges and texts, and the key last. :meth:`_prepare_legend` runs
         before any series is written, because the key's column breaks must be
         set on the writer before the datasets they fall between.
         """
@@ -2279,6 +2282,8 @@ class Figure:
         self._write_reflines(writer, ax, limits)
         self._write_drawables(writer, ax, resolution)
         self._write_file_series(writer, ax, resolution)
+        for box in resolution.visible(ax.boxes):
+            writer.add_box(box)
         for wedge in resolution.visible(ax.wedges):
             writer.add_wedge(wedge)
         self._write_texts(writer, ax)
@@ -3168,6 +3173,20 @@ class Figure:
                 if xmax is None or x1 > xmax:
                     xmax = float(x1)
 
+        # A box spans its width, and at least half a unit either side of its
+        # position: matplotlib's boxplot widens the x range to that.
+        for box in resolution.visible(ax.boxes):
+            half = max(0.5, float(box["width"]) / 2)
+            ends = _plottable(
+                np.array([box["x"] - half, box["x"] + half], dtype=float),
+                positive_only,
+            )
+            if len(ends) > 0:
+                if xmin is None or ends.min() < xmin:
+                    xmin = float(ends.min())
+                if xmax is None or ends.max() > xmax:
+                    xmax = float(ends.max())
+
         # Vertical guides carry a data x-coordinate and, like matplotlib's
         # axvline/axvspan, participate in autoscaling. Horizontal ones do not:
         # their x extent is an axes FRACTION, so including it would be
@@ -3292,6 +3311,18 @@ class Figure:
             if not positive_only or y1 > 0:
                 if ymax is None or y1 > ymax:
                     ymax = float(y1)
+
+        for box in resolution.visible(ax.boxes):
+            parts = [box["whislo"], box["q1"], box["q3"], box["whishi"]]
+            parts.extend(box["fliers"])
+            if box.get("mean") is not None:
+                parts.append(box["mean"])
+            all_y = _plottable(np.asarray(parts, dtype=float), positive_only)
+            if len(all_y) > 0:
+                if ymin is None or all_y.min() < ymin:
+                    ymin = float(all_y.min())
+                if ymax is None or all_y.max() > ymax:
+                    ymax = float(all_y.max())
 
         # Horizontal guides carry a data y-coordinate (see _get_data_xlim for
         # the mirror-image reasoning).
