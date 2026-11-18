@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v4.0.0 (2026-11-18)
+
+### Bug Fixes
+
+- Colorbar() label uses the heatmap's own axes
+  ([`3bc52b3`](https://github.com/BenHuddart/gleplot/commit/3bc52b33e9fef3476cc5f91c019428dda71e9a0f))
+
+### Features
+
+- Closed-form fits with Axes.fit(model=...) ([#75](https://github.com/BenHuddart/gleplot/pull/75),
+  [`263b48d`](https://github.com/BenHuddart/gleplot/commit/263b48d9bbc7cbe368f851255e5e9166178f5071))
+
+- Colorbar per axes and horizontal colorbars ([#78](https://github.com/BenHuddart/gleplot/pull/78),
+  [`a882209`](https://github.com/BenHuddart/gleplot/commit/a882209bbb59e7266e958196ae39d505fe250415))
+
+- Hatch patterns on bars ([#71](https://github.com/BenHuddart/gleplot/pull/71),
+  [`232b7ca`](https://github.com/BenHuddart/gleplot/commit/232b7ca2d60229ce0f2b6fd20a18dc7acf970e84))
+
+- LaTeX-rendered labels with GLEStyleConfig(usetex=True)
+  ([#72](https://github.com/BenHuddart/gleplot/pull/72),
+  [`34e3ca4`](https://github.com/BenHuddart/gleplot/commit/34e3ca4ecd652832749e7a011ec1cc3047319926))
+
+
 ## v3.19.0 (2026-11-18)
 
 ### Features
