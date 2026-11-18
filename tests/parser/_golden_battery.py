@@ -896,6 +896,25 @@ def histogram():
     return fig
 
 
+def function_curves():
+    """Two GLE-sampled curves: one with a range, step, style and label, one bare."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.function(
+        "exp(-x^2/2)",
+        xmin=-3,
+        xmax=3,
+        step=0.1,
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label="gauss",
+    )
+    ax.function("x/3")
+    ax.legend()
+    return fig
+
+
 def histogram_field_options():
     """Histogram fields the other builders leave at their defaults.
 
@@ -1008,6 +1027,7 @@ BUILDERS = [
     fill_forms,
     fill_field_options,
     histogram,
+    function_curves,
     histogram_field_options,
     axes_styling_full,
     axis_lines_fonts_and_tick_placement,

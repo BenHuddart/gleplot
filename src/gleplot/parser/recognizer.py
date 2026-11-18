@@ -280,7 +280,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import numpy as np
 
-from ..axes import _GLE_FONT_NAME, Axes, _resolve_data_file
+from ..axes import (
+    _GLE_FONT_NAME,
+    Axes,
+    _function_expression_problem,
+    _resolve_data_file,
+)
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..dataio import (
     ColumnExtractionError,
@@ -305,6 +310,7 @@ from ..series import (
     ErrorbarSeries,
     FileSeries,
     FillSeries,
+    FunctionSeries,
     HeatmapSeries,
     HistSeries,
     LineSeries,
@@ -1041,6 +1047,52 @@ def _dn_linewidth(attrs: Dict[str, Any]) -> Optional[float]:
     if attrs["lwidth"] is not None:
         return linewidth_cm_to_pt(attrs["lwidth"])
     return None if attrs["has_line"] else 1.0
+
+
+def _plain_function_line(toks: List[Token]) -> bool:
+    """True when ``dK`` attribute tokens are what ``add_function`` writes.
+
+    That is ``line`` with any of ``color``, ``lwidth``, a dashed ``lstyle``
+    and a non-empty ``key``. A solid or unknown ``lstyle`` number, a width
+    of 0 or 1 pt, a marker, smoothing or an axis switch would be lost or
+    changed on save.
+    """
+    has_line = False
+    i = 0
+    m = len(toks)
+    while i < m:
+        word = toks[i].value.lower()
+        if word == "line" and not has_line:
+            has_line = True
+            i += 1
+        elif word == "color" and i + 1 < m:
+            _val, nxt = _collect_color(toks, i + 1)
+            if nxt == i + 1:
+                return False
+            i = nxt
+        elif word == "lwidth" and i + 1 < m:
+            val, nxt = _collect_value(toks, i + 1)
+            # 0 and 1 pt are the writer's "style default" width.
+            if val is None or linewidth_cm_to_pt(val) in (0.0, 1.0):
+                return False
+            i = nxt
+        elif word == "lstyle" and i + 1 < m:
+            val, nxt = _collect_value(toks, i + 1)
+            if val is None or not float(val).is_integer():
+                return False
+            if LSTYLE_TO_MATPLOTLIB.get(int(val)) in (None, "-"):
+                return False
+            i = nxt
+        elif (
+            word == "key"
+            and i + 1 < m
+            and toks[i + 1].type is TokenType.STRING
+            and _string_value(toks[i + 1])
+        ):
+            i += 2
+        else:
+            return False
+    return has_line
 
 
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
@@ -1895,6 +1947,7 @@ class _Recognizer:
             "scatters": [],
             "bars": [],
             "hists": [],
+            "functions": [],
             "fills": [],
             "errorbars": [],
             "file_series": [],
@@ -1962,6 +2015,11 @@ class _Recognizer:
             # Target -> the let statement's own text, until a modellable
             # display command consumes it. Anything left is raw GLE.
             "_hist_let_pending": {},
+            # ``let dK = <expression> [from a] [to b] [step h]`` targets
+            # whose only use is a plain ``dK line``, -> FunctionSeries fields.
+            # Decided at the end of pass 1, so a let that stays raw keeps
+            # its place in the block.
+            "_function_lets": {},
             # Dataset names whose ``bar`` commands stay raw: an unmodelled
             # sub-command, a ``fill`` that still needs the original data
             # line, or a group whose x columns do not match. Filled at the
@@ -2023,12 +2081,14 @@ class _Recognizer:
                 self._record_hist_let(
                     let_toks, pass1.datasets, info, self._stmt_text(child)
                 )
+                self._record_function_let(let_toks, info)
             elif kw is not None and _DATASET_RE.match(kw):
                 if kw not in pass1.merged_attr_toks:
                     pass1.merged_attr_toks[kw] = []
                     pass1.merged_attr_raw[kw] = []
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
+        self._keep_plain_function_lets(block, pass1, info)
         return pass1
 
     def _parse_graph_comment(self, child: BlankOrComment, info) -> None:
@@ -2055,7 +2115,11 @@ class _Recognizer:
         Anything else is preserved as raw GLE.
         """
         target = toks[1].value.lower() if len(toks) > 1 else None
-        return target in info["_offset_let_datasets"] or target in info["_hist_lets"]
+        return (
+            target in info["_offset_let_datasets"]
+            or target in info["_hist_lets"]
+            or target in info["_function_lets"]
+        )
 
     def _parse_dataset_line(
         self, stmt, pass1: _GraphDatasets, info, marker_cfg, smooth_flags
@@ -2115,6 +2179,10 @@ class _Recognizer:
                 line_no=stmt.line_no,
                 raw_stmts=pass1.merged_attr_raw.get(name, []),
             )
+            pass1.emitted.add(name)
+            return
+        if name in info["_function_lets"]:
+            self._build_function_series(name, attr_toks, info)
             pass1.emitted.add(name)
             return
         pass1.emitted.add(name)
@@ -3875,6 +3943,105 @@ class _Recognizer:
             "bin_step": options.get("step"),
         }
         info["_hist_let_pending"][target] = raw
+
+    def _record_function_let(self, toks, info) -> None:
+        """Record ``let dK = <expression> [from a] [to b] [step h]``.
+
+        The expression is the run of tokens after ``=`` with no space
+        between them, which is where GLE's own parser ends it. It must pass
+        the check :meth:`gleplot.Axes.function` makes. ``from``, ``to`` and
+        ``step`` take a plain number each, so the value written back is
+        the one read. Anything else stays raw GLE.
+        """
+        if len(toks) < 4:
+            return
+        target = toks[1].value.lower()
+        eq = toks[2]
+        if not _DATASET_RE.match(target) or eq.type is not TokenType.OP:
+            return
+        if eq.value != "=" or target in info["_function_lets"]:
+            return
+        end = 4
+        while end < len(toks) and toks[end].span[0] == toks[end - 1].span[1]:
+            end += 1
+        expression = "".join(tok.value for tok in toks[3:end])
+        if _function_expression_problem(expression) is not None:
+            return
+        fields: Dict[str, Any] = {"expression": expression}
+        names = {"from": "let_from", "to": "let_to", "step": "let_step"}
+        i = end
+        while i < len(toks):
+            key = names.get(toks[i].value.lower())
+            if key is None or key in fields:
+                return
+            sign = ""
+            j = i + 1
+            if j < len(toks) and toks[j].type is TokenType.OP:
+                if toks[j].value not in ("-", "+"):
+                    return
+                sign = toks[j].value
+                j += 1
+            if j >= len(toks) or toks[j].type is not TokenType.NUMBER:
+                return
+            fields[key] = float(sign + toks[j].value)
+            i = j + 1
+        info["_function_lets"][target] = fields
+
+    def _keep_plain_function_lets(self, block, pass1: _GraphDatasets, info) -> None:
+        """Drop each recorded function let that cannot be modelled whole.
+
+        A function let is modelled only when its target is named by that
+        ``let`` and by its own ``dK`` lines, and nothing else: a ``fill``,
+        a ``bar`` or another ``let`` that reads the dataset needs the name
+        the file gave it. The ``dK`` lines must also be a plain line that
+        :meth:`gleplot.writer.GLEWriter.add_function` writes back the same.
+        """
+        if not info["_function_lets"]:
+            return
+        texts: List[str] = []
+        for child in block.body:
+            if isinstance(child, OpaqueBlock):
+                texts.extend(self._raw_lines(child))
+            elif isinstance(child, Statement) and not (
+                child.keyword is not None and _DATASET_RE.match(child.keyword)
+            ):
+                texts.append(" ".join(t.value for t in _words_and_values(child)))
+        for target in list(info["_function_lets"]):
+            pattern = re.compile(
+                r"(?<![A-Za-z0-9_])" + re.escape(target) + r"(?![A-Za-z0-9_])",
+                re.IGNORECASE,
+            )
+            mentions = sum(len(pattern.findall(text)) for text in texts)
+            attr_toks = pass1.merged_attr_toks.get(target)
+            if mentions != 1 or not attr_toks or not _plain_function_line(attr_toks):
+                del info["_function_lets"][target]
+        # The writer renumbers the datasets it writes, but not the ones in raw
+        # lines. Beside a let that stays raw, a renumbered curve could take
+        # that let's name, so then every function let stays raw too.
+        for child in block.body:
+            if isinstance(child, Statement) and child.keyword == "let":
+                toks = _words_and_values(child)
+                target = toks[1].value.lower() if len(toks) > 1 else None
+                if (
+                    target not in info["_function_lets"]
+                    and target not in info["_offset_let_datasets"]
+                ):
+                    info["_function_lets"].clear()
+                    return
+
+    def _build_function_series(self, name, attr_toks, info) -> None:
+        """Append the ``FunctionSeries`` for a kept function let."""
+        attrs = self._scan_series_attrs(attr_toks)
+        fields = dict(info["_function_lets"][name])
+        fields["color"] = attrs["color"]
+        fields["linestyle"] = attrs["linestyle"] or "-"
+        fields["linewidth"] = _dn_linewidth(attrs)
+        if attrs["label"]:
+            fields["label"] = attrs["label"]
+        entry = FunctionSeries(**fields)
+        entry["_draw_seq"] = info["_draw_seq_counter"]
+        info["_draw_seq_counter"] += 1
+        info["functions"].append(entry)
 
     def _abandon_hist(self, info, target, extra_lines, message, span) -> None:
         """Keep a histogram let, and the display that could not model it."""
@@ -6993,6 +7160,7 @@ class _Recognizer:
         ax.scatters = info["scatters"]
         ax.bars = info["bars"]
         ax.hists = info["hists"]
+        ax.functions = info["functions"]
         ax.fills = info["fills"]
         ax.errorbars = info["errorbars"]
         ax.file_series = info["file_series"]
@@ -7147,6 +7315,7 @@ class _Recognizer:
             "scatters",
             "bars",
             "hists",
+            "functions",
             "fills",
             "errorbars",
             "file_series",

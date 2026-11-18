@@ -1641,6 +1641,109 @@ class TestHistogram:
         assert "d2 line" in raw
 
 
+class TestFunction:
+    """Curves GLE samples from an expression with ``let``."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
+        glp.close()
+        self.fig = glp.figure(data_prefix="fn")
+        self.ax = self.fig.add_subplot(111)
+        yield
+        glp.close()
+
+    def _script(self):
+        return self.fig._generate_gle()
+
+    def test_emits_a_let_and_a_line_with_no_data_file(self):
+        self.ax.function("sin(x)", xmin=0, xmax=6.28, step=0.05, label="sine")
+        text, files = self.fig._generate_gle_with_files()
+        assert "let d1 = sin(x) from 0 to 6.28 step 0.05" in text
+        assert 'd1 line color BLUE lwidth 0.05292 key "sine"' in text
+        assert "    data " not in text
+        assert files == {}
+        assert self.ax.functions[0]["expression"] == "sin(x)"
+
+    def test_omitted_range_and_step_are_left_to_gle(self):
+        self.ax.function("x^2", color="red", linestyle=":")
+        lines = self._script().splitlines()
+        assert "    let d1 = x^2" in lines
+        assert "    d1 line color RED lwidth 0.05292 lstyle 2" in lines
+
+    def test_figure_wide_smoothing_leaves_the_curve_alone(self):
+        self.fig.graph.smooth_curves = True
+        self.ax.function("sin(x)", xmin=0, xmax=1)
+        line = next(ln for ln in self._script().splitlines() if "d1 line" in ln)
+        assert "smooth" not in line
+
+    def test_the_range_widens_x_and_nothing_sets_y(self):
+        self.ax.plot([1, 2], [5, 6])
+        self.ax.function("sin(x)", xmin=-1, xmax=4)
+        script = self._script()
+        assert "xaxis min -1 max 4" in script
+        assert "yaxis min 5 max 6" in script
+
+    def test_a_curve_alone_leaves_y_to_gle(self):
+        self.ax.function("sin(x)", xmin=0, xmax=3)
+        script = self._script()
+        assert "xaxis min 0 max 3" in script
+        assert "yaxis min" not in script
+
+    def test_draws_in_call_order_with_other_series(self):
+        self.ax.function("sin(x)", xmin=0, xmax=1)
+        self.ax.plot([0, 1], [0, 1])
+        lines = self._script().splitlines()
+        assert lines.index("    let d1 = sin(x) from 0 to 1") < next(
+            i for i, ln in enumerate(lines) if ln.startswith("    data ")
+        )
+
+    def test_a_hidden_curve_writes_nothing(self):
+        self.ax.function("sin(x)", xmin=0, xmax=1)
+        self.ax.functions[0]["visible"] = False
+        assert "let " not in self._script()
+
+    @pytest.mark.parametrize(
+        "expression, message",
+        [
+            ("sin(x) + 1", "first space"),
+            ("sin(x),cos(x)", "second expression"),
+            ("d1*2", "names a dataset"),
+            ("", "empty"),
+            ("x!c", "end of the expression"),
+            ("x;y", "end of the expression"),
+            ("sin(x", "leaves a bracket open"),
+            ("x)*(2", "never opened"),
+        ],
+    )
+    def test_rejects_an_expression_gle_would_misread(self, expression, message):
+        with pytest.raises(ValueError, match=message):
+            self.ax.function(expression)
+        assert self.ax.functions == []
+
+    def test_a_comma_inside_brackets_is_one_expression(self):
+        self.ax.function("max(x,1)", xmin=0, xmax=2)
+        assert "let d1 = max(x,1) from 0 to 2" in self._script()
+
+    def test_rejects_a_non_string_expression(self):
+        with pytest.raises(TypeError, match="expression must be a str"):
+            self.ax.function(lambda x: x)
+
+    @pytest.mark.parametrize(
+        "kwargs, error, message",
+        [
+            ({"xmin": 2, "xmax": 1}, ValueError, "xmin < xmax"),
+            ({"step": 0}, ValueError, "step must be positive"),
+            ({"xmin": float("nan")}, ValueError, "xmin must be finite"),
+            ({"xmax": "end"}, TypeError, "xmax must be a number"),
+            ({"linestyle": "none"}, ValueError, "linestyle must be"),
+            ({"linewidth": None}, TypeError, "linewidth must be a number"),
+        ],
+    )
+    def test_rejects_bad_options_when_called(self, kwargs, error, message):
+        with pytest.raises(error, match=message):
+            self.ax.function("x", **kwargs)
+
+
 def test_add_plot_line_keywords_reach_the_emitted_line():
     """The deprecated keyword form of ``GLEWriter.add_line`` warns and maps
     every argument to its field."""

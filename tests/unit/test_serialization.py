@@ -513,6 +513,7 @@ _AXES_SERIALIZED_ATTRS = {
     "scatters",
     "bars",
     "hists",
+    "functions",
     "fills",
     "errorbars",
     "file_series",
@@ -690,6 +691,7 @@ def _figure_exercising_every_series_kind():
         color="red",
         label="filled",
     )
+    ax.function("sin(x)", xmin=0, xmax=2, step=0.5, linestyle="--", label="fn")
 
     ax2 = fig.add_subplot(312)
     ax2.imshow(np.arange(12, dtype=float).reshape(3, 4), extent=(0, 4, 0, 3))

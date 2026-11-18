@@ -68,6 +68,22 @@ ax.hist(samples, bins=20, range=(0, 1), histtype='stepfilled')
 `step` is `line hist` on GLE's binned dataset, and `stepfilled` is adjoining
 bars of one bin width.
 
+## Function curves
+
+GLE can sample an expression in `x` itself, so a smooth curve needs no data
+file:
+
+```python
+ax.function('sin(x)', xmin=0, xmax=6.28, step=0.05)  # let d1 = sin(x) from 0 to 6.28 step 0.05
+ax.function('exp(-x^2/2)', color='red', linestyle='--', label='gauss')
+```
+
+The expression is GLE syntax, written without spaces. Without `xmin` and
+`xmax` GLE samples the x axis range, and without `step` it takes 100 points.
+gleplot does not evaluate the expression, so the curve does not widen the y
+range of other data on the axes; call `set_ylim` if it leaves it. Use `plot`
+when you already have the arrays.
+
 ## Marker spacing, thinning and clipping
 
 ```python

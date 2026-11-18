@@ -138,6 +138,7 @@ __all__ = [
     "ScatterSeries",
     "BarSeries",
     "HistSeries",
+    "FunctionSeries",
     "FillSeries",
     "ErrorbarSeries",
     "FileSeries",
@@ -845,6 +846,39 @@ class HistSeries(Series):
         return None
 
 
+class FunctionSeries(Series):
+    """A curve GLE samples from an expression -- ``Axes.function``.
+
+    Written as ``let dK = <expression> [from a] [to b] [step h]`` and drawn
+    with ``dK line``. There is no sidecar: GLE evaluates the expression.
+    """
+
+    ATTR = "functions"
+    KIND = "function"
+    ZORDER_DEFAULT = 3.0
+    KIND_RANK = 5
+
+    #: A GLE expression in ``x``, written verbatim into the ``let``.
+    expression: str
+    #: ``from``, ``to`` and ``step`` of the ``let``. Absent: GLE's default
+    #: (the x axis range, sampled at 100 points). On a log x axis GLE reads
+    #: ``step`` as a point count.
+    let_from: float
+    let_to: float
+    let_step: float
+    #: ``None`` is a recovered ``dN`` line that set no colour: the writer
+    #: writes none, and GLE draws in the current colour.
+    color: Optional[str]
+    linestyle: str
+    #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
+    linewidth: Optional[float]
+    label: Optional[str]
+    _draw_seq: int
+    zorder: float
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
+
+
 class FillSeries(Series):
     """A filled region -- ``Axes.fill_between`` or ``Axes.fill``.
 
@@ -1238,6 +1272,7 @@ SERIES_CLASSES: Dict[str, Type[Series]] = {
         RefLine,
         Span,
         HistSeries,
+        FunctionSeries,
     )
 }
 

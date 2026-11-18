@@ -2773,6 +2773,34 @@ class GLEWriter:
             parts.append(f"step {self._format_number(bin_step)}")
         return "    " + " ".join(parts)
 
+    def add_function(self, series: Series):
+        """Draw a curve GLE samples from an expression.
+
+        ``series`` is a :class:`~gleplot.series.FunctionSeries`. The ``let``
+        carries only the ``from``/``to``/``step`` the series has, and the
+        line is never smoothed: the samples are already as fine as the
+        caller asked for. No key is needed to hide a header, because a
+        ``let`` dataset has none.
+        """
+        target = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        parts = [f"let {target} = {series['expression']}"]
+        for key, word in (("let_from", "from"), ("let_to", "to"), ("let_step", "step")):
+            if key in series:
+                parts.append(f"{word} {self._format_number(series[key])}")
+        self.lines_gle.append("    " + " ".join(parts))
+
+        linestyle = series.get("linestyle", "-")
+        label = series.get("label")
+        line_cmd = f"    {target}" + self._line_token(smooth_mode="none")
+        line_cmd += self._color_clause(series.get("color"))
+        line_cmd += self._lwidth_clause(series.get("linewidth"))
+        if linestyle in ("--", ":", "-."):
+            line_cmd += f" lstyle {self._lstyle_for(linestyle)}"
+        line_cmd += self._key_clause(label, has_header=False)
+        self.lines_gle.append(line_cmd)
+        self._finish_legend_entry(label)
+
     def add_bar_chart(
         self,
         x: np.ndarray,
