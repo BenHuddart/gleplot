@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 
 from ._warn import warn_external
-from .colors import apply_alpha, rgb_to_gle
+from .colors import apply_alpha, hatch_to_gle, rgb_to_gle
 from .config import LINE_CAPS, LINE_JOINS, GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
@@ -226,6 +226,53 @@ def _bar_color_list(color, n: int, default: Optional[str]) -> List[Optional[str]
             f"color sequence length {len(seq)} does not match the {n} bars"
         )
     return [_gle_bar_color(item) for item in seq]
+
+
+def _bar_patterns(hatch, n: int) -> List[Optional[str]]:
+    """One GLE pattern (or ``None``) per bar, as matplotlib cycles ``hatch``.
+
+    A sequence must have one entry, or one per bar. A hatch GLE cannot
+    draw warns and that bar stays solid.
+    """
+    if hatch is None:
+        return [None] * n
+    if isinstance(hatch, str):
+        items = [hatch]
+    else:
+        try:
+            items = list(hatch)
+        except TypeError:
+            raise TypeError(
+                "bar() hatch must be a string such as '//', or a sequence of "
+                f"them; got {hatch!r}"
+            ) from None
+    if len(items) not in (1, n):
+        raise ValueError(
+            f"bar() hatch sequence length {len(items)} does not match the {n} bars"
+        )
+    patterns: List[Optional[str]] = []
+    unsupported: List[str] = []
+    for item in items:
+        if item is None or item == "":
+            patterns.append(None)
+            continue
+        if not isinstance(item, str):
+            raise TypeError(
+                "bar() hatch must be a string such as '//', or a sequence of "
+                f"them; got {item!r}"
+            )
+        pattern = hatch_to_gle(item)
+        if pattern is None and item not in unsupported:
+            unsupported.append(item)
+        patterns.append(pattern)
+    if unsupported:
+        names = ", ".join(repr(item) for item in unsupported)
+        warn_external(
+            f"bar() hatch {names} has no GLE pattern; those bars are drawn "
+            "solid. GLE hatches diagonally only: use '/', '\\\\' or 'x', "
+            "repeated (e.g. '//') for a denser hatch.",
+        )
+    return patterns * n if len(patterns) == 1 else patterns
 
 
 def _bar_style_aliases(kwargs, color, edgecolor, linewidth, linestyle):
@@ -3317,7 +3364,13 @@ class Axes:
         horiz : bool, optional
             Emit ``horiz``. :meth:`barh` sets this.
         **kwargs
-            ``hatch`` and anything else GLE cannot draw are accepted and
+            ``hatch`` is a matplotlib hatch string, or a sequence with one
+            per bar. ``'/'``, ``'\\'`` and ``'x'`` are GLE's ``SHADE``,
+            ``RSHADE`` and ``GRID`` patterns; repeated (``'//'``) they are
+            the denser ``SHADE2``, ``RSHADE2`` and ``GRID2``. As in
+            matplotlib, the hatch is drawn in ``edgecolor`` (black when it
+            is not given or ``'none'``) over the face colour. GLE has no
+            other pattern, so any other hatch warns and the bar is solid. Anything else GLE cannot draw is accepted and
             warned about.
 
         Returns
@@ -3331,6 +3384,7 @@ class Axes:
         color, edgecolor, linewidth, linestyle = _bar_style_aliases(
             kwargs, color, edgecolor, linewidth, linestyle
         )
+        hatch = kwargs.pop("hatch", None)
         align_name = str(align).strip().lower()
         if align_name not in ("center", "edge"):
             raise ValueError("align must be 'center' or 'edge', got " f"{align!r}")
@@ -3381,6 +3435,20 @@ class Axes:
 
         faces = _bar_color_list(color, n, default="RED")
         edges = _bar_color_list(edgecolor, n, default=None)
+        # GLE's ``fill`` is the hatch ink and ``background`` the face, so a
+        # hatched bar fills with its edge colour: matplotlib's hatch colour,
+        # which falls back to black when the edge is missing or 'none'.
+        fills: List[Optional[str]] = []
+        patterns: List[Optional[str]] = []
+        backgrounds: List[Optional[str]] = []
+        for pattern, face, edge in zip(_bar_patterns(hatch, n), faces, edges):
+            patterns.append(pattern)
+            if pattern is None:
+                fills.append(face)
+                backgrounds.append(None)
+            else:
+                fills.append(edge if edge not in (None, "none") else "BLACK")
+                backgrounds.append("CLEAR" if face == "none" else face)
         baseline = _bar_baseline(bottom, n)
         style = _bar_edge_style(linewidth, linestyle)
         # Reject a bad error before any series is stored, so a raise leaves
@@ -3396,12 +3464,12 @@ class Axes:
         # One dataset, one face and one edge. Differing colours are separate
         # series so each bar is a ``bar dN`` at its own x. Uniform colours
         # stay one series: that is every bar chart gleplot has ever written.
-        vary = len(set(faces)) > 1 or len({edge for edge in edges}) > 1
+        vary = len(set(zip(fills, edges, patterns, backgrounds))) > 1
         if not vary:
             self._append_bar(
                 x,
                 height,
-                faces,
+                fills,
                 label,
                 data_name,
                 width,
@@ -3410,6 +3478,8 @@ class Axes:
                 edges[0],
                 style,
                 horiz,
+                patterns[0],
+                backgrounds[0],
             )
         else:
             # A one-point dataset has no gap for GLE to measure, so each piece
@@ -3421,7 +3491,7 @@ class Axes:
                 self._append_bar(
                     x[index : index + 1],
                     height[index : index + 1],
-                    [faces[index]],
+                    [fills[index]],
                     label if index == 0 else None,
                     data_name if index == 0 else None,
                     piece_width,
@@ -3430,6 +3500,8 @@ class Axes:
                     edges[index],
                     style,
                     horiz,
+                    patterns[index],
+                    backgrounds[index],
                 )
         self._add_bar_errors(
             x,
@@ -3493,6 +3565,8 @@ class Axes:
         edgecolor,
         style,
         horiz,
+        pattern=None,
+        background=None,
     ):
         """Store one bar dataset. Optional keys stay absent."""
         fields = dict(
@@ -3522,6 +3596,9 @@ class Axes:
             fields["linestyle"] = style["linestyle"]
         if horiz:
             fields["horiz"] = True
+        if pattern is not None:
+            fields["pattern"] = pattern
+            fields["background"] = background
         bar_data = BarSeries(**fields)
         self._register_series_draw_meta(bar_data, "bar", zorder)
         self.bars.append(bar_data)

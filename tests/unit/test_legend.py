@@ -332,6 +332,22 @@ def test_bar_and_fill_labels_are_swatches(tmp_path):
     )
 
 
+def test_a_hatched_bar_swatch_is_hatched_in_a_begin_key(tmp_path):
+    """The in-graph key copies the bar's pattern; a ``begin key`` restates it.
+
+    Not the background: inside ``begin key`` that colours the whole key.
+    """
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.bar([0, 1, 2], [1, 2, 3], color="yellow", hatch="/", label="hatched")
+    ax.fill_between([0, 1, 2], [0, 0, 0], [1, 2, 1], label="band")
+    ax.legend()
+    gle = _generate_gle(fig, tmp_path)
+    block = gle.split("begin key", 1)[1]
+    assert 'text "hatched" fill BLACK pattern SHADE\n' in block
+    assert "background" not in block
+
+
 def test_unlabeled_bar_and_fill_still_suppress_header_keys(tmp_path):
     fig = glp.figure(data_prefix="legtest")
     ax = fig.add_subplot(1, 1, 1)

@@ -155,7 +155,7 @@ for rendering, applied by the test-side ``normalize()`` helper)
     ``bar d1,d2 fill c1,c2`` is several :class:`~gleplot.series.BarSeries`
     that share a ``group`` id and are written back as one command.
     ``bar d2 from d1`` is one series whose baseline is ``d1``. A command
-    that also carries an unmodelled sub-command (``3d``, ``pattern``,
+    that also carries an unmodelled sub-command (``3d``, ``side``,
     ``style``, ...) stays raw, and so does every bar whose datasets share
     a ``data`` statement with a ``fill`` the recognizer cannot take: that
     fill still needs the author's data line, and rewriting the file for
@@ -286,6 +286,7 @@ from ..axes import (
     _function_expression_problem,
     _resolve_data_file,
 )
+from ..colors import GLE_PATTERNS
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..dataio import (
     ColumnExtractionError,
@@ -372,17 +373,16 @@ _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
 #:
 #: ``fill`` and ``width`` are the original fields. ``color`` / ``lstyle`` /
 #: ``lwidth`` are the edge, ``horiz`` is :meth:`~gleplot.Axes.barh`,
-#: ``from`` is the stack, and ``dist`` is the group spacing. What is left
-#: changes the drawing in a way the series cannot carry (3-D extrusion,
-#: hatch, an unmodelled style), so a command that names one stays raw.
+#: ``from`` is the stack, ``dist`` is the group spacing, and ``pattern`` /
+#: ``background`` are the hatch. What is left changes the drawing in a way
+#: the series cannot carry (3-D extrusion, an unmodelled style), so a
+#: command that names one stays raw.
 _BAR_UNMODELLED_OPTIONS = frozenset(
     {
         "3d",
         "notop",
         "side",
         "top",
-        "pattern",
-        "background",
         "style",
     }
 )
@@ -445,9 +445,10 @@ def _bar_color_token(toks: List[Token], start: int) -> Tuple[Optional[str], int]
 def _scan_bar_command(toks: List[Token]) -> dict:
     """The modelled fields of one ``bar`` command, plus why it cannot be one.
 
-    ``fills`` / ``edges`` are ``None`` when the keyword was absent, and the
-    authored list otherwise (a longer list than the dataset count is stored
-    and re-emitted; GLE draws only the first of a one-dataset command).
+    ``fills`` / ``edges`` / ``patterns`` / ``backgrounds`` are ``None`` when
+    the keyword was absent, and the authored list otherwise (a longer fill
+    or edge list than the dataset count is stored and re-emitted; GLE draws
+    only the first of a one-dataset command).
     ``unmodelled`` names every keyword that has no field. ``bad_value`` is
     a width, dist, or lwidth the expression evaluator could not read.
     """
@@ -456,6 +457,8 @@ def _scan_bar_command(toks: List[Token]) -> dict:
         "from_names": [],
         "fills": None,
         "edges": None,
+        "patterns": None,
+        "backgrounds": None,
         "width": None,
         "dist": None,
         "linewidth_cm": None,
@@ -560,19 +563,49 @@ def _scan_bar_command(toks: List[Token]) -> dict:
             scanned["fills" if word == "fill" else "edges"] = items
             i = nxt
             continue
+        if word in ("pattern", "background"):
+            items, nxt = _collect_bar_list(toks, i + 1, _bar_color_token)
+            if not items or (
+                word == "pattern"
+                and any(item.upper() not in GLE_PATTERNS for item in items)
+            ):
+                # An expression or a name GLE does not ship: no model.
+                reject(word)
+                i = nxt if items else i + 1
+                continue
+            scanned[word + "s"] = items
+            i = nxt
+            continue
         if word in _BAR_UNMODELLED_OPTIONS or word not in _BAR_KEYWORDS:
             reject(word)
             i += 1
             if word == "style" and i < m and toks[i].value.lower() not in _BAR_KEYWORDS:
                 i += 1
                 continue
-            if word in ("side", "top", "pattern", "background"):
+            if word in ("side", "top"):
                 _items, nxt = _collect_bar_list(toks, i, _bar_color_token)
                 if _items:
                     i = nxt
             continue
         i += 1
+    scanned["patterns_fit"] = _bar_patterns_fit(scanned)
     return scanned
+
+
+def _bar_patterns_fit(scanned: dict) -> bool:
+    """Whether ``pattern`` / ``background`` map onto the datasets one each.
+
+    The writer emits one pattern per dataset, and a background only under
+    a pattern: GLE gives a ``background`` with no ``pattern`` a ``SHADE``
+    fill. A pattern with no ``fill`` token of its own is drawn in GLE's
+    default ink, which the series has no token for.
+    """
+    patterns = scanned["patterns"] or []
+    backgrounds = scanned["backgrounds"] or []
+    fills = scanned["fills"] or []
+    return (
+        len(backgrounds) <= len(patterns) <= min(len(fills), len(scanned["datasets"]))
+    )
 
 
 def _bar_lstyle_piece(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
@@ -602,6 +635,8 @@ def _bar_scan_is_plain(scanned: dict) -> bool:
         and scanned["lstyle"] is None
         and scanned["linewidth_cm"] is None
         and not scanned["edges"]
+        and not scanned["patterns"]
+        and not scanned["backgrounds"]
         and (fills is None or len(fills) == 1)
         and not scanned["unmodelled"]
         and not scanned["bad_value"]
@@ -4427,6 +4462,8 @@ class _Recognizer:
             or scanned["linewidth_cm"] is not None
             or (fills is not None and len(fills) != 1)
             or (edges is not None and len(edges) != 1)
+            or scanned["patterns"]
+            or scanned["backgrounds"]
             or scanned["unmodelled"]
             or scanned["bad_value"]
             or d_name in info["_bar_hold_raw"]
@@ -4596,7 +4633,11 @@ class _Recognizer:
                 continue
             scanned = _scan_bar_command(toks)
             names = list(scanned["datasets"]) + list(scanned["from_names"])
-            if scanned["unmodelled"] or scanned["bad_value"]:
+            if (
+                scanned["unmodelled"]
+                or scanned["bad_value"]
+                or not scanned["patterns_fit"]
+            ):
                 seed.update(names)
                 continue
             if scanned["from_names"] and len(scanned["from_names"]) != len(
@@ -4691,6 +4732,12 @@ class _Recognizer:
                 + " have no model; the whole 'bar' command is kept as raw "
                 "GLE, not editable"
             )
+        elif not scanned["patterns_fit"]:
+            message = (
+                "bar pattern/background lists that are not one pattern per "
+                "dataset, each under a fill, have no model; the whole 'bar' "
+                "command is kept as raw GLE, not editable"
+            )
         elif len(scanned["datasets"]) > 1 or scanned["from_names"]:
             shown = list(scanned["datasets"])
             for name in scanned["from_names"]:
@@ -4724,7 +4771,13 @@ class _Recognizer:
         involved = names + from_names
         held = any(name in info["_bar_hold_raw"] for name in involved)
         mismatched_from = bool(from_names) and len(from_names) != len(names)
-        if scanned["unmodelled"] or scanned["bad_value"] or held or mismatched_from:
+        if (
+            scanned["unmodelled"]
+            or scanned["bad_value"]
+            or held
+            or mismatched_from
+            or not scanned["patterns_fit"]
+        ):
             self._keep_bar_raw(scanned, info, stmt, toks)
             return
         if not names or any(name not in datasets for name in involved):
@@ -4802,6 +4855,8 @@ class _Recognizer:
             info["_bar_group_next"] += 1
         fills = scanned["fills"]
         edges = scanned["edges"]
+        patterns = scanned["patterns"] or []
+        backgrounds = scanned["backgrounds"] or []
         style = {}
         if scanned["width"] is not None:
             style["width"] = scanned["width"]
@@ -4854,6 +4909,10 @@ class _Recognizer:
                         fields["edgecolor"] = edges[0]
             elif edges and index < len(edges) and index != 0:
                 fields["edgecolor"] = edges[index]
+            if index < len(patterns):
+                fields["pattern"] = patterns[index]
+                if index < len(backgrounds):
+                    fields["background"] = backgrounds[index]
             fields.update(style)
             if group_id is not None:
                 fields["group"] = group_id

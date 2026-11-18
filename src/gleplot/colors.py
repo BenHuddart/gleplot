@@ -364,6 +364,33 @@ def get_color_palette(name: str = "default") -> list:
     return palettes.get(name, palettes["default"])
 
 
+#: GLE's fill patterns, from the ``op_def.cpp`` switch table of GLE 4.3.10.
+#: Every one is diagonal hatching: ``SHADE`` runs like ``/``, ``RSHADE``
+#: like ``\``, and ``GRID`` is both. The digit picks a line width and
+#: spacing; ``2`` is the base pattern at half the spacing.
+GLE_PATTERNS = frozenset(
+    f"{family}{suffix}"
+    for family in ("SHADE", "RSHADE", "GRID")
+    for suffix in ("", "1", "2", "3", "4", "5")
+)
+
+_HATCH_FAMILIES = {"/": "SHADE", "\\": "RSHADE", "x": "GRID", "X": "GRID"}
+
+
+def hatch_to_gle(hatch: str) -> Optional[str]:
+    """The GLE pattern for a matplotlib hatch string, or ``None``.
+
+    A string of one repeated ``/``, ``\\`` or ``x`` (``X``) maps to
+    ``SHADE``, ``RSHADE`` or ``GRID``; two or more characters, matplotlib's
+    denser hatch, map to the ``2`` variant. GLE has no horizontal,
+    vertical, dotted or circular pattern, so anything else is ``None``.
+    """
+    family = _HATCH_FAMILIES.get(hatch[:1])
+    if family is None or any(_HATCH_FAMILIES.get(ch) != family for ch in hatch):
+        return None
+    return family if len(hatch) == 1 else family + "2"
+
+
 # ---------------------------------------------------------------------------
 # Colors
 # ---------------------------------------------------------------------------

@@ -3079,6 +3079,9 @@ class GLEWriter:
           GLE's auto-key-from-header behavior (verified empirically: this
           statement alone draws nothing, and makes rendering byte-identical
           to the headerless case).
+        - ``pattern`` / ``background``: ``pattern P background B`` after the
+          fill, which is then the hatch ink. ``bar``'s ``pattern`` also
+          updates the dataset's ``key_fill``, so the legend swatch is hatched.
         - ``width``: bar width in DATA units (G19). Absent leaves the sizing
           to GLE, which is what every bar chart gleplot wrote before the field
           existed; a number is emitted verbatim and suppresses G16's derived
@@ -3152,6 +3155,7 @@ class GLEWriter:
             )
             bar_cmd = f"    bar {d_name} fill {','.join(fill_tokens)}"
 
+        bar_cmd += self._bar_pattern_clause([series])
         bar_cmd += self._bar_qualifiers(
             edgecolor,
             edge_list,
@@ -3243,6 +3247,7 @@ class GLEWriter:
             bar_cmd += " from " + ",".join(from_names)
         if fills:
             bar_cmd += " fill " + ",".join(fills)
+        bar_cmd += self._bar_pattern_clause(members)
         bar_cmd += self._bar_qualifiers(
             first.get("edgecolor"),
             first.get("edge_list"),
@@ -3265,6 +3270,44 @@ class GLEWriter:
                 member.get("swatch_color"),
                 has_header,
             )
+
+    @staticmethod
+    def _bar_pattern_clause(members: Sequence[Mapping[str, Any]]) -> str:
+        """`` pattern P,... background B,...`` for a bar command, or empty.
+
+        Both lists are positional over the command's datasets, so they
+        cover the leading members that have a pattern. GLE turns a
+        ``background`` alone into a ``SHADE`` fill, so a member without a
+        pattern ends both lists. What that leaves out is warned about.
+        """
+        patterns: List[str] = []
+        backgrounds: List[str] = []
+        stopped = dropped = False
+        for member in members:
+            pattern = member.get("pattern")
+            background = member.get("background")
+            if stopped or not pattern:
+                stopped = True
+                dropped = dropped or bool(pattern or background)
+                continue
+            patterns.append(pattern)
+            if background and len(backgrounds) == len(patterns) - 1:
+                backgrounds.append(background)
+            elif background:
+                dropped = True
+        if dropped:
+            warn_external(
+                "A bar group's pattern or background could not be written: "
+                "GLE assigns them to the datasets in order, so only the "
+                "leading members' are kept. Give every member of the group "
+                "a pattern, or split the group into separate bar() calls."
+            )
+        if not patterns:
+            return ""
+        clause = " pattern " + ",".join(patterns)
+        if backgrounds:
+            clause += " background " + ",".join(backgrounds)
+        return clause
 
     def _bar_qualifiers(
         self,
@@ -4566,17 +4609,20 @@ class GLEWriter:
         marker: Optional[str] = None,
         markersize: Optional[float] = None,
         fill: Optional[str] = None,
+        pattern: Optional[str] = None,
     ) -> str:
         """The ``begin key`` entry tail for one series.
 
-        A fill swatch is ``fill COLOR``. A line swatch restates the colour,
+        A fill swatch is ``fill COLOR``, plus ``pattern P`` for a hatched
+        bar. Not its ``background``: inside ``begin key`` that keyword is
+        the background of the whole key, so the swatch hatches on white. A line swatch restates the colour,
         width and ``lstyle`` the dataset command would, which is what makes
         ``entry->lstyle`` non-empty so the key draws a stroke
         (``key.cpp``). A marker-only series is ``marker`` / ``msize`` /
         ``color``, the same tokens as the dataset line.
         """
         if fill is not None:
-            return f"fill {fill}"
+            return f"fill {fill}" + (f" pattern {pattern}" if pattern else "")
         parts: List[str] = []
         has_line = linestyle not in ("none", "None", "", " ", None)
         if has_line:

@@ -171,6 +171,8 @@ def test_the_degrade_list_is_gles_whole_bar_grammar():
         "lwidth",
         "from",
         "color",
+        "pattern",
+        "background",
     }
     assert set(_BAR_UNMODELLED_OPTIONS) == grammar - modelled
 
@@ -183,8 +185,6 @@ def test_the_degrade_list_is_gles_whole_bar_grammar():
         "style ...",
         "side green",
         "top black",
-        "pattern grid5",
-        "background white",
     ],
 )
 def test_an_unmodelled_option_keeps_the_whole_command_raw(tmp_path, option):
@@ -215,12 +215,12 @@ def test_several_unmodelled_options_are_named_together(tmp_path):
     p = _write(
         tmp_path,
         "m.gle",
-        _script("bar d1 fill red 3d 0.2 0.2 pattern grid5"),
+        _script("bar d1 fill red 3d 0.2 0.2 side green"),
         {"two.dat": _TWO_DAT},
     )
     rec = parse_gle_figure(p)
     (note,) = rec.notes
-    assert "3d" in note.message and "pattern" in note.message
+    assert "3d" in note.message and "side" in note.message
 
 
 def test_a_width_gleplot_cannot_evaluate_degrades_rather_than_vanishing(tmp_path):
@@ -361,7 +361,7 @@ def test_grouped_bars_that_do_not_share_x_stay_raw(tmp_path):
 def test_a_degraded_bar_is_a_parse_emit_parse_fixed_point(tmp_path, monkeypatch):
     """Raw means raw: the command and its data line come back out untouched."""
     monkeypatch.chdir(tmp_path)
-    bar_line = "bar d1 fill red 3d 0.2 0.2 pattern grid5"
+    bar_line = "bar d1 fill red 3d 0.2 0.2 side green"
     _write(tmp_path, "h.gle", _script(bar_line), {"two.dat": _TWO_DAT})
 
     glp.open_gle("h.gle").savefig_gle("first.gle")
@@ -372,3 +372,108 @@ def test_a_degraded_bar_is_a_parse_emit_parse_fixed_point(tmp_path, monkeypatch)
 
     glp.open_gle("first.gle").savefig_gle("second.gle")
     assert Path("second.gle").read_text(encoding="utf-8") == first
+
+
+def test_a_hand_written_pattern_lands_in_the_model(tmp_path, monkeypatch):
+    """``pattern`` and ``background`` are fields, written back as authored."""
+    monkeypatch.chdir(tmp_path)
+    bar_line = "bar d1 fill red pattern shade3 background yellow"
+    _write(tmp_path, "p.gle", _script(bar_line), {"two.dat": _TWO_DAT})
+    rec = parse_gle_figure(tmp_path / "p.gle")
+    (bar,) = rec.figure.axes_list[0].bars
+
+    assert not rec.notes
+    assert (bar["colors"][0], bar["pattern"], bar["background"]) == (
+        "red",
+        "shade3",
+        "yellow",
+    )
+    rec.figure.savefig_gle("out.gle")
+    out = Path("out.gle").read_text(encoding="utf-8")
+    assert "bar d1 fill red pattern shade3 background yellow" in out
+
+
+def test_a_grouped_pattern_is_one_per_dataset(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    body = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "g.dat" d1=c1,c2 d2=c1,c3\n'
+        "   bar d1,d2 fill red,blue pattern shade,rshade background white\n"
+        "end graph\n"
+    )
+    _write(tmp_path, "g.gle", body, {"g.dat": "1 5 2\n2 3 4\n"})
+    rec = parse_gle_figure(tmp_path / "g.gle")
+    first, second = rec.figure.axes_list[0].bars
+
+    assert (first["pattern"], first["background"]) == ("shade", "white")
+    assert second["pattern"] == "rshade" and "background" not in second
+    rec.figure.savefig_gle("out.gle")
+    out = Path("out.gle").read_text(encoding="utf-8")
+    assert "pattern shade,rshade background white" in out
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        # GLE gives a background with no pattern a SHADE fill.
+        "background white",
+        # More patterns than datasets.
+        "pattern shade,grid",
+        # Not one of GLE's pattern names.
+        "pattern hatch1",
+    ],
+)
+def test_a_pattern_the_series_cannot_carry_stays_raw(tmp_path, option):
+    bar_line = f"bar d1 fill red {option}"
+    p = _write(tmp_path, "r.gle", _script(bar_line), {"two.dat": _TWO_DAT})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+
+    assert ax.bars == []
+    assert f"   {bar_line}" in ax.passthrough
+    assert '   data "two.dat" d1=c1,c2' in ax.passthrough
+    (note,) = rec.notes
+    assert option.split()[0] in note.message and "raw GLE" in note.message
+
+
+_GROUP_DAT = "1 5 2\n2 3 4\n"
+
+
+def _group_script(bar_line):
+    return (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "g.dat" d1=c1,c2 d2=c1,c3\n'
+        f"   {bar_line}\n"
+        "end graph\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        _script("bar d1 pattern shade"),
+        _group_script("bar d1,d2 fill black pattern shade,rshade"),
+    ],
+)
+def test_a_pattern_with_no_fill_of_its_own_stays_raw(tmp_path, script):
+    """GLE's default ink has no token the series could write back."""
+    bar_line = script.splitlines()[3]
+    p = _write(tmp_path, "n.gle", script, {"two.dat": _TWO_DAT, "g.dat": _GROUP_DAT})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].bars == []
+    assert bar_line in rec.figure.axes_list[0].passthrough
+
+
+def test_a_group_pattern_the_command_cannot_carry_warns(tmp_path, monkeypatch):
+    """GLE's lists are positional, so a gap cannot be written back."""
+    monkeypatch.chdir(tmp_path)
+    script = _group_script("bar d1,d2 fill red,blue pattern shade,rshade")
+    _write(tmp_path, "w.gle", script, {"g.dat": _GROUP_DAT})
+    fig = glp.open_gle("w.gle")
+    first, _second = fig.axes_list[0].bars
+    del first["pattern"]
+    with pytest.warns(UserWarning, match="pattern or background could not"):
+        fig.savefig_gle("out.gle")
+    assert "pattern" not in Path("out.gle").read_text(encoding="utf-8")

@@ -716,8 +716,16 @@ class BarSeries(Series):
     #: series per bar, and a grouped ``bar d1,d2 fill c1,c2`` is several
     #: series that share :attr:`group`. A single series whose ``fill`` list
     #: is longer than one dataset keeps the extra tokens in
-    #: :attr:`fill_list` (GLE stores them and draws the first).
+    #: :attr:`fill_list` (GLE stores them and draws the first). With a
+    #: :attr:`pattern`, GLE's ``fill`` is the hatch ink, so this is too.
     colors: Optional[List[str]]
+    #: GLE fill pattern (``bar ... pattern SHADE``: ``SHADE``, ``RSHADE``
+    #: or ``GRID``, optionally numbered 1-5), matplotlib's ``hatch``.
+    #: Absent: a solid fill. The pattern also reaches the legend swatch.
+    pattern: Optional[str]
+    #: Colour under the hatch (``bar ... background``), matplotlib's face
+    #: colour when :attr:`pattern` is set. Absent: GLE's white.
+    background: Optional[str]
     #: Authored ``fill`` tokens when they are not just :attr:`colors`' first
     #: entry. The writer emits this list verbatim. Absent on an API series.
     fill_list: Optional[List[str]]

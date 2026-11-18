@@ -192,7 +192,9 @@ caps and round joins.
 
 `ax.bar(x, height)` emits `bar dN fill RED`. One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. A single colour, including the same colour repeated, stays one command.
 
-`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. `edgecolor='none'` emits `lwidth 0` (GLE has no missing edge). `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered. `hatch` warns and is ignored.
+`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. `edgecolor='none'` emits `lwidth 0` (GLE has no missing edge). `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered.
+
+`hatch` is GLE's `pattern`. Every GLE pattern is diagonal, so only these hatches have one: `'/'` is `SHADE`, `'\\'` is `RSHADE` and `'x'` (or `'X'`) is `GRID`. Repeated (`'//'`, `'xx'`, ...) they are the `2` variants, at half the spacing; a longer run is no denser. `'|'`, `'-'`, `'+'`, `'o'`, `'O'`, `'.'`, `'*'` and any mix such as `'/\\'` warn, and those bars are drawn solid. A sequence gives one hatch per bar, like a colour sequence, and splits the call the same way. GLE's `fill` is the hatch ink and `background` the colour under it, so `ax.bar(x, h, color='yellow', hatch='//')` emits `fill BLACK pattern SHADE2 background YELLOW`. As in matplotlib, the ink is `edgecolor`, or black when there is no edge or it is `'none'`, and `color='none'` is a `CLEAR` background. The legend swatch is hatched too. In a legend gleplot writes as a `begin key` block, the swatch hatches on white: there, `background` would colour the whole key. GLE's hatch lines are thinner than matplotlib's, and their spacing is fixed in centimetres.
 
 `yerr` and `xerr` draw whiskers at the tip of each bar. A scalar or a length-n sequence is symmetric. Shape `(2, n)` is asymmetric (first row minus, second row plus); `(2, 1)` broadcasts. The whisker is a separate markerless error-bar series, because GLE's `horiz` swaps axes only while drawing the bar and an `err`/`herr` dataset is not swapped. A vertical bar's tip is `(x, bottom + height)`. A horizontal bar's tip is `(left + width, y)`. `yerr` stays vertical and `xerr` stays horizontal, so `barh(..., xerr=)` is a `herr` along the length.
 
@@ -200,7 +202,7 @@ caps and round joins.
 
 An autoscaled x axis now includes `xerr`, the way the y axis already included `yerr`. A horizontal whisker is not clipped by the `xaxis` gleplot writes. This applies to `errorbar` as well as to bars.
 
-Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 fill c1,c2` is GLE's side-by-side group and round-trips as one command, `dist` included. `3d`, `pattern`, `style`, `side`, `top`, `notop` and `background` have no series field; the whole command stays raw GLE.
+Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 fill c1,c2` is GLE's side-by-side group and round-trips as one command, `dist` included, and so do `pattern` and `background` when they give each dataset at most one pattern, a `fill`, and a background only under a pattern. `3d`, `style`, `side`, `top` and `notop` have no series field; the whole command stays raw GLE.
 
 | call | GLE |
 |---|---|
@@ -304,6 +306,7 @@ ax.fill(x, y, alpha=0.4)
 | `fill_betweenx` | not available. These fill forms are vertical. |
 | `fill` extra polygons | the first polygon is drawn. The rest warn and are ignored. |
 | `edgecolor`, `linewidth` on `fill` | warn and are ignored. GLE fills the interior and does not stroke it. |
+| `hatch` | warns and is ignored. A graph `fill` has no `pattern` keyword, and a pattern name given as its colour draws black lines on white, which would hide the face colour. |
 | `alpha` | unchanged: below 1 the colour is `rgba255(...)`. |
 
 ## Saving
