@@ -9,6 +9,7 @@ and ``axis('off')`` is the hidden frame ``pie(frame=False)`` already writes.
 import re
 import warnings
 
+import numpy as np
 import pytest
 
 import gleplot as glp
@@ -62,13 +63,33 @@ def test_twinx_plots_on_the_right_scale_like_yaxis_y2():
     assert right.get_ylim() == (0, 40)
 
 
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda r: r.scatter([1, 2], [3, 4]),
+        lambda r: r.errorbar([1, 2], [3, 4], yerr=[0.1, 0.1]),
+        lambda r: r.step([1, 2], [3, 4]),
+        lambda r: r.stem([1, 2], [3, 4]),
+        lambda r: r.hist([1, 2, 2, 3], histtype="step"),
+    ],
+    ids=["scatter", "errorbar", "step", "stem", "hist"],
+)
+def test_twinx_binds_every_plotting_method_to_y2(call):
+    fig, ax = _axes()
+    call(ax.twinx())
+    assert " y2axis" in _script(fig)
+
+
 def test_twinx_shares_the_x_axis():
     fig, ax = _axes()
     right = ax.twinx()
     right.set_xlim(0, 5)
     right.set_xlabel("time")
-    assert ax.get_xlim() == (0, 5)
+    right.set_xscale("log")
+    right.invert_xaxis()
+    assert ax.get_xlim() == (5, 0)
     assert ax.xlabel_text == "time"
+    assert ax.xscale == "log"
 
 
 def test_twinx_warns_on_matplotlib_keywords_it_cannot_use():
@@ -126,7 +147,9 @@ def test_invert_on_a_twin_scale_needs_its_limits():
     _fig, ax = _axes()
     ax.plot([1, 2, 3], [1, 4, 9], yaxis="y2")
     right = ax.twinx()
-    with pytest.warns(UserWarning, match="y2 axis has automatic limits"):
+    with pytest.warns(
+        UserWarning, match="GLE chooses the automatic range of the y2 axis"
+    ):
         right.invert_yaxis()
     right.set_ylim(0, 10)
     right.invert_yaxis()
@@ -135,6 +158,13 @@ def test_invert_on_a_twin_scale_needs_its_limits():
     top.set_xlim(0, 1)
     top.invert_xaxis()
     assert ax.get_xlim(axis="x2") == (1, 0)
+
+
+def test_invert_fills_a_log_axis_from_the_positive_data_only():
+    _fig, ax = _axes()
+    ax.semilogy([1, 2, 3], [0, 10, 100])
+    ax.invert_yaxis()
+    assert ax.get_ylim() == (100, 10)
 
 
 def test_invert_on_a_log_axis_keeps_the_save_time_warning():
@@ -170,6 +200,13 @@ def test_semilog_base_10_is_silent_and_other_bases_warn():
         ax.semilogx([1, 10], [1, 2], base=10)
     with pytest.warns(UserWarning, match=r"semilogy\(\) ignores base=2, subs="):
         ax.semilogy([1, 10], [1, 2], base=2, subs=[2, 5])
+
+
+def test_a_rejected_semilog_call_leaves_the_scale_alone():
+    _fig, ax = _axes()
+    with pytest.raises(TypeError):
+        ax.semilogy([1, 2])
+    assert ax.yscale == "linear"
 
 
 def test_module_level_semilog_wrappers():
@@ -230,7 +267,8 @@ def test_axis_on_restores_the_script():
     fig, ax = _axes()
     ax.plot([1, 2, 3], [1, 2, 3])
     before = _script(fig)
-    ax.axis(False)
+    ax.axis(np.bool_(False))
+    assert ax._frame_off
     ax.axis(True)
     assert _script(fig) == before
 
@@ -267,6 +305,12 @@ def test_axis_rejects_what_matplotlib_rejects():
         ax.axis([0, 1])
     with pytest.raises(TypeError, match="'zmin'"):
         ax.axis(zmin=0)
+
+
+def test_axis_emit_false_warns():
+    _fig, ax = _axes()
+    with pytest.warns(UserWarning, match="emit=False"):
+        ax.axis([0, 1, 0, 1], emit=False)
 
 
 def test_axis_equal_warns():

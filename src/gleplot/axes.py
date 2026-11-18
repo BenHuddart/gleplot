@@ -6849,7 +6849,9 @@ class Axes:
         the data plotted so far, so the limits are fixed from then on: data
         plotted afterwards does not widen the axis. Plot first, then invert.
         With nothing plotted, this warns and does nothing; call
-        ``set_xlim(right, left)`` instead. GLE cannot invert a log axis, so
+        ``set_xlim(right, left)`` instead. GLE picks the automatic range of
+        the :meth:`twiny` and :meth:`twinx` scales itself, so inverting one
+        of those needs its limits set first. GLE cannot invert a log axis, so
         ``savefig`` warns and draws one the usual way round.
         """
         return self._invert_axis("x", "invert_xaxis")
@@ -6869,22 +6871,33 @@ class Axes:
         """Swap ``which``'s limits, filling an automatic one from the data."""
         lo = getattr(self, f"{which}min")
         hi = getattr(self, f"{which}max")
+        if (lo is None or hi is None) and which in ("x2", "y2"):
+            # The figure autoscales only x and y at save time; GLE picks the
+            # x2/y2 range itself, so there is no range here to fill from.
+            setter = "set_xlim" if which == "x2" else "set_ylim"
+            view = "twiny" if which == "x2" else "twinx"
+            warn_external(
+                f"{method}() did nothing: GLE chooses the automatic range of "
+                f"the {which} axis, so there are no limits to swap. Call "
+                f"{setter}() on the {view}() view with the limits in "
+                "descending order."
+            )
+            return self
         if lo is None or hi is None:
-            # The figure autoscales x and y from the data at save time; the
-            # x2/y2 scales are left to GLE, so there is nothing to fill from.
-            data_lo, data_hi = {
-                "x": self.figure._get_data_xlim,
-                "y": self.figure._get_data_ylim,
-            }.get(which, lambda _ax: (None, None))(self)
+            data_lim = (
+                self.figure._get_data_xlim
+                if which == "x"
+                else self.figure._get_data_ylim
+            )
+            data_lo, data_hi = data_lim(
+                self, positive_only=getattr(self, f"{which}scale") == "log"
+            )
             lo = data_lo if lo is None else lo
             hi = data_hi if hi is None else hi
         if lo is None or hi is None or lo == hi:
-            setter = {
-                "x": "set_xlim(right, left)",
-                "y": "set_ylim(top, bottom)",
-                "x2": "set_xlim(right, left) on the twiny() view",
-                "y2": "set_ylim(top, bottom) on the twinx() view",
-            }[which]
+            setter = (
+                "set_xlim(right, left)" if which == "x" else "set_ylim(top, bottom)"
+            )
             warn_external(
                 f"{method}() did nothing: the {which} axis has automatic limits "
                 "and no data range to invert. Plot the data first, or call "
@@ -6912,8 +6925,9 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("semilogx", kwargs)
+        result = self.plot(*args, **kwargs)
         self.set_xscale("log")
-        return self.plot(*args, **kwargs)
+        return result
 
     @_cartesian_only
     def semilogy(self, *args, **kwargs):
@@ -6925,8 +6939,9 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("semilogy", kwargs)
+        result = self.plot(*args, **kwargs)
         self.set_yscale("log")
-        return self.plot(*args, **kwargs)
+        return result
 
     @_cartesian_only
     def loglog(self, *args, **kwargs):
@@ -6938,9 +6953,10 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("loglog", kwargs)
+        result = self.plot(*args, **kwargs)
         self.set_xscale("log")
         self.set_yscale("log")
-        return self.plot(*args, **kwargs)
+        return result
 
     @staticmethod
     def _check_log_kwargs(method: str, kwargs: Dict[str, Any]) -> None:
@@ -7235,50 +7251,47 @@ class Axes:
                 "axis(emit=False) has no effect: gleplot has no limit-change "
                 "callbacks to silence."
             )
-        if isinstance(arg, (str, bool)):
-            self._axis_option(arg)
-        else:
-            if arg is not None:
-                arg = list(arg)
-                if len(arg) != 4:
-                    raise TypeError(
-                        "axis() takes [xmin, xmax, ymin, ymax] as its first "
-                        f"argument; got {arg!r}."
-                    )
-                kwargs = dict(zip(("xmin", "xmax", "ymin", "ymax"), arg))
-            for name in ("x", "y"):
-                lo = kwargs.get(f"{name}min")
-                hi = kwargs.get(f"{name}max")
-                # matplotlib leaves a limit passed as None where it was.
-                if lo is not None or hi is not None:
-                    old_lo, old_hi = getattr(self, f"get_{name}lim")()
-                    getattr(self, f"set_{name}lim")(
-                        old_lo if lo is None else lo, old_hi if hi is None else hi
-                    )
+        if isinstance(arg, (bool, np.bool_)):
+            arg = "on" if arg else "off"
+        if isinstance(arg, str):
+            option = arg.lower()
+            if option == "on":
+                self.set_axis_on()
+            elif option == "off":
+                self.set_axis_off()
+            elif option in ("tight", "auto"):
+                self.set_xlim(None, None)
+                self.set_ylim(None, None)
+            elif option in ("equal", "scaled", "image", "square"):
+                warn_external(
+                    f"axis({arg!r}) has no effect: GLE has no aspect-ratio "
+                    "constraint. Choose figsize and the limits so that a unit "
+                    "has the same length on both axes."
+                )
+            else:
+                raise ValueError(
+                    f"axis({arg!r}) is not a known option; use 'on', 'off', "
+                    "'tight', 'auto', 'equal', 'scaled', 'image' or 'square'."
+                )
+            return (*self.get_xlim(), *self.get_ylim())
+        if arg is not None:
+            arg = list(arg)
+            if len(arg) != 4:
+                raise TypeError(
+                    "axis() takes [xmin, xmax, ymin, ymax] as its first "
+                    f"argument; got {arg!r}."
+                )
+            kwargs = dict(zip(("xmin", "xmax", "ymin", "ymax"), arg))
+        for name in ("x", "y"):
+            lo = kwargs.get(f"{name}min")
+            hi = kwargs.get(f"{name}max")
+            # matplotlib leaves a limit passed as None where it was.
+            if lo is not None or hi is not None:
+                old_lo, old_hi = getattr(self, f"get_{name}lim")()
+                getattr(self, f"set_{name}lim")(
+                    old_lo if lo is None else lo, old_hi if hi is None else hi
+                )
         return (*self.get_xlim(), *self.get_ylim())
-
-    def _axis_option(self, arg) -> None:
-        """``axis('off')`` and the other string (or bool) forms."""
-        option = {True: "on", False: "off"}[arg] if isinstance(arg, bool) else arg
-        option = option.lower()
-        if option == "on":
-            self.set_axis_on()
-        elif option == "off":
-            self.set_axis_off()
-        elif option in ("tight", "auto"):
-            self.set_xlim(None, None)
-            self.set_ylim(None, None)
-        elif option in ("equal", "scaled", "image", "square"):
-            warn_external(
-                f"axis({arg!r}) has no effect: GLE has no aspect-ratio "
-                "constraint. Choose figsize and the limits so that a unit has "
-                "the same length on both axes."
-            )
-        else:
-            raise ValueError(
-                f"axis({arg!r}) is not a known option; use 'on', 'off', "
-                "'tight', 'auto', 'equal', 'scaled', 'image' or 'square'."
-            )
 
     @_cartesian_only
     def set_axis_off(self):
