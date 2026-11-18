@@ -36,6 +36,30 @@ Any whitespace-delimited file that GLE can read, for example:
 1.0  1.41  0.10  1.39
 ```
 
+## Reading Options
+
+`skiprows`, `comment` and `max_rows` tell GLE how to read the file: skip
+leading lines, use another comment marker than `!`, and stop after a number
+of data rows. They become GLE's `ignore`, `comment` and `numrows` options on
+the `data` command; the API reference for
+[`Axes.line_from_file`](https://benhuddart.github.io/gleplot/api_axes.html#gleplot.Axes.line_from_file)
+gives the details.
+
+```python
+ax.line_from_file(
+    'log.csv', x_col=1, y_col=2, skiprows=3, comment='#', max_rows=100
+)
+```
+
+GLE also reads these files on its own terms, with no keyword needed:
+
+- If the first row holds labels rather than numbers, GLE uses the label of
+  each series' y column as its legend entry when the call gives no `label`.
+- `x_col=0` uses the row number (1, 2, 3, ...) as x. If the file's first
+  column is text, GLE then labels the x axis with it, which plots one
+  value per category.
+- A file name ending in `.gz` is read as gzip-compressed data.
+
 ## Typical Workflow
 
 1. Produce `results.dat` in your analysis step.

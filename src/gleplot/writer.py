@@ -1040,6 +1040,26 @@ class GLEWriter:
         #: ``[]`` alongside its byte-identical script.
         self.decimation_report: List[DecimationRecord] = []
 
+    @staticmethod
+    def _data_read_clause(series: Series) -> str:
+        """`` ignore n comment "c" numrows m`` for a file series' ``data`` line.
+
+        Each option is written only when the series has it. The comment
+        marker is always quoted: bare, ``!`` would start a script comment
+        and ``;`` would end the statement. A marker recovered from a
+        single-quoted GLE string may hold ``"``; it keeps single quotes.
+        """
+        parts = []
+        if "skiprows" in series:
+            parts.append(f"ignore {int(series['skiprows'])}")
+        if "comment" in series:
+            comment = str(series["comment"])
+            quote = "'" if '"' in comment else '"'
+            parts.append(f"comment {quote}{comment}{quote}")
+        if "max_rows" in series:
+            parts.append(f"numrows {int(series['max_rows'])}")
+        return "".join(" " + part for part in parts)
+
     def _dataset_qualifier_clause(self, series: Series, marked_line: bool) -> str:
         """`` mdist m deresolve N [average] xmin a ...`` for a ``dN`` line.
 
@@ -3542,7 +3562,7 @@ class GLEWriter:
             d_yerr = f"d{self.dataset_index}"
             self.dataset_index += 1
             data_cmd += f" {d_yerr}=c{x_col},c{yerr_col}"
-        self.lines_gle.append(data_cmd)
+        self.lines_gle.append(data_cmd + self._data_read_clause(series))
 
         line_cmd = f"    {d_main}"
         # Both branches must set ``color``: GLE draws the error bars in the
@@ -3645,6 +3665,7 @@ class GLEWriter:
 
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"
+            + self._data_read_clause(series)
         )
 
         # File series have no per-series smooth field, so they inherit
@@ -3722,6 +3743,7 @@ class GLEWriter:
         self.dataset_index += 1
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_name}=c{x_col},c{y_col}"
+            + self._data_read_clause(series)
         )
         self.lines_gle.append(f"    bar {d_name} fill {color}")
         if label:
@@ -3825,7 +3847,7 @@ class GLEWriter:
         if target in ("x1", "x2", "polygon"):
             self.lines_gle.append(
                 f"    data {_format_data_filename(data_file)} "
-                f"{d1_name}=c{x_col},c{y1_col}"
+                f"{d1_name}=c{x_col},c{y1_col}" + self._data_read_clause(series)
             )
             if target == "x1":
                 head = f"x1,{d1_name}"
@@ -3841,6 +3863,7 @@ class GLEWriter:
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{d1_name}=c{x_col},c{y1_col} {d2_name}=c{x_col},c{y2_col}"
+            + self._data_read_clause(series)
         )
         self._append_fill(f"{d1_name},{d2_name}", color, clip)
         self._fill_key(d1_name, color, label, swatch_color, False)

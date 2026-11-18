@@ -1014,6 +1014,12 @@ class FileSeries(Series):
     mdist: float
     deresolve: int
     deresolve_average: bool
+    #: How GLE reads ``data_file``: ``ignore`` (leading lines skipped),
+    #: ``comment`` (the comment marker, replacing GLE's ``!``) and
+    #: ``numrows`` (data rows read). Absent: GLE's default.
+    skiprows: int
+    comment: str
+    max_rows: int
 
 
 class TextAnnotation(Series):

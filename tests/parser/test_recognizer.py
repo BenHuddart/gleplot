@@ -416,6 +416,31 @@ def test_broken_errorbar_becomes_file_series_with_error(tmp_path):
     assert any(w.startswith("data:") for w in recognized.warnings)
 
 
+def test_broken_sidecar_keeps_its_reading_options(tmp_path):
+    """A missing imported file degrades to a reference with its ``numrows``."""
+    fig = gleplot.figure(data_prefix="opts")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 4, 9])
+    ax.errorbar([1, 2, 3], [1, 2, 3], yerr=0.2)
+    gle_path = tmp_path / "f.gle"
+    fig.savefig_gle(str(gle_path))
+    for dat in tmp_path.glob("*.dat"):
+        dat.unlink()
+    text = gle_path.read_text(encoding="utf-8")
+    lines = [
+        line + " numrows 2" if line.lstrip().startswith("data ") else line
+        for line in text.splitlines()
+    ]
+    gle_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    refs = parse_gle_figure(gle_path).figure.axes_list[0].file_series
+    assert [(fs["series_type"], fs["max_rows"]) for fs in refs] == [
+        ("line", 2),
+        ("errorbar", 2),
+    ]
+    assert all("data_error" in fs for fs in refs)
+
+
 def test_broken_bar_becomes_file_series_with_error(tmp_path):
     """``bar dN fill COLOR`` against a missing data file -> FileSeries('bar')."""
     _gleplot_axes._global_data_file_counter = 0
@@ -983,6 +1008,45 @@ def test_dataset_qualifiers_are_recovered_and_round_trip(tmp_path):
     assert "deresolve 3 ymin -1 ymax 4" in text
     assert "deresolve 5" in text and "average deresolve" not in text
     again = tmp_path / "q-third.gle"
+    parse_gle_figure(out).figure.savefig_gle(str(again))
+    assert again.read_text(encoding="utf-8") == text
+
+
+def test_data_reading_options_are_recovered_and_round_trip(tmp_path):
+    """``ignore``, ``comment`` and ``numrows`` on a hand-written ``data`` line.
+
+    They used to be skipped as unknown tokens and lost on re-save. GLE takes
+    them anywhere after the file name, and the comment marker bare or quoted.
+    """
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        "   data r.dat ignore 2 d1=c1,c2 comment # numrows 10\n"
+        "   d1 line color RED\n"
+        '   data r.dat comment "%" d2=c1,c2 d3=c1,c3\n'
+        "   d2 marker circle err d3\n"
+        "   data r.dat d4=c0,c2\n"
+        "   d4 line\n"
+        "   data r.dat d5=c1,c2 comment '\"'\n"
+        "   d5 line\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "r.gle", src, {"r.dat": "1 2 3\n2 3 4\n"})
+    line, errs, plain, quote = parse_gle_figure(p).figure.axes_list[0].file_series
+    assert (line["skiprows"], line["comment"], line["max_rows"]) == (2, "#", 10)
+    assert errs["comment"] == "%" and "skiprows" not in errs
+    assert plain["x_col"] == 0
+    assert quote["comment"] == '"'
+    assert not {"skiprows", "comment", "max_rows"} & set(plain)
+    out = tmp_path / "r-again.gle"
+    parse_gle_figure(p).figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert 'data r.dat d1=c1,c2 ignore 2 comment "#" numrows 10' in text
+    assert 'data r.dat d2=c1,c2 d3=c1,c3 comment "%"' in text
+    assert "data r.dat d4=c0,c2\n" in text
+    assert "data r.dat d5=c1,c2 comment '\"'\n" in text
+    again = tmp_path / "r-third.gle"
     parse_gle_figure(out).figure.savefig_gle(str(again))
     assert again.read_text(encoding="utf-8") == text
 

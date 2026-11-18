@@ -1173,6 +1173,51 @@ def _apply_xaxis(fields: dict, xaxis: str) -> None:
     fields["xaxis"] = "x2"
 
 
+def _file_read_options(skiprows, comment, max_rows) -> Dict[str, Any]:
+    """The ``*_from_file`` reading options that were given, validated.
+
+    Only non-default ones are returned, so a call that passes none stores
+    the historical shape.
+    """
+    for name, value in (("skiprows", skiprows), ("max_rows", max_rows)):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, (int, np.integer))
+        ):
+            raise TypeError(f"{name} must be an integer; got {value!r}")
+    if comment is not None and not isinstance(comment, str):
+        raise TypeError(f"comment must be a string such as '#'; got {comment!r}")
+    fields: Dict[str, Any] = {}
+    if skiprows < 0:
+        raise ValueError(f"skiprows must be >= 0; got {skiprows!r}")
+    if skiprows:
+        fields["skiprows"] = int(skiprows)
+    if comment is not None:
+        if not comment or '"' in comment or any(ch.isspace() for ch in comment):
+            raise ValueError(
+                "comment must be a non-empty string with no whitespace or "
+                f"double quote, such as '#'; got {comment!r}"
+            )
+        fields["comment"] = comment
+    if max_rows is not None:
+        if max_rows < 1:
+            raise ValueError(
+                f"max_rows must be >= 1, or None to read every row; got {max_rows!r}"
+            )
+        fields["max_rows"] = int(max_rows)
+    return fields
+
+
+def _check_file_columns(x_col, **y_cols) -> None:
+    """Reject a column index GLE cannot read: ``x_col`` 0 is the row index."""
+    if x_col < 0:
+        raise ValueError(
+            f"x_col must be >= 0 (0 uses the row number as x), got {x_col!r}"
+        )
+    for name, col in y_cols.items():
+        if col is not None and col < 1:
+            raise ValueError(f"{name} must be >= 1, got {col!r}")
+
+
 def _dataset_qualifiers(
     mdist, deresolve, deresolve_average, xmin, xmax, ymin, ymax
 ) -> Dict[str, Any]:
@@ -2585,19 +2630,26 @@ class Axes:
         xaxis: str = "x",
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
+        skiprows: int = 0,
+        comment: Optional[str] = None,
+        max_rows: Optional[int] = None,
         **kwargs,
     ):
         """Plot by referencing columns in an existing external data file.
 
         This avoids writing generated ``data_*.dat`` files. Column indices are
-        1-based to match GLE conventions.
+        1-based to match GLE conventions; ``x_col=0`` uses the row number as
+        x (see :meth:`line_from_file`).
 
         ``fillstyle='none'`` / ``markerfacecolor='none'`` (alias ``mfc``)
         select an open marker; ``markerfacecolor='white'`` selects a
         white-filled one.
+
+        ``skiprows``, ``comment`` and ``max_rows`` control how GLE reads
+        the file, as for :meth:`line_from_file`.
         """
-        if x_col < 1 or y_col < 1 or (yerr_col is not None and yerr_col < 1):
-            raise ValueError("Column indices must be >= 1")
+        _check_file_columns(x_col, y_col=y_col, yerr_col=yerr_col)
+        read_options = _file_read_options(skiprows, comment, max_rows)
 
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
@@ -2621,6 +2673,7 @@ class Axes:
             label=label,
             capsize=gle_capsize,
             yaxis=yaxis,
+            **read_options,
         )
         _apply_xaxis(entry, xaxis)
         self._register_series_draw_meta(entry, "errorbar")
@@ -2641,19 +2694,30 @@ class Axes:
         xaxis: str = "x",
         drawstyle: Optional[str] = None,
         line_mode: Optional[str] = None,
+        skiprows: int = 0,
+        comment: Optional[str] = None,
+        max_rows: Optional[int] = None,
     ):
         """Plot a line by referencing columns in an external data file.
 
         This avoids creating generated ``data_*.dat`` files for overlay lines.
-        Column indices are 1-based to match GLE conventions.
+        Column indices are 1-based to match GLE conventions. ``x_col=0``
+        uses the row number (1, 2, 3, ...) as x; when the file's first
+        column is text, GLE then labels those x positions with it.
 
         ``drawstyle`` and ``line_mode`` are the same line modes as
         :meth:`plot`. ``linestyle='none'`` warns and drops the mode: there
         is no line for it to qualify. The series is still a line reference;
         this method has no scatter form.
+
+        ``skiprows`` skips that many leading lines of the file, ``comment``
+        replaces GLE's comment marker ``!``, and ``max_rows`` stops after
+        that many data rows (comment and blank lines do not count). They
+        are GLE's ``ignore``, ``comment`` and ``numrows`` options. GLE
+        itself reads a ``.gz`` file, so ``data_file`` may name one.
         """
-        if x_col < 1 or y_col < 1:
-            raise ValueError("Column indices must be >= 1")
+        _check_file_columns(x_col, y_col=y_col)
+        read_options = _file_read_options(skiprows, comment, max_rows)
 
         label = mathtext_to_gle(label)
         gle_color = self._resolve_color(color)
@@ -2676,6 +2740,7 @@ class Axes:
             nomiss=False,
             label=label,
             yaxis=yaxis,
+            **read_options,
         )
         _apply_xaxis(fields, xaxis)
         if mode:

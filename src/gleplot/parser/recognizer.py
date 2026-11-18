@@ -1108,6 +1108,9 @@ class _Recognizer:
         self.notes: List[ImportNote] = []
         # dataset name (lower) -> (data_file, xcol_1based, ycol_1based)
         self._datasets: Dict[str, Tuple[str, int, int]] = {}
+        # dataset name (lower) -> the FileSeries reading fields (skiprows,
+        # comment, max_rows) its 'data' statement set; absent when none.
+        self._data_read_options: Dict[str, Dict[str, Any]] = {}
         # resolved-table cache per data_file name
         self._table_cache: Dict[str, object] = {}
         self._import_list: Optional[List[str]] = None
@@ -3649,6 +3652,10 @@ class _Recognizer:
           column count), when the file resolves.  Single-column file -> d1 =
           index,c1.
 
+        The reading options ``ignore n``, ``comment c`` and ``numrows n``
+        may appear anywhere after the file name; each named dataset records
+        them (see :attr:`_data_read_options`).
+
         The filename token is *unwrapped* (STRING tokens have their quotes
         stripped) so ``data "wave.dat"`` registers ``wave.dat`` rather than the
         quote-embedded literal (which would never resolve).
@@ -3660,8 +3667,20 @@ class _Recognizer:
 
         # Collect dataset clauses in the order given: (name, explicit_cols|None).
         given: List[Tuple[str, Optional[Tuple[int, int]]]] = []
+        read_options: Dict[str, Any] = {}
         while i < m:
             name_tok = toks[i]
+            option = name_tok.value.lower() if name_tok.type is TokenType.WORD else ""
+            if option in ("ignore", "numrows") and i + 1 < m:
+                count = toks[i + 1].value
+                if toks[i + 1].type is TokenType.NUMBER and count.isdigit():
+                    field = "skiprows" if option == "ignore" else "max_rows"
+                    read_options[field] = int(count)
+                    i += 2
+                    continue
+            if option == "comment" and i + 1 < m:
+                read_options["comment"], i = self._read_filename(toks, i + 1)
+                continue
             if name_tok.type is not TokenType.WORD or not _DATASET_RE.match(
                 name_tok.value
             ):
@@ -3726,29 +3745,39 @@ class _Recognizer:
                 )
                 return []
             if ncols <= 1:
-                self._register_dataset("d1", data_file, 0, 1, datasets)
+                self._register_dataset("d1", data_file, 0, 1, datasets, read_options)
                 return ["d1"]
             names = [f"d{k + 1}" for k in range(ncols - 1)]
             for name in names:
                 k = int(name[1:]) - 1
-                self._register_dataset(name, data_file, 1, k + 2, datasets)
+                self._register_dataset(
+                    name, data_file, 1, k + 2, datasets, read_options
+                )
             return names
 
         # Explicit and/or positional clauses.
         for pos, (name, explicit) in enumerate(given):
             if explicit is not None:
                 self._register_dataset(
-                    name, data_file, explicit[0], explicit[1], datasets
+                    name, data_file, explicit[0], explicit[1], datasets, read_options
                 )
             else:
                 # Positional: y column follows GLE's position-based assignment.
                 ycol = pos + cy_first
-                self._register_dataset(name, data_file, cx, ycol, datasets)
+                self._register_dataset(
+                    name, data_file, cx, ycol, datasets, read_options
+                )
         return [name for name, _cols in given]
 
-    def _register_dataset(self, name, data_file, xcol, ycol, datasets):
+    def _register_dataset(
+        self, name, data_file, xcol, ycol, datasets, read_options=None
+    ):
         datasets[name] = (data_file, xcol, ycol)
         self._datasets[name] = (data_file, xcol, ycol)
+        if read_options:
+            self._data_read_options[name] = read_options
+        else:
+            self._data_read_options.pop(name, None)
 
     def _parse_let_command(self, toks, datasets, info):
         """``let dK = dJ+off`` / ``let dK = dJ-off`` -> register dK as an
@@ -4313,6 +4342,7 @@ class _Recognizer:
                     y_col=ycol,
                     color=(fills[0] if fills else "RED"),
                     data_error=fail_error,
+                    **self._data_read_options.get(names[0], {}),
                 )
                 info["file_series"].append(fs)
                 info["_key_suppress_datasets"].add(names[0])
@@ -4521,6 +4551,7 @@ class _Recognizer:
             else:
                 fs_fields["target"] = target
             fs_fields.update(clips)
+            fs_fields.update(self._data_read_options.get(d_names[0], {}))
             fs = FileSeries(**fs_fields)
             info["file_series"].append(fs)
             info["_key_label_owners"][d_names[0]] = fs
@@ -4770,7 +4801,9 @@ class _Recognizer:
 
         if not is_import:
             self._observe_unmodelled_smoothing("file-reference", attrs, line_no)
-            self._build_file_series(info, data_file, xcol, ycol, attrs, has_line)
+            self._build_file_series(
+                info, d_name, data_file, xcol, ycol, attrs, has_line
+            )
             return
 
         # Import series: load arrays.
@@ -4779,6 +4812,7 @@ class _Recognizer:
             self._observe_unmodelled_smoothing("file-reference", attrs, line_no)
             self._build_file_series(
                 info,
+                d_name,
                 data_file,
                 xcol,
                 ycol,
@@ -5143,6 +5177,11 @@ class _Recognizer:
         # marker; a marker-only errorbar with no 'line' token has linestyle
         # 'none'. Recover linestyle from lstyle / presence of line.
         linestyle = attrs["linestyle"] if attrs["has_line"] else "none"
+        read_options = (
+            self._data_read_options.get(orig_toks[0].value.lower(), {})
+            if orig_toks
+            else {}
+        )
 
         if not is_import:
             # File-series errorbar reference.
@@ -5160,6 +5199,7 @@ class _Recognizer:
                     capsize=gle_capsize,
                     **_dn_fields(attrs),
                     **attrs["qualifiers"],
+                    **read_options,
                 )
             )
             return
@@ -5197,6 +5237,7 @@ class _Recognizer:
                     capsize=gle_capsize,
                     **_dn_fields(attrs),
                     **attrs["qualifiers"],
+                    **read_options,
                     data_error=(loaded or {}).get("error", "unresolved"),
                 )
             )
@@ -5338,7 +5379,7 @@ class _Recognizer:
         return ["    " + rendered]
 
     def _build_file_series(
-        self, info, data_file, xcol, ycol, attrs, has_line, error=None
+        self, info, d_name, data_file, xcol, ycol, attrs, has_line, error=None
     ):
         markersize = _dn_markersize(attrs)
         # Branch on has_line ALONE: a 'd1 line marker circle lwidth X' reference
@@ -5377,6 +5418,7 @@ class _Recognizer:
                 **_dn_fields(attrs),
             )
         entry.update(attrs["qualifiers"])
+        entry.update(self._data_read_options.get(d_name, {}))
         if error is not None:
             entry["data_error"] = error
         entry["_draw_seq"] = info["_draw_seq_counter"]
