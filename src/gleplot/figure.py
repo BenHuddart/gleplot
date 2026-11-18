@@ -12,6 +12,7 @@ from . import palettes as _pal
 from ._warn import warn_external
 from .axes import (
     Axes,
+    _finite_float,
     _validate_data_prefix,
     histogram_counts,
 )
@@ -174,6 +175,77 @@ def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
     """
     allowed = cls.__dataclass_fields__.keys()
     return {k: v for k, v in data.items() if k in allowed}
+
+
+def _json_drawing(drawing: dict) -> dict:
+    """A copy of a page drawing whose point lists are not shared."""
+    return {k: list(v) if isinstance(v, list) else v for k, v in drawing.items()}
+
+
+def _page_positive(name: str, value) -> float:
+    number = _finite_float(value, name)
+    if number <= 0:
+        raise ValueError(f"{name} must be greater than 0, got {value!r}")
+    return number
+
+
+def _page_points(x, y, count: int, exact: bool = False):
+    """``x`` and ``y`` as equal-length lists of ``count`` (or more) finite floats."""
+    try:
+        xs = [_finite_float(v, "x") for v in x]
+        ys = [_finite_float(v, "y") for v in y]
+    except TypeError as err:
+        raise TypeError(
+            f"x and y must be sequences of numbers, got x={x!r}, y={y!r}"
+        ) from err
+    if len(xs) != len(ys):
+        raise ValueError(
+            f"x and y must have the same length, got {len(xs)} and {len(ys)}"
+        )
+    if len(xs) != count if exact else len(xs) < count:
+        need = "exactly" if exact else "at least"
+        raise ValueError(f"x and y must hold {need} {count} points, got {len(xs)}")
+    return xs, ys
+
+
+def _page_slope(name: str, value) -> List[float]:
+    try:
+        slope = [_finite_float(v, name) for v in value]
+    except TypeError as err:
+        raise TypeError(f"{name} must be a (dx, dy) pair, got {value!r}") from err
+    if len(slope) != 2:
+        raise ValueError(f"{name} must be a (dx, dy) pair, got {value!r}")
+    return slope
+
+
+def _is_none_color(color) -> bool:
+    return isinstance(color, str) and color.strip().lower() == "none"
+
+
+def _page_text(kind: str, s) -> str:
+    """Text for a ``begin tex``/``begin table`` block, one GLE line per line."""
+    if not isinstance(s, str):
+        raise TypeError(f"s must be a str, got {s!r}")
+    if not s.strip():
+        raise ValueError("s must contain some text, got an empty string")
+    lines = s.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    for line in lines:
+        words = line.split()
+        # GLE reads a line starting with 'begin' or 'end' as block structure,
+        # which would end the block early or leave it open.
+        if words and words[0].lower() in ("begin", "end"):
+            raise ValueError(
+                f"s cannot have a line that starts with {words[0]!r}: GLE would "
+                f"read it as the start or end of a block. Got line {line!r}."
+            )
+    # GLE puts the brace that closes its LaTeX box on the last line.
+    if kind == "tex" and re.search(r"(?<!\\)%", lines[-1]):
+        raise ValueError(
+            "the last line of s cannot hold a LaTeX % comment: GLE closes its "
+            "box on that line, so the comment would hide the closing brace. "
+            f"Write \\% for a percent sign. Got line {lines[-1]!r}."
+        )
+    return "\n".join(lines)
 
 
 def _grid_position(ax: Axes) -> Tuple[int, int, int]:
@@ -430,6 +502,11 @@ class Figure:
         self.passthrough_before_hei: list = []
         self.passthrough_header: list = []
         self.passthrough_trailer: list = []
+
+        # Shapes and text blocks drawn on the page in cm (Figure.circle ...
+        # Figure.tex), one dict per call with its "kind", in call order.
+        # Written after every graph block, before passthrough_trailer.
+        self._drawings: List[dict] = []
 
         # Unknown keys recovered from a parsed '! gleplot:' metadata block,
         # re-emitted verbatim in the metadata block on regeneration. Default:
@@ -1408,6 +1485,249 @@ class Figure:
         """Add legend to current axes."""
         return self.gca().legend(**kwargs)
 
+    # Free page drawing. Positions and sizes are in cm from the bottom-left
+    # corner of the page, like Axes.placement, not in data coordinates.
+
+    def _add_drawing(self, drawing: dict, fill=None, color=None, linewidth=None):
+        if fill is not None and not _is_none_color(fill):
+            drawing["fill"] = rgb_to_gle(fill)
+        if _is_none_color(color):
+            if drawing["kind"] not in ("circle", "ellipse", "polygon"):
+                raise ValueError(
+                    f"color='none' would leave the {drawing['kind']} invisible; "
+                    "pass a colour, or leave it out for black"
+                )
+            drawing["color"] = "none"
+        elif color is not None:
+            drawing["color"] = rgb_to_gle(color)
+        if linewidth is not None:
+            drawing["linewidth"] = _page_positive("linewidth", linewidth)
+        self._drawings.append(drawing)
+
+    def _add_text_block(self, kind: str, x, y, s) -> None:
+        self._drawings.append(
+            {
+                "kind": kind,
+                "x": _finite_float(x, "x"),
+                "y": _finite_float(y, "y"),
+                "text": _page_text(kind, s),
+            }
+        )
+
+    def circle(self, x, y, radius, *, fill=None, color=None, linewidth=None) -> None:
+        """Draw a circle on the page, outside any axes.
+
+        Parameters
+        ----------
+        x, y : float
+            Centre, in cm from the bottom-left corner of the page.
+        radius : float
+            Radius in cm.
+        fill : color, optional
+            Fill colour. Default (or ``'none'``): not filled.
+        color : color, optional
+            Outline colour, or ``'none'`` for no outline. Default: black.
+        linewidth : float, optional
+            Outline width in points. Default: GLE's line width.
+
+        Notes
+        -----
+        Page drawings are written after every axes, so they sit on top of
+        them, in the order they were added. Writes GLE's ``circle``.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig = glp.figure()
+        >>> fig.circle(2, 3, radius=0.4, fill="red")
+        """
+        drawing = {
+            "kind": "circle",
+            "x": _finite_float(x, "x"),
+            "y": _finite_float(y, "y"),
+            "radius": _page_positive("radius", radius),
+        }
+        self._add_drawing(drawing, fill, color, linewidth)
+
+    def ellipse(
+        self, x, y, width, height, *, fill=None, color=None, linewidth=None
+    ) -> None:
+        """Draw an ellipse on the page, outside any axes.
+
+        Parameters
+        ----------
+        x, y : float
+            Centre, in cm from the bottom-left corner of the page.
+        width, height : float
+            Diameters along x and y, in cm.
+        fill : color, optional
+            Fill colour. Default (or ``'none'``): not filled.
+        color : color, optional
+            Outline colour, or ``'none'`` for no outline. Default: black.
+        linewidth : float, optional
+            Outline width in points. Default: GLE's line width.
+
+        Notes
+        -----
+        Writes GLE's ``ellipse``. See :meth:`circle` for the drawing order.
+        """
+        drawing = {
+            "kind": "ellipse",
+            "x": _finite_float(x, "x"),
+            "y": _finite_float(y, "y"),
+            "width": _page_positive("width", width),
+            "height": _page_positive("height", height),
+        }
+        self._add_drawing(drawing, fill, color, linewidth)
+
+    def arc(self, x, y, radius, theta1, theta2, *, color=None, linewidth=None) -> None:
+        """Draw a circular arc on the page, outside any axes.
+
+        Parameters
+        ----------
+        x, y : float
+            Centre of the circle, in cm from the bottom-left corner of the page.
+        radius : float
+            Radius in cm.
+        theta1, theta2 : float
+            Start and end angles in degrees. The arc runs anticlockwise from
+            ``theta1`` to ``theta2``; 0 is three o'clock.
+        color : color, optional
+            Line colour. Default: black.
+        linewidth : float, optional
+            Line width in points. Default: GLE's line width.
+
+        Notes
+        -----
+        Writes GLE's ``arc``. See :meth:`circle` for the drawing order.
+        """
+        drawing = {
+            "kind": "arc",
+            "x": _finite_float(x, "x"),
+            "y": _finite_float(y, "y"),
+            "radius": _page_positive("radius", radius),
+            "theta1": _finite_float(theta1, "theta1"),
+            "theta2": _finite_float(theta2, "theta2"),
+        }
+        self._add_drawing(drawing, None, color, linewidth)
+
+    def bezier(self, x, y, *, color=None, linewidth=None) -> None:
+        """Draw a cubic Bézier curve on the page, outside any axes.
+
+        Parameters
+        ----------
+        x, y : sequence of 4 floats
+            The start point, the two control points and the end point, in cm
+            from the bottom-left corner of the page.
+        color : color, optional
+            Line colour. Default: black.
+        linewidth : float, optional
+            Line width in points. Default: GLE's line width.
+
+        Notes
+        -----
+        Writes GLE's ``bezier``. See :meth:`circle` for the drawing order.
+        """
+        xs, ys = _page_points(x, y, 4, exact=True)
+        self._add_drawing({"kind": "bezier", "x": xs, "y": ys}, None, color, linewidth)
+
+    def curve(
+        self, x, y, start_slope, end_slope, *, color=None, linewidth=None
+    ) -> None:
+        """Draw a smooth curve through points on the page, outside any axes.
+
+        Parameters
+        ----------
+        x, y : sequence of float
+            At least two points the curve passes through, in order, in cm from
+            the bottom-left corner of the page.
+        start_slope, end_slope : (float, float)
+            Tangent vector ``(dx, dy)`` of the curve at the first and last
+            point. Its length matters as well as its direction: a longer
+            vector carries the curve further that way before it turns.
+        color : color, optional
+            Line colour. Default: black.
+        linewidth : float, optional
+            Line width in points. Default: GLE's line width.
+
+        Notes
+        -----
+        Writes GLE's ``curve``. See :meth:`circle` for the drawing order.
+        """
+        xs, ys = _page_points(x, y, 2)
+        drawing = {
+            "kind": "curve",
+            "x": xs,
+            "y": ys,
+            "start_slope": _page_slope("start_slope", start_slope),
+            "end_slope": _page_slope("end_slope", end_slope),
+        }
+        self._add_drawing(drawing, None, color, linewidth)
+
+    def polygon(self, x, y, *, fill=None, color=None, linewidth=None) -> None:
+        """Draw a closed polygon on the page, outside any axes.
+
+        Parameters
+        ----------
+        x, y : sequence of float
+            At least three corners, in order, in cm from the bottom-left corner
+            of the page. The last corner is joined back to the first.
+        fill : color, optional
+            Fill colour. Default (or ``'none'``): not filled.
+        color : color, optional
+            Outline colour, or ``'none'`` for no outline. Default: black.
+        linewidth : float, optional
+            Outline width in points. Default: GLE's line width.
+
+        Notes
+        -----
+        Writes a GLE ``begin path`` block. See :meth:`circle` for the drawing
+        order.
+        """
+        xs, ys = _page_points(x, y, 3)
+        self._add_drawing({"kind": "polygon", "x": xs, "y": ys}, fill, color, linewidth)
+
+    def table(self, x, y, s) -> None:
+        """Write text on the page with its columns lined up, outside any axes.
+
+        Parameters
+        ----------
+        x, y : float
+            Where the text starts, in cm from the bottom-left corner of the page.
+        s : str
+            The text. Words separated by more than one space are aligned in
+            columns; a newline starts a row. A row cannot start with the word
+            ``begin`` or ``end``.
+
+        Notes
+        -----
+        Writes a GLE ``begin table`` block. The columns line up exactly only
+        in a fixed-pitch font. See :meth:`circle` for the drawing order.
+        """
+        self._add_text_block("table", x, y, s)
+
+    def tex(self, x, y, s) -> None:
+        """Write a block of LaTeX on the page, outside any axes.
+
+        Parameters
+        ----------
+        x, y : float
+            Where the text starts, in cm from the bottom-left corner of the page.
+        s : str
+            LaTeX source, for example ``r"\\textbf{Note}"``. A line cannot start
+            with the word ``begin`` or ``end``; ``\\begin{...}`` is fine. The
+            last line cannot hold a ``%`` comment.
+
+        Notes
+        -----
+        Writes a GLE ``begin tex`` block, so compiling the figure needs a
+        LaTeX installation that GLE can find. GLE sets the text in one LaTeX
+        box, so a newline in ``s`` does not start a new line in the output;
+        use a ``tabular`` for several lines. See :meth:`circle` for the
+        drawing order.
+        """
+        self._add_text_block("tex", x, y, s)
+
     # File I/O methods
 
     def absolutize_file_references(self, base_dir) -> None:
@@ -1874,7 +2194,7 @@ class Figure:
         # genuinely empty figure with no passthrough keeps the historical
         # default empty graph block (existing tests rely on it).
         no_fabricate = not self.axes_list and (
-            self.passthrough_header or self.passthrough_trailer
+            self.passthrough_header or self.passthrough_trailer or self._drawings
         )
 
         # Palette / colorbar / contour-label subs needed by any axes. Emitted
@@ -1888,6 +2208,7 @@ class Figure:
                 passthrough_before_hei=self.passthrough_before_hei,
                 page_box=self.page_box,
             )
+            self._write_drawings(writer)
             writer.finalize(
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
             )
@@ -1947,6 +2268,7 @@ class Figure:
                 writer.add_graph_size()
                 writer.end_graph()
 
+            self._write_drawings(writer)
             if self.passthrough_trailer:
                 writer.lines_gle.extend(self.passthrough_trailer)
         else:
@@ -2011,6 +2333,7 @@ class Figure:
                     )
                 writer.lines_gle.append("")  # Blank line between subplots
 
+            self._write_drawings(writer)
             writer.finalize(
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
             )
@@ -2265,6 +2588,10 @@ class Figure:
                 )
         subs.extend(mdata_sub_text(marker) for marker in sorted(sized_markers))
         return subs
+
+    def _write_drawings(self, writer: GLEWriter) -> None:
+        for drawing in self._drawings:
+            writer.add_page_drawing(drawing)
 
     def _emit_pre_graph_blocks(
         self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
@@ -3936,6 +4263,7 @@ class Figure:
             "passthrough_header": list(self.passthrough_header),
             "passthrough_trailer": list(self.passthrough_trailer),
             "page_box": self.page_box,
+            "drawings": [_json_drawing(d) for d in self._drawings],
             "metadata_extra": dict(self.metadata_extra),
             "config": {
                 "style": self.style.to_dict(),
@@ -4090,6 +4418,7 @@ class Figure:
         fig.passthrough_header = list(fig_block.get("passthrough_header", []))
         fig.passthrough_trailer = list(fig_block.get("passthrough_trailer", []))
         fig.page_box = bool(fig_block.get("page_box", False))
+        fig._drawings = [_json_drawing(d) for d in fig_block.get("drawings", [])]
         fig.metadata_extra = dict(fig_block.get("metadata_extra", {}))
 
         saved_counter = fig_block.get("global_data_counter", 0)
@@ -4124,4 +4453,5 @@ class Figure:
         """Close figure."""
         self.axes_list.clear()
         self.broken_axes.clear()
+        self._drawings.clear()
         self._current_axes = None

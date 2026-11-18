@@ -2383,6 +2383,123 @@ class GLEWriter:
         self.lines_gle.append(f'write "{self._escape_gle_string(text)}"')
         self.lines_gle.append("grestore")
 
+    # -- free page drawing (Figure.circle ... Figure.tex) ---------------
+    #
+    # Each drawing is its own gsave/grestore group: 'set color'/'set lwidth'
+    # are sticky GLE state and must not reach the next drawing. The
+    # recognizer takes a group back only when page_drawing_lines reproduces
+    # it exactly, so this rendering is the one canonical form.
+
+    def add_page_drawing(self, drawing: dict) -> None:
+        """Draw one figure-level drawing (``Figure.circle`` ...) on the page."""
+        self.lines_gle.extend(self.page_drawing_lines(drawing))
+
+    @classmethod
+    def page_drawing_lines(cls, drawing: dict) -> List[str]:
+        """The GLE lines that draw ``drawing``, from ``gsave`` to ``grestore``."""
+        commands = {
+            "circle": cls._circle_commands,
+            "ellipse": cls._ellipse_commands,
+            "arc": cls._arc_commands,
+            "bezier": cls._bezier_commands,
+            "curve": cls._curve_commands,
+            "polygon": cls._polygon_commands,
+            "table": cls._text_block_commands,
+            "tex": cls._text_block_commands,
+        }[drawing["kind"]]
+        lines = ["gsave"]
+        if drawing.get("color", "none") != "none":
+            lines.append(f"set color {drawing['color']}")
+        if "linewidth" in drawing:
+            lwidth = linewidth_pt_to_cm(drawing["linewidth"])
+            lines.append(f"set lwidth {cls._format_number(lwidth)}")
+        lines.extend(commands(drawing))
+        lines.append("grestore")
+        return lines
+
+    @classmethod
+    def _numbers(cls, *values: float) -> str:
+        return " ".join(cls._format_number(v) for v in values)
+
+    @staticmethod
+    def _fill_clause(drawing: dict) -> str:
+        """The ``fill`` and ``nostroke`` options of a circle or an ellipse."""
+        clause = f" fill {drawing['fill']}" if "fill" in drawing else ""
+        if drawing.get("color") == "none":
+            clause += " nostroke"
+        return clause
+
+    @classmethod
+    def _circle_commands(cls, d: dict) -> List[str]:
+        return [
+            f"amove {cls._numbers(d['x'], d['y'])}",
+            f"circle {cls._format_number(d['radius'])}{cls._fill_clause(d)}",
+        ]
+
+    @classmethod
+    def _ellipse_commands(cls, d: dict) -> List[str]:
+        # GLE's ellipse takes the two radii (g_ellipse_stroke in core.cpp),
+        # though the manual says diameters; width and height are diameters.
+        size = cls._numbers(d["width"] / 2, d["height"] / 2)
+        return [
+            f"amove {cls._numbers(d['x'], d['y'])}",
+            f"ellipse {size}{cls._fill_clause(d)}",
+        ]
+
+    @classmethod
+    def _arc_commands(cls, d: dict) -> List[str]:
+        return [
+            f"amove {cls._numbers(d['x'], d['y'])}",
+            f"arc {cls._numbers(d['radius'], d['theta1'], d['theta2'])}",
+        ]
+
+    @classmethod
+    def _bezier_commands(cls, d: dict) -> List[str]:
+        xs, ys = d["x"], d["y"]
+        controls = cls._numbers(*(v for p in zip(xs[1:], ys[1:]) for v in p))
+        return [f"amove {cls._numbers(xs[0], ys[0])}", f"bezier {controls}"]
+
+    @classmethod
+    def _curve_commands(cls, d: dict) -> List[str]:
+        # GLE's curve takes each point as a step from the one before. The
+        # steps run between the points as rounded for every other position
+        # and keep 12 digits, so GLE's running sum lands on those points.
+        xs = [float(cls._format_number(v)) for v in d["x"]]
+        ys = [float(cls._format_number(v)) for v in d["y"]]
+        steps = " ".join(
+            cls._format_number(v, precision=12)
+            for k in range(1, len(xs))
+            for v in (xs[k] - xs[k - 1], ys[k] - ys[k - 1])
+        )
+        start, end = cls._numbers(*d["start_slope"]), cls._numbers(*d["end_slope"])
+        return [
+            f"amove {cls._numbers(xs[0], ys[0])}",
+            f"curve {start} {steps} {end}",
+        ]
+
+    @classmethod
+    def _polygon_commands(cls, d: dict) -> List[str]:
+        xs, ys = d["x"], d["y"]
+        stroke = "" if d.get("color") == "none" else " stroke"
+        fill = f" fill {d['fill']}" if "fill" in d else ""
+        lines = [
+            f"begin path{stroke}{fill}",
+            f"    amove {cls._numbers(xs[0], ys[0])}",
+        ]
+        lines.extend(f"    aline {cls._numbers(x, y)}" for x, y in zip(xs[1:], ys[1:]))
+        lines.extend(["    closepath", "end path"])
+        return lines
+
+    @classmethod
+    def _text_block_commands(cls, d: dict) -> List[str]:
+        # Verbatim: a table lines its columns up from the spaces in the text.
+        return [
+            f"amove {cls._numbers(d['x'], d['y'])}",
+            f"begin {d['kind']}",
+            *d["text"].split("\n"),
+            f"end {d['kind']}",
+        ]
+
     def add_data_file(
         self,
         filename: str,
