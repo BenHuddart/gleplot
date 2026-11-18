@@ -116,6 +116,37 @@ ax.set_xticks(nticks=5, ftick=0)
 ax.set_yticks(symticks=True, noticks=[0])
 ```
 
+## Tick marks and minor ticks
+
+`tick_params` sets the length, width (both in points), colour and direction
+of the tick marks, written as GLE's `xticks` (major) and `xsubticks` (minor).
+`minorticks_on` and `minorticks_off` switch the minor ticks of both axes.
+
+```python
+ax.tick_params(axis='x', length=4, width=0.8, direction='in')
+ax.tick_params(axis='y', which='minor', length=2)
+ax.minorticks_off()
+```
+
+GLE draws ticks inside the frame by default; matplotlib draws them outside.
+`direction='out'` is a negative GLE length, so with no `length` it uses
+matplotlib's default (3.5 points, 2 for minor ticks). `direction='inout'` is
+GLE's `symticks`, one setting for an axis' major and minor ticks. An axis
+with a grid draws the grid lines in place of its ticks, so its tick marks are
+not written and saving warns; style the grid with `grid(color=...,
+linewidth=...)` instead.
+
+`set_xticks` and `set_yticks` also take `nsubticks` (minor ticks between two
+major ones), `loglabels` (which sub-decades of a log axis get a label: `'off'`,
+`'l1'`, `'l25'`, `'l25b'` or `'n1'`) and `nofirst` / `nolast` (leave out the
+first or last tick label).
+
+```python
+ax.set_xscale('log')
+ax.set_xticks(loglabels='l25', nofirst=True)
+ax.set_yticks(nsubticks=4)
+```
+
 `set_math_mode` draws the x and y axes through the origin instead of around
 the plot, with ticks on both sides. It is written as GLE's `math`. Both axes
 move together. The top and right axes are hidden unless a series or label

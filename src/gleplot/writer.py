@@ -232,6 +232,18 @@ class AxisStyle:
         ``shift S`` (cm) and a bare ``symticks`` when True.
     noticks : list of float, optional
         Positions with no tick -- GLE ``xnoticks p1 p2 ...``.
+    nsubticks : int, optional
+        Minor ticks per major interval -- ``xaxis nsubticks N``.
+    loglabels : str, optional
+        Log sub-decade labels -- ``xlabels log MODE``.
+    tick_length, tick_width, tick_color, tick_direction : optional
+        The major tick marks -- ``xticks length L lwidth W color C``. Length
+        (matplotlib's whole tick) and width are points; direction is
+        ``'in'`` or ``'out'``, written as the sign of the length.
+    subtick_length, subtick_width, subtick_color, subtick_direction : optional
+        The same for the minor ticks, on ``xsubticks``.
+    minorticks : bool, optional
+        ``xsubticks on`` (True) or ``off`` (False).
 
     Notes
     -----
@@ -259,6 +271,17 @@ class AxisStyle:
     shift: Optional[float] = None
     symticks: Optional[bool] = None
     noticks: Optional[List[float]] = None
+    nsubticks: Optional[int] = None
+    loglabels: Optional[str] = None
+    tick_length: Optional[float] = None
+    tick_width: Optional[float] = None
+    tick_color: Optional[str] = None
+    tick_direction: Optional[str] = None
+    subtick_length: Optional[float] = None
+    subtick_width: Optional[float] = None
+    subtick_color: Optional[str] = None
+    subtick_direction: Optional[str] = None
+    minorticks: Optional[bool] = None
 
     def has_tick_label_styling(self) -> bool:
         """True if anything here changes how the tick labels are drawn.
@@ -273,6 +296,10 @@ class AxisStyle:
             or self.label_angle is not None
         )
 
+
+#: matplotlib's default tick lengths in points (``xtick.major.size`` /
+#: ``xtick.minor.size``), for an outward tick given no length.
+_MPL_TICK_SIZE = {"major": 3.5, "minor": 2.0}
 
 #: An axis with no styling at all -- shared so the common case allocates
 #: nothing and ``style is _NO_STYLE`` short-circuits are possible.
@@ -1866,6 +1893,7 @@ class GLEWriter:
             self.lines_gle.append(f"    {prefix}labels off")
         else:
             self._add_tick_label_style(prefix, style)
+        self._add_tick_mark_style(prefix, style)
         self._add_grid_style(prefix, style)
         self._add_axis_line_style(prefix, style)
 
@@ -2069,6 +2097,8 @@ class GLEWriter:
             out += f" shift {self._format_number(float(style.shift))}"
         if style.symticks:
             out += " symticks"
+        if style.nsubticks is not None:
+            out += f" nsubticks {int(style.nsubticks)}"
         return out
 
     def _add_axis_line_style(self, prefix: str, style: AxisStyle) -> None:
@@ -2103,10 +2133,75 @@ class GLEWriter:
         return clause
 
     def _add_tick_label_style(self, prefix: str, style: AxisStyle) -> None:
-        """``xlabels hei H color C`` (and y/y2/x2 twins), when anything is set."""
+        """``xlabels hei H color C log M`` (and y/y2/x2 twins), when set."""
         opts = self._text_options(style.label_size, style.label_color, None)
+        if style.loglabels is not None:
+            opts += f" log {style.loglabels}"
         if opts:
             self.lines_gle.append(f"    {prefix}labels{opts}")
+
+    def _add_tick_mark_style(self, prefix: str, style: AxisStyle) -> None:
+        """``xticks length L lwidth W color C`` and the ``xsubticks`` twin.
+
+        GLE's ``length`` is cm, negative to point out of the frame, and
+        under ``symticks`` drawn on each side, so it is half the model's
+        length there. GLE has no outward default: an outward tick with no
+        length gets matplotlib's (:data:`_MPL_TICK_SIZE`). A minor tick
+        with no length is half the major one with the same sign, so it
+        only needs a length when its direction differs. The minor line also
+        carries ``on``/``off``.
+        """
+        symmetric = bool(style.symticks)
+        major_length = style.tick_length
+        if major_length is None and style.tick_direction == "out" and not symmetric:
+            major_length = _MPL_TICK_SIZE["major"]
+        major_out = major_length is not None and style.tick_direction == "out"
+        major = self._tick_mark_options(
+            major_length, major_out, symmetric, style.tick_width, style.tick_color
+        )
+        if major:
+            self.lines_gle.append(f"    {prefix}ticks{major}")
+        minor_length = style.subtick_length
+        minor_out = style.subtick_direction == "out"
+        if (
+            minor_length is None
+            and style.subtick_direction is not None
+            and not symmetric
+            and minor_out != major_out
+        ):
+            minor_length = _MPL_TICK_SIZE["minor"]
+        minor = self._tick_mark_options(
+            minor_length,
+            minor_out,
+            symmetric,
+            style.subtick_width,
+            style.subtick_color,
+        )
+        if style.minorticks is not None:
+            minor = (" on" if style.minorticks else " off") + minor
+        if minor:
+            self.lines_gle.append(f"    {prefix}subticks{minor}")
+
+    def _tick_mark_options(
+        self,
+        length: Optional[float],
+        out: bool,
+        symmetric: bool,
+        width: Optional[float],
+        color: Optional[str],
+    ) -> str:
+        """``[ length L][ lwidth W][ color C]`` from points."""
+        result = ""
+        if length is not None:
+            cm = linewidth_pt_to_cm(float(length) / (2.0 if symmetric else 1.0))
+            if out and cm:
+                cm = -cm
+            result += f" length {self._format_number(cm)}"
+        if width is not None:
+            result += f" lwidth {self._format_number(linewidth_pt_to_cm(float(width)))}"
+        if color is not None:
+            result += f" color {color}"
+        return result
 
     def _add_grid_style(self, prefix: str, style: AxisStyle) -> None:
         """Tick styling for an axis whose grid is on, plus the subtick mode.

@@ -351,6 +351,14 @@ The right-hand scale is `yaxis="y2"` on a series, and `ax.twiny()` opens the top
 9. A second or translucent `imshow` is not possible; see
    [Contours and Heatmaps](CONTOUR_AND_HEATMAPS.md) for why and what to use
    instead.
+10. `ax.tick_params` honours `which`, `reset`, `direction`, `length`,
+    `width` and `color`. Its other keywords (`pad`, `labelsize`,
+    `labelcolor`, `bottom`, `labelbottom`, `grid_*`, ...) warn and are
+    ignored. GLE has no separate top and right ticks: `axis='x'` styles the
+    top ticks too. Minor ticks with no colour of their own take the major
+    ticks' colour. On an axis with a grid, GLE's grid lines are the ticks,
+    so the tick marks are not written and saving warns. See
+    [Axes and Legends](AXES_AND_LEGENDS.md).
 
 ## Migration Strategy
 

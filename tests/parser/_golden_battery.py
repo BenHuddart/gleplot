@@ -793,6 +793,24 @@ def axis_lines_fonts_and_tick_placement():
     return fig
 
 
+def tick_marks_and_minor_ticks():
+    """Tick-mark length, width, colour and direction, and minor ticks."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(121)
+    ax.plot([1, 10, 100], [1, 2, 3], color="blue")
+    ax.set_xscale("log")
+    ax.tick_params(axis="x", length=4, width=0.8, direction="out", color="red")
+    ax.tick_params(axis="y", which="minor", length=2, color="gray")
+    ax.minorticks_on()
+    ax.set_xticks(loglabels="l25", nofirst=True)
+    ax.set_yticks(nsubticks=4, nolast=True)
+    right = fig.add_subplot(122)
+    right.plot([0, 1, 2], [2, 0, 1], color="green")
+    right.tick_params(direction="inout", length=6)
+    right.minorticks_off()
+    return fig
+
+
 def math_mode_axes():
     """Axes crossing at the origin (GLE math mode)."""
     fig = glp.figure(data_prefix="golden")
@@ -1188,6 +1206,7 @@ BUILDERS = [
     histogram_field_options,
     axes_styling_full,
     axis_lines_fonts_and_tick_placement,
+    tick_marks_and_minor_ticks,
     math_mode_axes,
     axes_styling_grid_only,
     contour_in_second_subplot,

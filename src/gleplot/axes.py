@@ -17,6 +17,7 @@ from .parser.tables import (
     KEY_POSITIONS_LONG_TO_SHORT,
     KEY_POSITIONS_SHORT_TO_LONG,
     LEGEND_SPACING_TO_KEY,
+    LOG_LABEL_MODES,
     MATPLOTLIB_TO_LSTYLE,
     MPL_ARROWSTYLE_TO_GLE,
     NUMBER_FORMAT_KEYWORDS,
@@ -420,6 +421,14 @@ def _finite_float(value: Any, what: str) -> float:
     return number
 
 
+def _count(value: Any, what: str) -> int:
+    """``value`` as a positive whole number; ``what`` is ``"method(name"``."""
+    number = _finite_float(value, f"{what}=...)")
+    if isinstance(value, bool) or not number.is_integer() or number < 1:
+        raise ValueError(f"{what}={value!r}) must be a positive whole number")
+    return int(number)
+
+
 def _require_valid_extent(ext) -> None:
     """Validate an ``[xmin, xmax, ymin, ymax]`` extent for GLE.
 
@@ -767,7 +776,33 @@ _STYLING_KEYS: Tuple[str, ...] = (
     "ysymticks",
     "ynoticks",
     "math_mode",
+    "xtick_length",
+    "xtick_width",
+    "xtick_color",
+    "xtick_direction",
+    "xsubtick_length",
+    "xsubtick_width",
+    "xsubtick_color",
+    "xsubtick_direction",
+    "xminorticks",
+    "xnsubticks",
+    "xloglabels",
+    "ytick_length",
+    "ytick_width",
+    "ytick_color",
+    "ytick_direction",
+    "ysubtick_length",
+    "ysubtick_width",
+    "ysubtick_color",
+    "ysubtick_direction",
+    "yminorticks",
+    "ynsubticks",
+    "yloglabels",
 )
+
+#: The ``which=`` values of :meth:`Axes.tick_params`, as the model's field
+#: stems: ``xtick_*`` holds the major ticks, ``xsubtick_*`` the minor ones.
+_TICK_KINDS = {"major": ("tick",), "minor": ("subtick",), "both": ("tick", "subtick")}
 
 #: A GLE font name as ``set font`` / ``xtitle ... font`` take it: one bare
 #: word such as ``texcmr`` or ``psh``.
@@ -1694,6 +1729,41 @@ class Axes:
         self.yshift: Optional[float] = None
         self.ysymticks: Optional[bool] = None
         self.ynoticks: Optional[List[float]] = None
+
+        #: Tick marks, set through :meth:`tick_params`: GLE ``xticks length
+        #: L lwidth W color C`` for the major ticks and the same on
+        #: ``xsubticks`` for the minor ones. Lengths and widths are points,
+        #: the length being matplotlib's whole tick (GLE draws half of it on
+        #: each side under ``xsymticks``). Direction is ``'in'``, ``'out'``
+        #: or None; GLE writes ``'out'`` as a negative length.
+        self.xtick_length: Optional[float] = None
+        self.xtick_width: Optional[float] = None
+        self.xtick_color: Optional[str] = None
+        self.xtick_direction: Optional[str] = None
+        self.xsubtick_length: Optional[float] = None
+        self.xsubtick_width: Optional[float] = None
+        self.xsubtick_color: Optional[str] = None
+        self.xsubtick_direction: Optional[str] = None
+        self.ytick_length: Optional[float] = None
+        self.ytick_width: Optional[float] = None
+        self.ytick_color: Optional[str] = None
+        self.ytick_direction: Optional[str] = None
+        self.ysubtick_length: Optional[float] = None
+        self.ysubtick_width: Optional[float] = None
+        self.ysubtick_color: Optional[str] = None
+        self.ysubtick_direction: Optional[str] = None
+        #: Minor ticks switched on (True, ``xsubticks on``) or off (False,
+        #: ``xsubticks off``); None leaves GLE's default. Set through
+        #: :meth:`minorticks_on` / :meth:`minorticks_off`.
+        self.xminorticks: Optional[bool] = None
+        self.yminorticks: Optional[bool] = None
+        #: Minor ticks between two major ones (GLE ``xaxis nsubticks N``) and
+        #: which sub-decades of a log axis are labelled (GLE ``xlabels log
+        #: MODE``). Set through :meth:`set_xticks` / :meth:`set_yticks`.
+        self.xnsubticks: Optional[int] = None
+        self.ynsubticks: Optional[int] = None
+        self.xloglabels: Optional[str] = None
+        self.yloglabels: Optional[str] = None
 
         #: GLE math mode (``math`` in the graph block): the x and y axes
         #: cross at (0, 0) and the top and right axes are hidden. True or
@@ -5772,6 +5842,10 @@ class Axes:
         shift: Optional[float] = None,
         symticks: Optional[bool] = None,
         noticks: Optional[Sequence[float]] = None,
+        nsubticks: Optional[int] = None,
+        loglabels: Optional[str] = None,
+        nofirst: Optional[bool] = None,
+        nolast: Optional[bool] = None,
     ):
         """Control x-axis tick placement.
 
@@ -5802,6 +5876,18 @@ class Axes:
         noticks : sequence of float, optional
             Positions at which no tick is drawn (GLE ``xnoticks``). An empty
             sequence clears them.
+        nsubticks : int, optional
+            Number of minor ticks between two major ticks (GLE
+            ``nsubticks``). ``dsubticks`` wins when both are set.
+        loglabels : {'off', 'l1', 'l25', 'l25b', 'n1'}, optional
+            Which sub-decades of a log axis get a label (GLE ``xlabels
+            log``): ``'off'`` labels the decades only, ``'l1'`` adds 1 to 9,
+            ``'l25'`` adds 2 and 5, ``'l25b'`` is ``'l25'`` with a 1 at each
+            decade, and ``'n1'`` labels 1 to 9 without the exponent.
+        nofirst, nolast : bool, optional
+            Leave out the first or last tick label (GLE ``nofirst`` /
+            ``nolast``), so the labels of two touching plots do not overlap.
+            ``False`` puts the label back.
 
         Returns
         -------
@@ -5810,7 +5896,8 @@ class Axes:
         Raises
         ------
         ValueError
-            If ``nticks`` is not a positive whole number.
+            If ``nticks`` or ``nsubticks`` is not a positive whole number, or
+            ``loglabels`` is not one of the modes above.
 
         Notes
         -----
@@ -5831,6 +5918,9 @@ class Axes:
         self._set_tick_options(
             "x", "set_xticks", nticks, ftick, shift, symticks, noticks
         )
+        self._set_minor_and_edge_labels(
+            "x", "set_xticks", nsubticks, loglabels, nofirst, nolast
+        )
         return self
 
     def set_yticks(
@@ -5845,6 +5935,10 @@ class Axes:
         shift: Optional[float] = None,
         symticks: Optional[bool] = None,
         noticks: Optional[Sequence[float]] = None,
+        nsubticks: Optional[int] = None,
+        loglabels: Optional[str] = None,
+        nofirst: Optional[bool] = None,
+        nolast: Optional[bool] = None,
     ):
         """Control y-axis tick placement. See :meth:`set_xticks`."""
         if ticks is not None:
@@ -5858,6 +5952,9 @@ class Axes:
         self._set_tick_options(
             "y", "set_yticks", nticks, ftick, shift, symticks, noticks
         )
+        self._set_minor_and_edge_labels(
+            "y", "set_yticks", nsubticks, loglabels, nofirst, nolast
+        )
         return self
 
     def _set_tick_options(
@@ -5865,12 +5962,7 @@ class Axes:
     ) -> None:
         """The GLE-only placement keywords shared by set_xticks/set_yticks."""
         if nticks is not None:
-            count = _finite_float(nticks, f"{method}(nticks=...)")
-            if isinstance(nticks, bool) or not count.is_integer() or count < 1:
-                raise ValueError(
-                    f"{method}(nticks={nticks!r}) must be a positive whole number"
-                )
-            setattr(self, f"{prefix}nticks", int(count))
+            setattr(self, f"{prefix}nticks", _count(nticks, f"{method}(nticks"))
         if ftick is not None:
             setattr(
                 self, f"{prefix}ftick", _finite_float(ftick, f"{method}(ftick=...)")
@@ -5885,6 +5977,138 @@ class Axes:
         if noticks is not None:
             positions = [_finite_float(v, f"{method}(noticks=...)") for v in noticks]
             setattr(self, f"{prefix}noticks", positions or None)
+
+    def _set_minor_and_edge_labels(
+        self, prefix, method, nsubticks, loglabels, nofirst, nolast
+    ) -> None:
+        """``nsubticks``, ``loglabels``, ``nofirst`` and ``nolast``."""
+        if nsubticks is not None:
+            setattr(
+                self, f"{prefix}nsubticks", _count(nsubticks, f"{method}(nsubticks")
+            )
+        if loglabels is not None:
+            if loglabels not in LOG_LABEL_MODES:
+                raise ValueError(
+                    f"{method}(loglabels={loglabels!r}) must be one of "
+                    + ", ".join(repr(mode) for mode in LOG_LABEL_MODES)
+                )
+            setattr(self, f"{prefix}loglabels", loglabels)
+        if nofirst is not None:
+            setattr(self, f"_remove_first_{prefix}tick", bool(nofirst))
+        if nolast is not None:
+            setattr(self, f"_remove_last_{prefix}tick", bool(nolast))
+
+    def tick_params(self, axis: str = "both", **kwargs):
+        """Change the appearance of the tick marks.
+
+        Parameters
+        ----------
+        axis : {'x', 'y', 'both'}
+            Which axis. GLE draws the x settings on the top axis too, and
+            the y settings on the right one.
+        **kwargs
+            ``which`` ({'major', 'minor', 'both'}, default ``'major'``),
+            ``reset`` (bool: go back to GLE's default ticks first),
+            ``direction`` ({'in', 'out', 'inout'}), ``length`` and ``width``
+            (points), and ``color``. Any other matplotlib keyword warns and
+            is ignored.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+
+        Raises
+        ------
+        ValueError
+            On an unknown ``axis``, ``which`` or ``direction``, or a
+            negative ``length`` or ``width``.
+
+        Notes
+        -----
+        GLE writes these as ``xticks length L lwidth W color C`` and
+        ``xsubticks ...``. GLE's ticks point into the frame unless told
+        otherwise, and pointing them out needs a length: ``direction='out'``
+        with no length uses matplotlib's default (3.5 points for major
+        ticks, 2 for minor). Minor ticks with no colour of their own are
+        drawn in the major ticks' colour.
+
+        ``'inout'`` is GLE's ``symticks``, which is one setting for the
+        major and minor ticks of an axis, so it is not taken with
+        ``which='minor'``. ``'in'`` or ``'out'`` for the major ticks turns
+        it off again, and so does ``reset``.
+
+        An axis with a grid draws the grid lines in place of its ticks, so
+        these settings are not written for it; :meth:`grid` styles them.
+        """
+        if axis not in ("x", "y", "both"):
+            raise ValueError(f"tick_params(axis={axis!r}) must be 'x', 'y' or 'both'")
+        which = kwargs.pop("which", "major")
+        if which not in _TICK_KINDS:
+            raise ValueError(
+                f"tick_params(which={which!r}) must be 'major', 'minor' or 'both'"
+            )
+        reset = kwargs.pop("reset", False)
+        direction = kwargs.pop("direction", None)
+        if direction is not None and direction not in ("in", "out", "inout"):
+            raise ValueError(
+                f"tick_params(direction={direction!r}) must be 'in', 'out' "
+                "or 'inout'"
+            )
+        if direction == "inout" and which == "minor":
+            warn_external(
+                "tick_params(direction='inout') draws the major and minor "
+                "ticks of an axis on both sides together in GLE; ignored for "
+                "which='minor'. Use which='both'.",
+            )
+            direction = None
+        values: Dict[str, Any] = {}
+        for name in ("length", "width"):
+            value = kwargs.pop(name, None)
+            if value is not None:
+                size = _finite_float(value, f"tick_params({name}=...)")
+                if size < 0:
+                    raise ValueError(
+                        f"tick_params({name}={value!r}) must be a non-negative "
+                        "size in points"
+                    )
+                values[name] = size
+        color = kwargs.pop("color", None)
+        if color is not None:
+            values["color"] = rgb_to_gle(color)
+        if direction in ("in", "out"):
+            values["direction"] = direction
+        if kwargs:
+            warn_external(
+                "tick_params(): "
+                + ", ".join(sorted(kwargs))
+                + " not supported in gleplot and ignored. Tick marks take "
+                "direction, length, width and color; tick labels are styled "
+                "through set_tick_format() and the Axes xticklabel_* / "
+                "yticklabel_* attributes.",
+            )
+        for prefix in ("x", "y") if axis == "both" else (axis,):
+            for kind in _TICK_KINDS[which]:
+                if reset:
+                    for name in ("length", "width", "color", "direction"):
+                        setattr(self, f"{prefix}{kind}_{name}", None)
+                for name, value in values.items():
+                    setattr(self, f"{prefix}{kind}_{name}", value)
+            if direction == "inout":
+                setattr(self, f"{prefix}symticks", True)
+            elif which != "minor" and (reset or direction is not None):
+                setattr(self, f"{prefix}symticks", None)
+        return self
+
+    def minorticks_on(self):
+        """Draw minor ticks on both axes (GLE ``xsubticks on``)."""
+        self.xminorticks = True
+        self.yminorticks = True
+
+    def minorticks_off(self):
+        """Hide the minor ticks of both axes (GLE ``xsubticks off``)."""
+        self.xminorticks = False
+        self.yminorticks = False
 
     def legend(self, loc: str = "best", **kwargs):
         """Show a legend (GLE's graph ``key``).
