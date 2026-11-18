@@ -41,6 +41,7 @@ from .writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
+    RUG_SUB,
     WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
@@ -2587,13 +2588,14 @@ class Figure:
         return right, below
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/colorbar/clabel/wedge/box/polar/image subs needed.
+        """Gather the palette/colorbar/clabel/wedge/box/rug/polar/image subs.
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs sorted by name, then the vertical and horizontal colorbar
         subs (each if any bar uses it), then the contour-labels sub (if any
         clabel), then the pie-wedge sub (if any wedge), then the box-plot subs
-        (if any box), then one per-point marker-size sub per marker that a
+        (if any box), then the rug subs (if any rug has a tick), then one
+        per-point marker-size sub per marker that a
         scatter with ``mdata`` uses, sorted by name, then the polar subs
         (if any polar axes), then the image subs (if any placed image).
         Skipped (dangling) series contribute nothing, so a write that drops
@@ -2638,6 +2640,10 @@ class Figure:
             subs.append(WEDGE_SUB)
         if any(resolution.visible(ax.boxes) for ax in self.axes_list):
             subs.append(BOX_SUB)
+        if any(
+            r["ticks"] for ax in self.axes_list for r in resolution.visible(ax.rugs)
+        ):
+            subs.append(RUG_SUB)
         sized_markers: Set[str] = set()
         for ax in self.axes_list:
             sized_markers.update(
@@ -2932,7 +2938,7 @@ class Figure:
         The axis setup comes first. The content phases then run in drawing
         order, back to front: heatmaps, contours and placed images, then the
         background guides and fills, then the z-ordered data series, file
-        series, derived curves, box plots, pie wedges and texts, and the key
+        series, derived curves, box plots, rugs, pie wedges and texts, and the key
         last. :meth:`_prepare_legend` runs before any series is written,
         because the key's column breaks must be set on the writer before the
         datasets they fall between.
@@ -2953,6 +2959,8 @@ class Figure:
         self._write_derived(writer, ax, resolution)
         for box in resolution.visible(ax.boxes):
             writer.add_box(box)
+        for rug in resolution.visible(ax.rugs):
+            writer.add_rug(rug)
         for wedge in resolution.visible(ax.wedges):
             writer.add_wedge(wedge)
         self._write_texts(writer, ax)
@@ -3961,6 +3969,19 @@ class Figure:
                 if xmax is None or ends.max() > xmax:
                     xmax = float(ends.max())
 
+        xs = [
+            v
+            for r in resolution.visible(ax.rugs)
+            if r["axis"] == "x"
+            for v in r["ticks"]
+        ]
+        all_x = _plottable(np.asarray(xs, dtype=float), positive_only)
+        if len(all_x) > 0:
+            if xmin is None or all_x.min() < xmin:
+                xmin = float(all_x.min())
+            if xmax is None or all_x.max() > xmax:
+                xmax = float(all_x.max())
+
         # Vertical guides carry a data x-coordinate and, like matplotlib's
         # axvline/axvspan, participate in autoscaling. Horizontal ones do not:
         # their x extent is an axes FRACTION, so including it would be
@@ -4101,6 +4122,19 @@ class Figure:
                     ymin = float(all_y.min())
                 if ymax is None or all_y.max() > ymax:
                     ymax = float(all_y.max())
+
+        ys = [
+            v
+            for r in resolution.visible(ax.rugs)
+            if r["axis"] == "y"
+            for v in r["ticks"]
+        ]
+        all_y = _plottable(np.asarray(ys, dtype=float), positive_only)
+        if len(all_y) > 0:
+            if ymin is None or all_y.min() < ymin:
+                ymin = float(all_y.min())
+            if ymax is None or all_y.max() > ymax:
+                ymax = float(all_y.max())
 
         # Horizontal guides carry a data y-coordinate (see _get_data_xlim for
         # the mirror-image reasoning).

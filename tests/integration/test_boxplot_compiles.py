@@ -3,7 +3,8 @@
 The script text is asserted in ``tests/unit/test_boxplot.py``. This checks
 that GLE accepts the ``gleplot_box`` subs and their calls after ``end
 graph``, and that the clip to the frame leaves a cap lying on the frame
-whole. Skipped when the binary is missing.
+whole; and that a rug's ticks point into the frame and skip values outside
+the axis range. Skipped when the binary is missing.
 """
 
 from __future__ import annotations
@@ -122,3 +123,40 @@ def test_caps_on_the_frame_are_drawn_whole(tmp_path):
     # The caps are as thick as the box edges, not cut in half by the frame.
     for top_cap, top_edge, bottom_edge, bottom_cap in cap_columns:
         assert min(top_cap, bottom_cap) >= max(top_edge, bottom_edge) - 1
+
+
+def test_rug_ticks_point_into_the_frame_and_skip_values_out_of_range(tmp_path):
+    fig, ax = glp.subplots(figsize=(2, 1.5))
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 10)
+    ax.rug([2, 5, 8], color="red", length=0.5)
+    ax.rug([20], color="lime")
+    ax.rug([5], axis="y", position="right", color="blue")
+    out = tmp_path / "rug.png"
+    fig.savefig(str(out), dpi=300)
+    width, rows = _png_rows(out)
+
+    def pixels(match):
+        return [
+            (x, y)
+            for y, row in enumerate(rows)
+            for x in range(width)
+            if match(row[3 * x], row[3 * x + 1], row[3 * x + 2])
+        ]
+
+    red = pixels(lambda r, g, b: r > 200 and g < 80 and b < 80)
+    blue = pixels(lambda r, g, b: b > 200 and r < 80 and g < 80)
+    lime = pixels(lambda r, g, b: g > 200 and r < 80 and b < 80)
+    assert red and blue
+    assert lime == []
+    # The bottom frame line is the lowest row that is dark across most of
+    # the page; the red ticks stand on it, inside the frame.
+    frame = max(
+        y
+        for y, row in enumerate(rows)
+        if sum(max(row[3 * x : 3 * x + 3]) < 100 for x in range(width)) > width / 2
+    )
+    assert max(y for _x, y in red) <= frame
+    assert frame - min(y for _x, y in red) > 30
+    # The blue tick stands left of the right frame edge.
+    assert max(x for x, _y in blue) < width - 1

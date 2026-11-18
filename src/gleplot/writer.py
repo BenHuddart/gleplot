@@ -365,6 +365,51 @@ def image_sub_name(path: str) -> Optional[str]:
     return _IMAGE_SUB_BY_SUFFIX.get(Path(path).suffix.lower())
 
 
+#: The frame edges a rug can stand on, per axis; the first is the default.
+#: The ticks of an ``axis`` rug are ``gleplot_<axis>rug`` calls.
+RUG_EDGES = {"x": ("bottom", "top", "both"), "y": ("left", "right", "both")}
+
+#: The subs behind every rug tick (:meth:`GLEWriter.add_rug`), called after
+#: ``end graph`` like :data:`BOX_SUB`. A positive ``len`` points into the
+#: axes, as GLE's ``ticks length`` does. The frame edges are the min and max
+#: of the axis ends, so ``bottom`` stays the lower edge on a reversed axis. A
+#: value outside the axis range draws nothing. Each tick saves and restores
+#: the graphics state.
+RUG_SUB = """sub gleplot_xrug x len pos$ clr$ lw
+   ! Rug tick at x on the bottom or top edge of the frame, or both.
+   if (x >= xgmin) and (x <= xgmax) then
+      gsave
+      set lwidth lw color cvtcolor(clr$) cap butt
+      if (pos$ = "bottom") or (pos$ = "both") then
+         amove xg(x) min(yg(ygmin),yg(ygmax))
+         rline 0 len
+      end if
+      if (pos$ = "top") or (pos$ = "both") then
+         amove xg(x) max(yg(ygmin),yg(ygmax))
+         rline 0 -len
+      end if
+      grestore
+   end if
+end sub
+
+sub gleplot_yrug y len pos$ clr$ lw
+   ! Rug tick at y on the left or right edge of the frame, or both.
+   if (y >= ygmin) and (y <= ygmax) then
+      gsave
+      set lwidth lw color cvtcolor(clr$) cap butt
+      if (pos$ = "left") or (pos$ = "both") then
+         amove min(xg(xgmin),xg(xgmax)) yg(y)
+         rline len 0
+      end if
+      if (pos$ = "right") or (pos$ = "both") then
+         amove max(xg(xgmin),xg(xgmax)) yg(y)
+         rline -len 0
+      end if
+      grestore
+   end if
+end sub"""
+
+
 @dataclass(frozen=True)
 class AxisStyle:
     """Styling for ONE axis (x, y or y2) of a graph block.
@@ -5091,6 +5136,25 @@ class GLEWriter:
             f"        draw {sub} {_quote_filename(series['file'])} {extent}"
         )
         self.lines_gle.append("    end layer")
+
+    def add_rug(self, series: Series) -> None:
+        """Queue one rug for after ``end graph``.
+
+        ``series`` is a :class:`~gleplot.series.Rug`. It goes out as one
+        ``gleplot_xrug`` or ``gleplot_yrug`` call (:data:`RUG_SUB`) per
+        value, in the deferred block the box plots use, so the ticks are
+        drawn on the frame unclipped.
+        """
+        num = self._format_number
+        rest = (
+            f'{num(float(series["length"]))} "{series["position"]}" '
+            f'"{self._escape_gle_string(series["color"])}" '
+            f'{num(linewidth_pt_to_cm(float(series["linewidth"])))}'
+        )
+        for value in series["ticks"]:
+            self._pending_graph_text_lines.append(
+                f"gleplot_{series['axis']}rug {num(float(value))} {rest}"
+            )
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
         """Where ``key separator`` falls, as 1-based legend-entry counts.

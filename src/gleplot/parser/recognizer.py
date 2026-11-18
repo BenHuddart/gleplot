@@ -323,6 +323,7 @@ from ..series import (
     LineSeries,
     PlacedImage,
     RefLine,
+    Rug,
     ScatterSeries,
     Series,
     Span,
@@ -334,6 +335,7 @@ from ..writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_GRID_LAYER,
+    RUG_EDGES,
     GLEWriter,
     image_sub_name,
     polar_degree_mark,
@@ -697,6 +699,22 @@ class RecognizedFigure:
 # --------------------------------------------------------------------------- #
 # Token-stream helpers
 # --------------------------------------------------------------------------- #
+
+
+#: The rug subs (:data:`gleplot.writer.RUG_SUB`) and the axis each draws on.
+_RUG_CALLS = {f"gleplot_{axis}rug": axis for axis in RUG_EDGES}
+
+
+def _is_rug_call(keyword: str, args: List[object]) -> bool:
+    """Whether ``args`` are a well-formed ``value len pos$ clr$ lw`` rug call."""
+    if keyword not in _RUG_CALLS or len(args) != 5:
+        return False
+    value, length, position, color, lwidth = args
+    return (
+        all(isinstance(v, (int, float)) for v in (value, length, lwidth))
+        and isinstance(color, str)
+        and position in RUG_EDGES[_RUG_CALLS[keyword]]
+    )
 
 
 def _words_and_values(stmt: Statement) -> List[Token]:
@@ -1926,9 +1944,10 @@ class _Recognizer:
                 None,
             )
         texts = [t for t in texts if t is not _POLAR_LABELS]
-        axes_info["texts"] = [t for t in texts if not isinstance(t, (Wedge, Box))]
+        axes_info["texts"] = [t for t in texts if not isinstance(t, (Wedge, Box, Rug))]
         axes_info["wedges"] = [t for t in texts if isinstance(t, Wedge)]
         axes_info["boxes"] = [t for t in texts if isinstance(t, Box)]
+        axes_info["rugs"] = [t for t in texts if isinstance(t, Rug)]
         # Then consume any post-graph colorbar / contour-label sub
         # calls belonging to this axes.
         return axes_info, self._consume_post_graph_calls(nodes, consumed, axes_info)
@@ -8083,6 +8102,8 @@ class _Recognizer:
             return i + 1, wedge
         if stmt is not None and (stmt.keyword or "").lower() == "gleplot_box":
             return self._box_calls(nodes, i, start)
+        if stmt is not None and (stmt.keyword or "").lower() in _RUG_CALLS:
+            return self._rug_calls(nodes, i, start)
 
         # 'amove xg(X) yg(Y)' -- mandatory: this is what makes the run of
         # 'set' statements above a text cluster rather than unrelated
@@ -8180,6 +8201,45 @@ class _Recognizer:
             whishi=hi,
             fliers=fliers,
             mean=mean,
+        )
+
+    def _rug_calls(self, nodes, i, start) -> Tuple[int, Optional[Rug]]:
+        """The run of ``gleplot_xrug``/``gleplot_yrug`` calls at ``i``.
+
+        Returns ``(next_index, rug)``, or ``(start, None)`` when the first
+        call is malformed. The calls that follow with the same sub and the
+        same length, position, colour and width belong to the same rug, so
+        two such rugs written one after the other come back as one, with
+        the same ink.
+        """
+        n = len(nodes)
+        keyword: Optional[str] = None
+        style: List[object] = []
+        ticks: List[float] = []
+        while True:
+            j = self._skip_blanks(nodes, i)
+            stmt = self._as_statement(nodes[j]) if j < n else None
+            if stmt is None:
+                break
+            kw = (stmt.keyword or "").lower()
+            args = self._guide_call_args(_words_and_values(stmt), 1)
+            if keyword is None:
+                if not _is_rug_call(kw, args):
+                    return start, None
+                keyword, style = kw, args[1:]
+            elif kw != keyword or args[1:] != style or not _is_rug_call(kw, args):
+                break
+            ticks.append(float(cast(float, args[0])))
+            i = j + 1
+        length, position, color, lwidth = style
+        return i, Rug(
+            type="rug",
+            axis=_RUG_CALLS[cast(str, keyword)],
+            ticks=ticks,
+            length=float(cast(float, length)),
+            position=cast(str, position),
+            color=cast(str, color),
+            linewidth=linewidth_cm_to_pt(float(cast(float, lwidth))),
         )
 
     def _is_polar_labels_call(self, stmt) -> bool:
@@ -8713,6 +8773,7 @@ class _Recognizer:
         ax.wedges = info["wedges"]
         ax.boxes = info["boxes"]
         ax.images = info["images"]
+        ax.rugs = info["rugs"]
         ax.heatmaps = info["heatmaps"]
         ax.contours = info["contours"]
         # Guides recovered from their draw blocks (G17). Before G17 a guide

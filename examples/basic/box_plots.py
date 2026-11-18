@@ -1,4 +1,4 @@
-"""Box plot example: three sample sets with fliers and means."""
+"""Box plot example: three sample sets with fliers, means and a rug."""
 
 import sys
 from pathlib import Path
@@ -16,6 +16,7 @@ def example_box_plot():
 
     Whiskers reach the farthest data within 1.5 times the interquartile
     range; the points beyond them are drawn as fliers, as in matplotlib.
+    A ``rug`` on the right edge marks every sample.
     """
     print("Creating example: Box Plot...")
 
@@ -29,6 +30,7 @@ def example_box_plot():
     fig = glp.figure(figsize=(6, 4))
     ax = fig.add_subplot(111)
     ax.boxplot(samples, tick_labels=["Control", "Dose A", "Dose B"], showmeans=True)
+    ax.rug(np.concatenate(samples), axis="y", position="right", color="gray")
     ax.set_ylabel("Response")
     ax.set_title("Response by group")
 
