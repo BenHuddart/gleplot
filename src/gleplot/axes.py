@@ -1,6 +1,7 @@
 """Axes class for gleplot."""
 
 import functools
+import os
 import re
 import uuid
 from numbers import Real
@@ -56,6 +57,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     HeatmapSeries,
     HistSeries,
     LineSeries,
+    PlacedImage,
     RefLine,
     ScatterSeries,
     Series,
@@ -70,7 +72,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     sanitize_column_name,
     sorted_zorder_drawables,
 )
-from .writer import GLEWriter
+from .writer import GLEWriter, image_sub_name
 
 _Method = TypeVar("_Method", bound=Callable[..., Any])
 
@@ -1928,6 +1930,7 @@ class Axes:
         self.spans: List[Span] = []
         self.wedges: List[Wedge] = []  # pie slices
         self.boxes: List[Box] = []  # box plot boxes
+        self.images: List[PlacedImage] = []  # placed image files
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model. Emitted verbatim inside this
@@ -5710,6 +5713,69 @@ class Axes:
         keys = ("whiskers", "caps", "boxes", "medians", "fliers", "means")
         return {key: list(boxes) for key in keys}
 
+    # -- placed images --------------------------------------------------
+
+    def image(self, fname, extent) -> PlacedImage:
+        """Place an image file over a rectangle in data coordinates.
+
+        Unlike :meth:`imshow`, which colours a 2-D array, this draws an
+        existing picture: a micrograph, a photograph, a logo.
+
+        Parameters
+        ----------
+        fname : str or path-like
+            A PNG, JPEG, GIF, TIFF or EPS file. GLE reads it when the figure
+            is compiled; a relative path is read from the folder the ``.gle``
+            script is saved in.
+        extent : (left, right, bottom, top)
+            The rectangle the image is stretched over, in data coordinates.
+
+        Returns
+        -------
+        PlacedImage
+            The stored image entry (also appended to ``self.images``).
+
+        Raises
+        ------
+        ValueError
+            If the file extension is not one GLE can place, the path holds a
+            double quote, or ``extent`` is not four finite numbers with
+            ``left < right`` and ``bottom < top``.
+        TypeError
+            If ``fname`` is not a string or path.
+
+        Notes
+        -----
+        The image is drawn behind the grid and the data, and clipped to the
+        axes. Its extent takes part in autoscaling. An EPS file is drawn only
+        when GLE compiles through PostScript: not to SVG, and not when the
+        figure needs GLE's Cairo device for transparency.
+        """
+        if not isinstance(fname, (str, os.PathLike)):
+            raise TypeError(
+                f"image(fname={fname!r}) must be a file path (str or " "path-like)."
+            )
+        path = os.fspath(fname)
+        if image_sub_name(path) is None:
+            raise ValueError(
+                f"image(fname={path!r}) has an extension GLE cannot place; "
+                "use a .png, .jpg, .jpeg, .gif, .tif, .tiff or .eps file."
+            )
+        if '"' in path:
+            raise ValueError(
+                f"image(fname={path!r}) contains a double quote, which a GLE "
+                "string cannot hold; rename the file."
+            )
+        ext = [float(v) for v in extent]
+        if len(ext) != 4:
+            raise ValueError(
+                f"image(extent={extent!r}) must be (left, right, bottom, top)."
+            )
+        _require_valid_extent(ext)
+        entry = PlacedImage(type="image", file=path, extent=ext)
+        self.images.append(entry)
+        return entry
+
     # -- heatmaps & contours --------------------------------------------
 
     def _resolve_cmap(self, cmap: Optional[str]) -> str:
@@ -7354,6 +7420,7 @@ class Axes:
             or self.wedges
             or self.boxes
             or self.derived_series
+            or self.images
         )
 
     def has_y2_plots(self) -> bool:

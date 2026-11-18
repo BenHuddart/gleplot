@@ -70,6 +70,7 @@ from basic import (
     example_horizontal_error_bars,
     example_pie_chart,
     example_polar_plot,
+    example_placed_image,
     example_scatter_plot,
     example_symmetric_error_bars,
 )
@@ -105,6 +106,7 @@ EXAMPLES = [
         ["example_combined_errorbars"],
     ),
     ("Heatmap (imshow)", example_heatmap_imshow, ["example_heatmap_imshow"]),
+    ("Placed Image", example_placed_image, ["example_placed_image"]),
     ("Fill Between", example_fill_between, ["example_fill_between"]),
     (
         "Conditional Fill Between",

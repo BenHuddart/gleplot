@@ -529,6 +529,7 @@ _AXES_SERIALIZED_ATTRS = {
     "wedges",
     "boxes",
     "derived_series",
+    "images",
     "passthrough",
     # Explicit page geometry: the placement rect (SPEC 3.3) and the verbatim
     # geometry statements kept for GLE geometry that inverts to no rect.
@@ -732,6 +733,7 @@ def _figure_exercising_every_series_kind():
     ax3.tricontour(pts_x, pts_y, pts_z, gridsize=(4, 4), ncontour=2)
     ax3.pie([1.0, 2.0], labels=["p", "q"], autopct="%d%%", textprops={"size": 9})
     ax3.boxplot([[1.0, 2.0, 3.0, 9.0], [2.0, 4.0]], showmeans=True)
+    ax3.image("photo.png", extent=(0.5, 1.5, 0.5, 1.5))
     return fig
 
 
@@ -1164,16 +1166,19 @@ def test_smoothing_fields_do_not_change_the_serialized_shape_of_anything_else():
 # way ``visible``'s and the smoothing fields' complements are above.
 
 #: Every kind whose ``extent`` may be auto: the two gridded kinds, and only
-#: those (nothing else declares the field at all).
+#: those. A placed image also declares one, always concrete: ``Axes.image``
+#: requires it, and nothing computes it at write time.
 _EXTENT_BEARING_ATTRS = {"heatmaps", "contours"}
+_CONCRETE_EXTENT_ATTRS = {"images"}
 
 
-def test_only_the_gridded_kinds_declare_extent_and_colorbar():
+def test_only_the_gridded_kinds_declare_an_auto_extent_and_colorbar():
     for attr, series_cls in SERIES_CLASSES.items():
         declared = "extent" in series_cls.FIELDS
-        assert declared == (attr in _EXTENT_BEARING_ATTRS), (
+        documented = attr in _EXTENT_BEARING_ATTRS | _CONCRETE_EXTENT_ATTRS
+        assert declared == documented, (
             f"{series_cls.__name__}: extent declared={declared} but the "
-            f"documented set says {attr in _EXTENT_BEARING_ATTRS}"
+            f"documented sets say {documented}"
         )
     # The colorbar is a heatmap property (GLE's colormap is what it labels).
     assert "colorbar" in SERIES_CLASSES["heatmaps"].FIELDS

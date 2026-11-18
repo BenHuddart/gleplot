@@ -280,6 +280,7 @@ def _one_of_each_kind():
     )
     ax2.pie([1.0, 2.0], labels=["p", "q"])
     ax2.boxplot([1.0, 2.0, 3.0, 9.0])
+    ax2.image("photo.png", extent=(0.5, 1.5, 0.5, 1.5))
     return fig
 
 

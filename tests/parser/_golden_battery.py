@@ -1370,6 +1370,17 @@ def polar_field_options():
     return fig
 
 
+def placed_images():
+    """A bitmap and an EPS under a line, a bitmap alone on a log axes."""
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    left.image("figures/micrograph.png", extent=(0, 10, 0, 5))
+    left.plot([0, 12], [1, 4], color="red")
+    left.image("logo.EPS", extent=(8.5, 11.25, -1, 0.5))
+    right.image("my photos/scan.jpeg", extent=(1, 100, 0.5, 2.5))
+    right.set_xscale("log")
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -1446,6 +1457,7 @@ BUILDERS = [
     page_drawings_only,
     polar_plot,
     polar_field_options,
+    placed_images,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

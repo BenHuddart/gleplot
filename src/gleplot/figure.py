@@ -40,6 +40,7 @@ from .writer import (
     DEFAULT_COLORBAR_NTICKS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
+    IMAGE_SUB,
     WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
@@ -47,6 +48,7 @@ from .writer import (
     KeyOptions,
     SourceResolution,
     _grid_z_file,
+    image_sub_name,
     legend_column_breaks,
     mdata_sub_text,
     polar_ring_step,
@@ -1767,10 +1769,12 @@ class Figure:
     # File I/O methods
 
     def absolutize_file_references(self, base_dir) -> None:
-        """Rewrite relative reference-mode data paths to absolute paths.
+        """Rewrite relative data and image paths to absolute paths.
 
         Reference-mode series (``file_series``) carry their ``data_file``
-        verbatim into the generated ``data`` command, so a relative path is
+        verbatim into the generated ``data`` command, and placed images
+        (:meth:`Axes.image`) their ``file`` into the draw call, so a relative
+        path is
         only valid when GLE runs in the directory the reference is relative
         to. Call this on a figure whose script will be generated or compiled
         SOMEWHERE ELSE: the live preview's temp session dir, an export to a
@@ -1788,6 +1792,10 @@ class Figure:
                 ref = Path(name)
                 if not ref.is_absolute():
                     fs["data_file"] = (base / ref).resolve().as_posix()
+            for image in ax.images:
+                ref = Path(image["file"])
+                if not ref.is_absolute():
+                    image["file"] = (base / ref).resolve().as_posix()
 
     def savefig_gle(
         self,
@@ -2060,6 +2068,25 @@ class Figure:
                 )
 
             effective_cairo = self.requires_cairo() if cairo is None else cairo
+            # GLE's Cairo device, which SVG always uses, draws nothing for
+            # the 'postscript' command.
+            if (effective_cairo or format.lower() == "svg") and any(
+                image_sub_name(image["file"]) == "gleplot_postscript"
+                for ax in self.axes_list
+                for image in ax.images
+                if is_visible(image)
+            ):
+                reason = (
+                    "in SVG output"
+                    if format.lower() == "svg"
+                    else "when the figure needs GLE's Cairo device for "
+                    "semi-transparent colours"
+                )
+                warn_external(
+                    f"image(...) EPS files are not drawn {reason}; convert the "
+                    "image to PNG, or save as PDF, EPS or PNG without "
+                    "transparency."
+                )
             # Under usetex LaTeX draws every label, so no GLE font is used.
             if effective_cairo and not self.style.usetex:
                 # Only titles that are written: one with no text, or an x/y
@@ -2561,7 +2588,7 @@ class Figure:
         return right, below
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/colorbar/clabel/wedge/box/polar subs this figure needs.
+        """Gather the palette/colorbar/clabel/wedge/box/polar/image subs needed.
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs sorted by name, then the vertical and horizontal colorbar
@@ -2569,9 +2596,9 @@ class Figure:
         clabel), then the pie-wedge sub (if any wedge), then the box-plot subs
         (if any box), then one per-point marker-size sub per marker that a
         scatter with ``mdata`` uses, sorted by name, then the polar subs
-        (if any polar axes). Skipped (dangling) series contribute nothing,
-        so a write that drops the only heatmap does not leave an unused
-        palette sub behind.
+        (if any polar axes), then the image subs (if any placed image).
+        Skipped (dangling) series contribute nothing, so a write that drops
+        the only heatmap does not leave an unused palette sub behind.
 
         The guide subs (:mod:`gleplot.guides`) are NOT collected here: which
         guides take the draw form depends on limits that are still unresolved
@@ -2630,6 +2657,8 @@ class Figure:
         subs.extend(mdata_sub_text(marker) for marker in sorted(sized_markers))
         if any(ax._polar for ax in self.axes_list):
             subs.append(POLAR_SUB)
+        if any(resolution.visible(ax.images) for ax in self.axes_list):
+            subs.append(IMAGE_SUB)
         return subs
 
     def _write_drawings(self, writer: GLEWriter) -> None:
@@ -2898,16 +2927,19 @@ class Figure:
         Notes
         -----
         The axis setup comes first. The content phases then run in drawing
-        order, back to front: heatmaps and contours, then the background
-        guides and fills, then the z-ordered data series, file series,
-        derived curves, box plots, pie wedges and texts, and the key last. :meth:`_prepare_legend` runs
-        before any series is written, because the key's column breaks must be
-        set on the writer before the datasets they fall between.
+        order, back to front: heatmaps, contours and placed images, then the
+        background guides and fills, then the z-ordered data series, file
+        series, derived curves, box plots, pie wedges and texts, and the key
+        last. :meth:`_prepare_legend` runs before any series is written,
+        because the key's column breaks must be set on the writer before the
+        datasets they fall between.
         """
         resolution = resolution or SourceResolution()
         self._write_axis_setup(writer, ax, frame)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
+        for image in resolution.visible(ax.images):
+            writer.add_image(image)
         limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
         legend = self._prepare_legend(writer, ax, resolution, limits)
         self._write_spans(writer, ax, limits)
@@ -3922,6 +3954,14 @@ class Figure:
                 if xmax is None or ends.max() > xmax:
                     xmax = float(ends.max())
 
+        for image in resolution.visible(ax.images):
+            ends = _plottable(np.asarray(image["extent"][:2]), positive_only)
+            if len(ends) > 0:
+                if xmin is None or ends.min() < xmin:
+                    xmin = float(ends.min())
+                if xmax is None or ends.max() > xmax:
+                    xmax = float(ends.max())
+
         # Vertical guides carry a data x-coordinate and, like matplotlib's
         # axvline/axvspan, participate in autoscaling. Horizontal ones do not:
         # their x extent is an axes FRACTION, so including it would be
@@ -4058,6 +4098,14 @@ class Figure:
                     ymin = float(all_y.min())
                 if ymax is None or all_y.max() > ymax:
                     ymax = float(all_y.max())
+
+        for image in resolution.visible(ax.images):
+            ends = _plottable(np.asarray(image["extent"][2:]), positive_only)
+            if len(ends) > 0:
+                if ymin is None or ends.min() < ymin:
+                    ymin = float(ends.min())
+                if ymax is None or ends.max() > ymax:
+                    ymax = float(ends.max())
 
         # Horizontal guides carry a data y-coordinate (see _get_data_xlim for
         # the mirror-image reasoning).

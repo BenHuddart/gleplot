@@ -151,6 +151,7 @@ __all__ = [
     "Wedge",
     "Box",
     "DerivedSeries",
+    "PlacedImage",
     "SERIES_CLASSES",
     "SERIES_ATTRS",
     "SMOOTH_MODES",
@@ -1433,6 +1434,27 @@ class Box(Series):
     visible: bool
 
 
+class PlacedImage(Series):
+    """An external image file stretched over a data extent -- ``Axes.image``.
+
+    Drawn inside the graph block by the ``gleplot_bitmap`` sub (PNG, JPEG,
+    GIF, TIFF) or the ``gleplot_postscript`` sub (EPS), in a layer below the
+    grid and the data.
+    """
+
+    ATTR = "images"
+
+    type: str
+    #: The image path exactly as given; GLE reads a relative path from the
+    #: folder the ``.gle`` script is in.
+    file: str
+    #: ``[left, right, bottom, top]`` in data coordinates; a reversed pair
+    #: flips the image.
+    extent: List[float]
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
+
+
 # -- registry -----------------------------------------------------------------
 
 #: Every series list an axes owns, in the order they are serialized by
@@ -1461,6 +1483,7 @@ SERIES_CLASSES: Dict[str, Type[Series]] = {
         Wedge,
         Box,
         DerivedSeries,
+        PlacedImage,
     )
 }
 
