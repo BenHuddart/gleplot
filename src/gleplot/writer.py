@@ -2782,9 +2782,32 @@ class GLEWriter:
         caller asked for. No key is needed to hide a header, because a
         ``let`` dataset has none.
         """
+        self._let_curve(series["expression"], series)
+
+    def add_fit(self, series: Series):
+        """Draw a curve GLE fits to data.
+
+        ``series`` is a :class:`~gleplot.series.FitSeries`. The data is a
+        headerless sidecar read as ``dJ`` and never drawn; ``let dK = fit dJ
+        with <expression>`` then fits it, and ``dK`` is drawn as for
+        :meth:`add_function`.
+        """
+        cols = self._write_columns(
+            series["data_file"], [("x", series["x"]), ("y", series["y"])], None
+        )
+        source = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        self.lines_gle.append(
+            f"    data {_format_data_filename(series['data_file'])} "
+            f"{source}=c{cols[0]},c{cols[1]}"
+        )
+        self._let_curve(f"fit {source} with {series['expression']}", series)
+
+    def _let_curve(self, definition: str, series: Series) -> None:
+        """``let dK = <definition> [from a] [to b] [step h]`` and its line."""
         target = f"d{self.dataset_index}"
         self.dataset_index += 1
-        parts = [f"let {target} = {series['expression']}"]
+        parts = [f"let {target} = {definition}"]
         for key, word in (("let_from", "from"), ("let_to", "to"), ("let_step", "step")):
             if key in series:
                 parts.append(f"{word} {self._format_number(series[key])}")

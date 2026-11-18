@@ -139,6 +139,7 @@ __all__ = [
     "BarSeries",
     "HistSeries",
     "FunctionSeries",
+    "FitSeries",
     "FillSeries",
     "ErrorbarSeries",
     "FileSeries",
@@ -879,6 +880,44 @@ class FunctionSeries(Series):
     visible: bool
 
 
+class FitSeries(Series):
+    """A curve GLE fits to data -- ``Axes.fit``.
+
+    The sidecar holds the data, read as a dataset that is never drawn. It
+    has no header: GLE keys every dataset a ``let`` uses, so a header would
+    give the data its own legend entry. ``let dK = fit dJ with <expression> [from a] [to b] [step h]`` fits the
+    coefficients and samples the fitted curve, which ``dK line`` draws.
+    """
+
+    ATTR = "fits"
+    KIND = "fit"
+    ZORDER_DEFAULT = 3.0
+    KIND_RANK = 6
+    ARRAY_FIELDS = ("x", "y")
+
+    x: np.ndarray
+    y: np.ndarray
+    #: A GLE expression in ``x``; every other name in it is a coefficient.
+    expression: str
+    #: ``from``, ``to`` and ``step`` of the ``let``, as on
+    #: :class:`FunctionSeries`.
+    let_from: float
+    let_to: float
+    let_step: float
+    #: ``None`` is a recovered ``dN`` line that set no colour: the writer
+    #: writes none, and GLE draws in the current colour.
+    color: Optional[str]
+    linestyle: str
+    #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
+    linewidth: Optional[float]
+    label: Optional[str]
+    data_file: Optional[str]
+    _draw_seq: int
+    zorder: float
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
+
+
 class FillSeries(Series):
     """A filled region -- ``Axes.fill_between`` or ``Axes.fill``.
 
@@ -1273,6 +1312,7 @@ SERIES_CLASSES: Dict[str, Type[Series]] = {
         Span,
         HistSeries,
         FunctionSeries,
+        FitSeries,
     )
 }
 

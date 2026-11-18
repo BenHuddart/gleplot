@@ -310,6 +310,7 @@ from ..series import (
     ErrorbarSeries,
     FileSeries,
     FillSeries,
+    FitSeries,
     FunctionSeries,
     HeatmapSeries,
     HistSeries,
@@ -1093,6 +1094,53 @@ def _plain_function_line(toks: List[Token]) -> bool:
         else:
             return False
     return has_line
+
+
+def _glued_run(toks: List[Token], start: int) -> Tuple[str, int]:
+    """The text of ``toks[start]`` and the tokens glued to it, and the end.
+
+    GLE ends a ``let`` expression at the first space, so the expression is
+    exactly the tokens with no space between them.
+    """
+    end = start + 1
+    while end < len(toks) and toks[end].span[0] == toks[end - 1].span[1]:
+        end += 1
+    return "".join(tok.value for tok in toks[start:end]), end
+
+
+def _read_let_range(toks: List[Token], i: int, fields: Dict[str, Any]) -> bool:
+    """Read ``from``/``to``/``step`` options from ``toks[i:]`` into ``fields``.
+
+    Each takes a plain number, so the value written back is the one read.
+    A fit let's ``with <expression>`` is read too, when ``fields`` names
+    a ``_fit_source``. False on any other token, or an option given twice.
+    """
+    names = {"from": "let_from", "to": "let_to", "step": "let_step"}
+    while i < len(toks):
+        word = toks[i].value.lower()
+        if word == "with" and "_fit_source" in fields and i + 1 < len(toks):
+            if "expression" in fields:
+                return False
+            expression, i = _glued_run(toks, i + 1)
+            if _function_expression_problem(expression) is not None:
+                return False
+            fields["expression"] = expression
+            continue
+        key = names.get(word)
+        if key is None or key in fields:
+            return False
+        sign = ""
+        j = i + 1
+        if j < len(toks) and toks[j].type is TokenType.OP:
+            if toks[j].value not in ("-", "+"):
+                return False
+            sign = toks[j].value
+            j += 1
+        if j >= len(toks) or toks[j].type is not TokenType.NUMBER:
+            return False
+        fields[key] = float(sign + toks[j].value)
+        i = j + 1
+    return True
 
 
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
@@ -1948,6 +1996,7 @@ class _Recognizer:
             "bars": [],
             "hists": [],
             "functions": [],
+            "fits": [],
             "fills": [],
             "errorbars": [],
             "file_series": [],
@@ -2082,6 +2131,7 @@ class _Recognizer:
                     let_toks, pass1.datasets, info, self._stmt_text(child)
                 )
                 self._record_function_let(let_toks, info)
+                self._record_fit_let(let_toks, pass1.datasets, info)
             elif kw is not None and _DATASET_RE.match(kw):
                 if kw not in pass1.merged_attr_toks:
                     pass1.merged_attr_toks[kw] = []
@@ -3961,31 +4011,38 @@ class _Recognizer:
             return
         if eq.value != "=" or target in info["_function_lets"]:
             return
-        end = 4
-        while end < len(toks) and toks[end].span[0] == toks[end - 1].span[1]:
-            end += 1
-        expression = "".join(tok.value for tok in toks[3:end])
+        expression, end = _glued_run(toks, 3)
         if _function_expression_problem(expression) is not None:
             return
         fields: Dict[str, Any] = {"expression": expression}
-        names = {"from": "let_from", "to": "let_to", "step": "let_step"}
-        i = end
-        while i < len(toks):
-            key = names.get(toks[i].value.lower())
-            if key is None or key in fields:
-                return
-            sign = ""
-            j = i + 1
-            if j < len(toks) and toks[j].type is TokenType.OP:
-                if toks[j].value not in ("-", "+"):
-                    return
-                sign = toks[j].value
-                j += 1
-            if j >= len(toks) or toks[j].type is not TokenType.NUMBER:
-                return
-            fields[key] = float(sign + toks[j].value)
-            i = j + 1
-        info["_function_lets"][target] = fields
+        if _read_let_range(toks, end, fields):
+            info["_function_lets"][target] = fields
+
+    def _record_fit_let(self, toks, datasets, info) -> None:
+        """Record ``let dK = fit dJ with <expression> [from a] [to b] [step h]``.
+
+        GLE reads the options in any order. The expression is read as for
+        :meth:`_record_function_let`, and ``dJ`` must be a dataset this
+        block's ``data`` commands declare. Any other option (``rsq``,
+        ``eqstr``, a data window, result variables) stays raw GLE. The
+        record joins the function lets: the same rules decide whether it
+        is modelled, and :meth:`_keep_plain_function_lets` adds the ones
+        for its data.
+        """
+        if len(toks) < 7 or toks[3].value.lower() != "fit":
+            return
+        target = toks[1].value.lower()
+        source = toks[4].value.lower()
+        eq = toks[2]
+        if not _DATASET_RE.match(target) or source not in datasets:
+            return
+        if eq.type is not TokenType.OP or eq.value != "=":
+            return
+        if target in info["_function_lets"]:
+            return
+        fields: Dict[str, Any] = {"_fit_source": source}
+        if _read_let_range(toks, 5, fields) and "expression" in fields:
+            info["_function_lets"][target] = fields
 
     def _keep_plain_function_lets(self, block, pass1: _GraphDatasets, info) -> None:
         """Drop each recorded function let that cannot be modelled whole.
@@ -4013,7 +4070,12 @@ class _Recognizer:
             )
             mentions = sum(len(pattern.findall(text)) for text in texts)
             attr_toks = pass1.merged_attr_toks.get(target)
-            if mentions != 1 or not attr_toks or not _plain_function_line(attr_toks):
+            if (
+                mentions != 1
+                or not attr_toks
+                or not _plain_function_line(attr_toks)
+                or not self._load_fit_data(texts, pass1, info, target)
+            ):
                 del info["_function_lets"][target]
         # The writer renumbers the datasets it writes, but not the ones in raw
         # lines. Beside a let that stays raw, a renumbered curve could take
@@ -4029,19 +4091,61 @@ class _Recognizer:
                     info["_function_lets"].clear()
                     return
 
+    def _load_fit_data(self, texts, pass1: _GraphDatasets, info, target) -> bool:
+        """Load the data of a recorded fit let into its record.
+
+        True for a function let, which has no data. A fit's ``dJ`` must be
+        read by its ``let`` alone, from a gleplot sidecar of its own:
+        :meth:`gleplot.writer.GLEWriter.add_fit` rewrites that file with
+        just the two columns it fits, which would break any other reader,
+        and a file of the caller's own is never rewritten.
+        """
+        record = info["_function_lets"][target]
+        source = record.get("_fit_source")
+        if source is None:
+            return True
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9_])" + re.escape(source) + r"(?![A-Za-z0-9_])",
+            re.IGNORECASE,
+        )
+        data_file, xcol, ycol = pass1.datasets[source]
+        if (
+            source in pass1.merged_attr_toks
+            or source in self._data_read_options
+            or info.get("_dataset_group", {}).get(source) != [source]
+            or sum(len(pattern.findall(text)) for text in texts) != 2
+            or [entry[0] for entry in pass1.datasets.values()].count(data_file) != 1
+            or not self._is_import(data_file)
+        ):
+            return False
+        loaded = self._load_series(data_file, xcol, ycol)
+        if loaded.get("error"):
+            return False
+        record["x"] = np.asarray(loaded["x"], dtype=float)
+        record["y"] = np.asarray(loaded["y"], dtype=float)
+        record["data_file"] = data_file
+        return True
+
     def _build_function_series(self, name, attr_toks, info) -> None:
-        """Append the ``FunctionSeries`` for a kept function let."""
+        """Append the ``FunctionSeries`` or ``FitSeries`` for a kept let."""
         attrs = self._scan_series_attrs(attr_toks)
         fields = dict(info["_function_lets"][name])
+        source = fields.pop("_fit_source", None)
         fields["color"] = attrs["color"]
         fields["linestyle"] = attrs["linestyle"] or "-"
         fields["linewidth"] = _dn_linewidth(attrs)
         if attrs["label"]:
             fields["label"] = attrs["label"]
-        entry = FunctionSeries(**fields)
+        entry: Series
+        if source is None:
+            entry = FunctionSeries(**fields)
+            info["functions"].append(entry)
+        else:
+            entry = FitSeries(**fields)
+            info["fits"].append(entry)
+            info["_let_source_datasets"].add(source)
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
-        info["functions"].append(entry)
 
     def _abandon_hist(self, info, target, extra_lines, message, span) -> None:
         """Keep a histogram let, and the display that could not model it."""
@@ -7161,6 +7265,7 @@ class _Recognizer:
         ax.bars = info["bars"]
         ax.hists = info["hists"]
         ax.functions = info["functions"]
+        ax.fits = info["fits"]
         ax.fills = info["fills"]
         ax.errorbars = info["errorbars"]
         ax.file_series = info["file_series"]

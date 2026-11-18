@@ -2379,7 +2379,7 @@ class Figure:
     def _write_drawables(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
     ) -> None:
-        """Bars, lines, scatters, histograms, functions and errorbars, in z-order.
+        """Bars, lines, scatters, histograms, curves and errorbars, in z-order.
 
         A bar group is written once, at its first member, as one ``bar``
         statement over all its members.
@@ -2408,6 +2408,8 @@ class Figure:
                 self._write_hist(writer, series_data)
             elif kind == "function":
                 writer.add_function(series_data)
+            elif kind == "fit":
+                writer.add_fit(series_data)
             else:
                 self._write_errorbar(writer, series_data, binding)
 
@@ -2950,6 +2952,7 @@ class Figure:
             resolution.visible(ax.lines),
             resolution.visible(ax.scatters),
             resolution.visible(ax.errorbars),
+            resolution.visible(ax.fits),
         )
         for data_list in x_bearing:
             for data in data_list:
@@ -3041,10 +3044,11 @@ class Figure:
             if xmax is None or hi > xmax:
                 xmax = hi
 
-        # A function curve spans its sampled range. Its y values are GLE's
-        # to compute, so it adds nothing to the y range.
-        for function in resolution.visible(ax.functions):
-            for value in (function.get("let_from"), function.get("let_to")):
+        # A function or fit curve spans its sampled range. Its y values are
+        # GLE's to compute; a fit's data bounds y like any other data.
+        curves = (*resolution.visible(ax.functions), *resolution.visible(ax.fits))
+        for curve in curves:
+            for value in (curve.get("let_from"), curve.get("let_to")):
                 if value is None or (positive_only and value <= 0):
                     continue
                 if xmin is None or value < xmin:
@@ -3106,6 +3110,7 @@ class Figure:
         offset_bearing: Sequence[Sequence[Series]] = (
             resolution.visible(ax.lines),
             resolution.visible(ax.scatters),
+            resolution.visible(ax.fits),
         )
         for data_list in offset_bearing:
             for data in data_list:

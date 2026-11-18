@@ -915,6 +915,29 @@ def function_curves():
     return fig
 
 
+def fit_curves():
+    """Two GLE-fitted curves: one with a range, step, style and label, one bare."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0.0, 4.0, 9)
+    ax.scatter(x, 2.0 * np.exp(-x / 1.5) + 0.3)
+    ax.fit(
+        x,
+        2.0 * np.exp(-x / 1.5) + 0.3,
+        "a*exp(-x/b)+c",
+        xmin=0,
+        xmax=5,
+        step=0.05,
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label="decay",
+    )
+    ax.fit(x, 0.5 * x, "k*x")
+    ax.legend()
+    return fig
+
+
 def histogram_field_options():
     """Histogram fields the other builders leave at their defaults.
 
@@ -1028,6 +1051,7 @@ BUILDERS = [
     fill_field_options,
     histogram,
     function_curves,
+    fit_curves,
     histogram_field_options,
     axes_styling_full,
     axis_lines_fonts_and_tick_placement,

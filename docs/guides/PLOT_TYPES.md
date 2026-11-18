@@ -84,6 +84,22 @@ gleplot does not evaluate the expression, so the curve does not widen the y
 range of other data on the axes; call `set_ylim` if it leaves it. Use `plot`
 when you already have the arrays.
 
+## Fitted curves
+
+GLE can fit an expression to data and draw the fitted curve:
+
+```python
+ax.scatter(x, y)
+ax.fit(x, y, 'a*exp(-x/b)+c', xmin=0, xmax=5)  # let d2 = fit d1 with a*exp(-x/b)+c from 0 to 5
+```
+
+Every name in the expression other than `x` is a coefficient. GLE starts each
+at 0 and finds the values that fit best by least squares. `fit` draws only
+the curve, so plot the data yourself. `xmin`, `xmax` and `step` set where the
+curve is drawn, as for `function`; all of the data is fitted. The fitted
+values stay inside GLE, so to use them in Python, or to start from other
+values, fit in Python and `plot` the result.
+
 ## Marker spacing, thinning and clipping
 
 ```python

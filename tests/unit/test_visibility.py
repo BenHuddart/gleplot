@@ -267,6 +267,7 @@ def _one_of_each_kind():
     ax.axvspan(1.0, 1.2, label="vspan")
     ax.hist([0.0, 0.4, 0.8], bins=4, range=(0, 1), histtype="step", label="hist")
     ax.function("sin(x)", xmin=1, xmax=2, label="fn")
+    ax.fit([1.0, 2.0], [1.0, 2.0], "a*x", label="fit")
 
     ax2 = fig.add_subplot(212)
     ax2.imshow(np.arange(12, dtype=float).reshape(3, 4), extent=(0, 4, 0, 3))
