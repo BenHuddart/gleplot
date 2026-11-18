@@ -119,6 +119,19 @@ def bar_recovered_fields():
     return fig
 
 
+def bar_hatch():
+    """``hatch`` as GLE ``pattern`` / ``background``: one series, a per-bar
+    split, a hidden face, a stack and a horizontal bar, with a legend."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, 3, 1], color="yellow", hatch="//", label="dense")
+    ax.bar([1, 2, 3], [1, 1, 2], bottom=[2, 3, 1], hatch="x", edgecolor="blue")
+    ax.bar([5, 6], [1, 2], hatch=["\\", "/"], color="none", label="split")
+    ax.barh([1, 2], [3, 4], hatch="xx", color="teal")
+    ax.legend()
+    return fig
+
+
 def barh():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1174,6 +1187,7 @@ BUILDERS = [
     bar_per_color,
     bar_stack,
     bar_recovered_fields,
+    bar_hatch,
     barh,
     bar_yerr,
     barh_xerr,

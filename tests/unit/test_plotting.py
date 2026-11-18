@@ -214,10 +214,46 @@ class TestBarCharts:
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            self.ax.bar([1, 2], [3, 4], align="edge", hatch="//")
+            self.ax.bar([1, 2], [3, 4], align="edge", hatch="|")
         messages = " ".join(str(item.message) for item in caught)
         assert "centered" in messages
-        assert "hatch" in messages
+        assert "hatch '|' has no GLE pattern" in messages
+        assert "pattern" not in self.fig._generate_gle()
+
+    def test_bar_hatch_is_a_pattern_over_the_face(self):
+        """The ink is the edge colour (black by default), the face goes under."""
+        self.ax.bar([1, 2], [3, 4], color="yellow", hatch="//")
+        self.ax.bar([1, 2], [1, 1], hatch="\\", edgecolor="blue")
+        self.ax.bar([1, 2], [2, 2], hatch="x", color="none")
+        script = self.fig._generate_gle()
+        assert "bar d1 fill BLACK pattern SHADE2 background YELLOW\n" in script
+        assert "fill BLUE pattern RSHADE background RED color BLUE" in script
+        assert "fill BLACK pattern GRID background CLEAR\n" in script
+
+    def test_bar_hatch_under_a_none_edge_is_black(self):
+        """matplotlib falls back to black when the edge it would use is 'none'."""
+        self.ax.bar([1, 2], [3, 4], color="yellow", hatch="/", edgecolor="none")
+        script = self.fig._generate_gle()
+        assert "fill BLACK pattern SHADE background YELLOW lwidth 0" in script
+
+    def test_bar_hatch_sequence_splits_per_bar(self):
+        self.ax.bar([1, 2, 3], [3, 4, 5], hatch=["/", "", "x"], label="mix")
+        bars = self.ax.bars
+        assert [bar.get("pattern") for bar in bars] == ["SHADE", None, "GRID"]
+        assert bars[1]["colors"] == ["RED"] and "background" not in bars[1]
+
+    def test_bar_hatch_sequence_length_and_type_are_checked(self):
+        with pytest.raises(ValueError, match="hatch sequence length 2"):
+            self.ax.bar([1, 2, 3], [3, 4, 5], hatch=["/", "x"])
+        with pytest.raises(TypeError, match="hatch must be a string"):
+            self.ax.bar([1, 2], [3, 4], hatch=[1, 2])
+        with pytest.raises(TypeError, match="got 5"):
+            self.ax.bar([1, 2], [3, 4], hatch=5)
+        assert self.ax.bars == []
+
+    def test_barh_hatch(self):
+        self.ax.barh([1, 2], [3, 4], hatch="xx", color="teal")
+        assert "pattern GRID2 background TEAL horiz" in self.fig._generate_gle()
 
     def test_bar_color_length_must_match(self):
         with pytest.raises(ValueError):

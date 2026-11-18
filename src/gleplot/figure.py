@@ -2173,8 +2173,12 @@ class Figure:
     def _drawable_legend_swatch(writer: GLEWriter, kind: str, data) -> str:
         if kind == "bar":
             colors = data.get("colors") or ["RED"]
-            token = data.get("swatch_color") or colors[0]
-            return writer.legend_swatch(colors[0], fill=token)
+            token = data.get("swatch_color")
+            if token:
+                return writer.legend_swatch(colors[0], fill=token)
+            return writer.legend_swatch(
+                colors[0], fill=colors[0], pattern=data.get("pattern")
+            )
         if kind == "hist" and data.get("histtype") == "stepfilled":
             token = data.get("color") or "BLUE"
             return writer.legend_swatch(token, fill=token)
