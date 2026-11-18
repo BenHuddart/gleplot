@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v3.13.0 (2026-11-18)
+
+### Features
+
+- Data-file reading options on line_from_file and errorbar_from_file
+  ([#51](https://github.com/BenHuddart/gleplot/pull/51),
+  [`08b72c8`](https://github.com/BenHuddart/gleplot/commit/08b72c892a329189fcced23bb0452f42f5fcb2af))
+
+
 ## v3.12.0 (2026-11-18)
 
 ### Features
