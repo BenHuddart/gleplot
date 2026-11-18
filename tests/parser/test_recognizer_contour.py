@@ -60,6 +60,34 @@ def test_imshow_colorbar_recovered(tmp_path):
     assert cb["width"] == 0.4 and cb["sep"] == 0.6
 
 
+def test_per_axes_and_horizontal_colorbars_recovered(tmp_path):
+    fig, (a, b) = glp.subplots(1, 2, figsize=(10, 4), data_prefix="g")
+    ha = a.imshow(np.arange(4.0).reshape(2, 2), cmap="viridis")
+    hb = b.imshow(np.arange(4.0).reshape(2, 2) * 10, cmap="magma")
+    fig.colorbar(ha, ax=a, label="a", width=0.4)
+    fig.colorbar(hb, ax=b, orientation="horizontal", label="b", width=0.3, sep=1.2)
+
+    rec = parse_gle_figure(_save(fig, tmp_path))
+    assert rec.warnings == []
+    ra, rb = (ax.heatmaps[0]["colorbar"] for ax in rec.figure.axes_list)
+    assert "orientation" not in ra
+    assert (ra["label"], ra["width"], ra["sep"]) == ("a", 0.4, 0.3)
+    assert rb["orientation"] == "horizontal"
+    assert (rb["label"], rb["width"], rb["sep"]) == ("b", 0.3, 1.2)
+    assert (rb["zmin"], rb["zmax"]) == (0.0, 30.0)
+
+
+def test_a_horizontal_bar_inside_the_frame_keeps_its_negative_sep(tmp_path):
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2))
+    fig.colorbar(orientation="horizontal", sep=-0.5)
+    path = _save(fig, tmp_path)
+    assert "amove xg(xgmin) yg(ygmin)+0.5\n" in path.read_text()
+
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"]["sep"] == -0.5
+
+
 def test_tricontour_recovered_with_clabel(tmp_path):
     fig = glp.figure(figsize=(8, 6), data_prefix="g")
     ax = fig.add_subplot(111)

@@ -5014,19 +5014,37 @@ class GLEWriter:
         its ``colorbar`` dict (see :meth:`gleplot.Figure.colorbar`) holds the
         call's range, size, format and label. A heatmap without one writes
         nothing.
+
+        A vertical bar starts at ``xg(xgmax)+sep yg(ygmin)`` and spans the
+        graph's height; a horizontal one hangs from ``xg(xgmin) yg(ygmin)-sep``
+        and spans its width. Both subs take ``wd``/``hi`` as the bar's x/y
+        extent, so the graph-sized one is an expression. Named-argument call
+        style (``zmin V zmax V ...``); note GLE matches named args by the
+        parameter name WITHOUT the ``$`` suffix.
         """
         cb = series.get("colorbar")
         if not cb:
             return
-        self.add_colorbar_call(
-            sep=cb["sep"],
-            zmin=cb["zmin"],
-            zmax=cb["zmax"],
-            zstep=cb["zstep"],
-            palette_call=_pal.palette_call_name(series["cmap"]),
-            width=cb["width"],
-            fmt=cb["format"],
-            label=cb.get("label"),
+        fmt = self._format_number
+        sep = float(cb["sep"])
+        thickness = fmt(cb["width"])
+        if cb.get("orientation") == "horizontal":
+            # ``yg(ygmin)--S`` would not parse back, so a negative gap flips
+            # the operator instead.
+            below = f"-{fmt(sep)}" if sep >= 0 else f"+{fmt(-sep)}"
+            self.lines_gle.append(f"amove xg(xgmin) yg(ygmin){below}")
+            sub = "gleplot_colorbar_h"
+            size = f"wd xg(xgmax)-xg(xgmin) hi {thickness}"
+        else:
+            self.lines_gle.append(f"amove xg(xgmax)+{fmt(sep)} yg(ygmin)")
+            sub = "gleplot_colorbar_v"
+            size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
+        lbl = self._escape_gle_string(cb.get("label") or "")
+        self.lines_gle.append(
+            f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
+            f"zstep {fmt(cb['zstep'])} "
+            f'palette "{_pal.palette_call_name(series["cmap"])}" {size} '
+            f'format "{cb["format"]}" label "{lbl}"'
         )
 
     def add_contour_data(self, series: Series):
@@ -5132,33 +5150,6 @@ class GLEWriter:
         if lstyle is not None:
             cmd += f" lstyle {int(lstyle)}"
         self.lines_gle.append(cmd)
-
-    def add_colorbar_call(
-        self,
-        sep: float,
-        zmin: float,
-        zmax: float,
-        zstep: float,
-        palette_call: str,
-        width: float,
-        fmt: str,
-        label: Optional[str],
-    ):
-        """Emit the post-graph vertical-colorbar sub call.
-
-        Positioned at ``xg(xgmax)+sep yg(ygmin)`` with height spanning the
-        graph. Named-argument call style (``zmin V zmax V ...``); note GLE
-        matches named args by the parameter name WITHOUT the ``$`` suffix.
-        """
-        self.lines_gle.append(f"amove xg(xgmax)+{self._format_number(sep)} yg(ygmin)")
-        lbl = self._escape_gle_string(label or "")
-        self.lines_gle.append(
-            f"gleplot_colorbar_v zmin {self._format_number(zmin)} "
-            f"zmax {self._format_number(zmax)} "
-            f"zstep {self._format_number(zstep)} "
-            f'palette "{palette_call}" wd {self._format_number(width)} '
-            f'hi yg(ygmax)-yg(ygmin) format "{fmt}" label "{lbl}"'
-        )
 
     def add_clabel_call(self, clabels_file: str, fmt: str):
         """Emit the post-graph contour-label sub call."""

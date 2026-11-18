@@ -671,7 +671,7 @@ def test_the_colorbar_margin_estimator_tolerates_an_unresolved_auto_range():
     _heatmap_grid(ax)
     fig.colorbar()
 
-    reserved = fig._axes_colorbar_reserved_cm(ax)
+    reserved, _below = fig._axes_colorbar_reserved_cm(ax)
 
     assert reserved > 0
 

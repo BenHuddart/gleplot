@@ -318,9 +318,12 @@ def tricontour(*args, **kwargs):
     return gca().tricontour(*args, **kwargs)
 
 
-def colorbar(*args, **kwargs):
-    """Attach a colorbar to the current figure's heatmap axes."""
-    return gcf().colorbar(*args, **kwargs)
+def colorbar(mappable=None, cax=None, ax=None, **kwargs):
+    """Attach a colorbar to a heatmap on the current figure.
+
+    See :meth:`Figure.colorbar`.
+    """
+    return gcf().colorbar(mappable, cax, ax, **kwargs)
 
 
 def subplots(

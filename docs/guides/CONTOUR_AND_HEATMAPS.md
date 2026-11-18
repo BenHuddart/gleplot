@@ -8,7 +8,7 @@ gleplot can render 2-D scalar fields as heatmaps (matplotlib's `imshow`/`tripcol
 - `Axes.contour(*args, levels=None, colors='black', linewidths=1.0, linestyles='-', clabel=False, clabel_fmt='fix 1', label=None)` — contour lines of **gridded** data. Call as `contour(Z)` or `contour(x, y, Z)`.
 - `Axes.tripcolor(x, y, z, gridsize=(50, 50), extent=None, **imshow_kwargs)` — heatmap of **scattered** `(x, y, z)` samples, gridded by GLE at compile time.
 - `Axes.tricontour(x, y, z, gridsize=(50, 50), extent=None, ncontour=3, **contour_kwargs)` — contour lines of **scattered** `(x, y, z)` samples.
-- `Figure.colorbar(label=None, format='fix 1', nticks=None, width=0.5, sep=0.3)` — attaches a vertical colorbar to the figure's single heatmap-bearing axes.
+- `Figure.colorbar(mappable=None, cax=None, ax=None, use_gridspec=True, *, orientation=None, label=None, format='fix 1', nticks=None, width=0.5, sep=None)` — attaches a colorbar to a heatmap, beside its axes (vertical) or below it (horizontal). See [Colorbars](#colorbars).
 
 Each has a module-level convenience wrapper too: `glp.imshow(...)`, `glp.contour(...)`, `glp.tripcolor(...)`, `glp.tricontour(...)`, `glp.colorbar(...)` (they operate on `gca()`/`gcf()`, matching `glp.plot()` and friends).
 
@@ -103,6 +103,27 @@ ax.imshow(Z2)  # ValueError: GLE supports at most one heatmap (colormap) per axe
 ```
 
 Contour lines have no such limit — you can layer multiple `contour`/`tricontour` calls (e.g. one heatmap plus several contour overlays at different levels) on the same axes. To show a second field over a heatmap, draw it as contours.
+
+## Colorbars
+
+`fig.colorbar()` with no heatmap named attaches to the figure's only heatmap. In a grid of heatmaps, pass the heatmap `imshow` (or `tripcolor`) returned, and each axes gets its own bar on its own scale:
+
+```python
+import numpy as np
+import gleplot as glp
+
+y, x = np.mgrid[0:20, 0:30]
+fig, (a, b) = glp.subplots(1, 2, figsize=(10, 4))
+ha = a.imshow(np.sin(x / 5.0) * np.cos(y / 4.0), cmap='viridis')
+hb = b.imshow(100.0 * x * y, cmap='magma')
+fig.colorbar(ha, ax=a, label='amplitude')
+fig.colorbar(hb, ax=b, orientation='horizontal', label='counts')
+fig.savefig('two_bars.pdf')
+```
+
+A vertical bar sits `sep` cm to the right of its axes. A horizontal bar spans its axes' width, below the x tick labels and title; its `sep` is measured from the frame's bottom edge, and the default clears them at the figure's font size when `colorbar()` is called. `width` is the bar's thickness either way. The subplot grid makes room for every bar: a vertical bar widens the gap to the right of its column, a horizontal bar the gap below its row, and a bar on the last column or row widens the page margin instead.
+
+`ax` must be the axes holding the heatmap: the bar is drawn beside its own heatmap's axes. `cax` is not supported. Passing it warns, and the bar is drawn beside the heatmap's axes.
 
 ## Contour Smoothing
 

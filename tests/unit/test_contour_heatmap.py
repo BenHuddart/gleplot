@@ -435,6 +435,116 @@ def test_colorbar_ambiguous_raises():
         fig.colorbar()
 
 
+def _two_heatmaps():
+    fig, (a, b) = glp.subplots(1, 2, figsize=(10, 4), data_prefix="t")
+    ha = a.imshow(np.array([[0.0, 1.0], [2.0, 3.0]]), cmap="viridis")
+    hb = b.imshow(np.array([[10.0, 20.0], [30.0, 50.0]]), cmap="magma")
+    return fig, a, b, ha, hb
+
+
+def _placements(text):
+    """``(x, y, w, h)`` of each graph, from its ``amove`` + ``size`` pair."""
+    import re
+
+    pairs = re.findall(
+        r"^amove ([-0-9.e]+) ([-0-9.e]+)\nbegin graph\n\s+size ([-0-9.e]+) "
+        r"([-0-9.e]+)",
+        text,
+        re.M,
+    )
+    return [tuple(float(v) for v in p) for p in pairs]
+
+
+def test_colorbar_per_axes_gives_each_heatmap_its_own_bar():
+    fig, a, b, ha, hb = _two_heatmaps()
+    ca = fig.colorbar(ha, ax=a, label="a")
+    cb = fig.colorbar(hb, label="b")
+
+    assert ha["colorbar"] is ca and hb["colorbar"] is cb
+    assert (ca["zmin"], ca["zmax"]) == (0.0, 3.0)
+    assert (cb["zmin"], cb["zmax"]) == (10.0, 50.0)
+    text, _ = _gle(fig)
+    assert text.count("sub gleplot_colorbar_v") == 1
+    assert 'palette "gleplot_viridis" wd 0.5' in text
+    assert 'palette "gleplot_magma" wd 0.5' in text
+
+
+def test_colorbar_ax_alone_picks_that_axes_heatmap():
+    fig, a, b, ha, hb = _two_heatmaps()
+    fig.colorbar(ax=b)
+    assert hb["colorbar"] is not None and ha.get("colorbar") is None
+
+
+def test_a_bar_beside_an_inner_column_widens_the_gap_after_it():
+    fig, a, b, ha, hb = _two_heatmaps()
+    (ax0, _, w0, _), (bx0, _, _, _) = _placements(_gle(fig)[0])
+    plain_gap = bx0 - (ax0 + w0)
+
+    fig.colorbar(ha)
+    (ax1, _, w1, _), (bx1, _, _, _) = _placements(_gle(fig)[0])
+    reserved, _below = fig._axes_colorbar_reserved_cm(a)
+
+    assert bx1 - (ax1 + w1) == pytest.approx(plain_gap + reserved, abs=1e-4)
+
+
+def test_horizontal_colorbar_is_drawn_below_and_reserves_the_bottom():
+    fig = glp.figure(figsize=(6, 4), data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.array([[0.0, 1.0], [2.0, 4.0]]), cmap="viridis")
+    ((_, y0, _, h0),) = _placements(_gle(fig)[0])
+
+    cb = fig.colorbar(orientation="horizontal", label="z", width=0.4, sep=1.5)
+    text, _ = _gle(fig)
+    ((_, y1, _, h1),) = _placements(text)
+
+    assert cb["orientation"] == "horizontal"
+    assert "sub gleplot_colorbar_h" in text
+    assert "sub gleplot_colorbar_v" not in text
+    assert "amove xg(xgmin) yg(ygmin)-1.5\n" in text
+    assert (
+        'gleplot_colorbar_h zmin 0 zmax 4 zstep 0.8 palette "gleplot_viridis" '
+        'wd xg(xgmax)-xg(xgmin) hi 0.4 format "fix 1" label "z"'
+    ) in text
+    _right, below = fig._axes_colorbar_reserved_cm(ax)
+    assert y1 >= below - 1e-4
+    assert y1 > y0 and h1 < h0
+
+
+def test_horizontal_colorbar_default_sep_clears_the_x_decoration():
+    fig = glp.figure(data_prefix="t")
+    fig.add_subplot(111).imshow(np.zeros((2, 2)) + [[0.0], [1.0]])
+    assert fig.colorbar(orientation="horizontal")["sep"] == 1.57  # 3 hei + 0.3
+    assert fig.colorbar(orientation="vertical")["sep"] == 0.3
+    assert "orientation" not in fig.axes_list[0].heatmaps[0]["colorbar"]
+
+
+def test_colorbar_rejects_bad_arguments():
+    fig, a, b, ha, hb = _two_heatmaps()
+    with pytest.raises(ValueError, match="orientation must be"):
+        fig.colorbar(ha, orientation="diagonal")
+    with pytest.raises(TypeError, match="mappable must be"):
+        fig.colorbar("a label")
+    with pytest.raises(TypeError, match="ax must be one Axes"):
+        fig.colorbar(ha, ax=[a, b])
+    with pytest.raises(ValueError, match="ax must be the axes holding"):
+        fig.colorbar(ha, ax=b)
+    other, oax = glp.subplots()
+    with pytest.raises(ValueError, match="not a heatmap on this figure"):
+        other.colorbar(ha)
+    with pytest.raises(ValueError, match="not an axes of this figure"):
+        other.colorbar(ax=a)
+    oax.plot([0, 1], [0, 1])
+    with pytest.raises(ValueError, match="needs a heatmap on ax"):
+        other.colorbar(ax=oax)
+
+
+def test_colorbar_cax_warns_and_draws_beside_the_heatmap():
+    fig, a, b, ha, hb = _two_heatmaps()
+    with pytest.warns(UserWarning, match="cax is not supported"):
+        fig.colorbar(ha, b)
+    assert ha["colorbar"] is not None and hb.get("colorbar") is None
+
+
 # --------------------------------------------------------------------------- #
 # autoscale from extent, module-level wrappers, palettes module
 # --------------------------------------------------------------------------- #

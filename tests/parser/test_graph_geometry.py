@@ -278,7 +278,7 @@ def test_a_colorbar_reserves_its_width_in_the_placement_rect(tmp_path):
 
     fig = golden.heatmap_imshow_colorbar()
     _resave(fig, tmp_path, "cbar.gle")
-    reserved = fig._axes_colorbar_reserved_cm(fig.axes_list[0])
+    reserved, _below = fig._axes_colorbar_reserved_cm(fig.axes_list[0])
     assert reserved > 0
 
     rec = parse_gle_figure(tmp_path / "cbar.gle")
@@ -305,7 +305,7 @@ def test_a_legacy_colorbar_size_line_migrates_instead_of_freezing(tmp_path):
 
     fig = golden.heatmap_imshow_colorbar()
     src = _resave(fig, tmp_path, "cbar.gle")
-    reserved = fig._axes_colorbar_reserved_cm(fig.axes_list[0])
+    reserved, _below = fig._axes_colorbar_reserved_cm(fig.axes_list[0])
     page_w, page_h = 2.54 * fig.figsize[0], 2.54 * fig.figsize[1]
     graph_w = max(page_w - reserved, page_w * 0.3)
     fmt = GLEWriter._format_number

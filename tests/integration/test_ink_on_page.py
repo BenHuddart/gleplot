@@ -160,3 +160,21 @@ def test_a_grid_with_a_secondary_y_axis_keeps_it_on_the_page(tmp_path):
         )
         ax.set_ylabel("current", axis="y2")
     _assert_on_page(fig, tmp_path)
+
+
+@pytest.mark.parametrize("fontsize", [12, 18])
+@pytest.mark.parametrize("orientation", ["vertical", "horizontal"])
+def test_a_colorbar_on_every_axes_keeps_its_ink_on_the_page(
+    orientation, fontsize, tmp_path
+):
+    """Each heatmap's own bar, with ticks and label, fits inside the page.
+
+    The wide values put long numbers on the bar's ends, which a horizontal
+    bar centres on its corners.
+    """
+    fig = _labelled_grid(2, 2, style=glp.GLEStyleConfig(fontsize=fontsize))
+    y, x = np.mgrid[0:5, 0:6]
+    for k, ax in enumerate(fig.axes_list):
+        hm = ax.imshow((k + 1) * 1234.5 * x * y, cmap="viridis")
+        fig.colorbar(hm, ax=ax, label="signal", orientation=orientation)
+    _assert_on_page(fig, tmp_path)

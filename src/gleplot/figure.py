@@ -27,7 +27,7 @@ from .compiler import (
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
 from .parser import metadata as _gle_metadata
 from .parser.units import fontsize_pt_to_cm
-from .series import Series, is_visible
+from .series import HeatmapSeries, Series, is_visible
 from .sources import DataSource, source_of
 from .writer import (
     BOX_SUB,
@@ -916,21 +916,45 @@ class Figure:
         if "top" in self._subplot_adjust:
             margin_top = (1.0 - self._subplot_adjust["top"]) * writer.height_cm
 
-        # Reserve extra room on the right for a colorbar, if any axes has one.
-        # colorbar() enforces exactly one heatmap-bearing axes per figure, so
-        # at most one colorbar exists here; it is drawn at the right edge of
-        # its (rightmost, in the common 1-row layout) axes. This keeps simple
-        # grids correct; a colorbar on an axes that is NOT in the rightmost
-        # column could still overlap its neighbour (documented limitation).
-        # With no colorbar, margin_right is unchanged.
-        cbar_reserved = max(
-            (self._axes_colorbar_reserved_cm(ax, resolution) for ax in self.axes_list),
-            default=0.0,
-        )
-        if cbar_reserved > 0:
-            margin_right = max(margin_right, cbar_reserved)
+        # A colorbar beside the last column (or below the last row) takes the
+        # outer margin; bars elsewhere widen an inner gap (_layout_rects).
+        # With no colorbar, both margins are unchanged.
+        col_extra, row_extra = self._colorbar_gaps_cm(resolution)
+        max_rows, max_cols = self._grid_shape()
+        if col_extra.get(max_cols - 1, 0.0) > 0:
+            margin_right = max(margin_right, col_extra[max_cols - 1])
+        if row_extra.get(max_rows - 1, 0.0) > 0:
+            margin_bottom = max(margin_bottom, row_extra[max_rows - 1])
 
         return margin_left, margin_right, margin_bottom, margin_top
+
+    def _grid_shape(self) -> Tuple[int, int]:
+        """``(rows, cols)`` of the subplot grid the layout fills."""
+        max_rows = max((_grid_position(ax)[0] for ax in self.axes_list), default=1)
+        max_cols = max((_grid_position(ax)[1] for ax in self.axes_list), default=1)
+        return max_rows, max_cols
+
+    def _colorbar_gaps_cm(
+        self, resolution: Optional[SourceResolution]
+    ) -> Tuple[Dict[int, float], Dict[int, float]]:
+        """Room colorbars need, as ``({col: cm}, {row: cm})``.
+
+        A vertical bar needs room to the right of its axes' grid column, a
+        horizontal one below its row; each entry is the widest such bar in
+        that column or row. Rows and columns count from 0 at the top left,
+        as in :meth:`_layout_rects`.
+        """
+        col_extra: Dict[int, float] = {}
+        row_extra: Dict[int, float] = {}
+        for ax in self.axes_list:
+            vertical, horizontal = self._axes_colorbar_reserved_cm(ax, resolution)
+            if not (vertical or horizontal):
+                continue
+            _rows, cols, idx = _grid_position(ax)
+            row, col = (idx - 1) // cols, (idx - 1) % cols
+            col_extra[col] = max(col_extra.get(col, 0.0), vertical)
+            row_extra[row] = max(row_extra.get(row, 0.0), horizontal)
+        return col_extra, row_extra
 
     def _has_titles(self) -> bool:
         """True if any subplot has a title (a broken axis titles the assembly)."""
@@ -962,8 +986,12 @@ class Figure:
             writer, resolution
         )
 
-        max_rows = max((_grid_position(ax)[0] for ax in self.axes_list), default=1)
-        max_cols = max((_grid_position(ax)[1] for ax in self.axes_list), default=1)
+        max_rows, max_cols = self._grid_shape()
+        # Colorbars beside inner columns / below inner rows widen the gap
+        # after them; the last column's and row's are in the outer margins.
+        col_extra, row_extra = self._colorbar_gaps_cm(resolution)
+        col_gaps = [col_extra.get(c, 0.0) for c in range(max_cols - 1)]
+        row_gaps = [row_extra.get(r, 0.0) for r in range(max_rows - 1)]
 
         # With a single cell there are no relative sizes to distribute, so
         # height_ratios/width_ratios are ignored rather than validated -- a
@@ -973,11 +1001,11 @@ class Figure:
         width_ratios = self.width_ratios if len(self.axes_list) > 1 else None
 
         avail_w = max(
-            writer.width_cm - margin_left - margin_right,
+            writer.width_cm - margin_left - margin_right - sum(col_gaps),
             writer.width_cm * self._MIN_FRAME_FRACTION,
         )
         avail_h = max(
-            writer.height_cm - margin_bottom - margin_top,
+            writer.height_cm - margin_bottom - margin_top - sum(row_gaps),
             writer.height_cm * self._MIN_FRAME_FRACTION,
         )
 
@@ -1020,14 +1048,14 @@ class Figure:
         # this reduces to the historical ``margin + i * (cell + gap)``
         # arithmetic.
         col_x_offsets = [margin_left]
-        for w in col_widths[:-1]:
-            col_x_offsets.append(col_x_offsets[-1] + w + hspace)
+        for w, extra in zip(col_widths[:-1], col_gaps):
+            col_x_offsets.append(col_x_offsets[-1] + w + hspace + extra)
 
         row_y_bottoms = []
         consumed_h = margin_top
-        for h in row_heights:
+        for r, h in enumerate(row_heights):
             row_y_bottoms.append(writer.height_cm - consumed_h - h)
-            consumed_h += h + vspace
+            consumed_h += h + vspace + (row_gaps[r] if r < len(row_gaps) else 0.0)
 
         rects: List[tuple] = []
         cells: List[tuple] = []
@@ -1140,26 +1168,55 @@ class Figure:
 
     def colorbar(
         self,
+        mappable=None,
+        cax=None,
+        ax=None,
+        use_gridspec=True,
+        *,
+        orientation: Optional[str] = None,
         label: Optional[str] = None,
         format: str = "fix 1",
         nticks: Optional[int] = None,
         width: float = 0.5,
-        sep: float = 0.3,
+        sep: Optional[float] = None,
     ):
-        """Attach a vertical colorbar to the figure's single heatmap axes.
+        """Attach a colorbar to a heatmap.
 
         Parameters
         ----------
+        mappable : HeatmapSeries, optional
+            The heatmap the bar shows, as returned by :meth:`Axes.imshow` or
+            :meth:`Axes.tripcolor`. Default: the heatmap on ``ax``, or the
+            figure's only heatmap when ``ax`` is not given either.
+        cax : Axes, optional
+            Not supported: GLE draws the bar beside its heatmap's axes, not
+            into another one. Passing it warns and is otherwise ignored.
+        ax : Axes, optional
+            The axes the bar is drawn beside. It must be the axes holding
+            ``mappable``; with no ``mappable``, its heatmap is the one shown.
+        use_gridspec : bool
+            Accepted for matplotlib compatibility. The subplot grid always
+            makes room for the bar, whatever its value.
+        orientation : {'vertical', 'horizontal'}, optional
+            ``'vertical'`` (the default, ``None``) draws the bar to the right
+            of the axes; ``'horizontal'`` draws it below the axes, under the
+            x tick labels and title.
         label : str, optional
-            Colorbar axis label (rotated text to the right of the bar).
+            Colorbar axis label: rotated, to the right of a vertical bar;
+            centred under a horizontal one.
         format : str
             GLE ``format$`` string for the tick labels (e.g. ``'fix 1'``).
         nticks : int, optional
             Approximate number of tick intervals. Default: 5.
         width : float
-            Colorbar width in cm.
-        sep : float
-            Gap (cm) between the graph's right edge and the colorbar.
+            Bar thickness in cm: its width when vertical, its height when
+            horizontal.
+        sep : float, optional
+            Gap (cm) between the axes frame and the bar. For a vertical bar
+            it is measured from the frame's right edge (default 0.3). For a
+            horizontal bar it is measured from the frame's bottom edge to
+            the bar's top (default: clear of the x tick labels and title at
+            the figure's font size when ``colorbar()`` is called).
 
         Returns
         -------
@@ -1170,13 +1227,24 @@ class Figure:
         Raises
         ------
         ValueError
-            If no axes has a heatmap, if more than one does (ambiguous), or
+            If there is no heatmap to show (none on the figure, none on
+            ``ax``, or more than one axes has one and neither ``mappable``
+            nor ``ax`` picks it), if ``mappable`` is not on this figure or
+            not on ``ax``, if ``orientation`` is not an accepted value, or
             if the heatmap has neither z data nor explicit ``vmin``/``vmax``
             to derive a colour range from and no reference to resolve one
             from later.
+        TypeError
+            If ``mappable`` is not a heatmap or ``ax`` is not an ``Axes``.
 
         Notes
         -----
+        A heatmap carries at most one bar, and each axes at most one
+        heatmap, so a grid of heatmaps shows one bar per axes, each on its
+        own scale. The subplot grid makes room for every bar: a vertical bar
+        widens the gap to the right of its column (or the right margin), and
+        a horizontal one the gap below its row (or the bottom margin).
+
         **Reference-backed heatmaps** (SPEC 14.5). A heatmap whose numbers
         come from a :class:`~gleplot.sources.GridRef` has no arrays *here* --
         they arrive per write from the provider. Rather than read arrays it
@@ -1187,16 +1255,23 @@ class Figure:
         heatmap short-circuit that and are used as-is, here and at write time
         alike.
         """
-        bearing = [ax for ax in self.axes_list if ax.heatmaps]
-        if not bearing:
+        if orientation not in (None, "vertical", "horizontal"):
             raise ValueError(
-                "colorbar() requires a heatmap (imshow/tripcolor) on some axes"
+                f"colorbar() orientation must be 'vertical' or 'horizontal', "
+                f"got {orientation!r}"
             )
-        if len(bearing) > 1:
-            raise ValueError(
-                "colorbar() is ambiguous: more than one axes has a heatmap"
+        if ax is not None and not isinstance(ax, Axes):
+            raise TypeError(
+                f"colorbar() ax must be one Axes of this figure, got "
+                f"{type(ax).__name__}; call colorbar() once per axes to give "
+                f"each its own bar"
             )
-        hm = bearing[0].heatmaps[0]
+        if cax is not None:
+            warn_external(
+                "colorbar() cax is not supported: GLE draws the bar beside its "
+                "heatmap's axes, so cax is ignored. Pass ax= (or nothing) instead."
+            )
+        hm = self._colorbar_heatmap(mappable, ax)
 
         values = hm["z"] if hm["source"] == "grid" else hm["zpts"]
         have_values = values is not None and np.asarray(values).size > 0
@@ -1210,6 +1285,13 @@ class Figure:
 
         divisions = int(nticks) if nticks else DEFAULT_COLORBAR_NTICKS
 
+        horizontal = orientation == "horizontal"
+        if sep is None:
+            if horizontal:
+                hei = fontsize_pt_to_cm(self.style.fontsize)
+                sep = round(self._AUTO_MARGIN_BOTTOM_HEI * hei + 0.3, 2)
+            else:
+                sep = 0.3
         cb = {
             "label": bearing[0]._text(label),
             "format": str(format),
@@ -1219,6 +1301,9 @@ class Figure:
             "zmax": zmax,
             "zstep": None,
         }
+        if horizontal:
+            # Absent means vertical, so a vertical bar's dict is unchanged.
+            cb["orientation"] = "horizontal"
         if zmin is not None and zmax is not None:
             span = zmax - zmin
             cb["zstep"] = (span / divisions) if span > 0 else 1.0
@@ -1239,6 +1324,55 @@ class Figure:
             cb[COLORBAR_NTICKS] = divisions
         hm["colorbar"] = cb
         return cb
+
+    def _colorbar_heatmap(self, mappable, ax: Optional[Axes]):
+        """The heatmap :meth:`colorbar` attaches to, from ``mappable``/``ax``."""
+        if ax is not None and not any(a is ax for a in self.axes_list):
+            raise ValueError(
+                "colorbar() ax is not an axes of this figure; call colorbar() "
+                "on the figure that holds it"
+            )
+        if mappable is None:
+            if ax is not None:
+                if not ax.heatmaps:
+                    raise ValueError(
+                        "colorbar() needs a heatmap on ax: draw one there with "
+                        "ax.imshow() or ax.tripcolor() first"
+                    )
+                return ax.heatmaps[0]
+            bearing = [a for a in self.axes_list if a.heatmaps]
+            if not bearing:
+                raise ValueError(
+                    "colorbar() requires a heatmap (imshow/tripcolor) on some axes"
+                )
+            if len(bearing) > 1:
+                raise ValueError(
+                    "colorbar() is ambiguous: more than one axes has a heatmap. "
+                    "Pass the one to show, as imshow() returned it: "
+                    "fig.colorbar(im)"
+                )
+            return bearing[0].heatmaps[0]
+        if not isinstance(mappable, HeatmapSeries):
+            raise TypeError(
+                f"colorbar() mappable must be the heatmap imshow() or "
+                f"tripcolor() returned, got {type(mappable).__name__}. "
+                f"Pass a label as label=..."
+            )
+        owner = next(
+            (a for a in self.axes_list if any(h is mappable for h in a.heatmaps)),
+            None,
+        )
+        if owner is None:
+            raise ValueError(
+                "colorbar() mappable is not a heatmap on this figure; call "
+                "colorbar() on the figure that drew it"
+            )
+        if ax is not None and ax is not owner:
+            raise ValueError(
+                "colorbar() ax must be the axes holding mappable: gleplot draws "
+                "the bar beside its heatmap's own axes"
+            )
+        return mappable
 
     def xlabel(self, label: str):
         """Set x label on current axes."""
@@ -1944,15 +2078,16 @@ class Figure:
 
     # -- colorbar layout reservation ------------------------------------
     #
-    # A vertical colorbar is drawn AFTER the graph, at ``xg(xgmax)+sep``, so it
-    # falls outside the frame rectangle. The reserved width computed here
-    # becomes the layout's right-hand margin (:meth:`_auto_margins_cm`), for a
-    # lone plot exactly as for a grid, so the bar + ticks + rotated label are
-    # not clipped off the page. It is derived purely from the colorbar dict
-    # (which the recognizer recovers verbatim), so it recomputes identically on
-    # a writer -> recognizer -> writer round trip -- though since metadata v2
-    # the emitted rect is also read straight back, so the round trip no longer
-    # depends on the re-derivation matching.
+    # A colorbar is drawn AFTER the graph, outside the frame rectangle: a
+    # vertical one at ``xg(xgmax)+sep``, a horizontal one with its top edge at
+    # ``yg(ygmin)-sep``. The room computed here widens the layout's right or
+    # bottom margin, or the grid gap after the bar's column or row
+    # (:meth:`_colorbar_gaps_cm`), so the bar + ticks + label are neither
+    # clipped off the page nor drawn over a neighbour. It is derived purely
+    # from the colorbar dict (which the recognizer recovers verbatim), so it
+    # recomputes identically on a writer -> recognizer -> writer round trip --
+    # though since metadata v2 the emitted rect is also read straight back, so
+    # the round trip no longer depends on the re-derivation matching.
 
     #: Nominal tick-label text height (cm) used only to size the reserved
     #: colorbar margin. A fixed constant (not derived from ``style.fontsize``)
@@ -1994,7 +2129,7 @@ class Figure:
 
     @classmethod
     def _colorbar_reserved_cm(cls, cb: dict) -> float:
-        """Right-hand space (cm), measured from ``xgmax``, a colorbar needs.
+        """Right-hand space (cm), measured from ``xgmax``, a vertical bar needs.
 
         Sized honestly from how ``gleplot_colorbar_v`` lays out (see
         :func:`gleplot.palettes.colorbar_sub_text`): the ``sep`` gap, the bar
@@ -2011,29 +2146,55 @@ class Figure:
         label_extent = (1.3 + hei) if cb.get("label") else 0.0
         return sep + wd + max(tick_extent, label_extent) + 0.3  # + safety pad
 
+    def _colorbar_h_reserved_cm(self, cb: dict) -> Tuple[float, float]:
+        """``(right, below)`` space (cm) a horizontal bar needs.
+
+        ``below`` is measured down from ``ygmin``, following
+        :func:`gleplot.palettes.colorbar_h_sub_text`: the ``sep`` gap, the bar
+        (``hi``), the ticks and numbers, then the ``label`` 0.2 cm under them.
+        ``right`` is how far the last number, centred on the bar's end, runs
+        past ``xgmax``. The text is the figure's own ``hei``, which the sub
+        writes in, so the room grows with the font.
+        """
+        wd = float(cb["width"])
+        hei = max(self._CBAR_TEXT_HEI_CM, fontsize_pt_to_cm(self.style.fontsize))
+        below = float(cb["sep"]) + wd + wd / 3.0 + 0.1 + hei
+        if cb.get("label"):
+            below += 0.2 + hei
+        nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], cb.get("format"))
+        right = nchars * 0.6 * hei / 2.0 + 0.3
+        return right, below + 0.3  # + safety pad
+
     def _axes_colorbar_reserved_cm(
         self, ax: Axes, resolution: Optional[SourceResolution] = None
-    ) -> float:
-        """Max reserved colorbar margin (cm) over an axes' heatmaps (0 if none).
+    ) -> Tuple[float, float]:
+        """``(right, below)`` room (cm) an axes' colorbars need (0 if none).
 
         A heatmap skipped for a dangling reference draws no colorbar, so it
-        reserves no margin either.
+        reserves no room either.
         """
         resolution = resolution or SourceResolution()
-        reserved = 0.0
+        right = below = 0.0
         for hm in resolution.visible(ax.heatmaps):
             cb = hm.get("colorbar")
-            if cb:
-                reserved = max(reserved, self._colorbar_reserved_cm(cb))
-        return reserved
+            if not cb:
+                continue
+            if cb.get("orientation") == "horizontal":
+                h_right, h_below = self._colorbar_h_reserved_cm(cb)
+                right = max(right, h_right)
+                below = max(below, h_below)
+            else:
+                right = max(right, self._colorbar_reserved_cm(cb))
+        return right, below
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
         """Gather the palette/colorbar/clabel/wedge/box subs this figure needs.
 
         Returns the deterministic ordered list of sub-definition texts: used
-        palette subs sorted by name, then the colorbar sub (if any colorbar),
-        then the contour-labels sub (if any clabel), then the pie-wedge sub
-        (if any wedge), then the box-plot subs (if any box). Skipped (dangling) grid series contribute nothing, so
+        palette subs sorted by name, then the vertical and horizontal colorbar
+        subs (each if any bar uses it), then the contour-labels sub (if any
+        clabel), then the pie-wedge sub (if any wedge), then the box-plot subs
+        (if any box). Skipped (dangling) grid series contribute nothing, so
         a write that drops the only heatmap does not leave an unused palette
         sub behind.
 
@@ -2046,12 +2207,16 @@ class Figure:
         resolution = resolution or SourceResolution()
         used_cmaps = set()
         any_colorbar = False
+        any_colorbar_h = False
         any_clabel = False
         for ax in self.axes_list:
             for hm in resolution.visible(ax.heatmaps):
                 if _pal.cmap_needs_sub(hm["cmap"]):
                     used_cmaps.add(hm["cmap"])
-                if hm.get("colorbar"):
+                cb = hm.get("colorbar")
+                if cb and cb.get("orientation") == "horizontal":
+                    any_colorbar_h = True
+                elif cb:
                     any_colorbar = True
             for ct in resolution.visible(ax.contours):
                 if ct.get("clabel"):
@@ -2064,6 +2229,8 @@ class Figure:
                 subs.append(text)
         if any_colorbar:
             subs.append(_pal.colorbar_sub_text())
+        if any_colorbar_h:
+            subs.append(_pal.colorbar_h_sub_text())
         if any_clabel:
             subs.append(_pal.contour_labels_sub_text())
         if any(resolution.visible(ax.wedges) for ax in self.axes_list):
