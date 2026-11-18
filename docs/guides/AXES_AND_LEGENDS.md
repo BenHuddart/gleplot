@@ -116,6 +116,16 @@ ax.set_xticks(nticks=5, ftick=0)
 ax.set_yticks(symticks=True, noticks=[0])
 ```
 
+`set_math_mode` draws the x and y axes through the origin instead of around
+the plot, with ticks on both sides and no top or right axis. It is written
+as GLE's `math`. GLE moves both axes together, so one axis cannot be moved
+to zero on its own.
+
+```python
+ax.set_math_mode()          # axes cross at (0, 0)
+ax.set_math_mode(False)     # back to a box around the plot
+```
+
 ## Legends
 
 ```python

@@ -361,3 +361,50 @@ def test_a_later_option_after_a_raw_one_stays_raw_in_order(tmp_path, body, raw):
     ax = parse_gle_figure(_write(tmp_path, "order2.gle", body)).figure.axes_list[0]
     assert ax.passthrough[-1].strip() == raw, ax.passthrough
     assert ax.xsymticks is ax.ynticks is ax.xside_lwidth is ax.x2side_color is None
+
+
+def _write_math(tmp_path: Path, head: str, tail: str = "") -> Path:
+    """A single-graph .gle with ``head`` first in the block, ``tail`` last."""
+    (tmp_path / "d.dat").write_text("0 0\n1 1\n2 4\n")
+    path = tmp_path / "math.gle"
+    path.write_text(
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        f"{head}"
+        "   data d.dat d1=c1,c2\n"
+        "   d1 line color BLUE lwidth 0.05292\n"
+        f"{tail}"
+        "end graph\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        "   math\n",
+        "   size 10 8\n   scale 1 1\n   math\n",
+        "   ! axes through the origin\n   MATH\n",
+    ],
+)
+def test_math_ahead_of_everything_but_geometry_is_recovered(tmp_path, head):
+    recognized = parse_gle_figure(_write_math(tmp_path, head))
+    ax = recognized.figure.axes_list[0]
+    assert ax.math_mode is True
+    assert not any("math" in line.lower() for line in ax.passthrough)
+
+
+@pytest.mark.parametrize(
+    "head,tail",
+    [
+        # 'math' turns x2 off and resets offsets and symticks set before it,
+        # so writing it first would change the plot.
+        ('   title "T"\n   math\n', ""),
+        ("", "   math\n"),
+    ],
+)
+def test_math_after_other_statements_stays_raw(tmp_path, head, tail):
+    ax = parse_gle_figure(_write_math(tmp_path, head, tail)).figure.axes_list[0]
+    assert ax.math_mode is None
+    assert any(line.strip().startswith("math") for line in ax.passthrough)

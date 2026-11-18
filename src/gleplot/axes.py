@@ -764,6 +764,7 @@ _STYLING_KEYS: Tuple[str, ...] = (
     "yshift",
     "ysymticks",
     "ynoticks",
+    "math_mode",
 )
 
 #: A GLE font name as ``set font`` / ``xtitle ... font`` take it: one bare
@@ -1630,6 +1631,11 @@ class Axes:
         self.yshift: Optional[float] = None
         self.ysymticks: Optional[bool] = None
         self.ynoticks: Optional[List[float]] = None
+
+        #: GLE math mode (``math`` in the graph block): the x and y axes
+        #: cross at (0, 0) and the top and right axes are hidden. True or
+        #: None. Set through :meth:`set_math_mode`.
+        self.math_mode: Optional[bool] = None
 
         # Frame sides switched off entirely -- axis line, ticks and labels.
         # Used for the inner edges of a broken-axis assembly, where several
@@ -5294,6 +5300,41 @@ class Axes:
                 setattr(self, f"{name}side_color", rgb_to_gle(color))
             if width is not None:
                 setattr(self, f"{name}side_lwidth", width)
+        return self
+
+    def set_math_mode(self, on: bool = True):
+        """Draw the x and y axes through the origin (GLE ``math``).
+
+        The x axis is drawn at y = 0 and the y axis at x = 0, with ticks on
+        both sides of each, and the top and right axes are hidden. This is
+        gleplot's form of matplotlib's
+        ``ax.spines['left'].set_position('zero')`` and
+        ``ax.spines['bottom'].set_position('zero')`` with the top and right
+        spines hidden.
+
+        Parameters
+        ----------
+        on : bool, default: True
+            ``False`` goes back to axes framing the plot.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+
+        Raises
+        ------
+        TypeError
+            If ``on`` is not a bool.
+
+        Notes
+        -----
+        GLE moves both axes together: there is no way to move only one of
+        them to zero.
+        """
+        if not isinstance(on, (bool, np.bool_)):
+            raise TypeError(f"set_math_mode(on={on!r}) must be True or False")
+        self.math_mode = True if on else None
         return self
 
     def set_xscale(self, scale: str, axis: str = "x"):

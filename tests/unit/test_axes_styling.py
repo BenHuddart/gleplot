@@ -521,6 +521,36 @@ def test_set_xticks_rejects_bad_placement(kwargs, error):
         ax.set_xticks(**kwargs)
 
 
+def test_math_mode_is_written_straight_after_the_geometry():
+    fig, ax = _fig()
+    ax.set_title("T")
+    assert ax.set_math_mode() is ax
+    lines = _graph_lines(fig)
+    assert lines[lines.index("scale 1 1") + 1 :][:2] == ["math", 'title "T"']
+
+
+def test_math_mode_false_goes_back_to_a_framing_box():
+    fig, ax = _fig()
+    ax.set_math_mode()
+    ax.set_math_mode(False)
+    assert ax.math_mode is None
+    assert "math" not in _graph_lines(fig)
+
+
+def test_math_mode_is_written_in_every_subplot_that_asks_for_it():
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="style")
+    left.plot([1, 2], [1, 2])
+    right.plot([1, 2], [1, 2])
+    right.set_math_mode()
+    assert fig._generate_gle().count("    math\n") == 1
+
+
+def test_set_math_mode_rejects_a_non_bool():
+    _, ax = _fig()
+    with pytest.raises(TypeError, match="set_math_mode"):
+        ax.set_math_mode("yes")
+
+
 # -- figure-wide distance defaults (the ex-dead GLEGraphConfig fields) -------
 
 
@@ -652,6 +682,7 @@ def _styled_axes(ax):
         ax.set_axis_line(axis, color=color, linewidth=width)
     ax.set_xticks(nticks=4, ftick=1, shift=0.2, symticks=True, noticks=[2])
     ax.set_yticks(nticks=3, ftick=0, shift=0.1, symticks=True, noticks=[4, 9])
+    ax.set_math_mode()
     return ax
 
 

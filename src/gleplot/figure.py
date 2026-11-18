@@ -2281,6 +2281,7 @@ class Figure:
                 else self.graph.title_distance
             ),
             title_font=ax.title_font,
+            math=bool(ax.math_mode),
         )
 
     def _write_heatmaps(
