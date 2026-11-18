@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 import gleplot as glp
 from gleplot.parser.recognizer import parse_gle_figure
@@ -215,8 +216,37 @@ def test_function_colormap_without_axis_ranges_preserved(tmp_path):
     assert any("no ascending xaxis and yaxis" in w for w in rec.warnings)
 
 
-def test_function_colormap_preserved(tmp_path):
-    """A colormap of a function expression (not a .z file) is kept verbatim."""
+@pytest.mark.parametrize(
+    "line, why",
+    [
+        ("colormap x*y*a 100 100 color zmin lo zmax hi", "zmin, zmax"),
+        ("colormap atan2(y,x) 100 100 color zmin -pi zmax pi", "zmin, zmax"),
+        ("colormap x*y 100 100 interpolate bilinear", "interpolate"),
+        ("colormap d1*x 100 100", "expression gleplot cannot write back"),
+    ],
+)
+def test_function_colormap_with_inexact_clauses_preserved(tmp_path, line, why):
+    """A clause that would not be written back as it reads keeps the line raw."""
+    src = (
+        "size 10 10\n"
+        "begin graph\n"
+        "   xaxis min -1 max 1\n"
+        "   yaxis min -1 max 1\n"
+        f"   {line}\n"
+        "end graph\n"
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(src, encoding="utf-8")
+
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert not ax.heatmaps
+    assert any(line in kept for kept in ax.passthrough)
+    assert any(why in w for w in rec.warnings)
+
+
+def test_quoted_colormap_operand_preserved(tmp_path):
+    """A quoted operand that is not a .z file is kept verbatim."""
     src = (
         "size 10 10\n"
         "begin graph\n"
@@ -230,7 +260,7 @@ def test_function_colormap_preserved(tmp_path):
     ax = rec.figure.axes_list[0]
     assert not ax.heatmaps
     assert any("sin(x)*cos(y)" in line for line in ax.passthrough)
-    assert any("function expression" in w for w in rec.warnings)
+    assert any("not a .z file" in w for w in rec.warnings)
 
 
 def test_unreferenced_foreign_fitz_block_preserved(tmp_path):

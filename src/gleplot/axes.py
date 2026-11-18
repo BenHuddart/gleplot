@@ -3120,8 +3120,10 @@ class Axes:
 
     @staticmethod
     def _check_let_expression(caller, expression) -> None:
-        """Reject an expression :meth:`function` or :meth:`fit` cannot write."""
-        example = "sin(x)" if caller == "function" else "a*exp(-x/b)+c"
+        """Reject an expression ``function``/``fit``/``function2d`` cannot write."""
+        example = {"function": "sin(x)", "function2d": "sin(x)*cos(y)"}.get(
+            caller, "a*exp(-x/b)+c"
+        )
         if not isinstance(expression, str):
             raise TypeError(
                 f"{caller}() expression must be a str such as {example!r}, got "
@@ -5889,20 +5891,15 @@ class Axes:
         :meth:`set_xlim` widens the axes beyond ``extent``, the map covers
         that wider range too.
         """
-        if not isinstance(expression, str):
-            raise TypeError(
-                "function2d() expression must be a str such as 'sin(x)*cos(y)', "
-                f"got {type(expression).__name__}"
-            )
-        problem = _function_expression_problem(expression)
-        if problem is not None:
-            raise ValueError(
-                f"function2d() expression {expression!r} cannot be used: {problem}."
-            )
-        ext = [float(v) for v in extent]
+        self._check_let_expression("function2d", expression)
+        try:
+            ext = [float(v) for v in extent]
+        except (TypeError, ValueError):
+            ext = []
         if len(ext) != 4:
             raise ValueError(
-                f"function2d() extent must be (xmin, xmax, ymin, ymax), got {extent!r}"
+                "function2d() extent must be four numbers (xmin, xmax, ymin, "
+                f"ymax), got {extent!r}"
             )
         _require_valid_extent(ext)
         if self.heatmaps:

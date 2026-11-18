@@ -1400,6 +1400,10 @@ class Figure:
                 zmin = float(np.nanmin(values))
             if zmax is None:
                 zmax = float(np.nanmax(values))
+        elif hm["source"] == "function":
+            # GLE maps a function colormap from 0 to 1 unless told otherwise.
+            zmin = 0.0 if zmin is None else zmin
+            zmax = 1.0 if zmax is None else zmax
 
         divisions = int(nticks) if nticks else DEFAULT_COLORBAR_NTICKS
 
@@ -1461,7 +1465,8 @@ class Figure:
             bearing = [a for a in self.axes_list if a.heatmaps]
             if not bearing:
                 raise ValueError(
-                    "colorbar() requires a heatmap (imshow/tripcolor) on some axes"
+                    "colorbar() requires a heatmap (imshow/tripcolor/function2d) on "
+                    "some axes"
                 )
             if len(bearing) > 1:
                 raise ValueError(

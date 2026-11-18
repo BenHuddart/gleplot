@@ -202,6 +202,9 @@ def test_function2d_none_range_omits_the_clauses():
     ax.function2d("x+y", extent=(0, 1, 0, 1), vmin=None, vmax=None, invert=True)
     line = [ln for ln in _gle(fig)[0].splitlines() if "colormap" in ln][0]
     assert line == "    colormap x+y 200 200 invert palette gleplot_viridis"
+    # The colorbar shows the 0..1 GLE draws.
+    cb = fig.colorbar()
+    assert (cb["zmin"], cb["zmax"]) == (0.0, 1.0)
 
 
 @pytest.mark.parametrize(
@@ -230,8 +233,9 @@ def test_function2d_rejects_a_bad_extent():
     ax = glp.figure().add_subplot(111)
     with pytest.raises(ValueError, match="xmin < xmax"):
         ax.function2d("x", extent=(1, 0, 0, 1))
-    with pytest.raises(ValueError, match=r"\(xmin, xmax, ymin, ymax\)"):
-        ax.function2d("x", extent=(0, 1, 0))
+    for bad in [(0, 1, 0), None, ("a", 1, 2, 3), 5]:
+        with pytest.raises(ValueError, match=r"four numbers .* got "):
+            ax.function2d("x", extent=bad)
 
 
 def test_function2d_counts_as_the_axes_heatmap():
