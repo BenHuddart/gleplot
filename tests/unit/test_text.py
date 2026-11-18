@@ -64,10 +64,11 @@ class TestTextAnnotations:
         ax = glp.gca()
         assert len(ax.texts) == 1
 
-    def test_figure_level_text(self):
+    def test_figure_level_text_is_in_figure_fractions(self):
         self.fig.text(0.2, 0.8, "Figure API")
-        assert len(self.ax.texts) == 1
-        assert self.ax.texts[0]["text"] == "Figure API"
+        assert self.ax.texts == []
+        assert self.fig.texts[0]["text"] == "Figure API"
+        assert "amove pagewidth()*0.2 pageheight()*0.8" in self.fig._generate_gle()
 
     def test_text_escapes_quotes_for_gle(self):
         self.ax.text(1.0, 1.0, 'He said "hello"')

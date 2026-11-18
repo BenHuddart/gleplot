@@ -24,6 +24,7 @@ from typing import (
     Set,
     Tuple,
     Union,
+    cast,
 )
 
 import numpy as np
@@ -50,6 +51,7 @@ from .parser.tables import (
     KEY_ANCHOR_X,
     KEY_ANCHOR_Y,
     KEY_POSITIONS_LONG_TO_SHORT,
+    KEY_POSITIONS_SHORT_TO_LONG,
     LEGEND_SPACING_TO_KEY,
     LINE_MODES,
     text_align_to_just,
@@ -1277,6 +1279,19 @@ def legend_column_breaks(n_entries: int, ncol: int) -> Set[int]:
         acc += size
         breaks.add(acc)
     return breaks
+
+
+def legend_corner(position: str) -> Tuple[float, float]:
+    """The figure fractions of the page corner a key ``position`` names.
+
+    ``position`` is a long or short key position: ``'top center'`` is
+    ``(0.5, 1.0)``. This is where ``Figure.legend(loc=...)`` anchors its
+    legend when no ``bbox_to_anchor`` is given.
+    """
+    words = KEY_POSITIONS_SHORT_TO_LONG.get(position, position).split()
+    x = 0.0 if "left" in words else 1.0 if "right" in words else 0.5
+    y = 1.0 if "top" in words else 0.0 if "bottom" in words else 0.5
+    return (x, y)
 
 
 def _warn_keyword_form(name: str, series_class: str, method: str) -> None:
@@ -5003,6 +5018,83 @@ class GLEWriter:
         )
         self.add_text_annotation(series)
 
+    @classmethod
+    def _text_write_lines(
+        cls, escaped_text: str, box_color, rotation, name: Optional[str]
+    ) -> List[str]:
+        """The ``write`` of a text at the current point, boxed and rotated.
+
+        ``name`` names the box, for an annotation arrow to ``join``.
+        """
+        # Same zero cut as ``_format_number``: an angle it would print as ``0``
+        # is not a rotation, and emitting ``begin rotate 0`` would not round
+        # trip back to an absent ``rotation`` field.
+        angle = None
+        if rotation is not None:
+            try:
+                angle = float(rotation)
+            except (TypeError, ValueError):
+                angle = None
+            if angle is not None and (not math.isfinite(angle) or abs(angle) < 1e-10):
+                angle = None
+        lines: List[str] = []
+        if angle is not None:
+            lines.append(f"begin rotate {cls._format_number(angle)}")
+        boxed = bool(box_color) or name is not None
+        if boxed:
+            head = "begin box"
+            if box_color:
+                head += f" fill {box_color}"
+            head += f" add {text_box_pad_token()} nobox"
+            if name is not None:
+                head += f" name {name}"
+            lines.append(head)
+        lines.append(f'write "{escaped_text}"')
+        if boxed:
+            lines.append("end box")
+        if angle is not None:
+            lines.append("end rotate")
+        return lines
+
+    def add_figure_text(self, series: Series) -> None:
+        """Write a figure-level text (``Figure.text`` / ``Figure.suptitle``).
+
+        ``series`` is a :class:`~gleplot.series.TextAnnotation` whose ``x``
+        and ``y`` are figure fractions, placed with ``pagewidth()`` and
+        ``pageheight()`` so the fractions stay in the script as written.
+        Each text is its own ``gsave``/``grestore`` group that restates its
+        colour and justification: the page-level state it starts from is
+        whatever the script before it left. The recognizer takes a group
+        back only when :meth:`figure_text_lines` reproduces it exactly.
+        """
+        self.lines_gle.extend(self.figure_text_lines(series))
+
+    @classmethod
+    def figure_text_lines(cls, series: Series) -> List[str]:
+        """The GLE lines of one figure-level text, ``gsave`` to ``grestore``."""
+        lines = ["gsave"]
+        fontsize = series.get("fontsize")
+        if fontsize is not None:
+            hei = cls._format_number(fontsize_pt_to_cm(float(fontsize)))
+            lines.append(f"set hei {hei}")
+        lines.append(f"set color {series.get('color') or 'BLACK'}")
+        just = text_align_to_just(series.get("ha", "left"), series.get("va", "center"))
+        lines.append(f"set just {just}")
+        lines.append(
+            f"amove {cls._page_fraction('pagewidth', series['x'])} "
+            f"{cls._page_fraction('pageheight', series['y'])}"
+        )
+        lines.extend(
+            cls._text_write_lines(
+                cls._escape_gle_string(series["text"]),
+                series.get("box_color"),
+                series.get("rotation"),
+                None,
+            )
+        )
+        lines.append("grestore")
+        return lines
+
     def add_text_annotation(self, series: Series):
         """Add text annotation in graph data coordinates or axes fractions.
 
@@ -5071,39 +5163,13 @@ class GLEWriter:
         else:
             position = f"xg({self._format_number(x)}) yg({self._format_number(y)})"
         self._pending_graph_text_lines.append(f"amove {position}")
-        # Same zero cut as ``_format_number``: an angle it would print as ``0``
-        # is not a rotation, and emitting ``begin rotate 0`` would not round
-        # trip back to an absent ``rotation`` field.
-        angle = None
-        if rotation is not None:
-            try:
-                angle = float(rotation)
-            except (TypeError, ValueError):
-                angle = None
-            if angle is not None and (not math.isfinite(angle) or abs(angle) < 1e-10):
-                angle = None
-        if angle is not None:
-            self._pending_graph_text_lines.append(
-                f"begin rotate {self._format_number(angle)}"
-            )
         name = None
         if arrow is not None and xy is not None:
             self._annotation_count += 1
             name = f"ann{self._annotation_count}"
-        boxed = bool(box_color) or name is not None
-        if boxed:
-            head = "begin box"
-            if box_color:
-                head += f" fill {box_color}"
-            head += f" add {text_box_pad_token()} nobox"
-            if name is not None:
-                head += f" name {name}"
-            self._pending_graph_text_lines.append(head)
-        self._pending_graph_text_lines.append(f'write "{escaped_text}"')
-        if boxed:
-            self._pending_graph_text_lines.append("end box")
-        if angle is not None:
-            self._pending_graph_text_lines.append("end rotate")
+        self._pending_graph_text_lines.extend(
+            self._text_write_lines(escaped_text, box_color, rotation, name)
+        )
         if name is not None:
             assert xy is not None
             tip = f"{name}_xy"
@@ -5409,15 +5475,72 @@ class GLEWriter:
         key are measured against.
         """
         corner = self._key_position(key)
-        lines = ["begin key"]
         if key.anchor is not None:
             x, y = (self._format_number(float(v)) for v in key.anchor)
-            lines.append(f"    justify {corner}")
-            lines.append(
-                f"    absolute {KEY_ANCHOR_X.format(x)} {KEY_ANCHOR_Y.format(y)}"
-            )
+            place = [
+                f"    justify {corner}",
+                f"    absolute {KEY_ANCHOR_X.format(x)} {KEY_ANCHOR_Y.format(y)}",
+            ]
         else:
-            lines.append(f"    position {corner}")
+            place = [f"    position {corner}"]
+        self._external_legend = self._key_block_lines(place, entries, breaks, key)
+
+    def add_figure_legend(
+        self, entries: List[tuple], breaks: Set[int], key: KeyOptions
+    ) -> None:
+        """A ``begin key`` block placed on the page (``Figure.legend``).
+
+        ``entries`` and ``breaks`` are as for :meth:`queue_external_legend`.
+        ``key.anchor`` is the figure-fraction point the ``key.position``
+        corner sits on, ``None`` for that corner of the page. Written outside
+        every graph, so it is placed with ``justify`` and an ``absolute``
+        page point (:meth:`figure_legend_absolute`), never ``position``,
+        which GLE measures against the last graph.
+        """
+        place = [
+            f"    justify {self._key_position(key)}",
+            f"    {self.figure_legend_absolute(key, self.style.fontsize)}",
+        ]
+        self.lines_gle.extend(self._key_block_lines(place, entries, breaks, key))
+
+    @classmethod
+    def figure_legend_absolute(cls, key: KeyOptions, fontsize: float) -> str:
+        """The ``absolute X Y`` line of a figure legend, without its indent.
+
+        The point is ``pagewidth()``/``pageheight()`` times the anchor
+        fraction, moved inward from the anchored side by half the key's
+        text height: matplotlib's default ``borderaxespad`` of 0.5 font
+        sizes between the legend and the edge it is anchored to.
+        ``key.position`` must be set; ``fontsize`` is the page's text height
+        in points, used when ``key.fontsize`` is not.
+        """
+        position = cast(str, key.position)
+        corner = KEY_POSITIONS_LONG_TO_SHORT.get(position, position)
+        words = KEY_POSITIONS_SHORT_TO_LONG[corner].split()
+        fx, fy = key.anchor if key.anchor is not None else legend_corner(corner)
+        size = key.fontsize if key.fontsize is not None else fontsize
+        pad = 0.5 * fontsize_pt_to_cm(float(size))
+        dx = pad if "left" in words else -pad if "right" in words else 0.0
+        dy = -pad if "top" in words else pad if "bottom" in words else 0.0
+        return (
+            f"absolute {cls._page_fraction('pagewidth', fx, dx)} "
+            f"{cls._page_fraction('pageheight', fy, dy)}"
+        )
+
+    @classmethod
+    def _page_fraction(cls, size: str, fraction: float, shift: float = 0.0) -> str:
+        """``size()*fraction``, then ``+shift`` cm unless it prints as 0."""
+        expr = f"{size}()*{cls._format_number(float(fraction))}"
+        step = cls._format_number(abs(shift))
+        if step != "0":
+            expr += f"{'-' if shift < 0 else '+'}{step}"
+        return expr
+
+    def _key_block_lines(
+        self, place: List[str], entries: List[tuple], breaks: Set[int], key
+    ) -> List[str]:
+        """A ``begin key`` block: ``place`` lines, options, then the entries."""
+        lines = ["begin key", *place]
         lines.extend(f"    {option}" for option in self._key_options(key))
         textcolor = f" textcolor {key.labelcolor}" if key.labelcolor else ""
         for i, (series, label, swatch) in enumerate(entries, start=1):
@@ -5429,7 +5552,7 @@ class GLEWriter:
             if i in breaks:
                 lines.append("    separator")
         lines.append("end key")
-        self._external_legend = lines
+        return lines
 
     def finalize(
         self,

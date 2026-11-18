@@ -337,7 +337,10 @@ from ..writer import (
     POLAR_GRID_LAYER,
     RUG_EDGES,
     GLEWriter,
+    KeyOptions,
     image_sub_name,
+    legend_column_breaks,
+    legend_corner,
     polar_degree_mark,
     polar_label_decimals,
     polar_ring_step,
@@ -1534,6 +1537,42 @@ def _axes_fraction_point(raw: str, keyword: str) -> Optional[Tuple[float, float]
     return (x, y)
 
 
+_FIGURE_ANCHOR_NUMBER = r"-?\d+(?:\.\d+)?(?:e[+-]?\d+)?"
+_FIGURE_ANCHOR_RE = re.compile(
+    rf"absolute pagewidth\(\)\*({_FIGURE_ANCHOR_NUMBER})(?:[+-]\S+)? "
+    rf"pageheight\(\)\*({_FIGURE_ANCHOR_NUMBER})(?:[+-]\S+)?"
+)
+
+
+def _figure_anchor(raw: str) -> Optional[Tuple[float, float]]:
+    """``(x, y)`` figure fractions of a ``Figure.legend`` ``absolute`` line.
+
+    The shifts after the fractions are not read back: they follow from the
+    key's position and text height, and the caller checks the whole line
+    against :meth:`GLEWriter.figure_legend_absolute`.
+    """
+    found = _FIGURE_ANCHOR_RE.fullmatch(raw.strip())
+    if found is None:
+        return None
+    return (float(found.group(1)), float(found.group(2)))
+
+
+_FIGURE_POINT_RE = re.compile(
+    rf"amove pagewidth\(\)\*({_FIGURE_ANCHOR_NUMBER}) "
+    rf"pageheight\(\)\*({_FIGURE_ANCHOR_NUMBER})"
+)
+
+
+def _is_default_suptitle(text: TextAnnotation) -> bool:
+    """Whether ``text`` is where ``Figure.suptitle`` puts a title by default."""
+    return (
+        text["x"] == 0.5
+        and text["y"] == 0.98
+        and (text["ha"], text["va"]) == ("center", "top")
+        and text.get("fontsize") is not None
+    )
+
+
 def _key_anchor(raw: str) -> Optional[Tuple[float, float]]:
     """``(x, y)`` axes fractions of the writer's ``absolute X Y``, else None."""
     return _axes_fraction_point(raw, "absolute")
@@ -1655,6 +1694,13 @@ class _Recognizer:
         # a fit's result variables may be named only by its let, its key,
         # and that block restating the key.
         self._key_after_graph: List[str] = []
+        # The figure legend (Figure.legend) recovered after the last graph,
+        # as Figure._legend without its spacing, or None. Set before the
+        # axes are assembled: it decides what their 'key off' meant.
+        self._figure_legend: Optional[Dict[str, Any]] = None
+        # The page's text height in points ('set hei'), for the figure
+        # legend's distance from the page edge.
+        self._page_fontsize = 12.0
         self.notes: List[ImportNote] = []
         # dataset name (lower) -> (data_file, xcol_1based, ycol_1based)
         self._datasets: Dict[str, Tuple[str, int, int]] = {}
@@ -1762,15 +1808,30 @@ class _Recognizer:
         # --- Preamble: everything before the first graph-related node. ---
         first_graph_start = self._first_graph_region_start(nodes, graph_indices)
         # With no graph at all, the page drawings close the file.
-        preamble_end, drawings = self._trailing_page_drawings(nodes, first_graph_start)
+        preamble_end, drawings, texts = self._trailing_page_content(
+            nodes, first_graph_start
+        )
         fig = self._new_figure(meta, nodes[:preamble_end])
+        self._page_fontsize = float(fig.style.fontsize)
 
         # --- Graph blocks + interspersed amove/text/trailer. ---
         smooth_flags: List[bool] = []  # per line-dataset across the whole fig
-        parsed_axes, graph_drawings, fig.passthrough_trailer = self._parse_graph_region(
+        parsed_axes, page, fig.passthrough_trailer = self._parse_graph_region(
             nodes, first_graph_start, fig.marker_config, smooth_flags
         )
-        fig._drawings = drawings + graph_drawings
+        fig._drawings = drawings + page[0]
+        texts = texts + page[1]
+        # Q: which text is the suptitle? The one Figure.suptitle writes by
+        # default, first; a fig.text with the same arguments reads back as it.
+        if texts and _is_default_suptitle(texts[0]):
+            fig._suptitle = texts.pop(0)
+        fig.texts = texts
+        if self._figure_legend is not None:
+            legend = dict(self._figure_legend)
+            legend["spacing"] = _legend_spacing(
+                legend["spacing"], legend["fontsize"], fig
+            )
+            fig._legend = legend
 
         # --- Assemble axes into the figure. ---
         self._assemble_axes(fig, parsed_axes, fig.sharex, fig.sharey)
@@ -1880,14 +1941,19 @@ class _Recognizer:
         start: int,
         marker_cfg: GLEMarkerConfig,
         smooth_flags: List[bool],
-    ) -> Tuple[List[dict], List[Dict[str, Any]], List[str]]:
+    ) -> Tuple[
+        List[dict], Tuple[List[Dict[str, Any]], List[TextAnnotation]], List[str]
+    ]:
         """The graph blocks and the page-level statements between and after them.
 
         Returns the parsed info of each graph block, in order, the page
-        drawings, and the trailer passthrough lines.
+        drawings and figure texts, and the trailer passthrough lines. A
+        figure legend is left on ``self._figure_legend``.
         """
         parsed_axes: List[dict] = []
         drawings: List[Dict[str, Any]] = []
+        texts: List[TextAnnotation] = []
+        page_done = False
         trailer: List[str] = []
         # The ``amove`` that will place the next graph block, if one does.
         pending: Optional[_PendingAmove] = None
@@ -1908,15 +1974,18 @@ class _Recognizer:
                 pending = None
                 continue
 
-            # Page drawings follow every graph block and come before any
-            # trailer; with several graphs, after the writer's blank line.
-            if not drawings and not trailer and pending is None and i > last_graph:
+            # Page drawings, figure texts and the figure legend follow every
+            # graph block and come before any trailer; with several graphs,
+            # after the writer's blank line.
+            if not page_done and not trailer and pending is None and i > last_graph:
+                page_done = True
                 start_at = i
                 if len(parsed_axes) > 1 and self._raw_lines(node) == [""]:
                     start_at = i + 1
-                found, after = self._consume_page_drawings(nodes, start_at)
-                if found:
-                    drawings = found
+                drawings, texts, after = self._consume_page_content(
+                    nodes, start_at, parsed_axes
+                )
+                if after != start_at:
                     i = after
                     continue
 
@@ -1963,7 +2032,173 @@ class _Recognizer:
         if pending is not None:
             trailer.append(pending.raw)
 
-        return parsed_axes, drawings, trailer
+        return parsed_axes, (drawings, texts), trailer
+
+    def _consume_page_content(
+        self, nodes, i: int, parsed_axes: List[dict]
+    ) -> Tuple[List[Dict[str, Any]], List[TextAnnotation], int]:
+        """Page drawings, figure texts and the figure legend at ``nodes[i]``.
+
+        In the order ``Figure._write_page_content`` writes them. Returns the
+        drawings, the texts and the next index; a legend is left on
+        ``self._figure_legend``.
+        """
+        drawings, i = self._consume_page_drawings(nodes, i)
+        texts: List[TextAnnotation] = []
+        while i < len(nodes):
+            end = self._group_end(nodes, i)
+            if end is None:
+                break
+            text = self._figure_text(nodes[i : end + 1])
+            if text is None:
+                break
+            texts.append(text)
+            i = end + 1
+        if parsed_axes and i < len(nodes):
+            legend = self._figure_legend_block(nodes[i], parsed_axes)
+            if legend is not None:
+                self._figure_legend = legend
+                i += 1
+        return drawings, texts, i
+
+    def _group_end(self, nodes, i: int) -> Optional[int]:
+        """Index of the ``grestore`` closing a ``gsave`` at ``nodes[i]``."""
+        stmt = self._as_statement(nodes[i])
+        if stmt is None or stmt.keyword != "gsave":
+            return None
+        for end in range(i + 1, len(nodes)):
+            if isinstance(nodes[end], Statement) and nodes[end].keyword == "grestore":
+                return end
+        return None
+
+    def _figure_text(self, group) -> Optional[TextAnnotation]:
+        """The ``Figure.text`` a ``gsave`` .. ``grestore`` group writes, or None.
+
+        ``None`` unless :meth:`GLEWriter.figure_text_lines` reproduces the
+        group exactly, so anything else stays passthrough.
+        """
+
+        def words(k: int) -> List[Token]:
+            stmt = self._as_statement(group[k]) if k < len(group) else None
+            return _words_and_values(stmt) if stmt is not None else []
+
+        fields: Dict[str, Any] = {"fontsize": None}
+        k = 1
+        toks = words(k)
+        if [t.value.lower() for t in toks[:2]] == ["set", "hei"]:
+            hei = _num(toks[2]) if len(toks) == 3 else None
+            if hei is None:
+                return None
+            fields["fontsize"] = fontsize_cm_to_pt(hei)
+            k += 1
+            toks = words(k)
+        if [t.value.lower() for t in toks[:2]] != ["set", "color"]:
+            return None
+        color, _nxt = _collect_color(toks, 2)
+        toks = words(k + 1)
+        if [t.value.lower() for t in toks[:2]] != ["set", "just"] or len(toks) != 3:
+            return None
+        align = text_just_to_align(toks[2].value.lower())
+        amove = self._as_statement(group[k + 2]) if k + 2 < len(group) else None
+        found = None if amove is None else _FIGURE_POINT_RE.fullmatch(amove.raw.strip())
+        if color is None or align is None or found is None:
+            return None
+        drawn = self._match_text_draw(group, k + 3)
+        if drawn is None or drawn[0] != len(group) - 1 or drawn[4] is not None:
+            return None
+        _next, text_str, box_color, rotation, _name = drawn
+        fields.update(
+            x=float(found.group(1)),
+            y=float(found.group(2)),
+            text=text_str,
+            color=color,
+            ha=align[0],
+            va=align[1],
+            box_color=box_color,
+        )
+        if rotation is not None and abs(rotation) >= 1e-10:
+            fields["rotation"] = rotation
+        text = TextAnnotation(**fields)
+        lines = [line for node in group for line in self._raw_lines(node)]
+        if GLEWriter.figure_text_lines(text) != lines:
+            return None
+        return text
+
+    def _figure_legend_block(self, node, parsed_axes) -> Optional[Dict[str, Any]]:
+        """The ``Figure.legend`` a ``begin key`` block after the graphs draws.
+
+        Taken only when its entries are exactly the labelled series of every
+        graph, graph by graph, and every line is the one the writer would
+        write: the ``justify`` + page ``absolute`` placement, column breaks
+        where ``legend_column_breaks`` puts them. Stamps each graph's
+        ``legend_seq`` with the order its entries are listed in. Returns
+        ``Figure._legend`` with the spacing still in cm by GLE word.
+        """
+        if not isinstance(node, OpaqueBlock) or node.block_type != "key":
+            return None
+        fit_labels: Dict[str, str] = {}
+        for info in parsed_axes:
+            fit_labels.update(info["_fit_key_labels"])
+        parsed = self._parse_external_key(node, fit_labels, _figure_anchor)
+        if (
+            parsed is None
+            or parsed["anchor"] is None
+            or parsed["offset"] is not None
+            or parsed["compact"]
+        ):
+            return None
+        labels = parsed["labels"]
+        ncol = parsed["separators"] + 1
+        if parsed["breaks"] != legend_column_breaks(len(labels), ncol):
+            return None
+        fontsize = None if parsed["hei"] is None else fontsize_cm_to_pt(parsed["hei"])
+        position = KEY_POSITIONS_SHORT_TO_LONG[parsed["pos"]]
+        anchor = parsed["anchor"]
+        key = KeyOptions(position=position, fontsize=fontsize, anchor=anchor)
+        absolute = GLEWriter.figure_legend_absolute(key, self._page_fontsize)
+        if absolute != parsed["absolute"]:
+            return None
+        chunks = []
+        start = 0
+        for info in parsed_axes:
+            pool = self._legend_pool(info)
+            chunk = labels[start : start + len(pool)]
+            if sorted(chunk) != sorted(series["label"] for series in pool):
+                return None
+            chunks.append((info, chunk))
+            start += len(pool)
+        if start != len(labels):
+            return None
+        for info, chunk in chunks:
+            self._assign_legend_seq(info, chunk)
+        return {
+            "loc": position,
+            "anchor": None if anchor == legend_corner(position) else list(anchor),
+            "ncol": ncol,
+            "fontsize": fontsize,
+            "frameon": not parsed["nobox"],
+            "facecolor": parsed["background"],
+            "labelcolor": parsed["labelcolor"],
+            "spacing": parsed["spacing"],
+        }
+
+    def _trailing_page_content(
+        self, nodes, start: int
+    ) -> Tuple[int, List[Dict[str, Any]], List[TextAnnotation]]:
+        """Where page content that ends ``nodes[:start]`` begins, and its parts.
+
+        Only a file with no graph block ends its preamble with page drawings
+        and figure texts. Returns the start index, the drawings and texts.
+        """
+        if start != len(nodes):
+            return start, [], []
+        i = 0
+        while i < start:
+            drawings, texts, after = self._consume_page_content(nodes, i, [])
+            if (drawings or texts) and after == start:
+                return i, drawings, texts
+            i = max(after, i + 1)
+        return start, [], []
 
     def _consume_page_drawings(self, nodes, i) -> Tuple[List[Dict[str, Any]], int]:
         """The run of ``Figure`` page drawings at ``nodes[i]``, and the next index."""
@@ -1986,23 +2221,6 @@ class _Recognizer:
             drawings.append(drawing)
             i = end + 1
         return drawings, i
-
-    def _trailing_page_drawings(
-        self, nodes, start: int
-    ) -> Tuple[int, List[Dict[str, Any]]]:
-        """Where page drawings that end ``nodes[:start]`` begin, and the drawings.
-
-        Only a file with no graph block ends its preamble with drawings.
-        """
-        if start != len(nodes):
-            return start, []
-        i = 0
-        while i < start:
-            drawings, after = self._consume_page_drawings(nodes, i)
-            if drawings and after == start:
-                return i, drawings
-            i = max(after, i + 1)
-        return start, []
 
     def _parse_placed_graph(
         self,
@@ -7860,7 +8078,9 @@ class _Recognizer:
         info["external_key"] = parsed
         return start + 1
 
-    def _parse_external_key(self, block, fit_labels) -> Optional[dict]:
+    def _parse_external_key(
+        self, block, fit_labels, anchor_of=_key_anchor
+    ) -> Optional[dict]:
         """Modelled options and entry labels of a ``begin key`` block.
 
         ``fit_labels`` maps the key expression of each model fit in the
@@ -7869,13 +8089,17 @@ class _Recognizer:
         Globals (``position``, ``offset``, ``hei``, ``nobox``, ``compact``,
         ``background``) have to come before the entries, which is how
         :meth:`gleplot.writer.GLEWriter.queue_external_legend` writes them.
-        A ``separator`` counts as one column break. Swatch tokens after
-        ``text`` are ignored: the next save rebuilds them from the series.
+        A ``separator`` counts as one column break; ``breaks`` holds the
+        entry count before each. Swatch tokens after ``text`` are ignored:
+        the next save rebuilds them from the series. ``anchor_of`` reads the
+        ``absolute`` line: axes fractions by default, figure fractions for
+        a ``Figure.legend``.
         """
         options: dict = {}
         labels: List[str] = []
         textcolors: List[Optional[str]] = []
         separators = 0
+        breaks: Set[int] = set()
         started = False
         for sl in block.inner_lines:
             raw = sl.text.strip()
@@ -7889,6 +8113,7 @@ class _Recognizer:
                 if not labels:
                     return None
                 separators += 1
+                breaks.add(len(labels))
                 started = True
                 continue
             if head == "text":
@@ -7915,7 +8140,8 @@ class _Recognizer:
                 options["justify"] = toks[1].value.lower()
                 continue
             if head == "absolute" and "anchor" not in options:
-                anchor = _key_anchor(raw)
+                options["absolute"] = raw
+                anchor = anchor_of(raw)
                 if anchor is None:
                     return None
                 options["anchor"] = anchor
@@ -7949,16 +8175,14 @@ class _Recognizer:
             "compact": bool(options.get("compact")),
             "background": options.get("background"),
             "separators": separators,
+            "breaks": breaks,
+            "absolute": options.get("absolute"),
             "labels": labels,
         }
 
     @staticmethod
-    def _assign_legend_seq(info, labels: List[str]) -> bool:
-        """Stamp ``legend_seq`` so the next save rebuilds this entry order.
-
-        Returns False, and changes nothing, when ``labels`` is not exactly
-        the labelled series (each label used once).
-        """
+    def _legend_pool(info) -> List[Series]:
+        """The labelled series of a parsed graph a ``begin key`` may list."""
         pool = []
         for group in (
             "spans",
@@ -7974,6 +8198,16 @@ class _Recognizer:
             for series in info.get(group, []):
                 if series.get("label"):
                     pool.append(series)
+        return pool
+
+    @staticmethod
+    def _assign_legend_seq(info, labels: List[str]) -> bool:
+        """Stamp ``legend_seq`` so the next save rebuilds this entry order.
+
+        Returns False, and changes nothing, when ``labels`` is not exactly
+        the labelled series (each label used once).
+        """
+        pool = _Recognizer._legend_pool(info)
         if len(pool) != len(labels):
             return False
         used = [False] * len(pool)
@@ -9176,6 +9410,11 @@ class _Recognizer:
                 ax.legend_on = None
             else:
                 ax.legend_on = None
+        if self._figure_legend is not None and labels_present:
+            # With a figure legend an axes draws its own key only when asked
+            # (Figure._prepare_legend): a key shown was asked for, and
+            # 'key off' is the default.
+            ax.legend_on = None if ax.legend_on is False else True
 
         if info["key_spacing"] and not external:
             # Also without 'key pos': the re-save adds GLE's default 'pos tr'.

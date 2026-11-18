@@ -608,6 +608,9 @@ _FIGURE_SERIALIZED_ATTRS = {
     "passthrough_trailer",
     "page_box",
     "_drawings",
+    "_suptitle",
+    "texts",
+    "_legend",
     "metadata_extra",
 }
 

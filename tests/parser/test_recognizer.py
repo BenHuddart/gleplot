@@ -59,6 +59,8 @@ def normalize(d: dict) -> dict:
         (msize verbatim; linewidth via pt<->cm; API default 1 -> 1.5).
       * legend_on: explicit True with labels present -> None (auto).
       * legend_spacing: equal to 5 significant figures (emitted in cm).
+      * suptitle: one off its default place reads back as the first figure
+        text; figure text and figure legend sizes go through ``set hei``.
       * data_prefix / counters: dropped (not always recoverable).
       * global_data_counter: dropped.
       * axis limits: rounded to the emitted 6-sig-fig form.
@@ -391,6 +393,26 @@ def normalize(d: dict) -> dict:
             emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
             s["fontsize"] = fontsize_cm_to_pt(float(emitted))
             sticky_fs = s["fontsize"]
+
+    # Figure-level text: only a suptitle at its default place reads back as
+    # one (the rest are written the same way as a Figure.text), and every
+    # size goes through the emitted 'set hei'.
+    title = fig.get("suptitle")
+    if title is not None and not (
+        (title["x"], title["y"], title["ha"], title["va"])
+        == (0.5, 0.98, "center", "top")
+    ):
+        fig["texts"] = [fig.pop("suptitle")] + fig.get("texts", [])
+    for s in ([fig["suptitle"]] if "suptitle" in fig else []) + fig.get("texts", []):
+        if s.get("fontsize") is not None:
+            emitted = GLEWriter._format_number(fontsize_pt_to_cm(s["fontsize"]))
+            s["fontsize"] = fontsize_cm_to_pt(float(emitted))
+    legend = fig.get("legend")
+    if legend is not None:
+        if legend["fontsize"] is not None:
+            emitted = GLEWriter._format_number(fontsize_pt_to_cm(legend["fontsize"]))
+            legend["fontsize"] = fontsize_cm_to_pt(float(emitted))
+        legend["spacing"] = {k: float(f"{v:.5g}") for k, v in legend["spacing"].items()}
 
     return d
 

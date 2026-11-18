@@ -38,6 +38,17 @@ label stays in its corner when the data changes:
 ax.text(0.05, 0.95, '(a)', transform=ax.transAxes, va='top')
 ```
 
+## Figure Text
+
+`fig.text()` places text in fractions of the whole page, and `fig.suptitle()`
+adds a title above every axes:
+
+```python
+fig, axes = glp.subplots(1, 2)
+fig.suptitle('Sample A')
+fig.text(0.02, 0.98, '(a)', ha='left', va='top')
+```
+
 ## Rotation
 
 ```python

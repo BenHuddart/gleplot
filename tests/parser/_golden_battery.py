@@ -1458,6 +1458,72 @@ def page_drawings_only():
     return fig
 
 
+def figure_text_and_suptitle():
+    """A suptitle over a titled grid, figure texts after page drawings, and
+    a trailer line after them."""
+    fig, axes = glp.subplots(1, 2, figsize=(8, 4), data_prefix="golden")
+    axes[0].plot([0, 1], [0, 1])
+    axes[1].plot([0, 1], [1, 0])
+    axes[1].set_title("right")
+    fig.circle(1, 1, radius=0.3)
+    fig.suptitle("Sample A", color="blue", fontsize="x-large")
+    fig.text(0.02, 0.98, "(a)", ha="left", va="top")
+    fig.text(
+        0.6,
+        0.03,
+        r"$\alpha$ note",
+        color="red",
+        fontsize=9,
+        rotation=15,
+        bbox={"facecolor": "white"},
+    )
+    fig.text(-0.01, 0.5, "edge", ha="right")
+    fig.passthrough_trailer = ["amove 1 1"]
+    return fig
+
+
+def figure_text_only():
+    """A figure with no axes: a suptitle placed off its default, and a text."""
+    fig = glp.figure(data_prefix="golden")
+    fig.suptitle("left title", x=0.1, ha="left")
+    fig.text(0.5, 0.5, "centre", ha="center", va="center")
+    return fig
+
+
+def figure_legend():
+    """A figure legend over two axes: an addition order that is not the draw
+    order, an axes key asked for, an auto key turned off, columns."""
+    fig, axes = glp.subplots(1, 2, figsize=(8, 4), data_prefix="golden")
+    axes[0].scatter([0, 1], [1, 0], label="points", color="red")
+    axes[0].plot([0, 1], [0, 1], label="rise")
+    axes[1].plot([0, 1], [1, 0], label="fall", linestyle="--")
+    axes[1].bar([0.5], [0.5], width=0.2, label="bar")
+    axes[1].legend(loc="upper left")
+    fig.legend(loc="lower center", ncol=3, frameon=False, labelcolor="gray")
+    fig.subplots_adjust(bottom=0.25)
+    return fig
+
+
+def figure_legend_options():
+    """A figure legend anchored off the page corner, with every option."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 0], label="a", marker="o")
+    ax.fill_between([0, 1, 2], [0, 0.5, 0], color="green", alpha=0.3, label="b")
+    fig.legend(
+        loc="center left",
+        bbox_to_anchor=(0.8, 0.5, 0.2, 0.2),
+        fontsize=10,
+        facecolor="lightyellow",
+        borderpad=0.3,
+        handlelength=1.5,
+        handletextpad=0.5,
+        columnspacing=1.0,
+        ncol=2,
+    )
+    return fig
+
+
 def polar_plot():
     """A titled polar axes: a marked line, a function curve and a scatter."""
     fig = glp.figure(data_prefix="golden")
@@ -1578,6 +1644,10 @@ BUILDERS = [
     page_drawings,
     page_drawings_subplots,
     page_drawings_only,
+    figure_text_and_suptitle,
+    figure_text_only,
+    figure_legend,
+    figure_legend_options,
     polar_plot,
     polar_field_options,
     placed_images,

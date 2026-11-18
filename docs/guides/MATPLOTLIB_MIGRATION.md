@@ -125,6 +125,25 @@ figure rather than in `rcParams`; see the
 [Configuration Guide](CONFIGURATION.md). There is no per-text `usetex=`
 keyword.
 
+### Figure-level text and legend
+
+`fig.suptitle`, `fig.text` and `fig.legend` work on the whole page, as in
+matplotlib. They are written after every axes, so they sit on top of them.
+
+| Call | gleplot |
+|---|---|
+| `fig.suptitle(t)` | centred at `x=0.5`, `y=0.98`, `va='top'`, size `'large'` (1.2 times the figure font size), as matplotlib. `x`, `y`, `ha`, `va`, `fontsize`, `color`, `rotation` and `bbox` are honoured; other keywords warn. A second call replaces the title. Unlike matplotlib, the layout lowers the axes to leave room for the title, unless `subplots_adjust(top=...)` sets that edge. |
+| `fig.text(x, y, s)` | `x`, `y` in figure fractions: `(0, 0)` is the bottom-left corner of the page. Takes the `text()` keywords above, and `fontdict`. A `transform` warns: the position is always in figure fractions. |
+| `fig.legend()` | one legend listing the labelled series of every axes, axes by axes, each axes' series in the order they were added. While it exists, an axes draws its own legend only if `ax.legend()` was called on it. `loc` is a corner of the page (default `'upper right'`; `'best'` raises `ValueError`, as in matplotlib); `bbox_to_anchor` is in figure fractions. `ncol`/`ncols`, `fontsize`, `frameon`, `facecolor`, `labelcolor`, `borderpad`, `handlelength`, `handletextpad` and `columnspacing` are as for `ax.legend()`. The legend sits half a font size in from the page edges its corner is anchored to (matplotlib's default `borderaxespad`); `borderaxespad`, handles/labels and the other keywords warn. A second call replaces the legend rather than adding another. The layout does not make room for it: leave room with `subplots_adjust`. |
+
+```python
+fig, axes = glp.subplots(1, 2)
+fig.suptitle("Sample A")
+fig.text(0.02, 0.98, "(a)", ha="left", va="top")
+fig.legend(loc="lower center", ncol=3)
+fig.subplots_adjust(bottom=0.2)
+```
+
 ### Annotations
 
 `ax.annotate(text, xy, xytext=..., arrowprops=...)` is a text at `xytext` with an arrow to `xy`, both in data coordinates. The text takes the `text()` keywords above. The arrow is GLE `join` from the text's named box to a saved point at `xy`, so it starts at the box edge (0.05 cm pad) rather than over the text. An `xy` inside the text's own box draws the arrow back across the text, where matplotlib draws nothing: keep `xytext` clear of the point.
