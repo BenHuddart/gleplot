@@ -1,5 +1,6 @@
 """Figure class for gleplot."""
 
+import math
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -38,6 +39,7 @@ from .writer import (
     COLORBAR_NTICKS,
     DEFAULT_COLORBAR_NTICKS,
     MDATA_SUB_PREFIX,
+    POLAR_SUB,
     WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
@@ -47,6 +49,8 @@ from .writer import (
     _grid_z_file,
     legend_column_breaks,
     mdata_sub_text,
+    polar_ring_step,
+    polar_window,
     resolve_figure,
 )
 
@@ -614,7 +618,7 @@ class Figure:
 
         self._subplot_adjust = candidate
 
-    def add_subplot(self, *args) -> Axes:
+    def add_subplot(self, *args, projection: Optional[str] = None) -> Axes:
         """
         Add subplot to figure.
 
@@ -622,13 +626,34 @@ class Figure:
         ----------
         *args : int
             Subplot specification (rows, cols, index) or single int
-            E.g., add_subplot(2, 2, 1) or add_subplot(221)
+            E.g., add_subplot(2, 2, 1) or add_subplot(221). Omitted, the
+            figure's only subplot, ``(1, 1, 1)``.
+        projection : {None, 'rectilinear', 'polar'}, optional
+            ``'polar'`` makes a polar axes: :meth:`Axes.plot` and
+            :meth:`Axes.scatter` take ``(theta, r)`` with theta in radians,
+            and :meth:`Axes.function` reads ``x`` in its expression as
+            theta. ``set_ylim(0, rmax)`` sets the radial limit.
 
         Returns
         -------
         Axes
             New axes object
+
+        Notes
+        -----
+        A polar axes draws a grid of rings and spokes with the angles and
+        radii labelled, in place of the frame and ticks. It supports the
+        three methods above, the legend, the title and the radial limit;
+        other plotting methods and cartesian settings such as
+        :meth:`Axes.set_xlim` raise ``NotImplementedError``.
         """
+        if projection not in (None, "rectilinear", "polar"):
+            raise ValueError(
+                f"add_subplot(projection={projection!r}) is not supported; "
+                "use None, 'rectilinear' or 'polar'."
+            )
+        if not args:
+            args = (1, 1, 1)
         if len(args) == 1 and isinstance(args[0], int):
             # Parse single int format (e.g., 221)
             spec = str(args[0])
@@ -646,6 +671,12 @@ class Figure:
         # can re-apply the identical derivation after grid resize or sharing
         # toggles instead of duplicating the logic.
         self._apply_shared_axes_flags(ax)
+        if projection == "polar":
+            # The polar grid and its labels replace the frame and ticks.
+            ax._polar = True
+            ax._frame_off = True
+            ax._show_xticks = ax._show_yticks = False
+            ax.xgrid = ax.ygrid = None
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -2238,6 +2269,7 @@ class Figure:
                 # grid geometry (_layout_rects), so its rect is deterministic
                 # and invertible instead of being left to GLE's 'scale auto'
                 # page fit. The two exceptions below keep their own geometry.
+                frame = None
                 if ax.geometry_passthrough:
                     # Unmodelled GLE geometry recovered from a parsed file:
                     # re-emitted verbatim, and any amove it had is preserved in
@@ -2257,7 +2289,8 @@ class Figure:
                     writer.add_graph_size(
                         width_cm=rect[2], height_cm=rect[3], force_size=True
                     )
-                self._write_axes_content(writer, ax, resolution)
+                    frame = (rect[2], rect[3])
+                self._write_axes_content(writer, ax, resolution, frame)
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
             else:
@@ -2316,14 +2349,16 @@ class Figure:
                 self._emit_pre_graph_blocks(writer, ax, resolution)
                 writer.add_amove(x_pos, y_pos)
                 writer.begin_graph()
+                frame = None
                 if ax.geometry_passthrough:
                     writer.add_graph_geometry_passthrough(ax.geometry_passthrough)
                 else:
                     writer.add_graph_size(
                         width_cm=graph_w, height_cm=cell_h, force_size=True
                     )
+                    frame = (graph_w, cell_h)
 
-                self._write_axes_content(writer, ax, resolution)
+                self._write_axes_content(writer, ax, resolution, frame)
 
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
@@ -2521,16 +2556,17 @@ class Figure:
         return right, below
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/colorbar/clabel/wedge/box subs this figure needs.
+        """Gather the palette/colorbar/clabel/wedge/box/polar subs this figure needs.
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs sorted by name, then the vertical and horizontal colorbar
         subs (each if any bar uses it), then the contour-labels sub (if any
         clabel), then the pie-wedge sub (if any wedge), then the box-plot subs
         (if any box), then one per-point marker-size sub per marker that a
-        scatter with ``mdata`` uses, sorted by name. Skipped (dangling)
-        series contribute nothing, so a write that drops the only heatmap
-        does not leave an unused palette sub behind.
+        scatter with ``mdata`` uses, sorted by name, then the polar subs
+        (if any polar axes). Skipped (dangling) series contribute nothing,
+        so a write that drops the only heatmap does not leave an unused
+        palette sub behind.
 
         The guide subs (:mod:`gleplot.guides`) are NOT collected here: which
         guides take the draw form depends on limits that are still unresolved
@@ -2587,6 +2623,8 @@ class Figure:
                     if name.upper() in MARKERS
                 )
         subs.extend(mdata_sub_text(marker) for marker in sorted(sized_markers))
+        if any(ax._polar for ax in self.axes_list):
+            subs.append(POLAR_SUB)
         return subs
 
     def _write_drawings(self, writer: GLEWriter) -> None:
@@ -2822,7 +2860,11 @@ class Figure:
         )
 
     def _write_axes_content(
-        self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
+        self,
+        writer: GLEWriter,
+        ax: Axes,
+        resolution: Optional[SourceResolution] = None,
+        frame: Optional[Tuple[float, float]] = None,
     ):
         """
         Write all plot content for a single Axes into the current graph block.
@@ -2844,6 +2886,9 @@ class Figure:
             The write's source resolution. Omitted (``None``) means "every
             series is inline", which is what a direct caller outside
             :meth:`_generate_gle_with_files` gets.
+        frame : (float, float), optional
+            The graph's frame width and height in cm, when gleplot places it.
+            A polar axes fits its window to it.
 
         Notes
         -----
@@ -2855,7 +2900,7 @@ class Figure:
         set on the writer before the datasets they fall between.
         """
         resolution = resolution or SourceResolution()
-        self._write_axis_setup(writer, ax)
+        self._write_axis_setup(writer, ax, frame)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
         limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
@@ -2873,8 +2918,25 @@ class Figure:
         self._write_texts(writer, ax)
         self._write_legend(writer, ax, legend)
 
-    def _write_axis_setup(self, writer: GLEWriter, ax: Axes) -> None:
-        """Titles, scales, ranges, ticks and grid of the graph block."""
+    def _write_axis_setup(
+        self, writer: GLEWriter, ax: Axes, frame: Optional[Tuple[float, float]]
+    ) -> None:
+        """Titles, scales, ranges, ticks and grid of the graph block.
+
+        A polar axes' ranges are the window :func:`~gleplot.writer.polar_window`
+        fits to ``frame``, and its grid is the polar one.
+        """
+        xmin, xmax, ymin, ymax = ax.xmin, ax.xmax, ax.ymin, ax.ymax
+        # Set by _resolve_axis_limits on every polar axes. Rounded as the
+        # script writes it, so a parsed figure derives the same window.
+        rmax = (
+            float(GLEWriter._format_number(ax.ymax))
+            if ax._polar and ax.ymax is not None
+            else None
+        )
+        if rmax is not None:
+            xr, yr = polar_window(rmax, frame, fontsize_pt_to_cm(self.style.fontsize))
+            xmin, xmax, ymin, ymax = -xr, xr, -yr, yr
         if ax.math_mode:
             for name, other, scale, lo, hi in (
                 ("x", "y", ax.xscale, ax.xmin, ax.xmax),
@@ -2909,10 +2971,10 @@ class Figure:
             ylog=(ax.yscale == "log"),
             y2log=(ax.y2scale == "log"),
             x2log=(ax.x2scale == "log"),
-            xmin=ax.xmin,
-            xmax=ax.xmax,
-            ymin=ax.ymin,
-            ymax=ax.ymax,
+            xmin=xmin,
+            xmax=xmax,
+            ymin=ymin,
+            ymax=ymax,
             y2min=ax.y2min,
             y2max=ax.y2max,
             x2min=ax.x2min,
@@ -2952,6 +3014,8 @@ class Figure:
             ),
             title_font=ax.title_font,
         )
+        if rmax is not None:
+            writer.add_polar_frame(rmax)
 
     def _write_heatmaps(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
@@ -3303,6 +3367,14 @@ class Figure:
         explicit x range) and for every log axis (see above). Runs before the
         shared-axis synchronization, so what that unifies is already resolved.
         """
+        if ax._polar:
+            # The radial limit; the window itself is derived at write time
+            # from it and the frame (_write_axis_setup).
+            if ax.ymax is None:
+                ax.ymax = self._polar_rmax(ax, resolution)
+            ax.ymin = 0.0
+            return
+
         # Which bounds are the AXES' own, and which this call is about to
         # invent. Only the invented ones may be handed back to GLE when the
         # result collapses (:meth:`_defer_degenerate_range`); a bound the
@@ -3335,6 +3407,27 @@ class Figure:
         # collapsed one it started from.
         for which, (lo_auto, hi_auto) in was_auto.items():
             self._defer_degenerate_range(ax, which, lo_auto, hi_auto)
+
+    @staticmethod
+    def _polar_rmax(ax: Axes, resolution: Optional[SourceResolution]) -> float:
+        """A polar axes' automatic radial limit.
+
+        The largest finite ``|r|`` among its lines and scatters, rounded up
+        to the next ring of :func:`~gleplot.writer.polar_ring_step`; 1 when
+        there is no such point. Function curves are not evaluated, so they
+        do not count.
+        """
+        resolution = resolution or SourceResolution()
+        largest = 0.0
+        for series in resolution.visible(ax.lines) + resolution.visible(ax.scatters):
+            r = np.abs(np.asarray(series["y"], dtype=float))
+            r = r[np.isfinite(r)]
+            if r.size:
+                largest = max(largest, float(r.max()))
+        if largest == 0.0:
+            return 1.0
+        step = polar_ring_step(largest)
+        return float(GLEWriter._format_number(step * math.ceil(largest / step - 1e-9)))
 
     # -- degenerate ranges ------------------------------------------------
     #
@@ -3583,10 +3676,12 @@ class Figure:
         # panel is one the shared range may hand back to GLE if it collapses
         # (see _defer_degenerate_range). The union of several panels is rarely
         # a point, but it is whenever they all sit on the same single value.
-        lo_auto = all(ax.xmin is None for ax in self.axes_list)
-        hi_auto = all(ax.xmax is None for ax in self.axes_list)
+        # A polar axes' limits are its own (see _resolve_axis_limits).
+        shared = [ax for ax in self.axes_list if not ax._polar]
+        lo_auto = all(ax.xmin is None for ax in shared)
+        hi_auto = all(ax.xmax is None for ax in shared)
 
-        for ax in self.axes_list:
+        for ax in shared:
             # Calculate data limits if not explicitly set
             if ax.xmin is None or ax.xmax is None:
                 data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
@@ -3608,7 +3703,7 @@ class Figure:
                 hi_global = hi
 
         # Apply global limits to all axes
-        for ax in self.axes_list:
+        for ax in shared:
             if inverted and lo_global is not None and hi_global is not None:
                 ax.xmin, ax.xmax = hi_global, lo_global
             else:
@@ -3623,10 +3718,12 @@ class Figure:
         inverted = False
 
         # See _synchronize_x_limits.
-        lo_auto = all(ax.ymin is None for ax in self.axes_list)
-        hi_auto = all(ax.ymax is None for ax in self.axes_list)
+        # A polar axes' limits are its own (see _resolve_axis_limits).
+        shared = [ax for ax in self.axes_list if not ax._polar]
+        lo_auto = all(ax.ymin is None for ax in shared)
+        hi_auto = all(ax.ymax is None for ax in shared)
 
-        for ax in self.axes_list:
+        for ax in shared:
             # Calculate data limits if not explicitly set
             if ax.ymin is None or ax.ymax is None:
                 data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
@@ -3644,7 +3741,7 @@ class Figure:
                 hi_global = hi
 
         # Apply global limits to all axes
-        for ax in self.axes_list:
+        for ax in shared:
             if inverted and lo_global is not None and hi_global is not None:
                 ax.ymin, ax.ymax = hi_global, lo_global
             else:

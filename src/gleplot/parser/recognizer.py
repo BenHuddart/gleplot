@@ -328,7 +328,15 @@ from ..series import (
     TextAnnotation,
     Wedge,
 )
-from ..writer import MDATA_SUB_PREFIX, GLEWriter
+from ..writer import (
+    MDATA_SUB_PREFIX,
+    POLAR_GRID_LAYER,
+    GLEWriter,
+    polar_degree_mark,
+    polar_label_decimals,
+    polar_ring_step,
+    polar_window,
+)
 from . import metadata as _metadata
 from .expr import eval_gle_number
 from .lexer import Token, TokenType, tokenize_line
@@ -373,6 +381,10 @@ _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
 #: ``define marker gleplot_X gleplot_X`` (lower-cased): the line that makes a
 #: generated per-point-size sub a marker (``writer.mdata_sub_text``).
 _GLEPLOT_DEFINE_MARKER_RE = re.compile(r"^define\s+marker\s+(gleplot_\w+)\s+\1$")
+
+#: What :meth:`_Recognizer._try_one_text` returns for a polar axes' label
+#: call, which the axes regenerates; compared by identity.
+_POLAR_LABELS: Dict[str, Any] = {"polar_labels": True}
 
 
 #: Every ``bar`` sub-command GLE 4.3.10 accepts that gleplot has no model
@@ -1534,6 +1546,11 @@ class _Recognizer:
         self._text_fontsize: Optional[float] = None
         self._text_color: str = "BLACK"
         self._text_just: str = "left"
+        # The radial limit of the polar axes whose label call the text
+        # cluster after its graph may start with; None when none is due.
+        self._polar_labels_rmax: Optional[float] = None
+        # The degree mark that call ends with (GLE or LaTeX text).
+        self._polar_degree = polar_degree_mark(False)
         # Contour/heatmap recognition state.
         # Line numbers spanned by gleplot_<name> subroutine definitions
         # (palette / colorbar / contour-labels). Dropped everywhere, like the
@@ -1703,6 +1720,7 @@ class _Recognizer:
 
         # Build style/graph/marker configs.
         style = GLEStyleConfig(**page_state)
+        self._polar_degree = polar_degree_mark(bool(style.usetex))
         style.font = font
         style.fontsize = fontsize
         graph_cfg = GLEGraphConfig()
@@ -1881,8 +1899,22 @@ class _Recognizer:
         # A ``begin key`` we emitted for addition-order columns sits
         # immediately after this graph, before its deferred text.
         after_key = self._consume_external_legend(nodes, i + 1, axes_info)
-        # Greedily consume deferred text cluster that follows.
+        # Greedily consume deferred text cluster that follows. A polar
+        # axes' tick-label call leads it (see _try_one_text).
+        self._polar_labels_rmax = axes_info["polar_rmax"]
         texts, consumed = self._consume_text_cluster(nodes, after_key)
+        self._polar_labels_rmax = None
+        if axes_info["polar_rmax"] is not None and not any(
+            t is _POLAR_LABELS for t in texts
+        ):
+            self._note(
+                ImportCategory.STRUCTURE,
+                "the polar axes has no 'gleplot_polar_labels' call matching "
+                "its grid after 'end graph'; the tick labels are written "
+                "again on save",
+                None,
+            )
+        texts = [t for t in texts if t is not _POLAR_LABELS]
         axes_info["texts"] = [t for t in texts if not isinstance(t, (Wedge, Box))]
         axes_info["wedges"] = [t for t in texts if isinstance(t, Wedge)]
         axes_info["boxes"] = [t for t in texts if isinstance(t, Box)]
@@ -2251,6 +2283,7 @@ class _Recognizer:
 
         frame_off_lines = self._prescan_frame_off(block)
         info["frame_off"] = bool(frame_off_lines)
+        polar_line = self._prescan_polar(block, info)
         math_line = self._prescan_math(block)
         if math_line is not None:
             info["math_mode"] = True
@@ -2261,6 +2294,8 @@ class _Recognizer:
         for child in block.body:
             if isinstance(child, OpaqueBlock):
                 guide = guide_blocks.get(child.line_no)
+                if child.line_no == polar_line:
+                    continue
                 if guide is not None:
                     # Recognized guide draw block: becomes a RefLine/Span
                     # declaration, in body order, instead of raw text.
@@ -2534,6 +2569,12 @@ class _Recognizer:
             "_dataset_series": {},
             # Offset alias target -> its source (``let dK = dJ+off``).
             "_offset_let_sources": {},
+            # A polar axes (GLEWriter.add_polar_frame): the radial limit from
+            # its grid draw, or None. In a polar graph, each
+            # ``let dK = dJ*cos(x),dJ*sin(x)`` maps dK -> dJ: the block is read
+            # as if dJ were drawn, in (theta, r).
+            "polar_rmax": None,
+            "_polar_aliases": {},
             # Dataset names whose ``bar`` commands stay raw: an unmodelled
             # sub-command, a ``fill`` that still needs the original data
             # line, or a group whose x columns do not match. Filled at the
@@ -2584,6 +2625,8 @@ class _Recognizer:
                     group = info.setdefault("_dataset_group", {})
                     for name in names:
                         group[name] = names
+            elif kw == "let" and self._polar_let(child, pass1, info):
+                continue
             elif kw == "let":
                 # 'let dK = dJ+off' -- register dK as an offset alias of dJ
                 # (dJ's 'data' command precedes it in body order, so dJ is
@@ -2599,6 +2642,7 @@ class _Recognizer:
                 self._record_fit_let(let_toks, pass1.datasets, info)
                 self._record_derived_let(let_toks, info)
             elif kw is not None and _DATASET_RE.match(kw):
+                kw = info["_polar_aliases"].get(kw, kw)
                 if kw not in pass1.merged_attr_toks:
                     pass1.merged_attr_toks[kw] = []
                     pass1.merged_attr_raw[kw] = []
@@ -2623,6 +2667,28 @@ class _Recognizer:
         info["passthrough"].append(text)
 
     @staticmethod
+    def _is_polar_alias(toks, info) -> bool:
+        """Whether this ``let`` is a polar curve's (see :meth:`_prescan_polar`)."""
+        return len(toks) > 1 and toks[1].value.lower() in info["_polar_aliases"]
+
+    def _polar_let(self, stmt, pass1: _GraphDatasets, info) -> bool:
+        """Pass 1 for a polar ``let``: True if it stands for its source.
+
+        Its source must be declared before it, by a ``data`` statement or a
+        function ``let``; otherwise the alias is dropped and the ``let``
+        is read like any other.
+        """
+        toks = _words_and_values(stmt)
+        if not self._is_polar_alias(toks, info):
+            return False
+        target = toks[1].value.lower()
+        source = info["_polar_aliases"][target]
+        if source in pass1.datasets or source in info["_function_lets"]:
+            return True
+        del info["_polar_aliases"][target]
+        return False
+
+    @staticmethod
     def _let_is_consumed(toks, info) -> bool:
         """True if pass 1 already modeled this ``let`` statement.
 
@@ -2633,7 +2699,8 @@ class _Recognizer:
         """
         target = toks[1].value.lower() if len(toks) > 1 else None
         return (
-            target in info["_offset_let_datasets"]
+            target in info["_polar_aliases"]
+            or target in info["_offset_let_datasets"]
             or target in info["_hist_lets"]
             or target in info["_function_lets"]
         )
@@ -2646,7 +2713,21 @@ class _Recognizer:
         Only the first statement naming a dataset builds anything; the rest
         were merged into it in pass 1.
         """
-        name = stmt.keyword
+        name = info["_polar_aliases"].get(stmt.keyword, stmt.keyword)
+        if (
+            info["polar_rmax"] is not None
+            and stmt.keyword not in info["_polar_aliases"]
+        ):
+            # In a polar graph gleplot draws every dataset through a polar
+            # let; one drawn as it is would be redrawn through one on save.
+            info["passthrough"].append(self._stmt_text(stmt))
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"'{stmt.keyword}' is drawn in a polar graph without a polar "
+                "let; it was kept as raw GLE",
+                (stmt.line_no, stmt.line_no),
+            )
+            return
         if name in pass1.emitted:
             return
         if name in info["_guide_key_datasets"]:
@@ -2812,6 +2893,64 @@ class _Recognizer:
 
     # -- guides drawn against GLE's own range (G17) -----------------------
 
+    #: ``let dK = dJ*cos(x),dJ*sin(x)``, as GLEWriter._polar_dataset writes it.
+    _POLAR_LET_RE = re.compile(
+        r"^\s*let\s+(d\d+)\s*=\s*(d\d+)\*cos\(x\),\2\*sin\(x\)\s*$", re.IGNORECASE
+    )
+
+    def _prescan_polar(self, block: GraphBlock, info) -> Optional[int]:
+        """Find a polar axes' grid draw, and its curves' polar ``let`` lines.
+
+        The grid is the ``begin layer`` block
+        :meth:`gleplot.writer.GLEWriter.add_polar_frame` writes, matched
+        exactly: its layer, a lone ``draw gleplot_polar_grid rmax step``,
+        and the ring step gleplot derives from ``rmax``. On a match the
+        radial limit goes in ``info["polar_rmax"]``, every polar ``let`` in
+        the block in ``info["_polar_aliases"]``, and the block's line number
+        is returned so pass 2 skips it. Anything else returns ``None`` and
+        stays raw GLE.
+        """
+        for child in block.body:
+            if not isinstance(child, OpaqueBlock) or child.block_type != "layer":
+                continue
+            inner = [sl for sl in child.inner_lines if sl.text.strip()]
+            if len(inner) != 1:
+                continue
+            stmt = _first_statement_of(inner[0])
+            toks = _words_and_values(stmt)
+            if (
+                len(toks) < 2
+                or (stmt.keyword or "").lower() != "draw"
+                or toks[1].value.lower() != "gleplot_polar_grid"
+            ):
+                continue
+            args = self._guide_call_args(toks, 2)
+            if (
+                self._layer_number(child) != POLAR_GRID_LAYER
+                or len(args) != 2
+                or not all(isinstance(v, (int, float)) for v in args)
+                or not float(cast(float, args[0])) > 0
+                or float(cast(float, args[1]))
+                != polar_ring_step(float(cast(float, args[0])))
+            ):
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    "'draw gleplot_polar_grid' is not in the form gleplot "
+                    "writes; the block was left as raw GLE instead of being "
+                    "read back as a polar axes",
+                    (stmt.line_no, stmt.line_no),
+                )
+                return None
+            info["polar_rmax"] = float(cast(float, args[0]))
+            for other in block.body:
+                if isinstance(other, Statement) and other.keyword == "let":
+                    match = self._POLAR_LET_RE.match(self._stmt_text(other))
+                    if match:
+                        target, source = match.group(1).lower(), match.group(2).lower()
+                        info["_polar_aliases"][target] = source
+            return child.line_no
+        return None
+
     #: The graph-block lines ``Axes._frame_off`` writes, each bare.
     _FRAME_OFF_KEYWORDS = ("xside", "yside", "xticks", "yticks")
 
@@ -2919,7 +3058,7 @@ class _Recognizer:
         span = (stmt.line_no, stmt.line_no)
         kind_orient = GUIDE_CALL_KINDS.get(call)
         if kind_orient is None:
-            if call.startswith("gleplot_"):
+            if call.startswith("gleplot_") and call != "gleplot_polar_grid":
                 self._note(
                     ImportCategory.STRUCTURE,
                     f"'draw {call}' has gleplot's own guide-sub prefix but "
@@ -4678,13 +4817,21 @@ class _Recognizer:
         the file gave it. The ``dK`` lines must also be a plain line that
         :meth:`gleplot.writer.GLEWriter.add_function` writes back the same.
         """
-        # A derived let reads the curve through the name the writer gives it.
-        texts = self._non_dataset_texts(block, skip=info["_derived_lets"])
+        # A derived let reads the curve through the name the writer gives it,
+        # and a polar let stands for its source.
+        texts = self._non_dataset_texts(
+            block, skip=set(info["_derived_lets"]) | set(info["_polar_aliases"])
+        )
         for target in list(info["_function_lets"]):
             mentions = _mention_count(texts, target)
             attr_toks = pass1.merged_attr_toks.get(target)
+            drawn_as_is = (
+                info["polar_rmax"] is not None
+                and target not in info["_polar_aliases"].values()
+            )
             if (
-                mentions != 1
+                drawn_as_is
+                or mentions != 1
                 or not attr_toks
                 or not _plain_function_line(attr_toks)
                 or not self._load_fit_data(texts, pass1, info, target)
@@ -4701,6 +4848,7 @@ class _Recognizer:
                     target not in info["_function_lets"]
                     and target not in info["_offset_let_datasets"]
                     and target not in info["_derived_lets"]
+                    and target not in info["_polar_aliases"]
                 ):
                     info["_function_lets"].clear()
                     info["_derived_lets"].clear()
@@ -7791,6 +7939,14 @@ class _Recognizer:
         # A pie slice (Axes.pie): the 'set' lines above gave its text height.
         i = self._skip_blanks(nodes, i)
         stmt = self._as_statement(nodes[i]) if i < n else None
+        if (
+            stmt is not None
+            and i == self._skip_blanks(nodes, start)
+            and (stmt.keyword or "").lower() == "gleplot_polar_labels"
+            and self._is_polar_labels_call(stmt)
+        ):
+            self._polar_labels_rmax = None
+            return i + 1, _POLAR_LABELS
         if stmt is not None and (stmt.keyword or "").lower() == "gleplot_wedge":
             wedge = self._wedge_call(stmt)
             if wedge is None:
@@ -7895,6 +8051,28 @@ class _Recognizer:
             whishi=hi,
             fliers=fliers,
             mean=mean,
+        )
+
+    def _is_polar_labels_call(self, stmt) -> bool:
+        """Whether ``stmt`` is the label call of the polar axes just parsed.
+
+        It must be ``gleplot_polar_labels rmax step dp deg$`` with the values
+        :meth:`gleplot.writer.GLEWriter.add_polar_frame` writes for that
+        axes' radial limit and the figure's ``usetex``.
+        """
+        rmax = self._polar_labels_rmax
+        if rmax is None:
+            return False
+        step = polar_ring_step(rmax)
+        expected = [rmax, step, polar_label_decimals(step)]
+        args = self._guide_call_args(_words_and_values(stmt), 1)
+        return (
+            len(args) == 4
+            and args[3] == self._polar_degree
+            and all(
+                isinstance(v, (int, float)) and float(v) == e
+                for v, e in zip(args[:3], expected)
+            )
         )
 
     def _wedge_call(self, stmt) -> Optional[Wedge]:
@@ -8127,8 +8305,47 @@ class _Recognizer:
             fig.axes_list.append(ax)
 
         self._apply_geometry(fig, parsed_axes)
+        for info, ax in zip(parsed_axes, fig.axes_list):
+            if info["polar_rmax"] is not None:
+                self._apply_polar(fig, ax, info)
 
         fig._current_axes = fig.axes_list[-1] if fig.axes_list else None
+
+    def _apply_polar(self, fig, ax, info) -> None:
+        """Make ``ax`` the polar axes its grid draw declared.
+
+        The model keeps the radial limit only; the writer derives the
+        window from it and the frame. A window other than that one is
+        noted, since the next save writes the derived one. A graph whose
+        placement was not recovered is laid out again on save, so its
+        window is not checked.
+        """
+        rmax = info["polar_rmax"]
+        ax._polar = True
+        ax.xmin = ax.xmax = None
+        ax.ymin, ax.ymax = 0.0, rmax
+        if ax.placement is not None:
+            frame: Optional[Tuple[float, float]] = (ax.placement[2], ax.placement[3])
+        elif ax.geometry_passthrough:
+            frame = None
+        else:
+            return
+        xr, yr = polar_window(rmax, frame, fontsize_pt_to_cm(fig.style.fontsize))
+        num = GLEWriter._format_number
+        found = [info["xmin"], info["xmax"], info["ymin"], info["ymax"]]
+        if [num(v) if v is not None else None for v in found] != [
+            num(-xr),
+            num(xr),
+            num(-yr),
+            num(yr),
+        ] or (info["xnegate"] or info["ynegate"]):
+            self._note(
+                ImportCategory.STRUCTURE,
+                "the polar axes' x and y ranges are not the ones gleplot "
+                "writes for its radial limit and size; they are written "
+                "again on save",
+                None,
+            )
 
     # -- graph geometry --------------------------------------------------
 

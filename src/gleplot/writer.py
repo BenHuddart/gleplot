@@ -220,6 +220,107 @@ def mdata_sub_text(marker: str) -> str:
     )
 
 
+#: The subs behind a polar axes (:meth:`GLEWriter.add_polar_frame`). The grid
+#: is drawn inside the graph block, in layer 200 with GLE's own grid, so the
+#: curves go over it; the tick labels are written after ``end graph``, like
+#: the pie text, because text written inside a graph-block ``draw`` loses its
+#: font. Adapted from ``polar_grid`` in GLE's ``polarplot.gle``. The style is
+#: matplotlib's default: 0.8 pt grey grid lines, a black outer ring, labels
+#: every 45 degrees and one per ring along 22.5 degrees.
+POLAR_SUB = """sub gleplot_polar_grid rmax step
+   ! Polar grid about (0, 0): a ring every step inside rmax, a spoke every
+   ! 45 degrees, and the outer ring at rmax.
+   gsave
+   set color rgb255(176,176,176) lwidth 0.02822
+   for k = 1 to int(rmax/step-0.001)
+      amove xg(0) yg(0)
+      circle xg(k*step)-xg(0)
+   next k
+   for k = 0 to 7
+      amove xg(0) yg(0)
+      aline xg(rmax*cos(k*pi/4)) yg(rmax*sin(k*pi/4))
+   next k
+   set color black
+   amove xg(0) yg(0)
+   circle xg(rmax)-xg(0)
+   grestore
+end sub
+
+sub gleplot_polar_labels rmax step dp deg$
+   ! Polar tick labels: the angle every 45 degrees outside the rmax ring,
+   ! followed by deg$, and each ring's radius with dp decimals along 22.5
+   ! degrees. Text uses the current hei and colour.
+   gsave
+   local s = xg(1)-xg(0)
+   local a = 0
+   local t$ = ""
+   local d = 0
+   set just cc
+   for k = 0 to 7
+      a = k*pi/4
+      t$ = format$(45*k,"fix 0")+deg$
+      d = rmax*s+0.15+(abs(cos(a))*twidth(t$)+abs(sin(a))*theight(t$))/2
+      amove xg(0)+d*cos(a) yg(0)+d*sin(a)
+      write t$
+   next k
+   set just bl
+   for k = 1 to int(rmax/step+0.001)
+      amove xg(k*step*cos(pi/8)) yg(k*step*sin(pi/8))
+      write format$(k*step,"fix "+num$(dp))
+   next k
+   grestore
+end sub"""
+
+#: Layer of the polar grid draw: GLE's own grid layer, below the curves.
+POLAR_GRID_LAYER = 200
+
+
+def polar_ring_step(rmax: float) -> float:
+    """Distance between the rings of a polar grid out to ``rmax``.
+
+    The smallest of 1, 2, 2.5 and 5 times a power of ten that gives at most
+    five rings, as matplotlib's radial ticks do.
+    """
+    raw = rmax / 5.0
+    magnitude = 10.0 ** math.floor(math.log10(raw))
+    for factor in (1.0, 2.0, 2.5, 5.0, 10.0):
+        if factor * magnitude >= raw * (1 - 1e-9):
+            return float(f"{factor * magnitude:.6g}")
+    return 10.0 * magnitude  # pragma: no cover - 10 always qualifies
+
+
+def polar_degree_mark(usetex: bool) -> str:
+    """The degree sign after a polar angle label, in GLE or LaTeX text."""
+    return "$^{\\circ}$" if usetex else "^{\\circ}"
+
+
+def polar_label_decimals(step: float) -> int:
+    """Decimals in a polar ring label: as many as ``step`` has."""
+    return len(f"{step:.10f}".rstrip("0").split(".")[1])
+
+
+def polar_window(
+    rmax: float, frame: Optional[Tuple[float, float]], hei_cm: float
+) -> Tuple[float, float]:
+    """The x and y half-ranges of a polar axes' graph window.
+
+    Both axes get the same cm per unit, so the rings are circles, and the
+    outer ring is inset from the frame far enough for the angle labels. With
+    no frame size (a graph whose geometry gleplot does not place), the
+    window is the square ``-rmax .. rmax``.
+    """
+    if frame is None:
+        return rmax, rmax
+    # As written to the script, so a parsed figure derives the same window.
+    width, height, hei_cm = (
+        float(GLEWriter._format_number(v)) for v in (frame[0], frame[1], hei_cm)
+    )
+    radius = min(width / 2 - (0.15 + 2.5 * hei_cm), height / 2 - (0.15 + 1.2 * hei_cm))
+    if radius <= 0:
+        radius = min(width, height) / 2
+    return rmax * width / 2 / radius, rmax * height / 2 / radius
+
+
 @dataclass(frozen=True)
 class AxisStyle:
     """Styling for ONE axis (x, y or y2) of a graph block.
@@ -1197,6 +1298,9 @@ class GLEWriter:
         # later subplot cannot inherit it.
         self._external_legend: Optional[List[str]] = None
         self._pending_graph_text_lines: List[str] = []
+        # True inside the graph block of a polar axes (add_polar_frame): its
+        # curves are drawn through the polar ``let`` (see _polar_dataset).
+        self._polar_graph = False
         # Annotation arrows emitted so far: numbers the GLE object names
         # (``annN`` box, ``annN_xy`` tip) that ``join`` connects. Names are
         # page-global in GLE, so the count runs across every graph.
@@ -1481,6 +1585,7 @@ class GLEWriter:
         with end_graph().
         """
         self.lines_gle.append("begin graph")
+        self._polar_graph = False
 
     def end_graph(self, passthrough: Optional[List[str]] = None):
         """Close the current graph block.
@@ -2775,6 +2880,8 @@ class GLEWriter:
         # A non-zero offset shifts the trace vertically at plot time via a
         # ``let`` on a fresh dataset, leaving the .dat file's values raw.
         display_name = self._apply_offset(d_name, offset) if offset else d_name
+        if self._polar_graph:
+            display_name = self._polar_dataset(display_name)
 
         # Generate line command
         line_cmd = f"    {display_name}"
@@ -2929,6 +3036,8 @@ class GLEWriter:
         )
         offset = series.get("offset", 0.0)
         display_name = self._apply_offset(d_name, offset) if offset else d_name
+        if self._polar_graph:
+            display_name = self._polar_dataset(display_name)
         marker = MDATA_SUB_PREFIX + str(series["marker"]).lower()
         msize = self._format_number(series["markersize"])
         self.lines_gle.append(
@@ -3351,6 +3460,8 @@ class GLEWriter:
                 parts.append(f"{word} {self._format_number(series[key])}")
         parts.extend(options)
         self.lines_gle.append("    " + " ".join(parts))
+        if self._polar_graph:
+            target = self._polar_dataset(target)
 
         linestyle = series.get("linestyle", "-")
         label = series.get("label")
@@ -4197,7 +4308,8 @@ class GLEWriter:
             data_cmd += f" {d_yerr}=c{x_col},c{yerr_col}"
         self.lines_gle.append(data_cmd + self._data_read_clause(series))
 
-        line_cmd = f"    {d_main}"
+        d_draw = self._polar_dataset(d_main) if self._polar_graph else d_main
+        line_cmd = f"    {d_draw}"
         # Both branches must set ``color``: GLE draws the error bars in the
         # dataset's colour and an unstyled dataset falls back to black (see
         # :meth:`add_errorbar_series`). ``None`` is a recovered reference
@@ -4306,7 +4418,8 @@ class GLEWriter:
         # figure-wide smoothing. A line mode must not: fitbez runs before
         # the mode is drawn and would replace the discrete join.
         smooth_mode = "none" if line_mode else None
-        line_cmd = f"    {d_main}{self._line_token(smooth_mode, line_mode=line_mode)}"
+        d_draw = self._polar_dataset(d_main) if self._polar_graph else d_main
+        line_cmd = f"    {d_draw}{self._line_token(smooth_mode, line_mode=line_mode)}"
         if nomiss:
             line_cmd += " nomiss"
         line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
@@ -4858,6 +4971,41 @@ class GLEWriter:
             f'{num(series["pctdistance"])}'
         )
         self._text_state_just = None
+
+    def add_polar_frame(self, rmax: float) -> None:
+        """Make the open graph block a polar axes out to radius ``rmax``.
+
+        ``rmax`` is as written to the script (see :meth:`_format_number`).
+        Draws the grid (:data:`POLAR_SUB`) in layer
+        :data:`POLAR_GRID_LAYER` and queues the tick labels for after ``end
+        graph``, ahead of the axes' other deferred text. Every dataset drawn
+        after this goes through :meth:`_polar_dataset`. Call it after
+        :meth:`add_axes`, whose window must already be the one
+        :func:`polar_window` gives.
+        """
+        num = self._format_number
+        step = polar_ring_step(rmax)
+        self.lines_gle.append(f"    begin layer {POLAR_GRID_LAYER}")
+        self.lines_gle.append(
+            f"        draw gleplot_polar_grid {num(rmax)} {num(step)}"
+        )
+        self.lines_gle.append("    end layer")
+        self._pending_graph_text_lines.append(
+            f"gleplot_polar_labels {num(rmax)} {num(step)} "
+            f'{polar_label_decimals(step)} "{polar_degree_mark(self.style.usetex)}"'
+        )
+        self._polar_graph = True
+
+    def _polar_dataset(self, source: str) -> str:
+        """``let dK = dJ*cos(x),dJ*sin(x)``: ``source`` as (theta, r) -> (x, y).
+
+        Returns ``dK``, the dataset to draw. GLE keeps the points in their
+        order, so a curve that winds back on itself is drawn as given.
+        """
+        target = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        self.lines_gle.append(f"    let {target} = {source}*cos(x),{source}*sin(x)")
+        return target
 
     def add_box(self, series: Series) -> None:
         """Queue one box of a box plot for after ``end graph``.
@@ -5833,7 +5981,12 @@ class GLEWriter:
         mode = normalize_smooth_mode(smooth_mode)
         if mode is not None:
             return mode
-        return "smooth" if self.graph.smooth_curves else "none"
+        # The figure-wide default skips a polar graph: GLE smooths the drawn
+        # x and y, which need not be in order there ("Cannot SMOOTH: X
+        # values out of sequence").
+        return (
+            "smooth" if self.graph.smooth_curves and not self._polar_graph else "none"
+        )
 
     def _line_token(
         self,

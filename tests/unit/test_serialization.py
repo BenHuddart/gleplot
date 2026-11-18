@@ -547,6 +547,7 @@ _AXES_SERIALIZED_ATTRS = {
     "_x2axis_off",
     "_y2axis_off",
     "_frame_off",
+    "_polar",
     "_break_index",
     # Axes styling (tick-label formats, grids, axis-title / tick-label /
     # graph-title size-colour-distance-angle). Enumerated by

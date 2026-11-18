@@ -1313,6 +1313,34 @@ def page_drawings_only():
     return fig
 
 
+def polar_plot():
+    """A titled polar axes: a marked line, a function curve and a scatter."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(projection="polar")
+    theta = np.linspace(0, 2 * np.pi, 9)
+    ax.plot(theta, 1 + 0.5 * np.cos(3 * theta), marker="o", label="lobes")
+    ax.function("cos(2*x)", color="green", linestyle="--", label="rose")
+    ax.scatter([0.5, 3, 4], [0.3, 1.1, 0.7], color="red")
+    ax.set_title("polar")
+    ax.legend()
+    return fig
+
+
+def polar_field_options():
+    """A polar axes after a cartesian one with text: an explicit radial limit
+    off the ring step, and a function range and step.
+    """
+    fig = glp.figure(figsize=(8, 3), data_prefix="golden")
+    left = fig.add_subplot(1, 2, 1)
+    left.plot([0, 1], [0, 1], color="blue")
+    left.text(0.5, 0.5, "left", color="red")
+    right = fig.add_subplot(1, 2, 2, projection="polar")
+    right.plot([0, 1, 2, 3], [0.2, 0.8, 1.2, 0.4], color="black", linewidth=2)
+    right.function("x/4", xmin=0, xmax=4, step=0.1)
+    right.set_ylim(0, 1.3)
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -1385,6 +1413,8 @@ BUILDERS = [
     page_drawings,
     page_drawings_subplots,
     page_drawings_only,
+    polar_plot,
+    polar_field_options,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]
