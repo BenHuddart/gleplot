@@ -156,8 +156,10 @@ def test_imshow_brewer_qualitative_is_stepped():
 def test_unknown_cmap_raises():
     fig = glp.figure()
     ax = fig.add_subplot(111)
-    with pytest.raises(ValueError, match="Unknown cmap"):
+    with pytest.raises(ValueError, match="Unknown cmap") as err:
         ax.imshow(np.zeros((2, 2)), cmap="turbo")
+    # The accepted names are listed as matplotlib spells them.
+    assert "RdYlBu" in str(err.value)
 
 
 # --------------------------------------------------------------------------- #

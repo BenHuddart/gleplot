@@ -85,8 +85,8 @@ gleplot's generated palette subroutines **clamp** the normalized value into `[0,
 | `plasma` | Perceptually uniform, dark-to-light. |
 | `cividis` | Perceptually uniform, colourblind-safe. |
 | `coolwarm` | Diverging blue -> white -> red. |
-| `Blues`, `BuGn`, `BuPu`, `GnBu`, `Greens`, `Greys`, `Oranges`, `OrRd`, `PuBu`, `PuBuGn`, `PuRd`, `Purples`, `RdPu`, `Reds`, `YlGn`, `YlGnBu`, `YlOrBr`, `YlOrRd` | ColorBrewer sequential; smooth between the nine ColorBrewer colours, as in matplotlib. |
-| `BrBG`, `PiYG`, `PRGn`, `PuOr`, `RdBu`, `RdGy`, `RdYlBu`, `RdYlGn`, `Spectral` | ColorBrewer diverging; smooth between the eleven ColorBrewer colours, as in matplotlib. |
+| `Blues`, `BuGn`, `BuPu`, `GnBu`, `Greens`, `Greys`, `Oranges`, `OrRd`, `PuBu`, `PuBuGn`, `PuRd`, `Purples`, `RdPu`, `Reds`, `YlGn`, `YlGnBu`, `YlOrBr`, `YlOrRd` | ColorBrewer sequential; smooth between the ColorBrewer colours, as in matplotlib. |
+| `BrBG`, `PiYG`, `PRGn`, `PuOr`, `RdBu`, `RdGy`, `RdYlBu`, `RdYlGn`, `Spectral` | ColorBrewer diverging; smooth between the ColorBrewer colours, as in matplotlib. |
 | `Accent`, `Dark2`, `Paired`, `Pastel1`, `Pastel2`, `Set1`, `Set2`, `Set3` | ColorBrewer qualitative; one flat band per colour, as in matplotlib. |
 | `gray` | GLE's built-in grayscale; emits no palette clause. |
 | `rainbow` (alias `jet`) | GLE's built-in rainbow; emits `colormap ... color` instead of a `palette` clause. |

@@ -151,9 +151,11 @@ SUPPORTED_CMAPS: Tuple[str, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# RGB stop tables (18 nodes each), transcribed verbatim from
-# gle-library/include/palettes.gle lines 56-136 (inferno/magma/plasma/viridis)
-# and 140-157 (cividis).  Each entry is (r, g, b) with components in [0, 1].
+# RGB stop tables, interpolated by _stops_sub_text.  The literal below holds
+# the 18-node ramps transcribed verbatim from gle-library/include/palettes.gle
+# lines 56-136 (inferno/magma/plasma/viridis) and 140-157 (cividis); the
+# ColorBrewer ramps from _BREWER_RAMPS are added after it.  Each entry is
+# (r, g, b) with components in [0, 1].
 # ---------------------------------------------------------------------------
 PALETTE_STOPS: Dict[str, List[Tuple[str, str, str]]] = {
     # palettes.gle lines 56-73
@@ -266,6 +268,11 @@ PALETTE_STOPS.update(
     {name.lower(): _hex_stops(colours) for name, colours in _BREWER_RAMPS.items()}
 )
 
+#: Canonical form of every name in :data:`SUPPORTED_CMAPS`.
+_CANONICAL_CMAPS = frozenset(
+    _CMAP_ALIASES.get(c.lower(), c.lower()) for c in SUPPORTED_CMAPS
+)
+
 #: Stepped (qualitative) palettes: one band per colour, no interpolation.
 _LISTED_STOPS: Dict[str, List[Tuple[str, str, str]]] = {
     name.lower(): _hex_stops(colours) for name, colours in _BREWER_QUALITATIVE.items()
@@ -287,10 +294,11 @@ def canonical_cmap(cmap: str) -> str:
     """
     key = str(cmap).strip().lower()
     key = _CMAP_ALIASES.get(key, key)
-    valid = {_CMAP_ALIASES.get(c.lower(), c.lower()) for c in SUPPORTED_CMAPS}
-    if key not in valid:
-        supported = ", ".join(sorted(valid))
-        raise ValueError(f"Unknown cmap {cmap!r}; supported palettes: {supported}")
+    if key not in _CANONICAL_CMAPS:
+        supported = ", ".join(SUPPORTED_CMAPS)
+        raise ValueError(
+            f"Unknown cmap {cmap!r}; supported palettes (any case): {supported}"
+        )
     return key
 
 
