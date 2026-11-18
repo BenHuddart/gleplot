@@ -876,6 +876,18 @@ def axis_lines_fonts_and_tick_placement():
     return fig
 
 
+def title_text_keywords():
+    """matplotlib's fontsize, color and labelpad/pad on the title setters."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], color="blue")
+    ax.set_title("Run 12", fontsize=11, color="#404040", pad=6)
+    ax.set_xlabel("T (K)", fontsize=9, color="gray", labelpad=4)
+    ax.set_ylabel("y", fontsize="small")
+    ax.twinx().set_ylabel("y2", color="red", labelpad=3)
+    return fig
+
+
 def tick_marks_and_minor_ticks():
     """Tick-mark length, width, colour and direction, and minor ticks."""
     fig = glp.figure(data_prefix="golden")
@@ -1492,6 +1504,7 @@ BUILDERS = [
     histogram_field_options,
     axes_styling_full,
     axis_lines_fonts_and_tick_placement,
+    title_text_keywords,
     tick_marks_and_minor_ticks,
     math_mode_axes,
     axes_styling_grid_only,
