@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v4.2.0 (2026-11-18)
+
+### Features
+
+- Guard Axes.derived on a polar axes ([#58](https://github.com/BenHuddart/gleplot/pull/58),
+  [`32d0ec3`](https://github.com/BenHuddart/gleplot/commit/32d0ec3b9b6b80f5fd66cf429f07091c25e8d7db))
+
+- Polar angle labels under usetex ([#58](https://github.com/BenHuddart/gleplot/pull/58),
+  [`d25333a`](https://github.com/BenHuddart/gleplot/commit/d25333a2ad9cf24a509d5fc4dcb62c3b09c57a53))
+
+- Polar axes with add_subplot(projection='polar')
+  ([#58](https://github.com/BenHuddart/gleplot/pull/58),
+  [`0aafacd`](https://github.com/BenHuddart/gleplot/commit/0aafacde45f4cd24f00b1ecd37038b4aa4ff7b54))
+
+- Polar scatters with per-point sizes, tick methods guarded
+  ([#58](https://github.com/BenHuddart/gleplot/pull/58),
+  [`b7df619`](https://github.com/BenHuddart/gleplot/commit/b7df619a0cc7de7c5d72dbd3cc52725e005f8384))
+
+- Review fixes for polar axes ([#58](https://github.com/BenHuddart/gleplot/pull/58),
+  [`09acc50`](https://github.com/BenHuddart/gleplot/commit/09acc50d714a3c9446e32bea1b1af6d56d8d6711))
+
+
 ## v4.1.0 (2026-11-18)
 
 ### Features
