@@ -528,6 +528,7 @@ _AXES_SERIALIZED_ATTRS = {
     "spans",
     "wedges",
     "boxes",
+    "derived_series",
     "passthrough",
     # Explicit page geometry: the placement rect (SPEC 3.3) and the verbatim
     # geometry statements kept for GLE geometry that inverts to no rect.
@@ -700,6 +701,16 @@ def _figure_exercising_every_series_kind():
     )
     ax.function("sin(x)", xmin=0, xmax=2, step=0.5, linestyle="--", label="fn")
     ax.fit([0, 1, 2], [0.0, 1.0, 1.5], "a*x+b", xmin=0, xmax=2, label="fit")
+    ax.derived(
+        "d1-d2",
+        [ax.functions[0], ax.fits[0]],
+        xmin=0,
+        xmax=2,
+        nsteps=5,
+        where="d1>0",
+        range=ax.fits[0],
+        label="derived",
+    )
 
     ax2 = fig.add_subplot(312)
     ax2.imshow(np.arange(12, dtype=float).reshape(3, 4), extent=(0, 4, 0, 3))

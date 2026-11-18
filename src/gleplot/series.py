@@ -150,6 +150,7 @@ __all__ = [
     "Span",
     "Wedge",
     "Box",
+    "DerivedSeries",
     "SERIES_CLASSES",
     "SERIES_ATTRS",
     "SMOOTH_MODES",
@@ -945,6 +946,51 @@ class FitSeries(Series):
     visible: bool
 
 
+#: A dataset name inside a GLE expression, such as ``d1``.
+_DATASET_NAME_RE = re.compile(r"(?<![A-Za-z0-9_])d[0-9]+(?![A-Za-z0-9_])", re.I)
+
+
+class DerivedSeries(Series):
+    """A curve GLE computes from other series -- ``Axes.derived``.
+
+    Written as ``let dK = <expression> [from a] [to b] [step h] [nsteps n]
+    [where w] [range dA,dB]`` and drawn with ``dK line``, after every other
+    data series of the axes, so the datasets it reads are already defined.
+    In ``expression`` and ``let_where``, ``d1`` ... ``dn`` stand for
+    ``sources[0]`` ... ``sources[n-1]``; the writer puts in the names it
+    gave those series.
+    """
+
+    ATTR = "derived_series"
+
+    #: A GLE expression over ``x`` and ``d1`` ... ``dn``.
+    expression: str
+    #: ``[attr, index]`` of each operand: the ``Axes`` list and the position
+    #: in it of a line, scatter, file line, function or fit series.
+    sources: List[List[Any]]
+    #: ``from``, ``to`` and ``step`` of the ``let``, as on
+    #: :class:`FunctionSeries`. Absent: GLE's default.
+    let_from: float
+    let_to: float
+    let_step: float
+    #: GLE ``nsteps``: the number of points between ``from`` and ``to``.
+    let_nsteps: int
+    #: GLE ``where``: keep only the points where this expression is true.
+    let_where: str
+    #: GLE ``range``: ``[attr, index]`` of each series whose x values the
+    #: result is computed at, as for ``sources``. Absent: every operand's.
+    let_range: List[List[Any]]
+    #: ``None`` is a recovered ``dN`` line that set no colour.
+    color: Optional[str]
+    linestyle: str
+    #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
+    linewidth: Optional[float]
+    label: Optional[str]
+    _draw_seq: int
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
+
+
 class FillSeries(Series):
     """A filled region -- ``Axes.fill_between`` or ``Axes.fill``.
 
@@ -1407,6 +1453,7 @@ SERIES_CLASSES: Dict[str, Type[Series]] = {
         FitSeries,
         Wedge,
         Box,
+        DerivedSeries,
     )
 }
 

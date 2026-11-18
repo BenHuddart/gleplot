@@ -272,6 +272,7 @@ Category                Span coverage
 
 from __future__ import annotations
 
+import copy
 import math
 import re
 from dataclasses import dataclass, field
@@ -284,6 +285,7 @@ from ..axes import (
     _GLE_FONT_NAME,
     Axes,
     _function_expression_problem,
+    _let_expression_problem,
     _resolve_data_file,
 )
 from ..colors import GLE_PATTERNS
@@ -306,9 +308,11 @@ from ..guides import (
     SPAN_LAYER,
 )
 from ..series import (
+    _DATASET_NAME_RE,
     BarSeries,
     Box,
     ContourSeries,
+    DerivedSeries,
     ErrorbarSeries,
     FileSeries,
     FillSeries,
@@ -1211,18 +1215,103 @@ def _read_let_range(
         key = names.get(word)
         if key is None or key in fields:
             return False
-        sign = ""
-        j = i + 1
-        if j < len(toks) and toks[j].type is TokenType.OP:
-            if toks[j].value not in ("-", "+"):
-                return False
-            sign = toks[j].value
-            j += 1
-        if j >= len(toks) or toks[j].type is not TokenType.NUMBER:
+        value, i = _read_let_number(toks, i + 1)
+        if value is None:
             return False
-        fields[key] = float(sign + toks[j].value)
-        i = j + 1
+        fields[key] = value
     return True
+
+
+def _let_target_expression(toks: List[Token]) -> Optional[Tuple[str, str, int]]:
+    """``(target, expression, end)`` of ``let dK = <expression> ...``, or None.
+
+    The expression is the run of tokens after ``=`` with no space between
+    them, which is where GLE's own parser ends it; ``end`` indexes the
+    token after it.
+    """
+    if len(toks) < 4:
+        return None
+    target = toks[1].value.lower()
+    eq = toks[2]
+    if not _DATASET_RE.match(target) or eq.type is not TokenType.OP:
+        return None
+    if eq.value != "=":
+        return None
+    expression, end = _glued_run(toks, 3)
+    return target, expression, end
+
+
+def _mention_count(texts: List[str], name: str) -> int:
+    """How many times the dataset ``name`` is named in ``texts``."""
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_])" + re.escape(name) + r"(?![A-Za-z0-9_])", re.IGNORECASE
+    )
+    return sum(len(pattern.findall(text)) for text in texts)
+
+
+def _read_let_number(toks: List[Token], j: int) -> Tuple[Optional[float], int]:
+    """A plain, optionally signed number at ``toks[j]``, and the index after it.
+
+    ``None`` when there is none, so the value written back is the one read.
+    """
+    sign = ""
+    if j < len(toks) and toks[j].type is TokenType.OP:
+        if toks[j].value not in ("-", "+"):
+            return None, j
+        sign = toks[j].value
+        j += 1
+    if j >= len(toks) or toks[j].type is not TokenType.NUMBER:
+        return None, j
+    return float(sign + toks[j].value), j + 1
+
+
+def _read_derived_options(toks: List[Token], i: int, fields: Dict[str, Any]) -> bool:
+    """Read the options of a dataset ``let`` from ``toks[i:]`` into ``fields``.
+
+    ``from``, ``to``, ``step`` and ``nsteps`` take a plain number, ``where``
+    an expression without spaces and ``range`` a comma list of datasets
+    (kept under ``_range_names``). False on any other token, an option given
+    twice, or ``step`` with ``nsteps``, which :meth:`gleplot.Axes.derived`
+    rejects.
+    """
+    names = {
+        "from": "let_from",
+        "to": "let_to",
+        "step": "let_step",
+        "nsteps": "let_nsteps",
+    }
+    while i < len(toks):
+        word = toks[i].value.lower()
+        if word in ("where", "range") and i + 1 < len(toks):
+            key = "let_where" if word == "where" else "_range_names"
+            if key in fields:
+                return False
+            text, i = _glued_run(toks, i + 1)
+            if word == "where":
+                if _let_expression_problem(text) is not None:
+                    return False
+                fields[key] = text
+                continue
+            listed = text.lower().split(",")
+            if len(set(listed)) != len(listed) or not all(
+                _DATASET_RE.match(name) for name in listed
+            ):
+                return False
+            fields[key] = listed
+            continue
+        option = names.get(word)
+        if option is None or option in fields:
+            return False
+        value, i = _read_let_number(toks, i + 1)
+        if value is None:
+            return False
+        if option == "let_nsteps":
+            if value != int(value) or value < 2:
+                return False
+            fields[option] = int(value)
+        else:
+            fields[option] = value
+    return "let_step" not in fields or "let_nsteps" not in fields
 
 
 def _pt_or_none(hei: Optional[float]) -> Optional[float]:
@@ -1967,11 +2056,42 @@ class _Recognizer:
     def _parse_graph_block(self, block: GraphBlock, marker_cfg, smooth_flags) -> dict:
         """Parse one ``begin graph`` .. ``end graph`` into an axes-info dict.
 
+        Pass 1 decides which lets the writer may renumber before pass 2
+        knows whether a derived let's datasets all became series. When one
+        did not, the block is parsed again from the state before it, with
+        that let raw from the start, so every let beside it stays raw too.
+        """
+        if not any(
+            isinstance(child, Statement) and child.keyword == "let"
+            for child in block.body
+        ):
+            return self._parse_graph_block_once(block, marker_cfg, smooth_flags, set())
+        # The table cache only memoizes file reads, so it is shared, not copied.
+        saved = copy.deepcopy(
+            {k: v for k, v in vars(self).items() if k != "_table_cache"}
+        )
+        saved_flags = list(smooth_flags)
+        info = self._parse_graph_block_once(block, marker_cfg, smooth_flags, set())
+        if not info["_derived_failed"]:
+            return info
+        vars(self).update(saved)
+        smooth_flags[:] = saved_flags
+        return self._parse_graph_block_once(
+            block, marker_cfg, smooth_flags, info["_derived_failed"]
+        )
+
+    def _parse_graph_block_once(
+        self, block: GraphBlock, marker_cfg, smooth_flags, raw_lets
+    ) -> dict:
+        """One parse of a graph block, keeping the lets in ``raw_lets`` raw.
+
         Pass 1 collects the block's datasets and merges each one's ``dN``
         lines; pass 2 walks the body in order, dispatching every statement and
         building one series per dataset the first time its name appears.
         """
         info = self._new_graph_info(block)
+        info["_raw_derived"] = raw_lets
+        info["_derived_failed"] = set()
 
         # Guide draw blocks (G17), keyed by the 'begin layer' line number so
         # pass 2 can consume the same nodes in body order. Scanned up front
@@ -2013,6 +2133,7 @@ class _Recognizer:
                     child, pass1, info, marker_cfg, smooth_flags
                 )
 
+        self._commit_derived_lets(info)
         self._flush_hist_lets(info)
         self._restore_orphaned_data_stmts(pass1, info)
         self._discard_guide_markers(info)
@@ -2181,6 +2302,7 @@ class _Recognizer:
             "hists": [],
             "functions": [],
             "fits": [],
+            "derived_series": [],
             "fills": [],
             "errorbars": [],
             "file_series": [],
@@ -2257,6 +2379,16 @@ class _Recognizer:
             # Decided at the end of pass 1, so a let that stays raw keeps
             # its place in the block.
             "_function_lets": {},
+            # ``let dK = <expression naming datasets> [options]`` targets
+            # whose only use is a plain ``dK line`` -> DerivedSeries fields.
+            # Decided at the end of pass 2, once the series its datasets
+            # became are known; until then its lines are passthrough.
+            "_derived_lets": {},
+            # Raw dataset name -> the line, scatter, file line, function or
+            # fit series built from it: what a derived let's ``dN`` reads.
+            "_dataset_series": {},
+            # Offset alias target -> its source (``let dK = dJ+off``).
+            "_offset_let_sources": {},
             # Dataset names whose ``bar`` commands stay raw: an unmodelled
             # sub-command, a ``fill`` that still needs the original data
             # line, or a group whose x columns do not match. Filled at the
@@ -2320,12 +2452,14 @@ class _Recognizer:
                 )
                 self._record_function_let(let_toks, info)
                 self._record_fit_let(let_toks, pass1.datasets, info)
+                self._record_derived_let(let_toks, info)
             elif kw is not None and _DATASET_RE.match(kw):
                 if kw not in pass1.merged_attr_toks:
                     pass1.merged_attr_toks[kw] = []
                     pass1.merged_attr_raw[kw] = []
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
+        self._keep_plain_derived_lets(block, pass1, info)
         self._keep_plain_function_lets(block, pass1, info)
         return pass1
 
@@ -2421,6 +2555,18 @@ class _Recognizer:
             return
         if name in info["_function_lets"]:
             self._build_function_series(name, attr_toks, info)
+            pass1.emitted.add(name)
+            return
+        if name in info["_derived_lets"]:
+            # Its place in the key is where its line stands.
+            info["_derived_lets"][name]["_attr_toks"] = attr_toks
+            info["_derived_lets"][name]["_draw_seq"] = info["_draw_seq_counter"]
+            info["_draw_seq_counter"] += 1
+            merged = [Token(TokenType.WORD, name, (0, 0))] + attr_toks
+            raw = pass1.merged_attr_raw.get(name, [])
+            self._hold_derived_lines(
+                name, self._dn_passthrough_lines(merged, raw), info
+            )
             pass1.emitted.add(name)
             return
         pass1.emitted.add(name)
@@ -3412,8 +3558,22 @@ class _Recognizer:
             return  # already handled in pass 1
         if kw == "let" and self._let_is_consumed(toks, info):
             return
+        if (
+            kw == "let"
+            and len(toks) > 1
+            and toks[1].value.lower() in info["_derived_lets"]
+        ):
+            self._hold_derived_lines(
+                toks[1].value.lower(), [self._stmt_text(stmt)], info
+            )
+            return
         if kw is not None and _DATASET_RE.match(kw):
+            if not info["_derived_lets"]:
+                self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
+                return
+            before = {attr: len(info[attr]) for attr in Axes._DERIVED_SOURCE_ATTRS}
             self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
+            self._note_dataset_series(kw, before, info)
             return
         if kw in ("size", "scale", "fullsize"):
             self._parse_geometry_line(kw, toks, info, stmt)
@@ -4244,6 +4404,7 @@ class _Recognizer:
         self._register_dataset(target, data_file, xcol, ycol, datasets)
         info["_dataset_offsets"][target] = float(offset)
         info["_offset_let_datasets"].add(target)
+        info["_offset_let_sources"][target] = source
         # 'source' is consumed by this alias (its file/columns are what the
         # aliased series actually reads) even though it never gets its own
         # 'dN ...' statement -- see the 'data'-statement reconciliation in
@@ -4312,15 +4473,10 @@ class _Recognizer:
         ``step`` take a plain number each, so the value written back is
         the one read. Anything else stays raw GLE.
         """
-        if len(toks) < 4:
+        found = _let_target_expression(toks)
+        if found is None or found[0] in info["_function_lets"]:
             return
-        target = toks[1].value.lower()
-        eq = toks[2]
-        if not _DATASET_RE.match(target) or eq.type is not TokenType.OP:
-            return
-        if eq.value != "=" or target in info["_function_lets"]:
-            return
-        expression, end = _glued_run(toks, 3)
+        target, expression, end = found
         if _function_expression_problem(expression) is not None:
             return
         fields: Dict[str, Any] = {"expression": expression}
@@ -4377,22 +4533,10 @@ class _Recognizer:
         the file gave it. The ``dK`` lines must also be a plain line that
         :meth:`gleplot.writer.GLEWriter.add_function` writes back the same.
         """
-        if not info["_function_lets"]:
-            return
-        texts: List[str] = []
-        for child in block.body:
-            if isinstance(child, OpaqueBlock):
-                texts.extend(self._raw_lines(child))
-            elif isinstance(child, Statement) and not (
-                child.keyword is not None and _DATASET_RE.match(child.keyword)
-            ):
-                texts.append(" ".join(t.value for t in _words_and_values(child)))
+        # A derived let reads the curve through the name the writer gives it.
+        texts = self._non_dataset_texts(block, skip=info["_derived_lets"])
         for target in list(info["_function_lets"]):
-            pattern = re.compile(
-                r"(?<![A-Za-z0-9_])" + re.escape(target) + r"(?![A-Za-z0-9_])",
-                re.IGNORECASE,
-            )
-            mentions = sum(len(pattern.findall(text)) for text in texts)
+            mentions = _mention_count(texts, target)
             attr_toks = pass1.merged_attr_toks.get(target)
             if (
                 mentions != 1
@@ -4403,7 +4547,7 @@ class _Recognizer:
                 del info["_function_lets"][target]
         # The writer renumbers the datasets it writes, but not the ones in raw
         # lines. Beside a let that stays raw, a renumbered curve could take
-        # that let's name, so then every function let stays raw too.
+        # that let's name, so then every function and derived let stays raw.
         for child in block.body:
             if isinstance(child, Statement) and child.keyword == "let":
                 toks = _words_and_values(child)
@@ -4411,9 +4555,206 @@ class _Recognizer:
                 if (
                     target not in info["_function_lets"]
                     and target not in info["_offset_let_datasets"]
+                    and target not in info["_derived_lets"]
                 ):
                     info["_function_lets"].clear()
+                    info["_derived_lets"].clear()
                     return
+
+    def _non_dataset_texts(self, block, skip=()) -> List[str]:
+        """The text of every statement in ``block`` but its ``dN`` lines.
+
+        The ``let`` of each target in ``skip`` is left out too.
+        """
+        texts: List[str] = []
+        for child in block.body:
+            if isinstance(child, OpaqueBlock):
+                texts.extend(self._raw_lines(child))
+            elif isinstance(child, Statement) and not (
+                child.keyword is not None and _DATASET_RE.match(child.keyword)
+            ):
+                toks = _words_and_values(child)
+                if (
+                    child.keyword == "let"
+                    and len(toks) > 1
+                    and toks[1].value.lower() in skip
+                ):
+                    continue
+                texts.append(" ".join(t.value for t in toks))
+        return texts
+
+    def _record_derived_let(self, toks, info) -> None:
+        """Record ``let dK = <expression> [options]`` that names datasets.
+
+        The expression is read as for :meth:`_record_function_let`, and
+        must name at least one ``dN``; the options are those
+        :func:`_read_derived_options` reads. Whether the datasets it names
+        are series gleplot models is known only at the end of pass 2.
+        """
+        found = _let_target_expression(toks)
+        if found is None:
+            return
+        target, expression, end = found
+        if target in info["_derived_lets"] or target in info["_raw_derived"]:
+            return
+        if _let_expression_problem(expression) is not None:
+            return
+        if not _DATASET_NAME_RE.search(expression):
+            return
+        fields: Dict[str, Any] = {"expression": expression}
+        if _read_derived_options(toks, end, fields):
+            info["_derived_lets"][target] = fields
+
+    def _keep_plain_derived_lets(self, block, pass1: _GraphDatasets, info) -> None:
+        """Drop each recorded derived let whose target is not a plain curve.
+
+        As for a function let, the target must be named by its ``let`` and
+        its own ``dK`` lines only, and those lines must be a plain line. A
+        ``let dK = dJ+off`` read as an offset is a derived let instead when
+        ``dJ`` is drawn too: the writer never draws the dataset it offsets.
+        """
+        if not info["_derived_lets"]:
+            return
+        texts = self._non_dataset_texts(block)
+        for target in list(info["_derived_lets"]):
+            if target in info["_offset_let_datasets"]:
+                source = info["_offset_let_sources"][target]
+                if source not in pass1.merged_attr_toks:
+                    del info["_derived_lets"][target]
+                    continue
+                self._unregister_offset_let(target, pass1, info)
+            attr_toks = pass1.merged_attr_toks.get(target)
+            if (
+                target in pass1.datasets
+                or _mention_count(texts, target) != 1
+                or not attr_toks
+                or not _plain_function_line(attr_toks)
+            ):
+                del info["_derived_lets"][target]
+
+    @staticmethod
+    def _unregister_offset_let(target, pass1: _GraphDatasets, info) -> None:
+        """Undo :meth:`_parse_let_command` for ``target``."""
+        source = info["_offset_let_sources"].pop(target)
+        pass1.datasets.pop(target, None)
+        info["_dataset_offsets"].pop(target, None)
+        info["_offset_let_datasets"].discard(target)
+        if source not in info["_offset_let_sources"].values():
+            info["_let_source_datasets"].discard(source)
+
+    @staticmethod
+    def _hold_derived_lines(target, lines, info) -> None:
+        """Keep a recorded derived let's lines as passthrough, for now.
+
+        Their places are remembered, so :meth:`_commit_derived_lets` can
+        take them out again if the let becomes a series.
+        """
+        held = info["_derived_lets"][target].setdefault("_held", [])
+        for line in lines:
+            held.append((len(info["passthrough"]), line))
+            info["passthrough"].append(line)
+
+    @staticmethod
+    def _note_dataset_series(name, before, info) -> None:
+        """Remember the series pass 2 just built from dataset ``name``.
+
+        ``before`` holds the length of each list a derived let can read
+        before the dataset was parsed. An offset series is noted under the
+        dataset it offsets, which is the one a derived let reads.
+        """
+        grown = [attr for attr, size in before.items() if len(info[attr]) != size]
+        if len(grown) != 1 or len(info[grown[0]]) != before[grown[0]] + 1:
+            return
+        entry = info[grown[0]][-1]
+        if grown[0] == "file_series" and entry.get("series_type") != "line":
+            return
+        raw = info["_offset_let_sources"].get(name.lower(), name.lower())
+        info["_dataset_series"][raw] = entry
+
+    def _commit_derived_lets(self, info) -> None:
+        """Turn the recorded derived lets into series, if every one can be.
+
+        Each must name only datasets a line, scatter, file line, function
+        or fit series came from. If one does not, its target goes in
+        ``_derived_failed`` and nothing is built: the block is parsed again
+        with that let raw (see :meth:`_parse_graph_block`).
+        """
+        passthrough = info["passthrough"]
+        built = []
+        for target, record in info["_derived_lets"].items():
+            held = record.get("_held", [])
+            names: List[str] = []
+            for text in (record["expression"], record.get("let_where", "")):
+                for match in _DATASET_NAME_RE.finditer(text):
+                    if match.group(0).lower() not in names:
+                        names.append(match.group(0).lower())
+            sources = self._derived_refs(names, info)
+            ranges = self._derived_refs(record.get("_range_names", []), info)
+            if (
+                "_attr_toks" not in record
+                or len(held) < 2
+                or sources is None
+                or ranges is None
+                or len(sources) > 10
+                or any(
+                    i >= len(passthrough) or passthrough[i] is not line
+                    for i, line in held
+                )
+            ):
+                info["_derived_failed"].add(target)
+                continue
+            built.append((record, names, sources, ranges))
+        if info["_derived_failed"]:
+            return
+        taken: List[int] = []
+        for record, names, sources, ranges in built:
+            taken.extend(i for i, _line in record["_held"])
+            placeholders = {name: f"d{k}" for k, name in enumerate(names, 1)}
+
+            def rename(text: str) -> str:
+                return _DATASET_NAME_RE.sub(
+                    lambda m: placeholders[m.group(0).lower()], text
+                )
+
+            fields: Dict[str, Any] = {
+                "expression": rename(record["expression"]),
+                "sources": sources,
+            }
+            for key in ("let_from", "let_to", "let_step", "let_nsteps"):
+                if key in record:
+                    fields[key] = record[key]
+            if "let_where" in record:
+                fields["let_where"] = rename(record["let_where"])
+            if ranges:
+                fields["let_range"] = ranges
+            fields.update(self._let_curve_style(record["_attr_toks"]))
+            entry = DerivedSeries(**fields)
+            entry["_draw_seq"] = record["_draw_seq"]
+            info["derived_series"].append(entry)
+        for i in sorted(taken, reverse=True):
+            del passthrough[i]
+
+    @staticmethod
+    def _derived_refs(names, info) -> Optional[List[List[Any]]]:
+        """``[attr, index]`` of the series each dataset in ``names`` became."""
+        refs: List[List[Any]] = []
+        for name in names:
+            entry = info["_dataset_series"].get(name)
+            if entry is None:
+                return None
+            ref = next(
+                (
+                    [attr, index]
+                    for attr in Axes._DERIVED_SOURCE_ATTRS
+                    for index, item in enumerate(info[attr])
+                    if item is entry
+                ),
+                None,
+            )
+            if ref is None or ref in refs:
+                return None
+            refs.append(ref)
+        return refs
 
     def _load_fit_data(self, texts, pass1: _GraphDatasets, info, target) -> bool:
         """Load the data of a recorded fit let into its record.
@@ -4428,16 +4769,12 @@ class _Recognizer:
         source = record.get("_fit_source")
         if source is None:
             return True
-        pattern = re.compile(
-            r"(?<![A-Za-z0-9_])" + re.escape(source) + r"(?![A-Za-z0-9_])",
-            re.IGNORECASE,
-        )
         data_file, xcol, ycol = pass1.datasets[source]
         if (
             source in pass1.merged_attr_toks
             or source in self._data_read_options
             or info.get("_dataset_group", {}).get(source) != [source]
-            or sum(len(pattern.findall(text)) for text in texts) != 2
+            or _mention_count(texts, source) != 2
             or [entry[0] for entry in pass1.datasets.values()].count(data_file) != 1
             or not self._is_import(data_file)
         ):
@@ -4452,14 +4789,9 @@ class _Recognizer:
 
     def _build_function_series(self, name, attr_toks, info) -> None:
         """Append the ``FunctionSeries`` or ``FitSeries`` for a kept let."""
-        attrs = self._scan_series_attrs(attr_toks)
         fields = dict(info["_function_lets"][name])
         source = fields.pop("_fit_source", None)
-        fields["color"] = attrs["color"]
-        fields["linestyle"] = attrs["linestyle"] or "-"
-        fields["linewidth"] = _dn_linewidth(attrs)
-        if attrs["label"]:
-            fields["label"] = attrs["label"]
+        fields.update(self._let_curve_style(attr_toks))
         entry: Series
         if source is None:
             entry = FunctionSeries(**fields)
@@ -4470,6 +4802,18 @@ class _Recognizer:
             info["_let_source_datasets"].add(source)
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
+
+    def _let_curve_style(self, attr_toks) -> Dict[str, Any]:
+        """The style fields of a plain ``dK line`` drawing a let's curve."""
+        attrs = self._scan_series_attrs(attr_toks)
+        style: Dict[str, Any] = {
+            "color": attrs["color"],
+            "linestyle": attrs["linestyle"] or "-",
+            "linewidth": _dn_linewidth(attrs),
+        }
+        if attrs["label"]:
+            style["label"] = attrs["label"]
+        return style
 
     def _abandon_hist(self, info, target, extra_lines, message, span) -> None:
         """Keep a histogram let, and the display that could not model it."""
@@ -7873,6 +8217,7 @@ class _Recognizer:
         ax.fills = info["fills"]
         ax.errorbars = info["errorbars"]
         ax.file_series = info["file_series"]
+        ax.derived_series = info["derived_series"]
         ax.texts = info["texts"]
         ax.wedges = info["wedges"]
         ax.boxes = info["boxes"]
@@ -8070,6 +8415,7 @@ class _Recognizer:
             "file_series",
             "reflines",
             "spans",
+            "derived_series",
         ):
             for s in info[group]:
                 if s.get("label"):

@@ -2314,7 +2314,8 @@ class Figure:
         The order is the one ``_write_axes_content`` draws: engine-range
         spans, plain fills, dataset-form spans, engine-range reflines,
         dataset-form reflines, z-ordered bars/lines/scatters/errorbars,
-        then file series. Hidden and dangling series are already dropped.
+        then file series, then derived curves. Hidden and dangling series
+        are already dropped.
         An empty label is not an entry.
 
         The series object is the one that carries ``_draw_seq`` (call
@@ -2361,6 +2362,9 @@ class Figure:
             add(series, self._drawable_legend_swatch(writer, kind, data))
         for fs in resolution.visible(ax.file_series):
             add(fs, self._file_legend_swatch(writer, fs))
+        for series in resolution.visible(ax.derived_series):
+            if self._derived_operands(ax, resolution, series) is not None:
+                add(series, self._drawable_legend_swatch(writer, "line", series))
         return entries
 
     @staticmethod
@@ -2518,8 +2522,8 @@ class Figure:
         -----
         The axis setup comes first. The content phases then run in drawing
         order, back to front: heatmaps and contours, then the background
-        guides and fills, then the z-ordered data series, file series, box
-        plots, pie wedges and texts, and the key last. :meth:`_prepare_legend` runs
+        guides and fills, then the z-ordered data series, file series,
+        derived curves, box plots, pie wedges and texts, and the key last. :meth:`_prepare_legend` runs
         before any series is written, because the key's column breaks must be
         set on the writer before the datasets they fall between.
         """
@@ -2534,6 +2538,7 @@ class Figure:
         self._write_reflines(writer, ax, limits)
         self._write_drawables(writer, ax, resolution)
         self._write_file_series(writer, ax, resolution)
+        self._write_derived(writer, ax, resolution)
         for box in resolution.visible(ax.boxes):
             writer.add_box(box)
         for wedge in resolution.visible(ax.wedges):
@@ -2794,6 +2799,38 @@ class Figure:
         """
         for fs_data in resolution.visible(ax.file_series):
             writer.add_file_series(fs_data)
+
+    @staticmethod
+    def _derived_operands(ax: Axes, resolution: SourceResolution, series):
+        """The written forms of the series a derived series reads, or ``None``.
+
+        ``None`` when a reference no longer points at a series ``derived``
+        accepts, or one of those series is not drawn (hidden or dangling).
+        """
+        found = ax._derived_operands(series)
+        if found is None:
+            return None
+        groups = tuple([resolution.data(item) for item in group] for group in found)
+        if any(item is None for group in groups for item in group):
+            return None
+        return groups
+
+    def _write_derived(
+        self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
+    ) -> None:
+        """Curves computed from other series, after every dataset they read."""
+        for series in resolution.visible(ax.derived_series):
+            operands = self._derived_operands(ax, resolution, series)
+            if operands is None:
+                warn_external(
+                    f"derived() curve {series['expression']!r} was not drawn: a "
+                    f"series in its sources or range is hidden or could not be "
+                    f"loaded, or its place in ax.lines, ax.file_series, ... no "
+                    f"longer holds a series derived() reads. Show that series, "
+                    f"or call derived() again with the series as they are now."
+                )
+                continue
+            writer.add_derived(series, *operands)
 
     @staticmethod
     def _write_texts(writer: GLEWriter, ax: Axes) -> None:
@@ -3402,9 +3439,14 @@ class Figure:
             if xmax is None or hi > xmax:
                 xmax = hi
 
-        # A function or fit curve spans its sampled range. Its y values are
-        # GLE's to compute; a fit's data bounds y like any other data.
-        curves = (*resolution.visible(ax.functions), *resolution.visible(ax.fits))
+        # A function, fit or derived curve spans its sampled range. Its y
+        # values are GLE's to compute; a fit's data bounds y like any other
+        # data.
+        curves = (
+            *resolution.visible(ax.functions),
+            *resolution.visible(ax.fits),
+            *resolution.visible(ax.derived_series),
+        )
         for curve in curves:
             for value in (curve.get("let_from"), curve.get("let_to")):
                 if value is None or (positive_only and value <= 0):
