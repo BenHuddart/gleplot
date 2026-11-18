@@ -1,5 +1,6 @@
 """Configuration and style settings for gleplot."""
 
+import math
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
@@ -207,13 +208,29 @@ class GLEMarkerConfig:
         Default: 1.0
 
     mdist : Optional[float]
-        Default marker distance (space between markers on continuous lines).
-        If None, markers appear at every point. Default: None
+        Default marker distance in cm along a line that has markers: GLE's
+        ``mdist``, written on each marked line that does not pass its own
+        ``mdist`` to ``plot``. If None, markers appear at every point.
+        Default: None
     """
 
     default_marker: str = "fcircle"
     msize_scale: float = 1.0
     mdist: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        # GLE's marker loop (graph2.cpp drawMarkers) never ends on a
+        # negative mdist, and 0 is its own "every point".
+        if self.mdist is not None and not (
+            isinstance(self.mdist, (int, float))
+            and not isinstance(self.mdist, bool)
+            and math.isfinite(self.mdist)
+            and self.mdist > 0
+        ):
+            raise ValueError(
+                f"mdist must be a positive distance in cm or None; got "
+                f"{self.mdist!r}. None draws a marker on every point."
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""

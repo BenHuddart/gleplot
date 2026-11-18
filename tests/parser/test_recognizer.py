@@ -946,6 +946,187 @@ def test_line_mode_on_an_errorbar_warns_and_is_dropped(tmp_path):
     assert any("line mode 'steps'" in w for w in rec.warnings)
 
 
+def test_dataset_qualifiers_are_recovered_and_round_trip(tmp_path):
+    """``mdist``, ``deresolve [average]`` and the clip window survive a re-save.
+
+    They used to be skipped by the attribute scan and silently lost. GLE
+    reads ``average`` only straight after the ``deresolve`` count, and a
+    second ``deresolve`` resets it (graph2.cpp).
+    """
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        '   data "q.dat" d1=c1,c2 d2=c1,c2 d3=c1,c2\n'
+        "   d1 line marker circle mdist 1 deresolve 2 average xmin 1.5\n"
+        "   d2 marker square ymin -1 ymax 2*2 deresolve 3\n"
+        "   d3 line deresolve 2 average deresolve 5\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "q.gle", src, {"q.dat": "0 1\n1 2\n2 1\n"})
+    rec = parse_gle_figure(p)
+    line, marks, plain = rec.figure.axes_list[0].file_series
+    assert {
+        k: line[k] for k in ("mdist", "deresolve", "deresolve_average", "xmin")
+    } == {
+        "mdist": 1.0,
+        "deresolve": 2,
+        "deresolve_average": True,
+        "xmin": 1.5,
+    }
+    assert (marks["ymin"], marks["ymax"], marks["deresolve"]) == (-1.0, 4.0, 3)
+    assert plain["deresolve"] == 5 and "deresolve_average" not in plain
+    out = tmp_path / "q-again.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "mdist 1 deresolve 2 average xmin 1.5" in text
+    assert "deresolve 3 ymin -1 ymax 4" in text
+    assert "deresolve 5" in text and "average deresolve" not in text
+    again = tmp_path / "q-third.gle"
+    parse_gle_figure(out).figure.savefig_gle(str(again))
+    assert again.read_text(encoding="utf-8") == text
+
+
+def test_dataset_qualifiers_on_a_loaded_line_and_scatter(tmp_path):
+    """An imported (sidecar) line and scatter carry the fields themselves."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [1, 2, 1], marker="o", mdist=0.4, xmax=1.5)
+    ax.scatter([0, 1, 2], [2, 1, 2], deresolve=2)
+    path = tmp_path / "loaded.gle"
+    fig.savefig_gle(str(path))
+    ax2 = parse_gle_figure(path).figure.axes_list[0]
+    assert (ax2.lines[0]["mdist"], ax2.lines[0]["xmax"]) == (0.4, 1.5)
+    assert ax2.scatters[0]["deresolve"] == 2
+
+
+def test_a_reference_line_with_a_qualifier_stays_a_line(tmp_path):
+    """No guide emission writes a clip window; an edited guide is kept as a line."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1], [0, 1])
+    ax.axhline(0.5, color="red")
+    path = tmp_path / "guide.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    path.write_text(
+        text.replace("d1 line color RED", "d1 line color RED ymax 2"),
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(path)
+    ax2 = rec.figure.axes_list[0]
+    assert ax2.reflines == []
+    assert [line.get("ymax") for line in ax2.lines] == [2.0, None]
+
+
+def test_a_qualifier_with_no_value_is_skipped(tmp_path):
+    """``mdist`` / ``deresolve`` with nothing after them carry no setting."""
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        '   data "v.dat" d1=c1,c2 d2=c1,c2\n'
+        "   d1 line mdist color RED\n"
+        "   d2 line deresolve color BLUE\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "v.gle", src, {"v.dat": "0 1\n1 2\n"})
+    first, second = parse_gle_figure(p).figure.axes_list[0].file_series
+    assert "mdist" not in first and first["color"] == "RED"
+    assert "deresolve" not in second and second["color"] == "BLUE"
+
+
+def test_a_non_finite_qualifier_is_skipped(tmp_path):
+    """``deresolve 1e999`` has no integer count; it must not stop the load."""
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        '   data "v.dat" d1=c1,c2\n'
+        "   d1 line deresolve 1e999 xmin 1e999 color RED\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "inf.gle", src, {"v.dat": "0 1\n1 2\n"})
+    (series,) = parse_gle_figure(p).figure.axes_list[0].file_series
+    assert "deresolve" not in series and "xmin" not in series
+    assert series["color"] == "RED"
+
+
+def test_a_qualifier_on_a_contour_line_is_reported(tmp_path):
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    z = [[float(i * j) for j in range(5)] for i in range(4)]
+    fig.add_subplot(111).contour(z, levels=[2, 4])
+    path = tmp_path / "contour.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    assert "d1 line color BLACK" in text
+    path.write_text(
+        text.replace("d1 line color BLACK", "d1 line color BLACK deresolve 2"),
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(path)
+    assert len(rec.figure.axes_list[0].contours) == 1
+    assert any("deresolve on a contour" in w for w in rec.warnings)
+
+
+def test_marker_config_mdist_comes_back_on_the_series(tmp_path):
+    """The figure-wide default is written on each marked line, and read back there.
+
+    The recovered figure has no ``GLEMarkerConfig.mdist``; its marked lines
+    carry the value instead, so the script is the same.
+    """
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure(marker=gleplot.GLEMarkerConfig(mdist=0.8))
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [1, 2, 1], marker="o")
+    ax.plot([0, 1, 2], [2, 1, 2])
+    path = tmp_path / "default.gle"
+    fig.savefig_gle(str(path))
+    recovered = parse_gle_figure(path).figure
+    assert recovered.marker_config.mdist is None
+    assert recovered.axes_list[0].lines[0]["mdist"] == 0.8
+    assert "mdist" not in recovered.axes_list[0].lines[1]
+    again = tmp_path / "default-again.gle"
+    recovered.savefig_gle(str(again))
+    assert again.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
+
+
+def test_dataset_qualifiers_on_an_errorbar_warn_and_are_dropped(tmp_path):
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.42328\n"
+        "begin graph\n"
+        '   data "pts.dat" d1=c1,c2\n'
+        '   data "err.dat" d2=c1,c2\n'
+        "   d1 marker circle err d2 color BLUE deresolve 2 xmin 0.5\n"
+        "end graph\n"
+    )
+    p = _write(
+        tmp_path,
+        "errqual.gle",
+        src,
+        {"pts.dat": "0 1\n1 2\n", "err.dat": "0 0.1\n1 0.2\n"},
+    )
+    rec = parse_gle_figure(p)
+    # No metadata block: the reference is kept, with its qualifiers.
+    assert rec.figure.axes_list[0].file_series[0]["deresolve"] == 2
+    assert not any("deresolve" in w for w in rec.warnings)
+
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    fig.add_subplot(111).errorbar([0, 1], [1, 2], yerr=0.1)
+    path = tmp_path / "eb.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8").replace(" err ", " deresolve 2 err ", 1)
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path)
+    assert "deresolve" not in rec.figure.axes_list[0].errorbars[0]
+    assert any("deresolve on an error-bar dataset" in w for w in rec.warnings)
+
+
 def test_an_explicit_smooth_on_a_step_series_round_trips(tmp_path):
     """A script that asks for both keeps the smooth. The pin only blocks the default."""
     _gleplot_axes._global_data_file_counter = 0

@@ -136,6 +136,21 @@ def test_large_line_series_gets_deresolve():
     assert _deresolve_clauses(script) == ["deresolve 10"]
 
 
+def test_a_series_own_deresolve_wins_over_the_preview_factor():
+    """GLE keeps the last ``deresolve``; a preview one would replace the caller's."""
+    x, y = _big_xy()
+    fig = glp.figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
+    ax.plot(x, y, deresolve=4, deresolve_average=True)
+    ax.plot(x, -y)
+
+    script = fig._generate_gle(preview_decimation=10)
+
+    assert _deresolve_clauses(script) == ["deresolve 4", "deresolve 10"]
+    assert "deresolve 4 average" in script
+    assert [r.factor for r in fig.preview_decimation_report] == [10]
+
+
 def test_small_line_series_is_exempt():
     """Below MIN_DERESOLVE_POINTS, the factor is requested but not applied."""
     x = np.arange(_SMALL_N, dtype=float)

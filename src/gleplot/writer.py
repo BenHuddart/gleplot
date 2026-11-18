@@ -478,6 +478,18 @@ COLORBAR_NTICKS = "nticks"
 #: Colorbar tick-interval count when none was given (``Figure.colorbar``'s).
 DEFAULT_COLORBAR_NTICKS = 5
 
+#: The ``plot`` series fields :meth:`GLEWriter._dataset_qualifier_clause`
+#: writes.
+_DATASET_QUALIFIERS = (
+    "mdist",
+    "deresolve",
+    "deresolve_average",
+    "xmin",
+    "xmax",
+    "ymin",
+    "ymax",
+)
+
 
 def _grid_values(series: Mapping[str, Any]) -> Optional[np.ndarray]:
     """The z-values a grid series colours by, or ``None`` if it has none.
@@ -1027,6 +1039,29 @@ class GLEWriter:
         #: default (no-argument) call, so the default path's report is always
         #: ``[]`` alongside its byte-identical script.
         self.decimation_report: List[DecimationRecord] = []
+
+    def _dataset_qualifier_clause(self, series: Series, marked_line: bool) -> str:
+        """`` mdist m deresolve N [average] xmin a ...`` for a ``dN`` line.
+
+        Each qualifier is written only when the series has it. A marked line
+        (``marked_line``) without its own ``mdist`` takes the figure's
+        ``GLEMarkerConfig.mdist``. GLE reads ``average`` only as the token
+        straight after the ``deresolve`` count (``graph2.cpp``).
+        """
+        parts = []
+        mdist = series.get("mdist")
+        if mdist is None and marked_line:
+            mdist = self.marker.mdist
+        if mdist is not None:
+            parts.append(f"mdist {self._format_number(float(mdist))}")
+        if "deresolve" in series:
+            parts.append(f"deresolve {int(series['deresolve'])}")
+            if series.get("deresolve_average"):
+                parts.append("average")
+        for name in ("xmin", "xmax", "ymin", "ymax"):
+            if name in series:
+                parts.append(f"{name} {self._format_number(float(series[name]))}")
+        return "".join(" " + part for part in parts)
 
     def _deresolve_clause(
         self, dataset_name: str, label: Optional[str], n_points: int, kind: str
@@ -2246,6 +2281,10 @@ class GLEWriter:
         - ``line_mode`` (``'steps'``, ``'fsteps'``, ``'hist'``, ``'bar'``,
           ``'impulses'``): GLE's ``dn line`` mode, emitted immediately after
           ``line``. Absent leaves the bare ``line`` token.
+        - ``mdist``, ``deresolve``, ``deresolve_average`` and the ``xmin`` /
+          ``xmax`` / ``ymin`` / ``ymax`` clip window: GLE's dataset
+          qualifiers, see :meth:`_dataset_qualifier_clause`. A series with
+          its own ``deresolve`` gets no preview-only one.
         """
         x_array = np.asarray(series["x"])
         y_array = np.asarray(series["y"])
@@ -2343,6 +2382,7 @@ class GLEWriter:
 
         # Add y2axis directive if using secondary y-axis
         line_cmd += self._dataset_axis_clause(xaxis, yaxis)
+        line_cmd += self._dataset_qualifier_clause(series, has_line and bool(marker))
 
         line_cmd += self._key_clause(label, has_header)
         # Preview-only decimation (G7): "" unless a caller opted in AND this
@@ -2354,9 +2394,12 @@ class GLEWriter:
         # LineSeries. Every line (including reference lines, which never
         # carry a marker) has a line, and no scatter does -- exactly
         # gleplot's own KIND split for these two series classes.
-        line_cmd += self._deresolve_clause(
-            display_name, label, len(x_array), "line" if has_line else "scatter"
-        )
+        # A series' own ``deresolve`` wins: GLE keeps the last one on the
+        # line, so a preview clause after it would replace the caller's.
+        if "deresolve" not in series:
+            line_cmd += self._deresolve_clause(
+                display_name, label, len(x_array), "line" if has_line else "scatter"
+            )
 
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
@@ -2365,8 +2408,9 @@ class GLEWriter:
         """Add a marker-only series to the graph.
 
         Drawn by :meth:`add_line`, from the fields a scatter has always been
-        written with. ``linewidth``, ``nomiss`` and the smoothing fields are
-        not among them: a scatter is drawn as if they were absent.
+        written with, plus its dataset qualifiers. ``linewidth``, ``nomiss``
+        and the smoothing fields are not among them: a scatter is drawn as if
+        they were absent.
 
         Parameters
         ----------
@@ -2394,6 +2438,9 @@ class GLEWriter:
             offset=series.get("offset", 0.0),
             column_names=series.get("column_names"),
         )
+        for name in _DATASET_QUALIFIERS:
+            if name in series:
+                line[name] = series[name]
         self.add_line(line, binding=binding)
 
     # -- bar width, the one number GLE derives from the data's shape -------
@@ -3512,6 +3559,7 @@ class GLEWriter:
                 line_cmd += f" errwidth {self._format_number(capsize)}"
 
         line_cmd += self._dataset_axis_clause(xaxis, yaxis)
+        line_cmd += self._dataset_qualifier_clause(series, False)
 
         if label:
             line_cmd += f" key {self._quote_gle_key(label)}"
@@ -3575,6 +3623,9 @@ class GLEWriter:
 
         ``nomiss`` : draw the line through a missing value instead of
         leaving a gap (GLE's ``nomiss`` qualifier).
+
+        The dataset qualifiers are written by
+        :meth:`_dataset_qualifier_clause`.
         """
         data_file = series["data_file"]
         x_col = series["x_col"]
@@ -3615,6 +3666,7 @@ class GLEWriter:
             line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
 
         line_cmd += self._dataset_axis_clause(xaxis, yaxis)
+        line_cmd += self._dataset_qualifier_clause(series, bool(marker))
 
         if label:
             line_cmd += f" key {self._quote_gle_key(label)}"

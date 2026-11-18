@@ -1290,6 +1290,111 @@ class TestLineModes:
         assert self.ax.lines[0]["marker"] == "FSQUARE"
 
 
+class TestDatasetQualifiers:
+    """``mdist``, ``deresolve [average]`` and the per-dataset clip window."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
+        glp.close()
+        self.fig = glp.figure(data_prefix="qual")
+        self.ax = self.fig.add_subplot(111)
+        yield
+        glp.close()
+
+    def _dn_lines(self, fig=None):
+        script = (fig or self.fig)._generate_gle()
+        return [ln.strip() for ln in script.splitlines() if ln.strip()[:2] == "d1"]
+
+    def test_absent_keywords_leave_the_series_and_script_unchanged(self):
+        self.ax.plot([0, 1, 2], [1, 2, 1], marker="o")
+        for name in ("mdist", "deresolve", "deresolve_average", "xmin", "ymax"):
+            assert name not in self.ax.lines[0]
+        assert self._dn_lines() == [
+            'd1 line color BLUE lwidth 0.05292 marker FCIRCLE msize 0.15 key ""'
+        ]
+
+    def test_each_qualifier_is_written_on_the_dataset_line(self):
+        self.ax.plot(
+            [0, 1, 2],
+            [1, 2, 1],
+            marker="o",
+            mdist=0.5,
+            deresolve=3,
+            deresolve_average=True,
+            xmin=0.5,
+            xmax=1.5,
+            ymin=0,
+            ymax=2,
+        )
+        (line,) = self._dn_lines()
+        assert line.endswith(
+            "msize 0.15 mdist 0.5 deresolve 3 average "
+            'xmin 0.5 xmax 1.5 ymin 0 ymax 2 key ""'
+        )
+
+    def test_scatter_passes_the_qualifiers_to_plot(self):
+        self.ax.scatter([0, 1, 2], [1, 2, 1], deresolve=2, ymin=1.5)
+        assert self.ax.scatters[0]["deresolve"] == 2
+        (line,) = self._dn_lines()
+        assert " color BLUE deresolve 2 ymin 1.5 " in line
+
+    def test_marker_config_mdist_is_the_default_for_marked_lines(self):
+        fig = glp.figure(data_prefix="qual", marker=glp.GLEMarkerConfig(mdist=0.7))
+        ax = fig.add_subplot(111)
+        ax.plot([0, 1], [0, 1], marker="o")
+        ax.plot([0, 1], [1, 0])
+        ax.scatter([0, 1], [1, 1])
+        ax.plot([0, 1], [2, 2], marker="s", mdist=1.2)
+        script = fig._generate_gle()
+        mdists = [
+            ln.split("mdist ")[1].split()[0]
+            for ln in script.splitlines()
+            if "mdist" in ln
+        ]
+        assert mdists == ["0.7", "1.2"]
+
+    @pytest.mark.parametrize("mdist", [0, -1.0, float("inf"), "1", True])
+    def test_marker_config_rejects_a_bad_mdist(self, mdist):
+        with pytest.raises(ValueError, match="mdist"):
+            glp.GLEMarkerConfig(mdist=mdist)
+
+    def test_markevery_warns_and_is_ignored(self):
+        with pytest.warns(UserWarning, match="markevery"):
+            self.ax.plot([0, 1], [0, 1], marker="o", markevery=2)
+        assert "mdist" not in self.ax.lines[0]
+
+    def test_mdist_without_a_marker_warns_and_is_dropped(self):
+        with pytest.warns(UserWarning, match="no marker"):
+            self.ax.plot([0, 1], [0, 1], mdist=1.0)
+        assert "mdist" not in self.ax.lines[0]
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"mdist": 0},
+            {"mdist": -1.0},
+            {"mdist": float("nan")},
+            {"deresolve": 0},
+            {"deresolve": 2.5},
+            {"deresolve": True},
+            {"deresolve_average": True},
+            {"xmin": 2, "xmax": 1},
+            {"ymin": 1, "ymax": 1},
+            {"ymax": float("inf")},
+        ],
+    )
+    def test_bad_values_raise_at_the_call(self, kwargs):
+        kwargs.setdefault("marker", "o")
+        with pytest.raises(ValueError):
+            self.ax.plot([0, 1], [0, 1], **kwargs)
+        assert self.ax.lines == []
+
+    @pytest.mark.parametrize("kwargs", [{"mdist": "1cm"}, {"xmin": None, "xmax": "a"}])
+    def test_wrong_types_raise_type_error(self, kwargs):
+        with pytest.raises(TypeError):
+            self.ax.plot([0, 1], [0, 1], marker="o", **kwargs)
+
+
 class TestHistogram:
     """Counts via ``let dK = hist``, drawn as a step or adjoining bars."""
 

@@ -640,6 +640,21 @@ class _XYSeries(Series):
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
+    #: GLE ``mdist``: markers every this many cm along the curve instead of
+    #: one per point. Absent: a marker on every point (or the figure's
+    #: ``GLEMarkerConfig.mdist`` on a marked line).
+    mdist: float
+    #: GLE ``deresolve``: draw one point in every N. Absent: every point.
+    deresolve: int
+    #: GLE ``deresolve N average``: each window of N points is drawn as its
+    #: mean. Only present together with ``deresolve``.
+    deresolve_average: bool
+    #: GLE's per-dataset clip window, in data coordinates. Absent: that edge
+    #: is open.
+    xmin: float
+    xmax: float
+    ymin: float
+    ymax: float
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_column_names("x", ["y"], self.get("label"))
@@ -987,11 +1002,18 @@ class FileSeries(Series):
     #: ``'fill'`` variant: ``"x1"``, ``"x2"`` or ``"polygon"``. Absent means
     #: the two-curve ``fill dA,dB``.
     target: str
-    #: ``'fill'`` variant clip window. Absent: that edge is open.
+    #: Clip window: the ``fill`` command's on the ``'fill'`` variant, the
+    #: dataset's (``_XYSeries.xmin``) on ``'line'`` and ``'errorbar'``.
+    #: Absent: that edge is open.
     xmin: float
     xmax: float
     ymin: float
     ymax: float
+    #: ``'line'`` and ``'errorbar'`` variants: see ``_XYSeries.mdist``,
+    #: ``deresolve`` and ``deresolve_average``.
+    mdist: float
+    deresolve: int
+    deresolve_average: bool
 
 
 class TextAnnotation(Series):

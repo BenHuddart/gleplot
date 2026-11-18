@@ -237,7 +237,7 @@ Controls marker/symbol appearance:
     marker_cfg = glp.GLEMarkerConfig(
         default_marker='fcircle',    # Default marker type
         msize_scale=1.0,             # Marker size scaling factor
-        mdist=None,                  # Marker distance (None = every point)
+        mdist=None,                  # cm between markers on marked lines (None = every point)
     )
     
     fig = glp.figure(marker=marker_cfg)
