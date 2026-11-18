@@ -6795,8 +6795,8 @@ class Axes:
         in matplotlib. Hiding the top or right edge also removes the tick
         marks GLE mirrors there (matplotlib draws none there by default),
         and with them any top or right scale: a ``twiny`` / ``twinx``
-        scale, a ``yaxis='y2'`` series' numbers, a y2 label. That case
-        warns.
+        scale, a ``yaxis='y2'`` series' numbers, a y2 label. ``savefig``
+        warns in that case.
 
         Examples
         --------
@@ -6835,21 +6835,6 @@ class Axes:
                 setattr(self, f"{name}side_off", None if visible else True)
                 continue
             setattr(self, f"_{name}axis_off", not visible)
-            in_use = (
-                (self.has_x2_plots() if name == "x2" else self.has_y2_plots())
-                or getattr(self, f"{name}min") is not None
-                or getattr(self, f"{name}max") is not None
-                or getattr(self, f"{name}scale") == "log"
-                or bool(getattr(self, f"{name}label_text"))
-            )
-            if not visible and in_use:
-                side = "top" if name == "x2" else "right"
-                warn_external(
-                    f"set_axis_line({name!r}, visible=False) also hides the "
-                    f"{name} scale drawn on the {side} edge: its ticks, tick "
-                    "labels and axis label. Leave that edge visible to keep "
-                    "the scale.",
-                )
         return self
 
     @_cartesian_only

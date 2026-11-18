@@ -3116,8 +3116,22 @@ class _Recognizer:
             return set()
         return {lines[0] for lines in found.values()}
 
-    @staticmethod
-    def _prescan_switched_on(block: GraphBlock) -> Set[str]:
+    #: The statements whose ``on`` may switch the top or right axis on.
+    _SWITCH_ON_KEYWORDS = {
+        "xaxis": "x2",
+        "x2axis": "x2",
+        "xlabels": "x2",
+        "x2labels": "x2",
+        "yaxis": "y2",
+        "y2axis": "y2",
+        "ylabels": "y2",
+        "y2labels": "y2",
+    }
+    #: Axis options that take ``on``/``off`` as their own argument.
+    _ON_OFF_OPTIONS = ("symticks", "first", "last", "roundrange")
+
+    @classmethod
+    def _prescan_switched_on(cls, block: GraphBlock) -> Set[str]:
         """``'x2'`` / ``'y2'`` when a statement may switch that axis on.
 
         An ``on`` on an ``xaxis``/``x2axis``/``xlabels``/``x2labels`` line
@@ -3130,19 +3144,13 @@ class _Recognizer:
         for child in block.body:
             if not isinstance(child, Statement):
                 continue
-            kw = (child.keyword or "").lower()
-            prefix = {
-                "xaxis": "x2",
-                "x2axis": "x2",
-                "xlabels": "x2",
-                "x2labels": "x2",
-                "yaxis": "y2",
-                "y2axis": "y2",
-                "ylabels": "y2",
-                "y2labels": "y2",
-            }.get(kw)
-            if prefix and any(
-                t.value.lower() == "on" for t in _words_and_values(child)[1:]
+            prefix = cls._SWITCH_ON_KEYWORDS.get((child.keyword or "").lower())
+            if prefix is None:
+                continue
+            words = [t.value.lower() for t in _words_and_values(child)]
+            if any(
+                word == "on" and words[i - 1] not in cls._ON_OFF_OPTIONS
+                for i, word in enumerate(words[1:], 1)
             ):
                 found.add(prefix)
         return found
@@ -3848,8 +3856,10 @@ class _Recognizer:
           only when the top line is switched back on after it
           (``x2side on``) or the top axis is off: GLE copies it onto x2.
           Otherwise it hides both lines, which the model cannot say, and
-          the ``off`` stays raw GLE (the y twin likewise).
+          the ``off`` stays raw GLE where it stood among the raw lines (the
+          y twin likewise).
         """
+        demoted = []
         for prefix, mirror in (("x", "x2"), ("y", "y2")):
             side = info[f"{prefix}side"]
             if side is None or not side["off"]:
@@ -3860,7 +3870,10 @@ class _Recognizer:
             ]:
                 continue
             side["off"] = None
-            info["passthrough"].append(f"    {prefix}side off")
+            demoted.append((side["at"], prefix, mirror))
+        # Latest first, so an insert does not shift the other's index.
+        for at, prefix, mirror in sorted(demoted, reverse=True):
+            info["passthrough"].insert(at, f"    {prefix}side off")
             self._note(
                 ImportCategory.STRUCTURE,
                 f"'{prefix}side off' also hides the {mirror} line; kept as raw "
@@ -4677,7 +4690,14 @@ class _Recognizer:
                 self._stmt_span(stmt),
             )
             return
-        info[kw] = {"color": color, "lwidth": lwidth, "off": off}
+        # 'at' is where a demoted 'off' goes back into passthrough, so it
+        # stays ahead of the raw lines that followed it.
+        info[kw] = {
+            "color": color,
+            "lwidth": lwidth,
+            "off": off,
+            "at": len(info["passthrough"]),
+        }
 
     def _render_remainder(self, remainder, stmt) -> str:
         """Reconstruct remainder tokens preserving original source spacing.

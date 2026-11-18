@@ -354,12 +354,22 @@ def test_hand_written_hidden_axis_lines_are_recovered(tmp_path):
     assert ax.passthrough == []
 
 
+def test_an_on_that_is_an_axis_option_does_not_keep_x2axis_off_raw(tmp_path):
+    body = "   xaxis symticks on\n   x2axis off\n"
+    ax = parse_gle_figure(_write(tmp_path, "sym.gle", body)).figure.axes_list[0]
+    assert ax._x2axis_off is True
+    assert [line.strip() for line in ax.passthrough] == ["xaxis symticks on"]
+
+
 @pytest.mark.parametrize(
     "body,raw",
     [
         # Without the top line switched back on, 'xside off' hides it too.
         ("   xside off\n   x2side color RED\n", ["xside off"]),
         ("   x2side on\n   xside off\n", ["x2side on", "xside off"]),
+        # The demoted 'off' keeps its place ahead of the raw lines after it.
+        ("   xside off\n   xside on\n", ["xside off", "xside on"]),
+        ("   xside off\n   x2side lstyle 2 on\n", ["xside off", "x2side lstyle 2 on"]),
         # An 'on' that may switch the top or right axis back on.
         ("   x2axis off\n   x2labels on\n", ["x2axis off", "x2labels on"]),
         ("   yaxis on\n   y2axis off\n", ["yaxis on", "y2axis off"]),

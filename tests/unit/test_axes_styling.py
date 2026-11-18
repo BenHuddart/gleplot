@@ -611,24 +611,29 @@ def test_set_axis_off_hides_every_line_once():
     [
         (lambda ax: ax.twinx().plot([1, 2], [3, 4]), "y2"),
         (lambda ax: ax.set_ylabel("R", axis="y2"), "y2"),
+        (lambda ax: ax.set_tick_format("fix 1", axis="y2"), "y2"),
         (lambda ax: ax.set_xlim(0, 5, axis="x2"), "x2"),
         (lambda ax: ax.set_xscale("log", axis="x2"), "x2"),
     ],
 )
-def test_hiding_an_edge_that_carries_a_scale_warns(setup, side):
-    _, ax = _fig()
-    setup(ax)
-    with pytest.warns(UserWarning, match=f"also hides the {side} scale"):
+@pytest.mark.parametrize("hide_first", [False, True])
+def test_hiding_an_edge_that_carries_a_scale_warns(setup, side, hide_first):
+    fig, ax = _fig()
+    if hide_first:
         ax.set_axis_line(side, visible=False)
+    setup(ax)
+    ax.set_axis_line(side, visible=False)
+    with pytest.warns(UserWarning, match=f"with it the {side} scale"):
+        _graph_lines(fig)
 
 
 def test_hiding_an_unused_edge_does_not_warn():
-    _, ax = _fig()
+    fig, ax = _fig()
+    ax.set_axis_line("x2", visible=False)
+    ax.set_axis_line("y2", visible=False)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        ax.set_axis_line("x2", visible=False)
-        ax.set_axis_line("y2", visible=False)
-        ax.set_axis_line("y2", visible=True)
+        _graph_lines(fig)
 
 
 def test_set_axis_line_rejects_a_non_bool_visible():
