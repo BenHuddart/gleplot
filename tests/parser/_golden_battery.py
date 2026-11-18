@@ -729,6 +729,30 @@ def line_field_options():
     return fig
 
 
+def dataset_qualifiers():
+    """GLE's ``mdist``, ``deresolve [average]`` and clip-window qualifiers.
+
+    On a marked line, a line, a scatter, and a line and an errorbar file
+    reference. File references get them only from a recovered script, so
+    they are set on the series there.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0.0, 6.0, 25)
+    ax.plot(x, np.sin(x), color="blue", marker="o", mdist=1.5, label="spaced")
+    ax.plot(x, np.cos(x), color="red", deresolve=3, deresolve_average=True)
+    ax.plot(x, 0.1 * x, color="green", deresolve=2, xmin=1.0, ymax=0.5, label="cut")
+    ax.scatter(x, 0.2 * x, color="black", marker="s", xmax=4.0, ymin=0.1)
+    ax.line_from_file("external.dat", 1, 2, color="blue")
+    ax.file_series[0].update(
+        marker="CIRCLE", markersize=0.2, mdist=2.0, deresolve=4, xmin=0.5
+    )
+    ax.errorbar_from_file("external.dat", 1, 2, yerr_col=3, color="red", marker="o")
+    ax.file_series[1].update(deresolve=2, deresolve_average=True, ymax=3.0)
+    ax.legend()
+    return fig
+
+
 def scatter_field_options():
     """Scatter fields the other builders leave at their defaults.
 
@@ -924,6 +948,7 @@ BUILDERS = [
     tick_label_nofirst_nolast,
     line_modes,
     line_field_options,
+    dataset_qualifiers,
     scatter_field_options,
     fill_forms,
     fill_field_options,

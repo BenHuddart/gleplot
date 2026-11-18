@@ -68,6 +68,17 @@ ax.hist(samples, bins=20, range=(0, 1), histtype='stepfilled')
 `step` is `line hist` on GLE's binned dataset, and `stepfilled` is adjoining
 bars of one bin width.
 
+## Marker spacing, thinning and clipping
+
+```python
+ax.plot(x, y, marker='o', mdist=0.5)               # a marker every 0.5 cm
+ax.plot(x, y, deresolve=10, deresolve_average=True)  # mean of every 10 points
+ax.plot(x, y, xmin=0, xmax=5)                      # clip this series only
+```
+
+matplotlib's `markevery` has no GLE equivalent; see the
+[migration guide](MATPLOTLIB_MIGRATION.md) ("Marker spacing, thinning and clipping").
+
 ## Fills
 
 Fills use GLE's `fill` command. Two curves are `fill dA,dB`. A curve can

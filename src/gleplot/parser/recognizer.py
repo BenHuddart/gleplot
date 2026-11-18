@@ -2666,7 +2666,8 @@ class _Recognizer:
           constant coordinate is not the one the marker claims (someone moved
           the guide by editing the ``.dat``);
         * the display command carries something no guide emission has: a
-          marker, a ``y2axis`` binding, an offset ``let``, smoothing;
+          marker, a ``y2axis`` binding, an offset ``let``, smoothing, a
+          dataset qualifier (``mdist``, ``deresolve``, a clip window);
         * or lacks the ``color`` and ``lwidth`` every guide emission writes.
 
         Never guessed at, never half-applied: the caller then appends the
@@ -2681,7 +2682,7 @@ class _Recognizer:
         # series as a line is what preserves ``steps`` / ``impulses`` / ...
         if attrs.get("line_mode"):
             return None
-        if attrs["svg_smooth"] is not None:
+        if attrs["svg_smooth"] is not None or attrs["qualifiers"]:
             return None
         if entry["color"] is None or entry["linewidth"] is None:
             return None
@@ -4805,6 +4806,7 @@ class _Recognizer:
             offset=info["_dataset_offsets"].get(d_name, 0.0),
             data_file=data_file,
         )
+        entry.update(attrs["qualifiers"])
         column_names = self._recovered_column_names(data_file, [xcol, ycol])
         if column_names is not None:
             entry["column_names"] = column_names
@@ -4879,6 +4881,9 @@ class _Recognizer:
             "err_consts": {},  # kind -> (value: float, is_percent: bool) for literals
             "errwidth": None,
             "herrwidth": None,
+            # mdist / deresolve / deresolve_average / xmin..ymax, each only
+            # when written: the series fields of the same names.
+            "qualifiers": {},
         }
         i = 0
         m = len(toks)
@@ -4927,6 +4932,29 @@ class _Recognizer:
             if w == "nomiss":
                 a["nomiss"] = True
                 i += 1
+                continue
+            if w in ("mdist", "xmin", "xmax", "ymin", "ymax") and i + 1 < m:
+                v, nxt = _collect_value(toks, i + 1)
+                if v is not None and math.isfinite(v):
+                    a["qualifiers"][w] = float(v)
+                    i = nxt
+                    continue
+                i += 1
+                continue
+            if w == "deresolve" and i + 1 < m:
+                # graph2.cpp: deresolve = (int) next_exp, and ``average`` is
+                # read only as the very next token; a later deresolve resets
+                # it.
+                v, nxt = _collect_value(toks, i + 1)
+                if v is None or not math.isfinite(v):
+                    i += 1
+                    continue
+                a["qualifiers"]["deresolve"] = int(v)
+                a["qualifiers"].pop("deresolve_average", None)
+                if nxt < m and toks[nxt].value.lower() == "average":
+                    a["qualifiers"]["deresolve_average"] = True
+                    nxt += 1
+                i = nxt
                 continue
             if w == "color" and i + 1 < m:
                 val, nxt = _collect_color(toks, i + 1)
@@ -5131,6 +5159,7 @@ class _Recognizer:
                     markersize=markersize,
                     capsize=gle_capsize,
                     **_dn_fields(attrs),
+                    **attrs["qualifiers"],
                 )
             )
             return
@@ -5167,6 +5196,7 @@ class _Recognizer:
                     markersize=markersize,
                     capsize=gle_capsize,
                     **_dn_fields(attrs),
+                    **attrs["qualifiers"],
                     data_error=(loaded or {}).get("error", "unresolved"),
                 )
             )
@@ -5265,6 +5295,16 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
+        if attrs["qualifiers"]:
+            # Axes.errorbar has no such fields: GLE thins the markers but
+            # not the whiskers under deresolve (getErrorBarData).
+            names = ", ".join(attrs["qualifiers"])
+            self._note(
+                ImportCategory.DATA,
+                f"{names} on an error-bar dataset is not modelled and was "
+                "dropped on re-save",
+                span,
+            )
         info["errorbars"].append(entry)
 
     def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
@@ -5336,6 +5376,7 @@ class _Recognizer:
                 capsize=None,
                 **_dn_fields(attrs),
             )
+        entry.update(attrs["qualifiers"])
         if error is not None:
             entry["data_error"] = error
         entry["_draw_seq"] = info["_draw_seq_counter"]
@@ -5763,6 +5804,14 @@ class _Recognizer:
         base = cdata_file[: -len("-cdata.dat")]
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
+        if attrs["qualifiers"]:
+            # ContourSeries has no such fields; say so rather than lose them.
+            self._note(
+                ImportCategory.DATA,
+                f"{', '.join(attrs['qualifiers'])} on a contour's dataset line "
+                "is not modelled and was dropped on re-save",
+                span,
+            )
         color = attrs["color"] or "BLACK"
         linewidth = (
             linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0

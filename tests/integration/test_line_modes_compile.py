@@ -1,9 +1,10 @@
-"""Step, stem and histogram line modes compile on GLE 4.3.10.
+"""Line modes and dataset qualifiers compile on GLE 4.3.10.
 
 The script text is asserted in ``tests/unit/test_plotting.py``. This checks
 the part a string match cannot: that ``line steps``, ``line fsteps``,
-``line hist``, ``line impulses`` and ``line bar`` are a script GLE accepts.
-Skipped when the binary is missing.
+``line hist``, ``line impulses`` and ``line bar``, and the ``mdist``,
+``deresolve N average`` and ``xmin`` ... ``ymax`` qualifiers, are a script
+GLE accepts. Skipped when the binary is missing.
 """
 
 from __future__ import annotations
@@ -32,6 +33,19 @@ def test_every_line_mode_compiles(tmp_path):
     ax.stem(x, [1, 0, 1, 0])
     ax.plot(x, [1, 2, 1, 2], line_mode="bar")
     out = tmp_path / "modes.pdf"
+    fig.savefig(str(out))
+    assert out.is_file()
+    assert out.stat().st_size > 0
+
+
+def test_every_dataset_qualifier_compiles(tmp_path):
+    fig = glp.figure(data_prefix="qual")
+    ax = fig.add_subplot(111)
+    x = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    ax.plot(x, [0, 1, 0, 1, 0, 1, 0], marker="o", mdist=0.5, xmin=0.5, ymax=0.8)
+    ax.plot(x, [1, 2, 1, 2, 1, 2, 1], deresolve=2, deresolve_average=True)
+    ax.scatter(x, [2, 2, 3, 3, 2, 2, 3], deresolve=3, xmax=2.5, ymin=2.5)
+    out = tmp_path / "qualifiers.pdf"
     fig.savefig(str(out))
     assert out.is_file()
     assert out.stat().st_size > 0

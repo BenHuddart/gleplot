@@ -1173,6 +1173,66 @@ def _apply_xaxis(fields: dict, xaxis: str) -> None:
     fields["xaxis"] = "x2"
 
 
+def _dataset_qualifiers(
+    mdist, deresolve, deresolve_average, xmin, xmax, ymin, ymax
+) -> Dict[str, Any]:
+    """The ``plot`` dataset-qualifier fields that were given, validated.
+
+    Only the given ones are returned: an absent field is the historical
+    behaviour (see :class:`~gleplot.series.LineSeries`).
+    """
+    for name, value in (
+        ("mdist", mdist),
+        ("xmin", xmin),
+        ("xmax", xmax),
+        ("ymin", ymin),
+        ("ymax", ymax),
+    ):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, (int, float, np.number))
+        ):
+            raise TypeError(f"{name} must be a number; got {value!r}")
+    fields: Dict[str, Any] = {}
+    if mdist is not None:
+        if not np.isfinite(mdist) or mdist <= 0:
+            raise ValueError(
+                f"mdist must be a positive distance in cm; got {mdist!r}. "
+                "Omit it to draw a marker on every point."
+            )
+        fields["mdist"] = float(mdist)
+    if deresolve is not None:
+        if (
+            isinstance(deresolve, bool)
+            or not isinstance(deresolve, (int, np.integer))
+            or deresolve < 1
+        ):
+            raise ValueError(
+                f"deresolve must be an integer >= 1; got {deresolve!r}. "
+                "deresolve=N draws one point in every N."
+            )
+        fields["deresolve"] = int(deresolve)
+    if deresolve_average:
+        if deresolve is None:
+            raise ValueError(
+                "deresolve_average=True needs deresolve=N: it averages each "
+                "window of N points."
+            )
+        fields["deresolve_average"] = True
+    for name, value in (("xmin", xmin), ("xmax", xmax), ("ymin", ymin), ("ymax", ymax)):
+        if value is None:
+            continue
+        if not np.isfinite(value):
+            raise ValueError(f"{name} must be a finite number; got {value!r}")
+        fields[name] = float(value)
+    for lo, hi in (("xmin", "xmax"), ("ymin", "ymax")):
+        if lo in fields and hi in fields and fields[lo] >= fields[hi]:
+            raise ValueError(
+                f"{lo} must be less than {hi}; got {lo}={fields[lo]!r}, "
+                f"{hi}={fields[hi]!r}"
+            )
+    return fields
+
+
 class SecondaryXAxis:
     """The top scale of an axes, as matplotlib's ``Axes.twiny`` returns.
 
@@ -1613,6 +1673,13 @@ class Axes:
         zorder: Optional[float] = None,
         drawstyle: Optional[str] = None,
         line_mode: Optional[str] = None,
+        mdist: Optional[float] = None,
+        deresolve: Optional[int] = None,
+        deresolve_average: bool = False,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        ymin: Optional[float] = None,
+        ymax: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -1662,6 +1729,25 @@ class Axes:
             per-dataset bar outline, not :meth:`bar`. Must agree with
             ``drawstyle`` when both are passed. Omitted, the series stays a
             plain ``line`` and the script is unchanged.
+        mdist : float, optional
+            Draw the markers every ``mdist`` cm along the curve instead of
+            one per data point (GLE ``mdist``). Needs a ``marker``; without
+            one it warns and is dropped. Omitted, a marked line takes
+            ``GLEMarkerConfig.mdist`` from the figure, and when that is
+            ``None`` too every point gets a marker. matplotlib's
+            ``markevery`` has no GLE equivalent: it warns and is ignored.
+        deresolve : int, optional
+            Draw one point in every ``deresolve`` (GLE ``deresolve``). GLE
+            keeps the first and last point of a line.
+        deresolve_average : bool, optional
+            Draw each window of ``deresolve`` points as its mean, at the
+            middle x of the window (GLE ``deresolve N average``). Needs
+            ``deresolve``.
+        xmin, xmax, ymin, ymax : float, optional
+            Clip window for this series in data coordinates (GLE's ``dN
+            xmin ... ymax``): nothing is drawn outside it. An omitted edge
+            is open. ``xmin`` must be below ``xmax``, ``ymin`` below
+            ``ymax``.
         **kwargs
             Additional matplotlib-compatible arguments
 
@@ -1676,6 +1762,21 @@ class Axes:
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         label = mathtext_to_gle(label)
         mode = resolve_line_mode(drawstyle, line_mode, kwargs.pop("ds", None))
+        qualifiers = _dataset_qualifiers(
+            mdist, deresolve, deresolve_average, xmin, xmax, ymin, ymax
+        )
+        if kwargs.pop("markevery", None) is not None:
+            warn_external(
+                "plot(markevery=...) is ignored: GLE cannot mark every Nth "
+                "point. Pass mdist= (cm along the curve) to space the markers "
+                "out instead.",
+            )
+        if "mdist" in qualifiers and marker is None:
+            warn_external(
+                "plot(mdist=...) spaces markers, and this series has no "
+                "marker; mdist is ignored. Pass marker= to draw markers.",
+            )
+            del qualifiers["mdist"]
 
         x = np.asarray(x)
         y = np.asarray(y)
@@ -1734,6 +1835,7 @@ class Axes:
             column_names=_build_column_names("x", ["y"], label),
         )
         _apply_xaxis(plot_fields, xaxis)
+        plot_fields.update(qualifiers)
         if mode:
             plot_fields["line_mode"] = mode
             # graph2.cpp transform_data() runs fitbez before drawLine()
@@ -2653,7 +2755,9 @@ class Axes:
             Draw order relative to other data series on the same axes.
             Higher values are drawn on top.
         **kwargs
-            Additional arguments
+            Passed to :meth:`plot`, which owns ``mdist``, ``deresolve``,
+            ``deresolve_average`` and the ``xmin`` / ``xmax`` / ``ymin`` /
+            ``ymax`` clip window.
 
         Returns
         -------
