@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v4.10.0 (2026-11-18)
+
+### Features
+
+- Place ax.text in axes fractions with transform=ax.transAxes
+  ([#84](https://github.com/BenHuddart/gleplot/pull/84),
+  [`d5ee6cb`](https://github.com/BenHuddart/gleplot/commit/d5ee6cbf18483b577f1a96cfd5c68aac2d3e5e19))
+
+- Review fixes for axes-fraction text ([#84](https://github.com/BenHuddart/gleplot/pull/84),
+  [`8ae8e11`](https://github.com/BenHuddart/gleplot/commit/8ae8e1130e82baf04f7cb068994992088ae7fff7))
+
+
 ## v4.9.0 (2026-11-18)
 
 ### Features
