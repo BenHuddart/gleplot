@@ -2857,6 +2857,7 @@ class Axes:
         "fits",
     )
 
+    @_cartesian_only
     def derived(
         self,
         expression: str,

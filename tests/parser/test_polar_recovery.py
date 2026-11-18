@@ -217,3 +217,14 @@ def test_a_scatter_with_per_point_sizes_round_trips(tmp_path):
         ax.scatters[0]["mdata"],
         rtol=1e-5,
     )
+
+
+def test_page_drawings_after_a_polar_axes_round_trip(tmp_path):
+    fig = glp.figure(data_prefix="pr")
+    fig.add_subplot(projection="polar").plot([0, 1, 2], [1, 2, 1.5])
+    fig.circle(2, 3, radius=0.4, fill="red")
+    fig.tex(0.5, 0.5, r"$\theta$")
+    first, second, recognized = _round_trip(tmp_path, fig)
+    assert second == first
+    assert recognized.figure.axes_list[0]._polar
+    assert recognized.warnings == []

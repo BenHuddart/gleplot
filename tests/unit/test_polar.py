@@ -201,6 +201,7 @@ def test_an_unknown_projection_raises():
         lambda ax: ax.set_xlim(0, 1),
         lambda ax: ax.set_xticks([0, 1]),
         lambda ax: ax.minorticks_on(),
+        lambda ax: ax.derived("d", "2*d"),
         lambda ax: ax.tick_params(labelsize=8),
         lambda ax: ax.step([0, 1], [1, 1]),
         lambda ax: ax.pie([1, 2]),
