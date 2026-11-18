@@ -84,7 +84,12 @@ class TestFileIO:
         assert (export_dir / "report.gle").exists()
         assert len(list(export_dir.glob("*.dat"))) >= 1
         compiler.compile.assert_called_once_with(
-            str(export_dir / "report.gle"), "pdf", dpi=self.fig.dpi, cairo=False
+            str(export_dir / "report.gle"),
+            "pdf",
+            dpi=self.fig.dpi,
+            cairo=False,
+            transparent=False,
+            grayscale=False,
         )
         assert not output_file.exists()
 

@@ -18,6 +18,7 @@ from .brokenaxes import BrokenAxes
 from .cairo_support import cairo_font_warning, figure_requires_cairo
 from .colors import apply_alpha, rgb_to_gle
 from .compiler import (
+    RASTER_COMPILE_FORMATS,
     SUFFIX_TO_COMPILE_FORMAT,
     CompileFormat,
     GLECompiler,
@@ -1351,6 +1352,9 @@ class Figure:
         cairo: Optional[bool] = None,
         keep_intermediates: bool = False,
         preview_decimation: Optional[DecimationPolicy] = None,
+        *,
+        transparent: Optional[bool] = None,
+        grayscale: bool = False,
         **kwargs,
     ) -> Path:
         """
@@ -1414,12 +1418,29 @@ class Figure:
             ``format`` output (PDF/PNG/...), just from a decimated preview
             script -- pass it for a live-preview compile, not for a save the
             user will treat as their document.
+        transparent : bool, optional
+            Give a PNG an alpha channel instead of a white background (GLE's
+            ``-transparent``). ``None`` means ``False``. PDF, EPS and SVG
+            output has no background to remove. ``True`` warns for a JPEG,
+            which has no alpha channel, and for a grayscale PNG compiled
+            without Cairo, which loses it.
+        grayscale : bool, optional
+            gleplot keyword, not a matplotlib one: compile with the colours
+            GLE draws converted to their grey level (GLE's ``-nocolor``). A
+            heatmap's image stays in colour in PDF, EPS and SVG, so ``True``
+            warns there for a figure with a heatmap.
+
+            ``transparent`` and ``grayscale`` act when GLE compiles, so they
+            warn when only the ``.gle`` script is saved.
         folder : bool, optional
             If True, place the exported file, the intermediate ``.gle``
             script, and generated data files in a sibling
             ``<name>.gleplot`` directory.
         **kwargs
-            Additional arguments
+            Additional arguments. matplotlib's ``bbox_inches``,
+            ``pad_inches``, ``facecolor`` and ``edgecolor`` are accepted and
+            warn: the page is always ``figsize``, and its background is not
+            settable.
 
         Returns
         -------
@@ -1445,6 +1466,22 @@ class Figure:
         before cleanup runs, so its intermediates (if any were written) are
         never removed -- they may help diagnose the failure.
         """
+        # matplotlib keywords with no GLE counterpart, and their defaults.
+        for name, default in (
+            ("bbox_inches", None),
+            ("pad_inches", None),
+            ("facecolor", "auto"),
+            ("edgecolor", "auto"),
+        ):
+            value = kwargs.pop(name, default)
+            if value is not None and not (isinstance(value, str) and value == default):
+                warn_external(
+                    f"savefig({name}=...) has no effect: GLE's page is the "
+                    "figure's figsize, with a white background in PNG and JPEG "
+                    "and none in PDF, EPS and SVG. Set the page size with "
+                    "figsize, and pass transparent=True for a PNG without a "
+                    "background."
+                )
         output_path, export_dir = self._resolve_export_paths(
             filepath,
             folder=kwargs.pop("folder", False),
@@ -1469,6 +1506,24 @@ class Figure:
         for filename, content in data_files.items():
             data_file = export_dir / filename
             data_file.write_text(content, encoding="utf-8")
+
+        if format == "gle":
+            for name, value in (("transparent", transparent), ("grayscale", grayscale)):
+                if value:
+                    warn_external(
+                        f"savefig({name}=True) has no effect when only the .gle "
+                        "script is saved; it applies when GLE compiles, e.g. to "
+                        "a .png or .pdf file name."
+                    )
+        elif grayscale and format.lower() not in RASTER_COMPILE_FORMATS:
+            # GLE's -nocolor greys drawn colours; a colormap image is greyed
+            # only when GLE rasterises the whole page.
+            if any(ax.heatmaps for ax in self.axes_list):
+                warn_external(
+                    "savefig(grayscale=True) leaves heatmap images in colour in "
+                    f"{format.upper()} output; save as PNG or JPEG, or draw the "
+                    "heatmap with cmap='gray'."
+                )
 
         # Compile if needed
         if format != "gle":
@@ -1510,6 +1565,8 @@ class Figure:
                 cast(CompileFormat, format),
                 dpi=output_dpi,
                 cairo=effective_cairo,
+                transparent=bool(transparent),
+                grayscale=grayscale,
             )
 
             # Post-compile cleanup (G8): only on a *successful* compile --

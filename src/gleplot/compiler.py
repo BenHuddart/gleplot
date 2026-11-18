@@ -108,13 +108,16 @@ def build_compile_args(
     input_path: Union[str, Path],
     dpi: Optional[int] = None,
     cairo: bool = False,
+    transparent: bool = False,
+    grayscale: bool = False,
 ) -> List[str]:
     """Build the GLE command-line arguments for one compile invocation.
 
-    This is the single place that decides ``-d``/``-r``/``-cairo``/``-o``
-    argument shape for :meth:`GLECompiler.compile`. It lowercases the device
-    name (GLE's ``-d`` is case-insensitive; verified against a real ``gle``
-    binary) and includes ``-r`` only for :data:`RASTER_COMPILE_FORMATS`.
+    This is the single place that decides ``-d``/``-cairo``/``-nocolor``/
+    ``-transparent``/``-r``/``-o`` argument shape for
+    :meth:`GLECompiler.compile`. It lowercases the device name (GLE's ``-d``
+    is case-insensitive; verified against a real ``gle`` binary) and
+    includes ``-r`` only for :data:`RASTER_COMPILE_FORMATS`.
 
     Does **not** include the ``gle`` executable path itself -- callers using
     :mod:`subprocess` prepend it to this list.
@@ -145,6 +148,17 @@ def build_compile_args(
         :meth:`gleplot.figure.Figure.savefig` passes
         ``figure.requires_cairo()`` automatically; other callers pass an
         explicit override.
+    transparent : bool, optional
+        When ``True`` and ``output_format`` is ``png``, appends
+        ``-transparent`` (an alpha channel instead of a white background).
+        GLE ignores the flag on every other device, so it is left out there:
+        PDF, EPS and SVG have no background, and a JPEG warns because it has
+        no alpha channel. A grayscale PNG keeps its alpha channel only with
+        ``cairo=True``, and warns without it.
+    grayscale : bool, optional
+        When ``True``, appends ``-nocolor``: GLE converts the colours it draws
+        to their grey level. Colormap images (heatmaps) are converted only in
+        PNG and JPEG output.
 
     Notes
     -----
@@ -190,6 +204,23 @@ def build_compile_args(
     args = ["-d", fmt]
     if cairo:
         args.append("-cairo")
+    if grayscale:
+        args.append("-nocolor")
+    if transparent and fmt == "png":
+        args.append("-transparent")
+        if grayscale and not cairo:
+            # Verified with GLE 4.3.10: without -cairo, -nocolor writes a
+            # grey-only PNG and the alpha channel is lost.
+            warn_external(
+                "transparent=True has no effect on a grayscale PNG unless it "
+                "is compiled with cairo=True; pass cairo=True to keep the "
+                "transparent background."
+            )
+    elif transparent and fmt == "jpg":
+        warn_external(
+            "transparent=True has no effect on a JPEG, which has no alpha "
+            "channel; save as PNG for a transparent background."
+        )
     if fmt in RASTER_COMPILE_FORMATS and dpi is not None:
         args.extend(["-r", str(int(dpi))])
     args.extend(["-o", str(output_path), str(input_path)])
@@ -629,6 +660,8 @@ class GLECompiler:
         verbose: bool = False,
         timeout: int = 30,
         cairo: bool = False,
+        transparent: bool = False,
+        grayscale: bool = False,
     ) -> Path:
         """
         Compile GLE file to output format.
@@ -662,6 +695,14 @@ class GLECompiler:
             ``figure.requires_cairo()`` here automatically; pass an explicit
             ``True``/``False`` yourself when compiling a ``.gle`` file this
             compiler didn't write (or to force the flag either way).
+        transparent : bool
+            Give a PNG an alpha channel instead of a white background (GLE's
+            ``-transparent``); see :func:`build_compile_args` for the other
+            formats and for a grayscale PNG.
+        grayscale : bool
+            Convert the colours GLE draws to their grey level (GLE's
+            ``-nocolor``); see :func:`build_compile_args` for colormap
+            images.
 
         Returns
         -------
@@ -697,6 +738,8 @@ class GLECompiler:
             input_path,
             dpi=dpi,
             cairo=cairo,
+            transparent=transparent,
+            grayscale=grayscale,
         )
 
         try:
