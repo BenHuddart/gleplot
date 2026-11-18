@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v3.16.0 (2026-11-18)
+
+### Bug Fixes
+
+- List unknown-cmap alternatives as matplotlib spells them
+  ([#55](https://github.com/BenHuddart/gleplot/pull/55),
+  [`5a62bbd`](https://github.com/BenHuddart/gleplot/commit/5a62bbdea51137dcbebe8683432c63dfbb4afdf8))
+
+### Features
+
+- ColorBrewer cmaps for imshow and tripcolor ([#55](https://github.com/BenHuddart/gleplot/pull/55),
+  [`379a820`](https://github.com/BenHuddart/gleplot/commit/379a8206e830f16f0030bb4bee118f2b483fc928))
+
+
 ## v3.15.0 (2026-11-18)
 
 ### Documentation
