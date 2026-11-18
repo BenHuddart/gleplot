@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v3.14.0 (2026-11-18)
+
+### Features
+
+- Draw GLE-sampled function curves with Axes.function
+  ([#52](https://github.com/BenHuddart/gleplot/pull/52),
+  [`e429caa`](https://github.com/BenHuddart/gleplot/commit/e429caa38a25be427adb9324889a15f7f176c7d0))
+
+
 ## v3.13.0 (2026-11-18)
 
 ### Features
