@@ -1418,6 +1418,92 @@ def _legend_spacing(cm_by_word, fontsize, fig) -> Dict[str, float]:
     }
 
 
+def _page_drawing_fields(words: List[str], drawing: Dict[str, Any]) -> bool:
+    """Read a drawing command's values onto ``drawing``; False if not one.
+
+    ``words`` is the command split on whitespace, after its ``amove``. The
+    counts are only a first filter: the caller compares the drawing's
+    rendering with the source, which settles every other detail.
+    """
+    kind, values = words[0], words[1:]
+    if values[-1:] == ["nostroke"] and kind in ("circle", "ellipse"):
+        drawing["color"] = "none"
+        values = values[:-1]
+    if values[-2:-1] == ["fill"] and kind in ("circle", "ellipse"):
+        drawing["fill"] = values[-1]
+        values = values[:-2]
+    numbers = [float(v) for v in values]
+    if kind == "circle" and len(numbers) == 1:
+        drawing["radius"] = numbers[0]
+    elif kind == "ellipse" and len(numbers) == 2:
+        drawing["width"], drawing["height"] = (2 * v for v in numbers)
+    elif kind == "arc" and len(numbers) == 3:
+        drawing["radius"], drawing["theta1"], drawing["theta2"] = numbers
+    elif kind == "bezier" and len(numbers) == 6:
+        drawing["x"] = [drawing.pop("x"), *numbers[0::2]]
+        drawing["y"] = [drawing.pop("y"), *numbers[1::2]]
+    elif kind == "curve" and len(numbers) >= 6 and len(numbers) % 2 == 0:
+        # The points between the two slopes are steps from the point before,
+        # written to 12 digits: rounding the sum to 12 drops the float noise.
+        xs, ys = [drawing.pop("x")], [drawing.pop("y")]
+        for dx, dy in zip(numbers[2:-2:2], numbers[3:-2:2]):
+            xs.append(float(GLEWriter._format_number(xs[-1] + dx, 12)))
+            ys.append(float(GLEWriter._format_number(ys[-1] + dy, 12)))
+        drawing.update(x=xs, y=ys, start_slope=numbers[:2], end_slope=numbers[-2:])
+    else:
+        return False
+    drawing["kind"] = kind
+    return True
+
+
+def _page_drawing(lines: List[str]) -> Optional[Dict[str, Any]]:
+    """The ``Figure`` page drawing a ``gsave`` .. ``grestore`` group draws.
+
+    ``None`` when the group is not one ``GLEWriter.page_drawing_lines``
+    writes, so it stays passthrough.
+    """
+    drawing: Dict[str, Any] = {}
+    body = lines[1:-1]
+    try:
+        while body and body[0].startswith("set "):
+            word, value = body[0].split()[1:]
+            if word == "color":
+                drawing["color"] = value
+            elif word == "lwidth":
+                drawing["linewidth"] = linewidth_cm_to_pt(float(value))
+            else:
+                return None
+            body = body[1:]
+        head = body[0].split()
+        if head[:2] == ["begin", "path"]:
+            options = head[2:]
+            if options[:1] == ["stroke"]:
+                options = options[1:]
+            else:
+                drawing["color"] = "none"
+            if options[:1] == ["fill"]:
+                drawing["fill"] = options[1]
+            corners = [line.split()[1:] for line in body[1:-2]]
+            drawing.update(
+                kind="polygon",
+                x=[float(x) for x, _ in corners],
+                y=[float(y) for _, y in corners],
+            )
+        else:
+            _amove, x, y = head
+            drawing.update(x=float(x), y=float(y))
+            block = body[1].split()
+            if block[0] == "begin" and block[1:] in (["table"], ["tex"]):
+                drawing.update(kind=block[1], text="\n".join(body[2:-1]))
+            elif len(body) != 2 or not _page_drawing_fields(block, drawing):
+                return None
+        if GLEWriter.page_drawing_lines(drawing) != lines:
+            return None
+    except (IndexError, KeyError, ValueError):
+        return None
+    return drawing
+
+
 # --------------------------------------------------------------------------- #
 # The recognizer
 # --------------------------------------------------------------------------- #
@@ -1530,13 +1616,16 @@ class _Recognizer:
 
         # --- Preamble: everything before the first graph-related node. ---
         first_graph_start = self._first_graph_region_start(nodes, graph_indices)
-        fig = self._new_figure(meta, nodes[:first_graph_start])
+        # With no graph at all, the page drawings close the file.
+        preamble_end, drawings = self._trailing_page_drawings(nodes, first_graph_start)
+        fig = self._new_figure(meta, nodes[:preamble_end])
 
         # --- Graph blocks + interspersed amove/text/trailer. ---
         smooth_flags: List[bool] = []  # per line-dataset across the whole fig
-        parsed_axes, fig.passthrough_trailer = self._parse_graph_region(
+        parsed_axes, graph_drawings, fig.passthrough_trailer = self._parse_graph_region(
             nodes, first_graph_start, fig.marker_config, smooth_flags
         )
+        fig._drawings = drawings + graph_drawings
 
         # --- Assemble axes into the figure. ---
         self._assemble_axes(fig, parsed_axes, fig.sharex, fig.sharey)
@@ -1645,16 +1734,21 @@ class _Recognizer:
         start: int,
         marker_cfg: GLEMarkerConfig,
         smooth_flags: List[bool],
-    ) -> Tuple[List[dict], List[str]]:
+    ) -> Tuple[List[dict], List[Dict[str, Any]], List[str]]:
         """The graph blocks and the page-level statements between and after them.
 
-        Returns the parsed info of each graph block, in order, and the trailer
-        passthrough lines.
+        Returns the parsed info of each graph block, in order, the page
+        drawings, and the trailer passthrough lines.
         """
         parsed_axes: List[dict] = []
+        drawings: List[Dict[str, Any]] = []
         trailer: List[str] = []
         # The ``amove`` that will place the next graph block, if one does.
         pending: Optional[_PendingAmove] = None
+        last_graph = max(
+            (k for k, node in enumerate(nodes) if isinstance(node, GraphBlock)),
+            default=-1,
+        )
 
         i = start
         n = len(nodes)
@@ -1667,6 +1761,18 @@ class _Recognizer:
                 parsed_axes.append(axes_info)
                 pending = None
                 continue
+
+            # Page drawings follow every graph block and come before any
+            # trailer; with several graphs, after the writer's blank line.
+            if not drawings and not trailer and pending is None and i > last_graph:
+                start_at = i
+                if len(parsed_axes) > 1 and self._raw_lines(node) == [""]:
+                    start_at = i + 1
+                found, after = self._consume_page_drawings(nodes, start_at)
+                if found:
+                    drawings = found
+                    i = after
+                    continue
 
             # Non-graph node between/after graphs.
             amove = self._match_amove(node)
@@ -1711,7 +1817,46 @@ class _Recognizer:
         if pending is not None:
             trailer.append(pending.raw)
 
-        return parsed_axes, trailer
+        return parsed_axes, drawings, trailer
+
+    def _consume_page_drawings(self, nodes, i) -> Tuple[List[Dict[str, Any]], int]:
+        """The run of ``Figure`` page drawings at ``nodes[i]``, and the next index."""
+        drawings: List[Dict[str, Any]] = []
+        while i < len(nodes):
+            stmt = self._as_statement(nodes[i])
+            if stmt is None or stmt.keyword != "gsave":
+                break
+            end = i + 1
+            while end < len(nodes) and not (
+                isinstance(nodes[end], Statement) and nodes[end].keyword == "grestore"
+            ):
+                end += 1
+            lines = [
+                line for node in nodes[i : end + 1] for line in self._raw_lines(node)
+            ]
+            drawing = _page_drawing(lines) if end < len(nodes) else None
+            if drawing is None:
+                break
+            drawings.append(drawing)
+            i = end + 1
+        return drawings, i
+
+    def _trailing_page_drawings(
+        self, nodes, start: int
+    ) -> Tuple[int, List[Dict[str, Any]]]:
+        """Where page drawings that end ``nodes[:start]`` begin, and the drawings.
+
+        Only a file with no graph block ends its preamble with drawings.
+        """
+        if start != len(nodes):
+            return start, []
+        i = 0
+        while i < start:
+            drawings, after = self._consume_page_drawings(nodes, i)
+            if drawings and after == start:
+                return i, drawings
+            i = max(after, i + 1)
+        return start, []
 
     def _parse_placed_graph(
         self,

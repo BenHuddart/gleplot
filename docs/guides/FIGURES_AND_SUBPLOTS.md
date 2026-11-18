@@ -116,3 +116,43 @@ The values are checked as in matplotlib: `left < right`, `bottom < top`,
 `wspace >= 0` and `hspace >= 0`.
 
 For a split x-axis inside one panel, see [Broken Axes](BROKEN_AXES.md).
+
+## Drawing on the page
+
+A figure can draw shapes and blocks of text on the page itself, outside any
+axes. These are gleplot methods, not matplotlib ones: positions and sizes are
+in centimetres from the bottom-left corner of the page, and line widths are in
+points.
+
+```python
+import gleplot as glp
+
+fig = glp.figure(figsize=(6, 4))
+ax = fig.add_subplot(111)
+ax.plot([0, 1, 2], [0, 1, 4])
+
+fig.circle(2, 3, radius=0.4, fill='red')
+fig.ellipse(6, 3, 2, 1, color='blue', linewidth=1.5)
+fig.arc(10, 3, 1, 0, 180)
+fig.bezier([1, 2, 3, 4], [6, 8, 4, 6])
+fig.curve([6, 7, 8], [6, 7, 6], (1, 0), (1, 0))
+fig.polygon([10, 12, 11], [6, 6, 8], fill='yellow')
+fig.table(1, 9, 'a    b\n1    22')
+fig.tex(8, 9, r'\textbf{Note}')
+
+fig.savefig('page.gle')
+```
+
+Each call writes one GLE primitive (`circle`, `ellipse`, `arc`, `bezier`,
+`curve`, a `begin path` block, a `begin table` block, a `begin tex` block).
+The drawings are written after every axes, so they sit on top of them, in the
+order they were added. A figure with no axes holds only its drawings.
+`color='none'` leaves a circle, an ellipse or a polygon without an outline.
+
+`Figure.tex` text is set by LaTeX, so compiling the figure needs a LaTeX
+installation that GLE can find. GLE sets it in one LaTeX box, so a newline
+does not start a new line in the output; use a `tabular` for several lines.
+A line of `tex` or `table` text cannot start with the word `begin` or `end`,
+which GLE would read as block structure; `\begin{...}` is fine.
+
+`open_gle` reads the drawings in a file gleplot wrote back into the figure.

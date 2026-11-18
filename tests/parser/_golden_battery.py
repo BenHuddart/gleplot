@@ -1275,6 +1275,44 @@ def usetex_labels():
     return fig
 
 
+def page_drawings():
+    """Every page drawing kind over a plot, then a trailer line after them."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4])
+    fig.circle(2, 3, radius=0.4, fill="red", color="blue", linewidth=2)
+    fig.ellipse(5, 3, 2, 1, fill="#10c810")
+    fig.circle(8, 8, 0.3, fill="blue", color="none")
+    fig.arc(5, 6, 1, 20, 160, linewidth=0.5)
+    fig.bezier([1, 2, 3, 4], [1, 3, -1, 1])
+    fig.curve([6.1, 7.2, 8.3], [1, 2.2, 1], (1, 0), (1, -0.5), color="green")
+    fig.polygon([7, 9, 8], [5, 5, 7], fill="yellow", color="black")
+    fig.polygon([1, 2, 2, 1], [8, 8, 9, 9])
+    fig.polygon([3, 4, 4], [8, 8, 9], fill="gray", color="none")
+    fig.table(0.5, 7, "a   bb   c\n1   22   333")
+    fig.tex(0.5, 5, r"\textbf{Note} $x^2$")
+    fig.passthrough_trailer = ["amove 1 1"]
+    return fig
+
+
+def page_drawings_subplots():
+    """Page drawings after a subplot grid's last blank line."""
+    fig = glp.figure(data_prefix="golden")
+    fig.add_subplot(121).plot([0, 1], [0, 1])
+    fig.add_subplot(122).plot([0, 1], [1, 0])
+    fig.circle(10, 7.5, radius=1)
+    fig.polygon([1, 3, 2], [1, 1, 2], fill="gray")
+    return fig
+
+
+def page_drawings_only():
+    """A figure with no axes: the page drawings follow the preamble."""
+    fig = glp.figure(data_prefix="golden")
+    fig.ellipse(4, 3, 3, 2, color="red")
+    fig.table(1, 1, "x  y\n1  2")
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -1344,6 +1382,9 @@ BUILDERS = [
     boxplot_chart,
     boxplot_field_options,
     usetex_labels,
+    page_drawings,
+    page_drawings_subplots,
+    page_drawings_only,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]
