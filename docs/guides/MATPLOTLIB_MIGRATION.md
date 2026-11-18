@@ -290,13 +290,14 @@ ax.set_ylim(0, 2)
 
 | matplotlib | gleplot |
 |---|---|
-| `ax.plot(theta, r)`, `ax.scatter(theta, r)` | same. `plot()`'s `yaxis`, `xaxis`, `offset`, `drawstyle`/`line_mode` and the `xmin`/`xmax`/`ymin`/`ymax` clip window raise `ValueError`. |
+| `ax.plot(theta, r)`, `ax.scatter(theta, r)` | same. `yaxis`, `xaxis`, `offset`, `drawstyle`/`ds`/`line_mode` and the `xmin`/`xmax`/`ymin`/`ymax` clip window raise `ValueError`. |
 | `ax.set_ylim(0, rmax)`, `ax.set_ylim(top=...)` | `ax.set_ylim(0, rmax)` or `ax.set_ylim(None, rmax)`. A lower limit other than 0 raises `ValueError`. Left unset, the outer ring is the largest radius in the data rounded up to a ring, or 1 when the axes has only function curves. |
 | `ax.set_rmax`, `set_rticks`, `set_thetagrids`, `set_theta_zero_location`, `set_theta_direction`, `set_rlabel_position` | not available. Rings are evenly spaced, at most five; spokes and angle labels are every 45°, counter-clockwise from the right; ring labels lie along 22.5°. |
-| `ax.bar`, `ax.fill`, `ax.errorbar`, `ax.text`, `ax.grid`, `ax.set_xlim` and the other plotting and cartesian axis methods | raise `NotImplementedError` on a polar axes. |
+| `ax.grid(True)` | does nothing: the polar grid is always drawn. `ax.grid(False)`, `ax.grid()` and grid styling warn and are ignored. `GLEGraphConfig(show_grid=True)` does not apply. |
+| `ax.bar`, `ax.fill`, `ax.errorbar`, `ax.text`, `ax.set_xlim`, `ax.set_xticks` and the other plotting and cartesian axis methods | raise `NotImplementedError` on a polar axes. |
 | `plt.subplots(subplot_kw={'projection': 'polar'})` | not available; use `fig.add_subplot(..., projection='polar')`. |
 
-The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar axes: GLE would smooth the drawn x and y, which need not be in order.
+The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar axes: GLE would smooth the drawn x and y, which need not be in order. A figure's `sharex`/`sharey` leaves a polar axes' limits alone.
 
 ## Histograms
 

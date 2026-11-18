@@ -4,7 +4,18 @@ import functools
 import re
 import uuid
 from numbers import Real
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import numpy as np
 
@@ -61,8 +72,10 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
 )
 from .writer import GLEWriter
 
+_Method = TypeVar("_Method", bound=Callable[..., Any])
 
-def _cartesian_only(method):
+
+def _cartesian_only(method: _Method) -> _Method:
     """Make ``method`` raise ``NotImplementedError`` on a polar axes."""
 
     @functools.wraps(method)
@@ -75,7 +88,7 @@ def _cartesian_only(method):
             )
         return method(self, *args, **kwargs)
 
-    return wrapper
+    return cast(_Method, wrapper)
 
 
 # Global counter for unique data file names across all figures in a session
@@ -2107,30 +2120,32 @@ class Axes:
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
-        mode = resolve_line_mode(drawstyle, line_mode, kwargs.pop("ds", None))
+        ds = kwargs.pop("ds", None)
+        if self._polar:
+            for name, value, default in (
+                ("yaxis", yaxis, "y"),
+                ("xaxis", xaxis, "x"),
+                ("offset", offset, 0),
+                ("drawstyle", drawstyle, None),
+                ("ds", ds, None),
+                ("line_mode", line_mode, None),
+                ("xmin", xmin, None),
+                ("xmax", xmax, None),
+                ("ymin", ymin, None),
+                ("ymax", ymax, None),
+            ):
+                if value != default and not (
+                    name == "drawstyle" and value == "default"
+                ):
+                    raise ValueError(
+                        f"{name}={value!r} is not supported on a polar axes, "
+                        "where plot() and scatter() take only theta and r; "
+                        "leave it out."
+                    )
+        mode = resolve_line_mode(drawstyle, line_mode, ds)
         qualifiers = _dataset_qualifiers(
             mdist, deresolve, deresolve_average, xmin, xmax, ymin, ymax
         )
-        if self._polar:
-            cartesian = [
-                name
-                for name, used in (
-                    ("yaxis", yaxis != "y"),
-                    ("xaxis", xaxis != "x"),
-                    ("offset", offset != 0),
-                    ("drawstyle", bool(mode)),
-                    ("xmin", xmin is not None),
-                    ("xmax", xmax is not None),
-                    ("ymin", ymin is not None),
-                    ("ymax", ymax is not None),
-                )
-                if used
-            ]
-            if cartesian:
-                raise ValueError(
-                    f"plot({cartesian[0]}=...) is not supported on a polar axes; "
-                    "leave it at its default."
-                )
         if kwargs.pop("markevery", None) is not None:
             warn_external(
                 "plot(markevery=...) is ignored: GLE cannot mark every Nth "
@@ -6977,7 +6992,6 @@ class Axes:
             raise ValueError(f"{argument}={fontsize!r}) must be positive")
         return size
 
-    @_cartesian_only
     def grid(
         self,
         visible: Optional[bool] = None,
@@ -7035,10 +7049,24 @@ class Axes:
             On an unknown ``which``/``axis``/``linestyle`` value, a
             non-positive ``linewidth``, or an unsupported keyword argument.
 
+        Notes
+        -----
+        On a polar axes the polar grid is always drawn in its own style:
+        ``grid(True)`` does nothing, and hiding or styling it warns.
+
         Examples
         --------
         >>> ax.grid(True, which='both', linestyle=':', color='grey40')
         """
+        if self._polar:
+            styled = not (color is None and linestyle is None and linewidth is None)
+            # Without True, matplotlib's grid() toggles, which here would hide.
+            if visible is not True or styled or kwargs:
+                warn_external(
+                    "grid() cannot hide or restyle the grid of a polar axes; "
+                    "it is always drawn, in grey. This call was ignored."
+                )
+            return self
         for key in kwargs:
             raise ValueError(
                 f"grid() got an unsupported keyword argument {key!r}; "

@@ -139,3 +139,58 @@ def test_a_full_page_polar_graph_round_trips(tmp_path):
     again = tmp_path / "again.gle"
     recognized.figure.savefig(str(again))
     assert again.read_text() == path.read_text()
+
+
+def _round_trip(tmp_path, fig):
+    path = tmp_path / "a.gle"
+    fig.savefig(str(path))
+    recognized = parse_gle_figure(path)
+    again = tmp_path / "b.gle"
+    recognized.figure.savefig(str(again))
+    return path.read_text(), again.read_text().replace("b.gle", "a.gle"), recognized
+
+
+def test_a_radial_limit_with_many_digits_round_trips(tmp_path):
+    """The window is derived from rmax as the script writes it."""
+    fig = glp.figure(data_prefix="pr")
+    ax = fig.add_subplot(projection="polar")
+    ax.plot([0, 1], [0.1, 0.2])
+    ax.set_ylim(0, 10 / 21)
+    first, second, recognized = _round_trip(tmp_path, fig)
+    assert second == first
+    assert recognized.warnings == []
+
+
+def test_a_dataset_drawn_without_a_polar_let_stays_raw(tmp_path):
+    path = _written(tmp_path)
+    text = path.read_text().replace(
+        "end graph", "    data pr_0.dat d9=c1,c2\n    d9 line color RED\nend graph", 1
+    )
+    recognized = _recognize(path, text)
+    ax = recognized.figure.axes_list[0]
+    assert "    d9 line color RED" in ax.passthrough
+    assert "    data pr_0.dat d9=c1,c2" in ax.passthrough
+    assert len(ax.lines) == 1
+    assert any("without a polar let" in w for w in recognized.warnings)
+
+
+def test_a_polar_curve_whose_data_is_missing_keeps_its_polar_let(tmp_path):
+    path = _written(tmp_path)
+    (tmp_path / "pr_0.dat").unlink()
+    recognized = _recognize(path)
+    again = tmp_path / "again.gle"
+    recognized.figure.savefig(str(again))
+    # The line, the scatter and the function: each drawn through its let.
+    assert again.read_text().count("*cos(x),") == 3
+
+
+def test_a_blank_line_before_the_label_call_is_tolerated(tmp_path):
+    path = _written(tmp_path)
+    text = path.read_text().replace(
+        "gsave\ngleplot_polar_labels", "gsave\n\ngleplot_polar_labels"
+    )
+    recognized = _recognize(path, text)
+    again = tmp_path / "again.gle"
+    recognized.figure.savefig(str(again))
+    assert again.read_text().count("gleplot_polar_labels 2.5") == 1
+    assert recognized.warnings == []

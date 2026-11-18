@@ -676,6 +676,7 @@ class Figure:
             ax._polar = True
             ax._frame_off = True
             ax._show_xticks = ax._show_yticks = False
+            ax.xgrid = ax.ygrid = None
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -2926,8 +2927,13 @@ class Figure:
         fits to ``frame``, and its grid is the polar one.
         """
         xmin, xmax, ymin, ymax = ax.xmin, ax.xmax, ax.ymin, ax.ymax
-        # Set by _resolve_axis_limits on every polar axes.
-        rmax = ax.ymax if ax._polar else None
+        # Set by _resolve_axis_limits on every polar axes. Rounded as the
+        # script writes it, so a parsed figure derives the same window.
+        rmax = (
+            float(GLEWriter._format_number(ax.ymax))
+            if ax._polar and ax.ymax is not None
+            else None
+        )
         if rmax is not None:
             xr, yr = polar_window(rmax, frame, fontsize_pt_to_cm(self.style.fontsize))
             xmin, xmax, ymin, ymax = -xr, xr, -yr, yr
@@ -3670,10 +3676,12 @@ class Figure:
         # panel is one the shared range may hand back to GLE if it collapses
         # (see _defer_degenerate_range). The union of several panels is rarely
         # a point, but it is whenever they all sit on the same single value.
-        lo_auto = all(ax.xmin is None for ax in self.axes_list)
-        hi_auto = all(ax.xmax is None for ax in self.axes_list)
+        # A polar axes' limits are its own (see _resolve_axis_limits).
+        shared = [ax for ax in self.axes_list if not ax._polar]
+        lo_auto = all(ax.xmin is None for ax in shared)
+        hi_auto = all(ax.xmax is None for ax in shared)
 
-        for ax in self.axes_list:
+        for ax in shared:
             # Calculate data limits if not explicitly set
             if ax.xmin is None or ax.xmax is None:
                 data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
@@ -3695,7 +3703,7 @@ class Figure:
                 hi_global = hi
 
         # Apply global limits to all axes
-        for ax in self.axes_list:
+        for ax in shared:
             if inverted and lo_global is not None and hi_global is not None:
                 ax.xmin, ax.xmax = hi_global, lo_global
             else:
@@ -3710,10 +3718,12 @@ class Figure:
         inverted = False
 
         # See _synchronize_x_limits.
-        lo_auto = all(ax.ymin is None for ax in self.axes_list)
-        hi_auto = all(ax.ymax is None for ax in self.axes_list)
+        # A polar axes' limits are its own (see _resolve_axis_limits).
+        shared = [ax for ax in self.axes_list if not ax._polar]
+        lo_auto = all(ax.ymin is None for ax in shared)
+        hi_auto = all(ax.ymax is None for ax in shared)
 
-        for ax in self.axes_list:
+        for ax in shared:
             # Calculate data limits if not explicitly set
             if ax.ymin is None or ax.ymax is None:
                 data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
@@ -3731,7 +3741,7 @@ class Figure:
                 hi_global = hi
 
         # Apply global limits to all axes
-        for ax in self.axes_list:
+        for ax in shared:
             if inverted and lo_global is not None and hi_global is not None:
                 ax.ymin, ax.ymax = hi_global, lo_global
             else:

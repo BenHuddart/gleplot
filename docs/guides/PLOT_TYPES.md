@@ -213,7 +213,8 @@ otherwise. A grid of rings and spokes, labelled with the angles and radii,
 replaces the frame. `set_ylim(0, rmax)` sets the outer ring; otherwise it is
 the largest radius in the data, rounded up to a ring, or 1 for function
 curves alone. Legends and the title work as on any axes. Other plotting
-methods raise `NotImplementedError` on a polar axes.
+methods raise `NotImplementedError` on a polar axes; see the
+[migration guide](MATPLOTLIB_MIGRATION.md#polar-axes) for the details.
 
 ## Other plot types
 

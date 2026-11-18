@@ -285,7 +285,7 @@ def polar_ring_step(rmax: float) -> float:
     magnitude = 10.0 ** math.floor(math.log10(raw))
     for factor in (1.0, 2.0, 2.5, 5.0, 10.0):
         if factor * magnitude >= raw * (1 - 1e-9):
-            return float(GLEWriter._format_number(factor * magnitude))
+            return float(f"{factor * magnitude:.6g}")
     return 10.0 * magnitude  # pragma: no cover - 10 always qualifies
 
 
@@ -4301,7 +4301,8 @@ class GLEWriter:
             data_cmd += f" {d_yerr}=c{x_col},c{yerr_col}"
         self.lines_gle.append(data_cmd + self._data_read_clause(series))
 
-        line_cmd = f"    {d_main}"
+        d_draw = self._polar_dataset(d_main) if self._polar_graph else d_main
+        line_cmd = f"    {d_draw}"
         # Both branches must set ``color``: GLE draws the error bars in the
         # dataset's colour and an unstyled dataset falls back to black (see
         # :meth:`add_errorbar_series`). ``None`` is a recovered reference
@@ -4410,7 +4411,8 @@ class GLEWriter:
         # figure-wide smoothing. A line mode must not: fitbez runs before
         # the mode is drawn and would replace the discrete join.
         smooth_mode = "none" if line_mode else None
-        line_cmd = f"    {d_main}{self._line_token(smooth_mode, line_mode=line_mode)}"
+        d_draw = self._polar_dataset(d_main) if self._polar_graph else d_main
+        line_cmd = f"    {d_draw}{self._line_token(smooth_mode, line_mode=line_mode)}"
         if nomiss:
             line_cmd += " nomiss"
         line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
@@ -4966,9 +4968,10 @@ class GLEWriter:
     def add_polar_frame(self, rmax: float) -> None:
         """Make the open graph block a polar axes out to radius ``rmax``.
 
+        ``rmax`` is as written to the script (see :meth:`_format_number`).
         Draws the grid (:data:`POLAR_SUB`) in layer
         :data:`POLAR_GRID_LAYER` and queues the tick labels for after ``end
-        graph``, ahead of the axes' other deferred text. Every curve written
+        graph``, ahead of the axes' other deferred text. Every dataset drawn
         after this goes through :meth:`_polar_dataset`. Call it after
         :meth:`add_axes`, whose window must already be the one
         :func:`polar_window` gives.

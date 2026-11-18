@@ -1899,7 +1899,10 @@ class _Recognizer:
         # axes' tick-label call leads it (see _try_one_text).
         self._polar_labels_rmax = axes_info["polar_rmax"]
         texts, consumed = self._consume_text_cluster(nodes, after_key)
-        if self._polar_labels_rmax is not None:
+        self._polar_labels_rmax = None
+        if axes_info["polar_rmax"] is not None and not any(
+            t is _POLAR_LABELS for t in texts
+        ):
             self._note(
                 ImportCategory.STRUCTURE,
                 "the polar axes has no 'gleplot_polar_labels' call matching "
@@ -1907,7 +1910,6 @@ class _Recognizer:
                 "again on save",
                 None,
             )
-            self._polar_labels_rmax = None
         texts = [t for t in texts if t is not _POLAR_LABELS]
         axes_info["texts"] = [t for t in texts if not isinstance(t, (Wedge, Box))]
         axes_info["wedges"] = [t for t in texts if isinstance(t, Wedge)]
@@ -2708,6 +2710,20 @@ class _Recognizer:
         were merged into it in pass 1.
         """
         name = info["_polar_aliases"].get(stmt.keyword, stmt.keyword)
+        if (
+            info["polar_rmax"] is not None
+            and stmt.keyword not in info["_polar_aliases"]
+        ):
+            # In a polar graph gleplot draws every dataset through a polar
+            # let; one drawn as it is would be redrawn through one on save.
+            info["passthrough"].append(self._stmt_text(stmt))
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"'{stmt.keyword}' is drawn in a polar graph without a polar "
+                "let; it was kept as raw GLE",
+                (stmt.line_no, stmt.line_no),
+            )
+            return
         if name in pass1.emitted:
             return
         if name in info["_guide_key_datasets"]:
@@ -4805,8 +4821,13 @@ class _Recognizer:
         for target in list(info["_function_lets"]):
             mentions = _mention_count(texts, target)
             attr_toks = pass1.merged_attr_toks.get(target)
+            drawn_as_is = (
+                info["polar_rmax"] is not None
+                and target not in info["_polar_aliases"].values()
+            )
             if (
-                mentions != 1
+                drawn_as_is
+                or mentions != 1
                 or not attr_toks
                 or not _plain_function_line(attr_toks)
                 or not self._load_fit_data(texts, pass1, info, target)
@@ -7916,7 +7937,7 @@ class _Recognizer:
         stmt = self._as_statement(nodes[i]) if i < n else None
         if (
             stmt is not None
-            and i == start
+            and i == self._skip_blanks(nodes, start)
             and (stmt.keyword or "").lower() == "gleplot_polar_labels"
             and self._is_polar_labels_call(stmt)
         ):

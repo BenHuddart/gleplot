@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+import warnings
+
 import numpy as np
 import pytest
 
@@ -184,7 +187,7 @@ def test_an_unknown_projection_raises():
         lambda ax: ax.bar([1], [1]),
         lambda ax: ax.text(0, 1, "t"),
         lambda ax: ax.set_xlim(0, 1),
-        lambda ax: ax.grid(True),
+        lambda ax: ax.set_xticks([0, 1]),
         lambda ax: ax.step([0, 1], [1, 1]),
         lambda ax: ax.pie([1, 2]),
     ],
@@ -196,18 +199,66 @@ def test_cartesian_only_methods_raise_on_a_polar_axes(call):
 
 
 @pytest.mark.parametrize(
-    "kwargs,name",
+    "kwargs,shown",
     [
-        ({"yaxis": "y2"}, "yaxis"),
-        ({"offset": 1.0}, "offset"),
-        ({"drawstyle": "steps"}, "drawstyle"),
-        ({"xmax": 1.0}, "xmax"),
+        ({"yaxis": "y2"}, "yaxis='y2'"),
+        ({"offset": 1.0}, "offset=1.0"),
+        ({"drawstyle": "steps"}, "drawstyle='steps'"),
+        ({"line_mode": "impulses"}, "line_mode='impulses'"),
+        ({"ds": "steps"}, "ds='steps'"),
+        ({"xmax": 1.0}, "xmax=1.0"),
     ],
 )
-def test_cartesian_plot_keywords_raise_on_a_polar_axes(kwargs, name):
+def test_cartesian_plot_keywords_raise_on_a_polar_axes(kwargs, shown):
     _fig, ax = _polar()
-    with pytest.raises(ValueError, match=f"plot\\({name}="):
+    with pytest.raises(ValueError, match=re.escape(shown)):
         ax.plot([0, 1], [1, 2], **kwargs)
+
+
+def test_a_scatter_keyword_is_named_as_passed():
+    _fig, ax = _polar()
+    with pytest.raises(ValueError, match="yaxis='y2'"):
+        ax.scatter([0, 1], [1, 2], yaxis="y2")
+
+
+def test_drawstyle_default_is_accepted():
+    _fig, ax = _polar()
+    ax.plot([0, 1], [1, 2], drawstyle="default")
+    assert len(ax.lines) == 1
+
+
+def test_grid_true_is_a_no_op_and_hiding_warns():
+    _fig, ax = _polar()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ax.grid(True)
+    for call in (lambda: ax.grid(False), lambda: ax.grid(), lambda: ax.grid(color="r")):
+        with pytest.warns(UserWarning, match="polar axes"):
+            call()
+    assert ax.xgrid is None and ax.ygrid is None
+
+
+def test_the_figure_wide_grid_default_does_not_reach_a_polar_axes():
+    fig = glp.figure(data_prefix="pl", graph=glp.GLEGraphConfig(show_grid=True))
+    fig.add_subplot(projection="polar").plot([0, 1], [1, 2])
+    lines, _text = _graph_lines(fig)
+    assert not any(line.split()[-1] == "grid" for line in lines)
+
+
+def test_a_shared_y_axis_leaves_the_radial_limit_alone():
+    fig = glp.Figure(data_prefix="pl", sharey=True)
+    fig.add_subplot(1, 2, 1).plot([0, 1], [-5, 10])
+    fig.add_subplot(1, 2, 2, projection="polar").plot([0, 1], [1, 2])
+    text, _files = fig._generate_gle_with_files()
+    assert "draw gleplot_polar_grid 2 0.5" in text
+    assert fig.axes_list[1].get_ylim() == (0.0, 2.0)
+
+
+def test_a_tiny_radius_does_not_divide_by_zero():
+    fig, ax = _polar()
+    ax.plot([0, 1], [1e-10, 2e-10])
+    fig._generate_gle_with_files()
+    assert ax.get_ylim()[1] > 0
 
 
 @pytest.mark.parametrize(
