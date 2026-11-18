@@ -176,6 +176,7 @@ def normalize(d: dict) -> dict:
                 "scatters",
                 "bars",
                 "hists",
+                "functions",
                 "fills",
                 "errorbars",
                 "file_series",
@@ -232,13 +233,21 @@ def normalize(d: dict) -> dict:
             if ax.get(key) is not None:
                 ax[key] = _snap_linewidth(ax[key])
 
-        for group in ("lines", "scatters", "errorbars", "hists"):
+        for group in ("lines", "scatters", "errorbars", "hists", "functions"):
             for s in ax.get(group, []):
                 if "markersize" in s:
                     s["markersize"] = _snap_msize(s["markersize"])
                 if "linewidth" in s:
                     s["linewidth"] = _snap_linewidth(s["linewidth"])
-                for key in ("hist_from", "hist_to", "bar_width", "bin_step"):
+                for key in (
+                    "hist_from",
+                    "hist_to",
+                    "bar_width",
+                    "bin_step",
+                    "let_from",
+                    "let_to",
+                    "let_step",
+                ):
                     if isinstance(s.get(key), (int, float)):
                         s[key] = _snap_num(s[key])
         for s in ax.get("file_series", []):
@@ -1258,3 +1267,104 @@ def test_a_hist_let_with_no_display_command_stays_raw(tmp_path):
     assert ax.hists == []
     assert any("let d2 = hist d1" in ln for ln in ax.passthrough)
     assert any("histogram let d2 was not paired" in w for w in recognized.warnings)
+
+
+def _graph_file(tmp_path, *body):
+    src = tmp_path / "fn.gle"
+    src.write_text(
+        "size 12 9\nbegin graph\n    size 12 9\n"
+        + "".join(f"    {line}\n" for line in body)
+        + "end graph\n",
+        encoding="utf-8",
+    )
+    return src
+
+
+def test_a_hand_written_function_let_becomes_a_function_series(tmp_path):
+    src = _graph_file(
+        tmp_path,
+        "let d1 = sin(x) from 0 to 6.28 step 0.05",
+        'd1 line color red key "sine"',
+        "let d2 = exp(-x) from -1 to 2",
+        "d2 lstyle 2",
+        "d2 line",
+    )
+    rec = parse_gle_figure(src)
+    ax = rec.figure.axes_list[0]
+    assert [dict(s) for s in ax.functions] == [
+        {
+            "expression": "sin(x)",
+            "let_from": 0.0,
+            "let_to": 6.28,
+            "let_step": 0.05,
+            "color": "red",
+            "linestyle": "-",
+            "linewidth": None,
+            "label": "sine",
+            "_draw_seq": 0,
+        },
+        {
+            "expression": "exp(-x)",
+            "let_from": -1.0,
+            "let_to": 2.0,
+            "color": None,
+            "linestyle": ":",
+            "linewidth": None,
+            "_draw_seq": 1,
+        },
+    ]
+    assert ax.passthrough == []
+    text = rec.figure._generate_gle()
+    assert "    let d1 = sin(x) from 0 to 6.28 step 0.05\n" in text
+    assert '    d1 line color red key "sine"\n' in text
+    assert "    let d2 = exp(-x) from -1 to 2\n    d2 line lstyle 2\n" in text
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # A space GLE does not end the expression at, inside brackets.
+        ("let d1 = sin(x)*(x + 1) from 0 to 1", "d1 line"),
+        # Parametric, a dataset reference, an option gleplot does not model,
+        # and a bound that is an expression.
+        ("let d1 = sin(x),cos(x) from 0 to 6", "d1 line"),
+        ("let d1 = x from 0 to 1 nsteps 20", "d1 line"),
+        ("let d1 = x from 0 to 2*pi", "d1 line"),
+        # A display add_function would not write back the same.
+        ("let d1 = x from 0 to 1", "d1 line marker circle"),
+        ("let d1 = x from 0 to 1", "d1 line smooth"),
+        ("let d1 = x from 0 to 1", "d1 line lstyle 1"),
+        ("let d1 = x from 0 to 1", 'd1 line key ""'),
+        ("let d1 = x from 0 to 1", "d1 line lwidth 0"),
+        ("let d1 = x from 0 to 1", "d1 marker circle"),
+        # No display, and another command reading the dataset.
+        ("let d1 = x from 0 to 1",),
+        ("let d1 = x from 0 to 1", "d1 line", "fill x1,d1 color blue"),
+    ],
+)
+def test_a_function_let_gleplot_cannot_model_stays_raw_in_place(tmp_path, body):
+    src = _graph_file(tmp_path, *body)
+    rec = parse_gle_figure(src)
+    ax = rec.figure.axes_list[0]
+    assert ax.functions == []
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    written = out.read_text(encoding="utf-8")
+    assert "".join(f"    {line}\n" for line in body) in written
+
+
+def test_a_raw_let_keeps_every_function_let_raw(tmp_path):
+    # Renumbered, the second curve would become d1 and collide with the raw
+    # let that keeps its own name.
+    body = (
+        "let d2 = x from 0 to 1 nsteps 5",
+        "d2 line",
+        "let d5 = sin(x) from 0 to 1",
+        "d5 line",
+    )
+    src = _graph_file(tmp_path, *body)
+    rec = parse_gle_figure(src)
+    assert rec.figure.axes_list[0].functions == []
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "".join(f"    {line}\n" for line in body) in out.read_text("utf-8")

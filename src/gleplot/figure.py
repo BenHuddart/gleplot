@@ -2379,7 +2379,7 @@ class Figure:
     def _write_drawables(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
     ) -> None:
-        """Bars, lines, scatters, histograms and errorbars, in z-order.
+        """Bars, lines, scatters, histograms, functions and errorbars, in z-order.
 
         A bar group is written once, at its first member, as one ``bar``
         statement over all its members.
@@ -2406,6 +2406,8 @@ class Figure:
                 self._write_scatter(writer, series_data, binding)
             elif kind == "hist":
                 self._write_hist(writer, series_data)
+            elif kind == "function":
+                writer.add_function(series_data)
             else:
                 self._write_errorbar(writer, series_data, binding)
 
@@ -3038,6 +3040,17 @@ class Figure:
                 xmin = lo
             if xmax is None or hi > xmax:
                 xmax = hi
+
+        # A function curve spans its sampled range. Its y values are GLE's
+        # to compute, so it adds nothing to the y range.
+        for function in resolution.visible(ax.functions):
+            for value in (function.get("let_from"), function.get("let_to")):
+                if value is None or (positive_only and value <= 0):
+                    continue
+                if xmin is None or value < xmin:
+                    xmin = float(value)
+                if xmax is None or value > xmax:
+                    xmax = float(value)
 
         for fill_data in resolution.visible(ax.fills):
             x = _plottable(np.asarray(fill_data["x"]), positive_only)

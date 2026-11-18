@@ -32,6 +32,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     ErrorbarSeries,
     FileSeries,
     FillSeries,
+    FunctionSeries,
     HeatmapSeries,
     HistSeries,
     LineSeries,
@@ -827,6 +828,41 @@ def validate_tick_format(fmt: str) -> str:
     return text
 
 
+#: A dataset name inside an expression, such as ``d1``.
+_DATASET_NAME_RE = re.compile(r"(?<![A-Za-z0-9_])d[0-9]+(?![A-Za-z0-9_])", re.I)
+
+
+def _function_expression_problem(expression: str) -> Optional[str]:
+    """Why ``expression`` cannot be the body of a ``let``, or ``None``.
+
+    GLE ends a ``let`` expression at the first space, and reads a comma
+    outside brackets as the start of a second (parametric) expression. A
+    dataset name would point at whatever dataset gleplot numbers ``dN``.
+    """
+    if not expression:
+        return "it is empty"
+    if any(ch.isspace() for ch in expression):
+        return "GLE ends the expression at the first space; remove the spaces"
+    for ch in "!;\"'&":
+        if ch in expression:
+            return f"GLE reads {ch!r} as the end of the expression"
+    depth = 0
+    for ch in expression:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                return "it closes a bracket it never opened"
+        elif ch == "," and depth == 0:
+            return "a comma outside brackets starts a second expression"
+    if depth != 0:
+        return "it leaves a bracket open"
+    if _DATASET_NAME_RE.search(expression):
+        return "it names a dataset (dN); gleplot numbers datasets itself"
+    return None
+
+
 #: Linestyle spellings that mean "draw no curve". Shared with ``plot``.
 _NO_LINE = ("", "none", " ", "None")
 
@@ -1614,6 +1650,7 @@ class Axes:
         self.scatters: List[ScatterSeries] = []
         self.bars: List[BarSeries] = []
         self.hists: List[HistSeries] = []
+        self.functions: List[FunctionSeries] = []
         self.fills: List[FillSeries] = []
         self.errorbars: List[ErrorbarSeries] = []
         # External-file series definitions (column references).
@@ -2292,6 +2329,115 @@ class Axes:
 
         if log:
             self.set_yscale("log", axis=draw_yaxis)
+        return self
+
+    def function(
+        self,
+        expression: str,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        step: Optional[float] = None,
+        color: Optional[str] = None,
+        linestyle: str = "-",
+        linewidth: float = 1,
+        label: Optional[str] = None,
+        zorder: Optional[float] = None,
+    ):
+        """Draw a curve that GLE samples from an expression in ``x``.
+
+        Written as ``let dK = expression from xmin to xmax step step``, so
+        the points are computed by GLE and no data file is written. Use
+        :meth:`plot` when you already have the arrays.
+
+        Parameters
+        ----------
+        expression : str
+            A GLE expression in ``x``, such as ``"sin(x)"`` or
+            ``"exp(-x^2/2)"``. It is written as given, without spaces.
+        xmin, xmax : float, optional
+            The sampled range. Omitted, GLE uses the x axis range.
+        step : float, optional
+            Distance between samples. Omitted, GLE takes 100 points. On a
+            log x axis GLE reads ``step`` as the number of points.
+        color : str, optional
+            Line colour; the style's default colour when omitted.
+        linestyle : {'-', '--', ':', '-.'}
+            Line style.
+        linewidth : float
+            Line width in points.
+        label : str, optional
+            Legend entry.
+        zorder : float, optional
+            Drawing order, as for :meth:`plot`.
+
+        Returns
+        -------
+        Axes
+            This axes.
+
+        Notes
+        -----
+        gleplot does not evaluate the expression, so ``xmin`` and ``xmax``
+        widen the x range but nothing widens the y range. Alone on an axes,
+        the curve is scaled by GLE. Beside other data, call :meth:`set_ylim`
+        if the curve leaves that data's range.
+        """
+        if not isinstance(expression, str):
+            raise TypeError(
+                "function() expression must be a str such as 'sin(x)', got "
+                f"{type(expression).__name__}"
+            )
+        problem = _function_expression_problem(expression)
+        if problem is not None:
+            raise ValueError(
+                f"function() expression {expression!r} cannot be used: {problem}."
+            )
+        if linestyle not in ("-", "--", ":", "-."):
+            raise ValueError(
+                "function() linestyle must be '-', '--', ':' or '-.', "
+                f"got {linestyle!r}"
+            )
+        bounds = {}
+        for name, value in (("xmin", xmin), ("xmax", xmax), ("step", step)):
+            if value is None:
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"function() {name} must be a number, got {value!r}"
+                ) from None
+            if not np.isfinite(number):
+                raise ValueError(f"function() {name} must be finite, got {value!r}")
+            bounds[name] = number
+        if "step" in bounds and bounds["step"] <= 0:
+            raise ValueError(f"function() step must be positive, got {step!r}")
+        if "xmin" in bounds and "xmax" in bounds and bounds["xmin"] >= bounds["xmax"]:
+            raise ValueError(
+                f"function() needs xmin < xmax, got xmin={xmin!r}, xmax={xmax!r}"
+            )
+
+        fields: Dict[str, Any] = {"expression": expression}
+        for name, key in (
+            ("xmin", "let_from"),
+            ("xmax", "let_to"),
+            ("step", "let_step"),
+        ):
+            if name in bounds:
+                fields[key] = bounds[name]
+        fields["color"] = self._resolve_color(color)
+        fields["linestyle"] = linestyle
+        try:
+            fields["linewidth"] = float(linewidth)
+        except (TypeError, ValueError):
+            raise TypeError(
+                f"function() linewidth must be a number of points, got {linewidth!r}"
+            ) from None
+        if label is not None:
+            fields["label"] = mathtext_to_gle(str(label))
+        entry = FunctionSeries(**fields)
+        self._register_series_draw_meta(entry, "function", zorder)
+        self.functions.append(entry)
         return self
 
     def _histogram_window(self, sets, bins, range, warn):
@@ -5411,6 +5557,7 @@ class Axes:
             or self.scatters
             or self.bars
             or self.hists
+            or self.functions
             or self.fills
             or self.errorbars
             or self.file_series
@@ -5691,6 +5838,7 @@ class Axes:
         for attr in (
             "bars",
             "hists",
+            "functions",
             "lines",
             "scatters",
             "errorbars",
