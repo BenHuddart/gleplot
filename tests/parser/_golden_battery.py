@@ -679,6 +679,35 @@ def heatmap_brewer_palettes():
     return fig
 
 
+def heatmap_function():
+    """An expression heatmap with a colorbar."""
+    fig = glp.figure(figsize=(7, 6), data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.function2d("sin(x)*cos(y)", extent=(0, 6.28, 0, 6.28), vmin=-1, vmax=1)
+    fig.colorbar(label="z")
+    return fig
+
+
+def heatmap_function_field_options():
+    """Expression heatmap fields :func:`heatmap_function` leaves at defaults.
+
+    The expression has a comma inside brackets and no colour range is
+    written (GLE's 0 to 1).
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.function2d(
+        "atan2(y,x)",
+        extent=(-1, 1, -1, 1),
+        cmap="rainbow",
+        vmin=None,
+        vmax=None,
+        pixels=(60, 40),
+        invert=True,
+    )
+    return fig
+
+
 def contour_grid_levels_clabel():
     """Gridded contour (contour(x, y, Z)) with explicit levels + clabels."""
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
@@ -1379,6 +1408,8 @@ BUILDERS = [
     heatmap_grid_colorbars,
     heatmap_field_options,
     heatmap_brewer_palettes,
+    heatmap_function,
+    heatmap_function_field_options,
     contour_grid_levels_clabel,
     contour_field_options,
     tripcolor_tricontour_combo,

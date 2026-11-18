@@ -5399,8 +5399,11 @@ class GLEWriter:
         ``origin`` row order, as a ``.z`` sidecar. A ``'points'`` heatmap
         writes its ``x``/``y``/``zpts`` samples and a ``begin fitz`` block
         that grids them at ``gridsize`` over ``extent``; ``ncontour`` is
-        omitted, so GLE's default applies.
+        omitted, so GLE's default applies. A ``'function'`` heatmap has no
+        data, so it writes nothing.
         """
+        if series["source"] == "function":
+            return
         data_file = series["data_file"]
         if series["source"] == "points":
             self.add_points_sidecar(data_file, series["x"], series["y"], series["zpts"])
@@ -5416,7 +5419,8 @@ class GLEWriter:
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`.
         ``cmap`` picks the colour mode: ``'gray'`` writes no colour clause,
         ``'rainbow'`` is GLE's built-in ``color``, and any other name is the
-        ``gleplot_<cmap>`` palette sub.
+        ``gleplot_<cmap>`` palette sub. A ``'function'`` heatmap maps its
+        ``expression``, written bare: GLE reads a quoted one as a file name.
         """
         cmap = series["cmap"]
         cmap_mode: Tuple[str, Optional[str]]
@@ -5426,8 +5430,12 @@ class GLEWriter:
             cmap_mode = ("color", None)
         else:
             cmap_mode = ("palette", f"gleplot_{cmap}")
+        if series["source"] == "function":
+            operand = series["expression"]
+        else:
+            operand = _quote_filename(_grid_z_file(series))
         self.add_colormap(
-            _grid_z_file(series),
+            operand,
             series["pixels"],
             cmap_mode,
             series["vmin"],
@@ -5525,7 +5533,7 @@ class GLEWriter:
 
     def add_colormap(
         self,
-        z_file: str,
+        operand: str,
         pixels,
         cmap_mode,
         vmin,
@@ -5535,13 +5543,15 @@ class GLEWriter:
     ):
         """Emit the ``colormap`` statement inside a graph block.
 
-        Clause order (fixed): file, px, py, [color], [invert], [zmin v],
+        ``operand`` is what the colormap maps, as written: a quoted ``.z``
+        file name or a bare expression. Clause order (fixed): operand, px,
+        py, [color], [invert], [zmin v],
         [zmax v], [palette name], [interpolate mode]. ``cmap_mode`` is
         ``('color', None)`` for rainbow, ``('palette', 'gleplot_x')`` for a
         named palette, or ``('gray', None)`` for grayscale (no clause).
         """
         px, py = pixels
-        cmd = f"    colormap {_quote_filename(z_file)} {int(px)} {int(py)}"
+        cmd = f"    colormap {operand} {int(px)} {int(py)}"
         mode, name = cmap_mode
         if mode == "color":
             cmd += " color"

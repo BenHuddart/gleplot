@@ -3120,8 +3120,10 @@ class Axes:
 
     @staticmethod
     def _check_let_expression(caller, expression) -> None:
-        """Reject an expression :meth:`function` or :meth:`fit` cannot write."""
-        example = "sin(x)" if caller == "function" else "a*exp(-x/b)+c"
+        """Reject an expression ``function``/``fit``/``function2d`` cannot write."""
+        example = {"function": "sin(x)", "function2d": "sin(x)*cos(y)"}.get(
+            caller, "a*exp(-x/b)+c"
+        )
         if not isinstance(expression, str):
             raise TypeError(
                 f"{caller}() expression must be a str such as {example!r}, got "
@@ -5826,6 +5828,104 @@ class Axes:
             ncontour=None,
             label=label,
             data_file=data_file,
+            colorbar=None,
+        )
+        self.heatmaps.append(hm)
+        return hm
+
+    @_cartesian_only
+    def function2d(
+        self,
+        expression: str,
+        extent,
+        cmap: Optional[str] = None,
+        vmin: Optional[float] = 0.0,
+        vmax: Optional[float] = 1.0,
+        pixels=None,
+        invert: bool = False,
+        label: Optional[str] = None,
+    ):
+        """Draw a heatmap that GLE computes from an expression in ``x`` and ``y``.
+
+        Written as one ``colormap`` line, such as
+        ``colormap sin(x)*cos(y) 200 200 zmin -1 zmax 1``: GLE evaluates the
+        expression at every pixel, so no data file is written. Use
+        :meth:`imshow` when you already have the array.
+
+        Parameters
+        ----------
+        expression : str
+            A GLE expression in ``x`` and ``y``, such as ``"sin(x)*cos(y)"``
+            or ``"exp(-(x^2+y^2)/2)"``. It is written as given, without
+            spaces.
+        extent : (xmin, xmax, ymin, ymax)
+            The region to show. It sets the axis range the way an
+            :meth:`imshow` extent does.
+        cmap : str, optional
+            Palette name, as for :meth:`imshow`.
+        vmin, vmax : float, optional
+            The values drawn at the two ends of the colour scale (GLE
+            ``zmin``/``zmax``). ``None`` leaves the clause out, and GLE then
+            uses 0 and 1.
+        pixels : int or (px, py), optional
+            Bitmap resolution, as for :meth:`imshow`.
+        invert : bool
+            Invert the colour mapping.
+        label : str, optional
+            Series label (not drawn by the colormap itself).
+
+        Returns
+        -------
+        dict
+            The stored heatmap series dict.
+
+        Notes
+        -----
+        GLE does not look for the range of the expression's values, so the
+        colour scale runs from ``vmin`` to ``vmax`` (0 to 1 by default)
+        rather than from the smallest value to the largest as :meth:`imshow`
+        does. Set them to the range of your function. Values outside are
+        drawn in the end colours.
+
+        GLE fills the whole graph with the map. When other data or
+        :meth:`set_xlim` widens the axes beyond ``extent``, the map covers
+        that wider range too.
+        """
+        self._check_let_expression("function2d", expression)
+        try:
+            ext = [float(v) for v in extent]
+        except (TypeError, ValueError):
+            ext = []
+        if len(ext) != 4:
+            raise ValueError(
+                "function2d() extent must be four numbers (xmin, xmax, ymin, "
+                f"ymax), got {extent!r}"
+            )
+        _require_valid_extent(ext)
+        if self.heatmaps:
+            raise ValueError(
+                "GLE supports at most one heatmap (colormap) per axes; "
+                "this axes already has one"
+            )
+        hm = HeatmapSeries(
+            type="heatmap",
+            source="function",
+            expression=expression,
+            z=None,
+            x=None,
+            y=None,
+            zpts=None,
+            extent=ext,
+            origin="lower",
+            cmap=self._resolve_cmap(cmap),
+            vmin=None if vmin is None else float(vmin),
+            vmax=None if vmax is None else float(vmax),
+            interpolation="bicubic",
+            pixels=self._resolve_pixels(pixels),
+            invert=bool(invert),
+            gridsize=None,
+            ncontour=None,
+            label=self._text(label),
             colorbar=None,
         )
         self.heatmaps.append(hm)

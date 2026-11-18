@@ -1209,7 +1209,9 @@ class _GridSeries(Series):
     Both accept either a regular grid (``source='grid'``, ``z`` plus
     ``extent``) or scattered samples gridded by GLE's ``fitz``
     (``source='points'``, ``x``/``y``/``zpts`` plus ``gridsize``), and both
-    hold their bulk data in the same four array fields.
+    hold their bulk data in the same four array fields. A heatmap may also be
+    an expression GLE evaluates itself (``source='function'``), with no
+    arrays at all.
 
     The shared fields are re-declared in full by each subclass rather than
     inherited: field order here is serialization order, and the two kinds
@@ -1229,13 +1231,18 @@ class _GridSeries(Series):
 
 
 class HeatmapSeries(_GridSeries):
-    """A colormap image -- ``Axes.imshow`` / ``Axes.tripcolor``."""
+    """A colormap image -- ``Axes.imshow`` / ``Axes.tripcolor`` /
+    ``Axes.function2d``."""
 
     ATTR = "heatmaps"
 
     type: str
-    #: ``'grid'`` or ``'points'``.
+    #: ``'grid'``, ``'points'`` or ``'function'``.
     source: str
+    #: The GLE expression in ``x`` and ``y`` a ``'function'`` heatmap maps;
+    #: absent on the other sources. Such a heatmap has no arrays and no
+    #: ``data_file``: GLE evaluates the expression at every pixel.
+    expression: str
     z: Optional[np.ndarray]
     x: Optional[np.ndarray]
     y: Optional[np.ndarray]
