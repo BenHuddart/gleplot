@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v4.1.0 (2026-11-18)
+
+### Features
+
+- Curves computed from other series with Axes.derived
+  ([#76](https://github.com/BenHuddart/gleplot/pull/76),
+  [`4c87fe0`](https://github.com/BenHuddart/gleplot/commit/4c87fe0d5f909ee965ca30576221c794c005bfb4))
+
+- Free page drawing with Figure.circle, ellipse, arc, bezier, curve, polygon, table and tex
+  ([#60](https://github.com/BenHuddart/gleplot/pull/60),
+  [`9402ff9`](https://github.com/BenHuddart/gleplot/commit/9402ff9ba5c882dccb4b7f82a738b088ae649308))
+
+- Per-point marker sizes for scatter ([#70](https://github.com/BenHuddart/gleplot/pull/70),
+  [`d2394af`](https://github.com/BenHuddart/gleplot/commit/d2394af296e99192102428254bd57dc5ede99a40))
+
+
 ## v4.0.0 (2026-11-18)
 
 ### Bug Fixes
