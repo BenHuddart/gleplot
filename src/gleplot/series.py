@@ -1448,8 +1448,8 @@ class PlacedImage(Series):
     #: The image path exactly as given; GLE reads a relative path from the
     #: folder the ``.gle`` script is in.
     file: str
-    #: ``[left, right, bottom, top]`` in data coordinates; a reversed pair
-    #: flips the image.
+    #: ``[left, right, bottom, top]`` in data coordinates, each pair
+    #: ascending.
     extent: List[float]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool

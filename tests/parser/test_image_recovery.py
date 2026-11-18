@@ -6,7 +6,7 @@ import pytest
 
 import gleplot as glp
 from gleplot.parser import parse_gle_figure
-from gleplot.writer import IMAGE_SUB
+from gleplot.writer import IMAGE_SUBS
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +20,7 @@ def _parse(tmp_path, body: str):
     path = tmp_path / "image.gle"
     path.write_text(
         "size 10 10\n\n"
-        + IMAGE_SUB
+        + "\n\n".join(IMAGE_SUBS.values())
         + "\n\nbegin graph\n"
         + "    xaxis min 0 max 10\n"
         + "    yaxis min 0 max 5\n"

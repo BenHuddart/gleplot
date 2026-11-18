@@ -5742,14 +5742,16 @@ class Axes:
             double quote, or ``extent`` is not four finite numbers with
             ``left < right`` and ``bottom < top``.
         TypeError
-            If ``fname`` is not a string or path.
+            If ``fname`` is not a string or path, or ``extent`` is not a
+            sequence of numbers.
 
         Notes
         -----
         The image is drawn behind the grid and the data, and clipped to the
-        axes. Its extent takes part in autoscaling. An EPS file is drawn only
-        when GLE compiles through PostScript: not to SVG, and not when the
-        figure needs GLE's Cairo device for transparency.
+        axes. Its extent takes part in autoscaling, and on a log axis it must
+        be positive. An EPS file is drawn only when GLE compiles through
+        PostScript: not to SVG, and not with GLE's Cairo device, which a
+        figure with semi-transparent colours needs.
         """
         if not isinstance(fname, (str, os.PathLike)):
             raise TypeError(
@@ -5766,10 +5768,19 @@ class Axes:
                 f"image(fname={path!r}) contains a double quote, which a GLE "
                 "string cannot hold; rename the file."
             )
-        ext = [float(v) for v in extent]
+        try:
+            if isinstance(extent, str):
+                raise TypeError
+            ext = [float(v) for v in extent]
+        except (TypeError, ValueError):
+            raise TypeError(
+                f"image(extent={extent!r}) must be four numbers "
+                "(left, right, bottom, top)."
+            ) from None
         if len(ext) != 4:
             raise ValueError(
-                f"image(extent={extent!r}) must be (left, right, bottom, top)."
+                f"image(extent={extent!r}) must be four numbers "
+                "(left, right, bottom, top)."
             )
         _require_valid_extent(ext)
         entry = PlacedImage(type="image", file=path, extent=ext)

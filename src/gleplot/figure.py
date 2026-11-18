@@ -40,7 +40,7 @@ from .writer import (
     DEFAULT_COLORBAR_NTICKS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
-    IMAGE_SUB,
+    IMAGE_SUBS,
     WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
@@ -2079,13 +2079,12 @@ class Figure:
                 reason = (
                     "in SVG output"
                     if format.lower() == "svg"
-                    else "when the figure needs GLE's Cairo device for "
-                    "semi-transparent colours"
+                    else "with GLE's Cairo device (cairo=True, or "
+                    "semi-transparent colours)"
                 )
                 warn_external(
                     f"image(...) EPS files are not drawn {reason}; convert the "
-                    "image to PNG, or save as PDF, EPS or PNG without "
-                    "transparency."
+                    "image to PNG, or save as PDF, EPS or PNG without Cairo."
                 )
             # Under usetex LaTeX draws every label, so no GLE font is used.
             if effective_cairo and not self.style.usetex:
@@ -2657,8 +2656,12 @@ class Figure:
         subs.extend(mdata_sub_text(marker) for marker in sorted(sized_markers))
         if any(ax._polar for ax in self.axes_list):
             subs.append(POLAR_SUB)
-        if any(resolution.visible(ax.images) for ax in self.axes_list):
-            subs.append(IMAGE_SUB)
+        used_images = {
+            image_sub_name(image["file"])
+            for ax in self.axes_list
+            for image in resolution.visible(ax.images)
+        }
+        subs.extend(text for name, text in IMAGE_SUBS.items() if name in used_images)
         return subs
 
     def _write_drawings(self, writer: GLEWriter) -> None:
@@ -3925,7 +3928,11 @@ class Figure:
                 if xmax is None or x.max() > xmax:
                     xmax = float(x.max())
 
-        for series in resolution.visible(ax.heatmaps) + resolution.visible(ax.contours):
+        for series in (
+            resolution.visible(ax.heatmaps)
+            + resolution.visible(ax.contours)
+            + resolution.visible(ax.images)
+        ):
             extent = series.get("extent")
             if not extent:
                 # A reference-backed grid series with an auto extent (SPEC
@@ -3948,14 +3955,6 @@ class Figure:
             pos = float(box["x"])
             half = max(0.5, float(box["width"]) / 2)
             ends = _plottable(np.array([pos - half, pos, pos + half]), positive_only)
-            if len(ends) > 0:
-                if xmin is None or ends.min() < xmin:
-                    xmin = float(ends.min())
-                if xmax is None or ends.max() > xmax:
-                    xmax = float(ends.max())
-
-        for image in resolution.visible(ax.images):
-            ends = _plottable(np.asarray(image["extent"][:2]), positive_only)
             if len(ends) > 0:
                 if xmin is None or ends.min() < xmin:
                     xmin = float(ends.min())
@@ -4075,7 +4074,11 @@ class Figure:
                     if ymax is None or y.max() > ymax:
                         ymax = float(y.max())
 
-        for series in resolution.visible(ax.heatmaps) + resolution.visible(ax.contours):
+        for series in (
+            resolution.visible(ax.heatmaps)
+            + resolution.visible(ax.contours)
+            + resolution.visible(ax.images)
+        ):
             extent = series.get("extent")
             if not extent:
                 continue  # auto extent, unresolved -- see _get_data_xlim
@@ -4098,14 +4101,6 @@ class Figure:
                     ymin = float(all_y.min())
                 if ymax is None or all_y.max() > ymax:
                     ymax = float(all_y.max())
-
-        for image in resolution.visible(ax.images):
-            ends = _plottable(np.asarray(image["extent"][2:]), positive_only)
-            if len(ends) > 0:
-                if ymin is None or ends.min() < ymin:
-                    ymin = float(ends.min())
-                if ymax is None or ends.max() > ymax:
-                    ymax = float(ends.max())
 
         # Horizontal guides carry a data y-coordinate (see _get_data_xlim for
         # the mirror-image reasoning).

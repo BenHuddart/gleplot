@@ -67,12 +67,15 @@ def test_a_path_object_is_stored_as_its_string():
     assert ax.images[0]["file"] == "figs/photo.png"
 
 
-def test_the_subs_are_defined_once_and_only_when_an_image_is_drawn():
+def test_each_sub_is_defined_once_and_only_when_an_image_uses_it():
     fig, ax = glp.subplots()
     ax.plot([0, 1], [0, 1])
     assert "sub gleplot_bitmap" not in _script(fig)
 
     ax.image("a.png", extent=(0, 1, 0, 1))
+    ax.image("c.png", extent=(0, 1, 0, 1))
+    assert "sub gleplot_postscript" not in _script(fig)
+
     ax.image("b.eps", extent=(0, 1, 0, 1))
     text = _script(fig)
     assert text.count("sub gleplot_bitmap ") == 1
@@ -148,6 +151,13 @@ def test_a_bad_extent_is_rejected(extent, message):
     assert ax.images == []
 
 
+@pytest.mark.parametrize("extent", [None, 5, "0123", (0, 1, 0, "a")])
+def test_an_extent_that_is_not_numbers_is_a_type_error(extent):
+    _fig, ax = glp.subplots()
+    with pytest.raises(TypeError, match=r"image\(extent=.*\) must be four numbers"):
+        ax.image("a.png", extent=extent)
+
+
 def _compile_mocked(fig, path, **kwargs):
     fig.compiler = mock.Mock()
     with warnings.catch_warnings(record=True) as caught:
@@ -161,7 +171,7 @@ def test_an_eps_image_warns_when_saved_as_svg(tmp_path):
     ax.image("logo.eps", extent=(0, 1, 0, 1))
     assert _compile_mocked(fig, tmp_path / "out.svg") == [
         "image(...) EPS files are not drawn in SVG output; convert the image "
-        "to PNG, or save as PDF, EPS or PNG without transparency."
+        "to PNG, or save as PDF, EPS or PNG without Cairo."
     ]
 
 
@@ -170,7 +180,14 @@ def test_an_eps_image_warns_when_the_figure_needs_cairo(tmp_path):
     ax.image("logo.eps", extent=(0, 1, 0, 1))
     ax.fill_between([0, 1], [0, 0], [1, 1], alpha=0.5)
     (message,) = _compile_mocked(fig, tmp_path / "out.pdf")
-    assert "Cairo device" in message
+    assert "not drawn with GLE's Cairo device" in message
+
+
+def test_an_eps_image_warns_when_cairo_is_forced(tmp_path):
+    fig, ax = glp.subplots()
+    ax.image("logo.eps", extent=(0, 1, 0, 1))
+    (message,) = _compile_mocked(fig, tmp_path / "out.pdf", cairo=True)
+    assert "cairo=True" in message
 
 
 def test_an_eps_image_does_not_warn_through_postscript(tmp_path):

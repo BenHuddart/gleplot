@@ -323,27 +323,29 @@ def polar_window(
 
 #: The subs that draw a placed image (:meth:`GLEWriter.add_image`) from
 #: inside the graph block, where ``xg()``/``yg()`` map data coordinates to
-#: the page. ``bitmap`` reads PNG, JPEG, GIF and TIFF files; ``postscript``
-#: reads EPS, and only GLE's PostScript route draws it (with ``-cairo`` it
-#: draws nothing).
-IMAGE_SUB = """sub gleplot_bitmap f$ x0 x1 y0 y1
+#: the page, keyed by name; a script defines the ones its images use.
+#: ``bitmap`` reads PNG, JPEG, GIF and TIFF files; ``postscript`` reads EPS,
+#: and only GLE's PostScript route draws it (with ``-cairo`` it draws
+#: nothing).
+IMAGE_SUBS: Dict[str, str] = {
+    "gleplot_bitmap": """sub gleplot_bitmap f$ x0 x1 y0 y1
    ! Image file f$ stretched from (x0, y0) to (x1, y1) in data coordinates.
    amove xg(x0) yg(y0)
    bitmap f$ xg(x1)-xg(x0) yg(y1)-yg(y0)
-end sub
-
-sub gleplot_postscript f$ x0 x1 y0 y1
+end sub""",
+    "gleplot_postscript": """sub gleplot_postscript f$ x0 x1 y0 y1
    ! EPS file f$ stretched from (x0, y0) to (x1, y1) in data coordinates.
    amove xg(x0) yg(y0)
    postscript f$ xg(x1)-xg(x0) yg(y1)-yg(y0)
-end sub"""
+end sub""",
+}
 
 #: Graph layer of a placed image: below GLE's grid (200), so the grid, the
 #: fills, the axes and the data are all drawn over it. A graph ``draw`` is
 #: clipped to the frame.
 IMAGE_LAYER = 150
 
-#: Image file extension (lower case) -> the :data:`IMAGE_SUB` sub drawing it.
+#: Image file extension (lower case) -> the :data:`IMAGE_SUBS` sub drawing it.
 _IMAGE_SUB_BY_SUFFIX = {
     ".png": "gleplot_bitmap",
     ".jpg": "gleplot_bitmap",
@@ -355,12 +357,8 @@ _IMAGE_SUB_BY_SUFFIX = {
 }
 
 
-#: The names of the :data:`IMAGE_SUB` subs.
-IMAGE_SUB_NAMES = frozenset(_IMAGE_SUB_BY_SUFFIX.values())
-
-
 def image_sub_name(path: str) -> Optional[str]:
-    """The :data:`IMAGE_SUB` sub that draws ``path``, by its extension.
+    """The :data:`IMAGE_SUBS` sub that draws ``path``, by its extension.
 
     ``None`` for a file type GLE cannot place.
     """
@@ -5082,7 +5080,7 @@ class GLEWriter:
         """Draw a placed image as a layered ``draw`` call in the graph block.
 
         ``series`` is a :class:`~gleplot.series.PlacedImage`. The call is a
-        :data:`IMAGE_SUB` sub chosen by the file's extension, in layer
+        :data:`IMAGE_SUBS` sub chosen by the file's extension, in layer
         :data:`IMAGE_LAYER`, so the image lies under the grid and the data
         and is clipped to the frame.
         """

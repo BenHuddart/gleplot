@@ -331,7 +331,7 @@ from ..series import (
 )
 from ..writer import (
     IMAGE_LAYER,
-    IMAGE_SUB_NAMES,
+    IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_GRID_LAYER,
     GLEWriter,
@@ -3078,7 +3078,7 @@ class _Recognizer:
             if (
                 call.startswith("gleplot_")
                 and call != "gleplot_polar_grid"
-                and call not in IMAGE_SUB_NAMES
+                and call not in IMAGE_SUBS
             ):
                 self._note(
                     ImportCategory.STRUCTURE,
@@ -3148,7 +3148,7 @@ class _Recognizer:
         if len(toks) < 2 or (stmt.keyword or "").lower() != "draw":
             return None
         call = toks[1].value.lower()
-        if call not in IMAGE_SUB_NAMES:
+        if call not in IMAGE_SUBS:
             return None
         args = self._guide_call_args(toks, 2)
         if (
