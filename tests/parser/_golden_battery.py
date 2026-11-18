@@ -1082,6 +1082,44 @@ def closed_form_fits():
     return fig
 
 
+def derived_curves():
+    """Curves GLE computes from other series, with each option.
+
+    Sources of every accepted kind, one with an offset (read without it),
+    and a file line; then ``from``/``to``/``nsteps``, ``where``, ``range``
+    and a ``step``. Each names its sources in the order they first appear,
+    which is the order the recognizer gives them.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0.0, 4.0, 9)
+    ax.plot(x, x**2, label="square")
+    ax.scatter(x, x, offset=1.0)
+    ax.line_from_file("external.dat", 1, 2, color="blue")
+    ax.function("sin(x)", xmin=0, xmax=4)
+    ax.fit(x, 0.5 * x, model="linear")
+    ax.derived(
+        "d1-d2",
+        [ax.lines[0], ax.file_series[0]],
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label="difference",
+    )
+    ax.derived(
+        "d1*d2+d3",
+        [ax.fits[0], ax.functions[0], ax.scatters[0]],
+        xmin=0,
+        xmax=4,
+        nsteps=20,
+        where="d3>1",
+        range=ax.fits[0],
+    )
+    ax.derived("(d1+d2)/2", [ax.lines[0], ax.scatters[0]], xmin=1, step=0.5)
+    ax.legend()
+    return fig
+
+
 def histogram_field_options():
     """Histogram fields the other builders leave at their defaults.
 
@@ -1291,6 +1329,7 @@ BUILDERS = [
     function_curves,
     fit_curves,
     closed_form_fits,
+    derived_curves,
     histogram_field_options,
     axes_styling_full,
     axis_lines_fonts_and_tick_placement,

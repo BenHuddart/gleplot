@@ -122,6 +122,38 @@ first variable and the prefactor `a` in the second, the reverse of what the
 GLE manual says. gleplot keeps such a `let`, and one with a `step`, a data
 window or a `limit_data` option, as raw GLE.
 
+## Curves computed from other series
+
+GLE can also compute a curve from series already on the axes. In the
+expression, `d1` ... `dn` stand for the series in `sources`, in order:
+
+```python
+ax.line_from_file('run1.dat', x_col=1, y_col=2)
+ax.line_from_file('run2.dat', x_col=1, y_col=2)
+a, b = ax.file_series
+ax.derived('d1-d2', [a, b], label='difference')  # let d3 = d1-d2
+```
+
+The numbers stay inside GLE, so this works on data gleplot never reads.
+Sources are line, scatter, `line_from_file`, function and fit series of the
+same axes, taken from `ax.lines`, `ax.scatters`, `ax.file_series`,
+`ax.functions` and `ax.fits`. GLE computes the curve at the x values of every
+source, interpolating the others where they have no point. `range` limits
+that to the x values of the series it names, `where` keeps only the points
+where an expression is true, and `xmin`, `xmax` with `step` or `nsteps` add
+evenly spaced x values:
+
+```python
+ax.derived('(d1+d2)/2', [a, b], where='d1>0', range=a)
+```
+
+The curve is drawn after every other data series of the axes. A source
+with an `offset` is read without it. gleplot does not evaluate the
+expression, so the curve does not widen the y range. Only GLE's
+single-expression `let` is written; a hand-written parametric
+`let d2 = x-exp, y-exp` stays raw GLE, as does a `let` that reads a dataset
+gleplot does not model as one of these series.
+
 ## Marker spacing, thinning and clipping
 
 ```python

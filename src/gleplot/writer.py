@@ -58,6 +58,7 @@ from .parser.units import (
     linewidth_pt_to_cm,
 )
 from .series import (
+    _DATASET_NAME_RE,
     SERIES_CLASSES,
     BarSeries,
     ErrorbarSeries,
@@ -1180,6 +1181,9 @@ class GLEWriter:
         self.dataset_index = (
             1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         )
+        # id of each series written as one dataset -> the raw (unshifted) name
+        # it was given, for the ``let`` of a DerivedSeries that reads it.
+        self._dataset_names: Dict[int, str] = {}
         # Column breaks for the graph key, as 1-based entry counts. Empty
         # unless this write is showing a legend with ncol > 1. Counted by
         # _finish_legend_entry as each real key label is emitted, in the
@@ -2643,6 +2647,7 @@ class GLEWriter:
         # Generate plot command with unique dataset name
         d_name = f"d{self.dataset_index}"
         self.dataset_index += 1
+        self._dataset_names[id(series)] = d_name
 
         cmd = (
             f"    data {_format_data_filename(file_name)} "
@@ -2765,6 +2770,7 @@ class GLEWriter:
             if name in series:
                 line[name] = series[name]
         self.add_line(line, binding=binding)
+        self._dataset_names[id(series)] = self._dataset_names.pop(id(line))
 
     def _add_sized_scatter(self, series: Series, binding: Optional[ColumnBinding]):
         """A scatter whose points each have their own size (GLE ``mdata``).
@@ -3186,14 +3192,47 @@ class GLEWriter:
             definition = f"fit {source} with {series['expression']}"
         self._let_curve(definition, series)
 
-    def _let_curve(self, definition: str, series: Series) -> None:
-        """``let dK = <definition> [from a] [to b] [step h]`` and its line."""
+    def add_derived(
+        self, series: Series, sources: Sequence[Series], ranges: Sequence[Series]
+    ):
+        """Draw a curve GLE computes from datasets already written.
+
+        ``series`` is a :class:`~gleplot.series.DerivedSeries`; ``sources``
+        and ``ranges`` are the series its ``sources`` and ``let_range``
+        name, as passed to this writer. Each ``dN`` in the expression and
+        ``where`` becomes the name the N-th source was written under (its
+        raw dataset, before any offset), and ``range`` lists the names of
+        ``ranges``. The ``let`` is written after those datasets: GLE runs a
+        graph's ``let`` commands in order, so a source that is itself a
+        ``let`` must come first.
+        """
+        names = [self._dataset_names[id(source)] for source in sources]
+
+        def rename(text: str) -> str:
+            return _DATASET_NAME_RE.sub(lambda m: names[int(m.group(0)[1:]) - 1], text)
+
+        options = []
+        if "let_nsteps" in series:
+            options.append(f"nsteps {int(series['let_nsteps'])}")
+        if "let_where" in series:
+            options.append(f"where {rename(series['let_where'])}")
+        if ranges:
+            listed = ",".join(self._dataset_names[id(item)] for item in ranges)
+            options.append(f"range {listed}")
+        self._let_curve(rename(series["expression"]), series, options)
+
+    def _let_curve(
+        self, definition: str, series: Series, options: Sequence[str] = ()
+    ) -> None:
+        """``let dK = <definition> [from a] [to b] [step h] [options]`` and its line."""
         target = f"d{self.dataset_index}"
         self.dataset_index += 1
+        self._dataset_names[id(series)] = target
         parts = [f"let {target} = {definition}"]
         for key, word in (("let_from", "from"), ("let_to", "to"), ("let_step", "step")):
             if key in series:
                 parts.append(f"{word} {self._format_number(series[key])}")
+        parts.extend(options)
         self.lines_gle.append("    " + " ".join(parts))
 
         linestyle = series.get("linestyle", "-")
@@ -4139,6 +4178,7 @@ class GLEWriter:
         line_mode = series.get("line_mode")
         d_main = f"d{self.dataset_index}"
         self.dataset_index += 1
+        self._dataset_names[id(series)] = d_main
 
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"

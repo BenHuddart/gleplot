@@ -28,12 +28,14 @@ from .parser.tables import (
 )
 from .parser.units import capsize_pt_to_cm, markersize_to_msize
 from .series import (  # noqa: F401  (re-exported: historical import path)
+    _DATASET_NAME_RE,
     DRAWABLE_CLASSES,
     SERIES_ATTRS,
     SERIES_CLASSES,
     BarSeries,
     Box,
     ContourSeries,
+    DerivedSeries,
     ErrorbarSeries,
     FileSeries,
     FillSeries,
@@ -917,16 +919,11 @@ def validate_tick_format(fmt: str) -> str:
     return text
 
 
-#: A dataset name inside an expression, such as ``d1``.
-_DATASET_NAME_RE = re.compile(r"(?<![A-Za-z0-9_])d[0-9]+(?![A-Za-z0-9_])", re.I)
-
-
-def _function_expression_problem(expression: str) -> Optional[str]:
-    """Why ``expression`` cannot be the body of a ``let``, or ``None``.
+def _let_expression_problem(expression: str) -> Optional[str]:
+    """Why ``expression`` cannot be one expression of a ``let``, or ``None``.
 
     GLE ends a ``let`` expression at the first space, and reads a comma
-    outside brackets as the start of a second (parametric) expression. A
-    dataset name would point at whatever dataset gleplot numbers ``dN``.
+    outside brackets as the start of a second (parametric) expression.
     """
     if not expression:
         return "it is empty"
@@ -947,9 +944,19 @@ def _function_expression_problem(expression: str) -> Optional[str]:
             return "a comma outside brackets starts a second expression"
     if depth != 0:
         return "it leaves a bracket open"
-    if _DATASET_NAME_RE.search(expression):
-        return "it names a dataset (dN); gleplot numbers datasets itself"
     return None
+
+
+def _function_expression_problem(expression: str) -> Optional[str]:
+    """Why ``expression`` cannot be the body of a function ``let``, or ``None``.
+
+    As :func:`_let_expression_problem`, and a dataset name would point at
+    whatever dataset gleplot numbers ``dN``.
+    """
+    problem = _let_expression_problem(expression)
+    if problem is None and _DATASET_NAME_RE.search(expression):
+        return "it names a dataset (dN); gleplot numbers datasets itself"
+    return problem
 
 
 #: Linestyle spellings that mean "draw no curve". Shared with ``plot``.
@@ -1870,6 +1877,7 @@ class Axes:
         self.hists: List[HistSeries] = []
         self.functions: List[FunctionSeries] = []
         self.fits: List[FitSeries] = []
+        self.derived_series: List[DerivedSeries] = []
         self.fills: List[FillSeries] = []
         self.errorbars: List[ErrorbarSeries] = []
         # External-file series definitions (column references).
@@ -2773,6 +2781,236 @@ class Axes:
         self._register_series_draw_meta(entry, "fit", zorder)
         self.fits.append(entry)
         return self
+
+    #: The series lists :meth:`derived` reads: the kinds drawn as one
+    #: dataset. Of ``file_series``, only the ``line_from_file`` variant.
+    _DERIVED_SOURCE_ATTRS: Tuple[str, ...] = (
+        "lines",
+        "scatters",
+        "file_series",
+        "functions",
+        "fits",
+    )
+
+    def derived(
+        self,
+        expression: str,
+        sources,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        step: Optional[float] = None,
+        nsteps: Optional[int] = None,
+        where: Optional[str] = None,
+        range=None,
+        color: Optional[str] = None,
+        linestyle: str = "-",
+        linewidth: float = 1,
+        label: Optional[str] = None,
+    ):
+        """Draw a curve GLE computes from other series on this axes.
+
+        Written as ``let dK = expression``, in which ``d1`` ... ``dn``
+        stand for ``sources[0]`` ... ``sources[n-1]``; gleplot puts in the
+        names it gives those series. GLE takes the x values of every
+        source, reads each source's y at those x (interpolating between its
+        points where it has none), and evaluates the expression there.
+        Unless the sources share their x values, none may repeat an x
+        value. The numbers stay inside GLE, so this also works on series
+        read from a file with :meth:`line_from_file`::
+
+            ax.line_from_file("run1.dat", 1, 2)
+            ax.line_from_file("run2.dat", 1, 2)
+            a, b = ax.file_series
+            ax.derived("d1-d2", [a, b], label="difference")
+
+        Parameters
+        ----------
+        expression : str
+            A GLE expression in ``x`` and ``d1`` ... ``dn``, such as
+            ``"d1-d2"`` or ``"(d1+d2)/2"``. It is written without spaces.
+        sources : series or list of series
+            The series ``d1`` ... ``dn`` stand for, at most 10, each used in
+            ``expression`` or ``where``. Each is a line, scatter, file line,
+            function or fit series of this axes, taken from ``ax.lines``,
+            ``ax.scatters``, ``ax.file_series``, ``ax.functions`` or
+            ``ax.fits``. A source with an ``offset`` is read without it.
+        xmin, xmax : float, optional
+            Also compute the curve at x values from ``xmin`` to ``xmax``.
+        step : float, optional
+            Distance between those extra x values.
+        nsteps : int, optional
+            The number of points from ``xmin`` to ``xmax``, in place of
+            ``step``.
+        where : str, optional
+            Keep only the points where this GLE expression is true, such as
+            ``"d1>0"`` or ``"(x>1)and(x<5)"``. Written without spaces.
+        range : series or list of series, optional
+            Compute the curve only at the x values of these series, taken
+            from the same lists as ``sources``. Omitted, every source's x
+            values are used.
+        color : str, optional
+            Line colour; the style's default colour when omitted.
+        linestyle : {'-', '--', ':', '-.'}
+            Line style.
+        linewidth : float
+            Line width in points.
+        label : str, optional
+            Legend entry.
+
+        Returns
+        -------
+        Axes
+            This axes.
+
+        Notes
+        -----
+        The curve is drawn on top of every other data series of the axes,
+        after the series it reads, and against the primary x and y axes,
+        whichever axes its sources use. Only GLE's single-expression form is
+        written: the parametric ``let ds = x-exp, y-exp`` is not.
+
+        Each source is stored as its list and its position there, such as
+        ``ax.lines[1]``. Removing or inserting a series before it in that
+        list makes the curve read whichever series then stands there. If a
+        source is hidden or cannot be loaded when the figure is saved, or
+        its position no longer holds a series ``derived`` accepts, the
+        curve is left out with a warning.
+
+        gleplot does not evaluate the expression, so the curve does not
+        widen the y range. Call :meth:`set_ylim` if it leaves the range of
+        the other data.
+        """
+        source_refs = self._derived_refs("sources", sources)
+        if len(source_refs) > 10:
+            raise ValueError(
+                f"derived() sources holds {len(source_refs)} series, but GLE "
+                f"reads at most 10 datasets in one let; split the expression"
+            )
+        texts = [expression] if where is None else [expression, where]
+        for name, text in zip(("expression", "where"), texts):
+            if not isinstance(text, str):
+                raise TypeError(
+                    f"derived() {name} must be a str such as 'd1-d2', got "
+                    f"{type(text).__name__}"
+                )
+            problem = _let_expression_problem(text)
+            if problem is not None:
+                raise ValueError(
+                    f"derived() {name} {text!r} cannot be used: {problem}."
+                )
+        used = {
+            int(match.group(0)[1:])
+            for text in texts
+            for match in _DATASET_NAME_RE.finditer(text)
+        }
+        count = len(source_refs)
+        for k in sorted(used):
+            if not 1 <= k <= count:
+                raise ValueError(
+                    f"derived() names d{k}, but sources holds {count} series: "
+                    f"d1 ... d{count} stand for sources[0] ... sources[{count - 1}]"
+                )
+        for k, _ in enumerate(source_refs, 1):
+            if k not in used:
+                raise ValueError(
+                    f"derived() never uses sources[{k - 1}]: write d{k} in the "
+                    f"expression or where, or leave it out of sources"
+                )
+        if nsteps is not None:
+            if isinstance(nsteps, bool) or not isinstance(nsteps, (int, np.integer)):
+                raise TypeError(
+                    f"derived() nsteps must be an int, got {type(nsteps).__name__}"
+                )
+            if nsteps < 2:
+                raise ValueError(f"derived() nsteps must be 2 or more, got {nsteps!r}")
+            if step is not None:
+                raise ValueError(
+                    f"derived() takes step or nsteps, not both; got step={step!r} "
+                    f"and nsteps={nsteps!r}"
+                )
+        fields = self._let_curve_fields(
+            "derived", xmin, xmax, step, color, linestyle, linewidth, label
+        )
+        fields["expression"] = expression
+        fields["sources"] = source_refs
+        if nsteps is not None:
+            fields["let_nsteps"] = int(nsteps)
+        if where is not None:
+            fields["let_where"] = where
+        if range is not None:
+            fields["let_range"] = self._derived_refs("range", range)
+        entry = DerivedSeries(**fields)
+        self._register_series_draw_meta(entry, "derived")
+        self.derived_series.append(entry)
+        return self
+
+    def _derived_refs(self, name, value) -> List[List[Any]]:
+        """``[attr, index]`` of each series in ``value``, for :meth:`derived`."""
+        items = [value] if isinstance(value, Series) else value
+        if not isinstance(items, (list, tuple)) or not items:
+            raise TypeError(
+                f"derived() {name} must be a series of this axes, such as "
+                f"ax.lines[0], or a non-empty list of them; got "
+                f"{type(value).__name__}"
+            )
+        refs: List[List[Any]] = []
+        for item in items:
+            if not isinstance(item, Series):
+                raise TypeError(
+                    f"derived() {name} must hold series of this axes, such as "
+                    f"ax.lines[0]; got {type(item).__name__}"
+                )
+            ref = self._series_ref(item)
+            if ref is None:
+                raise ValueError(
+                    f"derived() {name} must hold line, scatter, line_from_file, "
+                    f"function or fit series of this axes, from ax.lines, "
+                    f"ax.scatters, ax.file_series, ax.functions or ax.fits; got "
+                    f"a {type(item).__name__} that is not one of them"
+                )
+            if ref in refs:
+                raise ValueError(
+                    f"derived() {name} holds ax.{ref[0]}[{ref[1]}] twice; "
+                    f"give each series once"
+                )
+            refs.append(ref)
+        return refs
+
+    def _series_ref(self, series) -> Optional[List[Any]]:
+        """``[attr, index]`` of ``series`` if :meth:`derived` can read it."""
+        for attr in self._DERIVED_SOURCE_ATTRS:
+            for index, candidate in enumerate(getattr(self, attr)):
+                if candidate is series:
+                    if attr == "file_series" and series.get("series_type") != "line":
+                        return None
+                    return [attr, index]
+        return None
+
+    def _derived_operands(self, series) -> Optional[Tuple[List[Any], List[Any]]]:
+        """The series a :class:`DerivedSeries` reads: its sources and range.
+
+        ``None`` when a stored ``[attr, index]`` no longer points at a
+        series :meth:`derived` accepts.
+        """
+        groups: List[List[Any]] = []
+        for key in ("sources", "let_range"):
+            group = []
+            for ref in series.get(key, []):
+                if not isinstance(ref, (list, tuple)) or len(ref) != 2:
+                    return None
+                attr, index = ref
+                if (
+                    attr not in self._DERIVED_SOURCE_ATTRS
+                    or not isinstance(index, int)
+                    or not 0 <= index < len(getattr(self, attr))
+                ):
+                    return None
+                items = getattr(self, attr)
+                if self._series_ref(items[index]) != [attr, index]:
+                    return None
+                group.append(items[index])
+            groups.append(group)
+        return groups[0], groups[1]
 
     @staticmethod
     def _check_fit_model(model, x, y, step) -> None:
@@ -6885,6 +7123,7 @@ class Axes:
             or self.spans
             or self.wedges
             or self.boxes
+            or self.derived_series
         )
 
     def has_y2_plots(self) -> bool:
@@ -7181,6 +7420,7 @@ class Axes:
             "reflines",
             "spans",
             "file_series",
+            "derived_series",
         ):
             for item in getattr(ax, attr):
                 seq = item.get("_draw_seq")

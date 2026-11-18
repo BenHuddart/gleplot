@@ -244,7 +244,15 @@ def normalize(d: dict) -> dict:
             if ax.get(key) is not None:
                 ax[key] = _snap_linewidth(ax[key])
 
-        for group in ("lines", "scatters", "errorbars", "hists", "functions", "fits"):
+        for group in (
+            "lines",
+            "scatters",
+            "errorbars",
+            "hists",
+            "functions",
+            "fits",
+            "derived_series",
+        ):
             for s in ax.get(group, []):
                 if "markersize" in s:
                     s["markersize"] = _snap_msize(s["markersize"])
@@ -1700,6 +1708,155 @@ def test_a_fit_let_on_the_callers_own_file_stays_raw(tmp_path):
     rec.figure.savefig_gle(str(out))
     assert "".join(f"    {line}\n" for line in body) in out.read_text("utf-8")
     assert (tmp_path / "d.dat").read_text("utf-8") == "0 1\n1 3\n2 5\n"
+
+
+def _derived_file(tmp_path, *body):
+    """A graph over the caller's three-column ``d.dat``."""
+    (tmp_path / "d.dat").write_text("0 1 2\n1 3 1\n2 5 4\n", encoding="utf-8")
+    src = tmp_path / "derived.gle"
+    src.write_text(
+        "size 12 9\nbegin graph\n    size 12 9\n"
+        + "".join(f"    {line}\n" for line in body)
+        + "end graph\n",
+        encoding="utf-8",
+    )
+    return src
+
+
+def test_a_dataset_let_on_drawn_series_becomes_a_derived_series(tmp_path):
+    # The let comes first, as it often does by hand; GLE runs it at the end.
+    src = _derived_file(
+        tmp_path,
+        "data d.dat d1=c1,c2 d2=c1,c3",
+        "let d3 = d2-d1 from 0 to 2 nsteps 5 where d1>1 range d2",
+        "d1 line",
+        "d2 line",
+        'd3 line color red key "diff"',
+    )
+    rec = parse_gle_figure(src)
+    ax = rec.figure.axes_list[0]
+    [derived] = ax.derived_series
+    assert derived["expression"] == "d1-d2"
+    assert derived["sources"] == [["file_series", 1], ["file_series", 0]]
+    assert derived["let_where"] == "d2>1"
+    assert derived["let_range"] == [["file_series", 1]]
+    assert (derived["let_from"], derived["let_to"]) == (0.0, 2.0)
+    assert derived["let_nsteps"] == 5
+    assert derived["label"] == "diff"
+    assert ax.passthrough == []
+    assert (
+        "    let d3 = d2-d1 from 0 to 2 nsteps 5 where d1>1 range d2\n"
+        '    d3 line color red key "diff"\n'
+    ) in rec.figure._generate_gle()
+
+
+def test_an_offset_let_on_a_drawn_dataset_is_a_derived_series(tmp_path):
+    # gleplot never draws the dataset it offsets, so this is arithmetic.
+    src = _derived_file(
+        tmp_path, "data d.dat d1=c1,c2", "let d2 = d1+5", "d1 line", "d2 line"
+    )
+    ax = parse_gle_figure(src).figure.axes_list[0]
+    assert [fs.get("offset") for fs in ax.file_series] == [None]
+    [derived] = ax.derived_series
+    assert derived["expression"] == "d1+5"
+    assert derived["sources"] == [["file_series", 0]]
+
+
+def test_a_dataset_let_left_raw_keeps_every_let_beside_it_raw(tmp_path):
+    # d1 is never drawn, so the derived let stays raw. Renumbering the
+    # function curve beside it would let it take the name d1 reads.
+    body = (
+        "data d.dat d1=c1,c2",
+        "let d2 = sin(x) from 0 to 3",
+        "let d3 = d1*2",
+        "d2 line",
+        "d3 line",
+    )
+    src = _derived_file(tmp_path, *body)
+    rec = parse_gle_figure(src)
+    ax = rec.figure.axes_list[0]
+    assert ax.functions == [] and ax.derived_series == []
+    assert "".join(f"    {line}\n" for line in body) in rec.figure._generate_gle()
+
+
+def test_an_offset_let_stays_an_offset_when_it_cannot_be_derived(tmp_path):
+    # d1 is an error bar, so ``let d2 = d1+5`` is read as before: an offset.
+    src = _derived_file(
+        tmp_path,
+        "data d.dat d1=c1,c2 d3=c1,c3",
+        "d1 line color red err d3",
+        "let d2 = d1+5",
+        "d2 line color blue",
+    )
+    ax = parse_gle_figure(src).figure.axes_list[0]
+    assert ax.derived_series == []
+    assert "let d2 = d1+5" not in ax.passthrough
+
+
+def test_a_derived_curve_keeps_its_place_in_the_key(tmp_path):
+    src = _derived_file(
+        tmp_path,
+        "data d.dat d1=c1,c2 d2=c1,c3 d4=c1,c3",
+        "let d3 = d1-d2",
+        'd1 line key "a"',
+        'd2 line key "b"',
+        'd3 line key "diff"',
+        'd4 line key "c"',
+    )
+    ax = parse_gle_figure(src).figure.axes_list[0]
+    labels = sorted((*ax.file_series, *ax.derived_series), key=lambda s: s["_draw_seq"])
+    assert [s["label"] for s in labels] == ["a", "b", "diff", "c"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # A dataset that is not a modelled line: an error bar, or no display.
+        (
+            "data d.dat d1=c1,c2 d2=c1,c3",
+            "let d3 = d1-d2",
+            "d1 line err d2",
+            "d3 line",
+        ),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2", "d2 line"),
+        # Options gleplot does not model, or a where it cannot read whole.
+        ("data d.dat d1=c1,c2", "let d2 = d1*2 notune", "d1 line", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2 step 1 nsteps 3", "d1 line", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2 where d1 > 1", "d1 line", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2 where (d1 > 1", "d1 line", "d2 line"),
+        (
+            "data d.dat d1=c1,c2",
+            "let d2 = d1*2 where d1>1 where d1<3",
+            "d1 line",
+            "d2 line",
+        ),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2 range x", "d1 line", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2 range d1,d1", "d1 line", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2 from a", "d1 line", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2 nsteps 2.5", "d1 line", "d2 line"),
+        # The parametric form, a curve read again, and a marked curve.
+        ("data d.dat d1=c1,c2", "let d2 = 2*x,d1", "d1 line", "d2 line"),
+        (
+            "data d.dat d1=c1,c2",
+            "let d2 = d1*2",
+            "let d3 = d2+d1",
+            "d1 line",
+            "d2 line",
+            "d3 line",
+        ),
+        ("data d.dat d1=c1,c2", "let d2 = d1*2", "d1 line", "d2 marker circle"),
+    ],
+)
+def test_a_dataset_let_gleplot_cannot_model_stays_raw_in_place(tmp_path, body):
+    src = _derived_file(tmp_path, *body)
+    rec = parse_gle_figure(src)
+    assert rec.figure.axes_list[0].derived_series == []
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    written = out.read_text(encoding="utf-8")
+    for line in body:
+        if line.startswith("let "):
+            assert f"    {line}\n" in written
 
 
 # --------------------------------------------------------------------------- #

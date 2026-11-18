@@ -1908,6 +1908,187 @@ class TestFit:
         assert self.ax.fits[0]["model"] == "exp10"
 
 
+class TestDerived:
+    """Curves GLE computes from other series with a dataset ``let``."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
+        glp.close()
+        self.fig = glp.figure(data_prefix="dv")
+        self.ax = self.fig.add_subplot(111)
+        yield
+        glp.close()
+
+    def _script(self):
+        return self.fig._generate_gle()
+
+    def test_names_each_source_by_the_dataset_it_was_written_as(self):
+        ax = self.ax
+        ax.line_from_file("run1.dat", 1, 2)
+        ax.plot([0, 1, 2], [1, 2, 3])
+        ax.derived("d1-d2", [ax.lines[0], ax.file_series[0]], label="diff")
+        assert (
+            "    data dv_0.dat d1=c1,c2\n"
+            '    d1 line color BLUE lwidth 0.05292 key ""\n'
+            "    data run1.dat d2=c1,c2\n"
+            "    d2 line color BLUE lwidth 0.05292\n"
+            "    let d3 = d1-d2\n"
+            '    d3 line color BLUE lwidth 0.05292 key "diff"\n'
+        ) in self._script()
+
+    def test_writes_every_option_and_reads_an_offset_source_raw(self):
+        ax = self.ax
+        ax.scatter([0, 1, 2], [1, 2, 3], offset=2)
+        ax.function("sin(x)", xmin=0, xmax=2)
+        ax.derived(
+            "d2*d1",
+            [ax.scatters[0], ax.functions[0]],
+            xmin=0,
+            xmax=2,
+            nsteps=11,
+            where="d1>1",
+            range=[ax.functions[0], ax.scatters[0]],
+            color="red",
+            linestyle="--",
+        )
+        script = self._script()
+        assert "    let d1 = sin(x) from 0 to 2\n" in script
+        assert "    data dv_0.dat d2=c1,c2\n    let d3 = d2+2\n" in script
+        assert (
+            "    let d4 = d1*d2 from 0 to 2 nsteps 11 where d2>1 range d1,d2\n"
+            "    d4 line color RED lwidth 0.05292 lstyle 3\n"
+        ) in script
+
+    def test_is_written_after_the_file_series_it_reads(self):
+        ax = self.ax
+        ax.line_from_file("a.dat", 1, 2)
+        ax.derived("2*d1", [ax.file_series[0]], step=0.5)
+        ax.plot([0, 1], [0, 1])
+        script = self._script()
+        assert script.index("let d3 = 2*d2 step 0.5") > script.index("data a.dat d2")
+
+    def test_a_hidden_source_leaves_the_curve_out_with_a_warning(self):
+        ax = self.ax
+        ax.plot([0, 1], [0, 1])
+        ax.derived("d1+1", [ax.lines[0]], label="shifted")
+        ax.lines[0]["visible"] = False
+        with pytest.warns(
+            UserWarning, match=r"derived\(\) curve 'd1\+1' was not drawn"
+        ):
+            script = self._script()
+        assert "let" not in script
+        assert "shifted" not in script
+
+    def test_a_removed_source_leaves_the_curve_out_with_a_warning(self):
+        ax = self.ax
+        ax.plot([0, 1], [0, 1])
+        ax.derived("d1+1", [ax.lines[0]])
+        ax.lines.clear()
+        with pytest.warns(UserWarning, match="no longer holds a series"):
+            assert "let" not in self._script()
+
+    @pytest.mark.parametrize("ref", [["lines"], ["bars", 0], ["lines", "0"]])
+    def test_a_stored_reference_it_cannot_follow_leaves_the_curve_out(self, ref):
+        ax = self.ax
+        ax.plot([0, 1], [0, 1])
+        ax.bar([0, 1], [1, 2])
+        ax.derived("d1+1", [ax.lines[0]])
+        ax.derived_series[0]["sources"] = [ref]
+        with pytest.warns(UserWarning, match="was not drawn"):
+            assert "let" not in self._script()
+
+    def test_a_source_replaced_by_another_kind_leaves_the_curve_out(self):
+        ax = self.ax
+        ax.line_from_file("a.dat", 1, 2)
+        ax.derived("d1+1", [ax.file_series[0]])
+        ax.file_series[0]["series_type"] = "errorbar"
+        ax.file_series[0]["color"] = "BLUE"
+        with pytest.warns(UserWarning, match="was not drawn"):
+            assert "let" not in self._script()
+
+    def test_references_survive_a_project_round_trip(self):
+        ax = self.ax
+        ax.plot([0, 1], [0, 1])
+        ax.function("x")
+        ax.derived("d1-d2", [ax.functions[0], ax.lines[0]], range=ax.lines[0])
+        restored = glp.Figure.from_dict(self.fig.to_dict())
+        [entry] = restored.axes_list[0].derived_series
+        assert entry["sources"] == [["functions", 0], ["lines", 0]]
+        assert entry["let_range"] == [["lines", 0]]
+        assert restored._generate_gle() == self._script()
+
+    @pytest.mark.parametrize(
+        "kwargs, error, message",
+        [
+            ({"expression": "d1 - d2"}, ValueError, "first space"),
+            ({"expression": "d1,d2"}, ValueError, "second expression"),
+            ({"expression": 3}, TypeError, "expression must be a str"),
+            ({"expression": "d3"}, ValueError, "names d3, but sources holds 2"),
+            ({"expression": "d0+d1+d2"}, ValueError, "names d0"),
+            ({"expression": "d1"}, ValueError, r"never uses sources\[1\]"),
+            ({"expression": "d1", "where": "d2>0"}, None, None),
+            ({"where": "d1 > 0"}, ValueError, r"where 'd1 > 0' cannot be used"),
+            ({"nsteps": 1}, ValueError, "nsteps must be 2 or more"),
+            ({"nsteps": 2.5}, TypeError, "nsteps must be an int"),
+            ({"nsteps": True}, TypeError, "nsteps must be an int"),
+            ({"nsteps": 5, "step": 0.1}, ValueError, "step or nsteps, not both"),
+            ({"xmin": 2, "xmax": 1}, ValueError, "xmin < xmax"),
+            ({"linestyle": "steps"}, ValueError, "linestyle must be"),
+            ({"range": "d1"}, TypeError, "range must be a series"),
+            ({"range": []}, TypeError, "range must be a series"),
+        ],
+    )
+    def test_checks_its_arguments_when_called(self, kwargs, error, message):
+        ax = self.ax
+        ax.plot([0, 1], [0, 1])
+        ax.plot([0, 1], [1, 2])
+        args = {"expression": "d1-d2", "sources": [ax.lines[0], ax.lines[1]]}
+        args.update(kwargs)
+        if error is None:
+            ax.derived(**args)
+            assert len(ax.derived_series) == 1
+            return
+        with pytest.raises(error, match=message):
+            ax.derived(**args)
+        assert ax.derived_series == []
+
+    def test_accepts_only_one_dataset_series_of_this_axes(self):
+        ax = self.ax
+        ax.plot([0, 1], [0, 1])
+        ax.bar([0, 1], [1, 2])
+        ax.errorbar_from_file("e.dat", 1, 2, yerr_col=3, color="red")
+        other = self.fig.add_subplot(212)
+        other.plot([0, 1], [0, 1])
+        with pytest.raises(ValueError, match="got a BarSeries"):
+            ax.derived("d1", [ax.bars[0]])
+        with pytest.raises(ValueError, match="got a FileSeries"):
+            ax.derived("d1", [ax.file_series[0]])
+        with pytest.raises(ValueError, match="got a LineSeries"):
+            ax.derived("d1", [other.lines[0]])
+        with pytest.raises(TypeError, match="got ndarray"):
+            ax.derived("d1", [np.array([0, 1])])
+        with pytest.raises(TypeError, match="got NoneType"):
+            ax.derived("d1", None)
+        with pytest.raises(ValueError, match=r"ax.lines\[0\] twice"):
+            ax.derived("d1-d2", [ax.lines[0], ax.lines[0]])
+        assert ax.derived_series == []
+
+    def test_reads_at_most_ten_datasets(self):
+        ax = self.ax
+        for k in range(11):
+            ax.plot([0, 1], [k, k])
+        expression = "+".join(f"d{k}" for k in range(1, 12))
+        with pytest.raises(ValueError, match="at most 10 datasets"):
+            ax.derived(expression, ax.lines)
+        ax.derived(expression.rsplit("+", 1)[0], ax.lines[:10])
+
+    def test_widens_the_x_range_like_a_function(self):
+        ax = self.ax
+        ax.plot([1, 2], [1, 2])
+        ax.derived("d1*2", [ax.lines[0]], xmin=0, xmax=5)
+        assert "xaxis min 0 max 5" in self._script()
+
+
 def test_add_plot_line_keywords_reach_the_emitted_line():
     """The deprecated keyword form of ``GLEWriter.add_line`` warns and maps
     every argument to its field."""

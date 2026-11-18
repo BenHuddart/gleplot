@@ -268,6 +268,7 @@ def _one_of_each_kind():
     ax.hist([0.0, 0.4, 0.8], bins=4, range=(0, 1), histtype="step", label="hist")
     ax.function("sin(x)", xmin=1, xmax=2, label="fn")
     ax.fit([1.0, 2.0], [1.0, 2.0], "a*x", label="fit")
+    ax.derived("d1*2", [ax.fits[0]], label="derived")
 
     ax2 = fig.add_subplot(212)
     ax2.imshow(np.arange(12, dtype=float).reshape(3, 4), extent=(0, 4, 0, 3))
