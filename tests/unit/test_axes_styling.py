@@ -436,6 +436,81 @@ def test_a_bad_fontname_is_rejected_at_the_call(fontname, error):
         ax.set_title("T", fontname=fontname)
 
 
+# -- matplotlib text keywords on the titles ----------------------------------
+
+
+def test_label_keywords_are_emitted_on_the_xtitle_line():
+    fig, ax = _fig()
+    ax.set_xlabel("T (K)", fontsize=9, color="gray", labelpad=4)
+    hei = f"{fontsize_pt_to_cm(9):.6g}"
+    dist = f"{fontsize_pt_to_cm(4):.6g}"
+    assert (
+        _line_starting(fig, "xtitle")
+        == f'xtitle "T (K)" hei {hei} color GRAY dist {dist}'
+    )
+
+
+def test_title_keywords_are_emitted_on_the_title_line():
+    fig, ax = _fig()
+    ax.set_title("Run 12", fontsize=11, color="red", pad=6)
+    hei = f"{fontsize_pt_to_cm(11):.6g}"
+    dist = f"{fontsize_pt_to_cm(6):.6g}"
+    assert (
+        _line_starting(fig, "title ")
+        == f'title "Run 12" hei {hei} color RED dist {dist}'
+    )
+
+
+def test_a_relative_fontsize_scales_the_style_fontsize():
+    fig, ax = _fig()
+    ax.set_ylabel("Y", fontsize="small")
+    hei = f"{fontsize_pt_to_cm(fig.style.fontsize * 0.833):.6g}"
+    assert _line_starting(fig, "ytitle") == f'ytitle "Y" hei {hei}'
+
+
+def test_the_twin_views_pass_the_label_keywords_through():
+    fig, ax = _fig()
+    ax.twinx().set_ylabel("R", color="blue")
+    ax.twiny().set_xlabel("W", fontsize=8)
+    hei = f"{fontsize_pt_to_cm(8):.6g}"
+    assert _line_starting(fig, "y2title") == 'y2title "R" color BLUE'
+    assert _line_starting(fig, "x2title") == f'x2title "W" hei {hei}'
+
+
+def test_relabelling_keeps_the_style_and_none_resets_it():
+    fig, ax = _fig()
+    ax.set_xlabel("X", fontsize=9, color="red", labelpad=2)
+    ax.set_xlabel("New", fontsize=None)
+    dist = f"{fontsize_pt_to_cm(2):.6g}"
+    assert _line_starting(fig, "xtitle") == f'xtitle "New" color RED dist {dist}'
+
+
+def test_other_text_keywords_warn_and_centre_is_silent():
+    fig, ax = _fig()
+    with pytest.warns(UserWarning, match=r"set_title\(\): fontdict, fontweight, loc"):
+        ax.set_title("T", {"fontsize": 9}, "left", fontweight="bold")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ax.set_xlabel("X", loc="center")
+        ax.set_title("T", loc="center")
+    assert _line_starting(fig, "title ") == 'title "T"'
+
+
+@pytest.mark.parametrize(
+    "call,error,match",
+    [
+        (lambda ax: ax.set_xlabel("X", fontsize=-1), ValueError, "fontsize"),
+        (lambda ax: ax.set_ylabel("Y", fontsize="huge"), ValueError, "fontsize"),
+        (lambda ax: ax.set_xlabel("X", labelpad="far"), TypeError, "labelpad"),
+        (lambda ax: ax.set_title("T", pad=float("nan")), ValueError, "pad"),
+    ],
+)
+def test_a_bad_title_keyword_is_rejected_at_the_call(call, error, match):
+    _, ax = _fig()
+    with pytest.raises(error, match=match):
+        call(ax)
+
+
 # -- axis lines --------------------------------------------------------------
 
 

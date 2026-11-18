@@ -16,9 +16,9 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
-| `ax.set_xlabel(...)` | same |
-| `ax.set_ylabel(...)` | same |
-| `ax.set_title(...)` | same |
+| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` |
+| `ax.set_ylabel(...)` | same as `set_xlabel` |
+| `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
 | `ax.spines['left'].set_position('zero')` and `ax.spines['bottom'].set_position('zero')` | `ax.set_math_mode()` |
 | `ax.legend(...)` | same |
@@ -389,7 +389,10 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
    grid is not expressible and is normalized to both, with a warning.
 6. `fontname=` on `set_xlabel`, `set_ylabel` and `set_title` takes a GLE
    font name (`'texcmr'`, `'psh'`), not a matplotlib family such as
-   `'serif'`. matplotlib's other text keywords are not accepted there yet.
+   `'serif'`. GLE centres every title, so `loc` other than `'center'`
+   warns, as do `fontweight`, `fontdict` and the other text keywords.
+   Unlike matplotlib, `set_title` keeps the size and pad of the
+   previous call unless they are passed again.
 7. GLE has no separate top and right spines: the x line's style is copied
    onto the top line and the y line's onto the right one. Set `'x2'` or
    `'y2'` with `set_axis_line` to style those on their own.

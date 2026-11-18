@@ -24,6 +24,16 @@ ax.set_title('Plot Title', fontname='texcmb')
 ax.set_xlabel('t (s)', fontname='texcmr')
 ```
 
+`fontsize` (points, or a name such as `'small'`), `color` and `labelpad`
+(the gap to the tick labels, in points) work as in matplotlib, and so does
+`pad` on `set_title` (the gap above the axes). They are written as `hei`,
+`color` and `dist` on the same line:
+
+```python
+ax.set_xlabel('T (K)', fontsize=9, color='gray', labelpad=4)
+ax.set_title('Run 12', fontsize=11, pad=6)
+```
+
 ## Limits
 
 ```python

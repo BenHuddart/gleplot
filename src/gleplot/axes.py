@@ -42,7 +42,7 @@ from .parser.tables import (
     TEXT_VA_VALUES,
     resolve_line_mode,
 )
-from .parser.units import capsize_pt_to_cm, markersize_to_msize
+from .parser.units import capsize_pt_to_cm, fontsize_pt_to_cm, markersize_to_msize
 from .series import (  # noqa: F401  (re-exported: historical import path)
     _DATASET_NAME_RE,
     DRAWABLE_CLASSES,
@@ -1547,8 +1547,8 @@ class SecondaryXAxis:
     def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_xlim(axis="x2")
 
-    def set_xlabel(self, label: str, *, fontname: Optional[str] = None):
-        return self._axes.set_xlabel(label, axis="x2", fontname=fontname)
+    def set_xlabel(self, label: str, **kwargs):
+        return self._axes.set_xlabel(label, axis="x2", **kwargs)
 
     def set_xscale(self, scale: str):
         return self._axes.set_xscale(scale, axis="x2")
@@ -1559,10 +1559,8 @@ class SecondaryXAxis:
     def set_ylim(self, ymin: Optional[float], ymax: Optional[float], axis: str = "y"):
         return self._axes.set_ylim(ymin, ymax, axis=axis)
 
-    def set_ylabel(
-        self, label: str, axis: str = "y", *, fontname: Optional[str] = None
-    ):
-        return self._axes.set_ylabel(label, axis=axis, fontname=fontname)
+    def set_ylabel(self, label: str, axis: str = "y", **kwargs):
+        return self._axes.set_ylabel(label, axis=axis, **kwargs)
 
     def set_yscale(self, scale: str, axis: str = "y"):
         return self._axes.set_yscale(scale, axis=axis)
@@ -1624,8 +1622,8 @@ class SecondaryYAxis:
     def get_ylim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_ylim(axis="y2")
 
-    def set_ylabel(self, label: str, *, fontname: Optional[str] = None):
-        return self._axes.set_ylabel(label, axis="y2", fontname=fontname)
+    def set_ylabel(self, label: str, **kwargs):
+        return self._axes.set_ylabel(label, axis="y2", **kwargs)
 
     def set_yscale(self, scale: str):
         return self._axes.set_yscale(scale, axis="y2")
@@ -1639,10 +1637,8 @@ class SecondaryYAxis:
     def set_xlim(self, xmin: Optional[float], xmax: Optional[float], axis: str = "x"):
         return self._axes.set_xlim(xmin, xmax, axis=axis)
 
-    def set_xlabel(
-        self, label: str, axis: str = "x", *, fontname: Optional[str] = None
-    ):
-        return self._axes.set_xlabel(label, axis=axis, fontname=fontname)
+    def set_xlabel(self, label: str, axis: str = "x", **kwargs):
+        return self._axes.set_xlabel(label, axis=axis, **kwargs)
 
     def set_xscale(self, scale: str, axis: str = "x"):
         return self._axes.set_xscale(scale, axis=axis)
@@ -6571,7 +6567,14 @@ class Axes:
         return xa, ya, za, ext, gs
 
     def set_xlabel(
-        self, label: str, axis: str = "x", *, fontname: Optional[str] = None
+        self,
+        label: str,
+        axis: str = "x",
+        *,
+        labelpad: Optional[float] = None,
+        loc: Optional[str] = None,
+        fontname: Optional[str] = None,
+        **kwargs,
     ):
         """Set x-axis label.
 
@@ -6581,18 +6584,36 @@ class Axes:
             Axis label text
         axis : str, optional
             Which axis: 'x' (bottom, default) or 'x2' (top)
+        labelpad : float, optional
+            Gap between the label and the tick labels, in points (GLE
+            ``xtitle ... dist``). ``None`` keeps the current gap.
+        loc : str, optional
+            Only ``'center'`` is drawn; GLE centres axis titles. Any other
+            value warns.
         fontname : str, optional
             GLE font for the label, such as ``'texcmr'`` (GLE ``xtitle ...
             font``). ``None`` keeps the current font.
+        **kwargs
+            ``fontsize`` (points, or a name such as ``'small'``) and
+            ``color``; ``None`` for either goes back to the default. Other
+            matplotlib text keywords warn and are ignored.
         """
         prefix = "x2" if axis == "x2" else "x"
         setattr(self, f"{prefix}label_text", self._text(label))
-        if fontname is not None:
-            setattr(self, f"{prefix}label_font", _gle_font_name(fontname, "set_xlabel"))
+        self._style_title(
+            f"{prefix}label", "set_xlabel", "labelpad", labelpad, loc, fontname, kwargs
+        )
         return self
 
     def set_ylabel(
-        self, label: str, axis: str = "y", *, fontname: Optional[str] = None
+        self,
+        label: str,
+        axis: str = "y",
+        *,
+        labelpad: Optional[float] = None,
+        loc: Optional[str] = None,
+        fontname: Optional[str] = None,
+        **kwargs,
     ):
         """Set y-axis label.
 
@@ -6602,31 +6623,107 @@ class Axes:
             Axis label text
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        labelpad : float, optional
+            Gap between the label and the tick labels, in points (GLE
+            ``ytitle ... dist``). ``None`` keeps the current gap.
+        loc : str, optional
+            Only ``'center'`` is drawn; GLE centres axis titles. Any other
+            value warns.
         fontname : str, optional
             GLE font for the label (GLE ``ytitle ... font``). ``None`` keeps
             the current font.
+        **kwargs
+            ``fontsize`` (points, or a name such as ``'small'``) and
+            ``color``; ``None`` for either goes back to the default. Other
+            matplotlib text keywords warn and are ignored.
         """
         prefix = "y2" if axis == "y2" else "y"
         setattr(self, f"{prefix}label_text", self._text(label))
-        if fontname is not None:
-            setattr(self, f"{prefix}label_font", _gle_font_name(fontname, "set_ylabel"))
+        self._style_title(
+            f"{prefix}label", "set_ylabel", "labelpad", labelpad, loc, fontname, kwargs
+        )
         return self
 
-    def set_title(self, label: str, *, fontname: Optional[str] = None):
+    def set_title(
+        self,
+        label: str,
+        fontdict: Optional[Dict[str, Any]] = None,
+        loc: Optional[str] = None,
+        pad: Optional[float] = None,
+        *,
+        fontname: Optional[str] = None,
+        **kwargs,
+    ):
         """Set subplot title.
 
         Parameters
         ----------
         label : str
             Title text
+        fontdict : dict, optional
+            Not supported; warns and is ignored. Pass ``fontsize`` and
+            ``color`` as keywords.
+        loc : str, optional
+            Only ``'center'`` is drawn; GLE centres the title. Any other
+            value warns.
+        pad : float, optional
+            Gap between the title and the top of the axes, in points (GLE
+            ``title ... dist``). ``None`` keeps the current gap.
         fontname : str, optional
             GLE font for the title (GLE ``title ... font``). ``None`` keeps
             the current font.
+        **kwargs
+            ``fontsize`` (points, or a name such as ``'large'``) and
+            ``color``; ``None`` for either goes back to the default. Other
+            matplotlib text keywords warn and are ignored.
         """
         self.title_text = self._text(label)
-        if fontname is not None:
-            self.title_font = _gle_font_name(fontname, "set_title")
+        if fontdict is not None:
+            kwargs["fontdict"] = fontdict
+        self._style_title("title", "set_title", "pad", pad, loc, fontname, kwargs)
         return self
+
+    def _style_title(self, prefix, caller, pad_name, pad, loc, fontname, kwargs):
+        """Store a title's ``fontsize``/``color``/pad/font on ``{prefix}_*``.
+
+        ``pad`` is in points and is stored as GLE's ``dist`` in cm; the
+        size stays in points, as ``legend(fontsize=)`` keeps it, and the
+        writer converts it to ``hei``.
+        """
+        if "fontsize" in kwargs:
+            fontsize = kwargs.pop("fontsize")
+            setattr(
+                self,
+                f"{prefix}_size",
+                (
+                    None
+                    if fontsize is None
+                    else self._resolve_fontsize(fontsize, f"{caller}(fontsize")
+                ),
+            )
+        if "color" in kwargs:
+            color = kwargs.pop("color")
+            setattr(
+                self, f"{prefix}_color", None if color is None else rgb_to_gle(color)
+            )
+        if pad is not None:
+            points = _finite_float(pad, f"{caller}({pad_name}=...)")
+            # Kept at the precision the file carries, so the distance reads
+            # back from the saved script as the same number.
+            cm = GLEWriter._format_number(fontsize_pt_to_cm(points))
+            setattr(self, f"{prefix}_dist", float(cm))
+        if fontname is not None:
+            setattr(self, f"{prefix}_font", _gle_font_name(fontname, caller))
+        if loc not in (None, "center"):
+            kwargs["loc"] = loc
+        if kwargs:
+            warn_external(
+                f"{caller}(): "
+                + ", ".join(sorted(kwargs))
+                + f" not supported in gleplot and ignored. {caller}() takes "
+                f"fontsize, color, {pad_name} and fontname; GLE always centres "
+                "the text.",
+            )
 
     def set_axis_line(
         self,
