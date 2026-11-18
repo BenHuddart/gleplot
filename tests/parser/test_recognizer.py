@@ -157,6 +157,7 @@ def normalize(d: dict) -> dict:
         "scatters": ("x", "y"),
         "bars": ("x", "height", "bottom", "top"),
         "hists": ("samples",),
+        "fits": ("x", "y"),
         "fills": ("x", "y1", "y2"),
         "errorbars": ("x", "y", "yerr_up", "yerr_down", "xerr_left", "xerr_right"),
     }
@@ -177,6 +178,7 @@ def normalize(d: dict) -> dict:
                 "bars",
                 "hists",
                 "functions",
+                "fits",
                 "fills",
                 "errorbars",
                 "file_series",
@@ -233,7 +235,7 @@ def normalize(d: dict) -> dict:
             if ax.get(key) is not None:
                 ax[key] = _snap_linewidth(ax[key])
 
-        for group in ("lines", "scatters", "errorbars", "hists", "functions"):
+        for group in ("lines", "scatters", "errorbars", "hists", "functions", "fits"):
             for s in ax.get(group, []):
                 if "markersize" in s:
                     s["markersize"] = _snap_msize(s["markersize"])
@@ -1368,3 +1370,110 @@ def test_a_raw_let_keeps_every_function_let_raw(tmp_path):
     out = tmp_path / "out.gle"
     rec.figure.savefig_gle(str(out))
     assert "".join(f"    {line}\n" for line in body) in out.read_text("utf-8")
+
+
+def _fit_file(tmp_path, *body, imported=True):
+    """A graph fitting ``d.dat``, listed as gleplot's sidecar when ``imported``."""
+    (tmp_path / "d.dat").write_text("0 1\n1 3\n2 5\n", encoding="utf-8")
+    meta = (
+        "! gleplot-meta-begin v2\n! gleplot: import-data = d.dat\n"
+        "! gleplot-meta-end\n"
+        if imported
+        else ""
+    )
+    src = tmp_path / "fit.gle"
+    src.write_text(
+        meta
+        + "size 12 9\nbegin graph\n    size 12 9\n"
+        + "".join(f"    {line}\n" for line in body)
+        + "end graph\n",
+        encoding="utf-8",
+    )
+    return src
+
+
+def test_a_fit_let_on_a_gleplot_sidecar_becomes_a_fit_series(tmp_path):
+    src = _fit_file(
+        tmp_path,
+        "data d.dat d1=c1,c2",
+        "let d2 = fit d1 from -1 with a*x+b to 3 step 0.5",
+        'd2 line color red key "line"',
+    )
+    rec = parse_gle_figure(src)
+    ax = rec.figure.axes_list[0]
+    [fit] = ax.fits
+    assert {k: v for k, v in fit.items() if k not in ("x", "y")} == {
+        "expression": "a*x+b",
+        "let_from": -1.0,
+        "let_to": 3.0,
+        "let_step": 0.5,
+        "color": "red",
+        "linestyle": "-",
+        "linewidth": None,
+        "label": "line",
+        "data_file": "d.dat",
+        "_draw_seq": 0,
+    }
+    assert fit["x"].tolist() == [0.0, 1.0, 2.0]
+    assert fit["y"].tolist() == [1.0, 3.0, 5.0]
+    assert ax.passthrough == []
+    text = rec.figure._generate_gle()
+    assert (
+        "    data d.dat d1=c1,c2\n"
+        "    let d2 = fit d1 with a*x+b from -1 to 3 step 0.5\n"
+        '    d2 line color red key "line"\n'
+    ) in text
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # Options gleplot does not model.
+        ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x+b rsq r", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x+b xmin 1", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = linfit d1", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = fit d1", "d2 line"),
+        ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x + b", "d2 line"),
+        # The data is drawn too, shares its statement or its file, or the
+        # curve is not a plain line.
+        (
+            "data d.dat d1=c1,c2",
+            "let d2 = fit d1 with a*x",
+            "d1 marker circle",
+            "d2 line",
+        ),
+        ("data d.dat d1=c1,c2 d3=c1,c2", "let d2 = fit d1 with a*x", "d2 line"),
+        (
+            "data d.dat d1=c1,c2",
+            "data d.dat d3=c2,c1",
+            "let d2 = fit d1 with a*x",
+            "d2 line",
+            "d3 line",
+        ),
+        ("data d.dat d1=c1,c2", "let d2 = fit d1 with a*x", "d2 marker circle"),
+    ],
+)
+def test_a_fit_let_gleplot_cannot_model_stays_raw_in_place(tmp_path, body):
+    src = _fit_file(tmp_path, *body)
+    rec = parse_gle_figure(src)
+    assert rec.figure.axes_list[0].fits == []
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    written = out.read_text(encoding="utf-8")
+    for line in body:
+        if line.startswith("let "):
+            assert f"    {line}\n" in written
+    # The fit still has the dataset it reads.
+    assert "d.dat d1=" in written
+
+
+def test_a_fit_let_on_the_callers_own_file_stays_raw(tmp_path):
+    # Modelled, the fit would rewrite the caller's data file on save.
+    body = ('data "d.dat" d1', "let d2 = fit d1 with a*x+b", "d2 line color red")
+    src = _fit_file(tmp_path, *body, imported=False)
+    rec = parse_gle_figure(src)
+    assert rec.figure.axes_list[0].fits == []
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "".join(f"    {line}\n" for line in body) in out.read_text("utf-8")
+    assert (tmp_path / "d.dat").read_text("utf-8") == "0 1\n1 3\n2 5\n"

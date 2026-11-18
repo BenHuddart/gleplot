@@ -1744,6 +1744,81 @@ class TestFunction:
             self.ax.function("x", **kwargs)
 
 
+class TestFit:
+    """Curves GLE fits to data with ``let ... = fit``."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
+        glp.close()
+        self.fig = glp.figure(data_prefix="ft")
+        self.ax = self.fig.add_subplot(111)
+        yield
+        glp.close()
+
+    def _script(self):
+        return self.fig._generate_gle()
+
+    def test_emits_the_data_a_fit_let_and_a_line(self):
+        self.ax.fit(
+            [0, 1, 2],
+            [1.0, 0.5, 0.25],
+            "a*exp(-x*k)",
+            xmin=0,
+            xmax=3,
+            step=0.1,
+            label="fit",
+        )
+        text, files = self.fig._generate_gle_with_files()
+        assert (
+            "    data ft_0.dat d1=c1,c2\n"
+            "    let d2 = fit d1 with a*exp(-x*k) from 0 to 3 step 0.1\n"
+            '    d2 line color BLUE lwidth 0.05292 key "fit"\n'
+        ) in text
+        # No header row: GLE would key the data dataset the let reads.
+        assert files["ft_0.dat"].splitlines()[0].split() == ["0", "1"]
+
+    def test_omitted_range_and_step_are_left_to_gle(self):
+        self.ax.fit([0, 1], [0, 1], "a*x+b", color="red", linestyle=":")
+        lines = self._script().splitlines()
+        assert "    let d2 = fit d1 with a*x+b" in lines
+        assert "    d2 line color RED lwidth 0.05292 lstyle 2" in lines
+
+    def test_the_data_bounds_both_axes_and_the_range_widens_x(self):
+        self.ax.fit([1, 2], [5, 6], "a*x+b", xmin=-1, xmax=4)
+        script = self._script()
+        assert "xaxis min -1 max 4" in script
+        assert "yaxis min 5 max 6" in script
+
+    def test_a_hidden_fit_writes_nothing(self):
+        self.ax.fit([0, 1], [0, 1], "a*x")
+        self.ax.fits[0]["visible"] = False
+        text, files = self.fig._generate_gle_with_files()
+        assert "let " not in text
+        assert files == {}
+
+    def test_rejects_data_of_different_lengths(self):
+        with pytest.raises(ValueError, match="same length, got 2 and 3"):
+            self.ax.fit([0, 1], [0, 1, 2], "a*x")
+        assert self.ax.fits == []
+
+    def test_rejects_data_that_is_not_numbers(self):
+        with pytest.raises(TypeError, match="fit\\(\\) x must be a sequence"):
+            self.ax.fit(["a", "b"], [1, 2], "k*x")
+
+    def test_rejects_data_with_no_finite_point(self):
+        with pytest.raises(ValueError, match="at least one point"):
+            self.ax.fit([0.0, np.nan], [np.nan, 1.0], "a*x")
+
+    def test_checks_the_expression_and_options_as_function_does(self):
+        with pytest.raises(ValueError, match=r"fit\(\) expression .* first space"):
+            self.ax.fit([0, 1], [0, 1], "a * x")
+        with pytest.raises(TypeError, match="such as 'a\\*exp"):
+            self.ax.fit([0, 1], [0, 1], None)
+        with pytest.raises(ValueError, match=r"fit\(\) step must be positive"):
+            self.ax.fit([0, 1], [0, 1], "a*x", step=-1)
+        assert self.ax.fits == []
+
+
 def test_add_plot_line_keywords_reach_the_emitted_line():
     """The deprecated keyword form of ``GLEWriter.add_line`` warns and maps
     every argument to its field."""

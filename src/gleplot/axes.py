@@ -32,6 +32,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     ErrorbarSeries,
     FileSeries,
     FillSeries,
+    FitSeries,
     FunctionSeries,
     HeatmapSeries,
     HistSeries,
@@ -1651,6 +1652,7 @@ class Axes:
         self.bars: List[BarSeries] = []
         self.hists: List[HistSeries] = []
         self.functions: List[FunctionSeries] = []
+        self.fits: List[FitSeries] = []
         self.fills: List[FillSeries] = []
         self.errorbars: List[ErrorbarSeries] = []
         # External-file series definitions (column references).
@@ -2382,19 +2384,149 @@ class Axes:
         the curve is scaled by GLE. Beside other data, call :meth:`set_ylim`
         if the curve leaves that data's range.
         """
+        fields = self._let_curve_fields(
+            "function",
+            expression,
+            xmin,
+            xmax,
+            step,
+            color,
+            linestyle,
+            linewidth,
+            label,
+        )
+        entry = FunctionSeries(**fields)
+        self._register_series_draw_meta(entry, "function", zorder)
+        self.functions.append(entry)
+        return self
+
+    def fit(
+        self,
+        x,
+        y,
+        expression: str,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        step: Optional[float] = None,
+        color: Optional[str] = None,
+        linestyle: str = "-",
+        linewidth: float = 1,
+        label: Optional[str] = None,
+        zorder: Optional[float] = None,
+    ):
+        """Draw the curve GLE fits to ``x`` and ``y``.
+
+        Written as ``let dK = fit dJ with expression from xmin to xmax step
+        step``. GLE finds the coefficients, the names in ``expression``
+        other than ``x``, that fit the data best by least squares, and draws
+        the fitted curve. The data itself is not drawn: plot it with
+        :meth:`scatter` or :meth:`plot`. To fit in Python instead, draw the
+        fitted curve with :meth:`plot`.
+
+        Parameters
+        ----------
+        x, y : array-like
+            The data to fit, of equal length.
+        expression : str
+            A GLE expression in ``x``, such as ``"a*exp(-x/b)+c"``. It is
+            written as given, without spaces.
+        xmin, xmax : float, optional
+            The range the fitted curve is drawn over. Omitted, GLE uses the
+            x axis range. Every point is fitted either way.
+        step : float, optional
+            Distance between curve samples. Omitted, GLE takes 100 points.
+            On a log x axis GLE reads ``step`` as the number of points.
+        color : str, optional
+            Line colour; the style's default colour when omitted.
+        linestyle : {'-', '--', ':', '-.'}
+            Line style.
+        linewidth : float
+            Line width in points.
+        label : str, optional
+            Legend entry.
+        zorder : float, optional
+            Drawing order, as for :meth:`plot`.
+
+        Returns
+        -------
+        Axes
+            This axes.
+
+        Notes
+        -----
+        GLE starts every coefficient at 0 and keeps the fitted values to
+        itself, so they cannot be read back in Python. To start from other
+        values, or to use the fitted ones, fit in Python and draw the curve
+        with :meth:`plot`.
+
+        The data bounds the x and y ranges, as for :meth:`plot`, and
+        ``xmin`` and ``xmax`` widen the x range.
+        """
+        arrays = []
+        for name, value in (("x", x), ("y", y)):
+            try:
+                arrays.append(np.asarray(value, dtype=float).ravel())
+            except (TypeError, ValueError):
+                raise TypeError(
+                    f"fit() {name} must be a sequence of numbers, got {value!r}"
+                ) from None
+        x_arr, y_arr = arrays
+        if x_arr.shape != y_arr.shape:
+            raise ValueError(
+                f"fit() x and y must have the same length, got "
+                f"{x_arr.size} and {y_arr.size}"
+            )
+        if not np.any(np.isfinite(x_arr) & np.isfinite(y_arr)):
+            raise ValueError("fit() needs at least one point with finite x and y")
+        fields = self._let_curve_fields(
+            "fit",
+            expression,
+            xmin,
+            xmax,
+            step,
+            color,
+            linestyle,
+            linewidth,
+            label,
+        )
+        fields["x"] = x_arr
+        fields["y"] = y_arr
+        fields["data_file"] = _resolve_data_file(self.figure)
+        entry = FitSeries(**fields)
+        self._register_series_draw_meta(entry, "fit", zorder)
+        self.fits.append(entry)
+        return self
+
+    def _let_curve_fields(
+        self,
+        caller,
+        expression,
+        xmin,
+        xmax,
+        step,
+        color,
+        linestyle,
+        linewidth,
+        label,
+    ) -> Dict[str, Any]:
+        """Check the arguments :meth:`function` and :meth:`fit` share.
+
+        Returns the series fields they set, named for ``caller`` in errors.
+        """
+        example = "sin(x)" if caller == "function" else "a*exp(-x/b)+c"
         if not isinstance(expression, str):
             raise TypeError(
-                "function() expression must be a str such as 'sin(x)', got "
+                f"{caller}() expression must be a str such as {example!r}, got "
                 f"{type(expression).__name__}"
             )
         problem = _function_expression_problem(expression)
         if problem is not None:
             raise ValueError(
-                f"function() expression {expression!r} cannot be used: {problem}."
+                f"{caller}() expression {expression!r} cannot be used: {problem}."
             )
         if linestyle not in ("-", "--", ":", "-."):
             raise ValueError(
-                "function() linestyle must be '-', '--', ':' or '-.', "
+                f"{caller}() linestyle must be '-', '--', ':' or '-.', "
                 f"got {linestyle!r}"
             )
         bounds = {}
@@ -2405,16 +2537,16 @@ class Axes:
                 number = float(value)
             except (TypeError, ValueError):
                 raise TypeError(
-                    f"function() {name} must be a number, got {value!r}"
+                    f"{caller}() {name} must be a number, got {value!r}"
                 ) from None
             if not np.isfinite(number):
-                raise ValueError(f"function() {name} must be finite, got {value!r}")
+                raise ValueError(f"{caller}() {name} must be finite, got {value!r}")
             bounds[name] = number
         if "step" in bounds and bounds["step"] <= 0:
-            raise ValueError(f"function() step must be positive, got {step!r}")
+            raise ValueError(f"{caller}() step must be positive, got {step!r}")
         if "xmin" in bounds and "xmax" in bounds and bounds["xmin"] >= bounds["xmax"]:
             raise ValueError(
-                f"function() needs xmin < xmax, got xmin={xmin!r}, xmax={xmax!r}"
+                f"{caller}() needs xmin < xmax, got xmin={xmin!r}, xmax={xmax!r}"
             )
 
         fields: Dict[str, Any] = {"expression": expression}
@@ -2431,14 +2563,11 @@ class Axes:
             fields["linewidth"] = float(linewidth)
         except (TypeError, ValueError):
             raise TypeError(
-                f"function() linewidth must be a number of points, got {linewidth!r}"
+                f"{caller}() linewidth must be a number of points, got {linewidth!r}"
             ) from None
         if label is not None:
             fields["label"] = mathtext_to_gle(str(label))
-        entry = FunctionSeries(**fields)
-        self._register_series_draw_meta(entry, "function", zorder)
-        self.functions.append(entry)
-        return self
+        return fields
 
     def _histogram_window(self, sets, bins, range, warn):
         """``(lo, hi)`` and the equal-width bin count for one ``hist`` call.
@@ -5558,6 +5687,7 @@ class Axes:
             or self.bars
             or self.hists
             or self.functions
+            or self.fits
             or self.fills
             or self.errorbars
             or self.file_series
@@ -5839,6 +5969,7 @@ class Axes:
             "bars",
             "hists",
             "functions",
+            "fits",
             "lines",
             "scatters",
             "errorbars",
