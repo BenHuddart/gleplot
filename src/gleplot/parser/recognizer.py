@@ -2413,6 +2413,7 @@ class _Recognizer:
 
         frame_off_lines = self._prescan_frame_off(block)
         info["frame_off"] = bool(frame_off_lines)
+        info["_switched_on"] = self._prescan_switched_on(block)
         polar_line = self._prescan_polar(block, info)
         math_line = self._prescan_math(block)
         if math_line is not None:
@@ -2544,6 +2545,8 @@ class _Recognizer:
             "yside": None,
             "y2side": None,
             "x2side": None,
+            "y2axis_off": False,
+            "x2axis_off": False,
             "xnticks": None,
             "ynticks": None,
             "xftick": None,
@@ -3112,6 +3115,37 @@ class _Recognizer:
         if any(len(lines) != 1 for lines in found.values()):
             return set()
         return {lines[0] for lines in found.values()}
+
+    @staticmethod
+    def _prescan_switched_on(block: GraphBlock) -> Set[str]:
+        """``'x2'`` / ``'y2'`` when a statement may switch that axis on.
+
+        An ``on`` on an ``xaxis``/``x2axis``/``xlabels``/``x2labels`` line
+        (and the y twins) turns the top (right) axis back on wherever it
+        stands, since GLE copies an x setting onto x2. An ``x2axis off``
+        is modeled as ``Axes._x2axis_off`` only without one, because the
+        writer would put the ``off`` back in a different place.
+        """
+        found: Set[str] = set()
+        for child in block.body:
+            if not isinstance(child, Statement):
+                continue
+            kw = (child.keyword or "").lower()
+            prefix = {
+                "xaxis": "x2",
+                "x2axis": "x2",
+                "xlabels": "x2",
+                "x2labels": "x2",
+                "yaxis": "y2",
+                "y2axis": "y2",
+                "ylabels": "y2",
+                "y2labels": "y2",
+            }.get(kw)
+            if prefix and any(
+                t.value.lower() == "on" for t in _words_and_values(child)[1:]
+            ):
+                found.add(prefix)
+        return found
 
     @staticmethod
     def _prescan_math(block: GraphBlock) -> Optional[int]:
@@ -3810,7 +3844,29 @@ class _Recognizer:
           so the writer now emits ``y2labels on`` for that case too. Only
           when NEITHER holds is it a bare visibility switch the model does
           not have, preserved as passthrough.
+        * ``xside off`` hides the bottom line alone (``Axes.xside_off``)
+          only when the top line is switched back on after it
+          (``x2side on``) or the top axis is off: GLE copies it onto x2.
+          Otherwise it hides both lines, which the model cannot say, and
+          the ``off`` stays raw GLE (the y twin likewise).
         """
+        for prefix, mirror in (("x", "x2"), ("y", "y2")):
+            side = info[f"{prefix}side"]
+            if side is None or not side["off"]:
+                continue
+            restore = info[f"{mirror}side"]
+            if (restore is not None and restore["off"] is False) or info[
+                f"{mirror}axis_off"
+            ]:
+                continue
+            side["off"] = None
+            info["passthrough"].append(f"    {prefix}side off")
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"'{prefix}side off' also hides the {mirror} line; kept as raw "
+                "GLE, not editable",
+                None,
+            )
         for prefix in ("x", "y"):
             ticks = info[f"_{prefix}ticks"]
             subticks = info[f"_{prefix}subticks"]
@@ -4431,6 +4487,14 @@ class _Recognizer:
                 i += 1
                 continue
             if (
+                w == "off"
+                and prefix in ("x2", "y2")
+                and prefix not in info["_switched_on"]
+            ):
+                info[f"{prefix}axis_off"] = True
+                i += 1
+                continue
+            if (
                 w == "format"
                 and i + 1 < m
                 and toks[i + 1].type is TokenType.STRING
@@ -4554,10 +4618,13 @@ class _Recognizer:
         info[f"{prefix}noticks"] = values
 
     def _parse_side_line(self, kw, toks, info, stmt) -> None:
-        """``xside [color C] [lwidth W]`` (and y/y2/x2): the axis line.
+        """``xside [color C] [lwidth W] [off]`` (and y/y2/x2): the axis line.
 
-        ``off``, ``on`` and ``lstyle`` are not modeled, and neither is a
-        repeated line, so those stay raw GLE. GLE copies an ``xside`` onto
+        ``off`` is modeled on x and y, and ``on`` on x2 and y2 only after a
+        modeled x or y ``off``, where it is the writer switching the copied
+        ``off`` back off the opposite edge (see
+        :meth:`_reconcile_axis_styling`). ``lstyle`` is not modeled, and
+        neither is a repeated line, so those stay raw GLE. GLE copies an ``xside`` onto
         x2, and the writer puts ``xside`` before ``x2side``, so an
         ``xside`` that comes after a modeled ``x2side`` stays raw GLE too:
         re-emitted at the end of the block it still overrides the top line,
@@ -4568,6 +4635,13 @@ class _Recognizer:
         prefix = kw[: -len("side")]
         color: Optional[str] = None
         lwidth: Optional[float] = None
+        off: Optional[bool] = None
+        source = info.get({"x2": "xside", "y2": "yside"}.get(prefix, ""))
+        switch = (
+            "off"
+            if prefix in ("x", "y")
+            else "on" if source is not None and source["off"] else None
+        )
         ok = len(toks) > 1
         i = 1
         while i < len(toks) and ok:
@@ -4578,6 +4652,9 @@ class _Recognizer:
             elif word == "lwidth" and lwidth is None:
                 lwidth, i = _collect_value(toks, i + 1)
                 ok = lwidth is not None
+            elif word == switch and off is None and i == len(toks) - 1:
+                off = word == "off"
+                i += 1
             else:
                 ok = False
         mirror = {"x": "x2side", "y": "y2side"}.get(prefix)
@@ -4600,7 +4677,7 @@ class _Recognizer:
                 self._stmt_span(stmt),
             )
             return
-        info[kw] = {"color": color, "lwidth": lwidth}
+        info[kw] = {"color": color, "lwidth": lwidth, "off": off}
 
     def _render_remainder(self, remainder, stmt) -> str:
         """Reconstruct remainder tokens preserving original source spacing.
@@ -9099,6 +9176,8 @@ class _Recognizer:
             side = info[f"{prefix}side"]
             if side is not None:
                 setattr(ax, f"{prefix}side_color", side["color"])
+                if prefix in ("x", "y") and side["off"]:
+                    setattr(ax, f"{prefix}side_off", True)
                 if side["lwidth"] is not None:
                     setattr(
                         ax, f"{prefix}side_lwidth", linewidth_cm_to_pt(side["lwidth"])
@@ -9208,6 +9287,8 @@ class _Recognizer:
         the tick-removal flags which are directly observable.
         """
         ax._frame_off = info["frame_off"]
+        ax._x2axis_off = info["x2axis_off"]
+        ax._y2axis_off = info["y2axis_off"]
         ax._show_xticks = not info["xlabels_off"]
         ax._show_yticks = not info["ylabels_off"]
         ax._remove_first_xtick = info["nofirst_x"]

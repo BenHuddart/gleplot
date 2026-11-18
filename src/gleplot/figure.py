@@ -2892,6 +2892,7 @@ class Figure:
             title_font=getattr(ax, f"{prefix}label_font"),
             side_color=getattr(ax, f"{prefix}side_color"),
             side_lwidth=getattr(ax, f"{prefix}side_lwidth"),
+            side_off=getattr(ax, f"{prefix}side_off", None),
             nticks=getattr(ax, f"{prefix}nticks", None),
             ftick=getattr(ax, f"{prefix}ftick", None),
             shift=getattr(ax, f"{prefix}shift", None),

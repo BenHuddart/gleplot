@@ -559,6 +559,84 @@ def test_set_axis_line_rejects_nonsense(kwargs, error):
         ax.set_axis_line(**kwargs)
 
 
+def test_hiding_the_bottom_line_keeps_the_top_one_drawn():
+    fig, ax = _fig()
+    assert ax.set_axis_line("x", color="gray", visible=False) is ax
+    lines = _graph_lines(fig)
+    assert "xside color GRAY off" in lines
+    # GLE copies 'xside off' onto the top edge, so the top is switched back on.
+    assert lines.index("xside color GRAY off") < lines.index("x2side on")
+    assert not any(line.startswith(("yside", "y2side")) for line in lines)
+
+
+def test_hiding_the_top_and_right_edges_switches_those_axes_off():
+    fig, ax = _fig()
+    ax.set_axis_line("x2", visible=False)
+    ax.set_axis_line("y2", visible=False)
+    lines = _graph_lines(fig)
+    assert "x2axis off" in lines and "y2axis off" in lines
+    assert not any("side" in line for line in lines)
+
+
+def test_hiding_both_bottom_and_top_writes_no_switch_back():
+    fig, ax = _fig()
+    ax.set_axis_line(visible=False)
+    ax.set_axis_line("x2", visible=False)
+    lines = _graph_lines(fig)
+    assert "xside off" in lines and "yside off" in lines
+    assert "x2axis off" in lines and "y2side on" in lines
+    assert "x2side on" not in lines
+
+
+def test_visible_true_draws_a_hidden_line_again():
+    fig, ax = _fig()
+    plain = _graph_lines(fig)
+    for side in ("both", "x2", "y2"):
+        ax.set_axis_line(side, visible=False)
+        ax.set_axis_line(side, visible=True)
+    assert _graph_lines(fig) == plain
+
+
+def test_set_axis_off_hides_every_line_once():
+    fig, ax = _fig()
+    ax.set_axis_line(visible=False)
+    ax.set_axis_off()
+    lines = _graph_lines(fig)
+    assert lines.count("xside off") == lines.count("yside off") == 1
+    assert not any(line.startswith(("x2side", "y2side")) for line in lines)
+
+
+@pytest.mark.parametrize(
+    "setup,side",
+    [
+        (lambda ax: ax.twinx().plot([1, 2], [3, 4]), "y2"),
+        (lambda ax: ax.set_ylabel("R", axis="y2"), "y2"),
+        (lambda ax: ax.set_xlim(0, 5, axis="x2"), "x2"),
+        (lambda ax: ax.set_xscale("log", axis="x2"), "x2"),
+    ],
+)
+def test_hiding_an_edge_that_carries_a_scale_warns(setup, side):
+    _, ax = _fig()
+    setup(ax)
+    with pytest.warns(UserWarning, match=f"also hides the {side} scale"):
+        ax.set_axis_line(side, visible=False)
+
+
+def test_hiding_an_unused_edge_does_not_warn():
+    _, ax = _fig()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ax.set_axis_line("x2", visible=False)
+        ax.set_axis_line("y2", visible=False)
+        ax.set_axis_line("y2", visible=True)
+
+
+def test_set_axis_line_rejects_a_non_bool_visible():
+    _, ax = _fig()
+    with pytest.raises(TypeError, match=r"set_axis_line\(visible='no'\)"):
+        ax.set_axis_line("x", visible="no")
+
+
 # -- tick placement ----------------------------------------------------------
 
 
@@ -817,6 +895,7 @@ def test_every_styling_field_survives_to_dict_from_dict():
     ax.minorticks_on()
     ax.set_xticks(nsubticks=3, loglabels="l1", symticks=True)
     ax.set_yticks(nsubticks=1, loglabels="n1", symticks=True)
+    ax.set_axis_line(visible=False)
     before = {key: getattr(ax, key) for key in _STYLING_KEYS}
     assert all(value is not None for value in before.values()), before
 

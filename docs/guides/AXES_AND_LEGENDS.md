@@ -132,6 +132,17 @@ GLE copies the x line's style onto the top line and the y line's onto the
 right one, so `'x'` or `'both'` styles all four sides unless `'x2'` or `'y2'`
 is set too.
 
+`visible=False` hides one side, matplotlib's `spines[...].set_visible(False)`:
+
+```python
+ax.set_axis_line('x2', visible=False)   # no top line
+ax.set_axis_line('y2', visible=False)   # no right line
+```
+
+The bottom and left lines keep their ticks and tick labels when hidden.
+The top and right sides lose the tick marks GLE mirrors there too, and a
+`twiny`/`twinx` scale on that side with them, which warns.
+
 `set_xticks` and `set_yticks` also take GLE's own placement keywords:
 `nticks` (number of major ticks), `ftick` (where the first one goes),
 `shift` (move the tick labels along the axis, in cm), `symticks=True` (ticks

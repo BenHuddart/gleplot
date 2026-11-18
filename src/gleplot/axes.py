@@ -852,6 +852,8 @@ _STYLING_KEYS: Tuple[str, ...] = (
     "y2side_lwidth",
     "x2side_color",
     "x2side_lwidth",
+    "xside_off",
+    "yside_off",
     "xnticks",
     "xftick",
     "xshift",
@@ -1911,6 +1913,12 @@ class Axes:
         self.y2side_lwidth: Optional[float] = None
         self.x2side_color: Optional[str] = None
         self.x2side_lwidth: Optional[float] = None
+        #: The bottom or left axis line hidden (True, GLE ``xside off``),
+        #: its ticks and tick labels kept. None draws it. Set through
+        #: ``set_axis_line(visible=False)``, which hides the top and right
+        #: sides through ``_x2axis_off`` / ``_y2axis_off``.
+        self.xside_off: Optional[bool] = None
+        self.yside_off: Optional[bool] = None
 
         #: Tick placement beyond ``dticks``: GLE ``xaxis nticks N ftick F
         #: shift S symticks`` and ``xnoticks p1 p2 ...``. ``shift`` is in
@@ -6741,12 +6749,15 @@ class Axes:
         *,
         color: Any = None,
         linewidth: Optional[float] = None,
+        visible: Optional[bool] = None,
     ):
-        """Set the colour and width of an axis line (GLE ``xside``).
+        """Set the colour, width and visibility of an axis line (GLE ``xside``).
 
         Only the line is styled; ticks, tick labels and the grid keep their
         own colour. This is gleplot's form of matplotlib's
-        ``ax.spines[...].set_color()`` / ``.set_linewidth()``.
+        ``ax.spines[...].set_color()`` / ``.set_linewidth()`` /
+        ``.set_visible()``, with ``'x'``, ``'y'``, ``'x2'`` and ``'y2'``
+        for the bottom, left, top and right spines.
 
         Parameters
         ----------
@@ -6757,6 +6768,9 @@ class Axes:
             keeps the current colour.
         linewidth : float, optional
             Line width in points. ``None`` keeps the current width.
+        visible : bool, optional
+            ``False`` hides the line, ``True`` shows it again. ``None``
+            keeps the current visibility.
 
         Returns
         -------
@@ -6767,17 +6781,40 @@ class Axes:
         ------
         ValueError
             On an unknown ``axis`` or a negative ``linewidth``.
+        TypeError
+            If ``visible`` is not a bool or None.
 
         Notes
         -----
         GLE copies an x setting onto the top edge and a y setting onto the
         right edge. So ``axis='x'`` styles the top line too, unless
-        ``axis='x2'`` gives the top line its own style.
+        ``axis='x2'`` gives the top line its own style. Visibility is not
+        copied: ``visible=False`` hides only the edge it names.
+
+        Hiding the bottom or left line keeps its ticks and tick labels, as
+        in matplotlib. Hiding the top or right edge also removes the tick
+        marks GLE mirrors there (matplotlib draws none there by default),
+        and with them any top or right scale: a ``twiny`` / ``twinx``
+        scale, a ``yaxis='y2'`` series' numbers, a y2 label. That case
+        warns.
+
+        Examples
+        --------
+        The open-frame look of ``ax.spines[["top", "right"]].set_visible(False)``:
+
+        >>> import gleplot as glp
+        >>> fig, ax = glp.subplots()
+        >>> for side in ("x2", "y2"):
+        ...     _ = ax.set_axis_line(side, visible=False)
         """
         if axis not in ("both", "x", "y", "x2", "y2"):
             raise ValueError(
                 f"set_axis_line(axis={axis!r}) must be 'both', 'x', 'y', "
                 "'x2' or 'y2'"
+            )
+        if visible is not None and not isinstance(visible, (bool, np.bool_)):
+            raise TypeError(
+                f"set_axis_line(visible={visible!r}) must be True, False or None"
             )
         width = None
         if linewidth is not None:
@@ -6792,6 +6829,27 @@ class Axes:
                 setattr(self, f"{name}side_color", rgb_to_gle(color))
             if width is not None:
                 setattr(self, f"{name}side_lwidth", width)
+            if visible is None:
+                continue
+            if name in ("x", "y"):
+                setattr(self, f"{name}side_off", None if visible else True)
+                continue
+            setattr(self, f"_{name}axis_off", not visible)
+            in_use = (
+                (self.has_x2_plots() if name == "x2" else self.has_y2_plots())
+                or getattr(self, f"{name}min") is not None
+                or getattr(self, f"{name}max") is not None
+                or getattr(self, f"{name}scale") == "log"
+                or bool(getattr(self, f"{name}label_text"))
+            )
+            if not visible and in_use:
+                side = "top" if name == "x2" else "right"
+                warn_external(
+                    f"set_axis_line({name!r}, visible=False) also hides the "
+                    f"{name} scale drawn on the {side} edge: its ticks, tick "
+                    "labels and axis label. Leave that edge visible to keep "
+                    "the scale.",
+                )
         return self
 
     @_cartesian_only

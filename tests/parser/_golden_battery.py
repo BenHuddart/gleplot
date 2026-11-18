@@ -916,6 +916,22 @@ def math_mode_axes():
     return fig
 
 
+def hidden_axis_lines():
+    """Axis lines hidden per side: the open frame, and a lone bottom line."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(121)
+    ax.plot([0, 1, 2], [0, 1, 4], color="blue")
+    ax.set_title("Open")
+    ax.set_axis_line("x2", visible=False)
+    ax.set_axis_line("y2", visible=False)
+    right = fig.add_subplot(122)
+    right.plot([0, 1, 2], [4, 1, 0], color="red")
+    right.set_axis_line("x", color="gray", visible=False)
+    right.set_axis_line("y", visible=False)
+    right.set_axis_line("y2", color="green")
+    return fig
+
+
 def line_modes():
     """Step, histogram-outline and stem line modes on one axes."""
     fig = glp.figure(data_prefix="golden")
@@ -1507,6 +1523,7 @@ BUILDERS = [
     title_text_keywords,
     tick_marks_and_minor_ticks,
     math_mode_axes,
+    hidden_axis_lines,
     axes_styling_grid_only,
     contour_in_second_subplot,
     trailer_stray_amoves,

@@ -3,7 +3,7 @@
 The recognizer has no notion of a :class:`~gleplot.brokenaxes.BrokenAxes` and
 is not expected to reconstruct one. What it *must* do is degrade to
 passthrough preservation: parse without raising, keep every plotted series,
-keep the axis options it cannot model (``dticks``, the per-side ``off``) and
+keep the axis options it cannot model (``dticks``, ``yaxis off``) and
 keep the seam decoration -- and warn about what it could not model, so the
 loss is never silent. These tests pin that contract down.
 """
@@ -74,7 +74,6 @@ def test_unmodellable_axis_options_are_preserved_and_warned_about(broken_script)
         line for ax in recognized.figure.axes_list for line in ax.passthrough
     )
     assert "dticks 0.01" in passthrough
-    assert "y2axis off" in passthrough
     assert "yaxis" in passthrough and "off" in passthrough
 
     joined = " ".join(recognized.warnings)
