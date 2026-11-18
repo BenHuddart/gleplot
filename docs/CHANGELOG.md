@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v3.15.0 (2026-11-18)
+
+### Documentation
+
+- Explain the one-colormap limit and why contours have no smoothing
+  ([#54](https://github.com/BenHuddart/gleplot/pull/54),
+  [`5b010c4`](https://github.com/BenHuddart/gleplot/commit/5b010c454611833f7e341612cb1f418b9b5d2f77))
+
+- Point the migration guide at the heatmap limit instead of restating it
+  ([#54](https://github.com/BenHuddart/gleplot/pull/54),
+  [`de3c97a`](https://github.com/BenHuddart/gleplot/commit/de3c97ae457e71b2a904bbea6a5ebf81f3a85260))
+
+### Features
+
+- Draw GLE-fitted curves with Axes.fit ([#53](https://github.com/BenHuddart/gleplot/pull/53),
+  [`64864e9`](https://github.com/BenHuddart/gleplot/commit/64864e95f873db7f818ac2477b5ef3584268e8a1))
+
+- Name the argument when fit() data is not numbers
+  ([#53](https://github.com/BenHuddart/gleplot/pull/53),
+  [`2a8387c`](https://github.com/BenHuddart/gleplot/commit/2a8387c22100cbd120d8bbef0904433be60c1a85))
+
+
 ## v3.14.0 (2026-11-18)
 
 ### Features
