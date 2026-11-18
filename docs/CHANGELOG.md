@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v3.11.0 (2026-11-18)
+
+### Documentation
+
+- Say that honouring a warned-and-ignored keyword is not breaking
+  ([`4341e59`](https://github.com/BenHuddart/gleplot/commit/4341e59eea1951754f591e7e0459d6669c8048a7))
+
+### Features
+
+- Axis-line styling, title fonts and GLE tick placement
+  ([`0286c0d`](https://github.com/BenHuddart/gleplot/commit/0286c0d1a704fbd028aae62b6296206750613860))
+
+
 ## v3.10.0 (2026-11-17)
 
 ### Features
