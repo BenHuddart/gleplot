@@ -188,6 +188,37 @@ sub gleplot_box_mean x y
 end sub"""
 
 
+#: Name prefix of the subs behind per-point marker sizes
+#: (:meth:`GLEWriter.add_scatter`): ``gleplot_mdata_<marker>``, lower case.
+MDATA_SUB_PREFIX = "gleplot_mdata_"
+
+
+def mdata_sub_text(marker: str) -> str:
+    """The sub and ``define marker`` that give a built-in marker ``mdata``.
+
+    GLE passes a dataset's ``mdata`` value only to a marker defined by a
+    subroutine (``g_marker2`` in ``core.cpp``); a built-in marker ignores it.
+    This sub draws the built-in marker at ``msize`` times that value. Its text
+    depends on nothing but its name, so the parser drops it and the writer
+    regenerates it, like the palette, guide and wedge subs.
+    """
+    name = MDATA_SUB_PREFIX + marker.lower()
+    # The ``marker`` command's size is a multiple of ``hei`` (``run.cpp``),
+    # so the absolute size is set as ``hei``, saved and restored around it.
+    # A size of 0 must draw nothing, and ``set hei 0`` does not.
+    return (
+        f"sub {name} size data\n"
+        "   if data > 0 then\n"
+        "      gsave\n"
+        "      set hei size*data\n"
+        f"      marker {marker.upper()}\n"
+        "      grestore\n"
+        "   end if\n"
+        "end sub\n"
+        f"define marker {name} {name}"
+    )
+
+
 @dataclass(frozen=True)
 class AxisStyle:
     """Styling for ONE axis (x, y or y2) of a graph block.
@@ -1172,6 +1203,9 @@ class GLEWriter:
         # take the draw form is not known until each axes' limits are.
         self.used_guide_subs: Set[str] = set()
         self._sub_defs_mark: int = 0
+        # Which axes of the graph being written are logarithmic, as the last
+        # add_axes call set them (see _add_sized_scatter).
+        self._log_axes: Dict[str, bool] = {}
         # Sticky GLE interpreter state as far as add_text_annotation is concerned: 'set
         # hei'/'set color'/'set just' persist across `write` statements until
         # changed again (real GLE semantics -- see recognizer._try_one_text,
@@ -1754,6 +1788,7 @@ class GLEWriter:
         ystyle = ystyle or _NO_STYLE
         y2style = y2style or _NO_STYLE
         x2style = x2style or _NO_STYLE
+        self._log_axes = {"x": xlog, "y": ylog, "y2": y2log, "x2": x2log}
         if title:
             opts = self._text_options(title_size, title_color, title_dist, title_font)
             self.lines_gle.append(f'    title "{title}"{opts}')
@@ -2702,7 +2737,15 @@ class GLEWriter:
             meant.
         binding : ColumnBinding, optional
             Passed to :meth:`add_line`.
+
+        Notes
+        -----
+        A series with per-point sizes (``mdata``) is drawn by
+        :meth:`_add_sized_scatter` instead.
         """
+        if "mdata" in series:
+            self._add_sized_scatter(series, binding)
+            return
         line = LineSeries(
             x=series["x"],
             y=series["y"],
@@ -2722,6 +2765,81 @@ class GLEWriter:
             if name in series:
                 line[name] = series[name]
         self.add_line(line, binding=binding)
+
+    def _add_sized_scatter(self, series: Series, binding: Optional[ColumnBinding]):
+        """A scatter whose points each have their own size (GLE ``mdata``).
+
+        Writes ``dN marker gleplot_mdata_<marker> msize <base> mdata dK``:
+        ``dK`` holds each point's size as a multiple of ``msize`` and has no
+        display line of its own, so GLE neither draws it nor autoscales to it.
+        The marker is the sub :func:`mdata_sub_text` defines. No preview
+        ``deresolve`` is added: GLE requires ``dK`` to have exactly as many
+        points as ``dN`` draws.
+
+        GLE drops a point whose x or y is NaN, or negative on a log axis,
+        from ``dN`` but not from ``dK`` (``transform_data`` in
+        ``graph2.cpp``), and then refuses the mismatch. Such a point is
+        written as a missing value (``*``) instead, which GLE keeps and does
+        not draw.
+        """
+        label = series["label"]
+        column_names = series.get("column_names")
+        x = np.asarray(series["x"])
+        y = np.asarray(series["y"])
+        if binding is None:
+            x, y = self._missing_where_gle_drops(
+                x, y, series.get("xaxis", "x"), series.get("yaxis", "y")
+            )
+        cols = self._write_columns(
+            series["data_file"],
+            [("x", x), ("y", y), ("mdata", np.asarray(series["mdata"]))],
+            column_names,
+            binding,
+        )
+        file_name = binding.data_file if binding is not None else series["data_file"]
+        d_name = f"d{self.dataset_index}"
+        d_sizes = f"d{self.dataset_index + 1}"
+        self.dataset_index += 2
+        self.lines_gle.append(
+            f"    data {_format_data_filename(file_name)} "
+            f"{d_name}=c{cols[0]},c{cols[1]} {d_sizes}=c{cols[0]},c{cols[2]}"
+        )
+        offset = series.get("offset", 0.0)
+        display_name = self._apply_offset(d_name, offset) if offset else d_name
+        marker = MDATA_SUB_PREFIX + str(series["marker"]).lower()
+        msize = self._format_number(series["markersize"])
+        self.lines_gle.append(
+            f"    {display_name} marker {marker} msize {msize} mdata {d_sizes}"
+            + self._color_clause(series["color"])
+            + self._dataset_axis_clause(
+                series.get("xaxis", "x"), series.get("yaxis", "y")
+            )
+            + self._dataset_qualifier_clause(series, False)
+            + self._key_clause(label, bool(column_names) or binding is not None)
+        )
+        self._finish_legend_entry(label)
+
+    def _missing_where_gle_drops(
+        self, x: np.ndarray, y: np.ndarray, xaxis: str, yaxis: str
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """``x`` and ``y`` with ``*`` where GLE would drop the point.
+
+        Unchanged (the same arrays) when GLE drops no point.
+        """
+        xf = np.asarray(x, dtype=float)
+        yf = np.asarray(y, dtype=float)
+        drop = np.isnan(xf) | np.isnan(yf)
+        if self._log_axes.get(xaxis):
+            drop |= xf < 0
+        if self._log_axes.get(yaxis):
+            drop |= yf < 0
+        if not drop.any():
+            return x, y
+        xs = xf.astype(object)
+        ys = yf.astype(object)
+        xs[drop] = "*"
+        ys[drop] = "*"
+        return xs, ys
 
     # -- bar width, the one number GLE derives from the data's shape -------
     #

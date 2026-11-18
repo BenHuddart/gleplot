@@ -34,8 +34,9 @@ ax.plot(x, y, label='data', color='blue', linestyle='-', linewidth=2)
 ax.scatter(x, y, s=50, color='red', marker='o', alpha=0.6)
 ```
 
-`s` is an area in points², as in matplotlib. One series has one marker size;
-plot one series per size.
+`s` is an area in points², as in matplotlib. Pass one value per point for a
+bubble chart, e.g. `s=population / 1e6`; see
+[Colors and Markers](COLORS_AND_MARKERS.md).
 
 ## Error bars
 

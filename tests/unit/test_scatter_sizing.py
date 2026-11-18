@@ -131,12 +131,133 @@ def test_msize_scale_still_applies_to_both_spellings():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("kwargs", [{"s": [10, 20, 30]}, {"markersize": [4, 5, 6]}])
-def test_per_point_sizes_are_rejected_clearly(kwargs):
-    """GLE's msize is per dataset -- fail loudly instead of emitting garbage."""
+def test_per_point_s_writes_mdata_through_a_marker_sub():
+    """GLE's ``mdata`` only scales a sub-defined marker, so one is emitted."""
     ax = _ax()
-    with pytest.raises(ValueError, match="per-dataset"):
+    ax.scatter(X, Y, s=[100, 400, 900], color="red", label="pop")
+    text, files = ax.figure._generate_gle_with_files()
+
+    assert (
+        "sub gleplot_mdata_fcircle size data\n"
+        "   if data > 0 then\n"
+        "      gsave\n"
+        "      set hei size*data\n"
+        "      marker FCIRCLE\n"
+        "      grestore\n"
+        "   end if\n"
+        "end sub\n"
+        "define marker gleplot_mdata_fcircle gleplot_mdata_fcircle\n"
+    ) in text
+    assert "data t_0.dat d1=c1,c2 d2=c1,c3\n" in text
+    # The legend marker's area is halfway between the extremes (matplotlib).
+    base = np.sqrt((100 + 900) / 2) * 1.2
+    msize = markersize_to_msize(base)
+    assert re.search(
+        rf"d1 marker gleplot_mdata_fcircle msize {msize:.6g} mdata d2 color RED "
+        r'key "pop"\n',
+        text,
+    )
+    rows = [line.split() for line in files["t_0.dat"].splitlines()]
+    assert rows[0] == ["x", "pop", "mdata"]
+    scales = [float(row[2]) for row in rows[1:]]
+    expected = np.sqrt([100, 400, 900]) * 1.2 / base
+    assert scales == pytest.approx(expected, rel=1e-5)
+
+
+def test_per_point_markersize_is_a_diameter():
+    ax = _ax()
+    ax.scatter(X, Y, markersize=[2, 4, 8], marker="s")
+    series = ax.scatters[0]
+    base = np.sqrt((2**2 + 8**2) / 2)
+    assert series["markersize"] == pytest.approx(markersize_to_msize(base))
+    assert series["mdata"] == pytest.approx(np.array([2, 4, 8]) / base)
+    text, _files = ax.figure._generate_gle_with_files()
+    assert "sub gleplot_mdata_fsquare size data" in text
+    assert "marker FSQUARE\n" in text
+
+
+def test_one_sub_per_marker_shape():
+    ax = _ax()
+    ax.scatter(X, Y, s=[1, 2, 3])
+    ax.scatter(X, Y, s=[4, 5, 6])
+    ax.scatter(X, Y, s=[4, 5, 6], marker="^")
+    text, _files = ax.figure._generate_gle_with_files()
+    assert text.count("sub gleplot_mdata_fcircle ") == 1
+    assert text.count("sub gleplot_mdata_ftriangle ") == 1
+
+
+def test_all_zero_sizes_keep_a_drawable_legend_marker():
+    """``msize 0`` is GLE's font height, so the base stays the default."""
+    ax = _ax()
+    ax.scatter(X, Y, s=[0, 0, 0])
+    series = ax.scatters[0]
+    assert series["markersize"] == pytest.approx(markersize_to_msize(np.sqrt(20) * 1.2))
+    assert list(series["mdata"]) == [0, 0, 0]
+
+
+@pytest.mark.parametrize("kwargs", [{"s": [30]}, {"markersize": np.array([6.0])}])
+def test_a_one_element_array_is_one_size(kwargs):
+    """matplotlib broadcasts a length-1 ``s``; so does gleplot."""
+    a, b = _ax(), _ax()
+    a.scatter(X, Y, **kwargs)
+    b.scatter(X, Y, **{k: float(np.ravel(v)[0]) for k, v in kwargs.items()})
+    assert "mdata" not in a.scatters[0]
+    assert a.figure._generate_gle_with_files() == b.figure._generate_gle_with_files()
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"s": [10, 20]}, "2 sizes for 3 points"),
+        ({"markersize": [1, 2, 3, 4]}, "4 sizes for 3 points"),
+        ({"s": [10, -1, 20]}, "finite and not negative"),
+        ({"s": [10, np.nan, 20]}, "finite and not negative"),
+        ({"s": [-4]}, "finite and not negative"),
+        ({"s": ["a", "b", "c"]}, "number or a sequence of numbers"),
+        ({"s": [10, 20, 30], "mdist": 1.0}, r"mdist=1\.0"),
+        ({"s": [10, 20, 30], "deresolve": 2}, "deresolve=2"),
+    ],
+)
+def test_bad_per_point_sizes_are_rejected_at_the_call(kwargs, match):
+    ax = _ax()
+    with pytest.raises(ValueError, match=match):
         ax.scatter(X, Y, **kwargs)
+
+
+def test_empty_sizes_draw_an_empty_series():
+    ax = _ax()
+    ax.scatter([], [], s=[])
+    assert "mdata" not in ax.scatters[0]
+
+
+def test_a_point_gle_would_drop_is_written_missing():
+    """GLE drops NaN (and, on a log axis, negative) points from the drawn
+    dataset but not from the sizes, then refuses the mismatch."""
+    ax = _ax()
+    ax.scatter([1, 2, 3, 4], [1, np.nan, -3, 4], s=[10, 20, 30, 40])
+    ax.set_yscale("log")
+    ax.set_ylim(0.5, 5)
+    _text, files = ax.figure._generate_gle_with_files()
+    rows = [line.split()[:2] for line in files["t_0.dat"].splitlines()[1:]]
+    assert rows == [["1", "1"], ["*", "*"], ["*", "*"], ["4", "4"]]
+
+
+def test_no_marker_means_no_sub():
+    ax = _ax()
+    ax.scatter(X, Y, s=[10, 20, 30], marker="None")
+    text, _files = ax.figure._generate_gle_with_files()
+    assert "gleplot_mdata" not in text
+
+
+def test_per_point_sizes_survive_to_dict():
+    ax = _ax()
+    ax.scatter(X, Y, s=[10, 20, 30])
+    fig = ax.figure
+    restored = glp.Figure.from_dict(fig.to_dict())
+    series = restored.axes_list[0].scatters[0]
+    assert isinstance(series["mdata"], np.ndarray)
+    assert series["mdata"] == pytest.approx(ax.scatters[0]["mdata"])
+    assert restored._generate_gle_with_files() == fig._generate_gle_with_files()
 
 
 # --------------------------------------------------------------------------- #

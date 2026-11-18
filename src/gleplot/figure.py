@@ -1,8 +1,9 @@
 """Figure class for gleplot."""
 
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
 
@@ -25,6 +26,7 @@ from .compiler import (
     remove_generated_intermediates,
 )
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
+from .markers import MARKERS
 from .parser import metadata as _gle_metadata
 from .parser.units import fontsize_pt_to_cm
 from .series import HeatmapSeries, Series, is_visible
@@ -34,6 +36,7 @@ from .writer import (
     COLORBAR_AUTO_RANGE,
     COLORBAR_NTICKS,
     DEFAULT_COLORBAR_NTICKS,
+    MDATA_SUB_PREFIX,
     WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
@@ -42,7 +45,13 @@ from .writer import (
     SourceResolution,
     _grid_z_file,
     legend_column_breaks,
+    mdata_sub_text,
     resolve_figure,
+)
+
+#: A ``marker gleplot_mdata_<name>`` reference in raw GLE; group 1 is the name.
+_MDATA_MARKER_RE = re.compile(
+    r"\bmarker\s+" + re.escape(MDATA_SUB_PREFIX) + r"(\w+)", re.IGNORECASE
 )
 
 #: Envelope identifiers for the gleplot project-file format.
@@ -2195,9 +2204,10 @@ class Figure:
         palette subs sorted by name, then the vertical and horizontal colorbar
         subs (each if any bar uses it), then the contour-labels sub (if any
         clabel), then the pie-wedge sub (if any wedge), then the box-plot subs
-        (if any box). Skipped (dangling) grid series contribute nothing, so
-        a write that drops the only heatmap does not leave an unused palette
-        sub behind.
+        (if any box), then one per-point marker-size sub per marker that a
+        scatter with ``mdata`` uses, sorted by name. Skipped (dangling)
+        series contribute nothing, so a write that drops the only heatmap
+        does not leave an unused palette sub behind.
 
         The guide subs (:mod:`gleplot.guides`) are NOT collected here: which
         guides take the draw form depends on limits that are still unresolved
@@ -2238,6 +2248,22 @@ class Figure:
             subs.append(WEDGE_SUB)
         if any(resolution.visible(ax.boxes) for ax in self.axes_list):
             subs.append(BOX_SUB)
+        sized_markers: Set[str] = set()
+        for ax in self.axes_list:
+            sized_markers.update(
+                str(sc["marker"]).lower()
+                for sc in resolution.visible(ax.scatters)
+                if "mdata" in sc
+            )
+            # A dataset line kept as raw GLE may still name one of these
+            # markers; the parser dropped its sub, so it is written again.
+            for line in ax.passthrough:
+                sized_markers.update(
+                    name.lower()
+                    for name in _MDATA_MARKER_RE.findall(line)
+                    if name.upper() in MARKERS
+                )
+        subs.extend(mdata_sub_text(marker) for marker in sorted(sized_markers))
         return subs
 
     def _emit_pre_graph_blocks(

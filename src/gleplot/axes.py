@@ -1524,6 +1524,32 @@ class SecondaryXAxis:
         return self._axes.set_yscale(scale, axis=axis)
 
 
+def _point_sizes(name: str, values: Any, n_points: int) -> np.ndarray:
+    """``scatter``'s per-point ``s`` or ``markersize`` as a float array.
+
+    Raises ``ValueError`` unless the sizes are finite and not negative, and
+    there is one, or one per point (matplotlib's rule).
+    """
+    try:
+        sizes = np.asarray(values, dtype=float).ravel()
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"scatter({name}=...) must be a number or a sequence of numbers, "
+            f"got {values!r}."
+        ) from None
+    if sizes.size not in (1, n_points):
+        raise ValueError(
+            f"scatter({name}=...) has {sizes.size} sizes for {n_points} points; "
+            "pass one size, or one per point."
+        )
+    if not np.all(np.isfinite(sizes)) or np.any(sizes < 0):
+        raise ValueError(
+            f"scatter({name}=...) sizes must be finite and not negative, got "
+            f"{values!r}."
+        )
+    return sizes
+
+
 def _is_straight_connection(connection: Any) -> bool:
     """Whether a matplotlib ``connectionstyle`` is a straight ``arc3``."""
     kind, _, params = str(connection).partition(",")
@@ -3328,12 +3354,12 @@ class Axes:
         x,
         y,
         color: Optional[str] = None,
-        s: Optional[float] = None,
+        s: Optional[Union[float, Sequence[float]]] = None,
         marker: str = "o",
         label: Optional[str] = None,
         yaxis: str = "y",
         xaxis: str = "x",
-        markersize: Optional[float] = None,
+        markersize: Optional[Union[float, Sequence[float]]] = None,
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
         zorder: Optional[float] = None,
@@ -3365,20 +3391,20 @@ class Axes:
             Data coordinates
         color : str, optional
             Point color
-        s : float, optional
+        s : float or array-like, optional
             Marker area in points**2 (matplotlib ``scatter`` convention).
-            Default 20 when neither ``s`` nor ``markersize`` is given.
-            A per-point array is not supported: GLE's ``msize`` is a
-            per-dataset attribute, so one series draws one marker size.
+            Default 20 when neither ``s`` nor ``markersize`` is given. An
+            array gives each point its own size; see Notes.
         marker : str
             Marker symbol
         label : str, optional
             Legend label
         yaxis : str, optional
             Which y-axis to use: 'y' (left, default) or 'y2' (right)
-        markersize : float, optional
+        markersize : float or array-like, optional
             Marker diameter in points (matplotlib ``Line2D``/:meth:`plot`
-            convention). Takes precedence over ``s``.
+            convention). Takes precedence over ``s``. An array gives each
+            point its own size; see Notes.
         fillstyle : {'full', 'none'}, optional
             ``'none'`` draws open (outline) markers instead of filled ones.
         markerfacecolor : str, optional
@@ -3396,35 +3422,64 @@ class Axes:
         Returns
         -------
         self
+
+        Notes
+        -----
+        Per-point sizes (a bubble chart) take one finite, non-negative value
+        per point; a one-element array is a single size. GLE's ``mdata``
+        scales only a marker drawn by a subroutine, so the script gets a
+        ``gleplot_mdata_<marker>`` sub that draws the built-in marker at each
+        point's size. The legend marker's area is halfway between the largest
+        and smallest point's, as in matplotlib's legend. Per-point sizes
+        cannot be combined with ``mdist`` or ``deresolve``.
         """
         label = self._text(label)
 
+        default_size = float(np.sqrt(self.SCATTER_DEFAULT_S) * 1.2)
+        diameters = None
+        size = default_size
         if markersize is None:
             if s is None:
                 s = self.SCATTER_DEFAULT_S
-            if np.ndim(s) != 0:
-                raise ValueError(
-                    "scatter(s=...) must be a single size: GLE's msize is a "
-                    "per-dataset attribute, so every point in a series is "
-                    "drawn at one size. Plot one series per size instead."
-                )
             # matplotlib: s is an area in points**2 and markersize a diameter
             # in points, so markersize = sqrt(s). The 1.2 is gleplot's own
             # visibility factor, kept so scatter sizes are unchanged.
-            markersize = np.sqrt(float(s)) * 1.2
-        elif np.ndim(markersize) != 0:
-            raise ValueError(
-                "scatter(markersize=...) must be a single size: GLE's msize "
-                "is a per-dataset attribute, so every point in a series is "
-                "drawn at one size. Plot one series per size instead."
-            )
-        return self.plot(
+            if np.ndim(s) == 0:
+                size = float(np.sqrt(np.asarray(s, dtype=float)) * 1.2)
+            else:
+                diameters = np.sqrt(_point_sizes("s", s, np.size(x))) * 1.2
+        elif np.ndim(markersize) == 0:
+            size = float(np.asarray(markersize, dtype=float))
+        else:
+            diameters = _point_sizes("markersize", markersize, np.size(x))
+        mdata = None
+        if diameters is not None and diameters.size == 1:
+            size = float(diameters[0])
+        elif diameters is not None and diameters.size > 1:
+            for qualifier in ("mdist", "deresolve"):
+                if kwargs.get(qualifier) is not None:
+                    raise ValueError(
+                        f"scatter({qualifier}={kwargs[qualifier]!r}) cannot be "
+                        "combined with per-point sizes: GLE ignores per-point "
+                        f"sizes under {qualifier}. Pass one size, or drop "
+                        f"{qualifier}."
+                    )
+            # The legend marker's area is halfway between the largest and
+            # smallest point's, as in matplotlib's scatter legend.
+            size = float(np.sqrt((diameters.max() ** 2 + diameters.min() ** 2) / 2))
+            if size == 0.0:
+                # GLE reads msize 0 as "the font height": keep the default
+                # size and scale every point down to nothing.
+                size = default_size
+            mdata = diameters / size
+        count = len(self.scatters)
+        self.plot(
             x,
             y,
             linestyle="none",
             color=color,
             marker=marker,
-            markersize=markersize,
+            markersize=size,
             label=label,
             yaxis=yaxis,
             xaxis=xaxis,
@@ -3433,6 +3488,16 @@ class Axes:
             zorder=zorder,
             **kwargs,
         )
+        # No marker draws nothing, so there is no size to give each point.
+        if (
+            mdata is not None
+            and len(self.scatters) > count
+            and self.scatters[-1]["marker"]
+        ):
+            series = self.scatters[-1]
+            series["mdata"] = mdata
+            series["column_names"] = series.default_column_names()
+        return self
 
     def bar(
         self,
@@ -7085,10 +7150,11 @@ class Axes:
                 # ``bottom`` / ``top`` are arrays but not in ``ARRAY_FIELDS``:
                 # that loop inserts a missing key, and a bar with no baseline
                 # must keep the key absent so its snapshot stays historical.
-                if series_cls is BarSeries:
-                    for key in ("bottom", "top"):
-                        if key in item and item[key] is not None:
-                            item[key] = _to_float_array(item[key])
+                # Nor is a scatter's optional ``mdata``.
+                optional = {BarSeries: ("bottom", "top"), ScatterSeries: ("mdata",)}
+                for key in optional.get(series_cls, ()):
+                    if key in item and item[key] is not None:
+                        item[key] = _to_float_array(item[key])
                 # Older projects (pre Track E3) have no 'column_names' key at
                 # all on their series; regenerate the same defaults the
                 # plotting methods would produce so the next save still gets

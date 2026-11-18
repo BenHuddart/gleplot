@@ -20,6 +20,7 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import gleplot
@@ -157,7 +158,7 @@ def normalize(d: dict) -> dict:
     # recovered arrays are rounded. Snap BOTH sides to that emitted precision.
     _ARRAY_KEYS = {
         "lines": ("x", "y"),
-        "scatters": ("x", "y"),
+        "scatters": ("x", "y", "mdata"),
         "bars": ("x", "height", "bottom", "top"),
         "hists": ("samples",),
         "fits": ("x", "y"),
@@ -1208,6 +1209,95 @@ def test_a_qualifier_with_no_value_is_skipped(tmp_path):
     first, second = parse_gle_figure(p).figure.axes_list[0].file_series
     assert "mdist" not in first and first["color"] == "RED"
     assert "deresolve" not in second and second["color"] == "BLUE"
+
+
+def test_per_point_marker_sizes_are_recovered(tmp_path):
+    """gleplot's ``mdata`` scatter comes back as the built-in marker + sizes."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], s=[10, 40, 90], marker="^", label="b")
+    path = tmp_path / "sized.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path)
+    (series,) = rec.figure.axes_list[0].scatters
+    assert series["marker"] == "FTRIANGLE"
+    assert series["mdata"] == pytest.approx(ax.scatters[0]["mdata"], rel=1e-5)
+    assert series["markersize"] == pytest.approx(ax.scatters[0]["markersize"])
+    assert rec.warnings == []
+
+
+def test_a_missing_point_in_a_sized_scatter_round_trips(tmp_path):
+    """The ``*`` written for a NaN point reads back as NaN and is rewritten."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    fig.add_subplot(111).scatter([0, 1, 2], [2, float("nan"), 2], s=[10, 40, 90])
+    path = tmp_path / "gap.gle"
+    fig.savefig_gle(str(path))
+    text, files = fig._generate_gle_with_files()
+    rec = parse_gle_figure(path)
+    (series,) = rec.figure.axes_list[0].scatters
+    assert np.isnan(series["y"][1])
+    assert rec.figure._generate_gle_with_files() == (text, files)
+
+
+def test_an_edited_sized_scatter_kept_raw_keeps_its_marker_sub(tmp_path):
+    """The parser drops the generated sub; a raw line naming it gets it back."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    fig.add_subplot(111).scatter([0, 1, 2], [2, 1, 2], s=[10, 40, 90])
+    path = tmp_path / "edited.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    path.write_text(
+        text.replace("mdata d2 color", "mdata d2 line color"), encoding="utf-8"
+    )
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].scatters == []
+    out = tmp_path / "edited-again.gle"
+    rec.figure.savefig_gle(str(out))
+    again = out.read_text(encoding="utf-8")
+    assert again.count("sub gleplot_mdata_fcircle size data\n") == 1
+    assert "define marker gleplot_mdata_fcircle gleplot_mdata_fcircle\n" in again
+    assert "marker gleplot_mdata_fcircle msize" in again
+
+
+_USER_MDATA = (
+    "! gleplot-meta-begin v2\n"
+    "! gleplot: import-data = m.dat\n"
+    "! gleplot-meta-end\n"
+    "size 20.32 15.24\n"
+    "sub bubble size data\n"
+    "   circle size*data\n"
+    "end sub\n"
+    "define marker bub bubble\n"
+    "begin graph\n"
+    '   data "m.dat" d1=c1,c2 d2=c1,c3\n'
+    "   d1 marker {marker} msize 0.4 mdata d2 color RED\n"
+    "end graph\n"
+)
+
+
+@pytest.mark.parametrize("marker", ["bub", "circle"])
+def test_a_hand_written_mdata_is_kept_raw_and_warned(tmp_path, marker):
+    """``mdata`` on a marker sub of the user's own (or a built-in, which GLE
+    draws at one size) is not modelled: the lines stay as written."""
+    p = _write(
+        tmp_path,
+        "m.gle",
+        _USER_MDATA.format(marker=marker),
+        {"m.dat": "1 1 0.5\n2 2 1\n3 3 2\n"},
+    )
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.scatters == [] and ax.lines == [] and ax.file_series == []
+    assert any("'mdata'" in w and "raw GLE" in w for w in rec.warnings)
+    out = tmp_path / "m-again.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "define marker bub bubble\n" in text
+    assert '   data "m.dat" d1=c1,c2 d2=c1,c3\n' in text
+    assert f"   d1 marker {marker} msize 0.4 mdata d2 color RED\n" in text
 
 
 def test_a_non_finite_qualifier_is_skipped(tmp_path):
