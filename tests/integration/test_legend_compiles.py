@@ -2,7 +2,9 @@
 
 The script text is asserted in ``tests/unit/test_legend.py``. This checks
 the part a string match cannot: that ``dN key``, ``keyfill``, ``key
-separator``, ``compact`` and ``background`` are a script GLE accepts.
+separator``, ``compact``, ``background``, the spacing options, and an
+anchored ``begin key`` whose ``absolute`` reads ``xg()``/``yg()`` of the
+graph that has just ended are a script GLE accepts.
 Skipped when the binary is missing.
 """
 
@@ -30,6 +32,27 @@ def test_swatches_columns_and_background_compile(tmp_path):
     ax.plot([0, 1, 2], [0.5, 1.5, 0.5], label="fit")
     ax.axvspan(0.4, 1.2, color="orange", alpha=0.4, label="window")
     ax.legend(ncol=2, compact=True, facecolor="green")
+    out = tmp_path / "legend.pdf"
+    fig.savefig(str(out))
+    assert out.is_file()
+    assert out.stat().st_size > 0
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(ncol=2, handlelength=1.5, handletextpad=0.5, columnspacing=1.0),
+        dict(loc="upper right", bbox_to_anchor=(-0.1, 1.0), borderpad=0.2),
+        dict(loc="lower center", bbox_to_anchor=(0, 1.02, 1, 0.2), labelcolor="gray"),
+    ],
+)
+def test_spacing_anchor_and_labelcolor_compile(tmp_path, kwargs):
+    fig = glp.figure(data_prefix="legc")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0.5, 1.5, 0.5], label="fit", marker="o")
+    ax.plot([0, 1, 2], [1.5, 0.5, 1.5], label="data", linestyle="--")
+    ax.set_xlim(2, 0)  # an inverted axis: the anchor still measures from the left
+    ax.legend(**kwargs)
     out = tmp_path / "legend.pdf"
     fig.savefig(str(out))
     assert out.is_file()

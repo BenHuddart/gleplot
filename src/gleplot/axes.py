@@ -16,6 +16,7 @@ from .palettes import canonical_cmap
 from .parser.tables import (
     KEY_POSITIONS_LONG_TO_SHORT,
     KEY_POSITIONS_SHORT_TO_LONG,
+    LEGEND_SPACING_TO_KEY,
     MATPLOTLIB_TO_LSTYLE,
     MPL_ARROWSTYLE_TO_GLE,
     NUMBER_FORMAT_KEYWORDS,
@@ -1528,6 +1529,17 @@ class Axes:
         # matplotlib's name is ``facecolor``; GLE's ``boxcolor`` is the
         # fill-swatch stroke, not this.
         self.legend_facecolor: Optional[str] = None
+        # matplotlib ``borderpad``/``handlelength``/``handletextpad``/
+        # ``columnspacing`` in legend font-size units, keyed by that name
+        # (``LEGEND_SPACING_TO_KEY``). An absent name emits nothing.
+        self.legend_spacing: Dict[str, float] = {}
+        # The point, in axes fractions, that the ``legend_pos`` corner of the
+        # key sits on (matplotlib ``bbox_to_anchor``). None keeps the key
+        # inside the graph at ``legend_pos``.
+        self.legend_bbox_to_anchor: Optional[Tuple[float, float]] = None
+        # One colour for every entry's text (GLE ``textcolor``). None leaves
+        # the text in the current colour.
+        self.legend_labelcolor: Optional[str] = None
 
         # Shared axes visibility control
         self._show_xlabel = True
@@ -5906,9 +5918,31 @@ class Axes:
         facecolor : color, optional
             Legend-box fill, emitted as GLE ``background``. ``boxcolor`` is
             not this: in GLE it strokes the fill swatch, and it warns.
+        bbox_to_anchor : tuple of float, optional
+            ``(x, y)`` or ``(x, y, width, height)`` in axes fractions, as in
+            matplotlib: the ``loc`` corner of the legend sits on that point,
+            or on that corner of the box. ``(1.02, 1)`` with
+            ``loc='upper left'`` puts the legend beside the graph. Emitted as
+            GLE ``justify`` and ``absolute`` in a ``begin key`` block after
+            the graph, measured against the graph GLE drew. Replaces
+            ``offset``. Like ``loc``, it applies to this call only: a call
+            without it puts the legend back inside the graph. The page does
+            not grow to fit a legend placed outside the graph.
+        borderpad, handlelength, handletextpad, columnspacing : float, optional
+            Space inside the box, line-swatch length, gap between swatch and
+            text, and gap between columns, in units of the legend font size
+            as in matplotlib. Emitted as GLE ``margins``, ``llen``, ``dist``
+            and ``coldist`` in cm. GLE's ``dist`` is also the gap between a
+            marker and a line swatch. ``None`` restores GLE's own spacing.
+        labelcolor : color, optional
+            One colour for the text of every entry, emitted as GLE
+            ``textcolor`` on each entry of a ``begin key`` block after the
+            graph. matplotlib's ``'linecolor'``, ``'markerfacecolor'`` and
+            ``'markeredgecolor'`` and a list of colours warn and are ignored.
         **kwargs
-            Any other matplotlib legend keyword has no GLE ``key`` equivalent
-            and warns rather than being silently dropped.
+            Any other matplotlib legend keyword (``title``, ``labelspacing``,
+            ...) has no GLE ``key`` equivalent and warns rather than being
+            silently dropped.
 
         Returns
         -------
@@ -5975,6 +6009,37 @@ class Axes:
             facecolor = kwargs.pop("facecolor")
             self.legend_facecolor = None if facecolor is None else rgb_to_gle(facecolor)
 
+        for name in LEGEND_SPACING_TO_KEY:
+            if name in kwargs:
+                value = kwargs.pop(name)
+                if value is None:
+                    self.legend_spacing.pop(name, None)
+                else:
+                    self.legend_spacing[name] = _finite_float(
+                        value, f"legend({name}=...)"
+                    )
+
+        # The anchor is resolved against this call's ``loc``, which every
+        # call sets, so it is set (or cleared) by every call too: as in
+        # matplotlib, where each call builds a new legend.
+        anchor = kwargs.pop("bbox_to_anchor", None)
+        self.legend_bbox_to_anchor = (
+            None
+            if anchor is None
+            else self._resolve_legend_anchor(anchor, self.legend_pos)
+        )
+        if self.legend_bbox_to_anchor is not None and self.legend_offset is not None:
+            warn_external(
+                "legend(offset=...) has no effect while bbox_to_anchor is set: "
+                "the legend is placed at the anchor. Move it with "
+                "bbox_to_anchor instead.",
+            )
+
+        if "labelcolor" in kwargs:
+            self.legend_labelcolor = self._resolve_legend_labelcolor(
+                kwargs.pop("labelcolor"), self.legend_labelcolor
+            )
+
         if "boxcolor" in kwargs:
             kwargs.pop("boxcolor")
             warn_external(
@@ -5986,12 +6051,72 @@ class Axes:
         for name in sorted(kwargs):
             warn_external(
                 f"legend({name}=...) is not supported and was ignored: GLE's "
-                "key command understands position, text height (fontsize), "
-                "the box (frameon), offset, columns (ncol), compact, and "
-                "facecolor (GLE background).",
+                "key command understands loc, bbox_to_anchor, fontsize, "
+                "frameon, offset, ncol, compact, facecolor, labelcolor, "
+                "borderpad, handlelength, handletextpad and columnspacing.",
             )
 
         return self
+
+    @staticmethod
+    def _resolve_legend_anchor(anchor, pos: str) -> Optional[Tuple[float, float]]:
+        """The axes-fraction point a ``bbox_to_anchor`` puts corner ``pos`` on.
+
+        A 4-tuple is matplotlib's box: the legend's ``pos`` corner goes on
+        the same corner of the box (its centre for a ``center`` side).
+        """
+        what = "legend(bbox_to_anchor=...)"
+        if hasattr(anchor, "bounds") and not isinstance(anchor, (tuple, list)):
+            # A matplotlib Bbox is in display coordinates unless a
+            # bbox_transform says otherwise; gleplot has neither.
+            warn_external(
+                f"{what} was ignored: a Bbox object is not supported. Pass "
+                "(x, y) or (x, y, width, height) in axes fractions.",
+            )
+            return None
+        try:
+            if isinstance(anchor, str):
+                raise TypeError
+            values = [_finite_float(v, what) for v in anchor]
+        except TypeError:
+            values = []
+        if len(values) not in (2, 4):
+            raise ValueError(
+                f"{what} expects (x, y) or (x, y, width, height) in axes "
+                f"fractions, got {anchor!r}"
+            )
+        x, y = values[0], values[1]
+        if len(values) == 4:
+            width, height = values[2], values[3]
+            words = pos.split()
+            x += width * (0.0 if "left" in words else 1.0 if "right" in words else 0.5)
+            y += height * (1.0 if "top" in words else 0.0 if "bottom" in words else 0.5)
+        return (x, y)
+
+    @staticmethod
+    def _resolve_legend_labelcolor(labelcolor, current: Optional[str]):
+        """A GLE colour for ``legend(labelcolor=...)``, or ``current`` if ignored."""
+        if labelcolor is None:
+            return None
+        per_entry = isinstance(labelcolor, str) and labelcolor.strip().lower() in (
+            "linecolor",
+            "markerfacecolor",
+            "mfc",
+            "markeredgecolor",
+            "mec",
+        )
+        # An RGB(A) tuple is one colour; any other sequence is one per entry.
+        is_list = isinstance(labelcolor, (list, tuple, np.ndarray)) and not (
+            len(labelcolor) in (3, 4) and all(isinstance(v, Real) for v in labelcolor)
+        )
+        if per_entry or is_list:
+            warn_external(
+                f"legend(labelcolor={labelcolor!r}) was ignored: gleplot gives "
+                "every legend entry the same text colour. Pass one colour, "
+                "e.g. labelcolor='gray'.",
+            )
+            return current
+        return rgb_to_gle(labelcolor)
 
     @staticmethod
     def _resolve_legend_loc(loc) -> str:
@@ -6380,6 +6505,9 @@ class Axes:
             "legend_ncol": self.legend_ncol,
             "legend_compact": self.legend_compact,
             "legend_facecolor": self.legend_facecolor,
+            "legend_spacing": dict(self.legend_spacing),
+            "legend_bbox_to_anchor": _to_jsonable(self.legend_bbox_to_anchor),
+            "legend_labelcolor": self.legend_labelcolor,
             "show_xlabel": self._show_xlabel,
             "show_ylabel": self._show_ylabel,
             "show_xticks": self._show_xticks,
@@ -6492,6 +6620,14 @@ class Axes:
         ax.legend_ncol = int(d.get("legend_ncol", 1) or 1)
         ax.legend_compact = bool(d.get("legend_compact", False))
         ax.legend_facecolor = d.get("legend_facecolor")
+        ax.legend_spacing = {
+            str(k): float(v) for k, v in (d.get("legend_spacing") or {}).items()
+        }
+        _anchor = d.get("legend_bbox_to_anchor")
+        ax.legend_bbox_to_anchor = (
+            None if _anchor is None else (float(_anchor[0]), float(_anchor[1]))
+        )
+        ax.legend_labelcolor = d.get("legend_labelcolor")
 
         ax._show_xlabel = d.get("show_xlabel", True)
         ax._show_ylabel = d.get("show_ylabel", True)

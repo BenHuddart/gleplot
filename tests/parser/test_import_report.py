@@ -183,7 +183,7 @@ def test_legend_category_key_line_span(tmp_path):
         "begin graph\n"
         "   data d.dat d1=c1,c2\n"
         '   d1 line color blue lwidth 0.05 key "s"\n'
-        "   key pos tr margins 0.2 0.2\n"
+        "   key pos tr justify tl\n"
         "end graph\n"
     )
     p = _write(tmp_path, "key.gle", src, {"d.dat": "0 0\n1 1\n"})
@@ -336,7 +336,7 @@ def test_string_compatibility_across_every_category(tmp_path):
         "   data d2.dat d2=c1,c2\n"
         "   d1 line color blue lwidth 0.05 smooth\n"
         '   d2 line color red lwidth 0.05 key "s"\n'
-        "   key pos tr margins 0.2 0.2\n"
+        "   key pos tr justify tl\n"
         "end graph\n"
     )
     p = _write(

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 
@@ -39,6 +39,7 @@ from .writer import (
     AxisStyle,
     DecimationPolicy,
     GLEWriter,
+    KeyOptions,
     SourceResolution,
     _grid_z_file,
     legend_column_breaks,
@@ -2401,7 +2402,12 @@ class Figure:
         # ``begin key`` after ``end graph`` lists the entries in the order
         # they were added. When they agree, the in-graph key is unchanged.
         addition = self._legend_addition_order(entries)
-        external = show and addition != list(range(n_legend))
+        # An anchor or a text colour exists only in a ``begin key`` block,
+        # which is measured against the graph that has just ended.
+        needs_block = n_legend > 0 and (
+            ax.legend_bbox_to_anchor is not None or ax.legend_labelcolor is not None
+        )
+        external = show and (needs_block or addition != list(range(n_legend)))
         # Reset even for a one-column key: the writer is reused across
         # subplots, and a previous axes' breaks must not leak.
         ncol = int(getattr(ax, "legend_ncol", 1) or 1)
@@ -2555,12 +2561,25 @@ class Figure:
         ``keyfill`` line, not a ``key`` on the fill command.
         """
         n_legend = len(legend.entries)
-        legend_kwargs: Dict[str, Any] = dict(
+        offset = self._legend_offset(ax)
+        if legend.external and ax.legend_bbox_to_anchor is not None and offset:
+            # Axes.legend already warned about an offset of its own.
+            if ax.legend_offset is None:
+                warn_external(
+                    "GLEGraphConfig legend_offset_x/legend_offset_y has no "
+                    "effect on a legend placed with bbox_to_anchor.",
+                )
+            offset = None
+        key = KeyOptions(
+            position=ax.legend_pos,
             fontsize=getattr(ax, "legend_fontsize", None),
             frameon=getattr(ax, "legend_frameon", True),
-            offset=self._legend_offset(ax),
+            offset=offset,
             compact=bool(getattr(ax, "legend_compact", False)),
             background=getattr(ax, "legend_facecolor", None),
+            spacing=dict(ax.legend_spacing),
+            anchor=ax.legend_bbox_to_anchor,
+            labelcolor=ax.legend_labelcolor,
         )
         if legend.external:
             # ``key off`` hides the draw-order key. The visible one is the
@@ -2574,14 +2593,9 @@ class Figure:
                 if legend.show and legend.ncol > 1
                 else set()
             )
-            writer.queue_external_legend(
-                ordered,
-                breaks,
-                position=ax.legend_pos,
-                **legend_kwargs,
-            )
+            writer.queue_external_legend(ordered, breaks, key)
         elif legend.show:
-            writer.add_legend(ax.legend_pos, **legend_kwargs)
+            writer.add_legend(key)
         elif n_legend > 0:
             # GLE draws an implicit key from per-dataset key "label" tokens;
             # it must be switched off explicitly.

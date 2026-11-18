@@ -204,10 +204,10 @@ def test_ncol_rejects_a_non_positive_integer(ncol):
         {"framealpha": 0.5},
         {"edgecolor": "black"},
         {"shadow": True},
-        {"bbox_to_anchor": (1.0, 1.0)},
+        {"labelspacing": 0.8},
         {"markerscale": 2.0},
         {"title": "Models"},
-        {"borderpad": 0.2},
+        {"bbox_transform": None},
     ],
 )
 def test_unsupported_kwargs_warn(kwargs):
@@ -508,3 +508,184 @@ def test_a_keyfill_colour_unlike_the_fill_is_kept(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "fill d1,d2 color blue" in text
     assert 'keyfill red key "band"' in text
+
+
+def _cm(units, points):
+    """The token for a spacing of ``units`` font sizes at ``points``."""
+    return GLEWriter._format_number(units * fontsize_pt_to_cm(points))
+
+
+def test_spacing_keywords_go_on_the_key_line_in_cm(tmp_path):
+    fig, ax = _labeled_figure()
+    ax.legend(handlelength=1.5, handletextpad=0.5, columnspacing=1.0, borderpad=0.3)
+    size = fig.style.fontsize
+    pad = _cm(0.3, size)
+    assert (
+        f"key pos tr llen {_cm(1.5, size)} dist {_cm(0.5, size)} "
+        f"coldist {_cm(1.0, size)} margins {pad} {pad}"
+    ) in _generate_gle(fig, tmp_path)
+
+
+def test_spacing_scales_with_the_legend_fontsize(tmp_path):
+    fig, ax = _labeled_figure()
+    ax.legend(fontsize=8, handlelength=2.0)
+    assert f"hei {_hei(8)} llen {_cm(2.0, 8)}" in _generate_gle(fig, tmp_path)
+
+
+def test_spacing_none_restores_gle_spacing(tmp_path):
+    fig, ax = _labeled_figure()
+    ax.legend(handlelength=2.0)
+    ax.legend(handlelength=None)
+    assert "llen" not in _generate_gle(fig, tmp_path)
+
+
+def test_spacing_rejects_a_non_number():
+    fig, ax = _labeled_figure()
+    with pytest.raises(TypeError, match="handlelength"):
+        ax.legend(handlelength="long")
+
+
+def test_bbox_to_anchor_is_justify_and_absolute_after_the_graph(tmp_path):
+    fig, ax = _labeled_figure()
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
+    gle = _generate_gle(fig, tmp_path)
+    assert "    key off" in gle
+    block = gle[gle.index("end graph") :]
+    assert block.startswith("end graph\nbegin key\n    justify tl\n")
+    assert (
+        "    absolute min(xg(xgmin),xg(xgmax))+1.02*abs(xg(xgmax)-xg(xgmin)) "
+        "min(yg(ygmin),yg(ygmax))+1*abs(yg(ygmax)-yg(ygmin))\n"
+    ) in block
+
+
+@pytest.mark.parametrize(
+    "loc, anchor",
+    [
+        ("lower left", (0.0, 1.02)),
+        ("upper right", (1.0, 1.22)),
+        ("center", (0.5, 1.12)),
+        ("lower center", (0.5, 1.02)),
+    ],
+)
+def test_a_bbox_puts_the_loc_corner_on_the_same_corner_of_the_box(loc, anchor):
+    fig, ax = _labeled_figure()
+    ax.legend(loc=loc, bbox_to_anchor=(0, 1.02, 1, 0.2))
+    assert ax.legend_bbox_to_anchor == pytest.approx(anchor)
+
+
+@pytest.mark.parametrize("anchor", [(1.0,), (1, 2, 3), "12", 5, (1.0, "a")])
+def test_bbox_to_anchor_rejects_anything_but_a_point_or_a_box(anchor):
+    fig, ax = _labeled_figure()
+    with pytest.raises(ValueError, match="bbox_to_anchor"):
+        ax.legend(bbox_to_anchor=anchor)
+
+
+def test_offset_warns_while_an_anchor_places_the_legend(tmp_path):
+    fig, ax = _labeled_figure()
+    with pytest.warns(UserWarning, match="offset"):
+        ax.legend(bbox_to_anchor=(1, 1), offset=(0.5, 0.5))
+    assert "offset" not in _generate_gle(fig, tmp_path)
+
+
+def test_labelcolor_is_textcolor_on_every_entry(tmp_path):
+    fig, ax = _labeled_figure()
+    ax.plot([0, 1], [1, 0], label="other")
+    ax.legend(labelcolor="red")
+    gle = _generate_gle(fig, tmp_path)
+    assert "    position tr\n" in gle
+    texts = [line for line in gle.splitlines() if line.startswith("    text ")]
+    assert len(texts) == 2
+    assert all(line.endswith(" textcolor RED") for line in texts)
+
+
+@pytest.mark.parametrize("labelcolor", ["linecolor", "mec", ["red", "blue"]])
+def test_per_entry_labelcolor_warns_and_is_ignored(labelcolor):
+    fig, ax = _labeled_figure()
+    with pytest.warns(UserWarning, match="labelcolor"):
+        ax.legend(labelcolor=labelcolor)
+    assert ax.legend_labelcolor is None
+
+
+def test_an_rgb_tuple_labelcolor_is_one_colour():
+    fig, ax = _labeled_figure()
+    ax.legend(labelcolor=(0.0, 0.0, 1.0))
+    assert ax.legend_labelcolor == "rgb255(0,0,255)"
+
+
+def test_anchor_labelcolor_and_spacing_survive_gle_round_trip(tmp_path):
+    from gleplot import open_gle
+
+    fig, ax = _labeled_figure()
+    ax.legend(
+        loc="center left",
+        bbox_to_anchor=(1.05, 0.5),
+        labelcolor="gray",
+        borderpad=0.2,
+        frameon=False,
+    )
+    path = tmp_path / "anchored.gle"
+    fig.savefig_gle(str(path))
+    first = path.read_text()
+
+    rax = open_gle(str(path)).axes_list[0]
+    assert rax.legend_pos == "left center"
+    assert rax.legend_bbox_to_anchor == (1.05, 0.5)
+    assert rax.legend_labelcolor == "GRAY"
+    # Out in cm at 6 significant figures, back in font sizes.
+    assert rax.legend_spacing == {"borderpad": pytest.approx(0.2, rel=1e-5)}
+    assert rax.legend_frameon is False
+
+    out = tmp_path / "anchored2.gle"
+    rax.figure.savefig_gle(str(out))
+    assert out.read_text() == first
+
+    copy = glp.Figure.from_dict(fig.to_dict()).axes_list[0]
+    assert copy.legend_bbox_to_anchor == (1.05, 0.5)
+    assert copy.legend_labelcolor == "GRAY"
+    assert copy.legend_spacing == {"borderpad": 0.2}
+
+
+def test_a_bbox_object_warns_and_is_ignored():
+    class Bbox:
+        bounds = (0.0, 0.0, 1.0, 1.0)
+
+    fig, ax = _labeled_figure()
+    with pytest.warns(UserWarning, match="Bbox"):
+        ax.legend(bbox_to_anchor=Bbox())
+    assert ax.legend_bbox_to_anchor is None
+
+
+def test_a_call_without_bbox_to_anchor_clears_it():
+    # The anchor was resolved against that call's loc, which a new call resets.
+    fig, ax = _labeled_figure()
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0))
+    ax.legend(fontsize=8)
+    assert ax.legend_bbox_to_anchor is None
+
+
+def test_an_anchor_without_entries_writes_no_key_block(tmp_path):
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4])
+    ax.legend(bbox_to_anchor=(1.02, 1.0), labelcolor="red")
+    assert "begin key" not in _generate_gle(fig, tmp_path)
+
+
+def test_a_figure_wide_offset_warns_when_an_anchor_places_the_legend(tmp_path):
+    fig = glp.figure(
+        data_prefix="legtest",
+        graph=glp.GLEGraphConfig(legend_offset_x=0.5, legend_offset_y=0.5),
+    )
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4], label="squares")
+    ax.legend(bbox_to_anchor=(1.02, 1.0))
+    with pytest.warns(UserWarning, match="legend_offset_x"):
+        gle = _generate_gle(fig, tmp_path)
+    assert "offset" not in gle
+
+
+def test_labelcolor_none_restores_the_text_colour(tmp_path):
+    fig, ax = _labeled_figure()
+    ax.legend(labelcolor="red")
+    ax.legend(labelcolor=None)
+    assert "textcolor" not in _generate_gle(fig, tmp_path)

@@ -23,6 +23,9 @@ All lookup tables that a parser must invert live here in one place:
   parsing.
 - ``KEY_POSITIONS``: long-form <-> short-form GLE legend position, mirroring
   ``GLEWriter.add_legend``'s ``pos_map`` and ``Axes.legend``'s ``loc_map``.
+- ``LEGEND_SPACING_TO_KEY`` / ``KEY_ANCHOR_X`` / ``KEY_ANCHOR_Y``: the legend
+  spacing keywords and the ``begin key`` ``absolute`` coordinates the writer
+  emits for ``legend(bbox_to_anchor=...)``.
 
 Provenance is documented per table below.
 """
@@ -289,6 +292,23 @@ KEY_POSITIONS_LONG_TO_SHORT: Dict[str, str] = {
     "right center": "rc",
     "center": "cc",
 }
+
+# matplotlib legend spacing keyword -> GLE key option, in emission order. Both
+# sides measure a length; matplotlib's in units of the legend font size, GLE's
+# in cm, so the writer multiplies by the key text height. ``margins`` takes an
+# x and a y; matplotlib's ``borderpad`` is one value for both.
+LEGEND_SPACING_TO_KEY: Dict[str, str] = {
+    "handlelength": "llen",
+    "handletextpad": "dist",
+    "columnspacing": "coldist",
+    "borderpad": "margins",
+}
+
+# A ``begin key`` ``absolute`` coordinate for an axes fraction ``{}`` of the
+# graph that has just ended. ``min``/``abs`` keep fraction 0 at the left
+# (bottom) of the box on a ``negate`` axis, as matplotlib's axes coordinates do.
+KEY_ANCHOR_X = "min(xg(xgmin),xg(xgmax))+{}*abs(xg(xgmax)-xg(xgmin))"
+KEY_ANCHOR_Y = "min(yg(ygmin),yg(ygmax))+{}*abs(yg(ygmax)-yg(ygmin))"
 
 # ---------------------------------------------------------------------------
 # Palette subroutine names (contour/heatmap support)

@@ -78,12 +78,19 @@ fill swatch.
 | `ncol`/`ncols` | wired — entries in the order they were added, packed like matplotlib (column-major; the first columns are one entry longer). When that order is the order GLE draws the series, the breaks are `key separator` inside the graph. When it is not (a fill or a span is drawn before a bar or a line that was added first), the graph key is `key off` and a `begin key` after the graph lists the entries in addition order. `ncols` wins when both are passed. A count larger than the number of entries collapses to one entry per column, and a re-opened script reports that collapsed count. An integer below 1 raises `ValueError`. |
 | `facecolor` | wired — the legend-box fill, emitted as GLE `background`. |
 | `compact` | wired — gleplot/GLE flag, not a matplotlib name. `True` emits `compact` (line and marker share one swatch field). |
+| `bbox_to_anchor` | wired — `(x, y)` or `(x, y, width, height)` in axes fractions; the `loc` corner of the legend sits on that point (or on that corner of the box). Written as `justify` and `absolute` in a `begin key` after the graph, reading GLE's `xg()`/`yg()` of the graph just drawn, so it holds on log and inverted axes. Like `loc`, it applies to the call that passes it. The page does not grow to fit a legend placed outside the graph: leave room with `figsize` or `subplots_adjust`. `offset`, and the `GLEGraphConfig` legend offset, have no effect while an anchor is set, and warn. |
+| `borderpad`, `handlelength`, `handletextpad`, `columnspacing` | wired — font-size units, as in matplotlib, written in cm as GLE `margins`, `llen`, `dist` and `coldist`. GLE's `dist` is also the gap between a marker and a line swatch. |
+| `labelcolor` | wired — one colour, written as `textcolor` on every entry of a `begin key` after the graph. `'linecolor'`, `'markerfacecolor'`, `'markeredgecolor'` and a list of colours warn and are ignored. |
 | handles/labels (first positional) | warns — legend text always comes from each series' `label=`. |
-| `title`, `framealpha`, `edgecolor`, `shadow`, `bbox_to_anchor`, `markerscale`, `borderpad`, `labelspacing`, `boxcolor`, … | warn. `boxcolor` is not the box fill: in GLE it strokes the fill swatch. Absolute `justify` positioning is not modelled. |
+| `title`, `labelspacing`, `framealpha`, `edgecolor`, `shadow`, `markerscale`, `bbox_transform`, `boxcolor`, … | warn. GLE's key has no title; a text-only entry would sit in the label column of the first column, not above the legend. GLE's row height (`row`) also rescales the margins, line length and gaps, so it is not `labelspacing`. `boxcolor` is not the box fill: in GLE it strokes the fill swatch. |
 
 ```python
 # an 8.6 cm journal column wants legend text smaller than the axis labels
 ax.legend(loc='upper left', fontsize=6.5, frameon=False)
+
+# beside the graph, with shorter line swatches and grey text
+ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0), handlelength=1.5,
+          labelcolor='gray')
 ```
 
 ## Text

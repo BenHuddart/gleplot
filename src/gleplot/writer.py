@@ -11,7 +11,7 @@ identical to what it produced before sources existed.
 """
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import (
     Any,
@@ -43,7 +43,10 @@ from .guides import (
 from .parser.tables import (
     ARROW_JOIN_SEPS,
     ARROW_TIP_STYLES,
+    KEY_ANCHOR_X,
+    KEY_ANCHOR_Y,
     KEY_POSITIONS_LONG_TO_SHORT,
+    LEGEND_SPACING_TO_KEY,
     LINE_MODES,
     text_align_to_just,
     text_box_pad_token,
@@ -969,6 +972,30 @@ class DecimationCandidate:
 DecimationPolicy = Union[
     int, Mapping[Optional[str], int], Callable[[DecimationCandidate], Optional[int]]
 ]
+
+
+@dataclass(frozen=True)
+class KeyOptions:
+    """One axes' legend, as the options of the GLE key that draws it.
+
+    Built from the ``Axes.legend_*`` state. ``position`` is a long or short
+    key position (``None`` = the graph config's); ``fontsize`` is in points
+    (``None`` = the current ``set hei``); ``spacing`` maps a matplotlib
+    spacing name in :data:`LEGEND_SPACING_TO_KEY` to font-size units;
+    ``anchor`` is the axes-fraction point the ``position`` corner sits on;
+    ``labelcolor`` is a GLE colour for every entry's text. The last two exist
+    only in a ``begin key`` block.
+    """
+
+    position: Optional[str] = None
+    fontsize: Optional[float] = None
+    frameon: bool = True
+    offset: Optional[Tuple[float, float]] = None
+    compact: bool = False
+    background: Optional[str] = None
+    spacing: Mapping[str, float] = field(default_factory=dict)
+    anchor: Optional[Tuple[float, float]] = None
+    labelcolor: Optional[str] = None
 
 
 def legend_column_breaks(n_entries: int, ncol: int) -> Set[int]:
@@ -4459,74 +4486,68 @@ class GLEWriter:
         if self._legend_entry_count in self._legend_breaks:
             self.lines_gle.append("    key separator")
 
-    def add_legend(
-        self,
-        position: Optional[str] = None,
-        fontsize: Optional[float] = None,
-        frameon: bool = True,
-        offset: Optional[tuple] = None,
-        compact: bool = False,
-        background: Optional[str] = None,
-    ):
-        """Add legend configuration.
+    def add_legend(self, key: KeyOptions):
+        """The graph-block ``key`` line for a legend drawn inside the graph.
 
-        Parameters
-        ----------
-        position : str, optional
-            Legend position. If None, uses configured default.
-            Options: 'tl', 'tr', 'bl', 'br', 'tc', 'bc', 'lc', 'rc', 'cc'
-            or long form: 'top right', 'top left', 'bottom right', 'bottom left', 'center'
-        fontsize : float, optional
-            Key text height in matplotlib points, emitted as GLE's ``hei`` (in
-            cm) on the same ``key`` line. ``None`` omits ``hei`` entirely, so
-            GLE uses the current ``set hei`` -- the historical behaviour, and
-            byte-identical output for figures that do not size their legend.
-        frameon : bool
-            Draw the box around the key (GLE's default). ``False`` appends
-            ``nobox``.
-        offset : tuple of (float, float), optional
-            Displacement of the key from its anchor, in cm, emitted as GLE's
-            ``offset dx dy``. GLE displaces the key INWARD from the anchored
-            corner (verified against GLE 4.3.10 by compiled pixel-diff): for a
-            right-anchored key positive dx moves LEFT, for a top-anchored key
-            positive dy moves DOWN. Negative values push the key outside the
-            graph and can move it off-canvas entirely. ``None`` omits the
-            token.
-        compact : bool
-            GLE's ``compact``: one field for the line and the marker.
-            ``False`` omits the token.
-        background : str, optional
-            Legend-box fill, GLE's ``background``. ``None`` omits it, which
-            leaves the box transparent. This is not ``boxcolor``: in the
-            4.3.10 source ``boxcolor`` strokes the fill swatch
-            (``g_box_stroke``), and the box fill is ``setBackgroundColor``.
-
-        Notes
-        -----
-        Position, size, box, compact and background go on the single ``key``
-        line (see ``_parse_key_command``). Column breaks are separate
-        ``key separator`` statements emitted beside the entries, because
-        that is where GLE inserts them into the dataset order. A second
-        ``key pos`` line would compete with this one on re-emit.
+        Position and every option go on the single ``key`` line (see
+        ``_parse_key_command``); a second ``key pos`` line would compete with
+        this one on re-emit. Column breaks are separate ``key separator``
+        statements emitted beside the entries, because that is where GLE
+        inserts them into the dataset order. ``key.anchor`` and
+        ``key.labelcolor`` need a ``begin key`` block
+        (:meth:`queue_external_legend`) and are not read here.
         """
-        # Use provided position or fall back to configured default
-        pos = position if position is not None else self.graph.legend_position
-
-        # Try long form, else use as-is (short form)
-        gle_pos = KEY_POSITIONS_LONG_TO_SHORT.get(pos, pos)
-        cmd = f"    key pos {gle_pos}"
-        if offset is not None:
-            dx, dy = offset
-            cmd += f" offset {self._format_number(float(dx))} {self._format_number(float(dy))}"
-        if fontsize is not None:
-            cmd += f" hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
-        if not frameon:
-            cmd += " nobox"
-        if compact:
-            cmd += " compact"
-        if background:
-            cmd += f" background {background}"
+        cmd = f"    key pos {self._key_position(key)}"
+        for option in self._key_options(key):
+            cmd += f" {option}"
         self.lines_gle.append(cmd)
+
+    def _key_position(self, key: KeyOptions) -> str:
+        """GLE's short form of the key position (long forms are mapped)."""
+        pos = key.position if key.position is not None else self.graph.legend_position
+        return KEY_POSITIONS_LONG_TO_SHORT.get(pos, pos)
+
+    def _key_options(self, key: KeyOptions) -> List[str]:
+        """The key options after the position, in emission order.
+
+        ``offset`` is GLE's displacement INWARD from the anchored corner, in
+        cm (verified against GLE 4.3.10 by compiled pixel-diff): for a
+        right-anchored key positive dx moves LEFT, for a top-anchored key
+        positive dy moves DOWN. ``absolute`` overwrites it, so an anchored
+        key is given none (``Figure._write_legend``). ``fontsize`` points become ``hei`` cm, and ``None``
+        omits ``hei`` so GLE uses the current ``set hei``. ``background`` is
+        the box fill; ``boxcolor`` is not, it strokes the fill swatch
+        (``g_box_stroke`` in the 4.3.10 source). The spacing lengths are
+        font-size multiples, so they scale by the key's text height.
+        """
+        options: List[str] = []
+        if key.offset is not None:
+            dx, dy = key.offset
+            options.append(
+                f"offset {self._format_number(float(dx))} "
+                f"{self._format_number(float(dy))}"
+            )
+        if key.fontsize is not None:
+            options.append(
+                f"hei {self._format_number(fontsize_pt_to_cm(float(key.fontsize)))}"
+            )
+        if not key.frameon:
+            options.append("nobox")
+        if key.compact:
+            options.append("compact")
+        if key.background:
+            options.append(f"background {key.background}")
+        hei = fontsize_pt_to_cm(
+            float(key.fontsize if key.fontsize is not None else self.style.fontsize)
+        )
+        for name, word in LEGEND_SPACING_TO_KEY.items():
+            if name not in key.spacing:
+                continue
+            length = self._format_number(float(key.spacing[name]) * hei)
+            options.append(
+                f"{word} {length} {length}" if word == "margins" else f"{word} {length}"
+            )
+        return options
 
     def add_key_off(self):
         """Suppress the graph key entirely.
@@ -4576,15 +4597,7 @@ class GLEWriter:
         return " ".join(parts)
 
     def queue_external_legend(
-        self,
-        entries: List[tuple],
-        breaks: Set[int],
-        position: Optional[str] = None,
-        fontsize: Optional[float] = None,
-        frameon: bool = True,
-        offset: Optional[tuple] = None,
-        compact: bool = False,
-        background: Optional[str] = None,
+        self, entries: List[tuple], breaks: Set[int], key: KeyOptions
     ) -> None:
         """Queue a ``begin key`` block for the graph that is about to close.
 
@@ -4592,33 +4605,27 @@ class GLEWriter:
         ``breaks`` are the 1-based counts after which a column ends, the
         same split as :func:`legend_column_breaks`. The block is written
         by :meth:`end_graph`, after ``end graph``, because that is the
-        graph ``position`` is measured against.
+        graph ``position`` and the ``absolute`` coordinates of an anchored
+        key are measured against.
         """
-        pos = position if position is not None else self.graph.legend_position
-        gle_pos = KEY_POSITIONS_LONG_TO_SHORT.get(pos, pos)
-        lines = ["begin key", f"    position {gle_pos}"]
-        if offset is not None:
-            dx, dy = offset
+        corner = self._key_position(key)
+        lines = ["begin key"]
+        if key.anchor is not None:
+            x, y = (self._format_number(float(v)) for v in key.anchor)
+            lines.append(f"    justify {corner}")
             lines.append(
-                f"    offset {self._format_number(float(dx))} "
-                f"{self._format_number(float(dy))}"
+                f"    absolute {KEY_ANCHOR_X.format(x)} {KEY_ANCHOR_Y.format(y)}"
             )
-        if fontsize is not None:
-            lines.append(
-                f"    hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
-            )
-        if not frameon:
-            lines.append("    nobox")
-        if compact:
-            lines.append("    compact")
-        if background:
-            lines.append(f"    background {background}")
+        else:
+            lines.append(f"    position {corner}")
+        lines.extend(f"    {option}" for option in self._key_options(key))
+        textcolor = f" textcolor {key.labelcolor}" if key.labelcolor else ""
         for i, (label, swatch) in enumerate(entries, start=1):
             quoted = self._quote_gle_key(label)
             if swatch:
-                lines.append(f"    text {quoted} {swatch}")
+                lines.append(f"    text {quoted} {swatch}{textcolor}")
             else:
-                lines.append(f"    text {quoted}")
+                lines.append(f"    text {quoted}{textcolor}")
             if i in breaks:
                 lines.append("    separator")
         lines.append("end key")
