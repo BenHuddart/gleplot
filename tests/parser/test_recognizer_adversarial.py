@@ -324,7 +324,7 @@ def test_finding5_title_with_options_kept_raw(tmp_path):
         "begin graph\n"
         "   data data_a.dat d1=c1,c2\n"
         "   d1 line color blue lwidth 0.05\n"
-        '   title "T" hei 0.6 font roman\n'
+        '   title "T" hei 0.6 off\n'
         "end graph\n"
     )
     p = _write(tmp_path, "t.gle", src, {"data_a.dat": "0 0\n1 1\n"})
@@ -333,7 +333,7 @@ def test_finding5_title_with_options_kept_raw(tmp_path):
     # Title text left UNSET (empty) -> the writer emits no competing title line.
     assert ax.title_text == ""
     joined = "\n".join(ax.passthrough)
-    assert 'title "T" hei 0.6 font roman' in joined
+    assert 'title "T" hei 0.6 off' in joined
     assert any("title has unsupported options" in w for w in rec.warnings)
     # Re-save: the raw title line appears exactly once, no empty duplicate.
     out = tmp_path / "t2.gle"

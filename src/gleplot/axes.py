@@ -403,6 +403,17 @@ def _require_finite(arr: np.ndarray, what: str) -> None:
         )
 
 
+def _finite_float(value: Any, what: str) -> float:
+    """``value`` as a finite float, or an error naming ``what``."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise TypeError(f"{what} must be a number, got {value!r}") from None
+    if not np.isfinite(number):
+        raise ValueError(f"{what} must be finite, got {value!r}")
+    return number
+
+
 def _require_valid_extent(ext) -> None:
     """Validate an ``[xmin, xmax, ymin, ymax]`` extent for GLE.
 
@@ -726,7 +737,49 @@ _STYLING_KEYS: Tuple[str, ...] = (
     "title_size",
     "title_color",
     "title_dist",
+    "title_font",
+    "xlabel_font",
+    "ylabel_font",
+    "y2label_font",
+    "x2label_font",
+    "xside_color",
+    "xside_lwidth",
+    "yside_color",
+    "yside_lwidth",
+    "y2side_color",
+    "y2side_lwidth",
+    "x2side_color",
+    "x2side_lwidth",
+    "xnticks",
+    "xftick",
+    "xshift",
+    "xsymticks",
+    "xnoticks",
+    "ynticks",
+    "yftick",
+    "yshift",
+    "ysymticks",
+    "ynoticks",
 )
+
+#: A GLE font name as ``set font`` / ``xtitle ... font`` take it: one bare
+#: word such as ``texcmr`` or ``psh``.
+_GLE_FONT_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
+
+
+def _gle_font_name(fontname: object, method: str) -> str:
+    """``fontname`` checked as a GLE font name, for ``method``'s error."""
+    if not isinstance(fontname, str):
+        raise TypeError(
+            f"{method}(fontname=...) must be a GLE font name string such as "
+            f"'texcmr', got {fontname!r}"
+        )
+    if not _GLE_FONT_NAME.match(fontname):
+        raise ValueError(
+            f"{method}(fontname={fontname!r}) is not a GLE font name: use one "
+            "word of letters, digits and underscores, such as 'texcmr' or 'psh'"
+        )
+    return fontname
 
 
 def validate_tick_format(fmt: str) -> str:
@@ -1170,8 +1223,8 @@ class SecondaryXAxis:
     def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_xlim(axis="x2")
 
-    def set_xlabel(self, label: str):
-        return self._axes.set_xlabel(label, axis="x2")
+    def set_xlabel(self, label: str, *, fontname: Optional[str] = None):
+        return self._axes.set_xlabel(label, axis="x2", fontname=fontname)
 
     def set_xscale(self, scale: str):
         return self._axes.set_xscale(scale, axis="x2")
@@ -1182,8 +1235,10 @@ class SecondaryXAxis:
     def set_ylim(self, ymin: Optional[float], ymax: Optional[float], axis: str = "y"):
         return self._axes.set_ylim(ymin, ymax, axis=axis)
 
-    def set_ylabel(self, label: str, axis: str = "y"):
-        return self._axes.set_ylabel(label, axis=axis)
+    def set_ylabel(
+        self, label: str, axis: str = "y", *, fontname: Optional[str] = None
+    ):
+        return self._axes.set_ylabel(label, axis=axis, fontname=fontname)
 
     def set_yscale(self, scale: str, axis: str = "y"):
         return self._axes.set_yscale(scale, axis=axis)
@@ -1394,6 +1449,43 @@ class Axes:
         self.title_size: Optional[float] = None
         self.title_color: Optional[str] = None
         self.title_dist: Optional[float] = None
+
+        #: GLE font of the graph title and of each axis title (``title ...
+        #: font F``, ``xtitle ... font F``). Set through ``fontname=`` on
+        #: :meth:`set_title`, :meth:`set_xlabel` and :meth:`set_ylabel`.
+        self.title_font: Optional[str] = None
+        self.xlabel_font: Optional[str] = None
+        self.ylabel_font: Optional[str] = None
+        self.y2label_font: Optional[str] = None
+        self.x2label_font: Optional[str] = None
+
+        #: Axis-line colour and width (points), GLE ``xside color C lwidth
+        #: W``. GLE copies an x or y setting onto x2 or y2, so these also
+        #: style the opposite edge unless that edge has its own. Set through
+        #: :meth:`set_axis_line`.
+        self.xside_color: Optional[str] = None
+        self.xside_lwidth: Optional[float] = None
+        self.yside_color: Optional[str] = None
+        self.yside_lwidth: Optional[float] = None
+        self.y2side_color: Optional[str] = None
+        self.y2side_lwidth: Optional[float] = None
+        self.x2side_color: Optional[str] = None
+        self.x2side_lwidth: Optional[float] = None
+
+        #: Tick placement beyond ``dticks``: GLE ``xaxis nticks N ftick F
+        #: shift S symticks`` and ``xnoticks p1 p2 ...``. ``shift`` is in
+        #: cm; ``symticks`` is True or None. Set through :meth:`set_xticks`
+        #: and :meth:`set_yticks`.
+        self.xnticks: Optional[int] = None
+        self.xftick: Optional[float] = None
+        self.xshift: Optional[float] = None
+        self.xsymticks: Optional[bool] = None
+        self.xnoticks: Optional[List[float]] = None
+        self.ynticks: Optional[int] = None
+        self.yftick: Optional[float] = None
+        self.yshift: Optional[float] = None
+        self.ysymticks: Optional[bool] = None
+        self.ynoticks: Optional[List[float]] = None
 
         # Frame sides switched off entirely -- axis line, ticks and labels.
         # Used for the inner edges of a broken-axis assembly, where several
@@ -4418,7 +4510,9 @@ class Axes:
         _require_valid_extent(ext)
         return xa, ya, za, ext, gs
 
-    def set_xlabel(self, label: str, axis: str = "x"):
+    def set_xlabel(
+        self, label: str, axis: str = "x", *, fontname: Optional[str] = None
+    ):
         """Set x-axis label.
 
         Parameters
@@ -4427,15 +4521,19 @@ class Axes:
             Axis label text
         axis : str, optional
             Which axis: 'x' (bottom, default) or 'x2' (top)
+        fontname : str, optional
+            GLE font for the label, such as ``'texcmr'`` (GLE ``xtitle ...
+            font``). ``None`` keeps the current font.
         """
-        label = mathtext_to_gle(label)
-        if axis == "x2":
-            self.x2label_text = label
-        else:
-            self.xlabel_text = label
+        prefix = "x2" if axis == "x2" else "x"
+        setattr(self, f"{prefix}label_text", mathtext_to_gle(label))
+        if fontname is not None:
+            setattr(self, f"{prefix}label_font", _gle_font_name(fontname, "set_xlabel"))
         return self
 
-    def set_ylabel(self, label: str, axis: str = "y"):
+    def set_ylabel(
+        self, label: str, axis: str = "y", *, fontname: Optional[str] = None
+    ):
         """Set y-axis label.
 
         Parameters
@@ -4444,17 +4542,89 @@ class Axes:
             Axis label text
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        fontname : str, optional
+            GLE font for the label (GLE ``ytitle ... font``). ``None`` keeps
+            the current font.
         """
-        label = mathtext_to_gle(label)
-        if axis == "y2":
-            self.y2label_text = label
-        else:
-            self.ylabel_text = label
+        prefix = "y2" if axis == "y2" else "y"
+        setattr(self, f"{prefix}label_text", mathtext_to_gle(label))
+        if fontname is not None:
+            setattr(self, f"{prefix}label_font", _gle_font_name(fontname, "set_ylabel"))
         return self
 
-    def set_title(self, label: str):
-        """Set subplot title."""
+    def set_title(self, label: str, *, fontname: Optional[str] = None):
+        """Set subplot title.
+
+        Parameters
+        ----------
+        label : str
+            Title text
+        fontname : str, optional
+            GLE font for the title (GLE ``title ... font``). ``None`` keeps
+            the current font.
+        """
         self.title_text = mathtext_to_gle(label)
+        if fontname is not None:
+            self.title_font = _gle_font_name(fontname, "set_title")
+        return self
+
+    def set_axis_line(
+        self,
+        axis: str = "both",
+        *,
+        color: Any = None,
+        linewidth: Optional[float] = None,
+    ):
+        """Set the colour and width of an axis line (GLE ``xside``).
+
+        Only the line is styled; ticks, tick labels and the grid keep their
+        own colour. This is gleplot's form of matplotlib's
+        ``ax.spines[...].set_color()`` / ``.set_linewidth()``.
+
+        Parameters
+        ----------
+        axis : {'both', 'x', 'y', 'x2', 'y2'}
+            Which axis line. ``'both'`` means x and y.
+        color : color, optional
+            Any colour :func:`gleplot.colors.rgb_to_gle` accepts. ``None``
+            keeps the current colour.
+        linewidth : float, optional
+            Line width in points. ``None`` keeps the current width.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+
+        Raises
+        ------
+        ValueError
+            On an unknown ``axis`` or a negative ``linewidth``.
+
+        Notes
+        -----
+        GLE copies an x setting onto the top edge and a y setting onto the
+        right edge. So ``axis='x'`` styles the top line too, unless
+        ``axis='x2'`` gives the top line its own style.
+        """
+        if axis not in ("both", "x", "y", "x2", "y2"):
+            raise ValueError(
+                f"set_axis_line(axis={axis!r}) must be 'both', 'x', 'y', "
+                "'x2' or 'y2'"
+            )
+        width = None
+        if linewidth is not None:
+            width = _finite_float(linewidth, "set_axis_line(linewidth=...)")
+            if width < 0:
+                raise ValueError(
+                    f"set_axis_line(linewidth={linewidth!r}) must be a "
+                    "non-negative width in points"
+                )
+        for name in ("x", "y") if axis == "both" else (axis,):
+            if color is not None:
+                setattr(self, f"{name}side_color", rgb_to_gle(color))
+            if width is not None:
+                setattr(self, f"{name}side_lwidth", width)
         return self
 
     def set_xscale(self, scale: str, axis: str = "x"):
@@ -4548,6 +4718,11 @@ class Axes:
         *,
         dticks: Optional[float] = None,
         dsubticks: Optional[float] = None,
+        nticks: Optional[int] = None,
+        ftick: Optional[float] = None,
+        shift: Optional[float] = None,
+        symticks: Optional[bool] = None,
+        noticks: Optional[Sequence[float]] = None,
     ):
         """Control x-axis tick placement.
 
@@ -4564,10 +4739,35 @@ class Axes:
             segments of a broken axis from colliding at the seam.
         dsubticks : float, optional
             Minor tick interval (GLE ``dsubticks``).
+        nticks : int, optional
+            Number of major ticks (GLE ``nticks``).
+        ftick : float, optional
+            Position of the first major tick (GLE ``ftick``); the others
+            follow at the tick interval.
+        shift : float, optional
+            Move the tick labels along the axis by this many cm (GLE
+            ``shift``), to label the space between two ticks.
+        symticks : bool, optional
+            Draw the ticks both inside and outside the frame (GLE
+            ``symticks``). ``False`` goes back to inside only.
+        noticks : sequence of float, optional
+            Positions at which no tick is drawn (GLE ``xnoticks``). An empty
+            sequence clears them.
 
         Returns
         -------
         self
+
+        Raises
+        ------
+        ValueError
+            If ``nticks`` is not a positive whole number.
+
+        Notes
+        -----
+        The keywords from ``dticks`` on are gleplot's, not matplotlib's.
+        ``None`` leaves each setting as it is. GLE copies the x settings
+        onto the top axis.
         """
         if ticks is not None:
             self.xplaces = [float(t) for t in ticks]
@@ -4579,6 +4779,9 @@ class Axes:
             self.xdticks = float(dticks)
         if dsubticks is not None:
             self.xdsubticks = float(dsubticks)
+        self._set_tick_options(
+            "x", "set_xticks", nticks, ftick, shift, symticks, noticks
+        )
         return self
 
     def set_yticks(
@@ -4588,6 +4791,11 @@ class Axes:
         *,
         dticks: Optional[float] = None,
         dsubticks: Optional[float] = None,
+        nticks: Optional[int] = None,
+        ftick: Optional[float] = None,
+        shift: Optional[float] = None,
+        symticks: Optional[bool] = None,
+        noticks: Optional[Sequence[float]] = None,
     ):
         """Control y-axis tick placement. See :meth:`set_xticks`."""
         if ticks is not None:
@@ -4598,7 +4806,36 @@ class Axes:
             self.ydticks = float(dticks)
         if dsubticks is not None:
             self.ydsubticks = float(dsubticks)
+        self._set_tick_options(
+            "y", "set_yticks", nticks, ftick, shift, symticks, noticks
+        )
         return self
+
+    def _set_tick_options(
+        self, prefix, method, nticks, ftick, shift, symticks, noticks
+    ) -> None:
+        """The GLE-only placement keywords shared by set_xticks/set_yticks."""
+        if nticks is not None:
+            count = _finite_float(nticks, f"{method}(nticks=...)")
+            if isinstance(nticks, bool) or not count.is_integer() or count < 1:
+                raise ValueError(
+                    f"{method}(nticks={nticks!r}) must be a positive whole number"
+                )
+            setattr(self, f"{prefix}nticks", int(count))
+        if ftick is not None:
+            setattr(
+                self, f"{prefix}ftick", _finite_float(ftick, f"{method}(ftick=...)")
+            )
+        if shift is not None:
+            setattr(
+                self, f"{prefix}shift", _finite_float(shift, f"{method}(shift=...)")
+            )
+        if symticks is not None:
+            # GLE's default is ticks inside only, which None already writes.
+            setattr(self, f"{prefix}symticks", True if symticks else None)
+        if noticks is not None:
+            positions = [_finite_float(v, f"{method}(noticks=...)") for v in noticks]
+            setattr(self, f"{prefix}noticks", positions or None)
 
     def legend(self, loc: str = "best", **kwargs):
         """Show a legend (GLE's graph ``key``).

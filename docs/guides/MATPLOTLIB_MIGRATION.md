@@ -15,6 +15,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.set_xlabel(...)` | same |
 | `ax.set_ylabel(...)` | same |
 | `ax.set_title(...)` | same |
+| `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
 | `ax.legend(...)` | same |
 | `plt.savefig(...)` | `fig.savefig(...)` or `glp.savefig(...)` |
 
@@ -239,7 +240,13 @@ The right-hand scale is `yaxis="y2"` on a series, and `ax.twiny()` opens the top
 5. `ax.grid(visible, which=, axis=, color=, linestyle=, linewidth=)` maps to
    GLE's `xaxis grid` (+ `xsubticks on` for `which='both'`). A minor-only
    grid is not expressible and is normalized to both, with a warning.
-6. Display strings follow matplotlib's contract: plain text renders literally
+6. `fontname=` on `set_xlabel`, `set_ylabel` and `set_title` takes a GLE
+   font name (`'texcmr'`, `'psh'`), not a matplotlib family such as
+   `'serif'`. matplotlib's other text keywords are not accepted there yet.
+7. GLE has no separate top and right spines: the x line's style is copied
+   onto the top line and the y line's onto the right one. Set `'x2'` or
+   `'y2'` with `set_axis_line` to style those on their own.
+8. Display strings follow matplotlib's contract: plain text renders literally
    (`'lambda_tail'` is not a subscript) and math is opt-in via `$...$`. Unlike
    matplotlib, a backslash outside `$...$` still opens GLE's own text markup
    (`r'\chi{}'`), as do braced scripts (`'T_{N}'`).

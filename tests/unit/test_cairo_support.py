@@ -328,6 +328,21 @@ class TestSavefigCairoWiring:
             warnings.simplefilter("error")
             fig.savefig(str(tmp_path / "out.pdf"))  # must not raise
 
+    def test_unsafe_title_font_warns_when_cairo_active(self, tmp_path):
+        fig = self._figure_with_alpha(font=CAIRO_SAFE_FONT)
+        fig.axes_list[0].set_xlabel("x", fontname="psh")
+        fig.compiler = mock.Mock()
+        with pytest.warns(UserWarning, match="'psh'"):
+            fig.savefig(str(tmp_path / "out.pdf"))
+
+    def test_a_font_on_a_title_that_is_not_written_does_not_warn(self, tmp_path):
+        fig = self._figure_with_alpha(font=CAIRO_SAFE_FONT)
+        fig.axes_list[0].set_xlabel("", fontname="psh")
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fig.savefig(str(tmp_path / "out.pdf"))
+
     def test_unsafe_font_does_not_warn_when_cairo_is_not_needed(self, tmp_path):
         # The font-safety warning is specifically a Cairo consequence: an
         # opaque figure with a PostScript font is completely ordinary and
