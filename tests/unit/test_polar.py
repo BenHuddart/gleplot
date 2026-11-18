@@ -200,6 +200,8 @@ def test_an_unknown_projection_raises():
         lambda ax: ax.text(0, 1, "t"),
         lambda ax: ax.set_xlim(0, 1),
         lambda ax: ax.set_xticks([0, 1]),
+        lambda ax: ax.minorticks_on(),
+        lambda ax: ax.tick_params(labelsize=8),
         lambda ax: ax.step([0, 1], [1, 1]),
         lambda ax: ax.pie([1, 2]),
     ],
@@ -308,3 +310,13 @@ def test_a_frame_too_small_for_the_labels_still_gives_round_rings():
     xr, yr = polar_window(1.0, (1.0, 0.5), 0.4)
     # The ring fills the shorter side, with the labels outside the frame.
     assert (xr, yr) == (pytest.approx(2.0), pytest.approx(1.0))
+
+
+def test_a_scatter_with_per_point_sizes_takes_the_polar_let():
+    fig, ax = _polar()
+    ax.scatter([0, 1, 2], [1, 2, 1.5], s=[10, 40, 90])
+    lines, _text = _graph_lines(fig)
+    i = lines.index("data pl_0.dat d1=c1,c2 d2=c1,c3")
+    assert lines[i + 1] == "let d3 = d1*cos(x),d1*sin(x)"
+    assert lines[i + 2].startswith("d3 marker gleplot_mdata_fcircle ")
+    assert " mdata d2 " in lines[i + 2]

@@ -204,3 +204,16 @@ def test_a_usetex_polar_axes_round_trips(tmp_path):
     first, second, recognized = _round_trip(tmp_path, fig)
     assert second == first
     assert recognized.warnings == []
+
+
+def test_a_scatter_with_per_point_sizes_round_trips(tmp_path):
+    fig = glp.figure(data_prefix="pr")
+    ax = fig.add_subplot(projection="polar")
+    ax.scatter([0, 1, 2], [1, 2, 1.5], s=[10, 40, 90])
+    first, second, recognized = _round_trip(tmp_path, fig)
+    assert second == first
+    np.testing.assert_allclose(
+        recognized.figure.axes_list[0].scatters[0]["mdata"],
+        ax.scatters[0]["mdata"],
+        rtol=1e-5,
+    )

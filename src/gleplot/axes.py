@@ -6589,6 +6589,7 @@ class Axes:
         if nolast is not None:
             setattr(self, f"_remove_last_{prefix}tick", bool(nolast))
 
+    @_cartesian_only
     def tick_params(self, axis: str = "both", **kwargs):
         """Change the appearance of the tick marks.
 
@@ -6691,11 +6692,13 @@ class Axes:
                 setattr(self, f"{prefix}symticks", None)
         return self
 
+    @_cartesian_only
     def minorticks_on(self):
         """Draw minor ticks on both axes (GLE ``xsubticks on``)."""
         self.xminorticks = True
         self.yminorticks = True
 
+    @_cartesian_only
     def minorticks_off(self):
         """Hide the minor ticks of both axes (GLE ``xsubticks off``)."""
         self.xminorticks = False

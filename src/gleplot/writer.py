@@ -3036,6 +3036,8 @@ class GLEWriter:
         )
         offset = series.get("offset", 0.0)
         display_name = self._apply_offset(d_name, offset) if offset else d_name
+        if self._polar_graph:
+            display_name = self._polar_dataset(display_name)
         marker = MDATA_SUB_PREFIX + str(series["marker"]).lower()
         msize = self._format_number(series["markersize"])
         self.lines_gle.append(
