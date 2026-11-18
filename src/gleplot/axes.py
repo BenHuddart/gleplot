@@ -1567,6 +1567,89 @@ class SecondaryXAxis:
     def set_yscale(self, scale: str, axis: str = "y"):
         return self._axes.set_yscale(scale, axis=axis)
 
+    def invert_xaxis(self):
+        return self._axes._invert_axis("x2", "invert_xaxis")
+
+    def invert_yaxis(self):
+        return self._axes.invert_yaxis()
+
+
+class SecondaryYAxis:
+    """The right-hand scale of an axes, as matplotlib's ``Axes.twinx`` returns.
+
+    Not a second subplot. GLE draws the right scale on the same graph, so
+    this view writes that scale: plotting methods bind the series with
+    ``yaxis='y2'``, and the limit, label, and scale setters address it.
+    The x axis stays the one this view was opened on.
+    """
+
+    def __init__(self, axes: "Axes"):
+        self._axes = axes
+
+    def plot(self, *args, **kwargs):
+        kwargs["yaxis"] = "y2"
+        return self._axes.plot(*args, **kwargs)
+
+    def scatter(self, *args, **kwargs):
+        kwargs["yaxis"] = "y2"
+        return self._axes.scatter(*args, **kwargs)
+
+    def errorbar(self, *args, **kwargs):
+        kwargs["yaxis"] = "y2"
+        return self._axes.errorbar(*args, **kwargs)
+
+    def step(self, *args, **kwargs):
+        kwargs["yaxis"] = "y2"
+        return self._axes.step(*args, **kwargs)
+
+    def stem(self, *args, **kwargs):
+        kwargs["yaxis"] = "y2"
+        return self._axes.stem(*args, **kwargs)
+
+    def hist(self, *args, **kwargs):
+        kwargs["yaxis"] = "y2"
+        return self._axes.hist(*args, **kwargs)
+
+    def line_from_file(self, *args, **kwargs):
+        kwargs["yaxis"] = "y2"
+        return self._axes.line_from_file(*args, **kwargs)
+
+    def errorbar_from_file(self, *args, **kwargs):
+        kwargs["yaxis"] = "y2"
+        return self._axes.errorbar_from_file(*args, **kwargs)
+
+    def set_ylim(self, ymin: Optional[float], ymax: Optional[float]):
+        return self._axes.set_ylim(ymin, ymax, axis="y2")
+
+    def get_ylim(self) -> Tuple[Optional[float], Optional[float]]:
+        return self._axes.get_ylim(axis="y2")
+
+    def set_ylabel(self, label: str, *, fontname: Optional[str] = None):
+        return self._axes.set_ylabel(label, axis="y2", fontname=fontname)
+
+    def set_yscale(self, scale: str):
+        return self._axes.set_yscale(scale, axis="y2")
+
+    def set_tick_format(self, fmt: Optional[str]):
+        return self._axes.set_tick_format(fmt, axis="y2")
+
+    def invert_yaxis(self):
+        return self._axes._invert_axis("y2", "invert_yaxis")
+
+    def set_xlim(self, xmin: Optional[float], xmax: Optional[float], axis: str = "x"):
+        return self._axes.set_xlim(xmin, xmax, axis=axis)
+
+    def set_xlabel(
+        self, label: str, axis: str = "x", *, fontname: Optional[str] = None
+    ):
+        return self._axes.set_xlabel(label, axis=axis, fontname=fontname)
+
+    def set_xscale(self, scale: str, axis: str = "x"):
+        return self._axes.set_xscale(scale, axis=axis)
+
+    def invert_xaxis(self):
+        return self._axes.invert_xaxis()
+
 
 def _point_sizes(name: str, values: Any, n_points: int) -> np.ndarray:
     """``scatter``'s per-point ``s`` or ``markersize`` as a float array.
@@ -6714,6 +6797,169 @@ class Axes:
         """
         return SecondaryXAxis(self)
 
+    @_cartesian_only
+    def twinx(self, axes_class=None, *, delta_zorder=0.0, **kwargs) -> SecondaryYAxis:
+        """Open the right-hand y axis as its own data scale.
+
+        The returned view plots against that scale (``yaxis='y2'``) and
+        shares this axes' x axis. Limits, log, the tick format and the axis
+        label set on the view are the right scale; they do not move the
+        left one.
+
+        Parameters
+        ----------
+        axes_class, delta_zorder, **kwargs
+            Accepted for matplotlib compatibility. GLE's right axis is part
+            of this graph, not a new axes, so they have no effect and warn.
+
+        Returns
+        -------
+        SecondaryYAxis
+            A view of this axes bound to the right scale. It is not an entry
+            of :attr:`Figure.axes_list`.
+        """
+        ignored = [
+            name
+            for name, given in (
+                ("axes_class", axes_class is not None),
+                ("delta_zorder", delta_zorder != 0.0),
+            )
+            if given
+        ] + sorted(kwargs)
+        if ignored:
+            warn_external(
+                f"twinx() ignores {', '.join(ignored)}: the right-hand scale is "
+                "drawn on this graph, not on a new axes."
+            )
+        return SecondaryYAxis(self)
+
+    @_cartesian_only
+    def invert_xaxis(self):
+        """Draw the x axis the other way round, as matplotlib does.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+
+        Notes
+        -----
+        gleplot inverts an axis by storing its limits in descending order
+        (see :meth:`set_xlim`). An automatic limit is replaced by the end of
+        the data plotted so far, so the limits are fixed from then on: data
+        plotted afterwards does not widen the axis. Plot first, then invert.
+        With nothing plotted, this warns and does nothing; call
+        ``set_xlim(right, left)`` instead. GLE cannot invert a log axis, so
+        ``savefig`` warns and draws one the usual way round.
+        """
+        return self._invert_axis("x", "invert_xaxis")
+
+    @_cartesian_only
+    def invert_yaxis(self):
+        """Draw the y axis the other way round. See :meth:`invert_xaxis`.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+        """
+        return self._invert_axis("y", "invert_yaxis")
+
+    def _invert_axis(self, which: str, method: str):
+        """Swap ``which``'s limits, filling an automatic one from the data."""
+        lo = getattr(self, f"{which}min")
+        hi = getattr(self, f"{which}max")
+        if lo is None or hi is None:
+            # The figure autoscales x and y from the data at save time; the
+            # x2/y2 scales are left to GLE, so there is nothing to fill from.
+            data_lo, data_hi = {
+                "x": self.figure._get_data_xlim,
+                "y": self.figure._get_data_ylim,
+            }.get(which, lambda _ax: (None, None))(self)
+            lo = data_lo if lo is None else lo
+            hi = data_hi if hi is None else hi
+        if lo is None or hi is None or lo == hi:
+            setter = {
+                "x": "set_xlim(right, left)",
+                "y": "set_ylim(top, bottom)",
+                "x2": "set_xlim(right, left) on the twiny() view",
+                "y2": "set_ylim(top, bottom) on the twinx() view",
+            }[which]
+            warn_external(
+                f"{method}() did nothing: the {which} axis has automatic limits "
+                "and no data range to invert. Plot the data first, or call "
+                f"{setter}."
+            )
+            return self
+        setattr(self, f"{which}min", hi)
+        setattr(self, f"{which}max", lo)
+        return self
+
+    @_cartesian_only
+    def semilogx(self, *args, **kwargs):
+        """:meth:`plot` with a log x axis.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Passed to :meth:`plot`. matplotlib's ``base``, ``subs`` and
+            ``nonpositive`` are accepted; GLE draws base-10 decades with its
+            own minor ticks, so any other value warns and has no effect.
+
+        Returns
+        -------
+        Axes
+            What :meth:`plot` returns.
+        """
+        self._check_log_kwargs("semilogx", kwargs)
+        self.set_xscale("log")
+        return self.plot(*args, **kwargs)
+
+    @_cartesian_only
+    def semilogy(self, *args, **kwargs):
+        """:meth:`plot` with a log y axis. See :meth:`semilogx`.
+
+        Returns
+        -------
+        Axes
+            What :meth:`plot` returns.
+        """
+        self._check_log_kwargs("semilogy", kwargs)
+        self.set_yscale("log")
+        return self.plot(*args, **kwargs)
+
+    @_cartesian_only
+    def loglog(self, *args, **kwargs):
+        """:meth:`plot` with log x and y axes. See :meth:`semilogx`.
+
+        Returns
+        -------
+        Axes
+            What :meth:`plot` returns.
+        """
+        self._check_log_kwargs("loglog", kwargs)
+        self.set_xscale("log")
+        self.set_yscale("log")
+        return self.plot(*args, **kwargs)
+
+    @staticmethod
+    def _check_log_kwargs(method: str, kwargs: Dict[str, Any]) -> None:
+        """Pop matplotlib's log-scale keywords, warning on what GLE cannot do."""
+        base = kwargs.pop("base", 10)
+        ignored = [
+            f"{name}={kwargs.pop(name)!r}"
+            for name in ("subs", "nonpositive")
+            if name in kwargs
+        ]
+        if base != 10:
+            ignored.insert(0, f"base={base!r}")
+        if ignored:
+            warn_external(
+                f"{method}() ignores {', '.join(ignored)}: GLE draws a log axis "
+                "in base-10 decades with its own minor ticks, and cannot plot "
+                "values <= 0 on it."
+            )
+
     def set_ylim(self, ymin: Optional[float], ymax: Optional[float], axis: str = "y"):
         """Set y-axis limits.
 
@@ -6879,6 +7125,221 @@ class Axes:
         self._set_minor_and_edge_labels(
             "y", "set_yticks", nsubticks, loglabels, nofirst, nolast
         )
+        return self
+
+    @_cartesian_only
+    def set_xticklabels(self, labels, *, minor=False, fontdict=None, **kwargs):
+        """Label the x ticks placed by :meth:`set_xticks` (GLE ``xnames``).
+
+        Parameters
+        ----------
+        labels : sequence of str
+            One label per tick position.
+        minor : bool
+            GLE does not label minor ticks: ``True`` warns and does nothing.
+        fontdict, **kwargs
+            matplotlib text properties. They warn and have no effect; style
+            tick labels with :meth:`tick_params` or :meth:`set_tick_format`.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+
+        Raises
+        ------
+        ValueError
+            If the number of labels is not the number of tick positions.
+        """
+        return self._set_ticklabels("x", labels, minor, fontdict, kwargs)
+
+    @_cartesian_only
+    def set_yticklabels(self, labels, *, minor=False, fontdict=None, **kwargs):
+        """Label the y ticks placed by :meth:`set_yticks`. See
+        :meth:`set_xticklabels`.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+        """
+        return self._set_ticklabels("y", labels, minor, fontdict, kwargs)
+
+    def _set_ticklabels(self, prefix, labels, minor, fontdict, kwargs):
+        method = f"set_{prefix}ticklabels"
+        if minor:
+            warn_external(
+                f"{method}(minor=True) did nothing: GLE does not label minor " "ticks."
+            )
+            return self
+        labels = list(labels)
+        places = getattr(self, f"{prefix}places")
+        if places is None or len(places) != len(labels):
+            have = "no fixed ticks" if places is None else f"{len(places)} ticks"
+            raise ValueError(
+                f"{method}() got {len(labels)} labels for {have}; it needs one "
+                f"label per tick position. Call set_{prefix}ticks(ticks, labels) "
+                "to set both."
+            )
+        ignored = (["fontdict"] if fontdict is not None else []) + sorted(kwargs)
+        if ignored:
+            warn_external(
+                f"{method}() ignores {', '.join(ignored)}; style tick labels "
+                "with tick_params() or set_tick_format()."
+            )
+        setter = self.set_xticks if prefix == "x" else self.set_yticks
+        return setter(labels=labels)
+
+    @_cartesian_only
+    def axis(self, arg=None, /, *, emit=True, **kwargs):
+        """Get or set the axis limits, or hide the axes, as matplotlib does.
+
+        Parameters
+        ----------
+        arg : None, bool, str or sequence of 4 floats
+            ``None`` only reads the limits. ``'off'`` or ``False`` calls
+            :meth:`set_axis_off`, ``'on'`` or ``True`` :meth:`set_axis_on`.
+            ``'tight'`` and ``'auto'`` put x and y back on automatic limits,
+            which gleplot fits to the data. ``'equal'``, ``'scaled'``,
+            ``'image'`` and ``'square'`` warn and have no effect: GLE has
+            no aspect-ratio constraint. ``[xmin, xmax, ymin, ymax]`` sets the
+            limits.
+        emit : bool
+            Accepted for matplotlib compatibility; ``False`` warns, since
+            gleplot has no limit-change callbacks.
+        **kwargs
+            ``xmin``, ``xmax``, ``ymin``, ``ymax``: set just those limits.
+
+        Returns
+        -------
+        tuple
+            ``(xmin, xmax, ymin, ymax)``; ``None`` is an automatic limit.
+
+        Raises
+        ------
+        ValueError
+            On an unknown string option.
+        TypeError
+            If ``arg`` is a sequence of the wrong length, or on any other
+            keyword, or limit keywords passed together with ``arg``.
+        """
+        unknown = sorted(set(kwargs) - {"xmin", "xmax", "ymin", "ymax"})
+        if unknown or (kwargs and arg is not None):
+            raise TypeError(
+                f"axis() got an unexpected keyword argument "
+                f"{(unknown or sorted(kwargs))[0]!r}; it takes xmin, xmax, ymin "
+                "and ymax, and only when no positional argument is given."
+            )
+        if not emit:
+            warn_external(
+                "axis(emit=False) has no effect: gleplot has no limit-change "
+                "callbacks to silence."
+            )
+        if isinstance(arg, (str, bool)):
+            self._axis_option(arg)
+        else:
+            if arg is not None:
+                arg = list(arg)
+                if len(arg) != 4:
+                    raise TypeError(
+                        "axis() takes [xmin, xmax, ymin, ymax] as its first "
+                        f"argument; got {arg!r}."
+                    )
+                kwargs = dict(zip(("xmin", "xmax", "ymin", "ymax"), arg))
+            for name in ("x", "y"):
+                lo = kwargs.get(f"{name}min")
+                hi = kwargs.get(f"{name}max")
+                # matplotlib leaves a limit passed as None where it was.
+                if lo is not None or hi is not None:
+                    old_lo, old_hi = getattr(self, f"get_{name}lim")()
+                    getattr(self, f"set_{name}lim")(
+                        old_lo if lo is None else lo, old_hi if hi is None else hi
+                    )
+        return (*self.get_xlim(), *self.get_ylim())
+
+    def _axis_option(self, arg) -> None:
+        """``axis('off')`` and the other string (or bool) forms."""
+        option = {True: "on", False: "off"}[arg] if isinstance(arg, bool) else arg
+        option = option.lower()
+        if option == "on":
+            self.set_axis_on()
+        elif option == "off":
+            self.set_axis_off()
+        elif option in ("tight", "auto"):
+            self.set_xlim(None, None)
+            self.set_ylim(None, None)
+        elif option in ("equal", "scaled", "image", "square"):
+            warn_external(
+                f"axis({arg!r}) has no effect: GLE has no aspect-ratio "
+                "constraint. Choose figsize and the limits so that a unit has "
+                "the same length on both axes."
+            )
+        else:
+            raise ValueError(
+                f"axis({arg!r}) is not a known option; use 'on', 'off', "
+                "'tight', 'auto', 'equal', 'scaled', 'image' or 'square'."
+            )
+
+    @_cartesian_only
+    def set_axis_off(self):
+        """Hide the axis lines, ticks and tick labels.
+
+        The plotted data, the title and the legend stay. Undo with
+        :meth:`set_axis_on`.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+
+        Notes
+        -----
+        Unlike matplotlib, the axis labels stay: a hidden label would not be
+        written to the ``.gle`` file, so :func:`open_gle` could not bring it
+        back. This warns when an axis label is set; remove it with
+        ``set_xlabel('')`` / ``set_ylabel('')``.
+        """
+        self._frame_off = True
+        self._show_xticks = self._show_yticks = False
+        if any(
+            (self.xlabel_text, self.ylabel_text, self.x2label_text, self.y2label_text)
+        ):
+            warn_external(
+                "set_axis_off() keeps the axis labels; remove them with "
+                "set_xlabel('') and set_ylabel('')."
+            )
+        return self
+
+    @_cartesian_only
+    def set_axis_on(self):
+        """Show the axes again after :meth:`set_axis_off`.
+
+        Tick labels come back except where ``sharex`` or ``sharey`` hides
+        them on an inner subplot.
+
+        Returns
+        -------
+        Axes
+            ``self``.
+        """
+        self._frame_off = False
+        # The sharing rule is the one source of the tick-label visibility,
+        # but it also resets flags set_axis_off never touched (axis titles,
+        # nofirst/nolast); only the two tick-label flags are taken from it.
+        kept = {
+            name: getattr(self, name)
+            for name in (
+                "_show_xlabel",
+                "_show_ylabel",
+                "_remove_first_xtick",
+                "_remove_last_xtick",
+                "_remove_first_ytick",
+                "_remove_last_ytick",
+            )
+        }
+        self.figure._apply_shared_axes_flags(self)
+        for name, value in kept.items():
+            setattr(self, name, value)
         return self
 
     def _set_tick_options(

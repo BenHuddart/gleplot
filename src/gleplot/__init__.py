@@ -213,6 +213,37 @@ def plot(*args, **kwargs):
     return gca().plot(*args, **kwargs)
 
 
+def semilogx(*args, **kwargs):
+    """Plot with a log x axis on current axes."""
+    return gca().semilogx(*args, **kwargs)
+
+
+def semilogy(*args, **kwargs):
+    """Plot with a log y axis on current axes."""
+    return gca().semilogy(*args, **kwargs)
+
+
+def loglog(*args, **kwargs):
+    """Plot with log x and y axes on current axes."""
+    return gca().loglog(*args, **kwargs)
+
+
+def twinx(ax=None):
+    """The right-hand y scale of ``ax`` (default: current axes)."""
+    return (gca() if ax is None else ax).twinx()
+
+
+def twiny(ax=None):
+    """The top x scale of ``ax`` (default: current axes)."""
+    return (gca() if ax is None else ax).twiny()
+
+
+def axis(arg=None, /, *, emit=True, **kwargs):
+    """Get or set the limits of, or hide, the current axes. See
+    :meth:`Axes.axis`."""
+    return gca().axis(arg, emit=emit, **kwargs)
+
+
 def step(*args, **kwargs):
     """Step plot on current axes. See :meth:`gleplot.Axes.step`."""
     return gca().step(*args, **kwargs)
@@ -541,6 +572,12 @@ __all__ = [
     "gca",
     "gcf",
     "plot",
+    "semilogx",
+    "semilogy",
+    "loglog",
+    "twinx",
+    "twiny",
+    "axis",
     "step",
     "stem",
     "hist",
