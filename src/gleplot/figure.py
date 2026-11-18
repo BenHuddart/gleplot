@@ -2892,6 +2892,8 @@ class Figure:
             title_font=getattr(ax, f"{prefix}label_font"),
             side_color=getattr(ax, f"{prefix}side_color"),
             side_lwidth=getattr(ax, f"{prefix}side_lwidth"),
+            # x2 and y2 are hidden whole, through Axes._x2axis_off/_y2axis_off.
+            side_off=getattr(ax, f"{prefix}side_off") if prefix in "xy" else None,
             nticks=getattr(ax, f"{prefix}nticks", None),
             ftick=getattr(ax, f"{prefix}ftick", None),
             shift=getattr(ax, f"{prefix}shift", None),
@@ -3009,6 +3011,37 @@ class Figure:
                         f"set_{name}lim, or call set_math_mode(False)."
                     )
             writer.add_math_mode()
+        for name, side in (("x2", "top"), ("y2", "right")):
+            if not getattr(ax, f"_{name}axis_off") or ax._break_owner is not None:
+                continue
+            in_use = (
+                any(
+                    s.get(f"{name[0]}axis") == name
+                    for s in (
+                        *ax.lines,
+                        *ax.scatters,
+                        *ax.errorbars,
+                        *ax.hists,
+                        *ax.file_series,
+                    )
+                )
+                or getattr(ax, f"{name}min") is not None
+                or getattr(ax, f"{name}max") is not None
+                or getattr(ax, f"{name}scale") == "log"
+                or bool(getattr(ax, f"{name}label_text"))
+                or getattr(ax, f"{name}format") is not None
+                or any(
+                    getattr(ax, f"{name}ticklabel_{prop}") is not None
+                    for prop in ("size", "color", "angle")
+                )
+            )
+            if in_use:
+                warn_external(
+                    f"set_axis_line({name!r}, visible=False) hides the {side} "
+                    f"edge, and with it the {name} scale drawn there: its "
+                    "ticks, tick labels and axis label. Call "
+                    f"set_axis_line({name!r}, visible=True) to keep the scale."
+                )
         writer.add_axes(
             xlabel=ax.xlabel_text or None,
             ylabel=ax.ylabel_text or None,

@@ -240,3 +240,35 @@ def test_a_y2_format_is_actually_applied(tmp_path):
     plain = _ink_right_edge_cm(build(False), tmp_path, "plain")
     labelled = _ink_right_edge_cm(build(True), tmp_path, "labelled")
     assert labelled > plain + 0.1, (plain, labelled)
+
+
+@pytest.mark.parametrize(
+    "hidden,gone", [("x", "bottom"), ("x2", "top"), ("y", "left"), ("y2", "right")]
+)
+def test_a_hidden_axis_line_leaves_the_other_three_drawn(tmp_path, hidden, gone):
+    """GLE copies ``xside off`` onto the top edge, so the writer switches the
+    top back on; only a compile shows that one edge, and only one, is gone."""
+    from tests.integration.test_boxplot_compiles import _png_rows
+
+    fig, ax = glp.subplots(figsize=(2, 1.5))
+    ax.plot([0, 1], [0, 1], color="blue")
+    ax.set_axis_line(color="red")
+    ax.set_axis_line(hidden, visible=False)
+    out = tmp_path / "edges.png"
+    fig.savefig(str(out), dpi=300)
+    width, rows = _png_rows(out)
+    height = len(rows)
+
+    def red(x, y):
+        r, g, b = rows[y][3 * x : 3 * x + 3]
+        return r > 200 and g < 80 and b < 80
+
+    across = [
+        y for y in range(height) if sum(red(x, y) for x in range(width)) > width / 3
+    ]
+    down = [
+        x for x in range(width) if sum(red(x, y) for y in range(height)) > height / 3
+    ]
+    edges = {"top" if y < height / 2 else "bottom" for y in across}
+    edges |= {"left" if x < width / 2 else "right" for x in down}
+    assert edges == {"top", "bottom", "left", "right"} - {gone}

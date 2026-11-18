@@ -20,6 +20,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
+| `ax.spines[...].set_visible(False)` | `ax.set_axis_line(axis, visible=False)`, with `'x'`, `'y'`, `'x2'`, `'y2'` for bottom, left, top, right |
 | `ax.spines['left'].set_position('zero')` and `ax.spines['bottom'].set_position('zero')` | `ax.set_math_mode()` |
 | `ax.legend(...)` | same |
 | `ax.twinx()` / `ax.twiny()` | same, a view of the right or top scale, see [Secondary axes](#secondary-axes); `twinx`'s `axes_class`, `delta_zorder` and other keywords warn |
@@ -395,7 +396,10 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
    previous call unless they are passed again.
 7. GLE has no separate top and right spines: the x line's style is copied
    onto the top line and the y line's onto the right one. Set `'x2'` or
-   `'y2'` with `set_axis_line` to style those on their own.
+   `'y2'` with `set_axis_line` to style those on their own. Hiding the top
+   or right line with `visible=False` also removes the tick marks GLE
+   mirrors there, and any `twiny`/`twinx` scale drawn on that edge (which
+   warns).
 8. Display strings follow matplotlib's contract: plain text renders literally
    (`'lambda_tail'` is not a subscript) and math is opt-in via `$...$`. Unlike
    matplotlib, a backslash outside `$...$` still opens GLE's own text markup

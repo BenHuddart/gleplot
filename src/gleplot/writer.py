@@ -453,6 +453,9 @@ class AxisStyle:
     side_color, side_lwidth : optional
         Colour and width (points) of the axis line -- GLE ``xside color C
         lwidth W``.
+    side_off : bool, optional
+        ``xside off`` (True) or ``on`` (False): the axis line alone,
+        hidden or shown.
     nticks, ftick, shift, symticks : optional
         Tick placement on the ``xaxis`` line: ``nticks N``, ``ftick F``,
         ``shift S`` (cm) and a bare ``symticks`` when True.
@@ -492,6 +495,7 @@ class AxisStyle:
     title_font: Optional[str] = None
     side_color: Optional[str] = None
     side_lwidth: Optional[float] = None
+    side_off: Optional[bool] = None
     nticks: Optional[int] = None
     ftick: Optional[float] = None
     shift: Optional[float] = None
@@ -1996,6 +2000,17 @@ class GLEWriter:
         ystyle = ystyle or _NO_STYLE
         y2style = y2style or _NO_STYLE
         x2style = x2style or _NO_STYLE
+        if frame_off:
+            # A hidden frame already hides every axis line.
+            xstyle = replace(xstyle, side_off=None)
+            ystyle = replace(ystyle, side_off=None)
+        # GLE copies 'xside off' onto the top edge and 'yside off' onto the
+        # right one (do_side), so an edge that is still drawn is switched
+        # back on after it.
+        if xstyle.side_off and not x2axis_off and not frame_off:
+            x2style = replace(x2style, side_off=False)
+        if ystyle.side_off and not y2axis_off and not frame_off:
+            y2style = replace(y2style, side_off=False)
         self._log_axes = {"x": xlog, "y": ylog, "y2": y2log, "x2": x2log}
         if title:
             opts = self._text_options(title_size, title_color, title_dist, title_font)
@@ -2349,11 +2364,11 @@ class GLEWriter:
         return out
 
     def _add_axis_line_style(self, prefix: str, style: AxisStyle) -> None:
-        """``xside color C lwidth W`` (and y/y2/x2 twins), when either is set.
+        """``xside color C lwidth W off|on`` (and y/y2/x2 twins), when set.
 
         GLE copies an ``xside`` onto x2 and a ``yside`` onto y2, so the
         caller writes x and y before x2 and y2: a later ``x2side`` then
-        restyles the top line on its own.
+        restyles, or switches back on, the top line on its own.
         """
         opts = ""
         if style.side_color is not None:
@@ -2361,6 +2376,8 @@ class GLEWriter:
         if style.side_lwidth is not None:
             width = linewidth_pt_to_cm(float(style.side_lwidth))
             opts += f" lwidth {self._format_number(width)}"
+        if style.side_off is not None:
+            opts += " off" if style.side_off else " on"
         if opts:
             self.lines_gle.append(f"    {prefix}side{opts}")
 
