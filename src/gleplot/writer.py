@@ -321,6 +321,50 @@ def polar_window(
     return rmax * width / 2 / radius, rmax * height / 2 / radius
 
 
+#: The subs that draw a placed image (:meth:`GLEWriter.add_image`) from
+#: inside the graph block, where ``xg()``/``yg()`` map data coordinates to
+#: the page, keyed by name; a script defines the ones its images use.
+#: ``bitmap`` reads PNG, JPEG, GIF and TIFF files; ``postscript`` reads EPS,
+#: and only GLE's PostScript route draws it (with ``-cairo`` it draws
+#: nothing).
+IMAGE_SUBS: Dict[str, str] = {
+    "gleplot_bitmap": """sub gleplot_bitmap f$ x0 x1 y0 y1
+   ! Image file f$ stretched from (x0, y0) to (x1, y1) in data coordinates.
+   amove xg(x0) yg(y0)
+   bitmap f$ xg(x1)-xg(x0) yg(y1)-yg(y0)
+end sub""",
+    "gleplot_postscript": """sub gleplot_postscript f$ x0 x1 y0 y1
+   ! EPS file f$ stretched from (x0, y0) to (x1, y1) in data coordinates.
+   amove xg(x0) yg(y0)
+   postscript f$ xg(x1)-xg(x0) yg(y1)-yg(y0)
+end sub""",
+}
+
+#: Graph layer of a placed image: below GLE's grid (200), so the grid, the
+#: fills, the axes and the data are all drawn over it. A graph ``draw`` is
+#: clipped to the frame.
+IMAGE_LAYER = 150
+
+#: Image file extension (lower case) -> the :data:`IMAGE_SUBS` sub drawing it.
+_IMAGE_SUB_BY_SUFFIX = {
+    ".png": "gleplot_bitmap",
+    ".jpg": "gleplot_bitmap",
+    ".jpeg": "gleplot_bitmap",
+    ".gif": "gleplot_bitmap",
+    ".tif": "gleplot_bitmap",
+    ".tiff": "gleplot_bitmap",
+    ".eps": "gleplot_postscript",
+}
+
+
+def image_sub_name(path: str) -> Optional[str]:
+    """The :data:`IMAGE_SUBS` sub that draws ``path``, by its extension.
+
+    ``None`` for a file type GLE cannot place.
+    """
+    return _IMAGE_SUB_BY_SUFFIX.get(Path(path).suffix.lower())
+
+
 @dataclass(frozen=True)
 class AxisStyle:
     """Styling for ONE axis (x, y or y2) of a graph block.
@@ -5031,6 +5075,22 @@ class GLEWriter:
             self._pending_graph_text_lines.append(
                 f"gleplot_box_mean {x} {num(float(series['mean']))}"
             )
+
+    def add_image(self, series: Series) -> None:
+        """Draw a placed image as a layered ``draw`` call in the graph block.
+
+        ``series`` is a :class:`~gleplot.series.PlacedImage`. The call is a
+        :data:`IMAGE_SUBS` sub chosen by the file's extension, in layer
+        :data:`IMAGE_LAYER`, so the image lies under the grid and the data
+        and is clipped to the frame.
+        """
+        sub = image_sub_name(series["file"])
+        extent = " ".join(self._format_number(float(v)) for v in series["extent"])
+        self.lines_gle.append(f"    begin layer {IMAGE_LAYER}")
+        self.lines_gle.append(
+            f"        draw {sub} {_quote_filename(series['file'])} {extent}"
+        )
+        self.lines_gle.append("    end layer")
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
         """Where ``key separator`` falls, as 1-based legend-entry counts.

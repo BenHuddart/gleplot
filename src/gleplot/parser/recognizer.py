@@ -321,6 +321,7 @@ from ..series import (
     HeatmapSeries,
     HistSeries,
     LineSeries,
+    PlacedImage,
     RefLine,
     ScatterSeries,
     Series,
@@ -329,9 +330,12 @@ from ..series import (
     Wedge,
 )
 from ..writer import (
+    IMAGE_LAYER,
+    IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_GRID_LAYER,
     GLEWriter,
+    image_sub_name,
     polar_degree_mark,
     polar_label_decimals,
     polar_ring_step,
@@ -2303,10 +2307,13 @@ class _Recognizer:
                 guide = guide_blocks.get(child.line_no)
                 if child.line_no == polar_line:
                     continue
+                image = None if guide is not None else self._image_block(child)
                 if guide is not None:
                     # Recognized guide draw block: becomes a RefLine/Span
                     # declaration, in body order, instead of raw text.
                     info[guide["attr"]].append(guide["entry"])
+                elif image is not None:
+                    info["images"].append(image)
                 else:
                     info["passthrough"].extend(self._raw_lines(child))
             elif isinstance(child, BlankOrComment):
@@ -2495,6 +2502,9 @@ class _Recognizer:
             "file_series": [],
             "heatmaps": [],
             "contours": [],
+            # Placed images, from ``begin layer`` / ``draw gleplot_bitmap``
+            # (or ``gleplot_postscript``) blocks -- see _image_block.
+            "images": [],
             # Guides recovered from ``begin layer N`` / ``draw gleplot_*``
             # blocks (G17), and from a ``! gleplot:guide`` marker over the
             # dataset they materialized into (G18-lite). Recognition keys off
@@ -3065,7 +3075,11 @@ class _Recognizer:
         span = (stmt.line_no, stmt.line_no)
         kind_orient = GUIDE_CALL_KINDS.get(call)
         if kind_orient is None:
-            if call.startswith("gleplot_") and call != "gleplot_polar_grid":
+            if (
+                call.startswith("gleplot_")
+                and call != "gleplot_polar_grid"
+                and call not in IMAGE_SUBS
+            ):
                 self._note(
                     ImportCategory.STRUCTURE,
                     f"'draw {call}' has gleplot's own guide-sub prefix but "
@@ -3114,6 +3128,48 @@ class _Recognizer:
             )
             return None
         return {"attr": "reflines" if kind == "refline" else "spans", "entry": entry}
+
+    def _image_block(self, node: OpaqueBlock) -> Optional[PlacedImage]:
+        """A placed image's ``begin layer`` / ``draw`` block, or ``None``.
+
+        Like a guide block, it has to match what the writer emits: a
+        ``layer`` block at :data:`~gleplot.writer.IMAGE_LAYER` holding one
+        ``draw`` of the image sub for the file's extension, with the file
+        and an ascending extent. A block that names an image sub but does
+        not match is left as raw GLE with a ``structure:`` note.
+        """
+        if node.block_type != "layer":
+            return None
+        inner = [sl for sl in node.inner_lines if sl.text.strip()]
+        if len(inner) != 1:
+            return None
+        stmt = _first_statement_of(inner[0])
+        toks = _words_and_values(stmt)
+        if len(toks) < 2 or (stmt.keyword or "").lower() != "draw":
+            return None
+        call = toks[1].value.lower()
+        if call not in IMAGE_SUBS:
+            return None
+        args = self._guide_call_args(toks, 2)
+        if (
+            len(args) == 5
+            and isinstance(args[0], str)
+            and image_sub_name(args[0]) == call
+            and all(isinstance(v, (int, float)) for v in args[1:])
+            and self._layer_number(node) == IMAGE_LAYER
+        ):
+            x0, x1, y0, y1 = (float(cast(float, v)) for v in args[1:])
+            if x0 < x1 and y0 < y1:
+                return PlacedImage(type="image", file=args[0], extent=[x0, x1, y0, y1])
+        self._note(
+            ImportCategory.STRUCTURE,
+            f"'draw {call}' does not match the image block gleplot writes "
+            f"(layer {IMAGE_LAYER}, a file whose type fits the call, and an "
+            "ascending extent); the block was left as raw GLE instead of "
+            "being read back as an image",
+            (stmt.line_no, stmt.line_no),
+        )
+        return None
 
     @staticmethod
     def _layer_number(node: OpaqueBlock) -> Optional[int]:
@@ -8656,6 +8712,7 @@ class _Recognizer:
         ax.texts = info["texts"]
         ax.wedges = info["wedges"]
         ax.boxes = info["boxes"]
+        ax.images = info["images"]
         ax.heatmaps = info["heatmaps"]
         ax.contours = info["contours"]
         # Guides recovered from their draw blocks (G17). Before G17 a guide

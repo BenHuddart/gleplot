@@ -403,6 +403,9 @@ The right-hand scale is `yaxis="y2"` on a series, and `ax.twiny()` opens the top
     ticks' colour. On an axis with a grid, GLE's grid lines are the ticks,
     so the tick marks are not written and saving warns. See
     [Axes and Legends](AXES_AND_LEGENDS.md).
+11. `imshow` colours an array; it does not show a picture read with `imread`.
+    Place the image file itself with `ax.image(fname, extent=...)`; see
+    [Plot Types](PLOT_TYPES.md).
 
 ## Migration Strategy
 

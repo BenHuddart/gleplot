@@ -216,6 +216,20 @@ curves alone. Legends and the title work as on any axes. Other plotting
 methods raise `NotImplementedError` on a polar axes; see "Polar axes" in
 the [matplotlib migration guide](MATPLOTLIB_MIGRATION.md).
 
+## Placed images
+
+```python
+ax.image('micrograph.png', extent=(0, 10, 0, 5))
+```
+
+Stretches a PNG, JPEG, GIF, TIFF or EPS file over `(left, right, bottom,
+top)` in data coordinates, under the grid and the data. GLE reads the file
+when it compiles, and a relative path is read from the folder the `.gle`
+script is saved in. An EPS file is drawn only when GLE compiles through
+PostScript: not to SVG, and not when the figure has semi-transparent colours.
+To colour a 2-D array instead, use `imshow` (see
+[Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
+
 ## Other plot types
 
 - Heatmaps and contours: [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
