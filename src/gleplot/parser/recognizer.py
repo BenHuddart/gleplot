@@ -343,6 +343,7 @@ from .tables import (
     KEY_POSITIONS_SHORT_TO_LONG,
     LEGEND_SPACING_TO_KEY,
     LINE_MODES,
+    LOG_LABEL_MODES,
     LSTYLE_TO_MATPLOTLIB,
     PALETTE_SUB_TO_CMAP,
     text_box_pad_token,
@@ -2065,19 +2066,25 @@ class _Recognizer:
             "ysymticks": None,
             "xnoticks": None,
             "ynoticks": None,
+            "xnsubticks": None,
+            "ynsubticks": None,
+            # 'xlabels log MODE' (x and y only).
+            "xloglabels": None,
+            "yloglabels": None,
             # A bare 'math' ahead of everything but geometry (_prescan_math).
             "math_mode": None,
-            # (prefix, keyword) of every axis-line option kept as raw GLE.
+            # (prefix, keyword) of every axis-line option (and tick-label
+            # "loglabels") kept as raw GLE.
             # Raw lines are written at the end of the block, so a later
             # occurrence of the same option is not modeled either: it would
             # be written before the raw one and lose to it.
             "_raw_axis_opts": set(),
-            # Deferred lines: an 'xticks'/'xsubticks' style is only part of
-            # the model when that axis has a grid (the grid lines ARE the
-            # ticks), and a 'y2labels on' is only implied when some y2
-            # tick-label property is modeled. Whether that holds is not known
-            # until the whole block has been read -- GLE statement order is
-            # free -- so they are parked here and resolved by
+            # Deferred lines: an 'xticks'/'xsubticks' style is grid style
+            # when that axis has a grid (the grid lines ARE the ticks) and
+            # tick marks when it has none, and a 'y2labels on' is only
+            # implied when some y2 tick-label property is modeled. Whether
+            # that holds is not known until the whole block has been read --
+            # GLE statement order is free -- so they are parked here and resolved by
             # _reconcile_axis_styling, which sends the unusable ones back to
             # passthrough verbatim.
             "_xticks": None,
@@ -3113,10 +3120,9 @@ class _Recognizer:
         fix the order of these statements relative to the ``xaxis ... grid``
         that gives them their meaning:
 
-        * ``xticks``/``xsubticks`` style is grid style, and only when that
-          axis HAS a grid. Without one it would restyle bare ticks, which the
-          model cannot express -- so the line goes back to passthrough
-          verbatim.
+        * ``xticks``/``xsubticks`` style is grid style when that axis HAS a
+          grid. Without one it is the tick marks (see
+          :meth:`_reconcile_tick_marks`).
         * A subtick grid must be styled exactly like the main grid for one
           ``lstyle``/``lwidth`` pair to describe both (subticks inherit only
           the tick colour -- see ``GLEWriter._add_grid_style``). A file that
@@ -3134,7 +3140,15 @@ class _Recognizer:
             ticks = info[f"_{prefix}ticks"]
             subticks = info[f"_{prefix}subticks"]
             gridded = info[f"{prefix}grid"]
-            if ticks is not None and not (gridded and ticks["ok"] and not ticks["on"]):
+            if not gridded:
+                self._reconcile_tick_marks(prefix, ticks, subticks, info)
+                continue
+            if ticks is not None and not (
+                ticks["ok"]
+                and not ticks["on"]
+                and not ticks["off"]
+                and ticks["length"] is None
+            ):
                 info["passthrough"].append(ticks["raw"])
                 ticks_line = ticks["line_no"]
                 self._note(
@@ -3150,9 +3164,9 @@ class _Recognizer:
                 ticks["lstyle"] if ticks else None
             ) and subticks["lwidth"] == (ticks["lwidth"] if ticks else None)
             if not (
-                gridded
-                and subticks["ok"]
+                subticks["ok"]
                 and subticks["on"]
+                and subticks["length"] is None
                 and subticks["color"] is None
                 and styled_alike
             ):
@@ -3521,27 +3535,58 @@ class _Recognizer:
         without it) -- and only if such a property is actually present,
         which :meth:`_reconcile_axis_styling` decides once the block has
         been read.
-        ``dist``/``font``/``log`` are not modeled on tick labels, so a line
-        carrying them is kept whole as raw GLE.
+        ``log MODE`` is modeled on x and y. ``dist``/``font`` are not
+        modeled on tick labels, so a line carrying them is kept whole as raw
+        GLE.
         """
         prefix = self._TEXT_PREFIX[kw]
         opts, remainder = self._parse_text_options(toks, 1)
         leftover: List[Token] = []
         off = False
         on = False
-        for tok in remainder:
-            word = tok.value.lower()
+        loglabels = None
+        k = 0
+        while k < len(remainder):
+            word = remainder[k].value.lower()
+            following = remainder[k + 1].value.lower() if k + 1 < len(remainder) else ""
             if word == "off" and prefix in ("x", "y"):
                 off = True
             elif word == "on" and prefix in ("y2", "x2"):
                 on = True
+            elif (
+                word == "log"
+                and prefix in ("x", "y")
+                and loglabels is None
+                and following in LOG_LABEL_MODES
+            ):
+                loglabels = following
+                k += 1
             else:
-                leftover.append(tok)
+                leftover.append(remainder[k])
+            k += 1
         if (
             leftover
             or opts["font"] is not None
-            or (off and (opts["hei"] is not None or opts["color"] is not None))
+            or (
+                off
+                and (
+                    opts["hei"] is not None
+                    or opts["color"] is not None
+                    or loglabels is not None
+                )
+            )
+            or (
+                loglabels is not None
+                and (
+                    info[f"{prefix}loglabels"] is not None
+                    or (prefix, "loglabels") in info["_raw_axis_opts"]
+                )
+            )
         ):
+            if any(tok.value.lower() == "log" for tok in remainder):
+                # A later modeled 'log' would be written ahead of this raw
+                # line and lose to it, so it stays raw too.
+                info["_raw_axis_opts"].add((prefix, "loglabels"))
             # Unmodeled option, or styling on labels that are switched off
             # (which the writer would drop): keep the line verbatim.
             info["passthrough"].append(self._stmt_text(stmt))
@@ -3558,19 +3603,48 @@ class _Recognizer:
             info[f"_{prefix}labels_on_line"] = (
                 stmt.line_no if stmt is not None else None
             )
-        info[f"{prefix}labels_hei"] = opts["hei"]
-        info[f"{prefix}labels_color"] = opts["color"]
+        # GLE label settings are cumulative: a line without 'hei' (say
+        # 'xlabels log l25') keeps the one an earlier line set.
+        if opts["hei"] is not None:
+            info[f"{prefix}labels_hei"] = opts["hei"]
+        if opts["color"] is not None:
+            info[f"{prefix}labels_color"] = opts["color"]
+        if loglabels is not None:
+            info[f"{prefix}loglabels"] = loglabels
+
+    def _reconcile_tick_marks(self, prefix, ticks, subticks, info) -> None:
+        """``xticks``/``xsubticks`` on an axis with no grid: tick marks.
+
+        The model holds ``length``/``lwidth``/``color`` on both, and
+        ``on``/``off`` on the minor ticks. Anything else (``lstyle``,
+        ``xticks on|off``) keeps the line as raw GLE.
+        """
+        for kind, parsed in (("tick", ticks), ("subtick", subticks)):
+            if parsed is None:
+                continue
+            switch = kind == "tick" and (parsed["on"] or parsed["off"])
+            if not parsed["ok"] or parsed["lstyle"] is not None or switch:
+                info["passthrough"].append(parsed["raw"])
+                line_no = parsed["line_no"]
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"{prefix}{kind}s options the model does not hold; kept "
+                    "as raw GLE, not editable",
+                    (line_no, line_no) if line_no is not None else None,
+                )
+                continue
+            info[f"_{prefix}{kind}_marks"] = parsed
 
     def _parse_ticks_line(self, kw, toks, info, stmt) -> None:
         """``xticks``/``xsubticks`` style, parked for later reconciliation.
 
-        On the model these are grid styling, and only meaningful when that
-        axis has a grid (see :class:`gleplot.writer.AxisStyle`). GLE allows
-        the ``xaxis ... grid`` that decides it to appear anywhere in the
-        block, so the line is recorded here and judged by
-        :meth:`_reconcile_axis_styling`; ``length``/``off`` and any other
-        sub-command mean the line is not ours and goes back to passthrough
-        untouched.
+        On an axis with a grid these are grid styling (see
+        :class:`gleplot.writer.AxisStyle`); without one they are the tick
+        marks of ``Axes.tick_params``. GLE allows the ``xaxis ... grid``
+        that decides it to appear anywhere in the block, so the line is
+        recorded here and judged by :meth:`_reconcile_axis_styling`; any
+        other sub-command means the line is not ours and goes back to
+        passthrough untouched.
         """
         prefix = "x" if kw.startswith("x") else "y"
         key = f"_{prefix}subticks" if "sub" in kw else f"_{prefix}ticks"
@@ -3579,17 +3653,19 @@ class _Recognizer:
             "line_no": stmt.line_no if stmt is not None else None,
             "lstyle": None,
             "lwidth": None,
+            "length": None,
             "color": None,
             "on": False,
+            "off": False,
             "ok": True,
         }
         i = 1
         m = len(toks)
         while i < m:
             word = toks[i].value.lower()
-            if word in ("lstyle", "lwidth") and i + 1 < m:
+            if word in ("lstyle", "lwidth", "length") and i + 1 < m:
                 value, nxt = _collect_value(toks, i + 1)
-                if value is not None:
+                if value is not None and parsed[word] is None:
                     parsed[word] = value
                     i = nxt
                     continue
@@ -3599,8 +3675,8 @@ class _Recognizer:
                     parsed["color"] = color
                     i = nxt
                     continue
-            elif word == "on":
-                parsed["on"] = True
+            elif word in ("on", "off") and not (parsed["on"] or parsed["off"]):
+                parsed[word] = True
                 i += 1
                 continue
             parsed["ok"] = False
@@ -3730,11 +3806,11 @@ class _Recognizer:
 
     @staticmethod
     def _take_tick_placement(w, toks, i, prefix, info) -> Optional[int]:
-        """Model ``nticks``/``ftick``/``shift``/``symticks`` at ``toks[i]``.
+        """Model ``nticks``/``ftick``/``shift``/``symticks``/``nsubticks``.
 
         Returns the index after the option when it is one of them, on x or
         y, and fits the model; otherwise None. A repeat, a fractional
-        ``nticks`` or ``symticks on|off`` is left to the remainder, which
+        ``nticks``/``nsubticks`` or ``symticks on|off`` is left to the remainder, which
         keeps it as raw GLE, and so is any later occurrence of the same
         option (see ``_raw_axis_opts``).
         """
@@ -3747,12 +3823,15 @@ class _Recognizer:
                 return None
             info[f"{prefix}symticks"] = True
             return i + 1
-        if w not in ("nticks", "ftick", "shift") or info[f"{prefix}{w}"] is not None:
+        if (
+            w not in ("nticks", "ftick", "shift", "nsubticks")
+            or info[f"{prefix}{w}"] is not None
+        ):
             return None
         value, nxt = _collect_value(toks, i + 1)
         if value is None:
             return None
-        if w == "nticks":
+        if w in ("nticks", "nsubticks"):
             if not float(value).is_integer() or value < 1:
                 return None
             value = int(value)
@@ -7716,8 +7795,35 @@ class _Recognizer:
             setattr(ax, f"{prefix}ticklabel_angle", info[f"{prefix}angle"])
         ax.math_mode = info["math_mode"]
         for prefix in ("x", "y"):
-            for name in ("nticks", "ftick", "shift", "symticks", "noticks"):
+            for name in (
+                "nticks",
+                "ftick",
+                "shift",
+                "symticks",
+                "noticks",
+                "nsubticks",
+                "loglabels",
+            ):
                 setattr(ax, f"{prefix}{name}", info[f"{prefix}{name}"])
+            for kind in ("tick", "subtick"):
+                marks = info.get(f"_{prefix}{kind}_marks")
+                if marks is None:
+                    continue
+                length = marks["length"]
+                if length is not None:
+                    # GLE's signed per-side length -> the model's whole tick
+                    # and direction (see GLEWriter._add_tick_mark_style).
+                    whole = abs(length) * (2.0 if info[f"{prefix}symticks"] else 1.0)
+                    setattr(ax, f"{prefix}{kind}_length", linewidth_cm_to_pt(whole))
+                    if length < 0:
+                        setattr(ax, f"{prefix}{kind}_direction", "out")
+                if marks["lwidth"] is not None:
+                    setattr(
+                        ax, f"{prefix}{kind}_width", linewidth_cm_to_pt(marks["lwidth"])
+                    )
+                setattr(ax, f"{prefix}{kind}_color", marks["color"])
+                if kind == "subtick" and (marks["on"] or marks["off"]):
+                    setattr(ax, f"{prefix}minorticks", bool(marks["on"]))
             if not info[f"{prefix}grid"]:
                 continue
             setattr(

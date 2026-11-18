@@ -408,3 +408,87 @@ def test_math_after_other_statements_stays_raw(tmp_path, head, tail):
     ax = parse_gle_figure(_write_math(tmp_path, head, tail)).figure.axes_list[0]
     assert ax.math_mode is None
     assert any(line.strip().startswith("math") for line in ax.passthrough)
+
+
+# -- tick marks, minor ticks and log labels (issue #73) ----------------------
+
+
+def test_hand_written_tick_marks_are_recovered(tmp_path):
+    path = _write(
+        tmp_path,
+        "marks.gle",
+        "   xaxis nsubticks 3\n"
+        "   xticks length -0.2 lwidth 0.03528 color RED\n"
+        "   ysubticks off length 0.05\n"
+        "   ylabels hei 0.3\n"
+        "   ylabels log l25\n",
+    )
+    ax = parse_gle_figure(path).figure.axes_list[0]
+    assert ax.passthrough == []
+    assert ax.xnsubticks == 3
+    assert ax.xtick_length == pytest.approx(0.2 / 0.03528)
+    assert ax.xtick_direction == "out"
+    assert ax.xtick_width == pytest.approx(1.0)
+    assert ax.xtick_color == "RED"
+    assert ax.yminorticks is False
+    assert ax.ysubtick_length == pytest.approx(0.05 / 0.03528)
+    assert ax.yloglabels == "l25"
+    assert ax.yticklabel_size is not None  # the later line keeps 'hei'
+
+
+def test_tick_marks_round_trip_byte_identically(tmp_path):
+    fig = glp.figure(data_prefix="rt")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 10, 100], [1, 2, 3])
+    ax.set_yscale("log")
+    ax.tick_params(direction="out", length=4, width=0.7, color="blue")
+    ax.tick_params(axis="y", which="minor", length=1.5)
+    ax.tick_params(axis="x", which="minor", direction="in")
+    ax.minorticks_on()
+    ax.set_xticks(nsubticks=2, nofirst=True)
+    ax.set_yticks(loglabels="n1", nolast=True)
+    text1, text2, recognized = _round_trip(fig, tmp_path)
+    assert text1 == text2
+    restored = recognized.figure.axes_list[0]
+    assert restored.passthrough == []
+    assert restored.yloglabels == "n1" and restored.xnsubticks == 2
+    assert restored.xtick_length == pytest.approx(4.0, rel=1e-4)
+    assert restored._remove_first_xtick and restored._remove_last_ytick
+
+
+@pytest.mark.parametrize(
+    "body,kept",
+    [
+        ("   xticks off\n", "xticks off"),
+        ("   xsubticks lstyle 2\n", "xsubticks lstyle 2"),
+        ("   xaxis nsubticks 2.5\n", "xaxis nsubticks 2.5"),
+        ("   xlabels log l3\n", "xlabels log l3"),
+        ("   y2labels log l25\n", "y2labels log l25"),
+    ],
+)
+def test_unmodelled_tick_mark_forms_stay_raw(tmp_path, body, kept):
+    ax = parse_gle_figure(_write(tmp_path, "raw.gle", body)).figure.axes_list[0]
+    assert any(kept in line for line in ax.passthrough), ax.passthrough
+    assert ax.xtick_length is ax.xsubtick_length is ax.xnsubticks is None
+    assert ax.xloglabels is None
+
+
+@pytest.mark.parametrize(
+    "body,raw",
+    [
+        ("   xticks length 0.1\n   xticks length 0.3\n", "xticks length 0.3"),
+        ("   xlabels font psh log l1\n   xlabels log l25\n", "xlabels log l25"),
+    ],
+)
+def test_a_later_tick_line_after_a_raw_one_stays_raw_in_order(tmp_path, body, raw):
+    ax = parse_gle_figure(_write(tmp_path, "order3.gle", body)).figure.axes_list[0]
+    assert ax.passthrough[-1].strip() == raw, ax.passthrough
+    assert ax.xtick_length is ax.xloglabels is None
+
+
+def test_a_symmetric_tick_length_comes_back_as_the_whole_tick(tmp_path):
+    path = _write(tmp_path, "sym.gle", "   xaxis symticks\n   xticks length 0.1\n")
+    ax = parse_gle_figure(path).figure.axes_list[0]
+    assert ax.passthrough == []
+    assert ax.xsymticks is True
+    assert ax.xtick_length == pytest.approx(0.2 / 0.03528)

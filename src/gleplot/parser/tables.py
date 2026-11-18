@@ -444,3 +444,7 @@ MPL_ARROWSTYLE_TO_GLE: Dict[str, Tuple[str, Optional[str]]] = {
     "<|-": ("<-", "filled"),
     "<|-|>": ("<->", "filled"),
 }
+
+#: GLE ``xlabels log`` modes: which sub-decades of a log axis get a label
+#: (``graph.cpp`` ``do_labels``).
+LOG_LABEL_MODES: Tuple[str, ...] = ("off", "l1", "l25", "l25b", "n1")

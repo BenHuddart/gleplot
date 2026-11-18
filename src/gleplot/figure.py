@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 import numpy as np
 
@@ -195,6 +195,21 @@ class _LegendLayout:
     addition: List[int]
     external: bool
     ncol: int
+
+
+#: The ``Axes`` tick-mark fields (``xtick_length``, ...) without the axis
+#: prefix; also the :class:`AxisStyle` field names they are written from.
+_TICK_MARK_FIELDS = (
+    "tick_length",
+    "tick_width",
+    "tick_color",
+    "tick_direction",
+    "subtick_length",
+    "subtick_width",
+    "subtick_color",
+    "subtick_direction",
+    "minorticks",
+)
 
 
 class Figure:
@@ -2217,9 +2232,34 @@ class Figure:
             else graph_cfg.ylabel_distance
         )
         title_dist = getattr(ax, f"{prefix}label_dist")
+        grid = getattr(ax, f"{prefix}grid", None) if prefix in ("x", "y") else None
+        marks: Dict[str, Any] = {}
+        if prefix in ("x", "y"):
+            marks = {
+                name: getattr(ax, f"{prefix}{name}")
+                for name in _TICK_MARK_FIELDS
+                if getattr(ax, f"{prefix}{name}") is not None
+            }
+        if grid is not None and marks:
+            # GLE's grid lines are the ticks drawn across the graph, so the
+            # grid's style is the ticks' style.
+            warn_external(
+                f"The {prefix} axis has a grid, which GLE draws in place of "
+                "its tick marks, so its tick_params()/minorticks settings are "
+                "not written. Style the grid lines with grid(color=..., "
+                f"linewidth=...), or turn the {prefix} grid off.",
+            )
+            marks = {}
+        loglabels = getattr(ax, f"{prefix}loglabels", None)
+        if loglabels is not None and getattr(ax, f"{prefix}scale", None) != "log":
+            warn_external(
+                f"set_{prefix}ticks(loglabels={loglabels!r}) only changes a log "
+                f"axis, and the {prefix} axis is linear. Call "
+                f"set_{prefix}scale('log'), or leave loglabels out.",
+            )
         return AxisStyle(
             fmt=getattr(ax, f"{prefix}format"),
-            grid=getattr(ax, f"{prefix}grid", None) if prefix in ("x", "y") else None,
+            grid=grid,
             grid_lstyle=getattr(ax, f"{prefix}grid_lstyle", None),
             grid_lwidth=getattr(ax, f"{prefix}grid_lwidth", None),
             grid_color=getattr(ax, f"{prefix}grid_color", None),
@@ -2237,6 +2277,9 @@ class Figure:
             shift=getattr(ax, f"{prefix}shift", None),
             symticks=getattr(ax, f"{prefix}symticks", None),
             noticks=getattr(ax, f"{prefix}noticks", None),
+            nsubticks=getattr(ax, f"{prefix}nsubticks", None),
+            loglabels=loglabels,
+            **marks,
         )
 
     def _write_axes_content(

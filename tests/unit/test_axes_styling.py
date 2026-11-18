@@ -731,6 +731,11 @@ def test_every_styling_field_survives_to_dict_from_dict():
 
     fig, ax = _fig()
     _styled_axes(ax)
+    # Tick marks are not written on a gridded axis, but they are still kept.
+    ax.tick_params(which="both", length=3, width=0.5, color="red", direction="out")
+    ax.minorticks_on()
+    ax.set_xticks(nsubticks=3, loglabels="l1", symticks=True)
+    ax.set_yticks(nsubticks=1, loglabels="n1", symticks=True)
     before = {key: getattr(ax, key) for key in _STYLING_KEYS}
     assert all(value is not None for value in before.values()), before
 
@@ -764,3 +769,166 @@ def test_warnings_are_not_raised_by_ordinary_styling():
         fig, ax = _fig()
         _styled_axes(ax)
         fig._generate_gle()
+
+
+# -- tick marks, minor ticks and edge labels (issue #73) ----------------------
+
+
+def _cm(points):
+    return f"{linewidth_pt_to_cm(points):.6g}"
+
+
+def test_tick_params_writes_the_tick_marks():
+    fig, ax = _fig()
+    ax.tick_params(axis="x", length=4, width=0.8, direction="in", color="red")
+    ax.tick_params(axis="y", which="minor", length=2)
+    lines = _graph_lines(fig)
+    assert f"xticks length {_cm(4)} lwidth {_cm(0.8)} color RED" in lines
+    assert f"ysubticks length {_cm(2)}" in lines
+    assert not any(line.startswith(("yticks", "xsubticks")) for line in lines)
+
+
+def test_direction_out_is_a_negative_length():
+    fig, ax = _fig()
+    ax.tick_params(axis="x", direction="out")  # matplotlib's 3.5 pt default
+    ax.tick_params(axis="y", direction="out", length=5)
+    lines = _graph_lines(fig)
+    assert f"xticks length -{_cm(3.5)}" in lines
+    assert f"yticks length -{_cm(5)}" in lines
+    # A later length keeps the direction; a later direction keeps the length.
+    ax.tick_params(axis="y", length=6)
+    assert f"yticks length -{_cm(6)}" in _graph_lines(fig)
+    ax.tick_params(axis="y", direction="in")
+    assert f"yticks length {_cm(6)}" in _graph_lines(fig)
+
+
+def test_minor_ticks_follow_an_outward_major_tick_unless_told_otherwise():
+    fig, ax = _fig()
+    ax.tick_params(axis="x", direction="out", length=4)
+    ax.tick_params(axis="x", which="minor", width=0.5)
+    # GLE draws a minor tick with no length at half the major one, same sign.
+    assert f"xsubticks lwidth {_cm(0.5)}" in _graph_lines(fig)
+    ax.tick_params(axis="x", which="minor", direction="in")
+    # matplotlib's 2 pt minor default, inward.
+    assert f"xsubticks length {_cm(2)} lwidth {_cm(0.5)}" in _graph_lines(fig)
+
+
+def test_inout_is_symticks_with_half_the_length_on_each_side():
+    fig, ax = _fig()
+    ax.tick_params(direction="inout", length=6)
+    assert (ax.xsymticks, ax.ysymticks) == (True, True)
+    lines = _graph_lines(fig)
+    assert any(line.startswith("xaxis") and line.endswith("symticks") for line in lines)
+    assert f"xticks length {_cm(3)}" in lines
+    ax.tick_params(direction="out")
+    assert ax.xsymticks is None
+    assert f"xticks length -{_cm(6)}" in _graph_lines(fig)
+    ax.tick_params(direction="in", length=4)
+    ax.tick_params(direction="inout")
+    assert f"xticks length {_cm(2)}" in _graph_lines(fig)
+
+
+def test_inout_for_minor_ticks_only_warns_and_leaves_the_major_ticks():
+    _, ax = _fig()
+    ax.tick_params(direction="out", length=4)
+    with pytest.warns(UserWarning, match="which='both'"):
+        ax.tick_params(which="minor", direction="inout", length=2)
+    assert ax.xsymticks is None
+    assert (ax.xtick_direction, ax.xsubtick_length) == ("out", 2.0)
+
+
+def test_a_minor_direction_leaves_the_major_ticks_symmetric():
+    _, ax = _fig()
+    ax.tick_params(direction="inout", length=6)
+    ax.tick_params(which="minor", direction="out")
+    assert ax.xsymticks is True
+
+
+def test_reset_drops_the_earlier_tick_marks():
+    _, ax = _fig()
+    ax.tick_params(direction="inout", length=4, color="red")
+    ax.tick_params(reset=True, width=1)
+    assert (ax.xtick_length, ax.xtick_color, ax.xtick_width) == (None, None, 1.0)
+    assert ax.xsymticks is None
+
+
+def test_loglabels_on_a_linear_axis_warns():
+    fig, ax = _fig()
+    ax.set_xticks(loglabels="l25")
+    with pytest.warns(UserWarning, match="x axis is linear"):
+        lines = _graph_lines(fig)
+    assert "xlabels log l25" in lines
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"axis": "z"}, "axis='z'"),
+        ({"which": "all"}, "which='all'"),
+        ({"direction": "up"}, "direction='up'"),
+        ({"length": -1}, "length=-1"),
+        ({"width": -0.5}, "width=-0.5"),
+    ],
+)
+def test_tick_params_rejects_bad_values(kwargs, match):
+    _, ax = _fig()
+    with pytest.raises(ValueError, match=match):
+        ax.tick_params(**kwargs)
+
+
+def test_tick_params_warns_about_keywords_it_cannot_honour():
+    _, ax = _fig()
+    with pytest.warns(UserWarning, match="labelsize, pad"):
+        ax.tick_params(pad=3, labelsize=8, length=2)
+    assert ax.xtick_length == 2.0
+
+
+def test_tick_marks_on_a_gridded_axis_warn_and_are_not_written():
+    fig, ax = _fig()
+    ax.grid(True, axis="x")
+    ax.tick_params(length=4, color="red")
+    ax.minorticks_off()
+    with pytest.warns(UserWarning, match="x axis has a grid"):
+        lines = _graph_lines(fig)
+    assert not any(line.startswith(("xticks", "xsubticks")) for line in lines)
+    assert f"yticks length {_cm(4)} color RED" in lines
+    assert "ysubticks off" in lines
+
+
+def test_minorticks_on_and_off():
+    fig, ax = _fig()
+    ax.minorticks_on()
+    assert {"xsubticks on", "ysubticks on"} <= set(_graph_lines(fig))
+    ax.minorticks_off()
+    assert {"xsubticks off", "ysubticks off"} <= set(_graph_lines(fig))
+
+
+def test_nsubticks_loglabels_nofirst_and_nolast():
+    fig, ax = _fig()
+    ax.set_yscale("log")
+    ax.set_xticks(nsubticks=4, nofirst=True, nolast=True)
+    ax.set_xscale("log")
+    ax.set_yticks(loglabels="l25b", nolast=True)
+    lines = _graph_lines(fig)
+    assert any(
+        line.startswith("xaxis") and line.endswith("nsubticks 4 nofirst nolast")
+        for line in lines
+    ), lines
+    assert any(line.startswith("yaxis") and line.endswith("nolast") for line in lines)
+    assert "ylabels log l25b" in lines
+    ax.set_xticks(nofirst=False)
+    assert not ax._remove_first_xtick and ax._remove_last_xtick
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"nsubticks": 0}, "nsubticks=0"),
+        ({"nsubticks": 2.5}, "nsubticks=2.5"),
+        ({"loglabels": "l3"}, "loglabels='l3'"),
+    ],
+)
+def test_set_xticks_rejects_bad_minor_and_label_options(kwargs, match):
+    _, ax = _fig()
+    with pytest.raises(ValueError, match=match):
+        ax.set_xticks(**kwargs)
