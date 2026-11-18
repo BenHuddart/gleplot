@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v4.5.0 (2026-11-18)
+
+### Features
+
+- Review fixes for Axes.rug ([#57](https://github.com/BenHuddart/gleplot/pull/57),
+  [`b1a41b0`](https://github.com/BenHuddart/gleplot/commit/b1a41b07b02db3288012c0f52d6d4699154414ca))
+
+- Rugs with Axes.rug ([#57](https://github.com/BenHuddart/gleplot/pull/57),
+  [`146cbd1`](https://github.com/BenHuddart/gleplot/commit/146cbd17d8426a45436c6ae9618164fcc6d9f14c))
+
+
 ## v4.4.0 (2026-11-18)
 
 ### Features
