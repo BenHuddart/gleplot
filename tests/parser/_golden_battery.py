@@ -1111,6 +1111,21 @@ def closed_form_fits():
     return fig
 
 
+def fit_result_legends():
+    """Fit results in two subplots' legends, beside a plain entry."""
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    x = np.linspace(1.0, 4.0, 7)
+    y = 1.5 * x**1.3
+    left.scatter(x, y, label="data")
+    left.fit(x, y, model="linear", label="$y$ = {slope:.2f}x + {offset:.2f}")
+    left.fit(x, y, model="exp", label="{prefactor:.2e} e^{{exponent}x}", color="red")
+    left.legend()
+    right.fit(x, y, model="power", label="r$^2$ = {rsq:.3f}")
+    right.fit(x, y, model="exp10", label="plain")
+    right.legend(loc="lower right")
+    return fig
+
+
 def derived_curves():
     """Curves GLE computes from other series, with each option.
 
@@ -1450,6 +1465,7 @@ BUILDERS = [
     function_curves,
     fit_curves,
     closed_form_fits,
+    fit_result_legends,
     derived_curves,
     histogram_field_options,
     axes_styling_full,

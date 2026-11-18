@@ -3099,8 +3099,12 @@ class Figure:
         addition = self._legend_addition_order(entries)
         # An anchor or a text colour exists only in a ``begin key`` block,
         # which is measured against the graph that has just ended.
+        # So does a fit's result: GLE evaluates the in-graph key before it
+        # runs the fit.
         needs_block = n_legend > 0 and (
-            ax.legend_bbox_to_anchor is not None or ax.legend_labelcolor is not None
+            ax.legend_bbox_to_anchor is not None
+            or ax.legend_labelcolor is not None
+            or any(writer.fit_label_shows_results(entry[0]) for entry in entries)
         )
         external = show and (needs_block or addition != list(range(n_legend)))
         # Reset even for a one-column key: the writer is reused across
@@ -3312,9 +3316,7 @@ class Figure:
             # ``key off`` hides the draw-order key. The visible one is the
             # block queued for end_graph, in addition order.
             writer.add_key_off()
-            ordered = [
-                (legend.entries[i][1], legend.entries[i][2]) for i in legend.addition
-            ]
+            ordered = [legend.entries[i] for i in legend.addition]
             breaks = (
                 legend_column_breaks(n_legend, legend.ncol)
                 if legend.show and legend.ncol > 1

@@ -28,6 +28,9 @@ from .mathtext import mathtext_to_gle
 from .palettes import canonical_cmap
 from .parser.tables import (
     FIT_MODEL_TO_ROUTINE,
+    FIT_PLACEHOLDER_RE,
+    FIT_PLACEHOLDER_SPEC_RE,
+    FIT_RESULT_PLACEHOLDERS,
     KEY_POSITIONS_LONG_TO_SHORT,
     KEY_POSITIONS_SHORT_TO_LONG,
     LEGEND_SPACING_TO_KEY,
@@ -2769,7 +2772,8 @@ class Axes:
         linewidth : float
             Line width in points.
         label : str, optional
-            Legend entry.
+            Legend entry. With ``model``, it can show the fitted values:
+            see the Notes.
         zorder : float, optional
             Drawing order, as for :meth:`plot`.
         model : {'linear', 'exp', 'exp10', 'power'}, optional
@@ -2790,11 +2794,30 @@ class Axes:
         To start from other values, or to use the fitted ones, fit in Python
         and draw the curve with :meth:`plot`.
 
-        In a hand-written ``let dK = logefit dJ slope offset rsq`` (and the
-        same for ``log10fit`` and ``powxfit``), GLE stores the exponent
-        ``b`` in the first variable and the prefactor ``a`` in the second,
-        the other way round from what the GLE manual says. gleplot keeps
-        such a ``let`` as raw GLE.
+        With ``model``, the label can show what GLE fitted. Each of these
+        placeholders is replaced by a number when GLE draws the legend:
+
+        ============================  =====================================
+        ``model``                     placeholders
+        ============================  =====================================
+        ``"linear"``                  ``{slope}`` (a), ``{offset}`` (b),
+                                      ``{rsq}``
+        ``"exp"``, ``"exp10"``,       ``{prefactor}`` (a), ``{exponent}``
+        ``"power"``                   (b), ``{rsq}``
+        ============================  =====================================
+
+        ``{rsq}`` is the r-squared of the fit. Add ``:.Nf`` for N decimal
+        places or ``:.Ne`` for scientific notation, as in a Python format
+        string: ``label="slope {slope:.2f}, r$^2$ {rsq:.3f}"``. Such a
+        legend is drawn after the graph, as for ``bbox_to_anchor``, because
+        GLE fits the data only once the graph is drawn. A placeholder of
+        another model, another format, or a ``"`` in a label with a
+        placeholder raises ``ValueError``.
+
+        In a hand-written ``let dK = logefit dJ s o r`` (and the same for
+        ``log10fit`` and ``powxfit``), GLE stores the exponent ``b`` in the
+        first variable and the prefactor ``a`` in the second, the other way
+        round from what the GLE manual says.
 
         The data bounds the x and y ranges, as for :meth:`plot`, and
         ``xmin`` and ``xmax`` widen the x range.
@@ -2838,12 +2861,14 @@ class Axes:
             color,
             linestyle,
             linewidth,
-            label,
+            label if model is None else None,
         )
         if model is None:
             fields["expression"] = expression
         else:
             fields["model"] = model
+            if label is not None:
+                fields["label"] = self._fit_label(str(label), model)
         fields["x"] = x_arr
         fields["y"] = y_arr
         fields["data_file"] = _resolve_data_file(self.figure)
@@ -3122,6 +3147,45 @@ class Axes:
                 f"fit() model {model!r} needs points at two or more distinct x, "
                 f"got x={x.tolist()!r}"
             )
+
+    def _fit_label(self, label: str, model: str) -> str:
+        """A model fit's ``label`` as display text, its placeholders kept.
+
+        Rejects a placeholder ``model`` does not fill, a format GLE's
+        ``format$`` cannot match, and a ``"`` beside a placeholder: GLE
+        string expressions have no escape for it.
+        """
+        names = FIT_RESULT_PLACEHOLDERS[model]
+        found = list(FIT_PLACEHOLDER_RE.finditer(label))
+        for match in found:
+            name, spec = match.groups()
+            if name not in names:
+                raise ValueError(
+                    f"fit() label placeholder {match.group(0)!r} is not filled by "
+                    f"model={model!r}, which fills "
+                    f"{', '.join('{' + n + '}' for n in names)}"
+                )
+            if spec is not None and not FIT_PLACEHOLDER_SPEC_RE.fullmatch(spec):
+                raise ValueError(
+                    f"fit() label placeholder {match.group(0)!r} has format "
+                    f"{spec!r}; use .Nf or .Ne, such as {{{name}:.2f}}"
+                )
+        if not found:
+            return self._text(label)
+        if '"' in label:
+            raise ValueError(
+                f"fit() label {label!r} cannot contain a double quote beside a "
+                f"placeholder; use two single quotes instead"
+            )
+        # Mathtext would escape the braces, so each placeholder passes
+        # through it as a private-use marker.
+        index = iter(range(len(found)))
+        marked = FIT_PLACEHOLDER_RE.sub(lambda m: f"\ue000{next(index)}\ue001", label)
+        return re.sub(
+            "\ue000(\\d+)\ue001",
+            lambda m: found[int(m.group(1))].group(0),
+            self._text(marked),
+        )
 
     @staticmethod
     def _check_let_expression(caller, expression) -> None:

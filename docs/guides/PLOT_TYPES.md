@@ -116,11 +116,28 @@ straight line to the logs of the data, so they need y above 0, and `power`
 needs x above 0 too. `xmin` and `xmax` set where the curve is drawn, but
 `step` does not apply: GLE always draws a model at 100 points.
 
+A model's label can show the fitted values. `{slope}` and `{offset}` are the
+`a` and `b` of `linear`, `{prefactor}` and `{exponent}` the `a` and `b` of
+the other three, and `{rsq}` is r² for all four. Add `:.Nf` for N decimal
+places or `:.Ne` for scientific notation, as in a Python format string:
+
+```python
+ax.fit(x, y, model='linear', label='y = {slope:.2f}x + {offset:.2f}')
+ax.fit(x, y, model='power', label='$r^2$ = {rsq:.3f}')
+ax.legend()
+```
+
+GLE computes the numbers when it draws the graph, after it has read the
+graph's own key, so a legend with such a label is a `begin key` block after
+the graph, as one placed with `bbox_to_anchor` is.
+
 In a hand-written routine with result variables (`let d2 = logefit d1 s o
 r`), GLE puts the exponent `b` of `logefit`, `log10fit` and `powxfit` in the
 first variable and the prefactor `a` in the second, the reverse of what the
-GLE manual says. gleplot keeps such a `let`, and one with a `step`, a data
-window or a `limit_data` option, as raw GLE.
+GLE manual says. gleplot reads such a `let` when its variables are named
+nowhere but in it and in the curve's key. It keeps one whose variables are
+used elsewhere, and one with a `step`, a data window or a `limit_data`
+option, as raw GLE.
 
 ## Curves computed from other series
 

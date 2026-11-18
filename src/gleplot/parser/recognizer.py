@@ -275,6 +275,7 @@ from __future__ import annotations
 import copy
 import math
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
@@ -357,6 +358,8 @@ from .syntax import (
 from .tables import (
     ARROW_JOIN_SEPS,
     ARROW_TIP_STYLES,
+    FIT_PLACEHOLDER_RE,
+    FIT_RESULT_PLACEHOLDERS,
     FIT_ROUTINE_TO_MODEL,
     KEY_ANCHOR_X,
     KEY_ANCHOR_Y,
@@ -1233,6 +1236,94 @@ def _glued_run(toks: List[Token], start: int) -> Tuple[str, int]:
     return "".join(tok.value for tok in toks[start:end]), end
 
 
+#: A name GLE can take as a fit's result variable.
+_RESULT_VAR_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*$")
+
+#: The options of a fit ``let`` (graph2.cpp ``GLELet::parseFitFunction``).
+_FIT_LET_WORDS = frozenset(
+    {
+        "from",
+        "to",
+        "step",
+        "rsq",
+        "with",
+        "eqstr",
+        "format",
+        "xmin",
+        "xmax",
+        "ymin",
+        "ymax",
+        "limit_data",
+        "limit_data_x",
+        "limit_data_y",
+    }
+)
+
+#: The ``format$`` formats GLEWriter._fit_key_expression writes.
+_FIT_FIX_RE = re.compile(r"fix (\d+)")
+_FIT_SCI_RE = re.compile(r"sci ([1-9]\d*) e expdigits 2 expsign")
+
+
+def _fit_label_from_key(toks: List[Token], names: Dict[str, str]) -> Optional[str]:
+    """The label :meth:`GLEWriter._fit_key_expression` wrote as ``toks``.
+
+    ``names`` maps each result variable to its placeholder. None for any
+    other expression: a term that is not a string, ``num$(v)`` or a
+    ``format$`` the writer uses, a variable not in ``names``, or a string
+    with a quote or something that reads as a placeholder.
+    """
+
+    def is_op(i: int, value: str) -> bool:
+        return i < len(toks) and toks[i].type is TokenType.OP and toks[i].value == value
+
+    def var(i: int) -> Optional[str]:
+        if i < len(toks) and toks[i].type is TokenType.WORD:
+            return names.get(toks[i].value.lower())
+        return None
+
+    parts = []
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        word = tok.value.lower() if tok.type is TokenType.WORD else None
+        if tok.type is TokenType.STRING:
+            text = _string_value(tok)
+            if not text or '"' in text or FIT_PLACEHOLDER_RE.search(text):
+                return None
+            parts.append(text)
+            i += 1
+        elif word == "num$" and is_op(i + 1, "(") and var(i + 2) and is_op(i + 3, ")"):
+            parts.append("{" + str(var(i + 2)) + "}")
+            i += 4
+        elif (
+            word == "format$"
+            and is_op(i + 1, "(")
+            and var(i + 2)
+            and is_op(i + 3, ",")
+            and i + 4 < len(toks)
+            and toks[i + 4].type is TokenType.STRING
+            and is_op(i + 5, ")")
+        ):
+            fmt = _string_value(toks[i + 4])
+            fix = _FIT_FIX_RE.fullmatch(fmt)
+            sci = _FIT_SCI_RE.fullmatch(fmt)
+            if fix:
+                spec = f":.{int(fix.group(1))}f"
+            elif sci:
+                spec = f":.{int(sci.group(1)) - 1}e"
+            else:
+                return None
+            parts.append("{" + str(var(i + 2)) + spec + "}")
+            i += 6
+        else:
+            return None
+        if i < len(toks):
+            if not is_op(i, "+") or i + 1 == len(toks):
+                return None
+            i += 1
+    return "".join(parts)
+
+
 def _read_let_range(
     toks: List[Token], i: int, fields: Dict[str, Any], fit: bool = False
 ) -> bool:
@@ -1556,6 +1647,12 @@ class _Recognizer:
     def __init__(self, text: str, gle_path: Path):
         self.text = text
         self.gle_path = gle_path
+        # How often each word is named in the file (lower case), counted on
+        # first use, and the lines of a ``begin key`` right after the graph
+        # being parsed: a fit's result variables may be named only by its
+        # let, its key, and that block restating the key.
+        self._word_counts: Optional[Dict[str, int]] = None
+        self._key_after_graph: List[str] = []
         self.notes: List[ImportNote] = []
         # dataset name (lower) -> (data_file, xcol_1based, ycol_1based)
         self._datasets: Dict[str, Tuple[str, int, int]] = {}
@@ -1918,6 +2015,12 @@ class _Recognizer:
         Returns the graph's parsed info and the index of the first node after
         everything consumed with it.
         """
+        after = nodes[i + 1] if i + 1 < len(nodes) else None
+        self._key_after_graph = (
+            [sl.text for sl in after.inner_lines]
+            if isinstance(after, OpaqueBlock) and after.block_type == "key"
+            else []
+        )
         axes_info = self._parse_graph_block(nodes[i], marker_cfg, smooth_flags)
         axes_info["amove"] = pending.position if pending is not None else None
         # Verbatim source line of the amove, so one that does not become a
@@ -2595,6 +2698,8 @@ class _Recognizer:
             # Decided at the end of pass 1, so a let that stays raw keeps
             # its place in the block.
             "_function_lets": {},
+            # Model fit key expression -> label (_model_fit_attr_toks).
+            "_fit_key_labels": {},
             # ``let dK = <expression naming datasets> [options]`` targets
             # whose only use is a plain ``dK line`` -> DerivedSeries fields.
             # Decided at the end of pass 2, once the series its datasets
@@ -4858,11 +4963,12 @@ class _Recognizer:
         options in any order. The expression is read as for
         :meth:`_record_function_let`, and ``dJ`` must be a dataset this
         block's ``data`` commands declare. Any other option (``rsq``,
-        ``eqstr``, a data window, a ``limit_data`` option, result variables,
-        a routine's ``step``, which GLE ignores) stays raw GLE. The record
-        joins the function lets: the same rules decide whether it is
-        modelled, and :meth:`_keep_plain_function_lets` adds the ones for
-        its data.
+        ``eqstr``, a data window, a ``limit_data`` option, a routine's
+        ``step``, which GLE ignores) stays raw GLE, and so do result
+        variables after anything but a routine. The record joins the
+        function lets: the same rules decide whether it is modelled, and
+        :meth:`_keep_plain_function_lets` adds the ones for its data and
+        reads a routine's key (:meth:`_model_fit_attr_toks`).
         """
         if len(toks) < 5:
             return
@@ -4880,9 +4986,27 @@ class _Recognizer:
         if target in info["_function_lets"]:
             return
         fields: Dict[str, Any] = {"_fit_source": source}
+        end = len(toks)
         if model is not None:
             fields["model"] = model
-        if not _read_let_range(toks, 5, fields, fit=model is None):
+            # Up to three result variables end the statement. GLE reads
+            # options until a word that is not one, so only the first
+            # variable cannot have an option's name.
+            while (
+                end > 5
+                and len(toks) - end < 3
+                and toks[end - 1].type is TokenType.WORD
+                and _RESULT_VAR_RE.match(toks[end - 1].value)
+            ):
+                end -= 1
+            while end < len(toks) and toks[end].value.lower() in _FIT_LET_WORDS:
+                end += 1
+            names = [tok.value.lower() for tok in toks[end:]]
+            if len(set(names)) != len(names):
+                return
+            if names:
+                fields["_result_vars"] = names
+        if not _read_let_range(toks[:end], 5, fields, fit=model is None):
             return
         # Axes.fit rejects a step with a model, since GLE ignores it.
         if model is not None and "let_step" not in fields:
@@ -4904,9 +5028,21 @@ class _Recognizer:
         texts = self._non_dataset_texts(
             block, skip=set(info["_derived_lets"]) | set(info["_polar_aliases"])
         )
+        keyed = {}
+        for target, fields in list(info["_function_lets"].items()):
+            if "model" in fields:
+                found = self._model_fit_attr_toks(target, fields, pass1)
+                if found is None:
+                    del info["_function_lets"][target]
+                else:
+                    keyed[target] = found
         for target in list(info["_function_lets"]):
             mentions = _mention_count(texts, target)
-            attr_toks = pass1.merged_attr_toks.get(target)
+            attr_toks = (
+                keyed[target][0]
+                if target in keyed
+                else pass1.merged_attr_toks.get(target)
+            )
             drawn_as_is = (
                 info["polar_rmax"] is not None
                 and target not in info["_polar_aliases"].values()
@@ -4919,6 +5055,11 @@ class _Recognizer:
                 or not self._load_fit_data(texts, pass1, info, target)
             ):
                 del info["_function_lets"][target]
+        for target, (attr_toks, run, label) in keyed.items():
+            if target in info["_function_lets"]:
+                pass1.merged_attr_toks[target] = attr_toks
+                if run is not None:
+                    info["_fit_key_labels"][run] = label
         # The writer renumbers the datasets it writes, but not the ones in raw
         # lines. Beside a let that stays raw, a renumbered curve could take
         # that let's name, so then every function and derived let stays raw.
@@ -4935,6 +5076,83 @@ class _Recognizer:
                     info["_function_lets"].clear()
                     info["_derived_lets"].clear()
                     return
+
+    def _model_fit_attr_toks(self, target, fields, pass1: _GraphDatasets):
+        """The ``dK`` tokens of a model fit as a plain line, or None.
+
+        A key that is a string expression of the fit's result variables, as
+        :meth:`gleplot.writer.GLEWriter.add_fit` writes it, becomes one
+        string holding the label with its placeholders. Returns ``(tokens,
+        expression, label)``, the expression None for any other key. None
+        when the key cannot come back the same: a plain key that reads as a
+        placeholder, an expression the writer would not write, or a result
+        variable named anywhere but its ``let``, that key, and the
+        ``begin key`` after the graph restating it.
+        """
+        attr_toks = list(pass1.merged_attr_toks.get(target) or [])
+        variables = fields.get("_result_vars", [])
+        names = dict(zip(variables, FIT_RESULT_PLACEHOLDERS[fields["model"]]))
+        start = next(
+            (
+                i + 1
+                for i, tok in enumerate(attr_toks[:-1])
+                if tok.type is TokenType.WORD and tok.value.lower() == "key"
+            ),
+            None,
+        )
+        run: Optional[str] = None
+        label: Optional[str] = None
+        mentions: Counter = Counter()
+        if start is not None:
+            text, end = _glued_run(attr_toks, start)
+            key = attr_toks[start:end]
+            if len(key) == 1 and key[0].type is TokenType.STRING:
+                if FIT_PLACEHOLDER_RE.search(_string_value(key[0])):
+                    return None
+            elif names:
+                run = text
+                label = _fit_label_from_key(key, names)
+                if label is None:
+                    return None
+                mentions = Counter(
+                    t.value.lower() for t in key if t.type is TokenType.WORD
+                )
+                attr_toks[start:end] = [
+                    Token(
+                        TokenType.STRING,
+                        f'"{label}"',
+                        (key[0].span[0], key[-1].span[1]),
+                        quote='"',
+                    )
+                ]
+        restated = 0
+        if run is not None:
+            for line in self._key_after_graph:
+                entry = [
+                    t for t in tokenize_line(line) if t.type is not TokenType.COMMENT
+                ]
+                if (
+                    len(entry) > 1
+                    and entry[0].value.lower() == "text"
+                    and _glued_run(entry, 1)[0] == run
+                ):
+                    restated += 1
+        counts = self._file_word_counts()
+        for var in variables:
+            if counts.get(var, 0) != 1 + mentions[var] * (1 + restated):
+                return None
+        return attr_toks, run, label
+
+    def _file_word_counts(self) -> Dict[str, int]:
+        """How many times each word (lower case) is named in the file."""
+        if self._word_counts is None:
+            self._word_counts = Counter(
+                tok.value.lower()
+                for line in self.text.splitlines()
+                for tok in tokenize_line(line)
+                if tok.type is TokenType.WORD
+            )
+        return self._word_counts
 
     def _non_dataset_texts(self, block, skip=()) -> List[str]:
         """The text of every statement in ``block`` but its ``dN`` lines.
@@ -5166,6 +5384,7 @@ class _Recognizer:
         """Append the ``FunctionSeries`` or ``FitSeries`` for a kept let."""
         fields = dict(info["_function_lets"][name])
         source = fields.pop("_fit_source", None)
+        fields.pop("_result_vars", None)
         fields.update(self._let_curve_style(attr_toks))
         entry: Series
         if source is None:
@@ -7545,7 +7764,7 @@ class _Recognizer:
         block = nodes[start]
         if block.block_type != "key":
             return start
-        parsed = self._parse_external_key(block)
+        parsed = self._parse_external_key(block, info["_fit_key_labels"])
         if parsed is None:
             return start
         if not self._assign_legend_seq(info, parsed["labels"]):
@@ -7553,8 +7772,11 @@ class _Recognizer:
         info["external_key"] = parsed
         return start + 1
 
-    def _parse_external_key(self, block) -> Optional[dict]:
+    def _parse_external_key(self, block, fit_labels) -> Optional[dict]:
         """Modelled options and entry labels of a ``begin key`` block.
+
+        ``fit_labels`` maps the key expression of each model fit in the
+        graph to its label (:meth:`_model_fit_attr_toks`).
 
         Globals (``position``, ``offset``, ``hei``, ``nobox``, ``compact``,
         ``background``) have to come before the entries, which is how
@@ -7582,9 +7804,15 @@ class _Recognizer:
                 started = True
                 continue
             if head == "text":
-                if len(toks) < 2 or toks[1].type is not TokenType.STRING:
+                if len(toks) < 2:
                     return None
-                labels.append(_string_value(toks[1]))
+                run = _glued_run(toks, 1)[0]
+                if run in fit_labels:
+                    labels.append(fit_labels[run])
+                elif toks[1].type is TokenType.STRING and run == toks[1].value:
+                    labels.append(_string_value(toks[1]))
+                else:
+                    return None
                 textcolors.append(_key_entry_textcolor(toks))
                 started = True
                 continue
@@ -7653,6 +7881,7 @@ class _Recognizer:
             "scatters",
             "errorbars",
             "file_series",
+            "fits",
         ):
             for series in info.get(group, []):
                 if series.get("label"):

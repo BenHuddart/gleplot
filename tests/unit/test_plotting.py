@@ -1907,6 +1907,79 @@ class TestFit:
         self.ax.fit([np.nan, 1, 2], [-1.0, 1.0, 2.0], model="exp10")
         assert self.ax.fits[0]["model"] == "exp10"
 
+    def test_a_label_placeholder_shows_the_fit_in_a_key_after_the_graph(self):
+        self.ax.fit(
+            [1, 2, 3],
+            [2.0, 4.0, 5.0],
+            model="linear",
+            label="$y$ = {slope:.2f}x + {offset:.1e}, r$^2$ {rsq}",
+        )
+        self.ax.legend()
+        expression = (
+            '"y = "+format$(fit1_slope,"fix 2")+"x + "+'
+            'format$(fit1_offset,"sci 2 e expdigits 2 expsign")+", r^{2} "+'
+            "num$(fit1_rsq)"
+        )
+        assert (
+            "    let d2 = linfit d1 fit1_slope fit1_offset fit1_rsq\n"
+            f"    d2 line color BLUE lwidth 0.05292 key {expression}\n"
+            "    key off\n"
+            "end graph\n"
+            "begin key\n"
+            "    position tr\n"
+            f"    text {expression} color BLUE lwidth 0.05292 lstyle 1\n"
+            "end key"
+        ) in self._script()
+
+    @pytest.mark.parametrize("model", ["exp", "exp10", "power"])
+    def test_a_log_model_names_the_exponent_first(self, model):
+        self.ax.fit([1, 2, 3], [2.0, 4.0, 5.0], model=model, label="{prefactor:.3f}")
+        script = self._script()
+        assert " d1 fit1_exponent fit1_prefactor fit1_rsq\n" in script
+        assert 'text format$(fit1_prefactor,"fix 3") color' in script
+
+    def test_each_fit_has_its_own_result_variables(self):
+        for label in ("{slope}", "fit", "{rsq:.2f}"):
+            self.ax.fit([1, 2, 3], [2.0, 4.0, 5.0], model="linear", label=label)
+        lets = [line for line in self._script().splitlines() if "linfit" in line]
+        assert lets == [
+            "    let d2 = linfit d1 fit1_slope fit1_offset fit1_rsq",
+            "    let d4 = linfit d3",
+            "    let d6 = linfit d5 fit2_slope fit2_offset fit2_rsq",
+        ]
+
+    def test_a_hidden_legend_keeps_the_key_off(self):
+        self.ax.fit([1, 2, 3], [2.0, 4.0, 5.0], model="linear", label="{slope}")
+        self.ax.legend_on = False
+        script = self._script()
+        assert "    key off\n" in script
+        assert "begin key" not in script
+
+    def test_placeholders_are_text_on_an_expression_fit(self):
+        self.ax.fit([1, 2, 3], [2.0, 4.0, 5.0], "a*x", label="{slope}")
+        assert 'key "\\char{123}slope\\char{125}"' in self._script()
+
+    def test_a_usetex_label_keeps_its_math_around_a_placeholder(self):
+        fig = glp.figure(style=glp.GLEStyleConfig(usetex=True), data_prefix="ft")
+        ax = fig.add_subplot(111)
+        ax.fit([1, 2, 3], [2.0, 4.0, 5.0], model="linear", label="$r^2={rsq:.3f}$")
+        assert 'key "$r^2="+format$(fit1_rsq,"fix 3")+"$"' in fig._generate_gle()
+
+    @pytest.mark.parametrize(
+        "model, label, message",
+        [
+            ("exp", "{slope}", r"'\{slope\}' is not filled by model='exp'"),
+            ("linear", "{prefactor}", r"which fills \{slope\}, \{offset\}"),
+            ("linear", "{rsq:.2g}", "has format '.2g'; use .Nf or .Ne"),
+            ("linear", "{rsq:3f}", "has format '3f'"),
+            ("power", 'a "b" {rsq}', "cannot contain a double quote"),
+        ],
+    )
+    def test_rejects_a_label_gle_cannot_fill(self, model, label, message):
+        with pytest.raises(ValueError, match=message):
+            self.ax.fit([1, 2, 3], [2.0, 4.0, 5.0], model=model, label=label)
+        assert self.ax.fits == []
+
 
 class TestDerived:
     """Curves GLE computes from other series with a dataset ``let``."""
