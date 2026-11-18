@@ -463,6 +463,60 @@ def file_series_field_options():
     return fig
 
 
+def file_series_read_options():
+    """How GLE reads a referenced file: ``ignore``, ``comment``, ``numrows``.
+
+    A line reference with all three and the row number as x (``c0``), an
+    errorbar reference with two, and the bar and fill references the
+    recognizer keeps for a file it cannot read, which carry the options of
+    the ``data`` statement they came from. ``!`` and ``;`` are comment
+    markers that only survive quoted.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.line_from_file(
+        "external.dat", 0, 2, color="blue", skiprows=3, comment="#", max_rows=100
+    )
+    ax.errorbar_from_file(
+        "external.dat", 1, 2, yerr_col=3, color="red", comment=";", max_rows=5
+    )
+    ax.file_series.extend(
+        [
+            FileSeries(
+                series_type="bar",
+                data_file="external.dat",
+                x_col=1,
+                y_col=4,
+                color="ORANGE",
+                skiprows=1,
+                comment="!",
+                data_error="Data file not found: external.dat",
+            ),
+            FileSeries(
+                series_type="fill",
+                data_file="external.dat",
+                x_col=1,
+                y1_col=2,
+                y2_col=3,
+                color="GRAY10",
+                skiprows=2,
+                data_error="Data file not found: external.dat",
+            ),
+            FileSeries(
+                series_type="fill",
+                data_file="external.dat",
+                x_col=1,
+                y1_col=2,
+                color="GRAY20",
+                target="x1",
+                max_rows=7,
+                data_error="Data file not found: external.dat",
+            ),
+        ]
+    )
+    return fig
+
+
 def large_markersize_and_linewidth():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -936,6 +990,7 @@ BUILDERS = [
     subplots_grid_mixed,
     file_series,
     file_series_field_options,
+    file_series_read_options,
     large_markersize_and_linewidth,
     exact_rgb_colors,
     custom_figsize_and_dpi,

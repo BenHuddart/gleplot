@@ -1251,6 +1251,47 @@ class TestLineModes:
             )
         assert "line_mode" not in self.ax.file_series[0]
 
+    def test_from_file_reading_options_are_stored_only_when_given(self):
+        self.ax.line_from_file("wave.csv", 1, 2)
+        self.ax.errorbar_from_file(
+            "wave.csv", 0, 2, skiprows=1, comment="#", max_rows=4
+        )
+        plain, read = self.ax.file_series
+        assert not {"skiprows", "comment", "max_rows"} & set(plain)
+        assert (read["x_col"], read["skiprows"], read["comment"]) == (0, 1, "#")
+        assert read["max_rows"] == 4
+
+    def test_from_file_accepts_numpy_integer_counts(self):
+        self.ax.line_from_file(
+            "wave.csv", 1, 2, skiprows=np.int64(2), max_rows=np.int32(5)
+        )
+        series = self.ax.file_series[0]
+        assert (series["skiprows"], series["max_rows"]) == (2, 5)
+        assert type(series["skiprows"]) is int and type(series["max_rows"]) is int
+
+    @pytest.mark.parametrize(
+        "kwargs, error, match",
+        [
+            ({"skiprows": -1}, ValueError, "skiprows must be >= 0; got -1"),
+            ({"skiprows": 1.5}, TypeError, "skiprows must be an integer; got 1.5"),
+            ({"max_rows": True}, TypeError, "max_rows must be an integer"),
+            ({"max_rows": 0}, ValueError, "max_rows must be >= 1, or None"),
+            ({"comment": 3}, TypeError, "comment must be a string"),
+            ({"comment": ""}, ValueError, "comment must be a non-empty string"),
+            ({"comment": "a b"}, ValueError, "comment must be"),
+            ({"comment": '"'}, ValueError, "comment must be"),
+            ({"x_col": -1}, ValueError, "x_col must be >= 0"),
+            ({"y_col": 0}, ValueError, "y_col must be >= 1, got 0"),
+        ],
+    )
+    def test_from_file_rejects_bad_reading_arguments(self, kwargs, error, match):
+        call = {"data_file": "wave.csv", "x_col": 1, "y_col": 2, **kwargs}
+        with pytest.raises(error, match=match):
+            self.ax.line_from_file(**call)
+        with pytest.raises(error, match=match):
+            self.ax.errorbar_from_file(**call)
+        assert self.ax.file_series == []
+
     def test_a_line_mode_stays_unsmoothed_when_the_figure_smooths(self):
         self.fig.graph.smooth_curves = True
         self.ax.plot([0, 1, 2], [0, 1, 0])
