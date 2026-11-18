@@ -337,7 +337,10 @@ from .syntax import (
 from .tables import (
     ARROW_JOIN_SEPS,
     ARROW_TIP_STYLES,
+    KEY_ANCHOR_X,
+    KEY_ANCHOR_Y,
     KEY_POSITIONS_SHORT_TO_LONG,
+    LEGEND_SPACING_TO_KEY,
     LINE_MODES,
     LSTYLE_TO_MATPLOTLIB,
     PALETTE_SUB_TO_CMAP,
@@ -348,6 +351,7 @@ from .units import (
     capsize_cm_to_pt,
     cm_to_inches,
     fontsize_cm_to_pt,
+    fontsize_pt_to_cm,
     inches_to_cm,
     linewidth_cm_to_pt,
 )
@@ -1220,6 +1224,59 @@ def _collect_color(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
     return head.value, start + 1
 
 
+_KEY_SPACING_WORDS = frozenset(LEGEND_SPACING_TO_KEY.values())
+
+
+def _key_entry_textcolor(toks: List[Token]) -> Optional[str]:
+    """The ``textcolor`` of a ``begin key`` entry; None if absent, "" if odd."""
+    found: Optional[str] = None
+    for i, t in enumerate(toks):
+        if t.type is TokenType.WORD and t.value.lower() == "textcolor":
+            color, nxt = _collect_color(toks, i + 1)
+            if found is not None or color is None or nxt == i + 1:
+                return ""
+            found = color
+    return found
+
+
+def _key_anchor_fraction(text: str, template: str) -> Optional[float]:
+    """The axes fraction in a ``KEY_ANCHOR_X``/``_Y`` coordinate, else None."""
+    head, tail = template.split("{}")
+    if not (text.startswith(head) and text.endswith(tail)):
+        return None
+    try:
+        return float(text[len(head) : len(text) - len(tail)])
+    except ValueError:
+        return None
+
+
+def _key_anchor(raw: str) -> Optional[Tuple[float, float]]:
+    """``(x, y)`` axes fractions of the writer's ``absolute X Y``, else None."""
+    words = raw.split()
+    if len(words) != 3 or words[0].lower() != "absolute":
+        return None
+    x = _key_anchor_fraction(words[1], KEY_ANCHOR_X)
+    y = _key_anchor_fraction(words[2], KEY_ANCHOR_Y)
+    if x is None or y is None:
+        return None
+    return (x, y)
+
+
+def _legend_spacing(cm_by_word, fontsize, fig) -> Dict[str, float]:
+    """Key spacing in cm, keyed by GLE word -> font-size units by matplotlib name.
+
+    The inverse of ``GLEWriter._key_options``: the key text height is the
+    legend fontsize, else the figure style's.
+    """
+    points = fontsize if fontsize is not None else fig.style.fontsize
+    hei = fontsize_pt_to_cm(float(points))
+    return {
+        name: cm_by_word[word] / hei
+        for name, word in LEGEND_SPACING_TO_KEY.items()
+        if word in cm_by_word
+    }
+
+
 # --------------------------------------------------------------------------- #
 # The recognizer
 # --------------------------------------------------------------------------- #
@@ -2052,6 +2109,7 @@ class _Recognizer:
             "key_offset": None,  # (dx_cm, dy_cm) or None
             "key_compact": False,
             "key_background": None,  # GLE colour text, or None
+            "key_spacing": {},  # GLE word (llen, dist, ...) -> cm
             "key_separators": 0,  # bare ``key separator`` lines -> ncol - 1
             "_draw_seq_counter": 0,  # display-command order = GLE draw order
             "lines": [],
@@ -4991,8 +5049,8 @@ class _Recognizer:
             info["key_separators"] = info.get("key_separators", 0) + 1
             return
         # The modelled option set, in any order: 'pos P', 'hei H', 'nobox',
-        # 'offset X Y', 'compact', 'background COLOR' -- exactly what
-        # GLEWriter.add_legend emits. Parse into a scratch
+        # 'offset X Y', 'compact', 'background COLOR', 'llen L', 'dist D',
+        # 'coldist C', 'margins M M' -- exactly what GLEWriter.add_legend emits. Parse into a scratch
         # dict first so a later unmodelled token leaves ``info`` untouched.
         # Scanned from the Token list (not the lowered strings above) because
         # a negative literal like the writer's own 'offset 1.5 -0.5' tokenizes
@@ -5007,11 +5065,11 @@ class _Recognizer:
                 info["key_compact"] = True
             if parsed.get("background"):
                 info["key_background"] = parsed["background"]
+            info["key_spacing"].update(parsed.get("spacing", {}))
             return
-        # Any richer form ('margins', 'justify', 'absolute', a styled
-        # separator) carries options we cannot model; a cumulative re-emit
-        # would produce a
-        # competing 'key' line. Keep the WHOLE original line as raw GLE
+        # Any richer form ('justify', 'absolute', unequal 'margins', a
+        # styled separator) carries options we cannot model; a cumulative
+        # re-emit would produce a competing 'key' line. Keep the WHOLE original line as raw GLE
         # (legend untouched) and warn.
         line = (
             self._stmt_text(stmt)
@@ -5102,6 +5160,17 @@ class _Recognizer:
                 if color is None or nxt == i + 1:
                     return None
                 out["background"] = color
+                i = nxt
+            elif word in _KEY_SPACING_WORDS and i + 1 < n:
+                length, nxt = cls._key_literal_number(toks, i + 1)
+                if length is None:
+                    return None
+                if word == "margins":
+                    # One matplotlib borderpad is both margins.
+                    second, nxt = cls._key_literal_number(toks, nxt)
+                    if second != length:
+                        return None
+                out.setdefault("spacing", {})[word] = length
                 i = nxt
             else:
                 return None
@@ -6438,6 +6507,7 @@ class _Recognizer:
         """
         options: dict = {}
         labels: List[str] = []
+        textcolors: List[Optional[str]] = []
         separators = 0
         started = False
         for sl in block.inner_lines:
@@ -6458,18 +6528,48 @@ class _Recognizer:
                 if len(toks) < 2 or toks[1].type is not TokenType.STRING:
                     return None
                 labels.append(_string_value(toks[1]))
+                textcolors.append(_key_entry_textcolor(toks))
                 started = True
                 continue
             if started:
                 return None
+            if (
+                head == "justify"
+                and len(toks) == 2
+                and "justify" not in options
+                and toks[1].value.lower() in KEY_POSITIONS_SHORT_TO_LONG
+            ):
+                options["justify"] = toks[1].value.lower()
+                continue
+            if head == "absolute" and "anchor" not in options:
+                anchor = _key_anchor(raw)
+                if anchor is None:
+                    return None
+                options["anchor"] = anchor
+                continue
             scanned = self._scan_key_options(toks)
             if not scanned:
                 return None
+            # The writer puts each spacing option on its own line.
+            options.setdefault("spacing", {}).update(scanned.pop("spacing", {}))
             options.update(scanned)
-        if not labels or not options.get("pos"):
+        # Either 'position' or the 'justify' + 'absolute' pair the writer
+        # emits for an anchored key, never a mix. One text colour for all.
+        anchored = "justify" in options and "anchor" in options and "pos" not in options
+        positioned = "pos" in options and not (
+            "justify" in options or "anchor" in options
+        )
+        if not labels or not (anchored or positioned):
+            return None
+        if anchored and options.get("offset") is not None:
+            return None
+        if len(set(textcolors)) != 1 or textcolors[0] == "":
             return None
         return {
-            "pos": options["pos"],
+            "pos": options["justify"] if anchored else options["pos"],
+            "anchor": options.get("anchor"),
+            "labelcolor": textcolors[0],
+            "spacing": options.get("spacing", {}),
             "hei": options.get("hei"),
             "nobox": bool(options.get("nobox")),
             "offset": options.get("offset"),
@@ -7483,6 +7583,11 @@ class _Recognizer:
                 ax.legend_compact = True
             if external.get("background"):
                 ax.legend_facecolor = external["background"]
+            ax.legend_bbox_to_anchor = external["anchor"]
+            ax.legend_labelcolor = external["labelcolor"]
+            ax.legend_spacing = _legend_spacing(
+                external["spacing"], ax.legend_fontsize, ax.figure
+            )
         elif info["key_off"]:
             ax.legend_on = False
         elif info["key_pos"] is not None:
@@ -7509,6 +7614,11 @@ class _Recognizer:
             else:
                 ax.legend_on = None
 
+        if info["key_spacing"] and not external:
+            # Also without 'key pos': the re-save adds GLE's default 'pos tr'.
+            ax.legend_spacing = _legend_spacing(
+                info["key_spacing"], ax.legend_fontsize, ax.figure
+            )
         nsep = info.get("key_separators") or 0
         if nsep:
             ax.legend_ncol = int(nsep) + 1

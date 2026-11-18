@@ -55,6 +55,7 @@ def normalize(d: dict) -> dict:
       * markersize / linewidth: snapped through the emitted GLE value
         (msize verbatim; linewidth via pt<->cm; API default 1 -> 1.5).
       * legend_on: explicit True with labels present -> None (auto).
+      * legend_spacing: equal to 5 significant figures (emitted in cm).
       * data_prefix / counters: dropped (not always recoverable).
       * global_data_counter: dropped.
       * axis limits: rounded to the emitted 6-sig-fig form.
@@ -197,6 +198,11 @@ def normalize(d: dict) -> dict:
         if isinstance(lfs, (int, float)):
             emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(lfs)))
             ax["legend_fontsize"] = fontsize_cm_to_pt(float(emitted))
+        # Legend spacing goes out as cm at 6 significant figures and comes
+        # back divided by the key text height: equal to 5.
+        ax["legend_spacing"] = {
+            k: float(f"{v:.5g}") for k, v in (ax.get("legend_spacing") or {}).items()
+        }
 
         # Explicit placement: a scripted figure carries None ("let the layout
         # decide") and the writer emits the rect the layout computed; the

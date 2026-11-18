@@ -329,6 +329,41 @@ def legend_full_options():
     return fig
 
 
+def legend_spacing():
+    """matplotlib spacing keywords as the in-graph ``llen``/``dist``/
+    ``coldist``/``margins``, in font-size units of the figure's text height.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 2, 3], label="a", marker="o")
+    ax.plot([1, 2, 3], [3, 2, 1], label="b")
+    ax.legend(
+        ncol=2, handlelength=1.5, handletextpad=0.5, columnspacing=1.0, borderpad=0.3
+    )
+    return fig
+
+
+def legend_anchored():
+    """``bbox_to_anchor``, ``labelcolor`` and spacing in a ``begin key`` block:
+    ``justify`` plus ``absolute`` read from the graph that has just ended,
+    and ``textcolor`` on every entry. The negative fraction is ``+-``.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 2, 3], label="a")
+    ax.plot([1, 2, 3], [3, 2, 1], label="b", linestyle="--")
+    ax.legend(
+        loc="upper right",
+        bbox_to_anchor=(-0.1, 1.0),
+        labelcolor="gray",
+        fontsize=8,
+        handlelength=1.2,
+        borderpad=0.3,
+        ncol=2,
+    )
+    return fig
+
+
 def subplots_sharex():
     fig, axes = glp.subplots(3, 1, sharex=True, data_prefix="golden")
     for i, ax in enumerate(axes):
@@ -1090,6 +1125,8 @@ BUILDERS = [
     secondary_xaxis,
     legend_positions_all,
     legend_full_options,
+    legend_spacing,
+    legend_anchored,
     subplots_sharex,
     subplots_sharex_with_colored_text,
     subplots_grid_mixed,

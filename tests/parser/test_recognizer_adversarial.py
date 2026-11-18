@@ -344,21 +344,130 @@ def test_finding5_title_with_options_kept_raw(tmp_path):
 
 def test_finding5_key_with_options_kept_raw(tmp_path):
     # Re-baselined when 'compact' and 'background' became modelled options.
-    # The unmodelled example is now GLE's 'margins'.
+    # The unmodelled example is now GLE's in-graph 'justify'.
     src = (
         "size 20.32 15.24\n"
         "begin graph\n"
         "   data data_b.dat d1=c1,c2\n"
         '   d1 line color blue lwidth 0.05 key "s"\n'
-        "   key pos tr hei 0.3 nobox margins 0.1 0.1\n"
+        "   key pos tr hei 0.3 nobox justify tl\n"
         "end graph\n"
     )
     p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     joined = "\n".join(ax.passthrough)
-    assert "key pos tr hei 0.3 nobox margins 0.1 0.1" in joined
+    assert "key pos tr hei 0.3 nobox justify tl" in joined
     assert any("key has unsupported options" in w for w in rec.warnings)
+
+
+def test_hand_written_key_spacing_is_modelled_and_kept(tmp_path):
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.4\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2\n"
+        '   d1 line color blue lwidth 0.05 key "s"\n'
+        "   key pos tr llen 0.7 margins 0.2 0.2\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.legend_spacing == {
+        "handlelength": pytest.approx(1.75),
+        "borderpad": pytest.approx(0.5),
+    }
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "key pos tr llen 0.7 margins 0.2 0.2" in out.read_text()
+
+
+def test_key_spacing_without_a_position_is_kept(tmp_path):
+    src = (
+        "size 20.32 15.24\n"
+        "set hei 0.4\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2\n"
+        '   d1 line color blue lwidth 0.05 key "s"\n'
+        "   key llen 0.8\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].legend_spacing == {
+        "handlelength": pytest.approx(2.0)
+    }
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "key pos tr llen 0.8" in out.read_text()
+
+
+def test_unequal_key_margins_stay_raw(tmp_path):
+    # One matplotlib borderpad cannot say two different margins.
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2\n"
+        '   d1 line color blue lwidth 0.05 key "s"\n'
+        "   key pos tr margins 0.2 0.3\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.legend_spacing == {}
+    assert "key pos tr margins 0.2 0.3" in "\n".join(ax.passthrough)
+
+
+_ANCHOR = (
+    "    absolute min(xg(xgmin),xg(xgmax))+1*abs(xg(xgmax)-xg(xgmin)) "
+    "min(yg(ygmin),yg(ygmax))+1*abs(yg(ygmax)-yg(ygmin))\n"
+)
+
+
+_TWO = '    text "a"\n    text "b"\n'
+
+
+@pytest.mark.parametrize(
+    "head, entries",
+    [
+        # Different text colours: one labelcolor cannot say it.
+        (
+            "    position tr\n",
+            '    text "a" textcolor red\n    text "b" textcolor blue\n',
+        ),
+        # A textcolor with no colour after it.
+        ("    position tr\n", '    text "a" textcolor\n    text "b"\n'),
+        # A hand-written absolute position, not the writer's anchor form.
+        ("    justify tl\n    absolute 3 4\n", _TWO),
+        # The anchor form with a position as well.
+        ("    justify tl\n    position br\n" + _ANCHOR, _TWO),
+        # The anchor form with a justify that is not a key position.
+        ("    justify left\n" + _ANCHOR, _TWO),
+        # The anchor form with an offset, which 'absolute' would overwrite.
+        ("    justify tl\n" + _ANCHOR + "    offset 1 1\n", _TWO),
+    ],
+)
+def test_an_unmodelled_begin_key_is_kept_verbatim(tmp_path, head, entries):
+    block = "begin key\n" + head + entries + "end key\n"
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2 d2=c1,c3\n"
+        '   d1 line color blue key "a"\n'
+        '   d2 line color red key "b"\n'
+        "   key off\n"
+        "end graph\n" + block
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0 1\n1 1 0\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.legend_bbox_to_anchor is None
+    assert ax.legend_labelcolor is None
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert block.rstrip("\n") in out.read_text()
 
 
 def test_finding5_key_compact_and_background_are_modelled(tmp_path):
