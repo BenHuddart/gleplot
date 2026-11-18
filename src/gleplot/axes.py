@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from numbers import Real
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -42,6 +43,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     Series,
     Span,
     TextAnnotation,
+    Wedge,
     _build_column_names,
     _build_errorbar_column_names,
     _looks_numeric,
@@ -1636,6 +1638,8 @@ class Axes:
         self._yaxis_off = False
         self._x2axis_off = False
         self._y2axis_off = False
+        # Every axis line and tick mark hidden, the axes kept (Axes.pie).
+        self._frame_off = False
 
         # Broken-axis membership (see :mod:`gleplot.brokenaxes`). Both stay
         # None on an ordinary axes; on a segment, ``_break_owner`` is the
@@ -1667,6 +1671,7 @@ class Axes:
         # known. See :meth:`materialize_reflines` for why.
         self.reflines: List[RefLine] = []
         self.spans: List[Span] = []
+        self.wedges: List[Wedge] = []  # pie slices
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model. Emitted verbatim inside this
@@ -4511,6 +4516,226 @@ class Axes:
             fields["arrow_linewidth"] = linewidth
         return fields
 
+    def pie(
+        self,
+        x,
+        explode=None,
+        labels=None,
+        colors=None,
+        autopct=None,
+        pctdistance: float = 0.6,
+        shadow=False,
+        labeldistance: Optional[float] = 1.1,
+        startangle: float = 0,
+        radius: float = 1,
+        counterclock: bool = True,
+        wedgeprops: Optional[dict] = None,
+        textprops: Optional[dict] = None,
+        center=(0, 0),
+        frame: bool = False,
+        rotatelabels: bool = False,
+        *,
+        normalize: bool = True,
+        hatch=None,
+    ):
+        """Draw a pie chart: one wedge per value of ``x``.
+
+        Parameters
+        ----------
+        x : 1-D array-like
+            Wedge sizes, non-negative and finite.
+        explode : array-like, optional
+            Not supported: a non-zero offset warns and the wedge is drawn in
+            place.
+        labels : sequence of str, optional
+            One label per wedge, drawn ``labeldistance`` radii from the
+            centre. Labels are text beside the wedges, not legend entries.
+        colors : sequence of colors, optional
+            Cycled over the wedges. Default: matplotlib's ``'C0'`` to ``'C9'``.
+        autopct : str or callable, optional
+            Percentage text inside each wedge: a format string applied as
+            ``autopct % pct`` or a function called as ``autopct(pct)``.
+        pctdistance : float
+            Radii from the centre of the ``autopct`` text.
+        shadow : bool or dict
+            Not supported: warns.
+        labeldistance : float or None
+            Radii from the centre of the labels. ``None`` draws no labels.
+        startangle : float
+            Degrees counter-clockwise from +x at which the first wedge starts.
+        radius : float
+            Pie radius in data units.
+        counterclock : bool
+            Direction in which the wedges follow each other.
+        wedgeprops : dict, optional
+            Not supported: warns. Wedges have no outline.
+        textprops : dict, optional
+            ``fontsize`` (alias ``size``) sets the label and percentage
+            height, in points or as a matplotlib size name such as
+            ``'large'``. Other keys warn.
+        center : (float, float)
+            Pie centre in data coordinates.
+        frame : bool
+            ``False`` (the default) hides the axes. ``True`` keeps them; the
+            limits are still set as for ``False``.
+        rotatelabels : bool
+            Not supported: warns. Labels are horizontal.
+        normalize : bool
+            ``True`` scales ``x`` to a full circle. ``False`` draws each value
+            as a fraction of the circle, and needs ``sum(x) <= 1``.
+        hatch : str or sequence, optional
+            Not supported: warns.
+
+        Returns
+        -------
+        tuple
+            ``(wedges, texts)``, or ``(wedges, texts, autotexts)`` when
+            ``autopct`` is given. ``wedges`` are the stored
+            :class:`~gleplot.series.Wedge` entries (also appended to
+            ``self.wedges``); ``texts`` and ``autotexts`` are the strings
+            drawn, one per wedge (``texts`` is empty when ``labeldistance``
+            is ``None``).
+
+        Notes
+        -----
+        Sets both limits to ``center`` +/- 1.25, as matplotlib does. The
+        radius is measured on the axis with fewer centimetres per unit, so
+        the pie stays circular in a cell that is not square, as with
+        matplotlib's equal aspect. The wedges are drawn after the graph
+        block, above the axes' other series.
+        """
+        sizes = np.asarray(x, dtype=float)
+        if sizes.ndim != 1:
+            raise ValueError(
+                f"pie(x) must be 1-D; got an array of shape {sizes.shape}."
+            )
+        if np.any(sizes < 0):
+            raise ValueError(f"pie(x) must be non-negative; got {x!r}.")
+        if not np.all(np.isfinite(sizes)):
+            raise ValueError(f"pie(x) must be finite; got {x!r}.")
+        total = float(sizes.sum())
+        if total == 0:
+            raise ValueError(f"pie(x) has all sizes zero; got {x!r}.")
+        if normalize:
+            fracs = sizes / total
+        elif total > 1:
+            raise ValueError(
+                f"pie(x, normalize=False) needs sum(x) <= 1; got sum {total}. "
+                "Pass normalize=True to scale x to a full circle."
+            )
+        else:
+            fracs = sizes
+        n = len(sizes)
+        label_list = [None] * n if labels is None else list(labels)
+        if len(label_list) != n:
+            raise ValueError(
+                f"pie(labels=...) needs one label per wedge ({n}); "
+                f"got {len(label_list)}."
+            )
+        if explode is not None:
+            offsets = list(explode)
+            if len(offsets) != n:
+                raise ValueError(
+                    f"pie(explode=...) needs one offset per wedge ({n}); "
+                    f"got {len(offsets)}."
+                )
+            if any(float(v) != 0 for v in offsets):
+                warn_external(
+                    "pie(explode=...) is not supported; the wedges are drawn "
+                    "unexploded. See the matplotlib migration guide."
+                )
+        if autopct is not None and not (isinstance(autopct, str) or callable(autopct)):
+            raise TypeError(
+                f"pie(autopct={autopct!r}) must be a format string such as "
+                "'%1.1f%%' or a function taking the percentage."
+            )
+        if not isinstance(radius, Real):
+            raise TypeError(f"pie(radius={radius!r}) must be a real number.")
+        if radius <= 0:
+            raise ValueError(f"pie(radius={radius!r}) must be positive.")
+        if not isinstance(startangle, Real):
+            raise TypeError(f"pie(startangle={startangle!r}) must be a real number.")
+
+        for name, value in (
+            ("shadow", shadow),
+            ("rotatelabels", rotatelabels),
+            ("wedgeprops", wedgeprops),
+            ("hatch", hatch),
+        ):
+            if value:
+                warn_external(
+                    f"pie({name}=...) is not supported and was ignored. See "
+                    "the matplotlib migration guide."
+                )
+        fontsize = None
+        for key, value in (textprops or {}).items():
+            if key in ("fontsize", "size"):
+                fontsize = self._resolve_fontsize(value, f"pie(textprops={key!r}")
+            else:
+                warn_external(
+                    f"pie(textprops={{{key!r}: ...}}) is not supported and was "
+                    "ignored. Supported keys: fontsize, size."
+                )
+
+        if colors is None:
+            palette = [f"C{i}" for i in range(10)]
+        else:
+            palette = list(colors)
+            if not palette:
+                raise ValueError(
+                    "pie(colors=[]) needs at least one colour; pass None for "
+                    "matplotlib's default cycle."
+                )
+        cx, cy = float(center[0]), float(center[1])
+        wedges: List[Wedge] = []
+        texts: List[str] = []
+        autotexts: List[str] = []
+        theta1 = float(startangle) / 360.0
+        for i, (frac, label) in enumerate(zip(fracs, label_list)):
+            theta2 = theta1 + frac if counterclock else theta1 - frac
+            text = None
+            if labeldistance is not None:
+                shown = "" if label is None else str(label)
+                texts.append(shown)
+                text = mathtext_to_gle(shown) if shown else None
+            autotext = None
+            if autopct is not None:
+                pct = 100.0 * float(frac)
+                raw = autopct % pct if isinstance(autopct, str) else autopct(pct)
+                autotext = mathtext_to_gle(str(raw))
+                autotexts.append(str(raw))
+            entry = Wedge(
+                type="wedge",
+                x=cx,
+                y=cy,
+                r=float(radius),
+                theta1=360.0 * min(theta1, theta2),
+                theta2=360.0 * max(theta1, theta2),
+                color=rgb_to_gle(palette[i % len(palette)]),
+                label=text,
+                labeldistance=1.1 if labeldistance is None else float(labeldistance),
+                autotext=autotext,
+                pctdistance=float(pctdistance),
+                fontsize=fontsize,
+            )
+            self.wedges.append(entry)
+            wedges.append(entry)
+            theta1 = theta2
+
+        self.set_xlim(cx - 1.25, cx + 1.25)
+        self.set_ylim(cy - 1.25, cy + 1.25)
+        if frame:
+            warn_external(
+                "pie(frame=True) keeps the axes, but the limits are still set "
+                "to center +/- 1.25; call set_xlim/set_ylim to change them."
+            )
+        else:
+            self._frame_off = True
+            self._show_xticks = self._show_yticks = False
+        if autopct is not None:
+            return wedges, texts, autotexts
+        return wedges, texts
+
     # -- heatmaps & contours --------------------------------------------
 
     def _resolve_cmap(self, cmap: Optional[str]) -> str:
@@ -5339,7 +5564,7 @@ class Axes:
         if "fontsize" in kwargs:
             fontsize = kwargs.pop("fontsize")
             self.legend_fontsize = (
-                None if fontsize is None else self._resolve_legend_fontsize(fontsize)
+                None if fontsize is None else self._resolve_fontsize(fontsize)
             )
 
         if "frameon" in kwargs:
@@ -5439,20 +5664,24 @@ class Axes:
             raise ValueError(f"legend(ncol=...) must be an integer >= 1, got {ncol!r}")
         return as_int
 
-    def _resolve_legend_fontsize(self, fontsize) -> float:
-        """Resolve a matplotlib ``fontsize`` (number or name) to points."""
+    def _resolve_fontsize(self, fontsize, argument: str = "legend(fontsize") -> float:
+        """Resolve a matplotlib ``fontsize`` (number or name) to points.
+
+        ``argument`` is the call up to the value, e.g. ``"legend(fontsize"``,
+        and names the argument in the error.
+        """
         if isinstance(fontsize, str):
             name = fontsize.strip().lower()
             if name not in MATPLOTLIB_RELATIVE_FONTSIZES:
                 raise ValueError(
-                    f"legend(fontsize={fontsize!r}) is not a number or one of "
+                    f"{argument}={fontsize!r}) is not a number or one of "
                     f"{sorted(MATPLOTLIB_RELATIVE_FONTSIZES)}"
                 )
             style = getattr(self.figure, "style", None) or GlobalConfig.get_style()
             return float(style.fontsize) * MATPLOTLIB_RELATIVE_FONTSIZES[name]
         size = float(fontsize)
         if size <= 0:
-            raise ValueError(f"legend(fontsize={fontsize!r}) must be positive")
+            raise ValueError(f"{argument}={fontsize!r}) must be positive")
         return size
 
     def grid(
@@ -5695,6 +5924,7 @@ class Axes:
             or self.contours
             or self.reflines
             or self.spans
+            or self.wedges
         )
 
     def has_y2_plots(self) -> bool:
@@ -5801,6 +6031,7 @@ class Axes:
             "yaxis_off": self._yaxis_off,
             "x2axis_off": self._x2axis_off,
             "y2axis_off": self._y2axis_off,
+            "frame_off": self._frame_off,
             "break_index": self._break_index,
             # Explicit page geometry (see __init__): the frame rect, or the
             # verbatim geometry statements when no rect is invertible. Both
@@ -5919,6 +6150,7 @@ class Axes:
         ax._yaxis_off = d.get("yaxis_off", False)
         ax._x2axis_off = d.get("x2axis_off", False)
         ax._y2axis_off = d.get("y2axis_off", False)
+        ax._frame_off = d.get("frame_off", False)
         # ``_break_owner`` is a back-reference rebound by Figure.from_dict
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")

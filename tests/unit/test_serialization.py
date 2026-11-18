@@ -523,6 +523,7 @@ _AXES_SERIALIZED_ATTRS = {
     "contours",
     "reflines",
     "spans",
+    "wedges",
     "passthrough",
     # Explicit page geometry: the placement rect (SPEC 3.3) and the verbatim
     # geometry statements kept for GLE geometry that inverts to no rect.
@@ -540,6 +541,7 @@ _AXES_SERIALIZED_ATTRS = {
     "_yaxis_off",
     "_x2axis_off",
     "_y2axis_off",
+    "_frame_off",
     "_break_index",
     # Axes styling (tick-label formats, grids, axis-title / tick-label /
     # graph-title size-colour-distance-angle). Enumerated by
@@ -711,6 +713,7 @@ def _figure_exercising_every_series_kind():
     pts_z = [1.0, 2.0, 3.0, 4.0]
     ax3.tripcolor(pts_x, pts_y, pts_z, gridsize=(4, 4))
     ax3.tricontour(pts_x, pts_y, pts_z, gridsize=(4, 4), ncontour=2)
+    ax3.pie([1.0, 2.0], labels=["p", "q"], autopct="%d%%", textprops={"size": 9})
     return fig
 
 

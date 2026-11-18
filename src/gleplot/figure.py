@@ -33,6 +33,7 @@ from .writer import (
     COLORBAR_AUTO_RANGE,
     COLORBAR_NTICKS,
     DEFAULT_COLORBAR_NTICKS,
+    WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
     GLEWriter,
@@ -1943,13 +1944,14 @@ class Figure:
         return reserved
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/colorbar/clabel sub definitions this figure needs.
+        """Gather the palette/colorbar/clabel/wedge subs this figure needs.
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs sorted by name, then the colorbar sub (if any colorbar),
-        then the contour-labels sub (if any clabel). Skipped (dangling) grid
-        series contribute nothing, so a write that drops the only heatmap
-        does not leave an unused palette sub behind.
+        then the contour-labels sub (if any clabel), then the pie-wedge sub
+        (if any wedge). Skipped (dangling) grid series contribute nothing, so
+        a write that drops the only heatmap does not leave an unused palette
+        sub behind.
 
         The guide subs (:mod:`gleplot.guides`) are NOT collected here: which
         guides take the draw form depends on limits that are still unresolved
@@ -1980,6 +1982,8 @@ class Figure:
             subs.append(_pal.colorbar_sub_text())
         if any_clabel:
             subs.append(_pal.contour_labels_sub_text())
+        if any(resolution.visible(ax.wedges) for ax in self.axes_list):
+            subs.append(WEDGE_SUB)
         return subs
 
     def _emit_pre_graph_blocks(
@@ -2202,10 +2206,10 @@ class Figure:
         -----
         The axis setup comes first. The content phases then run in drawing
         order, back to front: heatmaps and contours, then the background
-        guides and fills, then the z-ordered data series, file series and
-        texts, and the key last. :meth:`_prepare_legend` runs before any
-        series is written, because the key's column breaks must be set on
-        the writer before the datasets they fall between.
+        guides and fills, then the z-ordered data series, file series, pie
+        wedges and texts, and the key last. :meth:`_prepare_legend` runs
+        before any series is written, because the key's column breaks must be
+        set on the writer before the datasets they fall between.
         """
         resolution = resolution or SourceResolution()
         self._write_axis_setup(writer, ax)
@@ -2218,6 +2222,8 @@ class Figure:
         self._write_reflines(writer, ax, limits)
         self._write_drawables(writer, ax, resolution)
         self._write_file_series(writer, ax, resolution)
+        for wedge in resolution.visible(ax.wedges):
+            writer.add_wedge(wedge)
         self._write_texts(writer, ax)
         self._write_legend(writer, ax, legend)
 
@@ -2261,6 +2267,7 @@ class Figure:
             yaxis_off=ax._yaxis_off,
             x2axis_off=ax._x2axis_off,
             y2axis_off=ax._y2axis_off,
+            frame_off=ax._frame_off,
             xstyle=self._axis_style(ax, "x"),
             ystyle=self._axis_style(ax, "y"),
             y2style=self._axis_style(ax, "y2"),

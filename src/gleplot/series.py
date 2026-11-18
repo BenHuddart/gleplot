@@ -148,6 +148,7 @@ __all__ = [
     "ContourSeries",
     "RefLine",
     "Span",
+    "Wedge",
     "SERIES_CLASSES",
     "SERIES_ATTRS",
     "SMOOTH_MODES",
@@ -1289,6 +1290,39 @@ class Span(Series):
         return _unique_column_names(["x", "upper", "lower"])
 
 
+class Wedge(Series):
+    """One pie slice -- ``Axes.pie`` stores one per value.
+
+    Drawn after the graph block by the ``gleplot_wedge`` sub, which also
+    writes the slice's label and percentage text.
+    """
+
+    ATTR = "wedges"
+
+    type: str
+    #: Centre, in data coordinates.
+    x: float
+    y: float
+    #: Radius, in data units.
+    r: float
+    #: Start and end angle, degrees counter-clockwise from +x; ``theta1``
+    #: is the smaller.
+    theta1: float
+    theta2: float
+    color: str
+    #: Text ``labeldistance`` radii from the centre; ``None`` draws none.
+    label: Optional[str]
+    labeldistance: float
+    #: ``autopct`` text ``pctdistance`` radii from the centre; ``None``
+    #: draws none.
+    autotext: Optional[str]
+    pctdistance: float
+    #: Points; ``None`` is the current text height.
+    fontsize: Optional[float]
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
+
+
 # -- registry -----------------------------------------------------------------
 
 #: Every series list an axes owns, in the order they are serialized by
@@ -1314,6 +1348,7 @@ SERIES_CLASSES: Dict[str, Type[Series]] = {
         HistSeries,
         FunctionSeries,
         FitSeries,
+        Wedge,
     )
 }
 

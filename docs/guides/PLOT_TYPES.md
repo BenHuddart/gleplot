@@ -125,6 +125,15 @@ ax.fill_between(x, y, baseline='x1')
 ax.fill(x, y, alpha=0.4)
 ```
 
+## Pie charts
+
+```python
+ax.pie([15, 30, 45, 10], labels=['A', 'B', 'C', 'D'], autopct='%1.1f%%')
+```
+
+One wedge per value, with no outline. The axes' lines and ticks are hidden
+and its title stays.
+
 ## Other plot types
 
 - Heatmaps and contours: [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).

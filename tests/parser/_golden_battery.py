@@ -1014,6 +1014,40 @@ def trailer_stray_amoves():
     return fig
 
 
+def pie_chart():
+    """A titled pie with labels and percentages, then a text drawn after it."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.pie(
+        [15, 30, 45, 10],
+        labels=["Frogs", "Hogs", "Dogs", "Logs"],
+        autopct="%1.1f%%",
+        startangle=90,
+    )
+    ax.set_title("pets")
+    ax.text(0, 1.2, "after", ha="center")
+    return fig
+
+
+def pie_field_options():
+    """Off-centre pies beside a line plot: colours, fontsize, no labels."""
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    left.plot([0, 1], [0, 1], color="blue")
+    right.text(2, 1, "centre", color="red")
+    right.pie(
+        [0.2, 0.3],
+        labels=["a", "b"],
+        colors=["red", "#00ff00"],
+        textprops={"fontsize": 14},
+        center=(2, 1),
+        radius=0.8,
+        counterclock=False,
+        normalize=False,
+    )
+    right.pie([1, 1, 2], labeldistance=None, center=(2, 1), radius=0.3)
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -1068,6 +1102,8 @@ BUILDERS = [
     axes_styling_grid_only,
     contour_in_second_subplot,
     trailer_stray_amoves,
+    pie_chart,
+    pie_field_options,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

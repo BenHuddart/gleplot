@@ -258,6 +258,11 @@ def errorbar(*args, **kwargs):
     return gca().errorbar(*args, **kwargs)
 
 
+def pie(*args, **kwargs):
+    """Pie chart on current axes."""
+    return gca().pie(*args, **kwargs)
+
+
 def text(*args, **kwargs):
     """Add text annotation on current axes."""
     return gca().text(*args, **kwargs)
@@ -537,6 +542,7 @@ __all__ = [
     "fill_between",
     "fill",
     "errorbar",
+    "pie",
     "text",
     "annotate",
     "axvline",

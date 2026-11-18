@@ -320,6 +320,7 @@ from ..series import (
     Series,
     Span,
     TextAnnotation,
+    Wedge,
 )
 from ..writer import GLEWriter
 from . import metadata as _metadata
@@ -1515,7 +1516,8 @@ class _Recognizer:
         after_key = self._consume_external_legend(nodes, i + 1, axes_info)
         # Greedily consume deferred text cluster that follows.
         texts, consumed = self._consume_text_cluster(nodes, after_key)
-        axes_info["texts"] = texts
+        axes_info["texts"] = [t for t in texts if not isinstance(t, Wedge)]
+        axes_info["wedges"] = [t for t in texts if isinstance(t, Wedge)]
         # Then consume any post-graph colorbar / contour-label sub
         # calls belonging to this axes.
         return axes_info, self._consume_post_graph_calls(nodes, consumed, axes_info)
@@ -1821,6 +1823,9 @@ class _Recognizer:
         # pass 2 builds the series that dataset's display command produces.
         self._prescan_guide_markers(block, info)
 
+        frame_off_lines = self._prescan_frame_off(block)
+        info["frame_off"] = bool(frame_off_lines)
+
         pass1 = self._collect_datasets(block, info)
         self._mark_bars_that_stay_raw(block, pass1.datasets, info)
 
@@ -1835,6 +1840,8 @@ class _Recognizer:
                     info["passthrough"].extend(self._raw_lines(child))
             elif isinstance(child, BlankOrComment):
                 self._parse_graph_comment(child, info)
+            elif isinstance(child, Statement) and child.line_no in frame_off_lines:
+                continue
             elif isinstance(child, Statement) and not self._skip_meta_stmt(child):
                 self._dispatch_graph_statement(
                     child, pass1, info, marker_cfg, smooth_flags
@@ -2331,6 +2338,30 @@ class _Recognizer:
             info["passthrough"][0:0] = restored
 
     # -- guides drawn against GLE's own range (G17) -----------------------
+
+    #: The graph-block lines ``Axes._frame_off`` writes, each bare.
+    _FRAME_OFF_KEYWORDS = ("xside", "yside", "xticks", "yticks")
+
+    @classmethod
+    def _prescan_frame_off(cls, block: GraphBlock) -> Set[int]:
+        """Line numbers of the four ``... off`` lines a hidden frame writes.
+
+        ``xside off``, ``yside off``, ``xticks off`` and ``yticks off`` are
+        recovered together as ``Axes._frame_off``, and only when each appears
+        exactly once. Otherwise the set is empty and every one of them stays
+        raw GLE, as before.
+        """
+        found: Dict[str, List[int]] = {kw: [] for kw in cls._FRAME_OFF_KEYWORDS}
+        for child in block.body:
+            if not isinstance(child, Statement):
+                continue
+            toks = _words_and_values(child)
+            kw = (child.keyword or "").lower()
+            if kw in found and len(toks) == 2 and toks[1].value.lower() == "off":
+                found[kw].append(child.line_no)
+        if any(len(lines) != 1 for lines in found.values()):
+            return set()
+        return {lines[0] for lines in found.values()}
 
     def _prescan_guide_blocks(self, block: GraphBlock, info) -> Dict[int, dict]:
         """Find the ``begin layer N`` / ``draw gleplot_*`` blocks in ``block``.
@@ -6803,6 +6834,15 @@ class _Recognizer:
                 continue
             break
 
+        # A pie slice (Axes.pie): the 'set' lines above gave its text height.
+        i = self._skip_blanks(nodes, i)
+        stmt = self._as_statement(nodes[i]) if i < n else None
+        if stmt is not None and (stmt.keyword or "").lower() == "gleplot_wedge":
+            wedge = self._wedge_call(stmt)
+            if wedge is None:
+                return start, None
+            return i + 1, wedge
+
         # 'amove xg(X) yg(Y)' -- mandatory: this is what makes the run of
         # 'set' statements above a text cluster rather than unrelated
         # passthrough. If absent, nothing was consumed as a text cluster (any
@@ -6850,6 +6890,51 @@ class _Recognizer:
             fields["rotation"] = rotation
         fields.update(arrow_fields)
         return i, TextAnnotation(**fields)
+
+    def _wedge_call(self, stmt) -> Optional[Wedge]:
+        """A ``gleplot_wedge`` call -> a :class:`Wedge`, or ``None``.
+
+        The writer emits every call while the text colour is still the
+        block's starting ``BLACK``; any other current colour is drawn but not
+        modelled, and is noted. The
+        sub leaves ``set just`` changed, which the sticky state follows.
+        """
+        args = self._guide_call_args(_words_and_values(stmt), 1)
+        if len(args) != 10:
+            return None
+        color, label, pct = args[5], args[6], args[8]
+        raw_numbers = args[0:5] + [args[7], args[9]]
+        if not all(isinstance(v, str) for v in (color, label, pct)) or not all(
+            isinstance(v, (int, float)) for v in raw_numbers
+        ):
+            return None
+        x, y, r, a1, a2, ld, pd = (float(cast(float, v)) for v in raw_numbers)
+        if self._text_color != "BLACK":
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"pie wedge text is drawn in {self._text_color}, which the "
+                "model does not keep; it will be written in BLACK",
+                self._stmt_span(stmt),
+            )
+        if pct:
+            self._text_just = "center"
+        elif label:
+            outward = x + ld * r * math.cos(math.radians((a1 + a2) / 2))
+            self._text_just = "left" if outward > 0 else "right"
+        return Wedge(
+            type="wedge",
+            x=x,
+            y=y,
+            r=r,
+            theta1=a1,
+            theta2=a2,
+            color=color,
+            label=label or None,
+            labeldistance=ld,
+            autotext=pct or None,
+            pctdistance=pd,
+            fontsize=self._text_fontsize,
+        )
 
     def _match_text_draw(self, nodes, i):
         """The draw half of one text cluster, after its ``amove``.
@@ -7272,6 +7357,7 @@ class _Recognizer:
         ax.errorbars = info["errorbars"]
         ax.file_series = info["file_series"]
         ax.texts = info["texts"]
+        ax.wedges = info["wedges"]
         ax.heatmaps = info["heatmaps"]
         ax.contours = info["contours"]
         # Guides recovered from their draw blocks (G17). Before G17 a guide
@@ -7451,6 +7537,7 @@ class _Recognizer:
         sharex/sharey via _apply_shared_axes_flags already, we override only
         the tick-removal flags which are directly observable.
         """
+        ax._frame_off = info["frame_off"]
         ax._show_xticks = not info["xlabels_off"]
         ax._show_yticks = not info["ylabels_off"]
         ax._remove_first_xtick = info["nofirst_x"]
