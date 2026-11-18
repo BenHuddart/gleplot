@@ -7050,7 +7050,18 @@ class _Recognizer:
         if len(toks) < 4:
             info["passthrough"].append(self._stmt_text(stmt))
             return
-        zfile, idx = self._read_filename(toks, 1)
+        # GLE reads the operand as a file name when it ends in .z/.gz and as
+        # an expression in x and y otherwise; an expression is never quoted,
+        # and ends at the first space.
+        expression = None
+        if toks[1].type is not TokenType.STRING:
+            operand, idx = _glued_run(toks, 1)
+            if not operand.lower().endswith((".z", ".gz")):
+                expression = operand
+        if expression is None:
+            zfile, idx = self._read_filename(toks, 1)
+        else:
+            zfile = expression
         px = _num(toks[idx]) if idx < len(toks) else None
         py = _num(toks[idx + 1]) if idx + 1 < len(toks) else None
         if px is None or py is None:
@@ -7117,15 +7128,50 @@ class _Recognizer:
             )
             return
 
-        # A colormap of a FUNCTION expression (not a .z/.gz file) can't be
-        # modeled -> passthrough.
-        if not zfile.lower().endswith((".z", ".gz")):
-            info["passthrough"].append(self._stmt_text(stmt))
-            self._note(
-                ImportCategory.STRUCTURE,
-                "colormap of a function expression; kept as raw GLE",
-                self._stmt_span(stmt),
+        if expression is not None or not zfile.lower().endswith((".z", ".gz")):
+            # GLE fills the whole graph with a function colormap, so its
+            # extent is the axis range, which must already be read.
+            extent = [info["xmin"], info["xmax"], info["ymin"], info["ymax"]]
+            reason = None
+            if expression is None or _function_expression_problem(expression):
+                reason = "colormap of a function expression"
+            elif any(v is None for v in extent) or not (
+                extent[0] < extent[1] and extent[2] < extent[3]
+            ):
+                reason = (
+                    "colormap of a function expression with no ascending "
+                    "xaxis and yaxis min and max before it"
+                )
+            if reason is not None:
+                info["passthrough"].append(self._stmt_text(stmt))
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"{reason}; kept as raw GLE",
+                    self._stmt_span(stmt),
+                )
+                return
+            hm = HeatmapSeries(
+                type="heatmap",
+                source="function",
+                expression=expression,
+                z=None,
+                x=None,
+                y=None,
+                zpts=None,
+                extent=[float(v) for v in extent],
+                origin="lower",
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                interpolation="nearest" if interpolation == "nearest" else "bicubic",
+                pixels=[int(px), int(py)],
+                invert=invert,
+                gridsize=None,
+                ncontour=None,
+                label=None,
+                colorbar=None,
             )
+            info["heatmaps"].append(hm)
             return
 
         fitz = self._fitz_blocks.get(zfile)

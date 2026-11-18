@@ -163,6 +163,85 @@ def test_unknown_cmap_raises():
 
 
 # --------------------------------------------------------------------------- #
+# function2d (expression)
+# --------------------------------------------------------------------------- #
+
+
+def test_function2d_emits_bare_expression_and_no_sidecar():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    hm = ax.function2d("sin(x)*cos(y)", extent=(0, 6.28, 0, 6.28), vmin=-1, vmax=1)
+    text, files = _gle(fig)
+
+    assert hm is ax.heatmaps[0]
+    assert "data_file" not in hm
+    assert (
+        "    colormap sin(x)*cos(y) 200 200 zmin -1 zmax 1 palette gleplot_viridis"
+        in text.splitlines()
+    )
+    assert "xaxis min 0 max 6.28" in text
+    assert "yaxis min 0 max 6.28" in text
+    assert files == {}
+
+
+def test_function2d_defaults_to_the_unit_colour_range():
+    """GLE does not scan an expression for its range; 0..1 is written out."""
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.function2d("x*y", extent=(0, 1, 0, 1), cmap="gray")
+    line = [ln for ln in _gle(fig)[0].splitlines() if "colormap" in ln][0]
+    assert line == "    colormap x*y 200 200 zmin 0 zmax 1"
+    fig.colorbar()
+    assert ax.heatmaps[0]["colorbar"]["zmin"] == 0.0
+    assert ax.heatmaps[0]["colorbar"]["zmax"] == 1.0
+
+
+def test_function2d_none_range_omits_the_clauses():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.function2d("x+y", extent=(0, 1, 0, 1), vmin=None, vmax=None, invert=True)
+    line = [ln for ln in _gle(fig)[0].splitlines() if "colormap" in ln][0]
+    assert line == "    colormap x+y 200 200 invert palette gleplot_viridis"
+
+
+@pytest.mark.parametrize(
+    "expression, match",
+    [
+        ("sin(x) * cos(y)", "first space"),
+        ('"x*y"', "end of the expression"),
+        ("x,y", "second expression"),
+        ("sin(x", "bracket open"),
+        ("", "empty"),
+    ],
+)
+def test_function2d_rejects_expressions_gle_cannot_read(expression, match):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=match):
+        ax.function2d(expression, extent=(0, 1, 0, 1))
+
+
+def test_function2d_rejects_a_non_string_expression():
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(TypeError, match="must be a str"):
+        ax.function2d(3.0, extent=(0, 1, 0, 1))
+
+
+def test_function2d_rejects_a_bad_extent():
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match="xmin < xmax"):
+        ax.function2d("x", extent=(1, 0, 0, 1))
+    with pytest.raises(ValueError, match=r"\(xmin, xmax, ymin, ymax\)"):
+        ax.function2d("x", extent=(0, 1, 0))
+
+
+def test_function2d_counts_as_the_axes_heatmap():
+    ax = glp.figure().add_subplot(111)
+    ax.imshow(np.zeros((2, 2)))
+    with pytest.raises(ValueError, match="at most one heatmap"):
+        ax.function2d("x", extent=(0, 1, 0, 1))
+
+
+# --------------------------------------------------------------------------- #
 # contour (grid)
 # --------------------------------------------------------------------------- #
 

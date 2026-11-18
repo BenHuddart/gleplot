@@ -170,6 +170,51 @@ def test_foreign_palette_colormap_preserved(tmp_path):
     assert 'colormap "grid.z" 100 100 palette my_custom_pal' in text2
 
 
+def test_hand_written_function_colormap_recovered(tmp_path):
+    """A bare expression after both axis ranges loads as a function heatmap."""
+    src = (
+        "size 10 10\n"
+        "begin graph\n"
+        "   xaxis min -2 max 2\n"
+        "   yaxis min 0 max 1\n"
+        "   colormap exp(-x^2)*y 100 80 color zmax 2\n"
+        "end graph\n"
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(src, encoding="utf-8")
+
+    rec = parse_gle_figure(p)
+    assert rec.warnings == []
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert hm["source"] == "function"
+    assert hm["expression"] == "exp(-x^2)*y"
+    assert hm["extent"] == [-2.0, 2.0, 0.0, 1.0]
+    assert hm["cmap"] == "rainbow"
+    assert hm["pixels"] == [100, 80]
+    assert hm["vmin"] is None and hm["vmax"] == 2.0
+    text2, files2 = rec.figure._generate_gle_with_files()
+    assert "    colormap exp(-x^2)*y 100 80 color zmax 2" in text2.splitlines()
+    assert files2 == {}
+
+
+def test_function_colormap_without_axis_ranges_preserved(tmp_path):
+    """With no axis range to take the extent from, the line stays raw."""
+    src = (
+        "size 10 10\n"
+        "begin graph\n"
+        "   colormap sin(x)*cos(y) 100 100 color\n"
+        "end graph\n"
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(src, encoding="utf-8")
+
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert not ax.heatmaps
+    assert any("sin(x)*cos(y)" in line for line in ax.passthrough)
+    assert any("no ascending xaxis and yaxis" in w for w in rec.warnings)
+
+
 def test_function_colormap_preserved(tmp_path):
     """A colormap of a function expression (not a .z file) is kept verbatim."""
     src = (

@@ -7,10 +7,11 @@ gleplot can render 2-D scalar fields as heatmaps (matplotlib's `imshow`/`tripcol
 - `Axes.imshow(Z, extent=None, origin='lower', cmap=None, vmin=None, vmax=None, interpolation='bicubic', pixels=None, invert=False, label=None)` — heatmap of a **gridded** 2-D array.
 - `Axes.contour(*args, levels=None, colors='black', linewidths=1.0, linestyles='-', clabel=False, clabel_fmt='fix 1', label=None)` — contour lines of **gridded** data. Call as `contour(Z)` or `contour(x, y, Z)`.
 - `Axes.tripcolor(x, y, z, gridsize=(50, 50), extent=None, **imshow_kwargs)` — heatmap of **scattered** `(x, y, z)` samples, gridded by GLE at compile time.
+- `Axes.function2d(expression, extent, cmap=None, vmin=0.0, vmax=1.0, pixels=None, invert=False, label=None)` — heatmap of an **expression** in `x` and `y` that GLE evaluates itself (see [Heatmap from an expression](#heatmap-from-an-expression)).
 - `Axes.tricontour(x, y, z, gridsize=(50, 50), extent=None, ncontour=3, **contour_kwargs)` — contour lines of **scattered** `(x, y, z)` samples.
 - `Figure.colorbar(mappable=None, cax=None, ax=None, use_gridspec=True, *, orientation=None, label=None, format='fix 1', nticks=None, width=0.5, sep=None)` — attaches a colorbar to a heatmap, beside its axes (vertical) or below it (horizontal). See [Colorbars](#colorbars).
 
-Each has a module-level convenience wrapper too: `glp.imshow(...)`, `glp.contour(...)`, `glp.tripcolor(...)`, `glp.tricontour(...)`, `glp.colorbar(...)` (they operate on `gca()`/`gcf()`, matching `glp.plot()` and friends).
+Each except `function2d` has a module-level convenience wrapper too: `glp.imshow(...)`, `glp.contour(...)`, `glp.tripcolor(...)`, `glp.tricontour(...)`, `glp.colorbar(...)` (they operate on `gca()`/`gcf()`, matching `glp.plot()` and friends).
 
 There is no `pcolormesh` alias and no 3-D surface support — gleplot only targets 2-D colormap/contour output.
 
@@ -50,6 +51,29 @@ Add `clabel=True` to draw inline value labels at each contour crossing (formatte
 ax.contour(x, y, Z, levels=[0.2, 0.5, 0.8], colors='black', clabel=True, clabel_fmt='fix 2')
 ```
 
+## Heatmap from an Expression
+
+When the field is an analytic function, `function2d` lets GLE compute it: the figure gets one `colormap` line and no data file.
+
+```python
+import gleplot as glp
+
+fig = glp.figure(figsize=(8, 6))
+ax = fig.add_subplot(111)
+ax.function2d('sin(x)*cos(y)', extent=(0, 6.28, 0, 6.28), vmin=-1, vmax=1)
+fig.colorbar(label='z')
+fig.savefig('waves.pdf')
+```
+
+This writes `colormap sin(x)*cos(y) 200 200 zmin -1 zmax 1 palette gleplot_viridis` inside the graph. The expression is GLE syntax (`^` for powers, `exp`, `atan2(y,x)`, …) and must not contain spaces.
+
+It differs from `imshow` in two ways:
+
+- **Set `vmin`/`vmax` to your function's range.** GLE does not look for the smallest and largest value of an expression, so the colour scale runs from `vmin` to `vmax`, 0 to 1 by default. Values outside it are drawn in the end colours.
+- **The map fills the whole graph.** `extent` sets the axis range, as an `imshow` extent does, but if other data or `set_xlim` widens the axes, GLE computes the expression over the wider range too.
+
+Contours of an expression are not supported; sample the function into an array and use `contour`.
+
 ## `origin` — Read This Before You Get Flipped Data
 
 `imshow`'s default is **`origin='lower'`**, which puts row 0 of `Z` at `ymin` — this **deviates from matplotlib**, whose `imshow` default is `origin='upper'` (row 0 at the top). gleplot chose `'lower'` because it matches the scientific/phase-diagram convention this feature was built for, and because GLE's own `.z` grid file format is y-increasing (row 0 = `ymin`) — `'lower'` is the identity mapping with no row-flipping needed.
@@ -65,7 +89,7 @@ ax.imshow(field_grid, origin='lower')    # row 0 is ymin, like np.meshgrid's row
 
 ## `vmin` / `vmax` (colour normalization)
 
-`vmin`/`vmax` map to GLE's `zmin`/`zmax` colormap clauses. Leave them `None` to let GLE auto-scale to the data's own range (the `.z` file's or the scattered points' min/max, whichever applies).
+`vmin`/`vmax` map to GLE's `zmin`/`zmax` colormap clauses. Leave them `None` to let GLE auto-scale to the data's own range (the `.z` file's or the scattered points' min/max, whichever applies). `function2d` has no data to scale to; see [Heatmap from an expression](#heatmap-from-an-expression).
 
 ```python
 ax.imshow(Z, cmap='magma', vmin=-1, vmax=1)
@@ -143,6 +167,7 @@ A colorbar over a **constant** field (`zmax == zmin`) is handled gracefully — 
 
 - `imshow`/gridded `contour` write a `.z` sidecar directly: a text header `! nx <nx> ny <ny> xmin <x0> xmax <x1> ymin <y0> ymax <y1>` followed by `ny` rows of `nx` values.
 - `tripcolor`/`tricontour` write a points sidecar (`<prefix>_points<N>.dat`): raw whitespace-separated `x y z` triples, one per line, no header.
+- `function2d` writes no file.
 - These sidecars are **not** columnar data in the usual gleplot sense — they're excluded from the `! gleplot: import-data = ...` metadata comment (which only lists file-backed series you could re-import as columns).
 
 At **GLE compile time** (not written by gleplot), GLE itself generates further files next to your `.gle` script:

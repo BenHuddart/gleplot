@@ -85,6 +85,18 @@ def test_imshow_colorbar_compiles(tmp_path):
     assert out.stat().st_size > 0
 
 
+def test_function2d_colorbar_compiles(tmp_path):
+    """GLE evaluates the bare expression; a quoted one would fail to compile."""
+    fig = glp.figure(figsize=(7, 6), data_prefix="fn")
+    ax = fig.add_subplot(111)
+    ax.function2d("sin(x)*cos(y)", extent=(0, 6.28, 0, 6.28), vmin=-1, vmax=1)
+    fig.colorbar(label="signal")
+
+    out = fig.savefig(str(tmp_path / "fn.png"))
+    assert out.exists()
+    assert out.stat().st_size > 0
+
+
 def test_constant_field_colorbar_compiles(tmp_path):
     """A constant Z (zmax == zmin) must not divide-by-zero in the colorbar sub
     and abort the render (regression: the degenerate-range guard)."""
