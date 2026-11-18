@@ -150,6 +150,7 @@ __all__ = [
     "Span",
     "Wedge",
     "Box",
+    "Rug",
     "DerivedSeries",
     "PlacedImage",
     "SERIES_CLASSES",
@@ -1455,6 +1456,32 @@ class PlacedImage(Series):
     visible: bool
 
 
+class Rug(Series):
+    """One rug -- ``Axes.rug`` stores one per call.
+
+    Drawn after the graph block, one ``gleplot_xrug`` or ``gleplot_yrug``
+    call per value.
+    """
+
+    ATTR = "rugs"
+
+    type: str
+    #: ``'x'`` (ticks along the x axis, at x values) or ``'y'``.
+    axis: str
+    #: Where the ticks are, in data coordinates along :attr:`axis`.
+    ticks: List[float]
+    #: Tick length in cm, into the axes from the frame; negative points out.
+    length: float
+    #: Frame edge: ``'bottom'``/``'top'`` for x, ``'left'``/``'right'`` for
+    #: y, or ``'both'``.
+    position: str
+    color: str
+    #: Points.
+    linewidth: float
+    #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
+    visible: bool
+
+
 # -- registry -----------------------------------------------------------------
 
 #: Every series list an axes owns, in the order they are serialized by
@@ -1482,6 +1509,7 @@ SERIES_CLASSES: Dict[str, Type[Series]] = {
         FitSeries,
         Wedge,
         Box,
+        Rug,
         DerivedSeries,
         PlacedImage,
     )

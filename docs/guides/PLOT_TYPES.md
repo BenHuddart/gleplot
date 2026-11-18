@@ -197,6 +197,19 @@ ax.boxplot([[1, 2, 3, 4, 9], [2, 3, 4]], tick_labels=['A', 'B'])
 One vertical box per sample set: quartiles, whiskers at 1.5 times the
 interquartile range, and the points beyond them.
 
+### Rugs
+
+```python
+ax.rug([1.2, 2.5, 2.7, 4.1])                       # ticks on the bottom edge
+ax.rug([3, 9], axis='y', position='both', color='C1')
+```
+
+A rug marks each value with a short tick on the frame: on the bottom, top or
+both edges for `axis='x'`, on the left, right or both for `axis='y'`. The
+ticks are `length` cm long (0.3 by default) and point into the axes; a
+negative length points out, as GLE's tick lengths do. Matplotlib has no rug,
+so `Axes.rug` is gleplot's own.
+
 ## Polar plots
 
 ```python

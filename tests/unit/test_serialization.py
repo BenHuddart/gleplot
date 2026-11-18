@@ -528,6 +528,7 @@ _AXES_SERIALIZED_ATTRS = {
     "spans",
     "wedges",
     "boxes",
+    "rugs",
     "derived_series",
     "images",
     "passthrough",
@@ -734,6 +735,7 @@ def _figure_exercising_every_series_kind():
     ax3.pie([1.0, 2.0], labels=["p", "q"], autopct="%d%%", textprops={"size": 9})
     ax3.boxplot([[1.0, 2.0, 3.0, 9.0], [2.0, 4.0]], showmeans=True)
     ax3.image("photo.png", extent=(0.5, 1.5, 0.5, 1.5))
+    ax3.rug([1.0, 2.0], axis="y", position="right", color="C3")
     return fig
 
 

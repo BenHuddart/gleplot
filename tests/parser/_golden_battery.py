@@ -1292,6 +1292,19 @@ def boxplot_field_options():
     return fig
 
 
+def rug_field_options():
+    """Rugs on every edge beside a scatter and a box, in two subplots."""
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    left.scatter([1.25, 2, 3.5], [0.5, 2, 1.5], color="C0")
+    left.rug([1.25, 2, 3.5], color="C0")
+    left.rug([0.5, 2, 1.5], axis="y", position="right", length=-0.2)
+    left.rug([4.75], position="top", color="red", linewidth=0.5)
+    right.boxplot([1, 2, 3, 9])
+    right.rug([1, 2, 3, 9], axis="y", position="both", linewidth=2)
+    right.rug([0.5, 1.5], position="both", length=0.15)
+    return fig
+
+
 def usetex_labels():
     """Page-level ``set texlabels 1``; labels reach LaTeX as written."""
     fig = glp.figure(style=glp.GLEStyleConfig(usetex=True), data_prefix="golden")
@@ -1451,6 +1464,7 @@ BUILDERS = [
     line_cap_join_dashlen,
     boxplot_chart,
     boxplot_field_options,
+    rug_field_options,
     usetex_labels,
     page_drawings,
     page_drawings_subplots,

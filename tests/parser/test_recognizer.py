@@ -378,6 +378,12 @@ def normalize(d: dict) -> dict:
             s["fliers"] = [_snap_num(v) for v in s["fliers"]]
             if s["mean"] is not None:
                 s["mean"] = _snap_num(s["mean"])
+        for s in ax.get("rugs", []):
+            s["ticks"] = [_snap_num(v) for v in s["ticks"]]
+            s["length"] = _snap_num(s["length"])
+            # Written as given, in cm: no default substitution.
+            cm = GLEWriter._format_number(linewidth_pt_to_cm(s["linewidth"]))
+            s["linewidth"] = linewidth_cm_to_pt(float(cm))
         for s in ax.get("texts", []):
             fs = s.get("fontsize")
             if fs is None:

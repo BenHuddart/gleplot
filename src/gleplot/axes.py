@@ -59,6 +59,7 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     LineSeries,
     PlacedImage,
     RefLine,
+    Rug,
     ScatterSeries,
     Series,
     Span,
@@ -1931,6 +1932,7 @@ class Axes:
         self.wedges: List[Wedge] = []  # pie slices
         self.boxes: List[Box] = []  # box plot boxes
         self.images: List[PlacedImage] = []  # placed image files
+        self.rugs: List[Rug] = []  # rugs
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model. Emitted verbatim inside this
@@ -5788,6 +5790,86 @@ class Axes:
         self.images.append(entry)
         return entry
 
+    @_cartesian_only
+    def rug(self, x, axis="x", length=0.3, position=None, color="black", linewidth=1.0):
+        """Draw a rug: one short tick on the frame at each value of ``x``.
+
+        Matplotlib has no rug; this is gleplot API.
+
+        Parameters
+        ----------
+        x : array-like
+            The values, in data coordinates along ``axis``. Must be finite.
+        axis : {'x', 'y'}, default: 'x'
+            ``'x'`` puts the ticks on a horizontal edge at the x values;
+            ``'y'`` on a vertical edge at the y values.
+        length : float, default: 0.3
+            Tick length in cm, into the axes from the frame. A negative
+            length points out of the axes, as GLE's ``ticks length`` does.
+        position : str, optional
+            The frame edge: ``'bottom'`` (the default), ``'top'`` or
+            ``'both'`` for ``axis='x'``; ``'left'`` (the default),
+            ``'right'`` or ``'both'`` for ``axis='y'``.
+        color : color, default: 'black'
+        linewidth : float, default: 1.0
+            Line width in points.
+
+        Returns
+        -------
+        Rug
+            The stored :class:`~gleplot.series.Rug` (also appended to
+            ``self.rugs``).
+
+        Raises
+        ------
+        ValueError
+            For an unknown ``axis`` or ``position``, non-finite values, a
+            zero or non-finite ``length``, or a negative ``linewidth``.
+
+        Notes
+        -----
+        The rug is drawn after the graph block, above the axes' other
+        series; a value outside the axis range draws no tick. The values
+        widen the autoscaled range of their axis.
+        """
+        edges = {"x": ("bottom", "top", "both"), "y": ("left", "right", "both")}
+        if axis not in edges:
+            raise ValueError(f"rug(axis={axis!r}) must be 'x' or 'y'.")
+        if position is None:
+            position = edges[axis][0]
+        if position not in edges[axis]:
+            raise ValueError(
+                f"rug(position={position!r}) with axis={axis!r} must be one of "
+                f"{', '.join(repr(p) for p in edges[axis])}."
+            )
+        values = np.asarray(x, dtype=float).ravel()
+        if not np.all(np.isfinite(values)):
+            raise ValueError(
+                "rug(x) must be finite; it has NaN or infinite values. Drop them "
+                "before plotting."
+            )
+        if not np.isfinite(length) or length == 0:
+            raise ValueError(
+                f"rug(length={length!r}) must be a non-zero length in cm; a "
+                "negative length points out of the axes."
+            )
+        if not np.isfinite(linewidth) or linewidth < 0:
+            raise ValueError(
+                f"rug(linewidth={linewidth!r}) must be a line width in points, "
+                "0 or more."
+            )
+        entry = Rug(
+            type="rug",
+            axis=axis,
+            ticks=[float(v) for v in values],
+            length=float(length),
+            position=position,
+            color=rgb_to_gle(color),
+            linewidth=float(linewidth),
+        )
+        self.rugs.append(entry)
+        return entry
+
     # -- heatmaps & contours --------------------------------------------
 
     def _resolve_cmap(self, cmap: Optional[str]) -> str:
@@ -7431,6 +7513,7 @@ class Axes:
             or self.spans
             or self.wedges
             or self.boxes
+            or self.rugs
             or self.derived_series
             or self.images
         )
