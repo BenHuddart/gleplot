@@ -9,13 +9,15 @@ Covers, beyond the byte-identical fixed-point guard in ``test_fixed_point.py``:
 * Hand-written tolerance: ~8 crafted files exercising attribute-order shuffle,
   cumulative axis lines, arithmetic expressions, single quotes, semicolons,
   British ``GREY``, unknown statements in all three passthrough positions, an
-  opaque block inside a graph, a no-metadata (heuristics) file, and a
-  missing-grid multi-graph fallback.
+  opaque block inside a graph, a no-metadata (heuristics) file, a
+  missing-grid multi-graph fallback, and custom marker definitions
+  (``define marker`` with its sub, ``defmarker``).
 * ``gleplot.open_gle`` smoke.
 """
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pytest
@@ -836,6 +838,67 @@ def test_unknown_statements_in_all_bucket_positions(tmp_path):
     assert "mystery_stmt inside graph" in text
     assert "! trailing note" in text
     assert "draw somebox" in text
+
+
+# Both GLE forms of a user-defined marker: a subroutine registered with
+# ``define marker``, and a font glyph registered with ``defmarker``.
+_CUSTOM_MARKER_DEFS = [
+    "sub crossbox size mdata",
+    "    gsave",
+    "    rmove -size/2 -size/2",
+    "    box size size",
+    "    grestore",
+    "end sub",
+    "define marker cbox crossbox",
+    "defmarker hand pszd 43 1 0 0",
+]
+_CUSTOM_MARKER_SRC = (
+    "size 10 8\n"
+    "set hei 0.4\n" + "\n".join(_CUSTOM_MARKER_DEFS) + "\n"
+    "begin graph\n"
+    "   xaxis min 0 max 4\n"
+    "   yaxis min 0 max 8\n"
+    "   data cm_1.dat d1=c1,c2 d2=c1,c3\n"
+    "   d1 line color BLUE marker cbox msize 0.3\n"
+    "   d2 marker hand msize 0.5 color RED\n"
+    "end graph\n"
+)
+_CUSTOM_MARKER_DAT = {"cm_1.dat": "1 2 3\n2 4 5\n3 6 7\n"}
+
+
+def test_custom_marker_definitions_round_trip(tmp_path):
+    p = _write(tmp_path, "cm.gle", _CUSTOM_MARKER_SRC, _CUSTOM_MARKER_DAT)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        rec = parse_gle_figure(p)
+    # Every note is on the sub's own source lines (the programmatic guard, and
+    # a false structure note on 'end sub', #189): the definitions and the
+    # datasets using them recover with none.
+    first = 3  # after 'size' and 'set hei'
+    sub_lines = range(first, first + _CUSTOM_MARKER_DEFS.index("end sub") + 1)
+    assert any(w.startswith("programmatic:") for w in rec.warnings)
+    assert all(n.source_span[0] in sub_lines for n in rec.notes)
+    fig = rec.figure
+    assert fig.passthrough_header == _CUSTOM_MARKER_DEFS
+    ax = fig.axes_list[0]
+    series = ax.lines + ax.scatters + ax.file_series
+    assert [s["marker"] for s in series] == ["cbox", "hand"]
+    assert ax.passthrough == []
+
+    # GLE resolves a marker name against the definitions read before it.
+    out = tmp_path / "again.gle"
+    fig.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    defs_at = text.index("\n".join(_CUSTOM_MARKER_DEFS) + "\n")
+    graph_at = text.index("begin graph")
+    assert defs_at < graph_at
+    assert text.index(" marker cbox ", graph_at) > graph_at
+    assert text.index(" marker hand ", graph_at) > graph_at
+
+    # A second load and save changes nothing.
+    again = tmp_path / "again2.gle"
+    parse_gle_figure(out).figure.savefig_gle(str(again))
+    assert again.read_bytes() == out.read_bytes()
 
 
 def test_opaque_block_inside_graph_becomes_axes_passthrough(tmp_path):

@@ -5,6 +5,8 @@ from unittest.mock import Mock
 import pytest
 
 import gleplot as glp
+from gleplot.compiler import GLECompiler
+from tests.parser.test_recognizer import _CUSTOM_MARKER_DAT, _CUSTOM_MARKER_SRC
 
 
 class TestFileIO:
@@ -145,3 +147,16 @@ class TestFileIO:
             raw.decode("utf-8").splitlines()
             == result.read_text(encoding="utf-8").splitlines()
         )
+
+
+@pytest.mark.gle
+def test_reopened_custom_marker_definitions_compile(tmp_path):
+    """A re-saved script still defines the custom markers its datasets use."""
+    for name, content in _CUSTOM_MARKER_DAT.items():
+        (tmp_path / name).write_text(content, encoding="utf-8")
+    src = tmp_path / "cm.gle"
+    src.write_text(_CUSTOM_MARKER_SRC, encoding="utf-8")
+    out = tmp_path / "again.gle"
+    glp.open_gle(str(src)).savefig_gle(str(out))
+    # GLE rejects a marker name it has no definition for.
+    assert GLECompiler().compile(str(out), output_format="pdf").exists()
