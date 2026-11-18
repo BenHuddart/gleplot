@@ -263,6 +263,9 @@ The right-hand scale is `yaxis="y2"` on a series, and `ax.twiny()` opens the top
    (`'lambda_tail'` is not a subscript) and math is opt-in via `$...$`. Unlike
    matplotlib, a backslash outside `$...$` still opens GLE's own text markup
    (`r'\chi{}'`), as do braced scripts (`'T_{N}'`).
+9. A second or translucent `imshow` is not possible; see
+   [Contours and Heatmaps](CONTOUR_AND_HEATMAPS.md) for why and what to use
+   instead.
 
 ## Migration Strategy
 

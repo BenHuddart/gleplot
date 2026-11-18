@@ -92,14 +92,18 @@ Unknown names raise `ValueError` listing the supported set. `viridis`/`magma`/`i
 
 ## One Heatmap Per Axes
 
-GLE supports at most one `colormap` per graph. Calling `imshow`/`tripcolor` a second time on the same `Axes` raises `ValueError`:
+GLE draws one `colormap` per graph: a second `colormap` statement replaces the first rather than drawing over it, and wrapping each in a `begin layer` block does not change that. A colormap is also always opaque — GLE has no transparency for it — so matplotlib's pattern of blending two images with `alpha` cannot be drawn. Calling `imshow`/`tripcolor` a second time on the same `Axes` therefore raises `ValueError`:
 
 ```python
 ax.imshow(Z1)
 ax.imshow(Z2)  # ValueError: GLE supports at most one heatmap (colormap) per axes
 ```
 
-Contour lines have no such limit — you can layer multiple `contour`/`tricontour` calls (e.g. one heatmap plus several contour overlays at different levels) on the same axes.
+Contour lines have no such limit — you can layer multiple `contour`/`tricontour` calls (e.g. one heatmap plus several contour overlays at different levels) on the same axes. To show a second field over a heatmap, draw it as contours.
+
+## Contour Smoothing
+
+GLE's `begin contour` block accepts a `smooth <integer>` line, but GLE reads the number and never uses it: the traced lines are the same with or without it. gleplot therefore offers no smoothing option on `contour`/`tricontour`. For smoother contour lines, use a finer grid (more points in `Z`, or a larger `gridsize` for `tricontour`).
 
 ## Data Requirements
 
