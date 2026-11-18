@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v4.8.0 (2026-11-18)
+
+### Features
+
+- Hide an axis line with set_axis_line(visible=False)
+  ([#83](https://github.com/BenHuddart/gleplot/pull/83),
+  [`7bc457b`](https://github.com/BenHuddart/gleplot/commit/7bc457b77a71c384578fd9b758907a2e8edcadad))
+
+- Review fixes for hidden axis lines ([#83](https://github.com/BenHuddart/gleplot/pull/83),
+  [`4a44fc7`](https://github.com/BenHuddart/gleplot/commit/4a44fc717768dc2ef5bebb1651800684a57c5adc))
+
+
 ## v4.7.0 (2026-11-18)
 
 ### Features
