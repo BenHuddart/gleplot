@@ -1,6 +1,7 @@
 """Basic gleplot examples demonstrating fundamental plotting features."""
 
 from .bar_charts import example_bar_chart
+from .box_plots import example_box_plot
 from .error_bars import (
     example_asymmetric_error_bars,
     example_combined_errorbars,
@@ -24,4 +25,5 @@ __all__ = [
     "example_combined_errorbars",
     "example_heatmap_imshow",
     "example_pie_chart",
+    "example_box_plot",
 ]

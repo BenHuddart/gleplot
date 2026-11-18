@@ -278,6 +278,7 @@ def _one_of_each_kind():
         levels=[2.0, 6.0],
     )
     ax2.pie([1.0, 2.0], labels=["p", "q"])
+    ax2.boxplot([1.0, 2.0, 3.0, 9.0])
     return fig
 
 

@@ -47,6 +47,8 @@ Plotting helpers
 
 .. autofunction:: gleplot.pie
 
+.. autofunction:: gleplot.boxplot
+
 .. autofunction:: gleplot.text
 
 .. autofunction:: gleplot.annotate

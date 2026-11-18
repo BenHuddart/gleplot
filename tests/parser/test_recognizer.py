@@ -355,6 +355,14 @@ def normalize(d: dict) -> dict:
             emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
             s["fontsize"] = fontsize_cm_to_pt(float(emitted))
             sticky_fs = s["fontsize"]
+        # Box plot numbers come back at the emitted precision.
+        for s in ax.get("boxes", []):
+            for k in ("x", "width", "capwidth", "whislo", "q1", "med", "q3"):
+                s[k] = _snap_num(s[k])
+            s["whishi"] = _snap_num(s["whishi"])
+            s["fliers"] = [_snap_num(v) for v in s["fliers"]]
+            if s["mean"] is not None:
+                s["mean"] = _snap_num(s["mean"])
         for s in ax.get("texts", []):
             fs = s.get("fontsize")
             if fs is None:

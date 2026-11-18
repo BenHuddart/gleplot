@@ -118,6 +118,72 @@ WEDGE_SUB = """sub gleplot_wedge cx cy r a1 a2 clr$ lbl$ ld pct$ pd
 end sub"""
 
 
+#: The subs behind every box of a box plot (:meth:`GLEWriter.add_box`),
+#: called after ``end graph`` like :data:`WEDGE_SUB`. The style is
+#: matplotlib's default: 1 pt black lines, a ``'C1'`` median, black open
+#: circle fliers and a ``'C2'`` triangle mean, both of markersize 6. Each sub
+#: saves and restores the graphics state, so it changes no ``set`` state.
+#: Being outside the graph block, nothing clips them: the box is clipped to
+#: the graph's frame (widened by half its line width), and a flier or mean outside the axis ranges is skipped,
+#: as GLE skips a dataset's out-of-range markers.
+BOX_SUB = """sub gleplot_box x w cw lo q1 med q3 hi
+   ! Box plot box: from q1 to q3, w data units wide, centred on x, with a
+   ! median line at med and whiskers out to lo and hi, capped cw data units
+   ! wide (0 draws no caps).
+   gsave
+   set lwidth 0.03528 color black cap butt
+   ! The clip reaches half a line width past the frame, so a cap or whisker
+   ! lying on the frame is drawn whole.
+   local h = 0.03528/2
+   local x0 = min(xg(xgmin),xg(xgmax))-h
+   local y0 = min(yg(ygmin),yg(ygmax))-h
+   begin clip
+   begin path clip
+      amove x0 y0
+      box max(xg(xgmin),xg(xgmax))+h-x0 max(yg(ygmin),yg(ygmax))+h-y0
+   end path
+   amove xg(x-w/2) yg(q1)
+   box xg(x+w/2)-xg(x-w/2) yg(q3)-yg(q1)
+   amove xg(x) yg(q1)
+   aline xg(x) yg(lo)
+   amove xg(x) yg(q3)
+   aline xg(x) yg(hi)
+   if cw > 0 then
+      amove xg(x-cw/2) yg(lo)
+      aline xg(x+cw/2) yg(lo)
+      amove xg(x-cw/2) yg(hi)
+      aline xg(x+cw/2) yg(hi)
+   end if
+   set color rgb255(255,127,14)
+   amove xg(x-w/2) yg(med)
+   aline xg(x+w/2) yg(med)
+   end clip
+   grestore
+end sub
+
+sub gleplot_box_flier x y
+   ! One point beyond a box plot whisker, if inside the axis ranges.
+   if (x >= xgmin) and (x <= xgmax) and (y >= ygmin) and (y <= ygmax) then
+      gsave
+      set lwidth 0.03528 color black
+      amove xg(x) yg(y)
+      marker circle 0.15
+      grestore
+   end if
+end sub
+
+sub gleplot_box_mean x y
+   ! A box plot mean, if inside the axis ranges.
+   if (x >= xgmin) and (x <= xgmax) and (y >= ygmin) and (y <= ygmax) then
+      gsave
+      set color rgb255(44,160,44)
+      amove xg(x) yg(y)
+      marker ftriangle 0.15
+      grestore
+   end if
+end sub"""
+
+
 @dataclass(frozen=True)
 class AxisStyle:
     """Styling for ONE axis (x, y or y2) of a graph block.
@@ -4343,6 +4409,31 @@ class GLEWriter:
             f'{num(series["pctdistance"])}'
         )
         self._text_state_just = None
+
+    def add_box(self, series: Series) -> None:
+        """Queue one box of a box plot for after ``end graph``.
+
+        ``series`` is a :class:`~gleplot.series.Box`. It goes out as a
+        ``gleplot_box`` call (:data:`BOX_SUB`), then a ``gleplot_box_flier``
+        call per flier and a ``gleplot_box_mean`` call when it has a mean,
+        in the deferred block the text annotations use, so the boxes are
+        drawn over the graph unclipped, like the pie wedges.
+        """
+        num = self._format_number
+        x = num(float(series["x"]))
+        values = " ".join(
+            num(float(series[key]))
+            for key in ("width", "capwidth", "whislo", "q1", "med", "q3", "whishi")
+        )
+        self._pending_graph_text_lines.append(f"gleplot_box {x} {values}")
+        for flier in series["fliers"]:
+            self._pending_graph_text_lines.append(
+                f"gleplot_box_flier {x} {num(float(flier))}"
+            )
+        if series.get("mean") is not None:
+            self._pending_graph_text_lines.append(
+                f"gleplot_box_mean {x} {num(float(series['mean']))}"
+            )
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
         """Where ``key separator`` falls, as 1-based legend-entry counts.

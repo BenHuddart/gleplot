@@ -1068,6 +1068,38 @@ def line_cap_join_dashlen():
     return fig
 
 
+def boxplot_chart():
+    """Labelled boxes with fliers and means, then a text drawn after them."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.boxplot(
+        [[1.5, 2.25, 3, 3.5, 4, 9.75], [2, 3, 4], [-1, 0.5, 1, 1.25, 1.5, 6]],
+        tick_labels=["low", "mid", "$\\alpha$"],
+        showmeans=True,
+    )
+    ax.set_title("spread")
+    ax.text(2, 8, "after", ha="center")
+    return fig
+
+
+def boxplot_field_options():
+    """Boxes beside a line plot: positions, widths, no caps, percentiles."""
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    left.plot([0, 1], [0, 1], color="blue")
+    right.plot([0, 10], [0, 4], color="red")
+    right.boxplot(
+        np.array([[0.5, 1.0], [1.0, 2.0], [2.0, 2.5], [3.0, 3.5]]),
+        positions=[2, 6],
+        widths=[1, 2],
+        whis=(10, 90),
+        showcaps=False,
+        usermedians=[None, 2.75],
+        manage_ticks=False,
+    )
+    right.boxplot([1, 1, 1, 1, 4], positions=[8], capwidths=0.5, autorange=True)
+    return fig
+
+
 BUILDERS = [
     single_line,
     multi_series_styles,
@@ -1126,6 +1158,8 @@ BUILDERS = [
     pie_chart,
     pie_field_options,
     line_cap_join_dashlen,
+    boxplot_chart,
+    boxplot_field_options,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]
