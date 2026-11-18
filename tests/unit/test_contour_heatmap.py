@@ -126,11 +126,40 @@ def test_only_one_heatmap_per_axes():
         ax.imshow(np.zeros((2, 2)))
 
 
+def test_imshow_brewer_ramp_interpolates_its_colours():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.zeros((2, 2)), cmap="YlOrRd")
+    text, _ = _gle(fig)
+    assert ax.heatmaps[0]["cmap"] == "ylorrd"
+    assert "palette gleplot_ylorrd" in text
+    sub = text.split("sub gleplot_ylorrd z", 1)[1].split("end sub", 1)[0]
+    # ColorBrewer YlOrRd runs #ffffcc -> #800026 over nine colours.
+    assert "local b = 0.800000" in sub
+    assert "then r = 0.741176+(0.501961-0.741176)*(z-7/8)*8" in sub
+
+
+def test_imshow_brewer_qualitative_is_stepped():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.zeros((2, 2)), cmap="Set1")
+    text, _ = _gle(fig)
+    assert "palette gleplot_set1" in text
+    sub = text.split("sub gleplot_set1 z", 1)[1].split("end sub", 1)[0]
+    # Nine ColorBrewer Set1 colours, one equal band each: #e41a1c ... #999999.
+    lines = sub.strip().splitlines()
+    assert len(lines) == 9
+    assert lines[0].strip() == "if z < 1/9 then return rgb(0.894118,0.101961,0.109804)"
+    assert lines[-1].strip() == "return rgb(0.600000,0.600000,0.600000)"
+
+
 def test_unknown_cmap_raises():
     fig = glp.figure()
     ax = fig.add_subplot(111)
-    with pytest.raises(ValueError, match="Unknown cmap"):
+    with pytest.raises(ValueError, match="Unknown cmap") as err:
         ax.imshow(np.zeros((2, 2)), cmap="turbo")
+    # The accepted names are listed as matplotlib spells them.
+    assert "RdYlBu" in str(err.value)
 
 
 # --------------------------------------------------------------------------- #

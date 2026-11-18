@@ -85,10 +85,13 @@ gleplot's generated palette subroutines **clamp** the normalized value into `[0,
 | `plasma` | Perceptually uniform, dark-to-light. |
 | `cividis` | Perceptually uniform, colourblind-safe. |
 | `coolwarm` | Diverging blue -> white -> red. |
+| `Blues`, `BuGn`, `BuPu`, `GnBu`, `Greens`, `Greys`, `Oranges`, `OrRd`, `PuBu`, `PuBuGn`, `PuRd`, `Purples`, `RdPu`, `Reds`, `YlGn`, `YlGnBu`, `YlOrBr`, `YlOrRd` | ColorBrewer sequential; smooth between the ColorBrewer colours, as in matplotlib. |
+| `BrBG`, `PiYG`, `PRGn`, `PuOr`, `RdBu`, `RdGy`, `RdYlBu`, `RdYlGn`, `Spectral` | ColorBrewer diverging; smooth between the ColorBrewer colours, as in matplotlib. |
+| `Accent`, `Dark2`, `Paired`, `Pastel1`, `Pastel2`, `Set1`, `Set2`, `Set3` | ColorBrewer qualitative; one flat band per colour, as in matplotlib. |
 | `gray` | GLE's built-in grayscale; emits no palette clause. |
 | `rainbow` (alias `jet`) | GLE's built-in rainbow; emits `colormap ... color` instead of a `palette` clause. |
 
-Unknown names raise `ValueError` listing the supported set. `viridis`/`magma`/`inferno`/`plasma`/`cividis` are transcribed from `gle-library`'s `include/palettes.gle` RGB stop tables; `coolwarm` from `include/color.gle`'s `palette_blue_white_red`. All are emitted as self-contained `sub gleplot_<name> z ... end sub` subroutines directly in the `.gle` script (deduplicated — only palettes actually used are written), so the output compiles without the `gle-library` on the include path.
+Names are matched case-insensitively. Unknown names raise `ValueError` listing the supported set. `viridis`/`magma`/`inferno`/`plasma`/`cividis` are transcribed from `gle-library`'s `include/palettes.gle` RGB stop tables; `coolwarm` from `include/color.gle`'s `palette_blue_white_red`; the ColorBrewer maps from the colours in `include/brewer.gle`. All are emitted as self-contained `sub gleplot_<name> z ... end sub` subroutines directly in the `.gle` script (deduplicated — only palettes actually used are written), so the output compiles without the `gle-library` on the include path.
 
 ## One Heatmap Per Axes
 

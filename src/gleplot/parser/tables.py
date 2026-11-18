@@ -38,6 +38,7 @@ from .. import markers as _markers
 from ..colors import COLORS, gle_color_rgb, nearest_gle_color
 from ..config import GLEStyleConfig
 from ..markers import MARKERS
+from ..palettes import SUPPORTED_CMAPS, canonical_cmap, cmap_needs_sub
 
 __all__ = [
     "COLORS",
@@ -297,17 +298,12 @@ KEY_POSITIONS_LONG_TO_SHORT: Dict[str, str] = {
 # (see :mod:`gleplot.palettes`). The recognizer maps a ``colormap ... palette
 # gleplot_<name>`` clause back to the canonical cmap name via this table (and
 # treats any OTHER palette sub name as an unknown/foreign palette -> passthrough
-# with a warning). Provenance: the ``<name>`` keys mirror
-# ``gleplot.palettes.PALETTE_STOPS`` plus ``coolwarm`` -- the palettes that
-# require an emitted sub. ``gray``/``rainbow`` need no sub and never appear as a
-# ``palette`` clause (grayscale = no clause; rainbow = the ``color`` switch).
+# with a warning). It is built from ``gleplot.palettes.SUPPORTED_CMAPS``: every
+# palette that requires an emitted sub. ``gray``/``rainbow`` need no sub and
+# never appear as a ``palette`` clause (grayscale = no clause; rainbow = the
+# ``color`` switch).
 PALETTE_SUB_TO_CMAP: Dict[str, str] = {
-    "gleplot_viridis": "viridis",
-    "gleplot_magma": "magma",
-    "gleplot_inferno": "inferno",
-    "gleplot_plasma": "plasma",
-    "gleplot_cividis": "cividis",
-    "gleplot_coolwarm": "coolwarm",
+    f"gleplot_{c}": c for c in map(canonical_cmap, SUPPORTED_CMAPS) if cmap_needs_sub(c)
 }
 
 CMAP_TO_PALETTE_SUB: Dict[str, str] = {v: k for k, v in PALETTE_SUB_TO_CMAP.items()}

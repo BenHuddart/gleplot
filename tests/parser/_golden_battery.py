@@ -602,6 +602,15 @@ def heatmap_field_options():
     return fig
 
 
+def heatmap_brewer_palettes():
+    """ColorBrewer cmaps: an interpolated diverging ramp and a stepped set."""
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    Z = np.arange(12, dtype=float).reshape(3, 4)
+    left.imshow(Z, extent=(0, 4, 0, 3), cmap="RdBu")
+    right.imshow(Z, extent=(0, 4, 0, 3), cmap="Set1")
+    return fig
+
+
 def contour_grid_levels_clabel():
     """Gridded contour (contour(x, y, Z)) with explicit levels + clabels."""
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
@@ -1038,6 +1047,7 @@ BUILDERS = [
     custom_figsize_and_dpi,
     heatmap_imshow_colorbar,
     heatmap_field_options,
+    heatmap_brewer_palettes,
     contour_grid_levels_clabel,
     contour_field_options,
     tripcolor_tricontour_combo,
