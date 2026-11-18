@@ -168,6 +168,8 @@ class TestGraphicsCompilation:
             ({}, 2),  # RGB
             ({"transparent": True}, 6),  # RGB + alpha
             ({"grayscale": True}, 0),  # grey
+            # Only Cairo keeps the alpha channel of a grey PNG.
+            ({"grayscale": True, "transparent": True, "cairo": True}, 6),
         ],
     )
     def test_png_output_options_set_the_colour_type(self, options, colour_type):

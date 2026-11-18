@@ -151,10 +151,14 @@ def build_compile_args(
     transparent : bool, optional
         When ``True`` and ``output_format`` is ``png``, appends
         ``-transparent`` (an alpha channel instead of a white background).
-        GLE ignores the flag on every other device, so it is left out there.
+        GLE ignores the flag on every other device, so it is left out there:
+        PDF, EPS and SVG have no background, and a JPEG warns because it has
+        no alpha channel. A grayscale PNG keeps its alpha channel only with
+        ``cairo=True``, and warns without it.
     grayscale : bool, optional
-        When ``True``, appends ``-nocolor``: GLE converts every colour to its
-        grey level, on every device.
+        When ``True``, appends ``-nocolor``: GLE converts the colours it draws
+        to their grey level. Colormap images (heatmaps) are converted only in
+        PNG and JPEG output.
 
     Notes
     -----
@@ -204,6 +208,19 @@ def build_compile_args(
         args.append("-nocolor")
     if transparent and fmt == "png":
         args.append("-transparent")
+        if grayscale and not cairo:
+            # Verified with GLE 4.3.10: without -cairo, -nocolor writes a
+            # grey-only PNG and the alpha channel is lost.
+            warn_external(
+                "transparent=True has no effect on a grayscale PNG unless it "
+                "is compiled with cairo=True; pass cairo=True to keep the "
+                "transparent background."
+            )
+    elif transparent and fmt == "jpg":
+        warn_external(
+            "transparent=True has no effect on a JPEG, which has no alpha "
+            "channel; save as PNG for a transparent background."
+        )
     if fmt in RASTER_COMPILE_FORMATS and dpi is not None:
         args.extend(["-r", str(int(dpi))])
     args.extend(["-o", str(output_path), str(input_path)])
@@ -680,11 +697,12 @@ class GLECompiler:
             compiler didn't write (or to force the flag either way).
         transparent : bool
             Give a PNG an alpha channel instead of a white background (GLE's
-            ``-transparent``). PDF, EPS and SVG output has no background to
-            remove. JPEG has no alpha channel, so ``True`` warns there.
+            ``-transparent``); see :func:`build_compile_args` for the other
+            formats and for a grayscale PNG.
         grayscale : bool
-            Convert every colour to its grey level (GLE's ``-nocolor``), on
-            every format.
+            Convert the colours GLE draws to their grey level (GLE's
+            ``-nocolor``); see :func:`build_compile_args` for colormap
+            images.
 
         Returns
         -------
@@ -707,12 +725,6 @@ class GLECompiler:
 
         # Determine output file
         output_path = input_path.with_suffix(f".{output_format}")
-
-        if transparent and output_format.lower() == "jpg":
-            warn_external(
-                "transparent=True has no effect on a JPEG, which has no alpha "
-                "channel; save as PNG for a transparent background."
-            )
 
         # Build command (all options must come before filename). Pass as a
         # list (no shell=True) so paths containing spaces are handled safely

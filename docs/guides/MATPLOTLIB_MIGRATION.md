@@ -268,9 +268,12 @@ or `.jpg` name, compiles it with GLE.
 
 | `savefig()` keyword | gleplot |
 |---|---|
-| `transparent` | wired — a PNG gets an alpha channel instead of a white background (GLE `-transparent`). PDF, EPS and SVG have no background to begin with. A JPEG has no alpha channel, so `True` warns there. |
-| `grayscale` | gleplot keyword, not a matplotlib one: every colour becomes its grey level (GLE `-nocolor`), in every format. |
-| `bbox_inches`, `pad_inches`, `facecolor` | warn. The page is always the figure's `figsize`, and its background is not settable. |
+| `transparent` | wired — a PNG gets an alpha channel instead of a white background (GLE `-transparent`). PDF, EPS and SVG have no background to begin with. A JPEG has no alpha channel, so `True` warns there; a grayscale PNG keeps its alpha channel only with `cairo=True`, and warns without it. |
+| `grayscale` | gleplot keyword, not a matplotlib one: the colours GLE draws become their grey level (GLE `-nocolor`). A heatmap's image is greyed only in PNG and JPEG; in PDF, EPS and SVG it stays in colour and `True` warns. |
+| `bbox_inches`, `pad_inches`, `facecolor`, `edgecolor` | warn. The page is always the figure's `figsize`, and its background is not settable. |
+
+`transparent` and `grayscale` act when GLE compiles, so they warn when only
+the `.gle` script is saved.
 
 ```python
 fig.savefig("plot.png", transparent=True)
