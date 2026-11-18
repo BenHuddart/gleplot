@@ -6588,8 +6588,8 @@ class Axes:
             Gap between the label and the tick labels, in points (GLE
             ``xtitle ... dist``). ``None`` keeps the current gap.
         loc : str, optional
-            Only ``'center'`` is drawn; GLE centres axis titles. Any other
-            value warns.
+            ``'left'``, ``'center'`` or ``'right'``. GLE centres axis
+            titles, so the other two warn.
         fontname : str, optional
             GLE font for the label, such as ``'texcmr'`` (GLE ``xtitle ...
             font``). ``None`` keeps the current font.
@@ -6627,8 +6627,8 @@ class Axes:
             Gap between the label and the tick labels, in points (GLE
             ``ytitle ... dist``). ``None`` keeps the current gap.
         loc : str, optional
-            Only ``'center'`` is drawn; GLE centres axis titles. Any other
-            value warns.
+            ``'bottom'``, ``'center'`` or ``'top'``. GLE centres axis
+            titles, so the other two warn.
         fontname : str, optional
             GLE font for the label (GLE ``ytitle ... font``). ``None`` keeps
             the current font.
@@ -6664,8 +6664,8 @@ class Axes:
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
         loc : str, optional
-            Only ``'center'`` is drawn; GLE centres the title. Any other
-            value warns.
+            ``'left'``, ``'center'`` or ``'right'``. GLE centres the
+            title, so the other two warn.
         pad : float, optional
             Gap between the title and the top of the axes, in points (GLE
             ``title ... dist``). ``None`` keeps the current gap.
@@ -6690,6 +6690,19 @@ class Axes:
         size stays in points, as ``legend(fontsize=)`` keeps it, and the
         writer converts it to ``hei``.
         """
+        if loc is not None:
+            places = ("bottom", "center", "top")
+            if caller != "set_ylabel":
+                places = ("left", "center", "right")
+            if loc not in places:
+                raise ValueError(
+                    f"{caller}(loc={loc!r}) must be one of {', '.join(places)}"
+                )
+            if loc != "center":
+                warn_external(
+                    f"{caller}(loc={loc!r}) is drawn centred: GLE centres "
+                    "every title.",
+                )
         if "fontsize" in kwargs:
             fontsize = kwargs.pop("fontsize")
             setattr(
@@ -6714,15 +6727,12 @@ class Axes:
             setattr(self, f"{prefix}_dist", float(cm))
         if fontname is not None:
             setattr(self, f"{prefix}_font", _gle_font_name(fontname, caller))
-        if loc not in (None, "center"):
-            kwargs["loc"] = loc
         if kwargs:
             warn_external(
                 f"{caller}(): "
                 + ", ".join(sorted(kwargs))
                 + f" not supported in gleplot and ignored. {caller}() takes "
-                f"fontsize, color, {pad_name} and fontname; GLE always centres "
-                "the text.",
+                f"fontsize, color, {pad_name} and fontname.",
             )
 
     def set_axis_line(
@@ -7894,7 +7904,7 @@ class Axes:
                 )
             style = getattr(self.figure, "style", None) or GlobalConfig.get_style()
             return float(style.fontsize) * MATPLOTLIB_RELATIVE_FONTSIZES[name]
-        size = float(fontsize)
+        size = _finite_float(fontsize, f"{argument}=...)")
         if size <= 0:
             raise ValueError(f"{argument}={fontsize!r}) must be positive")
         return size

@@ -487,8 +487,10 @@ def test_relabelling_keeps_the_style_and_none_resets_it():
 
 def test_other_text_keywords_warn_and_centre_is_silent():
     fig, ax = _fig()
-    with pytest.warns(UserWarning, match=r"set_title\(\): fontdict, fontweight, loc"):
-        ax.set_title("T", {"fontsize": 9}, "left", fontweight="bold")
+    with pytest.warns(UserWarning, match=r"set_title\(\): fontdict, fontweight not"):
+        ax.set_title("T", {"fontsize": 9}, fontweight="bold")
+    with pytest.warns(UserWarning, match=r"set_ylabel\(loc='top'\) is drawn centred"):
+        ax.set_ylabel("Y", loc="top")
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         ax.set_xlabel("X", loc="center")
@@ -503,6 +505,10 @@ def test_other_text_keywords_warn_and_centre_is_silent():
         (lambda ax: ax.set_ylabel("Y", fontsize="huge"), ValueError, "fontsize"),
         (lambda ax: ax.set_xlabel("X", labelpad="far"), TypeError, "labelpad"),
         (lambda ax: ax.set_title("T", pad=float("nan")), ValueError, "pad"),
+        (lambda ax: ax.set_title("T", fontsize=float("nan")), ValueError, "fontsize"),
+        (lambda ax: ax.set_xlabel("X", fontsize=[9]), TypeError, "fontsize"),
+        (lambda ax: ax.set_xlabel("X", loc="top"), ValueError, "left, center, right"),
+        (lambda ax: ax.set_ylabel("Y", loc="left"), ValueError, "bottom, center, top"),
     ],
 )
 def test_a_bad_title_keyword_is_rejected_at_the_call(call, error, match):
