@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v4.7.0 (2026-11-18)
+
+### Features
+
+- Matplotlib axis helpers twinx, invert_*axis, semilog*, set_*ticklabels, axis
+  ([#81](https://github.com/BenHuddart/gleplot/pull/81),
+  [`97a75a9`](https://github.com/BenHuddart/gleplot/commit/97a75a98aa7c1bc29e8d146a14e9ac0dcd666f3f))
+
+- Review fixes for the axis helpers ([#81](https://github.com/BenHuddart/gleplot/pull/81),
+  [`2668576`](https://github.com/BenHuddart/gleplot/commit/266857621d391adf28a3a4db816b113da2385224))
+
+
 ## v4.6.0 (2026-11-18)
 
 ### Features
