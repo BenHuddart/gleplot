@@ -1,7 +1,7 @@
 gleplot Documentation
 =====================
 
-A Python library that provides a **matplotlib-compatible API** for creating scientific plots that directly generate GLE (Graphics Layout Engine) scripts for publication-quality vector graphics.
+A Python library to **write standard GLE (Graphics Layout Engine) from Python, with matplotlib-shaped names**, for publication-quality vector graphics. It exposes what GLE does natively; where a matplotlib behaviour has no GLE equivalent, gleplot accepts the keyword, warns and documents the gap.
 
 Start with :doc:`getting_started` for installation and your first plot, then the user guide (starting with :doc:`guides/FIGURES_AND_SUBPLOTS`) and the :doc:`gallery` for common patterns.
 
