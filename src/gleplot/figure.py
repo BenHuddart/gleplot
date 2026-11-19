@@ -2,6 +2,7 @@
 
 import math
 import re
+import warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
@@ -30,7 +31,13 @@ from .compiler import (
     _remove_tex_cache,
     remove_generated_intermediates,
 )
-from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
+from .config import (
+    _SCALE_MODES,
+    GLEGraphConfig,
+    GLEMarkerConfig,
+    GLEStyleConfig,
+    GlobalConfig,
+)
 from .markers import MARKERS
 from .parser import metadata as _gle_metadata
 from .parser.tables import LEGEND_SPACING_TO_KEY
@@ -229,6 +236,26 @@ def _apply_bar_value_extent(extent, lo_bound, hi_bound, positive_only: bool):
     if hi_bound is None or data_hi > hi_bound:
         hi_bound = data_hi
     return lo_bound, hi_bound
+
+
+def _saved_graph_config(saved: Dict[str, Any]) -> GLEGraphConfig:
+    """The ``GLEGraphConfig`` a saved figure holds.
+
+    A ``scale_mode`` saved before it was checked, which drew as 'auto', is
+    read as 'auto' with a warning, and a saved 'fixed' does not warn again:
+    the figure keeps loading as it was drawn.
+    """
+    kwargs = _filtered_dataclass_kwargs(GLEGraphConfig, saved)
+    mode = kwargs.get("scale_mode", "auto")
+    if not isinstance(mode, str) or mode not in _SCALE_MODES:
+        warn_external(
+            f"The saved scale_mode {mode!r} is not a scale mode; it is read as "
+            "'auto', which is how it was drawn."
+        )
+        kwargs["scale_mode"] = "auto"
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="scale_mode='fixed'")
+        return GLEGraphConfig(**kwargs)
 
 
 def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
@@ -606,7 +633,12 @@ class Figure:
         # a cross-figure hazard; an object the caller constructed and holds
         # no other reference to is not.
         self.style = style if style is not None else replace(GlobalConfig.get_style())
-        self.graph = graph if graph is not None else replace(GlobalConfig.get_graph())
+        if graph is None:
+            # A 'fixed' global warned when it was set; copying it is quiet.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="scale_mode='fixed'")
+                graph = replace(GlobalConfig.get_graph())
+        self.graph = graph
         self.marker_config = (
             marker if marker is not None else replace(GlobalConfig.get_marker())
         )
@@ -5582,13 +5614,7 @@ class Figure:
             if config.get("style")
             else None
         )
-        graph = (
-            GLEGraphConfig(
-                **_filtered_dataclass_kwargs(GLEGraphConfig, config["graph"])
-            )
-            if config.get("graph")
-            else None
-        )
+        graph = _saved_graph_config(config["graph"]) if config.get("graph") else None
         marker = (
             GLEMarkerConfig(
                 **_filtered_dataclass_kwargs(GLEMarkerConfig, config["marker"])
