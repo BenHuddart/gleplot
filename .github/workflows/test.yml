@@ -94,6 +94,10 @@ jobs:
       # Pinned to a release tag: building an unpinned upstream master broke
       # CI when it grew a hard docbook-to-man requirement for man pages.
       GLE_VERSION: v4.3.9
+      # Windows Ghostscript: an ArtifexSoftware/ghostpdl-downloads release tag
+      # and the SHA-256 of its gs*w64.exe asset.
+      GS_WIN_RELEASE: gs10080
+      GS_WIN_SHA256: 52A91B8BF09298788D7A57B9206127026C23EACD75405F0A131E26DC381DCE50
       # One flag for the pytest invocation, the file check, and the upload.
       COVERAGE: ${{ matrix.os == 'ubuntu-24.04' }}
 
@@ -162,15 +166,46 @@ jobs:
             glib \
             extra-cmake-modules
 
-      # GLE runs gswin64c.exe by bare name, and the Chocolatey package does
-      # not put it on PATH.
+      # Ghostscript comes from Artifex's official installer, pinned by release
+      # and checksum: the Chocolatey package's installer hung until the job
+      # timed out (#325).
+      - name: Restore cached Ghostscript installer (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/gs-installer
+          key: gs-installer-${{ env.GS_WIN_RELEASE }}
+
+      # GLE runs gswin64c.exe by bare name, and the installer does not put it
+      # on PATH.
       - name: Install GLE dependencies (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        timeout-minutes: 10
+        shell: pwsh
         run: |
-          choco install ghostscript --yes --no-progress
-          gs_bin="$(ls -d "/c/Program Files/gs/"gs*/bin | sort -V | tail -1)"
-          cygpath -w "$gs_bin" >> "$GITHUB_PATH"
+          $name = "$($env:GS_WIN_RELEASE)w64.exe"
+          $dir = Join-Path $HOME 'gs-installer'
+          $exe = Join-Path $dir $name
+          if (-not (Test-Path $exe)) {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $url = "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$($env:GS_WIN_RELEASE)/$name"
+            Invoke-WebRequest -Uri $url -OutFile $exe
+          }
+          if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $env:GS_WIN_SHA256) {
+            Remove-Item $exe
+            throw "Ghostscript installer $name does not match GS_WIN_SHA256"
+          }
+          $p = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            throw "Ghostscript installer exited with code $($p.ExitCode)"
+          }
+          $bin = Get-ChildItem 'C:\Program Files\gs' -Directory |
+            Sort-Object { [version]($_.Name -replace '^gs', '') } |
+            Select-Object -Last 1 |
+            ForEach-Object { Join-Path $_.FullName 'bin' }
+          & (Join-Path $bin 'gswin64c.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw "gswin64c.exe did not run" }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
 
       # GLE is cached, keyed on its version and the runner image. Bump the
       # trailing number to force a fresh install. A pull request can read the
