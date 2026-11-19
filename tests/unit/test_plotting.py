@@ -1813,7 +1813,7 @@ class TestLineModes:
 
 
 class TestDatasetQualifiers:
-    """``mdist``, ``deresolve [average]`` and the per-dataset clip window."""
+    """``mdist``, ``deresolve [average]`` and the per-dataset data range."""
 
     @pytest.fixture(autouse=True)
     def _setup_teardown(self):

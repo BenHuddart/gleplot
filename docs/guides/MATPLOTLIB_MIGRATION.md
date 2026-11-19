@@ -257,7 +257,7 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 | `mdist=0.5` | `mdist 0.5`. Needs a `marker`; without one it warns and is dropped. `GLEMarkerConfig(mdist=...)` is the default for every marked line in the figure. |
 | `deresolve=5` | `deresolve 5`: one point in every five is drawn. GLE keeps a line's first and last point. |
 | `deresolve=5, deresolve_average=True` | `deresolve 5 average`: each window of five points is drawn as its mean. |
-| `xmin`, `xmax`, `ymin`, `ymax` | the series' own data range: it is drawn as if the axes ran over that range, whatever their limits, and points outside it are not drawn. This rescales the series; it is not a clip window. An omitted edge is the axis limit. |
+| `xmin`, `xmax`, `ymin`, `ymax` | the series' own data range: it is drawn as if its axes ran over that range, and nothing outside it is drawn. This rescales the series; it is not a clip window, and the tick labels keep the axis' own range. An omitted edge is the limit of the axis the series is drawn against. |
 
 A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` does not take them: GLE thins the markers but not the whiskers under `deresolve`.
 

@@ -2647,12 +2647,13 @@ class Axes:
             ``deresolve``.
         xmin, xmax, ymin, ymax : float, optional
             This series' own data range (GLE's ``dN xmin ... ymax``): it is
-            drawn as if the x axis ran from ``xmin`` to ``xmax`` and the y
-            axis from ``ymin`` to ``ymax``, whatever the axes' limits, and
-            points outside that range are not drawn. This rescales the
-            series; it is not a clip window. An omitted edge is the axes'
-            own limit. ``xmin`` must be below ``xmax``, ``ymin`` below
-            ``ymax``.
+            drawn as if its x axis ran from ``xmin`` to ``xmax`` and its y
+            axis from ``ymin`` to ``ymax``, and nothing outside that range
+            is drawn. This rescales the series; it is not a clip window. The
+            tick labels keep the axis' own range, so they no longer read
+            off this series. An omitted edge is the limit of the axis the
+            series is drawn against. ``xmin`` must be below ``xmax``,
+            ``ymin`` below ``ymax``.
         **kwargs
             Additional matplotlib-compatible arguments. ``lw``, ``ls``,
             ``c`` and ``ms`` are matplotlib's short names for

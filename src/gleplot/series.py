@@ -657,8 +657,8 @@ class _XYSeries(Series):
     #: mean. Only present together with ``deresolve``.
     deresolve_average: bool
     #: GLE's per-dataset range, in data coordinates: the series is drawn as
-    #: if the axes ran over it, and points outside it are dropped. Absent:
-    #: that edge is the axis limit.
+    #: if its axes ran over it, and nothing outside it is drawn. Absent:
+    #: that edge is the limit of the axis the series is drawn against.
     xmin: float
     xmax: float
     ymin: float
@@ -1171,9 +1171,9 @@ class FileSeries(Series):
     #: ``'fill'`` variant: ``"x1"``, ``"x2"`` or ``"polygon"``. Absent means
     #: the two-curve ``fill dA,dB``.
     target: str
-    #: The ``fill`` command's clip window on the ``'fill'`` variant; the
-    #: dataset's range (``_XYSeries.xmin``) on ``'line'`` and ``'errorbar'``.
-    #: Absent: that edge is open (the axis limit).
+    #: The ``fill`` command's clip window on the ``'fill'`` variant (absent:
+    #: not clipped on that edge); the dataset's range (``_XYSeries.xmin``)
+    #: on ``'line'`` and ``'errorbar'``.
     xmin: float
     xmax: float
     ymin: float
