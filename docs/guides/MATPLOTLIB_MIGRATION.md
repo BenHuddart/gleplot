@@ -8,8 +8,8 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 |---|---|
 | `plt.figure()` | `glp.figure()` |
 | `plt.close(fig)` / `plt.close('all')` | same; gleplot tracks only the current figure, so `'all'` closes that one, and a figure number or label matches nothing and warns |
-| `plt.subplots(nrows, ncols)` | `glp.subplots(nrows, ncols)`: the same numpy array of axes, with `squeeze`, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
-| `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
+| `plt.subplots(nrows, ncols)` | `glp.subplots(nrows, ncols)`: the same numpy array of axes, with `squeeze`, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md). `subplot_kw` goes to each `add_subplot`; from `gridspec_kw`, the ratios and the `subplots_adjust` spacings are used. Other `gridspec_kw` keys, and figure keywords such as `num` or `layout`, warn |
+| `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, `polar=True` and `facecolor`; other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
 | `ax.plot(...)` | same |
@@ -450,7 +450,7 @@ ax.set_ylim(0, 2)
 | `ax.set_rmax`, `set_rticks`, `set_thetagrids`, `set_theta_zero_location`, `set_theta_direction`, `set_rlabel_position` | not available. Rings are evenly spaced, at most five; spokes and angle labels are every 45°, counter-clockwise from the right; ring labels lie along 22.5°. |
 | `ax.grid(True)` | does nothing: the polar grid is always drawn. `ax.grid(False)`, `ax.grid()` and grid styling warn and are ignored. `GLEGraphConfig(show_grid=True)` does not apply. |
 | `ax.bar`, `ax.fill`, `ax.errorbar`, `ax.text`, `ax.set_xlim`, `ax.set_xticks`, `ax.tick_params`, `ax.derived` and the other plotting and cartesian axis methods | raise `NotImplementedError` on a polar axes. |
-| `plt.subplots(subplot_kw={'projection': 'polar'})` | not available; use `fig.add_subplot(..., projection='polar')`. |
+| `plt.subplots(subplot_kw={'projection': 'polar'})` | same; every axes of the grid is polar. |
 
 The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar axes: GLE would smooth the drawn x and y, which need not be in order. A figure's `sharex`/`sharey` leaves a polar axes' limits alone.
 
