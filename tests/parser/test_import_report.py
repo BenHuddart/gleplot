@@ -359,3 +359,37 @@ def test_string_compatibility_across_every_category(tmp_path):
         if n.source_span is not None:
             assert n.source_span[0] <= n.source_span[1]
             assert 1 <= n.source_span[0] <= len(src.splitlines())
+
+
+def test_open_gle_warns_once_per_note(tmp_path):
+    """#135: ``open_gle`` raises each note, attributed to the caller's line."""
+    src = (
+        "size 20.32 15.24\n"
+        "sub myplot\n"
+        "   begin graph\n"
+        "      fullsize\n"
+        "      data data_k.dat d1=c1,c2\n"
+        "      d1 line color blue lwidth 0.05\n"
+        "   end graph\n"
+        "end sub\n"
+        "myplot\n"
+    )
+    p = _write(tmp_path, "prog.gle", src, {"data_k.dat": "0 0\n1 1\n"})
+    expected = parse_gle_figure(p).warnings
+    assert len(expected) > 1
+    with pytest.warns(UserWarning) as record:
+        gleplot.open_gle(p)
+    assert [str(w.message) for w in record] == expected
+    assert {w.filename for w in record} == {__file__}
+
+
+def test_open_gle_on_a_clean_file_is_silent(tmp_path, recwarn):
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data d.dat d1=c1,c2\n"
+        "   d1 line color blue lwidth 0.05\n"
+        "end graph\n"
+    )
+    gleplot.open_gle(_write(tmp_path, "clean.gle", src, {"d.dat": "0 0\n1 1\n"}))
+    assert len(recwarn) == 0

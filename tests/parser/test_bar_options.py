@@ -364,13 +364,15 @@ def test_a_degraded_bar_is_a_parse_emit_parse_fixed_point(tmp_path, monkeypatch)
     bar_line = "bar d1 fill red 3d 0.2 0.2 side green"
     _write(tmp_path, "h.gle", _script(bar_line), {"two.dat": _TWO_DAT})
 
-    glp.open_gle("h.gle").savefig_gle("first.gle")
+    with pytest.warns(UserWarning, match="bar sub-command"):
+        glp.open_gle("h.gle").savefig_gle("first.gle")
     first = Path("first.gle").read_text(encoding="utf-8")
     # Verbatim -- the author's own indentation included.
     assert f"   {bar_line}\n" in first
     assert '   data "two.dat" d1=c1,c2\n' in first
 
-    glp.open_gle("first.gle").savefig_gle("second.gle")
+    with pytest.warns(UserWarning, match="bar sub-command"):
+        glp.open_gle("first.gle").savefig_gle("second.gle")
     assert Path("second.gle").read_text(encoding="utf-8") == first
 
 

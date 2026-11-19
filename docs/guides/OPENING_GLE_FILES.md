@@ -61,8 +61,11 @@ is recorded as a recovery note. The notes are grouped by category:
 | `smooth` | smoothing differs between series in a way the figure cannot express |
 | `programmatic` | the file uses GLE programming (`sub`, `if`, `for`, `while`, ...); saving may restructure it |
 
-`open_gle` returns the figure only. To see the notes, call
-`gleplot.parser.parse_gle_figure`, which returns both:
+`open_gle` raises each note as a `UserWarning` whose text is
+`"category: message"`, so you can filter or silence them with the standard
+`warnings` module. To get the notes as data instead, call
+`gleplot.parser.parse_gle_figure`, which returns the figure and the notes
+without warning:
 
 ```python
 from gleplot.parser import parse_gle_figure
