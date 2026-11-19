@@ -3987,6 +3987,10 @@ class Axes:
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
         zorder: Optional[float] = None,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        ymin: Optional[float] = None,
+        ymax: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -4035,6 +4039,15 @@ class Axes:
             Draw order relative to other data series on the same axes.
             Higher values are drawn on top. When omitted, error bars sit
             above lines and scatters (the historical gleplot default).
+        xmin, xmax, ymin, ymax : float, optional
+            This series' own data range (GLE's ``dN xmin ... ymax``): it is
+            drawn, error bars included, as if its x axis ran from ``xmin``
+            to ``xmax`` and its y axis from ``ymin`` to ``ymax``, and
+            nothing outside that range is drawn. This rescales the series;
+            it is not a clip window. The tick labels keep the axis' own
+            range, so they no longer read off this series. An omitted edge
+            is the limit of the axis the series is drawn against. ``xmin``
+            must be below ``xmax``, ``ymin`` below ``ymax``.
         **kwargs
             ``linestyle`` (alias ``ls``) overrides the line style ``fmt``
             gives, as in matplotlib, except under ``fmt='none'``. ``lw``, ``c`` and ``ms`` are
@@ -4074,6 +4087,7 @@ class Axes:
             kwargs, "errorbar", "ls", "linestyle", kwargs.pop("linestyle", None), None
         )
         linestyle = _line_style("errorbar", linestyle)
+        data_range = _dataset_qualifiers(None, None, False, xmin, xmax, ymin, ymax)
         warn_unsupported_keywords("errorbar", kwargs)
         label = self._text(label)
         x = np.asarray(x, dtype=float)
@@ -4202,6 +4216,7 @@ class Axes:
             column_names=_build_errorbar_column_names(
                 label, yerr_up, yerr_down, xerr_left, xerr_right
             ),
+            **data_range,
         )
         _apply_xaxis(errbar_data, xaxis)
         self._register_series_draw_meta(errbar_data, "errorbar", zorder)
