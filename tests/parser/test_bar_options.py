@@ -341,6 +341,23 @@ def test_a_missing_grouped_bar_stays_missing(tmp_path, monkeypatch):
     assert rows[1:] == ["1 5 6", "2 * 4", "3 3 *"]
 
 
+def test_a_stack_missing_on_one_side_only_stays_raw(tmp_path):
+    """GLE refuses it, and modelled it would lose the value that is there."""
+    body = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "s.dat" d1=c1,c2 d2=c1,c3\n'
+        "   bar d2 from d1 fill red\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "s.gle", body, {"s.dat": "1 1 5\n2 * 4\n3 2 6\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == []
+    assert "   bar d2 from d1 fill red" in ax.passthrough
+    assert any("kept as raw GLE" in note.message for note in rec.notes)
+
+
 def test_a_from_list_of_the_wrong_length_stays_raw(tmp_path):
     """``from`` is positional. A shorter list would apply to the wrong bars."""
     body = (

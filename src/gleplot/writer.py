@@ -4277,6 +4277,10 @@ class GLEWriter:
           to GLE, which is what every bar chart gleplot wrote before the field
           existed; a number is emitted verbatim and suppresses G16's derived
           width. See ``bar_width_to_emit``.
+        - a row whose x or value is NaN: its value columns are written as
+          GLE's missing value ``*``, so the bar is left out (see
+          ``_bar_rows_missing``). A provider-backed series then writes its
+          own value columns rather than the table's.
         """
         x = np.asarray(series["x"], dtype=float)
         heights = np.asarray(series["height"], dtype=float)
