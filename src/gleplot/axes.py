@@ -1,6 +1,7 @@
 """Axes class for gleplot."""
 
 import functools
+import math
 import os
 import re
 import uuid
@@ -76,7 +77,13 @@ from .series import (  # noqa: F401  (re-exported: historical import path)
     sanitize_column_name,
     sorted_zorder_drawables,
 )
-from .writer import RUG_EDGES, GLEWriter, image_sub_name
+from .writer import (
+    CONTOURF_EXTENDS,
+    RUG_EDGES,
+    GLEWriter,
+    contourf_bands_fit,
+    image_sub_name,
+)
 
 _Method = TypeVar("_Method", bound=Callable[..., Any])
 
@@ -709,6 +716,73 @@ def _require_valid_extent(ext) -> None:
             f"ascending axis ranges); got (xmin={x0}, xmax={x1}, ymin={y0}, "
             f"ymax={y1})"
         )
+
+
+#: matplotlib's ``MaxNLocator`` default steps, extended a decade either way
+#: (``MaxNLocator._staircase``).
+_LOCATOR_STEPS = np.array(
+    [0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.8]
+    + [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 15]
+)
+
+
+def _nice_levels(zmin: float, zmax: float, n: int, extend: str) -> List[float]:
+    """The filled-contour levels matplotlib's ``contourf(levels=n)`` picks.
+
+    A port of ``MaxNLocator(n + 1, min_n_ticks=1).tick_values`` and
+    ``ContourSet._autolev`` for a linear scale: round-number levels that
+    span ``zmin`` to ``zmax``, one past each end trimmed off, and with
+    ``extend`` the outermost level on that side dropped so the extended
+    band holds the rest.
+    """
+    nbins = n + 1
+    lo, hi = float(zmin), float(zmax)
+    # matplotlib.transforms._nonsingular(expander=1e-13, tiny=1e-14)
+    biggest = max(abs(lo), abs(hi))
+    if biggest < 1e20 * np.finfo(float).tiny:
+        lo, hi = -1e-13, 1e-13
+    elif hi - lo <= biggest * 1e-14:
+        if hi == 0 and lo == 0:
+            lo, hi = -1e-13, 1e-13
+        else:
+            lo, hi = lo - 1e-13 * abs(lo), hi + 1e-13 * abs(hi)
+    # matplotlib.ticker.scale_range
+    span = hi - lo
+    mean = (hi + lo) / 2
+    if abs(mean) / span < 100:
+        offset = 0.0
+    else:
+        offset = math.copysign(10 ** (math.log10(abs(mean)) // 1), mean)
+    scale = 10 ** (math.log10(span / nbins) // 1)
+    lo, hi = lo - offset, hi - offset
+    steps = _LOCATOR_STEPS * scale
+    large = np.nonzero(steps >= (hi - lo) / nbins)[0]
+    istep = large[0] if len(large) else len(steps) - 1
+    # ticker._Edge_integer: more slop when the offset dwarfs the step.
+    for step in steps[: istep + 1][::-1]:
+        tol = 1e-10
+        if offset:
+            tol = min(0.4999, max(1e-10, 10 ** (np.log10(abs(offset) / step) - 12)))
+        best = (lo // step) * step
+        d, m = divmod(lo - best, step)
+        low = d + 1 if abs(m / step - 1) < tol else d
+        d, m = divmod(hi - best, step)
+        high = d if abs(m / step) < tol else d + 1
+        ticks = np.arange(low, high + 1) * step + best
+        if ((ticks <= hi) & (ticks >= lo)).sum() >= 1:
+            break
+    lev = ticks + offset
+    under = np.nonzero(lev < zmin)[0]
+    i0 = under[-1] if len(under) else 0
+    over = np.nonzero(lev > zmax)[0]
+    i1 = over[0] + 1 if len(over) else len(lev)
+    if extend in ("min", "both"):
+        i0 += 1
+    if extend in ("max", "both"):
+        i1 -= 1
+    if i1 - i0 < 3:
+        i0, i1 = 0, len(lev)
+    return [float(v) for v in lev[i0:i1]]
 
 
 def _axis_from_meshgrid(
@@ -7343,6 +7417,186 @@ class Axes:
         return z, ext
 
     @_cartesian_only
+    def contourf(
+        self,
+        *args,
+        levels=None,
+        cmap: Optional[str] = None,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        extend: str = "neither",
+        pixels=None,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Fill the bands between contour levels of gridded data.
+
+        Signatures, as in matplotlib: ``contourf(Z)``, ``contourf(X, Y, Z)``,
+        and either with ``levels`` as one more positional argument. ``X`` and
+        ``Y`` give the grid's nodes: 1-D, or the 2-D arrays ``np.meshgrid``
+        returns, uniformly spaced and increasing. Without them the nodes are
+        at ``0 .. nx - 1`` and ``0 .. ny - 1``. An irregular grid raises; use
+        :meth:`tripcolor` for scattered or irregularly gridded data.
+
+        Parameters
+        ----------
+        levels : int or sequence, optional
+            The band edges. An int ``n`` picks about ``n`` round-number
+            levels spanning the data, the way matplotlib's ``MaxNLocator``
+            does; ``None`` is ``7``. A sequence is used as given, and must
+            increase.
+        cmap : str, optional
+            Palette name, as for :meth:`imshow`.
+        vmin, vmax : float, optional
+            The values given the colormap's first and last colour; each band
+            takes the colour of its middle value. Default: the first and
+            last level.
+        extend : {'neither', 'min', 'max', 'both'}
+            Which side's values beyond the levels are filled, with the
+            colormap's end colour. With ``'neither'`` they are white.
+        pixels : int or (px, py), optional
+            Bitmap resolution, as for :meth:`imshow`.
+        label : str, optional
+            Series label (not drawn by the colormap itself).
+
+        Returns
+        -------
+        dict
+            The stored heatmap series dict.
+
+        Notes
+        -----
+        GLE has no filled contour. A ``contourf`` is a heatmap whose palette
+        sub (``gleplot_contourf<k>``) colours each value by the band it falls
+        in. GLE's colormap smooths the grid with a cubic B-spline first, so a
+        band edge is drawn near its level, not on it. When some edge would
+        land more than one bitmap pixel away (a coarse grid for the number
+        of ``pixels``), the call warns and the heatmap is drawn smooth,
+        coloured by value between the outer levels. That decision assumes the
+        axis limits are the grid's extent.
+
+        Like :meth:`imshow`, it is the axes' one heatmap, and values must be
+        finite: a ``NaN`` or a masked value raises ``ValueError``. Values
+        beyond the levels are white with ``extend='neither'``, where
+        matplotlib leaves them blank. Other keywords (``colors``, ``alpha``,
+        ``norm``, ``hatches``, ...) warn and are ignored.
+        """
+        label = self._text(label)
+        if extend not in CONTOURF_EXTENDS:
+            raise ValueError(
+                f"contourf() got extend={extend!r}; expected 'neither', 'min', "
+                "'max' or 'both'"
+            )
+        # A masked value has no colour GLE can leave blank, so it raises as
+        # NaN does rather than being drawn with the value under the mask.
+        grid = [np.ma.filled(np.ma.asarray(a, dtype=float), np.nan) for a in args]
+        if len(grid) in (2, 4):
+            if levels is not None:
+                raise ValueError(
+                    "contourf() got levels both as an argument and as levels=; "
+                    "pass them once"
+                )
+            levels = grid.pop()
+        if len(grid) == 1:
+            z = grid[0]
+            if z.ndim != 2:
+                raise ValueError(
+                    f"contourf(Z) requires a 2-D array; got shape {z.shape}"
+                )
+            _require_finite(z, "contourf Z")
+            ext = [0.0, float(z.shape[1] - 1), 0.0, float(z.shape[0] - 1)]
+        else:
+            z, ext = self._grid_from_args(grid, "contourf", "tripcolor(x, y, z)")
+        if min(z.shape) < 2:
+            raise ValueError(
+                "contourf() needs at least two grid nodes along each axis; Z "
+                f"has shape {z.shape}"
+            )
+        _require_valid_extent(ext)
+        levels = self._filled_levels(levels, z, extend)
+        lo = levels[0] if vmin is None else float(vmin)
+        hi = levels[-1] if vmax is None else float(vmax)
+        if not lo < hi:
+            raise ValueError(
+                f"contourf() needs vmin < vmax; got vmin={lo!r}, vmax={hi!r}"
+            )
+        for key in ("colors", "alpha", "norm", "hatches", "data"):
+            if kwargs.pop(key, None) is not None:
+                warn_external(
+                    f"contourf({key}=...) is ignored: GLE fills the bands from "
+                    "the colormap. Pass cmap=, vmin= and vmax= instead."
+                )
+        if kwargs:
+            names = ", ".join(sorted(kwargs))
+            warn_external(f"contourf() ignores unsupported keyword(s): {names}.")
+        if self.heatmaps:
+            raise ValueError(
+                "GLE supports at most one heatmap (colormap) per axes; "
+                "this axes already has one"
+            )
+        hm = HeatmapSeries(
+            type="heatmap",
+            source="grid",
+            z=z,
+            x=None,
+            y=None,
+            zpts=None,
+            extent=ext,
+            origin="lower",
+            cmap=self._resolve_cmap(cmap),
+            vmin=None if vmin is None else float(vmin),
+            vmax=None if vmax is None else float(vmax),
+            interpolation="bicubic",
+            levels=levels,
+            extend=extend,
+            pixels=self._resolve_pixels(pixels),
+            invert=False,
+            gridsize=None,
+            ncontour=None,
+            label=label,
+            data_file=_reserve_sidecar(self.figure, "heatmap", "z"),
+            colorbar=None,
+        )
+        if not contourf_bands_fit(hm):
+            warn_external(
+                "contourf() is drawn as a smooth heatmap, not bands: GLE "
+                "smooths the grid, and on this one some band edges would land "
+                "more than one pixel from their levels. Pass a finer Z, or "
+                "fewer pixels=, to get bands."
+            )
+        self.heatmaps.append(hm)
+        return hm
+
+    @staticmethod
+    def _filled_levels(levels, z, extend):
+        """``contourf``'s band edges: matplotlib's for a count, else as given."""
+        if levels is None or (
+            np.ndim(levels) == 0 and float(levels) == int(float(levels))
+        ):
+            n = 7 if levels is None else int(float(levels))
+            if n < 1:
+                raise ValueError(f"contourf() needs levels >= 1; got {levels!r}")
+            out = _nice_levels(float(np.min(z)), float(np.max(z)), n, extend)
+        else:
+            out = [float(v) for v in np.ravel(levels)]
+            if len(out) < 2 or not all(np.isfinite(out)):
+                raise ValueError(
+                    "contourf() needs at least two finite levels, the edges of "
+                    f"one band; got {levels!r}"
+                )
+            if np.any(np.diff(out) <= 0):
+                raise ValueError(f"contourf() levels must increase; got {levels!r}")
+        written = [float(GLEWriter._format_number(v)) for v in out]
+        if np.any(np.diff(written) <= 0):
+            raise ValueError(
+                f"contourf() levels {out} are closer together than the 6 "
+                "significant digits gleplot writes them with. Pass levels= "
+                "with fewer or wider-spaced values (or subtract the offset "
+                "from Z)."
+            )
+        return out
+
+    @_cartesian_only
     def contour(
         self,
         *args,
@@ -7391,7 +7645,7 @@ class Axes:
             The stored contour series dict.
         """
         label = self._text(label)
-        z, ext = self._grid_from_args(args)
+        z, ext = self._grid_from_args(args, "contour", "tricontour(x, y, z)")
         levels_resolved = self._resolve_levels(levels, z)
         # Explicit levels that all lie outside the data range would make GLE's
         # ``begin contour`` emit an EMPTY ``-cdata.dat`` (no crossings), and the
@@ -7429,13 +7683,17 @@ class Axes:
         self.contours.append(ct)
         return ct
 
-    def _grid_from_args(self, args):
-        """Parse ``contour`` positional args into ``(z_2d, extent)``."""
+    def _grid_from_args(self, args, func, scattered):
+        """Parse ``contour`` positional args into ``(z_2d, extent)``.
+
+        ``func`` is the method the errors name, and ``scattered`` the call
+        they suggest for data on another grid.
+        """
         if len(args) == 1:
             z = np.asarray(args[0], dtype=float)
             if z.ndim != 2:
-                raise ValueError("contour(Z) requires a 2-D array")
-            _require_finite(z, "contour Z")
+                raise ValueError(f"{func}(Z) requires a 2-D array")
+            _require_finite(z, f"{func} Z")
             ny, nx = z.shape
             return z, [0.0, float(nx), 0.0, float(ny)]
         if len(args) == 3:
@@ -7449,21 +7707,17 @@ class Axes:
                 for coord, cname in ((x, "x"), (y, "y")):
                     if coord.ndim == 2 and coord.shape != z.shape:
                         raise ValueError(
-                            f"contour(X, Y, Z): 2-D {cname.upper()} has shape "
+                            f"{func}(X, Y, Z): 2-D {cname.upper()} has shape "
                             f"{coord.shape} but Z has shape {z.shape}; a "
                             "meshgrid coordinate array must match Z"
                         )
                 if x.ndim == 2:
-                    x = _axis_from_meshgrid(
-                        x, "x", "contour(X, Y, Z)", "tricontour(x, y, z)"
-                    )
+                    x = _axis_from_meshgrid(x, "x", f"{func}(X, Y, Z)", scattered)
                 if y.ndim == 2:
-                    y = _axis_from_meshgrid(
-                        y, "y", "contour(X, Y, Z)", "tricontour(x, y, z)"
-                    )
+                    y = _axis_from_meshgrid(y, "y", f"{func}(X, Y, Z)", scattered)
             if x.ndim != 1 or y.ndim != 1 or z.ndim != 2:
                 raise ValueError(
-                    "contour(x, y, Z) requires 1-D x, 1-D y, 2-D Z (or "
+                    f"{func}(x, y, Z) requires 1-D x, 1-D y, 2-D Z (or "
                     "matplotlib's 2-D meshgrid X, Y matching Z's shape)"
                 )
             if z.shape != (len(y), len(x)):
@@ -7471,15 +7725,15 @@ class Axes:
                     f"Z shape {z.shape} does not match (len(y), len(x)) = "
                     f"({len(y)}, {len(x)})"
                 )
-            _require_finite(x, "contour x")
-            _require_finite(y, "contour y")
-            _require_finite(z, "contour Z")
-            self._check_uniform(x, "x", "contour", "tricontour(x, y, z)")
-            self._check_uniform(y, "y", "contour", "tricontour(x, y, z)")
+            _require_finite(x, f"{func} x")
+            _require_finite(y, f"{func} y")
+            _require_finite(z, f"{func} Z")
+            self._check_uniform(x, "x", func, scattered)
+            self._check_uniform(y, "y", func, scattered)
             ext = [float(x[0]), float(x[-1]), float(y[0]), float(y[-1])]
             _require_valid_extent(ext)
             return z, ext
-        raise ValueError("contour expects contour(Z) or contour(x, y, Z)")
+        raise ValueError(f"{func} expects {func}(Z) or {func}(x, y, Z)")
 
     @staticmethod
     def _check_uniform(v, name, func, scattered):

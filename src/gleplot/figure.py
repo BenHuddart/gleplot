@@ -1860,6 +1860,12 @@ class Figure:
                 "heatmap's axes, so cax is ignored. Pass ax= (or nothing) instead."
             )
         hm = self._colorbar_heatmap(mappable, ax)
+        if "levels" in hm:
+            warn_external(
+                "colorbar() of a contourf draws the colormap as a continuous "
+                "scale from vmin to vmax (the data's range when unset), not "
+                "its bands."
+            )
         owner = next(a for a in self.axes_list if any(h is hm for h in a.heatmaps))
 
         values = hm["z"] if hm["source"] == "grid" else hm["zpts"]
@@ -3190,7 +3196,7 @@ class Figure:
         any_clabel = False
         for ax in self.axes_list:
             for hm in resolution.visible(ax.heatmaps):
-                if _pal.cmap_needs_sub(hm["cmap"]):
+                if _pal.cmap_needs_sub(hm["cmap"]) and "levels" not in hm:
                     used_cmaps.add(hm["cmap"])
                 cb = hm.get("colorbar")
                 if cb and cb.get("orientation") == "horizontal":
@@ -3204,8 +3210,14 @@ class Figure:
         coloured: Set[Tuple[str, str]] = set()
         for ax in self.axes_list:
             coloured |= _coloured_markers(ax, resolution)
-        # A per-point colour calls its palette sub, gray and rainbow included.
-        point_cmaps = {cmap for _marker, cmap in coloured}
+        # A per-point colour and a contourf's band sub call their palette
+        # sub, gray and rainbow included.
+        point_cmaps = {cmap for _marker, cmap in coloured} | {
+            hm["cmap"]
+            for ax in self.axes_list
+            for hm in resolution.visible(ax.heatmaps)
+            if "levels" in hm
+        }
 
         subs = []
         for cmap in sorted(used_cmaps | point_cmaps):
@@ -3757,7 +3769,31 @@ class Figure:
         for hm in resolution.visible(ax.heatmaps):
             if hm.get("cells"):
                 self._warn_mesh_overhang(ax, hm)
+            elif "levels" in hm:
+                self._warn_contourf_overhang(ax, hm)
             writer.add_heatmap(hm)
+
+    @staticmethod
+    def _warn_contourf_overhang(ax: Axes, grid: Series) -> None:
+        """Warn where a ``contourf`` bitmap's extra spacing would show.
+
+        GLE draws the bitmap one node spacing past the grid's last node (see
+        :meth:`GLEWriter.add_nodes_sidecar`), and only the graph window hides
+        it. Below the first node there is no bitmap, as matplotlib draws
+        nothing there.
+        """
+        x0, x1, y0, y1 = grid["extent"]
+        for name, lo, hi, a, b in (
+            ("x", x0, x1, ax.xmin, ax.xmax),
+            ("y", y0, y1, ax.ymin, ax.ymax),
+        ):
+            if a is not None and b is not None and max(a, b) > hi + 1e-9 * (hi - lo):
+                warn_external(
+                    f"The {name} limits reach {max(a, b):g}, beyond the "
+                    f"contourf grid's last {name} = {hi:g}, where GLE draws "
+                    "its last values on for up to one grid spacing. Keep the "
+                    f"upper {name} limit within the grid."
+                )
 
     @staticmethod
     def _warn_mesh_overhang(ax: Axes, mesh: Series) -> None:

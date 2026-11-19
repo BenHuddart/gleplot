@@ -334,9 +334,12 @@ from ..series import (
 from ..writer import (
     CDATA_SUB_PREFIX,
     CELLS_MARKER,
+    CONTOURF_EXTENDS,
+    CONTOURF_MARKER,
     IMAGE_LAYER,
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
+    NODES_MARKER,
     POLAR_GRID_LAYER,
     RUG_EDGES,
     GLEWriter,
@@ -1746,6 +1749,9 @@ class _Recognizer:
         # (palette / colorbar / contour-labels). Dropped everywhere, like the
         # metadata block, and regenerated canonically from the model on re-save.
         self._gleplot_sub_lines: set = set()
+        # gleplot_contourf<k> sub name (lower case) -> its colouring comment
+        # line (writer.CONTOURF_MARKER), read while those subs are scanned.
+        self._contourf_subs: Dict[str, str] = {}
         # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
         self._fitz_blocks: Dict[str, dict] = {}
         # contour ``.z`` file -> {levels}
@@ -2297,6 +2303,14 @@ class _Recognizer:
         # between graphs (writer emits a blank between subplots). Otherwise
         # it is trailer content.
         if isinstance(node, BlankOrComment) and self._more_graphs_after(nodes, i):
+            return True
+
+        # A gleplot_<name> sub between graphs: a contourf's band sub goes
+        # right before the graph that calls it.
+        first = node.begin if isinstance(node, OpaqueBlock) else node
+        if isinstance(first, (Statement, BlankOrComment)) and (
+            first.line_no in self._gleplot_sub_lines
+        ):
             return True
 
         # fitz/contour blocks consumed into a recognized series (their
@@ -7558,11 +7572,13 @@ class _Recognizer:
         """
         nums: set = set()
         in_sub = False
+        sub_name = ""
         for idx, line in enumerate(self.text.splitlines(), start=1):
             low = line.strip().lower()
             if not in_sub:
                 if low.startswith("sub gleplot_"):
                     in_sub = True
+                    sub_name = low.split()[1]
                     nums.add(idx)
                 elif _GLEPLOT_DEFINE_MARKER_RE.match(low):
                     # The ``define marker`` naming a per-point-size sub
@@ -7570,6 +7586,10 @@ class _Recognizer:
                     nums.add(idx)
                 continue
             nums.add(idx)
+            if sub_name.startswith("gleplot_contourf") and low.startswith(
+                CONTOURF_MARKER + " "
+            ):
+                self._contourf_subs[sub_name] = line.strip()
             if low == "end sub" or low.startswith("end sub "):
                 in_sub = False
         return nums
@@ -7874,6 +7894,22 @@ class _Recognizer:
         cmap: Optional[str]
         if color:
             cmap = "rainbow"
+        elif palette is not None and palette.lower() in self._contourf_subs:
+            self._parse_contourf_colormap(
+                zfile,
+                [int(px), int(py)],
+                expression is None
+                and zfile.lower().endswith((".z", ".gz"))
+                and not invert
+                and not unknown
+                and exact
+                and (vmin, vmax) == (0.0, 1.0)
+                and interpolation == "bicubic",
+                self._contourf_subs[palette.lower()],
+                info,
+                stmt,
+            )
+            return
         elif palette is not None:
             cmap = PALETTE_SUB_TO_CMAP.get(palette.lower())
             if cmap is None:
@@ -8003,7 +8039,7 @@ class _Recognizer:
                 )
                 return
             z, extent, marker = grid
-            cells = marker is not None
+            cells = marker is not None and marker.startswith(CELLS_MARKER)
             if cells:
                 mesh = self._mesh_from_cells_grid(z, extent, marker, interpolation)
                 if mesh is None:
@@ -8141,9 +8177,10 @@ class _Recognizer:
         returned y-increasing (row 0 = ymin), matching GLE's ``.z`` convention;
         the recovered heatmap/contour therefore always uses ``origin='lower'``
         (a documented, rendering-neutral normalization). ``cells`` is the
-        ``pcolormesh`` marker line (:meth:`GLEWriter.add_cells_sidecar`) when
-        the file has one, else ``None``; the grid and header are returned as
-        written.
+        ``pcolormesh`` or ``contourf`` marker line
+        (:meth:`GLEWriter.add_cells_sidecar`,
+        :meth:`GLEWriter.add_nodes_sidecar`) when the file has one, else
+        ``None``; the grid and header are returned as written.
         """
         text = self._read_sidecar_text(filename)
         if text is None:
@@ -8158,7 +8195,7 @@ class _Recognizer:
             if s.startswith("!"):
                 if header is None:
                     header = s
-                elif s.startswith(CELLS_MARKER + " "):
+                elif s.startswith((CELLS_MARKER + " ", NODES_MARKER + " ")):
                     cells = s
                 continue
             for tok in s.replace(",", " ").split():
@@ -8176,6 +8213,120 @@ class _Recognizer:
             return None
         z = np.asarray(values, dtype=float).reshape(ny, nx)
         return z, [x0, x1, y0, y1], cells
+
+    def _parse_contourf_colormap(self, zfile, pixels, plain, comment, info, stmt):
+        """Rebuild a ``contourf`` heatmap from its colormap and band sub.
+
+        ``plain`` is whether the ``colormap`` statement is the one
+        :meth:`GLEWriter.add_heatmap` writes for a ``contourf`` (a ``.z``
+        file, ``zmin 0 zmax 1``, the band sub as palette and nothing else);
+        ``comment`` is the colouring line of that sub. The grid's edges come
+        from the ``.z`` file's marker line. A statement or sub that is not
+        gleplot's is kept as raw GLE, with a note: the sub itself is not.
+        """
+        fields = self._contourf_fields(comment)
+        grid = self._read_z_grid(zfile) if plain and fields else None
+        if fields is None or grid is None:
+            info["passthrough"].append(self._stmt_text(stmt))
+            self._note(
+                ImportCategory.STRUCTURE,
+                "colormap with a gleplot contourf palette that gleplot cannot "
+                "read back (or its .z grid is unreadable); kept as raw GLE, but "
+                "its gleplot_contourf palette sub is not, so define it again",
+                self._stmt_span(stmt),
+            )
+            return
+        z, header, marker = grid
+        ny, nx = z.shape
+        extent = self._nodes_extent(marker, header, nx, ny)
+        if extent is None:
+            x0, x1, y0, y1 = header
+            extent = [x0, x1 - (x1 - x0) / nx, y0, y1 - (y1 - y0) / ny]
+            self._note(
+                ImportCategory.DATA,
+                f"contourf grid {zfile!r} has no marker line giving its edges; "
+                "they were worked out from its header and may be rounded",
+                self._stmt_span(stmt),
+            )
+        info["heatmaps"].append(
+            HeatmapSeries(
+                type="heatmap",
+                source="grid",
+                z=z,
+                x=None,
+                y=None,
+                zpts=None,
+                extent=extent,
+                origin="lower",
+                cmap=fields["cmap"],
+                vmin=fields.get("vmin"),
+                vmax=fields.get("vmax"),
+                interpolation="bicubic",
+                levels=fields["levels"],
+                extend=fields["extend"],
+                pixels=pixels,
+                invert=False,
+                gridsize=None,
+                ncontour=None,
+                label=None,
+                data_file=zfile,
+                colorbar=None,
+            )
+        )
+
+    @staticmethod
+    def _contourf_fields(comment: str) -> Optional[Dict[str, Any]]:
+        """The colouring a ``contourf`` band sub's comment line records.
+
+        ``cmap <name> extend <side> [vmin V] [vmax V] levels V V ...``, as
+        :meth:`GLEWriter.add_contourf_sub` writes it; ``None`` otherwise.
+        """
+        words = comment[len(CONTOURF_MARKER) :].split()
+        if len(words) < 4 or words[0] != "cmap" or words[2] != "extend":
+            return None
+        try:
+            cmap = canonical_cmap(words[1])
+        except ValueError:
+            return None
+        if words[3] not in CONTOURF_EXTENDS or "levels" not in words:
+            return None
+        fields: Dict[str, Any] = {"cmap": cmap, "extend": words[3]}
+        at = words.index("levels")
+        options = words[4:at]
+        try:
+            levels = [float(v) for v in words[at + 1 :]]
+            for key, value in zip(options[0::2], options[1::2]):
+                if key not in ("vmin", "vmax") or key in fields:
+                    return None
+                fields[key] = float(value)
+        except ValueError:
+            return None
+        if len(options) % 2 or len(levels) < 2 or np.any(np.diff(levels) <= 0):
+            return None
+        fields["levels"] = levels
+        return fields
+
+    @staticmethod
+    def _nodes_extent(marker, header, nx, ny) -> Optional[List[float]]:
+        """The edges a ``contourf`` grid's marker line gives, or ``None``.
+
+        ``None`` without the line, or when the header is not one node
+        spacing past them as :meth:`GLEWriter.add_nodes_sidecar` writes it.
+        """
+        if marker is None or not marker.startswith(NODES_MARKER) or min(nx, ny) < 2:
+            return None
+        words = marker[len(NODES_MARKER) :].split()
+        if words[0::2] != ["xmin", "xmax", "ymin", "ymax"]:
+            return None
+        try:
+            x0, x1, y0, y1 = (float(v) for v in words[1::2])
+        except ValueError:
+            return None
+        want = [x0, x1 + (x1 - x0) / (nx - 1), y0, y1 + (y1 - y0) / (ny - 1)]
+        span = max(abs(v) for v in want + [x1 - x0, y1 - y0])
+        if not np.allclose(header, want, rtol=0, atol=1e-9 * span):
+            return None
+        return [x0, x1, y0, y1]
 
     @staticmethod
     def _mesh_from_cells_grid(z, header, marker, interpolation):

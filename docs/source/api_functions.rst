@@ -51,6 +51,8 @@ Plotting helpers
 
 .. autofunction:: gleplot.contour
 
+.. autofunction:: gleplot.contourf
+
 .. autofunction:: gleplot.tripcolor
 
 .. autofunction:: gleplot.tricontour

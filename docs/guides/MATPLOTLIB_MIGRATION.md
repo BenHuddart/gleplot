@@ -18,6 +18,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
 | `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
 | `ax.pcolormesh(...)` | same on a uniform grid, see [Cells](#cells) |
+| `ax.contourf(...)` | same on a uniform grid, see [Filled contours](#filled-contours) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
 | `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` |
@@ -254,6 +255,19 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 | `pixels` | gleplot's own: the bitmap resolution, as for `imshow`. Each cell edge is drawn to within one pixel. |
 | axis limits beyond the mesh | the edge cells show half a cell wider there, and saving warns; see [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md). |
 
+## Filled contours
+
+`ax.contourf(X, Y, Z, levels)` fills the bands between levels by drawing a heatmap through a band palette; how, and when it falls back to a smooth heatmap, is in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md). It returns the heatmap rather than a `QuadContourSet`; `cf['levels']` holds the levels.
+
+| `contourf()` argument | gleplot |
+|---|---|
+| `Z`, `X`, `Y`, `levels` (keyword or positional), `cmap`, `vmin`, `vmax` | wired. `levels` as a count picks the levels matplotlib's `MaxNLocator` would. `X` and `Y` must be uniformly spaced and increasing; another grid raises `ValueError`, and `tripcolor` takes scattered data. `NaN` or a masked value raises rather than leaving a hole. |
+| `extend` | `'min'`, `'max'` and `'both'` as in matplotlib. With `'neither'`, values beyond the levels are white rather than blank. |
+| levels closer together than 6 significant digits | raise `ValueError`: gleplot writes numbers with 6. |
+| `colors`, `alpha`, `norm`, `hatches`, `data` | warn and are ignored: the bands are coloured from the colormap. |
+| `origin`, `extent`, `locator`, `antialiased`, `zorder` and other keywords | warn and are ignored. |
+| `pixels` | gleplot's own: the bitmap resolution, as for `imshow`. |
+
 ## Line caps and joins
 
 matplotlib caps and joins each line on its own; GLE sets them once for the
@@ -339,7 +353,7 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 
 ## Colorbars
 
-`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned, so each axes of a grid can carry its own bar. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned (a `contourf` gets the colormap's continuous scale, with a warning), so each axes of a grid can carry its own bar. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
 
 | `colorbar()` argument | gleplot |
 |---|---|
