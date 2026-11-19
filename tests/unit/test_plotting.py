@@ -926,6 +926,26 @@ class TestSegmentLines:
         assert "xaxis min 1 max 4" in text
         assert "yaxis min -1 max 3" in text
 
+    def test_a_table_backed_gap_series_breaks_at_its_gaps(self):
+        """It gets its own ``*`` column; the table's stays for the other line."""
+        from gleplot.sources import ColumnRef, DictDataProvider, TableData
+
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.lines[0]["gaps"] = True
+        for line in self.ax.lines:
+            line["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        table = TableData.from_mapping({"x": [0, 1, 2], "y": [0, float("nan"), 2]})
+        text, files = self.fig._generate_gle_with_files(
+            data_provider=DictDataProvider({"t": table})
+        )
+        (name,) = files
+        assert files[name].splitlines() == ["x y y_2", "0 0 0", "1 * nan", "2 2 2"]
+        assert f"data {name} d1=c1,c2" in text
+        assert f"data {name} d2=c1,c3" in text
+
     def test_plot_still_writes_nan_without_gaps(self):
         self.ax.plot([0, float("nan"), 2], [0, float("nan"), 2])
         self.ax.set_xlim(0, 2)

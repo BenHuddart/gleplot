@@ -3238,11 +3238,17 @@ class GLEWriter:
             x_array, has_line, shared=binding is not None, smooth_mode=smooth_mode
         )
         x_rows, y_rows = x_array[order], y_array[order]
-        if series.get("gaps") and binding is None:
+        if series.get("gaps"):
             # GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks
-            # the line there.
-            x_rows = self._as_missing(x_rows, np.isnan(np.asarray(x_rows, dtype=float)))
-            y_rows = self._as_missing(y_rows, np.isnan(np.asarray(y_rows, dtype=float)))
+            # the line there. A table column another series may read keeps
+            # its values, so this series gets its own copy.
+            x_gaps = np.isnan(np.asarray(x_rows, dtype=float))
+            y_gaps = np.isnan(np.asarray(y_rows, dtype=float))
+            x_rows = self._as_missing(x_rows, x_gaps)
+            y_rows = self._as_missing(y_rows, y_gaps)
+            if binding is not None:
+                private = [r for r, m in (("x", x_gaps), ("y", y_gaps)) if m.any()]
+                binding = binding.with_private(private)
         cols = self._write_columns(
             data_file,
             [("x", x_rows), ("y", y_rows)],
