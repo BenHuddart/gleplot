@@ -81,11 +81,36 @@ def test_s_quadrupled_doubles_the_marker():
     assert _msize(b) == pytest.approx(2 * _msize(a))
 
 
-def test_s_is_still_positional():
-    """scatter(x, y, color, s) -- the historical positional order holds."""
+def test_s_and_c_are_matplotlibs_positional_order():
+    """scatter(x, y, s, c), as in matplotlib; everything after is keyword-only."""
     ax = _ax()
-    ax.scatter(X, Y, "red", 50)
+    ax.scatter(X, Y, 50, "red")
     assert _msize(ax) == pytest.approx(markersize_to_msize(np.sqrt(50) * 1.2))
+    assert ax.scatters[0]["color"] == "RED"
+    with pytest.raises(TypeError):
+        ax.scatter(X, Y, 50, "red", "o")
+
+
+def test_a_colour_in_the_old_third_position_names_the_new_order():
+    ax = _ax()
+    with pytest.raises(TypeError, match=r"\(x, y, s, c\); pass a colour as color="):
+        ax.scatter(X, Y, "red")
+
+
+@pytest.mark.parametrize("size", [-4, float("nan")])
+def test_a_scalar_size_must_be_finite_and_not_negative(size):
+    with pytest.raises(ValueError, match="finite and not negative"):
+        _ax().scatter(X, Y, size)
+
+
+def test_figure_and_module_scatter_forward_s_and_c_positionally():
+    fig = glp.figure()
+    fig.add_subplot(111)
+    fig.scatter(X, Y, 50, "red")
+    glp.scatter(X, Y, 50, "blue")
+    first, second = fig.gca().scatters
+    assert (first["color"], second["color"]) == ("RED", "BLUE")
+    assert first["markersize"] == second["markersize"]
 
 
 # --------------------------------------------------------------------------- #

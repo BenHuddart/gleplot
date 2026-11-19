@@ -937,6 +937,17 @@ def _band_of(values: np.ndarray, levels: List[float]) -> np.ndarray:
     return band
 
 
+def _contourf_bar_range(series: Mapping[str, Any]) -> Optional[Tuple[Any, Any]]:
+    """The ``(zmin, zmax)`` a ``contourf``'s colormap scales its values onto.
+
+    Its colorbar's range, which the band sub maps back from (see
+    :meth:`GLEWriter.add_contourf_sub`); ``None`` without a colorbar, when
+    the values pass through unscaled.
+    """
+    cb = series.get("colorbar")
+    return (cb["zmin"], cb["zmax"]) if cb else None
+
+
 def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     """Whether GLE draws a ``contourf`` heatmap's bands where its levels are.
 
@@ -4063,6 +4074,10 @@ class GLEWriter:
           to GLE, which is what every bar chart gleplot wrote before the field
           existed; a number is emitted verbatim and suppresses G16's derived
           width. See ``bar_width_to_emit``.
+        - a row whose x or value is NaN: its value columns are written as
+          GLE's missing value ``*``, so the bar is left out (see
+          ``_bar_rows_missing``). A provider-backed series then writes its
+          own value columns rather than the table's.
         """
         x = np.asarray(series["x"], dtype=float)
         heights = np.asarray(series["height"], dtype=float)
@@ -4100,6 +4115,12 @@ class GLEWriter:
         if bottom is not None:
             base = np.asarray(bottom, dtype=float)
             tops = np.asarray(top, dtype=float) if top is not None else base + heights
+            missing = self._bar_rows_missing(x, base, tops)
+            if missing.any():
+                base = self._as_missing(base, missing)
+                tops = self._as_missing(tops, missing)
+                if binding is not None:
+                    binding = binding.with_private(("bottom", "top"))
             names = column_names if column_names and len(column_names) == 3 else None
             # A header we could not line up with the three columns would
             # raise in ``_write_columns``. Dropping it also drops the
@@ -4119,6 +4140,11 @@ class GLEWriter:
             )
             bar_cmd = f"    bar {d_name} from {d_from} fill {','.join(fill_tokens)}"
         else:
+            missing = self._bar_rows_missing(x, heights)
+            if missing.any():
+                heights = self._as_missing(heights, missing)
+                if binding is not None:
+                    binding = binding.with_private(("height",))
             cols = self._write_columns(
                 data_file, [("x", x), ("height", heights)], column_names, binding
             )
@@ -4179,12 +4205,14 @@ class GLEWriter:
                         if stored is not None
                         else base + height
                     )
-                columns.append(("bottom", base))
+                missing = self._bar_rows_missing(x, base, tops)
+                columns.append(("bottom", self._as_missing(base, missing)))
                 from_slots.append(len(columns) - 1)
-                columns.append(("top", tops))
+                columns.append(("top", self._as_missing(tops, missing)))
                 to_slots.append(len(columns) - 1)
             else:
-                columns.append(("height", height))
+                missing = self._bar_rows_missing(x, height)
+                columns.append(("height", self._as_missing(height, missing)))
                 from_slots.append(None)
                 to_slots.append(len(columns) - 1)
 
@@ -4242,6 +4270,22 @@ class GLEWriter:
                 member.get("swatch_color"),
                 has_header,
             )
+
+    @staticmethod
+    def _bar_rows_missing(x: np.ndarray, *values: np.ndarray) -> np.ndarray:
+        """The bar rows to write as missing (``*``): any value is NaN.
+
+        GLE draws a ``nan`` height as a polygon at ``-nan``, which
+        Ghostscript rejects, but skips a missing point (``drawBar`` in
+        ``graph2.cpp``). A ``from`` and its ``to`` dataset must be missing
+        at the same points, so the caller marks every value column of the
+        row. The x column is left as written: GLE sizes the bars from its
+        consecutive gaps, and a missing x would read as 0.
+        """
+        missing = np.isnan(x)
+        for column in values:
+            missing = missing | np.isnan(column)
+        return missing
 
     @staticmethod
     def _bar_pattern_clause(members: Sequence[Mapping[str, Any]]) -> str:
@@ -5823,8 +5867,9 @@ class GLEWriter:
     def add_contourf_sub(self, series: Series):
         """Define the palette sub a ``contourf`` heatmap's colormap calls.
 
-        The colormap passes each pixel's value through unscaled (``zmin 0
-        zmax 1``), so the sub compares it with the levels themselves. A value
+        The sub compares each pixel's value with the levels themselves: the
+        colormap passes it through unscaled (``zmin 0 zmax 1``), or, with a
+        colorbar, the sub maps it back first (below). A value
         above one level and up to the next takes the colour ``cmap`` gives
         the middle of that band on the ``vmin``..``vmax`` scale (the outer levels when unset), as
         matplotlib colours a band. Below the first level and above the last
@@ -5832,6 +5877,12 @@ class GLEWriter:
         smoothing would not put the band edges on the levels
         (:func:`contourf_bands_fit`), the sub maps the value straight onto the
         colormap instead, inside the same limits.
+
+        With a colorbar the sub is also the bar's palette, which the colorbar
+        sub calls with a value from 0 to 1 along the bar. The colormap then
+        scales each pixel's value onto the bar's ``zmin``..``zmax`` too, and
+        the sub's first statement maps it back, so the image and the bar both
+        show the bands.
 
         The sub's first line, a comment GLE skips, holds the series' colouring
         as written, which is what the recognizer reads back. The sub goes
@@ -5855,9 +5906,11 @@ class GLEWriter:
         white = "rgb(1, 1, 1)"
         under = f"{call}(0)" if extend in ("min", "both") else white
         over = f"{call}(1)" if extend in ("max", "both") else white
-        lines = [
-            f"sub {name} z",
-            f"   {head}",
+        lines = [f"sub {name} z", f"   {head}"]
+        bar = _contourf_bar_range(series)
+        if bar:
+            lines.append(f"   z = {fmt(bar[0])}*(1-z)+{fmt(bar[1])}*z")
+        lines += [
             f"   if z < {levels[0]} then return {under}",
             f"   if z > {levels[-1]} then return {over}",
         ]
@@ -5899,8 +5952,15 @@ class GLEWriter:
             operand = _quote_filename(_grid_z_file(series))
         if "levels" in series:
             name = self._contourf_subs[series["data_file"]]
+            zmin, zmax = _contourf_bar_range(series) or (0, 1)
             self.add_colormap(
-                operand, series["pixels"], ("palette", name), 0, 1, False, "bicubic"
+                operand,
+                series["pixels"],
+                ("palette", name),
+                zmin,
+                zmax,
+                False,
+                "bicubic",
             )
             return
         self.add_colormap(
@@ -5918,7 +5978,8 @@ class GLEWriter:
 
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`, or
         a colour-mapped :class:`~gleplot.series.ScatterSeries`; its ``cmap``
-        names the palette and its ``colorbar`` dict (see
+        names the palette (a ``contourf``'s is its band sub, see
+        :meth:`add_contourf_sub`) and its ``colorbar`` dict (see
         :meth:`gleplot.Figure.colorbar`) holds the call's range, size, format
         and label. A series without one writes nothing.
 
@@ -5947,11 +6008,16 @@ class GLEWriter:
             sub = "gleplot_colorbar_v"
             size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
         lbl = self._escape_gle_string(cb.get("label") or "")
-        cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
+        if "levels" in series:
+            # A contourf's bar draws its bands through the band sub.
+            palette = self._contourf_subs[series["data_file"]]
+        else:
+            cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
+            palette = _pal.palette_call_name(cmap)
         self.lines_gle.append(
             f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
             f"zstep {fmt(cb['zstep'])} "
-            f'palette "{_pal.palette_call_name(cmap)}" {size} '
+            f'palette "{palette}" {size} '
             f'format "{cb["format"]}" label "{lbl}"'
         )
 

@@ -84,34 +84,34 @@ def example_2x2_grid():
     x = np.linspace(0, 2 * np.pi, 50)
 
     # Top-left: line plot
-    axes[0].plot(x, np.sin(x), color="blue", label="sin")
-    axes[0].plot(x, np.cos(x), color="red", linestyle="--", label="cos")
-    axes[0].set_title("Trig Functions")
-    axes[0].set_xlabel("x")
-    axes[0].set_ylabel("y")
-    axes[0].legend()
+    axes[0, 0].plot(x, np.sin(x), color="blue", label="sin")
+    axes[0, 0].plot(x, np.cos(x), color="red", linestyle="--", label="cos")
+    axes[0, 0].set_title("Trig Functions")
+    axes[0, 0].set_xlabel("x")
+    axes[0, 0].set_ylabel("y")
+    axes[0, 0].legend()
 
     # Top-right: scatter
     np.random.seed(42)
     xs = np.random.randn(40)
     ys = 0.8 * xs + np.random.randn(40) * 0.3
-    axes[1].scatter(xs, ys, color="green", marker="o", label="Data")
-    axes[1].set_title("Correlation")
-    axes[1].set_xlabel("x")
-    axes[1].set_ylabel("y")
+    axes[0, 1].scatter(xs, ys, color="green", marker="o", label="Data")
+    axes[0, 1].set_title("Correlation")
+    axes[0, 1].set_xlabel("x")
+    axes[0, 1].set_ylabel("y")
 
     # Bottom-left: bar chart
     categories = np.array([1, 2, 3, 4, 5])
     values = np.array([12, 25, 18, 30, 22])
-    axes[2].bar(categories, values, color="blue")
-    axes[2].set_title("Bar Chart")
-    axes[2].set_xlabel("Category")
-    axes[2].set_ylabel("Count")
+    axes[1, 0].bar(categories, values, color="blue")
+    axes[1, 0].set_title("Bar Chart")
+    axes[1, 0].set_xlabel("Category")
+    axes[1, 0].set_ylabel("Count")
 
     # Bottom-right: error bars
     xm = np.array([1, 2, 3, 4, 5])
     ym = np.array([10, 18, 25, 35, 42])
-    axes[3].errorbar(
+    axes[1, 1].errorbar(
         xm,
         ym,
         yerr=([2, 3, 2, 4, 3], [3, 2, 4, 3, 5]),
@@ -121,10 +121,10 @@ def example_2x2_grid():
         capsize=3,
         label="±err",
     )
-    axes[3].set_title("Error Bars")
-    axes[3].set_xlabel("x")
-    axes[3].set_ylabel("y")
-    axes[3].legend()
+    axes[1, 1].set_title("Error Bars")
+    axes[1, 1].set_xlabel("x")
+    axes[1, 1].set_ylabel("y")
+    axes[1, 1].legend()
 
     fig.savefig("example_subplots_2x2.gle")
     print("  ✓ Saved to example_subplots_2x2.gle")

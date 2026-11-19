@@ -99,6 +99,15 @@ def bar_stack():
     return fig
 
 
+def bar_missing():
+    """A NaN height is a missing row, plain and on a baseline (#317)."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, np.nan, 1], color="gray")
+    ax.bar([1, 2, 3], [1, np.nan, 2], bottom=[2, 3, 1], color="white")
+    return fig
+
+
 def bar_recovered_fields():
     """Bar fields only a recovered script sets, set here on the series.
 
@@ -480,10 +489,10 @@ def subplots_sharex_with_colored_text():
 
 def subplots_grid_mixed():
     fig, axes = glp.subplots(2, 2, data_prefix="golden")
-    axes[0].plot([1, 2, 3], [1, 2, 3])
-    axes[1].scatter([1, 2, 3], [3, 2, 1], marker="o")
-    axes[2].bar([1, 2, 3], [2, 4, 6], color="red")
-    axes[3].errorbar([1, 2, 3], [1, 2, 3], yerr=0.2, capsize=3)
+    axes[0, 0].plot([1, 2, 3], [1, 2, 3])
+    axes[0, 1].scatter([1, 2, 3], [3, 2, 1], marker="o")
+    axes[1, 0].bar([1, 2, 3], [2, 4, 6], color="red")
+    axes[1, 1].errorbar([1, 2, 3], [1, 2, 3], yerr=0.2, capsize=3)
     fig.subplots_adjust(hspace=0.4, wspace=0.4)
     return fig
 
@@ -609,8 +618,8 @@ def file_series_field_options():
 
     A wide stepped line on the y2 axis with a marker and ``nomiss``, a
     marker-less errorbar reference with no error column on the x2 axis, and
-    the bar and fill references the recognizer keeps for a file it cannot
-    read: a labelled bar with a swatch colour, a clipped two-curve fill, a
+    the bar and fill references the recognizer keeps for a file gleplot
+    did not write: a labelled bar with a swatch colour, a clipped two-curve fill, a
     fill to ``x1`` and a labelled polygon fill. ``marker``, ``markersize``
     and ``nomiss`` on a line reference, and every bar and fill reference,
     come only from a recovered script, so they are set on the series here.
@@ -639,7 +648,6 @@ def file_series_field_options():
                 color="ORANGE",
                 label="bars",
                 swatch_color="RED",
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -650,7 +658,6 @@ def file_series_field_options():
                 color="GRAY10",
                 xmin=0.5,
                 ymax=2.0,
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -659,7 +666,6 @@ def file_series_field_options():
                 y1_col=2,
                 color="GRAY20",
                 target="x1",
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -670,7 +676,6 @@ def file_series_field_options():
                 target="polygon",
                 label="polygon",
                 swatch_color="CYAN",
-                data_error="Data file not found: external.dat",
             ),
         ]
     )
@@ -683,7 +688,7 @@ def file_series_read_options():
 
     A line reference with all three and the row number as x (``c0``), an
     errorbar reference with two, and the bar and fill references the
-    recognizer keeps for a file it cannot read, which carry the options of
+    recognizer keeps for a file gleplot did not write, which carry the options of
     the ``data`` statement they came from. ``!`` and ``;`` are comment
     markers that only survive quoted.
     """
@@ -705,7 +710,6 @@ def file_series_read_options():
                 color="ORANGE",
                 skiprows=1,
                 comment="!",
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -715,7 +719,6 @@ def file_series_read_options():
                 y2_col=3,
                 color="GRAY10",
                 skiprows=2,
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -725,7 +728,6 @@ def file_series_read_options():
                 color="GRAY20",
                 target="x1",
                 max_rows=7,
-                data_error="Data file not found: external.dat",
             ),
         ]
     )
@@ -864,7 +866,7 @@ def heatmap_brewer_palettes():
 
 def heatmap_reversed_palettes():
     """Reversed cmaps: a ramp with its colorbar, a stepped set, both built-ins."""
-    fig, (ramp, stepped, gray, rainbow) = glp.subplots(
+    fig, ((ramp, stepped), (gray, rainbow)) = glp.subplots(
         2, 2, figsize=(9, 8), data_prefix="golden"
     )
     Z = np.arange(12, dtype=float).reshape(3, 4)
@@ -929,6 +931,24 @@ def heatmap_contourf_smooth():
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", r"contourf\(\) is drawn as a smooth")
         ax.contourf(np.add.outer(np.arange(4.0), np.arange(5.0)) ** 2, 5, extend="both")
+    return fig
+
+
+def heatmap_contourf_colorbar():
+    """contourf bars drawn through the band sub, vertical and horizontal.
+
+    Left: levels below zero and more than ten of them, so the ticks thin.
+    Right: a horizontal bar on uneven levels, ticked at even steps.
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    x = np.linspace(0, 4, 41)
+    y = np.linspace(-1, 2, 31)
+    Z = np.sin(1.5 * x)[None, :] * np.cos(y)[:, None]
+    fig.colorbar(left.contourf(x, y, Z, np.linspace(-1, 1, 13)))
+    cf = right.contourf(x, y, Z, [-0.6, 0.2, 0.5], cmap="plasma")
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "colorbar.. of a contourf with unevenly")
+        fig.colorbar(cf, orientation="horizontal", label="z", format="fix 2")
     return fig
 
 
@@ -2003,6 +2023,7 @@ BUILDERS = [
     bar_edge,
     bar_per_color,
     bar_stack,
+    bar_missing,
     bar_recovered_fields,
     bar_hatch,
     barh,
@@ -2050,6 +2071,7 @@ BUILDERS = [
     heatmap_pcolormesh,
     heatmap_contourf,
     heatmap_contourf_smooth,
+    heatmap_contourf_colorbar,
     heatmap_function,
     heatmap_function_field_options,
     contour_grid_levels_clabel,
