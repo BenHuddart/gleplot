@@ -49,7 +49,7 @@ gleplot needs Python 3.9 or later and numpy. Install it from GitHub:
 pip install git+https://github.com/BenHuddart/gleplot.git
 ```
 
-To compile figures, install **GLE 4.3+** from the [GLE releases](https://github.com/vlabella/GLE/releases/latest) and check it with `gle -info`. gleplot's scripts include routines from GLE's include library (`gleinc`), which the release packages ship but a GLE built from source lacks unless it is built with [gle-library](https://github.com/vlabella/gle-library) ([GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library)). The [getting started guide](https://benhuddart.github.io/gleplot/getting_started.html) covers Ghostscript, LaTeX and `gle -finddeps`.
+To compile figures, install **GLE 4.3+** from the [GLE releases](https://github.com/vlabella/GLE/releases/latest) and check it with `gle -info`. GLE's include library (`gleinc`) is required too; the release packages ship it, and [GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library) covers a GLE built from source. The [getting started guide](https://benhuddart.github.io/gleplot/getting_started.html) covers Ghostscript, LaTeX and `gle -finddeps`.
 
 To work on gleplot itself, use an editable install with the development tools, as described in [CONTRIBUTING.md](https://github.com/BenHuddart/gleplot/blob/main/CONTRIBUTING.md):
 

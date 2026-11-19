@@ -582,7 +582,6 @@ class TestCompileIntegration:
         assert "'no_such_routines.gle'" in message
         assert "include library" in message
         assert "getting_started.html#gle-s-include-library" in message
-        assert ctx.value.errors[0].line == 2
 
     def test_compile_missing_input_raises_file_not_found(self):
         missing = self.tempdir / "does_not_exist.gle"

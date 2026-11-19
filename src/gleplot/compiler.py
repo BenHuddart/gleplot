@@ -492,7 +492,7 @@ _ERROR_START_RE = re.compile(r"^>>\s*Error:", re.IGNORECASE)
 # GLE's message for an `include` it cannot find (text_load_include in
 # drawit.cpp). Scripts gleplot writes include routines from GLE's gleinc
 # library, which a GLE built from source without gle-library lacks.
-_MISSING_INCLUDE_RE = re.compile(r"include file not found: '([^']*)'")
+_MISSING_INCLUDE_RE = re.compile(r"include file not found: '(.*)'")
 _GLEINC_DOCS_URL = (
     "https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library"
 )
@@ -821,11 +821,12 @@ class GLECompiler:
             missing = _MISSING_INCLUDE_RE.search(_ANSI_ESCAPE_RE.sub("", raw_output))
             if missing:
                 raise GLECompileError(
-                    f"GLE could not find the include file {missing.group(1)!r}. "
+                    f"GLE could not find the include file '{missing.group(1)}'. "
                     "GLE looks for it next to the script, then in the gleinc "
                     "folder of its installation (GLE_TOP in `gle -info`), then "
                     "in GLE_USRLIB. If it is one of GLE's library routines, "
-                    f"install GLE's include library: see {_GLEINC_DOCS_URL}",
+                    f"install GLE's include library: see {_GLEINC_DOCS_URL}\n"
+                    f"GLE output: {raw_output.strip()}",
                     errors=errors,
                     raw_output=raw_output,
                 )
