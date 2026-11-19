@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v5.4.0 (2026-11-19)
+
+### Features
+
+- Pcolormesh draws each cell of a uniform grid (#90, stage 1 of 2)
+  ([`9d50b5a`](https://github.com/BenHuddart/gleplot/commit/9d50b5ae1cc00aa35da1d22e67a2d0fcdff034e8))
+
+- Review fixes for pcolormesh ([#90](https://github.com/BenHuddart/gleplot/pull/90),
+  [`99087e6`](https://github.com/BenHuddart/gleplot/commit/99087e61d2942e9fbe5f3b45efe46f5978cc5b6e))
+
+
 ## v5.3.0 (2026-11-19)
 
 
