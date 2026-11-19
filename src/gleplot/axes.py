@@ -5,6 +5,7 @@ import math
 import os
 import re
 import uuid
+from collections.abc import Mapping
 from numbers import Real
 from typing import (
     Any,
@@ -710,6 +711,27 @@ def _finite_float(value: Any, what: str) -> float:
     if not np.isfinite(number):
         raise ValueError(f"{what} must be finite, got {value!r}")
     return number
+
+
+def _label_axis(caller: str, axis: Any, names: Tuple[str, str], fontdict: Any):
+    """``(axis, fontdict)`` for a ``set_xlabel``/``set_ylabel`` call.
+
+    matplotlib's second positional argument is ``fontdict``; here it is
+    ``axis``. A mapping or ``None`` in that place is matplotlib's, so it is
+    taken as ``fontdict`` (an explicit ``fontdict=`` wins) and the axis is
+    the primary one.
+    """
+    if axis is None or isinstance(axis, Mapping):
+        return names[0], axis if fontdict is None else fontdict
+    if not isinstance(axis, str):
+        raise TypeError(
+            f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}"
+        )
+    if axis not in names:
+        raise ValueError(
+            f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}"
+        )
+    return axis, fontdict
 
 
 def _line_width(caller: str, linewidth: Any) -> Any:
@@ -2019,8 +2041,8 @@ class SecondaryXAxis:
     def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_xlim(axis="x2")
 
-    def set_xlabel(self, label: str, **kwargs):
-        return self._axes.set_xlabel(label, axis="x2", **kwargs)
+    def set_xlabel(self, label: str, fontdict=None, **kwargs):
+        return self._axes.set_xlabel(label, "x2", fontdict=fontdict, **kwargs)
 
     def set_xscale(self, scale: str):
         return self._axes.set_xscale(scale, axis="x2")
@@ -2094,8 +2116,8 @@ class SecondaryYAxis:
     def get_ylim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_ylim(axis="y2")
 
-    def set_ylabel(self, label: str, **kwargs):
-        return self._axes.set_ylabel(label, axis="y2", **kwargs)
+    def set_ylabel(self, label: str, fontdict=None, **kwargs):
+        return self._axes.set_ylabel(label, "y2", fontdict=fontdict, **kwargs)
 
     def set_yscale(self, scale: str):
         return self._axes.set_yscale(scale, axis="y2")
@@ -8245,7 +8267,9 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top)
+            Which axis: 'x' (bottom, default) or 'x2' (top). Another string
+            raises ``ValueError``. A dict or ``None`` here is taken as
+            matplotlib's positional ``fontdict``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8263,7 +8287,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = "x2" if axis == "x2" else "x"
+        prefix, fontdict = _label_axis("set_xlabel", axis, ("x", "x2"), fontdict)
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict
@@ -8290,7 +8314,9 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right). Another string
+            raises ``ValueError``. A dict or ``None`` here is taken as
+            matplotlib's positional ``fontdict``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8308,7 +8334,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = "y2" if axis == "y2" else "y"
+        prefix, fontdict = _label_axis("set_ylabel", axis, ("y", "y2"), fontdict)
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict

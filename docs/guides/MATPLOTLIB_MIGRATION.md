@@ -22,7 +22,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.contourf(...)` | same on a uniform grid, see [Filled contours](#filled-contours) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
-| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` |
+| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` (`'x'`/`'x2'`, `'y'`/`'y2'`; another string raises). A dict there is taken as matplotlib's positional `fontdict` |
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
 | `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
