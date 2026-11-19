@@ -284,6 +284,18 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 | `origin`, `extent`, `locator`, `antialiased`, `zorder` and other keywords | warn and are ignored. |
 | `pixels` | gleplot's own: the bitmap resolution, as for `imshow`. |
 
+## Heatmaps and contour lines
+
+`imshow` and `tripcolor` take the arguments listed in their API entries.
+Every other keyword, such as `alpha`, `norm` or `aspect`, warns and is
+ignored: a GLE colormap is opaque and one per axes (see "One Heatmap Per
+Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
+`contour` and `tricontour` take matplotlib's `linewidth` (`lw`) and
+`linestyle` (`ls`) for `linewidths` and `linestyles`. Their other keywords
+warn and are ignored, among them `extent` and `origin`: pass the grid's
+coordinates, `contour(x, y, Z)`, to place it. A misspelt keyword warns the
+same way.
+
 ## Line caps and joins
 
 matplotlib caps and joins each line on its own; GLE sets them once for the
@@ -520,6 +532,11 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
 11. `imshow` colours an array; it does not show a picture read with `imread`.
     Place the image file itself with `ax.image(fname, extent=...)`; see
     [Plot Types](PLOT_TYPES.md).
+12. An RGBA colour's alpha is honoured by `hist` only. Elsewhere the colour
+    is drawn opaque and a warning says so: pass an RGB colour and use the
+    `alpha=` keyword where the function has one (`fill_between`, `fill`,
+    `axhspan`, `axvspan`). As in matplotlib, `alpha=` overrides the colour's
+    own alpha, and then nothing warns.
 
 ## Migration Strategy
 
