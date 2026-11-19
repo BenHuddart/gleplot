@@ -2302,6 +2302,19 @@ class _Recognizer:
         self._polar_labels_rmax = axes_info["polar_rmax"]
         texts, consumed = self._consume_text_cluster(nodes, after_key)
         self._polar_labels_rmax = None
+        for node in nodes[after_key:consumed]:
+            # The matcher skips comments as it skips blank lines; the
+            # model has nowhere to keep one in place.
+            if (
+                isinstance(node, BlankOrComment)
+                and self._stmt_text(node.statement).strip()
+            ):
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    "comment among the text, pie, box or rug commands after "
+                    "'end graph' is not written back on save",
+                    self._stmt_span(node.statement),
+                )
         if axes_info["polar_rmax"] is not None and not any(
             t is _POLAR_LABELS for t in texts
         ):
