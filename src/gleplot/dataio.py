@@ -1122,3 +1122,268 @@ def classify_data_file(
     candidates = {referenced_name, Path(referenced_name).name}
     imported = {str(n) for n in import_list} | {Path(str(n)).name for n in import_list}
     return "import" if candidates & imported else "reference"
+
+
+# -- GLE's own reading of a data file ------------------------------------------
+#
+# The loader above is tolerant on purpose (sniffed delimiters, comment
+# headers, ``nan`` as missing). GLE's ``data`` command is not: it splits the
+# file with ``GLECSVData`` (``glearray.cpp``) under the statement's
+# ``comment``, ``ignore`` and ``numrows``, then decides the header and the x
+# column from the cells (``auto_has_header``, ``auto_all_labels_column`` in
+# ``graph.cpp``). Where the two disagree -- ``inf`` or ``nan`` is text to GLE,
+# a lone row of names is a header with no data -- only GLE's answer says
+# which columns a dataset given without ``cN`` reads.
+
+#: GLE's default ``delimiters`` for a ``data`` command.
+_GLE_DELIMITERS = " ,;\t"
+
+
+@dataclass(frozen=True)
+class GLEDataLayout:
+    """The shape GLE's ``data`` command reads from a file.
+
+    Attributes
+    ----------
+    n_cols : int
+        Cells per row (GLE requires every row to have the same count).
+    has_header : bool
+        The first row is a header: none of its cells is a number or a
+        missing value.
+    labels_column : bool
+        Every cell of the first column below the header is text, so GLE
+        reads it as x-axis labels and x is the point index.
+    """
+
+    n_cols: int
+    has_header: bool
+    labels_column: bool
+
+
+def _gle_is_float(text: str) -> bool:
+    """GLE's ``is_float`` (``Tokenizer.cpp``): a decimal number, no ``inf``.
+
+    An exponent ends the check, so ``1e5x`` counts, as it does in GLE.
+    """
+    n = len(text)
+    pos = 0
+    if pos < n and text[pos] in "+-":
+        pos += 1
+    before = after = 0
+    if pos < n and text[pos] == ".":
+        pos += 1
+        while pos < n and text[pos].isdigit() and text[pos].isascii():
+            pos += 1
+            after += 1
+    else:
+        while pos < n and text[pos].isdigit() and text[pos].isascii():
+            pos += 1
+            before += 1
+        if pos < n and text[pos] == ".":
+            pos += 1
+            while pos < n and text[pos].isdigit() and text[pos].isascii():
+                pos += 1
+                after += 1
+    if not (before or after):
+        return False
+    if pos < n and text[pos] in "eE":
+        pos += 1
+        if pos < n and text[pos] in "+-":
+            pos += 1
+        return pos < n and text[pos].isdigit() and text[pos].isascii()
+    return pos == n
+
+
+def _gle_float_or_missing(cell: str) -> bool:
+    """GLE's ``isFloatMiss``: a number, or a missing value (``*?-.`` or empty)."""
+    return len(cell) == 0 or (len(cell) == 1 and cell in "*?-.") or _gle_is_float(cell)
+
+
+def _gle_rows(
+    text: str, comment: str, delimiters: str, ignore: int, numrows: int
+) -> List[List[str]]:
+    """Split ``text`` into rows of cells as ``GLECSVData::parseBlock`` does.
+
+    Raises
+    ------
+    ValueError
+        For a string GLE leaves unterminated.
+    """
+    data = text
+    size = len(data)
+    pos = 0
+    rows: List[List[str]] = []
+    next_line = True
+    last_delim_space = " " in delimiters or "\t" in delimiters
+
+    def read() -> str:
+        nonlocal pos
+        if pos == size:
+            return ""
+        pos += 1
+        return data[pos - 1]
+
+    def go_back() -> None:
+        nonlocal pos
+        pos = max(pos - 1, 0)
+
+    def is_eol(ch: str) -> bool:
+        return ch in ("\n", "\r") and ch != ""
+
+    def is_space(ch: str) -> bool:
+        return ch in (" ", "\t") and ch != ""
+
+    def is_delim(ch: str) -> bool:
+        return ch != "" and ch in delimiters
+
+    def is_comment(ch: str) -> bool:
+        nonlocal pos
+        start = pos
+        matched = 0
+        while matched < len(comment) and ch == comment[matched]:
+            ch = read()
+            matched += 1
+        if matched == len(comment):
+            go_back()
+            return True
+        pos = start
+        return False
+
+    def create(cell: str) -> None:
+        nonlocal next_line
+        if next_line:
+            rows.append([])
+            next_line = False
+        rows[-1].append(cell)
+
+    def size_ok_at_eol(cell_size: int) -> bool:
+        return cell_size != 0 or not (next_line or last_delim_space)
+
+    def read_newline(prev: str) -> bool:
+        nonlocal next_line
+        next_line = True
+        ch = read()
+        if ch == "":
+            return False
+        if not (is_eol(ch) and ch != prev):
+            go_back()
+        return True
+
+    def skip_till_eol() -> bool:
+        while True:
+            ch = read()
+            if ch == "":
+                return False
+            if is_eol(ch):
+                return read_newline(ch)
+
+    def skip_spaces_and_first_delim(ch: str) -> bool:
+        nonlocal last_delim_space
+        while True:
+            if not is_space(ch):
+                if ch == "":
+                    return False
+                if is_eol(ch):
+                    return read_newline(ch)
+                if is_delim(ch):
+                    last_delim_space = False
+                else:
+                    go_back()
+                return True
+            ch = read()
+
+    def read_quoted(quote: str) -> bool:
+        cell = quote
+        while True:
+            ch = read()
+            if ch == "" or is_eol(ch):
+                raise ValueError("unterminated string")
+            cell += ch
+            if ch == quote:
+                ch = read()
+                if ch != quote:
+                    create(cell)
+                    return skip_spaces_and_first_delim(ch)
+
+    def read_cell() -> bool:
+        nonlocal last_delim_space
+        ch = read()
+        while is_space(ch):
+            ch = read()
+        if ch in ('"', "'"):
+            return read_quoted(ch)
+        start = max(pos - 1, 0)
+        count = cell_size = 0
+        while True:
+            cell = data[start : start + cell_size]
+            if ch == "":
+                if size_ok_at_eol(cell_size):
+                    create(cell)
+                return False
+            if is_eol(ch):
+                if size_ok_at_eol(cell_size):
+                    create(cell)
+                return read_newline(ch)
+            if is_delim(ch):
+                last_delim_space = is_space(ch)
+                if cell_size or not is_space(ch):
+                    create(cell)
+                return skip_spaces_and_first_delim(ch)
+            if is_comment(ch):
+                if size_ok_at_eol(cell_size):
+                    create(cell)
+                return skip_till_eol()
+            count += 1
+            if not is_space(ch):
+                cell_size = count
+            ch = read()
+
+    more = True
+    for _ in range(ignore):
+        more = skip_till_eol()
+    while more:
+        more = read_cell()
+        if next_line and numrows and len(rows) >= numrows:
+            break
+    return rows
+
+
+def gle_data_layout(
+    path: Union[str, Path],
+    *,
+    comment: str = "!",
+    ignore: int = 0,
+    numrows: int = 0,
+) -> GLEDataLayout:
+    """How GLE's ``data`` command reads ``path`` under the statement's options.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        The data file.
+    comment, ignore, numrows
+        The ``data`` statement's ``comment``, ``ignore`` and ``numrows``
+        (``numrows 0`` reads every row), with GLE's defaults.
+
+    Returns
+    -------
+    GLEDataLayout
+
+    Raises
+    ------
+    OSError
+        If the file cannot be read.
+    ValueError
+        Where GLE stops with an error: an unterminated string, or rows
+        with different numbers of cells.
+    """
+    # Bytes as characters: GLE splits bytes, and a UTF-8 BOM is a cell's text.
+    text = Path(path).read_bytes().decode("latin-1")
+    rows = _gle_rows(text, comment, _GLE_DELIMITERS, ignore, numrows)
+    n_cols = len(rows[0]) if rows else 0
+    if any(len(row) != n_cols for row in rows):
+        raise ValueError(f"{path}: rows have different numbers of columns")
+    has_header = bool(rows) and not any(_gle_float_or_missing(c) for c in rows[0])
+    body = rows[1:] if has_header else rows
+    labels = bool(body) and not any(_gle_float_or_missing(row[0]) for row in body)
+    return GLEDataLayout(n_cols=n_cols, has_header=has_header, labels_column=labels)

@@ -23,9 +23,11 @@ from gleplot.dataio import (
     WHITESPACE_DELIMITER,
     ColumnExtractionError,
     DataTable,
+    GLEDataLayout,
     ResolvedData,
     classify_data_file,
     extract_columns,
+    gle_data_layout,
     load_data_file,
     resolve_data_reference,
 )
@@ -1213,3 +1215,46 @@ def test_gzip_files_are_not_transparently_decompressed(tmp_path):
         pass
     else:
         assert overridden.column_names != ["x", "y"]
+
+
+# --------------------------------------------------------------------------- #
+# gle_data_layout: GLE's own reading (GLECSVData, auto_has_header, ...)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "text, options, expected",
+    [
+        ("1 2\n3 4\n", {}, (2, False, False)),
+        # A lone row of names is a header over no data.
+        ("a b\n", {}, (2, True, False)),
+        ("x y\na 2\nb 3\n", {}, (2, True, True)),
+        # inf and nan are text to GLE; a missing value is not.
+        ("inf 2\nnan 3\n", {}, (2, False, True)),
+        ("a 2\n* 3\n", {}, (2, False, False)),
+        # ``!`` comments by default; ``#`` only when the statement says so.
+        ("! a b c\n1 2\n", {}, (2, False, False)),
+        ("# a b c\n1 2\n", {"comment": "#"}, (2, False, False)),
+        ("1 2 ! note\n", {}, (2, False, False)),
+        ("1 2 3\na 2\nb 3\n", {"ignore": 1}, (2, False, True)),
+        ("1 2\n2 3\n4 5 6\n", {"numrows": 2}, (2, False, False)),
+        # Commas, semicolons and tabs are delimiters; a quoted cell is text.
+        ('"a b";2\n"c";3\n', {}, (2, False, True)),
+        ("1,,3\n", {}, (3, False, False)),
+        # GLE's is_float stops at an exponent's digits.
+        ("1e5x .5\n", {}, (2, False, False)),
+        ("", {}, (0, False, False)),
+    ],
+)
+def test_gle_data_layout_reads_as_gle_does(tmp_path, text, options, expected):
+    path = tmp_path / "f.dat"
+    path.write_text(text, encoding="utf-8")
+    assert gle_data_layout(path, **options) == GLEDataLayout(*expected)
+
+
+@pytest.mark.parametrize("text", ["1 2\n1 2 3\n", '"open 1\n'])
+def test_gle_data_layout_raises_where_gle_stops(tmp_path, text):
+    path = tmp_path / "f.dat"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError):
+        gle_data_layout(path)
