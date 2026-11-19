@@ -100,8 +100,10 @@ def test_twinx_warns_on_matplotlib_keywords_it_cannot_use():
 
 def test_twiny_takes_matplotlibs_signature_and_warns_on_its_keywords():
     _fig, ax = _axes()
-    with pytest.warns(UserWarning, match="twiny\\(\\) ignores axes_class, zorder"):
-        top = ax.twiny(object, zorder=3)
+    with pytest.warns(
+        UserWarning, match="twiny\\(\\) ignores axes_class, delta_zorder, zorder"
+    ):
+        top = ax.twiny(object, delta_zorder=1.0, zorder=3)
     top.plot([1, 2], [3, 4])
     assert ax.lines[-1]["xaxis"] == "x2"
 

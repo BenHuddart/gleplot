@@ -104,7 +104,9 @@ def _cartesian_only(method: _Method) -> _Method:
     return cast(_Method, wrapper)
 
 
-def _warn_twin_keywords(caller: str, edge: str, axes_class, delta_zorder, kwargs):
+def _warn_twin_keywords(
+    caller: str, edge: str, axes_class: Any, delta_zorder: Any, kwargs: Dict[str, Any]
+) -> None:
     """Warn about the matplotlib keywords ``twinx``/``twiny`` cannot use.
 
     GLE draws the second scale on the same graph, so there is no new axes
