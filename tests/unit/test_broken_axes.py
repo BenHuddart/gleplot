@@ -675,6 +675,38 @@ def test_broken_y_titles():
     assert 'write "Outliers"' in tail and "yg(ygmax)+" in tail
 
 
+@pytest.mark.parametrize("orient", ["x", "y"])
+def test_a_segment_title_takes_the_text_keywords(orient):
+    fig, bax = _fig() if orient == "x" else _yfig()
+    if orient == "x":
+        bax.set_ylabel("A", fontsize=9, color="red")
+        line = 'ytitle "A" hei'
+    else:
+        bax.set_xlabel("S", fontsize=9, color="red")
+        line = 'xtitle "S" hei'
+    assert re.search(line + r" \S+ color RED", _gle(fig)[0])
+
+
+@pytest.mark.parametrize(
+    "orient, setter", [("x", "set_xlabel"), ("x", "set_title"), ("y", "set_ylabel")]
+)
+def test_a_shared_title_warns_and_ignores_the_text_keywords(orient, setter):
+    fig, bax = _fig() if orient == "x" else _yfig()
+    getattr(bax, setter)("T")
+    plain = _gle(fig)[0]
+    with pytest.warns(
+        UserWarning, match=rf"{setter}\(\) on a broken axis ignores color, fontsize"
+    ):
+        getattr(bax, setter)("T", fontsize=9, color="red")
+    assert _gle(fig)[0] == plain
+
+
+def test_a_shared_title_warns_for_matplotlibs_positional_arguments():
+    fig, bax = _fig()
+    with pytest.warns(UserWarning, match=r"set_title\(\) .* ignores loc, pad"):
+        bax.set_title("T", None, "left", 6)
+
+
 def test_broken_y_title_distances_are_overridable():
     fig, bax = _yfig(ylabel_dist=1.7, title_dist=0.4)
     bax.set_ylabel("Counts")

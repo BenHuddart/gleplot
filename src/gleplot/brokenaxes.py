@@ -55,6 +55,23 @@ from .colors import _stored_color
 #: Accepted ``divider`` styles.
 DIVIDER_STYLES = ("none", "line", "slash")
 
+
+def _ignore_shared_title_keywords(caller: str, kwargs: dict) -> None:
+    """Warn about the text keywords a broken axis' shared title ignores.
+
+    A shared title is page text centred on the assembly, drawn in the
+    figure's font at the ``*_dist`` gap given to ``add_broken_xaxes`` /
+    ``add_broken_yaxes``.
+    """
+    if kwargs:
+        warn_external(
+            f"{caller}() on a broken axis ignores {', '.join(sorted(kwargs))}: "
+            "its shared title is drawn in the figure's font and colour. Pass "
+            "xlabel_dist, ylabel_dist or title_dist to add_broken_xaxes() or "
+            "add_broken_yaxes() to set its gap."
+        )
+
+
 #: Series lists on an :class:`~gleplot.axes.Axes` that a fanned-out call can
 #: append to. Used to diff before/after so the sidecar name allocated by the
 #: first segment can be reused by the rest.
@@ -673,37 +690,50 @@ class BrokenAxes:
 
     # -- shared axis state ----------------------------------------------
 
-    def set_xlabel(self, label: str):
+    def set_xlabel(self, label: str, **kwargs):
         """Set the x title.
 
         A broken x-axis draws it centred under the whole assembly; a broken
-        y-axis gives it to the bottom segment.
+        y-axis gives it to the bottom segment, which takes the keywords of
+        :meth:`Axes.set_xlabel`. The shared title is drawn in the figure's
+        font, so text keywords warn and are ignored there.
         """
         if self.axis == "y":
-            self.segments[0].set_xlabel(label)
+            self.segments[0].set_xlabel(label, **kwargs)
             return self
+        _ignore_shared_title_keywords("set_xlabel", kwargs)
         self.xlabel_text = self.segments[0]._text(label)
         return self
 
-    def set_title(self, label: str):
-        """Set the title, drawn centred above the whole assembly."""
+    def set_title(self, label: str, fontdict=None, loc=None, pad=None, **kwargs):
+        """Set the title, drawn centred above the whole assembly.
+
+        It is drawn in the figure's font, so ``fontdict``, ``loc``, ``pad``
+        and text keywords warn and are ignored; ``title_dist`` sets its gap.
+        """
+        given = {"fontdict": fontdict, "loc": loc, "pad": pad}
+        kwargs.update({name: v for name, v in given.items() if v is not None})
+        _ignore_shared_title_keywords("set_title", kwargs)
         self.title_text = self.segments[0]._text(label)
         return self
 
-    def set_ylabel(self, label: str, axis: str = "y"):
+    def set_ylabel(self, label: str, axis: str = "y", **kwargs):
         """Set the shared y title.
 
-        A broken x-axis draws it on the leftmost segment. A broken y-axis
-        draws it centred beside the whole assembly, ``ylabel_dist`` from the
-        frame, and has no ``y2`` title.
+        A broken x-axis draws it on the leftmost segment, which takes the
+        keywords of :meth:`Axes.set_ylabel`. A broken y-axis draws it
+        centred beside the whole assembly, ``ylabel_dist`` from the frame,
+        in the figure's font, so text keywords warn and are ignored there;
+        it has no ``y2`` title.
         """
         if self.axis == "x":
-            self.segments[0].set_ylabel(label, axis=axis)
+            self.segments[0].set_ylabel(label, axis=axis, **kwargs)
             return self
         if axis != "y":
             raise ValueError(
                 f"a broken y-axis has one y title; axis must be 'y', got {axis!r}"
             )
+        _ignore_shared_title_keywords("set_ylabel", kwargs)
         self.ylabel_text = self.segments[0]._text(label)
         return self
 
