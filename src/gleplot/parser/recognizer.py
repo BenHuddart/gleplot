@@ -3064,20 +3064,21 @@ class _Recognizer:
         names as ``mdata`` with a ``gleplot_cdata_`` marker, so that line's
         builder either models the let or keeps it raw beside itself.
         """
+        if not info["_colour_lets"]:
+            return
+        users: Dict[str, int] = {}
+        for attr_toks in pass1.merged_attr_toks.values():
+            words = [tok.value.lower() for tok in attr_toks]
+            pairs = dict(zip(words, words[1:]))
+            if pairs.get("marker", "").startswith(CDATA_SUB_PREFIX):
+                target = pairs.get("mdata")
+                if target is not None:
+                    users[target] = users.get(target, 0) + 1
         for target in list(info["_colour_lets"]):
-            users = []
-            for name, attr_toks in pass1.merged_attr_toks.items():
-                words = [tok.value.lower() for tok in attr_toks]
-                pairs = list(zip(words, words[1:]))
-                if ("mdata", target) in pairs and any(
-                    key == "marker" and value.startswith(CDATA_SUB_PREFIX)
-                    for key, value in pairs
-                ):
-                    users.append(name)
             if (
                 target in pass1.merged_attr_toks
                 or target in pass1.datasets
-                or len(users) != 1
+                or users.get(target) != 1
             ):
                 del info["_colour_lets"][target]
 
@@ -6838,7 +6839,6 @@ class _Recognizer:
         same imported file. Anything else stays raw GLE, the let with it, and
         gets a note.
         """
-        data_file, xcol, ycol = datasets[d_name]
         name = str(attrs["marker"]).lower()
         builtin, _, cmap = name[len(CDATA_SUB_PREFIX) :].partition("_")
         try:
@@ -6846,76 +6846,27 @@ class _Recognizer:
         except ValueError:
             known_cmap = False
         let = info["_colour_lets"].get(attrs["mdata"])
-        values_ref = datasets.get(let["source"]) if let is not None else None
-        loaded: Dict[str, Any] = {}
-        if (
-            builtin.upper() in MARKERS
-            and known_cmap
-            and not attrs["has_line"]
-            and not attrs["err_refs"]
-            and not attrs["err_consts"]
-            and values_ref is not None
-            and values_ref[0] == data_file
-            and self._is_import(data_file)
-        ):
-            loaded = self._load_series(
-                data_file, xcol, ycol, extra_cols=[values_ref[2]], line_no=line_no
-            )
-        values = None
-        if values_ref is not None and not loaded.get("error"):
-            values = loaded.get(f"c{values_ref[2]}")
-        if (
-            let is None
-            or values_ref is None
-            or values is None
-            or len(values) != len(loaded["x"])
-        ):
-            if let is not None:
-                info["passthrough"].append(let["raw"])
-            info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
-            info["_raw_mdata_datasets"].update((d_name, attrs["mdata"]))
-            why = (
-                "its data could not be read"
-                if loaded.get("error")
-                else "they are modelled only on a marker-only scatter gleplot "
-                "wrote, with the values in its own data file"
-            )
-            self._note(
-                ImportCategory.DATA,
-                f"per-point colours ('mdata' with marker {name}) on {d_name} "
-                f"were not modelled because {why}; the dataset line was kept "
-                "as raw GLE, not editable",
-                (line_no, line_no) if line_no is not None else None,
-            )
-            return
-        entry = ScatterSeries(
-            type="scatter",
-            x=loaded["x"],
-            y=loaded["y"],
-            marker=builtin.upper(),
-            markersize=_dn_markersize(attrs),
-            linestyle="none",
-            linewidth=_dn_linewidth(attrs),
-            nomiss=attrs["nomiss"],
-            **_dn_fields(attrs),
-            offset=info["_dataset_offsets"].get(d_name, 0.0),
-            data_file=data_file,
-            cdata=np.asarray(values, dtype=float),
-            cmap=cmap,
-            vmin=let["vmin"],
-            vmax=let["vmax"],
+        modelled = self._build_mdata_scatter(
+            info,
+            d_name,
+            datasets,
+            attrs,
+            (toks, line_no, raw_stmts),
+            marker=builtin.upper() if known_cmap and let is not None else "",
+            extra_ref=datasets.get(let["source"]) if let is not None else None,
+            fields=lambda values: {
+                "cdata": np.asarray(values, dtype=float),
+                "cmap": cmap,
+                "vmin": let["vmin"],
+                "vmax": let["vmax"],
+            },
+            what=f"per-point colours ('mdata' with marker {name})",
+            values="values",
+            raw_before=[let["raw"]] if let is not None else [],
         )
-        entry.update(attrs["qualifiers"])
-        column_names = self._recovered_column_names(
-            data_file, [xcol, ycol, values_ref[2]]
-        )
-        if column_names is not None:
-            entry["column_names"] = column_names
-        entry["_draw_seq"] = info["_draw_seq_counter"]
-        info["_draw_seq_counter"] += 1
-        info["scatters"].append(entry)
-        # The values' dataset is read through the let, not a line of its own.
-        info["_let_source_datasets"].add(let["source"])
+        if modelled:
+            # The values' dataset is read through the let, not a line of its own.
+            info["_let_source_datasets"].add(let["source"])
 
     def _build_sized_scatter(
         self, info, d_name, datasets, attrs, toks, line_no, raw_stmts
@@ -6929,28 +6880,68 @@ class _Recognizer:
         at one size whatever ``mdata`` says, a line, error bars) stays raw
         GLE with a note.
         """
-        data_file, xcol, ycol = datasets[d_name]
         marker = str(attrs["marker"] or "").lower()
-        builtin = marker[len(MDATA_SUB_PREFIX) :].upper()
-        sizes_ref = datasets.get(attrs["mdata"])
+        self._build_mdata_scatter(
+            info,
+            d_name,
+            datasets,
+            attrs,
+            (toks, line_no, raw_stmts),
+            marker=(
+                marker[len(MDATA_SUB_PREFIX) :].upper()
+                if marker.startswith(MDATA_SUB_PREFIX)
+                else ""
+            ),
+            extra_ref=datasets.get(attrs["mdata"]),
+            fields=lambda sizes: {"mdata": np.asarray(sizes, dtype=float)},
+            what="per-point marker sizes ('mdata')",
+            values="sizes",
+            raw_before=[],
+        )
+
+    def _build_mdata_scatter(
+        self,
+        info,
+        d_name,
+        datasets,
+        attrs,
+        source,
+        *,
+        marker: str,
+        extra_ref,
+        fields,
+        what: str,
+        values: str,
+        raw_before: List[str],
+    ) -> bool:
+        """Model a ``dN ... mdata dK`` scatter, or keep it raw with a note.
+
+        ``marker`` is the built-in marker the generated sub draws (empty when
+        the sub is not one gleplot writes), ``extra_ref`` the dataset holding
+        the per-point column, and ``fields`` maps that column to the series
+        fields. ``source`` is the statement's ``(toks, line_no, raw_stmts)``.
+        Returns whether the scatter was modelled.
+        """
+        toks, line_no, raw_stmts = source
+        data_file, xcol, ycol = datasets[d_name]
         loaded: Dict[str, Any] = {}
         if (
-            marker.startswith(MDATA_SUB_PREFIX)
-            and builtin in MARKERS
+            marker in MARKERS
             and not attrs["has_line"]
             and not attrs["err_refs"]
             and not attrs["err_consts"]
-            and sizes_ref is not None
-            and sizes_ref[0] == data_file
+            and extra_ref is not None
+            and extra_ref[0] == data_file
             and self._is_import(data_file)
         ):
             loaded = self._load_series(
-                data_file, xcol, ycol, extra_cols=[sizes_ref[2]], line_no=line_no
+                data_file, xcol, ycol, extra_cols=[extra_ref[2]], line_no=line_no
             )
-        sizes = None
-        if sizes_ref is not None and not loaded.get("error"):
-            sizes = loaded.get(f"c{sizes_ref[2]}")
-        if sizes is None or len(sizes) != len(loaded["x"]):
+        extra = None
+        if extra_ref is not None and not loaded.get("error"):
+            extra = loaded.get(f"c{extra_ref[2]}")
+        if extra is None or len(extra) != len(loaded["x"]):
+            info["passthrough"].extend(raw_before)
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
             info["_raw_mdata_datasets"].update((d_name, attrs["mdata"]))
             # A file that could not be read already has its own note.
@@ -6958,21 +6949,20 @@ class _Recognizer:
                 "its data could not be read"
                 if loaded.get("error")
                 else "they are modelled only on a marker-only scatter gleplot "
-                "wrote, with the sizes in its own data file"
+                f"wrote, with the {values} in its own data file"
             )
             self._note(
                 ImportCategory.DATA,
-                f"per-point marker sizes ('mdata') on {d_name} were not "
-                f"modelled because {why}; the dataset line was kept as raw "
-                "GLE, not editable",
+                f"{what} on {d_name} were not modelled because {why}; the "
+                "dataset line was kept as raw GLE, not editable",
                 (line_no, line_no) if line_no is not None else None,
             )
-            return
+            return False
         entry = ScatterSeries(
             type="scatter",
             x=loaded["x"],
             y=loaded["y"],
-            marker=builtin,
+            marker=marker,
             markersize=_dn_markersize(attrs),
             linestyle="none",
             linewidth=_dn_linewidth(attrs),
@@ -6980,17 +6970,18 @@ class _Recognizer:
             **_dn_fields(attrs),
             offset=info["_dataset_offsets"].get(d_name, 0.0),
             data_file=data_file,
-            mdata=np.asarray(sizes, dtype=float),
+            **fields(extra),
         )
         entry.update(attrs["qualifiers"])
         column_names = self._recovered_column_names(
-            data_file, [xcol, ycol, sizes_ref[2]]
+            data_file, [xcol, ycol, extra_ref[2]]
         )
         if column_names is not None:
             entry["column_names"] = column_names
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         info["scatters"].append(entry)
+        return True
 
     def _scan_series_attrs(self, toks) -> dict:
         """Flat scan of dataset attribute tokens (order-tolerant).

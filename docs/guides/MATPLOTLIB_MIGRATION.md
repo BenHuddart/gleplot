@@ -231,7 +231,7 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 
 | `scatter()` argument | gleplot |
 |---|---|
-| `c` with one number per point | wired, with `cmap`, `vmin` and `vmax`. A value outside `vmin`..`vmax` takes the end colour, and a point whose value is not finite is not drawn. The legend marker is drawn in the colormap's last colour, not the first point's: GLE draws a legend marker as if its value were `vmax`. |
+| `c` with one number per point | wired, with `cmap`, `vmin` and `vmax`. A value outside `vmin`..`vmax` takes the end colour, and a point whose value is not finite is left out of the plot and the axis limits. The legend marker is drawn in the colormap's last colour, not the first point's: GLE draws a legend marker as if its value were `vmax`. |
 | `c` as one colour | the same as `color`. Passing both `c` and `color` raises `ValueError`. |
 | `c` with one colour per point | one series per distinct colour, in the order each colour first appears. Only the first series carries `label`. Points of one colour are drawn together, which only matters where points overlap. |
 | `c` with one number per point and `s` with one size per point | raises `ValueError`: a GLE dataset carries one per-point value. Pass one size, or one colour. |

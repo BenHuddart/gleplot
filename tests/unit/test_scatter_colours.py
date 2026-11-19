@@ -129,18 +129,25 @@ def test_a_heatmap_and_a_scatter_share_one_palette_sub():
     assert text.count("sub gleplot_viridis z") == 1
 
 
-def test_points_without_a_colour_are_written_missing():
-    """matplotlib does not draw a point whose value is not finite."""
+def test_points_without_a_colour_are_left_out():
+    """matplotlib leaves a point whose value is not finite out of the plot and
+    of the axis limits (``plotnonfinite=False``)."""
     ax = _ax()
-    ax.scatter([1, 2, 3, 4], [1, 2, 3, 4], c=[1, np.nan, np.inf, 4])
-    _text, files = _script(ax)
-    assert files["t_0.dat"].splitlines()[1:] == [
-        "1 1 1",
-        "* * *",
-        "* * *",
-        "4 4 4",
-    ]
+    ax.scatter([1, 2, 30, 4], [1, 2, 30, 4], c=[1, np.nan, np.inf, 4])
+    text, files = _script(ax)
+    assert files["t_0.dat"].splitlines()[1:] == ["1 1 1", "4 4 4"]
+    assert "    xaxis min 1 max 4\n" in text
     assert (ax.scatters[0]["vmin"], ax.scatters[0]["vmax"]) == (1.0, 4.0)
+
+
+def test_figure_legend_draws_the_colour_marker():
+    """``fig.legend()`` draws the swatch through the colour sub, like the
+    in-graph key does."""
+    ax = _ax()
+    ax.scatter(X, Y, c=[1, 2, 3], label="pts")
+    ax.figure.legend()
+    text, _files = _script(ax)
+    assert 'text "pts" marker gleplot_cdata_fcircle_viridis msize' in text
 
 
 def test_three_numbers_for_three_points_are_values():
@@ -246,6 +253,12 @@ def test_rgb_rows_are_a_colour_per_point():
     ax = _ax()
     ax.scatter(X, Y, c=np.array([[1, 0, 0], [0, 0, 1], [1, 0, 0]]))
     assert [s["color"] for s in ax.scatters] == ["rgb255(255,0,0)", "rgb255(0,0,255)"]
+
+
+def test_an_array_of_names_is_a_colour_per_point():
+    ax = _ax()
+    ax.scatter(X, Y, c=np.array(["red", "blue", "red"]))
+    assert [s["color"] for s in ax.scatters] == ["RED", "BLUE"]
 
 
 def test_names_and_tuples_mix_in_a_colour_sequence():

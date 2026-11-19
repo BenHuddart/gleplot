@@ -1486,17 +1486,23 @@ def test_per_point_colours_are_recovered(tmp_path):
 
 
 def test_a_point_without_a_colour_round_trips(tmp_path):
-    """The ``*`` row written for a NaN value reads back and is rewritten."""
+    """A missing value in the colour column of a file read back: the point is
+    written missing, so GLE does not draw it, and that reads back the same."""
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
-    fig.add_subplot(111).scatter([0, 1, 2], [2, 1, 2], c=[1, float("nan"), 2])
+    fig.add_subplot(111).scatter([0, 1, 2], [2, 1, 2], c=[1, 5, 2])
     path = tmp_path / "gap.gle"
     fig.savefig_gle(str(path))
-    text, files = fig._generate_gle_with_files()
+    dat = tmp_path / "data_0.dat"
+    dat.write_text(dat.read_text().replace("1 1 5\n", "1 1 *\n"))
     rec = parse_gle_figure(path)
     (series,) = rec.figure.axes_list[0].scatters
     assert np.isnan(series["cdata"][1])
-    assert rec.figure._generate_gle_with_files() == (text, files)
+    text, files = rec.figure._generate_gle_with_files()
+    assert files["data_0.dat"].splitlines()[2] == "* * *"
+    rec.figure.savefig_gle(str(path))
+    again = parse_gle_figure(path).figure
+    assert again._generate_gle_with_files() == (text, files)
 
 
 def test_an_edited_coloured_scatter_kept_raw_keeps_its_let_and_subs(tmp_path):

@@ -53,6 +53,7 @@ from .writer import (
     KeyOptions,
     SourceResolution,
     _grid_z_file,
+    cdata_sub_name,
     cdata_sub_text,
     image_sub_name,
     legend_column_breaks,
@@ -3377,11 +3378,15 @@ class Figure:
         if kind == "hist" and data.get("histtype") == "stepfilled":
             token = data.get("color") or "BLUE"
             return writer.legend_swatch(token, fill=token)
+        marker = data.get("marker")
+        if kind == "scatter" and "cdata" in data:
+            # The colour sub draws the swatch as the in-graph key does.
+            marker = cdata_sub_name(str(marker), data["cmap"])
         return writer.legend_swatch(
             data.get("color") or "BLUE",
             None if kind == "scatter" else data.get("linestyle", "-"),
             data.get("linewidth", 1),
-            data.get("marker"),
+            marker,
             data.get("markersize"),
         )
 

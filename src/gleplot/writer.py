@@ -3191,44 +3191,17 @@ class GLEWriter:
         written as a missing value (``*``) instead, which GLE keeps and does
         not draw.
         """
-        label = series["label"]
-        column_names = series.get("column_names")
         x = np.asarray(series["x"])
         y = np.asarray(series["y"])
         if binding is None:
             x, y = self._missing_where_gle_drops(
                 x, y, series.get("xaxis", "x"), series.get("yaxis", "y")
             )
-        cols = self._write_columns(
-            series["data_file"],
-            [("x", x), ("y", y), ("mdata", np.asarray(series["mdata"]))],
-            column_names,
-            binding,
+        d_name, d_sizes = self._mdata_data_line(
+            series, binding, x, y, ("mdata", np.asarray(series["mdata"]))
         )
-        file_name = binding.data_file if binding is not None else series["data_file"]
-        d_name = f"d{self.dataset_index}"
-        d_sizes = f"d{self.dataset_index + 1}"
-        self.dataset_index += 2
-        self.lines_gle.append(
-            f"    data {_format_data_filename(file_name)} "
-            f"{d_name}=c{cols[0]},c{cols[1]} {d_sizes}=c{cols[0]},c{cols[2]}"
-        )
-        offset = series.get("offset", 0.0)
-        display_name = self._apply_offset(d_name, offset) if offset else d_name
-        if self._polar_graph:
-            display_name = self._polar_dataset(display_name)
         marker = MDATA_SUB_PREFIX + str(series["marker"]).lower()
-        msize = self._format_number(series["markersize"])
-        self.lines_gle.append(
-            f"    {display_name} marker {marker} msize {msize} mdata {d_sizes}"
-            + self._color_clause(series["color"])
-            + self._dataset_axis_clause(
-                series.get("xaxis", "x"), series.get("yaxis", "y")
-            )
-            + self._dataset_qualifier_clause(series, False)
-            + self._key_clause(label, bool(column_names) or binding is not None)
-        )
-        self._finish_legend_entry(label)
+        self._mdata_display_line(series, binding, d_name, marker, d_sizes)
 
     @staticmethod
     def _as_missing(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -3257,10 +3230,9 @@ class GLEWriter:
 
         As for :meth:`_add_sized_scatter`, a point GLE would drop from ``dN``
         is written as a missing value, and so is one whose colour value is
-        not finite, which matplotlib does not draw either.
+        not finite (only a file read back can hold one: ``scatter`` leaves
+        such a point out).
         """
-        label = series["label"]
-        column_names = series.get("column_names")
         x = np.asarray(series["x"])
         y = np.asarray(series["y"])
         values = np.asarray(series["cdata"], dtype=float)
@@ -3269,45 +3241,72 @@ class GLEWriter:
             x, y = self._missing_where_gle_drops(
                 x, y, series.get("xaxis", "x"), series.get("yaxis", "y"), unmapped
             )
-            if unmapped.any():
-                cells = values.astype(object)
-                cells[unmapped] = "*"
-                values = cells
-        cols = self._write_columns(
-            series["data_file"],
-            [("x", x), ("y", y), ("c", values)],
-            column_names,
-            binding,
-        )
-        file_name = binding.data_file if binding is not None else series["data_file"]
-        d_name = f"d{self.dataset_index}"
-        d_values = f"d{self.dataset_index + 1}"
-        d_mapped = f"d{self.dataset_index + 2}"
-        self.dataset_index += 3
-        self.lines_gle.append(
-            f"    data {_format_data_filename(file_name)} "
-            f"{d_name}=c{cols[0]},c{cols[1]} {d_values}=c{cols[0]},c{cols[2]}"
-        )
+            values = self._as_missing(values, unmapped)
+        d_name, d_values = self._mdata_data_line(series, binding, x, y, ("c", values))
+        d_mapped = f"d{self.dataset_index}"
+        self.dataset_index += 1
         low = self._format_number(float(series["vmin"]))
         high = self._format_number(float(series["vmax"]))
         # ``d2--5`` would not parse, so a negative vmin flips the operator.
         shift = f"+{low[1:]}" if low.startswith("-") else f"-{low}"
         scale = "*0" if low == high else f"/({high}{shift})"
         self.lines_gle.append(f"    let {d_mapped} = ({d_values}{shift}){scale}")
+        marker = cdata_sub_name(str(series["marker"]), series["cmap"])
+        self._mdata_display_line(series, binding, d_name, marker, d_mapped)
+
+    def _mdata_data_line(
+        self,
+        series: Series,
+        binding: Optional[ColumnBinding],
+        x: np.ndarray,
+        y: np.ndarray,
+        extra: Tuple[str, np.ndarray],
+    ) -> Tuple[str, str]:
+        """Write a per-point scatter's columns and its ``data`` line.
+
+        ``extra`` is the role and values of the per-point column. Returns the
+        names of the drawn dataset and of the one that reads that column.
+        """
+        cols = self._write_columns(
+            series["data_file"],
+            [("x", x), ("y", y), extra],
+            series.get("column_names"),
+            binding,
+        )
+        file_name = binding.data_file if binding is not None else series["data_file"]
+        d_name = f"d{self.dataset_index}"
+        d_extra = f"d{self.dataset_index + 1}"
+        self.dataset_index += 2
+        self.lines_gle.append(
+            f"    data {_format_data_filename(file_name)} "
+            f"{d_name}=c{cols[0]},c{cols[1]} {d_extra}=c{cols[0]},c{cols[2]}"
+        )
+        return d_name, d_extra
+
+    def _mdata_display_line(
+        self,
+        series: Series,
+        binding: Optional[ColumnBinding],
+        d_name: str,
+        marker: str,
+        d_mdata: str,
+    ) -> None:
+        """Draw ``d_name`` with the marker sub ``marker``, fed by ``d_mdata``."""
+        label = series["label"]
         offset = series.get("offset", 0.0)
         display_name = self._apply_offset(d_name, offset) if offset else d_name
         if self._polar_graph:
             display_name = self._polar_dataset(display_name)
-        marker = cdata_sub_name(str(series["marker"]), series["cmap"])
         msize = self._format_number(series["markersize"])
+        named = bool(series.get("column_names")) or binding is not None
         self.lines_gle.append(
-            f"    {display_name} marker {marker} msize {msize} mdata {d_mapped}"
+            f"    {display_name} marker {marker} msize {msize} mdata {d_mdata}"
             + self._color_clause(series["color"])
             + self._dataset_axis_clause(
                 series.get("xaxis", "x"), series.get("yaxis", "y")
             )
             + self._dataset_qualifier_clause(series, False)
-            + self._key_clause(label, bool(column_names) or binding is not None)
+            + self._key_clause(label, named)
         )
         self._finish_legend_entry(label)
 

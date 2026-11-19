@@ -1926,7 +1926,10 @@ def _scatter_c(c: Any, n_points: int) -> Tuple[str, Any]:
     if isinstance(c, str):
         return "color", c
     items: Optional[List[Any]] = None
-    if not isinstance(c, np.ndarray):
+    if isinstance(c, np.ndarray):
+        if c.dtype.kind in "OSU":
+            items = c.ravel().tolist()
+    else:
         try:
             items = list(c)
         except TypeError:
@@ -4212,7 +4215,8 @@ class Axes:
         a ``gleplot_cdata_<marker>_<cmap>`` sub that draws the built-in
         marker in each point's colour. The values are written to the data
         file as given, and a ``let`` maps them onto the colormap. A point
-        whose value is not finite is not drawn. The legend marker takes the
+        whose value is not finite is left out, as matplotlib leaves it out
+        of the plot and its limits. The legend marker takes the
         colormap's last colour. Per-point colours cannot be combined with
         per-point sizes, ``mdist`` or ``deresolve``.
 
@@ -4295,14 +4299,6 @@ class Axes:
                     "and its own size (s= or markersize=) yet: GLE carries one "
                     "per-point value on a dataset. Pass one size, or one colour."
                 )
-            for qualifier in ("mdist", "deresolve"):
-                if kwargs.get(qualifier) is not None:
-                    raise ValueError(
-                        f"scatter({qualifier}={kwargs[qualifier]!r}) cannot be "
-                        "combined with per-point sizes: GLE ignores per-point "
-                        f"sizes under {qualifier}. Pass one size, or drop "
-                        f"{qualifier}."
-                    )
             # The legend marker's area is halfway between the largest and
             # smallest point's, as in matplotlib's scatter legend.
             size = float(np.sqrt((diameters.max() ** 2 + diameters.min() ** 2) / 2))
@@ -4311,15 +4307,23 @@ class Axes:
                 # size and scale every point down to nothing.
                 size = default_size
             mdata = diameters / size
-        if mapping is not None:
-            for qualifier in ("mdist", "deresolve"):
-                if kwargs.get(qualifier) is not None:
-                    raise ValueError(
-                        f"scatter({qualifier}={kwargs[qualifier]!r}) cannot be "
-                        "combined with per-point colours: GLE ignores them "
-                        f"under {qualifier}. Pass one colour, or drop "
-                        f"{qualifier}."
-                    )
+        per_point = (
+            "colour" if mapping is not None else "size" if mdata is not None else None
+        )
+        for qualifier in ("mdist", "deresolve") if per_point else ():
+            if kwargs.get(qualifier) is not None:
+                raise ValueError(
+                    f"scatter({qualifier}={kwargs[qualifier]!r}) cannot be "
+                    f"combined with per-point {per_point}s: GLE ignores per-point "
+                    f"{per_point}s under {qualifier}. Pass one {per_point}, or "
+                    f"drop {qualifier}."
+                )
+        if mapping is not None and not np.all(np.isfinite(mapping["cdata"])):
+            # matplotlib leaves a point with no colour out (plotnonfinite).
+            keep = np.isfinite(mapping["cdata"])
+            x = np.asarray(x)[keep]
+            y = np.asarray(y)[keep]
+            mapping["cdata"] = mapping["cdata"][keep]
         count = len(self.scatters)
         self.plot(
             x,
@@ -4401,7 +4405,9 @@ class Axes:
         for name, sizes in (("s", s), ("markersize", markersize)):
             if sizes is not None and np.ndim(sizes) > 0:
                 _point_sizes(name, sizes, n_points)
-        tokens = [rgb_to_gle(item) for item in colors]
+        groups: Dict[str, List[int]] = {}
+        for point, item in enumerate(colors):
+            groups.setdefault(rgb_to_gle(item), []).append(point)
         x = np.asarray(x)
         y = np.asarray(y)
 
@@ -4410,8 +4416,7 @@ class Axes:
                 return np.asarray(sizes, dtype=float).ravel()[mask]
             return sizes
 
-        for index, token in enumerate(dict.fromkeys(tokens)):
-            mask = np.array([item == token for item in tokens])
+        for index, (token, mask) in enumerate(groups.items()):
             self.scatter(
                 x[mask],
                 y[mask],
