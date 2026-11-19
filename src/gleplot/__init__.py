@@ -55,6 +55,7 @@ figure(figsize=(8, 6), dpi=100)
 __version__ = "5.6.1"
 __author__ = "gleplot contributors"
 
+from . import _warn
 from .axes import Axes, validate_tick_format
 from .brokenaxes import BrokenAxes
 from .colors import get_color_palette, rgb_to_gle
@@ -94,8 +95,10 @@ def open_gle(path, *, base_dir=None) -> Figure:
 
     Convenience wrapper around
     :func:`gleplot.parser.recognizer.parse_gle_figure` that returns just the
-    reconstructed figure (discarding recovery warnings). Use
-    ``parse_gle_figure`` directly when you need the warnings list.
+    reconstructed figure. Each recovery note (something kept as raw GLE,
+    guessed, or converted) is raised as a ``UserWarning`` whose text is
+    ``"category: message"``. Use ``parse_gle_figure`` directly to get the
+    notes as data instead.
 
     Parameters
     ----------
@@ -108,10 +111,20 @@ def open_gle(path, *, base_dir=None) -> Figure:
     Returns
     -------
     Figure
+
+    Warns
+    -----
+    UserWarning
+        One per recovery note. Python's default warning filter shows a
+        message it has already shown from the same line only once; use
+        ``parse_gle_figure`` for the full list and each note's line span.
     """
     from .parser.recognizer import parse_gle_figure
 
-    return parse_gle_figure(path, base_dir=base_dir).figure
+    result = parse_gle_figure(path, base_dir=base_dir)
+    for warning in result.warnings:
+        _warn.warn_external(warning)
+    return result.figure
 
 
 def figure(
@@ -168,13 +181,13 @@ def figure(
 
     Create a figure with custom style:
 
-    >>> style = glp.GLEStyleConfig(font='helvetica', fontsize=12)
+    >>> style = glp.GLEStyleConfig(font='texcmss', fontsize=12)
     >>> fig = glp.figure(style=style)
 
     Or modify global defaults:
 
-    >>> glp.GlobalConfig.style.font = 'helvetica'
-    >>> fig = glp.figure()  # Will use helvetica font
+    >>> glp.GlobalConfig.style.font = 'texcmss'
+    >>> fig = glp.figure()  # Will use Computer Modern Sans Serif
 
     A 5-row grid built with add_subplot, with a short 4th "separator" row:
 
@@ -535,7 +548,10 @@ def legend(**kwargs):
 
 
 def savefig(filepath: str, **kwargs):
-    """Save current figure."""
+    """Save current figure: :meth:`Figure.savefig` on :func:`gcf`.
+
+    A keyword ``Figure.savefig`` does not take warns and is ignored.
+    """
     return gcf().savefig(filepath, **kwargs)
 
 
