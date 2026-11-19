@@ -95,20 +95,20 @@ fig.view()
 fig, axes = glp.subplots(2, 2, figsize=(12, 10))
 
 # Top-left
-axes[0].plot([1, 2, 3], [1, 2, 3], 'b-')
-axes[0].set_title('Linear')
+axes[0, 0].plot([1, 2, 3], [1, 2, 3], 'b-')
+axes[0, 0].set_title('Linear')
 
 # Top-right
-axes[1].scatter([1, 2, 3], [1, 4, 9], color='red')
-axes[1].set_title('Scatter')
+axes[0, 1].scatter([1, 2, 3], [1, 4, 9], color='red')
+axes[0, 1].set_title('Scatter')
 
 # Bottom-left
-axes[2].bar([1, 2, 3], [3, 5, 2], color='green')
-axes[2].set_title('Bar')
+axes[1, 0].bar([1, 2, 3], [3, 5, 2], color='green')
+axes[1, 0].set_title('Bar')
 
 # Bottom-right
-axes[3].plot([1, 2, 3], [3, 1, 2], 'g--')
-axes[3].set_title('Dashed')
+axes[1, 1].plot([1, 2, 3], [3, 1, 2], 'g--')
+axes[1, 1].set_title('Dashed')
 
 # Display entire grid
 fig.view()

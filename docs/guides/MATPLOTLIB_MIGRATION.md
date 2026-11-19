@@ -7,11 +7,12 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | matplotlib | gleplot |
 |---|---|
 | `plt.figure()` | `glp.figure()` |
+| `plt.subplots(nrows, ncols)` | `glp.subplots(nrows, ncols)`: the same numpy array of axes, with `squeeze`, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
 | `ax.plot(...)` | same |
-| `ax.scatter(...)` | same, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
+| `ax.scatter(...)` | same, with matplotlib's positional order `scatter(x, y, s, c)` and every other argument keyword-only, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
 | `ax.errorbar(...)` | same |
 | `ax.fill_between(...)` | same |
 | `ax.fill_betweenx(...)` / `ax.stackplot(...)` | same, see [Fills](#fills) |
@@ -362,7 +363,7 @@ caps and round joins.
 
 An autoscaled x axis now includes `xerr`, the way the y axis already included `yerr`. A horizontal whisker is not clipped by the `xaxis` gleplot writes. This applies to `errorbar` as well as to bars.
 
-Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 fill c1,c2` is GLE's side-by-side group and round-trips as one command, `dist` included, and so do `pattern` and `background` when they give each dataset at most one pattern, a `fill`, and a background only under a pattern. `3d`, `style`, `side`, `top` and `notop` have no series field; the whole command stays raw GLE.
+Two matplotlib calls with shifted x are two commands. GLE's side-by-side group `bar d1,d2 fill c1,c2`, read from a script whose data file gleplot wrote, round-trips as one command (on a data file of your own the whole command stays raw GLE, see [Opening GLE Files](OPENING_GLE_FILES.md)), `dist` included, and so do `pattern` and `background` when they give each dataset at most one pattern, a `fill`, and a background only under a pattern. `3d`, `style`, `side`, `top` and `notop` have no series field; the whole command stays raw GLE.
 
 | call | GLE |
 |---|---|
@@ -420,7 +421,7 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 
 ## Colorbars
 
-`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned (a `contourf` gets the colormap's continuous scale, with a warning), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh`, `tripcolor` or `contourf` returned (a `contourf`'s bar shows its bands, but has no `extend` end caps; thinned ticks start at the first level rather than nearest zero; and with uneven levels each band's room is in proportion to its range, ticked in equal steps, where matplotlib gives every band the same room and ticks the levels), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
 
 | `colorbar()` argument | gleplot |
 |---|---|

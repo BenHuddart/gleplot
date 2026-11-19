@@ -1045,22 +1045,118 @@ def test_raw_mdata_on_shared_file_reference_keeps_datasets_defined(tmp_path):
     assert not any("mixes datasets" in w for w in rec.warnings)
 
 
+def test_raw_mdata_naming_a_modelled_dataset_is_a_fixed_point(tmp_path):
+    """#278: the restored statement keeps d1, so the line takes another name.
+
+    The raw ``mdata d1`` reads the modelled line's dataset. Its ``data``
+    statement is restored whole, and the writer numbers the modelled line
+    past every name that statement fills, so neither defines d1 twice and
+    re-saving changes nothing.
+    """
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        '   data "hand.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d1 line color red\n"
+        "   d2 marker fcircle mdata d1\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "md.gle", src, {"hand.dat": "1 2 0.1\n2 3 0.2\n"})
+    first = tmp_path / "first.gle"
+    rec = parse_gle_figure(p)
+    assert any(w.startswith("data: per-point marker sizes") for w in rec.warnings)
+    rec.figure.savefig_gle(str(first))
+    text = first.read_text(encoding="utf-8")
+    graph = text[text.index("begin graph") :]
+    data_lines = [ln for ln in graph.splitlines() if ln.lstrip().startswith("data ")]
+    assert len(data_lines) == 2
+    assert "    data hand.dat d3=c1,c2\n    d3 line color red\n" in graph
+    assert (
+        '   data "hand.dat" d1=c1,c2 d2=c1,c3\n   d2 marker fcircle mdata d1\n' in graph
+    )
+
+    second = tmp_path / "second.gle"
+    parse_gle_figure(first).figure.savefig_gle(str(second))
+    assert second.read_text(encoding="utf-8") == text
+
+
 @pytest.mark.parametrize(
-    "body",
+    "meta, body",
     [
         # Nothing draws d2 or d3: no data statement is invented for them.
-        "   d1 line color red\n",
-        # The fill rewrites h3.dat with its own two columns on save, so c4
-        # would not be there for a d3 statement.
-        "   fill d1,d2 color gray\n   d3 marker fcircle err 0.5\n",
+        ("", "   d1 line color red\n"),
+        # The fill rewrites gleplot's own h3.dat with its two columns on
+        # save, so c4 would not be there for a d3 statement.
+        (_meta("h3.dat"), "   fill d1,d2 color gray\n   d3 marker fcircle err 0.5\n"),
     ],
 )
-def test_no_data_statement_added_for_unused_or_rewritten_file(tmp_path, body):
+def test_no_data_statement_added_for_unused_or_rewritten_file(tmp_path, meta, body):
     """#133: a ``data`` statement is added only where it still reads true."""
-    src = 'size 12 9\nbegin graph\n   data "h3.dat"\n' + body + "end graph\n"
+    src = meta + 'size 12 9\nbegin graph\n   data "h3.dat"\n' + body + "end graph\n"
     p = _write(tmp_path, "md.gle", src, {"h3.dat": "0 1 2 1\n1 2 3 2\n"})
     ax = parse_gle_figure(p).figure.axes_list[0]
     assert not any(line.lstrip().startswith("data") for line in ax.passthrough)
+
+
+def test_a_fill_on_a_users_file_is_a_reference_that_leaves_it_alone(tmp_path):
+    """#276: the file is read in place, so saving never rewrites it.
+
+    The fill is a file reference, and the dataset only a raw line draws
+    keeps a ``data`` statement of its own on the same file.
+    """
+    user_dat = "! the author's own file\n0 1 2 1\n1 2 3 2\n"
+    src = (
+        'size 12 9\nbegin graph\n   data "h3.dat"\n'
+        "   fill d1,d2 color gray\n   d3 marker fcircle err 0.5\nend graph\n"
+    )
+    p = _write(tmp_path, "md.gle", src, {"h3.dat": user_dat})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.fills == []
+    (ref,) = ax.file_series
+    assert (ref["series_type"], ref["y1_col"], ref["y2_col"]) == ("fill", 2, 3)
+    assert "data_error" not in ref
+    rec.figure.savefig_gle(str(p))
+    assert (tmp_path / "h3.dat").read_text(encoding="utf-8") == user_dat
+    text = p.read_text(encoding="utf-8")
+    assert "fill d1,d2 color gray" in text
+    assert "data h3.dat d3=c1,c4" in text
+
+
+@pytest.mark.parametrize(
+    "draw",
+    ["d2 line color red", "fill d2 color gray", "fill x1,d2 color gray", "bar d2"],
+)
+def test_an_offset_let_on_a_users_file_stays_raw(tmp_path, draw):
+    """A file reference has no offset, so the shift is kept as written."""
+    body = ['   data "u.dat" d1=c1,c2', "   let d2 = d1+1", f"   {draw}"]
+    src = "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "let.gle", src, {"u.dat": "1 2\n2 3\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.passthrough == body
+    rec.figure.savefig_gle(str(p))
+    assert "\n".join(body) in p.read_text(encoding="utf-8")
+
+
+def test_a_fill_between_two_files_stays_raw(tmp_path):
+    """The fill's series reads one file, so it cannot hold the pair."""
+    body = [
+        '   data "a.dat" d1=c1,c2',
+        '   data "b.dat" d2=c1,c2',
+        "   fill d1,d2 color gray",
+    ]
+    src = _meta("a.dat", "b.dat") + (
+        "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    )
+    p = _write(tmp_path, "two.gle", src, {"a.dat": "1 2\n2 3\n", "b.dat": "1 4\n2 5\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.fills == [] and ax.file_series == []
+    assert ax.passthrough == body
+    assert any(
+        w.startswith("structure:") and "two data files" in w for w in rec.warnings
+    )
 
 
 @pytest.mark.parametrize(
@@ -2124,7 +2220,7 @@ def test_finding17_multi_dataset_bar_group_not_silently_dropped(tmp_path):
     written back with both colours. A fill that shares the file still keeps
     the command raw (see the orphaned-data test below).
     """
-    src = (
+    src = _meta("single.dat") + (
         "size 12 9\n"
         "begin graph\n"
         "   data single.dat\n"
@@ -2709,7 +2805,7 @@ def test_finding20_stacked_bar_sibling_kept_raw_alongside_its_stack(tmp_path):
     The base stays a bar from zero; the second stores d1's y as the
     baseline and d2's y as the top.
     """
-    src = (
+    src = _meta("multi.dat") + (
         "size 8 6\n"
         "begin graph\n"
         '   data "multi.dat"\n'
@@ -2747,7 +2843,7 @@ def test_finding20_independent_non_stacked_bars_unaffected(tmp_path):
     BarSeries. The stacked-bar detection must not sweep up unrelated 'bar'
     statements just because they reference datasets from the same file.
     """
-    src = (
+    src = _meta("multi.dat") + (
         "size 8 6\n"
         "begin graph\n"
         '   data "multi.dat"\n'
@@ -2772,7 +2868,7 @@ def test_finding20_single_dataset_bare_data_unaffected(tmp_path):
     ``_bar_stack_datasets``, so the single-name path behaves exactly as
     before.
     """
-    src = (
+    src = _meta("one.dat") + (
         "size 8 6\n"
         "begin graph\n"
         '   data "one.dat"\n'
