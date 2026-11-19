@@ -344,6 +344,7 @@ from ..writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     NODES_MARKER,
+    PIESUB_INCLUDE,
     POLAR_GRID_LAYER,
     RUG_EDGES,
     RUGS_INCLUDE,
@@ -744,6 +745,7 @@ _LEGACY_SUBS = frozenset(
         "gleplot_vspan",
         "gleplot_xrug",
         "gleplot_yrug",
+        "gleplot_wedge",
     }
 )
 
@@ -1735,6 +1737,7 @@ class _Recognizer:
         self._post_graph_rugs: Dict[str, dict] = {}
         self._ready_rugs: Dict[str, Tuple[Rug, str]] = {}
         self._held_rugs_includes: List[str] = []
+        self._held_piesub_includes: List[str] = []
         # The figure legend (Figure.legend) recovered after the last graph,
         # as Figure._legend without its spacing, or None. Set before the
         # axes are assembled: it decides what their 'key off' meant.
@@ -1896,6 +1899,8 @@ class _Recognizer:
         if not any(ax.rugs for ax in fig.axes_list):
             # The writer writes rugs.gle's include only for a rug.
             fig.passthrough_header.extend(self._held_rugs_includes)
+        if not any(ax.wedges for ax in fig.axes_list):
+            fig.passthrough_header.extend(self._held_piesub_includes)
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
 
@@ -1936,8 +1941,8 @@ class _Recognizer:
         """Lines of the gleinc ``include``s the writer may write again.
 
         ``graphutil.gle`` when some graph is followed by a guide line that
-        will be read back. ``rugs.gle`` always, its text held in
-        ``_held_rugs_includes`` until the rugs are read.
+        will be read back. ``rugs.gle`` and ``piesub.gle`` always, their text
+        held until the rugs and slices are read.
         """
         names: Set[str] = set()
         for k, node in enumerate(nodes):
@@ -1950,6 +1955,7 @@ class _Recognizer:
         # rug, which is only known once the graphs are read: hold the lines
         # back, and put them in the header again if no rug was read.
         names.add(RUGS_INCLUDE)
+        names.add(PIESUB_INCLUDE)
         lines = set()
         for node in nodes:
             if not (
@@ -1963,6 +1969,8 @@ class _Recognizer:
                 lines.add(node.line_no)
             if name == RUGS_INCLUDE:
                 self._held_rugs_includes.append(self._stmt_text(node))
+            if name == PIESUB_INCLUDE:
+                self._held_piesub_includes.append(self._stmt_text(node))
         return lines
 
     def _read_metadata(self) -> Dict[str, Any]:
@@ -9690,11 +9698,9 @@ class _Recognizer:
         ):
             self._polar_labels_rmax = None
             return i + 1, _POLAR_LABELS
-        if stmt is not None and (stmt.keyword or "").lower() == "gleplot_wedge":
-            wedge = self._wedge_call(stmt)
-            if wedge is None:
-                return start, None
-            return i + 1, wedge
+        wedge_group = self._wedge_group(nodes, i)
+        if wedge_group is not None:
+            return wedge_group
         if stmt is not None and (stmt.keyword or "").lower() == "gleplot_box":
             return self._box_calls(nodes, i, start)
 
@@ -9928,50 +9934,85 @@ class _Recognizer:
             )
         )
 
-    def _wedge_call(self, stmt) -> Optional[Wedge]:
-        """A ``gleplot_wedge`` call -> a :class:`Wedge`, or ``None``.
+    _PIE_TEXT_RE = re.compile(
+        r'^pie_text (\S+) (\S+) (\S+)\*min\(xg\(1\)-xg\(0\),yg\(1\)-yg\(0\)\) "(.*)" ""$'
+    )
+    _WEDGE_CENTRE_RE = re.compile(r"^amove xg\((\S+)\) yg\((\S+)\)$")
+    _WEDGE_TEXT_RE = re.compile(r"^amove xg\(\S+\)\+(\S+?)\*")
 
-        The writer emits every call while the text colour is still the
+    def _wedge_group(self, nodes, i) -> Optional[Tuple[int, Wedge]]:
+        """The lines drawing one pie slice at ``i``, as a :class:`Wedge`.
+
+        Exactly what :meth:`gleplot.writer.GLEWriter.wedge_lines` writes:
+        the ``pie_text`` group, then the label and the percentage text, each
+        optional. The writer writes them while the text colour is still the
         block's starting ``BLACK``; any other current colour is drawn but not
-        modelled, and is noted. The
-        sub leaves ``set just`` changed, which the sticky state follows.
+        modelled, and is noted. Returns ``(next_index, wedge)`` or ``None``.
         """
-        args = self._guide_call_args(_words_and_values(stmt), 1)
-        if len(args) != 10:
+        texts: List[Tuple[int, str]] = []
+        j = i
+        while j < len(nodes) and len(texts) < 11:
+            j = self._skip_blanks(nodes, j)
+            stmt = self._as_statement(nodes[j]) if j < len(nodes) else None
+            if stmt is None:
+                break
+            texts.append((j, self._stmt_text(stmt).strip()))
+            j += 1
+        lines = [t for _k, t in texts]
+        if len(lines) < 5 or lines[0] != "gsave" or lines[4] != "grestore":
             return None
-        color, label, pct = args[5], args[6], args[8]
-        raw_numbers = args[0:5] + [args[7], args[9]]
-        if not all(isinstance(v, str) for v in (color, label, pct)) or not all(
-            isinstance(v, (int, float)) for v in raw_numbers
-        ):
+        pie = self._PIE_TEXT_RE.match(lines[3])
+        centre = self._WEDGE_CENTRE_RE.match(lines[2])
+        if pie is None or centre is None or not lines[1].startswith("set color "):
             return None
-        x, y, r, a1, a2, ld, pd = (float(cast(float, v)) for v in raw_numbers)
-        if self._text_color != "BLACK":
-            self._note(
-                ImportCategory.STRUCTURE,
-                f"pie wedge text is drawn in {self._text_color}, which the "
-                "model does not keep; it will be written in BLACK",
-                self._stmt_span(stmt),
-            )
-        if pct:
-            self._text_just = "center"
-        elif label:
-            outward = x + ld * r * math.cos(math.radians((a1 + a2) / 2))
-            self._text_just = "left" if outward > 0 else "right"
-        return Wedge(
+        try:
+            x, y = (float(v) for v in centre.groups())
+            a1, a2, r = (float(v) for v in pie.groups()[:3])
+        except ValueError:
+            return None
+        fields: Dict[str, Any] = {"label": None, "autotext": None}
+        distances = {"label": 1.1, "autotext": 0.6}
+        k = 5
+        for key, justs in (("label", ("left", "right")), ("autotext", ("center",))):
+            if len(lines) < k + 3 or lines[k] not in [f"set just {j}" for j in justs]:
+                continue
+            reach = self._WEDGE_TEXT_RE.match(lines[k + 1])
+            toks = tokenize_line(lines[k + 2])
+            if reach is None or len(toks) != 2 or toks[0].value.lower() != "write":
+                break
+            try:
+                distances[key] = float(reach.group(1))
+            except ValueError:
+                break
+            fields[key] = _string_value(toks[1])
+            k += 3
+        wedge = Wedge(
             type="wedge",
             x=x,
             y=y,
             r=r,
             theta1=a1,
             theta2=a2,
-            color=color,
-            label=label or None,
-            labeldistance=ld,
-            autotext=pct or None,
-            pctdistance=pd,
+            color=pie.group(4),
+            label=fields["label"],
+            labeldistance=distances["label"],
+            autotext=fields["autotext"],
+            pctdistance=distances["autotext"],
             fontsize=self._text_fontsize,
         )
+        if GLEWriter.wedge_lines(wedge) != lines[:k]:
+            return None
+        if (fields["label"] or fields["autotext"]) and self._text_color != "BLACK":
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"pie wedge text is drawn in {self._text_color}, which the "
+                "model does not keep; it will be written in BLACK",
+                None,
+            )
+        just = [line for line in lines[5:k] if line.startswith("set just ")]
+        if just:
+            self._text_just = just[-1].split()[2]
+        return texts[k - 1][0] + 1, wedge
 
     def _match_text_draw(self, nodes, i):
         """The draw half of one text cluster, after its ``amove``.

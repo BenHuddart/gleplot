@@ -98,46 +98,23 @@ _QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
 #: The linestyles a guide draws no line for.
 _NO_LINE = ("none", "None", "", " ", None)
 
-#: The sub behind every pie slice (:meth:`GLEWriter.add_wedge`). Called after
-#: ``end graph``, where ``xg()``/``yg()`` still address the graph just closed.
-#: Like the palette subs, its text depends on nothing but its name,
-#: so the parser drops the body and the writer regenerates it.
-WEDGE_SUB = """sub gleplot_wedge cx cy r a1 a2 clr$ lbl$ ld pct$ pd
-   ! Pie slice: centre (cx, cy) and radius r in data units, from a1 to a2
-   ! degrees counter-clockwise from +x. The scale is the smaller of the two
-   ! axes' cm per unit, so the slice stays circular in any graph shape.
-   ! lbl$ goes ld radii out, left-justified right of x = 0 and right-
-   ! justified left of it; pct$ goes pd radii out, centred. An empty string
-   ! writes nothing. Text uses the current hei and colour.
-   local s = xg(cx+1)-xg(cx)
-   if yg(cy+1)-yg(cy) < s then s = yg(cy+1)-yg(cy)
-   local m = torad((a1+a2)/2)
-   amove xg(cx) yg(cy)
-   begin path fill (cvtcolor(clr$))
-      ! Without a move inside the path, it starts at the arc, not the centre.
-      rmove 0 0
-      arc r*s a1 a2
-      closepath
-   end path
-   if lbl$ <> "" then
-      amove xg(cx)+ld*r*s*cos(m) yg(cy)+ld*r*s*sin(m)
-      if cx+ld*r*cos(m) > 0 then
-         set just left
-      else
-         set just right
-      end if
-      write lbl$
-   end if
-   if pct$ <> "" then
-      amove xg(cx)+pd*r*s*cos(m) yg(cy)+pd*r*s*sin(m)
-      set just center
-      write pct$
-   end if
-end sub"""
+#: The gleinc file whose ``pie_text`` draws a pie slice
+#: (:meth:`GLEWriter.add_wedge`). Its ``pie`` cannot be called: GLE reserves
+#: ``pie`` as a command keyword, so the call does not reach the sub.
+PIESUB_INCLUDE = "piesub.gle"
+
+#: A slice's radius in cm: ``r`` data units on the axis with fewer cm per
+#: unit, so the slice stays circular in any graph shape.
+_WEDGE_SCALE = "min(xg(1)-xg(0),yg(1)-yg(0))"
+
+#: ``pie_text`` strokes the slice's outline in the current colour and width.
+#: Drawn in the slice's own colour at this width (cm) it does not show, and
+#: the slice has no outline, as in matplotlib.
+_WEDGE_EDGE = "0.0001"
 
 
 #: The subs behind every box of a box plot (:meth:`GLEWriter.add_box`),
-#: called after ``end graph`` like :data:`WEDGE_SUB`. The style is
+#: called after ``end graph`` like a pie slice. The style is
 #: matplotlib's default: 1 pt black lines, a ``'C1'`` median, black open
 #: circle fliers and a ``'C2'`` triangle mean, both of markersize 6. Each sub
 #: saves and restores the graphics state, so it changes no ``set`` state.
@@ -5645,19 +5622,17 @@ class GLEWriter:
     def add_wedge(self, series: Series) -> None:
         """Queue one pie slice for after ``end graph``.
 
-        ``series`` is a :class:`~gleplot.series.Wedge`. It goes out as a
-        ``gleplot_wedge`` call (:data:`WEDGE_SUB`) in the same deferred block
-        as the text annotations: GLE 4.3.10's PostScript driver loses the
-        font of text written inside a graph-block ``draw`` after the first
-        one, because it caches the font across the ``gsave``/``grestore``
-        GLE wraps each ``draw`` in.
+        ``series`` is a :class:`~gleplot.series.Wedge`. The slice is drawn by
+        ``pie_text`` from GLE's ``piesub.gle`` (:meth:`wedge_lines`), in the
+        same deferred block as the text annotations: GLE 4.3.10's PostScript
+        driver loses the font of text written inside a graph-block ``draw``
+        after the first one, because it caches the font across the
+        ``gsave``/``grestore`` GLE wraps each ``draw`` in.
 
-        The sub writes its text in the current height and colour. The height
-        is set here through the same sticky tracker the annotations use. The
-        colour is the block's starting ``BLACK``, because the figure writes
-        an axes' wedges before its annotations. The sub leaves ``set just``
-        changed, so that tracker is cleared and the next annotation states
-        its own.
+        The label and percentage are written in the current height and
+        colour. The height is set here through the same sticky tracker the
+        annotations use. The colour is the block's starting ``BLACK``,
+        because the figure writes an axes' wedges before its annotations.
         """
         fontsize = series.get("fontsize")
         if fontsize is not None:
@@ -5665,17 +5640,54 @@ class GLEWriter:
             if hei_cm != self._text_state_hei_cm:
                 self._pending_graph_text_lines.append(f"set hei {hei_cm}")
                 self._text_state_hei_cm = hei_cm
-        label = self._escape_gle_string(series.get("label") or "")
-        autotext = self._escape_gle_string(series.get("autotext") or "")
-        num = self._format_number
-        self._pending_graph_text_lines.append(
-            f"gleplot_wedge {num(series['x'])} {num(series['y'])} "
-            f"{num(series['r'])} {num(series['theta1'])} {num(series['theta2'])} "
-            f'"{self._escape_gle_string(series["color"])}" "{label}" '
-            f'{num(series["labeldistance"])} "{autotext}" '
-            f'{num(series["pctdistance"])}'
-        )
-        self._text_state_just = None
+        lines = self.wedge_lines(series)
+        self._pending_graph_text_lines.extend(lines)
+        self._includes.add(PIESUB_INCLUDE)
+        justs = [line.split()[2] for line in lines if line.startswith("set just")]
+        if justs:
+            self._text_state_just = justs[-1]
+
+    @classmethod
+    def wedge_lines(cls, series: Series) -> List[str]:
+        """The lines that draw one pie slice and write its texts.
+
+        The slice: ``pie_text`` from the slice's centre, with no text of its
+        own (it can only centre a label at half the radius). The label goes
+        ``labeldistance`` radii out along the slice's middle, left-justified
+        right of x = 0 and right-justified left of it; the percentage goes
+        ``pctdistance`` radii out, centred.
+        """
+        num = cls._format_number
+        x, y, r = num(series["x"]), num(series["y"]), num(series["r"])
+        a1, a2 = num(series["theta1"]), num(series["theta2"])
+        color = series["color"]
+        lines = [
+            "gsave",
+            f"set color {color} lwidth {_WEDGE_EDGE}",
+            f"amove xg({x}) yg({y})",
+            f'pie_text {a1} {a2} {r}*{_WEDGE_SCALE} "{color}" ""',
+            "grestore",
+        ]
+        middle = f"torad(({a1}+{a2})/2)"
+
+        def text(distance: float, just: str, value: str) -> List[str]:
+            reach = f"{num(distance)}*{r}*{_WEDGE_SCALE}"
+            return [
+                f"set just {just}",
+                f"amove xg({x})+{reach}*cos({middle}) yg({y})+{reach}*sin({middle})",
+                f'write "{cls._escape_gle_string(value)}"',
+            ]
+
+        if series.get("label"):
+            mid = math.radians((float(series["theta1"]) + float(series["theta2"])) / 2)
+            outward = float(series["x"]) + float(series["labeldistance"]) * float(
+                series["r"]
+            ) * math.cos(mid)
+            just = "left" if outward > 0 else "right"
+            lines += text(series["labeldistance"], just, series["label"])
+        if series.get("autotext"):
+            lines += text(series["pctdistance"], "center", series["autotext"])
+        return lines
 
     def add_polar_frame(self, rmax: float) -> None:
         """Make the open graph block a polar axes out to radius ``rmax``.

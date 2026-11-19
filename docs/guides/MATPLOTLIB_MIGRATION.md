@@ -374,7 +374,7 @@ Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 
 
 ## Pie charts
 
-GLE has no pie command. `ax.pie(x)` stores one `Wedge` per value and writes each as a `gleplot_wedge` call after the graph block. The subroutine is defined once at the top of the script, so the output does not depend on GLE's include path. Each wedge is filled with no outline. Its label sits `labeldistance` radii out, and its `autopct` text sits `pctdistance` radii out, as in matplotlib. The radius is measured on the axis with fewer centimetres per unit, so the pie stays round in a subplot that is not square. Both limits are set to `center` ± 1.25. The axis lines, ticks and tick labels are hidden, and the title stays.
+`ax.pie(x)` stores one `Wedge` per value and draws each after the graph block with `pie_text` from GLE's include library (`piesub.gle`, see [GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library)). GLE reserves `pie` as a command keyword, so piesub's `pie` cannot be called; `pie_text` draws the same wedge, and its own label (centred at half the radius) is left empty. Each wedge is filled with no outline: `pie_text` strokes the outline, which gleplot draws in the wedge's own colour at a hairline width. Its label sits `labeldistance` radii out, and its `autopct` text sits `pctdistance` radii out, as in matplotlib. The radius is measured on the axis with fewer centimetres per unit, so the pie stays round in a subplot that is not square. Both limits are set to `center` ± 1.25. The axis lines, ticks and tick labels are hidden, and the title stays.
 
 ```python
 ax.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=90)

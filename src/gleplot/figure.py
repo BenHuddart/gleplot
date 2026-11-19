@@ -53,7 +53,6 @@ from .writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
-    WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
     GLEWriter,
@@ -3357,8 +3356,6 @@ class Figure:
             subs.append(_pal.colorbar_h_sub_text())
         if any_clabel:
             subs.append(_pal.contour_labels_sub_text())
-        if any(resolution.visible(ax.wedges) for ax in self.axes_list):
-            subs.append(WEDGE_SUB)
         if any(resolution.visible(ax.boxes) for ax in self.axes_list):
             subs.append(BOX_SUB)
         sized_markers: Set[str] = set()

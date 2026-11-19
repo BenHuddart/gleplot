@@ -1443,8 +1443,8 @@ class Span(Series):
 class Wedge(Series):
     """One pie slice -- ``Axes.pie`` stores one per value.
 
-    Drawn after the graph block by the ``gleplot_wedge`` sub, which also
-    writes the slice's label and percentage text.
+    Drawn after the graph block by ``pie_text`` from GLE's ``piesub.gle``,
+    with the slice's label and percentage text written beside it.
     """
 
     ATTR = "wedges"

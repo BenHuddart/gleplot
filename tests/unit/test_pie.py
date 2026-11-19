@@ -22,7 +22,10 @@ def _script(fig) -> str:
 
 
 def _wedge_lines(text: str):
-    return [ln for ln in text.splitlines() if ln.startswith("gleplot_wedge ")]
+    return [ln for ln in text.splitlines() if ln.startswith("pie_text ")]
+
+
+_S = "min(xg(1)-xg(0),yg(1)-yg(0))"
 
 
 def test_wedges_labels_and_percentages_are_one_call_each():
@@ -34,21 +37,35 @@ def test_wedges_labels_and_percentages_are_one_call_each():
     assert ax.wedges == wedges
     assert texts == ["a", "b"]
     assert autotexts == ["25%", "75%"]
-    assert _wedge_lines(_script(fig)) == [
-        'gleplot_wedge 0 0 1 90 180 "rgb255(31,119,180)" "a" 1.1 "25%" 0.6',
-        'gleplot_wedge 0 0 1 180 450 "rgb255(255,127,14)" "b" 1.1 "75%" 0.6',
+    text = _script(fig)
+    first = text.split("end graph\ngsave\n", 1)[1].splitlines()[:11]
+    assert first == [
+        "gsave",
+        "set color rgb255(31,119,180) lwidth 0.0001",
+        "amove xg(0) yg(0)",
+        f'pie_text 90 180 1*{_S} "rgb255(31,119,180)" ""',
+        "grestore",
+        "set just right",
+        f"amove xg(0)+1.1*1*{_S}*cos(torad((90+180)/2)) "
+        f"yg(0)+1.1*1*{_S}*sin(torad((90+180)/2))",
+        'write "a"',
+        "set just center",
+        f"amove xg(0)+0.6*1*{_S}*cos(torad((90+180)/2)) "
+        f"yg(0)+0.6*1*{_S}*sin(torad((90+180)/2))",
+        'write "25%"',
     ]
+    assert _wedge_lines(text)[1] == f'pie_text 180 450 1*{_S} "rgb255(255,127,14)" ""'
 
 
-def test_the_sub_is_defined_once_and_only_when_a_wedge_is_drawn():
+def test_piesub_is_included_once_and_only_when_a_wedge_is_drawn():
     fig, (left, right) = glp.subplots(1, 2)
     left.pie([1, 1])
     right.pie([1, 2])
-    assert _script(fig).count("sub gleplot_wedge ") == 1
+    assert _script(fig).count('include "piesub.gle"') == 1
 
     fig, ax = glp.subplots()
     ax.plot([0, 1], [0, 1])
-    assert "gleplot_wedge" not in _script(fig)
+    assert "piesub" not in _script(fig)
 
 
 def test_a_hidden_wedge_is_not_written():
@@ -56,7 +73,7 @@ def test_a_hidden_wedge_is_not_written():
     wedges, _texts = ax.pie([1, 1])
     for wedge in wedges:
         wedge["visible"] = False
-    assert "gleplot_wedge" not in _script(fig)
+    assert "pie_text" not in _script(fig)
 
 
 def test_the_frame_is_hidden_but_the_title_kept():
@@ -86,9 +103,9 @@ def test_center_moves_the_limits_and_the_wedges():
     ax.pie([1], center=(2, -1), radius=0.5)
     assert ax.get_xlim() == (0.75, 3.25)
     assert ax.get_ylim() == (-2.25, 0.25)
-    assert _wedge_lines(_script(fig)) == [
-        'gleplot_wedge 2 -1 0.5 0 360 "rgb255(31,119,180)" "" 1.1 "" 0.6'
-    ]
+    text = _script(fig)
+    assert "amove xg(2) yg(-1)" in text
+    assert _wedge_lines(text) == [f'pie_text 0 360 0.5*{_S} "rgb255(31,119,180)" ""']
 
 
 def test_clockwise_and_unnormalized_angles():
@@ -130,8 +147,8 @@ def test_textprops_fontsize_sets_the_text_height():
     fig, ax = glp.subplots()
     ax.pie([1, 1], labels=["a", "b"], textprops={"size": 14})
     lines = _script(fig).splitlines()
-    first = next(i for i, ln in enumerate(lines) if ln.startswith("gleplot_wedge"))
-    assert lines[first - 1] == "set hei 0.493827"
+    first = next(i for i, ln in enumerate(lines) if ln.startswith("pie_text"))
+    assert lines[first - 4] == "set hei 0.493827"
     assert ax.wedges[0]["fontsize"] == 14.0
 
 

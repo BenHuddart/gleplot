@@ -1,7 +1,7 @@
 """A pie chart compiles, with its title and every wedge's text.
 
 The script text is asserted in ``tests/unit/test_pie.py``. This checks that
-GLE accepts the ``gleplot_wedge`` calls after ``end graph`` and that the
+GLE accepts the ``piesub.gle`` calls after ``end graph`` and that the
 hidden frame keeps the graph title. Skipped when the binary is missing.
 """
 

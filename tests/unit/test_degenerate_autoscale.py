@@ -736,7 +736,9 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``xerr``. ``bar_yerr`` and ``barh_xerr`` are the bar-whisker builders.
     ``one_point_default_width`` moved, and ``guides_after_graph`` was added,
     when a guide gleplot cannot range started being drawn after the graph;
-    ``rug_field_options`` moved when ``rugs.gle`` started drawing rugs.
+    ``rug_field_options`` moved when ``rugs.gle`` started drawing rugs, and
+    ``pie_chart`` and ``pie_field_options`` when ``piesub.gle`` started
+    drawing pie slices.
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
