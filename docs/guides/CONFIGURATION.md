@@ -475,8 +475,14 @@ Only a difference larger than a millionth of the range a column covers counts.
 A densely sampled curve keeps 6 figures where neighbouring samples near a peak
 round alike, and floating-point noise such as `np.cos(np.pi / 2)` in a column
 of values near 1 is still written `0`. A column of nothing but noise is written
-as it is, as matplotlib plots it. Other numbers in data units, such as a text
-position or a reference line, keep 6 figures.
+as it is, as matplotlib plots it.
+
+A lone number in data units (a text position, a reference line or span, a tick
+position from `set_xticks`, a column holding one value, or a single axis limit)
+is held to a millionth of its axis's range instead. On the axis above,
+`ax.axvline(1.7e9 + 30)` is written `1.70000003e+09` rather than `1.7e+09`. On
+a log axis these numbers keep 6 figures, and so do the coordinates of bars,
+histograms and fits.
 
 ## Resetting to Defaults
 

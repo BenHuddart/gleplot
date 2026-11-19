@@ -716,11 +716,19 @@ class _SharedSidecar:
         self.keys: List[str] = []
         self.names: List[str] = []
         self.columns: List[np.ndarray] = []
+        #: Each column's axis tolerance (see GLEWriter._format_column).
+        self.tolerances: List[Optional[float]] = []
         #: Whether the file gets a header row: not when an inline series
         #: whose own file had none shares it (a header could name its keys).
         self.named = True
 
-    def index_of(self, key: str, values: np.ndarray, name: str) -> int:
+    def index_of(
+        self,
+        key: str,
+        values: np.ndarray,
+        name: str,
+        tolerance: Optional[float] = None,
+    ) -> int:
         """1-based column index of ``key``, appending it on first mention."""
         try:
             return self.keys.index(key) + 1
@@ -733,6 +741,7 @@ class _SharedSidecar:
         if values.dtype != object or not (values == "*").any():
             values = values.astype(float)
         self.columns.append(values)
+        self.tolerances.append(tolerance)
         return len(self.keys)
 
     def header(self) -> List[str]:
@@ -746,11 +755,13 @@ class _SharedSidecar:
 
 
 class _InlineSidecar(NamedTuple):
-    """The sidecar one inline series wrote: its columns, header, column keys."""
+    """The sidecar one inline series wrote: its columns, header, column keys
+    and the columns' axis tolerances."""
 
     columns: List[Tuple[str, np.ndarray]]
     column_names: Optional[List[str]]
     keys: List[str]
+    tolerances: List[Optional[float]]
 
 
 # -- write-time source resolution ----------------------------------------------
@@ -1590,6 +1601,8 @@ class GLEWriter:
         # Which axes of the graph being written are logarithmic, as the last
         # add_axes call set them (see _add_sized_scatter).
         self._log_axes: Dict[str, bool] = {}
+        # The tolerance of each axis of that graph (see _axis_tolerance).
+        self._axis_tolerances: Dict[str, Optional[float]] = {}
         # Sticky GLE interpreter state as far as add_text_annotation is concerned: 'set
         # hei'/'set color'/'set just' persist across `write` statements until
         # changed again (real GLE semantics -- see recognizer._try_one_text,
@@ -2074,6 +2087,9 @@ class GLEWriter:
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
         title_font: Optional[str] = None,
+        data_extents: Optional[
+            Dict[str, Tuple[Optional[float], Optional[float]]]
+        ] = None,
     ):
         """Add axis configuration.
 
@@ -2156,6 +2172,12 @@ class GLEWriter:
             ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
             the graph block, which is why gleplot models it per-axes and not
             per-figure.
+        data_extents : dict, optional
+            ``(lo, hi)`` of the data on an axis (``"x"``, ``"y"``, ``"y2"``,
+            ``"x2"``) that lacks a limit. It stands in for the missing limit
+            when choosing how many figures the coordinates on that axis are
+            written with (see :meth:`_axis_tolerance`); the axis line still
+            writes only the limits given.
 
         Raises
         ------
@@ -2201,6 +2223,16 @@ class GLEWriter:
         if ystyle.side_off and not y2axis_off and not frame_off:
             y2style = replace(y2style, side_off=False)
         self._log_axes = {"x": xlog, "y": ylog, "y2": y2log, "x2": x2log}
+        extents = data_extents or {}
+        self._axis_tolerances = {
+            name: self._axis_tolerance(lo, hi, log, extents.get(name))
+            for name, lo, hi, log in (
+                ("x", xmin, xmax, xlog),
+                ("y", ymin, ymax, ylog),
+                ("y2", y2min, y2max, y2log),
+                ("x2", x2min, x2max, x2log),
+            )
+        }
         if title:
             opts = self._text_options(title_size, title_color, title_dist, title_font)
             self.lines_gle.append(f'    title "{title}"{opts}')
@@ -2306,7 +2338,7 @@ class GLEWriter:
         lo, hi, negate = self._axis_direction(lo, hi)
         bare = f"    {prefix}axis"
         cmd = bare
-        cmd += self._axis_range(lo, hi, log)
+        cmd += self._axis_range(prefix, lo, hi, log)
         if log:
             cmd += " log"
         if negate:
@@ -2338,7 +2370,7 @@ class GLEWriter:
         if places is not None:
             self.lines_gle.append(
                 f"    {prefix}places "
-                + " ".join(self._format_number(v) for v in places)
+                + " ".join(self._format_coordinate(v, prefix) for v in places)
             )
         if names is not None:
             self.lines_gle.append(
@@ -2348,7 +2380,7 @@ class GLEWriter:
         if style.noticks is not None:
             self.lines_gle.append(
                 f"    {prefix}noticks "
-                + " ".join(self._format_number(v) for v in style.noticks)
+                + " ".join(self._format_coordinate(v, prefix) for v in style.noticks)
             )
 
         # Hide the tick labels if requested (but keep the ticks themselves),
@@ -2392,7 +2424,7 @@ class GLEWriter:
         y2_styled = style is not _NO_STYLE and style != _NO_STYLE
         if lo is not None or hi is not None or log or off or y2_on or y2_styled:
             cmd = "    y2axis"
-            cmd += self._axis_range(lo, hi, log)
+            cmd += self._axis_range("y2", lo, hi, log)
             if log:
                 cmd += " log"
             if negate:
@@ -2484,7 +2516,7 @@ class GLEWriter:
             or x2_tick_styled
         ):
             cmd = "    x2axis"
-            cmd += self._axis_range(lo, hi, log)
+            cmd += self._axis_range("x2", lo, hi, log)
             if log:
                 cmd += " log"
             elif x2_lin:
@@ -3012,6 +3044,7 @@ class GLEWriter:
         filename: str,
         columns: List[np.ndarray],
         column_names: Optional[List[str]] = None,
+        tolerances: Optional[Sequence[Optional[float]]] = None,
     ):
         """
         Add external data file.
@@ -3029,6 +3062,9 @@ class GLEWriter:
             references are unaffected by this header -- GLE auto-detects and
             skips a non-numeric first row (see ``auto_has_header`` in the
             GLE source), so ``c1`` etc. still address the first DATA column.
+        tolerances : list of float or None, optional
+            One per column: the tolerance of the axis a column lies on, which
+            a column of one value is written to (see :meth:`_format_column`).
 
         Raises
         ------
@@ -3052,7 +3088,10 @@ class GLEWriter:
         data = np.column_stack(columns)
 
         # Write data rows
-        texts = [self._format_column(data[:, j]) for j in range(data.shape[1])]
+        tolerances = tolerances or [None] * data.shape[1]
+        texts = [
+            self._format_column(data[:, j], tolerances[j]) for j in range(data.shape[1])
+        ]
         lines.extend(" ".join(row) for row in zip(*texts))
 
         # Add trailing newline for GLE compatibility
@@ -3064,6 +3103,7 @@ class GLEWriter:
         named_columns: Sequence[Tuple[str, np.ndarray]],
         column_names: Optional[List[str]],
         binding: Optional[ColumnBinding] = None,
+        axes: Optional[Dict[str, str]] = None,
     ) -> List[int]:
         """Place one series' columns and return their 1-based column indices.
 
@@ -3076,9 +3116,19 @@ class GLEWriter:
         indices are ``1..N`` in role order -- the historical behaviour, byte
         for byte. With a ``binding``, the columns are merged into the shared
         sidecar named by it and the indices are wherever they landed there.
+
+        ``axes`` maps a role to the axis its values lie on (``"x"``,
+        ``"y"``, ``"y2"``, ``"x2"``); such a column is written to that axis's
+        tolerance (see :meth:`_format_column`).
         """
+        tolerances = [
+            self._axis_tolerances.get((axes or {}).get(role, ""))
+            for role, _array in named_columns
+        ]
         if binding is None:
-            return self._write_inline_columns(data_file, named_columns, column_names)
+            return self._write_inline_columns(
+                data_file, named_columns, column_names, tolerances
+            )
 
         shared = self._shared_sidecars.get(binding.data_file)
         if shared is None:
@@ -3087,10 +3137,10 @@ class GLEWriter:
             if prior is not None:
                 self._seed_shared(shared, prior)
         indices = []
-        for role, array in named_columns:
+        for (role, array), tol in zip(named_columns, tolerances):
             key, name = binding.column_for(role)
             indices.append(
-                self._share_column(shared, binding.data_file, key, array, name)
+                self._share_column(shared, binding.data_file, key, array, name, tol)
             )
         return indices
 
@@ -3099,6 +3149,7 @@ class GLEWriter:
         data_file: str,
         named_columns: Sequence[Tuple[str, np.ndarray]],
         column_names: Optional[List[str]],
+        tolerances: List[Optional[float]],
     ) -> List[int]:
         """An inline series' columns, in a file of its own unless one is named.
 
@@ -3119,17 +3170,20 @@ class GLEWriter:
             for i, (role, _array) in enumerate(named_columns)
         ]
         keys = [
-            self._column_key(name, array)
-            for name, (_role, array) in zip(names, named_columns)
+            self._column_key(name, array, tol)
+            for name, (_role, array), tol in zip(names, named_columns, tolerances)
         ]
         shared = self._shared_sidecars.get(data_file)
         prior = self._inline_sidecars.get(data_file)
         if shared is None and prior is None:
             self._inline_sidecars[data_file] = _InlineSidecar(
-                list(named_columns), column_names, keys
+                list(named_columns), column_names, keys, tolerances
             )
             self.add_data_file(
-                data_file, [array for _role, array in named_columns], column_names
+                data_file,
+                [array for _role, array in named_columns],
+                column_names,
+                tolerances,
             )
             return list(range(1, len(named_columns) + 1))
         if shared is None:
@@ -3141,24 +3195,38 @@ class GLEWriter:
         if column_names is None:
             shared.named = False
         return [
-            self._share_column(shared, data_file, key, array, name)
-            for key, name, (_role, array) in zip(keys, names, named_columns)
+            self._share_column(shared, data_file, key, array, name, tol)
+            for key, name, (_role, array), tol in zip(
+                keys, names, named_columns, tolerances
+            )
         ]
 
     @staticmethod
     def _seed_shared(shared: _SharedSidecar, prior: _InlineSidecar) -> None:
         """Put the columns an inline series already wrote first, in place."""
         shared.named = prior.column_names is not None
-        for i, (key, (role, array)) in enumerate(zip(prior.keys, prior.columns)):
+        for i, (key, (role, array), tol) in enumerate(
+            zip(prior.keys, prior.columns, prior.tolerances)
+        ):
             name = prior.column_names[i] if prior.column_names else role
             # A column the series repeats keeps its own index.
             shared.index_of(
-                key if key not in shared.keys else f"{key}\x00{i}", array, name
+                key if key not in shared.keys else f"{key}\x00{i}", array, name, tol
             )
 
     @staticmethod
+    def _series_axes(series: Series) -> Dict[str, str]:
+        """The axes a series' ``x`` and ``y`` columns lie on."""
+        return {"x": series.get("xaxis", "x"), "y": series.get("yaxis", "y")}
+
+    @staticmethod
     def _share_column(
-        shared: _SharedSidecar, data_file: str, key: str, array: Any, name: str
+        shared: _SharedSidecar,
+        data_file: str,
+        key: str,
+        array: Any,
+        name: str,
+        tolerance: Optional[float],
     ) -> int:
         """``shared.index_of``, refusing a column the file's rows cannot hold."""
         if shared.columns and len(array) != len(shared.columns[0]):
@@ -3167,11 +3235,11 @@ class GLEWriter:
                 f"{len(shared.columns[0])} and {len(array)} rows. Give one of "
                 "them its own data_file."
             )
-        return shared.index_of(key, array, name)
+        return shared.index_of(key, array, name, tolerance)
 
-    def _column_key(self, name: str, array: Any) -> str:
+    def _column_key(self, name: str, array: Any, tolerance: Optional[float]) -> str:
         """A column's name and a digest of its written text."""
-        text = "\n".join(self._format_column(np.asarray(array).ravel()))
+        text = "\n".join(self._format_column(np.asarray(array).ravel(), tolerance))
         return f"{name}\x00{hashlib.sha1(text.encode('utf-8')).hexdigest()}"
 
     def finalize_shared_sidecars(self) -> None:
@@ -3183,7 +3251,7 @@ class GLEWriter:
         for filename, shared in self._shared_sidecars.items():
             if shared.columns:
                 header = shared.header() if shared.named else None
-                self.add_data_file(filename, shared.columns, header)
+                self.add_data_file(filename, shared.columns, header, shared.tolerances)
         self._shared_sidecars.clear()
 
     def reserve_datasets(self, raw_lines: Sequence[str]) -> None:
@@ -3414,6 +3482,7 @@ class GLEWriter:
             [("x", x_rows), ("y", y_rows)],
             column_names,
             binding,
+            self._series_axes(series),
         )
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
@@ -3641,6 +3710,7 @@ class GLEWriter:
             [("x", x), ("y", y), extra],
             series.get("column_names"),
             binding,
+            self._series_axes(series),
         )
         file_name = binding.data_file if binding is not None else series["data_file"]
         d_name = self._new_dataset()
@@ -4760,7 +4830,9 @@ class GLEWriter:
         # positions within THIS series' column list; ``cols`` maps each onto
         # the column index it actually got in the file, which is an identity
         # map for a private sidecar and a lookup for a shared one.
-        cols = self._write_columns(data_file, columns, column_names, binding)
+        cols = self._write_columns(
+            data_file, columns, column_names, binding, self._series_axes(series)
+        )
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
 
@@ -5418,7 +5490,9 @@ class GLEWriter:
             roles: List[Tuple[str, Any]] = [("x", x), ("y1", y1)]
         else:
             roles = [("x", x), ("y1", y1), ("y2", y2)]
-        cols = self._write_columns(data_file, roles, column_names, binding)
+        cols = self._write_columns(
+            data_file, roles, column_names, binding, {"x": "x", "y1": "y", "y2": "y"}
+        )
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
         clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
@@ -5638,7 +5712,10 @@ class GLEWriter:
                 f"{KEY_ANCHOR_Y.format(self._format_number(y))}"
             )
         else:
-            position = f"xg({self._format_number(x)}) yg({self._format_number(y)})"
+            position = (
+                f"xg({self._format_coordinate(x, 'x')}) "
+                f"yg({self._format_coordinate(y, 'y')})"
+            )
         self._pending_graph_text_lines.append(f"amove {position}")
         name = None
         if arrow is not None and xy is not None:
@@ -5649,8 +5726,8 @@ class GLEWriter:
             assert xy is not None
             tip = f"{name}_xy"
             lines = [
-                f"amove xg({self._format_number(xy[0])}) "
-                f"yg({self._format_number(xy[1])})",
+                f"amove xg({self._format_coordinate(xy[0], 'x')}) "
+                f"yg({self._format_coordinate(xy[1], 'y')})",
                 f"save {tip}",
                 "gsave",
                 f"set color {arrow_color}",
@@ -6652,7 +6729,7 @@ class GLEWriter:
             REFLINE_LAYER,
             guide_sub_name("refline", orient),
             [
-                self._format_number(series["value"]),
+                self._format_coordinate(series["value"], self._guide_axis(orient)),
                 self._format_number(series["span_lo"]),
                 self._format_number(series["span_hi"]),
                 f'"{self._escape_gle_string(color)}"',
@@ -6742,12 +6819,13 @@ class GLEWriter:
         token.
         """
         color_token = apply_alpha(color, alpha)
+        axis = self._guide_axis(orient)
         self._add_guide_draw(
             SPAN_LAYER,
             guide_sub_name("span", orient),
             [
-                self._format_number(start),
-                self._format_number(end),
+                self._format_coordinate(start, axis),
+                self._format_coordinate(end, axis),
                 self._format_number(span_lo),
                 self._format_number(span_hi),
                 f'"{self._escape_gle_string(color_token)}"',
@@ -6812,14 +6890,27 @@ class GLEWriter:
             f"    {GUIDE_MARKER_PREFIX} {kind} {orient} " + " ".join(args)
         )
 
-    def _guide_marker_pair(self, first: float, second: float) -> str:
+    def _guide_marker_pair(
+        self, first: float, second: float, axis: Optional[str] = None
+    ) -> str:
         """``a,b`` -- a marker's two-number field, comma-joined and spaceless.
 
         The comma is not decoration: GLE's lexer reads a leading sign as an
         operator, so ``-4 -3`` would collect back as the single expression
-        ``-7``. See :mod:`gleplot.guides`.
+        ``-7``. See :mod:`gleplot.guides`. Coordinates on ``axis`` when it
+        is given, else axes fractions.
         """
-        return f"{self._format_number(first)},{self._format_number(second)}"
+        if axis is None:
+            return f"{self._format_number(first)},{self._format_number(second)}"
+        return (
+            f"{self._format_coordinate(first, axis)},"
+            f"{self._format_coordinate(second, axis)}"
+        )
+
+    @staticmethod
+    def _guide_axis(orient: str) -> str:
+        """The axis a guide's position lies on: x for a vertical one."""
+        return "x" if orient == "v" else "y"
 
     def add_refline_marker(
         self, orient: str, value: float, span_lo: float, span_hi: float
@@ -6836,7 +6927,7 @@ class GLEWriter:
             orient,
             [
                 "value",
-                self._format_number(value),
+                self._format_coordinate(value, self._guide_axis(orient)),
                 "extent",
                 self._guide_marker_pair(span_lo, span_hi),
             ],
@@ -6861,7 +6952,7 @@ class GLEWriter:
         """
         args = [
             "range",
-            self._guide_marker_pair(start, end),
+            self._guide_marker_pair(start, end, self._guide_axis(orient)),
             "extent",
             self._guide_marker_pair(span_lo, span_hi),
         ]
@@ -7067,17 +7158,21 @@ class GLEWriter:
             return formatted
         return str(val)
 
-    @classmethod
-    def _axis_range(cls, lo: Optional[float], hi: Optional[float], log: bool) -> str:
-        """The `` min .. max ..`` of an axis line.
+    def _axis_range(
+        self, axis: str, lo: Optional[float], hi: Optional[float], log: bool
+    ) -> str:
+        """The `` min .. max ..`` of ``axis``'s line.
 
         The pair is one column; on a log axis each end is its own, since a
         linear span says nothing about how far a decade-wide limit may move.
+        A lone limit is a coordinate on the axis (:meth:`_format_coordinate`).
         """
         if log:
-            lo_text, hi_text = cls._format_column([lo]) + cls._format_column([hi])
+            lo_text, hi_text = self._format_column([lo]) + self._format_column([hi])
         else:
-            lo_text, hi_text = cls._format_column([lo, hi])
+            lo_text, hi_text = self._format_column(
+                [lo, hi], self._axis_tolerances.get(axis)
+            )
         return (f" min {lo_text}" if lo is not None else "") + (
             f" max {hi_text}" if hi is not None else ""
         )
@@ -7096,7 +7191,9 @@ class GLEWriter:
         return [" ".join(row) for row in rows] if joined else rows
 
     @classmethod
-    def _format_column(cls, values: Iterable[Any]) -> List[str]:
+    def _format_column(
+        cls, values: Iterable[Any], axis_tolerance: Optional[float] = None
+    ) -> List[str]:
         """Numbers that belong together (a data column, an axis range) as text.
 
         Each value is written by :meth:`_format_number` unless that loses
@@ -7106,6 +7203,11 @@ class GLEWriter:
         column is written with the fewest significant figures, at least six,
         that keep it within half the tolerance, so a data column and the
         axis range set around it round alike.
+
+        ``axis_tolerance`` is that of the axis the numbers lie on
+        (:meth:`_axis_tolerance`). It is the tolerance of a column whose
+        values are all one number, which has no span of its own: a lone
+        coordinate, or a vertical line's x.
 
         The written numbers are iterated to a fixed point, so a file read
         back chooses the same precision and writes the same text.
@@ -7127,16 +7229,19 @@ class GLEWriter:
         ordered, where = np.unique(
             np.asarray([values[i] for i in index], dtype=float), return_inverse=True
         )
+        tol = cls._column_tolerance(ordered, axis_tolerance)
+        lone = axis_tolerance is not None and len(ordered) == 1
         texts = [cls._format_number(v) for v in ordered]
-        precision = cls._column_precision(ordered, texts)
+        precision = cls._column_precision(ordered, texts, tol, lone)
         while precision is not None:
-            texts = cls._column_texts(ordered, precision)
+            texts = cls._column_texts(ordered, precision, tol)
             ordered = np.unique(np.asarray([float(t) for t in texts]))
             # Rounding can only merge values, never reorder them.
             where = np.searchsorted(ordered, [float(t) for t in texts])[where]
-            texts = cls._column_texts(ordered, precision)
+            tol = cls._column_tolerance(ordered, axis_tolerance)
+            texts = cls._column_texts(ordered, precision, tol)
             settled = cls._column_precision(
-                ordered, [cls._format_number(v) for v in ordered]
+                ordered, [cls._format_number(v) for v in ordered], tol, lone
             )
             if settled == precision:
                 break
@@ -7148,53 +7253,93 @@ class GLEWriter:
         return out
 
     @staticmethod
-    def _column_tolerance(ordered: np.ndarray) -> float:
+    def _column_tolerance(
+        ordered: np.ndarray, axis_tolerance: Optional[float] = None
+    ) -> float:
         """The smallest difference in ``ordered`` (sorted) that is data.
 
         A millionth of the column's span: six significant figures of the
         range the values cover, so samples a millionth of a curve's height
         apart near a peak are not data, while timestamps a minute apart over
-        a few minutes are.
+        a few minutes are. A column of one value has no span; it takes
+        ``axis_tolerance``, the axis's, when there is one.
         Never below 1e-12 of the largest magnitude, which is float noise
         (``cos(pi / 2)`` is ``6e-17``).
         """
         size = max(abs(ordered[0]), abs(ordered[-1]))
-        return float(max(1e-6 * (ordered[-1] - ordered[0]), 1e-12 * size))
+        tol = 1e-6 * (ordered[-1] - ordered[0])
+        if tol == 0 and axis_tolerance is not None:
+            tol = axis_tolerance
+        return float(max(tol, 1e-12 * size))
 
     @classmethod
-    def _column_texts(cls, ordered: np.ndarray, precision: int) -> List[str]:
+    def _axis_tolerance(
+        cls,
+        lo: Optional[float],
+        hi: Optional[float],
+        log: bool,
+        extent: Optional[Tuple[Optional[float], Optional[float]]],
+    ) -> Optional[float]:
+        """The tolerance of the coordinates on an axis, or None.
+
+        A millionth of the linear range ``lo``..``hi`` as written, a missing
+        limit taken from the data ``extent``: on an axis spanning two
+        minutes of timestamps a coordinate 30 s off is not where it was
+        asked for. None on a log axis, and on a range of no width.
+        """
+        if extent is not None:
+            lo = extent[0] if lo is None else lo
+            hi = extent[1] if hi is None else hi
+        if log or lo is None or hi is None:
+            return None
+        lo_text, hi_text = cls._format_column([lo, hi])
+        span = abs(float(hi_text) - float(lo_text))
+        return 1e-6 * span if span > 0 else None
+
+    def _format_coordinate(self, value: float, axis: str) -> str:
+        """A lone number in ``axis``'s data units, as :meth:`_format_column`
+        writes it on that axis (see :meth:`_axis_tolerance`)."""
+        return self._format_column([value], self._axis_tolerances.get(axis))[0]
+
+    @staticmethod
+    def _column_texts(ordered: np.ndarray, precision: int, tol: float) -> List[str]:
         """``ordered`` at ``precision`` significant figures.
 
         A value :meth:`_format_number` writes ``0`` stays ``0`` while it is
-        within half the column's tolerance of it, so float noise is not
-        written out and nothing is zeroed that was not zeroed before.
+        within half the column's tolerance ``tol`` of it, so float noise is
+        not written out and nothing is zeroed that was not zeroed before.
         """
-        tol = cls._column_tolerance(ordered)
         return [
             "0" if abs(v) < 1e-10 and abs(v) <= tol / 2 else f"{v:.{precision}g}"
             for v in ordered
         ]
 
     @classmethod
-    def _column_precision(cls, ordered: np.ndarray, texts: List[str]) -> Optional[int]:
+    def _column_precision(
+        cls, ordered: np.ndarray, texts: List[str], tol: float, lone: bool = False
+    ) -> Optional[int]:
         """None when ``texts``, the sorted distinct ``ordered`` as
-        :meth:`_format_number` writes them, keep the column; else the precision.
+        :meth:`_format_number` writes them, keep the column within ``tol``;
+        else the precision.
+
+        ``lone`` is a single value held to its axis's tolerance, which has no
+        neighbour to merge with: it is lost when it moves by more than half
+        of it.
         """
-        tol = cls._column_tolerance(ordered)
         size = np.abs(ordered)
         if not (
             np.any((size < 1e-10) & (size > tol / 2))
             or any(
                 abs(float(t) - v) > tol / 2
                 for t, v, big in zip(texts, ordered, size > 1e10)
-                if big
+                if big or lone
             )
             or cls._merges(ordered, texts, tol)
         ):
             return None
         for precision in range(6, 17):
             written = np.array(
-                [float(t) for t in cls._column_texts(ordered, precision)]
+                [float(t) for t in cls._column_texts(ordered, precision, tol)]
             )
             if np.all(np.abs(written - ordered) <= tol / 2):
                 return precision
