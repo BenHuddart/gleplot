@@ -15,6 +15,7 @@ from ._warn import warn_external, warn_unsupported_keywords
 from .axes import (
     Axes,
     _finite_float,
+    _rename_text_aliases,
     _resolve_fontsize,
     _text_fields,
     _validate_data_prefix,
@@ -462,11 +463,7 @@ def _axes_options(
     if "facecolor" in kwargs and "fc" in kwargs:
         raise TypeError(f"{caller}() got both facecolor and fc; pass one.")
     facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
-    if kwargs:
-        warn_external(
-            f"{caller}() ignores {', '.join(sorted(kwargs))}: set them on "
-            "the returned axes instead."
-        )
+    warn_unsupported_keywords(caller, kwargs, "Set them on the returned axes instead.")
     return projection, facecolor
 
 
@@ -1772,6 +1769,7 @@ class Figure:
                 f"{fontdict!r}"
             )
         options = {**(fontdict or {}), **kwargs}
+        _rename_text_aliases("Figure.text", options)
         fields = _text_fields(
             self.style,
             "Figure.text",
@@ -1828,6 +1826,7 @@ class Figure:
         >>> fig, axes = glp.subplots(1, 2)
         >>> title = fig.suptitle("Sample A")
         """
+        _rename_text_aliases("suptitle", kwargs)
         fontsize = kwargs.pop("fontsize", None)
         fields = _text_fields(
             self.style,
@@ -1904,6 +1903,7 @@ class Figure:
         nticks: Optional[int] = None,
         width: float = 0.5,
         sep: Optional[float] = None,
+        **kwargs,
     ):
         """Attach a colorbar to a heatmap or a colour-mapped scatter.
 
@@ -1995,7 +1995,11 @@ class Figure:
         range baked at ``colorbar()`` time. Explicit ``vmin``/``vmax`` on the
         heatmap short-circuit that and are used as-is, here and at write time
         alike.
+
+        Any other keyword (``shrink``, ``pad``, ``extend``, ...) warns and is
+        ignored.
         """
+        warn_unsupported_keywords("colorbar", kwargs)
         if orientation not in (None, "vertical", "horizontal"):
             raise ValueError(
                 f"colorbar() orientation must be 'vertical' or 'horizontal', "
@@ -2298,13 +2302,13 @@ class Figure:
             value = kwargs.pop(name, None)
             if value is not None:
                 spacing[name] = _finite_float(value, f"legend({name}=...)")
-        for name in sorted(kwargs):
-            warn_external(
-                f"legend({name}=...) is not supported for a figure legend and "
-                "was ignored. Supported arguments: loc, bbox_to_anchor, ncol, "
-                "ncols, fontsize, frameon, facecolor, labelcolor, borderpad, "
-                "handlelength, handletextpad and columnspacing.",
-            )
+        warn_unsupported_keywords(
+            "Figure.legend",
+            kwargs,
+            "A figure legend takes loc, bbox_to_anchor, ncol, ncols, fontsize, "
+            "frameon, facecolor, labelcolor, borderpad, handlelength, "
+            "handletextpad and columnspacing.",
+        )
         self._legend = {
             "loc": position,
             "anchor": None if anchor is None else list(anchor),

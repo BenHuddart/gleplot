@@ -185,7 +185,6 @@ def test_no_marker_means_no_sub():
         ({"c": [1, 2, 3], "vmin": np.nan}, "finite number"),
         ({"c": [1, 2, 3], "vmax": "high"}, "finite number"),
         ({"c": [1, 2, 3], "cmap": "nope"}, "Unknown cmap"),
-        ({"c": [1, 2, 3], "s": [1, 2, 3]}, "both its own colour"),
         ({"c": [1, 2, 3], "mdist": 1.0}, r"mdist=1\.0"),
         ({"c": [1, 2, 3], "deresolve": 2}, "deresolve=2"),
     ],
@@ -195,6 +194,14 @@ def test_bad_colours_are_rejected_at_the_call(kwargs, match):
     with pytest.raises(ValueError, match=match):
         ax.scatter(X, Y, **kwargs)
     assert ax.scatters == []
+
+
+def test_per_point_sizes_with_per_point_colours_warn_and_draw_the_colours():
+    ax = _ax()
+    with pytest.warns(UserWarning, match=r"per-point colours \(c=\) at one size"):
+        ax.scatter(X, Y, c=[1, 2, 3], s=[4, 16, 36])
+    series = ax.scatters[0]
+    assert "cdata" in series and "mdata" not in series
 
 
 # --------------------------------------------------------------------------- #

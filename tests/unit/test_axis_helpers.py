@@ -94,14 +94,24 @@ def test_twinx_shares_the_x_axis():
 
 def test_twinx_warns_on_matplotlib_keywords_it_cannot_use():
     _fig, ax = _axes()
-    with pytest.warns(UserWarning, match="twinx\\(\\) ignores delta_zorder"):
+    with pytest.warns(
+        UserWarning,
+        match="twinx\\(\\) ignores unsupported keyword\\(s\\): delta_zorder",
+    ):
         ax.twinx(delta_zorder=1.0)
+
+
+def test_twin_keywords_warn_by_name_whatever_their_value():
+    _fig, ax = _axes()
+    with pytest.warns(UserWarning, match=r"ignores unsupported keyword\(s\): label"):
+        ax.twinx(label=None)
 
 
 def test_twiny_takes_matplotlibs_signature_and_warns_on_its_keywords():
     _fig, ax = _axes()
     with pytest.warns(
-        UserWarning, match="twiny\\(\\) ignores axes_class, delta_zorder, zorder"
+        UserWarning,
+        match="twiny\\(\\) ignores unsupported keyword\\(s\\): axes_class, delta_zorder, zorder",
     ):
         top = ax.twiny(object, delta_zorder=1.0, zorder=3)
     top.plot([1, 2], [3, 4])
@@ -252,7 +262,9 @@ def test_set_xticklabels_without_matching_ticks_raises():
 def test_set_xticklabels_warns_on_what_it_cannot_honour():
     _fig, ax = _axes()
     ax.set_xticks([1, 2])
-    with pytest.warns(UserWarning, match="ignores fontdict, rotation"):
+    with pytest.warns(
+        UserWarning, match=r"ignores unsupported keyword\(s\): fontdict, rotation"
+    ):
         ax.set_xticklabels(["a", "b"], fontdict={}, rotation=45)
     assert ax.xnames == ["a", "b"]
     with pytest.warns(UserWarning, match="minor=True"):
@@ -313,8 +325,17 @@ def test_axis_rejects_what_matplotlib_rejects():
         ax.axis("sideways")
     with pytest.raises(TypeError, match=r"\[xmin, xmax, ymin, ymax\]"):
         ax.axis([0, 1])
-    with pytest.raises(TypeError, match="'zmin'"):
-        ax.axis(zmin=0)
+    with pytest.raises(TypeError, match="together with"):
+        ax.axis([0, 1, 0, 1], xmin=0)
+
+
+def test_axis_warns_on_an_unknown_keyword():
+    _fig, ax = _axes()
+    with pytest.warns(
+        UserWarning, match=r"axis\(\) ignores unsupported keyword\(s\): zmin"
+    ):
+        ax.axis(xmin=0, zmin=0)
+    assert ax.get_xlim()[0] == 0
 
 
 def test_axis_emit_false_warns():
@@ -327,3 +348,33 @@ def test_axis_equal_warns():
     _fig, ax = _axes()
     with pytest.warns(UserWarning, match="set_aspect"):
         ax.axis("equal")
+
+
+@pytest.mark.parametrize(
+    "call, name",
+    [
+        (lambda fig, ax: ax.pie([1, 2], wedgeprops2=1), "pie"),
+        (lambda fig, ax: ax.boxplot([[1, 2, 3]], showcaps2=True), "boxplot"),
+        (lambda fig, ax: glp.figure(num=3), "figure"),
+        (lambda fig, ax: glp.subplots(num=3), "subplots"),
+        (lambda fig, ax: fig.add_subplot(212, title="t"), "add_subplot"),
+    ],
+)
+def test_calls_without_kwargs_before_now_warn_on_unknown_keywords(call, name):
+    fig, ax = _axes()
+    with pytest.warns(UserWarning, match=rf"{name}\(\) ignores unsupported keyword"):
+        call(fig, ax)
+
+
+def test_add_subplot_polar_true_is_projection_polar():
+    fig = glp.figure()
+    assert fig.add_subplot(111, polar=True)._polar
+
+
+def test_subplots_takes_gridspec_kw_ratios():
+    fig, axes = glp.subplots(2, 1, gridspec_kw={"height_ratios": [3, 1]})
+    expected, _ = glp.subplots(2, 1, height_ratios=[3, 1])
+    assert (
+        fig.to_dict()["figure"]["height_ratios"]
+        == expected.to_dict()["figure"]["height_ratios"]
+    )
