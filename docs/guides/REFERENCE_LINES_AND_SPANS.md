@@ -38,8 +38,8 @@ ax.axvline(x=0.0, ymin=0.0, ymax=1.0, color=None,
            linestyle='-', linewidth=1, label=None)
 ax.axhline(y=0.0, xmin=0.0, xmax=1.0, color=None,
            linestyle='-', linewidth=1, label=None)
-ax.axvspan(xmin, xmax, ymin=0.0, ymax=1.0, color=None, alpha=0.3, label=None)
-ax.axhspan(ymin, ymax, xmin=0.0, xmax=1.0, color=None, alpha=0.3, label=None)
+ax.axvspan(xmin, xmax, ymin=0.0, ymax=1.0, color=None, alpha=1.0, label=None)
+ax.axhspan(ymin, ymax, xmin=0.0, xmax=1.0, color=None, alpha=1.0, label=None)
 ```
 
 Argument semantics follow matplotlib exactly:
@@ -103,12 +103,15 @@ dataset form.
 
 ## Limitations
 
-- **`alpha` is not rendered.** It is accepted and stored for matplotlib API
-  compatibility, but GLE 4.3.10 refuses semi-transparency unless it is driven
-  with `-cairo` (*"semi-transparency only supported with command line option
-  `-cairo`"*), which gleplot's compiler does not use. Use a light colour
-  (`'lightgray'`, `'lightcyan'`, …) instead. This matches the existing
-  behaviour of `fill_between`.
+- **Transparency.** A span's `alpha` is folded into its colour as GLE's
+  `rgba255(...)`, so `open_gle` reads it back as that colour with
+  `alpha=1.0`. GLE draws a semi-transparent colour only with its `-cairo` device;
+  `savefig` uses it for such a figure unless told `cairo=False`, and its
+  font cost is in the [Configuration Guide](CONFIGURATION.md) ("Available Fonts").
+  A `.gle` compiled some other way needs `-cairo` too. `axvline` and
+  `axhline` take no `alpha` (it warns and is ignored), and drop an RGBA
+  colour's fourth value with a warning, so use a light colour
+  (`'lightgray'`, `'lightcyan'`, …) for a faint line.
 - **Round-tripping.** Reading a generated `.gle` file back with `open_gle()`
   recovers the guides as `reflines`/`spans`, from the `! gleplot:guide`
   comment gleplot writes beside each one. A guide whose lines were edited by

@@ -8,6 +8,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 |---|---|
 | `plt.figure()` | `glp.figure()` |
 | `plt.close(fig)` / `plt.close('all')` | same; gleplot tracks only the current figure, so `'all'` closes that one, and a figure number or label matches nothing and warns |
+| `plt.subplots(nrows, ncols)` | `glp.subplots(nrows, ncols)`: the same numpy array of axes, with `squeeze`, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
@@ -420,7 +421,7 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 
 ## Colorbars
 
-`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned (a `contourf` gets the colormap's continuous scale, with a warning), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh`, `tripcolor` or `contourf` returned (a `contourf`'s bar shows its bands, but has no `extend` end caps; thinned ticks start at the first level rather than nearest zero; and with uneven levels each band's room is in proportion to its range, ticked in equal steps, where matplotlib gives every band the same room and ticks the levels), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
 
 | `colorbar()` argument | gleplot |
 |---|---|
