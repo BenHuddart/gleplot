@@ -86,8 +86,8 @@ from .sources import (
     resolve_reference,
 )
 
-#: A quoted string in a GLE line.
-_QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
+#: The parts of a GLE line that are not code: quoted strings and a comment.
+_NOT_CODE_RE = re.compile(r"(\"[^\"]*\"|'[^']*'|!.*)")
 
 #: The linestyles a guide draws no line for.
 _NO_LINE = ("none", "None", "", " ", None)
@@ -675,11 +675,19 @@ class _SharedSidecar:
         self.keys: List[str] = []
         self.names: List[str] = []
         self.columns: List[np.ndarray] = []
+        #: Each column's axis tolerance (see GLEWriter._format_column).
+        self.tolerances: List[Optional[float]] = []
         #: Whether the file gets a header row: not when an inline series
         #: whose own file had none shares it (a header could name its keys).
         self.named = True
 
-    def index_of(self, key: str, values: np.ndarray, name: str) -> int:
+    def index_of(
+        self,
+        key: str,
+        values: np.ndarray,
+        name: str,
+        tolerance: Optional[float] = None,
+    ) -> int:
         """1-based column index of ``key``, appending it on first mention."""
         try:
             return self.keys.index(key) + 1
@@ -692,6 +700,7 @@ class _SharedSidecar:
         if values.dtype != object or not (values == "*").any():
             values = values.astype(float)
         self.columns.append(values)
+        self.tolerances.append(tolerance)
         return len(self.keys)
 
     def header(self) -> List[str]:
@@ -705,11 +714,13 @@ class _SharedSidecar:
 
 
 class _InlineSidecar(NamedTuple):
-    """The sidecar one inline series wrote: its columns, header, column keys."""
+    """The sidecar one inline series wrote: its columns, header, column keys
+    and the columns' axis tolerances."""
 
     columns: List[Tuple[str, np.ndarray]]
     column_names: Optional[List[str]]
     keys: List[str]
+    tolerances: List[Optional[float]]
 
 
 # -- write-time source resolution ----------------------------------------------
@@ -1508,6 +1519,10 @@ class GLEWriter:
         # (reserve_datasets); _new_dataset skips them. GLE clears its datasets
         # at 'begin graph', so end_graph clears these.
         self._reserved_datasets: Set[int] = set()
+        # In the current graph block, the ``_gle_name`` of each written
+        # series that carries one -> the name it was written under, for the
+        # raw lines that read it (see _bind_raw_reads).
+        self._raw_reads: Dict[str, str] = {}
         # id of each series written as one dataset -> the raw (unshifted) name
         # it was given, for the ``let`` of a DerivedSeries that reads it.
         self._dataset_names: Dict[int, str] = {}
@@ -1552,6 +1567,8 @@ class GLEWriter:
         # Which axes of the graph being written are logarithmic, as the last
         # add_axes call set them (see _add_sized_scatter).
         self._log_axes: Dict[str, bool] = {}
+        # The tolerance of each axis of that graph (see _axis_tolerance).
+        self._axis_tolerances: Dict[str, Optional[float]] = {}
         # Sticky GLE interpreter state as far as add_text_annotation is concerned: 'set
         # hei'/'set color'/'set just' persist across `write` statements until
         # changed again (real GLE semantics -- see recognizer._try_one_text,
@@ -1854,9 +1871,10 @@ class GLEWriter:
         changes the REAL GLE state but not this Python-side bookkeeping.
         """
         if passthrough:
-            self.lines_gle.extend(passthrough)
+            self.lines_gle.extend(self._bind_raw_reads(passthrough))
         self.lines_gle.append("end graph")
         self._reserved_datasets = set()
+        self._raw_reads = {}
         # Guides GLE has to range for itself: drawn now, while xgmin and
         # xg() address the graph just closed (gleplot.guides).
         self.lines_gle.extend(self._pending_guide_lines)
@@ -2031,6 +2049,9 @@ class GLEWriter:
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
         title_font: Optional[str] = None,
+        data_extents: Optional[
+            Dict[str, Tuple[Optional[float], Optional[float]]]
+        ] = None,
     ):
         """Add axis configuration.
 
@@ -2113,6 +2134,12 @@ class GLEWriter:
             ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
             the graph block, which is why gleplot models it per-axes and not
             per-figure.
+        data_extents : dict, optional
+            ``(lo, hi)`` of the data on an axis (``"x"``, ``"y"``, ``"y2"``,
+            ``"x2"``) that lacks a limit. It stands in for the missing limit
+            when choosing how many figures the coordinates on that axis are
+            written with (see :meth:`_axis_tolerance`); the axis line still
+            writes only the limits given.
 
         Raises
         ------
@@ -2158,6 +2185,16 @@ class GLEWriter:
         if ystyle.side_off and not y2axis_off and not frame_off:
             y2style = replace(y2style, side_off=False)
         self._log_axes = {"x": xlog, "y": ylog, "y2": y2log, "x2": x2log}
+        extents = data_extents or {}
+        self._axis_tolerances = {
+            name: self._axis_tolerance(lo, hi, log, extents.get(name))
+            for name, lo, hi, log in (
+                ("x", xmin, xmax, xlog),
+                ("y", ymin, ymax, ylog),
+                ("y2", y2min, y2max, y2log),
+                ("x2", x2min, x2max, x2log),
+            )
+        }
         if title:
             opts = self._text_options(title_size, title_color, title_dist, title_font)
             self.lines_gle.append(f'    title "{title}"{opts}')
@@ -2263,7 +2300,7 @@ class GLEWriter:
         lo, hi, negate = self._axis_direction(lo, hi)
         bare = f"    {prefix}axis"
         cmd = bare
-        cmd += self._axis_range(lo, hi, log)
+        cmd += self._axis_range(prefix, lo, hi, log)
         if log:
             cmd += " log"
         if negate:
@@ -2272,7 +2309,7 @@ class GLEWriter:
             cmd += f" dticks {self._format_number(dticks)}"
         if dsubticks is not None:
             cmd += f" dsubticks {self._format_number(dsubticks)}"
-        cmd += self._axis_style_tokens(style)
+        cmd += self._axis_style_tokens(prefix, style)
         if nofirst:
             cmd += " nofirst"  # Remove first tick label to prevent overlap
         if nolast:
@@ -2301,7 +2338,7 @@ class GLEWriter:
         if places is not None:
             self.lines_gle.append(
                 f"    {prefix}places "
-                + " ".join(self._format_number(v) for v in places)
+                + " ".join(self._format_coordinate(v, prefix) for v in places)
             )
         if names is not None:
             self.lines_gle.append(
@@ -2311,7 +2348,7 @@ class GLEWriter:
         if style.noticks is not None:
             self.lines_gle.append(
                 f"    {prefix}noticks "
-                + " ".join(self._format_number(v) for v in style.noticks)
+                + " ".join(self._format_coordinate(v, prefix) for v in style.noticks)
             )
 
         # Hide the tick labels if requested (but keep the ticks themselves),
@@ -2355,12 +2392,12 @@ class GLEWriter:
         y2_styled = style is not _NO_STYLE and style != _NO_STYLE
         if lo is not None or hi is not None or log or off or y2_on or y2_styled:
             cmd = "    y2axis"
-            cmd += self._axis_range(lo, hi, log)
+            cmd += self._axis_range("y2", lo, hi, log)
             if log:
                 cmd += " log"
             if negate:
                 cmd += " negate"
-            cmd += self._axis_style_tokens(style)
+            cmd += self._axis_style_tokens("y2", style)
             if off:
                 cmd += " off"
             elif y2_on:
@@ -2447,14 +2484,14 @@ class GLEWriter:
             or x2_tick_styled
         ):
             cmd = "    x2axis"
-            cmd += self._axis_range(lo, hi, log)
+            cmd += self._axis_range("x2", lo, hi, log)
             if log:
                 cmd += " log"
             elif x2_lin:
                 cmd += " lin"
             if negate:
                 cmd += " negate"
-            cmd += self._axis_style_tokens(style)
+            cmd += self._axis_style_tokens("x2", style)
             if off:
                 cmd += " off"
             elif x2_on:
@@ -2520,7 +2557,7 @@ class GLEWriter:
             out += f" dist {self._format_number(float(dist))}"
         return out
 
-    def _axis_style_tokens(self, style: AxisStyle) -> str:
+    def _axis_style_tokens(self, axis: str, style: AxisStyle) -> str:
         """``[ format "F"][ angle A][ grid]`` and the tick placement tokens.
 
         These live on the axis command itself rather than in a statement of
@@ -2538,7 +2575,7 @@ class GLEWriter:
         if style.nticks is not None:
             out += f" nticks {int(style.nticks)}"
         if style.ftick is not None:
-            out += f" ftick {self._format_number(float(style.ftick))}"
+            out += f" ftick {self._format_coordinate(float(style.ftick), axis)}"
         if style.shift is not None:
             out += f" shift {self._format_number(float(style.shift))}"
         if style.symticks:
@@ -2975,6 +3012,7 @@ class GLEWriter:
         filename: str,
         columns: List[np.ndarray],
         column_names: Optional[List[str]] = None,
+        tolerances: Optional[Sequence[Optional[float]]] = None,
     ):
         """
         Add external data file.
@@ -2992,6 +3030,9 @@ class GLEWriter:
             references are unaffected by this header -- GLE auto-detects and
             skips a non-numeric first row (see ``auto_has_header`` in the
             GLE source), so ``c1`` etc. still address the first DATA column.
+        tolerances : list of float or None, optional
+            One per column: the tolerance of the axis a column lies on, which
+            a column of one value is written to (see :meth:`_format_column`).
 
         Raises
         ------
@@ -3015,7 +3056,10 @@ class GLEWriter:
         data = np.column_stack(columns)
 
         # Write data rows
-        texts = [self._format_column(data[:, j]) for j in range(data.shape[1])]
+        tolerances = tolerances or [None] * data.shape[1]
+        texts = [
+            self._format_column(data[:, j], tolerances[j]) for j in range(data.shape[1])
+        ]
         lines.extend(" ".join(row) for row in zip(*texts))
 
         # Add trailing newline for GLE compatibility
@@ -3027,6 +3071,7 @@ class GLEWriter:
         named_columns: Sequence[Tuple[str, np.ndarray]],
         column_names: Optional[List[str]],
         binding: Optional[ColumnBinding] = None,
+        axes: Optional[Dict[str, str]] = None,
     ) -> List[int]:
         """Place one series' columns and return their 1-based column indices.
 
@@ -3039,9 +3084,19 @@ class GLEWriter:
         indices are ``1..N`` in role order -- the historical behaviour, byte
         for byte. With a ``binding``, the columns are merged into the shared
         sidecar named by it and the indices are wherever they landed there.
+
+        ``axes`` maps a role to the axis its values lie on (``"x"``,
+        ``"y"``, ``"y2"``, ``"x2"``); such a column is written to that axis's
+        tolerance (see :meth:`_format_column`).
         """
+        tolerances = [
+            self._axis_tolerances.get((axes or {}).get(role, ""))
+            for role, _array in named_columns
+        ]
         if binding is None:
-            return self._write_inline_columns(data_file, named_columns, column_names)
+            return self._write_inline_columns(
+                data_file, named_columns, column_names, tolerances
+            )
 
         shared = self._shared_sidecars.get(binding.data_file)
         if shared is None:
@@ -3050,10 +3105,10 @@ class GLEWriter:
             if prior is not None:
                 self._seed_shared(shared, prior)
         indices = []
-        for role, array in named_columns:
+        for (role, array), tol in zip(named_columns, tolerances):
             key, name = binding.column_for(role)
             indices.append(
-                self._share_column(shared, binding.data_file, key, array, name)
+                self._share_column(shared, binding.data_file, key, array, name, tol)
             )
         return indices
 
@@ -3062,6 +3117,7 @@ class GLEWriter:
         data_file: str,
         named_columns: Sequence[Tuple[str, np.ndarray]],
         column_names: Optional[List[str]],
+        tolerances: List[Optional[float]],
     ) -> List[int]:
         """An inline series' columns, in a file of its own unless one is named.
 
@@ -3082,17 +3138,20 @@ class GLEWriter:
             for i, (role, _array) in enumerate(named_columns)
         ]
         keys = [
-            self._column_key(name, array)
-            for name, (_role, array) in zip(names, named_columns)
+            self._column_key(name, array, tol)
+            for name, (_role, array), tol in zip(names, named_columns, tolerances)
         ]
         shared = self._shared_sidecars.get(data_file)
         prior = self._inline_sidecars.get(data_file)
         if shared is None and prior is None:
             self._inline_sidecars[data_file] = _InlineSidecar(
-                list(named_columns), column_names, keys
+                list(named_columns), column_names, keys, tolerances
             )
             self.add_data_file(
-                data_file, [array for _role, array in named_columns], column_names
+                data_file,
+                [array for _role, array in named_columns],
+                column_names,
+                tolerances,
             )
             return list(range(1, len(named_columns) + 1))
         if shared is None:
@@ -3104,24 +3163,38 @@ class GLEWriter:
         if column_names is None:
             shared.named = False
         return [
-            self._share_column(shared, data_file, key, array, name)
-            for key, name, (_role, array) in zip(keys, names, named_columns)
+            self._share_column(shared, data_file, key, array, name, tol)
+            for key, name, (_role, array), tol in zip(
+                keys, names, named_columns, tolerances
+            )
         ]
 
     @staticmethod
     def _seed_shared(shared: _SharedSidecar, prior: _InlineSidecar) -> None:
         """Put the columns an inline series already wrote first, in place."""
         shared.named = prior.column_names is not None
-        for i, (key, (role, array)) in enumerate(zip(prior.keys, prior.columns)):
+        for i, (key, (role, array), tol) in enumerate(
+            zip(prior.keys, prior.columns, prior.tolerances)
+        ):
             name = prior.column_names[i] if prior.column_names else role
             # A column the series repeats keeps its own index.
             shared.index_of(
-                key if key not in shared.keys else f"{key}\x00{i}", array, name
+                key if key not in shared.keys else f"{key}\x00{i}", array, name, tol
             )
 
     @staticmethod
+    def _series_axes(series: Series) -> Dict[str, str]:
+        """The axes a series' ``x`` and ``y`` columns lie on."""
+        return {"x": series.get("xaxis", "x"), "y": series.get("yaxis", "y")}
+
+    @staticmethod
     def _share_column(
-        shared: _SharedSidecar, data_file: str, key: str, array: Any, name: str
+        shared: _SharedSidecar,
+        data_file: str,
+        key: str,
+        array: Any,
+        name: str,
+        tolerance: Optional[float],
     ) -> int:
         """``shared.index_of``, refusing a column the file's rows cannot hold."""
         if shared.columns and len(array) != len(shared.columns[0]):
@@ -3130,11 +3203,11 @@ class GLEWriter:
                 f"{len(shared.columns[0])} and {len(array)} rows. Give one of "
                 "them its own data_file."
             )
-        return shared.index_of(key, array, name)
+        return shared.index_of(key, array, name, tolerance)
 
-    def _column_key(self, name: str, array: Any) -> str:
+    def _column_key(self, name: str, array: Any, tolerance: Optional[float]) -> str:
         """A column's name and a digest of its written text."""
-        text = "\n".join(self._format_column(np.asarray(array).ravel()))
+        text = "\n".join(self._format_column(np.asarray(array).ravel(), tolerance))
         return f"{name}\x00{hashlib.sha1(text.encode('utf-8')).hexdigest()}"
 
     def finalize_shared_sidecars(self) -> None:
@@ -3146,7 +3219,7 @@ class GLEWriter:
         for filename, shared in self._shared_sidecars.items():
             if shared.columns:
                 header = shared.header() if shared.named else None
-                self.add_data_file(filename, shared.columns, header)
+                self.add_data_file(filename, shared.columns, header, shared.tolerances)
         self._shared_sidecars.clear()
 
     def reserve_datasets(self, raw_lines: Sequence[str]) -> None:
@@ -3160,8 +3233,8 @@ class GLEWriter:
         -----
         Only the names raw GLE defines are reserved: those a ``data``
         statement names and the target of a ``let``. A raw line that only
-        reads a dataset (a fit, a fill, a restyle) is left reading the name
-        the written series would have had anyway.
+        reads a written series' dataset (a fit, a fill, a restyle) is
+        renamed to follow it instead (:meth:`_bind_raw_reads`).
 
         A ``data`` statement that names no datasets fills the lowest
         undefined ones (``freedataset`` in GLE's graph.cpp), and the raw
@@ -3169,27 +3242,80 @@ class GLEWriter:
         one, every name up to the highest a raw line uses is reserved,
         leaving those slots free for it.
         """
-        defined: Set[int] = set()
-        used = 0
-        bare_data = False
-        for line in raw_lines:
-            # Names inside a string or a comment are not datasets.
-            code = _QUOTED_RE.sub("", line).split("!", 1)[0]
-            words = code.split(None, 1)
-            if not words:
-                continue
-            names = [int(m[1:]) for m in _DATASET_NAME_RE.findall(code)]
-            used = max([used, *names])
-            keyword = words[0].lower()
-            if keyword == "data":
-                defined.update(names)
-                bare_data = bare_data or not names
-            elif keyword == "let":
-                target = _DATASET_NAME_RE.findall(code.split("=", 1)[0])
-                defined.update(int(m[1:]) for m in target)
+        defined, read, bare_data = self.raw_dataset_use(raw_lines)
+        numbers = {int(name[1:]) for name in defined}
         if bare_data:
-            defined.update(range(1, used + 1))
-        self._reserved_datasets = defined
+            used = max((int(name[1:]) for name in defined | read), default=0)
+            numbers.update(range(1, used + 1))
+        self._reserved_datasets = numbers
+
+    @staticmethod
+    def raw_dataset_use(raw_lines: Sequence[str]) -> Tuple[Set[str], Set[str], bool]:
+        """The ``dN`` names *raw_lines* define and read, lowercased, and
+        whether one of them is a ``data`` statement that names no datasets.
+
+        A ``data`` statement defines the names it gives and a ``let`` its
+        target; every other name a line mentions is read. Names inside a
+        string or a comment are not datasets.
+        """
+        defined: Set[str] = set()
+        read: Set[str] = set()
+        bare_data = False
+
+        def names(code: str) -> Set[str]:
+            return {m.lower() for m in _DATASET_NAME_RE.findall(code)}
+
+        for line in raw_lines:
+            code = _NOT_CODE_RE.sub("", line)
+            words = code.split(None, 1)
+            keyword = words[0].lower() if words else ""
+            if keyword == "data":
+                defined |= names(code)
+                bare_data = bare_data or not names(code)
+                continue
+            if keyword == "let":
+                target, _equals, code = code.partition("=")
+                defined |= names(target)
+            read |= names(code)
+        return defined, read, bare_data
+
+    def _name_dataset(self, series: Series, name: str) -> None:
+        """Record that *series* was written as dataset *name*."""
+        self._dataset_names[id(series)] = name
+        if "_gle_name" in series:
+            self._raw_reads[series["_gle_name"].lower()] = name
+
+    def _bind_raw_reads(self, raw_lines: Sequence[str]) -> List[str]:
+        """*raw_lines* reading each written series under the name it was given.
+
+        A series loaded from a file carries ``_gle_name``, its dataset name
+        there, when a raw line kept in its block reads it (a ``fill``, a
+        ``bar``, a fit ``let``). The writer numbers datasets afresh, so each
+        such reference is renamed to the name the series was written under.
+
+        Notes
+        -----
+        ``open_gle`` never sets ``_gle_name`` to a name a raw ``data`` or
+        ``let`` in the block defines, and no series is written under one
+        (:meth:`reserve_datasets`), so a raw dataset keeps its name. Names
+        inside a string or a comment are not datasets.
+        """
+        names = {old: new for old, new in self._raw_reads.items() if old != new}
+        if not names:
+            return list(raw_lines)
+
+        def rename(code: str) -> str:
+            return _DATASET_NAME_RE.sub(
+                lambda m: names.get(m.group(0).lower(), m.group(0)), code
+            )
+
+        bound = []
+        for line in raw_lines:
+            parts = _NOT_CODE_RE.split(line)
+            bound.append(
+                "".join(part if i % 2 else rename(part) for i, part in enumerate(parts))
+            )
+        return bound
 
     def _new_dataset(self) -> str:
         """Name a fresh dataset: the next ``dN`` that raw GLE does not use."""
@@ -3313,8 +3439,8 @@ class GLEWriter:
             # GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks
             # the line there. A table column another series may read keeps
             # its values, so this series gets its own copy.
-            x_gaps = np.isnan(np.asarray(x_rows, dtype=float))
-            y_gaps = np.isnan(np.asarray(y_rows, dtype=float))
+            x_gaps = ~np.isfinite(np.asarray(x_rows, dtype=float))
+            y_gaps = ~np.isfinite(np.asarray(y_rows, dtype=float))
             x_rows = self._as_missing(x_rows, x_gaps)
             y_rows = self._as_missing(y_rows, y_gaps)
             if binding is not None:
@@ -3325,13 +3451,14 @@ class GLEWriter:
             [("x", x_rows), ("y", y_rows)],
             column_names,
             binding,
+            self._series_axes(series),
         )
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
 
         # Generate plot command with unique dataset name
         d_name = self._new_dataset()
-        self._dataset_names[id(series)] = d_name
+        self._name_dataset(series, d_name)
 
         cmd = (
             f"    data {_format_data_filename(file_name)} "
@@ -3464,7 +3591,7 @@ class GLEWriter:
             if name in series:
                 line[name] = series[name]
         self.add_line(line, binding=binding)
-        self._dataset_names[id(series)] = self._dataset_names.pop(id(line))
+        self._name_dataset(series, self._dataset_names.pop(id(line)))
 
     def _add_sized_scatter(self, series: Series, binding: Optional[ColumnBinding]):
         """A scatter whose points each have their own size (GLE ``mdata``).
@@ -3552,9 +3679,11 @@ class GLEWriter:
             [("x", x), ("y", y), extra],
             series.get("column_names"),
             binding,
+            self._series_axes(series),
         )
         file_name = binding.data_file if binding is not None else series["data_file"]
         d_name = self._new_dataset()
+        self._name_dataset(series, d_name)
         d_extra = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(file_name)} "
@@ -4009,7 +4138,7 @@ class GLEWriter:
     ) -> None:
         """``let dK = <definition> [from a] [to b] [step h] [options]`` and its line."""
         target = self._new_dataset()
-        self._dataset_names[id(series)] = target
+        self._name_dataset(series, target)
         parts = [f"let {target} = {definition}"]
         for key, word in (("let_from", "from"), ("let_to", "to"), ("let_step", "step")):
             if key in series:
@@ -4547,7 +4676,9 @@ class GLEWriter:
         # positions within THIS series' column list; ``cols`` maps each onto
         # the column index it actually got in the file, which is an identity
         # map for a private sidecar and a lookup for a shared one.
-        cols = self._write_columns(data_file, columns, column_names, binding)
+        cols = self._write_columns(
+            data_file, columns, column_names, binding, self._series_axes(series)
+        )
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
 
@@ -4805,7 +4936,7 @@ class GLEWriter:
         nomiss = series.get("nomiss", False)
         line_mode = series.get("line_mode")
         d_main = self._new_dataset()
-        self._dataset_names[id(series)] = d_main
+        self._name_dataset(series, d_main)
 
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"
@@ -5000,6 +5131,16 @@ class GLEWriter:
           absent edge is omitted. On ``target="x1"``, ``ymin`` is also the
           line the fill closes on.
         """
+        self._write_fill(series, binding, {"x": "x", "y1": "y", "y2": "y"})
+
+    def _write_fill(
+        self,
+        series: Series,
+        binding: Optional[ColumnBinding],
+        axes: Dict[str, str],
+    ) -> None:
+        """:meth:`add_fill`, with ``axes`` the roles held to an axis's
+        tolerance (see :meth:`_write_columns`)."""
         x = series["x"]
         y1 = series["y1"]
         y2 = series.get("y2")
@@ -5023,7 +5164,7 @@ class GLEWriter:
             roles: List[Tuple[str, Any]] = [("x", x), ("y1", y1)]
         else:
             roles = [("x", x), ("y1", y1), ("y2", y2)]
-        cols = self._write_columns(data_file, roles, column_names, binding)
+        cols = self._write_columns(data_file, roles, column_names, binding, axes)
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
         clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
@@ -5196,7 +5337,10 @@ class GLEWriter:
                 f"{KEY_ANCHOR_Y.format(self._format_number(y))}"
             )
         else:
-            position = f"xg({self._format_number(x)}) yg({self._format_number(y)})"
+            position = (
+                f"xg({self._format_coordinate(x, 'x')}) "
+                f"yg({self._format_coordinate(y, 'y')})"
+            )
         self._pending_graph_text_lines.append(f"amove {position}")
         name = None
         if arrow is not None and xy is not None:
@@ -5207,8 +5351,8 @@ class GLEWriter:
             assert xy is not None
             tip = f"{name}_xy"
             lines = [
-                f"amove xg({self._format_number(xy[0])}) "
-                f"yg({self._format_number(xy[1])})",
+                f"amove xg({self._format_coordinate(xy[0], 'x')}) "
+                f"yg({self._format_coordinate(xy[1], 'y')})",
                 f"save {tip}",
                 "gsave",
                 f"set color {arrow_color}",
@@ -6258,7 +6402,10 @@ class GLEWriter:
         :meth:`guide_marker`) goes immediately before the line's
         ``data`` statement, which is how a re-read file binds the two.
         """
-        self.lines_gle.append("    " + self.guide_marker(series, label=False))
+        value = self._format_coordinate(
+            series["value"], self._guide_axis(series["orient"])
+        )
+        self.lines_gle.append("    " + self.guide_marker(series, False, value))
         self.add_line(line)
 
     def add_span(self, series: Series):
@@ -6308,8 +6455,13 @@ class GLEWriter:
         :meth:`guide_marker`) goes immediately before the fill's ``data``
         statement, which is how a re-read file binds the two.
         """
-        self.lines_gle.append("    " + self.guide_marker(series, label=True))
-        self.add_fill(fill)
+        edges = self._span_range(series["orient"], series["start"], series["end"])
+        self.lines_gle.append("    " + self.guide_marker(series, True, ",".join(edges)))
+        # A vertical band's y columns are its extent, fractions of the y
+        # limits: written as those limits are, so a file read back rebuilds
+        # them. A horizontal band's are its edges, coordinates on y.
+        axes = {} if series["orient"] == "v" else {"y1": "y", "y2": "y"}
+        self._write_fill(fill, None, axes)
 
     def add_guide_key(
         self, color: str, linestyle: str, lwidth_cm: float, label: str
@@ -6355,7 +6507,9 @@ class GLEWriter:
     # -- the provenance marker (G18-lite) ---------------------------------
 
     @classmethod
-    def guide_marker(cls, series: Series, label: bool) -> str:
+    def guide_marker(
+        cls, series: Series, label: bool, position: Optional[str] = None
+    ) -> str:
         """The ``! gleplot:guide ...`` comment for ``series``, without indent.
 
         A comment, so the engine never sees it (verified by compiled
@@ -6365,15 +6519,18 @@ class GLEWriter:
         one: a band always needs it (``fill dA,dB`` has no ``key``), and so
         does any after-graph guide, whose legend entry is a separate line.
         Pairs are comma-joined: GLE's lexer reads a leading sign as an
-        operator, so ``-4 -3`` would collect back as ``-7``.
+        operator, so ``-4 -3`` would collect back as ``-7``. ``position`` is
+        the value, or the band's ``start,end``, as the dataset form writes
+        it (see :meth:`_format_coordinate`); by default
+        :meth:`_format_number` writes it, as the after-graph form does.
         """
         fmt = cls._format_number
         extent = f"{fmt(series['span_lo'])},{fmt(series['span_hi'])}"
         if series["type"] == "refline":
-            args = ["value", fmt(series["value"]), "extent", extent]
+            args = ["value", position or fmt(series["value"]), "extent", extent]
         else:
-            args = ["range", f"{fmt(series['start'])},{fmt(series['end'])}"]
-            args += ["extent", extent]
+            edges = position or f"{fmt(series['start'])},{fmt(series['end'])}"
+            args = ["range", edges, "extent", extent]
         if label and series.get("label"):
             quoted = f'"{cls._escape_gle_string(series["label"])}"'
             args += [GUIDE_MARKER_LABEL, quoted]
@@ -6578,17 +6735,21 @@ class GLEWriter:
             return formatted
         return str(val)
 
-    @classmethod
-    def _axis_range(cls, lo: Optional[float], hi: Optional[float], log: bool) -> str:
-        """The `` min .. max ..`` of an axis line.
+    def _axis_range(
+        self, axis: str, lo: Optional[float], hi: Optional[float], log: bool
+    ) -> str:
+        """The `` min .. max ..`` of ``axis``'s line.
 
         The pair is one column; on a log axis each end is its own, since a
         linear span says nothing about how far a decade-wide limit may move.
+        A lone limit is a coordinate on the axis (:meth:`_format_coordinate`).
         """
         if log:
-            lo_text, hi_text = cls._format_column([lo]) + cls._format_column([hi])
+            lo_text, hi_text = self._format_column([lo]) + self._format_column([hi])
         else:
-            lo_text, hi_text = cls._format_column([lo, hi])
+            lo_text, hi_text = self._format_column(
+                [lo, hi], self._axis_tolerances.get(axis)
+            )
         return (f" min {lo_text}" if lo is not None else "") + (
             f" max {hi_text}" if hi is not None else ""
         )
@@ -6607,7 +6768,9 @@ class GLEWriter:
         return [" ".join(row) for row in rows] if joined else rows
 
     @classmethod
-    def _format_column(cls, values: Iterable[Any]) -> List[str]:
+    def _format_column(
+        cls, values: Iterable[Any], axis_tolerance: Optional[float] = None
+    ) -> List[str]:
         """Numbers that belong together (a data column, an axis range) as text.
 
         Each value is written by :meth:`_format_number` unless that loses
@@ -6617,6 +6780,11 @@ class GLEWriter:
         column is written with the fewest significant figures, at least six,
         that keep it within half the tolerance, so a data column and the
         axis range set around it round alike.
+
+        ``axis_tolerance`` is that of the axis the numbers lie on
+        (:meth:`_axis_tolerance`). It is the tolerance of a column whose
+        values are all one number, which has no span of its own: a lone
+        coordinate, or a vertical line's x.
 
         The written numbers are iterated to a fixed point, so a file read
         back chooses the same precision and writes the same text.
@@ -6638,16 +6806,19 @@ class GLEWriter:
         ordered, where = np.unique(
             np.asarray([values[i] for i in index], dtype=float), return_inverse=True
         )
+        tol = cls._column_tolerance(ordered, axis_tolerance)
+        lone = axis_tolerance is not None and len(ordered) == 1
         texts = [cls._format_number(v) for v in ordered]
-        precision = cls._column_precision(ordered, texts)
+        precision = cls._column_precision(ordered, texts, tol, lone)
         while precision is not None:
-            texts = cls._column_texts(ordered, precision)
+            texts = cls._column_texts(ordered, precision, tol)
             ordered = np.unique(np.asarray([float(t) for t in texts]))
             # Rounding can only merge values, never reorder them.
             where = np.searchsorted(ordered, [float(t) for t in texts])[where]
-            texts = cls._column_texts(ordered, precision)
+            tol = cls._column_tolerance(ordered, axis_tolerance)
+            texts = cls._column_texts(ordered, precision, tol)
             settled = cls._column_precision(
-                ordered, [cls._format_number(v) for v in ordered]
+                ordered, [cls._format_number(v) for v in ordered], tol, lone
             )
             if settled == precision:
                 break
@@ -6659,53 +6830,114 @@ class GLEWriter:
         return out
 
     @staticmethod
-    def _column_tolerance(ordered: np.ndarray) -> float:
+    def _column_tolerance(
+        ordered: np.ndarray, axis_tolerance: Optional[float] = None
+    ) -> float:
         """The smallest difference in ``ordered`` (sorted) that is data.
 
         A millionth of the column's span: six significant figures of the
         range the values cover, so samples a millionth of a curve's height
         apart near a peak are not data, while timestamps a minute apart over
-        a few minutes are.
+        a few minutes are. A column of one value has no span; it takes
+        ``axis_tolerance``, the axis's, when there is one.
         Never below 1e-12 of the largest magnitude, which is float noise
         (``cos(pi / 2)`` is ``6e-17``).
         """
         size = max(abs(ordered[0]), abs(ordered[-1]))
-        return float(max(1e-6 * (ordered[-1] - ordered[0]), 1e-12 * size))
+        tol = 1e-6 * (ordered[-1] - ordered[0])
+        if tol == 0 and axis_tolerance is not None:
+            tol = axis_tolerance
+        return float(max(tol, 1e-12 * size))
 
     @classmethod
-    def _column_texts(cls, ordered: np.ndarray, precision: int) -> List[str]:
+    def _axis_tolerance(
+        cls,
+        lo: Optional[float],
+        hi: Optional[float],
+        log: bool,
+        extent: Optional[Tuple[Optional[float], Optional[float]]],
+    ) -> Optional[float]:
+        """The tolerance of the coordinates on an axis, or None.
+
+        A millionth of the linear range ``lo``..``hi`` as written, a missing
+        limit taken from the data ``extent``: on an axis spanning two
+        minutes of timestamps a coordinate 30 s off is not where it was
+        asked for. None on a log axis, and on a range of no width.
+        """
+        if extent is not None:
+            lo = extent[0] if lo is None else lo
+            hi = extent[1] if hi is None else hi
+        if log or lo is None or hi is None:
+            return None
+        lo_text, hi_text = cls._format_column([lo, hi])
+        span = abs(float(hi_text) - float(lo_text))
+        return 1e-6 * span if span > 0 else None
+
+    def _format_coordinate(self, value: float, axis: str) -> str:
+        """A lone number in ``axis``'s data units, as :meth:`_format_column`
+        writes it on that axis (see :meth:`_axis_tolerance`); by
+        :meth:`_format_number` on an axis with no tolerance."""
+        tol = self._axis_tolerances.get(axis)
+        if tol is None:
+            return self._format_number(value)
+        return self._format_column([value], tol)[0]
+
+    @staticmethod
+    def _guide_axis(orient: str) -> str:
+        """The axis a guide's position lies on: x for a vertical one."""
+        return "x" if orient == "v" else "y"
+
+    def _span_range(self, orient: str, start: float, end: float) -> List[str]:
+        """A band's ``start`` and ``end`` as its materialized fill writes them.
+
+        A vertical band's edges are one ``x`` column; a horizontal band's are
+        a column each (``y1``, ``y2``) of one repeated value. The marker and
+        the ``draw`` call write them alike, so a file read back rebuilds the
+        same fill.
+        """
+        if orient == "v":
+            return self._format_column([start, end], self._axis_tolerances.get("x"))
+        return [self._format_coordinate(v, "y") for v in (start, end)]
+
+    @staticmethod
+    def _column_texts(ordered: np.ndarray, precision: int, tol: float) -> List[str]:
         """``ordered`` at ``precision`` significant figures.
 
         A value :meth:`_format_number` writes ``0`` stays ``0`` while it is
-        within half the column's tolerance of it, so float noise is not
-        written out and nothing is zeroed that was not zeroed before.
+        within half the column's tolerance ``tol`` of it, so float noise is
+        not written out and nothing is zeroed that was not zeroed before.
         """
-        tol = cls._column_tolerance(ordered)
         return [
             "0" if abs(v) < 1e-10 and abs(v) <= tol / 2 else f"{v:.{precision}g}"
             for v in ordered
         ]
 
     @classmethod
-    def _column_precision(cls, ordered: np.ndarray, texts: List[str]) -> Optional[int]:
+    def _column_precision(
+        cls, ordered: np.ndarray, texts: List[str], tol: float, lone: bool = False
+    ) -> Optional[int]:
         """None when ``texts``, the sorted distinct ``ordered`` as
-        :meth:`_format_number` writes them, keep the column; else the precision.
+        :meth:`_format_number` writes them, keep the column within ``tol``;
+        else the precision.
+
+        ``lone`` is a single value held to its axis's tolerance, which has no
+        neighbour to merge with: it is lost when it moves by more than half
+        of it.
         """
-        tol = cls._column_tolerance(ordered)
         size = np.abs(ordered)
         if not (
             np.any((size < 1e-10) & (size > tol / 2))
             or any(
                 abs(float(t) - v) > tol / 2
                 for t, v, big in zip(texts, ordered, size > 1e10)
-                if big
+                if big or lone
             )
             or cls._merges(ordered, texts, tol)
         ):
             return None
         for precision in range(6, 17):
             written = np.array(
-                [float(t) for t in cls._column_texts(ordered, precision)]
+                [float(t) for t in cls._column_texts(ordered, precision, tol)]
             )
             if np.all(np.abs(written - ordered) <= tol / 2):
                 return precision

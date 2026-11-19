@@ -303,8 +303,10 @@ from ..colors import GLE_PATTERNS
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..dataio import (
     ColumnExtractionError,
+    GLEDataLayout,
     classify_data_file,
     extract_columns,
+    gle_data_layout,
     resolve_data_reference,
 )
 from ..figure import Figure
@@ -1761,6 +1763,7 @@ class _Recognizer:
         self._noted_unloaded: Set[str] = set()
         # resolved-table cache per data_file name
         self._table_cache: Dict[str, object] = {}
+        self._layout_cache: Dict[Tuple[Any, ...], Optional[GLEDataLayout]] = {}
         self._import_list: Optional[List[str]] = None
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
@@ -2728,9 +2731,13 @@ class _Recognizer:
             for child in block.body
         ):
             return self._parse_graph_block_once(block, marker_cfg, smooth_flags, set())
-        # The table cache only memoizes file reads, so it is shared, not copied.
+        # The file caches only memoize reads, so they are shared, not copied.
         saved = copy.deepcopy(
-            {k: v for k, v in vars(self).items() if k != "_table_cache"}
+            {
+                k: v
+                for k, v in vars(self).items()
+                if k not in ("_table_cache", "_layout_cache")
+            }
         )
         saved_flags = list(smooth_flags)
         info = self._parse_graph_block_once(block, marker_cfg, smooth_flags, set())
@@ -2802,6 +2809,7 @@ class _Recognizer:
         self._commit_derived_lets(info)
         self._flush_hist_lets(info)
         self._restore_orphaned_data_stmts(pass1, info)
+        self._bind_raw_readers(info)
         self._discard_guide_markers(info)
         self._reconcile_places_names(info)
         self._reconcile_axis_styling(info)
@@ -4623,9 +4631,6 @@ class _Recognizer:
             )
             return
         if kw is not None and _DATASET_RE.match(kw):
-            if not info["_derived_lets"]:
-                self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
-                return
             before = {attr: len(info[attr]) for attr in Axes._DERIVED_SOURCE_ATTRS}
             self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
             self._note_dataset_series(kw, before, info)
@@ -5417,7 +5422,8 @@ class _Recognizer:
         ``nox`` or for a single-column file, with y starting at c1; and when
         every value in the first column is text, with y starting at c2 (the
         text labels the x axis). The column count and the text test read the
-        whole file, without the statement's reading options.
+        file as GLE does, under the statement's reading options
+        (:func:`gleplot.dataio.gle_data_layout`).
 
         The reading options ``ignore n``, ``comment c`` and ``numrows n``
         may appear anywhere after the file name; each named dataset records
@@ -5509,12 +5515,12 @@ class _Recognizer:
             )
 
         need_auto = not given or any(c is None for _n, c in given)
-        ncols = self._file_column_count(data_file) if need_auto else None
+        ncols = self._file_column_count(data_file, read_options) if need_auto else None
 
         # x column / first y column, as GLE's data_command assigns them: x is
         # the point index (c0) under 'nox', for a single-column file, and when
         # every value in the first column is text (it then labels the x axis).
-        if need_auto and self._first_column_is_labels(data_file):
+        if need_auto and self._first_column_is_labels(data_file, read_options):
             cx, cy_first = 0, 2
         elif nox or (ncols is not None and ncols <= 1):
             cx, cy_first = 0, 1
@@ -5977,7 +5983,9 @@ class _Recognizer:
 
         ``before`` holds the length of each list a derived let can read
         before the dataset was parsed. An offset series is noted under the
-        dataset it offsets, which is the one a derived let reads.
+        dataset it offsets, and a polar curve under the one it is computed
+        from: those are the names the writer gives the series, which a
+        derived let or a raw line that reads it is bound to.
         """
         grown = [attr for attr, size in before.items() if len(info[attr]) != size]
         if len(grown) != 1 or len(info[grown[0]]) != before[grown[0]] + 1:
@@ -5985,8 +5993,23 @@ class _Recognizer:
         entry = info[grown[0]][-1]
         if grown[0] == "file_series" and entry.get("series_type") != "line":
             return
-        raw = info["_offset_let_sources"].get(name.lower(), name.lower())
+        name = info["_polar_aliases"].get(name.lower(), name.lower())
+        raw = info["_offset_let_sources"].get(name, name)
         info["_dataset_series"][raw] = entry
+
+    @staticmethod
+    def _bind_raw_readers(info) -> None:
+        """Mark each series whose dataset a raw line in the block reads.
+
+        The series keeps its name here as ``_gle_name``, and the writer
+        renames the raw references to the name it writes the series under
+        (:meth:`gleplot.writer.GLEWriter._bind_raw_reads`). A name a raw
+        ``data`` or ``let`` defines is that raw dataset's, not the series'.
+        """
+        defined, read, _bare = GLEWriter.raw_dataset_use(info["passthrough"])
+        for name, entry in info["_dataset_series"].items():
+            if name in read - defined:
+                entry["_gle_name"] = name
 
     def _commit_derived_lets(self, info) -> None:
         """Turn the recorded derived lets into series, if every one can be.
@@ -6411,34 +6434,54 @@ class _Recognizer:
             j += 1
         return "".join(parts), j
 
-    def _file_column_count(self, data_file) -> Optional[int]:
-        """Number of columns in the resolved data file, or None if unresolved."""
-        resolved = self._resolve_table(data_file)
-        if resolved.error is not None or resolved.table is None:
-            return None
-        return resolved.table.n_cols
+    def _gle_layout(self, data_file, read_options=None) -> Optional[GLEDataLayout]:
+        """How GLE reads the file under ``read_options``, or None.
 
-    def _first_column_is_labels(self, data_file) -> bool:
-        """Whether every value in the file's first column is text.
-
-        GLE (``auto_all_labels_column``) then reads that column as x-axis
-        labels, not as x. A missing value (``None``) is not text.
+        None when the file is missing or unreadable, or when GLE would stop
+        on it (an unterminated string), which is noted.
         """
-        resolved = self._resolve_table(data_file)
-        table = resolved.table
-        if resolved.error is not None or table is None or not table.n_rows:
-            return False
-        if table.is_numeric[0]:
-            return False
-        for value in table.columns[0]:
-            if value is None:
-                return False
-            try:
-                float(value)
-            except ValueError:
-                continue
-            return False
-        return True
+        options = read_options or {}
+        comment = options.get("comment", "!")
+        ignore = options.get("skiprows", 0)
+        numrows = options.get("max_rows", 0)
+        key = (data_file, comment, ignore, numrows)
+        if key not in self._layout_cache:
+            resolved = self._resolve_table(data_file)
+            layout = None
+            if resolved.exists and resolved.resolved_path is not None:
+                try:
+                    layout = gle_data_layout(
+                        resolved.resolved_path,
+                        comment=comment,
+                        ignore=ignore,
+                        numrows=numrows,
+                    )
+                except OSError:
+                    layout = None
+                except ValueError as exc:
+                    self._note(
+                        ImportCategory.DATA,
+                        f"GLE cannot read '{data_file}' ({exc}); its columns "
+                        "are not mapped from the file",
+                        None,
+                    )
+                    layout = None
+            self._layout_cache[key] = layout
+        return self._layout_cache[key]
+
+    def _file_column_count(self, data_file, read_options=None) -> Optional[int]:
+        """Columns GLE reads from the file, or None if it cannot read it."""
+        layout = self._gle_layout(data_file, read_options)
+        return None if layout is None else layout.n_cols
+
+    def _first_column_is_labels(self, data_file, read_options=None) -> bool:
+        """Whether GLE reads the file's first column as x-axis labels.
+
+        GLE (``auto_all_labels_column``) does so when every value in it
+        below the header is text; ``nan`` and ``inf`` are text to GLE.
+        """
+        layout = self._gle_layout(data_file, read_options)
+        return layout is not None and layout.labels_column
 
     # -- bar / fill ------------------------------------------------------
 

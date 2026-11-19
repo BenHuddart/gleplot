@@ -69,6 +69,20 @@ class TestAxisProperties:
         self.ax.set_ylim(4, ymin=None)
         assert self.ax.ymin == 4
 
+    def test_axis_limits_store_numpy_scalars_as_python_numbers(self):
+        self.ax.set_xlim(np.int64(1), np.array(2.5))
+        assert self.ax.get_xlim() == (1, 2.5)
+        assert [type(v) for v in self.ax.get_xlim()] == [int, float]
+        with pytest.raises(ValueError, match=r"set_xlim\(xmax=nan\)"):
+            self.ax.set_xlim(xmax=np.float64("nan"))
+
+    def test_axis_limits_return_the_new_limits(self):
+        """As matplotlib: (low, high), with None for an automatic limit."""
+        assert self.ax.set_xlim(1, 2) == (1, 2)
+        assert self.ax.set_xlim(right=None) == (1, None)
+        assert self.ax.set_ylim(top=5, axis="y2") == (None, 5)
+        assert self.ax.twiny().set_xlim(3, 4) == (3, 4)
+
     def test_axis_limits_reject_a_limit_and_its_alias(self):
         with pytest.raises(TypeError, match=r"'left' \(0\) and 'xmin' \(1\)"):
             self.ax.set_xlim(0, xmin=1)
@@ -76,6 +90,25 @@ class TestAxisProperties:
             self.ax.set_ylim(top=1, ymax=2)
         with pytest.raises(ValueError, match="two entries"):
             self.ax.set_xlim((0, 1, 2))
+
+    @pytest.mark.parametrize(
+        "call, error",
+        [
+            (lambda ax: ax.set_xlim(0, 1, "y"), ValueError),
+            (lambda ax: ax.set_ylim(0, 1, "x2"), ValueError),
+            (lambda ax: ax.set_xlim(0, float("nan")), ValueError),
+            (lambda ax: ax.set_ylim(bottom=float("inf")), ValueError),
+            (lambda ax: ax.set_xlim("0", 1), TypeError),
+            (lambda ax: ax.set_xlim("05"), TypeError),
+            (lambda ax: ax.set_xlim(True, 2), TypeError),
+            (lambda ax: ax.set_xlim(np.array([1.0]), 2), TypeError),
+        ],
+    )
+    def test_axis_limits_reject_a_bad_axis_or_limit(self, call, error):
+        with pytest.raises(error, match=r"set_[xy]lim\("):
+            call(self.ax)
+        assert self.ax.get_xlim() == (None, None)
+        assert self.ax.get_ylim() == (None, None)
 
     def test_axis_limits_warn_on_emit_and_auto(self):
         with pytest.warns(UserWarning, match="ignores unsupported keyword.*auto"):

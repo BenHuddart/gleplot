@@ -228,3 +228,20 @@ def test_page_drawings_after_a_polar_axes_round_trip(tmp_path):
     assert second == first
     assert recognized.figure.axes_list[0]._polar
     assert recognized.warnings == []
+
+
+def test_a_raw_line_reading_a_polar_curve_is_not_bound_to_its_source(tmp_path):
+    """#310: the writer names the source, not the curve the raw line reads."""
+    fig = glp.figure(data_prefix="pr")
+    ax = fig.add_subplot(projection="polar")
+    ax.plot([0, 1, 2], [1, 2, 1.5], color="red")
+    ax.set_ylim(0, 2.5)
+    path = tmp_path / "polar.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text().replace(
+        "end graph", "   fill d2,x1 color gray foo\nend graph", 1
+    )
+    recognized = _recognize(path, text)
+    out, _files = recognized.figure._generate_gle_with_files()
+    assert "    let d2 = d1*cos(x),d1*sin(x)" in out
+    assert "   fill d2,x1 color gray foo" in out
