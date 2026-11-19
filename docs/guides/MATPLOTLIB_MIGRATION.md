@@ -244,7 +244,9 @@ one: `'solid'`, `'dashed'`, `'dotted'` or `'dashdot'`. `'none'` (or `''`,
 `' '`, `'None'`) draws no line. GLE has no custom dash patterns, so a dash
 tuple such as `(0, (5, 2))` warns and is drawn solid, and so does a value
 that is not a line style. This holds for `plot` and the calls above, for
-`line_from_file`, and for `hist(histtype='step')`.
+`line_from_file`, `hist(histtype='step')`, and the single `linestyles` of
+`contour` and `tricontour`. A `(offset, None)` tuple is matplotlib's solid
+line and is drawn solid without a warning.
 
 ## Marker spacing, thinning and clipping
 

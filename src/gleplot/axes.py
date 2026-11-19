@@ -1364,7 +1364,10 @@ def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
                 warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
         resolved.append(value)
     warn_unsupported_keywords(name, kwargs)
-    return resolved[0], resolved[1]
+    styles = resolved[1]
+    if isinstance(styles, str) or _is_dash_pattern(styles):
+        styles = _line_style(name, styles)
+    return resolved[0], styles
 
 
 _MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
@@ -1644,6 +1647,8 @@ def _line_style(caller: str, linestyle):
             return linestyle
         if linestyle in _NAMED_LINESTYLES:
             return _NAMED_LINESTYLES[linestyle]
+    if _is_dash_pattern(linestyle) and linestyle[1] is None:
+        return "-"  # matplotlib's (offset, None) is a solid line
     if _is_dash_pattern(linestyle):
         warn_external(
             f"{caller}() linestyle {linestyle!r} is a dash pattern GLE cannot "
@@ -3129,8 +3134,8 @@ class Axes:
         labels = self._per_histogram(label, len(finite_sets), broadcast_str=False)
         edges = self._per_histogram(edgecolor, len(finite_sets), broadcast_str=True)
         alphas = self._per_histogram(alpha, len(finite_sets), broadcast_str=True)
-        if _is_dash_pattern(linestyle):
-            # One dash tuple, not one style per sample set.
+        if isinstance(linestyle, str) or _is_dash_pattern(linestyle):
+            # One style for every sample set; a dash tuple is not a sequence.
             linestyle = _line_style("hist", linestyle)
         linestyles = self._per_histogram(
             linestyle, len(finite_sets), broadcast_str=True
@@ -7801,7 +7806,9 @@ class Axes:
         linewidths : float
             Line width (matplotlib points).
         linestyles : str
-            Line style ('-', '--', ':', '-.').
+            Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'`` or matplotlib's
+            name for one (``'dashed'``, ...). A dash tuple or any other
+            value warns and is drawn solid.
         clabel : bool
             Draw inline contour labels from the generated ``-clabels.dat``.
         clabel_fmt : str

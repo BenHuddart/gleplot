@@ -147,6 +147,36 @@ def test_a_style_gle_cannot_draw_warns_and_is_solid(call, linestyle, match):
     assert _lstyles(_gle(fig)) == []
 
 
+def test_an_offset_with_no_dashes_is_a_silent_solid_line(recwarn):
+    ax = glp.figure().add_subplot(111)
+    ax.plot(X, Y, linestyle=(0, None))
+    assert _lstyles(_gle(ax.figure)) == []
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+def test_hist_warns_once_for_every_sample_set():
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning) as record:
+        ax.hist([[1.0, 2.0, 3.0], [1.0, 1.0, 2.0]], histtype="step", linestyle="wavy")
+    assert sum("not a line style" in str(w.message) for w in record) == 1
+
+
+@pytest.mark.parametrize("call", ["contour", "tricontour"])
+def test_contour_line_style_names_draw_their_style(call):
+    fig = glp.figure(data_prefix="lsc")
+    ax = fig.add_subplot(111)
+    if call == "contour":
+        ax.contour([[0.0, 1.0], [1.0, 2.0]], linestyles="dashed")
+    else:
+        ax.tricontour(
+            [0.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            [0, 1, 1, 2],
+            linestyles="dotted",
+        )
+    assert _lstyles(_gle(fig)) == ([3] if call == "contour" else [2])
+
+
 @pytest.mark.parametrize("linestyle,expected", [("dashed", 3), ("wavy", 1)])
 def test_a_reference_line_on_an_empty_axes_is_drawn(linestyle, expected, recwarn):
     # On an empty axes a reference line is a guide sub call, which draws
