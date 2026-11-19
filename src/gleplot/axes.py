@@ -5947,7 +5947,7 @@ class Axes:
         Parameters
         ----------
         x : float
-            Position of the line, in data coordinates.
+            Position of the line, in data coordinates; a finite number.
         ymin, ymax : float
             Vertical extent as a fraction of the axes height (matplotlib
             semantics): ``0`` is the bottom of the axes, ``1`` the top.
@@ -6014,6 +6014,8 @@ class Axes:
         """Shared implementation of :meth:`axvline` / :meth:`axhline`."""
         caller = "axvline" if orient == "v" else "axhline"
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
+        axis_name = "x" if orient == "v" else "y"
+        position = _finite_float(value, f"{caller}({axis_name}=...)")
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
         linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
@@ -6030,7 +6032,7 @@ class Axes:
         entry = RefLine(
             type="refline",
             orient=orient,
-            value=float(value),
+            value=position,
             span_lo=lo,
             span_hi=hi,
             color=gle_color,
@@ -6116,6 +6118,9 @@ class Axes:
         """Shared implementation of :meth:`axvspan` / :meth:`axhspan`."""
         caller = "axvspan" if orient == "v" else "axhspan"
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
+        edge = "x" if orient == "v" else "y"
+        start = _finite_float(start, f"{caller}({edge}min=...)")
+        end = _finite_float(end, f"{caller}({edge}max=...)")
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
         face = _pop_line_alias(
@@ -6135,8 +6140,8 @@ class Axes:
         entry = Span(
             type="span",
             orient=orient,
-            start=float(start),
-            end=float(end),
+            start=start,
+            end=end,
             span_lo=lo,
             span_hi=hi,
             color=gle_color,

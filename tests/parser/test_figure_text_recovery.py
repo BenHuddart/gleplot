@@ -60,6 +60,17 @@ def test_figure_legend_comes_back_with_its_axes_keys(tmp_path):
     assert got.passthrough_trailer == []
 
 
+def test_legends_listing_histogram_and_function_curves_come_back(tmp_path):
+    """#236: the axes and figure ``begin key`` blocks are read, not kept raw."""
+    fig = golden.legend_curves()
+    recognized = _recognize(fig, tmp_path)
+    got = recognized.figure
+    assert got._legend == fig._legend
+    assert got.axes_list[0].legend_labelcolor == "BLUE"
+    assert got.passthrough_trailer == []
+    assert not recognized.warnings
+
+
 def test_figure_legend_options_come_back(tmp_path):
     fig = golden.figure_legend_options()
     got = _recognize(fig, tmp_path).figure

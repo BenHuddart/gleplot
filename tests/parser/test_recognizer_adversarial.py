@@ -1990,6 +1990,28 @@ def test_finding16_blank_line_then_unrelated_content_stays_passthrough(tmp_path)
     assert rec.figure.passthrough_trailer == ["", "set color blue"]
 
 
+@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "gsave"])
+def test_a_comment_between_text_clusters_is_reported(tmp_path, wrapped):
+    """#220: the texts are still recovered; the comment they skip is noted."""
+    clusters = (
+        'amove xg(1) yg(1)\nwrite "a"\n! between texts\n'
+        'amove xg(2) yg(2)\nwrite "b"\n'
+    )
+    if wrapped:
+        clusters = "gsave\n" + clusters + "grestore\n"
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        "   size 10 8\n"
+        "   xaxis min 0 max 10\n"
+        "   yaxis min 0 max 10\n"
+        "end graph\n" + clusters
+    )
+    rec = parse_gle_figure(_write(tmp_path, "comment.gle", src))
+    assert [t["text"] for t in rec.figure.axes_list[0].texts] == ["a", "b"]
+    assert any("comment among the text" in w for w in rec.warnings)
+
+
 def test_finding16_resave_is_byte_exact_fixed_point(tmp_path):
     """Parse -> save -> parse -> save must be a fixed point once the blank-
     line-separated clusters are recognized (the recovered figure has no
