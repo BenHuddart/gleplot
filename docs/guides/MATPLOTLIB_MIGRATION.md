@@ -25,6 +25,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
 | `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` (`'x'`/`'x2'`, `'y'`/`'y2'`; another string raises). A dict there is taken as matplotlib's positional `fontdict` |
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
+| `ax.set_xlim(...)` / `ax.set_ylim(...)` | same, including `left`/`right`, `bottom`/`top`, a `(low, high)` pair and the `xmin`/`xmax`, `ymin`/`ymax` aliases; an omitted limit keeps its setting. A limit passed as `None` is automatic, chosen from the data when the figure is saved, where matplotlib keeps the current value. `emit=False` and `auto=True` warn. The third positional argument is gleplot's `axis` (`'x2'`, `'y2'`), and the call returns the axes, not the `(low, high)` limits |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
 | `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
@@ -444,7 +445,7 @@ ax.set_ylim(0, 2)
 | matplotlib | gleplot |
 |---|---|
 | `ax.plot(theta, r)`, `ax.scatter(theta, r)` | same. `yaxis`, `xaxis`, `offset`, `drawstyle`/`ds`/`line_mode` and the `xmin`/`xmax`/`ymin`/`ymax` data range raise `ValueError`. |
-| `ax.set_ylim(0, rmax)`, `ax.set_ylim(top=...)` | `ax.set_ylim(0, rmax)` or `ax.set_ylim(None, rmax)`. A lower limit other than 0 raises `ValueError`. Left unset, the outer ring is the largest radius in the data rounded up to a ring, or 1 when the axes has only function curves. |
+| `ax.set_ylim(0, rmax)`, `ax.set_ylim(top=...)` | same. A lower limit other than 0 raises `ValueError`. Left unset, the outer ring is the largest radius in the data rounded up to a ring, or 1 when the axes has only function curves. |
 | `ax.set_rmax`, `set_rticks`, `set_thetagrids`, `set_theta_zero_location`, `set_theta_direction`, `set_rlabel_position` | not available. Rings are evenly spaced, at most five; spokes and angle labels are every 45°, counter-clockwise from the right; ring labels lie along 22.5°. |
 | `ax.grid(True)` | does nothing: the polar grid is always drawn. `ax.grid(False)`, `ax.grid()` and grid styling warn and are ignored. `GLEGraphConfig(show_grid=True)` does not apply. |
 | `ax.bar`, `ax.fill`, `ax.errorbar`, `ax.text`, `ax.set_xlim`, `ax.set_xticks`, `ax.tick_params`, `ax.derived` and the other plotting and cartesian axis methods | raise `NotImplementedError` on a polar axes. |

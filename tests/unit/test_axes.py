@@ -42,6 +42,47 @@ class TestAxisProperties:
         assert self.ax.ymin == 0
         assert self.ax.ymax == 100
 
+    def test_axis_limits_take_matplotlib_keywords(self):
+        """left/right, bottom/top, a (lo, hi) pair, and xmin/xmax aliases."""
+        ax = self.ax
+        ax.set_xlim(left=1, right=9)
+        ax.set_xlim(right=5)  # an omitted limit is kept
+        assert ax.get_xlim() == (1, 5)
+        ax.set_xlim(xmax=None)  # None is still auto
+        assert (ax.xmin, ax.xmax) == (1, None)
+        ax.set_ylim((2, 8))
+        ax.set_ylim(bottom=0)
+        assert (ax.ymin, ax.ymax) == (0, 8)
+        ax.set_ylim(top=4, axis="y2")
+        ax.twinx().set_ylim(bottom=-1)
+        assert (ax.y2min, ax.y2max) == (-1, 4)
+        ax.twiny().set_xlim(left=3)
+        assert (ax.x2min, ax.x2max) == (3, None)
+        assert "xaxis min 1" in self.fig._generate_gle()
+
+    def test_axis_limits_follow_matplotlib_on_none(self):
+        """A pair with right=None unpacks; a None gives way to its alias."""
+        self.ax.set_xlim((2, 3), None)
+        assert self.ax.get_xlim() == (2, 3)
+        self.ax.set_xlim(left=None, xmin=1)
+        assert self.ax.get_xlim() == (1, 3)
+        self.ax.set_ylim(4, ymin=None)
+        assert self.ax.ymin == 4
+
+    def test_axis_limits_reject_a_limit_and_its_alias(self):
+        with pytest.raises(TypeError, match=r"'left' \(0\) and 'xmin' \(1\)"):
+            self.ax.set_xlim(0, xmin=1)
+        with pytest.raises(TypeError, match="'top' .* and 'ymax'"):
+            self.ax.set_ylim(top=1, ymax=2)
+        with pytest.raises(ValueError, match="two entries"):
+            self.ax.set_xlim((0, 1, 2))
+
+    def test_axis_limits_warn_on_emit_and_auto(self):
+        with pytest.warns(UserWarning, match="ignores unsupported keyword.*auto"):
+            self.ax.set_xlim(0, 1, auto=True)
+        with pytest.warns(UserWarning, match="emit"):
+            self.ax.set_ylim(0, 1, emit=False)
+
     def test_axis_scales(self):
         """Test setting axis scales."""
         self.ax.set_xscale("log")
