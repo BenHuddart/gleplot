@@ -3015,10 +3015,27 @@ def test_linewidth_none_means_the_default_width(draw):
     assert script(linewidth=None) == script()
 
 
-def test_line_from_file_rejects_a_linewidth_that_is_not_a_number():
+_LINE_WIDTH_CALLS = [
+    ("plot", lambda ax, **kw: ax.plot([0, 1], [0, 1], **kw)),
+    ("errorbar", lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw)),
+    ("line_from_file", lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, **kw)),
+    ("axhline", lambda ax, **kw: ax.axhline(0.5, **kw)),
+]
+
+
+@pytest.mark.parametrize("name, draw", _LINE_WIDTH_CALLS)
+def test_a_linewidth_that_is_not_a_number_raises(name, draw):
     ax = glp.figure().add_subplot(111)
-    with pytest.raises(TypeError, match=r"line_from_file\(\) linewidth .*'thick'"):
-        ax.line_from_file("f.dat", 1, 2, linewidth="thick")
+    with pytest.raises(TypeError, match=rf"{name}\(\) linewidth .*'thick'"):
+        draw(ax, linewidth="thick")
+
+
+@pytest.mark.parametrize("name, draw", _LINE_WIDTH_CALLS)
+@pytest.mark.parametrize("width", [float("nan"), float("inf"), -3])
+def test_a_non_finite_or_negative_linewidth_raises(name, draw, width):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=rf"{name}\(\) linewidth .*0 or more"):
+        draw(ax, linewidth=width)
 
 
 def _saved(fig, tmp_path):

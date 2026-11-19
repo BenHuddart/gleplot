@@ -712,6 +712,29 @@ def _finite_float(value: Any, what: str) -> float:
     return number
 
 
+def _line_width(caller: str, linewidth: Any) -> Any:
+    """A line's ``linewidth`` in points; ``None`` is matplotlib's default, 1.
+
+    Raises for a value that is not a number, not finite, or negative. A
+    valid value is returned as given, so the stored series is unchanged.
+    """
+    if linewidth is None:
+        return 1
+    try:
+        width = float(linewidth)
+    except (TypeError, ValueError):
+        raise TypeError(
+            f"{caller}() linewidth must be a number of points or None, "
+            f"got {linewidth!r}"
+        ) from None
+    if not np.isfinite(width) or width < 0:
+        raise ValueError(
+            f"{caller}() linewidth must be a finite number of points, 0 or "
+            f"more, got {linewidth!r}"
+        )
+    return linewidth
+
+
 def _count(value: Any, what: str) -> int:
     """``value`` as a positive whole number; ``what`` is ``"method(name"``."""
     number = _finite_float(value, f"{what}=...)")
@@ -2623,7 +2646,8 @@ class Axes:
         markersize : float
             Marker size (matplotlib convention, 1-100)
         linewidth : float or None
-            Line width in points; ``None`` means the default width.
+            Line width in points, finite and 0 or more; ``None`` means the
+            default width.
         label : str, optional
             Legend label
         yaxis : str, optional
@@ -2791,10 +2815,8 @@ class Axes:
             markersize, self.figure.marker_config.msize_scale
         )
 
-        # matplotlib reads None as the default width; 1 is the writer's
-        # "style default" (see GLEWriter.add_line).
-        if linewidth is None:
-            linewidth = 1
+        # 1 is the writer's "style default" (see GLEWriter.add_line).
+        linewidth = _line_width(caller, linewidth)
 
         plot_fields = dict(
             type=plot_type,
@@ -4003,7 +4025,8 @@ class Axes:
         markersize : float
             Marker size (matplotlib convention, 1-100)
         linewidth : float or None
-            Line width in points; ``None`` means the default width.
+            Line width in points, finite and 0 or more; ``None`` means the
+            default width.
         label : str, optional
             Legend label
         capsize : float, optional
@@ -4167,10 +4190,8 @@ class Axes:
                 xerr_left = err_arr
                 xerr_right = err_arr
 
-        # matplotlib reads None as the default width; 1 is the writer's
-        # "style default" (see GLEWriter.add_errorbar_series).
-        if linewidth is None:
-            linewidth = 1
+        # 1 is the writer's "style default" (see GLEWriter.add_errorbar_series).
+        linewidth = _line_width("errorbar", linewidth)
 
         errbar_data = ErrorbarSeries(
             type="errorbar",
@@ -4324,14 +4345,7 @@ class Axes:
                 "omits it, so the series is drawn without that mode.",
             )
             mode = None
-        width = 1.0 if linewidth is None else linewidth
-        try:
-            width = float(width)
-        except (TypeError, ValueError):
-            raise TypeError(
-                "line_from_file() linewidth must be a number of points or "
-                f"None, got {linewidth!r}"
-            ) from None
+        width = float(_line_width("line_from_file", linewidth))
 
         fields = dict(
             series_type="line",
@@ -5903,9 +5917,9 @@ class Axes:
         data_name = kwargs.pop("data_name", None)
         linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
         linestyle = _line_style(caller, linestyle)
-        linewidth = _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
-        if linewidth is None:
-            linewidth = 1
+        linewidth = _line_width(
+            caller, _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
+        )
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
