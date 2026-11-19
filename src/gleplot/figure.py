@@ -2530,8 +2530,9 @@ class Figure:
 
             When Cairo ends up active (auto or forced) and this figure's
             configured font (:attr:`style`'s ``font``) is not one of GLE's
-            Cairo-safe fonts, a :class:`UserWarning` is raised: GLE itself
-            substitutes a Cairo-safe font in that case (see
+            Cairo-safe fonts, a :class:`UserWarning` naming why Cairo is on
+            (the figure's semi-transparent colours, or ``cairo=True``) is
+            raised: GLE itself substitutes a Cairo-safe font in that case (see
             :mod:`gleplot.cairo_support`), and SPEC's "no silent drops" rule
             means that substitution must never happen without gleplot saying
             so.
@@ -2703,6 +2704,11 @@ class Figure:
                 )
 
             effective_cairo = self.requires_cairo() if cairo is None else cairo
+            why = (
+                "figure requires Cairo for its semi-transparent colours"
+                if cairo is None
+                else "cairo=True was requested"
+            )
             # GLE's Cairo device, which SVG always uses, draws nothing for
             # the 'postscript' command.
             if (effective_cairo or format.lower() == "svg") and any(
@@ -2714,8 +2720,7 @@ class Figure:
                 reason = (
                     "in SVG output"
                     if format.lower() == "svg"
-                    else "with GLE's Cairo device (cairo=True, or "
-                    "semi-transparent colours)"
+                    else f"with GLE's Cairo device ({why})"
                 )
                 warn_external(
                     f"image(...) EPS files are not drawn {reason}; convert the "
@@ -2742,10 +2747,7 @@ class Figure:
                 for font in dict.fromkeys([self.style.font, *title_fonts]):
                     warning = cairo_font_warning(font)
                     if warning:
-                        warn_external(
-                            f"{warning} (figure requires Cairo for its "
-                            "semi-transparent colours).",
-                        )
+                        warn_external(f"{warning} ({why}).")
 
             output_dpi = dpi or self.dpi
             tex_cache = export_dir / ".gle"
