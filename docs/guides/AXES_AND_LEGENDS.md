@@ -56,6 +56,28 @@ replaced by the end of the data plotted so far: plot first, then invert.
 The one exception is a log axis, which GLE cannot invert; a descending log
 range is drawn the usual way round, with a `UserWarning`.
 
+## Aspect ratio
+
+`ax.set_aspect('equal')` gives a unit the same length on both axes, so a
+circle is drawn round; a number `a` makes a y unit `a` times as long as an x
+unit, and on a log axis a unit is a decade:
+
+```python
+import numpy as np
+import gleplot as glp
+
+t = np.linspace(0, 2 * np.pi, 200)
+fig, ax = glp.subplots(figsize=(6, 4))
+ax.plot(np.cos(t), np.sin(t))
+ax.set_aspect('equal')
+```
+
+When the figure is saved, the frame is shrunk about its centre to fit the
+ratio of the axis limits it is saved with. `ax.axis('equal')` only warns: use
+`set_aspect`. A figure opened again with `open_gle` keeps the shrunk frame
+but not the aspect, so changing its limits afterwards does not reshape the
+frame.
+
 ## Log scales
 
 ```python

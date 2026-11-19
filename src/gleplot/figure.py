@@ -277,6 +277,54 @@ def _grid_cells(ax: Axes) -> Tuple[int, int, Tuple[int, int], Tuple[int, int]]:
     return rows, cols, (rows_[0], rows_[1]), (cols_[0], cols_[1])
 
 
+def _aspect_rect(ax: Axes, rect: tuple) -> tuple:
+    """``rect`` shrunk about its centre to the ratio ``ax.aspect`` asks for.
+
+    Read after the limits are resolved. A y unit is ``aspect`` times an x
+    unit, and a unit on a log axis is a decade, as in matplotlib. Unchanged
+    for an 'auto' aspect, or (with a warning) for limits that do not give a
+    ratio.
+    """
+    if ax.aspect is None:
+        return rect
+    spans: List[float] = []
+    for lo, hi, scale in (
+        (ax.xmin, ax.xmax, ax.xscale),
+        (ax.ymin, ax.ymax, ax.yscale),
+    ):
+        span = math.nan
+        if lo is not None and hi is not None:
+            if scale != "log":
+                span = abs(hi - lo)
+            elif lo > 0 and hi > 0:
+                span = abs(math.log10(hi) - math.log10(lo))
+        spans.append(span)
+    x_span, y_span = spans
+    if not all(math.isfinite(v) and v > 0 for v in spans):
+        warn_external(
+            "set_aspect() was skipped: the axes has no x and y range to "
+            "measure units by. Plot data or set the limits with set_xlim "
+            "and set_ylim."
+        )
+        return rect
+    x, y, w, h = rect
+    ratio = ax.aspect * y_span / x_span  # frame height over width
+    if h > w * ratio:
+        new_w, new_h = w, w * ratio
+    else:
+        new_w, new_h = h / ratio, h
+    return (x + (w - new_w) / 2, y + (h - new_h) / 2, new_w, new_h)
+
+
+def _warn_aspect_without_rect(ax: Axes, reason: str) -> None:
+    """Warn that ``ax``'s aspect is not applied, because ``reason``."""
+    if ax.aspect is not None:
+        warn_external(
+            f"set_aspect() has no effect on this axes: {reason}, so gleplot "
+            "has no frame rectangle to resize."
+        )
+
+
 def _make_polar(ax: Axes) -> None:
     """Turn a new axes into a polar one."""
     # The polar grid and its labels replace the frame and ticks.
@@ -2709,6 +2757,7 @@ class Figure:
                     # Unmodelled GLE geometry recovered from a parsed file:
                     # re-emitted verbatim, and any amove it had is preserved in
                     # passthrough_header, so nothing is fabricated in front.
+                    _warn_aspect_without_rect(ax, "its geometry is raw GLE")
                     writer.begin_graph()
                     writer.add_graph_geometry_passthrough(ax.geometry_passthrough)
                 elif self.graph.scale_mode == "fullsize" and ax.position is not None:
@@ -2716,10 +2765,13 @@ class Figure:
                     # GLE fits the graph (labels included) to the whole page.
                     # There is no rect to emit, so no amove either. An inset
                     # keeps the rect it was given.
+                    _warn_aspect_without_rect(ax, "scale_mode is 'fullsize'")
                     writer.begin_graph()
                     writer.add_graph_size()
                 else:
-                    rect = ax.placement if ax.placement is not None else rects[0]
+                    rect = _aspect_rect(
+                        ax, ax.placement if ax.placement is not None else rects[0]
+                    )
                     writer.add_amove(rect[0], rect[1])
                     writer.begin_graph()
                     writer.add_graph_size(
@@ -2778,9 +2830,15 @@ class Figure:
                 # from GLE carries the rect recovered from its own
                 # amove/size/scale-1-1 triple, which is what makes a
                 # subplots_adjust layout survive the round trip.
-                x_pos, y_pos, graph_w, cell_h = (
-                    ax.placement if ax.placement is not None else rect
-                )
+                if ax.geometry_passthrough:
+                    _warn_aspect_without_rect(ax, "its geometry is raw GLE")
+                    x_pos, y_pos, graph_w, cell_h = (
+                        ax.placement if ax.placement is not None else rect
+                    )
+                else:
+                    x_pos, y_pos, graph_w, cell_h = _aspect_rect(
+                        ax, ax.placement if ax.placement is not None else rect
+                    )
 
                 self._emit_pre_graph_blocks(writer, ax, resolution)
                 writer.add_amove(x_pos, y_pos)

@@ -506,6 +506,17 @@ def inset_alone():
     return fig
 
 
+def aspect_ratios():
+    """An equal-aspect panel beside a log panel with a numeric aspect."""
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    left.plot([-1, 0, 1, 0, -1], [0, 1, 0, -1, 0])
+    left.set_aspect("equal")
+    right.plot([1, 2, 3], [1, 10, 100])
+    right.set_yscale("log")
+    right.set_aspect(0.5)
+    return fig
+
+
 def file_series():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1640,6 +1651,7 @@ BUILDERS = [
     inset_axes,
     insets_off_panel,
     inset_alone,
+    aspect_ratios,
     file_series,
     file_series_field_options,
     file_series_read_options,

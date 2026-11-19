@@ -68,6 +68,8 @@ def normalize(d: dict) -> dict:
         axes and the recognizer reads it back, so a scripted figure's
         ``None`` ("layout decides") legitimately becomes the rect the layout
         decided on.
+      * aspect: dropped. ``set_aspect`` is resolved into that rect and is
+        not recovered.
       * _draw_seq: dropped. The writer emits all line series before all
         marker series (ASYMMETRY docs / writer emission order), so the
         caller's interleave across kinds is not representable in the .gle;
@@ -217,6 +219,9 @@ def normalize(d: dict) -> dict:
         # rect IS the surviving form of that information). That the rect
         # itself round-trips is asserted by tests/parser/test_graph_geometry.
         ax.pop("placement", None)
+        # set_aspect is resolved into that rect too, and is not recovered
+        # (agreed for #85): the rect is its surviving form.
+        ax.pop("aspect", None)
 
         # axis limits snap to emitted precision.
         for lim in ("xmin", "xmax", "ymin", "ymax", "y2min", "y2max", "x2min", "x2max"):
@@ -1107,6 +1112,21 @@ def test_metadata_inset_without_a_frame_stays_in_the_grid(tmp_path):
     assert any("graph 3 is listed as an inset" in w for w in rec.warnings)
     assert any("insets [7]" in w for w in rec.warnings)
     rec.figure.savefig_gle(str(tmp_path / "again.gle"))
+
+
+def test_aspect_comes_back_as_its_frame_not_as_a_constraint(tmp_path):
+    """A reloaded figure keeps the resized frame but forgets set_aspect."""
+    _gleplot_axes._global_data_file_counter = 0
+    gle_path = tmp_path / "aspect.gle"
+    golden.aspect_ratios().savefig_gle(str(gle_path))
+    rec = parse_gle_figure(gle_path)
+    # The shrunk frames no longer share corners, but keep their cells' centres.
+    assert [ax.position for ax in rec.figure.axes_list] == [(1, 2, 1), (1, 2, 2)]
+    assert not any(w.startswith("layout:") for w in rec.warnings)
+    left = rec.figure.axes_list[0]
+    assert left.get_aspect() == "auto"
+    assert left.placement is not None
+    assert left.placement[2] == pytest.approx(left.placement[3], rel=1e-4)
 
 
 def test_graphs_that_do_not_tile_a_grid_fall_back(tmp_path):

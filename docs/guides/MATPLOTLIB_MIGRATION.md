@@ -28,7 +28,8 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.invert_xaxis()` / `ax.invert_yaxis()` | same; automatic limits are fixed to the data plotted so far, so plot first. On a `twinx()`/`twiny()` view, set the limits first |
 | `ax.semilogx(...)` / `semilogy` / `loglog` | same; `base` other than 10, `subs` and `nonpositive` warn |
 | `ax.set_xticklabels(labels)` / `set_yticklabels` | same, after `set_xticks(ticks)`; `minor=True` and text properties warn |
-| `ax.axis('off')` / `ax.set_axis_off()` | same, but the axis labels stay (with a warning); `'equal'`, `'scaled'`, `'image'`, `'square'` and `emit=False` warn |
+| `ax.axis('off')` / `ax.set_axis_off()` | same, but the axis labels stay (with a warning); `'equal'`, `'scaled'`, `'image'`, `'square'` and `emit=False` warn, use `set_aspect` |
+| `ax.set_aspect(...)` / `ax.get_aspect()` | same, resizing the box about its centre; `adjustable='datalim'`, an `anchor` other than `'C'` and `share=True` warn, see [Axes and Legends](AXES_AND_LEGENDS.md) |
 | `plt.savefig(...)` | `fig.savefig(...)` or `glp.savefig(...)` |
 
 ## Minimal Porting Example

@@ -536,6 +536,8 @@ _AXES_SERIALIZED_ATTRS = {
     # geometry statements kept for GLE geometry that inverts to no rect.
     "placement",
     "geometry_passthrough",
+    # set_aspect; written only when set.
+    "aspect",
     "xdticks",
     "ydticks",
     "xdsubticks",
