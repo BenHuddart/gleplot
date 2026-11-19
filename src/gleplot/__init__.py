@@ -1,9 +1,8 @@
 """
-gleplot - Matplotlib-like plotting library for GLE
+gleplot - write standard GLE from Python, with matplotlib-shaped names
 
-A Python library for creating scientific plots using matplotlib-like syntax
-that compiles directly to GLE (Graphics Layout Engine) format for publication-
-quality vector graphics.
+A Python library that writes GLE (Graphics Layout Engine) scripts for
+publication-quality vector graphics, through matplotlib-shaped calls.
 
 Features
 --------
@@ -54,6 +53,8 @@ figure(figsize=(8, 6), dpi=100)
 
 __version__ = "5.6.3"
 __author__ = "gleplot contributors"
+
+import numpy as np
 
 from . import _warn
 from .axes import Axes, validate_tick_format
@@ -422,6 +423,8 @@ def subplots(
     data_prefix=None,
     height_ratios=None,
     width_ratios=None,
+    *,
+    squeeze: bool = True,
     **kwargs,
 ):
     """
@@ -469,19 +472,24 @@ def subplots(
         Relative width of each of the ``ncols`` subplot columns. Same
         semantics as ``height_ratios``, for columns; must have length
         ``ncols`` if given.
+    squeeze : bool, default: True
+        As in matplotlib: if True, drop the extra dimensions of the returned
+        array, so a single subplot comes back as an :class:`Axes` and a
+        single row or column as a 1-D array. If False, always return a 2-D
+        array, even for a 1x1 grid.
     **kwargs
         ``gridspec_kw``'s ``height_ratios`` and ``width_ratios`` are taken as
         the keywords of those names. Any other matplotlib keyword
-        (``subplot_kw``, ``squeeze``, the rest of ``gridspec_kw``, ...)
-        warns and is ignored.
+        (``subplot_kw``, the rest of ``gridspec_kw``, ...) warns and is
+        ignored.
 
     Returns
     -------
     fig : Figure
         The figure object.
-    axes : Axes or list of Axes
-        A single Axes if nrows*ncols == 1, otherwise a list of Axes
-        arranged in row-major order.
+    axes : Axes or numpy.ndarray of Axes
+        The subplots in a ``(nrows, ncols)`` object array, indexed
+        ``axes[row, col]``, squeezed as described for ``squeeze``.
 
     Examples
     --------
@@ -493,10 +501,10 @@ def subplots(
     2x2 grid:
 
     >>> fig, axes = glp.subplots(2, 2, figsize=(12, 10))
-    >>> axes[0].plot(x, y1)   # top-left
-    >>> axes[1].scatter(x, y2)  # top-right
-    >>> axes[2].bar(x, y3)      # bottom-left
-    >>> axes[3].plot(x, y4)     # bottom-right
+    >>> axes[0, 0].plot(x, y1)     # top-left
+    >>> axes[0, 1].scatter(x, y2)  # top-right
+    >>> axes[1, 0].bar(x, y3)      # bottom-left
+    >>> axes[1, 1].plot(x, y4)     # bottom-right
 
     Shared x-axis (stacked plots):
 
@@ -528,6 +536,12 @@ def subplots(
     _warn.warn_unsupported_keywords("subplots", kwargs)
     global _current_figure
 
+    for name, value in (("nrows", nrows), ("ncols", ncols)):
+        if not isinstance(value, (int, np.integer)):
+            raise TypeError(f"subplots({name}={value!r}): expected a positive int")
+        if value < 1:
+            raise ValueError(f"subplots({name}={value!r}): expected a positive int")
+
     if figsize is None:
         figsize = (max(6, 6 * ncols), max(4, 4 * nrows))
 
@@ -545,14 +559,13 @@ def subplots(
     )
     _current_figure = fig
 
-    axes_list = []
-    for idx in range(1, nrows * ncols + 1):
-        ax = fig.add_subplot(nrows, ncols, idx)
-        axes_list.append(ax)
+    axes = np.empty((nrows, ncols), dtype=object)
+    for idx in range(nrows * ncols):
+        axes.flat[idx] = fig.add_subplot(nrows, ncols, idx + 1)
 
-    if len(axes_list) == 1:
-        return fig, axes_list[0]
-    return fig, axes_list
+    if squeeze:
+        return fig, axes.item() if axes.size == 1 else axes.squeeze()
+    return fig, axes
 
 
 def xlabel(label: str, fontdict=None, labelpad=None, *, loc=None, **kwargs):

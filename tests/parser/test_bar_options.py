@@ -36,9 +36,21 @@ _TWO_DAT = "1 5\n2 3\n"
 _ONE_DAT = "1 5\n"
 
 
-def _write(tmp_path, name, body, dats):
+def _write(tmp_path, name, body, dats, imported=True):
+    """Write ``body`` and its data files; ``imported`` names them gleplot's own.
+
+    The recognizer loads, and so models, only a bar on a file gleplot wrote
+    (one the metadata's import list names). A bar on a file of the user's
+    own is a file reference or stays raw, so that file is never rewritten.
+    """
     for dat_name, dat_content in dats.items():
         (tmp_path / dat_name).write_text(dat_content, encoding="utf-8")
+    if imported:
+        body = (
+            "! gleplot-meta-begin v2\n"
+            f"! gleplot: import-data = {', '.join(dats)}\n"
+            "! gleplot-meta-end\n" + body
+        )
     p = tmp_path / name
     p.write_text(body, encoding="utf-8")
     return p
@@ -239,16 +251,78 @@ def test_a_width_gleplot_cannot_evaluate_degrades_rather_than_vanishing(tmp_path
 
 def test_a_width_on_an_unresolved_dataset_degrades_too(tmp_path):
     """``FileSeries`` has no width, so the reference form would drop it."""
-    p = tmp_path / "x.gle"
-    p.write_text(
-        _script("bar d1 fill red width 0.3", dat="missing.dat"), encoding="utf-8"
+    p = _write(
+        tmp_path,
+        "x.gle",
+        _script("bar d1 fill red width 0.3", dat="missing.dat"),
+        {"missing.dat": ""},
     )
+    (tmp_path / "missing.dat").unlink()
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
 
     assert ax.bars == [] and ax.file_series == []
     assert "   bar d1 fill red width 0.3" in ax.passthrough
     assert any("width" in n.message for n in rec.notes)
+
+
+_USER_DAT = "! the author's own file\n1 5 2\n2 3 4\n"
+
+
+def test_a_plain_bar_on_a_users_file_is_a_reference(tmp_path, monkeypatch):
+    """The file is read in place, so saving never rewrites it (#276)."""
+    monkeypatch.chdir(tmp_path)
+    p = _write(
+        tmp_path,
+        "u.gle",
+        _script("bar d1 fill red", dat="u.dat"),
+        {"u.dat": _USER_DAT},
+        imported=False,
+    )
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == []
+    (ref,) = ax.file_series
+    assert (ref["series_type"], ref["data_file"], ref["color"]) == (
+        "bar",
+        "u.dat",
+        "red",
+    )
+    assert "data_error" not in ref
+
+    rec.figure.savefig_gle("u.gle")
+    assert (tmp_path / "u.dat").read_text(encoding="utf-8") == _USER_DAT
+    assert "    bar d1 fill red" in Path("u.gle").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '   data "u.dat" d1=c1,c2\n   bar d1 fill red width 0.3\n',
+        '   data "u.dat" d1=c1,c2 d2=c1,c3\n   bar d1,d2 fill red,blue\n',
+        '   data "u.dat"\n   bar d1 fill gray20\n   bar d2 from d1 fill white\n',
+    ],
+    ids=["width", "group", "stack"],
+)
+def test_a_bar_a_reference_cannot_carry_on_a_users_file_stays_raw(
+    tmp_path, monkeypatch, body
+):
+    """Written back exactly, with a note, and the file is not rewritten."""
+    monkeypatch.chdir(tmp_path)
+    script = "size 8 6\nbegin graph\n" + body + "end graph\n"
+    p = _write(tmp_path, "u.gle", script, {"u.dat": _USER_DAT}, imported=False)
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+
+    assert ax.bars == [] and ax.file_series == []
+    assert ax.passthrough == body.rstrip("\n").split("\n")
+    assert any(
+        n.category is ImportCategory.STRUCTURE and "'u.dat'" in n.message
+        for n in rec.notes
+    )
+    rec.figure.savefig_gle("u.gle")
+    assert (tmp_path / "u.dat").read_text(encoding="utf-8") == _USER_DAT
+    assert body in Path("u.gle").read_text(encoding="utf-8")
 
 
 def test_a_stacked_bar_is_a_baseline(tmp_path, monkeypatch):
@@ -321,6 +395,41 @@ def test_a_grouped_bar_shares_one_command(tmp_path, monkeypatch):
     assert "width 0.3" in text
     glp.open_gle("out.gle").savefig_gle("again.gle")
     assert Path("again.gle").read_text(encoding="utf-8") == text
+
+
+def test_a_missing_grouped_bar_stays_missing(tmp_path, monkeypatch):
+    """A ``*`` row comes back as ``*``, never as a ``nan`` GLE draws (#317)."""
+    monkeypatch.chdir(tmp_path)
+    body = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "g.dat" d1=c1,c2 d2=c1,c3\n'
+        "   bar d1,d2 fill green,blue\n"
+        "end graph\n"
+    )
+    _write(tmp_path, "g.gle", body, {"g.dat": "1 5 6\n2 * 4\n3 3 *\n"})
+    rec = parse_gle_figure("g.gle")
+    assert rec.figure.axes_list[0].bars[0]["group"] is not None
+    rec.figure.savefig_gle("out.gle")
+    rows = Path("g.dat").read_text(encoding="utf-8").splitlines()
+    assert rows[1:] == ["1 5 6", "2 * 4", "3 3 *"]
+
+
+def test_a_stack_missing_on_one_side_only_stays_raw(tmp_path):
+    """GLE refuses it, and modelled it would lose the value that is there."""
+    body = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "s.dat" d1=c1,c2 d2=c1,c3\n'
+        "   bar d2 from d1 fill red\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "s.gle", body, {"s.dat": "1 1 5\n2 * 4\n3 2 6\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == []
+    assert "   bar d2 from d1 fill red" in ax.passthrough
+    assert any("kept as raw GLE" in note.message for note in rec.notes)
 
 
 def test_a_from_list_of_the_wrong_length_stays_raw(tmp_path):

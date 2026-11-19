@@ -153,7 +153,13 @@ for rendering, applied by the test-side ``normalize()`` helper)
     per-axes rather than as the config field (the config is a writer default,
     not per-axes state); the emitted GLE is identical either way.
 
-14. **Bar groups and stacks are series; a fill that shares their file is not.**
+14. **Bar groups and stacks on gleplot's own file are series; a fill that
+    shares their file is not.** A bar or fill on a file gleplot did not
+    write (one the metadata's import list does not name) is never loaded,
+    so the file is never rewritten: a fill and a plain ``bar dN fill C``
+    become :class:`~gleplot.series.FileSeries` references, and any other
+    ``bar`` command on it (a ``width``, group, stack, pattern, ...) stays
+    raw with every bar on its ``data`` statement. On gleplot's own file,
     ``bar d1,d2 fill c1,c2`` is several :class:`~gleplot.series.BarSeries`
     that share a ``group`` id and are written back as one command.
     ``bar d2 from d1`` is one series whose baseline is ``d1``. A command
@@ -346,6 +352,7 @@ from ..writer import (
     NODES_MARKER,
     POLAR_GRID_LAYER,
     RUG_EDGES,
+    RUGS_INCLUDE,
     GLEWriter,
     KeyOptions,
     _format_data_filename,
@@ -413,6 +420,9 @@ _CDATA_LET_RE = re.compile(
 #: ``define marker gleplot_X gleplot_X`` (lower-cased): the line that makes a
 #: generated per-point-size sub a marker (``writer.mdata_sub_text``).
 _GLEPLOT_DEFINE_MARKER_RE = re.compile(r"^define\s+marker\s+(gleplot_\w+)\s+\1$")
+# The statement a contourf band sub starts with when it is also a colorbar's
+# palette (writer.GLEWriter.add_contourf_sub), lower-cased.
+_CONTOURF_RESCALE_RE = re.compile(r"^z = (\S+)\*\(1-z\)\+(\S+)\*z$")
 
 #: What :meth:`_Recognizer._try_one_text` returns for a polar axes' label
 #: call, which the axes regenerates; compared by identity.
@@ -677,7 +687,7 @@ def _bar_scan_is_plain(scanned: dict) -> bool:
     """A single dataset, a fill, and at most a width.
 
     That is the shape :class:`~gleplot.series.FileSeries` can still carry
-    when the file cannot be read, and the shape a histogram ``bar dK fill``
+    when the file is not loaded (with no width), and the shape a histogram ``bar dK fill``
     already owns. Anything else on an unreadable file stays raw.
     """
     fills = scanned["fills"]
@@ -727,31 +737,23 @@ class RecognizedFigure:
 # --------------------------------------------------------------------------- #
 
 
-#: The rug subs (:data:`gleplot.writer.RUG_SUB`) and the axis each draws on.
-_RUG_CALLS = {f"gleplot_{axis}rug": axis for axis in RUG_EDGES}
-
-
-def _is_rug_call(keyword: str, args: List[object]) -> bool:
-    """Whether ``args`` are a well-formed ``value len pos$ clr$ lw`` rug call."""
-    if keyword not in _RUG_CALLS or len(args) != 5:
-        return False
-    value, length, position, color, lwidth = args
-    return (
-        all(isinstance(v, (int, float)) for v in (value, length, lwidth))
-        and isinstance(color, str)
-        and position in RUG_EDGES[_RUG_CALLS[keyword]]
-    )
-
-
 def _words_and_values(stmt: Statement) -> List[Token]:
     """Tokens of a statement, dropping comments."""
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
 
 
-#: The guide subs gleplot 5 wrote. No longer written or read: a file that
-#: defines them keeps them as raw GLE, with the draw calls that use them.
-_LEGACY_GUIDE_SUBS = frozenset(
-    {"gleplot_hline", "gleplot_hspan", "gleplot_vline", "gleplot_vspan"}
+#: Subs earlier gleplot versions wrote that GLE's include library replaced.
+#: No longer written or read: a file that defines them keeps them as raw GLE,
+#: with the calls that use them.
+_LEGACY_SUBS = frozenset(
+    {
+        "gleplot_hline",
+        "gleplot_hspan",
+        "gleplot_vline",
+        "gleplot_vspan",
+        "gleplot_xrug",
+        "gleplot_yrug",
+    }
 )
 
 
@@ -1737,6 +1739,11 @@ class _Recognizer:
         self._key_after_graph: List[str] = []
         # The guides drawn after the graph being parsed, read before it.
         self._post_graph_guides: List[Series] = []
+        # The rug groups after it, by dataset, and the rugs read from their
+        # datasets (with the 'data' statement's text) awaiting their group.
+        self._post_graph_rugs: Dict[str, dict] = {}
+        self._ready_rugs: Dict[str, Tuple[Rug, str]] = {}
+        self._held_rugs_includes: List[str] = []
         # The figure legend (Figure.legend) recovered after the last graph,
         # as Figure._legend without its spacing, or None. Set before the
         # axes are assembled: it decides what their 'key off' meant.
@@ -1784,6 +1791,9 @@ class _Recognizer:
         # read while those subs are scanned.
         self._contourf_subs: Dict[str, str] = {}
         self._contourf_sub_spans: Dict[str, set] = {}
+        # gleplot_contourf<k> sub name -> the (zmin, zmax) its first statement
+        # maps the colormap's 0..1 back from, when it is a colorbar's palette.
+        self._contourf_rescales: Dict[str, Tuple[float, float]] = {}
         # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
         self._fitz_blocks: Dict[str, dict] = {}
         # contour ``.z`` file -> {levels}
@@ -1895,6 +1905,9 @@ class _Recognizer:
 
         # --- data-file naming state for byte-identical re-save. ---
         self._finalize_data_state(fig)
+        if not any(ax.rugs for ax in fig.axes_list):
+            # The writer writes rugs.gle's include only for a rug.
+            fig.passthrough_header.extend(self._held_rugs_includes)
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
 
@@ -1927,34 +1940,42 @@ class _Recognizer:
         # Guard: files using GLE programming constructs are not safe to edit.
         self._check_programmatic_constructs(doc.nodes)
 
-        # The graphutil.gle include is regenerated when a guide line drawn
-        # after a graph is read back; otherwise it stays as written.
-        self._gleplot_sub_lines |= self._graphutil_include_lines(doc.nodes)
+        # A gleinc include is regenerated when what calls it after a graph
+        # is read back; otherwise it stays as written.
+        self._gleplot_sub_lines |= self._regenerated_include_lines(doc.nodes)
 
-    def _graphutil_include_lines(self, nodes) -> Set[int]:
-        """Lines of ``include "graphutil.gle"`` the writer will write again.
+    def _regenerated_include_lines(self, nodes) -> Set[int]:
+        """Lines of the gleinc ``include``s the writer may write again.
 
-        That is every such line, when some graph is followed by a guide line
-        that will be read back and calls ``graph_hline``/``graph_vline``;
-        none otherwise.
+        ``graphutil.gle`` when some graph is followed by a guide line that
+        will be read back. ``rugs.gle`` always, its text held in
+        ``_held_rugs_includes`` until the rugs are read.
         """
-        draws = False
+        names: Set[str] = set()
         for k, node in enumerate(nodes):
-            if isinstance(node, GraphBlock):
-                guides, _end = self._scan_post_graph_guides(nodes, k + 1, notes=False)
-                draws = draws or any(
-                    g["type"] == "refline" and g["linestyle"] != "none" for g in guides
-                )
-        if not draws:
-            return set()
-        return {
-            node.line_no
-            for node in nodes
-            if isinstance(node, Statement)
-            and (node.keyword or "").lower() == "include"
-            and self._first_string(_words_and_values(node)) == GRAPHUTIL_INCLUDE
-            and len(_words_and_values(node)) == 2
-        }
+            if not isinstance(node, GraphBlock):
+                continue
+            guides, end = self._scan_post_graph_guides(nodes, k + 1, notes=False)
+            if any(g["type"] == "refline" and g["linestyle"] != "none" for g in guides):
+                names.add(GRAPHUTIL_INCLUDE)
+        # The writer writes rugs.gle's include exactly when the model has a
+        # rug, which is only known once the graphs are read: hold the lines
+        # back, and put them in the header again if no rug was read.
+        names.add(RUGS_INCLUDE)
+        lines = set()
+        for node in nodes:
+            if not (
+                isinstance(node, Statement)
+                and (node.keyword or "").lower() == "include"
+                and len(_words_and_values(node)) == 2
+            ):
+                continue
+            name = self._first_string(_words_and_values(node))
+            if name in names:
+                lines.add(node.line_no)
+            if name == RUGS_INCLUDE:
+                self._held_rugs_includes.append(self._stmt_text(node))
+        return lines
 
     def _read_metadata(self) -> Dict[str, Any]:
         """The metadata block, parsed from the whole file, tolerantly."""
@@ -2320,6 +2341,7 @@ class _Recognizer:
         everything consumed with it.
         """
         self._post_graph_guides, guides_end = self._scan_post_graph_guides(nodes, i + 1)
+        self._post_graph_rugs = self._scan_post_graph_rugs(nodes, guides_end)
         after = nodes[guides_end] if guides_end < len(nodes) else None
         self._key_after_graph = (
             [sl.text for sl in after.inner_lines]
@@ -2365,6 +2387,10 @@ class _Recognizer:
                 None,
             )
         texts = [t for t in texts if t is not _POLAR_LABELS]
+        # A rug whose call stayed raw needs the 'data' statement it reads.
+        for rug, raw in self._ready_rugs.values():
+            axes_info["passthrough"].append(raw)
+        self._ready_rugs = {}
         axes_info["texts"] = [t for t in texts if not isinstance(t, (Wedge, Box, Rug))]
         axes_info["wedges"] = [t for t in texts if isinstance(t, Wedge)]
         axes_info["boxes"] = [t for t in texts if isinstance(t, Box)]
@@ -2750,6 +2776,7 @@ class _Recognizer:
 
         pass1 = self._collect_datasets(block, info)
         self._claim_guide_bridges(block, info, pass1)
+        self._claim_rug_datasets(pass1)
         self._mark_bars_that_stay_raw(block, pass1.datasets, info)
 
         for child in block.body:
@@ -5543,7 +5570,9 @@ class _Recognizer:
             return
         if op not in ("+", "-"):
             return
-        if source not in datasets:
+        # A series on a file gleplot did not write is a FileSeries
+        # reference, which has no offset to carry the shift.
+        if source not in datasets or not self._is_import(datasets[source][0]):
             return
         magnitude = eval_gle_number(toks[5:])
         if magnitude is None:
@@ -6410,7 +6439,10 @@ class _Recognizer:
         line. An unmodelled sub-command, a ``from`` list that is not the
         same length as the datasets, or a group whose x columns disagree
         all do the same: modeling any bar on that file would rewrite the
-        sidecar and drop what the raw command reads.
+        sidecar and drop what the raw command reads. On a file gleplot did
+        not write, a bar a file reference cannot carry (anything but a plain
+        bar with no width) does the same, so a sibling reference does not
+        write a ``data`` statement that leaves the raw command's undefined.
         """
         seed = set()
         for child in block.body:
@@ -6447,7 +6479,17 @@ class _Recognizer:
                 and all(name in info["_hist_lets"] for name in scanned["datasets"])
             ):
                 continue
-            if _bar_scan_is_plain(scanned):
+            plain = _bar_scan_is_plain(scanned)
+            if any(
+                name in datasets and not self._is_import(datasets[name][0])
+                for name in names
+            ):
+                # A bar on a file of the caller's own is a FileSeries
+                # reference, which carries only a plain bar with no width.
+                if not plain or scanned["width"] is not None:
+                    seed.update(names)
+                continue
+            if plain:
                 continue
             loaded = []
             failed = False
@@ -6496,6 +6538,20 @@ class _Recognizer:
         return True
 
     @staticmethod
+    def _bar_gaps_match(loaded_to, loaded_from) -> bool:
+        """True when each ``from`` dataset is missing where its ``to`` is.
+
+        GLE refuses a stack whose two datasets disagree, and the writer
+        writes such a row missing in both, which would drop the other value.
+        """
+        for to_row, from_row in zip(loaded_to, loaded_from):
+            to_gaps = np.isnan(np.asarray(to_row["y"], dtype=float))
+            from_gaps = np.isnan(np.asarray(from_row["y"], dtype=float))
+            if not np.array_equal(to_gaps, from_gaps):
+                return False
+        return True
+
+    @staticmethod
     def _claim_bar_file(info, name: str) -> str:
         """The sidecar name for this bar command.
 
@@ -6511,8 +6567,12 @@ class _Recognizer:
         path = Path(name)
         return str(path.with_name(f"{path.stem}_{count + 1}{path.suffix}"))
 
-    def _keep_bar_raw(self, scanned, info, stmt, toks) -> None:
-        """Passthrough for a ``bar`` command, with the note that says why."""
+    def _keep_bar_raw(self, scanned, info, stmt, toks, user_file=None) -> None:
+        """Passthrough for a ``bar`` command, with the note that says why.
+
+        ``user_file`` is the data file, not one gleplot wrote, that the bar
+        reads when that is why it stays raw.
+        """
         for name in scanned["datasets"]:
             raw = info["_hist_let_pending"].pop(name, None)
             if raw:
@@ -6530,6 +6590,11 @@ class _Recognizer:
                 "bar pattern/background lists that are not one pattern per "
                 "dataset, each under a fill, have no model; the whole 'bar' "
                 "command is kept as raw GLE, not editable"
+            )
+        elif user_file is not None:
+            message = (
+                f"bar on '{user_file}', a data file gleplot did not write, is "
+                "kept as raw GLE, not editable, so the file is not rewritten"
             )
         elif len(scanned["datasets"]) > 1 or scanned["from_names"]:
             shown = list(scanned["datasets"])
@@ -6553,7 +6618,9 @@ class _Recognizer:
         exact top, so the writer can emit ``bar dTo from dFrom`` without
         rebuilding the top by subtraction. A command with an unmodelled
         keyword, or one whose file is shared with a raw ``fill``, is kept
-        whole.
+        whole. A bar on a file gleplot did not write is never loaded: a
+        plain one is a :class:`~gleplot.series.FileSeries` reference, and
+        :meth:`_mark_bars_that_stay_raw` holds any other.
         """
         scanned = _scan_bar_command(toks)
         if self._try_hist_bar(scanned, datasets, info, stmt, toks):
@@ -6571,17 +6638,25 @@ class _Recognizer:
             or mismatched_from
             or not scanned["patterns_fit"]
         ):
-            self._keep_bar_raw(scanned, info, stmt, toks)
+            user_files = [
+                datasets[name][0]
+                for name in involved
+                if name in datasets and not self._is_import(datasets[name][0])
+            ]
+            self._keep_bar_raw(
+                scanned, info, stmt, toks, user_files[0] if user_files else None
+            )
             return
         if not names or any(name not in datasets for name in involved):
             info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
             return
 
-        loaded_to = []
-        loaded_from = []
-        failed = False
-        fail_error = "unresolved"
-        for name in names:
+        # A file of the caller's own is referenced, never rewritten: a bar
+        # on it is not loaded, so no sidecar is written over it.
+        failed = not all(self._is_import(datasets[name][0]) for name in involved)
+        fail_error: Optional[str] = None
+        loaded = []
+        for name in involved if not failed else ():
             data_file, xcol, ycol = datasets[name]
             row = self._load_series(
                 data_file, xcol, ycol, line_no=self._opt_line_no(stmt)
@@ -6590,18 +6665,8 @@ class _Recognizer:
                 failed = True
                 fail_error = (row or {}).get("error", "unresolved")
                 break
-            loaded_to.append(row)
-        if not failed:
-            for name in from_names:
-                data_file, xcol, ycol = datasets[name]
-                row = self._load_series(
-                    data_file, xcol, ycol, line_no=self._opt_line_no(stmt)
-                )
-                if row is None or row.get("error"):
-                    failed = True
-                    fail_error = (row or {}).get("error", "unresolved")
-                    break
-                loaded_from.append(row)
+            loaded.append(row)
+        loaded_to, loaded_from = loaded[: len(names)], loaded[len(names) :]
         if failed:
             if _bar_scan_is_plain(scanned) and len(names) == 1:
                 if scanned["width"] is not None:
@@ -6627,16 +6692,19 @@ class _Recognizer:
                     x_col=xcol,
                     y_col=ycol,
                     color=(fills[0] if fills else "RED"),
-                    data_error=fail_error,
                     **self._data_read_options.get(names[0], {}),
                 )
+                if fail_error is not None:
+                    fs["data_error"] = fail_error
                 info["file_series"].append(fs)
                 info["_key_suppress_datasets"].add(names[0])
                 info["_key_label_owners"][names[0]] = fs
                 return
             self._keep_bar_raw(scanned, info, stmt, toks)
             return
-        if not self._bar_xs_match(loaded_to + loaded_from):
+        if not self._bar_xs_match(loaded_to + loaded_from) or not self._bar_gaps_match(
+            loaded_to, loaded_from
+        ):
             self._keep_bar_raw(scanned, info, stmt, toks)
             return
 
@@ -6802,6 +6870,17 @@ class _Recognizer:
         if any(name not in datasets for name in d_names):
             passthrough()
             return
+        if len({datasets[name][0] for name in d_names}) != 1:
+            # The fill's series names one file, so both curves must be in it.
+            passthrough()
+            self._note(
+                ImportCategory.STRUCTURE,
+                "fill between curves from two data files ("
+                + ",".join(d_names)
+                + ") has no model; it is kept as raw GLE, not editable",
+                self._stmt_span(stmt),
+            )
+            return
         if target is not None:
             # ``data f.dat`` with several columns registers d1, d2, ... .
             # A one-curve fill owns only one of them. Taking it would make
@@ -6822,22 +6901,27 @@ class _Recognizer:
         yc2 = None
         if target is None:
             _f2, _xc2, yc2 = datasets[d_names[1]]
-        loaded = self._load_series(
-            f1,
-            xc1,
-            yc1,
-            extra_cols=[yc2] if yc2 is not None else None,
-            line_no=self._opt_line_no(stmt),
-        )
-        if loaded is None or loaded.get("error"):
+        # A file of the caller's own is referenced, never rewritten: a fill
+        # on it is not loaded, so no sidecar is written over it.
+        loaded: Dict[str, Any] = {}
+        if self._is_import(f1):
+            loaded = self._load_series(
+                f1,
+                xc1,
+                yc1,
+                extra_cols=[yc2] if yc2 is not None else None,
+                line_no=self._opt_line_no(stmt),
+            )
+        if not loaded or loaded.get("error"):
             fs_fields = dict(
                 series_type="fill",
                 data_file=f1,
                 x_col=xc1,
                 y1_col=yc1,
                 color=color,
-                data_error=(loaded or {}).get("error", "unresolved"),
             )
+            if loaded.get("error"):
+                fs_fields["data_error"] = loaded["error"]
             if target is None:
                 fs_fields["y2_col"] = yc2
             else:
@@ -8068,15 +8152,12 @@ class _Recognizer:
         for idx, line in enumerate(self.text.splitlines(), start=1):
             low = line.strip().lower()
             if not in_sub:
-                if low.startswith("sub gleplot_") and (
-                    low.split()[1] in _LEGACY_GUIDE_SUBS
-                ):
+                if low.startswith("sub gleplot_") and (low.split()[1] in _LEGACY_SUBS):
                     self._note(
                         ImportCategory.STRUCTURE,
-                        f"'{low.split()[1]}' is a guide sub from gleplot 5, "
-                        "which gleplot no longer reads; it and the calls "
-                        "that use it were kept as raw GLE, not read back as "
-                        "a reference line or span",
+                        f"'{low.split()[1]}' is a sub an earlier gleplot "
+                        "wrote, which gleplot no longer reads; it and the "
+                        "calls that use it were kept as raw GLE",
                         (idx, idx),
                     )
                 elif low.startswith("sub gleplot_"):
@@ -8095,6 +8176,15 @@ class _Recognizer:
                 self._contourf_sub_spans[sub_name].add(idx)
                 if low.startswith(CONTOURF_MARKER + " "):
                     self._contourf_subs[sub_name] = line.strip()
+                rescale = _CONTOURF_RESCALE_RE.match(low)
+                if rescale:
+                    try:
+                        self._contourf_rescales[sub_name] = (
+                            float(rescale.group(1)),
+                            float(rescale.group(2)),
+                        )
+                    except ValueError:
+                        pass
             if low == "end sub" or low.startswith("end sub "):
                 in_sub = False
         return nums
@@ -8753,24 +8843,34 @@ class _Recognizer:
         """Whether a ``colormap`` is one a ``contourf`` heatmap can be read from.
 
         It must be the statement :meth:`GLEWriter.add_heatmap` writes for
-        one (a ``.z`` file, ``zmin 0 zmax 1`` and its band sub as palette,
+        one (a ``.z`` file, ``zmin``/``zmax`` and its band sub as palette,
         nothing else), the sub's comment line must parse, and the grid must
-        be readable. Checked before anything is dropped, so that a colormap
-        kept as raw GLE keeps its band sub too.
+        be readable. ``zmin 0 zmax 1`` passes values through; any other
+        range must be the one the sub maps back from, as with a colorbar.
+        Checked before anything is dropped, so that a colormap kept as raw
+        GLE keeps its band sub too.
         """
         if len(toks) < 4 or toks[1].type is not TokenType.STRING:
             return False
         zfile, idx = self._read_filename(toks, 1)
-        rest = [t.value.lower() for t in toks[idx:]]
         if (
-            len(rest) != 8
-            or rest[2:7] != ["zmin", "0", "zmax", "1", "palette"]
+            idx + 8 > len(toks)
             or _num(toks[idx]) is None
             or _num(toks[idx + 1]) is None
+            or toks[idx + 2].value.lower() != "zmin"
             or not zfile.lower().endswith((".z", ".gz"))
         ):
             return False
-        comment = self._contourf_subs.get(rest[7])
+        zmin, at = _collect_value(toks, idx + 3)
+        if at + 4 > len(toks) or toks[at].value.lower() != "zmax":
+            return False
+        zmax, at = _collect_value(toks, at + 1)
+        rest = [t.value.lower() for t in toks[at:]]
+        if len(rest) != 2 or rest[0] != "palette":
+            return False
+        if (zmin, zmax) != self._contourf_rescales.get(rest[1], (0.0, 1.0)):
+            return False
+        comment = self._contourf_subs.get(rest[1])
         return (
             comment is not None
             and self._contourf_fields(comment) is not None
@@ -9631,6 +9731,14 @@ class _Recognizer:
         x = y = None
         text_str = None
 
+        rug_group = self._rug_group(nodes, i)
+        if rug_group is not None:
+            end, group = rug_group
+            ready = self._ready_rugs.pop(group["dataset"], None)
+            if ready is None:
+                return start, None
+            return end, ready[0]
+
         # Optional 'set hei H' / 'set color C' / 'set just J', in any order,
         # each independently optional. Every hit updates sticky state
         # immediately so a later cluster with no 'set just' inherits the
@@ -9684,8 +9792,6 @@ class _Recognizer:
             return i + 1, wedge
         if stmt is not None and (stmt.keyword or "").lower() == "gleplot_box":
             return self._box_calls(nodes, i, start)
-        if stmt is not None and (stmt.keyword or "").lower() in _RUG_CALLS:
-            return self._rug_calls(nodes, i, start)
 
         # 'amove xg(X) yg(Y)' -- mandatory: this is what makes the run of
         # 'set' statements above a text cluster rather than unrelated
@@ -9791,44 +9897,109 @@ class _Recognizer:
             mean=mean,
         )
 
-    def _rug_calls(self, nodes, i, start) -> Tuple[int, Optional[Rug]]:
-        """The run of ``gleplot_xrug``/``gleplot_yrug`` calls at ``i``.
+    def _rug_group(self, nodes, i) -> Optional[Tuple[int, dict]]:
+        """The ``gsave`` .. ``grestore`` group drawing one rug, at ``i``.
 
-        Returns ``(next_index, rug)``, or ``(start, None)`` when the first
-        call is malformed. The calls that follow with the same sub and the
-        same length, position, colour and width belong to the same rug, so
-        two such rugs written one after the other come back as one, with
-        the same ink.
+        ``set color C lwidth W cap butt`` then ``xrug "dN" L "pos"`` (or
+        ``yrug``), exactly as :meth:`gleplot.writer.GLEWriter.add_rug`
+        writes it. Returns ``(next_index, fields)`` or ``None``.
         """
-        n = len(nodes)
-        keyword: Optional[str] = None
-        style: List[object] = []
-        ticks: List[float] = []
-        while True:
-            j = self._skip_blanks(nodes, i)
-            stmt = self._as_statement(nodes[j]) if j < n else None
+        stmts = []
+        j = i
+        for _ in range(4):
+            j = self._skip_blanks(nodes, j)
+            stmt = self._as_statement(nodes[j]) if j < len(nodes) else None
             if stmt is None:
+                return None
+            stmts.append(_words_and_values(stmt))
+            j += 1
+        opening, style, call, closing = stmts
+        words = [[t.value.lower() for t in toks] for toks in stmts]
+        if words[0] != ["gsave"] or words[3] != ["grestore"]:
+            return None
+        if words[1][:2] != ["set", "color"]:
+            return None
+        color, k = _collect_color(style, 2)
+        if color is None or words[1][k : k + 1] != ["lwidth"]:
+            return None
+        lwidth, k = _collect_value(style, k + 1)
+        if lwidth is None or words[1][k:] != ["cap", "butt"]:
+            return None
+        axis = {"xrug": "x", "yrug": "y"}.get(words[2][0])
+        args = self._guide_call_args(call, 1)
+        if axis is None or len(args) != 3:
+            return None
+        dataset, length, position = args
+        if (
+            not isinstance(dataset, str)
+            or not _DATASET_RE.match(dataset)
+            or not isinstance(length, (int, float))
+            or position not in RUG_EDGES[axis]
+        ):
+            return None
+        fields = {
+            "axis": axis,
+            "dataset": dataset.lower(),
+            "length": -float(length),
+            "position": position,
+            "color": color,
+            "linewidth": linewidth_cm_to_pt(float(lwidth)),
+        }
+        return j, fields
+
+    def _scan_post_graph_rugs(self, nodes, start) -> Dict[str, dict]:
+        """The rug groups after a graph, before the next one, by dataset."""
+        found: Dict[str, Optional[dict]] = {}
+        for k in range(start, len(nodes)):
+            if isinstance(nodes[k], GraphBlock):
                 break
-            kw = (stmt.keyword or "").lower()
-            args = self._guide_call_args(_words_and_values(stmt), 1)
-            if keyword is None:
-                if not _is_rug_call(kw, args):
-                    return start, None
-                keyword, style = kw, args[1:]
-            elif kw != keyword or args[1:] != style or not _is_rug_call(kw, args):
-                break
-            ticks.append(float(cast(float, args[0])))
-            i = j + 1
-        length, position, color, lwidth = style
-        return i, Rug(
-            type="rug",
-            axis=_RUG_CALLS[cast(str, keyword)],
-            ticks=ticks,
-            length=float(cast(float, length)),
-            position=cast(str, position),
-            color=cast(str, color),
-            linewidth=linewidth_cm_to_pt(float(cast(float, lwidth))),
-        )
+            group = self._rug_group(nodes, k)
+            if group is not None:
+                name = group[1]["dataset"]
+                # Two calls on one dataset: neither is the writer's.
+                found[name] = None if name in found else group[1]
+        return {name: g for name, g in found.items() if g is not None}
+
+    def _claim_rug_datasets(self, pass1: _GraphDatasets) -> None:
+        """Turn each rug group after this graph into a ``Rug``, from its data.
+
+        The group's dataset must be the only one its ``data`` statement
+        declares, as ``c1,c2``, from a file no other statement reads, with no
+        ``dN`` line of its own and every tick finite. Its statement is then
+        consumed; the rug and the statement's text wait in ``_ready_rugs``
+        for the text cluster to take the group.
+        """
+        rugs, self._post_graph_rugs = self._post_graph_rugs, {}
+        files = [
+            d[0] for _n, _t, _l, defs, _o in pass1.data_stmts for d in defs.values()
+        ]
+        for names, text, line_no, defs, _options in pass1.data_stmts:
+            if len(names) != 1 or names[0] not in rugs:
+                continue
+            if names[0] in pass1.merged_attr_toks or files.count(defs[names[0]][0]) > 1:
+                continue
+            fields = rugs[names[0]]
+            data_file, xcol, ycol = defs[names[0]]
+            if (xcol, ycol) != (1, 2):
+                continue
+            cols = self._load_series(data_file, xcol, ycol, line_no=line_no)
+            if "error" in cols:
+                continue
+            ticks = np.asarray(cols[fields["axis"]], dtype=float)
+            if not np.all(np.isfinite(ticks)) or ticks.size == 0:
+                continue
+            pass1.emitted.add(names[0])
+            rug = Rug(
+                type="rug",
+                axis=fields["axis"],
+                ticks=[float(v) for v in ticks],
+                length=fields["length"],
+                position=fields["position"],
+                color=fields["color"],
+                linewidth=fields["linewidth"],
+                data_file=data_file,
+            )
+            self._ready_rugs[names[0]] = (rug, text)
 
     def _is_polar_labels_call(self, stmt) -> bool:
         """Whether ``stmt`` is the label call of the polar axes just parsed.

@@ -1533,8 +1533,9 @@ class PlacedImage(Series):
 class Rug(Series):
     """One rug -- ``Axes.rug`` stores one per call.
 
-    Drawn after the graph block, one ``gleplot_xrug`` or ``gleplot_yrug``
-    call per value.
+    Its values are written to :attr:`data_file` and loaded as a dataset in
+    the graph; ``xrug`` or ``yrug`` from GLE's ``rugs.gle`` draws them after
+    the graph block.
     """
 
     ATTR = "rugs"
@@ -1552,6 +1553,8 @@ class Rug(Series):
     color: str
     #: Points.
     linewidth: float
+    #: The sidecar the values are written to, one per line.
+    data_file: str
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
 

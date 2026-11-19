@@ -406,48 +406,12 @@ def image_sub_name(path: str) -> Optional[str]:
 
 
 #: The frame edges a rug can stand on, per axis; the first is the default.
-#: The ticks of an ``axis`` rug are ``gleplot_<axis>rug`` calls.
+#: The ticks of an ``axis`` rug are drawn by ``<axis>rug`` from GLE's
+#: ``rugs.gle`` (:meth:`GLEWriter.add_rug`).
 RUG_EDGES = {"x": ("bottom", "top", "both"), "y": ("left", "right", "both")}
 
-#: The subs behind every rug tick (:meth:`GLEWriter.add_rug`), called after
-#: ``end graph`` like :data:`BOX_SUB`. A positive ``len`` points into the
-#: axes, as GLE's ``ticks length`` does. The frame edges are the min and max
-#: of the axis ends, so ``bottom`` stays the lower edge on a reversed axis. A
-#: value outside the axis range draws nothing. Each tick saves and restores
-#: the graphics state.
-RUG_SUB = """sub gleplot_xrug x len pos$ clr$ lw
-   ! Rug tick at x on the bottom or top edge of the frame, or both.
-   if (x >= xgmin) and (x <= xgmax) then
-      gsave
-      set lwidth lw color cvtcolor(clr$) cap butt
-      if (pos$ = "bottom") or (pos$ = "both") then
-         amove xg(x) min(yg(ygmin),yg(ygmax))
-         rline 0 len
-      end if
-      if (pos$ = "top") or (pos$ = "both") then
-         amove xg(x) max(yg(ygmin),yg(ygmax))
-         rline 0 -len
-      end if
-      grestore
-   end if
-end sub
-
-sub gleplot_yrug y len pos$ clr$ lw
-   ! Rug tick at y on the left or right edge of the frame, or both.
-   if (y >= ygmin) and (y <= ygmax) then
-      gsave
-      set lwidth lw color cvtcolor(clr$) cap butt
-      if (pos$ = "left") or (pos$ = "both") then
-         amove min(xg(xgmin),xg(xgmax)) yg(y)
-         rline len 0
-      end if
-      if (pos$ = "right") or (pos$ = "both") then
-         amove max(xg(xgmin),xg(xgmax)) yg(y)
-         rline -len 0
-      end if
-      grestore
-   end if
-end sub"""
+#: The gleinc file whose ``xrug``/``yrug`` draw a rug.
+RUGS_INCLUDE = "rugs.gle"
 
 
 @dataclass(frozen=True)
@@ -971,6 +935,17 @@ def _band_of(values: np.ndarray, levels: List[float]) -> np.ndarray:
     band = np.searchsorted(levels, values, side="left")
     band[values == levels[0]] = 1
     return band
+
+
+def _contourf_bar_range(series: Mapping[str, Any]) -> Optional[Tuple[Any, Any]]:
+    """The ``(zmin, zmax)`` a ``contourf``'s colormap scales its values onto.
+
+    Its colorbar's range, which the band sub maps back from (see
+    :meth:`GLEWriter.add_contourf_sub`); ``None`` without a colorbar, when
+    the values pass through unscaled.
+    """
+    cb = series.get("colorbar")
+    return (cb["zmin"], cb["zmax"]) if cb else None
 
 
 def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
@@ -1564,12 +1539,12 @@ class GLEWriter:
         # page-global in GLE, so the count runs across every graph.
         self._annotation_count = 0
         # The after-graph guide drawings (gleplot.guides) queued for the
-        # graph being written, flushed by end_graph. Whether any drew a line
-        # through graphutil.gle, whose include finalize_includes splices in
-        # at _sub_defs_mark: which guides take that form is not known until
+        # graph being written, flushed by end_graph. The gleinc files the
+        # write calls routines from, which finalize_includes splices in at
+        # _sub_defs_mark: which guides need graphutil.gle is not known until
         # each axes' limits are.
         self._pending_guide_lines: List[str] = []
-        self._needs_graphutil = False
+        self._includes: Set[str] = set()
         self._sub_defs_mark: int = 0
         # The palette sub each contourf heatmap written so far colours with,
         # by its data file: gleplot_contourf1, 2, ... in writing order.
@@ -1934,14 +1909,14 @@ class GLEWriter:
     ):
         """Set graph dimensions and scaling.
 
-        Uses the configured scale_mode (auto, fixed, or fullsize).
+        Uses the configured scale_mode ('auto' or 'fullsize').
 
         Parameters
         ----------
         width_cm : float, optional
-            Graph width in cm. Used if scale_mode is 'fixed' or force_size is True.
+            Graph width in cm. Used if force_size is True.
         height_cm : float, optional
-            Graph height in cm. Used if scale_mode is 'fixed' or force_size is True.
+            Graph height in cm. Used if force_size is True.
         force_size : bool
             If True, always emit the size command regardless of scale_mode.
             This is how every placed graph is emitted: ``size w h`` +
@@ -1964,15 +1939,6 @@ class GLEWriter:
             self.lines_gle.append(
                 "    scale 1 1"
             )  # Fill entire graph box for tight subplot layout
-        elif (
-            self.graph.scale_mode == "fixed"
-            and width_cm is not None
-            and height_cm is not None
-        ):
-            self.lines_gle.append(
-                f"    size {self._format_number(width_cm)} {self._format_number(height_cm)}"
-            )
-            self.lines_gle.append("    scale 1 1")
         elif self.graph.scale_mode == "fullsize":
             self.lines_gle.append("    fullsize")
         else:  # 'auto' - default
@@ -4108,6 +4074,10 @@ class GLEWriter:
           to GLE, which is what every bar chart gleplot wrote before the field
           existed; a number is emitted verbatim and suppresses G16's derived
           width. See ``bar_width_to_emit``.
+        - a row whose x or value is NaN: its value columns are written as
+          GLE's missing value ``*``, so the bar is left out (see
+          ``_bar_rows_missing``). A provider-backed series then writes its
+          own value columns rather than the table's.
         """
         x = np.asarray(series["x"], dtype=float)
         heights = np.asarray(series["height"], dtype=float)
@@ -4145,6 +4115,12 @@ class GLEWriter:
         if bottom is not None:
             base = np.asarray(bottom, dtype=float)
             tops = np.asarray(top, dtype=float) if top is not None else base + heights
+            missing = self._bar_rows_missing(x, base, tops)
+            if missing.any():
+                base = self._as_missing(base, missing)
+                tops = self._as_missing(tops, missing)
+                if binding is not None:
+                    binding = binding.with_private(("bottom", "top"))
             names = column_names if column_names and len(column_names) == 3 else None
             # A header we could not line up with the three columns would
             # raise in ``_write_columns``. Dropping it also drops the
@@ -4164,6 +4140,11 @@ class GLEWriter:
             )
             bar_cmd = f"    bar {d_name} from {d_from} fill {','.join(fill_tokens)}"
         else:
+            missing = self._bar_rows_missing(x, heights)
+            if missing.any():
+                heights = self._as_missing(heights, missing)
+                if binding is not None:
+                    binding = binding.with_private(("height",))
             cols = self._write_columns(
                 data_file, [("x", x), ("height", heights)], column_names, binding
             )
@@ -4224,12 +4205,14 @@ class GLEWriter:
                         if stored is not None
                         else base + height
                     )
-                columns.append(("bottom", base))
+                missing = self._bar_rows_missing(x, base, tops)
+                columns.append(("bottom", self._as_missing(base, missing)))
                 from_slots.append(len(columns) - 1)
-                columns.append(("top", tops))
+                columns.append(("top", self._as_missing(tops, missing)))
                 to_slots.append(len(columns) - 1)
             else:
-                columns.append(("height", height))
+                missing = self._bar_rows_missing(x, height)
+                columns.append(("height", self._as_missing(height, missing)))
                 from_slots.append(None)
                 to_slots.append(len(columns) - 1)
 
@@ -4287,6 +4270,22 @@ class GLEWriter:
                 member.get("swatch_color"),
                 has_header,
             )
+
+    @staticmethod
+    def _bar_rows_missing(x: np.ndarray, *values: np.ndarray) -> np.ndarray:
+        """The bar rows to write as missing (``*``): any value is NaN.
+
+        GLE draws a ``nan`` height as a polygon at ``-nan``, which
+        Ghostscript rejects, but skips a missing point (``drawBar`` in
+        ``graph2.cpp``). A ``from`` and its ``to`` dataset must be missing
+        at the same points, so the caller marks every value column of the
+        row. The x column is left as written: GLE sizes the bars from its
+        consecutive gaps, and a missing x would read as 0.
+        """
+        missing = np.isnan(x)
+        for column in values:
+            missing = missing | np.isnan(column)
+        return missing
 
     @staticmethod
     def _bar_pattern_clause(members: Sequence[Mapping[str, Any]]) -> str:
@@ -5313,23 +5312,41 @@ class GLEWriter:
         self.lines_gle.append("    end layer")
 
     def add_rug(self, series: Series) -> None:
-        """Queue one rug for after ``end graph``.
+        """Write a rug's dataset, and queue its ``xrug``/``yrug`` call.
 
-        ``series`` is a :class:`~gleplot.series.Rug`. It goes out as one
-        ``gleplot_xrug`` or ``gleplot_yrug`` call (:data:`RUG_SUB`) per
-        value, in the deferred block the box plots use, so the ticks are
-        drawn on the frame unclipped.
+        ``series`` is a :class:`~gleplot.series.Rug`. ``rugs.gle``'s routines
+        read their values from a dataset, so the ticks go to the rug's
+        ``data_file`` with the other column missing (``*``), which keeps
+        them out of GLE's autoscale, and a ``data`` statement inside the
+        graph loads it. The call goes in the deferred block the box plots
+        use, under its own colour and width. ``rugs.gle`` takes a positive
+        length out of the axes, gleplot into it, so the length is negated.
         """
+        ticks = np.asarray(series["ticks"], dtype=float)
+        if self._log_axes.get(series["axis"]):
+            # GLE cannot place a value <= 0 on a log axis; autoscaling has
+            # already warned that it is not shown.
+            ticks = ticks[ticks > 0]
+        if not ticks.size:
+            return
         num = self._format_number
-        rest = (
-            f'{num(float(series["length"]))} "{series["position"]}" '
-            f'"{self._escape_gle_string(series["color"])}" '
-            f'{num(linewidth_pt_to_cm(float(series["linewidth"])))}'
+        d_name = self._new_dataset()
+        file = series["data_file"]
+        row = "* {}" if series["axis"] == "y" else "{} *"
+        rows = [row.format(v) for v in self._format_column(ticks)]
+        self.data_files[file] = "\n".join(["x y", *rows]) + "\n"
+        self.lines_gle.append(f"    data {_format_data_filename(file)} {d_name}=c1,c2")
+        self._includes.add(RUGS_INCLUDE)
+        lwidth = num(linewidth_pt_to_cm(float(series["linewidth"])))
+        self._pending_graph_text_lines.extend(
+            [
+                "gsave",
+                f"set color {series['color']} lwidth {lwidth} cap butt",
+                f'{series["axis"]}rug "{d_name}" '
+                f'{num(-float(series["length"]))} "{series["position"]}"',
+                "grestore",
+            ]
         )
-        for value in series["ticks"]:
-            self._pending_graph_text_lines.append(
-                f"gleplot_{series['axis']}rug {num(float(value))} {rest}"
-            )
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
         """Where ``key separator`` falls, as 1-based legend-entry counts.
@@ -5687,16 +5704,17 @@ class GLEWriter:
         self._sub_defs_mark = len(self.lines_gle)
 
     def finalize_includes(self) -> None:
-        """Splice in ``include "graphutil.gle"`` if a guide line called it.
+        """Splice in an ``include`` for each gleinc file the write called.
 
         Called once, after every graph block is written: which guides are
         drawn after ``end graph`` is decided against limits that are still
-        unresolved when :meth:`add_sub_defs` runs, so the include goes in at
-        that method's mark.
+        unresolved when :meth:`add_sub_defs` runs, so the includes go in at
+        that method's mark, in name order.
         """
-        if self._needs_graphutil:
+        if self._includes:
             at = self._sub_defs_mark
-            self.lines_gle[at:at] = [f'include "{GRAPHUTIL_INCLUDE}"', ""]
+            lines = [f'include "{name}"' for name in sorted(self._includes)]
+            self.lines_gle[at:at] = lines + [""]
 
     def add_fitz_block(self, points_file: str, extent, gridsize, ncontour):
         """Emit a ``begin fitz`` .. ``end fitz`` block (before ``begin graph``).
@@ -5849,8 +5867,9 @@ class GLEWriter:
     def add_contourf_sub(self, series: Series):
         """Define the palette sub a ``contourf`` heatmap's colormap calls.
 
-        The colormap passes each pixel's value through unscaled (``zmin 0
-        zmax 1``), so the sub compares it with the levels themselves. A value
+        The sub compares each pixel's value with the levels themselves: the
+        colormap passes it through unscaled (``zmin 0 zmax 1``), or, with a
+        colorbar, the sub maps it back first (below). A value
         above one level and up to the next takes the colour ``cmap`` gives
         the middle of that band on the ``vmin``..``vmax`` scale (the outer levels when unset), as
         matplotlib colours a band. Below the first level and above the last
@@ -5858,6 +5877,12 @@ class GLEWriter:
         smoothing would not put the band edges on the levels
         (:func:`contourf_bands_fit`), the sub maps the value straight onto the
         colormap instead, inside the same limits.
+
+        With a colorbar the sub is also the bar's palette, which the colorbar
+        sub calls with a value from 0 to 1 along the bar. The colormap then
+        scales each pixel's value onto the bar's ``zmin``..``zmax`` too, and
+        the sub's first statement maps it back, so the image and the bar both
+        show the bands.
 
         The sub's first line, a comment GLE skips, holds the series' colouring
         as written, which is what the recognizer reads back. The sub goes
@@ -5881,9 +5906,11 @@ class GLEWriter:
         white = "rgb(1, 1, 1)"
         under = f"{call}(0)" if extend in ("min", "both") else white
         over = f"{call}(1)" if extend in ("max", "both") else white
-        lines = [
-            f"sub {name} z",
-            f"   {head}",
+        lines = [f"sub {name} z", f"   {head}"]
+        bar = _contourf_bar_range(series)
+        if bar:
+            lines.append(f"   z = {fmt(bar[0])}*(1-z)+{fmt(bar[1])}*z")
+        lines += [
             f"   if z < {levels[0]} then return {under}",
             f"   if z > {levels[-1]} then return {over}",
         ]
@@ -5925,8 +5952,15 @@ class GLEWriter:
             operand = _quote_filename(_grid_z_file(series))
         if "levels" in series:
             name = self._contourf_subs[series["data_file"]]
+            zmin, zmax = _contourf_bar_range(series) or (0, 1)
             self.add_colormap(
-                operand, series["pixels"], ("palette", name), 0, 1, False, "bicubic"
+                operand,
+                series["pixels"],
+                ("palette", name),
+                zmin,
+                zmax,
+                False,
+                "bicubic",
             )
             return
         self.add_colormap(
@@ -5944,7 +5978,8 @@ class GLEWriter:
 
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`, or
         a colour-mapped :class:`~gleplot.series.ScatterSeries`; its ``cmap``
-        names the palette and its ``colorbar`` dict (see
+        names the palette (a ``contourf``'s is its band sub, see
+        :meth:`add_contourf_sub`) and its ``colorbar`` dict (see
         :meth:`gleplot.Figure.colorbar`) holds the call's range, size, format
         and label. A series without one writes nothing.
 
@@ -5973,11 +6008,16 @@ class GLEWriter:
             sub = "gleplot_colorbar_v"
             size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
         lbl = self._escape_gle_string(cb.get("label") or "")
-        cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
+        if "levels" in series:
+            # A contourf's bar draws its bands through the band sub.
+            palette = self._contourf_subs[series["data_file"]]
+        else:
+            cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
+            palette = _pal.palette_call_name(cmap)
         self.lines_gle.append(
             f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
             f"zstep {fmt(cb['zstep'])} "
-            f'palette "{_pal.palette_call_name(cmap)}" {size} '
+            f'palette "{palette}" {size} '
             f'format "{cb["format"]}" label "{lbl}"'
         )
 
@@ -6151,7 +6191,7 @@ class GLEWriter:
         lwidth_cm = self._lwidth_cm(series["linewidth"], series)
         lstyle = self._lstyle_for(linestyle) if linestyle in ("--", ":", "-.") else None
         if linestyle not in _NO_LINE:
-            self._needs_graphutil = True
+            self._includes.add(GRAPHUTIL_INCLUDE)
         self._pending_guide_lines.extend(
             self.refline_draw_lines(series, lwidth_cm, lstyle)
         )
