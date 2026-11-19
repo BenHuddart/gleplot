@@ -2216,6 +2216,8 @@ class _Recognizer:
             chunk = labels[start : start + len(pool)]
             if sorted(chunk) != sorted(series["label"] for series in pool):
                 return None
+            if len(set(chunk)) != len(chunk):
+                return None
             chunks.append((info, chunk))
             start += len(pool)
         if start != len(labels):
@@ -8996,8 +8998,11 @@ class _Recognizer:
             "lines",
             "scatters",
             "errorbars",
-            "file_series",
+            "hists",
+            "functions",
             "fits",
+            "file_series",
+            "derived_series",
         ):
             for series in info.get(group, []):
                 if series.get("label"):
@@ -9009,25 +9014,18 @@ class _Recognizer:
         """Stamp ``legend_seq`` so the next save rebuilds this entry order.
 
         Returns False, and changes nothing, when ``labels`` is not exactly
-        the labelled series (each label used once).
+        the labelled series, or names one twice: the entries carry no
+        series identity besides the label, so which of two same-label
+        series an entry lists is unknown.
         """
         pool = _Recognizer._legend_pool(info)
-        if len(pool) != len(labels):
+        by_label = {s["label"]: s for s in pool}
+        if not len(labels) == len(set(labels)) == len(by_label) == len(pool):
             return False
-        used = [False] * len(pool)
-        chosen = []
-        for label in labels:
-            found = None
-            for j, series in enumerate(pool):
-                if not used[j] and series.get("label") == label:
-                    found = j
-                    break
-            if found is None:
-                return False
-            used[found] = True
-            chosen.append(pool[found])
-        for i, series in enumerate(chosen):
-            series["legend_seq"] = i
+        if set(labels) != set(by_label):
+            return False
+        for i, label in enumerate(labels):
+            by_label[label]["legend_seq"] = i
         return True
 
     # -- post-graph colorbar / contour-label calls ----------------------
