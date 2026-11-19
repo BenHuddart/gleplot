@@ -22,7 +22,7 @@ from typing import (
 import numpy as np
 
 from ._warn import warn_external, warn_unsupported_keywords
-from .colors import apply_alpha, hatch_to_gle, rgb_to_gle
+from .colors import _rgba_parts, apply_alpha, hatch_to_gle, rgb_to_gle
 from .config import LINE_CAPS, LINE_JOINS, GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
@@ -3108,14 +3108,9 @@ class Axes:
         for samples, one_color, one_label, one_edge, one_alpha, one_ls, one_lw in zip(
             finite_sets, colors, labels, edges, alphas, linestyles, linewidths
         ):
+            one_color, color_alpha = _rgba_parts(one_color)
+            series_alpha = color_alpha if one_alpha is None else one_alpha
             ink = self._resolve_color(one_color)
-            series_alpha = one_alpha
-            if (
-                series_alpha is None
-                and isinstance(one_color, (tuple, list))
-                and len(one_color) == 4
-            ):
-                series_alpha = one_color[3]
             if series_alpha is not None:
                 ink = apply_alpha(ink, series_alpha)
             fields = dict(
@@ -5072,7 +5067,8 @@ class Axes:
         if color is None:
             gle_color = "LIGHTBLUE"
         else:
-            gle_color = rgb_to_gle(color)
+            # alpha= overrides an RGBA colour's own alpha, as in matplotlib.
+            gle_color = rgb_to_gle(color if alpha == 1.0 else _rgba_parts(color)[0])
 
         if where is None:
             windows: List[dict] = [dict(clip)]
@@ -5457,7 +5453,8 @@ class Axes:
         if color is None:
             gle_color = "LIGHTBLUE"
         else:
-            gle_color = rgb_to_gle(color)
+            # alpha= overrides an RGBA colour's own alpha, as in matplotlib.
+            gle_color = rgb_to_gle(color if alpha == 1.0 else _rgba_parts(color)[0])
         fill_data = FillSeries(
             x=x_arr,
             y1=y_arr,
@@ -5879,6 +5876,9 @@ class Axes:
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
         label = self._text(label)
+        if alpha != 1.0:
+            # alpha= overrides an RGBA colour's own alpha, as in matplotlib.
+            color = _rgba_parts(color)[0]
         gle_color = "LIGHTGRAY" if color is None else rgb_to_gle(color)
 
         entry = Span(
