@@ -725,6 +725,24 @@ class Figure:
         return list(self._source_warnings)
 
     @property
+    def axes(self) -> List[Axes]:
+        """The figure's axes, in the order they were added.
+
+        A new list on each access, as in matplotlib: add axes with
+        :meth:`add_subplot` or :meth:`add_axes`, not by changing the list.
+        For a figure from :func:`gleplot.open_gle`, the order is that of the
+        graph blocks in the file. Each segment of a broken axis
+        (:meth:`add_broken_xaxes`, :meth:`add_broken_yaxes`) is an entry.
+
+        Notes
+        -----
+        Unlike matplotlib, the secondary axes that :meth:`gleplot.Axes.twinx`
+        and :meth:`gleplot.Axes.twiny` return are not entries: they draw on
+        their parent axes' graph.
+        """
+        return list(self.axes_list)
+
+    @property
     def preview_decimation_report(self) -> List:
         """Series the most recent generation actually decimated, and by how much.
 
@@ -2024,11 +2042,14 @@ class Figure:
             )
         return mappable, owner
 
-    def xlabel(self, label: str):
-        """Set x label on current axes."""
-        return self.gca().set_xlabel(label)
+    def xlabel(self, label: str, **kwargs):
+        """Set x label on current axes.
 
-    def ylabel(self, label: str, axis: str = "y"):
+        Keywords are as for :meth:`Axes.set_xlabel`.
+        """
+        return self.gca().set_xlabel(label, **kwargs)
+
+    def ylabel(self, label: str, axis: str = "y", **kwargs):
         """Set y label on current axes.
 
         Parameters
@@ -2037,12 +2058,17 @@ class Figure:
             Axis label text
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        **kwargs
+            As for :meth:`Axes.set_ylabel`.
         """
-        return self.gca().set_ylabel(label, axis=axis)
+        return self.gca().set_ylabel(label, axis=axis, **kwargs)
 
-    def title(self, label: str):
-        """Set title on current axes."""
-        return self.gca().set_title(label)
+    def title(self, label: str, **kwargs):
+        """Set title on current axes.
+
+        Keywords are as for :meth:`Axes.set_title`.
+        """
+        return self.gca().set_title(label, **kwargs)
 
     def legend(self, *args, **kwargs) -> "Figure":
         """Add one legend for the whole figure, listing every axes' series.
