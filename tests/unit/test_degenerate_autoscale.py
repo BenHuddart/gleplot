@@ -313,6 +313,101 @@ def test_a_log_axis_keeps_the_range_its_own_repair_invented():
 
 
 # --------------------------------------------------------------------------- #
+# Non-finite values: ignored, as matplotlib's autoscale ignores them
+# --------------------------------------------------------------------------- #
+
+NAN = float("nan")
+
+
+@pytest.mark.parametrize(
+    "draw, xline, yline",
+    [
+        (
+            lambda ax: ax.plot([1, 1, NAN, 2, 2], [0, 1, NAN, 0, 2]),
+            "xaxis min 1 max 2",
+            "yaxis min 0 max 2",
+        ),
+        (
+            lambda ax: ax.plot([1, 2, np.inf], [0, -np.inf, 2]),
+            "xaxis min 1 max 2",
+            "yaxis min 0 max 2",
+        ),
+        (
+            lambda ax: ax.scatter([1, NAN, 3], [4, 5, NAN]),
+            "xaxis min 1 max 3",
+            "yaxis min 4 max 5",
+        ),
+        (
+            lambda ax: ax.errorbar([1, 2, 3], [1, NAN, 3], yerr=0.5),
+            "xaxis min 1 max 3",
+            "yaxis min 0.5 max 3.5",
+        ),
+        (
+            lambda ax: ax.fill_between([0, 1, 2, 3], [0, NAN, 2, 1]),
+            "xaxis min 0 max 3",
+            "yaxis min 0 max 2",
+        ),
+        (
+            lambda ax: ax.fill_betweenx([0, 1, 2, 3], [0, NAN, 2, 1]),
+            "xaxis min 0 max 2",
+            "yaxis min 0 max 3",
+        ),
+        (
+            lambda ax: ax.bar([1, 2, 3], [1, NAN, 3]),
+            "xaxis min 1 max 3",
+            "yaxis min 0 max 3",
+        ),
+        (
+            lambda ax: (ax.plot([0, 1], [0, 1]), ax.axhline(NAN), ax.axvline(np.inf)),
+            "xaxis min 0 max 1",
+            "yaxis min 0 max 1",
+        ),
+    ],
+    ids=[
+        "plot",
+        "plot-inf",
+        "scatter",
+        "errorbar",
+        "fill_between",
+        "fill_betweenx",
+        "bar",
+        "guides",
+    ],
+)
+def test_a_non_finite_value_does_not_reach_the_range(draw, xline, yline):
+    """A NaN bound is ``xaxis min nan max nan``, which GLE refuses (#243)."""
+    fig, ax = _axes()
+    draw(ax)
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "x") == xline
+    assert _axis_line(text, "y") == yline
+
+
+def test_a_non_finite_value_does_not_reach_a_log_range():
+    fig, ax = _axes()
+    ax.plot([1, NAN, 100], [10, NAN, 1000])
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "x") == "xaxis min 1 max 100 log"
+    assert _axis_line(text, "y") == "yaxis min 10 max 1000 log"
+
+
+def test_a_non_finite_value_does_not_reach_a_log_secondary_range():
+    fig, ax = _axes()
+    ax.plot([1, 2, 3], [1, 2, 3])
+    ax2 = ax.twinx()
+    ax2.plot([1, 2, 3, 4], [0, 10, NAN, 1000])
+    ax2.set_yscale("log")
+
+    with pytest.warns(UserWarning, match="Using 10 .. 1000"):
+        text, _files = fig._generate_gle_with_files()
+    assert _axis_line(text, "y2") == "y2axis min 10 max 1000 log"
+
+
+# --------------------------------------------------------------------------- #
 # Shared axes: the union is what gets judged
 # --------------------------------------------------------------------------- #
 
@@ -516,14 +611,16 @@ def test_the_neighbour_snapshot_covers_the_whole_battery():
 def test_a_resolvable_range_emits_byte_identically_to_pre_g15(name):
     """Every figure GLE could already compile is byte-stable, warnings included.
 
-    Two entries have moved since capture. G18-lite gave ``guides_over_data``
+    Three entries have moved since capture. G18-lite gave ``guides_over_data``
     a ``! gleplot:guide ...`` comment over each of its four materialized
     guides (:mod:`gleplot.guides`); comments only, and the wide digest sweep
     below (which contains no guides) is untouched.
     ``tests/unit/test_refline_fallback.py`` pins that pure-insertion property
     for the whole guide battery. ``errorbars`` widened its x axis when
     ``xerr`` started counting toward the autoscaled range, so a horizontal
-    whisker is not clipped.
+    whisker is not clipped. ``tiny_but_nonzero_span`` moved when a column
+    or axis range that six significant figures would collapse started
+    being written at the precision that keeps its values apart (#250).
     """
     text, files, raised = db.emit(name)
 

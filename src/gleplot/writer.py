@@ -11,12 +11,14 @@ identical to what it produced before sources existed.
 """
 
 import math
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import (
     Any,
     Callable,
     Dict,
+    Iterable,
     List,
     Mapping,
     Optional,
@@ -89,6 +91,9 @@ from .sources import (
     GridRef,
     resolve_reference,
 )
+
+#: A quoted string in a GLE line.
+_QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
 
 #: The sub behind every pie slice (:meth:`GLEWriter.add_wedge`). Called after
 #: ``end graph``, where ``xg()``/``yg()`` still address the graph just closed.
@@ -962,7 +967,10 @@ def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     back from its file decides the same way.
     """
     fmt = GLEWriter._format_number
-    z = np.vectorize(lambda v: float(fmt(float(v))))(np.asarray(series["z"], float))
+    z = np.asarray(series["z"], float)
+    z = np.array([float(t) for t in GLEWriter._format_column(z.ravel())]).reshape(
+        z.shape
+    )
     levels = [float(fmt(v)) for v in series["levels"]]
     ny, nx = z.shape
     px, py = series["pixels"]
@@ -1509,6 +1517,10 @@ class GLEWriter:
         self.dataset_index = (
             1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         )
+        # Dataset numbers the raw GLE kept in the current graph block defines
+        # (reserve_datasets); _new_dataset skips them. GLE clears its datasets
+        # at 'begin graph', so end_graph clears these.
+        self._reserved_datasets: Set[int] = set()
         # id of each series written as one dataset -> the raw (unshifted) name
         # it was given, for the ``let`` of a DerivedSeries that reads it.
         self._dataset_names: Dict[int, str] = {}
@@ -1855,6 +1867,7 @@ class GLEWriter:
         if passthrough:
             self.lines_gle.extend(passthrough)
         self.lines_gle.append("end graph")
+        self._reserved_datasets = set()
         if self._external_legend:
             # Before the deferred ``xg()`` text. ``draw_key`` saves and
             # restores the current point and does not move the graph box,
@@ -2245,10 +2258,7 @@ class GLEWriter:
         lo, hi, negate = self._axis_direction(lo, hi)
         bare = f"    {prefix}axis"
         cmd = bare
-        if lo is not None:
-            cmd += f" min {self._format_number(lo)}"
-        if hi is not None:
-            cmd += f" max {self._format_number(hi)}"
+        cmd += self._axis_range(lo, hi, log)
         if log:
             cmd += " log"
         if negate:
@@ -2322,10 +2332,7 @@ class GLEWriter:
         y2_styled = style is not _NO_STYLE and style != _NO_STYLE
         if lo is not None or hi is not None or log or off or y2_on or y2_styled:
             cmd = "    y2axis"
-            if lo is not None:
-                cmd += f" min {self._format_number(lo)}"
-            if hi is not None:
-                cmd += f" max {self._format_number(hi)}"
+            cmd += self._axis_range(lo, hi, log)
             if log:
                 cmd += " log"
             if negate:
@@ -2417,10 +2424,7 @@ class GLEWriter:
             or x2_tick_styled
         ):
             cmd = "    x2axis"
-            if lo is not None:
-                cmd += f" min {self._format_number(lo)}"
-            if hi is not None:
-                cmd += f" max {self._format_number(hi)}"
+            cmd += self._axis_range(lo, hi, log)
             if log:
                 cmd += " log"
             elif x2_lin:
@@ -2965,9 +2969,8 @@ class GLEWriter:
         data = np.column_stack(columns)
 
         # Write data rows
-        for row in data:
-            line = " ".join(self._format_number(val) for val in row)
-            lines.append(line)
+        texts = [self._format_column(data[:, j]) for j in range(data.shape[1])]
+        lines.extend(" ".join(row) for row in zip(*texts))
 
         # Add trailing newline for GLE compatibility
         self.data_files[filename] = "\n".join(lines) + "\n"
@@ -3015,6 +3018,56 @@ class GLEWriter:
                 self.add_data_file(filename, shared.columns, shared.header())
         self._shared_sidecars.clear()
 
+    def reserve_datasets(self, raw_lines: Sequence[str]) -> None:
+        """Keep the next graph block's datasets off the ``dN`` names
+        *raw_lines* use.
+
+        *raw_lines* is the raw GLE kept in that block (``Axes.passthrough``).
+        Replaces the previous block's reservations.
+
+        Notes
+        -----
+        Only the names raw GLE defines are reserved: those a ``data``
+        statement names and the target of a ``let``. A raw line that only
+        reads a dataset (a fit, a fill, a restyle) is left reading the name
+        the written series would have had anyway.
+
+        A ``data`` statement that names no datasets fills the lowest
+        undefined ones (``freedataset`` in GLE's graph.cpp), and the raw
+        statement is written after the series' own. So when the block keeps
+        one, every name up to the highest a raw line uses is reserved,
+        leaving those slots free for it.
+        """
+        defined: Set[int] = set()
+        used = 0
+        bare_data = False
+        for line in raw_lines:
+            # Names inside a string or a comment are not datasets.
+            code = _QUOTED_RE.sub("", line).split("!", 1)[0]
+            words = code.split(None, 1)
+            if not words:
+                continue
+            names = [int(m[1:]) for m in _DATASET_NAME_RE.findall(code)]
+            used = max([used, *names])
+            keyword = words[0].lower()
+            if keyword == "data":
+                defined.update(names)
+                bare_data = bare_data or not names
+            elif keyword == "let":
+                target = _DATASET_NAME_RE.findall(code.split("=", 1)[0])
+                defined.update(int(m[1:]) for m in target)
+        if bare_data:
+            defined.update(range(1, used + 1))
+        self._reserved_datasets = defined
+
+    def _new_dataset(self) -> str:
+        """Name a fresh dataset: the next ``dN`` that raw GLE does not use."""
+        while self.dataset_index in self._reserved_datasets:
+            self.dataset_index += 1
+        name = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        return name
+
     def _apply_offset(self, source_name: str, offset: float) -> str:
         """Emit a ``let`` command that shifts *source_name* vertically by *offset*.
 
@@ -3031,8 +3084,7 @@ class GLEWriter:
         ``let d2 = d1+5`` works, so the operator is glued to its operands. A
         negative offset is emitted as ``d1-5`` (not ``d1+-5``).
         """
-        shifted = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        shifted = self._new_dataset()
         mag = self._format_number(abs(offset))
         sign = "-" if offset < 0 else "+"
         self.lines_gle.append(f"    let {shifted} = {source_name}{sign}{mag}")
@@ -3191,8 +3243,7 @@ class GLEWriter:
         file_name = binding.data_file if binding is not None else data_file
 
         # Generate plot command with unique dataset name
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         self._dataset_names[id(series)] = d_name
 
         cmd = (
@@ -3394,8 +3445,7 @@ class GLEWriter:
             )
             values = self._as_missing(values, unmapped)
         d_name, d_values = self._mdata_data_line(series, binding, x, y, ("c", values))
-        d_mapped = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_mapped = self._new_dataset()
         low = self._format_number(float(series["vmin"]))
         high = self._format_number(float(series["vmax"]))
         # ``d2--5`` would not parse, so a negative vmin flips the operator.
@@ -3425,9 +3475,8 @@ class GLEWriter:
             binding,
         )
         file_name = binding.data_file if binding is not None else series["data_file"]
-        d_name = f"d{self.dataset_index}"
-        d_extra = f"d{self.dataset_index + 1}"
-        self.dataset_index += 2
+        d_name = self._new_dataset()
+        d_extra = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(file_name)} "
             f"{d_name}=c{cols[0]},c{cols[1]} {d_extra}=c{cols[0]},c{cols[2]}"
@@ -3721,10 +3770,8 @@ class GLEWriter:
         values = np.asarray(samples, dtype=float).ravel()
         index = np.arange(len(values), dtype=float)
         cols = self._write_columns(data_file, [("x", index), ("y", values)], None)
-        source = f"d{self.dataset_index}"
-        self.dataset_index += 1
-        target = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        source = self._new_dataset()
+        target = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{source}=c{cols[0]},c{cols[1]}"
@@ -3818,8 +3865,7 @@ class GLEWriter:
         cols = self._write_columns(
             series["data_file"], [("x", series["x"]), ("y", series["y"])], None
         )
-        source = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        source = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(series['data_file'])} "
             f"{source}=c{cols[0]},c{cols[1]}"
@@ -3923,8 +3969,7 @@ class GLEWriter:
         self, definition: str, series: Series, options: Sequence[str] = ()
     ) -> None:
         """``let dK = <definition> [from a] [to b] [step h] [options]`` and its line."""
-        target = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        target = self._new_dataset()
         self._dataset_names[id(series)] = target
         parts = [f"let {target} = {definition}"]
         for key, word in (("let_from", "from"), ("let_to", "to"), ("let_step", "step")):
@@ -4099,10 +4144,8 @@ class GLEWriter:
                 names,
                 binding,
             )
-            d_from = f"d{self.dataset_index}"
-            self.dataset_index += 1
-            d_name = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            d_from = self._new_dataset()
+            d_name = self._new_dataset()
             self.lines_gle.append(
                 f"    data {_format_data_filename(file_name)} "
                 f"{d_from}=c{cols[0]},c{cols[1]} {d_name}=c{cols[0]},c{cols[2]}"
@@ -4112,8 +4155,7 @@ class GLEWriter:
             cols = self._write_columns(
                 data_file, [("x", x), ("height", heights)], column_names, binding
             )
-            d_name = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            d_name = self._new_dataset()
             self.lines_gle.append(
                 f"    data {_format_data_filename(file_name)} "
                 f"{d_name}=c{cols[0]},c{cols[1]}"
@@ -4187,12 +4229,10 @@ class GLEWriter:
         clause = []
         for slot, origin in zip(to_slots, from_slots):
             if origin is not None:
-                from_name = f"d{self.dataset_index}"
-                self.dataset_index += 1
+                from_name = self._new_dataset()
                 from_names.append(from_name)
                 clause.append(f"{from_name}=c{cols[0]},c{cols[origin]}")
-            to_name = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            to_name = self._new_dataset()
             to_names.append(to_name)
             clause.append(f"{to_name}=c{cols[0]},c{cols[slot]}")
         self.lines_gle.append(
@@ -4553,8 +4593,7 @@ class GLEWriter:
             return cols[local_pos - 1]
 
         # Generate dataset name for main data
-        d_main = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_main = self._new_dataset()
 
         # Build data command with all dataset references
         data_cmd = (
@@ -4567,37 +4606,31 @@ class GLEWriter:
 
         if has_yerr:
             if yerr_symmetric:
-                d_yerr = f"d{self.dataset_index}"
-                self.dataset_index += 1
+                d_yerr = self._new_dataset()
                 data_cmd += f" {d_yerr}=c{cols[0]},c{_c(yerr_up_col)}"
                 err_datasets["yerr"] = d_yerr
             else:
                 if yerr_up_col is not None:
-                    d_yerr_up = f"d{self.dataset_index}"
-                    self.dataset_index += 1
+                    d_yerr_up = self._new_dataset()
                     data_cmd += f" {d_yerr_up}=c{cols[0]},c{_c(yerr_up_col)}"
                     err_datasets["yerr_up"] = d_yerr_up
                 if yerr_down_col is not None:
-                    d_yerr_down = f"d{self.dataset_index}"
-                    self.dataset_index += 1
+                    d_yerr_down = self._new_dataset()
                     data_cmd += f" {d_yerr_down}=c{cols[0]},c{_c(yerr_down_col)}"
                     err_datasets["yerr_down"] = d_yerr_down
 
         if has_xerr:
             if xerr_symmetric:
-                d_xerr = f"d{self.dataset_index}"
-                self.dataset_index += 1
+                d_xerr = self._new_dataset()
                 data_cmd += f" {d_xerr}=c{cols[0]},c{_c(xerr_left_col)}"
                 err_datasets["xerr"] = d_xerr
             else:
                 if xerr_left_col is not None:
-                    d_xerr_left = f"d{self.dataset_index}"
-                    self.dataset_index += 1
+                    d_xerr_left = self._new_dataset()
                     data_cmd += f" {d_xerr_left}=c{cols[0]},c{_c(xerr_left_col)}"
                     err_datasets["xerr_left"] = d_xerr_left
                 if xerr_right_col is not None:
-                    d_xerr_right = f"d{self.dataset_index}"
-                    self.dataset_index += 1
+                    d_xerr_right = self._new_dataset()
                     data_cmd += f" {d_xerr_right}=c{cols[0]},c{_c(xerr_right_col)}"
                     err_datasets["xerr_right"] = d_xerr_right
 
@@ -4771,16 +4804,14 @@ class GLEWriter:
         capsize = series.get("capsize")
         yaxis = series.get("yaxis", "y")
         xaxis = series.get("xaxis", "x")
-        d_main = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_main = self._new_dataset()
 
         data_cmd = (
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"
         )
         d_yerr = None
         if yerr_col is not None:
-            d_yerr = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            d_yerr = self._new_dataset()
             data_cmd += f" {d_yerr}=c{x_col},c{yerr_col}"
         self.lines_gle.append(data_cmd + self._data_read_clause(series))
 
@@ -4881,8 +4912,7 @@ class GLEWriter:
         markersize = series.get("markersize", 0.1)
         nomiss = series.get("nomiss", False)
         line_mode = series.get("line_mode")
-        d_main = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_main = self._new_dataset()
         self._dataset_names[id(series)] = d_main
 
         self.lines_gle.append(
@@ -4962,8 +4992,7 @@ class GLEWriter:
         color = series.get("color", "RED")
         label = series.get("label")
         swatch_color = series.get("swatch_color")
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_name}=c{x_col},c{y_col}"
             + self._data_read_clause(series)
@@ -5065,8 +5094,7 @@ class GLEWriter:
         swatch_color = series.get("swatch_color")
         target = series.get("target")
         clip = {name: series.get(name) for name in ("xmin", "xmax", "ymin", "ymax")}
-        d1_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d1_name = self._new_dataset()
         if target in ("x1", "x2", "polygon"):
             self.lines_gle.append(
                 f"    data {_format_data_filename(data_file)} "
@@ -5081,8 +5109,7 @@ class GLEWriter:
             self._append_fill(head, color, clip)
             self._fill_key(d1_name, color, label, swatch_color, False)
             return
-        d2_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d2_name = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{d1_name}=c{x_col},c{y1_col} {d2_name}=c{x_col},c{y2_col}"
@@ -5215,16 +5242,14 @@ class GLEWriter:
         file_name = binding.data_file if binding is not None else data_file
         clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
 
-        d1_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d1_name = self._new_dataset()
         data_cmd = (
             f"    data {_format_data_filename(file_name)} "
             f"{d1_name}=c{cols[0]},c{cols[1]}"
         )
         d2_name: Optional[str] = None
         if not single:
-            d2_name = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            d2_name = self._new_dataset()
             data_cmd += f" {d2_name}=c{cols[0]},c{cols[2]}"
         self.lines_gle.append(data_cmd)
 
@@ -5527,8 +5552,7 @@ class GLEWriter:
         Returns ``dK``, the dataset to draw. GLE keeps the points in their
         order, so a curve that winds back on itself is drawn as given.
         """
-        target = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        target = self._new_dataset()
         self.lines_gle.append(f"    let {target} = {source}*cos(x),{source}*sin(x)")
         return target
 
@@ -5903,12 +5927,11 @@ class GLEWriter:
         """
         z = np.asarray(z, dtype=float)
         ny, nx = z.shape
-        x0, x1, y0, y1 = (self._format_number(v) for v in extent)
+        x0, x1, y0, y1 = self._format_extent(extent)
         header = f"! nx {nx} ny {ny} xmin {x0} xmax {x1} ymin {y0} ymax {y1}"
         rows = z[::-1] if origin == "upper" else z
         lines = [header]
-        for row in rows:
-            lines.append(" ".join(self._format_number(v) for v in row))
+        lines.extend(self._format_grid(rows))
         content = "\n".join(lines) + "\n"
         self.data_files[filename] = content
         self.raw_sidecars.add(filename)
@@ -5924,12 +5947,8 @@ class GLEWriter:
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
         z = np.asarray(z, dtype=float)
-        lines = []
-        for xi, yi, zi in zip(x, y, z):
-            lines.append(
-                f"{self._format_number(xi)} {self._format_number(yi)} "
-                f"{self._format_number(zi)}"
-            )
+        columns = [self._format_column(c) for c in (x, y, z)]
+        lines = [" ".join(row) for row in zip(*columns)]
         content = "\n".join(lines) + "\n"
         self.data_files[filename] = content
         self.raw_sidecars.add(filename)
@@ -6056,7 +6075,7 @@ class GLEWriter:
         form would round away.
         """
         fmt = self._format_number
-        edges = [fmt(v) for v in series["extent"]]
+        edges = self._format_extent(series["extent"])
         x0, x1, y0, y1 = (float(v) for v in edges)
         z = np.asarray(series["z"], dtype=float)
         ny, nx = z.shape
@@ -6068,8 +6087,7 @@ class GLEWriter:
             ),
             "{} xmin {} xmax {} ymin {} ymax {}".format(CELLS_MARKER, *edges),
         ]
-        for row in np.vstack([z[:1], z]):
-            cells = [fmt(v) for v in row]
+        for cells in self._format_grid(np.vstack([z[:1], z]), joined=False):
             lines.append(" ".join([cells[0]] + cells))
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
@@ -6090,7 +6108,7 @@ class GLEWriter:
         :meth:`add_cells_sidecar`.
         """
         fmt = self._format_number
-        edges = [fmt(v) for v in series["extent"]]
+        edges = self._format_extent(series["extent"])
         x0, x1, y0, y1 = (float(v) for v in edges)
         z = np.asarray(series["z"], dtype=float)
         ny, nx = z.shape
@@ -6102,7 +6120,7 @@ class GLEWriter:
             "! nx {} ny {} xmin {} xmax {} ymin {} ymax {}".format(nx, ny, *bounds),
             "{} xmin {} xmax {} ymin {} ymax {}".format(NODES_MARKER, *edges),
         ]
-        lines.extend(" ".join(fmt(v) for v in row) for row in z)
+        lines.extend(self._format_grid(z))
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
 
@@ -6331,8 +6349,7 @@ class GLEWriter:
         ``cdata_file`` is the ``-cdata.dat`` file GLE generates from the
         contour block; it is plotted as a ``line`` dataset.
         """
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         self.lines_gle.append(f"    data {_quote_filename(cdata_file)} {d_name}=c1,c2")
         if linewidth == 0 or linewidth == 1:
             gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
@@ -6578,8 +6595,7 @@ class GLEWriter:
         difference is that no ``data`` statement ever gives this dataset any
         rows. Returns the dataset name.
         """
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         cmd = f"    {d_name}"
         if linestyle not in ("none", "None", "", " ", None):
             cmd += self._line_token()
@@ -6603,8 +6619,7 @@ class GLEWriter:
         it carries ``keyfill`` and a non-empty ``key``. Returns the dataset
         name. ``color`` is the same token the fill or the span sub uses.
         """
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         self.lines_gle.append(
             f"    {d_name} keyfill {color} key {self._quote_gle_key(label)}"
         )
@@ -6879,6 +6894,145 @@ class GLEWriter:
             formatted = f"{val:.{precision}g}"
             return formatted
         return str(val)
+
+    @classmethod
+    def _axis_range(cls, lo: Optional[float], hi: Optional[float], log: bool) -> str:
+        """The `` min .. max ..`` of an axis line.
+
+        The pair is one column; on a log axis each end is its own, since a
+        linear span says nothing about how far a decade-wide limit may move.
+        """
+        if log:
+            lo_text, hi_text = cls._format_column([lo]) + cls._format_column([hi])
+        else:
+            lo_text, hi_text = cls._format_column([lo, hi])
+        return (f" min {lo_text}" if lo is not None else "") + (
+            f" max {hi_text}" if hi is not None else ""
+        )
+
+    @classmethod
+    def _format_extent(cls, extent: Sequence[float]) -> List[str]:
+        """``(xmin, xmax, ymin, ymax)`` as text, each axis's pair one column."""
+        return cls._format_column(extent[:2]) + cls._format_column(extent[2:4])
+
+    @classmethod
+    def _format_grid(cls, z: np.ndarray, joined: bool = True) -> List[Any]:
+        """A 2-D grid's rows as text, the whole grid formatted as one column."""
+        texts = cls._format_column(z.ravel())
+        nx = z.shape[1]
+        rows = [texts[k : k + nx] for k in range(0, len(texts), nx)]
+        return [" ".join(row) for row in rows] if joined else rows
+
+    @classmethod
+    def _format_column(cls, values: Iterable[Any]) -> List[str]:
+        """Numbers that belong together (a data column, an axis range) as text.
+
+        Each value is written by :meth:`_format_number` unless that loses
+        data: two values written alike, a value written ``0``, or a value
+        above 1e10 cut short, when what is lost exceeds the column's
+        tolerance (:meth:`_column_tolerance`). Then every number of the
+        column is written with the fewest significant figures, at least six,
+        that keep it within half the tolerance, so a data column and the
+        axis range set around it round alike.
+
+        The written numbers are iterated to a fixed point, so a file read
+        back chooses the same precision and writes the same text.
+        Non-numeric entries (``*``) and non-finite ones are written by
+        :meth:`_format_number` as they always were.
+        """
+        values = list(values)
+        index = [
+            i
+            for i, v in enumerate(values)
+            if isinstance(v, (int, float)) and math.isfinite(v)
+        ]
+        numeric = set(index)
+        out = [
+            "" if i in numeric else cls._format_number(v) for i, v in enumerate(values)
+        ]
+        if not index:
+            return out
+        ordered, where = np.unique(
+            np.asarray([values[i] for i in index], dtype=float), return_inverse=True
+        )
+        texts = [cls._format_number(v) for v in ordered]
+        precision = cls._column_precision(ordered, texts)
+        while precision is not None:
+            texts = cls._column_texts(ordered, precision)
+            ordered = np.unique(np.asarray([float(t) for t in texts]))
+            # Rounding can only merge values, never reorder them.
+            where = np.searchsorted(ordered, [float(t) for t in texts])[where]
+            texts = cls._column_texts(ordered, precision)
+            settled = cls._column_precision(
+                ordered, [cls._format_number(v) for v in ordered]
+            )
+            if settled == precision:
+                break
+            if settled is None:
+                texts = [cls._format_number(v) for v in ordered]
+            precision = settled
+        for i, k in zip(index, where.ravel()):
+            out[i] = texts[k]
+        return out
+
+    @staticmethod
+    def _column_tolerance(ordered: np.ndarray) -> float:
+        """The smallest difference in ``ordered`` (sorted) that is data.
+
+        A millionth of the column's span: six significant figures of the
+        range the values cover, so samples a millionth of a curve's height
+        apart near a peak are not data, while timestamps a minute apart over
+        a few minutes are.
+        Never below 1e-12 of the largest magnitude, which is float noise
+        (``cos(pi / 2)`` is ``6e-17``).
+        """
+        size = max(abs(ordered[0]), abs(ordered[-1]))
+        return float(max(1e-6 * (ordered[-1] - ordered[0]), 1e-12 * size))
+
+    @classmethod
+    def _column_texts(cls, ordered: np.ndarray, precision: int) -> List[str]:
+        """``ordered`` at ``precision`` significant figures.
+
+        A value :meth:`_format_number` writes ``0`` stays ``0`` while it is
+        within half the column's tolerance of it, so float noise is not
+        written out and nothing is zeroed that was not zeroed before.
+        """
+        tol = cls._column_tolerance(ordered)
+        return [
+            "0" if abs(v) < 1e-10 and abs(v) <= tol / 2 else f"{v:.{precision}g}"
+            for v in ordered
+        ]
+
+    @classmethod
+    def _column_precision(cls, ordered: np.ndarray, texts: List[str]) -> Optional[int]:
+        """None when ``texts``, the sorted distinct ``ordered`` as
+        :meth:`_format_number` writes them, keep the column; else the precision.
+        """
+        tol = cls._column_tolerance(ordered)
+        size = np.abs(ordered)
+        if not (
+            np.any((size < 1e-10) & (size > tol / 2))
+            or any(
+                abs(float(t) - v) > tol / 2
+                for t, v, big in zip(texts, ordered, size > 1e10)
+                if big
+            )
+            or cls._merges(ordered, texts, tol)
+        ):
+            return None
+        for precision in range(6, 17):
+            written = np.array(
+                [float(t) for t in cls._column_texts(ordered, precision)]
+            )
+            if np.all(np.abs(written - ordered) <= tol / 2):
+                return precision
+        return 17
+
+    @staticmethod
+    def _merges(ordered: np.ndarray, texts: List[str], tol: float) -> bool:
+        """Whether neighbours of ``ordered`` more than ``tol`` apart read alike."""
+        same = np.array(texts[1:], dtype=object) == np.array(texts[:-1], dtype=object)
+        return bool(np.any(same & (np.diff(ordered) > tol)))
 
     @staticmethod
     def _escape_gle_string(value: str) -> str:

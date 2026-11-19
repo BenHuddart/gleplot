@@ -123,8 +123,9 @@ Saving the `.gle` script needs nothing extra. Compiling needs a LaTeX
 installation that GLE can run, and a LaTeX error fails the compile with
 LaTeX's message in the `GLECompileError`. PDF, EPS, PNG and JPG work; SVG
 raises `ValueError`, because GLE cannot put LaTeX in SVG. GLE keeps LaTeX's
-working files in a `.gle` directory beside the script, which is safe to
-delete.
+working files in a `.gle` directory beside the script. Once the compile
+succeeds, `savefig` removes the figure's own files there, and the directory
+if nothing else is left in it; pass `keep_intermediates=True` to keep them.
 
 ## Graph Configuration (GLEGraphConfig)
 
@@ -456,6 +457,26 @@ the default `data_N.dat` naming.
 Most other punctuation is allowed, including `.`, `-`, `_` and `#`. Note that
 `data_name` behaves differently: it takes a free-form *label* and sanitizes it
 into a filename stem, because no caller depends on its exact spelling.
+
+#### Number precision
+
+Sidecar numbers are written with 6 significant figures. A column that 6 figures
+would damage (two distinct values written alike, a value such as `1e-12`
+written `0`, or a value above `1e10` shortened) is written with as many
+figures as it needs instead, and so is an axis range set with `set_xlim` or
+`set_ylim`. Unix timestamps are the common case:
+
+    fig = glp.figure(data_prefix='stamps')
+    ax = fig.add_subplot(111)
+    ax.plot([1.7e9, 1.7e9 + 60, 1.7e9 + 121], [1, 2, 3])
+    fig.savefig('stamps.gle')   # stamps_0.dat holds 1700000000, 1700000060, ...
+
+Only a difference larger than a millionth of the range a column covers counts.
+A densely sampled curve keeps 6 figures where neighbouring samples near a peak
+round alike, and floating-point noise such as `np.cos(np.pi / 2)` in a column
+of values near 1 is still written `0`. A column of nothing but noise is written
+as it is, as matplotlib plots it. Other numbers in data units, such as a text
+position or a reference line, keep 6 figures.
 
 ## Resetting to Defaults
 

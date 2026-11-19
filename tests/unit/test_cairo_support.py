@@ -321,6 +321,22 @@ class TestSavefigCairoWiring:
         with pytest.warns(UserWarning, match="texcmr"):
             fig.savefig(str(tmp_path / "out.pdf"))
 
+    def test_unsafe_font_warning_blames_transparency_when_cairo_is_automatic(
+        self, tmp_path
+    ):
+        fig = self._figure_with_alpha(font="rm")
+        fig.compiler = mock.Mock()
+        with pytest.warns(UserWarning, match="semi-transparent colours"):
+            fig.savefig(str(tmp_path / "out.pdf"))
+
+    def test_unsafe_font_warning_names_an_explicit_cairo_request(self, tmp_path):
+        fig = self._plain_figure()
+        fig.style.font = "rm"
+        fig.compiler = mock.Mock()
+        with pytest.warns(UserWarning, match=r"\(cairo=True was requested\)") as rec:
+            fig.savefig(str(tmp_path / "out.pdf"), cairo=True)
+        assert not any("semi-transparent" in str(w.message) for w in rec)
+
     def test_safe_font_does_not_warn_when_cairo_active(self, tmp_path):
         fig = self._figure_with_alpha(font=CAIRO_SAFE_FONT)
         fig.compiler = mock.Mock()
