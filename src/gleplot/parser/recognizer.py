@@ -2734,6 +2734,7 @@ class _Recognizer:
             info["math_mode"] = True
 
         pass1 = self._collect_datasets(block, info)
+        self._claim_guide_bridges(block, info, pass1)
         self._mark_bars_that_stay_raw(block, pass1.datasets, info)
 
         for child in block.body:
@@ -3739,29 +3740,32 @@ class _Recognizer:
         return ref if expected == group else None
 
     def _seed_post_graph_guides(self, block: GraphBlock, info) -> None:
-        """Put the guides read after this graph on its axes, with their keys.
+        """Put the guides read after this graph on its axes, first."""
+        guides, self._post_graph_guides = self._post_graph_guides, []
+        for entry in guides:
+            info[entry.ATTR].append(entry)
+        info["_post_graph_guides"] = guides
+
+    def _claim_guide_bridges(self, block: GraphBlock, info, pass1) -> None:
+        """Claim the legend lines of the guides drawn after this graph.
 
         A labelled guide's legend entry is a data-free ``dN`` statement in
         the graph (:meth:`_guide_key_dataset`); each is claimed in order, so
         it is regenerated from the guide rather than read as a series. A
-        ``dN`` that a ``data`` or ``let`` statement fills is never a bridge.
+        ``dN`` that pass 1 found filled, by a ``data`` statement (named or
+        numbered by GLE) or a ``let``, is never a bridge.
         """
-        guides, self._post_graph_guides = self._post_graph_guides, []
         body = list(block.body)
-        filled: Set[str] = set()
+        filled: Set[str] = set(pass1.datasets)
         for child in body:
-            if isinstance(child, Statement) and (child.keyword or "").lower() in (
-                "data",
-                "let",
-            ):
+            if isinstance(child, Statement) and (child.keyword or "").lower() == "let":
                 filled.update(
                     t.value.lower()
                     for t in _words_and_values(child)
                     if t.type is TokenType.WORD and _DATASET_RE.match(t.value)
                 )
         claimed = cast(set, info["_guide_key_datasets"])
-        for entry in guides:
-            info[entry.ATTR].append(entry)
+        for entry in info.pop("_post_graph_guides", []):
             if not entry.get("label"):
                 continue
             for j, child in enumerate(body):
@@ -3972,6 +3976,10 @@ class _Recognizer:
                 )
                 continue
             name = self._marked_dataset_name(body, i + 1, marker["kind"])
+            # A line's label is its key clause here; only the after-graph
+            # form carries one in the marker.
+            if marker["kind"] == "refline" and marker["label"] is not None:
+                name = None
             if name is None or name in markers:
                 self._note(
                     ImportCategory.STRUCTURE,
@@ -7963,8 +7971,17 @@ class _Recognizer:
             low = line.strip().lower()
             if not in_sub:
                 if low.startswith("sub gleplot_") and (
-                    low.split()[1] not in _LEGACY_GUIDE_SUBS
+                    low.split()[1] in _LEGACY_GUIDE_SUBS
                 ):
+                    self._note(
+                        ImportCategory.STRUCTURE,
+                        f"'{low.split()[1]}' is a guide sub from gleplot 5, "
+                        "which gleplot no longer reads; it and the calls "
+                        "that use it were kept as raw GLE, not read back as "
+                        "a reference line or span",
+                        (idx, idx),
+                    )
+                elif low.startswith("sub gleplot_"):
                     in_sub = True
                     sub_name = low.split()[1]
                     nums.add(idx)

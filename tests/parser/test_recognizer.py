@@ -336,14 +336,6 @@ def normalize(d: dict) -> dict:
                 s["color"] = _apply_alpha(s["color"], s.get("alpha"))
             s.pop("alpha", None)
 
-        # A guide drawn after the graph writes no sidecar, so the name it is
-        # given on load is a fresh reservation, not the one it was built
-        # with. A dataset-form guide's sidecar name is pinned byte for byte
-        # by the fixed point.
-        for group in ("reflines", "spans"):
-            for s in ax.get(group, []):
-                s.pop("data_file", None)
-
         # Heatmap / contour series: grids and scattered points are written to
         # ``.z``/``.dat`` sidecars at 6 significant figures, extents/levels/
         # vmin/vmax to the emitted GLE precision; the colorbar's z-range comes
@@ -466,6 +458,16 @@ def test_to_dict_equivalence(name, tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     recognized = parse_gle_figure(gle_path).figure
     recovered = recognized.to_dict()
+
+    # A guide drawn after the graph writes no sidecar, so the name it is
+    # given on load is a fresh reservation, not the one it was built with.
+    written = {p.name for p in tmp_path.iterdir()}
+    for ax_o, ax_r in zip(original["figure"]["axes"], recovered["figure"]["axes"]):
+        for group in ("reflines", "spans"):
+            for g_o, g_r in zip(ax_o.get(group, []), ax_r.get(group, [])):
+                if g_o.get("data_file") not in written:
+                    g_o.pop("data_file", None)
+                    g_r.pop("data_file", None)
 
     assert normalize(recovered) == normalize(original)
 

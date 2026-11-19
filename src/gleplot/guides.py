@@ -120,7 +120,7 @@ GRAPHUTIL_INCLUDE = "graphutil.gle"
 #     an autoscaled axis it is not;
 #   * **a span's label** -- GLE's ``fill dA,dB`` has no ``key`` option, so the
 #     dataset form has never had anywhere to put it (the after-graph form has the
-#     same gap; see ``GLEWriter.add_span_draw``). Omitted from the marker when
+#     same gap; see ``GLEWriter.add_span``). Omitted from the marker when
 #     empty, so an unlabelled band costs no extra bytes.
 #
 # A span's ``alpha`` is deliberately NOT carried: it is folded into the

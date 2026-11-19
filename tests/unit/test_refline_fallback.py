@@ -208,10 +208,11 @@ def test_a_guide_carries_every_styling_field_the_dataset_form_did():
     assert '    d1 line color RED lwidth 0.07056 lstyle 3 key "say ""hi"""' in text
 
 
-def test_a_lineless_guide_draws_nothing_but_is_still_declared():
-    """``linestyle='none'``: the style is written, the call is not."""
+@pytest.mark.parametrize("linestyle", ["none", None])
+def test_a_lineless_guide_draws_nothing_but_is_still_declared(linestyle):
+    """No line: the style is written, the call is not."""
     fig, ax = _empty_axes()
-    ax.axvline(0.5, linestyle="none")
+    ax.axvline(0.5, linestyle=linestyle)
     text, _files = _generate(fig)
 
     assert _draw_calls(text) == ["set color BLACK lwidth 0.05292"]

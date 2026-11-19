@@ -5917,7 +5917,10 @@ class Axes:
         -----
         The line is realized as a two-point dataset whose end points are
         computed when the figure is written, so it tracks any axis limits set
-        afterwards. It is drawn *underneath* the data series.
+        afterwards. It is drawn *underneath* the data series. When the axis
+        it spans has no data and no limit, or its data collapses to one
+        value, it is drawn after the graph instead, above the data; see
+        :doc:`guides/REFERENCE_LINES_AND_SPANS`.
         """
         return self._add_refline(
             "v", x, ymin, ymax, color, linestyle, linewidth, label, kwargs
@@ -6163,7 +6166,7 @@ class Axes:
         Two kinds of guide materialize into nothing here: hidden ones
         (``visible = False``, SPEC 14.6), and -- since G17 -- ones whose
         spanned axis has an unresolved bound. The latter are the figures the
-        literal dataset got wrong; they are emitted as ``draw`` calls instead
+        literal dataset got wrong; they are drawn after the graph instead
         (see :meth:`guide_needs_engine_range` and :mod:`gleplot.guides`), and
         :meth:`engine_range_guides` is how the writer collects them.
         """

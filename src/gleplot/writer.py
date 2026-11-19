@@ -96,7 +96,7 @@ from .sources import (
 _QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
 
 #: The linestyles a guide draws no line for.
-_NO_LINE = ("none", "None", "", " ")
+_NO_LINE = ("none", "None", "", " ", None)
 
 #: The sub behind every pie slice (:meth:`GLEWriter.add_wedge`). Called after
 #: ``end graph``, where ``xg()``/``yg()`` still address the graph just closed.
