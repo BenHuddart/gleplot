@@ -1063,6 +1063,37 @@ def test_no_data_statement_added_for_unused_or_rewritten_file(tmp_path, body):
     assert not any(line.lstrip().startswith("data") for line in ax.passthrough)
 
 
+@pytest.mark.parametrize(
+    "data",
+    ["0 1 2 1\n1 2 3 2\n", "a 2 3\nb 3 4\nc 5 6\n"],
+    ids=["numeric", "text-x"],
+)
+def test_unused_columns_of_a_data_statement_are_not_reported(tmp_path, data):
+    """#277: columns nothing reads are not 'only referenced by raw GLE'."""
+    src = (
+        'size 12 9\nbegin graph\n   data "h3.dat"\n   d1 line\n'
+        '   ! d2 is unused\n   title "d3"\nend graph\n'
+    )
+    rec = parse_gle_figure(_write(tmp_path, "u.gle", src, {"h3.dat": data}))
+    assert not any("mixes datasets" in w for w in rec.warnings)
+    passthrough = rec.figure.axes_list[0].passthrough
+    assert not any(line.lstrip().startswith("data") for line in passthrough)
+
+
+def test_a_raw_fill_keeps_its_datasets_beside_a_modelled_line(tmp_path):
+    """A raw line naming the other datasets gets a data statement for them."""
+    src = (
+        'size 12 9\nbegin graph\n   data "h3.dat"\n   d1 line\n'
+        "   fill d2,d3 color red foo\nend graph\n"
+    )
+    p = _write(tmp_path, "r.gle", src, {"h3.dat": "0 1 2 1\n1 2 3 2\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].passthrough == [
+        "    data h3.dat d2=c1,c3 d3=c1,c4",
+        "   fill d2,d3 color red foo",
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Finding 12 -- duplicate data command redefining a dataset
 # --------------------------------------------------------------------------- #
