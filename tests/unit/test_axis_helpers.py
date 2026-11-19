@@ -252,7 +252,9 @@ def test_set_xticklabels_without_matching_ticks_raises():
 def test_set_xticklabels_warns_on_what_it_cannot_honour():
     _fig, ax = _axes()
     ax.set_xticks([1, 2])
-    with pytest.warns(UserWarning, match="ignores fontdict, rotation"):
+    with pytest.warns(
+        UserWarning, match=r"ignores unsupported keyword\(s\): fontdict, rotation"
+    ):
         ax.set_xticklabels(["a", "b"], fontdict={}, rotation=45)
     assert ax.xnames == ["a", "b"]
     with pytest.warns(UserWarning, match="minor=True"):
@@ -313,8 +315,17 @@ def test_axis_rejects_what_matplotlib_rejects():
         ax.axis("sideways")
     with pytest.raises(TypeError, match=r"\[xmin, xmax, ymin, ymax\]"):
         ax.axis([0, 1])
-    with pytest.raises(TypeError, match="'zmin'"):
-        ax.axis(zmin=0)
+    with pytest.raises(TypeError, match="together with"):
+        ax.axis([0, 1, 0, 1], xmin=0)
+
+
+def test_axis_warns_on_an_unknown_keyword():
+    _fig, ax = _axes()
+    with pytest.warns(
+        UserWarning, match=r"axis\(\) ignores unsupported keyword\(s\): zmin"
+    ):
+        ax.axis(xmin=0, zmin=0)
+    assert ax.get_xlim()[0] == 0
 
 
 def test_axis_emit_false_warns():

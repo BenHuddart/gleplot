@@ -811,7 +811,7 @@ class Figure:
 
         self._subplot_adjust = candidate
 
-    def add_subplot(self, *args, projection: Optional[str] = None) -> Axes:
+    def add_subplot(self, *args, projection: Optional[str] = None, **kwargs) -> Axes:
         """
         Add subplot to figure.
 
@@ -842,7 +842,12 @@ class Figure:
         three methods above, the legend, the title and the radial limit;
         other plotting methods and cartesian settings such as
         :meth:`Axes.set_xlim` raise ``NotImplementedError``.
+
+        Any other keyword, such as matplotlib's Axes properties (``title``,
+        ``xlabel``, ...), warns and is ignored: set them on the returned
+        axes.
         """
+        warn_unsupported_keywords("add_subplot", kwargs)
         if projection not in (None, "rectilinear", "polar"):
             raise ValueError(
                 f"add_subplot(projection={projection!r}) is not supported; "
@@ -1812,6 +1817,7 @@ class Figure:
         nticks: Optional[int] = None,
         width: float = 0.5,
         sep: Optional[float] = None,
+        **kwargs,
     ):
         """Attach a colorbar to a heatmap or a colour-mapped scatter.
 
@@ -1895,7 +1901,11 @@ class Figure:
         range baked at ``colorbar()`` time. Explicit ``vmin``/``vmax`` on the
         heatmap short-circuit that and are used as-is, here and at write time
         alike.
+
+        Any other keyword (``shrink``, ``pad``, ``extend``, ...) warns and is
+        ignored.
         """
+        warn_unsupported_keywords("colorbar", kwargs)
         if orientation not in (None, "vertical", "horizontal"):
             raise ValueError(
                 f"colorbar() orientation must be 'vertical' or 'horizontal', "

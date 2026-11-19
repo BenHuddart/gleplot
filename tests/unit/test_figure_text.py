@@ -89,7 +89,9 @@ def test_subplots_adjust_top_overrides_the_suptitle_room():
 
 def test_suptitle_unsupported_keyword_warns():
     fig = glp.figure()
-    with pytest.warns(UserWarning, match=r"suptitle\(fontweight=...\)"):
+    with pytest.warns(
+        UserWarning, match=r"suptitle\(\) ignores unsupported keyword\(s\): fontweight"
+    ):
         fig.suptitle("t", fontweight="bold")
 
 
@@ -125,7 +127,10 @@ def test_fontdict_must_be_a_dict():
 
 def test_figure_text_warns_on_a_transform():
     fig = glp.figure()
-    with pytest.warns(UserWarning, match=r"Figure.text\(transform=...\)"):
+    with pytest.warns(
+        UserWarning,
+        match=r"Figure.text\(\) ignores unsupported keyword\(s\): transform",
+    ):
         fig.text(0.5, 0.5, "x", transform=None)
 
 

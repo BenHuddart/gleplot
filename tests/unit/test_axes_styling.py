@@ -265,13 +265,27 @@ def test_grid_accepts_a_raw_gle_lstyle_number():
         ({"axis": "y2"}, "must be 'both', 'x' or 'y'"),
         ({"linestyle": "wiggly"}, "is not a matplotlib line style"),
         ({"linewidth": 0}, "must be positive"),
-        ({"alpha": 0.5}, "unsupported keyword argument"),
     ],
 )
 def test_grid_rejects_nonsense(kwargs, match):
     _, ax = _fig()
     with pytest.raises(ValueError, match=match):
         ax.grid(True, **kwargs)
+
+
+def test_grid_takes_matplotlibs_line_aliases_and_warns_on_other_keywords():
+    _, ax = _fig()
+    with pytest.warns(
+        UserWarning, match=r"grid\(\) ignores unsupported keyword\(s\): alpha"
+    ):
+        ax.grid(True, c="red", ls="--", lw=2, alpha=0.5)
+    _, styled = _fig()
+    styled.grid(True, color="red", linestyle="--", linewidth=2)
+    assert (ax.xgrid_color, ax.xgrid_lstyle, ax.xgrid_lwidth) == (
+        styled.xgrid_color,
+        styled.xgrid_lstyle,
+        styled.xgrid_lwidth,
+    )
 
 
 def test_grid_linestyle_follows_a_custom_style_config():
@@ -496,13 +510,19 @@ def test_the_wrappers_pass_the_label_keywords_through(via):
 
 def test_the_module_wrappers_take_matplotlibs_positional_order():
     fig, ax = _fig()
-    with pytest.warns(UserWarning, match=r"set_xlabel\(\): fontdict not"):
+    with pytest.warns(
+        UserWarning, match=r"set_xlabel\(\) ignores unsupported keyword\(s\): fontdict"
+    ):
         glp.xlabel("X", {"fontsize": 9}, 4)
     with pytest.warns(UserWarning, match=r"set_title\(loc='left'\) is drawn"):
         glp.title("T", None, "left", 6)
-    with pytest.warns(UserWarning, match=r"set_ylabel\(\): fontdict not"):
+    with pytest.warns(
+        UserWarning, match=r"set_ylabel\(\) ignores unsupported keyword\(s\): fontdict"
+    ):
         glp.ylabel("Y", {"fontsize": 9}, 2)
-    with pytest.warns(UserWarning, match=r"set_title\(\): y not"):
+    with pytest.warns(
+        UserWarning, match=r"set_title\(\) ignores unsupported keyword\(s\): y"
+    ):
         glp.title("T", y=1.1)
     dist4, dist6 = f"{fontsize_pt_to_cm(4):.6g}", f"{fontsize_pt_to_cm(6):.6g}"
     assert _line_starting(fig, "xtitle") == f'xtitle "X" dist {dist4}'
@@ -521,7 +541,10 @@ def test_relabelling_keeps_the_style_and_none_resets_it():
 
 def test_other_text_keywords_warn_and_centre_is_silent():
     fig, ax = _fig()
-    with pytest.warns(UserWarning, match=r"set_title\(\): fontdict, fontweight not"):
+    with pytest.warns(
+        UserWarning,
+        match=r"set_title\(\) ignores unsupported keyword\(s\): fontdict, fontweight",
+    ):
         ax.set_title("T", {"fontsize": 9}, fontweight="bold")
     with pytest.warns(UserWarning, match=r"set_ylabel\(loc='top'\) is drawn centred"):
         ax.set_ylabel("Y", loc="top")
