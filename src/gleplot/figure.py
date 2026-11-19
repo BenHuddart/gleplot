@@ -2623,8 +2623,12 @@ class Figure:
         cache directory into ``export_dir``. A successful compile removes
         this script's folder in it and any ``texpreamble.*`` files the
         compile created, then the directory if it is empty. Preamble files
-        that were already there are left, since other figures in the same
-        directory share them. ``keep_intermediates=True`` keeps the cache.
+        are left if they were already there, or if another figure's folder
+        is in the cache, since other figures in the same directory share
+        them. Two first-time compiles started together in one directory can
+        still remove a preamble the other is using; give such parallel
+        saves separate directories. ``keep_intermediates=True`` keeps the
+        cache.
         """
         # matplotlib keywords with no GLE counterpart, and their defaults.
         for name, default in (

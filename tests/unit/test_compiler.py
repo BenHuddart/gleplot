@@ -949,6 +949,21 @@ def test_savefig_removes_its_own_tex_folder_left_by_an_earlier_save(tmp_path):
     assert sorted(p.name for p in (tmp_path / ".gle").iterdir()) == ["texpreamble.tex"]
 
 
+def test_savefig_keeps_new_preamble_while_another_script_uses_the_cache(tmp_path):
+    fig = _tex_figure_with_fake_compiler()
+
+    def concurrent(script, *args, **kwargs):
+        _tex_compile(script)
+        (Path(script).parent / ".gle" / "other").mkdir()
+
+    fig.compiler.compile.side_effect = concurrent
+    fig.savefig(str(tmp_path / "f.pdf"))
+    assert sorted(p.name for p in (tmp_path / ".gle").iterdir()) == [
+        "other",
+        "texpreamble.tex",
+    ]
+
+
 def test_savefig_keep_intermediates_keeps_the_tex_cache(tmp_path):
     fig = _tex_figure_with_fake_compiler()
     fig.savefig(str(tmp_path / "f.pdf"), keep_intermediates=True)

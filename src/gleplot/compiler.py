@@ -302,19 +302,26 @@ def _remove_tex_cache(
     in a ``.gle/`` directory beside the script: a ``<stem>/`` folder that
     belongs to that script alone, and ``texpreamble.*`` files that every
     script in the directory with the same preamble shares. The ``<stem>/``
-    folder is removed; a ``texpreamble.*`` file only if it is not in
-    ``existing`` (the names the cache held before the compile), and the
-    cache directory only if that leaves it empty. Nothing else is touched,
-    so another script's entries survive.
+    folder is removed. A ``texpreamble.*`` file is removed only if it is not
+    in ``existing`` (the names the cache held before the compile) and no
+    other script's folder is in the cache, since that script may be using
+    the preamble right now. The cache directory goes only if that leaves it
+    empty. Nothing else is touched.
+
+    Two first-time compiles started together in one directory can still
+    race: if one finishes before the other's LaTeX run has made its folder,
+    it removes the preamble that run is using, and that compile may fail.
     """
     cache_dir = Path(cache_dir)
     if not stem or stem in (".", ".."):
         return
     shutil.rmtree(cache_dir / stem, ignore_errors=True)
     try:
-        for entry in cache_dir.iterdir():
-            if entry.name.startswith("texpreamble.") and entry.name not in existing:
-                entry.unlink()
+        entries = list(cache_dir.iterdir())
+        if all(e.name.startswith("texpreamble.") for e in entries):
+            for entry in entries:
+                if entry.name not in existing:
+                    entry.unlink()
         cache_dir.rmdir()
     except OSError:
         # Best effort: a missing or non-empty cache, or a file another
