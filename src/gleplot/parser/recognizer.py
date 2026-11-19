@@ -2363,6 +2363,19 @@ class _Recognizer:
         self._polar_labels_rmax = axes_info["polar_rmax"]
         texts, consumed = self._consume_text_cluster(nodes, after_key)
         self._polar_labels_rmax = None
+        for node in nodes[after_key:consumed]:
+            # The matcher skips comments as it skips blank lines; the
+            # model has nowhere to keep one in place.
+            if (
+                isinstance(node, BlankOrComment)
+                and self._stmt_text(node.statement).strip()
+            ):
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    "comment among the text, pie, box or rug commands after "
+                    "'end graph' is not written back on save",
+                    self._stmt_span(node.statement),
+                )
         if axes_info["polar_rmax"] is not None and not any(
             t is _POLAR_LABELS for t in texts
         ):
@@ -3432,6 +3445,8 @@ class _Recognizer:
             for t in pass1.merged_attr_toks.get(name, ()):
                 if _DATASET_RE.match(t.value):
                     raw_refs.add(t.value.lower())
+        # Raw lines that may read a dataset; a comment or a string never does.
+        raw_code = [re.sub(r'"[^"]*"|!.*', "", line) for line in info["passthrough"]]
         restored: List[str] = []
         for names, text, data_line_no, defs, read_options in pass1.data_stmts:
             if not any(n in consumed for n in names):
@@ -3440,17 +3455,25 @@ class _Recognizer:
                 # Mixed: some of this statement's datasets became real
                 # series (the writer will regenerate a 'data' line for
                 # those), others are orphaned (raw text refers to them but
-                # nothing carries 'data_file' for them). Re-emitting the
-                # whole original line would duplicate the modeled portion;
-                # dropping it silently loses the rest.
-                orphans = [n for n in names if n in raw_refs]
-                if orphans:
-                    clause = self._orphan_data_clause(
-                        [(n, defs[n]) for n in orphans], read_options, info
-                    )
-                    if clause is not None:
-                        restored.append(clause)
-                        continue
+                # nothing carries 'data_file' for them), and any others are
+                # read by nothing. Re-emitting the whole original line would
+                # duplicate the modeled portion; dropping it silently loses
+                # the orphans.
+                orphans = [
+                    n
+                    for n in names
+                    if n not in consumed
+                    and (n in raw_refs or _mention_count(raw_code, n))
+                ]
+                if not orphans:
+                    # The rest are read by nothing: dropping them loses nothing.
+                    continue
+                clause = self._orphan_data_clause(
+                    [(n, defs[n]) for n in orphans], read_options, info
+                )
+                if clause is not None:
+                    restored.append(clause)
+                    continue
                 # Otherwise surface it instead of guessing.
                 #
                 # A bar that cannot be modeled (an unmodelled sub-command, or
@@ -7951,10 +7974,7 @@ class _Recognizer:
             ),
             data_file=data_file,
         )
-        qualifiers = dict(attrs["qualifiers"])
-        for name in ("xmin", "xmax", "ymin", "ymax"):
-            if name in qualifiers:
-                entry[name] = qualifiers.pop(name)
+        entry.update(attrs["qualifiers"])
         if not err_consts:
             # Column indices in the SAME order the writer emits them (x, y,
             # then y-error column(s) collapsed to one when symmetric i.e.
@@ -7976,19 +7996,6 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
-        if qualifiers:
-            # Axes.errorbar has no such fields: GLE thins the markers but
-            # not the whiskers under deresolve (getErrorBarData).
-            # Name the GLE words the file used, not the field names.
-            names = ", ".join(
-                "average" if q == "deresolve_average" else q for q in qualifiers
-            )
-            self._note(
-                ImportCategory.DATA,
-                f"{names} on an error-bar dataset is not modelled and was "
-                "dropped on re-save",
-                span,
-            )
         info["errorbars"].append(entry)
 
     def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
