@@ -61,6 +61,22 @@ def test_imshow_colorbar_recovered(tmp_path):
     assert cb["width"] == 0.4 and cb["sep"] == 0.6
 
 
+def test_a_colorbar_with_a_moved_label_stays_raw(tmp_path):
+    """A label placed other than where the writer puts it keeps its group raw."""
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2))
+    fig.colorbar(label="phi")
+    path = _save(fig, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert "(yg(ygmin)+yg(ygmax))/2\n" in text
+    path.write_text(text.replace("(yg(ygmin)+yg(ygmax))/2\n", "yg(ygmax)\n"))
+
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    out = rec.figure._generate_gle_with_files()[0]
+    assert 'write "phi"' in out and out.count("color_range_vertical") == 1
+
+
 def test_per_axes_and_horizontal_colorbars_recovered(tmp_path):
     fig, (a, b) = glp.subplots(1, 2, figsize=(10, 4), data_prefix="g")
     ha = a.imshow(np.arange(4.0).reshape(2, 2), cmap="viridis")

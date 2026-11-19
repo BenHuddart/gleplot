@@ -38,7 +38,7 @@ Reversed maps
 -------------
 Every name also has a reversed form with ``_r`` appended, as in matplotlib
 (``RdBu_r`` is ``RdBu`` read from 1 down to 0). Each is its own
-``gleplot_<name>_r`` sub, so the colorbar subs, which take only the palette
+``gleplot_<name>_r`` sub, so a colorbar, which takes only the palette
 name, draw it reversed too: the forward body with ``z = 1-z`` first, or, for a
 stepped (qualitative) map, its colours listed backwards. GLE's
 ``colormap ... invert`` switch flips the normalized z in the same way but only

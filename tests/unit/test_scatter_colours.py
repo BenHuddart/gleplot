@@ -340,7 +340,7 @@ def test_colorbar_shows_the_scatter_range():
         "color_range_vertical zmin 0 zmax 300 zstep (300-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width 0.5 height yg(ygmax)-yg(ygmin) '
         'format "fix 0" pixels 200\n'
-        "amove xg(xgmax)+(1.33333)+max(twidth(format$(0,\"fix 0\")),"
+        'amove xg(xgmax)+(0.3+0.5*5/3+0.2)+max(twidth(format$(0,"fix 0")),'
         'twidth(format$(300,"fix 0"))) (yg(ygmin)+yg(ygmax))/2\n'
         "set just tc\n"
         "begin rotate 90\n"

@@ -1008,7 +1008,7 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
         "color_range_vertical zmin 0 zmax 10 zstep (10-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width 0.4 height yg(ygmax)-yg(ygmin) '
         'format "fix 1" pixels 200\n'
-        "amove xg(xgmax)+(1.36667)+max(twidth(format$(0,\"fix 1\")),"
+        'amove xg(xgmax)+(0.5+0.4*5/3+0.2)+max(twidth(format$(0,"fix 1")),'
         'twidth(format$(10,"fix 1"))) (yg(ygmin)+yg(ygmax))/2\n'
         "set just tc\n"
         "begin rotate 90\n"
@@ -1112,7 +1112,7 @@ def test_horizontal_colorbar_is_drawn_below_and_reserves_the_bottom():
         "color_range_horizontal zmin 0 zmax 4 zstep (4-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width xg(xgmax)-xg(xgmin) height 0.4 '
         'format "fix 1" pixels 200\n'
-        'amove (xg(xgmin)+xg(xgmax))/2 yg(ygmin)-(2.36667)-theight("0")\n'
+        'amove (xg(xgmin)+xg(xgmax))/2 yg(ygmin)-(1.5+0.4*5/3+0.2)-theight("0")\n'
         "set just tc\n"
         'write "z"\n'
         "grestore"
@@ -1268,7 +1268,13 @@ def test_a_collapsed_colorbar_range_is_widened_to_one_unit():
 
 @pytest.mark.parametrize(
     "zmin, zstep, expected",
-    [(0, 2, "fix 0"), (0, 0.2, "fix 1"), (0, 0.15, "fix 2"), (0.05, 1, "fix 2")],
+    [
+        (0, 2, "fix 0"),
+        (0, 0.2, "fix 1"),
+        (0, 0.15, "fix 2"),
+        (0.05, 1, "fix 2"),
+        (3e-10, 1e-10, "fix 10"),
+    ],
 )
 def test_the_default_tick_format_writes_every_tick_exactly(zmin, zstep, expected):
     assert colorbar_format(zmin, zstep) == expected

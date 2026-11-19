@@ -430,8 +430,7 @@ def colorbar_format(zmin: float, zstep: float) -> str:
     cap = max(0, math.ceil(-math.log10(step)) + 1) if step > 0 else 1
     for decimals in range(max(cap, 3) + 1):
         if all(
-            abs(round(v, decimals) - v) <= 1e-9 * max(1.0, abs(v))
-            for v in (zmin, zstep)
+            abs(round(v, decimals) - v) <= 1e-6 * (step or 1.0) for v in (zmin, zstep)
         ):
             return f"fix {decimals}"
     return f"fix {cap}"
@@ -882,7 +881,7 @@ class SourceResolution:
 
 #: Marker key on a colorbar dict meaning "this range is computed per write".
 #: Absent (the historical shape, and what the recognizer rebuilds from an
-#: emitted ``gleplot_colorbar_v`` call) means the stored numbers are explicit
+#: emitted ``color_range_vertical`` call) means the stored numbers are explicit
 #: and are emitted untouched.
 COLORBAR_AUTO_RANGE = "auto_range"
 
@@ -6092,21 +6091,20 @@ class GLEWriter:
             f'palette "{palette}" {size} '
             f'format "{number_format}" pixels 200'
         )
-        lines += self.colorbar_label_lines(cb, zmin, zmax, number_format)
+        drawn = dict(cb, zmin=zmin, zmax=zmax, format=number_format)
+        lines += self.colorbar_label_lines(drawn)
         lines.append("grestore")
         self.lines_gle.extend(lines)
         self._includes.add(COLOR_INCLUDE)
 
     @classmethod
-    def colorbar_label_lines(
-        cls, cb: dict, zmin: float, zmax: float, number_format: str
-    ) -> List[str]:
+    def colorbar_label_lines(cls, cb: dict) -> List[str]:
         """The lines that write a colorbar's ``label`` beside its bar.
 
-        ``cb`` is the colorbar dict; ``zmin``, ``zmax`` and ``number_format``
-        are the range and format the bar is drawn with. No label writes
-        nothing. A vertical bar's label reads bottom to top, centred on the
-        bar, :data:`COLORBAR_LABEL_PAD` cm right of the widest of the first
+        ``cb`` is the colorbar dict, with the ``zmin``, ``zmax`` and
+        ``format`` the bar is drawn with. No label writes nothing. A
+        vertical bar's label reads bottom to top, centred on the bar,
+        :data:`COLORBAR_LABEL_PAD` cm right of the widest of the first
         and last tick numbers (measured by GLE's ``twidth``); a horizontal
         bar's is centred under its tick numbers, as far below them.
         ``color.gle`` puts the numbers two thirds of the bar's thickness
@@ -6116,24 +6114,20 @@ class GLEWriter:
         if not label:
             return []
         fmt = cls._format_number
-        offset = (
-            float(cb["sep"]) + 5 * float(cb["width"]) / 3 + COLORBAR_LABEL_PAD
-        )
+        # Built from the printed sep and width, so a re-read writes it again.
+        offset = f"{fmt(cb['sep'])}+{fmt(cb['width'])}*5/3+{COLORBAR_LABEL_PAD}"
         text = f'write "{cls._escape_gle_string(label)}"'
         if cb.get("orientation") == "horizontal":
-            # Written as ``-(off)``: a negative gap must not print ``--``.
             return [
-                f"amove (xg(xgmin)+xg(xgmax))/2 "
-                f'yg(ygmin)-({fmt(offset)})-theight("0")',
+                f"amove (xg(xgmin)+xg(xgmax))/2 " f'yg(ygmin)-({offset})-theight("0")',
                 "set just tc",
                 text,
             ]
         widest = ",".join(
-            f'twidth(format$({fmt(z)},"{number_format}"))' for z in (zmin, zmax)
+            f'twidth(format$({fmt(cb[z])},"{cb["format"]}"))' for z in ("zmin", "zmax")
         )
         return [
-            f"amove xg(xgmax)+({fmt(offset)})+max({widest}) "
-            "(yg(ygmin)+yg(ygmax))/2",
+            f"amove xg(xgmax)+({offset})+max({widest}) (yg(ygmin)+yg(ygmax))/2",
             "set just tc",
             "begin rotate 90",
             text,

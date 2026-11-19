@@ -9384,7 +9384,7 @@ class _Recognizer:
             return None
         sep = self._amove_colorbar_sep(_words_and_values(stmts[1]))
         # The label's lines, up to the closing grestore.
-        body = []
+        body: List[object] = []
         while j < len(nodes) and len(body) < 5:
             st = self._as_statement(nodes[j])
             if st is not None and (st.keyword or "").lower() == "grestore":
@@ -9410,7 +9410,9 @@ class _Recognizer:
         last = body[-1]
         if isinstance(last, OpaqueBlock) and last.block_type == "rotate":
             inner = _rotate_or_box_body(last.inner_lines)
-            label = inner[0] if inner is not None and inner[1:] == (None, None) else None
+            label = (
+                inner[0] if inner is not None and inner[1:] == (None, None) else None
+            )
         else:
             label = _plain_write_string(self._as_statement(last))
         if not label or sep is None:
@@ -9419,15 +9421,13 @@ class _Recognizer:
             "label": label,
             "sep": sep,
             "width": _as_float(args.get("height" if horizontal else "width"), 0.5),
+            "zmin": _as_float(args.get("zmin"), 0.0),
+            "zmax": _as_float(args.get("zmax"), 1.0),
+            "format": str(args.get("format")),
         }
         if horizontal:
             cb["orientation"] = "horizontal"
-        written = GLEWriter.colorbar_label_lines(
-            cb,
-            _as_float(args.get("zmin"), 0.0),
-            _as_float(args.get("zmax"), 1.0),
-            str(args.get("format")),
-        )
+        written = GLEWriter.colorbar_label_lines(cb)
         read = [line.strip() for node in body for line in self._raw_lines(node)]
         return label if read == written else None
 

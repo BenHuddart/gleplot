@@ -3309,10 +3309,9 @@ class Figure:
     # though since metadata v2 the emitted rect is also read straight back, so
     # the round trip no longer depends on the re-derivation matching.
 
-    #: Nominal tick-label text height (cm) used only to size the reserved
-    #: colorbar margin. A fixed constant (not derived from ``style.fontsize``)
-    #: keeps the reservation a pure function of the round-tripping colorbar
-    #: dict; a little slack here only widens the margin slightly.
+    #: Smallest tick-label text height (cm) the reserved colorbar margin is
+    #: sized for; the figure's own font size is used when it is larger, as
+    #: ``color.gle`` writes the numbers in it.
     _CBAR_TEXT_HEI_CM = 0.42
 
     @staticmethod
@@ -3347,8 +3346,7 @@ class Figure:
 
         return max(width_of(zmin), width_of(zmax), 3)
 
-    @classmethod
-    def _colorbar_reserved_cm(cls, cb: dict) -> float:
+    def _colorbar_reserved_cm(self, cb: dict) -> float:
         """Right-hand space (cm), measured from ``xgmax``, a vertical bar needs.
 
         Sized from how ``color.gle``'s ``color_range_vertical`` lays out:
@@ -3359,10 +3357,9 @@ class Figure:
         """
         wd = float(cb["width"])
         sep = float(cb["sep"])
-        hei = cls._CBAR_TEXT_HEI_CM
-        charw = 0.6 * hei
-        nchars = cls._estimate_tick_chars(cb["zmin"], cb["zmax"], _cbar_format(cb))
-        tick_extent = 2 * wd / 3.0 + nchars * charw
+        hei = max(self._CBAR_TEXT_HEI_CM, fontsize_pt_to_cm(self.style.fontsize))
+        nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], _cbar_format(cb))
+        tick_extent = 2 * wd / 3.0 + nchars * 0.6 * hei
         if cb.get("label"):
             tick_extent += COLORBAR_LABEL_PAD + hei
         return sep + wd + tick_extent + 0.3  # + safety pad
@@ -3414,7 +3411,6 @@ class Figure:
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs (a heatmap's or a per-point colour's) sorted by name, then
-        the vertical and horizontal colorbar subs (each if any bar uses it),
         then the contour-labels sub (if any clabel), then the pie-wedge sub
         (if any wedge), then the box-plot subs (if any box), then the rug subs
         (if any rug has a tick), then one per-point marker-size sub per marker
@@ -3587,7 +3583,7 @@ class Figure:
     def _emit_post_graph_calls(
         self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
     ):
-        """Write the post-graph colorbar and contour-label sub calls."""
+        """Write the post-graph colorbars and contour-label sub calls."""
         resolution = resolution or SourceResolution()
         for holder in _colorbar_holders(ax, resolution):
             writer.add_colorbar(holder)

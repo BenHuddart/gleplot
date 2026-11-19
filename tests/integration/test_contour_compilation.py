@@ -62,7 +62,7 @@ def test_phase_diagram_like_tripcolor_tricontour_colorbar_compiles(tmp_path):
     )
     ax.set_xlabel("Temperature (K)")
     ax.set_ylabel("Magnetic field (T)")
-    fig.colorbar(format="fix 1")
+    fig.colorbar(label="chi (emu/mol)", format="fix 1")
 
     out = fig.savefig(str(tmp_path / "phase.png"))
     assert out.exists()
@@ -78,7 +78,7 @@ def test_imshow_colorbar_compiles(tmp_path):
     ax.imshow(Z, extent=(0, 10, 0, 8), cmap="magma", vmin=-1, vmax=1)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    fig.colorbar()
+    fig.colorbar(label="signal")
 
     out = fig.savefig(str(tmp_path / "im.png"))
     assert out.exists()
@@ -90,7 +90,7 @@ def test_function2d_colorbar_compiles(tmp_path):
     fig = glp.figure(figsize=(7, 6), data_prefix="fn")
     ax = fig.add_subplot(111)
     ax.function2d("sin(x)*cos(y)", extent=(0, 6.28, 0, 6.28), vmin=-1, vmax=1)
-    fig.colorbar()
+    fig.colorbar(label="signal")
 
     out = fig.savefig(str(tmp_path / "fn.png"))
     assert out.exists()
@@ -103,7 +103,7 @@ def test_constant_field_colorbar_compiles(tmp_path):
     fig = glp.figure(figsize=(7, 6), data_prefix="const")
     ax = fig.add_subplot(111)
     ax.imshow(np.full((20, 25), 7.0), extent=(0, 10, 0, 8), cmap="viridis")
-    fig.colorbar()
+    fig.colorbar(label="constant")
 
     out = fig.savefig(str(tmp_path / "const.png"))
     assert out.exists()
@@ -120,7 +120,7 @@ def test_all_palettes_compile(tmp_path):
         fig = glp.figure(figsize=(6, 5), data_prefix=f"pal_{cmap}")
         ax = fig.add_subplot(111)
         ax.imshow(Z, extent=(0, 10, 0, 8), cmap=cmap)
-        fig.colorbar()
+        fig.colorbar(label=cmap)
         out = fig.savefig(str(tmp_path / f"{cmap}.png"))
         assert out.exists() and out.stat().st_size > 0, cmap
 
