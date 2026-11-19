@@ -2646,9 +2646,12 @@ class Axes:
             middle x of the window (GLE ``deresolve N average``). Needs
             ``deresolve``.
         xmin, xmax, ymin, ymax : float, optional
-            Clip window for this series in data coordinates (GLE's ``dN
-            xmin ... ymax``): nothing is drawn outside it. An omitted edge
-            is open. ``xmin`` must be below ``xmax``, ``ymin`` below
+            This series' own data range (GLE's ``dN xmin ... ymax``): it is
+            drawn as if the x axis ran from ``xmin`` to ``xmax`` and the y
+            axis from ``ymin`` to ``ymax``, whatever the axes' limits, and
+            points outside that range are not drawn. This rescales the
+            series; it is not a clip window. An omitted edge is the axes'
+            own limit. ``xmin`` must be below ``xmax``, ``ymin`` below
             ``ymax``.
         **kwargs
             Additional matplotlib-compatible arguments. ``lw``, ``ls``,
@@ -4412,7 +4415,7 @@ class Axes:
         **kwargs
             Passed to :meth:`plot`, which owns ``mdist``, ``deresolve``,
             ``deresolve_average`` and the ``xmin`` / ``xmax`` / ``ymin`` /
-            ``ymax`` clip window.
+            ``ymax`` data range.
 
         Returns
         -------
