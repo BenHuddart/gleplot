@@ -154,6 +154,15 @@ def test_numpy_color_reaches_the_script(tmp_path):
     assert "color rgb255(0,255,0)" in out.read_text()
 
 
+def test_numpy_rgba_is_one_hist_colour(tmp_path):
+    """hist reads an RGBA array as one colour with alpha, not four channels."""
+    fig = glp.figure()
+    fig.add_subplot(111).hist([1, 2, 3], color=np.array([1.0, 0.0, 0.0, 0.5]))
+    out = tmp_path / "hist.gle"
+    fig.savefig(str(out))
+    assert "hist color rgba255(255,0,0,128)" in out.read_text()
+
+
 def test_unresolvable_color_still_falls_back_to_black():
     assert rgb_to_gle("definitely-not-a-colour") == "BLACK"
     assert rgb_to_gle("#12345") == "BLACK"

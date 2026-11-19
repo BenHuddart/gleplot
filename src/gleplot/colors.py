@@ -24,7 +24,7 @@ when the figure is rebuilt.
 """
 
 import re
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -141,7 +141,7 @@ def _gle_color_names() -> frozenset:
     return _GLE_COLOR_NAMES
 
 
-def rgb_to_gle(color: Union[str, Tuple[float, float, float], np.ndarray]) -> str:
+def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
     """
     Convert a matplotlib color specification to a GLE color token.
 
@@ -151,12 +151,11 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float], np.ndarray]) -> str
 
     Parameters
     ----------
-    color : str or tuple
+    color : str, tuple, list or numpy.ndarray
         Matplotlib color: a name, a single-letter code, a ``C0``..``C9``
         cycle reference, a ``tab:`` name, a ``#RRGGBB``/``#RGB`` hex string,
         an RGB tuple/list/1-D array with components in [0, 1], or an
-        already-formed
-        GLE colour expression.
+        already-formed GLE colour expression.
 
     Returns
     -------
@@ -181,7 +180,9 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float], np.ndarray]) -> str
     if isinstance(color, np.ndarray) and color.ndim == 2 and color.shape[0] == 1:
         color = color.reshape(-1)
     if isinstance(color, (tuple, list)) or (
-        isinstance(color, np.ndarray) and color.ndim == 1
+        isinstance(color, np.ndarray)
+        and color.ndim == 1
+        and np.issubdtype(color.dtype, np.number)
     ):
         if len(color) >= 3:
             return _rgb01_to_gle(color[0], color[1], color[2])
