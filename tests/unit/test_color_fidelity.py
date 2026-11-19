@@ -399,7 +399,6 @@ def test_text_and_contour_carry_exact_color(tmp_path):
     y, x = np.mgrid[0:12, 0:14]
     ax.contour(
         np.sin(x / 4.0) * np.cos(y / 3.0),
-        extent=(0, 10, 0, 8),
         levels=[-0.3, 0.3],
         colors="#9467bd",
     )

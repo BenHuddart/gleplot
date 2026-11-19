@@ -1322,7 +1322,7 @@ def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
 
 
 def _pop_line_alias(kwargs: dict, caller: str, alias: str, name: str, value, default):
-    """``value``, or what ``kwargs`` gives matplotlib's short ``alias`` for it.
+    """``value``, or what ``kwargs`` gives matplotlib's ``alias`` for it.
 
     The alias is removed from ``kwargs``. ``None`` is matplotlib's "the
     default" and leaves ``value`` alone. A ``value`` other than its
@@ -1338,6 +1338,33 @@ def _pop_line_alias(kwargs: dict, caller: str, alias: str, name: str, value, def
         warn_external(f"{caller}() got both {name} and {alias}; {name} wins.")
         return value
     return short
+
+
+def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
+    """``(linewidths, linestyles)`` after matplotlib's singular aliases.
+
+    ``contour`` and ``tricontour`` share this. The plural wins when it is
+    not left at its default, else the first alias given; a later name of
+    the same pair warns. Consumes ``kwargs``: what is left warns too.
+    """
+    resolved = []
+    for plural, value, default, aliases in (
+        ("linewidths", linewidths, 1.0, ("linewidth", "lw")),
+        ("linestyles", linestyles, "-", ("linestyle", "ls")),
+    ):
+        given = value is not None and not (np.ndim(value) == 0 and value == default)
+        winner = plural if given else None
+        for alias in aliases:
+            short = kwargs.pop(alias, None)
+            if short is None:
+                continue
+            if winner is None:
+                value, winner = short, alias
+            else:
+                warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
+        resolved.append(value)
+    warn_unsupported_keywords(name, kwargs)
+    return resolved[0], resolved[1]
 
 
 _MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
@@ -7092,7 +7119,14 @@ class Axes:
         -------
         dict
             The stored heatmap series dict.
+
+        Notes
+        -----
+        Other matplotlib keywords (``alpha``, ``norm``, ``aspect``, ...)
+        warn and are ignored: a GLE colormap is opaque and maps colours
+        linearly from ``vmin`` to ``vmax``.
         """
+        warn_unsupported_keywords("imshow", kwargs)
         label = self._text(label)
         if origin not in ("lower", "upper"):
             raise ValueError("origin must be 'lower' or 'upper'")
@@ -7688,7 +7722,17 @@ class Axes:
         -------
         dict
             The stored contour series dict.
+
+        Notes
+        -----
+        As in matplotlib, ``linewidth`` (``lw``) and ``linestyle`` (``ls``)
+        are accepted for ``linewidths`` and ``linestyles``. Other matplotlib
+        keywords (``alpha``, ``extent``, ``origin``, ...) warn and are
+        ignored; pass ``x`` and ``y`` to place the grid.
         """
+        linewidths, linestyles = _contour_line_keywords(
+            "contour", linewidths, linestyles, kwargs
+        )
         label = self._text(label)
         z, ext = self._grid_from_args(args, "contour", "tricontour(x, y, z)")
         levels_resolved = self._resolve_levels(levels, z)
@@ -7854,8 +7898,10 @@ class Axes:
 
         Notes
         -----
-        The remaining keyword arguments are as for :meth:`imshow`.
+        The remaining keyword arguments are as for :meth:`imshow`; others
+        warn and are ignored.
         """
+        warn_unsupported_keywords("tripcolor", kwargs)
         label = self._text(label)
         if self.heatmaps:
             raise ValueError(
@@ -7919,8 +7965,12 @@ class Axes:
 
         Notes
         -----
-        The remaining keyword arguments are as for :meth:`contour`.
+        The remaining keyword arguments are as for :meth:`contour`, aliases
+        included; others warn and are ignored.
         """
+        linewidths, linestyles = _contour_line_keywords(
+            "tricontour", linewidths, linestyles, kwargs
+        )
         label = self._text(label)
         xa, ya, za, ext, gs = self._points_from_args(x, y, z, gridsize, extent)
         # For explicit-level or count resolution we approximate the grid range
