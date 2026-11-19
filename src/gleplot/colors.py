@@ -187,6 +187,13 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
         and np.issubdtype(color.dtype, np.number)
     ):
         if len(color) >= 3:
+            if len(color) == 4 and float(color[3]) < 1:
+                warn_external(
+                    f"Colour {color!r} has alpha {color[3]!r}, which is not "
+                    f"applied here: the colour is drawn opaque. Pass an RGB "
+                    f"colour and give the transparency with the alpha= "
+                    f"keyword where the function has one.",
+                )
             return _rgb01_to_gle(color[0], color[1], color[2])
 
     # Handle string colors
@@ -258,8 +265,12 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
             f"name, a matplotlib colour code, nor a hex string. Falling "
             f"back to BLACK.",
         )
-
-    # Default fallback
+    else:
+        warn_external(
+            f"Unrecognized colour {color!r}: expected a colour name, a hex "
+            f"string, a grey level string such as '0.3', or a sequence of 3 "
+            f"or 4 numbers in [0, 1]. Falling back to BLACK.",
+        )
     return "BLACK"
 
 

@@ -3042,14 +3042,12 @@ class Axes:
         for samples, one_color, one_label, one_edge, one_alpha, one_ls, one_lw in zip(
             finite_sets, colors, labels, edges, alphas, linestyles, linewidths
         ):
-            ink = self._resolve_color(one_color)
             series_alpha = one_alpha
-            if (
-                series_alpha is None
-                and isinstance(one_color, (tuple, list))
-                and len(one_color) == 4
-            ):
-                series_alpha = one_color[3]
+            if isinstance(one_color, (tuple, list)) and len(one_color) == 4:
+                if series_alpha is None:
+                    series_alpha = one_color[3]
+                one_color = one_color[:3]
+            ink = self._resolve_color(one_color)
             if series_alpha is not None:
                 ink = apply_alpha(ink, series_alpha)
             fields = dict(

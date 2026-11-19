@@ -504,6 +504,10 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
 11. `imshow` colours an array; it does not show a picture read with `imread`.
     Place the image file itself with `ax.image(fname, extent=...)`; see
     [Plot Types](PLOT_TYPES.md).
+12. An RGBA colour's alpha is honoured by `hist` only. Elsewhere the colour
+    is drawn opaque and a warning says so: pass an RGB colour and use the
+    `alpha=` keyword where the function has one (`fill_between`, `fill`,
+    `axhspan`, ...).
 
 ## Migration Strategy
 

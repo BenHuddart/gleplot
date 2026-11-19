@@ -53,7 +53,11 @@ All of these emit as an exact `rgb255(r,g,b)` expression:
 
 - Hex format: `#RRGGBB` (for example `#1f77b4`) or the `#RGB` shorthand (`#bbb`)
 - RGB tuple, list or 1-D numpy array in [0, 1]: `(0.1, 0.2, 0.8)` (components
-  outside [0, 1] are clamped)
+  outside [0, 1] are clamped). A fourth, alpha component below 1 warns and is
+  not applied except by `hist`; see the
+  [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md).
+- Anything else (a float, bytes, a sequence of the wrong length) warns and falls
+  back to `BLACK`.
 - A grey level as a number string in [0, 1]: `'0.3'`, as matplotlib accepts.
   A number string outside [0, 1] warns and falls back to `BLACK`.
 - matplotlib's default property cycle, by cycle reference or `tab:` name:
