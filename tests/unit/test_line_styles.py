@@ -406,3 +406,81 @@ def test_an_unknown_per_series_value_is_rejected_at_the_call():
         ax.plot(X, Y, solid_capstyle="square")
     with pytest.raises(TypeError, match="dash_joinstyle"):
         ax.plot(X, Y, linestyle="--", dash_joinstyle=1)
+
+
+# --------------------------------------------------------------------------- #
+# matplotlib format strings on plot and errorbar
+# --------------------------------------------------------------------------- #
+
+
+def _same_script(draw_fmt, draw_keywords, recwarn):
+    """The script a format string draws, and the one its keywords draw."""
+    scripts = []
+    for draw in (draw_fmt, draw_keywords):
+        glp.close()
+        fig = glp.figure(data_prefix="fmt")
+        draw(fig.add_subplot(111))
+        scripts.append(_gle(fig))
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+    return scripts
+
+
+@pytest.mark.parametrize(
+    "fmt, keywords",
+    [
+        ("ro", dict(color="r", marker="o", linestyle="none")),
+        ("r--", dict(color="r", linestyle="--")),
+        ("k:", dict(color="k", linestyle=":")),
+        ("o", dict(marker="o", linestyle="none")),
+        ("g", dict(color="g")),
+        ("--s", dict(marker="s", linestyle="--")),
+        ("C1-.", dict(color="C1", linestyle="-.")),
+    ],
+)
+def test_plot_format_strings_draw_what_their_keywords_draw(fmt, keywords, recwarn):
+    with_fmt, with_keywords = _same_script(
+        lambda ax: ax.plot(X, Y, fmt),
+        lambda ax: ax.plot(X, Y, **keywords),
+        recwarn,
+    )
+    assert with_fmt == with_keywords
+
+
+@pytest.mark.parametrize(
+    "fmt, keywords",
+    [
+        ("ko", dict(color="k", marker="o", linestyle="none")),
+        ("r--", dict(color="r", linestyle="--")),
+        ("--o", dict(marker="o", linestyle="--")),
+        ("", dict()),
+    ],
+)
+def test_errorbar_format_strings_draw_what_their_keywords_draw(fmt, keywords, recwarn):
+    with_fmt, with_keywords = _same_script(
+        lambda ax: ax.errorbar(X, Y, yerr=0.1, fmt=fmt),
+        lambda ax: ax.errorbar(X, Y, yerr=0.1, **keywords),
+        recwarn,
+    )
+    assert with_fmt == with_keywords
+
+
+def test_a_keyword_wins_over_the_format_string_with_a_warning():
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match="color is set by both color= and"):
+        ax.plot(X, Y, "r", color="blue")
+    assert ax.lines[0]["color"] == "BLUE"
+
+
+def test_errorbar_fmt_none_draws_only_the_bars():
+    ax = glp.figure().add_subplot(111)
+    ax.errorbar(X, Y, yerr=0.1, fmt="none", marker="o")
+    series = ax.errorbars[0]
+    assert series["marker"] is None and series["linestyle"] == "none"
+
+
+def test_a_format_string_gleplot_cannot_draw_warns():
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match="format string gleplot can draw"):
+        ax.plot(X, Y, "rq")
+    with pytest.warns(UserWarning, match="format string gleplot can draw"):
+        ax.errorbar(X, Y, yerr=0.1, fmt="red")

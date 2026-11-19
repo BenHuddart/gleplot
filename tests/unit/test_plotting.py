@@ -1715,11 +1715,13 @@ class TestLineModes:
         with pytest.raises(ValueError):
             self.ax.plot([0, 1], [0, 1], drawstyle="steps-post", line_mode="hist")
 
-    def test_step_format_string_warns_and_is_not_applied(self):
-        with pytest.warns(UserWarning):
-            self.ax.step([0, 1], [0, 1], "r--")
+    def test_step_reads_a_format_string_as_plot_does(self):
+        self.ax.step([0, 1], [0, 1], "r--")
         assert self.ax.lines[0]["line_mode"] == "fsteps"
-        assert self.ax.lines[0]["color"] == "BLUE"
+        assert self.ax.lines[0]["color"] == "RED"
+        assert self.ax.lines[0]["linestyle"] == "--"
+        with pytest.warns(UserWarning, match="one format string"):
+            self.ax.step([0, 1], [0, 1], "r--", "b")
 
     def test_line_mode_with_no_line_warns_and_is_dropped(self):
         with pytest.warns(UserWarning):
