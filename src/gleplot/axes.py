@@ -7840,7 +7840,7 @@ class Axes:
             ``values from zmin to zmax step (zmax-zmin)/n``. A sequence emits
             ``values v1 v2 ...``.
         colors : str
-            Contour line colour.
+            Contour line colour. ``None`` means the default, black.
         linewidths : float
             Line width (matplotlib points).
         linestyles : str
@@ -7893,7 +7893,7 @@ class Axes:
             zpts=None,
             extent=ext,
             levels=levels_resolved,
-            color=rgb_to_gle(colors),
+            color=rgb_to_gle("black" if colors is None else colors),
             linewidth=float(linewidths),
             linestyle=self._linestyle_to_lstyle(linestyles),
             clabel=bool(clabel),
@@ -8120,7 +8120,7 @@ class Axes:
             zpts=za,
             extent=ext,
             levels=levels_resolved,
-            color=rgb_to_gle(colors),
+            color=rgb_to_gle("black" if colors is None else colors),
             linewidth=float(linewidths),
             linestyle=self._linestyle_to_lstyle(linestyles),
             clabel=bool(clabel),
