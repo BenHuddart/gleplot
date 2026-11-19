@@ -10,6 +10,7 @@ sidecar machinery below is unchanged for inline figures and byte-for-byte
 identical to what it produced before sources existed.
 """
 
+import hashlib
 import math
 import re
 from dataclasses import dataclass, field, replace
@@ -21,6 +22,7 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    NamedTuple,
     Optional,
     Sequence,
     Set,
@@ -36,12 +38,10 @@ from ._warn import warn_external
 from .colors import apply_alpha
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
 from .guides import (
+    GRAPHUTIL_INCLUDE,
     GUIDE_MARKER_LABEL,
     GUIDE_MARKER_PREFIX,
-    REFLINE_LAYER,
-    SPAN_LAYER,
-    guide_sub_name,
-    guide_sub_texts,
+    fraction_expr,
 )
 from .parser.tables import (
     ARROW_JOIN_SEPS,
@@ -95,9 +95,12 @@ from .sources import (
 #: A quoted string in a GLE line.
 _QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
 
+#: The linestyles a guide draws no line for.
+_NO_LINE = ("none", "None", "", " ", None)
+
 #: The sub behind every pie slice (:meth:`GLEWriter.add_wedge`). Called after
 #: ``end graph``, where ``xg()``/``yg()`` still address the graph just closed.
-#: Like the palette and guide subs, its text depends on nothing but its name,
+#: Like the palette subs, its text depends on nothing but its name,
 #: so the parser drops the body and the writer regenerates it.
 WEDGE_SUB = """sub gleplot_wedge cx cy r a1 a2 clr$ lbl$ ld pct$ pd
    ! Pie slice: centre (cx, cy) and radius r in data units, from a1 to a2
@@ -714,6 +717,9 @@ class _SharedSidecar:
         self.keys: List[str] = []
         self.names: List[str] = []
         self.columns: List[np.ndarray] = []
+        #: Whether the file gets a header row: not when an inline series
+        #: whose own file had none shares it (a header could name its keys).
+        self.named = True
 
     def index_of(self, key: str, values: np.ndarray, name: str) -> int:
         """1-based column index of ``key``, appending it on first mention."""
@@ -738,6 +744,14 @@ class _SharedSidecar:
                 for i, name in enumerate(self.names)
             ]
         )
+
+
+class _InlineSidecar(NamedTuple):
+    """The sidecar one inline series wrote: its columns, header, column keys."""
+
+    columns: List[Tuple[str, np.ndarray]]
+    column_names: Optional[List[str]]
+    keys: List[str]
 
 
 # -- write-time source resolution ----------------------------------------------
@@ -895,8 +909,9 @@ DEFAULT_COLORBAR_NTICKS = 5
 #: :meth:`GLEWriter.add_cells_sidecar`).
 CELLS_MARKER = "! gleplot: cells"
 
-#: How the comment line under a ``.z`` header that marks a ``contourf`` grid
-#: begins; the grid's edges follow (see :meth:`GLEWriter.add_nodes_sidecar`).
+#: How the comment line under a ``.z`` header that marks an ``imshow`` or
+#: ``contourf`` node grid begins; the grid's edges follow (see
+#: :meth:`GLEWriter.add_nodes_sidecar`).
 NODES_MARKER = "! gleplot: nodes"
 
 #: How the comment line in a ``gleplot_contourf<k>`` palette sub that holds
@@ -1529,6 +1544,10 @@ class GLEWriter:
         # contributed, so they are rendered into ``data_files`` by
         # :meth:`finalize_shared_sidecars` at the end of the write.
         self._shared_sidecars: Dict[str, _SharedSidecar] = {}
+        # Each sidecar an inline series wrote, as (columns, header names,
+        # column keys), so a second series naming the same file is merged
+        # into it rather than overwriting it (see _write_inline_columns).
+        self._inline_sidecars: Dict[str, _InlineSidecar] = {}
         # Raw-content sidecars (heatmap/contour ``.z`` grids and scattered
         # ``points.dat`` triples). They are written like any data file but are
         # NOT columnar imports, so they are excluded from the ``import-data``
@@ -1571,11 +1590,13 @@ class GLEWriter:
         # (``annN`` box, ``annN_xy`` tip) that ``join`` connects. Names are
         # page-global in GLE, so the count runs across every graph.
         self._annotation_count = 0
-        # Guide subs (gleplot.guides) this write actually called, and where
-        # their definitions belong in the script. Populated as the draw calls
-        # go out and resolved by finalize_guide_subs, because which guides
-        # take the draw form is not known until each axes' limits are.
-        self.used_guide_subs: Set[str] = set()
+        # The after-graph guide drawings (gleplot.guides) queued for the
+        # graph being written, flushed by end_graph. Whether any drew a line
+        # through graphutil.gle, whose include finalize_includes splices in
+        # at _sub_defs_mark: which guides take that form is not known until
+        # each axes' limits are.
+        self._pending_guide_lines: List[str] = []
+        self._needs_graphutil = False
         self._sub_defs_mark: int = 0
         # The palette sub each contourf heatmap written so far colours with,
         # by its data file: gleplot_contourf1, 2, ... in writing order.
@@ -1888,6 +1909,10 @@ class GLEWriter:
             self.lines_gle.extend(passthrough)
         self.lines_gle.append("end graph")
         self._reserved_datasets = set()
+        # Guides GLE has to range for itself: drawn now, while xgmin and
+        # xg() address the graph just closed (gleplot.guides).
+        self.lines_gle.extend(self._pending_guide_lines)
+        self._pending_guide_lines = []
         if self._external_legend:
             # Before the deferred ``xg()`` text. ``draw_key`` saves and
             # restores the current point and does not move the graph box,
@@ -2009,6 +2034,14 @@ class GLEWriter:
         """
         self.lines_gle.append("    math")
 
+    def add_background(self, color: str) -> None:
+        """GLE's graph ``background``: fill the frame with ``color``.
+
+        GLE fills it before drawing anything in the graph, wherever the line
+        stands in the block.
+        """
+        self.lines_gle.append(f"    background {color}")
+
     def add_axes(
         self,
         xlabel: Optional[str] = None,
@@ -2054,6 +2087,7 @@ class GLEWriter:
         y2style: Optional[AxisStyle] = None,
         x2style: Optional[AxisStyle] = None,
         x2_series: bool = False,
+        y2_series: bool = False,
         title_size: Optional[float] = None,
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
@@ -2103,6 +2137,10 @@ class GLEWriter:
         xplaces, yplaces : list of float, optional
             Explicit tick positions (GLE ``xplaces``/``yplaces``), emitted as
             their own statement. Overrides the automatic/``dticks`` placement.
+            An empty list is ``xticks off`` and ``xlabels off`` instead (GLE
+            reads a bare ``xplaces`` as automatic placement), with no names,
+            no-tick positions or tick styling; a top or right scale in use
+            is switched back on after them, as GLE copies both onto it.
         xnames, ynames : list of str, optional
             Tick labels to go with ``xplaces``/``yplaces`` (GLE
             ``xnames``/``ynames``). Must be the same length as the
@@ -2129,6 +2167,8 @@ class GLEWriter:
             ``xaxis log`` onto x2 (``do_axis_part_all``), so a linear top
             scale that actually carries data has to say ``x2axis lin``
             afterwards. A figure that never uses the top scale does not.
+        y2_series : bool
+            True when a dataset is drawn against the right-hand scale.
         title_size, title_color, title_dist, title_font : optional
             The graph title's ``hei`` (points), ``color``, ``dist`` (cm) and
             ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
@@ -2205,6 +2245,7 @@ class GLEWriter:
             places=xplaces,
             names=xnames,
             show_ticks=show_xticks,
+            frame_off=frame_off,
         )
         self._add_primary_axis(
             "y",
@@ -2220,6 +2261,7 @@ class GLEWriter:
             places=yplaces,
             names=ynames,
             show_ticks=show_yticks,
+            frame_off=frame_off,
         )
         self._add_y2_axis(
             y2min,
@@ -2229,6 +2271,8 @@ class GLEWriter:
             style=y2style,
             off=y2axis_off,
             yaxis_off=yaxis_off,
+            y2_series=y2_series,
+            yticks_off=yplaces == [] and not frame_off,
         )
         self._add_x2_axis(
             x2min,
@@ -2240,6 +2284,7 @@ class GLEWriter:
             xaxis_off=xaxis_off,
             xlog=xlog,
             x2_series=x2_series,
+            xticks_off=xplaces == [] and not frame_off,
         )
         if frame_off:
             for prefix in ("x", "y"):
@@ -2273,6 +2318,7 @@ class GLEWriter:
         places: Optional[List[float]],
         names: Optional[List[str]],
         show_ticks: bool,
+        frame_off: bool,
     ) -> None:
         """The ``xaxis``/``yaxis`` line, its places/names, labels and grid."""
         lo, hi, negate = self._axis_direction(lo, hi)
@@ -2297,6 +2343,16 @@ class GLEWriter:
         if cmd != bare:
             self.lines_gle.append(cmd)
 
+        if places == []:
+            # GLE reads an empty 'xplaces' as "place them automatically", so
+            # no ticks is 'xticks off' (which takes the subticks too) and no
+            # labels; styling ticks that are not drawn would be a no-op. A
+            # hidden frame writes its own 'xticks off' (see add_axes).
+            if not frame_off:
+                self.lines_gle.append(f"    {prefix}ticks off")
+            self.lines_gle.append(f"    {prefix}labels off")
+            self._add_axis_line_style(prefix, style)
+            return
         if places is not None:
             self.lines_gle.append(
                 f"    {prefix}places "
@@ -2333,6 +2389,8 @@ class GLEWriter:
         style: AxisStyle,
         off: bool,
         yaxis_off: bool,
+        y2_series: bool,
+        yticks_off: bool,
     ) -> None:
         """The ``y2axis`` line and ``y2labels on``, when y2 is configured.
 
@@ -2388,10 +2446,9 @@ class GLEWriter:
         # harmless, idempotent no-op for the already-working series case
         # (GLE has no "on but no numbers" state to disturb).
         y2_used = lo is not None or hi is not None or log or bool(label)
-        if not off and (y2_used or style.has_tick_label_styling()):
-            opts = self._text_options(style.label_size, style.label_color, None)
-            self.lines_gle.append(f"    y2labels on{opts}")
-        self._add_axis_line_style("y2", style)
+        self._add_twin_ticks_labels(
+            "y2", style, off, y2_used, y2_used or y2_series, yticks_off
+        )
 
     def _add_x2_axis(
         self,
@@ -2405,6 +2462,7 @@ class GLEWriter:
         xaxis_off: bool,
         xlog: bool,
         x2_series: bool,
+        xticks_off: bool,
     ) -> None:
         """The top scale: the ``x2axis`` line and ``x2labels on``.
 
@@ -2459,10 +2517,33 @@ class GLEWriter:
             if cmd != "    x2axis":
                 self.lines_gle.append(cmd)
         x2_used = lo is not None or hi is not None or log or bool(label)
-        if not off and (x2_used or style.has_tick_label_styling()):
+        self._add_twin_ticks_labels(
+            "x2", style, off, x2_used, x2_used or x2_series, xticks_off
+        )
+
+    def _add_twin_ticks_labels(
+        self,
+        prefix: str,
+        style: AxisStyle,
+        off: bool,
+        used: bool,
+        in_use: bool,
+        primary_ticks_off: bool,
+    ) -> None:
+        """``y2labels on`` (or ``x2``), the ticks switch, and the side style.
+
+        ``used`` is a configured scale, ``in_use`` one that is configured or
+        carries a dataset. A primary axis with no ticks writes ``yticks off``
+        and ``ylabels off``, which GLE copies onto y2 (``do_axis_part_all``),
+        so a scale in use is switched back on after them.
+        """
+        reenable = not off and primary_ticks_off and in_use
+        if reenable:
+            self.lines_gle.append(f"    {prefix}ticks on")
+        if not off and (used or reenable or style.has_tick_label_styling()):
             opts = self._text_options(style.label_size, style.label_color, None)
-            self.lines_gle.append(f"    x2labels on{opts}")
-        self._add_axis_line_style("x2", style)
+            self.lines_gle.append(f"    {prefix}labels on{opts}")
+        self._add_axis_line_style(prefix, style)
 
     # -- axes styling helpers -------------------------------------------
 
@@ -3015,17 +3096,101 @@ class GLEWriter:
         sidecar named by it and the indices are wherever they landed there.
         """
         if binding is None:
+            return self._write_inline_columns(data_file, named_columns, column_names)
+
+        shared = self._shared_sidecars.get(binding.data_file)
+        if shared is None:
+            shared = self._shared_sidecars[binding.data_file] = _SharedSidecar()
+            prior = self._inline_sidecars.get(binding.data_file)
+            if prior is not None:
+                self._seed_shared(shared, prior)
+        indices = []
+        for role, array in named_columns:
+            key, name = binding.column_for(role)
+            indices.append(
+                self._share_column(shared, binding.data_file, key, array, name)
+            )
+        return indices
+
+    def _write_inline_columns(
+        self,
+        data_file: str,
+        named_columns: Sequence[Tuple[str, np.ndarray]],
+        column_names: Optional[List[str]],
+    ) -> List[int]:
+        """An inline series' columns, in a file of its own unless one is named.
+
+        Several series can name one file: a figure read back from a sidecar a
+        data provider shared, or a broken axis whose segments all write the
+        same data. A file already holding every column (same name, same
+        written text) is read as it is; otherwise the columns join a shared
+        sidecar, each such column stored once, the first series' own columns
+        kept in place so its ``data`` line still reads them.
+        """
+        if column_names and len(column_names) != len(named_columns):
+            raise ValueError(
+                f"column_names has {len(column_names)} entries but there are "
+                f"{len(named_columns)} columns for {data_file!r}"
+            )
+        names = [
+            column_names[i] if column_names else role
+            for i, (role, _array) in enumerate(named_columns)
+        ]
+        keys = [
+            self._column_key(name, array)
+            for name, (_role, array) in zip(names, named_columns)
+        ]
+        shared = self._shared_sidecars.get(data_file)
+        prior = self._inline_sidecars.get(data_file)
+        if shared is None and prior is None:
+            self._inline_sidecars[data_file] = _InlineSidecar(
+                list(named_columns), column_names, keys
+            )
             self.add_data_file(
                 data_file, [array for _role, array in named_columns], column_names
             )
             return list(range(1, len(named_columns) + 1))
+        if shared is None:
+            assert prior is not None
+            if all(key in prior.keys for key in keys):
+                return [prior.keys.index(key) + 1 for key in keys]
+            shared = self._shared_sidecars[data_file] = _SharedSidecar()
+            self._seed_shared(shared, prior)
+        if column_names is None:
+            shared.named = False
+        return [
+            self._share_column(shared, data_file, key, array, name)
+            for key, name, (_role, array) in zip(keys, names, named_columns)
+        ]
 
-        shared = self._shared_sidecars.setdefault(binding.data_file, _SharedSidecar())
-        indices = []
-        for role, array in named_columns:
-            key, name = binding.column_for(role)
-            indices.append(shared.index_of(key, array, name))
-        return indices
+    @staticmethod
+    def _seed_shared(shared: _SharedSidecar, prior: _InlineSidecar) -> None:
+        """Put the columns an inline series already wrote first, in place."""
+        shared.named = prior.column_names is not None
+        for i, (key, (role, array)) in enumerate(zip(prior.keys, prior.columns)):
+            name = prior.column_names[i] if prior.column_names else role
+            # A column the series repeats keeps its own index.
+            shared.index_of(
+                key if key not in shared.keys else f"{key}\x00{i}", array, name
+            )
+
+    @staticmethod
+    def _share_column(
+        shared: _SharedSidecar, data_file: str, key: str, array: Any, name: str
+    ) -> int:
+        """``shared.index_of``, refusing a column the file's rows cannot hold."""
+        if shared.columns and len(array) != len(shared.columns[0]):
+            raise ValueError(
+                f"Two series write the data file {data_file!r} with "
+                f"{len(shared.columns[0])} and {len(array)} rows. Give one of "
+                "them its own data_file."
+            )
+        return shared.index_of(key, array, name)
+
+    def _column_key(self, name: str, array: Any) -> str:
+        """A column's name and a digest of its written text."""
+        text = "\n".join(self._format_column(np.asarray(array).ravel()))
+        return f"{name}\x00{hashlib.sha1(text.encode('utf-8')).hexdigest()}"
 
     def finalize_shared_sidecars(self) -> None:
         """Render the accumulated provider-table sidecars into ``data_files``.
@@ -3035,7 +3200,8 @@ class GLEWriter:
         """
         for filename, shared in self._shared_sidecars.items():
             if shared.columns:
-                self.add_data_file(filename, shared.columns, shared.header())
+                header = shared.header() if shared.named else None
+                self.add_data_file(filename, shared.columns, header)
         self._shared_sidecars.clear()
 
     def reserve_datasets(self, raw_lines: Sequence[str]) -> None:
@@ -3181,7 +3347,8 @@ class GLEWriter:
         binding : ColumnBinding, optional
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
-            that table (see :meth:`_write_columns`).
+            that table (see :meth:`_write_columns`). A ``gaps`` series gets
+            its own copy of a table column holding NaN, written with ``*``.
 
         Notes
         -----
@@ -3249,11 +3416,17 @@ class GLEWriter:
             x_array, has_line, shared=binding is not None, smooth_mode=smooth_mode
         )
         x_rows, y_rows = x_array[order], y_array[order]
-        if series.get("gaps") and binding is None:
+        if series.get("gaps"):
             # GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks
-            # the line there.
-            x_rows = self._as_missing(x_rows, np.isnan(np.asarray(x_rows, dtype=float)))
-            y_rows = self._as_missing(y_rows, np.isnan(np.asarray(y_rows, dtype=float)))
+            # the line there. A table column another series may read keeps
+            # its values, so this series gets its own copy.
+            x_gaps = np.isnan(np.asarray(x_rows, dtype=float))
+            y_gaps = np.isnan(np.asarray(y_rows, dtype=float))
+            x_rows = self._as_missing(x_rows, x_gaps)
+            y_rows = self._as_missing(y_rows, y_gaps)
+            if binding is not None:
+                private = [r for r, m in (("x", x_gaps), ("y", y_gaps)) if m.any()]
+                binding = binding.with_private(private)
         cols = self._write_columns(
             data_file,
             [("x", x_rows), ("y", y_rows)],
@@ -4913,11 +5086,11 @@ class GLEWriter:
         """A line series that references columns in an external data file.
 
         ``marker``/``markersize`` overlay a marker on the line (GLE natively
-        supports both on one dataset) -- this function is only ever called
-        for a series that already has a line (see ``_build_file_series``'s
-        ``has_line`` branch; a no-line, marker-only reference is an
-        ``'errorbar'`` reference instead), so there is no separate
-        no-line/marker-only case to guard here, unlike ``add_line``.
+        supports both on one dataset). A no-line ``linestyle`` (``'none'``,
+        ``''``, ``' '``, ``'None'``) leaves out the ``line`` token, so GLE
+        draws no line, but keeps ``lwidth``: an ``errorbar_from_file``
+        reference never writes one, so the recognizer reads the dataset back
+        as this line reference.
 
         ``nomiss`` : draw the line through a missing value instead of
         leaving a gap (GLE's ``nomiss`` qualifier).
@@ -4951,9 +5124,12 @@ class GLEWriter:
         # the mode is drawn and would replace the discrete join.
         smooth_mode = "none" if line_mode else None
         d_draw = self._polar_dataset(d_main) if self._polar_graph else d_main
-        line_cmd = f"    {d_draw}{self._line_token(smooth_mode, line_mode=line_mode)}"
-        if nomiss:
-            line_cmd += " nomiss"
+        has_line = linestyle not in ("none", "None", "", " ", None)
+        line_cmd = f"    {d_draw}"
+        if has_line:
+            line_cmd += self._line_token(smooth_mode, line_mode=line_mode)
+            if nomiss:
+                line_cmd += " nomiss"
         line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth, series)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
@@ -4966,7 +5142,7 @@ class GLEWriter:
             line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
 
         line_cmd += self._dataset_axis_clause(xaxis, yaxis)
-        line_cmd += self._dataset_qualifier_clause(series, bool(marker))
+        line_cmd += self._dataset_qualifier_clause(series, has_line and bool(marker))
 
         if label:
             line_cmd += f" key {self._quote_gle_key(label)}"
@@ -5988,36 +6164,26 @@ class GLEWriter:
         line separates consecutive subs (and follows the last), matching the
         script's readable block spacing.
 
-        Also marks where a sub definition belongs, so the guide subs -- whose
+        Also marks where an include belongs, so ``graphutil.gle`` -- whose
         need is only known once the graph blocks have been written -- can be
-        spliced in here later (:meth:`finalize_guide_subs`).
+        spliced in here later (:meth:`finalize_includes`).
         """
         for text in sub_texts:
             self.lines_gle.extend(text.split("\n"))
             self.lines_gle.append("")
         self._sub_defs_mark = len(self.lines_gle)
 
-    def finalize_guide_subs(self) -> None:
-        """Splice in the guide subs the guides actually drawn this write need.
+    def finalize_includes(self) -> None:
+        """Splice in ``include "graphutil.gle"`` if a guide line called it.
 
-        Called once, after every graph block is written: which guides take
-        :mod:`gleplot.guides`' draw form is decided against limits that are
-        still unresolved when :meth:`add_sub_defs` runs, so the definitions
-        are inserted at that method's mark rather than appended in place.
-        (GLE hoists subs, so a later definition would compile too -- the
-        splice is for a readable script and a stable byte layout, not for
-        the engine.)
-
-        Deterministic in the *set* of subs used, never in discovery order.
+        Called once, after every graph block is written: which guides are
+        drawn after ``end graph`` is decided against limits that are still
+        unresolved when :meth:`add_sub_defs` runs, so the include goes in at
+        that method's mark.
         """
-        if not self.used_guide_subs:
-            return
-        lines: List[str] = []
-        for text in guide_sub_texts(sorted(self.used_guide_subs)):
-            lines.extend(text.split("\n"))
-            lines.append("")
-        at = self._sub_defs_mark
-        self.lines_gle[at:at] = lines
+        if self._needs_graphutil:
+            at = self._sub_defs_mark
+            self.lines_gle[at:at] = [f'include "{GRAPHUTIL_INCLUDE}"', ""]
 
     def add_fitz_block(self, points_file: str, extent, gridsize, ncontour):
         """Emit a ``begin fitz`` .. ``end fitz`` block (before ``begin graph``).
@@ -6079,6 +6245,8 @@ class GLEWriter:
         elif "levels" in series:
             self.add_nodes_sidecar(series)
             self.add_contourf_sub(series)
+        elif self.writes_node_grid(series):
+            self.add_nodes_sidecar(series)
         else:
             self.add_z_sidecar(
                 data_file, series["z"], series["extent"], series["origin"]
@@ -6120,15 +6288,28 @@ class GLEWriter:
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
 
+    @staticmethod
+    def writes_node_grid(series: Series) -> bool:
+        """Whether a heatmap's ``.z`` is a node grid (:meth:`add_nodes_sidecar`).
+
+        A ``contourf``, or an ``imshow`` grid of two or more nodes each way:
+        one row or column has no node spacing to place by.
+        """
+        if series["source"] != "grid" or series.get("cells"):
+            return False
+        return "levels" in series or min(np.shape(series["z"])) >= 2
+
     def add_nodes_sidecar(self, series: Series):
-        """Write a ``contourf`` heatmap's ``.z`` with its nodes where they are.
+        """Write a grid heatmap's ``.z`` with its nodes where they are.
 
         GLE's ``colormap`` puts node ``k`` of ``n`` at ``xmin + k * (xmax -
         xmin) / n``, one spacing short of ``xmax``, while ``begin contour``
         puts the last node on ``xmax``. Writing ``xmax`` (and ``ymax``) one
         node spacing past the last node makes the colormap's nodes the grid's
-        own, so the bands sit where the levels cross the grid; the graph
-        window, which the grid's extent sets, clips the extra spacing.
+        own, where a ``contour`` of the same grid puts them (and a
+        ``contourf``'s bands where the levels cross the grid); the graph
+        window, which the grid's extent sets, clips the extra spacing. Rows
+        go ymin first, flipped for ``origin='upper'``.
 
         The line under the header, which GLE skips, holds the grid's edges
         as every extent is written, and the header is computed from those
@@ -6148,7 +6329,7 @@ class GLEWriter:
             "! nx {} ny {} xmin {} xmax {} ymin {} ymax {}".format(nx, ny, *bounds),
             "{} xmin {} xmax {} ymin {} ymax {}".format(NODES_MARKER, *edges),
         ]
-        lines.extend(self._format_grid(z))
+        lines.extend(self._format_grid(z[::-1] if series["origin"] == "upper" else z))
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
 
@@ -6436,18 +6617,15 @@ class GLEWriter:
             return ""
         return f" lwidth {self._format_number(self._lwidth_cm(linewidth, series))}"
 
-    # -- guides drawn against GLE's own range (G17) ----------------------
+    # -- guides (gleplot.guides) ------------------------------------------
 
     def _lstyle_for(self, linestyle: str) -> int:
         """The GLE ``lstyle`` number for a matplotlib linestyle.
 
         Reads the very same ``style.line_style_*`` fields
         :meth:`add_line` reads, so the two emission forms of a guide
-        cannot disagree about what ``'--'`` looks like. ``0`` is GLE's own
-        "no style set" sentinel and is what a lineless guide
-        (``linestyle='none'``) is emitted with -- :mod:`gleplot.guides`'
-        subs draw nothing for it, matching the dataset form's do-nothing
-        dataset.
+        cannot disagree about what ``'--'`` looks like. ``0`` for any other
+        linestyle.
         """
         return {
             "-": self.style.line_style_solid,
@@ -6467,54 +6645,53 @@ class GLEWriter:
             return linewidth_pt_to_cm(self.style.default_linewidth)
         return linewidth_pt_to_cm(linewidth)
 
-    def _add_guide_draw(self, layer: int, sub_name: str, args: List[str]) -> None:
-        """Emit one ``begin layer N`` / ``draw <sub> args`` / ``end layer``.
-
-        The layer is what reproduces today's stacking exactly; see
-        :mod:`gleplot.guides` for the numbers and their provenance.
-        """
-        self.used_guide_subs.add(sub_name)
-        self.lines_gle.append(f"    begin layer {layer}")
-        self.lines_gle.append(f"        draw {sub_name} " + " ".join(args))
-        self.lines_gle.append("    end layer")
-
     def add_refline(self, series: Series):
-        """Draw a reference line as a layered ``draw`` call (G17).
+        """Draw a reference line after ``end graph`` with ``graph_hline``/``vline``.
 
-        ``series`` is the :class:`~gleplot.series.RefLine` declaration.
-
-        Used only when the axis the guide spans has an unresolved bound, so
-        the fraction ``span_lo``..``span_hi`` has to be taken against the
-        range GLE picks rather than one gleplot invents -- see
-        :meth:`gleplot.axes.Axes.guide_needs_engine_range`.
-
-        A labelled guide also gets a **data-free** ``dN`` display line
-        carrying the same style and the ``key`` text. A ``draw`` owns no
-        dataset and so cannot carry a key itself; an empty dataset can, and
-        (verified against GLE 4.3.10) draws no ink and takes no part in
-        autoscale, so the legend entry survives without the literal dataset
-        coming back.
+        ``series`` is the :class:`~gleplot.series.RefLine` declaration. Used
+        only when the axis the guide spans has an unresolved bound, so its
+        fractional extent is taken against the range GLE picks -- see
+        :meth:`gleplot.axes.Axes.guide_needs_engine_range` and
+        :mod:`gleplot.guides`. The drawing is queued for :meth:`end_graph`;
+        a labelled guide's data-free legend line is written here, inside the
+        graph.
         """
-        orient = series["orient"]
-        color = series["color"]
         linestyle = series["linestyle"]
-        label = series["label"]
-        gle_lwidth = self._lwidth_cm(series["linewidth"], series)
-        self._add_guide_draw(
-            REFLINE_LAYER,
-            guide_sub_name("refline", orient),
-            [
-                self._format_number(series["value"]),
-                self._format_number(series["span_lo"]),
-                self._format_number(series["span_hi"]),
-                f'"{self._escape_gle_string(color)}"',
-                self._format_number(gle_lwidth),
-                str(self._lstyle_for(linestyle)),
-                f'"{self._escape_gle_string(label or "")}"',
-            ],
+        lwidth_cm = self._lwidth_cm(series["linewidth"], series)
+        lstyle = self._lstyle_for(linestyle) if linestyle in ("--", ":", "-.") else None
+        if linestyle not in _NO_LINE:
+            self._needs_graphutil = True
+        self._pending_guide_lines.extend(
+            self.refline_draw_lines(series, lwidth_cm, lstyle)
         )
-        if label:
-            self.add_guide_key(color, linestyle, gle_lwidth, label)
+        if series["label"]:
+            self.add_guide_key(series["color"], linestyle, lwidth_cm, series["label"])
+
+    @classmethod
+    def refline_draw_lines(
+        cls, series: Series, lwidth_cm: float, lstyle: Optional[int]
+    ) -> List[str]:
+        """The after-graph lines that draw ``series``, marker first.
+
+        ``lstyle`` is the ``set`` line's style number, ``None`` for none
+        (solid). A guide with linestyle ``'none'`` keeps its marker and
+        ``set`` line but has no call.
+        """
+        fmt = cls._format_number
+        set_line = f"set color {series['color']} lwidth {fmt(lwidth_cm)}"
+        if lstyle is not None:
+            set_line += f" lstyle {lstyle}"
+        lines = [cls.guide_marker(series, label=True), "gsave", set_line]
+        if series["linestyle"] not in _NO_LINE:
+            # A horizontal line spans x, a vertical one y.
+            axis = "x" if series["orient"] == "h" else "y"
+            call = f"graph_{series['orient']}line {fmt(series['value'])}"
+            lo, hi = fmt(series["span_lo"]), fmt(series["span_hi"])
+            if (lo, hi) != ("0", "1"):
+                call += f" {fraction_expr(axis, lo)} {fraction_expr(axis, hi)}"
+            lines.append(call)
+        lines.append("grestore")
+        return lines
 
     def add_refline_dataset(self, series: Series, line: Series):
         """Draw a reference line as a marked two-point dataset.
@@ -6522,33 +6699,49 @@ class GLEWriter:
         ``series`` is the :class:`~gleplot.series.RefLine` declaration and
         ``line`` the :class:`~gleplot.series.LineSeries` that
         ``Axes.materialize_reflines`` built from it. The marker (see
-        :meth:`add_refline_marker`) goes immediately before the line's
+        :meth:`guide_marker`) goes immediately before the line's
         ``data`` statement, which is how a re-read file binds the two.
         """
-        self.add_refline_marker(
-            series["orient"], series["value"], series["span_lo"], series["span_hi"]
-        )
+        self.lines_gle.append("    " + self.guide_marker(series, label=False))
         self.add_line(line)
 
     def add_span(self, series: Series):
-        """Draw a span as a layered ``draw`` call (G17).
+        """Draw a span after ``end graph`` as a ``box``.
 
-        ``series`` is the :class:`~gleplot.series.Span` declaration; its
-        ``orient``, ``start``/``end``, ``span_lo``/``span_hi``, ``color``,
-        ``alpha``, ``label`` and ``swatch_color`` go to
-        :meth:`add_span_draw`.
+        ``series`` is the :class:`~gleplot.series.Span` declaration. Used
+        only when the axis the band spans has an unresolved bound (see
+        :meth:`add_refline`). ``alpha`` is folded into the colour exactly as
+        :meth:`add_fill` folds it, via :func:`gleplot.colors.apply_alpha`. A
+        labelled band also gets a data-free ``dN keyfill ... key`` line
+        inside the graph, whose swatch uses that same token unless the
+        series carries a ``swatch_color``.
         """
-        self.add_span_draw(
-            series["orient"],
-            series["start"],
-            series["end"],
-            series["span_lo"],
-            series["span_hi"],
-            series["color"],
-            series["alpha"],
-            series["label"],
-            swatch_color=series.get("swatch_color"),
-        )
+        color = apply_alpha(series["color"], series["alpha"])
+        self._pending_guide_lines.extend(self.span_draw_lines(series, color))
+        if series["label"]:
+            self.add_fill_key(series.get("swatch_color") or color, series["label"])
+
+    @classmethod
+    def span_draw_lines(cls, series: Series, color: str) -> List[str]:
+        """The after-graph lines that draw ``series`` in ``color``, marker first."""
+        fmt = cls._format_number
+        a, b = fmt(series["start"]), fmt(series["end"])
+        lo, hi = fmt(series["span_lo"]), fmt(series["span_hi"])
+        if series["orient"] == "v":
+            y0, y1 = fraction_expr("y", lo), fraction_expr("y", hi)
+            corner = f"amove xg({a}) yg({y0})"
+            size = f"xg({b})-xg({a}) yg({y1})-yg({y0})"
+        else:
+            x0, x1 = fraction_expr("x", lo), fraction_expr("x", hi)
+            corner = f"amove xg({x0}) yg({a})"
+            size = f"xg({x1})-xg({x0}) yg({b})-yg({a})"
+        return [
+            cls.guide_marker(series, label=True),
+            "gsave",
+            corner,
+            f"box {size} fill {color} nobox",
+            "grestore",
+        ]
 
     def add_span_dataset(self, series: Series, fill: Series):
         """Draw a span as a marked fill.
@@ -6556,58 +6749,11 @@ class GLEWriter:
         ``series`` is the :class:`~gleplot.series.Span` declaration and
         ``fill`` the :class:`~gleplot.series.FillSeries` that
         ``Axes.materialize_spans`` built from it. The marker (see
-        :meth:`add_span_marker`) goes immediately before the fill's ``data``
+        :meth:`guide_marker`) goes immediately before the fill's ``data``
         statement, which is how a re-read file binds the two.
         """
-        self.add_span_marker(
-            series["orient"],
-            series["start"],
-            series["end"],
-            series["span_lo"],
-            series["span_hi"],
-            series["label"],
-        )
+        self.lines_gle.append("    " + self.guide_marker(series, label=True))
         self.add_fill(fill)
-
-    def add_span_draw(
-        self,
-        orient: str,
-        start: float,
-        end: float,
-        span_lo: float,
-        span_hi: float,
-        color: str,
-        alpha: float,
-        label: Optional[str],
-        swatch_color: Optional[str] = None,
-    ):
-        """Emit an ``axvspan``/``axhspan`` as a layered ``draw`` call (G17).
-
-        A labelled band also gets a data-free ``dN keyfill ... key`` line.
-        The ``draw`` owns no dataset, and ``fill`` cannot carry ``key``;
-        an empty dataset with ``keyfill`` draws the swatch and (verified
-        on GLE 4.3.10) does not move the autoscale. ``label`` still travels
-        as the sub's last argument too, so the draw block stays
-        self-describing. ``alpha`` is folded into the colour exactly as
-        :meth:`add_fill` folds it, via
-        :func:`gleplot.colors.apply_alpha`, and the swatch uses that same
-        token.
-        """
-        color_token = apply_alpha(color, alpha)
-        self._add_guide_draw(
-            SPAN_LAYER,
-            guide_sub_name("span", orient),
-            [
-                self._format_number(start),
-                self._format_number(end),
-                self._format_number(span_lo),
-                self._format_number(span_hi),
-                f'"{self._escape_gle_string(color_token)}"',
-                f'"{self._escape_gle_string(label or "")}"',
-            ],
-        )
-        if label:
-            self.add_fill_key(swatch_color or color_token, label)
 
     def add_guide_key(
         self, color: str, linestyle: str, lwidth_cm: float, label: str
@@ -6641,7 +6787,7 @@ class GLEWriter:
         ``do_dataset_key`` copies ``key_fill`` onto the legend entry, so a
         dataset that is never drawn still contributes a filled square when
         it carries ``keyfill`` and a non-empty ``key``. Returns the dataset
-        name. ``color`` is the same token the fill or the span sub uses.
+        name. ``color`` is the same token the band's fill uses.
         """
         d_name = self._new_dataset()
         self.lines_gle.append(
@@ -6650,76 +6796,33 @@ class GLEWriter:
         self._finish_legend_entry(label)
         return d_name
 
-    # -- the dataset form's provenance marker (G18-lite) ------------------
+    # -- the provenance marker (G18-lite) ---------------------------------
 
-    def _add_guide_marker(self, kind: str, orient: str, args: List[str]) -> None:
-        """Emit one ``! gleplot:guide ...`` comment line.
+    @classmethod
+    def guide_marker(cls, series: Series, label: bool) -> str:
+        """The ``! gleplot:guide ...`` comment for ``series``, without indent.
 
         A comment, so the engine never sees it (verified by compiled
-        pixel-diff, ``tests/integration/test_guide_marker_compiles.py``), and
-        the bytes it precedes are unchanged. The grammar, and the rule for
-        what may appear in ``args`` at all, live in :mod:`gleplot.guides`.
+        pixel-diff, ``tests/integration/test_guide_marker_compiles.py``). The
+        grammar, and the rule for what may appear in it at all, live in
+        :mod:`gleplot.guides`. ``label`` adds the guide's label when it has
+        one: a band always needs it (``fill dA,dB`` has no ``key``), and so
+        does any after-graph guide, whose legend entry is a separate line.
+        Pairs are comma-joined: GLE's lexer reads a leading sign as an
+        operator, so ``-4 -3`` would collect back as ``-7``.
         """
-        self.lines_gle.append(
-            f"    {GUIDE_MARKER_PREFIX} {kind} {orient} " + " ".join(args)
-        )
-
-    def _guide_marker_pair(self, first: float, second: float) -> str:
-        """``a,b`` -- a marker's two-number field, comma-joined and spaceless.
-
-        The comma is not decoration: GLE's lexer reads a leading sign as an
-        operator, so ``-4 -3`` would collect back as the single expression
-        ``-7``. See :mod:`gleplot.guides`.
-        """
-        return f"{self._format_number(first)},{self._format_number(second)}"
-
-    def add_refline_marker(
-        self, orient: str, value: float, span_lo: float, span_hi: float
-    ) -> None:
-        """Mark the two-point dataset that follows as an ``axvline``/``axhline``.
-
-        Emitted immediately before the guide's own ``data`` statement, by
-        :meth:`add_refline_dataset`, for every guide
-        that materializes (i.e. every guide NOT routed to the draw form by
-        ``Axes.guide_needs_engine_range``).
-        """
-        self._add_guide_marker(
-            "refline",
-            orient,
-            [
-                "value",
-                self._format_number(value),
-                "extent",
-                self._guide_marker_pair(span_lo, span_hi),
-            ],
-        )
-
-    def add_span_marker(
-        self,
-        orient: str,
-        start: float,
-        end: float,
-        span_lo: float,
-        span_hi: float,
-        label: Optional[str],
-    ) -> None:
-        """Mark the fill that follows as an ``axvspan``/``axhspan``.
-
-        ``label`` is emitted only when the band has one: ``fill dA,dB`` has no
-        ``key`` option of its own, so unlike a refline's label a band's has
-        nowhere else to live -- and unlike a refline's it is dropped rather
-        than drawn (the dataset form's legend behaviour is unchanged; see
-        :meth:`add_fill`).
-        """
-        args = [
-            "range",
-            self._guide_marker_pair(start, end),
-            "extent",
-            self._guide_marker_pair(span_lo, span_hi),
-        ]
-        if label:
-            args += [GUIDE_MARKER_LABEL, f'"{self._escape_gle_string(label)}"']
-        self._add_guide_marker("span", orient, args)
+        fmt = cls._format_number
+        extent = f"{fmt(series['span_lo'])},{fmt(series['span_hi'])}"
+        if series["type"] == "refline":
+            args = ["value", fmt(series["value"]), "extent", extent]
+        else:
+            args = ["range", f"{fmt(series['start'])},{fmt(series['end'])}"]
+            args += ["extent", extent]
+        if label and series.get("label"):
+            quoted = f'"{cls._escape_gle_string(series["label"])}"'
+            args += [GUIDE_MARKER_LABEL, quoted]
+        head = f"{GUIDE_MARKER_PREFIX} {series['type']} {series['orient']}"
+        return head + " " + " ".join(args)
 
     def _row_order(
         self,

@@ -147,7 +147,8 @@ def build_compile_args(
         Deciding *when* to enable Cairo is the caller's job:
         :meth:`gleplot.figure.Figure.savefig` passes
         ``figure.requires_cairo()`` automatically; other callers pass an
-        explicit override.
+        explicit override. An ``svg`` always gets the flag, whatever this
+        says (see the Notes).
     transparent : bool, optional
         When ``True`` and ``output_format`` is ``png``, appends
         ``-transparent`` (an alpha channel instead of a white background).
@@ -181,8 +182,8 @@ def build_compile_args(
       against the default (PostScript) font and GLE still exits 0 but drops
       the affected text from the output (a hard, uncaught
       ``PostScript fonts not supported with '-cairo'`` at the point each
-      character would have been drawn). Passing ``-cairo`` explicitly for an
-      SVG compile lets GLE's own graceful fallback run instead.
+      character would have been drawn). So an SVG compile always passes
+      ``-cairo``, which lets GLE's own graceful fallback run instead.
 
     Returns
     -------
@@ -202,7 +203,7 @@ def build_compile_args(
         )
 
     args = ["-d", fmt]
-    if cairo:
+    if cairo or fmt == "svg":
         args.append("-cairo")
     if grayscale:
         args.append("-nocolor")
@@ -489,6 +490,14 @@ _MESSAGE_RE = re.compile(r"^>>\s*(?:Error:\s*)?(?P<message>.+)$")
 # some errors), which repeats the ">> " prefix but never repeats "Error:".
 _ERROR_START_RE = re.compile(r"^>>\s*Error:", re.IGNORECASE)
 
+# GLE's message for an `include` it cannot find (text_load_include in
+# drawit.cpp). Scripts gleplot writes include routines from GLE's gleinc
+# library, which a GLE built from source without gle-library lacks.
+_MISSING_INCLUDE_RE = re.compile(r"include file not found: '(.*)'")
+_GLEINC_DOCS_URL = (
+    "https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library"
+)
+
 
 def _collect_message_lines(lines: list, i: int, n: int) -> tuple:
     """Collect the ``>> ...`` message line(s) for one error block.
@@ -730,7 +739,8 @@ class GLECompiler:
             is the caller that *does* have the figure and passes
             ``figure.requires_cairo()`` here automatically; pass an explicit
             ``True``/``False`` yourself when compiling a ``.gle`` file this
-            compiler didn't write (or to force the flag either way).
+            compiler didn't write (or to force the flag either way). An
+            ``svg`` always gets the flag (see :func:`build_compile_args`).
         transparent : bool
             Give a PNG an alpha channel instead of a white background (GLE's
             ``-transparent``); see :func:`build_compile_args` for the other
@@ -752,7 +762,9 @@ class GLECompiler:
         GLECompileError
             If compilation fails (nonzero exit code, or the expected output
             file was not produced). Carries structured ``errors`` and the
-            ``raw_output`` from the GLE process.
+            ``raw_output`` from the GLE process. When the failure is an
+            ``include`` file GLE cannot find, the message names the file and
+            points to installing GLE's include library.
         """
         input_path = Path(input_file).resolve()
 
@@ -808,6 +820,18 @@ class GLECompiler:
 
         if result.returncode != 0:
             errors = parse_gle_errors(raw_output)
+            missing = _MISSING_INCLUDE_RE.search(_ANSI_ESCAPE_RE.sub("", raw_output))
+            if missing:
+                raise GLECompileError(
+                    f"GLE could not find the include file '{missing.group(1)}'. "
+                    "GLE looks for it next to the script, then in the gleinc "
+                    "folder of its installation (GLE_TOP in `gle -info`), then "
+                    "in GLE_USRLIB. If it is one of GLE's library routines, "
+                    f"install GLE's include library: see {_GLEINC_DOCS_URL}\n"
+                    f"GLE output: {raw_output.strip()}",
+                    errors=errors,
+                    raw_output=raw_output,
+                )
             raise GLECompileError(
                 f"GLE compilation failed: {raw_output.strip()}",
                 errors=errors,

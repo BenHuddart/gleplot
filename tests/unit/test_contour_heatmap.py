@@ -9,6 +9,8 @@ sidecars, and the one-heatmap-per-axes rule.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -72,11 +74,15 @@ def test_imshow_emits_colormap_and_z_sidecar():
         'colormap "t_heatmap1.z" 200 200 zmin 0 zmax 5 palette gleplot_viridis' in text
     )
     assert "sub gleplot_viridis z" in text
-    # .z sidecar: header + ny rows of nx values, y increasing.
-    z = files["t_heatmap1.z"]
-    assert z.startswith("! nx 3 ny 2 xmin 0 xmax 3 ymin 0 ymax 2\n")
-    assert z.splitlines()[1] == "0 1 2"  # row ymin first
-    assert z.splitlines()[2] == "3 4 5"
+    # .z sidecar: header + ny rows of nx values, y increasing. The header
+    # is one node spacing past the extent, where colormap puts the last
+    # node one spacing short of xmax; the line under it, which GLE skips,
+    # keeps the extent (#350).
+    z = files["t_heatmap1.z"].splitlines()
+    assert z[0] == "! nx 3 ny 2 xmin 0 xmax 4.5 ymin 0 ymax 4"
+    assert z[1] == "! gleplot: nodes xmin 0 xmax 3 ymin 0 ymax 2"
+    assert z[2] == "0 1 2"  # row ymin first
+    assert z[3] == "3 4 5"
 
 
 def test_imshow_origin_upper_flips_rows():
@@ -86,8 +92,8 @@ def test_imshow_origin_upper_flips_rows():
     _, files = _gle(fig)
     rows = files["t_heatmap1.z"].splitlines()
     # origin='upper': row 0 (top) written last -> ymin row is [2, 3].
-    assert rows[1] == "2 3"
-    assert rows[2] == "0 1"
+    assert rows[2] == "2 3"
+    assert rows[3] == "0 1"
 
 
 def test_imshow_gray_has_no_palette_clause():
@@ -680,6 +686,25 @@ def test_contourf_warns_when_the_limits_reach_past_its_last_node():
     ax, _ = _ramp_contourf(fig, 4)
     ax.set_xlim(-1, 5)
     with pytest.warns(UserWarning, match=r"x limits reach 5, beyond the contourf"):
+        _gle(fig)
+
+
+def test_imshow_warns_when_the_limits_reach_past_its_last_node():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    ax.imshow(np.arange(9.0).reshape(3, 3), extent=(0, 2, 0, 2))
+    ax.set_xlim(-1, 3)
+    with pytest.warns(UserWarning, match=r"x limits reach 3, beyond the imshow"):
+        _gle(fig)
+
+
+def test_imshow_within_its_grid_does_not_warn():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    ax.imshow(np.arange(9.0).reshape(3, 3), extent=(0, 2, 0, 2))
+    ax.set_xlim(-1, 2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
         _gle(fig)
 
 
@@ -1343,6 +1368,61 @@ def test_contour_takes_matplotlibs_singular_line_aliases(name, args, recwarn):
     assert (short["linewidth"], short["linestyle"]) == (2.5, 3)
     assert (full["linewidth"], full["linestyle"]) == (2.5, 3)
     assert not recwarn.list
+
+
+@pytest.mark.parametrize("name, args", [("contour", (_GRID,)), ("tricontour", _PTS)])
+def test_contour_line_keywords_take_none_as_the_default(name, args, recwarn):
+    fig, ax = glp.subplots()
+    getattr(ax, name)(*args, colors=None, linewidths=None, linestyles=None)
+    getattr(ax, name)(*args)
+    getattr(ax, name)(*args, linewidths=None, lw=2.5)
+    given, default, aliased = ax.contours
+    for key in ("color", "linewidth", "linestyle"):
+        assert given[key] == default[key]
+    assert aliased["linewidth"] == 2.5
+    assert not recwarn.list
+
+
+@pytest.mark.parametrize("name, args", [("contour", (_GRID,)), ("tricontour", _PTS)])
+def test_contour_per_level_lists_warn_and_take_the_first(name, args):
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning) as record:
+        getattr(ax, name)(*args, linewidths=[2.5, 1], linestyles=["--", ":"])
+    messages = " ".join(str(w.message) for w in record)
+    assert "uses the first, 2.5" in messages and "uses the first, '--'" in messages
+    getattr(ax, name)(*args, linewidths=2.5, linestyles="--")
+    listed, single = ax.contours
+    assert (listed["linewidth"], listed["linestyle"]) == (
+        single["linewidth"],
+        single["linestyle"],
+    )
+
+
+def test_contour_uniform_lists_and_0d_arrays_are_one_value(recwarn):
+    fig, ax = glp.subplots()
+    ax.contour(_GRID, linestyles=[":"], linewidths=(2.0,))
+    ax.contour(_GRID, linestyles=[":"] * 3, linewidths=np.array([2.0, 2.0]))
+    ax.contour(_GRID, linestyles=":", linewidths=np.array(2.0))
+    for series in ax.contours:
+        assert (series["linewidth"], series["linestyle"]) == (2.0, 2)
+    assert not recwarn.list
+
+
+def test_contour_per_level_warning_names_the_keyword_passed():
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning, match=r"lw=\[3, 1\] uses the first, 3"):
+        ax.contour(_GRID, lw=[3, 1])
+    with pytest.warns(UserWarning) as record:
+        ax.contour(_GRID, linestyles=[(0, (5, 2)), "--"])
+    messages = [str(w.message) for w in record]
+    assert "uses the first, (0, (5, 2))" in messages[0]
+    assert "dash pattern" in messages[1]
+
+
+def test_contour_empty_per_level_list_raises():
+    fig, ax = glp.subplots()
+    with pytest.raises(ValueError, match=r"linestyles is an empty sequence"):
+        ax.contour(_GRID, linestyles=[])
 
 
 def test_contour_plural_wins_over_its_alias():

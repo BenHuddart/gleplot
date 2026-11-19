@@ -226,9 +226,9 @@ def test_a_collapsed_secondary_x_range_is_deferred_too():
 def test_a_lone_axvline_leaves_both_axes_to_the_engine():
     """Neither axis is written down, and no dataset stands in for either.
 
-    G14 wrote a two-point dataset over 0..1 here. Since G17 the guide is a
-    ``draw`` (``tests/unit/test_refline_fallback.py``), so the block carries
-    no ranges *and* nothing that could imply one.
+    G14 wrote a two-point dataset over 0..1 here. Since G17 the guide is
+    drawn after ``end graph`` (``tests/unit/test_refline_fallback.py``), so
+    the block carries no ranges *and* nothing that could imply one.
     """
     fig, ax = _axes()
     ax.axvline(0.5)
@@ -237,7 +237,7 @@ def test_a_lone_axvline_leaves_both_axes_to_the_engine():
     assert _axis_line(text, "x") is None
     assert _axis_line(text, "y") is None
     assert files == {}
-    assert 'draw gleplot_vline 0.5 0 1 "BLACK" 0.05292 1 ""' in text
+    assert "end graph" in text.split("graph_vline 0.5")[0]
 
 
 def test_a_lone_axhline_leaves_both_axes_to_the_engine():
@@ -248,7 +248,7 @@ def test_a_lone_axhline_leaves_both_axes_to_the_engine():
     assert _axis_line(text, "x") is None
     assert _axis_line(text, "y") is None
     assert files == {}
-    assert 'draw gleplot_hline 0.5 0 1 "BLACK" 0.05292 1 ""' in text
+    assert "end graph" in text.split("graph_hline 0.5")[0]
 
 
 def test_two_guides_still_pin_their_own_axis():
@@ -269,8 +269,8 @@ def test_a_guide_spanning_a_deferred_axis_is_handed_to_the_engine():
     picks it, after the script is written -- so materialization reached for
     the same 0..1 fallback it used for an unbounded axis, and the guide's own
     ``0``/``1`` rows then joined GLE's autoscale and moved the frame as well.
-    It now goes out as a ``draw`` that reads ``ygmin``/``ygmax`` from inside
-    the block, so the extent is taken against the range GLE actually chose and
+    It is now drawn after ``end graph``, reading ``ygmin``/``ygmax``, so the
+    extent is taken against the range GLE actually chose and
     the guide takes no part in choosing it. Measured against the engine in
     ``tests/integration/test_guide_draw_form_compiles.py``.
 
@@ -284,7 +284,69 @@ def test_a_guide_spanning_a_deferred_axis_is_handed_to_the_engine():
     text, files = _generate(fig)
     assert list(files) == ["dg_0.dat"]
     assert files["dg_0.dat"] == "x y\n5 7\n"
-    assert 'draw gleplot_vline 5 0 1 "BLACK" 0.05292 1 ""' in text
+    assert "end graph" in text.split("graph_vline 5")[0]
+
+
+# --------------------------------------------------------------------------- #
+# No dataset for GLE to widen from: GLE's rule, written out (#219)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_lone_box_plot_gets_a_range_around_its_value():
+    """GLE draws 0..1 for an axes with no dataset; the box at 2 was clipped."""
+    fig, ax = _axes()
+    ax.boxplot([2, 2, 2])
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "y") == "yaxis min 0 max 4"
+
+
+@pytest.mark.parametrize(
+    "ticks, xline", [([5], "xaxis min 0 max 10"), ([0, 0], "xaxis min -1 max 1")]
+)
+def test_a_lone_rug_gets_a_range_around_its_value(ticks, xline):
+    fig, ax = _axes()
+    ax.rug(ticks)
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "x") == xline
+
+
+def test_an_explicit_bound_beside_a_lone_rug_is_kept():
+    fig, ax = _axes()
+    ax.rug([-2])
+    ax.set_xlim(-2, None)
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "x") == "xaxis min -2 max 0"
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        lambda ax: ax.plot([], []),
+        lambda ax: ax.plot([1.0, 2.0], [float("nan"), float("nan")]),
+    ],
+    ids=["empty-line", "all-nan-line"],
+)
+def test_a_dataset_that_cannot_reach_the_axis_does_not_count(other):
+    fig, ax = _axes()
+    ax.boxplot([2, 2, 2])
+    other(ax)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        text, _files = fig._generate_gle_with_files()
+    assert _axis_line(text, "y") == "yaxis min 0 max 4"
+
+
+def test_a_box_beside_a_dataset_still_leaves_the_range_to_gle():
+    fig, ax = _axes()
+    ax.boxplot([2, 2, 2])
+    ax.plot([1.0], [2.0])
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "y") is None
 
 
 # --------------------------------------------------------------------------- #

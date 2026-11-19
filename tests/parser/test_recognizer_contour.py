@@ -197,7 +197,8 @@ def test_cells_marker_on_another_grid_reads_as_imshow(tmp_path, header, rows, cl
     rec = parse_gle_figure(p)
     hm = rec.figure.axes_list[0].heatmaps[0]
     assert "cells" not in hm
-    assert hm["extent"][2:] == [-0.5, 1.5]
+    # Its last row where colormap draws it: one spacing short of ymax.
+    assert hm["extent"][2:] == [-0.5, 0.5]
     assert any("marked as a pcolormesh mesh" in w for w in rec.warnings)
 
 
@@ -321,9 +322,20 @@ def test_contourf_gleplot_cannot_read_keeps_its_band_sub(tmp_path, comment, opti
     assert "   return rgb(z, z, z)" in text.splitlines()
 
 
-def test_contourf_grid_under_another_palette_says_so(tmp_path):
+@pytest.mark.parametrize(
+    "header, extent, noted",
+    [
+        # One node spacing past the marker's edges: an imshow grid (#350).
+        ("xmin 0 xmax 2 ymin 0 ymax 2", [0.0, 1.0, 0.0, 1.0], False),
+        # Not: read where colormap draws its nodes, and said so.
+        ("xmin 0 xmax 3 ymin 0 ymax 3", [0.0, 1.5, 0.0, 1.5], True),
+    ],
+)
+def test_a_node_grid_under_a_plain_colormap_reads_its_own_edges(
+    tmp_path, header, extent, noted
+):
     (tmp_path / "grid.z").write_text(
-        "! nx 2 ny 2 xmin 0 xmax 2 ymin 0 ymax 2\n"
+        f"! nx 2 ny 2 {header}\n"
         "! gleplot: nodes xmin 0 xmax 1 ymin 0 ymax 1\n0 1\n1 2\n",
         encoding="utf-8",
     )
@@ -333,8 +345,33 @@ def test_contourf_grid_under_another_palette_says_so(tmp_path):
         encoding="utf-8",
     )
     rec = parse_gle_figure(p)
-    assert rec.figure.axes_list[0].heatmaps[0]["extent"] == [0.0, 2.0, 0.0, 2.0]
-    assert any("written for a contourf" in w for w in rec.warnings)
+    assert rec.figure.axes_list[0].heatmaps[0]["extent"] == extent
+    assert any("node-grid marker" in w for w in rec.warnings) == noted
+
+
+def test_a_grid_written_before_node_headers_still_loads(tmp_path):
+    """A ``.z`` with no marker line keeps its nodes where colormap drew them.
+
+    ``colormap`` puts the last of ``n`` nodes one ``(xmax - xmin) / n`` short
+    of ``xmax``, so re-saving, one node spacing past that, draws it again.
+    """
+    (tmp_path / "grid.z").write_text(
+        "! nx 2 ny 2 xmin 0 xmax 1 ymin 0 ymax 1\n0 1\n1 2\n", encoding="utf-8"
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(
+        'size 10 10\nbegin graph\n   colormap "grid.z" 100 100\nend graph\n',
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(p)
+    heatmap = rec.figure.axes_list[0].heatmaps[0]
+    assert heatmap["extent"] == [0.0, 0.5, 0.0, 0.5]
+    assert heatmap["z"].tolist() == [[0.0, 1.0], [1.0, 2.0]]
+    assert rec.warnings == []
+    (tmp_path / "again").mkdir()
+    rec.figure.savefig_gle(str(tmp_path / "again" / "f.gle"))
+    header = (tmp_path / "again" / "grid.z").read_text().splitlines()[0]
+    assert header == "! nx 2 ny 2 xmin 0 xmax 1 ymin 0 ymax 1"
 
 
 def test_foreign_palette_colormap_preserved(tmp_path):
@@ -516,6 +553,40 @@ def test_fitz_feeding_foreign_colormap_preserved(tmp_path):
     assert 'colormap "scatter.z" 300 300 palette mypal' in text2
 
 
+@pytest.mark.parametrize(
+    "clauses",
+    ["zmin lo zmax 1", "zmin -pi zmax pi", "interpolate bilinear"],
+)
+def test_file_colormap_with_inexact_clauses_preserved(tmp_path, clauses):
+    """#206: a ``.z`` colormap clause not written back as it reads stays raw.
+
+    So does the ``begin fitz`` block producing the grid it reads.
+    """
+    (tmp_path / "scatter.dat").write_text("0 0 0\n1 1 1\n2 2 2\n", encoding="utf-8")
+    line = f'colormap "scatter.z" 300 300 color {clauses}'
+    src = (
+        "size 12 9\n"
+        "lo = 0\n"
+        "begin fitz\n"
+        '   data "scatter.dat"\n'
+        "   x from 0 to 10 step 0.5\n"
+        "   y from 0 to 8 step 0.4\n"
+        "end fitz\n"
+        "begin graph\n"
+        f"   {line}\n"
+        "end graph\n"
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(src, encoding="utf-8")
+
+    rec = parse_gle_figure(p)
+    assert not rec.figure.axes_list[0].heatmaps
+    assert any("cannot write back as it reads" in w for w in rec.warnings)
+    text2, _ = rec.figure._generate_gle_with_files()
+    assert "begin fitz" in text2
+    assert line in text2
+
+
 def test_contour_cdata_with_unreadable_grid_preserved(tmp_path):
     """A gleplot-shaped contour whose grid ``.z`` is missing loses nothing.
 
@@ -547,6 +618,43 @@ def test_contour_cdata_with_unreadable_grid_preserved(tmp_path):
     assert 'data "mydata.z"' in text2
     assert "mydata-cdata.dat" in text2
     assert "d1 line color red" in text2
+
+
+@pytest.mark.parametrize("extra", ["   smooth 5", "   ! my note"])
+def test_a_line_gleplot_does_not_write_in_a_contour_block_is_reported(tmp_path, extra):
+    """#176: the contour is recovered and the dropped line is named."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.contour(np.arange(9.0).reshape(3, 3), levels=[4.0], clabel=True)
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace("end contour", f"{extra}\nend contour")
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    (contour,) = rec.figure.axes_list[0].contours
+    assert contour["levels"] == [4.0] and contour["clabel"]
+    line_no = text.splitlines().index(extra) + 1
+    (note,) = rec.notes
+    assert extra.strip() in note.message and "not written back" in note.message
+    assert note.source_span == (line_no, line_no)
+
+
+@pytest.mark.parametrize(
+    "levels", ["   values 4 lev", "   values 4\n   values 5", "   values"]
+)
+def test_contour_levels_gleplot_cannot_read_keep_the_block(tmp_path, levels):
+    """A level that is not a number, or a second list, is not half read."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.contour(np.arange(9.0).reshape(3, 3), levels=[4.0])
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace("   values 4", levels)
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    assert not rec.figure.axes_list[0].contours
+    text2, _ = rec.figure._generate_gle_with_files()
+    assert text[text.index("begin contour") : text.index("end contour")] in text2
 
 
 def test_handwritten_gleplot_authored_style_recovers(tmp_path):

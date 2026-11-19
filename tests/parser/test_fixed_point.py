@@ -27,7 +27,7 @@ import gleplot
 from gleplot import axes as _gleplot_axes
 from gleplot.parser.recognizer import parse_gle_figure
 from gleplot.series import SERIES_CLASSES
-from gleplot.sources import is_inline
+from gleplot.sources import ColumnRef, DictDataProvider, TableData, is_inline
 from gleplot.writer import COLORBAR_AUTO_RANGE
 from tests.integration import test_project_io as project_battery
 from tests.parser import _golden_battery as golden
@@ -156,3 +156,101 @@ def test_recognized_figures_carry_no_reference_backed_series(name, tmp_path):
             assert COLORBAR_AUTO_RANGE not in cb
             assert cb["zmin"] is not None and cb["zmax"] is not None
             assert cb["zstep"] is not None
+
+
+# -- Provider-written sidecars ------------------------------------------------
+
+
+def _shared_line_and_scatter(ax):
+    ax.plot([1, 2, 3], [1, 2, 3])
+    ax.scatter([1, 2, 3], [1, 2, 3])
+    ax.lines[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+    ax.scatters[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "z"})
+
+
+def _shared_line_and_errorbar(ax):
+    ax.plot([1, 2, 3], [1, 2, 3])
+    ax.errorbar([1, 2, 3], [1, 2, 3], yerr=0.5)
+    ax.lines[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+    ax.errorbars[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+
+
+def _shared_line_and_masked_sizes(ax):
+    ax.plot([1, 2, 3], [1, 2, 3])
+    ax.scatter([1, 2, 3], [1, 2, 3], s=[10, 20, 30])
+    ax.set_ylim(0, 10)
+    ax.lines[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "gap"})
+    ax.scatters[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "gap"})
+
+
+def _shared_line_reading_one_column_twice(ax):
+    ax.plot([1, 2, 3], [1, 2, 3])
+    ax.scatter([1, 2, 3], [1, 2, 3])
+    ax.lines[0]["data_source"] = ColumnRef("t", {"x": "z", "y": "z"})
+    ax.scatters[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+
+
+@pytest.mark.parametrize(
+    "draw",
+    [
+        _shared_line_and_scatter,
+        _shared_line_and_errorbar,
+        _shared_line_and_masked_sizes,
+    ],
+)
+def test_a_shared_provider_sidecar_survives_a_re_save(draw, tmp_path):
+    """Series read back from one shared sidecar share it again (#331).
+
+    Each comes back inline under the same file name; written one after the
+    other, the last used to overwrite the rest.
+    """
+    table = TableData.from_mapping(
+        {"x": [1, 2, 3], "y": [1, 4, 9], "z": [5, 6, 7], "gap": [1, float("nan"), 9]}
+    )
+    fig = gleplot.figure(data_prefix="r")
+    draw(fig.add_subplot(111))
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    fig.savefig_gle(
+        str(first / "figure.gle"), data_provider=DictDataProvider({"t": table})
+    )
+    text1, data1 = _read_saved(first)
+
+    parse_gle_figure(first / "figure.gle").figure.savefig_gle(
+        str(second / "figure.gle")
+    )
+    text2, data2 = _read_saved(second)
+
+    assert data2 == data1
+    assert text2 == text1
+
+
+def test_a_series_reading_one_shared_column_twice_keeps_it(tmp_path):
+    """Its repeated column keeps its own place when another series merges in.
+
+    An inline series writes ``c1..cN``, so ``d1=c1,c1`` comes back as two
+    columns: not the same bytes, but every series reads what it read.
+    """
+    table = TableData.from_mapping({"x": [1, 2, 3], "y": [1, 4, 9], "z": [5, 6, 7]})
+    fig = gleplot.figure(data_prefix="r")
+    _shared_line_reading_one_column_twice(fig.add_subplot(111))
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    fig.savefig_gle(
+        str(first / "figure.gle"), data_provider=DictDataProvider({"t": table})
+    )
+    parse_gle_figure(first / "figure.gle").figure.savefig_gle(
+        str(second / "figure.gle")
+    )
+
+    ax = parse_gle_figure(second / "figure.gle").figure.axes_list[0]
+    assert list(ax.lines[0]["x"]) == list(ax.lines[0]["y"]) == [5, 6, 7]
+    assert list(ax.scatters[0]["x"]) == [1, 2, 3]
+    assert list(ax.scatters[0]["y"]) == [1, 4, 9]
+
+
+def _read_saved(directory: Path):
+    data = {p.name: p.read_bytes() for p in directory.iterdir() if p.suffix == ".dat"}
+    return (directory / "figure.gle").read_text(encoding="utf-8"), data

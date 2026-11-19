@@ -5,6 +5,7 @@ import math
 import os
 import re
 import uuid
+from collections.abc import Mapping
 from numbers import Real
 from typing import (
     Any,
@@ -324,11 +325,11 @@ _global_sidecar_counters: Dict[str, int] = {}
 #: and pinned by ``tests/integration/test_refline_fallback_compiles.py``.
 #:
 #: G14 used it as the stand-in range to *materialize* a guide over when the
-#: axis it spans resolved to nothing. Since G17 such a guide is emitted as a
-#: ``draw`` reading GLE's own ``xgmin``/``ygmax`` instead
+#: axis it spans resolved to nothing. Since G17 such a guide is drawn after
+#: ``end graph`` against GLE's own ``xgmin``/``ygmax`` instead
 #: (:mod:`gleplot.guides`), so the constant no longer decides where anything
 #: lands: it survives as the measured statement of what an unbounded GLE axis
-#: does -- the value the draw form reproduces by construction on a truly empty
+#: does -- the value that form reproduces by construction on a truly empty
 #: axes -- and as the safety net in :meth:`Axes._spanned_range`.
 EMPTY_AXIS_FALLBACK_RANGE = (0.0, 1.0)
 
@@ -710,6 +711,64 @@ def _finite_float(value: Any, what: str) -> float:
     if not np.isfinite(number):
         raise ValueError(f"{what} must be finite, got {value!r}")
     return number
+
+
+def _label_axis(caller: str, axis: Any, names: Tuple[str, str], fontdict: Any):
+    """``(axis, fontdict)`` for a ``set_xlabel``/``set_ylabel`` call.
+
+    matplotlib's second positional argument is ``fontdict``; here it is
+    ``axis``. A mapping or ``None`` in that place is matplotlib's, so it is
+    taken as ``fontdict`` (an explicit ``fontdict=`` wins) and the axis is
+    the primary one.
+    """
+    if axis is None or isinstance(axis, Mapping):
+        return names[0], axis if fontdict is None else fontdict
+    if not isinstance(axis, str):
+        raise TypeError(
+            f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}"
+        )
+    if axis not in names:
+        raise ValueError(
+            f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}"
+        )
+    return axis, fontdict
+
+
+def _line_width(caller: str, linewidth: Any) -> Any:
+    """A line's ``linewidth`` in points; ``None`` is matplotlib's default, 1.
+
+    Raises for a value that is not a number, not finite, or negative. A
+    number is returned as given, so the stored series keeps its type.
+    """
+    if linewidth is None:
+        return 1
+    width = _finite_float(linewidth, f"{caller}() linewidth")
+    if width < 0:
+        raise ValueError(
+            f"{caller}() linewidth must be 0 or more points, got {linewidth!r}"
+        )
+    return linewidth if isinstance(linewidth, Real) else width
+
+
+def _stroked(linestyle: Any, linewidth: Any) -> Any:
+    """``linestyle``, or ``'none'`` for a zero ``linewidth``.
+
+    matplotlib's ``lw=0`` draws no stroke. GLE has no zero-width stroke
+    (``lwidth 0`` is its thinnest line, and the writer reads 0 as the
+    style's default width), so the dataset is written without its line, as
+    for ``linestyle='none'``.
+    """
+    return "none" if linewidth == 0 else linestyle
+
+
+def _warn_unstrokable_zero(caller: str, linewidth: float) -> None:
+    """Warn that a curve that is only its line cannot take ``lw=0``."""
+    if linewidth == 0:
+        warn_external(
+            f"{caller}() cannot leave out the line it draws, and GLE has no "
+            "zero-width stroke; linewidth=0 is drawn at the default width. "
+            "Leave the call out to draw nothing."
+        )
 
 
 def _count(value: Any, what: str) -> int:
@@ -1329,18 +1388,19 @@ def _split_plot_format(fmt):
     return linestyle, marker, color
 
 
-def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
+def _pop_marker_fill(
+    kwargs: dict, caller: str, fillstyle=None, markerfacecolor=None
+) -> str:
     """Resolve the marker fill mode from the plotting methods' kwargs.
 
-    Accepts matplotlib's short aliases (``mfc`` for ``markerfacecolor``) out
-    of ``**kwargs`` so a call copied straight from a matplotlib script works,
-    and removes them so they never reach the series dict. Returns one of
-    ``'full'`` / ``'none'`` / ``'white'`` (see
-    :func:`gleplot.markers.resolve_marker_fill`).
+    Accepts matplotlib's short alias ``mfc`` for ``markerfacecolor`` out of
+    ``**kwargs`` (see :func:`_pop_line_alias`) so a call copied straight from
+    a matplotlib script works. Returns one of ``'full'`` / ``'none'`` /
+    ``'white'`` (see :func:`gleplot.markers.resolve_marker_fill`).
     """
-    mfc = kwargs.pop("mfc", None)
-    if markerfacecolor is None:
-        markerfacecolor = mfc
+    markerfacecolor = _pop_line_alias(
+        kwargs, caller, "mfc", "markerfacecolor", markerfacecolor, None
+    )
     return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
 
 
@@ -1375,22 +1435,53 @@ def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
         ("linewidths", linewidths, 1.0, ("linewidth", "lw")),
         ("linestyles", linestyles, "-", ("linestyle", "ls")),
     ):
-        given = value is not None and not (np.ndim(value) == 0 and value == default)
-        winner = plural if given else None
+        is_style = plural == "linestyles"
+        value = _one_for_all_levels(name, plural, value, is_style)
+        winner = plural if value is not None and value != default else None
         for alias in aliases:
             short = kwargs.pop(alias, None)
             if short is None:
                 continue
             if winner is None:
-                value, winner = short, alias
+                value = _one_for_all_levels(name, alias, short, is_style)
+                winner = alias
             else:
                 warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
-        resolved.append(value)
+        # None is matplotlib's "the default", for the plural and its aliases.
+        resolved.append(default if value is None else value)
     warn_unsupported_keywords(name, kwargs)
-    styles = resolved[1]
-    if isinstance(styles, str) or _is_dash_pattern(styles):
+    widths, styles = resolved
+    if styles is not None:
         styles = _line_style(name, styles)
-    return resolved[0], styles
+    return widths, styles
+
+
+def _one_for_all_levels(name: str, keyword: str, value, styles: bool):
+    """``value``, or the one value a per-level sequence gives every level.
+
+    GLE draws every traced contour level as one dataset (the generated
+    ``-cdata.dat``), so it takes one width and one line style for them all.
+    A sequence of differing values warns and its first entry is used.
+    """
+    if isinstance(value, np.ndarray) and value.ndim == 0:
+        return value.item()
+    if not isinstance(value, (list, tuple, np.ndarray)) or (
+        styles and _is_dash_pattern(value)
+    ):
+        return value
+    entries = [e.item() if isinstance(e, np.generic) else e for e in value]
+    if not entries:
+        raise ValueError(
+            f"{name}() {keyword} is an empty sequence; pass one value, e.g. "
+            f"{keyword}={repr('--') if styles else '1.0'}."
+        )
+    if any(entry != entries[0] for entry in entries[1:]):
+        warn_external(
+            f"{name}() draws every level with one {'style' if styles else 'width'}"
+            f": GLE traces the levels as one dataset. {keyword}={entries!r} "
+            f"uses the first, {entries[0]!r}."
+        )
+    return entries[0]
 
 
 _MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
@@ -1416,9 +1507,9 @@ def _pop_line_ends(kwargs: dict, linestyle, style) -> None:
     ``solid_*`` keywords concern a solid line, the ``dash_*`` ones a dashed
     line, and neither a series drawn without a line.
     """
-    # The writer's own tests: no line for None or a _NO_LINE value, and a
-    # dash only where the linestyle maps to an lstyle.
-    drawn = linestyle is not None and linestyle not in _NO_LINE
+    # The writer's own tests: no line for a _NO_LINE value, and a dash only
+    # where the linestyle maps to an lstyle.
+    drawn = linestyle not in _NO_LINE
     solid = Axes._linestyle_to_lstyle(linestyle) is None
     for keyword, (for_solid, field, gle_default, words) in _LINE_END_KEYWORDS.items():
         value = kwargs.pop(keyword, None)
@@ -1659,12 +1750,13 @@ def _is_dash_pattern(value) -> bool:
 def _line_style(caller: str, linestyle):
     """A line's matplotlib ``linestyle`` as the symbol the writer draws.
 
-    The symbols, ``None`` and the no-line values pass through; a named
-    style becomes its symbol. A dash pattern or an unknown style warns and
-    is drawn solid.
+    The symbols and the no-line values pass through; a named style becomes
+    its symbol. ``None`` is matplotlib's default, a solid line (the string
+    ``'None'`` is no line). A dash pattern or an unknown style warns and is
+    drawn solid.
     """
     if linestyle is None:
-        return None
+        return "-"
     if isinstance(linestyle, str):
         if linestyle in ("-", "--", ":", "-.") or linestyle in _NO_LINE:
             return linestyle
@@ -1971,8 +2063,8 @@ class SecondaryXAxis:
     def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_xlim(axis="x2")
 
-    def set_xlabel(self, label: str, **kwargs):
-        return self._axes.set_xlabel(label, axis="x2", **kwargs)
+    def set_xlabel(self, label: str, fontdict=None, **kwargs):
+        return self._axes.set_xlabel(label, "x2", fontdict=fontdict, **kwargs)
 
     def set_xscale(self, scale: str):
         return self._axes.set_xscale(scale, axis="x2")
@@ -2046,8 +2138,8 @@ class SecondaryYAxis:
     def get_ylim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_ylim(axis="y2")
 
-    def set_ylabel(self, label: str, **kwargs):
-        return self._axes.set_ylabel(label, axis="y2", **kwargs)
+    def set_ylabel(self, label: str, fontdict=None, **kwargs):
+        return self._axes.set_ylabel(label, "y2", fontdict=fontdict, **kwargs)
 
     def set_yscale(self, scale: str):
         return self._axes.set_yscale(scale, axis="y2")
@@ -2526,6 +2618,9 @@ class Axes:
         # Resolved into the frame rect when the figure is written, so it is
         # not recovered from a .gle file: the rect it produced is.
         self._aspect: Optional[float] = None
+        # The GLE colour GLE's graph ``background`` fills the frame with
+        # (set_facecolor); None draws no background, so what is behind shows.
+        self._facecolor: Optional[str] = None
 
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
@@ -2614,8 +2709,9 @@ class Axes:
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
-            or ``'none'`` for no line. A dash tuple or any other value
-            warns and is drawn solid.
+            or ``'none'`` for no line. Passing ``None`` asks for
+            matplotlib's default, a solid line. A dash tuple or any other
+            value warns and is drawn solid.
         color : str, optional
             Color name or code ('b', 'red', etc.)
         marker : str, optional
@@ -2623,7 +2719,8 @@ class Axes:
         markersize : float
             Marker size (matplotlib convention, 1-100)
         linewidth : float or None
-            Line width in points; ``None`` means the default width.
+            Line width in points, finite and 0 or more; ``None`` means the
+            default width. 0 draws no line, as ``linestyle='none'`` does.
         label : str, optional
             Legend label
         yaxis : str, optional
@@ -2646,7 +2743,8 @@ class Axes:
             polyline. The step styles are GLE line modes: ``'steps'`` and
             ``'steps-pre'`` emit ``line fsteps`` (matplotlib ``where='pre'``),
             ``'steps-post'`` emits ``line steps``, and ``'steps-mid'`` emits
-            ``line hist``. ``ds`` is accepted as an alias. An unknown value
+            ``line hist``. ``ds`` is accepted as an alias (see
+            ``**kwargs``). An unknown value
             raises ``ValueError``.
         line_mode : {'steps', 'fsteps', 'hist', 'bar', 'impulses'}, optional
             The GLE line mode itself, for a caller that already speaks GLE.
@@ -2679,8 +2777,9 @@ class Axes:
             ``ymin`` below ``ymax``.
         **kwargs
             Additional matplotlib-compatible arguments. ``lw``, ``ls``,
-            ``c`` and ``ms`` are matplotlib's short names for
-            ``linewidth``, ``linestyle``, ``color`` and ``markersize``.
+            ``c``, ``ms``, ``mfc`` and ``ds`` are matplotlib's short names
+            for ``linewidth``, ``linestyle``, ``color``, ``markersize``,
+            ``markerfacecolor`` and ``drawstyle``.
             matplotlib raises for a name passed with its short name; here
             the full name wins, with a warning, unless it is left at its
             default. ``solid_capstyle``,
@@ -2713,17 +2812,19 @@ class Axes:
                 kwargs, caller, "ms", "markersize", markersize, 6
             )
         linestyle = _line_style(caller, linestyle)
-        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
+        # 1 is the writer's "style default" (see GLEWriter.add_line).
+        linewidth = _line_width(caller, linewidth)
+        linestyle = _stroked(linestyle, linewidth)
+        marker_fill = _pop_marker_fill(kwargs, caller, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
-        ds = kwargs.pop("ds", None)
         if self._polar:
             for name, value, default in (
                 ("yaxis", yaxis, "y"),
                 ("xaxis", xaxis, "x"),
                 ("offset", offset, 0),
                 ("drawstyle", drawstyle, None),
-                ("ds", ds, None),
+                ("ds", kwargs.get("ds"), None),
                 ("line_mode", line_mode, None),
                 ("xmin", xmin, None),
                 ("xmax", xmax, None),
@@ -2731,14 +2832,17 @@ class Axes:
                 ("ymax", ymax, None),
             ):
                 if value != default and not (
-                    name == "drawstyle" and value == "default"
+                    name in ("drawstyle", "ds") and value == "default"
                 ):
                     raise ValueError(
                         f"{name}={value!r} is not supported on a polar axes, "
                         "where plot() and scatter() take only theta and r; "
                         "leave it out."
                     )
-        mode = resolve_line_mode(drawstyle, line_mode, ds)
+        drawstyle = _pop_line_alias(
+            kwargs, caller, "ds", "drawstyle", drawstyle, "default"
+        )
+        mode = resolve_line_mode(drawstyle, line_mode)
         qualifiers = _dataset_qualifiers(
             mdist, deresolve, deresolve_average, xmin, xmax, ymin, ymax
         )
@@ -2768,10 +2872,12 @@ class Axes:
         # off there is nothing for it to qualify, and storing it would not
         # survive a round trip (the writer emits no ``line`` token).
         if mode and linestyle in _NO_LINE:
-            warn_external(
-                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
-                "omits it, so the series is drawn without that mode.",
-            )
+            if linewidth != 0:  # lw=0 asked for no stroke: the mode goes too
+                warn_external(
+                    f"line mode {mode!r} needs a drawn line; "
+                    f"linestyle={linestyle!r} omits it, so the series is drawn "
+                    "without that mode.",
+                )
             mode = None
 
         # Handle color. Which style default applies depends on what this
@@ -2790,11 +2896,6 @@ class Axes:
         gle_markersize = markersize_to_msize(
             markersize, self.figure.marker_config.msize_scale
         )
-
-        # matplotlib reads None as the default width; 1 is the writer's
-        # "style default" (see GLEWriter.add_line).
-        if linewidth is None:
-            linewidth = 1
 
         plot_fields = dict(
             type=plot_type,
@@ -3192,10 +3293,9 @@ class Axes:
             if one_label is not None:
                 fields["label"] = self._text(str(one_label))
             if style_name == "step":
-                fields["linestyle"] = (
-                    "-" if one_ls is None else _line_style("hist", one_ls)
-                )
-                fields["linewidth"] = float(1 if one_lw is None else one_lw)
+                fields["linestyle"] = _line_style("hist", one_ls)
+                fields["linewidth"] = float(_line_width("hist", one_lw))
+                _warn_unstrokable_zero("hist", fields["linewidth"])
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
             else:
@@ -3264,7 +3364,7 @@ class Axes:
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
-            Line width in points.
+            Line width in points, finite and 0 or more.
         label : str, optional
             Legend entry.
         zorder : float, optional
@@ -3359,7 +3459,7 @@ class Axes:
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
-            Line width in points.
+            Line width in points, finite and 0 or more.
         label : str, optional
             Legend entry. With ``model``, it can show the fitted values:
             see the Notes.
@@ -3533,7 +3633,7 @@ class Axes:
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
-            Line width in points.
+            Line width in points, finite and 0 or more.
         label : str, optional
             Legend entry.
 
@@ -3843,12 +3943,8 @@ class Axes:
                 fields[key] = bounds[name]
         fields["color"] = self._resolve_color(color)
         fields["linestyle"] = linestyle
-        try:
-            fields["linewidth"] = float(linewidth)
-        except (TypeError, ValueError):
-            raise TypeError(
-                f"{caller}() linewidth must be a number of points, got {linewidth!r}"
-            ) from None
+        fields["linewidth"] = float(_line_width(caller, linewidth))
+        _warn_unstrokable_zero(caller, fields["linewidth"])
         if label is not None:
             fields["label"] = self._text(str(label))
         return fields
@@ -4007,7 +4103,8 @@ class Axes:
         markersize : float
             Marker size (matplotlib convention, 1-100)
         linewidth : float or None
-            Line width in points; ``None`` means the default width.
+            Line width in points, finite and 0 or more; ``None`` means the
+            default width. 0 draws no line, as ``linestyle='none'`` does.
         label : str, optional
             Legend label
         capsize : float, optional
@@ -4040,10 +4137,11 @@ class Axes:
             must be below ``xmax``, ``ymin`` below ``ymax``.
         **kwargs
             ``linestyle`` (alias ``ls``) overrides the line style ``fmt``
-            gives, as in matplotlib, except under ``fmt='none'``. ``lw``, ``c`` and ``ms`` are
-            matplotlib's short names for ``linewidth``, ``color`` and
-            ``markersize``; the full name wins, with a warning, unless it is
-            left at its default. Any other keyword (``ecolor``,
+            gives, as in matplotlib, except under ``fmt='none'``. ``lw``,
+            ``c``, ``ms`` and ``mfc`` are matplotlib's short names for
+            ``linewidth``, ``color``, ``markersize`` and
+            ``markerfacecolor``; the full name wins, with a warning, unless
+            it is left at its default. Any other keyword (``ecolor``,
             ``elinewidth``, ``capthick``, ...) warns and is ignored.
 
         Returns
@@ -4066,7 +4164,7 @@ class Axes:
         """
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
-        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
+        marker_fill = _pop_marker_fill(kwargs, "errorbar", fillstyle, markerfacecolor)
         data_name = kwargs.pop("data_name", None)
         linewidth = _pop_line_alias(kwargs, "errorbar", "lw", "linewidth", linewidth, 1)
         color = _pop_line_alias(kwargs, "errorbar", "c", "color", color, None)
@@ -4076,7 +4174,8 @@ class Axes:
         linestyle = _pop_line_alias(
             kwargs, "errorbar", "ls", "linestyle", kwargs.pop("linestyle", None), None
         )
-        linestyle = _line_style("errorbar", linestyle)
+        if linestyle is not None:  # None leaves the style to fmt
+            linestyle = _line_style("errorbar", linestyle)
         data_range = _dataset_qualifiers(None, None, False, xmin, xmax, ymin, ymax)
         warn_unsupported_keywords("errorbar", kwargs)
         label = self._text(label)
@@ -4181,10 +4280,9 @@ class Axes:
                 xerr_left = err_arr
                 xerr_right = err_arr
 
-        # matplotlib reads None as the default width; 1 is the writer's
-        # "style default" (see GLEWriter.add_errorbar_series).
-        if linewidth is None:
-            linewidth = 1
+        # 1 is the writer's "style default" (see GLEWriter.add_errorbar_series).
+        linewidth = _line_width("errorbar", linewidth)
+        parsed_linestyle = _stroked(parsed_linestyle, linewidth)
 
         errbar_data = ErrorbarSeries(
             type="errorbar",
@@ -4255,8 +4353,8 @@ class Axes:
         _check_file_columns(x_col, y_col=y_col, yerr_col=yerr_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
 
-        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         caller = "errorbar_from_file"
+        marker_fill = _pop_marker_fill(kwargs, caller, fillstyle, markerfacecolor)
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         markersize = _pop_line_alias(kwargs, caller, "ms", "markersize", markersize, 6)
         warn_unsupported_keywords(caller, kwargs)
@@ -4317,8 +4415,9 @@ class Axes:
         ``drawstyle`` and ``line_mode`` are the same line modes as
         :meth:`plot`. ``linestyle='none'`` warns and drops the mode: there
         is no line for it to qualify. The series is still a line reference;
-        this method has no scatter form. ``linewidth`` is in points, and
-        ``None`` is the default width, as for :meth:`plot`.
+        this method has no scatter form. ``linewidth`` is in points, finite
+        and 0 or more, and ``None`` is the default width, as for
+        :meth:`plot`; 0 draws no line, as ``linestyle='none'`` does.
 
         ``skiprows`` skips that many leading lines of the file, ``comment``
         replaces GLE's comment marker ``!``, and ``max_rows`` stops after
@@ -4332,21 +4431,17 @@ class Axes:
         label = self._text(label)
         gle_color = self._resolve_color(color)
         linestyle = _line_style("line_from_file", linestyle)
+        width = float(_line_width("line_from_file", linewidth))
+        linestyle = _stroked(linestyle, width)
         mode = resolve_line_mode(drawstyle, line_mode)
         if mode and linestyle in _NO_LINE:
-            warn_external(
-                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
-                "omits it, so the series is drawn without that mode.",
-            )
+            if width != 0:  # lw=0 asked for no stroke: the mode goes too
+                warn_external(
+                    f"line mode {mode!r} needs a drawn line; "
+                    f"linestyle={linestyle!r} omits it, so the series is drawn "
+                    "without that mode.",
+                )
             mode = None
-        width = 1.0 if linewidth is None else linewidth
-        try:
-            width = float(width)
-        except (TypeError, ValueError):
-            raise TypeError(
-                "line_from_file() linewidth must be a number of points or "
-                f"None, got {linewidth!r}"
-            ) from None
 
         fields = dict(
             series_type="line",
@@ -5764,7 +5859,7 @@ class Axes:
                 styles[i % len(styles)],
                 width_list[i % len(width_list)],
             )
-            if key[1] == "none":
+            if key[1] == "none" or key[2] == 0:  # 0 draws no stroke
                 continue
             groups.setdefault(key, []).append(i)
 
@@ -5787,6 +5882,7 @@ class Axes:
                 linewidth=width,
                 label=text,
                 zorder=zorder,
+                _caller=name,
             )
             series = self.lines[-1]
             # The NaN rows are gaps, written as GLE missing values. A lone
@@ -5862,7 +5958,8 @@ class Axes:
             one (``'dashed'``, ...). A dash tuple or any other value warns
             and is drawn solid.
         linewidth : float
-            Line width in points. ``None`` is the default width.
+            Line width in points, finite and 0 or more. ``None`` is the
+            default width; 0 draws no line.
         label : str, optional
             Legend label.
         **kwargs
@@ -5881,7 +5978,10 @@ class Axes:
         -----
         The line is realized as a two-point dataset whose end points are
         computed when the figure is written, so it tracks any axis limits set
-        afterwards. It is drawn *underneath* the data series.
+        afterwards. It is drawn *underneath* the data series. When the axis
+        it spans has no data and no limit, or its data collapses to one
+        value, it is drawn after the graph instead, above the data; see
+        :doc:`guides/REFERENCE_LINES_AND_SPANS`.
         """
         return self._add_refline(
             "v", x, ymin, ymax, color, linestyle, linewidth, label, kwargs
@@ -5918,9 +6018,10 @@ class Axes:
         data_name = kwargs.pop("data_name", None)
         linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
         linestyle = _line_style(caller, linestyle)
-        linewidth = _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
-        if linewidth is None:
-            linewidth = 1
+        linewidth = _line_width(
+            caller, _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
+        )
+        linestyle = _stroked(linestyle, linewidth)
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
@@ -6072,8 +6173,8 @@ class Axes:
         write time -- an axes with nothing to resolve that axis from (G14), or
         a range that collapsed and was handed back to the engine (G15). Such a
         guide cannot be materialized into a literal dataset without inventing
-        the very range GLE has yet to choose, so it is emitted as a layered
-        ``draw`` over ``xgmin``/``ygmax`` instead (:mod:`gleplot.guides`).
+        the very range GLE has yet to choose, so it is drawn after ``end
+        graph`` against ``xgmin``/``ygmax`` instead (:mod:`gleplot.guides`).
 
         False -- the overwhelmingly common case -- keeps the historical
         two-point dataset emission untouched, byte for byte.
@@ -6082,7 +6183,7 @@ class Axes:
         return lo is None or hi is None
 
     def engine_range_guides(self, series_list, limits) -> List[Series]:
-        """The visible guides in ``series_list`` routed to the draw form."""
+        """The visible guides in ``series_list`` drawn after the graph."""
         return [
             entry
             for entry in series_list
@@ -6127,7 +6228,7 @@ class Axes:
         Two kinds of guide materialize into nothing here: hidden ones
         (``visible = False``, SPEC 14.6), and -- since G17 -- ones whose
         spanned axis has an unresolved bound. The latter are the figures the
-        literal dataset got wrong; they are emitted as ``draw`` calls instead
+        literal dataset got wrong; they are drawn after the graph instead
         (see :meth:`guide_needs_engine_range` and :mod:`gleplot.guides`), and
         :meth:`engine_range_guides` is how the writer collects them.
         """
@@ -7243,7 +7344,8 @@ class Axes:
             Gridded scalar field.
         extent : tuple, optional
             ``(xmin, xmax, ymin, ymax)`` mapping the grid onto data
-            coordinates. Default ``(0, nx, 0, ny)``.
+            coordinates: the first and last grid nodes, where ``contour``
+            puts them. Default ``(0, nx, 0, ny)``.
         origin : {'lower', 'upper'}
             ``'lower'`` (default) puts row 0 of ``Z`` at ``ymin`` (the
             scientific convention; note this differs from matplotlib's
@@ -7861,13 +7963,16 @@ class Axes:
             ``values from zmin to zmax step (zmax-zmin)/n``. A sequence emits
             ``values v1 v2 ...``.
         colors : str
-            Contour line colour.
+            Contour line colour. ``None`` means the default, black.
         linewidths : float
-            Line width (matplotlib points).
+            Line width (matplotlib points). GLE draws every level as one
+            dataset, so a per-level sequence of differing widths warns and
+            its first entry is used.
         linestyles : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'`` or matplotlib's
             name for one (``'dashed'``, ...). A dash tuple or any other
-            value warns and is drawn solid.
+            value warns and is drawn solid. A per-level sequence warns and
+            its first entry is used, as for ``linewidths``.
         clabel : bool
             Draw inline contour labels from the generated ``-clabels.dat``.
         clabel_fmt : str
@@ -7914,7 +8019,7 @@ class Axes:
             zpts=None,
             extent=ext,
             levels=levels_resolved,
-            color=rgb_to_gle(colors),
+            color=rgb_to_gle("black" if colors is None else colors),
             linewidth=float(linewidths),
             linestyle=self._linestyle_to_lstyle(linestyles),
             clabel=bool(clabel),
@@ -8141,7 +8246,7 @@ class Axes:
             zpts=za,
             extent=ext,
             levels=levels_resolved,
-            color=rgb_to_gle(colors),
+            color=rgb_to_gle("black" if colors is None else colors),
             linewidth=float(linewidths),
             linestyle=self._linestyle_to_lstyle(linestyles),
             clabel=bool(clabel),
@@ -8197,7 +8302,9 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top)
+            Which axis: 'x' (bottom, default) or 'x2' (top). Another string
+            raises ``ValueError``. A dict or ``None`` here is taken as
+            matplotlib's positional ``fontdict``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8215,7 +8322,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = "x2" if axis == "x2" else "x"
+        prefix, fontdict = _label_axis("set_xlabel", axis, ("x", "x2"), fontdict)
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict
@@ -8242,7 +8349,9 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right). Another string
+            raises ``ValueError``. A dict or ``None`` here is taken as
+            matplotlib's positional ``fontdict``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8260,7 +8369,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = "y2" if axis == "y2" else "y"
+        prefix, fontdict = _label_axis("set_ylabel", axis, ("y", "y2"), fontdict)
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict
@@ -8805,8 +8914,8 @@ class Axes:
         ----------
         ticks : sequence of float, optional
             Explicit tick positions (GLE ``xplaces``). Passing ``None`` leaves
-            the current setting alone; pass an empty sequence to draw no
-            labelled ticks at all.
+            the current setting alone; an empty sequence draws no ticks and
+            no tick labels (GLE ``xticks off`` and ``xlabels off``).
         labels : sequence of str, optional
             Tick labels (GLE ``xnames``), one per entry of ``ticks``.
         dticks : float, optional
@@ -9175,6 +9284,49 @@ class Axes:
         if self._polar:
             return 1.0
         return "auto" if self._aspect is None else self._aspect
+
+    def set_facecolor(self, color):
+        """Fill the area inside the axes frame with ``color``.
+
+        Parameters
+        ----------
+        color : color or None
+            Any colour gleplot accepts elsewhere; an RGBA colour's alpha makes
+            it see-through. ``None``, ``'none'`` or an alpha of 0 draws no
+            background, the default.
+
+        Notes
+        -----
+        Written as GLE's graph ``background``, which fills the frame before
+        anything in the graph is drawn. Unlike matplotlib, an axes has no
+        background until this is called, so an inset from
+        :meth:`Figure.add_axes` shows what is behind it unless it is given
+        one (``facecolor='white'``). As in matplotlib, an axes with its
+        frame off (:meth:`set_axis_off`, ``pie()``) draws no background. A
+        polar axes has none either: GLE's fills the rectangular graph
+        window, not the circle, so this warns there and does nothing.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, ax = glp.subplots()
+        >>> ax.set_facecolor("whitesmoke")
+        """
+        if self._polar:
+            warn_external(
+                "set_facecolor() has no effect on a polar axes: GLE's graph "
+                "background fills the rectangular window, not the circle."
+            )
+            return
+        rgb, alpha = _rgba_parts(color)
+        if (
+            color is None
+            or (isinstance(color, str) and color.strip().lower() == "none")
+            or (isinstance(alpha, (int, float)) and alpha <= 0)
+        ):
+            self._facecolor = None
+        else:
+            self._facecolor = apply_alpha(rgb_to_gle(rgb), alpha)
 
     @_cartesian_only
     def set_axis_off(self):
@@ -9939,6 +10091,7 @@ class Axes:
             self.scatters,
             self.errorbars,
             self.hists,
+            self.file_series,
         )
         for plot_list in y2_capable:
             for plot_data in plot_list:
@@ -10072,6 +10225,8 @@ class Axes:
         if self._aspect is not None:
             # Likewise only when set.
             payload["aspect"] = self._aspect
+        if self._facecolor is not None:
+            payload["facecolor"] = self._facecolor
         return payload
 
     @classmethod
@@ -10179,6 +10334,7 @@ class Axes:
         ax._frame_off = d.get("frame_off", False)
         ax._polar = d.get("polar", False)
         ax._aspect = d.get("aspect")
+        ax._facecolor = d.get("facecolor")
         # ``_break_owner`` is a back-reference rebound by Figure.from_dict
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")

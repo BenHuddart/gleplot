@@ -14,6 +14,7 @@ against the real binary in ``tests/integration/test_axes_styling_compiles.py``.
 """
 
 import json
+import re
 import warnings
 
 import numpy as np
@@ -694,6 +695,57 @@ def test_noticks_is_its_own_statement_and_an_empty_list_clears_it():
     assert not any(line.startswith("ynoticks") for line in _graph_lines(fig))
 
 
+def test_an_empty_tick_list_switches_the_ticks_and_labels_off():
+    """GLE reads a bare ``xplaces`` as automatic ticks (#181)."""
+    fig, ax = _fig()
+    ax.set_xticks([])
+    ax.set_yticks([], labels=[])
+    ax.grid(True, color="red")
+    ax.set_yticks(noticks=[2])
+    lines = _graph_lines(fig)
+    assert lines[lines.index("xaxis min 1 max 3 grid") :][:5] == [
+        "xaxis min 1 max 3 grid",
+        "xticks off",
+        "xlabels off",
+        "yaxis min 1 max 9 grid",
+        "yticks off",
+    ]
+    assert not any("places" in line or "names" in line for line in lines)
+    assert [line for line in lines if line.startswith(("xticks", "yticks"))] == [
+        "xticks off",
+        "yticks off",
+    ]
+
+
+def test_an_empty_tick_list_on_a_hidden_frame_adds_no_second_ticks_off():
+    """``axis('off')`` writes ``xticks off`` already, and it must stay one of
+    the four lines the parser recovers as a hidden frame."""
+    fig, ax = _fig()
+    ax.axis("off")
+    ax.set_xticks([])
+    ax.set_yticks([], labels=[])
+    lines = _graph_lines(fig)
+    assert lines.count("xticks off") == 1
+    assert lines.count("xlabels off") == 1
+    assert not any("names" in line for line in lines)
+
+
+def test_an_empty_tick_list_leaves_a_twin_scale_its_ticks():
+    """GLE copies ``yticks off``/``ylabels off`` onto y2; a twin is put back."""
+    fig, ax = _fig()
+    ax.twinx().plot([1, 2, 3], [5, 6, 7])
+    ax.set_yticks([])
+    ax.set_xticks([])
+    lines = _graph_lines(fig)
+    assert lines[lines.index("yticks off") :][:4] == [
+        "yticks off",
+        "ylabels off",
+        "y2ticks on",
+        "y2labels on",
+    ]
+    assert "x2ticks on" not in lines and "x2labels on" not in lines
+
+
 def test_symticks_false_goes_back_to_the_default():
     fig, ax = _fig()
     ax.set_xticks(symticks=True)
@@ -1151,3 +1203,33 @@ def test_set_xticks_rejects_bad_minor_and_label_options(kwargs, match):
     _, ax = _fig()
     with pytest.raises(ValueError, match=match):
         ax.set_xticks(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "call, shown",
+    [
+        (lambda ax: ax.set_xlabel("X", axis="top"), "'x' or 'x2', got 'top'"),
+        (lambda ax: ax.set_ylabel("Y", axis="y3"), "'y' or 'y2', got 'y3'"),
+        (lambda ax: ax.figure.xlabel("X", axis="top"), "set_xlabel() axis"),
+    ],
+)
+def test_a_label_axis_that_is_not_an_axis_raises(call, shown):
+    _, ax = _fig()
+    with pytest.raises(ValueError, match=re.escape(shown)):
+        call(ax)
+    with pytest.raises(TypeError, match=re.escape("got 2")):
+        ax.set_xlabel("X", 2)
+    assert (ax.xlabel_text, ax.ylabel_text) == ("", "")
+
+
+def test_a_positional_fontdict_is_matplotlibs_and_labels_the_primary_axis():
+    _, ax = _fig()
+    with pytest.warns(UserWarning, match="fontdict"):
+        ax.set_ylabel("Y", {"fontsize": 9})
+    ax.set_xlabel("X", None)
+    assert (ax.xlabel_text, ax.ylabel_text) == ("X", "Y")
+    with pytest.warns(UserWarning, match="fontdict"):
+        ax.twinx().set_ylabel("R", {"fontsize": 9})
+    with pytest.warns(UserWarning, match="fontdict"):
+        ax.twiny().set_xlabel("T", {"fontsize": 9})
+    assert (ax.y2label_text, ax.x2label_text) == ("R", "T")

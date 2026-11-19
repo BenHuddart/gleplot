@@ -1,6 +1,7 @@
 """Unit tests for plotting functionality."""
 
 import tempfile
+import warnings
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -926,6 +927,42 @@ class TestSegmentLines:
         assert "xaxis min 1 max 4" in text
         assert "yaxis min -1 max 3" in text
 
+    def test_a_table_backed_gap_series_breaks_at_its_gaps(self):
+        """It gets its own ``*`` column; the table's stays for the other line."""
+        from gleplot.sources import ColumnRef, DictDataProvider, TableData
+
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.lines[0]["gaps"] = True
+        for line in self.ax.lines:
+            line["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        table = TableData.from_mapping({"x": [0, 1, 2], "y": [0, float("nan"), 2]})
+        text, files = self.fig._generate_gle_with_files(
+            data_provider=DictDataProvider({"t": table})
+        )
+        (name,) = files
+        assert files[name].splitlines() == ["x y y_2", "0 0 0", "1 * nan", "2 2 2"]
+        assert f"data {name} d1=c1,c2" in text
+        assert f"data {name} d2=c1,c3" in text
+
+    def test_a_table_backed_gap_in_x_gets_its_own_x_column(self):
+        from gleplot.sources import ColumnRef, DictDataProvider, TableData
+
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.lines[0]["gaps"] = True
+        self.ax.lines[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        table = TableData.from_mapping({"x": [0, float("nan"), 2], "y": [0, 1, 2]})
+        text, files = self.fig._generate_gle_with_files(
+            data_provider=DictDataProvider({"t": table})
+        )
+        (name,) = files
+        assert files[name].splitlines() == ["x y", "0 0", "* 1", "2 2"]
+        assert f"data {name} d1=c1,c2" in text
+
     def test_plot_still_writes_nan_without_gaps(self):
         self.ax.plot([0, float("nan"), 2], [0, float("nan"), 2])
         self.ax.set_xlim(0, 2)
@@ -1643,6 +1680,13 @@ class TestLineModes:
         assert self.ax.lines[1]["line_mode"] == "steps"
         assert "line_mode" not in self.ax.lines[2]
 
+    def test_drawstyle_wins_over_ds_with_a_warning(self):
+        with pytest.warns(UserWarning, match="got both drawstyle and ds"):
+            self.ax.plot([0, 1], [0, 1], drawstyle="steps-pre", ds="steps-post")
+        assert self.ax.lines[0]["line_mode"] == "fsteps"
+        self.ax.plot([0, 1], [0, 1], drawstyle="default", ds="steps-post")
+        assert self.ax.lines[1]["line_mode"] == "steps"
+
     def test_unknown_where_or_drawstyle_raises(self):
         with pytest.raises(ValueError):
             self.ax.step([0, 1], [0, 1], where="side")
@@ -1650,8 +1694,6 @@ class TestLineModes:
             self.ax.plot([0, 1], [0, 1], drawstyle="steps-left")
         with pytest.raises(ValueError):
             self.ax.plot([0, 1], [0, 1], line_mode="spline")
-        with pytest.raises(ValueError):
-            self.ax.plot([0, 1], [0, 1], drawstyle="steps-pre", ds="steps-post")
         with pytest.raises(ValueError):
             self.ax.stem([0, 1], orientation="sideways")
         with pytest.raises(TypeError):
@@ -2230,7 +2272,7 @@ class TestFunction:
             ({"xmin": float("nan")}, ValueError, "xmin must be finite"),
             ({"xmax": "end"}, TypeError, "xmax must be a number"),
             ({"linestyle": "none"}, ValueError, "linestyle must be"),
-            ({"linewidth": None}, TypeError, "linewidth must be a number"),
+            ({"linewidth": "thick"}, TypeError, "linewidth must be a number"),
         ],
     )
     def test_rejects_bad_options_when_called(self, kwargs, error, message):
@@ -3028,10 +3070,115 @@ def test_linewidth_none_means_the_default_width(draw):
     assert script(linewidth=None) == script()
 
 
-def test_line_from_file_rejects_a_linewidth_that_is_not_a_number():
+_LINE_WIDTH_CALLS = [
+    ("plot", lambda ax, **kw: ax.plot([0, 1], [0, 1], **kw)),
+    ("errorbar", lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw)),
+    ("line_from_file", lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, **kw)),
+    ("axhline", lambda ax, **kw: ax.axhline(0.5, **kw)),
+]
+
+
+@pytest.mark.parametrize("name, draw", _LINE_WIDTH_CALLS)
+def test_a_linewidth_that_is_not_a_number_raises(name, draw):
     ax = glp.figure().add_subplot(111)
-    with pytest.raises(TypeError, match=r"line_from_file\(\) linewidth .*'thick'"):
-        ax.line_from_file("f.dat", 1, 2, linewidth="thick")
+    with pytest.raises(TypeError, match=rf"{name}\(\) linewidth .*'thick'"):
+        draw(ax, linewidth="thick")
+
+
+@pytest.mark.parametrize("name, draw", _LINE_WIDTH_CALLS)
+@pytest.mark.parametrize("width", [float("nan"), float("inf"), -3])
+def test_a_non_finite_or_negative_linewidth_raises(name, draw, width):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=rf"{name}\(\) linewidth must be"):
+        draw(ax, linewidth=width)
+
+
+@pytest.mark.parametrize(
+    "name, draw",
+    [
+        ("vlines", lambda ax: ax.vlines([0.5], 0, 1, linewidths=-2)),
+        ("hist", lambda ax: ax.hist([1.0, 2.0], histtype="step", linewidth=-2)),
+        ("function", lambda ax: ax.function("x", 0, 1, linewidth=float("nan"))),
+    ],
+)
+def test_other_line_calls_reject_a_bad_linewidth_by_their_own_name(name, draw):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=rf"{name}\(\) linewidth must be"):
+        draw(ax)
+
+
+@pytest.mark.parametrize("no_line", ["none", "None", "", " "])
+def test_line_from_file_without_a_line_writes_no_line_token(no_line, tmp_path):
+    fig = glp.figure(data_prefix="lf")
+    ax = fig.add_subplot(111)
+    ax.line_from_file("f.dat", 1, 2, color="red", linestyle=no_line)
+    out = tmp_path / "fig.gle"
+    fig.savefig(str(out))
+    assert "    d1 color RED lwidth 0.05292" in out.read_text().splitlines()
+
+
+@pytest.mark.parametrize(
+    "draw",
+    [
+        lambda ax, **kw: ax.plot([0, 1], [0, 1], **kw),
+        lambda ax, **kw: ax.plot([0, 1], [0, 1], marker="o", **kw),
+        lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw),
+        lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, **kw),
+        lambda ax, **kw: ax.axhline(0.5, **kw),
+        lambda ax, **kw: ax.axvline(0.5, **kw),
+        lambda ax, **kw: ax.step([0, 1, 2], [0, 1, 0], marker="o", **kw),
+        lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, drawstyle="steps", **kw),
+    ],
+    ids=[
+        "plot",
+        "plot-marker",
+        "errorbar",
+        "line_from_file",
+        "axhline",
+        "axvline",
+        "step",
+        "line_from_file-steps",
+    ],
+)
+def test_linewidth_zero_draws_no_line(draw, tmp_path, recwarn):
+    """matplotlib's ``lw=0`` draws no stroke, the same as ``linestyle='none'``,
+    and says nothing about a line mode it drops with the line."""
+
+    def script(**kw):
+        glp.close()
+        fig = glp.figure(data_prefix="lw")
+        draw(fig.add_subplot(111), **kw)
+        out = tmp_path / "fig.gle"
+        fig.savefig(str(out))
+        return out.read_text()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        no_line = script(linestyle="none")
+    recwarn.clear()
+    assert script(linewidth=0) == no_line
+    assert not recwarn.list
+    assert script(linewidth=0) != script()
+
+
+def test_segments_with_linewidth_zero_are_left_out():
+    ax = glp.figure(data_prefix="lw").add_subplot(111)
+    ax.hlines([0.5, 1], 0, 1, linewidths=[0, 2])
+    ax.vlines([0.5], 0, 1, linewidths=0)
+    assert [s["linewidth"] for s in ax.lines] == [2.0]
+
+
+@pytest.mark.parametrize(
+    "name, draw",
+    [
+        ("function", lambda ax: ax.function("x", 0, 1, linewidth=0)),
+        ("hist", lambda ax: ax.hist([1.0, 2.0], histtype="step", linewidth=0)),
+    ],
+)
+def test_a_curve_that_is_only_its_line_warns_on_linewidth_zero(name, draw):
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match=rf"{name}\(\) cannot leave out"):
+        draw(ax)
 
 
 def _saved(fig, tmp_path):
@@ -3081,7 +3228,7 @@ def test_a_heatmap_grid_keeps_values_six_figures_would_merge(tmp_path):
     ax = fig.add_subplot(111)
     ax.imshow(1.0 + 1e-8 * np.arange(4.0).reshape(2, 2), extent=(0, 2, 0, 2))
     grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
-    assert grid.splitlines()[1:] == ["1 1.00000001", "1.00000002 1.00000003"]
+    assert grid.splitlines()[2:] == ["1 1.00000001", "1.00000002 1.00000003"]
 
 
 def test_raised_columns_zero_nothing_six_figures_kept(tmp_path):
@@ -3110,4 +3257,6 @@ def test_a_timestamp_heatmap_extent_keeps_its_width(tmp_path):
     ax = fig.add_subplot(111)
     ax.imshow(np.arange(6.0).reshape(2, 3), extent=(1.7e9, 1.7e9 + 60, 0, 1))
     grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
-    assert grid.startswith("! nx 3 ny 2 xmin 1.7e+09 xmax 1.70000006e+09 ymin 0")
+    header, marker = grid.splitlines()[:2]
+    assert header.startswith("! nx 3 ny 2 xmin 1700000000 xmax 1700000090 ymin 0")
+    assert marker.startswith("! gleplot: nodes xmin 1.7e+09 xmax 1.70000006e+09")

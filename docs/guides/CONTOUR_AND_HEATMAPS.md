@@ -41,6 +41,8 @@ fig.colorbar(label='amplitude')
 fig.savefig('gaussian.pdf')
 ```
 
+`extent` gives the first and last grid nodes, where `contour` places them, so the heatmap and the contour lines of one grid line up. GLE's `colormap` puts the last node one node spacing short of its `.z` header's `xmax`, so the header is written one spacing past the last node (see [What Files gleplot Writes](#what-files-gleplot-writes)). Axis limits beyond the last node show that extra spacing in the colours of the edge nodes, and saving warns.
+
 `contour`'s `levels` argument accepts:
 
 - `None` (default) — GLE's own default of 10 automatic levels.
@@ -231,7 +233,7 @@ A colorbar over a **constant** field (`zmax == zmin`) is handled gracefully — 
 
 ## What Files gleplot Writes
 
-- `imshow`/`pcolormesh`/`contourf`/gridded `contour` write a `.z` sidecar directly: a text header `! nx <nx> ny <ny> xmin <x0> xmax <x1> ymin <y0> ymax <y1>` followed by `ny` rows of `nx` values. A `pcolormesh` sidecar has one more row and column, and a `contourf` one a different header; see [Cells with pcolormesh](#cells-with-pcolormesh) and [Filled contours with contourf](#filled-contours-with-contourf).
+- `imshow`/`pcolormesh`/`contourf`/gridded `contour` write a `.z` sidecar directly: a text header `! nx <nx> ny <ny> xmin <x0> xmax <x1> ymin <y0> ymax <y1>` followed by `ny` rows of `nx` values. A gridded `contour` writes the grid's extent in the header. An `imshow` or `contourf` writes its header one node spacing past the last node, with a `! gleplot: nodes xmin ... ymax ...` line under it, which GLE skips, holding the extent; a grid one node wide or tall has no spacing and is written like a `contour`'s. A `.z` file without that line, as earlier versions of gleplot wrote for `imshow`, still loads, over its header's range. A `pcolormesh` sidecar has one more row and column; see [Cells with pcolormesh](#cells-with-pcolormesh) and [Filled contours with contourf](#filled-contours-with-contourf).
 - `tripcolor`/`tricontour` write a points sidecar (`<prefix>_points<N>.dat`): raw whitespace-separated `x y z` triples, one per line, no header.
 - `function2d` writes no file.
 - These sidecars are **not** columnar data in the usual gleplot sense — they're excluded from the `! gleplot: import-data = ...` metadata comment (which only lists file-backed series you could re-import as columns).
