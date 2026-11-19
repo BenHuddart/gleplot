@@ -9344,6 +9344,8 @@ class _Recognizer:
 
         positions = _clean_grid(amoves)
         if positions is None:
+            positions = self._infer_spans(parsed_axes)
+        if positions is None:
             # A frame set_aspect shrank keeps its cell's centre, not its corner.
             rects = [self._frame_rect(info) for info in parsed_axes]
             frames = [r for r in rects if r is not None]
@@ -9351,8 +9353,6 @@ class _Recognizer:
                 positions = _clean_grid(
                     [((r[0] + r[2]) / 2, (r[1] + r[3]) / 2) for r in frames]
                 )
-        if positions is None:
-            positions = self._infer_spans(parsed_axes)
         if positions is None:
             self._note(
                 ImportCategory.LAYOUT,

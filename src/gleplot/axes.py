@@ -2229,10 +2229,10 @@ class Axes:
         # re-emits byte-for-byte rather than being normalized to 'scale auto'.
         self.placement: Optional[Tuple[float, float, float, float]] = None
         self.geometry_passthrough: list = []
-        #: A y unit's length over an x unit's (set_aspect); None is 'auto'.
-        #: Resolved into the frame rect when the figure is written, so it is
-        #: not recovered from a .gle file: the rect it produced is.
-        self.aspect: Optional[float] = None
+        # A y unit's length over an x unit's (set_aspect); None is 'auto'.
+        # Resolved into the frame rect when the figure is written, so it is
+        # not recovered from a .gle file: the rect it produced is.
+        self._aspect: Optional[float] = None
 
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
@@ -7598,7 +7598,7 @@ class Axes:
             a decade.
         adjustable : {None, 'box', 'datalim'}, optional
             gleplot always adjusts the box; ``'datalim'`` warns.
-        anchor : None or str, optional
+        anchor : None, str or (float, float), optional
             gleplot always centres the box in its place; anything but
             ``None`` or ``'C'`` warns.
         share : bool, default: False
@@ -7612,7 +7612,12 @@ class Axes:
         ------
         ValueError
             If ``aspect`` is not ``'auto'``, ``'equal'`` or a finite positive
-            number, or ``adjustable`` is not one of the values above.
+            number, or ``adjustable`` or ``anchor`` is not one of matplotlib's
+            values.
+        TypeError
+            If ``aspect`` is neither a string nor a number.
+        NotImplementedError
+            On a polar axes or a broken-axis segment.
 
         Notes
         -----
@@ -7632,18 +7637,50 @@ class Axes:
         >>> fig, ax = glp.subplots()
         >>> ax.set_aspect("equal")
         """
+        if self._break_owner is not None:
+            raise NotImplementedError(
+                "set_aspect() is not supported on a broken-axis segment: the "
+                "segments share one height. Choose figsize and the limits "
+                "instead."
+            )
+        if isinstance(aspect, str) and aspect in ("auto", "equal"):
+            value: Optional[float] = None if aspect == "auto" else 1.0
+        else:
+            try:
+                value = float(aspect)
+            except TypeError:
+                raise TypeError(
+                    f"set_aspect(aspect={aspect!r}) must be 'auto', 'equal' or "
+                    "a finite positive number."
+                ) from None
+            except ValueError:
+                value = float("nan")
+            if not (np.isfinite(value) and value > 0):
+                raise ValueError(
+                    f"set_aspect(aspect={aspect!r}) must be 'auto', 'equal' or "
+                    "a finite positive number."
+                )
         if adjustable not in (None, "box", "datalim"):
             raise ValueError(
                 f"set_aspect(adjustable={adjustable!r}) is not supported; use "
                 "None, 'box' or 'datalim'."
             )
+        if isinstance(anchor, str):
+            if anchor not in ("C", "SW", "S", "SE", "E", "NE", "N", "NW", "W"):
+                raise ValueError(
+                    f"set_aspect(anchor={anchor!r}) must be one of 'C', 'SW', "
+                    "'S', 'SE', 'E', 'NE', 'N', 'NW', 'W' or an (x, y) pair."
+                )
+            centred = anchor == "C"
+        else:
+            centred = anchor is None
         if adjustable == "datalim":
             warn_external(
                 "set_aspect(adjustable='datalim') is not supported: gleplot "
                 "resizes the box instead. Set the limits with set_xlim and "
                 "set_ylim to choose them yourself."
             )
-        if anchor not in (None, "C"):
+        if not centred:
             warn_external(
                 f"set_aspect(anchor={anchor!r}) is not supported: gleplot "
                 "centres the resized box in its place."
@@ -7653,19 +7690,7 @@ class Axes:
                 "set_aspect(share=True) is not supported: the aspect is set on "
                 "this axes only. Call set_aspect on each axes."
             )
-        if isinstance(aspect, str) and aspect in ("auto", "equal"):
-            self.aspect = None if aspect == "auto" else 1.0
-            return
-        try:
-            value = float(aspect)
-        except (TypeError, ValueError):
-            value = float("nan")
-        if not (np.isfinite(value) and value > 0):
-            raise ValueError(
-                f"set_aspect(aspect={aspect!r}) must be 'auto', 'equal' or a "
-                "finite positive number."
-            )
-        self.aspect = value
+        self._aspect = value
 
     def get_aspect(self):
         """The aspect :meth:`set_aspect` set: ``'auto'`` or a float.
@@ -7675,7 +7700,7 @@ class Axes:
         """
         if self._polar:
             return 1.0
-        return "auto" if self.aspect is None else self.aspect
+        return "auto" if self._aspect is None else self._aspect
 
     @_cartesian_only
     def set_axis_off(self):
@@ -8570,9 +8595,9 @@ class Axes:
         if self._polar:
             # Only on a polar axes, so every other payload is unchanged.
             payload["polar"] = True
-        if self.aspect is not None:
+        if self._aspect is not None:
             # Likewise only when set.
-            payload["aspect"] = self.aspect
+            payload["aspect"] = self._aspect
         return payload
 
     @classmethod
@@ -8679,7 +8704,7 @@ class Axes:
         ax._y2axis_off = d.get("y2axis_off", False)
         ax._frame_off = d.get("frame_off", False)
         ax._polar = d.get("polar", False)
-        ax.aspect = d.get("aspect")
+        ax._aspect = d.get("aspect")
         # ``_break_owner`` is a back-reference rebound by Figure.from_dict
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")

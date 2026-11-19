@@ -537,7 +537,7 @@ _AXES_SERIALIZED_ATTRS = {
     "placement",
     "geometry_passthrough",
     # set_aspect; written only when set.
-    "aspect",
+    "_aspect",
     "xdticks",
     "ydticks",
     "xdsubticks",

@@ -95,11 +95,38 @@ def test_get_aspect():
     assert polar.get_aspect() == 1.0
 
 
-@pytest.mark.parametrize("aspect", [0, -1, float("nan"), "square", None])
+@pytest.mark.parametrize("aspect", [0, -1, float("nan"), "square"])
 def test_bad_aspect_raises(aspect):
     _fig, ax = glp.subplots()
     with pytest.raises(ValueError, match="finite positive"):
         ax.set_aspect(aspect)
+
+
+@pytest.mark.parametrize("aspect", [None, [1, 2]])
+def test_wrong_type_aspect_raises_type_error(aspect):
+    _fig, ax = glp.subplots()
+    with pytest.raises(TypeError, match="finite positive"):
+        ax.set_aspect(aspect)
+
+
+def test_a_bad_aspect_raises_before_any_warning():
+    _fig, ax = glp.subplots()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(ValueError):
+            ax.set_aspect(-1, share=True)
+
+
+def test_bad_anchor_raises():
+    _fig, ax = glp.subplots()
+    with pytest.raises(ValueError, match="anchor"):
+        ax.set_aspect("equal", anchor="X")
+
+
+def test_broken_axis_segment_set_aspect_raises():
+    bax = glp.figure().add_broken_xaxes([(0, 1), (2, 3)])
+    with pytest.raises(NotImplementedError, match="broken"):
+        bax.segments[0].set_aspect("equal")
 
 
 def test_bad_adjustable_raises():
@@ -113,6 +140,7 @@ def test_bad_adjustable_raises():
     [
         ({"adjustable": "datalim"}, "datalim"),
         ({"anchor": "SW"}, "anchor"),
+        ({"anchor": (0.0, 0.5)}, "anchor"),
         ({"share": True}, "share"),
     ],
 )
