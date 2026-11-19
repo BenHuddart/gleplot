@@ -108,6 +108,54 @@ def test_line_from_file_emits_the_right_code(linestyle, expected):
     assert _lstyles(_gle(fig)) == ([] if expected is None else [expected])
 
 
+#: Every call that draws a line from a ``linestyle`` keyword.
+LINE_CALLS = {
+    "plot": lambda ax, ls: ax.plot(X, Y, linestyle=ls),
+    "step": lambda ax, ls: ax.step(X, Y, linestyle=ls),
+    "stem": lambda ax, ls: ax.stem(X, Y, linestyle=ls),
+    "errorbar": lambda ax, ls: ax.errorbar(X, Y, yerr=0.1, linestyle=ls),
+    "axhline": lambda ax, ls: ax.axhline(1.5, linestyle=ls),
+    "axvline": lambda ax, ls: ax.axvline(1.0, linestyle=ls),
+    "line_from_file": lambda ax, ls: ax.line_from_file("f.dat", 1, 2, linestyle=ls),
+    "hist": lambda ax, ls: ax.hist(Y, histtype="step", linestyle=ls),
+}
+NAMED = {"solid": None, "dashed": 3, "dotted": 2, "dashdot": 6}
+
+
+@pytest.mark.parametrize("call", LINE_CALLS)
+@pytest.mark.parametrize("name,expected", NAMED.items())
+def test_matplotlib_line_style_names_draw_their_style(call, name, expected, recwarn):
+    fig = glp.figure(data_prefix="lsn")
+    ax = fig.add_subplot(111)
+    ax.plot(X, Y)  # gives the reference lines a range
+    LINE_CALLS[call](ax, name)
+    assert _lstyles(_gle(fig)) == ([] if expected is None else [expected])
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+@pytest.mark.parametrize("call", LINE_CALLS)
+@pytest.mark.parametrize(
+    "linestyle,match",
+    [((0, (5, 2)), "dash pattern GLE cannot draw"), ("wavy", "not a line style")],
+)
+def test_a_style_gle_cannot_draw_warns_and_is_solid(call, linestyle, match):
+    fig = glp.figure(data_prefix="lsw")
+    ax = fig.add_subplot(111)
+    ax.plot(X, Y)
+    with pytest.warns(UserWarning, match=f"{call}\\(\\) linestyle .*{match}"):
+        LINE_CALLS[call](ax, linestyle)
+    assert _lstyles(_gle(fig)) == []
+
+
+@pytest.mark.parametrize("linestyle,expected", [("dashed", 3), ("wavy", 1)])
+def test_a_reference_line_on_an_empty_axes_is_drawn(linestyle, expected, recwarn):
+    # On an empty axes a reference line is a guide sub call, which draws
+    # nothing for an lstyle of 0: an unmapped style used to vanish.
+    fig = glp.figure(data_prefix="lse")
+    fig.add_subplot(111).axvline(0.5, linestyle=linestyle)
+    assert re.search(f'draw gleplot_vline .* "BLACK" \\S+ {expected} ""', _gle(fig))
+
+
 def test_dash_dot_emits_exactly_one_lstyle_token():
     """Regression: add_plot_line used to append a stray hard-coded 'lstyle 4'
     after the configured dash-dot value, so '-.' silently rendered as GLE's
@@ -275,11 +323,18 @@ def test_keywords_for_the_other_kind_of_line_are_ignored(recwarn):
     assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
 
 
-def test_a_linestyle_the_writer_draws_solid_is_a_solid_line():
+def test_a_linestyle_drawn_solid_takes_the_solid_keywords():
     ax = glp.figure().add_subplot(111)
-    with pytest.warns(UserWarning, match="solid_capstyle"):
-        ax.plot(X, Y, linestyle="dashed", solid_capstyle="round")
+    with pytest.warns(UserWarning) as record:
+        ax.plot(X, Y, linestyle="wavy", solid_capstyle="round")
+    assert any("solid_capstyle" in str(w.message) for w in record)
     assert _lstyles(_gle(ax.figure)) == []
+
+
+def test_a_named_dashed_style_takes_the_dash_keywords():
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match="dash_capstyle"):
+        ax.plot(X, Y, linestyle="dashed", dash_capstyle="round")
 
 
 def test_an_unknown_per_series_value_is_rejected_at_the_call():
