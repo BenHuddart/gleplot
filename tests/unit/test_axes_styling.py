@@ -13,8 +13,10 @@ chapter (``title``/``xtitle``/``xlabels``/``xticks``/``xsubticks`` and the
 against the real binary in ``tests/integration/test_axes_styling_compiles.py``.
 """
 
+import json
 import warnings
 
+import numpy as np
 import pytest
 
 import gleplot as glp
@@ -811,6 +813,20 @@ def test_default_marker_color_config_drives_an_uncoloured_scatter():
     text = fig._generate_gle()
     assert "color GREEN" in text
     assert "color RED" not in text
+
+
+def test_array_default_colors_compare_and_serialise():
+    def style():
+        return glp.GLEStyleConfig(
+            default_color=np.array([0.0, 1.0, 0.0]),
+            default_marker_color=np.array([[1.0, 0.0, 0.0]]),
+        )
+
+    assert style() == style()
+    fig = glp.figure(data_prefix="style", style=style())
+    fig.add_subplot(111).plot([1, 2], [1, 2])
+    json.dumps(fig.to_dict())
+    assert "d1 line color rgb255(0,255,0)" in fig._generate_gle()
 
 
 def test_default_colors_out_of_the_box_are_the_historical_blue():

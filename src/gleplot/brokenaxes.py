@@ -48,6 +48,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple, cast
 
+import numpy as np
+
 from ._warn import warn_external
 from .axes import Axes
 
@@ -249,6 +251,13 @@ class BrokenAxes:
             float(gap) if gap is not None else (0.15 if divider == "slash" else 0.0)
         )
         self.divider = divider
+        if isinstance(divider_color, np.ndarray):
+            # An array breaks the JSON of to_dict().
+            divider_color = (
+                tuple(divider_color.ravel().tolist())
+                if divider_color.ndim
+                else divider_color.item()
+            )
         self.divider_color = divider_color
         self.divider_linewidth = divider_linewidth
         self.divider_lstyle = divider_lstyle

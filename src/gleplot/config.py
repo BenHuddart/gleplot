@@ -5,6 +5,8 @@ import numbers
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
+import numpy as np
+
 #: GLE's ``set cap`` and ``set join`` words, in GLE's own numbering order, so
 #: the first is GLE's default.
 LINE_CAPS = ("butt", "round", "square")
@@ -161,6 +163,11 @@ class GLEStyleConfig:
                     f"dashlen must be a positive length in cm or None; got "
                     f"{value!r}. None keeps GLE's own 0.04 cm."
                 )
+        if name in ("default_color", "default_marker_color") and isinstance(
+            value, np.ndarray
+        ):
+            # An array breaks dataclass == and the JSON of Figure.to_dict().
+            value = tuple(value.ravel().tolist()) if value.ndim else value.item()
         if name == "usetex" and not isinstance(value, bool):
             raise TypeError(
                 f"usetex must be True or False; got {value!r} of type "
