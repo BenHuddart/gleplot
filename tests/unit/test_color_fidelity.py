@@ -121,6 +121,10 @@ def test_named_colors_pass_through_as_names(requested, expected):
         # Three-digit hex shorthand.
         ("#bbb", "rgb255(187,187,187)"),
         ("#1f77b4", "rgb255(31,119,180)"),
+        # numpy arrays, as matplotlib accepts: 1-D, RGBA, or a single row.
+        (np.array([1.0, 0.0, 0.0]), "rgb255(255,0,0)"),
+        (np.array([0.0, 1.0, 0.0, 0.5]), "rgb255(0,255,0)"),
+        (np.array([[0.55, 0.4, 0.74]]), "rgb255(140,102,189)"),
     ],
 )
 def test_non_name_colors_convert_to_exact_rgb255(requested, expected):
@@ -140,6 +144,14 @@ def test_color_expressions_pass_through(expression):
     once = rgb_to_gle(expression)
     assert once == re.sub(r"\s+", "", expression)
     assert rgb_to_gle(once) == once
+
+
+def test_numpy_color_reaches_the_script(tmp_path):
+    fig = glp.figure()
+    fig.add_subplot(111).plot([0, 1], [0, 1], color=np.array([0.0, 1.0, 0.0]))
+    out = tmp_path / "array.gle"
+    fig.savefig(str(out))
+    assert "color rgb255(0,255,0)" in out.read_text()
 
 
 def test_unresolvable_color_still_falls_back_to_black():

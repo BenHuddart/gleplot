@@ -26,6 +26,8 @@ when the figure is rebuilt.
 import re
 from typing import Dict, Optional, Tuple, Union
 
+import numpy as np
+
 from ._warn import warn_external
 
 # Matplotlib color codes to GLE color names
@@ -139,7 +141,7 @@ def _gle_color_names() -> frozenset:
     return _GLE_COLOR_NAMES
 
 
-def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
+def rgb_to_gle(color: Union[str, Tuple[float, float, float], np.ndarray]) -> str:
     """
     Convert a matplotlib color specification to a GLE color token.
 
@@ -152,7 +154,8 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
     color : str or tuple
         Matplotlib color: a name, a single-letter code, a ``C0``..``C9``
         cycle reference, a ``tab:`` name, a ``#RRGGBB``/``#RGB`` hex string,
-        an RGB tuple/list with components in [0, 1], or an already-formed
+        an RGB tuple/list/1-D array with components in [0, 1], or an
+        already-formed
         GLE colour expression.
 
     Returns
@@ -173,8 +176,13 @@ def rgb_to_gle(color: Union[str, Tuple[float, float, float]]) -> str:
     >>> rgb_to_gle('rgb255(140, 140, 140)')
     'rgb255(140,140,140)'
     """
-    # Handle tuple (R, G, B) with values in [0, 1]
-    if isinstance(color, (tuple, list)):
+    # Handle tuple (R, G, B) with values in [0, 1]; matplotlib also takes a
+    # 1-D array, or a single-row 2-D one such as ``cmap(x)[None]``.
+    if isinstance(color, np.ndarray) and color.ndim == 2 and color.shape[0] == 1:
+        color = color.reshape(-1)
+    if isinstance(color, (tuple, list)) or (
+        isinstance(color, np.ndarray) and color.ndim == 1
+    ):
         if len(color) >= 3:
             return _rgb01_to_gle(color[0], color[1], color[2])
 

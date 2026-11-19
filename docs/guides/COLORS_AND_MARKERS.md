@@ -52,7 +52,8 @@ These are emitted verbatim as names. The authoritative list is
 All of these emit as an exact `rgb255(r,g,b)` expression:
 
 - Hex format: `#RRGGBB` (for example `#1f77b4`) or the `#RGB` shorthand (`#bbb`)
-- RGB tuple/list in [0, 1]: `(0.1, 0.2, 0.8)` (components outside [0, 1] are clamped)
+- RGB tuple, list or 1-D numpy array in [0, 1]: `(0.1, 0.2, 0.8)` (components
+  outside [0, 1] are clamped)
 - matplotlib's default property cycle, by cycle reference or `tab:` name:
   `C0`..`C9`, `tab:blue`, `tab:orange`, ..., `tab:cyan`. All ten are distinct
   colors, so a ten-series figure using the default cycle stays readable.
