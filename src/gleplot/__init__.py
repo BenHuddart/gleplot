@@ -419,13 +419,15 @@ def subplots(
     squeeze: bool = True,
     width_ratios=None,
     height_ratios=None,
+    subplot_kw=None,
+    gridspec_kw=None,
     figsize=None,
     dpi=100,
     style=None,
     graph=None,
     marker=None,
     data_prefix=None,
-    **kwargs,
+    **fig_kw,
 ):
     """
     Create a figure and a set of subplots.
@@ -460,6 +462,15 @@ def subplots(
         Relative height of each of the ``nrows`` subplot rows (e.g.
         ``[3, 3, 3, 1, 4]`` for 5 rows whose 4th is thin). Same semantics as
         ``width_ratios``, for rows; must have length ``nrows`` if given.
+    subplot_kw : dict, optional
+        As in matplotlib, keywords for each :meth:`Figure.add_subplot` call,
+        such as ``projection='polar'``.
+    gridspec_kw : dict, optional
+        As in matplotlib, the grid's layout. ``width_ratios`` and
+        ``height_ratios`` are as the parameters (giving one both ways raises
+        ``ValueError``); ``left``, ``right``, ``bottom``, ``top``, ``wspace``
+        and ``hspace`` are passed to :meth:`Figure.subplots_adjust`; other
+        keys warn and are ignored.
     figsize : tuple, optional
         Figure size (width, height) in inches. If None, auto-scales
         based on grid size (6 inches per column, 4 inches per row).
@@ -476,11 +487,10 @@ def subplots(
         If None, uses global counter with ``data_`` prefix. Used verbatim, so
         it must be usable as a GLE data filename: whitespace, control
         characters and any of ``! " + / \\`` raise ``ValueError``.
-    **kwargs
-        ``gridspec_kw``'s ``height_ratios`` and ``width_ratios`` are taken as
-        the keywords of those names. Any other matplotlib keyword
-        (``subplot_kw``, the rest of ``gridspec_kw``, ...) warns and is
-        ignored.
+    **fig_kw
+        matplotlib's other :func:`matplotlib.pyplot.figure` keywords, such
+        as ``num`` or ``layout``. gleplot has none of them: they warn and
+        are ignored.
 
     Returns
     -------
@@ -522,23 +532,6 @@ def subplots(
     ...                          height_ratios=[3, 3, 1])
     >>> # axes[2] gets 1/7 of the plotting height, axes[0]/axes[1] get 3/7 each
     """
-    gridspec_kw = dict(kwargs.pop("gridspec_kw", None) or {})
-    for name in ("height_ratios", "width_ratios"):
-        if name in gridspec_kw:
-            # matplotlib takes the ratios here too; the keyword wins over it.
-            ratios = gridspec_kw.pop(name)
-            if name == "height_ratios" and height_ratios is None:
-                height_ratios = ratios
-            elif name == "width_ratios" and width_ratios is None:
-                width_ratios = ratios
-            else:
-                _warn.warn_external(
-                    f"subplots() got both {name} and gridspec_kw[{name!r}]; "
-                    f"{name} wins."
-                )
-    if gridspec_kw:
-        kwargs["gridspec_kw"] = gridspec_kw
-    _warn.warn_unsupported_keywords("subplots", kwargs)
     global _current_figure
 
     for name, value in (("nrows", nrows), ("ncols", ncols)):
@@ -546,6 +539,27 @@ def subplots(
             raise TypeError(f"subplots({name}={value!r}): expected a positive int")
         if value < 1:
             raise ValueError(f"subplots({name}={value!r}): expected a positive int")
+
+    grid = dict(gridspec_kw or {})
+    for name, value in (
+        ("width_ratios", width_ratios),
+        ("height_ratios", height_ratios),
+    ):
+        if name in grid and value is not None:
+            raise ValueError(
+                f"subplots(): {name!r} was given both as a parameter and as a "
+                "key of gridspec_kw; give it once."
+            )
+    width_ratios = grid.pop("width_ratios", width_ratios)
+    height_ratios = grid.pop("height_ratios", height_ratios)
+    adjust = {
+        key: grid.pop(key)
+        for key in ("left", "right", "bottom", "top", "wspace", "hspace")
+        if key in grid
+    }
+    _warn.warn_unsupported_keywords(
+        "subplots", list(fig_kw) + [f"gridspec_kw[{key!r}]" for key in grid]
+    )
 
     if figsize is None:
         figsize = (max(6, 6 * ncols), max(4, 4 * nrows))
@@ -562,11 +576,15 @@ def subplots(
         height_ratios=height_ratios,
         width_ratios=width_ratios,
     )
-    _current_figure = fig
+    try:
+        fig.subplots_adjust(**adjust)
+    except ValueError as err:
+        raise ValueError(f"subplots(gridspec_kw={gridspec_kw!r}): {err}") from None
 
     axes = np.empty((nrows, ncols), dtype=object)
     for idx in range(nrows * ncols):
-        axes.flat[idx] = fig.add_subplot(nrows, ncols, idx + 1)
+        axes.flat[idx] = fig.add_subplot(nrows, ncols, idx + 1, **(subplot_kw or {}))
+    _current_figure = fig
 
     if squeeze:
         return fig, axes.item() if axes.size == 1 else axes.squeeze()

@@ -438,6 +438,33 @@ def _make_polar(ax: Axes) -> None:
     ax.xgrid = ax.ygrid = None
 
 
+def _axes_options(
+    caller: str, projection: Any, polar: Any, kwargs: Dict[str, Any]
+) -> Tuple[Any, Any]:
+    """``(projection, facecolor)`` from an ``add_subplot``/``add_axes`` call.
+
+    ``polar=True`` is ``projection='polar'``; ``facecolor`` (alias ``fc``)
+    is the one axes property honoured, and the others warn.
+    """
+    if polar:
+        if projection not in (None, "polar"):
+            raise ValueError(
+                f"{caller}(polar=True, projection={projection!r}): pass "
+                "only one of them."
+            )
+        projection = "polar"
+    if projection not in (None, "rectilinear", "polar"):
+        raise ValueError(
+            f"{caller}(projection={projection!r}) is not supported; "
+            "use None, 'rectilinear' or 'polar'."
+        )
+    if "facecolor" in kwargs and "fc" in kwargs:
+        raise TypeError(f"{caller}() got both facecolor and fc; pass one.")
+    facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
+    warn_unsupported_keywords(caller, kwargs, "Set them on the returned axes instead.")
+    return projection, facecolor
+
+
 def _subplot_span(rows: int, cols: int, idx) -> Union[int, Tuple[int, int]]:
     """Check an ``add_subplot`` ``(first, last)`` index, as matplotlib does.
 
@@ -852,7 +879,9 @@ class Figure:
 
         self._subplot_adjust = candidate
 
-    def add_subplot(self, *args, projection: Optional[str] = None, **kwargs) -> Axes:
+    def add_subplot(
+        self, *args, projection: Optional[str] = None, polar: bool = False, **kwargs
+    ) -> Axes:
         """
         Add subplot to figure.
 
@@ -871,6 +900,11 @@ class Figure:
             :meth:`Axes.scatter` take ``(theta, r)`` with theta in radians,
             and :meth:`Axes.function` reads ``x`` in its expression as
             theta. ``set_ylim(0, rmax)`` sets the radial limit.
+        polar : bool, default: False
+            ``True`` is ``projection='polar'``.
+        **kwargs
+            Axes properties, as for :meth:`add_axes`: ``facecolor`` (alias
+            ``fc``) is honoured, and the others warn and are ignored.
 
         Returns
         -------
@@ -884,26 +918,8 @@ class Figure:
         three methods above, the legend, the title and the radial limit;
         other plotting methods and cartesian settings such as
         :meth:`Axes.set_xlim` raise ``NotImplementedError``.
-
-        matplotlib's ``polar=True`` is ``projection='polar'``. Any other
-        keyword, such as matplotlib's Axes properties (``title``,
-        ``xlabel``, ...), warns and is ignored: set them on the returned
-        axes.
         """
-        if kwargs.pop("polar", False):
-            # matplotlib's polar=True is projection='polar'.
-            if projection not in (None, "polar"):
-                raise ValueError(
-                    f"add_subplot() got polar=True and projection={projection!r}; "
-                    "pass one of them."
-                )
-            projection = "polar"
-        warn_unsupported_keywords("add_subplot", kwargs)
-        if projection not in (None, "rectilinear", "polar"):
-            raise ValueError(
-                f"add_subplot(projection={projection!r}) is not supported; "
-                "use None, 'rectilinear' or 'polar'."
-            )
+        projection, facecolor = _axes_options("add_subplot", projection, polar, kwargs)
         if not args:
             args = (1, 1, 1)
         if len(args) == 1 and isinstance(args[0], (int, np.integer)):
@@ -946,6 +962,8 @@ class Figure:
         self._apply_shared_axes_flags(ax)
         if projection == "polar":
             _make_polar(ax)
+        if facecolor is not None:
+            ax.set_facecolor(facecolor)
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -1010,26 +1028,7 @@ class Figure:
             raise ValueError(
                 f"add_axes(rect) needs a positive width and height, got {rect!r}."
             )
-        if polar:
-            if projection not in (None, "polar"):
-                raise ValueError(
-                    f"add_axes(polar=True, projection={projection!r}): pass "
-                    "only one of them."
-                )
-            projection = "polar"
-        if projection not in (None, "rectilinear", "polar"):
-            raise ValueError(
-                f"add_axes(projection={projection!r}) is not supported; "
-                "use None, 'rectilinear' or 'polar'."
-            )
-        if "facecolor" in kwargs and "fc" in kwargs:
-            raise TypeError("add_axes() got both facecolor and fc; pass one.")
-        facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
-        if kwargs:
-            warn_external(
-                f"add_axes() ignores {', '.join(sorted(kwargs))}: set them on "
-                "the returned axes instead."
-            )
+        projection, facecolor = _axes_options("add_axes", projection, polar, kwargs)
 
         width_cm, height_cm = (inches_to_cm(v) for v in self.figsize)
         ax = Axes(self, None)

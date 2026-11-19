@@ -356,7 +356,7 @@ def test_axis_equal_warns():
         (lambda fig, ax: ax.pie([1, 2], wedgeprops2=1), "pie"),
         (lambda fig, ax: ax.boxplot([[1, 2, 3]], showcaps2=True), "boxplot"),
         (lambda fig, ax: glp.figure(num=3), "figure"),
-        (lambda fig, ax: glp.subplots(subplot_kw={}), "subplots"),
+        (lambda fig, ax: glp.subplots(num=3), "subplots"),
         (lambda fig, ax: fig.add_subplot(212, title="t"), "add_subplot"),
     ],
 )
