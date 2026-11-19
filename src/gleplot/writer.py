@@ -406,48 +406,12 @@ def image_sub_name(path: str) -> Optional[str]:
 
 
 #: The frame edges a rug can stand on, per axis; the first is the default.
-#: The ticks of an ``axis`` rug are ``gleplot_<axis>rug`` calls.
+#: The ticks of an ``axis`` rug are drawn by ``<axis>rug`` from GLE's
+#: ``rugs.gle`` (:meth:`GLEWriter.add_rug`).
 RUG_EDGES = {"x": ("bottom", "top", "both"), "y": ("left", "right", "both")}
 
-#: The subs behind every rug tick (:meth:`GLEWriter.add_rug`), called after
-#: ``end graph`` like :data:`BOX_SUB`. A positive ``len`` points into the
-#: axes, as GLE's ``ticks length`` does. The frame edges are the min and max
-#: of the axis ends, so ``bottom`` stays the lower edge on a reversed axis. A
-#: value outside the axis range draws nothing. Each tick saves and restores
-#: the graphics state.
-RUG_SUB = """sub gleplot_xrug x len pos$ clr$ lw
-   ! Rug tick at x on the bottom or top edge of the frame, or both.
-   if (x >= xgmin) and (x <= xgmax) then
-      gsave
-      set lwidth lw color cvtcolor(clr$) cap butt
-      if (pos$ = "bottom") or (pos$ = "both") then
-         amove xg(x) min(yg(ygmin),yg(ygmax))
-         rline 0 len
-      end if
-      if (pos$ = "top") or (pos$ = "both") then
-         amove xg(x) max(yg(ygmin),yg(ygmax))
-         rline 0 -len
-      end if
-      grestore
-   end if
-end sub
-
-sub gleplot_yrug y len pos$ clr$ lw
-   ! Rug tick at y on the left or right edge of the frame, or both.
-   if (y >= ygmin) and (y <= ygmax) then
-      gsave
-      set lwidth lw color cvtcolor(clr$) cap butt
-      if (pos$ = "left") or (pos$ = "both") then
-         amove min(xg(xgmin),xg(xgmax)) yg(y)
-         rline len 0
-      end if
-      if (pos$ = "right") or (pos$ = "both") then
-         amove max(xg(xgmin),xg(xgmax)) yg(y)
-         rline -len 0
-      end if
-      grestore
-   end if
-end sub"""
+#: The gleinc file whose ``xrug``/``yrug`` draw a rug.
+RUGS_INCLUDE = "rugs.gle"
 
 
 @dataclass(frozen=True)
@@ -1564,12 +1528,12 @@ class GLEWriter:
         # page-global in GLE, so the count runs across every graph.
         self._annotation_count = 0
         # The after-graph guide drawings (gleplot.guides) queued for the
-        # graph being written, flushed by end_graph. Whether any drew a line
-        # through graphutil.gle, whose include finalize_includes splices in
-        # at _sub_defs_mark: which guides take that form is not known until
+        # graph being written, flushed by end_graph. The gleinc files the
+        # write calls routines from, which finalize_includes splices in at
+        # _sub_defs_mark: which guides need graphutil.gle is not known until
         # each axes' limits are.
         self._pending_guide_lines: List[str] = []
-        self._needs_graphutil = False
+        self._includes: Set[str] = set()
         self._sub_defs_mark: int = 0
         # The palette sub each contourf heatmap written so far colours with,
         # by its data file: gleplot_contourf1, 2, ... in writing order.
@@ -1934,14 +1898,14 @@ class GLEWriter:
     ):
         """Set graph dimensions and scaling.
 
-        Uses the configured scale_mode (auto, fixed, or fullsize).
+        Uses the configured scale_mode ('auto' or 'fullsize').
 
         Parameters
         ----------
         width_cm : float, optional
-            Graph width in cm. Used if scale_mode is 'fixed' or force_size is True.
+            Graph width in cm. Used if force_size is True.
         height_cm : float, optional
-            Graph height in cm. Used if scale_mode is 'fixed' or force_size is True.
+            Graph height in cm. Used if force_size is True.
         force_size : bool
             If True, always emit the size command regardless of scale_mode.
             This is how every placed graph is emitted: ``size w h`` +
@@ -1964,15 +1928,6 @@ class GLEWriter:
             self.lines_gle.append(
                 "    scale 1 1"
             )  # Fill entire graph box for tight subplot layout
-        elif (
-            self.graph.scale_mode == "fixed"
-            and width_cm is not None
-            and height_cm is not None
-        ):
-            self.lines_gle.append(
-                f"    size {self._format_number(width_cm)} {self._format_number(height_cm)}"
-            )
-            self.lines_gle.append("    scale 1 1")
         elif self.graph.scale_mode == "fullsize":
             self.lines_gle.append("    fullsize")
         else:  # 'auto' - default
@@ -5313,23 +5268,41 @@ class GLEWriter:
         self.lines_gle.append("    end layer")
 
     def add_rug(self, series: Series) -> None:
-        """Queue one rug for after ``end graph``.
+        """Write a rug's dataset, and queue its ``xrug``/``yrug`` call.
 
-        ``series`` is a :class:`~gleplot.series.Rug`. It goes out as one
-        ``gleplot_xrug`` or ``gleplot_yrug`` call (:data:`RUG_SUB`) per
-        value, in the deferred block the box plots use, so the ticks are
-        drawn on the frame unclipped.
+        ``series`` is a :class:`~gleplot.series.Rug`. ``rugs.gle``'s routines
+        read their values from a dataset, so the ticks go to the rug's
+        ``data_file`` with the other column missing (``*``), which keeps
+        them out of GLE's autoscale, and a ``data`` statement inside the
+        graph loads it. The call goes in the deferred block the box plots
+        use, under its own colour and width. ``rugs.gle`` takes a positive
+        length out of the axes, gleplot into it, so the length is negated.
         """
+        ticks = np.asarray(series["ticks"], dtype=float)
+        if self._log_axes.get(series["axis"]):
+            # GLE cannot place a value <= 0 on a log axis; autoscaling has
+            # already warned that it is not shown.
+            ticks = ticks[ticks > 0]
+        if not ticks.size:
+            return
         num = self._format_number
-        rest = (
-            f'{num(float(series["length"]))} "{series["position"]}" '
-            f'"{self._escape_gle_string(series["color"])}" '
-            f'{num(linewidth_pt_to_cm(float(series["linewidth"])))}'
+        d_name = self._new_dataset()
+        file = series["data_file"]
+        row = "* {}" if series["axis"] == "y" else "{} *"
+        rows = [row.format(v) for v in self._format_column(ticks)]
+        self.data_files[file] = "\n".join(["x y", *rows]) + "\n"
+        self.lines_gle.append(f"    data {_format_data_filename(file)} {d_name}=c1,c2")
+        self._includes.add(RUGS_INCLUDE)
+        lwidth = num(linewidth_pt_to_cm(float(series["linewidth"])))
+        self._pending_graph_text_lines.extend(
+            [
+                "gsave",
+                f"set color {series['color']} lwidth {lwidth} cap butt",
+                f'{series["axis"]}rug "{d_name}" '
+                f'{num(-float(series["length"]))} "{series["position"]}"',
+                "grestore",
+            ]
         )
-        for value in series["ticks"]:
-            self._pending_graph_text_lines.append(
-                f"gleplot_{series['axis']}rug {num(float(value))} {rest}"
-            )
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
         """Where ``key separator`` falls, as 1-based legend-entry counts.
@@ -5687,16 +5660,17 @@ class GLEWriter:
         self._sub_defs_mark = len(self.lines_gle)
 
     def finalize_includes(self) -> None:
-        """Splice in ``include "graphutil.gle"`` if a guide line called it.
+        """Splice in an ``include`` for each gleinc file the write called.
 
         Called once, after every graph block is written: which guides are
         drawn after ``end graph`` is decided against limits that are still
-        unresolved when :meth:`add_sub_defs` runs, so the include goes in at
-        that method's mark.
+        unresolved when :meth:`add_sub_defs` runs, so the includes go in at
+        that method's mark, in name order.
         """
-        if self._needs_graphutil:
+        if self._includes:
             at = self._sub_defs_mark
-            self.lines_gle[at:at] = [f'include "{GRAPHUTIL_INCLUDE}"', ""]
+            lines = [f'include "{name}"' for name in sorted(self._includes)]
+            self.lines_gle[at:at] = lines + [""]
 
     def add_fitz_block(self, points_file: str, extent, gridsize, ncontour):
         """Emit a ``begin fitz`` .. ``end fitz`` block (before ``begin graph``).
@@ -6151,7 +6125,7 @@ class GLEWriter:
         lwidth_cm = self._lwidth_cm(series["linewidth"], series)
         lstyle = self._lstyle_for(linestyle) if linestyle in ("--", ":", "-.") else None
         if linestyle not in _NO_LINE:
-            self._needs_graphutil = True
+            self._includes.add(GRAPHUTIL_INCLUDE)
         self._pending_guide_lines.extend(
             self.refline_draw_lines(series, lwidth_cm, lstyle)
         )
