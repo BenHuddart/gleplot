@@ -716,8 +716,8 @@ def test_broken_y_text_and_annotate_are_routed_by_y():
     bax.text(2.0, 11.0, "high")
     bax.annotate("low", (1.0, 0.4))
     assert len(bax[1].texts) == 1 and len(bax[0].texts) == 1
-    assert bax.segment_for_y(1.0) == 0  # a boundary belongs to the lower one
-    assert bax.segment_for_y(10.5) == 1
+    bax.text(2.0, 1.0, "edge")  # a boundary belongs to the lower segment
+    assert len(bax[0].texts) == 2
     with pytest.warns(UserWarning, match="y=5.0 falls in the break"):
         bax.text(2.0, 5.0, "lost")
 
@@ -790,3 +790,56 @@ def test_broken_y_round_trips_through_to_dict():
 def test_broken_x_to_dict_has_no_axis_key():
     fig, _bax = _fig()
     assert "axis" not in fig.to_dict()["figure"]["broken_axes"][0]
+
+
+def test_broken_y_rejects_segments_out_of_order():
+    fig = glp.figure()
+    with pytest.raises(ValueError, match="bottom to top and must not overlap"):
+        fig.add_broken_yaxes([(10, 12), (0, 1)])
+    with pytest.raises(ValueError, match="must not overlap"):
+        fig.add_broken_yaxes([(0, 2), (1, 3)])
+
+
+def test_broken_y_keeps_its_y_labels_under_sharey():
+    fig = glp.figure()
+    fig.sharey = True
+    fig.add_subplot(1, 2, 1)
+    bax = fig.add_broken_yaxes([(0, 1), (10, 12)], position=(1, 2, 2))
+    assert all(seg._show_yticks for seg in bax)
+
+
+def test_broken_y_legend_warns_about_a_guide_label_it_cannot_list():
+    _fig_, bax = _yfig(height_ratios=[1, 3])
+    bax.bar(BARS_X, BARS_H, label="n")
+    bax.axhline(0.5, label="threshold")
+    with pytest.warns(UserWarning, match=r"\['threshold'\] are in another segment"):
+        bax.legend()
+    bax.legend(segment=0)  # the segment that holds it: no warning
+
+
+def test_broken_y_refuses_a_y2_limit_request():
+    _fig_, bax = _yfig()
+    with pytest.raises(ValueError, match="takes axis='y'"):
+        bax.set_ylim(0, 5, axis="y2")
+    with pytest.raises(ValueError, match="takes axis='y'"):
+        bax.get_ylim(axis="y2")
+
+
+def test_broken_y_segment_for_x_reads_an_inverted_shared_range():
+    _fig_, bax = _yfig()
+    bax.set_xlim(5, 0)
+    assert bax.segment_for_x(2) == 0
+    assert bax.segment_for_x(7) is None
+
+
+def test_figure_legend_lists_a_guide_routed_to_an_upper_segment():
+    fig, bax = _yfig()
+    bax.bar(BARS_X, BARS_H, label="n")
+    bax.axhline(11.0, label="high")
+    bax.axhspan(0.5, 10.5, color="gray", label="band")  # in both segments
+    fig.legend()
+    text = _gle(fig)[0]
+    key = text[text.index("begin key") :]
+    assert key.count('text "n"') == 1
+    assert key.count('text "high"') == 1
+    assert key.count('text "band"') == 1

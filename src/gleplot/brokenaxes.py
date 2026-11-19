@@ -205,6 +205,15 @@ class BrokenAxes:
                     f"each {axis}lims entry must have {axis}min < {axis}max; "
                     f"got ({lo}, {hi})"
                 )
+        if axis == "y":
+            # Stacked bottom to top: a segment that does not start at or
+            # above the one below it would draw the axis out of order.
+            for (_lo0, hi0), (lo1, hi1) in zip(lims, lims[1:]):
+                if lo1 < hi0:
+                    raise ValueError(
+                        "ylims run bottom to top and must not overlap; got "
+                        f"({lo1}, {hi1}) above a segment ending at {hi0}"
+                    )
 
         ratios_name = "width_ratios" if axis == "x" else "height_ratios"
         ratios = width_ratios if axis == "x" else height_ratios
@@ -328,11 +337,8 @@ class BrokenAxes:
         lims = self._lims
         for index, seg in enumerate(self.segments):
             first = index == 0
-            contiguous = (
-                self.trim_seam_labels
-                and index > 0
-                and lims[index][0] == lims[index - 1][1]
-            )
+            trim = self.trim_seam_labels and index > 0
+            contiguous = trim and lims[index][0] == lims[index - 1][1]
             if self.axis == "x":
                 # Only the leftmost segment carries the y axis line, ticks,
                 # labels and title; the inner sides vanish so the assembly
@@ -348,7 +354,7 @@ class BrokenAxes:
                 # Contiguous segments would print the shared boundary value
                 # twice, once at the left segment's max and again at the
                 # right's min.
-                if self.trim_seam_labels and index > 0:
+                if trim:
                     seg._remove_first_xtick = contiguous
             else:
                 # Only the bottom segment carries the x axis; only the top one
@@ -363,7 +369,7 @@ class BrokenAxes:
                 seg._show_ylabel = False
                 seg.ylabel_text = ""
                 seg.title_text = ""
-                if self.trim_seam_labels and index > 0:
+                if trim:
                     seg._remove_first_ytick = contiguous
 
     def _reassert_frame_flags(self, seg: Axes, apply_shared) -> None:
@@ -385,6 +391,9 @@ class BrokenAxes:
             remove_first_ytick = seg._remove_first_ytick
             apply_shared(seg)
             seg._show_xlabel, seg._show_xticks = show_xlabel, show_xticks
+            # Each segment has a y range no other cell shares, so sharey
+            # does not hide its tick labels.
+            seg._show_yticks = True
             seg._show_ylabel = False
             seg._remove_first_ytick = remove_first_ytick
 
@@ -656,22 +665,10 @@ class BrokenAxes:
         """
         if self.axis == "y":
             lo, hi = self.segments[0].get_xlim()
-            inside = lo is None or hi is None or lo <= x <= hi
-            return 0 if inside else None
+            if lo is None or hi is None or min(lo, hi) <= x <= max(lo, hi):
+                return 0
+            return None
         return self._segment_for(x)
-
-    def segment_for_y(self, y: float) -> Optional[int]:
-        """Index of the segment whose y range contains ``y``, or ``None``.
-
-        The broken-y counterpart of :meth:`segment_for_x`: boundaries belong
-        to the *lower* segment. On a broken x-axis every segment shares the
-        y range, so this is 0 or ``None``.
-        """
-        if self.axis == "x":
-            lo, hi = self.segments[0].get_ylim()
-            inside = lo is None or hi is None or lo <= y <= hi
-            return 0 if inside else None
-        return self._segment_for(y)
 
     # -- shared axis state ----------------------------------------------
 
@@ -716,6 +713,7 @@ class BrokenAxes:
         ``TypeError`` there.
         """
         if self.axis == "y":
+            self._primary_y_only("set_ylim", axis)
             raise TypeError(
                 "a broken y-axis has one range per segment; set them with the "
                 "ylims argument of add_broken_yaxes(), or on an individual "
@@ -728,6 +726,7 @@ class BrokenAxes:
     def get_ylim(self, axis: str = "y"):
         """The shared y limits, or the per-segment ranges of a broken y-axis."""
         if self.axis == "y":
+            self._primary_y_only("get_ylim", axis)
             return list(cast(List[Tuple[float, float]], self.ylims))
         return self.segments[0].get_ylim(axis=axis)
 
@@ -833,6 +832,14 @@ class BrokenAxes:
         self._set_tick_intervals("y", dticks, dsubticks, segment)
         return self
 
+    def _primary_y_only(self, method: str, axis: str) -> None:
+        """Refuse a ``y2`` request on a broken y-axis, which has one per segment."""
+        if axis != "y":
+            raise ValueError(
+                f"{method}() on a broken y-axis takes axis='y'; got {axis!r}. "
+                f"Use bax[i].{method}(..., axis={axis!r}) for one segment."
+            )
+
     def _shared_only(self, method: str, segment: Optional[int]) -> None:
         """Refuse ``segment=`` on a setting every segment shares."""
         if segment is not None:
@@ -885,6 +892,30 @@ class BrokenAxes:
         if segment is None:
             ratios = self._ratios
             segment = max(range(len(ratios)), key=lambda i: ratios[i])
+        if self.axis == "y":
+            # axhline / axhspan go only to the segments they reach, so a
+            # labelled one elsewhere is not in this segment's key.
+            missing = [
+                entry["label"]
+                for index, seg in enumerate(self.segments)
+                if index != segment
+                for entry in (*seg.reflines, *seg.spans)
+                if entry.get("label")
+                and not any(
+                    other.get("label") == entry["label"]
+                    for other in (
+                        *self.segments[segment].reflines,
+                        *self.segments[segment].spans,
+                    )
+                )
+            ]
+            if missing:
+                warn_external(
+                    f"legend() lists segment {segment}'s entries; the guide "
+                    f"label(s) {sorted(set(missing))!r} are in another segment "
+                    "of the broken y-axis and are not listed. Pass segment= "
+                    "for the segment that holds them."
+                )
         for index, seg in enumerate(self.segments):
             if index == segment:
                 seg.legend(loc, **kwargs)

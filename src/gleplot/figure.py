@@ -3235,15 +3235,24 @@ class Figure:
 
         Each axes' entries are those its own key would list, so they are
         computed against the limits its graph was written with. A broken
-        axis lists its series once, from its first segment.
+        axis lists its series once, from its first segment. A broken y-axis
+        routes ``axhline`` / ``axhspan`` to the segments they reach, so its
+        other segments add the guides not already listed.
         """
         legend = cast(dict, self._legend)
         entries: List[tuple] = []
         for ax in self.axes_list:
+            guides_only = False
             if ax._break_owner is not None and ax._break_index:
-                continue
+                if ax._break_owner.axis == "x":
+                    continue
+                guides_only = True
             limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
             found = self._legend_entries(writer, ax, resolution, limits)
+            if guides_only:
+                guides = {id(g) for g in (*ax.reflines, *ax.spans)}
+                listed = {label for _series, label, _swatch in entries}
+                found = [f for f in found if id(f[0]) in guides and f[1] not in listed]
             entries.extend(
                 (resolution.data(series) or series, label, swatch)
                 for series, label, swatch in (

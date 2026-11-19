@@ -2531,6 +2531,19 @@ class GLEWriter:
     # are sticky interpreter state in GLE and would otherwise leak into the
     # following graph block.
 
+    def _seam_style(
+        self, color: str, linewidth: Optional[float], lstyle: Optional[int]
+    ) -> None:
+        """``gsave`` and the colour, width and style of a broken-axis seam."""
+        self.lines_gle.append("gsave")
+        self.lines_gle.append(f"set color {color}")
+        if linewidth is not None:
+            self.lines_gle.append(
+                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
+            )
+        if lstyle is not None:
+            self.lines_gle.append(f"set lstyle {int(lstyle)}")
+
     def add_break_divider(
         self,
         gap_cm: float,
@@ -2544,14 +2557,7 @@ class GLEWriter:
         join when ``gap_cm`` is 0.
         """
         offset = self._format_number(gap_cm / 2.0)
-        self.lines_gle.append("gsave")
-        self.lines_gle.append(f"set color {color}")
-        if linewidth is not None:
-            self.lines_gle.append(
-                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
-            )
-        if lstyle is not None:
-            self.lines_gle.append(f"set lstyle {int(lstyle)}")
+        self._seam_style(color, linewidth, lstyle)
         self.lines_gle.append(f"amove xg(xgmax)+{offset} yg(ygmin)")
         self.lines_gle.append(f"aline xg(xgmax)+{offset} yg(ygmax)")
         self.lines_gle.append("grestore")
@@ -2578,13 +2584,7 @@ class GLEWriter:
         h = self._format_number(height_cm)
         sep = self._format_number(separation_cm)
 
-        self.lines_gle.append("gsave")
-        self.lines_gle.append(f"set color {color}")
-        if linewidth is not None:
-            self.lines_gle.append(
-                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
-            )
-        self.lines_gle.append("set lstyle 1")
+        self._seam_style(color, linewidth, 1)
         for side in ("ygmin", "ygmax"):
             for sign in ("-", "+"):
                 self.lines_gle.append(f"amove {centre}{sign}{sep}-{w} yg({side})-{h}")
@@ -2605,14 +2605,7 @@ class GLEWriter:
         gap above its top edge.
         """
         offset = self._format_number(gap_cm / 2.0)
-        self.lines_gle.append("gsave")
-        self.lines_gle.append(f"set color {color}")
-        if linewidth is not None:
-            self.lines_gle.append(
-                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
-            )
-        if lstyle is not None:
-            self.lines_gle.append(f"set lstyle {int(lstyle)}")
+        self._seam_style(color, linewidth, lstyle)
         self.lines_gle.append(f"amove xg(xgmin) yg(ygmax)+{offset}")
         self.lines_gle.append(f"aline xg(xgmax) yg(ygmax)+{offset}")
         self.lines_gle.append("grestore")
@@ -2639,13 +2632,7 @@ class GLEWriter:
         h = self._format_number(height_cm)
         sep = self._format_number(separation_cm)
 
-        self.lines_gle.append("gsave")
-        self.lines_gle.append(f"set color {color}")
-        if linewidth is not None:
-            self.lines_gle.append(
-                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
-            )
-        self.lines_gle.append("set lstyle 1")
+        self._seam_style(color, linewidth, 1)
         for side in ("xgmin", "xgmax"):
             for sign in ("-", "+"):
                 self.lines_gle.append(f"amove xg({side})-{w} {centre}{sign}{sep}-{h}")

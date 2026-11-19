@@ -193,7 +193,8 @@ figure's font size (measured against a native `xtitle` render to ~0.02 cm);
   subplots; the axis options the recognizer cannot model (`dticks`, the
   per-side `off`) are preserved as per-axes passthrough *with warnings*, and
   the seam decoration and shared titles are preserved as trailer passthrough,
-  after the last segment.
+  after the last segment, where a re-save draws the seam marks at the outer
+  frame instead of at the seam.
   Nothing is dropped, but the assembly's geometry is re-derived from the
   subplot grid on re-save, so a round-tripped file will not lay out
   identically. Keep the producing script as the source of truth.
