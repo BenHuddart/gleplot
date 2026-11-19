@@ -1416,6 +1416,15 @@ class TestErrorbarFromFile:
         series = self.ax.file_series[0]
         assert series["yaxis"] == "y2"
 
+    def test_errorbar_from_file_takes_the_data_range(self, recwarn):
+        self.ax.errorbar_from_file(str(self.data_path), 1, 2, 3, xmin=0.5, ymax=12)
+        assert not recwarn.list
+        series = self.ax.file_series[0]
+        assert (series["xmin"], series["ymax"]) == (0.5, 12.0)
+        assert "xmax" not in series
+        with pytest.raises(ValueError, match="ymin must be less than ymax"):
+            self.ax.errorbar_from_file(str(self.data_path), 1, 2, ymin=3, ymax=1)
+
     def test_errorbar_from_file_with_capsize(self):
         """Test errorbar_from_file with capsize parameter."""
         self.ax.errorbar_from_file(
@@ -1971,6 +1980,38 @@ class TestDatasetQualifiers:
             self.ax.errorbar([0, 1], [0, 1], yerr=0.1, deresolve=2)
         assert len(self.ax.errorbars) == 2
         assert "deresolve" not in self.ax.errorbars[1]
+
+    @pytest.mark.parametrize(
+        "kwargs, match",
+        [
+            ({"ymin": 100}, "only ymin = 100, .* missing ymax from the y axis limit 9"),
+            ({"xmax": -1}, "only xmax = -1, .* missing xmin from the x axis limit 0"),
+        ],
+    )
+    def test_a_lone_edge_past_the_axis_limit_warns_at_save(self, kwargs, match):
+        """GLE fills the other edge from the axis limit: an empty range."""
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], **kwargs)
+        with pytest.warns(UserWarning, match=match):
+            self.fig._generate_gle()
+
+    def test_a_non_positive_edge_on_a_log_axis_warns_at_save(self):
+        self.ax.plot([1, 2], [1, 10], ymin=0, ymax=20)
+        self.ax.set_yscale("log")
+        with pytest.warns(UserWarning, match="y edge 0 on the log y axis"):
+            self.fig._generate_gle()
+
+    def test_a_lone_edge_past_a_log_axis_limit_warns_at_save(self):
+        self.ax.plot([1, 2], [1, 10], ymin=1000)
+        self.ax.set_yscale("log")
+        self.ax.set_ylim(1, 100)
+        with pytest.warns(UserWarning, match="only ymin = 1000"):
+            self.fig._generate_gle()
+
+    def test_a_range_gle_can_draw_does_not_warn(self, recwarn):
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], ymin=100, ymax=200)
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], ymin=2)
+        self.fig._generate_gle()
+        assert not recwarn.list
 
 
 class TestHistogram:
