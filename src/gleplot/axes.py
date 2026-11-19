@@ -7265,8 +7265,12 @@ class Axes:
         Notes
         -----
         The rug is drawn after the graph block, above the axes' other
-        series; a value outside the axis range draws no tick. The values
-        widen the autoscaled range of their axis.
+        series, by ``xrug``/``yrug`` from GLE's include library
+        (``rugs.gle``). Its values are written to a sidecar file like any
+        other series. They widen the autoscaled range of their axis; a value
+        outside an axis range set with ``set_xlim``/``set_ylim`` still draws
+        its tick, outside the frame. On an inverted axis, ``'bottom'`` and
+        ``'left'`` are the edges at the axis minimum.
         """
         if axis not in RUG_EDGES:
             raise ValueError(f"rug(axis={axis!r}) must be 'x' or 'y'.")
@@ -7307,6 +7311,7 @@ class Axes:
             position=position,
             color=rgb_to_gle(color),
             linewidth=float(linewidth),
+            data_file=_resolve_data_file(self.figure, None),
         )
         self.rugs.append(entry)
         return entry
@@ -10397,6 +10402,10 @@ class Axes:
                         item["column_names"] = defaults
                 restored.append(item)
             setattr(ax, attr, restored)
+        # A rug saved before rugs.gle drew them had no sidecar; it needs one.
+        for rug in ax.rugs:
+            if "data_file" not in rug:
+                rug["data_file"] = _resolve_data_file(figure, None)
 
         ax.passthrough = list(d.get("passthrough", []))
 
