@@ -395,13 +395,20 @@ def test_engine_range_span_and_refline_keep_their_swatches(tmp_path):
     assert out.read_text() == gle
 
 
+#: Names ``d.dat`` gleplot's own file, so a bar or fill on it is loaded as a
+#: series; on a file of the user's own it would be a file reference.
+_D_DAT_IMPORTED = (
+    "! gleplot-meta-begin v2\n! gleplot: import-data = d.dat\n! gleplot-meta-end\n"
+)
+
+
 def test_a_bar_dataset_line_that_is_not_a_swatch_is_not_consumed(tmp_path):
     """``key`` plus anything else is not the writer's swatch line."""
     from gleplot.parser.recognizer import parse_gle_figure
 
     src = tmp_path / "odd.gle"
     src.write_text(
-        "size 10 8\n"
+        _D_DAT_IMPORTED + "size 10 8\n"
         "begin graph\n"
         "   data d.dat d1=c1,c2\n"
         "   bar d1 fill red\n"
@@ -414,7 +421,7 @@ def test_a_bar_dataset_line_that_is_not_a_swatch_is_not_consumed(tmp_path):
     ax = rec.figure.axes_list[0]
     # Not the bar's swatch: the extra token keeps it a dataset line of its own.
     assert ax.bars[0].get("label") is None
-    assert any(s.get("label") == "control" for s in ax.file_series)
+    assert any(s.get("label") == "control" for s in ax.lines)
 
 
 def test_unresolved_bar_keeps_its_legend_label(tmp_path):
@@ -505,7 +512,7 @@ def test_a_keyfill_colour_unlike_the_fill_is_kept(tmp_path):
 
     src = tmp_path / "swatch.gle"
     src.write_text(
-        "size 10 8\n"
+        _D_DAT_IMPORTED + "size 10 8\n"
         "begin graph\n"
         "   data d.dat d1=c1,c2 d2=c1,c3\n"
         "   fill d1,d2 color blue\n"

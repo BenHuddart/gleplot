@@ -313,6 +313,16 @@ def normalize(d: dict) -> dict:
                 s["markersize"] = _snap_msize(s["markersize"])
             _snap_width(s)
 
+        # A bar with no top is written missing in its baseline too, because
+        # GLE refuses a stack missing on one side only (#317). That baseline
+        # comes back missing.
+        for s in ax.get("bars", []):
+            if isinstance(s.get("bottom"), list) and isinstance(s.get("top"), list):
+                s["bottom"] = [
+                    "nan" if top == "nan" else bottom
+                    for bottom, top in zip(s["bottom"], s["top"])
+                ]
+
         # Data arrays snap to emitted precision.
         for group, keys in _ARRAY_KEYS.items():
             for s in ax.get(group, []):
@@ -562,6 +572,19 @@ def test_broken_sidecar_keeps_its_reading_options(tmp_path):
     assert all("data_error" in fs for fs in refs)
 
 
+def _imported(name):
+    """A metadata block naming ``name`` gleplot's own file.
+
+    The recognizer loads a series on such a file; a bar, fill or offset
+    ``let`` on a file of the user's own is a reference or raw GLE instead.
+    """
+    return (
+        "! gleplot-meta-begin v2\n"
+        f"! gleplot: import-data = {name}\n"
+        "! gleplot-meta-end\n"
+    )
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -571,7 +594,12 @@ def test_broken_sidecar_keeps_its_reading_options(tmp_path):
 )
 def test_a_file_read_with_options_is_not_loaded(tmp_path, body):
     """#169: the loader would read rows GLE skips; keep a reference instead."""
-    src = "size 12 9\nbegin graph\n   size 10 7\n" + body + "end graph\n"
+    src = (
+        _imported("f.dat")
+        + "size 12 9\nbegin graph\n   size 10 7\n"
+        + body
+        + "end graph\n"
+    )
     p = _write(tmp_path, "o.gle", src, {"f.dat": "99 99 99\n1 2 3\n2 3 4\n3 5 6\n"})
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
@@ -617,7 +645,8 @@ def test_positional_x_follows_gle(tmp_path, body, data, written):
 def test_options_on_one_graph_do_not_stop_another_loading_the_file(tmp_path):
     """#169: GLE reads the file afresh in each graph."""
     src = (
-        "begin graph\n   data f.dat d1=c1,c2 ignore 1\n   bar d1\nend graph\n"
+        _imported("f.dat")
+        + "begin graph\n   data f.dat d1=c1,c2 ignore 1\n   bar d1\nend graph\n"
         "begin graph\n   data f.dat d2=c1,c3\n   bar d2\nend graph\n"
     )
     p = _write(tmp_path, "two.gle", src, {"f.dat": "1 2 3\n2 3 4\n"})
@@ -1853,21 +1882,24 @@ def test_an_unmodelled_dataset_qualifier_keeps_the_line_raw(tmp_path, qualifiers
 
 
 @pytest.mark.parametrize(
-    "lines",
+    "meta, lines",
     [
-        # Drawn through an offset let the recognizer consumed.
-        "   let d2 = d1+0.5\n   d2 line color red mscale 2\n",
+        # Drawn through an offset let the recognizer consumed, which it does
+        # only on gleplot's own file.
+        (_imported("a.dat"), "   let d2 = d1+0.5\n   d2 line color red mscale 2\n"),
         # On the secondary axis, which the layout reserves room for.
-        "   d1 line color red y2axis mscale 2\n",
+        ("", "   d1 line color red y2axis mscale 2\n"),
     ],
 )
-def test_an_unmodelled_qualifier_the_line_cannot_keep_is_reported(tmp_path, lines):
+def test_an_unmodelled_qualifier_the_line_cannot_keep_is_reported(
+    tmp_path, meta, lines
+):
     """#165: the series is modelled, and the note says what is dropped."""
-    src = f'begin graph\n   data "a.dat" d1=c1,c2\n{lines}end graph\n'
+    src = meta + f'begin graph\n   data "a.dat" d1=c1,c2\n{lines}end graph\n'
     p = _write(tmp_path, "q.gle", src, {"a.dat": "0 1\n1 2\n"})
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
-    assert len(ax.file_series) == 1
+    assert len(ax.file_series + ax.lines) == 1
     assert not any("mscale" in line for line in ax.passthrough)
     assert any(
         w.startswith("data: 'mscale 2' on d") and "dropped on re-save" in w
