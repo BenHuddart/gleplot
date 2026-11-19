@@ -1518,6 +1518,12 @@ class GLEWriter:
         # contributed, so they are rendered into ``data_files`` by
         # :meth:`finalize_shared_sidecars` at the end of the write.
         self._shared_sidecars: Dict[str, _SharedSidecar] = {}
+        # The columns and names of each sidecar an inline series wrote, so a
+        # second series naming the same file is merged into it rather than
+        # overwriting it (see _write_columns).
+        self._inline_sidecars: Dict[
+            str, Tuple[List[Tuple[str, np.ndarray]], Optional[List[str]]]
+        ] = {}
         # Raw-content sidecars (heatmap/contour ``.z`` grids and scattered
         # ``points.dat`` triples). They are written like any data file but are
         # NOT columnar imports, so they are excluded from the ``import-data``
@@ -3004,16 +3010,45 @@ class GLEWriter:
         sidecar named by it and the indices are wherever they landed there.
         """
         if binding is None:
-            self.add_data_file(
-                data_file, [array for _role, array in named_columns], column_names
-            )
-            return list(range(1, len(named_columns) + 1))
+            prior = self._inline_sidecars.get(data_file)
+            if prior is None:
+                self._inline_sidecars[data_file] = (list(named_columns), column_names)
+                self.add_data_file(
+                    data_file, [array for _role, array in named_columns], column_names
+                )
+                return list(range(1, len(named_columns) + 1))
+            # A second series names a file already written this save: series
+            # read back from one shared provider sidecar do (#331). They share
+            # it again, a column written alike under one name only once.
+            shared = self._shared_sidecars.get(data_file)
+            if shared is None:
+                shared = self._shared_sidecars[data_file] = _SharedSidecar()
+                self._merge_inline_columns(shared, *prior)
+            return self._merge_inline_columns(shared, named_columns, column_names)
 
         shared = self._shared_sidecars.setdefault(binding.data_file, _SharedSidecar())
         indices = []
         for role, array in named_columns:
             key, name = binding.column_for(role)
             indices.append(shared.index_of(key, array, name))
+        return indices
+
+    def _merge_inline_columns(
+        self,
+        shared: _SharedSidecar,
+        named_columns: Sequence[Tuple[str, np.ndarray]],
+        column_names: Optional[List[str]],
+    ) -> List[int]:
+        """Add one inline series' columns to ``shared``; their 1-based indices.
+
+        A column is keyed by its name (the role when there is no header) and
+        its written text, so only a column identical in both is shared.
+        """
+        indices = []
+        for i, (role, array) in enumerate(named_columns):
+            name = column_names[i] if column_names else role
+            text = "\n".join(self._format_column(np.asarray(array).ravel()))
+            indices.append(shared.index_of(f"{name}\x00{text}", array, name))
         return indices
 
     def finalize_shared_sidecars(self) -> None:
