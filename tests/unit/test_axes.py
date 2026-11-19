@@ -221,6 +221,49 @@ class TestSubplots:
         assert list(fig.width_ratios) == [1, 2, 3]
         assert list(fig.height_ratios) == [4, 5]
 
+    def test_subplots_passes_matplotlib_subplot_and_gridspec_keywords(self):
+        fig, axes = glp.subplots(
+            1,
+            2,
+            subplot_kw={"projection": "polar"},
+            gridspec_kw={"width_ratios": [1, 2], "wspace": 0.3, "left": 0.2},
+        )
+        assert all(ax._polar for ax in axes)
+        assert list(fig.width_ratios) == [1, 2]
+        assert fig._subplot_adjust["wspace"] == 0.3
+        assert fig._subplot_adjust["left"] == 0.2
+        _, grid = glp.subplots(squeeze=False, subplot_kw={"polar": True})
+        assert grid[0, 0]._polar
+
+    def test_subplots_warns_on_what_it_cannot_use(self):
+        with pytest.warns(UserWarning) as record:
+            glp.subplots(
+                1, 2, num=3, layout="constrained", gridspec_kw={"figure": None}
+            )
+        (message,) = [str(w.message) for w in record]
+        for name in ("num", "layout", "gridspec_kw['figure']"):
+            assert name in message
+        with pytest.warns(UserWarning, match=r"add_subplot\(\) ignores alpha"):
+            glp.subplots(subplot_kw={"alpha": 0.5, "facecolor": "red"})
+
+    def test_subplots_checks_its_keywords_before_replacing_the_figure(self):
+        current = glp.figure()
+        for kwargs in (
+            {"gridspec_kw": {"wspace": -1}},
+            {"subplot_kw": {"polar": True, "projection": "rectilinear"}},
+        ):
+            with pytest.raises(ValueError, match=r"subplots\(gridspec_kw|polar=True"):
+                glp.subplots(1, 2, **kwargs)
+            assert glp.gcf() is current
+        with pytest.raises(ValueError, match="height_ratios"):
+            glp.subplots(2, height_ratios=[1, 2], gridspec_kw={"height_ratios": [1, 2]})
+
+    def test_subplots_rejects_a_ratio_given_twice(self):
+        with pytest.raises(ValueError, match="width_ratios"):
+            glp.subplots(
+                1, 2, width_ratios=[1, 2], gridspec_kw={"width_ratios": [1, 2]}
+            )
+
     def test_subplots_array_is_row_major(self):
         """axes[row, col] is the panel add_subplot numbers row by row."""
         fig, axes = glp.subplots(3, 2)
