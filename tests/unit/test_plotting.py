@@ -3075,6 +3075,16 @@ def test_line_from_file_rejects_a_linewidth_that_is_not_a_number():
         ax.line_from_file("f.dat", 1, 2, linewidth="thick")
 
 
+@pytest.mark.parametrize("no_line", ["none", "None", "", " "])
+def test_line_from_file_without_a_line_writes_no_line_token(no_line, tmp_path):
+    fig = glp.figure(data_prefix="lf")
+    ax = fig.add_subplot(111)
+    ax.line_from_file("f.dat", 1, 2, color="red", linestyle=no_line)
+    out = tmp_path / "fig.gle"
+    fig.savefig(str(out))
+    assert "    d1 color RED lwidth 0.05292" in out.read_text().splitlines()
+
+
 def _saved(fig, tmp_path):
     """The saved script and its sidecars, by file name."""
     out = tmp_path / "fig.gle"

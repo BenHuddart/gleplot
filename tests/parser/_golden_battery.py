@@ -562,6 +562,18 @@ def file_series():
     return fig
 
 
+def file_series_without_a_line():
+    """``line_from_file(linestyle='none')``: a dataset with no ``line`` token,
+    one with a marker as well, and one feeding a derived curve."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.line_from_file("external.dat", 1, 2, color="green", linestyle="none", label="x")
+    ax.line_from_file("external.dat", 1, 3, linestyle="none", linewidth=2)
+    ax.file_series[-1].update(marker="CIRCLE", markersize=0.2)
+    ax.derived("2*d1", ax.file_series[0], label="twice")
+    return fig
+
+
 def file_series_field_options():
     """File-series fields the ``file_series`` builder leaves at their defaults.
 
@@ -1941,6 +1953,7 @@ BUILDERS = [
     inset_alone,
     aspect_ratios,
     file_series,
+    file_series_without_a_line,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,
