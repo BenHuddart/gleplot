@@ -18,7 +18,7 @@ Access and modify global defaults through `GlobalConfig`:
     import gleplot as glp
     
     # Modify global defaults
-    glp.GlobalConfig.style.font = 'helvetica'
+    glp.GlobalConfig.style.font = 'psh'  # PostScript Helvetica
     glp.GlobalConfig.style.fontsize = 12
     glp.GlobalConfig.graph.legend_position = 'tl'
     
@@ -44,7 +44,7 @@ it is still stored by reference, as it always was.
 Controls text and line rendering:
 
     style = glp.GLEStyleConfig(
-        font='helvetica',          # 'texcmr' (default), 'helvetica', 'timesroman', etc.
+        font='psh',                # a GLE font name; see Available Fonts below
         fontsize=10,               # Points (default: 12)
         default_linewidth=1.0,     # Line width in points (default: 1.5)
         default_color='BLUE',      # Default line color
@@ -55,11 +55,17 @@ Controls text and line rendering:
 
 ### Available Fonts
 
-Common GLE fonts:
-- `texcmr` (default) - TeX Computer Modern Roman
-- `helvetica` - Sans-serif
-- `timesroman` - Serif
-- `courier` - Monospace
+`font` takes a GLE font name, not a family name such as `'helvetica'`, which
+GLE rejects with `invalid font name`. Leave it empty (the default) for GLE's
+own default font. Common names:
+- `texcmr`, `texcmss`, `texcmtt` - TeX Computer Modern Roman, Sans Serif, Typewriter
+- `rm`, `ss`, `tt` - Roman, Sans Serif, Typewriter
+- `pstr`, `psh`, `psc` - PostScript Times-Roman, Helvetica, Courier
+
+The font tables in the [GLE manual](https://glx.sourceforge.io/manual/index.html)
+list every name. When a figure uses semi-transparent colours, GLE compiles it
+with its `-cairo` device, which draws only the `texcm*` fonts; gleplot warns
+that GLE will substitute `texcmr` for any other font.
 
 ### Line Styles
 
@@ -312,7 +318,7 @@ GLE-specific markers:
     import gleplot as glp
     
     # Set global defaults
-    glp.GlobalConfig.style.font = 'helvetica'
+    glp.GlobalConfig.style.font = 'psh'  # PostScript Helvetica
     glp.GlobalConfig.style.fontsize = 12
     glp.GlobalConfig.graph.legend_position = 'tl'
     
@@ -332,7 +338,7 @@ GLE-specific markers:
 ### Example 2: Per-Figure Configuration
 
     style = glp.GLEStyleConfig(
-        font='courier',
+        font='psc',  # PostScript Courier
         fontsize=10,
         default_linewidth=2.0,
     )
@@ -351,7 +357,7 @@ GLE-specific markers:
 
     # Figure 1: Publication (serif font, small labels)
     pub_style = glp.GLEStyleConfig(
-        font='timesroman',
+        font='pstr',  # PostScript Times-Roman
         fontsize=8,
         default_linewidth=1.5,
     )
@@ -359,7 +365,7 @@ GLE-specific markers:
     
     # Figure 2: Presentation (sans-serif, larger labels)
     pres_style = glp.GLEStyleConfig(
-        font='helvetica',
+        font='psh',  # PostScript Helvetica
         fontsize=14,
         default_linewidth=2.0,
     )
@@ -473,10 +479,9 @@ performance impact. Configurations are only used during GLE script generation
 - Check GLE version: `gle --version`
 - Refer to your GLE manual for supported options
 
-**"Font not found"**
-- Not all fonts are available on all systems
-- Fallback fonts: 'texcmr' (always available), 'helvetica', 'courier'
-- Check GLE installation for available fonts
+**"invalid font name"**
+- `font` must be a GLE font name such as `'texcmr'`, `'ss'` or `'psh'`, not a family name such as `'helvetica'`
+- See [Available Fonts](#available-fonts)
 
 **"Overlapping labels with fullsize mode"**
 - `fullsize` leaves no automatic margins

@@ -353,7 +353,7 @@ class GlobalConfig(metaclass=GlobalConfigMeta):
     --------
     >>> from gleplot.config import GlobalConfig
     >>> # Change default font globally
-    >>> GlobalConfig.style.font = 'helvetica'
+    >>> GlobalConfig.style.font = 'psh'  # PostScript Helvetica
     >>> # All new figures will use this font
 
     >>> # Or reset to defaults
