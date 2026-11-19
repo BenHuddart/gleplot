@@ -740,6 +740,26 @@ def _bar_error_limits(err, n: int, name: str):
     raise ValueError(f"bar() {name} must be a scalar, shape ({n},), or shape (2, {n})")
 
 
+def _unmasked(value):
+    """``value``, with a masked array's masked entries as NaN.
+
+    ``np.asarray`` keeps the value under a mask. matplotlib leaves a masked
+    point out wherever it leaves out a NaN one, so the data arguments that
+    do so here pass through this first. A list or tuple (an asymmetric
+    error) is read item by item. Nothing changes when nothing is masked, or
+    for values that are not numbers (colour names).
+    """
+    if isinstance(value, (list, tuple)):
+        return type(value)(_unmasked(item) for item in value)
+    if (
+        not np.ma.isMaskedArray(value)
+        or not np.ma.getmaskarray(value).any()
+        or not np.issubdtype(value.dtype, np.number)
+    ):
+        return value
+    return np.ma.filled(value.astype(float), np.nan)
+
+
 def _require_finite(arr: np.ndarray, what: str) -> None:
     """Raise ``ValueError`` if ``arr`` holds any NaN or infinity.
 
@@ -1663,6 +1683,7 @@ def _split_histogram_samples(x):
     other sequence of sequences is one set per element, lengths free to
     differ; a sequence of numbers is one set.
     """
+    x = _unmasked(x)
     if isinstance(x, np.ndarray):
         if x.ndim == 0:
             raise ValueError("hist() x must be one or more 1d sample arrays")
@@ -1688,7 +1709,7 @@ def _split_histogram_samples(x):
         return [np.asarray(items, dtype=float)]
     sets = []
     for item in items:
-        arr = np.asarray(item, dtype=float)
+        arr = np.asarray(_unmasked(item), dtype=float)
         if arr.ndim != 1:
             raise ValueError("each hist() dataset must be 1-dimensional")
         sets.append(arr)
@@ -2935,8 +2956,8 @@ class Axes:
             )
             del qualifiers["mdist"]
 
-        x = np.asarray(x)
-        y = np.asarray(y)
+        x = np.asarray(_unmasked(x))
+        y = np.asarray(_unmasked(y))
 
         # Handle marker. GLE supports markers on line datasets natively, so a
         # marker requested alongside a solid/dashed line must be preserved
@@ -4228,6 +4249,8 @@ class Axes:
 
         >>> ax.errorbar(x, y, yerr=0.5, xerr=0.3)
         """
+        x, y = _unmasked(x), _unmasked(y)
+        xerr, yerr = _unmasked(xerr), _unmasked(yerr)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, "errorbar", fillstyle, markerfacecolor)
@@ -4654,6 +4677,7 @@ class Axes:
         A colour sequence draws one series per distinct colour, in the order
         each first appears; only the first carries ``label``.
         """
+        x, y, c = _unmasked(x), _unmasked(y), _unmasked(c)
         if marker is None:
             marker = "o"  # matplotlib's rcParams['scatter.marker']
         values = None
@@ -4973,6 +4997,7 @@ class Axes:
         -------
         self
         """
+        height = _unmasked(height)
         data_name = kwargs.pop("data_name", None)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
@@ -5309,6 +5334,7 @@ class Axes:
 
         Returns this axes. A mask that fills nothing adds no series.
         """
+        x, y1, y2 = _unmasked(x), _unmasked(y1), _unmasked(y2)
 
         def warn(message: str) -> None:
             warn_external(message)
@@ -5475,6 +5501,7 @@ class Axes:
 
         Returns this axes. A mask that fills nothing adds no series.
         """
+        y, x1, x2 = _unmasked(y), _unmasked(x1), _unmasked(x2)
         color, clip, data_name = self._fill_keywords(
             "fill_betweenx", color, step, kwargs
         )
@@ -5876,11 +5903,11 @@ class Axes:
         warn_unsupported_keywords(name, kwargs)
 
         lo_name, hi_name = ("xmin", "xmax") if orient == "h" else ("ymin", "ymax")
-        pos_arr = np.ravel(np.asarray(pos, dtype=float))
+        pos_arr = np.ravel(np.asarray(_unmasked(pos), dtype=float))
         n = int(pos_arr.size)
         ends = []
         for arg_name, value in ((lo_name, lo), (hi_name, hi)):
-            arr = np.ravel(np.asarray(value, dtype=float))
+            arr = np.ravel(np.asarray(_unmasked(value), dtype=float))
             if arr.size == 1:
                 arr = np.full(n, arr[0])
             if arr.size != n:

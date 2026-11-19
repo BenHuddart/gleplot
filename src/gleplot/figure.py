@@ -144,6 +144,15 @@ PROJECT_VERSION = 2
 SUPPORTED_PROJECT_VERSIONS = (1, 2)
 
 
+def _on_y2(series: Series) -> bool:
+    """Whether ``series`` is drawn against y2.
+
+    A stepfilled histogram is drawn on the primary axis whatever its
+    ``yaxis`` says (:meth:`Axes.hist` warns).
+    """
+    return series.get("yaxis") == "y2" and series.get("histtype") != "stepfilled"
+
+
 def _refline_axis_values(ax, orient: str):
     """Data coordinates the guides of ``ax`` contribute to autoscaling.
 
@@ -5196,9 +5205,21 @@ class Figure:
         resolution: Optional[SourceResolution] = None,
         positive_only: bool = False,
     ) -> Tuple[Optional[float], Optional[float]]:
-        """Calculate y-axis limits from data (see :meth:`_get_data_xlim`)."""
+        """Calculate y-axis limits from data (see :meth:`_get_data_xlim`).
+
+        The series drawn against y2 do not count: GLE scales y2 from its own
+        datasets, as matplotlib's ``twinx`` scales each axis from its own
+        artists. On an axes with no series on the primary axis at all, they
+        still bound it, as they always have.
+        """
         resolution = resolution or SourceResolution()
         ymin, ymax = None, None
+        skip_y2 = any(
+            not _on_y2(series)
+            for attr in SERIES_ATTRS
+            if attr != "texts"
+            for series in resolution.visible(getattr(ax, attr))
+        )
 
         # A series' ``offset`` shifts its trace vertically at plot time (the .dat
         # values stay raw), so autoscale must add it back when bounding the data
@@ -5210,6 +5231,8 @@ class Figure:
         )
         for data_list in offset_bearing:
             for data in data_list:
+                if skip_y2 and _on_y2(data):
+                    continue
                 y = _plottable(
                     np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
                 )
@@ -5238,6 +5261,8 @@ class Figure:
             )
 
         for hist in resolution.visible(ax.hists):
+            if skip_y2 and _on_y2(hist):
+                continue
             hy0, hy1 = self._histogram_y_extent(hist, positive_only)
             if hy0 is None:
                 continue
@@ -5262,6 +5287,8 @@ class Figure:
                     ymax = float(all_y.max())
 
         for eb_data in resolution.visible(ax.errorbars):
+            if skip_y2 and _on_y2(eb_data):
+                continue
             y = np.asarray(eb_data["y"]) + eb_data.get("offset", 0.0)
             yerr_up = eb_data.get("yerr_up")
             yerr_down = eb_data.get("yerr_down")
@@ -5350,9 +5377,8 @@ class Figure:
     ) -> Tuple[Optional[float], Optional[float]]:
         """Calculate secondary-y limits from the series drawn against y2.
 
-        Deliberately narrower than :meth:`_get_data_ylim`, which bounds *every*
-        series on the axes regardless of which y axis it belongs to: y2 limits
-        are normally left to GLE, and the one thing gleplot has to know for
+        The mirror of :meth:`_get_data_ylim`, which leaves these series out:
+        y2 limits are normally left to GLE, and the one thing gleplot has to know for
         itself is what a log-scaled y2 can legally span. Only the series kinds
         that carry a ``yaxis`` field can be on y2 at all; bars, fills, grids
         and reference lines are always primary.
@@ -5366,7 +5392,7 @@ class Figure:
             resolution.visible(ax.errorbars),
         ):
             for data in data_list:
-                if data.get("yaxis") != "y2":
+                if not _on_y2(data):
                     continue
                 y = _plottable(
                     np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
@@ -5378,7 +5404,7 @@ class Figure:
                         y2max = float(y.max())
 
         for hist in resolution.visible(ax.hists):
-            if hist.get("yaxis") != "y2" or hist.get("histtype") == "stepfilled":
+            if not _on_y2(hist):
                 continue
             hy0, hy1 = self._histogram_y_extent(hist, positive_only)
             if hy0 is None:

@@ -4773,7 +4773,15 @@ class GLEWriter:
             ``'fill'``, or ``'errorbar'`` (also when absent). ``data_file``
             and the variant's column fields are required, and so is
             ``color`` for an errorbar reference; every other field is read
-            with the default its absence has always meant.
+            with the default its absence has always meant. A fill's
+            ``target`` is ``'x1'``, ``'x2'`` or ``'polygon'``, or absent for
+            the two-curve fill, which needs ``y2_col``.
+
+        Raises
+        ------
+        ValueError
+            If a fill's ``target`` is not one of those, or a two-curve fill
+            has no ``y2_col``.
         """
         series_type = series.get("series_type", "errorbar")
         if series_type == "line":
@@ -4974,6 +4982,17 @@ class GLEWriter:
         label = series.get("label")
         swatch_color = series.get("swatch_color")
         target = series.get("target")
+        if target not in (None, "x1", "x2", "polygon"):
+            raise ValueError(
+                f"A file fill's target must be 'x1', 'x2', 'polygon' or absent "
+                f"(a two-curve fill), got target={target!r} for {data_file!r}."
+            )
+        if target is None and y2_col is None:
+            raise ValueError(
+                "A file fill FileSeries needs y2_col (the second curve's column) "
+                "or target ('x1', 'x2' or 'polygon'); it has neither, got "
+                f"y2_col=None, target=None for {data_file!r}."
+            )
         clip = {name: series.get(name) for name in ("xmin", "xmax", "ymin", "ymax")}
         d1_name = self._new_dataset()
         if target in ("x1", "x2", "polygon"):
