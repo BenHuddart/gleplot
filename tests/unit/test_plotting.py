@@ -1,6 +1,7 @@
 """Unit tests for plotting functionality."""
 
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -22,8 +23,9 @@ class TestBasicPlotting:
     """Test basic line plotting functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure(figsize=(8, 6))
         self.ax = self.fig.add_subplot(111)
@@ -166,8 +168,9 @@ class TestScatterPlots:
     """Test scatter plot functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -193,6 +196,19 @@ class TestScatterPlots:
         # scatter() should use marker 's' (square)
         assert self.ax.scatters[0]["marker"] == "FSQUARE"
 
+    @pytest.mark.parametrize(
+        "extra, drawn",
+        [
+            ({}, "marker FCIRCLE"),
+            ({"s": [10, 40]}, "marker gleplot_mdata_fcircle "),
+            ({"c": [1, 2]}, "marker gleplot_cdata_fcircle_"),
+        ],
+    )
+    def test_scatter_marker_none_is_the_default_circle(self, extra, drawn):
+        """matplotlib reads marker=None as rcParams['scatter.marker'], 'o'."""
+        self.ax.scatter([1, 2], [1, 2], marker=None, **extra)
+        assert drawn in self.fig._generate_gle()
+
     def test_plot_as_scatter(self):
         """Test plot() with marker creates scatter."""
         self.ax.plot([1, 2, 3], [1, 2, 3], marker="o", linestyle="none")
@@ -206,8 +222,9 @@ class TestBarCharts:
     """Test bar chart functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -459,8 +476,9 @@ class TestFillBetween:
     """Test fill_between functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -1112,8 +1130,9 @@ class TestErrorBars:
     """Test error bar functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -1452,13 +1471,25 @@ class TestLineFromFile:
         assert 'key "Fit line"' in gle
 
 
+def _fake_savefig(*args, **kwargs):
+    """Write what a real ``savefig`` leaves beside its output, without GLE."""
+    out = Path(args[-1])
+    out.write_bytes(b"image")
+    out.with_suffix(".gle").write_text("size 10 10\n")
+    out.with_name(out.stem + "_0.dat").write_text("1 2\n")
+    (out.parent / ".gle").mkdir()
+    (out.parent / ".gle" / "texpreamble.tex").write_text("")
+    return out
+
+
 @pytest.mark.skipif(not IPYTHON_AVAILABLE, reason="IPython not installed")
 class TestViewDisplay:
     """Test figure view behavior across environments."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.fig.add_subplot(111).plot([1, 2, 3], [1, 4, 9])
@@ -1468,7 +1499,7 @@ class TestViewDisplay:
     @patch("IPython.display.display")
     @patch("IPython.display.Image")
     @patch("IPython.get_ipython")
-    @patch.object(glp.Figure, "savefig")
+    @patch.object(glp.Figure, "savefig", autospec=True, side_effect=_fake_savefig)
     def test_view_notebook_png_displays_once_and_returns_none(
         self,
         mock_savefig,
@@ -1485,11 +1516,11 @@ class TestViewDisplay:
 
         assert result is None
         mock_savefig.assert_called_once()
-        mock_image.assert_called_once()
+        mock_image.assert_called_once_with(data=b"image", format="png")
         mock_display.assert_called_once_with(image_obj)
 
     @patch("IPython.get_ipython")
-    @patch.object(glp.Figure, "savefig")
+    @patch.object(glp.Figure, "savefig", autospec=True, side_effect=_fake_savefig)
     def test_view_non_notebook_returns_temp_path(self, mock_savefig, mock_get_ipython):
         """Non-notebook view should return temp file path."""
         mock_get_ipython.return_value = None
@@ -1509,7 +1540,7 @@ def viewable_figure(tmp_path, monkeypatch):
     fig = glp.figure()
     fig.add_subplot(111).plot([1, 2, 3], [1, 4, 9])
     fig.compiler = Mock()
-    monkeypatch.setattr(glp.Figure, "savefig", Mock())
+    monkeypatch.setattr(glp.Figure, "savefig", Mock(side_effect=_fake_savefig))
     yield fig
     glp.close()
 
@@ -1521,7 +1552,34 @@ def test_view_outside_notebook_returns_path_and_prints_nothing(
 
     assert result.parent == tmp_path
     assert result.suffix == ".png"
+    assert result.read_bytes() == b"image"
     assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("fmt", ["png", "pdf"])
+def test_view_leaves_only_the_returned_file(viewable_figure, tmp_path, fmt):
+    result = viewable_figure.view(format=fmt)
+
+    assert sorted(tmp_path.iterdir()) == [result]
+
+
+def test_view_svg_in_notebook_warns_and_returns_path(viewable_figure, tmp_path):
+    pytest.importorskip("IPython")
+    with patch("IPython.get_ipython", return_value=Mock(config={"IPKernelApp": 1})):
+        with pytest.warns(UserWarning, match="cannot display SVG inline"):
+            result = viewable_figure.view(format="svg")
+
+    assert sorted(tmp_path.iterdir()) == [result]
+    assert result.suffix == ".svg"
+
+
+def test_view_cleans_up_when_savefig_fails(viewable_figure, tmp_path):
+    glp.Figure.savefig.side_effect = RuntimeError("compile failed")
+
+    with pytest.raises(RuntimeError, match="compile failed"):
+        viewable_figure.view()
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_view_pdf_in_notebook_warns_and_returns_path(viewable_figure, capsys):
@@ -2952,3 +3010,82 @@ def test_linewidth_none_means_the_default_width(draw):
         return fig._generate_gle_with_files()[0]
 
     assert script(linewidth=None) == script()
+
+
+def _saved(fig, tmp_path):
+    """The saved script and its sidecars, by file name."""
+    out = tmp_path / "fig.gle"
+    fig.savefig(str(out))
+    return {p.name: p.read_text() for p in tmp_path.iterdir() if p.is_file()}
+
+
+def test_values_six_figures_would_merge_are_written_apart(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    stamps = [1.7e9, 1.7e9 + 60, 1.7e9 + 121]
+    ax.plot(stamps, [1.0, 2.0, 3.0])
+    ax.set_xlim(stamps[0], stamps[-1])
+    files = _saved(fig, tmp_path)
+    assert files["p_0.dat"] == "x y\n1700000000 1\n1700000060 2\n1700000121 3\n"
+    assert "xaxis min 1700000000 max 1700000121" in files["fig.gle"]
+
+
+def test_small_and_large_values_keep_their_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1.23456789e12, 2.5e12], [1e-12, 2e-12])
+    assert (
+        _saved(fig, tmp_path)["p_0.dat"] == "x y\n1.234568e+12 1e-12\n2.5e+12 2e-12\n"
+    )
+
+
+def test_float_noise_and_faithful_columns_keep_six_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([0.1, 0.123456789, 2.5e10], np.cos([0.0, np.pi / 2, np.pi]))
+    ax.plot([1.0, 1.0 - 1e-16], [2.0, 3.0])
+    # Samples near a peak differ by far less than the curve's height.
+    ax.plot(np.linspace(0, 10, 20000), np.sin(np.linspace(0, 10, 20000)))
+    files = _saved(fig, tmp_path)
+    assert files["p_0.dat"] == "x y\n0.1 1\n0.123457 0\n2.500e+10 -1\n"
+    assert files["p_1.dat"] == "x y\n1 2\n1 3\n"
+    rows = [line.split() for line in files["p_2.dat"].splitlines()[1:]]
+    digits = (y.split("e")[0].lstrip("-").replace(".", "").lstrip("0") for _, y in rows)
+    assert max(len(d) for d in digits) <= 6
+
+
+def test_a_heatmap_grid_keeps_values_six_figures_would_merge(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.imshow(1.0 + 1e-8 * np.arange(4.0).reshape(2, 2), extent=(0, 2, 0, 2))
+    grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
+    assert grid.splitlines()[1:] == ["1 1.00000001", "1.00000002 1.00000003"]
+
+
+def test_raised_columns_zero_nothing_six_figures_kept(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([0.0, 1.0, 2.0, 3.0], [0.001, 0.002, 1e5, 1e5 + 0.3])
+    assert _saved(fig, tmp_path)["p_0.dat"].splitlines()[1:] == [
+        "0 0.001",
+        "1 0.002",
+        "2 100000",
+        "3 100000.3",
+    ]
+
+
+def test_a_log_limit_below_1e10_is_not_written_zero(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1.0, 2.0], [1e-11, 1.0])
+    ax.set_yscale("log")
+    ax.set_ylim(1e-12, 1.0)
+    assert "yaxis min 1e-12 max 1 log" in _saved(fig, tmp_path)["fig.gle"]
+
+
+def test_a_timestamp_heatmap_extent_keeps_its_width(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.arange(6.0).reshape(2, 3), extent=(1.7e9, 1.7e9 + 60, 0, 1))
+    grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
+    assert grid.startswith("! nx 3 ny 2 xmin 1.7e+09 xmax 1.70000006e+09 ymin 0")

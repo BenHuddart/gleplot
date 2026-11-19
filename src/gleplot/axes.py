@@ -1364,7 +1364,10 @@ def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
                 warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
         resolved.append(value)
     warn_unsupported_keywords(name, kwargs)
-    return resolved[0], resolved[1]
+    styles = resolved[1]
+    if isinstance(styles, str) or _is_dash_pattern(styles):
+        styles = _line_style(name, styles)
+    return resolved[0], styles
 
 
 _MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
@@ -1628,6 +1631,36 @@ def _is_dash_pattern(value) -> bool:
         and isinstance(value[0], Real)
         and (value[1] is None or isinstance(value[1], (tuple, list)))
     )
+
+
+def _line_style(caller: str, linestyle):
+    """A line's matplotlib ``linestyle`` as the symbol the writer draws.
+
+    The symbols, ``None`` and the no-line values pass through; a named
+    style becomes its symbol. A dash pattern or an unknown style warns and
+    is drawn solid.
+    """
+    if linestyle is None:
+        return None
+    if isinstance(linestyle, str):
+        if linestyle in ("-", "--", ":", "-.") or linestyle in _NO_LINE:
+            return linestyle
+        if linestyle in _NAMED_LINESTYLES:
+            return _NAMED_LINESTYLES[linestyle]
+    if _is_dash_pattern(linestyle) and linestyle[1] is None:
+        return "-"  # matplotlib's (offset, None) is a solid line
+    if _is_dash_pattern(linestyle):
+        warn_external(
+            f"{caller}() linestyle {linestyle!r} is a dash pattern GLE cannot "
+            "draw; the line is drawn solid. Pass '--', ':' or '-.' instead."
+        )
+    else:
+        warn_external(
+            f"{caller}() linestyle {linestyle!r} is not a line style; the line "
+            "is drawn solid. Pass '-', '--', ':', '-.', 'solid', 'dashed', "
+            "'dotted', 'dashdot' or 'none'."
+        )
+    return "-"
 
 
 def _color_list(name: str, colors, default: list) -> list:
@@ -2556,7 +2589,10 @@ class Axes:
         x, y : array-like
             Data coordinates
         linestyle : str
-            Line style ('-', '--', ':', '-.')
+            Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
+            names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
+            or ``'none'`` for no line. A dash tuple or any other value
+            warns and is drawn solid.
         color : str, optional
             Color name or code ('b', 'red', etc.)
         marker : str, optional
@@ -2649,6 +2685,7 @@ class Axes:
             markersize = _pop_line_alias(
                 kwargs, caller, "ms", "markersize", markersize, 6
             )
+        linestyle = _line_style(caller, linestyle)
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
@@ -3097,6 +3134,9 @@ class Axes:
         labels = self._per_histogram(label, len(finite_sets), broadcast_str=False)
         edges = self._per_histogram(edgecolor, len(finite_sets), broadcast_str=True)
         alphas = self._per_histogram(alpha, len(finite_sets), broadcast_str=True)
+        if isinstance(linestyle, str) or _is_dash_pattern(linestyle):
+            # One style for every sample set; a dash tuple is not a sequence.
+            linestyle = _line_style("hist", linestyle)
         linestyles = self._per_histogram(
             linestyle, len(finite_sets), broadcast_str=True
         )
@@ -3125,7 +3165,9 @@ class Axes:
             if one_label is not None:
                 fields["label"] = self._text(str(one_label))
             if style_name == "step":
-                fields["linestyle"] = "-" if one_ls is None else one_ls
+                fields["linestyle"] = (
+                    "-" if one_ls is None else _line_style("hist", one_ls)
+                )
                 fields["linewidth"] = float(1 if one_lw is None else one_lw)
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
@@ -3994,6 +4036,7 @@ class Axes:
         linestyle = _pop_line_alias(
             kwargs, "errorbar", "ls", "linestyle", kwargs.pop("linestyle", None), None
         )
+        linestyle = _line_style("errorbar", linestyle)
         warn_unsupported_keywords("errorbar", kwargs)
         label = self._text(label)
         x = np.asarray(x, dtype=float)
@@ -4245,6 +4288,7 @@ class Axes:
 
         label = self._text(label)
         gle_color = self._resolve_color(color)
+        linestyle = _line_style("line_from_file", linestyle)
         mode = resolve_line_mode(drawstyle, line_mode)
         if mode and linestyle in _NO_LINE:
             warn_external(
@@ -4284,7 +4328,7 @@ class Axes:
         y,
         color: Optional[str] = None,
         s: Optional[Union[float, Sequence[float]]] = None,
-        marker: str = "o",
+        marker: Optional[str] = None,
         label: Optional[str] = None,
         yaxis: str = "y",
         xaxis: str = "x",
@@ -4330,8 +4374,9 @@ class Axes:
             Marker area in points**2 (matplotlib ``scatter`` convention).
             Default 20 when neither ``s`` nor ``markersize`` is given. An
             array gives each point its own size; see Notes.
-        marker : str
-            Marker symbol
+        marker : str, optional
+            Marker symbol. Omitted or ``None``, a circle (``'o'``), as in
+            matplotlib.
         label : str, optional
             Legend label
         yaxis : str, optional
@@ -4395,6 +4440,8 @@ class Axes:
         A colour sequence draws one series per distinct colour, in the order
         each first appears; only the first carries ``label``.
         """
+        if marker is None:
+            marker = "o"  # matplotlib's rcParams['scatter.marker']
         values = None
         colors = None
         if c is not None:
@@ -5760,7 +5807,9 @@ class Axes:
         color : str, optional
             Line colour. Default: black.
         linestyle : str
-            ``'-'``, ``'--'``, ``':'`` or ``'-.'``.
+            ``'-'``, ``'--'``, ``':'`` or ``'-.'``, or matplotlib's name for
+            one (``'dashed'``, ...). A dash tuple or any other value warns
+            and is drawn solid.
         linewidth : float
             Line width in points.
         label : str, optional
@@ -5817,6 +5866,7 @@ class Axes:
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
         linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
+        linestyle = _line_style(caller, linestyle)
         linewidth = _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         warn_unsupported_keywords(caller, kwargs)
@@ -7759,7 +7809,9 @@ class Axes:
         linewidths : float
             Line width (matplotlib points).
         linestyles : str
-            Line style ('-', '--', ':', '-.').
+            Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'`` or matplotlib's
+            name for one (``'dashed'``, ...). A dash tuple or any other
+            value warns and is drawn solid.
         clabel : bool
             Draw inline contour labels from the generated ``-clabels.dat``.
         clabel_fmt : str
