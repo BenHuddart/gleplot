@@ -229,7 +229,9 @@ keeps the full name, with a warning, unless the full name is left at its
 default. A `linewidth` that is NaN, infinite or negative raises
 `ValueError` at the call, on these and the other line-drawing calls below,
 `line_from_file`, `function` and `hist(histtype='step')`, where
-matplotlib does not check it. GLE has no zero-width stroke, so `lw=0` on
+matplotlib does not check it. So does a NaN or infinite position or edge on
+`axhline`, `axvline`, `axhspan` or `axvspan`, which matplotlib draws as nothing.
+GLE has no zero-width stroke, so `lw=0` on
 `plot` (and `step`, `stem`, `semilogx`, `semilogy`, `loglog`), `errorbar`,
 `line_from_file`, `axhline`, `axvline`, `hlines` and `vlines` draws no
 line, as `linestyle='none'` does; `errorbar` still draws its error bars.
