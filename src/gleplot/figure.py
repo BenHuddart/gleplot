@@ -435,7 +435,7 @@ class _LegendLayout:
     ``entries`` are ``(series, label, swatch)`` in emission order and
     ``addition`` their indices in matplotlib addition order. ``external``
     means the in-graph key is off and a ``begin key`` block lists the
-    entries in addition order instead.
+    entries in addition order instead; it is only ever set with ``show``.
     """
 
     entries: List[tuple]
@@ -4196,11 +4196,7 @@ class Figure:
                     legend.entries[i] for i in legend.addition
                 )
             ]
-            breaks = (
-                legend_column_breaks(n_legend, legend.ncol)
-                if legend.show and legend.ncol > 1
-                else set()
-            )
+            breaks = legend_column_breaks(n_legend, legend.ncol)
             writer.queue_external_legend(ordered, breaks, key)
         elif legend.show:
             writer.add_legend(key)
