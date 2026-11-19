@@ -4279,6 +4279,10 @@ class Axes:
         skiprows: int = 0,
         comment: Optional[str] = None,
         max_rows: Optional[int] = None,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        ymin: Optional[float] = None,
+        ymax: Optional[float] = None,
         **kwargs,
     ):
         """Plot by referencing columns in an existing external data file.
@@ -4292,12 +4296,15 @@ class Axes:
         white-filled one.
 
         ``skiprows``, ``comment`` and ``max_rows`` control how GLE reads
-        the file, as for :meth:`line_from_file`. ``c`` and ``ms`` are
-        accepted for ``color`` and ``markersize``, as by :meth:`errorbar`;
-        any other keyword warns and is ignored.
+        the file, as for :meth:`line_from_file`. ``xmin``, ``xmax``,
+        ``ymin`` and ``ymax`` are the series' own data range, as for
+        :meth:`errorbar`. ``c`` and ``ms`` are accepted for ``color`` and
+        ``markersize``, as by :meth:`errorbar`; any other keyword warns and
+        is ignored.
         """
         _check_file_columns(x_col, y_col=y_col, yerr_col=yerr_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
+        data_range = _dataset_qualifiers(None, None, False, xmin, xmax, ymin, ymax)
 
         caller = "errorbar_from_file"
         marker_fill = _pop_marker_fill(kwargs, caller, fillstyle, markerfacecolor)
@@ -4326,6 +4333,7 @@ class Axes:
             capsize=gle_capsize,
             yaxis=yaxis,
             **read_options,
+            **data_range,
         )
         _apply_xaxis(entry, xaxis)
         self._register_series_draw_meta(entry, "errorbar")

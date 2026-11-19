@@ -562,6 +562,14 @@ def file_series():
     return fig
 
 
+def file_series_data_range():
+    """An errorbar file reference with its own data range."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.errorbar_from_file("external.dat", 1, 2, yerr_col=3, xmin=0.5, ymax=12)
+    return fig
+
+
 def file_series_field_options():
     """File-series fields the ``file_series`` builder leaves at their defaults.
 
@@ -1941,6 +1949,7 @@ BUILDERS = [
     inset_alone,
     aspect_ratios,
     file_series,
+    file_series_data_range,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,

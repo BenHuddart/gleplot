@@ -1414,6 +1414,15 @@ class TestErrorbarFromFile:
         series = self.ax.file_series[0]
         assert series["yaxis"] == "y2"
 
+    def test_errorbar_from_file_takes_the_data_range(self, recwarn):
+        self.ax.errorbar_from_file(str(self.data_path), 1, 2, 3, xmin=0.5, ymax=12)
+        assert not recwarn.list
+        series = self.ax.file_series[0]
+        assert (series["xmin"], series["ymax"]) == (0.5, 12.0)
+        assert "xmax" not in series
+        with pytest.raises(ValueError, match="ymin must be less than ymax"):
+            self.ax.errorbar_from_file(str(self.data_path), 1, 2, ymin=3, ymax=1)
+
     def test_errorbar_from_file_with_capsize(self):
         """Test errorbar_from_file with capsize parameter."""
         self.ax.errorbar_from_file(
