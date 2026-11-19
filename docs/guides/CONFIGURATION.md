@@ -457,6 +457,24 @@ Most other punctuation is allowed, including `.`, `-`, `_` and `#`. Note that
 `data_name` behaves differently: it takes a free-form *label* and sanitizes it
 into a filename stem, because no caller depends on its exact spelling.
 
+#### Number precision
+
+Sidecar numbers are written with 6 significant figures. A column that 6 figures
+would damage (two distinct values written alike, a value such as `1e-12`
+written `0`, or a value above `1e10` shortened) is written with as many
+figures as it needs instead, and so is an axis range set with `set_xlim` or
+`set_ylim`. Unix timestamps are the common case:
+
+    fig = glp.figure(data_prefix='stamps')
+    ax = fig.add_subplot(111)
+    ax.plot([1.7e9, 1.7e9 + 60, 1.7e9 + 121], [1, 2, 3])
+    fig.savefig('stamps.gle')   # stamps_0.dat holds 1700000000, 1700000060, ...
+
+Only a difference larger than a millionth of the range a column covers counts,
+so a densely sampled curve keeps 6 figures where neighbouring samples near a
+peak round alike, and floating-point noise such as `np.cos(np.pi / 2)` is still
+written `0`.
+
 ## Resetting to Defaults
 
 Reset all global configurations to defaults:

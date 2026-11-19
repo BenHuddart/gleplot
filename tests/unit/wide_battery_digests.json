@@ -116,5 +116,6 @@
  "project:subplots_grid": "e2d0664e800aab5e99be8b14000b98cecfcc73b37eb023bc8812de3b36d690c1",
  "project:subplots_sharex": "d914599e2016ae7c6823279b50de51bfe23f877582af243fa1f290372863769f",
  "project:subplots_sharey_adjust": "bf4b854fde5b9d463cfccd394ba6c78f4b437c43e6ac5d12eef980d29073673f",
- "project:text_annotations": "1f1f75b1c77a76297bd3920f42a8fd9b225e1818c2302dc8a7ad49ae2f666e4c"
+ "project:text_annotations": "1f1f75b1c77a76297bd3920f42a8fd9b225e1818c2302dc8a7ad49ae2f666e4c",
+ "golden:data_beyond_six_figures": "aebc2077407cb05e47e7a9d19095bc69827e410aaff1b7b2ac0a5f7674b403f1"
 }

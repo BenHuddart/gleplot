@@ -17,6 +17,7 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Iterable,
     List,
     Mapping,
     Optional,
@@ -2245,10 +2246,7 @@ class GLEWriter:
         lo, hi, negate = self._axis_direction(lo, hi)
         bare = f"    {prefix}axis"
         cmd = bare
-        if lo is not None:
-            cmd += f" min {self._format_number(lo)}"
-        if hi is not None:
-            cmd += f" max {self._format_number(hi)}"
+        cmd += self._axis_range(lo, hi)
         if log:
             cmd += " log"
         if negate:
@@ -2322,10 +2320,7 @@ class GLEWriter:
         y2_styled = style is not _NO_STYLE and style != _NO_STYLE
         if lo is not None or hi is not None or log or off or y2_on or y2_styled:
             cmd = "    y2axis"
-            if lo is not None:
-                cmd += f" min {self._format_number(lo)}"
-            if hi is not None:
-                cmd += f" max {self._format_number(hi)}"
+            cmd += self._axis_range(lo, hi)
             if log:
                 cmd += " log"
             if negate:
@@ -2417,10 +2412,7 @@ class GLEWriter:
             or x2_tick_styled
         ):
             cmd = "    x2axis"
-            if lo is not None:
-                cmd += f" min {self._format_number(lo)}"
-            if hi is not None:
-                cmd += f" max {self._format_number(hi)}"
+            cmd += self._axis_range(lo, hi)
             if log:
                 cmd += " log"
             elif x2_lin:
@@ -2965,9 +2957,8 @@ class GLEWriter:
         data = np.column_stack(columns)
 
         # Write data rows
-        for row in data:
-            line = " ".join(self._format_number(val) for val in row)
-            lines.append(line)
+        texts = [self._format_column(data[:, j]) for j in range(data.shape[1])]
+        lines.extend(" ".join(row) for row in zip(*texts))
 
         # Add trailing newline for GLE compatibility
         self.data_files[filename] = "\n".join(lines) + "\n"
@@ -5907,8 +5898,7 @@ class GLEWriter:
         header = f"! nx {nx} ny {ny} xmin {x0} xmax {x1} ymin {y0} ymax {y1}"
         rows = z[::-1] if origin == "upper" else z
         lines = [header]
-        for row in rows:
-            lines.append(" ".join(self._format_number(v) for v in row))
+        lines.extend(self._format_grid(rows))
         content = "\n".join(lines) + "\n"
         self.data_files[filename] = content
         self.raw_sidecars.add(filename)
@@ -5924,12 +5914,8 @@ class GLEWriter:
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
         z = np.asarray(z, dtype=float)
-        lines = []
-        for xi, yi, zi in zip(x, y, z):
-            lines.append(
-                f"{self._format_number(xi)} {self._format_number(yi)} "
-                f"{self._format_number(zi)}"
-            )
+        columns = [self._format_column(c) for c in (x, y, z)]
+        lines = [" ".join(row) for row in zip(*columns)]
         content = "\n".join(lines) + "\n"
         self.data_files[filename] = content
         self.raw_sidecars.add(filename)
@@ -6068,8 +6054,7 @@ class GLEWriter:
             ),
             "{} xmin {} xmax {} ymin {} ymax {}".format(CELLS_MARKER, *edges),
         ]
-        for row in np.vstack([z[:1], z]):
-            cells = [fmt(v) for v in row]
+        for cells in self._format_grid(np.vstack([z[:1], z]), joined=False):
             lines.append(" ".join([cells[0]] + cells))
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
@@ -6102,7 +6087,7 @@ class GLEWriter:
             "! nx {} ny {} xmin {} xmax {} ymin {} ymax {}".format(nx, ny, *bounds),
             "{} xmin {} xmax {} ymin {} ymax {}".format(NODES_MARKER, *edges),
         ]
-        lines.extend(" ".join(fmt(v) for v in row) for row in z)
+        lines.extend(self._format_grid(z))
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
 
@@ -6879,6 +6864,109 @@ class GLEWriter:
             formatted = f"{val:.{precision}g}"
             return formatted
         return str(val)
+
+    @classmethod
+    def _axis_range(cls, lo: Optional[float], hi: Optional[float]) -> str:
+        """The `` min .. max ..`` of an axis line; the pair is one column."""
+        lo_text, hi_text = cls._format_column([lo, hi])
+        return (f" min {lo_text}" if lo is not None else "") + (
+            f" max {hi_text}" if hi is not None else ""
+        )
+
+    @classmethod
+    def _format_grid(cls, z: np.ndarray, joined: bool = True) -> List[Any]:
+        """A 2-D grid's rows as text, the whole grid formatted as one column."""
+        texts = cls._format_column(z.ravel())
+        nx = z.shape[1]
+        rows = [texts[k : k + nx] for k in range(0, len(texts), nx)]
+        return [" ".join(row) for row in rows] if joined else rows
+
+    @classmethod
+    def _format_column(cls, values: Iterable[Any]) -> List[str]:
+        """Numbers that belong together (a data column, an axis range) as text.
+
+        Each value is written by :meth:`_format_number` unless that loses
+        data: two values written alike, a value written ``0``, or a value
+        above 1e10 cut short, when what is lost exceeds the column's
+        tolerance (:meth:`_column_tolerance`). Then every number of the
+        column is written with the fewest significant figures, at least six,
+        that keep it within half the tolerance, so a data column and the
+        axis range set around it round alike.
+
+        The written numbers are iterated to a fixed point, so a file read
+        back chooses the same precision and writes the same text.
+        Non-numeric entries (``*``) and non-finite ones are written by
+        :meth:`_format_number` as they always were.
+        """
+        values = list(values)
+        index = [
+            i
+            for i, v in enumerate(values)
+            if isinstance(v, (int, float)) and math.isfinite(v)
+        ]
+        out = [cls._format_number(v) for v in values]
+        nums = [float(values[i]) for i in index]
+        precision = cls._column_precision(nums)
+        while precision is not None:
+            tol = cls._column_tolerance(np.unique(nums))
+            texts = cls._column_texts(nums, precision, tol)
+            nums = [float(t) for t in texts]
+            settled = cls._column_precision(nums)
+            if settled == precision:
+                for i, text in zip(index, texts):
+                    out[i] = text
+                break
+            precision = settled
+        else:
+            for i, v in zip(index, nums):
+                out[i] = cls._format_number(v)
+        return out
+
+    @staticmethod
+    def _column_tolerance(ordered: np.ndarray) -> float:
+        """The smallest difference in ``ordered`` (sorted) that is data.
+
+        A millionth of the column's span: six significant figures of the
+        range the values cover, so samples a millionth of a curve's height
+        apart near a peak are not data, while timestamps a minute apart are.
+        Never below 1e-12 of the largest magnitude, which is float noise
+        (``cos(pi / 2)`` is ``6e-17``).
+        """
+        size = max(abs(ordered[0]), abs(ordered[-1]))
+        return float(max(1e-6 * (ordered[-1] - ordered[0]), 1e-12 * size))
+
+    @staticmethod
+    def _column_texts(nums: List[float], precision: int, tol: float) -> List[str]:
+        """``nums`` at ``precision`` significant figures; below ``tol / 2`` is 0."""
+        return ["0" if abs(v) <= tol / 2 else f"{v:.{precision}g}" for v in nums]
+
+    @classmethod
+    def _column_precision(cls, nums: List[float]) -> Optional[int]:
+        """None when :meth:`_format_number` keeps ``nums``, else the precision."""
+        if not nums:
+            return None
+        ordered = np.unique(np.asarray(nums, dtype=float))
+        tol = cls._column_tolerance(ordered)
+        fmt = cls._format_number
+        size = np.abs(ordered)
+        if not (
+            np.any((size < 1e-10) & (size > tol / 2))
+            or any(abs(float(fmt(v)) - v) > tol / 2 for v in ordered[size > 1e10])
+            or cls._merges(ordered, [fmt(v) for v in ordered], tol)
+        ):
+            return None
+        for precision in range(6, 17):
+            texts = cls._column_texts(list(ordered), precision, tol)
+            written = np.array([float(t) for t in texts])
+            if np.all(np.abs(written - ordered) <= tol / 2):
+                return precision
+        return 17
+
+    @staticmethod
+    def _merges(ordered: np.ndarray, texts: List[str], tol: float) -> bool:
+        """Whether neighbours of ``ordered`` more than ``tol`` apart read alike."""
+        same = np.array(texts[1:], dtype=object) == np.array(texts[:-1], dtype=object)
+        return bool(np.any(same & (np.diff(ordered) > tol)))
 
     @staticmethod
     def _escape_gle_string(value: str) -> str:
