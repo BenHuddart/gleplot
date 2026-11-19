@@ -239,6 +239,36 @@ def test_a_bare_y2labels_on_is_preserved(tmp_path):
     assert any("y2labels on" in line for line in ax.passthrough)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        # No empty places on the primary axis: not the writer's switch.
+        "   y2axis min 0 max 9\n   y2ticks on\n   xside color RED lstyle 2\n",
+        # An empty places list, but no y2 scale in use.
+        "   yticks off\n   ylabels off\n   y2ticks on\n   xside color RED lstyle 2\n",
+    ],
+)
+def test_a_y2ticks_on_the_writer_would_not_write_stays_raw_in_order(tmp_path, body):
+    path = _write(tmp_path, "y2ticks.gle", body)
+    ax = parse_gle_figure(path).figure.axes_list[0]
+    assert [line.strip() for line in ax.passthrough][-2:] == [
+        "y2ticks on",
+        "xside color RED lstyle 2",
+    ]
+
+
+def test_hand_written_empty_places_with_a_twin_are_recovered(tmp_path):
+    (tmp_path / "e.dat").write_text("0 5\n1 6\n2 7\n")
+    body = (
+        "   yticks off\n   ylabels off\n   y2ticks on\n   y2labels on\n"
+        "   data e.dat d2=c1,c2\n   d2 line color RED y2axis\n"
+    )
+    ax = parse_gle_figure(_write(tmp_path, "twin.gle", body)).figure.axes_list[0]
+    assert ax.yplaces == []
+    assert ax._show_yticks
+    assert not any("ticks" in line or "labels" in line for line in ax.passthrough)
+
+
 def test_an_axis_title_with_an_unmodelled_option_stays_whole(tmp_path):
     """``adist`` has no model field, and an axis title is a single command
     -- re-emitting it shorn of it would silently drop it."""

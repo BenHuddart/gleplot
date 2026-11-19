@@ -43,6 +43,7 @@
  "golden:fill_forms": "9068b92ed688e57ffe546f43aa74d28015d7c7e9105320abef767cc95a181d1a",
  "golden:fit_curves": "de570df0181eafbd410618e8d19254b53566b39e646b53f1c57ff87f1f6cfe87",
  "golden:function_curves": "adc8070bd736db1468de14217fffca0a419ce8cc8aac877e2b9159a7a6573ab4",
+ "golden:function_curves_beside_modelled_lets": "f48d2bf9b00c8a11ce696606f97a004061b9e204fc3536f4d3d6df4906b0e185",
  "golden:heatmap_brewer_palettes": "fddea1c858089aae1f38849a89da43d8c9fc02716f088dec01b8e1456bf9005b",
  "golden:heatmap_reversed_palettes": "9ff50799224f253d3b934323c8bce68b3b0fb7edbee5143baf0c88a88e7d7f7b",
  "golden:heatmap_field_options": "04ad00b7bd686c20965d9fb3218b2222ddc6b101ac32fd12657e096d4e03d2ab",
@@ -122,5 +123,8 @@
  "project:subplots_sharex": "d914599e2016ae7c6823279b50de51bfe23f877582af243fa1f290372863769f",
  "project:subplots_sharey_adjust": "bf4b854fde5b9d463cfccd394ba6c78f4b437c43e6ac5d12eef980d29073673f",
  "project:text_annotations": "1f1f75b1c77a76297bd3920f42a8fd9b225e1818c2302dc8a7ad49ae2f666e4c",
- "golden:data_beyond_six_figures": "aebc2077407cb05e47e7a9d19095bc69827e410aaff1b7b2ac0a5f7674b403f1"
+ "golden:data_beyond_six_figures": "aebc2077407cb05e47e7a9d19095bc69827e410aaff1b7b2ac0a5f7674b403f1",
+ "golden:no_ticks": "03a33149516bf5ae44a6b9a54c8e70a41f74c8457cf1eb0d39012a27432784ef",
+ "golden:no_ticks_styled": "b7a6f5c7dbc00f1a7cf6bc7ad352cebcc58a1dfb60ded9769ca5d179db786f18",
+ "golden:no_ticks_twins": "e93253c9ca4e4311712e5c8a3751c6ce37b1aaf790c8d481aca2d686518d5f74"
 }

@@ -192,21 +192,13 @@ DRAWSTYLE_TO_LINE_MODE: Dict[str, Optional[str]] = {
 def resolve_line_mode(
     drawstyle: Optional[str] = None,
     line_mode: Optional[str] = None,
-    ds: Optional[str] = None,
 ) -> Optional[str]:
     """The GLE line mode for a plot call, or ``None`` for a plain polyline.
 
-    ``ds`` is matplotlib's alias of ``drawstyle``. ``line_mode`` is the GLE
-    token itself (see :data:`LINE_MODES`). When a drawstyle and a
-    ``line_mode`` are both given they must name the same mode.
+    ``line_mode`` is the GLE token itself (see :data:`LINE_MODES`). When a
+    drawstyle and a ``line_mode`` are both given they must name the same
+    mode.
     """
-    if ds is not None:
-        if drawstyle is None:
-            drawstyle = ds
-        elif _drawstyle_mode(ds) != _drawstyle_mode(drawstyle):
-            raise ValueError(
-                f"drawstyle {drawstyle!r} and ds {ds!r} are different line modes"
-            )
     from_style = _drawstyle_mode(drawstyle)
     if line_mode is None:
         return from_style
