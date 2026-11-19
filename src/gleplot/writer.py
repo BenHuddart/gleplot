@@ -2289,6 +2289,10 @@ class GLEWriter:
             # hidden frame writes its own 'xticks off' (see add_axes).
             if not frame_off:
                 self.lines_gle.append(f"    {prefix}ticks off")
+                if log and style.minorticks is not False:
+                    # matplotlib keeps a log axis' minor ticks; GLE's
+                    # 'xsubticks on' brings them back after 'xticks off'.
+                    self.lines_gle.append(f"    {prefix}subticks on")
             self.lines_gle.append(f"    {prefix}labels off")
             self._add_axis_line_style(prefix, style)
             return

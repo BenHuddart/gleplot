@@ -37,6 +37,7 @@
  "golden:file_series": "7e0776b851323e283db7f17036f1655528475da907e80baf75f6388004397d26",
  "golden:file_series_data_range": "1d2ec7d14a7c401e05c608b90d0253c1958a971fe8b69469e9b729dfe96f3302",
  "golden:errorbar_thinned_from_a_file": "d041161b9ba4e5344383b3480d2724942970772cf9f0fa915a37b799073da53c",
+ "golden:log_axis_without_major_ticks": "cc5d159ea8b4d0c1a6856db51d698a1a08e130ff4cfa65a019eda0c0327b4dbe",
  "golden:file_series_field_options": "83e8b6a96cd62d52d769fe80bd99968acb97e1e8ac23001e9e3db9071e2b0bca",
  "golden:file_series_without_a_line": "0ba14ab630ba952984cfef6dfb56c8cf2a388f051a619db51225472eb4359ec3",
  "golden:file_series_read_options": "9896b1b62480c9e9ae4ad6a547d5100b73164f719ed98d1946936f611d4afe0f",

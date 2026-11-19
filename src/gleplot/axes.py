@@ -9084,7 +9084,9 @@ class Axes:
         ticks : sequence of float, optional
             Explicit tick positions (GLE ``xplaces``). Passing ``None`` leaves
             the current setting alone; an empty sequence draws no ticks and
-            no tick labels (GLE ``xticks off`` and ``xlabels off``).
+            no tick labels (GLE ``xticks off`` and ``xlabels off``). On a log
+            axis the minor ticks stay, as in matplotlib, unless
+            :meth:`minorticks_off` was called.
         labels : sequence of str, optional
             Tick labels (GLE ``xnames``), one per entry of ``ticks``.
         dticks : float, optional

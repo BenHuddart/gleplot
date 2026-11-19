@@ -717,6 +717,21 @@ def test_an_empty_tick_list_switches_the_ticks_and_labels_off():
     ]
 
 
+def test_an_empty_tick_list_on_a_log_axis_keeps_the_minor_ticks():
+    """matplotlib keeps a log axis' minor ticks (#378); minorticks_off wins."""
+    fig, ax = _fig()
+    ax.set_xscale("log")
+    ax.set_xticks([])
+    lines = _graph_lines(fig)
+    assert lines[lines.index("xticks off") :][:3] == [
+        "xticks off",
+        "xsubticks on",
+        "xlabels off",
+    ]
+    ax.minorticks_off()
+    assert "xsubticks on" not in _graph_lines(fig)
+
+
 def test_an_empty_tick_list_on_a_hidden_frame_adds_no_second_ticks_off():
     """``axis('off')`` writes ``xticks off`` already, and it must stay one of
     the four lines the parser recovers as a hidden frame."""

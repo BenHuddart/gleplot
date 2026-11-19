@@ -613,6 +613,20 @@ def file_series_without_a_line():
     return fig
 
 
+def log_axis_without_major_ticks():
+    """``set_xticks([])`` on a log axis keeps the minor ticks, as matplotlib,
+    unless ``minorticks_off`` took them away."""
+    fig = glp.figure(data_prefix="golden")
+    for index, minor in ((1, True), (2, False)):
+        ax = fig.add_subplot(1, 2, index)
+        ax.plot([1, 10, 100], [1, 2, 3])
+        ax.set_xscale("log")
+        ax.set_xticks([])
+        if not minor:
+            ax.minorticks_off()
+    return fig
+
+
 def file_series_field_options():
     """File-series fields the ``file_series`` builder leaves at their defaults.
 
@@ -2057,6 +2071,7 @@ BUILDERS = [
     file_series_data_range,
     errorbar_thinned_from_a_file,
     file_series_without_a_line,
+    log_axis_without_major_ticks,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,
