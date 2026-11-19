@@ -203,17 +203,12 @@ ax.stem(x, y)
 
 ## Segments
 
-`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. GLE breaks a line at `*`. It drops a `nan` row and joins its neighbours, so a NaN in `ax.plot` is not a gap.
+`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. The arguments are listed in the API reference for `Axes.vlines`. GLE breaks a line at `*`. It drops a `nan` row and joins its neighbours, so a NaN in `ax.plot` is not a gap.
 
 | argument | gleplot |
 |---|---|
-| `colors` | a colour or a sequence cycled over the segments. The default is `'C0'`. |
-| `linestyles` | `'solid'`, `'dashed'`, `'dotted'`, `'dashdot'` or their symbols, one or a sequence. A dash tuple warns and is drawn solid. Another name raises `ValueError`. |
-| `linewidths` / `linewidth` / `lw` | points, one or a sequence. |
-| `label` | one legend entry, on the first dataset. |
-| `zorder` | as on `plot`. |
+| a dash tuple in `linestyles` | warns and is drawn solid. |
 | `alpha` and other `LineCollection` keywords | warn and are ignored. |
-| a NaN end | that segment is not drawn. |
 | return value | the axes. There is no `LineCollection`. |
 | `open_gle` | the segments come back as `plot` lines with NaN gap rows. |
 

@@ -29,8 +29,8 @@ ax.plot(x, y, label='data', color='blue', linestyle='-', linewidth=2)
 ```
 
 `ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` draw segments
-whose ends are data coordinates. Each distinct style is one line dataset,
-with a missing value (`*`) between segments so GLE does not join them:
+whose ends are data coordinates. How they are written is in the
+[migration guide](MATPLOTLIB_MIGRATION.md) ("Segments"):
 
 ```python
 ax.vlines(peaks, 0, heights, colors='k', label='peaks')

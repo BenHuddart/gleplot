@@ -885,6 +885,60 @@ class TestSegmentLines:
             self.ax.vlines(1, 0, 1, alpha=0.5)
         with pytest.warns(UserWarning, match=r"hlines\(data=\.\.\.\)"):
             self.ax.hlines(1, 0, 1, data={})
+        with pytest.raises(ValueError, match="must not be empty"):
+            self.ax.vlines(1, 0, 1, linestyles=[])
+        with pytest.raises(ValueError, match=r"linewidths must be .* 'thick'"):
+            self.ax.vlines(1, 0, 1, lw="thick")
+
+    def test_matplotlib_singular_aliases_are_honoured(self):
+        self.ax.vlines([1, 2], 0, 1, color="k", linestyle="--", linewidth=2)
+        self.ax.hlines(1, 0, 1, ls=":")
+        assert [(s["color"], s["linestyle"]) for s in self.ax.lines] == [
+            ("BLACK", "--"),
+            ("rgb255(31,119,180)", ":"),
+        ]
+        assert self.ax.lines[0]["linewidth"] == 2.0
+
+    def test_both_names_of_one_property_warn_and_the_plural_wins(self):
+        with pytest.warns(UserWarning) as record:
+            self.ax.vlines(
+                1,
+                0,
+                1,
+                colors="r",
+                color="b",
+                linestyles=":",
+                ls="--",
+                lw=3,
+                linewidths=1,
+            )
+        messages = " ".join(str(w.message) for w in record)
+        assert "colors wins" in messages
+        assert "linestyles wins" in messages
+        assert "linewidths wins" in messages
+        series = self.ax.lines[0]
+        assert (series["color"], series["linestyle"], series["linewidth"]) == (
+            "RED",
+            ":",
+            1.0,
+        )
+
+    def test_one_dash_tuple_is_one_style_and_none_draws_nothing(self):
+        with pytest.warns(UserWarning) as record:
+            self.ax.vlines(1, 0, 1, linestyles=(0, (5, 2)))
+        assert len(record) == 1
+        self.ax.vlines([2, 3, 4], 0, 1, linestyles=["-", "None"])
+        assert [list(s["x"][[0, -1]]) for s in self.ax.lines] == [[1, 1], [2, 4]]
+        assert len(self.ax.lines[1]["x"]) == 5
+
+    def test_a_gaps_line_gets_no_preview_deresolve(self):
+        self.ax.vlines(np.arange(600.0), 0, 1)
+        self.ax.plot(np.arange(1200.0), np.ones(1200))
+        writer_text = self.fig._generate_gle_with_files(preview_decimation=3)[0]
+        assert "d1 line" in writer_text and "deresolve" not in (
+            writer_text.split("d1 line")[1].splitlines()[0]
+        )
+        assert "deresolve 3" in writer_text.split("d2 line")[1].splitlines()[0]
 
     def test_nothing_finite_adds_nothing(self):
         assert self.ax.vlines([], 0, 1) is self.ax

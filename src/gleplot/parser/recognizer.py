@@ -6734,7 +6734,7 @@ class _Recognizer:
         else:
             if attrs["line_mode"]:
                 entry["line_mode"] = attrs["line_mode"]
-            if self._has_star_missing(data_file, [xcol, ycol]):
+            if self._has_gle_missing(data_file, [xcol, ycol]):
                 entry["gaps"] = True
             # A marked line is an axvline/axhline that materialized into this
             # dataset (G18-lite): it becomes the declaration it came from,
@@ -8424,17 +8424,18 @@ class _Recognizer:
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
 
-    def _has_star_missing(self, data_file, cols_1based) -> bool:
-        """Whether a column of an imported sidecar holds a literal ``*``.
+    def _has_gle_missing(self, data_file, cols_1based) -> bool:
+        """Whether a column of an imported sidecar holds a GLE missing value.
 
         The writer writes a ``gaps`` line's NaN rows as ``*`` and any other
-        NaN as ``nan``; both load as NaN, so the token is what tells them
-        apart (:attr:`gleplot.dataio.DataTable.star_missing`).
+        NaN as ``nan``; both load as NaN, but only the first breaks the line,
+        so the token is what tells them apart
+        (:attr:`gleplot.dataio.DataTable.gle_missing`).
         """
         resolved = self._resolve_table(data_file)
         if resolved.table is None:
             return False
-        flags = resolved.table.star_missing
+        flags = resolved.table.gle_missing
         return any(0 < col <= len(flags) and flags[col - 1] for col in cols_1based)
 
     def _recovered_column_names(self, data_file, cols_1based) -> Optional[List[str]]:

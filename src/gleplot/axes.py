@@ -1472,21 +1472,36 @@ _NAMED_LINESTYLES = {"solid": "-", "dashed": "--", "dotted": ":", "dashdot": "-.
 
 
 def _segment_linestyle(name: str, style) -> str:
-    """One ``hlines`` / ``vlines`` line style as a ``plot`` linestyle."""
+    """One ``hlines`` / ``vlines`` line style as a ``plot`` linestyle.
+
+    ``'none'`` (matplotlib's no-line styles) means the segment is not drawn.
+    """
     if isinstance(style, str):
         key = style.strip().lower()
         key = _NAMED_LINESTYLES.get(key, key)
         if key in ("-", "--", ":", "-."):
             return key
+        if key in ("none", ""):
+            return "none"
         raise ValueError(
             f"{name}() linestyles must be 'solid', 'dashed', 'dotted', "
-            f"'dashdot', '-', '--', ':' or '-.', got {style!r}"
+            f"'dashdot', '-', '--', ':', '-.' or 'none', got {style!r}"
         )
     warn_external(
         f"{name}() linestyle {style!r} is a dash pattern GLE cannot draw; "
         "the segment is solid."
     )
     return "-"
+
+
+def _is_dash_pattern(value) -> bool:
+    """matplotlib's ``(offset, on_off_sequence)`` line style."""
+    return (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and isinstance(value[0], Real)
+        and (value[1] is None or isinstance(value[1], (tuple, list)))
+    )
 
 
 def _color_list(name: str, colors, default: list) -> list:
@@ -5145,10 +5160,13 @@ class Axes:
         ymin, ymax : float or array-like
             Their ends. A scalar applies to every segment.
         colors : color or sequence of colors, optional
-            Cycled over the segments. Default: matplotlib's ``'C0'``.
+            Cycled over the segments. Default: matplotlib's ``'C0'``. Alias
+            ``color``.
         linestyles : str or sequence of str
-            ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'`` or
-            ``'-'``, ``'--'``, ``':'``, ``'-.'``, cycled over the segments.
+            ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``, their
+            symbols ``'-'``, ``'--'``, ``':'``, ``'-.'``, or ``'none'`` (the
+            segment is not drawn), cycled over the segments. Alias
+            ``linestyle`` / ``ls``.
         label : str
             Legend label for the whole set. Empty means no legend entry.
         **kwargs
@@ -5189,12 +5207,28 @@ class Axes:
                 f"{name}(data=...) is not supported and was ignored. "
                 "Pass the arrays directly."
             )
-        widths: Any = None
-        for key in ("linewidths", "linewidth", "lw"):
+        # matplotlib's LineCollection aliases. The plural name wins, as the
+        # first of fill_between's color/facecolor pair does there.
+        if "color" in kwargs:
+            alias = kwargs.pop("color")
+            if colors is None:
+                colors = alias
+            else:
+                warn_external(f"{name}() got both colors and color; colors wins.")
+        for key in ("linestyle", "ls"):
             if key in kwargs:
-                value = kwargs.pop(key)
-                if widths is None:
-                    widths = value
+                alias = kwargs.pop(key)
+                if linestyles == "solid":
+                    linestyles = alias
+                else:
+                    warn_external(
+                        f"{name}() got both linestyles and {key}; linestyles wins."
+                    )
+        given = [k for k in ("linewidths", "linewidth", "lw") if k in kwargs]
+        widths: Any = kwargs.pop(given[0]) if given else None
+        for key in given[1:]:
+            kwargs.pop(key)
+            warn_external(f"{name}() got both {given[0]} and {key}; {given[0]} wins.")
         zorder = kwargs.pop("zorder", None)
         if kwargs:
             names = ", ".join(sorted(kwargs))
@@ -5215,17 +5249,24 @@ class Axes:
                 )
             ends.append(arr)
 
+        one_style = isinstance(linestyles, str) or _is_dash_pattern(linestyles)
         styles = [
             _segment_linestyle(name, s)
-            for s in ([linestyles] if isinstance(linestyles, str) else linestyles)
+            for s in ([linestyles] if one_style else linestyles)
         ]
         palette = [rgb_to_gle(c) for c in _color_list(name, colors, ["C0"])]
-        if widths is None:
-            width_list = [None]
-        elif np.ndim(widths) == 0:
-            width_list = [float(widths)]
-        else:
-            width_list = [float(w) for w in widths]
+        try:
+            if widths is None:
+                width_list: List[Optional[float]] = [None]
+            elif np.ndim(widths) == 0:
+                width_list = [float(widths)]
+            else:
+                width_list = [float(w) for w in widths]
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"{name}() linewidths must be a number of points or one per "
+                f"segment, got {widths!r}"
+            ) from None
         if not styles or not width_list:
             raise ValueError(
                 f"{name}() linestyles and linewidths must not be empty, got "
@@ -5246,6 +5287,8 @@ class Axes:
                 styles[i % len(styles)],
                 width_list[i % len(width_list)],
             )
+            if key[1] == "none":
+                continue
             groups.setdefault(key, []).append(i)
 
         text = label if label else None
