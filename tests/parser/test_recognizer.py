@@ -664,16 +664,62 @@ def test_a_single_text_column_defines_no_dataset(tmp_path):
     assert '   data "w.dat"' in ax.passthrough
 
 
-def test_an_unmodelled_data_option_is_reported(tmp_path):
-    """#169: ``delimiters`` is not modelled; the note says it is dropped."""
+@pytest.mark.parametrize(
+    "data, readers",
+    [
+        ('data "s.dat" d1=c1,c2 delimiters ";"', ["d1 line"]),
+        # #322: with 'ignore' a bar became a reference without the delimiters.
+        ('data "s.dat" ignore 1 delimiters ";" d1=c1,c2', ["bar d1 fill red"]),
+        ('data "s.dat" ignore n d1=c1,c2', ["d1 line color red"]),
+        ('data "s.dat" numrows 2*1 d1=c1,c2', ["d1 marker circle"]),
+        (
+            'data "s.dat" delimiters ";" d1=c1,c2',
+            ["let d2 = fit d1", "d2 line", "let d3 = d1+1", "d3 line"],
+        ),
+        ('data "s.dat" delimiters ";"', ["fill d1,x1 color gray"]),
+    ],
+)
+def test_a_data_statement_with_unmodelled_options_stays_raw(tmp_path, data, readers):
+    """#322: the statement and every line reading its datasets are kept."""
+    body = "".join(f"   {line}\n" for line in [data, *readers])
+    src = f"begin graph\n{body}" '   data "f.dat" d9=c1,c2\n   d9 line\nend graph\n'
+    files = {"s.dat": "x;y\n1;2\n2;3\n", "f.dat": "1 2\n2 3\n"}
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, files))
+    ax = rec.figure.axes_list[0]
+    assert ax.passthrough == [f"   {line}" for line in [data, *readers]]
+    assert len(ax.file_series) == 1 and ax.file_series[0]["data_file"] == "f.dat"
+    (note,) = [w for w in rec.warnings if w.startswith("data:")]
+    assert "every line that reads its datasets were kept as raw GLE" in note
+    text, _ = rec.figure._generate_gle_with_files()
+    assert body in text
+
+
+def test_a_let_reading_a_raw_data_statement_keeps_its_target_raw(tmp_path):
+    """#322: ``d2 line`` draws the raw ``let``, not the earlier ``data``."""
     src = (
-        'begin graph\n   data "s.dat" d1=c1,c2 delimiters ";"\n   d1 line\nend graph\n'
+        'begin graph\n   data "f.dat" d2=c1,c2\n'
+        '   data "s.dat" delimiters ";" d1=c1,c2\n'
+        "   let d2 = d1+1\n   d2 line color red\nend graph\n"
     )
-    p = _write(tmp_path, "s.gle", src, {"s.dat": "1;2\n2;3\n"})
-    rec = parse_gle_figure(p)
-    assert any(
-        w.startswith("data:") and "'delimiters \";\"'" in w for w in rec.warnings
+    files = {"s.dat": "1;2\n2;3\n", "f.dat": "1 2\n2 3\n"}
+    ax = parse_gle_figure(_write(tmp_path, "s.gle", src, files)).figure.axes_list[0]
+    assert ax.file_series == [] and ax.lines == []
+    assert ax.passthrough[-2:] == ["   let d2 = d1+1", "   d2 line color red"]
+
+
+def test_a_raw_data_statement_redefining_a_dataset_is_reported(tmp_path):
+    src = (
+        'begin graph\n   data "f.dat" d1=c1,c2\n   d1 line\n'
+        '   data "s.dat" delimiters ";" d1=c1,c2\nend graph\n'
     )
+    files = {"s.dat": "1;2\n2;3\n", "f.dat": "1 2\n2 3\n"}
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, files))
+    assert any("dataset d1 redefined" in w for w in rec.warnings)
+    assert rec.figure.axes_list[0].passthrough == [
+        '   data "f.dat" d1=c1,c2',
+        '   data "s.dat" delimiters ";" d1=c1,c2',
+        "   d1 line",
+    ]
 
 
 def test_broken_bar_becomes_file_series_with_error(tmp_path):
