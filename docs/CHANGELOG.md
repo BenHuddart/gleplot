@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v5.2.0 (2026-11-19)
+
+### Features
+
+- Per-point scatter colours with c=, cmap=, vmin= and vmax=
+  ([#89](https://github.com/BenHuddart/gleplot/pull/89),
+  [`675dbdf`](https://github.com/BenHuddart/gleplot/commit/675dbdfc43109b5b149610598dd43683da3956a0))
+
+- Review fixes for per-point scatter colours ([#89](https://github.com/BenHuddart/gleplot/pull/89),
+  [`fe42ab0`](https://github.com/BenHuddart/gleplot/commit/fe42ab09a9904f9f26ecafe28ec504db3aa69a8b))
+
+
 ## v5.1.0 (2026-11-19)
 
 ### Features
