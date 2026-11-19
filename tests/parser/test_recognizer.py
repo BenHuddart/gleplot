@@ -1310,7 +1310,7 @@ def test_line_mode_round_trip_and_implied_line(tmp_path):
     assert "d2 fsteps " not in text
 
 
-def test_line_mode_on_an_errorbar_warns_and_is_dropped(tmp_path):
+def test_line_mode_on_a_file_errorbar_keeps_it_raw(tmp_path):
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -1328,9 +1328,9 @@ def test_line_mode_on_an_errorbar_warns_and_is_dropped(tmp_path):
     )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
-    assert ax.lines == []
-    assert "line_mode" not in ax.file_series[0]
-    assert any("line mode 'steps'" in w for w in rec.warnings)
+    assert ax.lines == [] and ax.file_series == []
+    assert "   d1 line steps err d2 color BLUE" in ax.passthrough
+    assert any(w.startswith("data: line, err d2 from another") for w in rec.warnings)
 
 
 def test_dataset_qualifiers_are_recovered_and_round_trip(tmp_path):
@@ -1918,17 +1918,11 @@ def test_dataset_qualifiers_on_an_errorbar_keep_the_data_range(tmp_path):
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
         "begin graph\n"
-        '   data "pts.dat" d1=c1,c2\n'
-        '   data "err.dat" d2=c1,c2\n'
+        '   data "pts.dat" d1=c1,c2 d2=c1,c3\n'
         "   d1 marker circle err d2 color BLUE deresolve 2 xmin 0.5\n"
         "end graph\n"
     )
-    p = _write(
-        tmp_path,
-        "errqual.gle",
-        src,
-        {"pts.dat": "0 1\n1 2\n", "err.dat": "0 0.1\n1 0.2\n"},
-    )
+    p = _write(tmp_path, "errqual.gle", src, {"pts.dat": "0 1 0.1\n1 2 0.2\n"})
     rec = parse_gle_figure(p)
     # No metadata block: the reference is kept, with its qualifiers.
     assert rec.figure.axes_list[0].file_series[0]["deresolve"] == 2

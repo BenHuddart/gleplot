@@ -6953,6 +6953,10 @@ class _Recognizer:
         is_import = self._is_import(data_file)
 
         if is_errorbar:
+            if not is_import and self._keep_file_errorbar_raw(
+                d_name, datasets, attrs, info, toks, line_no, raw_stmts
+            ):
+                return
             self._observe_unmodelled_smoothing("error-bar", attrs, line_no)
             self._build_errorbar(
                 info,
@@ -7504,6 +7508,50 @@ class _Recognizer:
             span,
         )
 
+    def _keep_file_errorbar_raw(
+        self, d_name, datasets, attrs, info, toks, line_no, raw_stmts
+    ) -> bool:
+        """Keep an error-bar line on a user's file raw if a reference loses part.
+
+        :meth:`gleplot.axes.Axes.errorbar_from_file` draws markers and one
+        symmetric vertical error read from the same file; a connecting line,
+        its ``lwidth``, ``nomiss``, horizontal or one-sided errors, or an
+        error from another file have no field there. True when the line sets
+        one, after keeping it and its datasets as written with a note.
+        """
+        data_file = datasets[d_name][0]
+        err_ref = attrs["err_refs"].get("err")
+        other_file = (
+            err_ref is not None
+            and datasets.get(err_ref.lower(), (None,))[0] != data_file
+        )
+        unwritable = [
+            word
+            for word, present in (
+                ("line", attrs["has_line"]),
+                ("lwidth", attrs["lwidth"] is not None),
+                ("nomiss", attrs["nomiss"]),
+                ("herrwidth", attrs["herrwidth"] is not None),
+                (f"err {err_ref} from another file", other_file),
+            )
+            if present
+        ]
+        unwritable += [kind for kind in attrs["err_refs"] if kind != "err"]
+        if not unwritable:
+            return False
+        self._passthrough_original_dn(info, toks, raw_stmts)
+        info["_raw_datasets"].add(d_name)
+        info["_raw_datasets"].update(ref.lower() for ref in attrs["err_refs"].values())
+        self._note(
+            ImportCategory.DATA,
+            f"{', '.join(unwritable)} on an error-bar dataset read from "
+            f"'{data_file}' is not modelled; its 'dN ... err' line was kept as "
+            "raw GLE and still draws, but is not editable. To edit it, load "
+            "the columns and plot them with Axes.errorbar(x, y, yerr=...)",
+            (line_no, line_no) if line_no is not None else None,
+        )
+        return True
+
     def _build_errorbar(
         self,
         info,
@@ -7594,7 +7642,6 @@ class _Recognizer:
         if not is_import:
             # File-series errorbar reference.
             yerr_col = yerr_up_col if yerr_up_col is not None else None
-            self._note_dropped_line_mode(attrs, span)
             info["file_series"].append(
                 FileSeries(
                     series_type="errorbar",

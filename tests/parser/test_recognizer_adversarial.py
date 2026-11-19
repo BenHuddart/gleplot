@@ -909,6 +909,63 @@ def test_constant_error_on_own_file_reference_restores_data_line(tmp_path):
     assert ax.passthrough[0] == '   data "hand.dat"'
 
 
+@pytest.mark.parametrize(
+    "display, unwritable",
+    [
+        ("d2 line marker fcircle err d3", "line"),
+        ("d2 marker fcircle lwidth 0.05 err d3", "lwidth"),
+        ("d2 marker fcircle herr d3", "herr"),
+        ("d2 marker fcircle errup d3", "errup"),
+    ],
+)
+def test_file_errorbar_a_reference_cannot_write_stays_raw(
+    tmp_path, display, unwritable
+):
+    """#188: what errorbar_from_file cannot write keeps the line as written."""
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "hand.dat"\n'
+        "   d1 line color red\n"
+        f"   {display}\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "eb.gle", src, {"hand.dat": "0 1 2 1\n1 2 3 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.file_series) == 1
+    assert ax.passthrough == ["    data hand.dat d2=c1,c3 d3=c1,c4", f"   {display}"]
+    (note,) = [w for w in rec.warnings if "error-bar dataset" in w]
+    assert note.startswith(f"data: {unwritable} on")
+    out1 = tmp_path / "out1.gle"
+    rec.figure.savefig_gle(str(out1))
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == out1.read_text(encoding="utf-8")
+
+
+def test_file_errorbar_with_its_error_in_another_file_stays_raw(tmp_path):
+    """#188: errorbar_from_file reads the error from the points' own file."""
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "pts.dat" d1=c1,c2\n'
+        '   data "err.dat" d2=c1,c2\n'
+        "   d1 marker fcircle err d2\n"
+        "end graph\n"
+    )
+    files = {"pts.dat": "0 1\n1 2\n", "err.dat": "0 0.1\n1 0.2\n"}
+    rec = parse_gle_figure(_write(tmp_path, "eb.gle", src, files))
+    ax = rec.figure.axes_list[0]
+    assert ax.file_series == []
+    assert "   d1 marker fcircle err d2" in ax.passthrough
+    text, _ = rec.figure._generate_gle_with_files()
+    assert '   data "pts.dat" d1=c1,c2' in text and '   data "err.dat" d2=c1,c2' in text
+    assert any(w.startswith("data: err d2 from another file") for w in rec.warnings)
+
+
 def test_raw_mdata_on_shared_file_reference_keeps_datasets_defined(tmp_path):
     """#133: a raw ``mdata`` scatter keeps itself and its sizes defined."""
     src = (
