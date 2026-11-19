@@ -7241,7 +7241,8 @@ class Axes:
         pixels : int or (px, py), optional
             Bitmap resolution. Default from graph config ``colormap_pixels``.
         invert : bool
-            Invert the colour mapping.
+            Invert the colour mapping. A colorbar for this image draws the
+            reversed palette to match.
         label : str, optional
             Series label (not drawn by the colormap itself; kept so an
             application can list the series by name).
@@ -7342,7 +7343,8 @@ class Axes:
         pixels : int or (px, py), optional
             Bitmap resolution, as for :meth:`imshow`.
         invert : bool
-            Invert the colour mapping.
+            Invert the colour mapping. A colorbar for this image draws the
+            reversed palette to match.
         label : str, optional
             Series label (not drawn by the colormap itself).
 

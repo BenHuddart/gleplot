@@ -312,7 +312,7 @@ from ..guides import (
     REFLINE_LAYER,
     SPAN_LAYER,
 )
-from ..palettes import canonical_cmap, palette_call_name
+from ..palettes import canonical_cmap, colorbar_cmap, palette_call_name
 from ..series import (
     _DATASET_NAME_RE,
     SERIES_CLASSES,
@@ -8930,7 +8930,11 @@ class _Recognizer:
             if "cdata" in sc and palette_call_name(sc["cmap"]) == palette
         ]
         if heatmaps and (
-            not mapped or palette_call_name(heatmaps[0]["cmap"]) == palette
+            not mapped
+            or palette_call_name(
+                colorbar_cmap(heatmaps[0]["cmap"], heatmaps[0].get("invert", False))
+            )
+            == palette
         ):
             holders = heatmaps[:1]
         else:
