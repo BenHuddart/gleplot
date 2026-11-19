@@ -86,8 +86,8 @@ from .sources import (
     resolve_reference,
 )
 
-#: A quoted string in a GLE line.
-_QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
+#: The parts of a GLE line that are not code: quoted strings and a comment.
+_NOT_CODE_RE = re.compile(r"(\"[^\"]*\"|'[^']*'|!.*)")
 
 #: The linestyles a guide draws no line for.
 _NO_LINE = ("none", "None", "", " ", None)
@@ -403,6 +403,37 @@ def image_sub_name(path: str) -> Optional[str]:
     ``None`` for a file type GLE cannot place.
     """
     return _IMAGE_SUB_BY_SUFFIX.get(Path(path).suffix.lower())
+
+
+#: The gleinc file whose ``color_range_vertical``/``_horizontal`` draw a
+#: colorbar (:meth:`GLEWriter.add_colorbar`).
+COLOR_INCLUDE = "color.gle"
+
+#: What a colorbar's tick step is written scaled by, so that ``color.gle``'s
+#: floating-point stepping does not pass ``zmax`` before its last tick.
+COLORBAR_STEP_SCALE = "0.999999999"
+
+#: The gap (cm) between a colorbar's tick numbers and its label.
+COLORBAR_LABEL_PAD = 0.2
+
+
+def colorbar_format(zmin: float, zstep: float) -> str:
+    """The default ``fix N`` format of a colorbar's tick labels.
+
+    N is the fewest decimals, up to 3 (or one past the step's first
+    significant digit, if that is more), in which the first value and the
+    step are both exact: a step of 0.15 gets ``fix 2`` and a step of 2 gets
+    ``fix 0``. With none, N is one past the step's first significant digit
+    (a step of 0.19168 from 0.0202184 gets ``fix 2``).
+    """
+    step = abs(float(zstep))
+    cap = max(0, math.ceil(-math.log10(step)) + 1) if step > 0 else 1
+    for decimals in range(max(cap, 3) + 1):
+        if all(
+            abs(round(v, decimals) - v) <= 1e-6 * (step or 1.0) for v in (zmin, zstep)
+        ):
+            return f"fix {decimals}"
+    return f"fix {cap}"
 
 
 #: The frame edges a rug can stand on, per axis; the first is the default.
@@ -861,7 +892,7 @@ class SourceResolution:
 
 #: Marker key on a colorbar dict meaning "this range is computed per write".
 #: Absent (the historical shape, and what the recognizer rebuilds from an
-#: emitted ``gleplot_colorbar_v`` call) means the stored numbers are explicit
+#: emitted ``color_range_vertical`` call) means the stored numbers are explicit
 #: and are emitted untouched.
 COLORBAR_AUTO_RANGE = "auto_range"
 
@@ -1519,6 +1550,10 @@ class GLEWriter:
         # (reserve_datasets); _new_dataset skips them. GLE clears its datasets
         # at 'begin graph', so end_graph clears these.
         self._reserved_datasets: Set[int] = set()
+        # In the current graph block, the ``_gle_name`` of each written
+        # series that carries one -> the name it was written under, for the
+        # raw lines that read it (see _bind_raw_reads).
+        self._raw_reads: Dict[str, str] = {}
         # id of each series written as one dataset -> the raw (unshifted) name
         # it was given, for the ``let`` of a DerivedSeries that reads it.
         self._dataset_names: Dict[int, str] = {}
@@ -1867,9 +1902,10 @@ class GLEWriter:
         changes the REAL GLE state but not this Python-side bookkeeping.
         """
         if passthrough:
-            self.lines_gle.extend(passthrough)
+            self.lines_gle.extend(self._bind_raw_reads(passthrough))
         self.lines_gle.append("end graph")
         self._reserved_datasets = set()
+        self._raw_reads = {}
         # Guides GLE has to range for itself: drawn now, while xgmin and
         # xg() address the graph just closed (gleplot.guides).
         self.lines_gle.extend(self._pending_guide_lines)
@@ -3222,8 +3258,8 @@ class GLEWriter:
         -----
         Only the names raw GLE defines are reserved: those a ``data``
         statement names and the target of a ``let``. A raw line that only
-        reads a dataset (a fit, a fill, a restyle) is left reading the name
-        the written series would have had anyway.
+        reads a written series' dataset (a fit, a fill, a restyle) is
+        renamed to follow it instead (:meth:`_bind_raw_reads`).
 
         A ``data`` statement that names no datasets fills the lowest
         undefined ones (``freedataset`` in GLE's graph.cpp), and the raw
@@ -3231,27 +3267,80 @@ class GLEWriter:
         one, every name up to the highest a raw line uses is reserved,
         leaving those slots free for it.
         """
-        defined: Set[int] = set()
-        used = 0
-        bare_data = False
-        for line in raw_lines:
-            # Names inside a string or a comment are not datasets.
-            code = _QUOTED_RE.sub("", line).split("!", 1)[0]
-            words = code.split(None, 1)
-            if not words:
-                continue
-            names = [int(m[1:]) for m in _DATASET_NAME_RE.findall(code)]
-            used = max([used, *names])
-            keyword = words[0].lower()
-            if keyword == "data":
-                defined.update(names)
-                bare_data = bare_data or not names
-            elif keyword == "let":
-                target = _DATASET_NAME_RE.findall(code.split("=", 1)[0])
-                defined.update(int(m[1:]) for m in target)
+        defined, read, bare_data = self.raw_dataset_use(raw_lines)
+        numbers = {int(name[1:]) for name in defined}
         if bare_data:
-            defined.update(range(1, used + 1))
-        self._reserved_datasets = defined
+            used = max((int(name[1:]) for name in defined | read), default=0)
+            numbers.update(range(1, used + 1))
+        self._reserved_datasets = numbers
+
+    @staticmethod
+    def raw_dataset_use(raw_lines: Sequence[str]) -> Tuple[Set[str], Set[str], bool]:
+        """The ``dN`` names *raw_lines* define and read, lowercased, and
+        whether one of them is a ``data`` statement that names no datasets.
+
+        A ``data`` statement defines the names it gives and a ``let`` its
+        target; every other name a line mentions is read. Names inside a
+        string or a comment are not datasets.
+        """
+        defined: Set[str] = set()
+        read: Set[str] = set()
+        bare_data = False
+
+        def names(code: str) -> Set[str]:
+            return {m.lower() for m in _DATASET_NAME_RE.findall(code)}
+
+        for line in raw_lines:
+            code = _NOT_CODE_RE.sub("", line)
+            words = code.split(None, 1)
+            keyword = words[0].lower() if words else ""
+            if keyword == "data":
+                defined |= names(code)
+                bare_data = bare_data or not names(code)
+                continue
+            if keyword == "let":
+                target, _equals, code = code.partition("=")
+                defined |= names(target)
+            read |= names(code)
+        return defined, read, bare_data
+
+    def _name_dataset(self, series: Series, name: str) -> None:
+        """Record that *series* was written as dataset *name*."""
+        self._dataset_names[id(series)] = name
+        if "_gle_name" in series:
+            self._raw_reads[series["_gle_name"].lower()] = name
+
+    def _bind_raw_reads(self, raw_lines: Sequence[str]) -> List[str]:
+        """*raw_lines* reading each written series under the name it was given.
+
+        A series loaded from a file carries ``_gle_name``, its dataset name
+        there, when a raw line kept in its block reads it (a ``fill``, a
+        ``bar``, a fit ``let``). The writer numbers datasets afresh, so each
+        such reference is renamed to the name the series was written under.
+
+        Notes
+        -----
+        ``open_gle`` never sets ``_gle_name`` to a name a raw ``data`` or
+        ``let`` in the block defines, and no series is written under one
+        (:meth:`reserve_datasets`), so a raw dataset keeps its name. Names
+        inside a string or a comment are not datasets.
+        """
+        names = {old: new for old, new in self._raw_reads.items() if old != new}
+        if not names:
+            return list(raw_lines)
+
+        def rename(code: str) -> str:
+            return _DATASET_NAME_RE.sub(
+                lambda m: names.get(m.group(0).lower(), m.group(0)), code
+            )
+
+        bound = []
+        for line in raw_lines:
+            parts = _NOT_CODE_RE.split(line)
+            bound.append(
+                "".join(part if i % 2 else rename(part) for i, part in enumerate(parts))
+            )
+        return bound
 
     def _new_dataset(self) -> str:
         """Name a fresh dataset: the next ``dN`` that raw GLE does not use."""
@@ -3375,8 +3464,8 @@ class GLEWriter:
             # GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks
             # the line there. A table column another series may read keeps
             # its values, so this series gets its own copy.
-            x_gaps = np.isnan(np.asarray(x_rows, dtype=float))
-            y_gaps = np.isnan(np.asarray(y_rows, dtype=float))
+            x_gaps = ~np.isfinite(np.asarray(x_rows, dtype=float))
+            y_gaps = ~np.isfinite(np.asarray(y_rows, dtype=float))
             x_rows = self._as_missing(x_rows, x_gaps)
             y_rows = self._as_missing(y_rows, y_gaps)
             if binding is not None:
@@ -3394,7 +3483,7 @@ class GLEWriter:
 
         # Generate plot command with unique dataset name
         d_name = self._new_dataset()
-        self._dataset_names[id(series)] = d_name
+        self._name_dataset(series, d_name)
 
         cmd = (
             f"    data {_format_data_filename(file_name)} "
@@ -3527,7 +3616,7 @@ class GLEWriter:
             if name in series:
                 line[name] = series[name]
         self.add_line(line, binding=binding)
-        self._dataset_names[id(series)] = self._dataset_names.pop(id(line))
+        self._name_dataset(series, self._dataset_names.pop(id(line)))
 
     def _add_sized_scatter(self, series: Series, binding: Optional[ColumnBinding]):
         """A scatter whose points each have their own size (GLE ``mdata``).
@@ -3619,6 +3708,7 @@ class GLEWriter:
         )
         file_name = binding.data_file if binding is not None else series["data_file"]
         d_name = self._new_dataset()
+        self._name_dataset(series, d_name)
         d_extra = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(file_name)} "
@@ -4073,7 +4163,7 @@ class GLEWriter:
     ) -> None:
         """``let dK = <definition> [from a] [to b] [step h] [options]`` and its line."""
         target = self._new_dataset()
-        self._dataset_names[id(series)] = target
+        self._name_dataset(series, target)
         parts = [f"let {target} = {definition}"]
         for key, word in (("let_from", "from"), ("let_to", "to"), ("let_step", "step")):
             if key in series:
@@ -4871,7 +4961,7 @@ class GLEWriter:
         nomiss = series.get("nomiss", False)
         line_mode = series.get("line_mode")
         d_main = self._new_dataset()
-        self._dataset_names[id(series)] = d_main
+        self._name_dataset(series, d_main)
 
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"
@@ -6078,21 +6168,37 @@ class GLEWriter:
         )
 
     def add_colorbar(self, series: Series):
-        """Emit the colorbar sub call after a series' graph, if it has one.
+        """Draw a series' colorbar after its graph, if it has one.
 
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`, or
         a colour-mapped :class:`~gleplot.series.ScatterSeries`; its ``cmap``
         names the palette (a ``contourf``'s is its band sub, see
         :meth:`add_contourf_sub`) and its ``colorbar`` dict (see
-        :meth:`gleplot.Figure.colorbar`) holds the call's range, size, format
-        and label. A series without one writes nothing.
+        :meth:`gleplot.Figure.colorbar`) holds the range, size and format.
+        A series without one writes nothing.
 
-        A vertical bar starts at ``xg(xgmax)+sep yg(ygmin)`` and spans the
-        graph's height; a horizontal one hangs from ``xg(xgmin) yg(ygmin)-sep``
-        and spans its width. Both subs take ``wd``/``hi`` as the bar's x/y
-        extent, so the graph-sized one is an expression. Named-argument call
-        style (``zmin V zmax V ...``); note GLE matches named args by the
-        parameter name WITHOUT the ``$`` suffix.
+        The bar is ``color_range_vertical`` or ``color_range_horizontal``
+        from GLE's ``color.gle``, in ``gsave``/``grestore`` because the
+        routine leaves its justification set. A vertical bar starts at
+        ``xg(xgmax)+sep yg(ygmin)`` and spans the graph's height; a
+        horizontal one hangs from ``xg(xgmin) yg(ygmin)-sep`` and spans its
+        width. Named-argument call style (``zmin V zmax V ...``); GLE matches
+        named args by the parameter name without the ``$`` suffix.
+
+        Notes
+        -----
+        The routine draws a tick at ``zmin``, ``zmin+zstep``, ... while the
+        value is at most ``zmax``, adding the step in floating point, which
+        can step past ``zmax`` and drop the last tick. A step that divides
+        the range is therefore written as ``(zmax-(zmin))/n``, from the same
+        printed numbers GLE reads as ``zmin`` and ``zmax``, and every step is
+        scaled by :data:`COLORBAR_STEP_SCALE`, which keeps the last tick (the
+        shift is far below a printed digit). A collapsed range is widened to
+        one unit, as the routine divides by its span. 200 colour steps make
+        the bar a smooth scale.
+
+        The routine draws no label, so a ``label`` is written after it as
+        plain text (:meth:`colorbar_label_lines`).
         """
         cb = series.get("colorbar")
         if not cb:
@@ -6100,30 +6206,89 @@ class GLEWriter:
         fmt = self._format_number
         sep = float(cb["sep"])
         thickness = fmt(cb["width"])
+        zmin, zmax = float(cb["zmin"]), float(cb["zmax"])
+        if zmax == zmin:
+            zmax = zmin + 1
+        zstep = float(cb["zstep"]) or (zmax - zmin) / 5
+        number_format = cb.get("format") or colorbar_format(zmin, zstep)
+        lines = ["gsave"]
         if cb.get("orientation") == "horizontal":
             # ``yg(ygmin)--S`` would not parse back, so a negative gap flips
             # the operator instead.
             below = f"-{fmt(sep)}" if sep >= 0 else f"+{fmt(-sep)}"
-            self.lines_gle.append(f"amove xg(xgmin) yg(ygmin){below}")
-            sub = "gleplot_colorbar_h"
-            size = f"wd xg(xgmax)-xg(xgmin) hi {thickness}"
+            lines += [f"amove xg(xgmin) yg(ygmin){below}", f"rmove 0 -{thickness}"]
+            routine = "color_range_horizontal"
+            size = f"width xg(xgmax)-xg(xgmin) height {thickness}"
         else:
-            self.lines_gle.append(f"amove xg(xgmax)+{fmt(sep)} yg(ygmin)")
-            sub = "gleplot_colorbar_v"
-            size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
-        lbl = self._escape_gle_string(cb.get("label") or "")
+            lines.append(f"amove xg(xgmax)+{fmt(sep)} yg(ygmin)")
+            routine = "color_range_vertical"
+            size = f"width {thickness} height yg(ygmax)-yg(ygmin)"
         if "levels" in series:
             # A contourf's bar draws its bands through the band sub.
             palette = self._contourf_subs[series["data_file"]]
         else:
             cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
             palette = _pal.palette_call_name(cmap)
-        self.lines_gle.append(
-            f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
-            f"zstep {fmt(cb['zstep'])} "
+        lines.append(
+            f"{routine} zmin {fmt(zmin)} zmax {fmt(zmax)} "
+            f"zstep {self._colorbar_step(zmin, zmax, zstep)} "
             f'palette "{palette}" {size} '
-            f'format "{cb["format"]}" label "{lbl}"'
+            f'format "{number_format}" pixels 200'
         )
+        drawn = dict(cb, zmin=zmin, zmax=zmax, format=number_format)
+        lines += self.colorbar_label_lines(drawn)
+        lines.append("grestore")
+        self.lines_gle.extend(lines)
+        self._includes.add(COLOR_INCLUDE)
+
+    @classmethod
+    def colorbar_label_lines(cls, cb: dict) -> List[str]:
+        """The lines that write a colorbar's ``label`` beside its bar.
+
+        ``cb`` is the colorbar dict, with the ``zmin``, ``zmax`` and
+        ``format`` the bar is drawn with. No label writes nothing. A
+        vertical bar's label reads bottom to top, centred on the bar,
+        :data:`COLORBAR_LABEL_PAD` cm right of the widest of the first
+        and last tick numbers (measured by GLE's ``twidth``); a horizontal
+        bar's is centred under its tick numbers, as far below them.
+        ``color.gle`` puts the numbers two thirds of the bar's thickness
+        past its edge.
+        """
+        label = cb.get("label")
+        if not label:
+            return []
+        fmt = cls._format_number
+        # Built from the printed sep and width, so a re-read writes it again.
+        offset = f"{fmt(cb['sep'])}+{fmt(cb['width'])}*5/3+{COLORBAR_LABEL_PAD}"
+        text = f'write "{cls._escape_gle_string(label)}"'
+        if cb.get("orientation") == "horizontal":
+            return [
+                f"amove (xg(xgmin)+xg(xgmax))/2 " f'yg(ygmin)-({offset})-theight("0")',
+                "set just tc",
+                text,
+            ]
+        widest = ",".join(
+            f'twidth(format$({fmt(cb[z])},"{cb["format"]}"))' for z in ("zmin", "zmax")
+        )
+        return [
+            f"amove xg(xgmax)+({offset})+max({widest}) (yg(ygmin)+yg(ygmax))/2",
+            "set just tc",
+            "begin rotate 90",
+            text,
+            "end rotate",
+        ]
+
+    @classmethod
+    def _colorbar_step(cls, zmin: float, zmax: float, zstep: float) -> str:
+        """A colorbar's ``zstep`` argument (see :meth:`add_colorbar`)."""
+        fmt = cls._format_number
+        span = zmax - zmin
+        count = round(span / zstep) if zstep > 0 else 0
+        if count >= 1 and abs(count * zstep - span) <= 1e-6 * abs(span):
+            step = f"({fmt(zmax)}-({fmt(zmin)}))/{count}"
+        else:
+            step = fmt(zstep)
+        return f"{step}*{COLORBAR_STEP_SCALE}"
 
     def add_contour_data(self, series: Series):
         """Write a contour's sidecar, ``fitz`` if scattered, and contour block.

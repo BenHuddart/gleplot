@@ -264,6 +264,26 @@ def fill_between():
     return fig
 
 
+def raw_lines_reading_modelled_datasets():
+    """Raw lines in a second panel that read its modelled datasets.
+
+    ``_gle_name`` is what ``open_gle`` sets when a kept raw line reads a
+    series' dataset: here the names the panel's series are written under.
+    The ``let`` target and the comment are not reads.
+    """
+    fig, (top, bottom) = glp.subplots(2, 1, data_prefix="golden")
+    top.plot([1, 2, 3], [1, 2, 1])
+    bottom.plot([1, 2, 3], [0, 1, 0], color="red")
+    bottom.plot([1, 2, 3], [2, 3, 2], color="blue")
+    bottom.lines[0]["_gle_name"] = "d2"
+    bottom.lines[1]["_gle_name"] = "d3"
+    bottom.passthrough = [
+        "   fill d2,d3 color gray foo",
+        '   let d9 = d3*2 ! "d2"',
+    ]
+    return fig
+
+
 def text_annotations():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -610,6 +630,16 @@ def file_series_without_a_line():
     ax.line_from_file("external.dat", 1, 3, linestyle="none", linewidth=2)
     ax.file_series[-1].update(marker="CIRCLE", markersize=0.2)
     ax.derived("2*d1", ax.file_series[0], label="twice")
+    return fig
+
+
+def line_with_nan_gaps():
+    """A NaN breaks a plotted and a stepped line, written as GLE's ``*``."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    nan = float("nan")
+    ax.plot([0, 1, 2, 3, 4], [0, 1, nan, 3, 4], color="red", label="broken")
+    ax.step([0, 1, 2, 3], [1, nan, 2, 2], where="post")
     return fig
 
 
@@ -2055,6 +2085,7 @@ BUILDERS = [
     errorbar_field_options,
     errorbar_data_range,
     fill_between,
+    raw_lines_reading_modelled_datasets,
     text_annotations,
     axes_fraction_text,
     annotations_with_arrows,
@@ -2078,6 +2109,7 @@ BUILDERS = [
     file_series_data_range,
     errorbar_thinned_from_a_file,
     file_series_without_a_line,
+    line_with_nan_gaps,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,

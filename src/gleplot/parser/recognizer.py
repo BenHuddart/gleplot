@@ -346,6 +346,8 @@ from ..series import (
 from ..writer import (
     CDATA_SUB_PREFIX,
     CELLS_MARKER,
+    COLOR_INCLUDE,
+    COLORBAR_STEP_SCALE,
     CONTOURF_EXTENDS,
     CONTOURF_MARKER,
     IMAGE_LAYER,
@@ -755,6 +757,8 @@ _LEGACY_SUBS = frozenset(
         "gleplot_vspan",
         "gleplot_xrug",
         "gleplot_yrug",
+        "gleplot_colorbar_v",
+        "gleplot_colorbar_h",
     }
 )
 
@@ -1745,7 +1749,9 @@ class _Recognizer:
         # datasets (with the 'data' statement's text) awaiting their group.
         self._post_graph_rugs: Dict[str, dict] = {}
         self._ready_rugs: Dict[str, Tuple[Rug, str]] = {}
-        self._held_rugs_includes: List[str] = []
+        # The rugs.gle / color.gle include lines, as (file, text) in file
+        # order, held back until the rugs and colorbars are read.
+        self._held_includes: List[Tuple[str, str]] = []
         # The figure legend (Figure.legend) recovered after the last graph,
         # as Figure._legend without its spacing, or None. Set before the
         # axes are assembled: it decides what their 'key off' meant.
@@ -1911,9 +1917,19 @@ class _Recognizer:
 
         # --- data-file naming state for byte-identical re-save. ---
         self._finalize_data_state(fig)
-        if not any(ax.rugs for ax in fig.axes_list):
-            # The writer writes rugs.gle's include only for a rug.
-            fig.passthrough_header.extend(self._held_rugs_includes)
+        # The writer includes rugs.gle only for a rug, color.gle only for a
+        # colorbar; an include nothing read back will regenerate stays.
+        regenerated = {
+            RUGS_INCLUDE: any(ax.rugs for ax in fig.axes_list),
+            COLOR_INCLUDE: any(
+                s.get("colorbar")
+                for ax in fig.axes_list
+                for s in list(ax.heatmaps) + list(ax.scatters)
+            ),
+        }
+        fig.passthrough_header.extend(
+            text for name, text in self._held_includes if not regenerated[name]
+        )
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
 
@@ -1968,6 +1984,7 @@ class _Recognizer:
         # rug, which is only known once the graphs are read: hold the lines
         # back, and put them in the header again if no rug was read.
         names.add(RUGS_INCLUDE)
+        names.add(COLOR_INCLUDE)
         lines = set()
         for node in nodes:
             if not (
@@ -1979,8 +1996,8 @@ class _Recognizer:
             name = self._first_string(_words_and_values(node))
             if name in names:
                 lines.add(node.line_no)
-            if name == RUGS_INCLUDE:
-                self._held_rugs_includes.append(self._stmt_text(node))
+            if name in (RUGS_INCLUDE, COLOR_INCLUDE):
+                self._held_includes.append((name, self._stmt_text(node)))
         return lines
 
     def _read_metadata(self) -> Dict[str, Any]:
@@ -2812,6 +2829,7 @@ class _Recognizer:
         self._commit_derived_lets(info)
         self._flush_hist_lets(info)
         self._restore_orphaned_data_stmts(pass1, info)
+        self._bind_raw_readers(info)
         self._discard_guide_markers(info)
         self._reconcile_places_names(info)
         self._reconcile_axis_styling(info)
@@ -4627,9 +4645,6 @@ class _Recognizer:
             )
             return
         if kw is not None and _DATASET_RE.match(kw):
-            if not info["_derived_lets"]:
-                self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
-                return
             before = {attr: len(info[attr]) for attr in Axes._DERIVED_SOURCE_ATTRS}
             self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
             self._note_dataset_series(kw, before, info)
@@ -6007,7 +6022,9 @@ class _Recognizer:
 
         ``before`` holds the length of each list a derived let can read
         before the dataset was parsed. An offset series is noted under the
-        dataset it offsets, which is the one a derived let reads.
+        dataset it offsets, and a polar curve under the one it is computed
+        from: those are the names the writer gives the series, which a
+        derived let or a raw line that reads it is bound to.
         """
         grown = [attr for attr, size in before.items() if len(info[attr]) != size]
         if len(grown) != 1 or len(info[grown[0]]) != before[grown[0]] + 1:
@@ -6015,8 +6032,23 @@ class _Recognizer:
         entry = info[grown[0]][-1]
         if grown[0] == "file_series" and entry.get("series_type") != "line":
             return
-        raw = info["_offset_let_sources"].get(name.lower(), name.lower())
+        name = info["_polar_aliases"].get(name.lower(), name.lower())
+        raw = info["_offset_let_sources"].get(name, name)
         info["_dataset_series"][raw] = entry
+
+    @staticmethod
+    def _bind_raw_readers(info) -> None:
+        """Mark each series whose dataset a raw line in the block reads.
+
+        The series keeps its name here as ``_gle_name``, and the writer
+        renames the raw references to the name it writes the series under
+        (:meth:`gleplot.writer.GLEWriter._bind_raw_reads`). A name a raw
+        ``data`` or ``let`` defines is that raw dataset's, not the series'.
+        """
+        defined, read, _bare = GLEWriter.raw_dataset_use(info["passthrough"])
+        for name, entry in info["_dataset_series"].items():
+            if name in read - defined:
+                entry["_gle_name"] = name
 
     def _commit_derived_lets(self, info) -> None:
         """Turn the recorded derived lets into series, if every one can be.
@@ -8779,15 +8811,14 @@ class _Recognizer:
         base = cdata_file[: -len("-cdata.dat")]
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
-        dropped = list(attrs["qualifiers"])
-        if attrs["unread"]:
-            dropped.append(" ".join(attrs["unread"]))
+        dropped = self._contour_line_extras(attrs)
         if dropped:
             # ContourSeries has no such fields; say so rather than lose them.
             self._note(
                 ImportCategory.DATA,
-                f"{', '.join(dropped)} on a contour's dataset line "
-                "is not modelled and was dropped on re-save",
+                f"{', '.join(repr(word) for word in dropped)} on a contour's "
+                "dataset line: not modelled, so not written back on save. Add "
+                "it to the saved file by hand if you need it",
                 span,
             )
         color = attrs["color"] or "BLACK"
@@ -8864,6 +8895,43 @@ class _Recognizer:
                 data_file=zfile,
             )
         info["contours"].append(ct)
+
+    @staticmethod
+    def _contour_line_extras(attrs) -> List[str]:
+        """What a contour's dataset line sets that ``ContourSeries`` cannot hold.
+
+        ``attrs`` is the line's :meth:`_scan_series_attrs`. Only its
+        colour, ``lwidth`` and ``lstyle`` are modelled, and the writer
+        always draws the ``line``; everything else is named here as GLE
+        spells it, so the note can say it was dropped.
+        """
+        extras = [
+            word
+            for word, present in (
+                ("no line", not attrs["has_line"]),
+                ("marker", attrs["marker"] is not None),
+                ("msize", attrs["msize"] is not None),
+                ("mdata", attrs["mdata"] is not None),
+                ("key", attrs["label"] is not None),
+                (attrs["smooth_mode"], attrs["smooth_mode"] != "none"),
+                ("svg_smooth", attrs["svg_smooth"] is not None),
+                ("nomiss", attrs["nomiss"]),
+                (str(attrs["line_mode"]), attrs["line_mode"] is not None),
+                ("y2axis", attrs["y2axis"]),
+                ("x2axis", attrs["x2axis"]),
+                ("error bars", bool(attrs["err_refs"] or attrs["err_consts"])),
+                ("errwidth", attrs["errwidth"] is not None),
+                ("herrwidth", attrs["herrwidth"] is not None),
+            )
+            if present
+        ]
+        extras.extend(
+            "average" if name == "deresolve_average" else name
+            for name in attrs["qualifiers"]
+        )
+        if attrs["unread"]:
+            extras.append(" ".join(attrs["unread"]))
+        return extras
 
     def _read_z_grid(
         self, filename
@@ -9360,11 +9428,12 @@ class _Recognizer:
     # -- post-graph colorbar / contour-label calls ----------------------
 
     def _consume_post_graph_calls(self, nodes, start, axes_info) -> int:
-        """Consume ``gleplot_colorbar_v|h`` / ``gleplot_contour_labels`` calls.
+        """Consume the colorbar groups and ``gleplot_contour_labels`` calls.
 
-        Each call is preceded by its own ``amove`` (``xg(xgmax)+S yg(ygmin)`` for
-        a vertical colorbar, ``xg(xgmin) yg(ygmin)-S`` for a horizontal one,
-        ``0 0`` for the labels). Attaches the recovered colorbar
+        A colorbar is a ``gsave`` .. ``grestore`` group (:meth:`_colorbar_group`)
+        whose ``amove`` is ``xg(xgmax)+S yg(ygmin)`` for a vertical bar and
+        ``xg(xgmin) yg(ygmin)-S`` for a horizontal one; the labels' call is
+        preceded by ``amove 0 0``. Attaches the recovered colorbar
         to this axes' heatmap and sets ``clabel`` on the matching contour.
         Returns the index of the first node not consumed.
         """
@@ -9378,25 +9447,112 @@ class _Recognizer:
         return i
 
     def _try_one_post_call(self, nodes, i, axes_info) -> Optional[int]:
+        colorbar = self._colorbar_group(nodes, i)
+        if colorbar is not None:
+            end, toks, amove_sep, label = colorbar
+            self._apply_colorbar_call(toks, amove_sep, label, axes_info)
+            return end
         # optional leading amove, then the sub call.
-        amove_sep = None
         j = i
         st = self._as_statement(nodes[j]) if j < len(nodes) else None
         if st is not None and st.keyword == "amove":
-            amove_sep = self._amove_colorbar_sep(_words_and_values(st))
             j += 1
         st = self._as_statement(nodes[j]) if j < len(nodes) else None
         if st is None:
             return None
         kw = st.keyword
         toks = _words_and_values(st)
-        if kw in ("gleplot_colorbar_v", "gleplot_colorbar_h"):
-            self._apply_colorbar_call(toks, amove_sep, axes_info)
-            return j + 1
         if kw == "gleplot_contour_labels":
             self._apply_clabel_call(toks, axes_info)
             return j + 1
         return None
+
+    def _colorbar_group(
+        self, nodes, i
+    ) -> Optional[Tuple[int, List[Token], object, Optional[str]]]:
+        """The ``gsave`` .. ``grestore`` group drawing one colorbar, at ``i``.
+
+        ``gsave``, the ``amove`` to the bar (and, for a horizontal one, the
+        ``rmove`` down by its thickness), the ``color_range_vertical`` or
+        ``color_range_horizontal`` call, the label's lines if it has one,
+        ``grestore``: what :meth:`gleplot.writer.GLEWriter.add_colorbar`
+        writes. Returns ``(next_index, call tokens, sep, label)`` or ``None``.
+        """
+        stmts: List[Statement] = []
+        j = i
+        while j < len(nodes) and len(stmts) < 4:
+            st = self._as_statement(nodes[j])
+            if st is None:
+                break
+            stmts.append(st)
+            j += 1
+            if (st.keyword or "").lower().startswith("color_range_"):
+                break
+        words = [(st.keyword or "").lower() for st in stmts]
+        if len(words) < 3 or words[0] != "gsave":
+            return None
+        expected = {
+            "color_range_vertical": ["amove"],
+            "color_range_horizontal": ["amove", "rmove"],
+        }.get(words[-1])
+        if expected is None or words[1:-1] != expected:
+            return None
+        toks = _words_and_values(stmts[-1])
+        # Only the call the writer writes: every argument, at 200 steps.
+        horizontal = words[-1] == "color_range_horizontal"
+        length = "width" if horizontal else "height"
+        args = self._named_args(toks[1:], expr_arg=length)
+        required = self._CALL_ARG_NAMES - {"file", length}
+        if not required <= set(args) or args["pixels"] != 200:
+            return None
+        sep = self._amove_colorbar_sep(_words_and_values(stmts[1]))
+        # The label's lines, up to the closing grestore.
+        body: List[object] = []
+        while j < len(nodes) and len(body) < 5:
+            st = self._as_statement(nodes[j])
+            if st is not None and (st.keyword or "").lower() == "grestore":
+                break
+            body.append(nodes[j])
+            j += 1
+        if j == len(nodes) or self._as_statement(nodes[j]) is None:
+            return None
+        label = None
+        if body:
+            label = self._colorbar_label(body, args, sep, horizontal)
+            if label is None:
+                return None
+        return j + 1, toks, sep, label
+
+    def _colorbar_label(self, body, args, sep, horizontal) -> Optional[str]:
+        """The label a colorbar group's ``body`` writes, or ``None``.
+
+        ``body`` must be exactly the lines
+        :meth:`gleplot.writer.GLEWriter.colorbar_label_lines` writes for the
+        bar read from ``args`` and ``sep``.
+        """
+        last = body[-1]
+        if isinstance(last, OpaqueBlock) and last.block_type == "rotate":
+            inner = _rotate_or_box_body(last.inner_lines)
+            label = (
+                inner[0] if inner is not None and inner[1:] == (None, None) else None
+            )
+        else:
+            label = _plain_write_string(self._as_statement(last))
+        if not label or sep is None:
+            return None
+        cb = {
+            "label": label,
+            "sep": sep,
+            "width": _as_float(args.get("height" if horizontal else "width"), 0.5),
+            "zmin": _as_float(args.get("zmin"), 0.0),
+            "zmax": _as_float(args.get("zmax"), 1.0),
+            "format": str(args.get("format")),
+        }
+        if horizontal:
+            cb["orientation"] = "horizontal"
+        written = GLEWriter.colorbar_label_lines(cb)
+        read = [line.strip() for node in body for line in self._raw_lines(node)]
+        return label if read == written else None
 
     @staticmethod
     def _amove_colorbar_sep(toks) -> Optional[float]:
@@ -9418,11 +9574,11 @@ class _Recognizer:
         except ValueError:
             return None
 
-    def _apply_colorbar_call(self, toks, sep, axes_info) -> None:
-        # A vertical bar's thickness is its ``wd`` and its length the ``hi``
-        # expression; a horizontal bar's are the other way round.
-        horizontal = toks[0].value.lower() == "gleplot_colorbar_h"
-        thickness, length = ("hi", "wd") if horizontal else ("wd", "hi")
+    def _apply_colorbar_call(self, toks, sep, label, axes_info) -> None:
+        # A vertical bar's thickness is its ``width`` and its length the
+        # ``height`` expression; a horizontal bar's are the other way round.
+        horizontal = toks[0].value.lower() == "color_range_horizontal"
+        thickness, length = ("height", "width") if horizontal else ("width", "height")
         args = self._named_args(toks[1:], expr_arg=length)
         heatmaps = axes_info.get("heatmaps") or []
         palette = args.get("palette")
@@ -9464,13 +9620,14 @@ class _Recognizer:
             return
         hm = holders[0]
         cb = {
-            "label": args.get("label") or None,
+            "label": label,
             "format": args.get("format") or "fix 1",
             "width": _as_float(args.get(thickness), 0.5),
             "sep": sep if sep is not None else 0.3,
             "zmin": _as_float(args.get("zmin"), 0.0),
             "zmax": _as_float(args.get("zmax"), 1.0),
-            "zstep": _as_float(args.get("zstep"), 0.0),
+            # Written scaled by COLORBAR_STEP_SCALE (see add_colorbar).
+            "zstep": _as_float(args.get("zstep"), 0.0) / float(COLORBAR_STEP_SCALE),
         }
         if horizontal:
             cb["orientation"] = "horizontal"
@@ -9505,7 +9662,17 @@ class _Recognizer:
     #: Recognized colorbar/clabel call argument names (used to delimit the
     #: unmodeled bar-length expression argument).
     _CALL_ARG_NAMES = frozenset(
-        {"zmin", "zmax", "zstep", "palette", "wd", "hi", "format", "label", "file"}
+        {
+            "zmin",
+            "zmax",
+            "zstep",
+            "palette",
+            "width",
+            "height",
+            "format",
+            "pixels",
+            "file",
+        }
     )
 
     def _named_args(self, toks, expr_arg: str = "hi") -> dict:

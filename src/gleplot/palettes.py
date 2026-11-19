@@ -38,7 +38,7 @@ Reversed maps
 -------------
 Every name also has a reversed form with ``_r`` appended, as in matplotlib
 (``RdBu_r`` is ``RdBu`` read from 1 down to 0). Each is its own
-``gleplot_<name>_r`` sub, so the colorbar subs, which take only the palette
+``gleplot_<name>_r`` sub, so a colorbar, which takes only the palette
 name, draw it reversed too: the forward body with ``z = 1-z`` first, or, for a
 stepped (qualitative) map, its colours listed backwards. GLE's
 ``colormap ... invert`` switch flips the normalized z in the same way but only
@@ -69,9 +69,6 @@ __all__ = [
     "palette_sub_name",
     "palette_call_name",
     "palette_sub_text",
-    "colorbar_sub_name",
-    "colorbar_sub_text",
-    "colorbar_h_sub_text",
     "contour_labels_sub_name",
     "contour_labels_sub_text",
 ]
@@ -544,125 +541,6 @@ def point_palette_sub_text(cmap: str) -> str:
 # ---------------------------------------------------------------------------
 # Colorbar subroutine (vertical colour range drawn after the graph)
 # ---------------------------------------------------------------------------
-
-
-def colorbar_sub_name() -> str:
-    return "gleplot_colorbar_v"
-
-
-def colorbar_sub_text() -> str:
-    """Canonical ``sub gleplot_colorbar_v ... end sub`` text.
-
-    A self-contained vertical colour range adapted from gle-library
-    ``include/color.gle`` ``color_range_vertical`` (Modified BSD, (C) 2009 GLE),
-    extended with an optional rotated axis ``label$``.  Called with GLE
-    named-argument style (``zmin V zmax V ...``) so its arguments are directly
-    recoverable from the call line.
-    """
-    return "\n".join(
-        [
-            "sub gleplot_colorbar_v zmin zmax zstep palette$ wd hi format$ label$",
-            "   default zstep 0",
-            "   default wd 0.5",
-            '   default format "fix 1"',
-            '   default label ""',
-            "   ! Guard a degenerate (constant-field) range: zmax = zmin would",
-            "   ! divide by zero in the tick-position math below and abort the",
-            "   ! render. Expand to a nominal unit span so the bar still draws.",
-            "   if zmax = zmin then",
-            "      zmax = zmin+1",
-            "   end if",
-            "   if zstep = 0 then",
-            "      zstep = (zmax-zmin)/5",
-            "   end if",
-            "   begin box name gleplot_cbar",
-            '      if palette$ = "gray" then',
-            '         colormap "y" 0 1 0 1 1 200 wd hi',
-            '      else if palette$ = "color" then',
-            '         colormap "y" 0 1 0 1 1 200 wd hi color',
-            "      else",
-            '         colormap "y" 0 1 0 1 1 200 wd hi palette palette$',
-            "      end if",
-            "   end box",
-            "   amove pointx(gleplot_cbar.bl) pointy(gleplot_cbar.bl)",
-            "   box wd hi",
-            "   set just lc",
-            "   local zp = zmin",
-            "   while zp <= zmax+(zmax-zmin)/1e6",
-            "      local yy = pointy(gleplot_cbar.bc)+(zp-zmin)/(zmax-zmin)*hi",
-            "      amove pointx(gleplot_cbar.rc) yy",
-            "      rline wd/3 0",
-            "      rmove 0.1 0",
-            "      write format$(zp,format$)",
-            "      zp = zp+zstep",
-            "   next",
-            '   if label$ <> "" then',
-            "      amove pointx(gleplot_cbar.rc)+1.3 pointy(gleplot_cbar.cc)",
-            "      begin rotate 90",
-            "         set just cc",
-            "         write label$",
-            "      end rotate",
-            "   end if",
-            "end sub",
-        ]
-    )
-
-
-def colorbar_h_sub_text() -> str:
-    """Canonical ``sub gleplot_colorbar_h ... end sub`` text.
-
-    The horizontal twin of :func:`colorbar_sub_text`, adapted from gle-library
-    ``include/color.gle`` ``color_range_horizontal`` (Modified BSD, (C) 2009
-    GLE). ``wd`` and ``hi`` keep their geometric meaning: ``wd`` is the bar's
-    length along x and ``hi`` its thickness. The call starts at the bar's
-    top-left corner and draws downward: the bar, then the ticks and numbers
-    under it, then the centred ``label$`` just below the numbers' measured
-    extent, so it clears them at any font size.
-    """
-    return "\n".join(
-        [
-            "sub gleplot_colorbar_h zmin zmax zstep palette$ wd hi format$ label$",
-            "   default zstep 0",
-            "   default hi 0.5",
-            '   default format "fix 1"',
-            '   default label ""',
-            "   if zmax = zmin then",
-            "      zmax = zmin+1",
-            "   end if",
-            "   if zstep = 0 then",
-            "      zstep = (zmax-zmin)/5",
-            "   end if",
-            "   rmove 0 -hi",
-            "   begin box name gleplot_cbar",
-            '      if palette$ = "gray" then',
-            '         colormap "x" 0 1 0 1 200 1 wd hi',
-            '      else if palette$ = "color" then',
-            '         colormap "x" 0 1 0 1 200 1 wd hi color',
-            "      else",
-            '         colormap "x" 0 1 0 1 200 1 wd hi palette palette$',
-            "      end if",
-            "   end box",
-            "   amove pointx(gleplot_cbar.bl) pointy(gleplot_cbar.bl)",
-            "   box wd hi",
-            "   set just tc",
-            "   begin name gleplot_cbticks",
-            "      local zp = zmin",
-            "      while zp <= zmax+(zmax-zmin)/1e6",
-            "         local xx = pointx(gleplot_cbar.bl)+(zp-zmin)/(zmax-zmin)*wd",
-            "         amove xx pointy(gleplot_cbar.bl)",
-            "         rline 0 -hi/3",
-            "         rmove 0 -0.1",
-            "         write format$(zp,format$)",
-            "         zp = zp+zstep",
-            "      next",
-            "   end name",
-            '   if label$ <> "" then',
-            "      amove pointx(gleplot_cbar.bc) pointy(gleplot_cbticks.bc)-0.2",
-            "      write label$",
-            "   end if",
-            "end sub",
-        ]
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -371,6 +371,11 @@ def normalize(d: dict) -> dict:
                     for k in ("zmin", "zmax", "zstep", "width", "sep"):
                         if cb.get(k) is not None:
                             cb[k] = _snap_num(cb[k])
+                    # A step that divides the range is written as
+                    # (zmax-(zmin))/n from the printed range, so it comes
+                    # back as that quotient: compare one digit coarser.
+                    if cb.get("zstep") is not None:
+                        cb["zstep"] = float(f"{cb['zstep']:.5g}")
 
         # Text annotations: fontsize round-trips through cm (snap).
         # ``box_color`` and a non-zero ``rotation`` are emitted and recovered,
@@ -1847,12 +1852,14 @@ def test_a_colorbar_call_with_nothing_to_show_is_noted(tmp_path):
     fig.savefig_gle(str(path))
     text = path.read_text(encoding="utf-8")
     path.write_text(
-        text.replace('palette "gleplot_viridis" wd', 'palette "gleplot_magma" wd'),
+        text.replace(
+            'palette "gleplot_viridis" width', 'palette "gleplot_magma" width'
+        ),
         encoding="utf-8",
     )
     rec = parse_gle_figure(path)
     assert "colorbar" not in rec.figure.axes_list[0].scatters[0]
-    assert any("gleplot_colorbar_v call was dropped" in w for w in rec.warnings)
+    assert any("color_range_vertical call was dropped" in w for w in rec.warnings)
 
 
 def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
@@ -1986,7 +1993,7 @@ def test_a_qualifier_on_a_contour_line_is_reported(tmp_path):
     )
     rec = parse_gle_figure(path)
     assert len(rec.figure.axes_list[0].contours) == 1
-    assert any("deresolve on a contour" in w for w in rec.warnings)
+    assert any("'deresolve' on a contour" in w for w in rec.warnings)
 
 
 def test_marker_config_mdist_comes_back_on_the_series(tmp_path):

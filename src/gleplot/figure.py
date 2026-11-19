@@ -55,6 +55,7 @@ from .writer import (
     BOX_SUB,
     CDATA_SUB_PREFIX,
     COLORBAR_AUTO_RANGE,
+    COLORBAR_LABEL_PAD,
     COLORBAR_NTICKS,
     DEFAULT_COLORBAR_NTICKS,
     IMAGE_SUBS,
@@ -69,6 +70,7 @@ from .writer import (
     _grid_z_file,
     cdata_sub_name,
     cdata_sub_text,
+    colorbar_format,
     image_sub_name,
     legend_column_breaks,
     mdata_sub_text,
@@ -437,6 +439,37 @@ def _make_polar(ax: Axes) -> None:
     ax.xgrid = ax.ygrid = None
 
 
+def _axes_options(
+    caller: str, projection: Any, polar: Any, kwargs: Dict[str, Any]
+) -> Tuple[Any, Any]:
+    """``(projection, facecolor)`` from an ``add_subplot``/``add_axes`` call.
+
+    ``polar=True`` is ``projection='polar'``; ``facecolor`` (alias ``fc``)
+    is the one axes property honoured, and the others warn.
+    """
+    if polar:
+        if projection not in (None, "polar"):
+            raise ValueError(
+                f"{caller}(polar=True, projection={projection!r}): pass "
+                "only one of them."
+            )
+        projection = "polar"
+    if projection not in (None, "rectilinear", "polar"):
+        raise ValueError(
+            f"{caller}(projection={projection!r}) is not supported; "
+            "use None, 'rectilinear' or 'polar'."
+        )
+    if "facecolor" in kwargs and "fc" in kwargs:
+        raise TypeError(f"{caller}() got both facecolor and fc; pass one.")
+    facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
+    if kwargs:
+        warn_external(
+            f"{caller}() ignores {', '.join(sorted(kwargs))}: set them on "
+            "the returned axes instead."
+        )
+    return projection, facecolor
+
+
 def _subplot_span(rows: int, cols: int, idx) -> Union[int, Tuple[int, int]]:
     """Check an ``add_subplot`` ``(first, last)`` index, as matplotlib does.
 
@@ -494,6 +527,19 @@ _TICK_MARK_FIELDS = (
     "subtick_direction",
     "minorticks",
 )
+
+
+def _cbar_format(cb: dict) -> Optional[str]:
+    """The tick format a colorbar is written with, when it can be known.
+
+    Its own, or the default :func:`gleplot.writer.colorbar_format` gives
+    once its range is set (an auto-range bar's is set at write time).
+    """
+    if cb.get("format"):
+        return cb["format"]
+    if cb.get("zmin") is None or not cb.get("zstep"):
+        return None
+    return colorbar_format(float(cb["zmin"]), float(cb["zstep"]))
 
 
 class Figure:
@@ -851,7 +897,9 @@ class Figure:
 
         self._subplot_adjust = candidate
 
-    def add_subplot(self, *args, projection: Optional[str] = None) -> Axes:
+    def add_subplot(
+        self, *args, projection: Optional[str] = None, polar: bool = False, **kwargs
+    ) -> Axes:
         """
         Add subplot to figure.
 
@@ -870,6 +918,11 @@ class Figure:
             :meth:`Axes.scatter` take ``(theta, r)`` with theta in radians,
             and :meth:`Axes.function` reads ``x`` in its expression as
             theta. ``set_ylim(0, rmax)`` sets the radial limit.
+        polar : bool, default: False
+            ``True`` is ``projection='polar'``.
+        **kwargs
+            Axes properties, as for :meth:`add_axes`: ``facecolor`` (alias
+            ``fc``) is honoured, and the others warn and are ignored.
 
         Returns
         -------
@@ -884,11 +937,7 @@ class Figure:
         other plotting methods and cartesian settings such as
         :meth:`Axes.set_xlim` raise ``NotImplementedError``.
         """
-        if projection not in (None, "rectilinear", "polar"):
-            raise ValueError(
-                f"add_subplot(projection={projection!r}) is not supported; "
-                "use None, 'rectilinear' or 'polar'."
-            )
+        projection, facecolor = _axes_options("add_subplot", projection, polar, kwargs)
         if not args:
             args = (1, 1, 1)
         if len(args) == 1 and isinstance(args[0], (int, np.integer)):
@@ -931,6 +980,8 @@ class Figure:
         self._apply_shared_axes_flags(ax)
         if projection == "polar":
             _make_polar(ax)
+        if facecolor is not None:
+            ax.set_facecolor(facecolor)
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -995,26 +1046,7 @@ class Figure:
             raise ValueError(
                 f"add_axes(rect) needs a positive width and height, got {rect!r}."
             )
-        if polar:
-            if projection not in (None, "polar"):
-                raise ValueError(
-                    f"add_axes(polar=True, projection={projection!r}): pass "
-                    "only one of them."
-                )
-            projection = "polar"
-        if projection not in (None, "rectilinear", "polar"):
-            raise ValueError(
-                f"add_axes(projection={projection!r}) is not supported; "
-                "use None, 'rectilinear' or 'polar'."
-            )
-        if "facecolor" in kwargs and "fc" in kwargs:
-            raise TypeError("add_axes() got both facecolor and fc; pass one.")
-        facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
-        if kwargs:
-            warn_external(
-                f"add_axes() ignores {', '.join(sorted(kwargs))}: set them on "
-                "the returned axes instead."
-            )
+        projection, facecolor = _axes_options("add_axes", projection, polar, kwargs)
 
         width_cm, height_cm = (inches_to_cm(v) for v in self.figsize)
         ax = Axes(self, None)
@@ -1868,7 +1900,7 @@ class Figure:
         *,
         orientation: Optional[str] = None,
         label: Optional[str] = None,
-        format: str = "fix 1",
+        format: Optional[str] = None,
         nticks: Optional[int] = None,
         width: float = 0.5,
         sep: Optional[float] = None,
@@ -1901,10 +1933,12 @@ class Figure:
             of the axes; ``'horizontal'`` draws it below the axes, under the
             x tick labels and title.
         label : str, optional
-            Colorbar axis label: rotated, to the right of a vertical bar;
-            centred under a horizontal one.
-        format : str
+            Colorbar axis label: rotated, to the right of a vertical bar's
+            tick numbers; centred under a horizontal one's.
+        format : str, optional
             GLE ``format$`` string for the tick labels (e.g. ``'fix 1'``).
+            Default: fixed-point with as many decimals as the tick values
+            need, from the first value and the tick step.
         nticks : int, optional
             Approximate number of tick intervals. Default: 5, or for a
             ``contourf`` with evenly spaced levels, a tick at every
@@ -2032,7 +2066,7 @@ class Figure:
                 sep = 0.3
         cb = {
             "label": owner._text(label),
-            "format": str(format),
+            "format": None if format is None else str(format),
             "width": float(width),
             "sep": float(sep),
             "zmin": zmin,
@@ -2067,6 +2101,8 @@ class Figure:
                 )
             cb[COLORBAR_AUTO_RANGE] = True
             cb[COLORBAR_NTICKS] = divisions
+        if cb["format"] is None and zmin is not None and cb["zstep"] is not None:
+            cb["format"] = colorbar_format(zmin, float(cb["zstep"]))
         hm["colorbar"] = cb
         return cb
 
@@ -3290,10 +3326,9 @@ class Figure:
     # though since metadata v2 the emitted rect is also read straight back, so
     # the round trip no longer depends on the re-derivation matching.
 
-    #: Nominal tick-label text height (cm) used only to size the reserved
-    #: colorbar margin. A fixed constant (not derived from ``style.fontsize``)
-    #: keeps the reservation a pure function of the round-tripping colorbar
-    #: dict; a little slack here only widens the margin slightly.
+    #: Smallest tick-label text height (cm) the reserved colorbar margin is
+    #: sized for; the figure's own font size is used when it is larger, as
+    #: ``color.gle`` writes the numbers in it.
     _CBAR_TEXT_HEI_CM = 0.42
 
     @staticmethod
@@ -3328,41 +3363,41 @@ class Figure:
 
         return max(width_of(zmin), width_of(zmax), 3)
 
-    @classmethod
-    def _colorbar_reserved_cm(cls, cb: dict) -> float:
+    def _colorbar_reserved_cm(self, cb: dict) -> float:
         """Right-hand space (cm), measured from ``xgmax``, a vertical bar needs.
 
-        Sized honestly from how ``gleplot_colorbar_v`` lays out (see
-        :func:`gleplot.palettes.colorbar_sub_text`): the ``sep`` gap, the bar
-        (``wd``), then whichever is wider -- the tick marks + numbers to the
-        bar's right, or the rotated axis ``label`` (drawn at ``rc + 1.3``).
+        Sized from how ``color.gle``'s ``color_range_vertical`` lays out:
+        the ``sep`` gap, the bar (``width``), then the tick marks and numbers
+        to its right (a tick a third of the width long, a gap as long again),
+        then the rotated ``label`` (see
+        :meth:`gleplot.writer.GLEWriter.colorbar_label_lines`).
         """
         wd = float(cb["width"])
         sep = float(cb["sep"])
-        hei = cls._CBAR_TEXT_HEI_CM
-        charw = 0.6 * hei
-        nchars = cls._estimate_tick_chars(cb["zmin"], cb["zmax"], cb.get("format"))
-        # Both extents are measured from the bar's right edge.
-        tick_extent = wd / 3.0 + 0.1 + nchars * charw
-        label_extent = (1.3 + hei) if cb.get("label") else 0.0
-        return sep + wd + max(tick_extent, label_extent) + 0.3  # + safety pad
+        hei = max(self._CBAR_TEXT_HEI_CM, fontsize_pt_to_cm(self.style.fontsize))
+        nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], _cbar_format(cb))
+        tick_extent = 2 * wd / 3.0 + nchars * 0.6 * hei
+        if cb.get("label"):
+            tick_extent += COLORBAR_LABEL_PAD + hei
+        return sep + wd + tick_extent + 0.3  # + safety pad
 
     def _colorbar_h_reserved_cm(self, cb: dict) -> Tuple[float, float]:
         """``(right, below)`` space (cm) a horizontal bar needs.
 
-        ``below`` is measured down from ``ygmin``, following
-        :func:`gleplot.palettes.colorbar_h_sub_text`: the ``sep`` gap, the bar
-        (``hi``), the ticks and numbers, then the ``label`` 0.2 cm under them.
-        ``right`` is how far the last number, centred on the bar's end, runs
-        past ``xgmax``. The text is the figure's own ``hei``, which the sub
-        writes in, so the room grows with the font.
+        ``below`` is measured down from ``ygmin``, following ``color.gle``'s
+        ``color_range_horizontal``: the ``sep`` gap, the bar (``width``), then
+        the ticks and numbers (a tick a third of the width long, a gap as
+        long again), then the ``label`` under them. ``right`` is how far the
+        last number, centred on the
+        bar's end, runs past ``xgmax``. The text is the figure's own ``hei``,
+        which the routine writes in, so the room grows with the font.
         """
         wd = float(cb["width"])
         hei = max(self._CBAR_TEXT_HEI_CM, fontsize_pt_to_cm(self.style.fontsize))
-        below = float(cb["sep"]) + wd + wd / 3.0 + 0.1 + hei
+        below = float(cb["sep"]) + wd + 2 * wd / 3.0 + hei
         if cb.get("label"):
-            below += 0.2 + hei
-        nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], cb.get("format"))
+            below += COLORBAR_LABEL_PAD + hei
+        nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], _cbar_format(cb))
         right = nchars * 0.6 * hei / 2.0 + 0.3
         return right, below + 0.3  # + safety pad
 
@@ -3393,7 +3428,6 @@ class Figure:
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs (a heatmap's or a per-point colour's) sorted by name, then
-        the vertical and horizontal colorbar subs (each if any bar uses it),
         then the contour-labels sub (if any clabel), then the pie-wedge sub
         (if any wedge), then the box-plot subs (if any box), then the rug subs
         (if any rug has a tick), then one per-point marker-size sub per marker
@@ -3413,8 +3447,6 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         used_cmaps = set()
-        any_colorbar = False
-        any_colorbar_h = False
         any_clabel = False
         for ax in self.axes_list:
             for hm in resolution.visible(ax.heatmaps):
@@ -3427,10 +3459,6 @@ class Figure:
                     bar_cmap = _pal.colorbar_cmap(hm["cmap"], True)
                     if _pal.cmap_needs_sub(bar_cmap):
                         used_cmaps.add(bar_cmap)
-                if cb and cb.get("orientation") == "horizontal":
-                    any_colorbar_h = True
-                elif cb:
-                    any_colorbar = True
             for ct in resolution.visible(ax.contours):
                 if ct.get("clabel"):
                     any_clabel = True
@@ -3455,10 +3483,6 @@ class Figure:
             text = _pal.palette_sub_text(cmap)
             if text:
                 subs.append(text)
-        if any_colorbar:
-            subs.append(_pal.colorbar_sub_text())
-        if any_colorbar_h:
-            subs.append(_pal.colorbar_h_sub_text())
         if any_clabel:
             subs.append(_pal.contour_labels_sub_text())
         if any(resolution.visible(ax.wedges) for ax in self.axes_list):
@@ -3576,7 +3600,7 @@ class Figure:
     def _emit_post_graph_calls(
         self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
     ):
-        """Write the post-graph colorbar and contour-label sub calls."""
+        """Write the post-graph colorbars and contour-label sub calls."""
         resolution = resolution or SourceResolution()
         for holder in _colorbar_holders(ax, resolution):
             writer.add_colorbar(holder)
