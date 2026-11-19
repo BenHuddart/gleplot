@@ -3210,6 +3210,18 @@ def test_a_one_sided_limit_is_held_to_the_data_it_bounds(tmp_path):
     assert "y2axis min 1.70000003e+09" in _saved(fig, tmp_path)["fig.gle"]
 
 
+def test_coordinates_on_a_log_axis_keep_six_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1e11, 1e13], [1.0, 2.0])
+    ax.set_xscale("log")
+    ax.axvline(3.1415926535e12)
+    ax.text(2.718281828e11, 1.5, "t")
+    script = _saved(fig, tmp_path)["fig.gle"]
+    assert "refline v value 3.142e+12" in script
+    assert "amove xg(2.718e+11) yg(1.5)" in script
+
+
 def test_coordinates_six_figures_keep_are_unchanged(tmp_path):
     fig = glp.figure(data_prefix="p")
     ax = fig.add_subplot(111)

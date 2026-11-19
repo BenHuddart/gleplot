@@ -2347,7 +2347,7 @@ class GLEWriter:
             cmd += f" dticks {self._format_number(dticks)}"
         if dsubticks is not None:
             cmd += f" dsubticks {self._format_number(dsubticks)}"
-        cmd += self._axis_style_tokens(style)
+        cmd += self._axis_style_tokens(prefix, style)
         if nofirst:
             cmd += " nofirst"  # Remove first tick label to prevent overlap
         if nolast:
@@ -2429,7 +2429,7 @@ class GLEWriter:
                 cmd += " log"
             if negate:
                 cmd += " negate"
-            cmd += self._axis_style_tokens(style)
+            cmd += self._axis_style_tokens("y2", style)
             if off:
                 cmd += " off"
             elif y2_on:
@@ -2523,7 +2523,7 @@ class GLEWriter:
                 cmd += " lin"
             if negate:
                 cmd += " negate"
-            cmd += self._axis_style_tokens(style)
+            cmd += self._axis_style_tokens("x2", style)
             if off:
                 cmd += " off"
             elif x2_on:
@@ -2589,7 +2589,7 @@ class GLEWriter:
             out += f" dist {self._format_number(float(dist))}"
         return out
 
-    def _axis_style_tokens(self, style: AxisStyle) -> str:
+    def _axis_style_tokens(self, axis: str, style: AxisStyle) -> str:
         """``[ format "F"][ angle A][ grid]`` and the tick placement tokens.
 
         These live on the axis command itself rather than in a statement of
@@ -2607,7 +2607,7 @@ class GLEWriter:
         if style.nticks is not None:
             out += f" nticks {int(style.nticks)}"
         if style.ftick is not None:
-            out += f" ftick {self._format_number(float(style.ftick))}"
+            out += f" ftick {self._format_coordinate(float(style.ftick), axis)}"
         if style.shift is not None:
             out += f" shift {self._format_number(float(style.shift))}"
         if style.symticks:
@@ -5467,6 +5467,16 @@ class GLEWriter:
           absent edge is omitted. On ``target="x1"``, ``ymin`` is also the
           line the fill closes on.
         """
+        self._write_fill(series, binding, {"x": "x", "y1": "y", "y2": "y"})
+
+    def _write_fill(
+        self,
+        series: Series,
+        binding: Optional[ColumnBinding],
+        axes: Dict[str, str],
+    ) -> None:
+        """:meth:`add_fill`, with ``axes`` the roles held to an axis's
+        tolerance (see :meth:`_write_columns`)."""
         x = series["x"]
         y1 = series["y1"]
         y2 = series.get("y2")
@@ -5490,9 +5500,7 @@ class GLEWriter:
             roles: List[Tuple[str, Any]] = [("x", x), ("y1", y1)]
         else:
             roles = [("x", x), ("y1", y1), ("y2", y2)]
-        cols = self._write_columns(
-            data_file, roles, column_names, binding, {"x": "x", "y1": "y", "y2": "y"}
-        )
+        cols = self._write_columns(data_file, roles, column_names, binding, axes)
         has_header = bool(column_names) or binding is not None
         file_name = binding.data_file if binding is not None else data_file
         clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
@@ -5871,7 +5879,8 @@ class GLEWriter:
         )
         for value in series["ticks"]:
             self._pending_graph_text_lines.append(
-                f"gleplot_{series['axis']}rug {num(float(value))} {rest}"
+                f"gleplot_{series['axis']}rug "
+                f"{self._format_coordinate(float(value), series['axis'])} {rest}"
             )
 
     def set_legend_breaks(self, breaks: Set[int]) -> None:
@@ -6792,7 +6801,12 @@ class GLEWriter:
             series["span_hi"],
             series["label"],
         )
-        self.add_fill(fill)
+        # A vertical band's y columns are its extent, fractions of the y
+        # limits: written as those limits are, so a file read back rebuilds
+        # them. A horizontal band's are its edges, coordinates on y.
+        self._write_fill(
+            fill, None, {} if series["orient"] == "v" else {"y1": "y", "y2": "y"}
+        )
 
     def add_span_draw(
         self,
@@ -6819,13 +6833,11 @@ class GLEWriter:
         token.
         """
         color_token = apply_alpha(color, alpha)
-        axis = self._guide_axis(orient)
         self._add_guide_draw(
             SPAN_LAYER,
             guide_sub_name("span", orient),
             [
-                self._format_coordinate(start, axis),
-                self._format_coordinate(end, axis),
+                *self._span_range(orient, start, end),
                 self._format_number(span_lo),
                 self._format_number(span_hi),
                 f'"{self._escape_gle_string(color_token)}"',
@@ -6890,22 +6902,14 @@ class GLEWriter:
             f"    {GUIDE_MARKER_PREFIX} {kind} {orient} " + " ".join(args)
         )
 
-    def _guide_marker_pair(
-        self, first: float, second: float, axis: Optional[str] = None
-    ) -> str:
+    def _guide_marker_pair(self, first: float, second: float) -> str:
         """``a,b`` -- a marker's two-number field, comma-joined and spaceless.
 
         The comma is not decoration: GLE's lexer reads a leading sign as an
         operator, so ``-4 -3`` would collect back as the single expression
-        ``-7``. See :mod:`gleplot.guides`. Coordinates on ``axis`` when it
-        is given, else axes fractions.
+        ``-7``. See :mod:`gleplot.guides`.
         """
-        if axis is None:
-            return f"{self._format_number(first)},{self._format_number(second)}"
-        return (
-            f"{self._format_coordinate(first, axis)},"
-            f"{self._format_coordinate(second, axis)}"
-        )
+        return f"{self._format_number(first)},{self._format_number(second)}"
 
     @staticmethod
     def _guide_axis(orient: str) -> str:
@@ -6952,7 +6956,7 @@ class GLEWriter:
         """
         args = [
             "range",
-            self._guide_marker_pair(start, end, self._guide_axis(orient)),
+            ",".join(self._span_range(orient, start, end)),
             "extent",
             self._guide_marker_pair(span_lo, span_hi),
         ]
@@ -7298,8 +7302,24 @@ class GLEWriter:
 
     def _format_coordinate(self, value: float, axis: str) -> str:
         """A lone number in ``axis``'s data units, as :meth:`_format_column`
-        writes it on that axis (see :meth:`_axis_tolerance`)."""
-        return self._format_column([value], self._axis_tolerances.get(axis))[0]
+        writes it on that axis (see :meth:`_axis_tolerance`); by
+        :meth:`_format_number` on an axis with no tolerance."""
+        tol = self._axis_tolerances.get(axis)
+        if tol is None:
+            return self._format_number(value)
+        return self._format_column([value], tol)[0]
+
+    def _span_range(self, orient: str, start: float, end: float) -> List[str]:
+        """A band's ``start`` and ``end`` as its materialized fill writes them.
+
+        A vertical band's edges are one ``x`` column; a horizontal band's are
+        a column each (``y1``, ``y2``) of one repeated value. The marker and
+        the ``draw`` call write them alike, so a file read back rebuilds the
+        same fill.
+        """
+        if orient == "v":
+            return self._format_column([start, end], self._axis_tolerances.get("x"))
+        return [self._format_coordinate(v, "y") for v in (start, end)]
 
     @staticmethod
     def _column_texts(ordered: np.ndarray, precision: int, tol: float) -> List[str]:

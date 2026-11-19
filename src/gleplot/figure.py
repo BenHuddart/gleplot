@@ -3776,10 +3776,17 @@ class Figure:
                 "y2": self._get_data_y2lim,
                 "x2": self._get_data_x2lim,
             }
+            has_data = {
+                "x": True,
+                "y": True,
+                "y2": ax.has_y2_plots(),
+                "x2": ax.has_x2_plots(),
+            }
             data_extents = {
                 which: scan(ax, resolution)
                 for which, scan in scans.items()
-                if None in self._axis_limits(ax, which)
+                if has_data[which]
+                and None in self._axis_limits(ax, which)
                 and getattr(ax, f"{which}scale") != "log"
             }
         if ax.math_mode:
