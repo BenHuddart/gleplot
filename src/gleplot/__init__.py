@@ -52,7 +52,7 @@ figure(figsize=(8, 6), dpi=100)
     Create a new figure
 """
 
-__version__ = "5.5.0"
+__version__ = "5.6.0"
 __author__ = "gleplot contributors"
 
 from .axes import Axes, validate_tick_format
