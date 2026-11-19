@@ -10,6 +10,7 @@ sidecar machinery below is unchanged for inline figures and byte-for-byte
 identical to what it produced before sources existed.
 """
 
+import hashlib
 import math
 import re
 from dataclasses import dataclass, field, replace
@@ -21,6 +22,7 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    NamedTuple,
     Optional,
     Sequence,
     Set,
@@ -714,6 +716,9 @@ class _SharedSidecar:
         self.keys: List[str] = []
         self.names: List[str] = []
         self.columns: List[np.ndarray] = []
+        #: Whether the file gets a header row: not when an inline series
+        #: whose own file had none shares it (a header could name its keys).
+        self.named = True
 
     def index_of(self, key: str, values: np.ndarray, name: str) -> int:
         """1-based column index of ``key``, appending it on first mention."""
@@ -738,6 +743,14 @@ class _SharedSidecar:
                 for i, name in enumerate(self.names)
             ]
         )
+
+
+class _InlineSidecar(NamedTuple):
+    """The sidecar one inline series wrote: its columns, header, column keys."""
+
+    columns: List[Tuple[str, np.ndarray]]
+    column_names: Optional[List[str]]
+    keys: List[str]
 
 
 # -- write-time source resolution ----------------------------------------------
@@ -1519,6 +1532,10 @@ class GLEWriter:
         # contributed, so they are rendered into ``data_files`` by
         # :meth:`finalize_shared_sidecars` at the end of the write.
         self._shared_sidecars: Dict[str, _SharedSidecar] = {}
+        # Each sidecar an inline series wrote, as (columns, header names,
+        # column keys), so a second series naming the same file is merged
+        # into it rather than overwriting it (see _write_inline_columns).
+        self._inline_sidecars: Dict[str, _InlineSidecar] = {}
         # Raw-content sidecars (heatmap/contour ``.z`` grids and scattered
         # ``points.dat`` triples). They are written like any data file but are
         # NOT columnar imports, so they are excluded from the ``import-data``
@@ -2044,6 +2061,7 @@ class GLEWriter:
         y2style: Optional[AxisStyle] = None,
         x2style: Optional[AxisStyle] = None,
         x2_series: bool = False,
+        y2_series: bool = False,
         title_size: Optional[float] = None,
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
@@ -2093,6 +2111,10 @@ class GLEWriter:
         xplaces, yplaces : list of float, optional
             Explicit tick positions (GLE ``xplaces``/``yplaces``), emitted as
             their own statement. Overrides the automatic/``dticks`` placement.
+            An empty list is ``xticks off`` and ``xlabels off`` instead (GLE
+            reads a bare ``xplaces`` as automatic placement), with no names,
+            no-tick positions or tick styling; a top or right scale in use
+            is switched back on after them, as GLE copies both onto it.
         xnames, ynames : list of str, optional
             Tick labels to go with ``xplaces``/``yplaces`` (GLE
             ``xnames``/``ynames``). Must be the same length as the
@@ -2119,6 +2141,8 @@ class GLEWriter:
             ``xaxis log`` onto x2 (``do_axis_part_all``), so a linear top
             scale that actually carries data has to say ``x2axis lin``
             afterwards. A figure that never uses the top scale does not.
+        y2_series : bool
+            True when a dataset is drawn against the right-hand scale.
         title_size, title_color, title_dist, title_font : optional
             The graph title's ``hei`` (points), ``color``, ``dist`` (cm) and
             ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
@@ -2195,6 +2219,7 @@ class GLEWriter:
             places=xplaces,
             names=xnames,
             show_ticks=show_xticks,
+            frame_off=frame_off,
         )
         self._add_primary_axis(
             "y",
@@ -2210,6 +2235,7 @@ class GLEWriter:
             places=yplaces,
             names=ynames,
             show_ticks=show_yticks,
+            frame_off=frame_off,
         )
         self._add_y2_axis(
             y2min,
@@ -2219,6 +2245,8 @@ class GLEWriter:
             style=y2style,
             off=y2axis_off,
             yaxis_off=yaxis_off,
+            y2_series=y2_series,
+            yticks_off=yplaces == [] and not frame_off,
         )
         self._add_x2_axis(
             x2min,
@@ -2230,6 +2258,7 @@ class GLEWriter:
             xaxis_off=xaxis_off,
             xlog=xlog,
             x2_series=x2_series,
+            xticks_off=xplaces == [] and not frame_off,
         )
         if frame_off:
             for prefix in ("x", "y"):
@@ -2263,6 +2292,7 @@ class GLEWriter:
         places: Optional[List[float]],
         names: Optional[List[str]],
         show_ticks: bool,
+        frame_off: bool,
     ) -> None:
         """The ``xaxis``/``yaxis`` line, its places/names, labels and grid."""
         lo, hi, negate = self._axis_direction(lo, hi)
@@ -2287,6 +2317,16 @@ class GLEWriter:
         if cmd != bare:
             self.lines_gle.append(cmd)
 
+        if places == []:
+            # GLE reads an empty 'xplaces' as "place them automatically", so
+            # no ticks is 'xticks off' (which takes the subticks too) and no
+            # labels; styling ticks that are not drawn would be a no-op. A
+            # hidden frame writes its own 'xticks off' (see add_axes).
+            if not frame_off:
+                self.lines_gle.append(f"    {prefix}ticks off")
+            self.lines_gle.append(f"    {prefix}labels off")
+            self._add_axis_line_style(prefix, style)
+            return
         if places is not None:
             self.lines_gle.append(
                 f"    {prefix}places "
@@ -2323,6 +2363,8 @@ class GLEWriter:
         style: AxisStyle,
         off: bool,
         yaxis_off: bool,
+        y2_series: bool,
+        yticks_off: bool,
     ) -> None:
         """The ``y2axis`` line and ``y2labels on``, when y2 is configured.
 
@@ -2378,10 +2420,9 @@ class GLEWriter:
         # harmless, idempotent no-op for the already-working series case
         # (GLE has no "on but no numbers" state to disturb).
         y2_used = lo is not None or hi is not None or log or bool(label)
-        if not off and (y2_used or style.has_tick_label_styling()):
-            opts = self._text_options(style.label_size, style.label_color, None)
-            self.lines_gle.append(f"    y2labels on{opts}")
-        self._add_axis_line_style("y2", style)
+        self._add_twin_ticks_labels(
+            "y2", style, off, y2_used, y2_used or y2_series, yticks_off
+        )
 
     def _add_x2_axis(
         self,
@@ -2395,6 +2436,7 @@ class GLEWriter:
         xaxis_off: bool,
         xlog: bool,
         x2_series: bool,
+        xticks_off: bool,
     ) -> None:
         """The top scale: the ``x2axis`` line and ``x2labels on``.
 
@@ -2449,10 +2491,33 @@ class GLEWriter:
             if cmd != "    x2axis":
                 self.lines_gle.append(cmd)
         x2_used = lo is not None or hi is not None or log or bool(label)
-        if not off and (x2_used or style.has_tick_label_styling()):
+        self._add_twin_ticks_labels(
+            "x2", style, off, x2_used, x2_used or x2_series, xticks_off
+        )
+
+    def _add_twin_ticks_labels(
+        self,
+        prefix: str,
+        style: AxisStyle,
+        off: bool,
+        used: bool,
+        in_use: bool,
+        primary_ticks_off: bool,
+    ) -> None:
+        """``y2labels on`` (or ``x2``), the ticks switch, and the side style.
+
+        ``used`` is a configured scale, ``in_use`` one that is configured or
+        carries a dataset. A primary axis with no ticks writes ``yticks off``
+        and ``ylabels off``, which GLE copies onto y2 (``do_axis_part_all``),
+        so a scale in use is switched back on after them.
+        """
+        reenable = not off and primary_ticks_off and in_use
+        if reenable:
+            self.lines_gle.append(f"    {prefix}ticks on")
+        if not off and (used or reenable or style.has_tick_label_styling()):
             opts = self._text_options(style.label_size, style.label_color, None)
-            self.lines_gle.append(f"    x2labels on{opts}")
-        self._add_axis_line_style("x2", style)
+            self.lines_gle.append(f"    {prefix}labels on{opts}")
+        self._add_axis_line_style(prefix, style)
 
     # -- axes styling helpers -------------------------------------------
 
@@ -3005,17 +3070,101 @@ class GLEWriter:
         sidecar named by it and the indices are wherever they landed there.
         """
         if binding is None:
+            return self._write_inline_columns(data_file, named_columns, column_names)
+
+        shared = self._shared_sidecars.get(binding.data_file)
+        if shared is None:
+            shared = self._shared_sidecars[binding.data_file] = _SharedSidecar()
+            prior = self._inline_sidecars.get(binding.data_file)
+            if prior is not None:
+                self._seed_shared(shared, prior)
+        indices = []
+        for role, array in named_columns:
+            key, name = binding.column_for(role)
+            indices.append(
+                self._share_column(shared, binding.data_file, key, array, name)
+            )
+        return indices
+
+    def _write_inline_columns(
+        self,
+        data_file: str,
+        named_columns: Sequence[Tuple[str, np.ndarray]],
+        column_names: Optional[List[str]],
+    ) -> List[int]:
+        """An inline series' columns, in a file of its own unless one is named.
+
+        Several series can name one file: a figure read back from a sidecar a
+        data provider shared, or a broken axis whose segments all write the
+        same data. A file already holding every column (same name, same
+        written text) is read as it is; otherwise the columns join a shared
+        sidecar, each such column stored once, the first series' own columns
+        kept in place so its ``data`` line still reads them.
+        """
+        if column_names and len(column_names) != len(named_columns):
+            raise ValueError(
+                f"column_names has {len(column_names)} entries but there are "
+                f"{len(named_columns)} columns for {data_file!r}"
+            )
+        names = [
+            column_names[i] if column_names else role
+            for i, (role, _array) in enumerate(named_columns)
+        ]
+        keys = [
+            self._column_key(name, array)
+            for name, (_role, array) in zip(names, named_columns)
+        ]
+        shared = self._shared_sidecars.get(data_file)
+        prior = self._inline_sidecars.get(data_file)
+        if shared is None and prior is None:
+            self._inline_sidecars[data_file] = _InlineSidecar(
+                list(named_columns), column_names, keys
+            )
             self.add_data_file(
                 data_file, [array for _role, array in named_columns], column_names
             )
             return list(range(1, len(named_columns) + 1))
+        if shared is None:
+            assert prior is not None
+            if all(key in prior.keys for key in keys):
+                return [prior.keys.index(key) + 1 for key in keys]
+            shared = self._shared_sidecars[data_file] = _SharedSidecar()
+            self._seed_shared(shared, prior)
+        if column_names is None:
+            shared.named = False
+        return [
+            self._share_column(shared, data_file, key, array, name)
+            for key, name, (_role, array) in zip(keys, names, named_columns)
+        ]
 
-        shared = self._shared_sidecars.setdefault(binding.data_file, _SharedSidecar())
-        indices = []
-        for role, array in named_columns:
-            key, name = binding.column_for(role)
-            indices.append(shared.index_of(key, array, name))
-        return indices
+    @staticmethod
+    def _seed_shared(shared: _SharedSidecar, prior: _InlineSidecar) -> None:
+        """Put the columns an inline series already wrote first, in place."""
+        shared.named = prior.column_names is not None
+        for i, (key, (role, array)) in enumerate(zip(prior.keys, prior.columns)):
+            name = prior.column_names[i] if prior.column_names else role
+            # A column the series repeats keeps its own index.
+            shared.index_of(
+                key if key not in shared.keys else f"{key}\x00{i}", array, name
+            )
+
+    @staticmethod
+    def _share_column(
+        shared: _SharedSidecar, data_file: str, key: str, array: Any, name: str
+    ) -> int:
+        """``shared.index_of``, refusing a column the file's rows cannot hold."""
+        if shared.columns and len(array) != len(shared.columns[0]):
+            raise ValueError(
+                f"Two series write the data file {data_file!r} with "
+                f"{len(shared.columns[0])} and {len(array)} rows. Give one of "
+                "them its own data_file."
+            )
+        return shared.index_of(key, array, name)
+
+    def _column_key(self, name: str, array: Any) -> str:
+        """A column's name and a digest of its written text."""
+        text = "\n".join(self._format_column(np.asarray(array).ravel()))
+        return f"{name}\x00{hashlib.sha1(text.encode('utf-8')).hexdigest()}"
 
     def finalize_shared_sidecars(self) -> None:
         """Render the accumulated provider-table sidecars into ``data_files``.
@@ -3025,7 +3174,8 @@ class GLEWriter:
         """
         for filename, shared in self._shared_sidecars.items():
             if shared.columns:
-                self.add_data_file(filename, shared.columns, shared.header())
+                header = shared.header() if shared.named else None
+                self.add_data_file(filename, shared.columns, header)
         self._shared_sidecars.clear()
 
     def reserve_datasets(self, raw_lines: Sequence[str]) -> None:
@@ -3171,7 +3321,8 @@ class GLEWriter:
         binding : ColumnBinding, optional
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
-            that table (see :meth:`_write_columns`).
+            that table (see :meth:`_write_columns`). A ``gaps`` series gets
+            its own copy of a table column holding NaN, written with ``*``.
 
         Notes
         -----
@@ -3239,11 +3390,17 @@ class GLEWriter:
             x_array, has_line, shared=binding is not None, smooth_mode=smooth_mode
         )
         x_rows, y_rows = x_array[order], y_array[order]
-        if series.get("gaps") and binding is None:
+        if series.get("gaps"):
             # GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks
-            # the line there.
-            x_rows = self._as_missing(x_rows, np.isnan(np.asarray(x_rows, dtype=float)))
-            y_rows = self._as_missing(y_rows, np.isnan(np.asarray(y_rows, dtype=float)))
+            # the line there. A table column another series may read keeps
+            # its values, so this series gets its own copy.
+            x_gaps = np.isnan(np.asarray(x_rows, dtype=float))
+            y_gaps = np.isnan(np.asarray(y_rows, dtype=float))
+            x_rows = self._as_missing(x_rows, x_gaps)
+            y_rows = self._as_missing(y_rows, y_gaps)
+            if binding is not None:
+                private = [r for r, m in (("x", x_gaps), ("y", y_gaps)) if m.any()]
+                binding = binding.with_private(private)
         cols = self._write_columns(
             data_file,
             [("x", x_rows), ("y", y_rows)],

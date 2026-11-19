@@ -43,6 +43,8 @@ gle plot.gle -d PDF
 
 3. If GLE reports `invalid font name`, set the font to a GLE font name; see
    "Available Fonts" in [Configuration](CONFIGURATION.md).
+4. If GLE reports `include file not found`, install GLE's include library; see
+   [GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library).
 
 ## Unexpected Data File Names
 

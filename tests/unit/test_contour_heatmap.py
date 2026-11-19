@@ -1333,6 +1333,48 @@ def test_contour_takes_matplotlibs_singular_line_aliases(name, args, recwarn):
     assert not recwarn.list
 
 
+@pytest.mark.parametrize("name, args", [("contour", (_GRID,)), ("tricontour", _PTS)])
+def test_contour_per_level_lists_warn_and_take_the_first(name, args):
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning) as record:
+        getattr(ax, name)(*args, linewidths=[2.5, 1], linestyles=["--", ":"])
+    messages = " ".join(str(w.message) for w in record)
+    assert "uses the first, 2.5" in messages and "uses the first, '--'" in messages
+    getattr(ax, name)(*args, linewidths=2.5, linestyles="--")
+    listed, single = ax.contours
+    assert (listed["linewidth"], listed["linestyle"]) == (
+        single["linewidth"],
+        single["linestyle"],
+    )
+
+
+def test_contour_uniform_lists_and_0d_arrays_are_one_value(recwarn):
+    fig, ax = glp.subplots()
+    ax.contour(_GRID, linestyles=[":"], linewidths=(2.0,))
+    ax.contour(_GRID, linestyles=[":"] * 3, linewidths=np.array([2.0, 2.0]))
+    ax.contour(_GRID, linestyles=":", linewidths=np.array(2.0))
+    for series in ax.contours:
+        assert (series["linewidth"], series["linestyle"]) == (2.0, 2)
+    assert not recwarn.list
+
+
+def test_contour_per_level_warning_names_the_keyword_passed():
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning, match=r"lw=\[3, 1\] uses the first, 3"):
+        ax.contour(_GRID, lw=[3, 1])
+    with pytest.warns(UserWarning) as record:
+        ax.contour(_GRID, linestyles=[(0, (5, 2)), "--"])
+    messages = [str(w.message) for w in record]
+    assert "uses the first, (0, (5, 2))" in messages[0]
+    assert "dash pattern" in messages[1]
+
+
+def test_contour_empty_per_level_list_raises():
+    fig, ax = glp.subplots()
+    with pytest.raises(ValueError, match=r"linestyles is an empty sequence"):
+        ax.contour(_GRID, linestyles=[])
+
+
 def test_contour_plural_wins_over_its_alias():
     fig, ax = glp.subplots()
     with pytest.warns(UserWarning, match="both linewidths and lw; linewidths wins"):
