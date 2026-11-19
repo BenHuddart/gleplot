@@ -1,9 +1,8 @@
 """
-gleplot - Matplotlib-like plotting library for GLE
+gleplot - write standard GLE from Python, with matplotlib-shaped names
 
-A Python library for creating scientific plots using matplotlib-like syntax
-that compiles directly to GLE (Graphics Layout Engine) format for publication-
-quality vector graphics.
+A Python library that writes GLE (Graphics Layout Engine) scripts for
+publication-quality vector graphics, through matplotlib-shaped calls.
 
 Features
 --------

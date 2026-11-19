@@ -229,7 +229,9 @@ keeps the full name, with a warning, unless the full name is left at its
 default. A `linewidth` that is NaN, infinite or negative raises
 `ValueError` at the call, on these and the other line-drawing calls below,
 `line_from_file`, `function` and `hist(histtype='step')`, where
-matplotlib does not check it. GLE has no zero-width stroke, so `lw=0` on
+matplotlib does not check it. So does a NaN or infinite position or edge on
+`axhline`, `axvline`, `axhspan` or `axvspan`, which matplotlib draws as nothing.
+GLE has no zero-width stroke, so `lw=0` on
 `plot` (and `step`, `stem`, `semilogx`, `semilogy`, `loglog`), `errorbar`,
 `line_from_file`, `axhline`, `axvline`, `hlines` and `vlines` draws no
 line, as `linestyle='none'` does; `errorbar` still draws its error bars.
@@ -274,7 +276,7 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 | `deresolve=5, deresolve_average=True` | `deresolve 5 average`: each window of five points is drawn as its mean. |
 | `xmin`, `xmax`, `ymin`, `ymax` | the series' own data range: it is drawn as if its axes ran over that range, and nothing outside it is drawn. This rescales the series; it is not a clip window, and the tick labels keep the axis' own range. An omitted edge is the limit of the axis the series is drawn against. |
 
-A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` takes the data range, and draws its error bars against it too, but not `mdist` or `deresolve`: GLE thins the markers but not the whiskers under `deresolve`.
+A bad value raises `ValueError` at the call. A range GLE cannot draw warns when the figure is saved: a lone edge at or beyond the far axis limit (GLE fills the missing edge from that limit and stops with "invalid range"), or an edge at or below zero on a log axis. A series with its own `deresolve` gets no preview-only decimation. `errorbar` and `errorbar_from_file` take the data range, and draw their error bars against it too, but not `mdist` or `deresolve`: GLE thins the markers but not the whiskers under `deresolve`. `open_gle` keeps either one on an error-bar dataset that has it.
 
 ## Scatter colours
 

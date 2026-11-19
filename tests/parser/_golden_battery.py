@@ -572,6 +572,26 @@ def file_series():
     return fig
 
 
+def file_series_data_range():
+    """An errorbar file reference with its own data range."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.errorbar_from_file("external.dat", 1, 2, yerr_col=3, xmin=0.5, ymax=12)
+    return fig
+
+
+def errorbar_thinned_from_a_file():
+    """An error-bar dataset with the mdist and deresolve only a file can give.
+
+    Axes.errorbar does not take them; open_gle keeps them (#343).
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.errorbar([0, 1, 2, 3], [1, 2, 1, 2], yerr=0.1, marker="o")
+    ax.errorbars[0].update(mdist=0.4, deresolve=2, deresolve_average=True)
+    return fig
+
+
 def file_series_without_a_line():
     """``line_from_file(linestyle='none')``: a dataset with no ``line`` token,
     one with a marker as well, and one feeding a derived curve."""
@@ -1882,6 +1902,20 @@ def figure_legend():
     return fig
 
 
+def legend_curves():
+    """#236: a histogram and a function curve listed by ``begin key`` blocks,
+    an axes legend with ``labelcolor`` and a figure legend."""
+    fig, axes = glp.subplots(1, 2, figsize=(8, 4), data_prefix="golden")
+    axes[0].plot([0, 1, 2], [0, 1, 0], label="line")
+    axes[0].hist([0.2, 0.5, 0.6, 1.4], histtype="step", label="hist")
+    axes[0].legend(labelcolor="blue")
+    axes[1].scatter([0, 1], [1, 0], label="pts")
+    axes[1].function("x", xmin=0, xmax=1, label="f")
+    fig.legend(loc="lower center", ncol=4)
+    fig.subplots_adjust(bottom=0.25)
+    return fig
+
+
 def figure_legend_options():
     """A figure legend anchored off the page corner, with every option."""
     fig = glp.figure(data_prefix="golden")
@@ -1992,6 +2026,8 @@ BUILDERS = [
     inset_alone,
     aspect_ratios,
     file_series,
+    file_series_data_range,
+    errorbar_thinned_from_a_file,
     file_series_without_a_line,
     file_series_field_options,
     file_series_read_options,
@@ -2062,6 +2098,7 @@ BUILDERS = [
     figure_text_and_suptitle,
     figure_text_only,
     figure_legend,
+    legend_curves,
     figure_legend_options,
     polar_plot,
     polar_field_options,

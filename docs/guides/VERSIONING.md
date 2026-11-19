@@ -1,10 +1,26 @@
 # Versioning and releases
 
 gleplot follows [Semantic Versioning 2.0](https://semver.org/). Releases are
-cut automatically by
-[Python Semantic Release](https://python-semantic-release.readthedocs.io/)
+cut by [Python Semantic Release](https://python-semantic-release.readthedocs.io/)
 from [conventional commit](https://www.conventionalcommits.org/) messages on
-`main`.
+`main`, while the maintainer has the Release workflow enabled.
+
+## Stability
+
+6.0 is gleplot's first stable release. From 6.0 on, a public name or a
+default changes only in a major release, and so does the GLE a script emits
+when that output was correct. A minor adds capability, and a patch changes
+emitted GLE only to correct output that was wrong.
+
+## Gathering a major
+
+To gather breaking changes into one major, the maintainer pauses releases by
+disabling the Release workflow. While it is paused, commits still land on
+`main` with their usual types, breaking (`!`) changes included, and nothing is
+published. Re-enabling the workflow does not run it: the maintainer then runs
+it by hand (**Actions → Release → Run workflow**, `auto`), and that run cuts
+one release from every commit since the last tag, a single major if any of
+them is breaking.
 
 ## Commit messages
 
@@ -46,8 +62,8 @@ The bump rules live in `pyproject.toml` under
 
 1. A push to `main` runs the **Tests** workflow. Pull requests never cut a
    release.
-2. When Tests succeed and that commit is still the tip of `main`, the
-   **Release** workflow
+2. When Tests succeed, that commit is still the tip of `main`, and the
+   maintainer has not paused releases, the **Release** workflow
    ([`.github/workflows/release.yml`](https://github.com/benhuddart/gleplot/blob/main/.github/workflows/release.yml))
    looks at the commits since the last tag.
 3. If they warrant a bump, python-semantic-release updates the version,
@@ -108,6 +124,8 @@ twine check dist/*
 
 ## If the Release workflow does nothing
 
+- Releases are paused: the maintainer has disabled the workflow to gather a
+  major (see [Gathering a major](#gathering-a-major)).
 - No commit since the last tag has a bumping type. `docs:`, `test:`, `ci:`
   and the like never release on their own.
 - A newer commit reached `main` before Tests finished; that commit's run cuts
