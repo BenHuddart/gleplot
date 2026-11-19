@@ -52,7 +52,7 @@ figure(figsize=(8, 6), dpi=100)
     Create a new figure
 """
 
-__version__ = "5.6.2"
+__version__ = "5.6.3"
 __author__ = "gleplot contributors"
 
 from . import _warn
