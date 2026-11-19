@@ -1813,7 +1813,7 @@ class TestLineModes:
 
 
 class TestDatasetQualifiers:
-    """``mdist``, ``deresolve [average]`` and the per-dataset clip window."""
+    """``mdist``, ``deresolve [average]`` and the per-dataset data range."""
 
     @pytest.fixture(autouse=True)
     def _setup_teardown(self):
@@ -2997,8 +2997,11 @@ def test_add_text_keywords_reach_the_emitted_text():
     [
         lambda ax, **kw: ax.plot([0, 1], [0, 1], **kw),
         lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw),
+        lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, **kw),
+        lambda ax, **kw: ax.axhline(0.5, **kw),
+        lambda ax, **kw: ax.axvline(0.5, **kw),
     ],
-    ids=["plot", "errorbar"],
+    ids=["plot", "errorbar", "line_from_file", "axhline", "axvline"],
 )
 def test_linewidth_none_means_the_default_width(draw):
     """matplotlib reads ``linewidth=None`` as the default width."""
@@ -3010,6 +3013,12 @@ def test_linewidth_none_means_the_default_width(draw):
         return fig._generate_gle_with_files()[0]
 
     assert script(linewidth=None) == script()
+
+
+def test_line_from_file_rejects_a_linewidth_that_is_not_a_number():
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(TypeError, match=r"line_from_file\(\) linewidth .*'thick'"):
+        ax.line_from_file("f.dat", 1, 2, linewidth="thick")
 
 
 def _saved(fig, tmp_path):

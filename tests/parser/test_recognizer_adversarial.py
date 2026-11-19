@@ -791,6 +791,109 @@ def test_constant_error_on_shared_file_reference_keeps_dataset_defined(tmp_path)
     assert out2.read_text(encoding="utf-8") == text1
 
 
+def test_raw_dataset_names_are_not_reused_by_written_series(tmp_path):
+    """#275: series written next to a raw ``dN`` line take other names.
+
+    The raw ``d1`` comes first in the source, so numbering the modelled line
+    from ``d1`` would redefine it, and so would a line plotted after loading.
+    """
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "a.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d1 marker fcircle err 0.5\n"
+        "   d2 line color red\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "raw.gle", src, {"a.dat": "0 1 2\n1 2 3\n2 3 2\n"})
+    fig = parse_gle_figure(p).figure
+    ax = fig.axes_list[0]
+    assert ax.passthrough[-1] == "   d1 marker fcircle err 0.5"
+
+    out1 = tmp_path / "out1.gle"
+    fig.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+    assert "    d2 line color red" in text1
+    assert text1.count("d1=") == 1
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == text1
+
+    ax.plot([0, 1], [1, 0])
+    out3 = tmp_path / "out3.gle"
+    fig.savefig_gle(str(out3))
+    text3 = out3.read_text(encoding="utf-8")
+    assert text3.count("d1=") == 1
+    assert "    d3 line color red" in text3
+
+
+@pytest.mark.parametrize(
+    "body, written",
+    [
+        # A bare 'data' statement fills the lowest undefined datasets, and
+        # the raw one is written after the modelled line's own.
+        (
+            '   data "a.dat"\n'
+            '   data "a.dat" d3=c1,c2\n'
+            "   d1 marker fcircle err 10%\n"
+            "   d2 marker fcircle err 10%\n"
+            "   d3 line color blue\n",
+            ["    d3 line color blue"],
+        ),
+        # ... and its slots are the lowest free ones, drawn or not.
+        (
+            '   data "a.dat"\n'
+            '   data "a.dat" d5=c1,c2\n'
+            "   d2 marker fcircle err 10%\n"
+            "   d5 line color blue\n",
+            ["    d3 line color blue"],
+        ),
+        # A raw line that only reads the modelled datasets keeps them named.
+        (
+            '   data "a.dat" d1=c1,c2 d2=c1,c3\n'
+            "   d1 line color blue\n"
+            "   d2 line color red\n"
+            "   fill d1,d2 color red xmin 0.5 pattern shade\n",
+            ["    d1 line color blue", "    d2 line color red"],
+        ),
+        # #171: a raw function 'let' defines its dataset too.
+        (
+            "   let d1 = x^2 from -2 to 2\n"
+            "   fill x1,d1 color blue\n"
+            '   data "a.dat" d2\n'
+            "   d2 line color red\n",
+            ["    d2 line color red"],
+        ),
+    ],
+)
+def test_written_series_names_around_raw_datasets(tmp_path, body, written):
+    """#275: datasets raw GLE defines are reserved; those it reads are not."""
+    src = "size 12 9\nbegin graph\n   size 10 7\n" + body + "end graph\n"
+    p = _write(tmp_path, "raw.gle", src, {"a.dat": "0 1 2\n1 2 3\n2 3 2\n"})
+    out1 = tmp_path / "out1.gle"
+    parse_gle_figure(p).figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+    for line in written:
+        assert line in text1
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == text1
+
+
+def test_raw_data_statement_naming_datasets_without_columns_reserves_them(
+    tmp_path,
+):
+    """#275: ``data "f" d1 d2`` defines both names, drawn or not."""
+    fig = glp.figure(data_prefix="named")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1], [1, 0])
+    ax.passthrough = ['   data "a.dat" d1 d2', "   d1 marker fcircle"]
+    out = tmp_path / "named.gle"
+    fig.savefig_gle(str(out))
+    assert "    d3 line" in out.read_text(encoding="utf-8")
+
+
 def test_constant_error_on_own_file_reference_restores_data_line(tmp_path):
     """#133: a file read only by raw error-bar lines keeps its ``data`` line."""
     src = (

@@ -544,6 +544,83 @@ def test_broken_sidecar_keeps_its_reading_options(tmp_path):
     assert all("data_error" in fs for fs in refs)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "   data f.dat d1=c1,c2 ignore 2\n   bar d1\n",
+        "   data f.dat d1=c1,c2 d2=c1,c3 numrows 2\n   fill d1,d2 color red\n",
+    ],
+)
+def test_a_file_read_with_options_is_not_loaded(tmp_path, body):
+    """#169: the loader would read rows GLE skips; keep a reference instead."""
+    src = "size 12 9\nbegin graph\n   size 10 7\n" + body + "end graph\n"
+    p = _write(tmp_path, "o.gle", src, {"f.dat": "99 99 99\n1 2 3\n2 3 4\n3 5 6\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == [] and ax.fills == [] and ax.errorbars == []
+    assert len(ax.file_series) == 1
+    assert {"skiprows", "max_rows", "comment"} & set(ax.file_series[0])
+    assert any(w.startswith("data:") and "'f.dat'" in w for w in rec.warnings)
+    out = tmp_path / "again.gle"
+    rec.figure.savefig_gle(str(out))
+    assert body.splitlines()[0].strip() in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "body, data, written",
+    [
+        # A text first column labels the x axis; x is the point index.
+        ('data "t.dat"\n   d1 line', "a 2 3\nb 3 4\n", "data t.dat d1=c0,c2"),
+        ('data "t.dat" d1 d2\n   d2 line', "a 2 3\nb 3 4\n", "data t.dat d1=c0,c3"),
+        ('data "t.dat"\n   bar d1', "a 2 3\nb 3 4\n", "data t.dat d1=c0,c2"),
+        # 'nox' makes x the point index and y start at c1.
+        ('data "n.dat" d1 d2 nox\n   d2 line', "1 2 3\n2 3 4\n", "data n.dat d1=c0,c2"),
+    ],
+)
+def test_positional_x_follows_gle(tmp_path, body, data, written):
+    """#169: datasets given without columns get the x GLE gives them."""
+    src = f"size 12 9\nbegin graph\n   size 10 7\n   {body}\nend graph\n"
+    p = _write(tmp_path, "p.gle", src, {"t.dat": data, "n.dat": data})
+    fig = parse_gle_figure(p).figure
+    assert fig.axes_list[0].bars == []
+    out = tmp_path / "again.gle"
+    fig.savefig_gle(str(out))
+    assert written in out.read_text(encoding="utf-8")
+
+
+def test_options_on_one_graph_do_not_stop_another_loading_the_file(tmp_path):
+    """#169: GLE reads the file afresh in each graph."""
+    src = (
+        "begin graph\n   data f.dat d1=c1,c2 ignore 1\n   bar d1\nend graph\n"
+        "begin graph\n   data f.dat d2=c1,c3\n   bar d2\nend graph\n"
+    )
+    p = _write(tmp_path, "two.gle", src, {"f.dat": "1 2 3\n2 3 4\n"})
+    first, second = parse_gle_figure(p).figure.axes_list
+    assert (len(first.bars), len(second.bars)) == (0, 1)
+
+
+def test_a_single_text_column_defines_no_dataset(tmp_path):
+    """#169: GLE reads a lone text column as x labels only; the statement
+    is kept as written."""
+    src = 'begin graph\n   data "w.dat"\n   d1 line\nend graph\n'
+    p = _write(tmp_path, "w.gle", src, {"w.dat": "a\nb\nc\n"})
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    assert ax.file_series == [] and ax.lines == []
+    assert '   data "w.dat"' in ax.passthrough
+
+
+def test_an_unmodelled_data_option_is_reported(tmp_path):
+    """#169: ``delimiters`` is not modelled; the note says it is dropped."""
+    src = (
+        'begin graph\n   data "s.dat" d1=c1,c2 delimiters ";"\n   d1 line\nend graph\n'
+    )
+    p = _write(tmp_path, "s.gle", src, {"s.dat": "1;2\n2;3\n"})
+    rec = parse_gle_figure(p)
+    assert any(
+        w.startswith("data:") and "'delimiters \";\"'" in w for w in rec.warnings
+    )
+
+
 def test_broken_bar_becomes_file_series_with_error(tmp_path):
     """``bar dN fill COLOR`` against a missing data file -> FileSeries('bar')."""
     _gleplot_axes._global_data_file_counter = 0
@@ -1249,7 +1326,7 @@ def test_line_mode_on_an_errorbar_warns_and_is_dropped(tmp_path):
 
 
 def test_dataset_qualifiers_are_recovered_and_round_trip(tmp_path):
-    """``mdist``, ``deresolve [average]`` and the clip window survive a re-save.
+    """``mdist``, ``deresolve [average]`` and the data range survive a re-save.
 
     They used to be skipped by the attribute scan and silently lost. GLE
     reads ``average`` only straight after the ``deresolve`` count, and a
@@ -1343,7 +1420,7 @@ def test_dataset_qualifiers_on_a_loaded_line_and_scatter(tmp_path):
 
 
 def test_a_reference_line_with_a_qualifier_stays_a_line(tmp_path):
-    """No guide emission writes a clip window; an edited guide is kept as a line."""
+    """No guide emission writes a data range; an edited guide is kept as a line."""
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
     ax = fig.add_subplot(111)
@@ -1904,6 +1981,78 @@ def test_a_hist_let_with_no_display_command_stays_raw(tmp_path):
     assert ax.hists == []
     assert any("let d2 = hist d1" in ln for ln in ax.passthrough)
     assert any("histogram let d2 was not paired" in w for w in recognized.warnings)
+
+
+@pytest.mark.parametrize(
+    "before, after, written",
+    [
+        ("", "", '   data "d.dat" d1'),
+        # Its source is drawn too, and keeps reading the same file.
+        ("", "   d1 marker circle\n", '   data "d.dat" d1'),
+        # A series written first is renumbered; the let still reads d.dat.
+        ('   data "e.dat" d5\n   d5 line\n', "   d1 line\n", '   data "d.dat" d1'),
+        # A sibling on the same statement is written on its own.
+        ("", "   d3 line\n", "    data d.dat d1=c1,c2"),
+    ],
+)
+def test_a_hist_let_on_a_users_file_stays_raw(tmp_path, before, after, written):
+    """#174: a histogram of a file gleplot did not write never rewrites it."""
+    dat = "0 2.3 5\n0.4 1.9 6\n0.9 2.5 7\n1.3 3.1 8\n"
+    data = '   data "d.dat" d1=c1,c2 d3=c1,c3\n' if "d3" in after else ""
+    src = (
+        "size 10 8\nbegin graph\n"
+        + before
+        + (data or '   data "d.dat" d1\n')
+        + "   let d2 = hist d1 step 0.5\n"
+        + after
+        + "   d2 line hist color red\n"
+        + "end graph\n"
+    )
+    p = _write(tmp_path, "h.gle", src, {"d.dat": dat, "e.dat": "0 9\n1 8\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.hists == []
+    assert "   let d2 = hist d1 step 0.5" in ax.passthrough
+    assert any("histogram let d2 reads d1" in w for w in rec.warnings)
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert (tmp_path / "d.dat").read_text(encoding="utf-8") == dat
+    assert "import-data = d.dat" not in text
+    assert written + "\n   let d2 = hist d1 step 0.5\n" in text
+
+
+def test_a_hist_let_on_an_offset_let_stays_raw(tmp_path):
+    """#174: a histogram of a ``let`` that stays raw is kept as written."""
+    src = (
+        "size 10 8\nbegin graph\n"
+        '   data "d.dat" d1\n'
+        "   let d2 = d1+1\n"
+        "   let d3 = hist d2\n"
+        "   d1 line\n"
+        "   d2 line\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "o.gle", src, {"d.dat": "0 1\n1 2\n"})
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    assert ax.hists == []
+    assert "   let d3 = hist d2" in ax.passthrough
+
+
+def test_a_string_naming_a_hist_source_does_not_keep_it_raw(tmp_path):
+    """#174: only statements, not a title, can read a histogram's samples."""
+    fig = gleplot.figure(data_prefix="hist")
+    ax = fig.add_subplot(111)
+    ax.hist([0, 1, 1], bins=2, range=(0, 1), histtype="step")
+    ax.set_title("d1")
+    first = tmp_path / "first.gle"
+    fig.savefig_gle(str(first))
+    recognized = parse_gle_figure(first)
+    assert len(recognized.figure.axes_list[0].hists) == 1
+    second = tmp_path / "second.gle"
+    recognized.figure.savefig_gle(str(second))
+    assert second.read_text(encoding="utf-8") == first.read_text(encoding="utf-8")
 
 
 def _graph_file(tmp_path, *body):

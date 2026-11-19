@@ -27,6 +27,7 @@ from .compiler import (
     SUFFIX_TO_COMPILE_FORMAT,
     CompileFormat,
     GLECompiler,
+    _remove_tex_cache,
     remove_generated_intermediates,
 )
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
@@ -144,6 +145,7 @@ def _refline_axis_values(ax, orient: str):
     counts: the extent along the other axis is an axes fraction, so feeding it
     back into autoscale would be circular. A hidden guide (SPEC 14.6)
     contributes nothing: it is not drawn, so it does not hold the axis open.
+    A non-finite coordinate contributes nothing either (see :func:`_plottable`).
     """
     values = []
     for entry in getattr(ax, "reflines", ()):
@@ -153,23 +155,18 @@ def _refline_axis_values(ax, orient: str):
         if entry["orient"] == orient and is_visible(entry):
             values.append(float(entry["start"]))
             values.append(float(entry["end"]))
-    return values
+    return [v for v in values if math.isfinite(v)]
 
 
-def _plottable(
-    values: np.ndarray, positive_only: bool, gaps: bool = False
-) -> np.ndarray:
+def _plottable(values: np.ndarray, positive_only: bool) -> np.ndarray:
     """``values``, restricted to what the axis can actually show.
 
-    With ``positive_only`` (a log axis) the non-positive entries are dropped,
+    Non-finite entries are dropped, as matplotlib's autoscale ignores them: a
+    NaN or infinite bound is an axis range GLE refuses to compile. With
+    ``positive_only`` (a log axis) the non-positive entries are dropped too,
     mirroring matplotlib, which masks them rather than refusing to autoscale.
-    With ``gaps`` (a series whose NaN rows separate its segments, see
-    :class:`~gleplot.series.LineSeries`) the NaN entries are dropped. Without
-    either this is the identity, so every ordinary axis is bounded by exactly
-    the values it always was.
     """
-    if gaps:
-        values = values[~np.isnan(values)]
+    values = values[np.isfinite(values)]
     if not positive_only:
         return values
     return values[values > 0]
@@ -726,6 +723,24 @@ class Figure:
         latest ``savefig``/``savefig_gle`` rather than accumulating.
         """
         return list(self._source_warnings)
+
+    @property
+    def axes(self) -> List[Axes]:
+        """The figure's axes, in the order they were added.
+
+        A new list on each access, as in matplotlib: add axes with
+        :meth:`add_subplot` or :meth:`add_axes`, not by changing the list.
+        For a figure from :func:`gleplot.open_gle`, the order is that of the
+        graph blocks in the file. Each segment of a broken axis
+        (:meth:`add_broken_xaxes`, :meth:`add_broken_yaxes`) is an entry.
+
+        Notes
+        -----
+        Unlike matplotlib, the secondary axes that :meth:`gleplot.Axes.twinx`
+        and :meth:`gleplot.Axes.twiny` return are not entries: they draw on
+        their parent axes' graph.
+        """
+        return list(self.axes_list)
 
     @property
     def preview_decimation_report(self) -> List:
@@ -2027,11 +2042,14 @@ class Figure:
             )
         return mappable, owner
 
-    def xlabel(self, label: str):
-        """Set x label on current axes."""
-        return self.gca().set_xlabel(label)
+    def xlabel(self, label: str, **kwargs):
+        """Set x label on current axes.
 
-    def ylabel(self, label: str, axis: str = "y"):
+        Keywords are as for :meth:`Axes.set_xlabel`.
+        """
+        return self.gca().set_xlabel(label, **kwargs)
+
+    def ylabel(self, label: str, axis: str = "y", **kwargs):
         """Set y label on current axes.
 
         Parameters
@@ -2040,12 +2058,17 @@ class Figure:
             Axis label text
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        **kwargs
+            As for :meth:`Axes.set_ylabel`.
         """
-        return self.gca().set_ylabel(label, axis=axis)
+        return self.gca().set_ylabel(label, axis=axis, **kwargs)
 
-    def title(self, label: str):
-        """Set title on current axes."""
-        return self.gca().set_title(label)
+    def title(self, label: str, **kwargs):
+        """Set title on current axes.
+
+        Keywords are as for :meth:`Axes.set_title`.
+        """
+        return self.gca().set_title(label, **kwargs)
 
     def legend(self, *args, **kwargs) -> "Figure":
         """Add one legend for the whole figure, listing every axes' series.
@@ -2533,8 +2556,9 @@ class Figure:
 
             When Cairo ends up active (auto or forced) and this figure's
             configured font (:attr:`style`'s ``font``) is not one of GLE's
-            Cairo-safe fonts, a :class:`UserWarning` is raised: GLE itself
-            substitutes a Cairo-safe font in that case (see
+            Cairo-safe fonts, a :class:`UserWarning` naming why Cairo is on
+            (the figure's semi-transparent colours, or ``cairo=True``) is
+            raised: GLE itself substitutes a Cairo-safe font in that case (see
             :mod:`gleplot.cairo_support`), and SPEC's "no silent drops" rule
             means that substitution must never happen without gleplot saying
             so.
@@ -2556,10 +2580,10 @@ class Figure:
             If True, skip the post-compile cleanup of GLE-generated contour/
             ``fitz`` intermediates (``-cdata.dat``/``-clabels.dat``/
             ``-cvalues.dat``, and a points-sourced heatmap/contour's
-            generated ``.z``) that a compiled export otherwise removes from
-            ``export_dir`` afterwards -- see the "Engine intermediates"
-            note below. Default False. Has no effect when this figure has
-            no contour/heatmap series, or when ``format == 'gle'`` (no
+            generated ``.z``) and of GLE's ``.gle/`` LaTeX cache entries
+            that a compiled export otherwise removes from ``export_dir``
+            afterwards -- see the "Engine intermediates" note below.
+            Default False. Has no effect when ``format == 'gle'`` (no
             compile runs, so nothing was generated to clean up).
         preview_decimation : DecimationPolicy, optional
             Preview-only ``deresolve`` factor -- see :meth:`savefig_gle` for
@@ -2616,6 +2640,18 @@ class Figure:
         a contour's raw crossings while debugging. A failed compile raises
         before cleanup runs, so its intermediates (if any were written) are
         never removed -- they may help diagnose the failure.
+
+        **LaTeX cache.** A figure GLE renders through LaTeX (:meth:`tex`,
+        or ``GLEStyleConfig(usetex=True)``) makes GLE write a ``.gle/``
+        cache directory into ``export_dir``. A successful compile removes
+        this script's folder in it and any ``texpreamble.*`` files the
+        compile created, then the directory if it is empty. Preamble files
+        are left if they were already there, or if another figure's folder
+        is in the cache, since other figures in the same directory share
+        them. Two first-time compiles started together in one directory can
+        still remove a preamble the other is using; give such parallel
+        saves separate directories. ``keep_intermediates=True`` keeps the
+        cache.
         """
         # matplotlib keywords with no GLE counterpart, and their defaults.
         for name, default in (
@@ -2694,6 +2730,11 @@ class Figure:
                 )
 
             effective_cairo = self.requires_cairo() if cairo is None else cairo
+            why = (
+                "figure requires Cairo for its semi-transparent colours"
+                if cairo is None
+                else "cairo=True was requested"
+            )
             # GLE's Cairo device, which SVG always uses, draws nothing for
             # the 'postscript' command.
             if (effective_cairo or format.lower() == "svg") and any(
@@ -2705,8 +2746,7 @@ class Figure:
                 reason = (
                     "in SVG output"
                     if format.lower() == "svg"
-                    else "with GLE's Cairo device (cairo=True, or "
-                    "semi-transparent colours)"
+                    else f"with GLE's Cairo device ({why})"
                 )
                 warn_external(
                     f"image(...) EPS files are not drawn {reason}; convert the "
@@ -2733,12 +2773,14 @@ class Figure:
                 for font in dict.fromkeys([self.style.font, *title_fonts]):
                     warning = cairo_font_warning(font)
                     if warning:
-                        warn_external(
-                            f"{warning} (figure requires Cairo for its "
-                            "semi-transparent colours).",
-                        )
+                        warn_external(f"{warning} ({why}).")
 
             output_dpi = dpi or self.dpi
+            tex_cache = export_dir / ".gle"
+            try:
+                tex_cache_before = {p.name for p in tex_cache.iterdir()}
+            except OSError:
+                tex_cache_before = set()
             self.compiler.compile(
                 str(base_path),
                 cast(CompileFormat, format),
@@ -2755,6 +2797,7 @@ class Figure:
                 remove_generated_intermediates(
                     export_dir, self._engine_intermediate_filenames()
                 )
+                _remove_tex_cache(tex_cache, base_path.stem, tex_cache_before)
 
             return output_path.with_suffix(f".{format}")
 
@@ -3667,6 +3710,7 @@ class Figure:
         datasets they fall between.
         """
         resolution = resolution or SourceResolution()
+        writer.reserve_datasets(ax.passthrough)
         self._write_axis_setup(writer, ax, frame)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
@@ -4742,7 +4786,7 @@ class Figure:
                     if xerr_right is not None:
                         pieces.append(x + np.asarray(xerr_right, dtype=float))
                     values = np.concatenate(pieces)
-                values = _plottable(values, positive_only, bool(data.get("gaps")))
+                values = _plottable(values, positive_only)
                 if len(values) > 0:
                     if xmin is None or values.min() < xmin:
                         xmin = float(values.min())
@@ -4918,9 +4962,7 @@ class Figure:
         for data_list in offset_bearing:
             for data in data_list:
                 y = _plottable(
-                    np.asarray(data["y"]) + data.get("offset", 0.0),
-                    positive_only,
-                    bool(data.get("gaps")),
+                    np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
                 )
                 if len(y) > 0:
                     if ymin is None or y.min() < ymin:

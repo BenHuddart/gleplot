@@ -9,6 +9,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `plt.figure()` | `glp.figure()` |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background, and axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
+| `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
 | `ax.plot(...)` | same |
 | `ax.scatter(...)` | same, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
 | `ax.errorbar(...)` | same |
@@ -24,11 +25,12 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` |
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
+| `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
 | `ax.spines[...].set_visible(False)` | `ax.set_axis_line(axis, visible=False)`, with `'x'`, `'y'`, `'x2'`, `'y2'` for bottom, left, top, right |
 | `ax.spines['left'].set_position('zero')` and `ax.spines['bottom'].set_position('zero')` | `ax.set_math_mode()` |
 | `ax.legend(...)` | same |
-| `ax.twinx()` / `ax.twiny()` | same, a view of the right or top scale, see [Secondary axes](#secondary-axes); `twinx`'s `axes_class`, `delta_zorder` and other keywords warn |
+| `ax.twinx()` / `ax.twiny()` | same, a view of the right or top scale, see [Secondary axes](#secondary-axes); their `axes_class`, `delta_zorder` and other keywords warn |
 | `ax.invert_xaxis()` / `ax.invert_yaxis()` | same; automatic limits are fixed to the data plotted so far, so plot first. On a `twinx()`/`twiny()` view, set the limits first |
 | `ax.semilogx(...)` / `semilogy` / `loglog` | same; `base` other than 10, `subs` and `nonpositive` warn |
 | `ax.set_xticklabels(labels)` / `set_yticklabels` | same, after `set_xticks(ticks)`; `minor=True` and text properties warn |
@@ -248,7 +250,7 @@ that is not a line style. This holds for `plot` and the calls above, for
 `contour` and `tricontour`. A `(offset, None)` tuple is matplotlib's solid
 line and is drawn solid without a warning.
 
-## Marker spacing, thinning and clipping
+## Marker spacing, thinning and data ranges
 
 GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. Use `mdist` instead: it places the markers every `mdist` cm along the drawn curve, whatever the point spacing. That is closest to matplotlib's float form of `markevery`. These keywords are gleplot's names for GLE's dataset qualifiers, and `scatter` passes them on to `plot`:
 
@@ -257,7 +259,7 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 | `mdist=0.5` | `mdist 0.5`. Needs a `marker`; without one it warns and is dropped. `GLEMarkerConfig(mdist=...)` is the default for every marked line in the figure. |
 | `deresolve=5` | `deresolve 5`: one point in every five is drawn. GLE keeps a line's first and last point. |
 | `deresolve=5, deresolve_average=True` | `deresolve 5 average`: each window of five points is drawn as its mean. |
-| `xmin`, `xmax`, `ymin`, `ymax` | the series' own clip window in data coordinates. Nothing is drawn outside it. |
+| `xmin`, `xmax`, `ymin`, `ymax` | the series' own data range: it is drawn as if its axes ran over that range, and nothing outside it is drawn. This rescales the series; it is not a clip window, and the tick labels keep the axis' own range. An omitted edge is the limit of the axis the series is drawn against. |
 
 A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` does not take them: GLE thins the markers but not the whiskers under `deresolve`.
 
@@ -422,7 +424,7 @@ ax.set_ylim(0, 2)
 
 | matplotlib | gleplot |
 |---|---|
-| `ax.plot(theta, r)`, `ax.scatter(theta, r)` | same. `yaxis`, `xaxis`, `offset`, `drawstyle`/`ds`/`line_mode` and the `xmin`/`xmax`/`ymin`/`ymax` clip window raise `ValueError`. |
+| `ax.plot(theta, r)`, `ax.scatter(theta, r)` | same. `yaxis`, `xaxis`, `offset`, `drawstyle`/`ds`/`line_mode` and the `xmin`/`xmax`/`ymin`/`ymax` data range raise `ValueError`. |
 | `ax.set_ylim(0, rmax)`, `ax.set_ylim(top=...)` | `ax.set_ylim(0, rmax)` or `ax.set_ylim(None, rmax)`. A lower limit other than 0 raises `ValueError`. Left unset, the outer ring is the largest radius in the data rounded up to a ring, or 1 when the axes has only function curves. |
 | `ax.set_rmax`, `set_rticks`, `set_thetagrids`, `set_theta_zero_location`, `set_theta_direction`, `set_rlabel_position` | not available. Rings are evenly spaced, at most five; spokes and angle labels are every 45°, counter-clockwise from the right; ring labels lie along 22.5°. |
 | `ax.grid(True)` | does nothing: the polar grid is always drawn. `ax.grid(False)`, `ax.grid()` and grid styling warn and are ignored. `GLEGraphConfig(show_grid=True)` does not apply. |

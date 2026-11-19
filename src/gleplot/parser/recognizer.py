@@ -1732,6 +1732,8 @@ class _Recognizer:
         # dataset name (lower) -> the FileSeries reading fields (skiprows,
         # comment, max_rows) its 'data' statement set; absent when none.
         self._data_read_options: Dict[str, Dict[str, Any]] = {}
+        # Files a note has already said gleplot does not load, this graph.
+        self._noted_unloaded: Set[str] = set()
         # resolved-table cache per data_file name
         self._table_cache: Dict[str, object] = {}
         self._import_list: Optional[List[str]] = None
@@ -3021,6 +3023,9 @@ class _Recognizer:
         three).
         """
         pass1 = _GraphDatasets()
+        # GLE clears its datasets at 'begin graph'; so do the options.
+        self._data_read_options.clear()
+        self._noted_unloaded.clear()
         for child in block.body:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
@@ -3029,16 +3034,22 @@ class _Recognizer:
                 names = self._parse_data_command(
                     _words_and_values(child), pass1.datasets, line_no=child.line_no
                 )
-                if names:
-                    pass1.data_stmts.append(
+                # One defining no dataset (an unresolved file, or a lone text
+                # column GLE reads as x labels) is restored as written.
+                pass1.data_stmts.append(
+                    (
+                        names,
+                        self._stmt_text(child),
+                        child.line_no,
+                        {name: pass1.datasets[name] for name in names},
                         (
-                            names,
-                            self._stmt_text(child),
-                            child.line_no,
-                            {name: pass1.datasets[name] for name in names},
-                            dict(self._data_read_options.get(names[0], {})),
-                        )
+                            dict(self._data_read_options.get(names[0], {}))
+                            if names
+                            else {}
+                        ),
                     )
+                )
+                if names:
                     # An axis or polygon fill uses one of these names.
                     # Modelling it while the statement still declares
                     # others would drop this line and rewrite the file
@@ -3057,7 +3068,11 @@ class _Recognizer:
                 let_toks = _words_and_values(child)
                 self._parse_let_command(let_toks, pass1.datasets, info)
                 self._record_hist_let(
-                    let_toks, pass1.datasets, info, self._stmt_text(child)
+                    let_toks,
+                    pass1.datasets,
+                    info,
+                    self._stmt_text(child),
+                    child.line_no,
                 )
                 self._record_function_let(let_toks, info)
                 self._record_fit_let(let_toks, pass1.datasets, info)
@@ -3072,6 +3087,7 @@ class _Recognizer:
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
         self._keep_plain_derived_lets(block, pass1, info)
         self._keep_plain_function_lets(block, pass1, info)
+        self._keep_owned_hist_lets(block, pass1, info)
         self._keep_colour_lets(pass1, info)
         return pass1
 
@@ -3385,8 +3401,8 @@ class _Recognizer:
         ``defs`` pairs each dataset name with its (file, x column, y column).
         Only for a file read in place that no recovered series writes: the
         columns the original statement gave these datasets are then still
-        there on re-save. An index-x dataset (single-column file) has no
-        ``cX`` to name.
+        there on re-save. An index-x dataset is written with ``c0``, which
+        GLE reads as the point index.
         """
         data_file = defs[0][1][0]
         if self._is_import(data_file) or any(
@@ -3398,8 +3414,6 @@ class _Recognizer:
             return None
         clauses = []
         for name, (_file, xcol, ycol) in defs:
-            if xcol < 1:
-                return None
             clauses.append(f" {name}=c{xcol},c{ycol}")
         return (
             f"    data {_format_data_filename(data_file)}"
@@ -4056,7 +4070,7 @@ class _Recognizer:
           the guide by editing the ``.dat``);
         * the display command carries something no guide emission has: a
           marker, a ``y2axis`` binding, an offset ``let``, smoothing, a
-          dataset qualifier (``mdist``, ``deresolve``, a clip window);
+          dataset qualifier (``mdist``, ``deresolve``, a data range);
         * or lacks the ``color`` and ``lwidth`` every guide emission writes.
 
         Never guessed at, never half-applied: the caller then appends the
@@ -5185,15 +5199,20 @@ class _Recognizer:
         * **Positional** ``data f.dat d1 d3`` -- dataset names with no ``=``:
           each ``!xygiven`` dataset gets x = c1 and y assigned by its *position*
           among the given datasets (``d1`` -> c2, ``d3`` -> c3), NOT by dataset
-          number.  A single-column file switches to index-x (``nox``).
+          number.
         * **Auto** ``data f.dat`` -- no dataset clauses: register d1=c1,c2,
           d2=c1,c3, ... one per column past the x column (up to the file's
-          column count), when the file resolves.  Single-column file -> d1 =
-          index,c1.
+          column count), when the file resolves.
+
+        In both of the last two, x is the point index (``c0``) instead under
+        ``nox`` or for a single-column file, with y starting at c1; and when
+        every value in the first column is text, with y starting at c2 (the
+        text labels the x axis). The column count and the text test read the
+        whole file, without the statement's reading options.
 
         The reading options ``ignore n``, ``comment c`` and ``numrows n``
         may appear anywhere after the file name; each named dataset records
-        them (see :attr:`_data_read_options`).
+        them (see :attr:`_data_read_options`). Any other word is reported.
 
         The filename token is *unwrapped* (STRING tokens have their quotes
         stripped) so ``data "wave.dat"`` registers ``wave.dat`` rather than the
@@ -5207,6 +5226,8 @@ class _Recognizer:
         # Collect dataset clauses in the order given: (name, explicit_cols|None).
         given: List[Tuple[str, Optional[Tuple[int, int]]]] = []
         read_options: Dict[str, Any] = {}
+        nox = False
+        unread: List[str] = []
         while i < m:
             name_tok = toks[i]
             option = name_tok.value.lower() if name_tok.type is TokenType.WORD else ""
@@ -5220,9 +5241,16 @@ class _Recognizer:
             if option == "comment" and i + 1 < m:
                 read_options["comment"], i = self._read_filename(toks, i + 1)
                 continue
+            if option == "nox":
+                # It only moves the x of datasets given without columns, and
+                # those are written back with explicit columns.
+                nox = True
+                i += 1
+                continue
             if name_tok.type is not TokenType.WORD or not _DATASET_RE.match(
                 name_tok.value
             ):
+                unread.append(name_tok.value)
                 i += 1
                 continue
             name = name_tok.value.lower()
@@ -5262,14 +5290,27 @@ class _Recognizer:
                     (line_no, line_no) if line_no is not None else None,
                 )
 
+        if unread:
+            self._note(
+                ImportCategory.DATA,
+                f"'{' '.join(unread)}' on the 'data' statement for "
+                f"'{data_file}' is not modelled; a 'data' line gleplot writes "
+                "for this file leaves it out",
+                (line_no, line_no) if line_no is not None else None,
+            )
+
         need_auto = not given or any(c is None for _n, c in given)
         ncols = self._file_column_count(data_file) if need_auto else None
 
-        # x column / y offset per GLE: single-column file uses index x.
-        if ncols is not None and ncols <= 1:
-            cx, cy_first = 0, 1  # x = point index, y = c1
+        # x column / first y column, as GLE's data_command assigns them: x is
+        # the point index (c0) under 'nox', for a single-column file, and when
+        # every value in the first column is text (it then labels the x axis).
+        if need_auto and self._first_column_is_labels(data_file):
+            cx, cy_first = 0, 2
+        elif nox or (ncols is not None and ncols <= 1):
+            cx, cy_first = 0, 1
         else:
-            cx, cy_first = 1, 2  # x = c1, y starts at c2
+            cx, cy_first = 1, 2
 
         if not given:
             # Auto-mapping: one dataset per column past the x column.
@@ -5283,14 +5324,10 @@ class _Recognizer:
                     (line_no, line_no) if line_no is not None else None,
                 )
                 return []
-            if ncols <= 1:
-                self._register_dataset("d1", data_file, 0, 1, datasets, read_options)
-                return ["d1"]
-            names = [f"d{k + 1}" for k in range(ncols - 1)]
-            for name in names:
-                k = int(name[1:]) - 1
+            names = [f"d{k + 1}" for k in range(ncols + 1 - cy_first)]
+            for k, name in enumerate(names):
                 self._register_dataset(
-                    name, data_file, 1, k + 2, datasets, read_options
+                    name, data_file, cx, k + cy_first, datasets, read_options
                 )
             return names
 
@@ -5363,7 +5400,7 @@ class _Recognizer:
         # _restore_orphaned_data_stmts.
         info["_let_source_datasets"].add(source)
 
-    def _record_hist_let(self, toks, datasets, info, raw: str) -> None:
+    def _record_hist_let(self, toks, datasets, info, raw: str, line_no) -> None:
         """Record ``let dK = hist dJ [from a] [to b] [bins n] [step w]``.
 
         Options may appear in any order, which is how GLE's
@@ -5413,6 +5450,7 @@ class _Recognizer:
             "hist_to": options.get("to"),
             "bins": options.get("bins"),
             "bin_step": options.get("step"),
+            "line_no": line_no,
         }
         info["_hist_let_pending"][target] = raw
 
@@ -5627,7 +5665,8 @@ class _Recognizer:
     def _non_dataset_texts(self, block, skip=()) -> List[str]:
         """The text of every statement in ``block`` but its ``dN`` lines.
 
-        The ``let`` of each target in ``skip`` is left out too.
+        The ``let`` of each target in ``skip`` is left out too, and so are
+        strings: a title or a file name never reads a dataset.
         """
         texts: List[str] = []
         for child in block.body:
@@ -5643,7 +5682,9 @@ class _Recognizer:
                     and toks[1].value.lower() in skip
                 ):
                     continue
-                texts.append(" ".join(t.value for t in toks))
+                texts.append(
+                    " ".join(t.value for t in toks if t.type is not TokenType.STRING)
+                )
         return texts
 
     def _record_derived_let(self, toks, info) -> None:
@@ -5832,16 +5873,9 @@ class _Recognizer:
         source = record.get("_fit_source")
         if source is None:
             return True
-        data_file, xcol, ycol = pass1.datasets[source]
-        if (
-            source in pass1.merged_attr_toks
-            or source in self._data_read_options
-            or info.get("_dataset_group", {}).get(source) != [source]
-            or _mention_count(texts, source) != 2
-            or [entry[0] for entry in pass1.datasets.values()].count(data_file) != 1
-            or not self._is_import(data_file)
-        ):
+        if not self._owns_sidecar(texts, pass1, info, source):
             return False
+        data_file, xcol, ycol = pass1.datasets[source]
         loaded = self._load_series(data_file, xcol, ycol)
         if loaded.get("error"):
             return False
@@ -5849,6 +5883,53 @@ class _Recognizer:
         record["y"] = np.asarray(loaded["y"], dtype=float)
         record["data_file"] = data_file
         return True
+
+    def _owns_sidecar(self, texts, pass1: _GraphDatasets, info, source) -> bool:
+        """True when ``source`` is read by its ``let`` alone, from a sidecar.
+
+        The writer rewrites a fit's or histogram's data file with just the
+        columns it reads, which would break any other reader of the file, and
+        a file of the caller's own is never rewritten. ``texts`` are the
+        statements that may read ``source`` (see :meth:`_non_dataset_texts`):
+        its ``data`` statement and the ``let`` must be the only two.
+        """
+        if source not in pass1.datasets:
+            return False
+        data_file = pass1.datasets[source][0]
+        return not (
+            source in pass1.merged_attr_toks
+            or source in self._data_read_options
+            or info.get("_dataset_group", {}).get(source) != [source]
+            or _mention_count(texts, source) != 2
+            or [entry[0] for entry in pass1.datasets.values()].count(data_file) != 1
+            or not self._is_import(data_file)
+        )
+
+    def _keep_owned_hist_lets(self, block, pass1: _GraphDatasets, info) -> None:
+        """Leave raw each histogram let whose samples it does not own.
+
+        Pass 2 then keeps the ``let`` and its display as written, and the
+        source dataset stays defined under its own name for the raw ``let``.
+        """
+        if not info["_hist_lets"]:
+            return
+        texts = self._non_dataset_texts(block)
+        for target, record in list(info["_hist_lets"].items()):
+            source = record["source"]
+            if self._owns_sidecar(texts, pass1, info, source):
+                continue
+            del info["_hist_lets"][target]
+            info["_hist_let_pending"].pop(target, None)
+            info["_raw_datasets"].add(source)
+            line_no = record["line_no"]
+            self._note(
+                ImportCategory.DATA,
+                f"histogram let {target} reads {source}, which is not in a "
+                "gleplot data file only the let reads, so it was kept as raw "
+                "GLE and its file is not rewritten. To edit it, load the "
+                "samples and call ax.hist()",
+                (line_no, line_no) if line_no is not None else None,
+            )
 
     def _build_function_series(self, name, attr_toks, info) -> None:
         """Append the ``FunctionSeries`` or ``FitSeries`` for a kept let."""
@@ -6123,6 +6204,28 @@ class _Recognizer:
         if resolved.error is not None or resolved.table is None:
             return None
         return resolved.table.n_cols
+
+    def _first_column_is_labels(self, data_file) -> bool:
+        """Whether every value in the file's first column is text.
+
+        GLE (``auto_all_labels_column``) then reads that column as x-axis
+        labels, not as x. A missing value (``None``) is not text.
+        """
+        resolved = self._resolve_table(data_file)
+        table = resolved.table
+        if resolved.error is not None or table is None or not table.n_rows:
+            return False
+        if table.is_numeric[0]:
+            return False
+        for value in table.columns[0]:
+            if value is None:
+                return False
+            try:
+                float(value)
+            except ValueError:
+                continue
+            return False
+        return True
 
     # -- bar / fill ------------------------------------------------------
 
@@ -9003,6 +9106,29 @@ class _Recognizer:
         if resolved.error is not None or resolved.table is None:
             self._note(ImportCategory.DATA, str(resolved.error), span)
             return {"error": resolved.error}
+        if any(
+            self._datasets[name][0] == data_file for name in self._data_read_options
+        ):
+            # The loader reads the whole file, so arrays loaded from it would
+            # hold rows GLE does not draw.
+            reason = "is read with 'ignore', 'comment' or 'numrows'"
+        elif self._first_column_is_labels(data_file):
+            # GLE names the x axis from that column; a sidecar written from
+            # loaded arrays would drop it.
+            reason = "has text in its first column, which GLE draws as x labels"
+        else:
+            reason = None
+        if reason is not None:
+            error = f"'{data_file}' {reason}; gleplot does not load it"
+            if data_file not in self._noted_unloaded:
+                self._noted_unloaded.add(data_file)
+                self._note(
+                    ImportCategory.DATA,
+                    f"{error}, so the series drawn from it are kept as "
+                    "written in the file and are not editable as data",
+                    span,
+                )
+            return {"error": error}
         try:
             cols = extract_columns(resolved.table, xcol, ycol, extra_cols or [])
         except ColumnExtractionError as exc:
