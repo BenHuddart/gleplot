@@ -9,7 +9,7 @@ Shared contract for AI coding agents in this repository. It has two kinds of con
 
 gleplot is a **Python way to write standard GLE (Graphics Layout Engine)** scripts for publication-quality vector graphics. It exposes what GLE does natively, through matplotlib-shaped names where they map cleanly. `import gleplot as glp`; familiar matplotlib calls (`figure`, `subplots`, `plot`, `scatter`, `bar`, `errorbar`, `savefig`, `view`) produce a `.gle` script and, when GLE is installed, compile it to PDF/PNG/EPS/SVG/JPG. `open_gle()` reads a `.gle` file back into a `Figure`.
 
-**Scope.** Where matplotlib behaviour has no direct GLE equivalent, gleplot does not emulate it with extra machinery (generated subroutines, sidecar tricks, page-text reconstructions): it accepts the keyword, warns, and documents the gap. A library and nothing else. The desktop GUI and the calibration tooling were removed in 3.0; do not bring them back. No 3D, animation, or interactive widgets. numpy is the only runtime dependency, and GLE is never bundled.
+**Scope.** Where matplotlib behaviour has no direct GLE equivalent, gleplot does not emulate it with extra machinery (generated subroutines, sidecar tricks, page-text reconstructions): it accepts the keyword, warns, and documents the gap. This governs new work: machinery that already ships (palette and guide subs, the polar transform) stays, and removing it is a breaking change. A library and nothing else. The desktop GUI and the calibration tooling were removed in 3.0; do not bring them back. No 3D, animation, or interactive widgets. numpy is the only runtime dependency, and GLE is never bundled.
 
 ## Priorities
 
@@ -102,7 +102,7 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 
 - Removing or renaming a public name, changing a default, or changing emitted GLE for an existing script is a **breaking change**. It needs the maintainer's agreement and a `feat!`/`fix!` commit. Honouring a keyword that gleplot accepted with a `UserWarning` saying it had no effect is not breaking: the warning already told the user it was ignored.
 - Correcting output that silently ignored valid matplotlib input (a named linestyle drawn solid, `marker=None` drawing nothing, an ignored `lw` or `c` alias, lossy number formatting) is a `fix`, not a breaking change, when no reasonable script relies on the old output. A change a user may reasonably have accepted as intended stays `!`.
-- Releases are cut by the maintainer, who may pause them to gather breaking changes into one major. While a major is being gathered, breaking (`!`) changes land on main directly, with no `FutureWarning` or opt-in first, and a junk argument *value* that is silently accepted today raises at the call (see "Errors and warnings") instead of warning first. An unknown keyword *name* still only warns.
+- Releases are cut by the maintainer, who may pause them (by disabling the Release workflow) to gather breaking changes into one major. While a major is being gathered, breaking (`!`) changes land on main directly, with no `FutureWarning` or opt-in first, and a junk argument *value* that is silently accepted today raises at the call (see "Errors and warnings") instead of warning first.
 - Emitted GLE is output users keep under version control. Do not reorder or reformat it as a side effect of another change.
 - Private names (leading underscore) may change freely. Do not add a compatibility alias or shim for one.
 
@@ -171,7 +171,7 @@ More detail, including the output analyzers: `docs/guides/TESTING.md`.
 - **Format and types**: black + isort (line-length 88), flake8 and mypy are enforced by the CI `lint` job. Use the black and mypy majors pinned in `pyproject.toml`. Fix a type error with an annotation or by narrowing; `warn_return_any` is off because series and data sources are `dict` subclasses whose accessors return `Any` by design.
 - **License**: GPL-2.0+.
 - **Commits**: conventional commits, and the type decides the release. `python-semantic-release` publishes a minor for `feat`, a patch for `fix`/`perf`, a major for `!` or a `BREAKING CHANGE:` footer, and nothing for `docs`, `test`, `refactor`, `style`, `ci`, `build`, `chore`. Pick the type by what a user of the installed package would notice, so a docs or test change is never a `fix`.
-- **Releases are automatic.** Do not edit the version in `pyproject.toml` or `src/gleplot/__init__.py`, and do not edit `docs/CHANGELOG.md`; the release job writes all three from the commit history when it runs.
+- **The release job writes the version.** Do not edit the version in `pyproject.toml` or `src/gleplot/__init__.py`, and do not edit `docs/CHANGELOG.md`; the release job writes all three from the commit history when it runs.
 
 ## Keeping this file useful
 
