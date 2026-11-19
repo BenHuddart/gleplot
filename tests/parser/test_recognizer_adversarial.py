@@ -1063,6 +1063,37 @@ def test_no_data_statement_added_for_unused_or_rewritten_file(tmp_path, body):
     assert not any(line.lstrip().startswith("data") for line in ax.passthrough)
 
 
+@pytest.mark.parametrize(
+    "data",
+    ["0 1 2 1\n1 2 3 2\n", "a 2 3\nb 3 4\nc 5 6\n"],
+    ids=["numeric", "text-x"],
+)
+def test_unused_columns_of_a_data_statement_are_not_reported(tmp_path, data):
+    """#277: columns nothing reads are not 'only referenced by raw GLE'."""
+    src = (
+        'size 12 9\nbegin graph\n   data "h3.dat"\n   d1 line\n'
+        '   ! d2 is unused\n   title "d3"\nend graph\n'
+    )
+    rec = parse_gle_figure(_write(tmp_path, "u.gle", src, {"h3.dat": data}))
+    assert not any("mixes datasets" in w for w in rec.warnings)
+    passthrough = rec.figure.axes_list[0].passthrough
+    assert not any(line.lstrip().startswith("data") for line in passthrough)
+
+
+def test_a_raw_fill_keeps_its_datasets_beside_a_modelled_line(tmp_path):
+    """A raw line naming the other datasets gets a data statement for them."""
+    src = (
+        'size 12 9\nbegin graph\n   data "h3.dat"\n   d1 line\n'
+        "   fill d2,d3 color red foo\nend graph\n"
+    )
+    p = _write(tmp_path, "r.gle", src, {"h3.dat": "0 1 2 1\n1 2 3 2\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].passthrough == [
+        "    data h3.dat d2=c1,c3 d3=c1,c4",
+        "   fill d2,d3 color red foo",
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Finding 12 -- duplicate data command redefining a dataset
 # --------------------------------------------------------------------------- #
@@ -1362,7 +1393,7 @@ def test_comment_header_vouched_sidecar_does_not_adopt_comment_names(tmp_path):
 # color'/'set just', and string fidelity for backslash+brace content.
 # --------------------------------------------------------------------------- #
 #
-# The writer (writer.py GLEWriter.add_text) always restates 'set color' and
+# The writer (writer.py GLEWriter.add_text_annotation) always restates 'set color' and
 # 'set just' for every text and conditionally restates 'set hei' -- but a
 # hand-written (or hand-edited) .gle file may rely on GLE's real interpreter
 # semantics instead: 'set hei'/'set color'/'set just' are GLOBAL state that
@@ -1817,7 +1848,7 @@ def test_finding15_backslash_brace_survives_a_second_round_trip(tmp_path):
 #
 # Root cause: _try_one_text(nodes, i) is handed a BlankOrComment node at
 # ``i`` whenever a blank line separates two clusters (a hand-edited file, not
-# anything the writer itself emits -- see writer.add_text, which never
+# anything the writer itself emits -- see writer.add_text_annotation, which never
 # inserts blank lines between clusters). _as_statement(BlankOrComment) always
 # returned None, so the mandatory 'amove xg()/yg()' check failed immediately
 # and _try_one_text returned (i, None) with no attempt to look past the
@@ -1990,11 +2021,33 @@ def test_finding16_blank_line_then_unrelated_content_stays_passthrough(tmp_path)
     assert rec.figure.passthrough_trailer == ["", "set color blue"]
 
 
+@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "gsave"])
+def test_a_comment_between_text_clusters_is_reported(tmp_path, wrapped):
+    """#220: the texts are still recovered; the comment they skip is noted."""
+    clusters = (
+        'amove xg(1) yg(1)\nwrite "a"\n! between texts\n'
+        'amove xg(2) yg(2)\nwrite "b"\n'
+    )
+    if wrapped:
+        clusters = "gsave\n" + clusters + "grestore\n"
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        "   size 10 8\n"
+        "   xaxis min 0 max 10\n"
+        "   yaxis min 0 max 10\n"
+        "end graph\n" + clusters
+    )
+    rec = parse_gle_figure(_write(tmp_path, "comment.gle", src))
+    assert [t["text"] for t in rec.figure.axes_list[0].texts] == ["a", "b"]
+    assert any("comment among the text" in w for w in rec.warnings)
+
+
 def test_finding16_resave_is_byte_exact_fixed_point(tmp_path):
     """Parse -> save -> parse -> save must be a fixed point once the blank-
     line-separated clusters are recognized (the recovered figure has no
     blank lines between its own clusters, since the writer never emits
-    them -- see writer.add_text -- so re-emission is canonical, not a replay
+    them -- see writer.add_text_annotation -- so re-emission is canonical, not a replay
     of the original blank-line formatting)."""
     src = (
         "size 10 8\n"
@@ -2866,7 +2919,7 @@ def test_finding20_stacked_bar_reproduction_renders_with_parity(tmp_path):
 # 2. Writer bug (``GLEWriter.add_line``'s no-line branch): unconditional
 #    ``f" marker {marker} ..."`` with no ``if marker:`` guard -- the sibling
 #    branch (line+marker) and every other marker-emitting site in the writer
-#    (``add_errorbar_series``, ``add_errorbar_from_file``) already guard it. Bug 1
+#    (``add_errorbar_series``, ``_add_errorbar_file_series``) already guard it. Bug 1
 #    fed a ``linestyle="none"``, ``marker=None`` series into this branch and
 #    it emitted the literal text ``marker None``, which GLE rejects
 #    ("invalid marker name 'None'") -- a compile failure. The same branch is

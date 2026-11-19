@@ -2,6 +2,7 @@
 
 import math
 import re
+import warnings
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
@@ -30,7 +31,13 @@ from .compiler import (
     _remove_tex_cache,
     remove_generated_intermediates,
 )
-from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
+from .config import (
+    _SCALE_MODES,
+    GLEGraphConfig,
+    GLEMarkerConfig,
+    GLEStyleConfig,
+    GlobalConfig,
+)
 from .markers import MARKERS
 from .parser import metadata as _gle_metadata
 from .parser.tables import LEGEND_SPACING_TO_KEY
@@ -53,7 +60,6 @@ from .writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
-    RUG_SUB,
     WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
@@ -229,6 +235,26 @@ def _apply_bar_value_extent(extent, lo_bound, hi_bound, positive_only: bool):
     if hi_bound is None or data_hi > hi_bound:
         hi_bound = data_hi
     return lo_bound, hi_bound
+
+
+def _saved_graph_config(saved: Dict[str, Any]) -> GLEGraphConfig:
+    """The ``GLEGraphConfig`` a saved figure holds.
+
+    A ``scale_mode`` saved before it was checked, which drew as 'auto', is
+    read as 'auto' with a warning, and a saved 'fixed' does not warn again:
+    the figure keeps loading as it was drawn.
+    """
+    kwargs = _filtered_dataclass_kwargs(GLEGraphConfig, saved)
+    mode = kwargs.get("scale_mode", "auto")
+    if not isinstance(mode, str) or mode not in _SCALE_MODES:
+        warn_external(
+            f"The saved scale_mode {mode!r} is not a scale mode; it is read as "
+            "'auto', which is how it was drawn."
+        )
+        kwargs["scale_mode"] = "auto"
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="scale_mode='fixed'")
+        return GLEGraphConfig(**kwargs)
 
 
 def _filtered_dataclass_kwargs(cls, data: dict) -> dict:
@@ -606,7 +632,12 @@ class Figure:
         # a cross-figure hazard; an object the caller constructed and holds
         # no other reference to is not.
         self.style = style if style is not None else replace(GlobalConfig.get_style())
-        self.graph = graph if graph is not None else replace(GlobalConfig.get_graph())
+        if graph is None:
+            # A 'fixed' global warned when it was set; copying it is quiet.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="scale_mode='fixed'")
+                graph = replace(GlobalConfig.get_graph())
+        self.graph = graph
         self.marker_config = (
             marker if marker is not None else replace(GlobalConfig.get_marker())
         )
@@ -3362,10 +3393,6 @@ class Figure:
             subs.append(WEDGE_SUB)
         if any(resolution.visible(ax.boxes) for ax in self.axes_list):
             subs.append(BOX_SUB)
-        if any(
-            r["ticks"] for ax in self.axes_list for r in resolution.visible(ax.rugs)
-        ):
-            subs.append(RUG_SUB)
         sized_markers: Set[str] = set()
         for ax in self.axes_list:
             sized_markers.update(
@@ -3733,6 +3760,7 @@ class Figure:
         resolution = resolution or SourceResolution()
         writer.reserve_datasets(ax.passthrough)
         self._write_axis_setup(writer, ax, frame)
+        self._warn_data_range_edges(ax, resolution)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
         for image in resolution.visible(ax.images):
@@ -3897,6 +3925,55 @@ class Figure:
             elif GLEWriter.writes_node_grid(hm):
                 self._warn_node_grid_overhang(ax, hm)
             writer.add_heatmap(hm)
+
+    @staticmethod
+    def _warn_data_range_edges(ax: Axes, resolution: SourceResolution) -> None:
+        """Warn where a series' data range (``xmin`` ... ``ymax``) draws nothing.
+
+        GLE takes a missing edge from the limit of the series' axis, so an
+        edge given alone at or beyond the far limit leaves an empty range,
+        and GLE stops with "invalid range". On a log axis an edge at or
+        below zero hides the series. Only limits the script writes can be
+        checked; ones left to GLE are not known here.
+        """
+        for series in resolution.visible(
+            [*ax.lines, *ax.scatters, *ax.errorbars, *ax.file_series]
+        ):
+            for dim in ("x", "y"):
+                lo, hi = series.get(f"{dim}min"), series.get(f"{dim}max")
+                if lo is None and hi is None:
+                    continue
+                axis = series.get(f"{dim}axis") or dim
+                name = (
+                    f"series {series['label']!r}" if series.get("label") else "a series"
+                )
+                if getattr(ax, f"{axis}scale") == "log":
+                    bad = [v for v in (lo, hi) if v is not None and v <= 0]
+                    if bad:
+                        warn_external(
+                            f"The data range of {name} has {dim} edge {bad[0]:g} "
+                            f"on the log {axis} axis, so GLE draws nothing of "
+                            "it. Give positive edges."
+                        )
+                        continue
+                limits = (getattr(ax, f"{axis}min"), getattr(ax, f"{axis}max"))
+                if None in limits:
+                    continue
+                low, high = sorted(cast(Tuple[float, float], limits))
+                if lo is not None and hi is None and lo >= high:
+                    given, key, far, missing = lo, "min", high, "max"
+                elif hi is not None and lo is None and hi <= low:
+                    given, key, far, missing = hi, "max", low, "min"
+                else:
+                    continue
+                warn_external(
+                    f"The data range of {name} gives only {dim}{key} = "
+                    f"{given:g}, and GLE takes the missing {dim}{missing} "
+                    f"from the {axis} axis limit {far:g}, so the range is "
+                    "empty and GLE stops with 'invalid range for dimension "
+                    f"{dim.upper()}'. Give {dim}{missing} too, or widen the "
+                    f"{axis} limits."
+                )
 
     @staticmethod
     def _warn_node_grid_overhang(ax: Axes, grid: Series) -> None:
@@ -5582,13 +5659,7 @@ class Figure:
             if config.get("style")
             else None
         )
-        graph = (
-            GLEGraphConfig(
-                **_filtered_dataclass_kwargs(GLEGraphConfig, config["graph"])
-            )
-            if config.get("graph")
-            else None
-        )
+        graph = _saved_graph_config(config["graph"]) if config.get("graph") else None
         marker = (
             GLEMarkerConfig(
                 **_filtered_dataclass_kwargs(GLEMarkerConfig, config["marker"])
