@@ -1387,10 +1387,36 @@ def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
                 warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
         resolved.append(value)
     warn_unsupported_keywords(name, kwargs)
-    styles = resolved[1]
+    widths, styles = (
+        _first_of_per_level(name, plural, value)
+        for plural, value in zip(("linewidths", "linestyles"), resolved)
+    )
     if isinstance(styles, str) or _is_dash_pattern(styles):
         styles = _line_style(name, styles)
-    return resolved[0], styles
+    return widths, styles
+
+
+def _first_of_per_level(name: str, plural: str, value):
+    """``value``, or the first entry of a per-level sequence, with a warning.
+
+    GLE draws every traced contour level as one dataset (the generated
+    ``-cdata.dat``), so it takes one width and one line style for them all.
+    """
+    if not isinstance(value, (list, tuple, np.ndarray)) or _is_dash_pattern(value):
+        return value
+    entries = list(value)
+    if not entries:
+        raise ValueError(
+            f"{name}() {plural} is an empty sequence; pass one value, e.g. "
+            f"{plural}={'1.0' if plural == 'linewidths' else repr('--')}."
+        )
+    if len(entries) > 1:
+        warn_external(
+            f"{name}() draws every level with one {plural[:-1]}: GLE traces "
+            f"the levels as one dataset. {plural}={value!r} uses the first, "
+            f"{entries[0]!r}."
+        )
+    return entries[0]
 
 
 _MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
@@ -7847,11 +7873,14 @@ class Axes:
         colors : str
             Contour line colour.
         linewidths : float
-            Line width (matplotlib points).
+            Line width (matplotlib points). GLE draws every level as one
+            dataset, so a per-level sequence warns and its first entry is
+            used.
         linestyles : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'`` or matplotlib's
             name for one (``'dashed'``, ...). A dash tuple or any other
-            value warns and is drawn solid.
+            value warns and is drawn solid. A per-level sequence warns and
+            its first entry is used, as for ``linewidths``.
         clabel : bool
             Draw inline contour labels from the generated ``-clabels.dat``.
         clabel_fmt : str
