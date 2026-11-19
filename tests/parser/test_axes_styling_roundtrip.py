@@ -523,6 +523,44 @@ def test_a_later_tick_line_after_a_raw_one_stays_raw_in_order(tmp_path, body, ra
     assert ax.xtick_length is ax.xloglabels is None
 
 
+def test_hand_written_tick_intervals_are_recovered(tmp_path):
+    """#155: ``dticks``/``dsubticks`` on x and y land on the model."""
+    path = _write(
+        tmp_path,
+        "intervals.gle",
+        "   xaxis dticks 0.5 dsubticks 0.25\n   yaxis min 0 dticks 2 dsubticks 1\n",
+    )
+    ax = parse_gle_figure(path).figure.axes_list[0]
+    assert ax.passthrough == []
+    assert (ax.xdticks, ax.xdsubticks) == (0.5, 0.25)
+    assert (ax.ydticks, ax.ydsubticks) == (2.0, 1.0)
+
+
+@pytest.mark.parametrize(
+    "body,raw",
+    [
+        # An expression would be rounded by writing it back as a number.
+        ("   xaxis dticks pi/2\n", "xaxis dticks pi/2"),
+        ("   xaxis dsubticks pi\n", "xaxis dsubticks pi"),
+        ("   xaxis dticks 0.1234567\n", "xaxis dticks 0.1234567"),
+        ("   xaxis dticks 1e-11\n", "xaxis dticks 1e-11"),
+        # Not an interval GLE can draw.
+        ("   xaxis dticks 0\n", "xaxis dticks 0"),
+        ("   xaxis dticks -1\n", "xaxis dticks -1"),
+        # Tick intervals are modelled on x and y only.
+        ("   y2axis dticks 1\n", "y2axis dticks 1"),
+        # A repeat overrides the first, so it stays raw at the end.
+        ("   xaxis dticks 1\n   xaxis dticks 2\n", "xaxis dticks 2"),
+        ("   xaxis dsubticks 0.5\n   xaxis dsubticks 1\n", "xaxis dsubticks 1"),
+    ],
+)
+def test_tick_interval_forms_the_model_cannot_hold_stay_raw(tmp_path, body, raw):
+    ax = parse_gle_figure(_write(tmp_path, "raw.gle", body)).figure.axes_list[0]
+    assert ax.passthrough[-1].strip() == raw, ax.passthrough
+    if body.count("\n") == 1:
+        assert ax.xdticks is ax.xdsubticks is None
+
+
 def test_a_symmetric_tick_length_comes_back_as_the_whole_tick(tmp_path):
     path = _write(tmp_path, "sym.gle", "   xaxis symticks\n   xticks length 0.1\n")
     ax = parse_gle_figure(path).figure.axes_list[0]
