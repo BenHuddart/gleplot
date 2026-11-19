@@ -1,19 +1,20 @@
 # Contour Plots and Heatmaps
 
-gleplot can render 2-D scalar fields as heatmaps (matplotlib's `imshow`/`tripcolor`) and contour lines (`contour`/`tricontour`), with an optional colorbar. Under the hood these compile to GLE `colormap` / `begin contour` / `begin fitz` constructs, with self-contained colour-palette subroutines written directly into the `.gle` script — no `gle-library` include is required to compile the output.
+gleplot can render 2-D scalar fields as heatmaps (matplotlib's `imshow`/`pcolormesh`/`tripcolor`) and contour lines (`contour`/`tricontour`), with an optional colorbar. Under the hood these compile to GLE `colormap` / `begin contour` / `begin fitz` constructs, with self-contained colour-palette subroutines written directly into the `.gle` script — no `gle-library` include is required to compile the output.
 
 ## Supported Methods
 
 - `Axes.imshow(Z, extent=None, origin='lower', cmap=None, vmin=None, vmax=None, interpolation='bicubic', pixels=None, invert=False, label=None)` — heatmap of a **gridded** 2-D array.
+- `Axes.pcolormesh(*args, cmap=None, vmin=None, vmax=None, shading=None, pixels=None, label=None)` — one flat colour per cell of a **uniform** grid (see [Cells with pcolormesh](#cells-with-pcolormesh)).
 - `Axes.contour(*args, levels=None, colors='black', linewidths=1.0, linestyles='-', clabel=False, clabel_fmt='fix 1', label=None)` — contour lines of **gridded** data. Call as `contour(Z)` or `contour(x, y, Z)`.
 - `Axes.tripcolor(x, y, z, gridsize=(50, 50), extent=None, **imshow_kwargs)` — heatmap of **scattered** `(x, y, z)` samples, gridded by GLE at compile time.
 - `Axes.function2d(expression, extent, cmap=None, vmin=0.0, vmax=1.0, pixels=None, invert=False, label=None)` — heatmap of an **expression** in `x` and `y` that GLE evaluates itself (see [Heatmap from an expression](#heatmap-from-an-expression)).
 - `Axes.tricontour(x, y, z, gridsize=(50, 50), extent=None, ncontour=3, **contour_kwargs)` — contour lines of **scattered** `(x, y, z)` samples.
 - `Figure.colorbar(mappable=None, cax=None, ax=None, use_gridspec=True, *, orientation=None, label=None, format='fix 1', nticks=None, width=0.5, sep=None)` — attaches a colorbar to a heatmap or a colour-mapped scatter, beside its axes (vertical) or below it (horizontal). See [Colorbars](#colorbars).
 
-Each except `function2d` has a module-level convenience wrapper too: `glp.imshow(...)`, `glp.contour(...)`, `glp.tripcolor(...)`, `glp.tricontour(...)`, `glp.colorbar(...)` (they operate on `gca()`/`gcf()`, matching `glp.plot()` and friends).
+Each except `function2d` has a module-level convenience wrapper too: `glp.imshow(...)`, `glp.pcolormesh(...)`, `glp.contour(...)`, `glp.tripcolor(...)`, `glp.tricontour(...)`, `glp.colorbar(...)` (they operate on `gca()`/`gcf()`, matching `glp.plot()` and friends).
 
-There is no `pcolormesh` alias and no 3-D surface support — gleplot only targets 2-D colormap/contour output.
+There is no 3-D surface support — gleplot only targets 2-D colormap/contour output.
 
 ## Minimal Example: Gridded Heatmap + Contour
 
@@ -50,6 +51,29 @@ Add `clabel=True` to draw inline value labels at each contour crossing (formatte
 ```python
 ax.contour(x, y, Z, levels=[0.2, 0.5, 0.8], colors='black', clabel=True, clabel_fmt='fix 2')
 ```
+
+## Cells with pcolormesh
+
+`pcolormesh` colours each cell of a grid by its value, with each edge where matplotlib puts it:
+
+```python
+import numpy as np
+import gleplot as glp
+
+x = np.linspace(0, 4, 9)        # 9 cell edges -> 8 columns
+y = np.linspace(0, 3, 7)        # 7 cell edges -> 6 rows
+C = np.add.outer(np.arange(6), np.arange(8)).astype(float)
+
+fig = glp.figure()
+ax = fig.add_subplot(111)
+mesh = ax.pcolormesh(x, y, C, cmap='magma')
+fig.colorbar(mesh)
+fig.savefig('cells.pdf')
+```
+
+`X` and `Y` are the cell edges (one longer than `C` along each axis) or the cell centres (the same shape as `C`); `shading` chooses as in matplotlib, and the 2-D arrays from `np.meshgrid` work as well as 1-D ones. The spacing must be uniform: a grid that is not raises `ValueError`, and `tripcolor` draws scattered or irregularly gridded data instead. `shading='gouraud'` warns and is drawn as `'nearest'`.
+
+GLE's `colormap ... interpolate nearest` gives a pixel the value of the nearest grid node, and stops the bitmap at the `.z` file's `xmin`/`xmax`. So the sidecar repeats the first row and column and puts its header half a cell outside the mesh; the graph frame, which the mesh's extent sets, clips the half cell left over at each end. A `! gleplot: cells xmin ... ymax ...` line under the header, which GLE skips, holds the mesh's own edges, so `open_gle` reads back the mesh and not the padding. If other data, `set_xlim` or `set_ylim` take the axes beyond the mesh, that half cell shows beside it in the colour of the edge cells, and saving warns. On a log axis, a mesh whose padded bitmap would start at or below zero is not drawn by GLE, and saving warns too. Each cell edge is drawn to within one of the colormap's `pixels`.
 
 ## Heatmap from an Expression
 
@@ -121,7 +145,7 @@ Names are matched case-insensitively. Unknown names raise `ValueError` listing t
 
 ## One Heatmap Per Axes
 
-GLE draws one `colormap` per graph: a second `colormap` statement replaces the first rather than drawing over it, and wrapping each in a `begin layer` block does not change that. A colormap is also always opaque — GLE has no transparency for it — so matplotlib's pattern of blending two images with `alpha` cannot be drawn. Calling `imshow`/`tripcolor` a second time on the same `Axes` therefore raises `ValueError`:
+GLE draws one `colormap` per graph: a second `colormap` statement replaces the first rather than drawing over it, and wrapping each in a `begin layer` block does not change that. A colormap is also always opaque — GLE has no transparency for it — so matplotlib's pattern of blending two images with `alpha` cannot be drawn. Calling `imshow`/`pcolormesh`/`tripcolor` a second time on the same `Axes` therefore raises `ValueError`:
 
 ```python
 ax.imshow(Z1)
@@ -132,7 +156,7 @@ Contour lines have no such limit — you can layer multiple `contour`/`tricontou
 
 ## Colorbars
 
-`fig.colorbar()` with no heatmap named attaches to the figure's only heatmap. In a grid of heatmaps, pass the heatmap `imshow` (or `tripcolor`) returned, and each axes gets its own bar on its own scale:
+`fig.colorbar()` with no heatmap named attaches to the figure's only heatmap. In a grid of heatmaps, pass the heatmap `imshow` (or `pcolormesh`, `tripcolor`) returned, and each axes gets its own bar on its own scale:
 
 ```python
 import numpy as np
@@ -178,7 +202,7 @@ A colorbar over a **constant** field (`zmax == zmin`) is handled gracefully — 
 
 ## What Files gleplot Writes
 
-- `imshow`/gridded `contour` write a `.z` sidecar directly: a text header `! nx <nx> ny <ny> xmin <x0> xmax <x1> ymin <y0> ymax <y1>` followed by `ny` rows of `nx` values.
+- `imshow`/`pcolormesh`/gridded `contour` write a `.z` sidecar directly: a text header `! nx <nx> ny <ny> xmin <x0> xmax <x1> ymin <y0> ymax <y1>` followed by `ny` rows of `nx` values. A `pcolormesh` sidecar has one more row and column; see [Cells with pcolormesh](#cells-with-pcolormesh).
 - `tripcolor`/`tricontour` write a points sidecar (`<prefix>_points<N>.dat`): raw whitespace-separated `x y z` triples, one per line, no header.
 - `function2d` writes no file.
 - These sidecars are **not** columnar data in the usual gleplot sense — they're excluded from the `! gleplot: import-data = ...` metadata comment (which only lists file-backed series you could re-import as columns).

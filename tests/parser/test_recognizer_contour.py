@@ -147,6 +147,60 @@ def test_generated_files_absent_are_tolerated(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
+def test_pcolormesh_recovered(tmp_path):
+    """The cell grid loads back as the mesh: C and its edges, not the padding."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    C = np.arange(6.0).reshape(2, 3)
+    ax.pcolormesh(np.linspace(1, 4, 4), np.linspace(-1, 1, 3), C, cmap="magma")
+    rec = parse_gle_figure(_save(fig, tmp_path))
+    assert rec.warnings == []
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert hm["cells"] is True
+    assert hm["extent"] == [1.0, 4.0, -1.0, 1.0]
+    np.testing.assert_array_equal(hm["z"], C)
+
+
+def test_pcolormesh_recovers_the_edges_it_wrote(tmp_path):
+    """Edges come from the marker line, not from undoing the rounded header."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.pcolormesh(np.linspace(0, 1, 4), np.linspace(0, 1, 8), np.zeros((7, 3)))
+    rec = parse_gle_figure(_save(fig, tmp_path))
+    assert rec.figure.axes_list[0].heatmaps[0]["extent"] == [0.0, 1.0, 0.0, 1.0]
+
+
+@pytest.mark.parametrize(
+    "header, rows, clause",
+    [
+        # first column not repeated
+        ("xmin -0.5 xmax 2.5", ["0 1 2", "0 1 2"], " interpolate nearest"),
+        # bicubic, not nearest
+        ("xmin -0.5 xmax 2.5", ["0 0 1", "0 0 1"], ""),
+        # header not half a cell outside the marker's edges
+        ("xmin 0 xmax 3", ["0 0 1", "0 0 1"], " interpolate nearest"),
+    ],
+)
+def test_cells_marker_on_another_grid_reads_as_imshow(tmp_path, header, rows, clause):
+    """A marked grid that is not a mesh is drawn as written, and says so."""
+    (tmp_path / "grid.z").write_text(
+        f"! nx 3 ny 2 {header} ymin -0.5 ymax 1.5\n"
+        "! gleplot: cells xmin 0 xmax 2 ymin 0 ymax 1\n" + "\n".join(rows) + "\n",
+        encoding="utf-8",
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(
+        "size 10 10\nbegin graph\n"
+        f'   colormap "grid.z" 100 100{clause}\nend graph\n',
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(p)
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert "cells" not in hm
+    assert hm["extent"][2:] == [-0.5, 1.5]
+    assert any("marked as a pcolormesh mesh" in w for w in rec.warnings)
+
+
 def test_foreign_palette_colormap_preserved(tmp_path):
     """A colormap naming a NON-gleplot palette sub is kept verbatim + warned."""
     (tmp_path / "grid.z").write_text(

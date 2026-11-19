@@ -1793,13 +1793,14 @@ class Figure:
         Parameters
         ----------
         mappable : HeatmapSeries, optional
-            The heatmap the bar shows, as returned by :meth:`Axes.imshow` or
-            :meth:`Axes.tripcolor`. Default: the heatmap on ``ax``, or, on an
-            axes with no heatmap, its colour-mapped scatter (``scatter(c=...)``)
-            drawn last. With no ``ax`` either: the one axes with a heatmap,
-            or, if no axes has one, the one axes with a colour-mapped
-            scatter. :meth:`Axes.scatter` returns the axes, not a mappable,
-            so a scatter's bar is chosen by ``ax``.
+            The heatmap the bar shows, as returned by :meth:`Axes.imshow`,
+            :meth:`Axes.pcolormesh` or :meth:`Axes.tripcolor`. Default: the
+            heatmap on ``ax``, or, on an axes with no heatmap, its
+            colour-mapped scatter (``scatter(c=...)``) drawn last. With no
+            ``ax`` either: the one axes with a heatmap, or, if no axes has
+            one, the one axes with a colour-mapped scatter.
+            :meth:`Axes.scatter` returns the axes, not a mappable, so a
+            scatter's bar is chosen by ``ax``.
         cax : Axes, optional
             Not supported: GLE draws the bar beside the axes it belongs to, not
             into another one. Passing it warns and is otherwise ignored.
@@ -1972,7 +1973,8 @@ class Figure:
                     raise ValueError(
                         "colorbar() needs a heatmap or a colour-mapped scatter "
                         "on ax: draw one there with ax.imshow(), "
-                        "ax.tripcolor() or ax.scatter(..., c=values) first"
+                        "ax.pcolormesh(), ax.tripcolor() or "
+                        "ax.scatter(..., c=values) first"
                     )
                 return holder, ax
             bearing = [a for a in self.axes_list if a.heatmaps] or [
@@ -1980,9 +1982,9 @@ class Figure:
             ]
             if not bearing:
                 raise ValueError(
-                    "colorbar() requires a heatmap (imshow/tripcolor/function2d) "
-                    "or a colour-mapped scatter (scatter(..., c=values)) on "
-                    "some axes"
+                    "colorbar() requires a heatmap (imshow/pcolormesh/tripcolor/"
+                    "function2d) or a colour-mapped scatter "
+                    "(scatter(..., c=values)) on some axes"
                 )
             if len(bearing) > 1:
                 raise ValueError(
@@ -1995,8 +1997,8 @@ class Figure:
             return cast(Series, _axes_colorbar_holder(only)), only
         if not isinstance(mappable, HeatmapSeries):
             raise TypeError(
-                f"colorbar() mappable must be the heatmap imshow() or "
-                f"tripcolor() returned, got {type(mappable).__name__}. "
+                f"colorbar() mappable must be the heatmap imshow(), pcolormesh() "
+                f"or tripcolor() returned, got {type(mappable).__name__}. "
                 f"For a scatter, pass its axes as ax=...; pass a label as "
                 f"label=..."
             )
@@ -3804,7 +3806,48 @@ class Figure:
     ) -> None:
         """Heatmap colormaps, drawn behind everything as the background."""
         for hm in resolution.visible(ax.heatmaps):
+            if hm.get("cells"):
+                self._warn_mesh_overhang(ax, hm)
             writer.add_heatmap(hm)
+
+    @staticmethod
+    def _warn_mesh_overhang(ax: Axes, mesh: Series) -> None:
+        """Warn where a ``pcolormesh`` bitmap's padding would show or vanish.
+
+        GLE draws the mesh's bitmap half a cell past each edge (see
+        :meth:`GLEWriter.add_cells_sidecar`), and only the graph window hides
+        that half cell. On a log axis, a bitmap starting at or below zero is
+        not drawn at all.
+        """
+        x0, x1, y0, y1 = mesh["extent"]
+        ny, nx = np.shape(mesh["z"])
+        for name, lo, hi, cells, scale, a, b in (
+            ("x", x0, x1, nx, ax.xscale, ax.xmin, ax.xmax),
+            ("y", y0, y1, ny, ax.yscale, ax.ymin, ax.ymax),
+        ):
+            half = (hi - lo) / cells / 2
+            if scale == "log" and lo - half <= 0:
+                warn_external(
+                    f"The pcolormesh mesh is not drawn: on a log {name} axis "
+                    "GLE draws nothing of a mesh whose bitmap starts at or "
+                    f"below zero, and this one starts half a cell before its "
+                    f"first edge, at {name} = {lo - half:g}. Start the mesh "
+                    f"more than half a cell above zero, or use a linear "
+                    f"{name} scale."
+                )
+            elif a is not None and b is not None:
+                a, b = min(a, b), max(a, b)
+                tol = 1e-9 * (hi - lo)
+                if a < lo - tol or b > hi + tol:
+                    warn_external(
+                        f"The {name} limits ({a:g} to {b:g}) reach beyond "
+                        "the pcolormesh mesh "
+                        f"({lo:g} to {hi:g}), where its edge cells are drawn "
+                        "up to half a cell too wide: GLE draws the mesh's "
+                        "bitmap half a cell past each edge. Keep the "
+                        f"{name} limits within the mesh to draw every cell "
+                        "exactly."
+                    )
 
     def _write_contours(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution

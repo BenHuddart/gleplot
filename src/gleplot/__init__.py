@@ -358,6 +358,11 @@ def imshow(*args, **kwargs):
     return gca().imshow(*args, **kwargs)
 
 
+def pcolormesh(*args, **kwargs):
+    """Colour the cells of a rectangular grid on current axes."""
+    return gca().pcolormesh(*args, **kwargs)
+
+
 def contour(*args, **kwargs):
     """Draw contour lines on current axes."""
     return gca().contour(*args, **kwargs)
@@ -624,6 +629,7 @@ __all__ = [
     "axvspan",
     "axhspan",
     "imshow",
+    "pcolormesh",
     "contour",
     "tripcolor",
     "tricontour",

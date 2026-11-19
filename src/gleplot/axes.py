@@ -711,7 +711,9 @@ def _require_valid_extent(ext) -> None:
         )
 
 
-def _axis_from_meshgrid(arr: np.ndarray, name: str) -> np.ndarray:
+def _axis_from_meshgrid(
+    arr: np.ndarray, name: str, call: str, scattered: str
+) -> np.ndarray:
     """Reduce a matplotlib-style 2-D meshgrid coordinate array to its 1-D axis.
 
     ``np.meshgrid(x, y)`` (the default ``indexing='xy'``) returns an ``X``
@@ -727,6 +729,10 @@ def _axis_from_meshgrid(arr: np.ndarray, name: str) -> np.ndarray:
         The 2-D coordinate array (``X`` or ``Y``).
     name : {'x', 'y'}
         Which coordinate it is; decides the axis it must be constant along.
+    call : str
+        The call the error names, such as ``'contour(X, Y, Z)'``.
+    scattered : str
+        The call the error suggests for scattered data instead.
 
     Returns
     -------
@@ -749,17 +755,17 @@ def _axis_from_meshgrid(arr: np.ndarray, name: str) -> np.ndarray:
         return arr[0, :] if name == "x" else arr[:, 0]
     if transposed:
         raise ValueError(
-            f"contour(X, Y, Z): the 2-D {name.upper()} is constant along its "
+            f"{call}: the 2-D {name.upper()} is constant along its "
             f"{other}, not its {wanted} -- this is the layout of "
             f"np.meshgrid(..., indexing='ij'). Rebuild the grid with the "
             f"default indexing='xy' (and Z of shape (len(y), len(x))), or "
             f"pass X.T, Y.T and Z.T."
         )
     raise ValueError(
-        f"contour(X, Y, Z): the 2-D {name.upper()} is not a regular grid (its "
+        f"{call}: the 2-D {name.upper()} is not a regular grid (its "
         f"{wanted} are not all identical), so it has no single 1-D {name} "
-        f"axis. GLE contours a uniform rectangular grid; use tricontour(x, y, "
-        f"z) for scattered or irregularly gridded data."
+        f"axis. A GLE .z grid is uniform and rectangular; use {scattered} "
+        f"for scattered or irregularly gridded data."
     )
 
 
@@ -2298,7 +2304,7 @@ class Axes:
         # External-file series definitions (column references).
         self.file_series: List[FileSeries] = []
         self.texts: List[TextAnnotation] = []  # In-plot text annotations
-        self.heatmaps: List[HeatmapSeries] = []  # imshow/tripcolor colormaps
+        self.heatmaps: List[HeatmapSeries] = []  # imshow/pcolormesh/tripcolor
         self.contours: List[ContourSeries] = []  # contour/tricontour lines
         # Reference lines (axvline/axhline) and shaded bands (axvspan/
         # axhspan). Stored as *declarations* -- a value plus a fractional
@@ -7124,6 +7130,219 @@ class Axes:
         return hm
 
     @_cartesian_only
+    def pcolormesh(
+        self,
+        *args,
+        alpha=None,
+        norm=None,
+        cmap: Optional[str] = None,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        colorizer=None,
+        shading: Optional[str] = None,
+        antialiased: bool = False,
+        data=None,
+        pixels=None,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Colour each cell of a rectangular grid by its value.
+
+        Signatures: ``pcolormesh(C)`` or ``pcolormesh(X, Y, C)`` with ``C`` of
+        shape ``(ny, nx)``. ``X`` and ``Y`` are 1-D, or the 2-D arrays
+        ``np.meshgrid`` returns. Their spacing must be uniform: a GLE ``.z``
+        grid is an extent plus a shape. An irregular grid raises; use
+        :meth:`tripcolor` for scattered or irregularly gridded data.
+
+        Parameters
+        ----------
+        alpha : float, optional
+            Not supported: a GLE colormap is opaque. Passing it warns.
+        norm : optional
+            Not supported: colours are always mapped linearly from ``vmin``
+            to ``vmax``. Passing it warns.
+        cmap : str, optional
+            Palette name, as for :meth:`imshow`.
+        vmin, vmax : float, optional
+            The values given the colormap's first and last colour. ``None``
+            uses the data's range.
+        colorizer : optional
+            Not supported; pass ``cmap``, ``vmin`` and ``vmax``. Passing it
+            warns.
+        shading : {'auto', 'flat', 'nearest', 'gouraud'}, optional
+            ``'flat'`` takes ``X`` and ``Y`` as the cell edges, one longer
+            than ``C`` along each axis. ``'nearest'`` takes them as the cell
+            centres, the same shape as ``C``, and puts each edge halfway
+            between two centres. ``'auto'`` (the default, as ``None``) picks
+            whichever of the two the shapes fit. ``'gouraud'`` warns and is
+            drawn as ``'nearest'``.
+        antialiased : bool
+            Not supported: the mesh is drawn as one bitmap. ``True`` warns.
+        data : optional
+            Not supported; pass the arrays directly. Passing it warns.
+        pixels : int or (px, py), optional
+            Bitmap resolution, as for :meth:`imshow`. Each cell edge is drawn
+            to within one of these pixels.
+        label : str, optional
+            Series label (not drawn by the colormap itself).
+
+        Returns
+        -------
+        dict
+            The stored heatmap series dict, which
+            :meth:`gleplot.Figure.colorbar` takes as its ``mappable``.
+
+        Notes
+        -----
+        Like :meth:`imshow`, a mesh is the axes' one heatmap, and its values
+        must be finite: a ``NaN`` or a masked value raises ``ValueError``,
+        where matplotlib leaves the cell blank. The mesh's bitmap runs half a
+        cell past each edge, which the axes frame normally hides; saving
+        warns when the axis limits reach beyond the mesh, or when a log axis
+        puts that half cell at or below zero, where GLE does not draw it. Coordinates that decrease are drawn the same as
+        increasing ones, as in matplotlib. ``edgecolors='none'`` and
+        ``'face'`` are what is drawn; other keywords (another
+        ``edgecolors``, ``linewidth``, ``zorder``, ...) warn and are ignored.
+        """
+        label = self._text(label)
+        shading = "auto" if shading is None else str(shading).lower()
+        if shading not in ("auto", "flat", "nearest", "gouraud"):
+            raise ValueError(
+                f"pcolormesh() got shading={shading!r}; expected 'auto', "
+                "'flat', 'nearest' or 'gouraud'"
+            )
+        if shading == "gouraud":
+            warn_external(
+                "pcolormesh(shading='gouraud') is drawn as shading='nearest': "
+                "gleplot colours each cell flat."
+            )
+            shading = "nearest"
+        for name, value, why in (
+            ("alpha", alpha, "a GLE colormap is opaque"),
+            ("norm", norm, "colours are mapped linearly; pass vmin= and vmax="),
+            ("colorizer", colorizer, "pass cmap=, vmin= and vmax= instead"),
+            ("data", data, "pass the arrays themselves"),
+        ):
+            if value is not None:
+                warn_external(f"pcolormesh({name}=...) is ignored: {why}.")
+        if antialiased:
+            warn_external(
+                "pcolormesh(antialiased=True) is ignored: the mesh is drawn as "
+                "one bitmap."
+            )
+        for key in ("edgecolors", "edgecolor"):
+            edge = kwargs.get(key)
+            if edge is None or (
+                isinstance(edge, str) and edge.lower() in ("none", "face")
+            ):
+                kwargs.pop(key, None)
+        if kwargs:
+            names = ", ".join(sorted(kwargs))
+            warn_external(f"pcolormesh() ignores unsupported keyword(s): {names}.")
+        z, ext = self._mesh_from_args(args, shading)
+        if self.heatmaps:
+            raise ValueError(
+                "GLE supports at most one heatmap (colormap) per axes; "
+                "this axes already has one"
+            )
+        hm = HeatmapSeries(
+            type="heatmap",
+            source="grid",
+            z=z,
+            x=None,
+            y=None,
+            zpts=None,
+            extent=ext,
+            origin="lower",
+            cmap=self._resolve_cmap(cmap),
+            vmin=None if vmin is None else float(vmin),
+            vmax=None if vmax is None else float(vmax),
+            interpolation="nearest",
+            cells=True,
+            pixels=self._resolve_pixels(pixels),
+            invert=False,
+            gridsize=None,
+            ncontour=None,
+            label=label,
+            data_file=_reserve_sidecar(self.figure, "heatmap", "z"),
+            colorbar=None,
+        )
+        self.heatmaps.append(hm)
+        return hm
+
+    def _mesh_from_args(self, args, shading):
+        """Parse ``pcolormesh`` positional args into ``(C, cell-edge extent)``.
+
+        ``shading`` is ``'auto'``, ``'flat'`` or ``'nearest'``. Coordinates
+        that decrease are turned round, flipping ``C`` with them, so the
+        extent ascends as GLE requires.
+        """
+        if len(args) not in (1, 3):
+            raise ValueError(
+                "pcolormesh() takes C or X, Y, C as positional arguments; got "
+                f"{len(args)} of them"
+            )
+        # A masked value has no colour GLE can leave blank, so it raises as
+        # NaN does rather than being drawn with the value under the mask.
+        z = np.ma.filled(np.ma.asarray(args[-1], dtype=float), np.nan)
+        if z.ndim != 2:
+            raise ValueError(f"pcolormesh() needs a 2-D C; got shape {z.shape}")
+        _require_finite(z, "pcolormesh C")
+        ny, nx = z.shape
+        if len(args) == 1:
+            if shading == "nearest":
+                x, y = np.arange(nx, dtype=float), np.arange(ny, dtype=float)
+            else:
+                x = np.arange(nx + 1, dtype=float)
+                y = np.arange(ny + 1, dtype=float)
+        else:
+            x = np.ma.filled(np.ma.asarray(args[0], dtype=float), np.nan)
+            y = np.ma.filled(np.ma.asarray(args[1], dtype=float), np.nan)
+            _require_finite(x, "pcolormesh X")
+            _require_finite(y, "pcolormesh Y")
+            if x.ndim == 2:
+                x = _axis_from_meshgrid(
+                    x, "x", "pcolormesh(X, Y, C)", "tripcolor(x, y, z)"
+                )
+            if y.ndim == 2:
+                y = _axis_from_meshgrid(
+                    y, "y", "pcolormesh(X, Y, C)", "tripcolor(x, y, z)"
+                )
+            if x.ndim != 1 or y.ndim != 1:
+                raise ValueError(
+                    "pcolormesh(X, Y, C) needs 1-D X and Y, or the 2-D X and Y "
+                    "np.meshgrid returns"
+                )
+        if shading == "auto":
+            shading = "nearest" if (len(x), len(y)) == (nx, ny) else "flat"
+        want = (nx + 1, ny + 1) if shading == "flat" else (nx, ny)
+        if (len(x), len(y)) != want:
+            raise ValueError(
+                f"pcolormesh(shading={shading!r}) needs {want[0]} x and "
+                f"{want[1]} y coordinates for C of shape {z.shape}; got "
+                f"{len(x)} and {len(y)}"
+            )
+        if shading == "nearest" and (nx < 2 or ny < 2):
+            raise ValueError(
+                "pcolormesh(shading='nearest') needs at least two centres along "
+                f"each axis to size the cells; C has shape {z.shape}. Pass the "
+                "cell edges instead."
+            )
+        self._check_uniform(x, "x", "pcolormesh", "tripcolor(x, y, z)")
+        self._check_uniform(y, "y", "pcolormesh", "tripcolor(x, y, z)")
+        if shading == "nearest":
+            dx, dy = (x[1] - x[0]) / 2, (y[1] - y[0]) / 2
+            x = np.array([x[0] - dx, x[-1] + dx])
+            y = np.array([y[0] - dy, y[-1] + dy])
+        if x[-1] < x[0]:
+            x, z = x[::-1], z[:, ::-1]
+        if y[-1] < y[0]:
+            y, z = y[::-1], z[::-1]
+        ext = [float(x[0]), float(x[-1]), float(y[0]), float(y[-1])]
+        _require_valid_extent(ext)
+        return z, ext
+
+    @_cartesian_only
     def contour(
         self,
         *args,
@@ -7235,9 +7454,13 @@ class Axes:
                             "meshgrid coordinate array must match Z"
                         )
                 if x.ndim == 2:
-                    x = _axis_from_meshgrid(x, "x")
+                    x = _axis_from_meshgrid(
+                        x, "x", "contour(X, Y, Z)", "tricontour(x, y, z)"
+                    )
                 if y.ndim == 2:
-                    y = _axis_from_meshgrid(y, "y")
+                    y = _axis_from_meshgrid(
+                        y, "y", "contour(X, Y, Z)", "tricontour(x, y, z)"
+                    )
             if x.ndim != 1 or y.ndim != 1 or z.ndim != 2:
                 raise ValueError(
                     "contour(x, y, Z) requires 1-D x, 1-D y, 2-D Z (or "
@@ -7251,24 +7474,29 @@ class Axes:
             _require_finite(x, "contour x")
             _require_finite(y, "contour y")
             _require_finite(z, "contour Z")
-            self._check_uniform(x, "x")
-            self._check_uniform(y, "y")
+            self._check_uniform(x, "x", "contour", "tricontour(x, y, z)")
+            self._check_uniform(y, "y", "contour", "tricontour(x, y, z)")
             ext = [float(x[0]), float(x[-1]), float(y[0]), float(y[-1])]
             _require_valid_extent(ext)
             return z, ext
         raise ValueError("contour expects contour(Z) or contour(x, y, Z)")
 
     @staticmethod
-    def _check_uniform(v, name):
-        """Validate that a 1-D coordinate array is uniformly spaced."""
+    def _check_uniform(v, name, func, scattered):
+        """Validate that a 1-D coordinate array is uniformly spaced.
+
+        ``func`` is the method the error names and ``scattered`` the call it
+        suggests for data on another grid.
+        """
         if len(v) < 2:
             return
         diffs = np.diff(v)
         step = diffs[0]
         if step == 0 or not np.allclose(diffs, step, rtol=1e-6, atol=1e-12):
             raise ValueError(
-                f"contour requires uniformly spaced {name} (a .z grid is "
-                "uniform); got non-uniform spacing"
+                f"{func} requires uniformly spaced {name} (a .z grid is "
+                f"uniform); got non-uniform spacing. Use {scattered} for "
+                "scattered or irregularly gridded data."
             )
 
     @staticmethod
