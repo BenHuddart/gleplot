@@ -145,6 +145,15 @@ PROJECT_VERSION = 2
 SUPPORTED_PROJECT_VERSIONS = (1, 2)
 
 
+def _on_y2(series: Series) -> bool:
+    """Whether ``series`` is drawn against y2.
+
+    A stepfilled histogram is drawn on the primary axis whatever its
+    ``yaxis`` says (:meth:`Axes.hist` warns).
+    """
+    return series.get("yaxis") == "y2" and series.get("histtype") != "stepfilled"
+
+
 def _refline_axis_values(ax, orient: str):
     """Data coordinates the guides of ``ax`` contribute to autoscaling.
 
@@ -3844,7 +3853,7 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         writer.reserve_datasets(ax.passthrough)
-        self._write_axis_setup(writer, ax, frame)
+        self._write_axis_setup(writer, ax, frame, resolution)
         self._warn_data_range_edges(ax, resolution)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
@@ -3868,12 +3877,18 @@ class Figure:
         self._write_legend(writer, ax, legend, resolution)
 
     def _write_axis_setup(
-        self, writer: GLEWriter, ax: Axes, frame: Optional[Tuple[float, float]]
+        self,
+        writer: GLEWriter,
+        ax: Axes,
+        frame: Optional[Tuple[float, float]],
+        resolution: SourceResolution,
     ) -> None:
         """Titles, scales, ranges, ticks and grid of the graph block.
 
         A polar axes' ranges are the window :func:`~gleplot.writer.polar_window`
-        fits to ``frame``, and its grid is the polar one.
+        fits to ``frame``, and its grid is the polar one. A linear axis
+        missing a limit hands the writer its data extent, which sets how
+        precisely the coordinates on it are written.
         """
         xmin, xmax, ymin, ymax = ax.xmin, ax.xmax, ax.ymin, ax.ymax
         # Set by _resolve_axis_limits on every polar axes. Rounded as the
@@ -3883,9 +3898,30 @@ class Figure:
             if ax._polar and ax.ymax is not None
             else None
         )
+        data_extents = {}
         if rmax is not None:
             xr, yr = polar_window(rmax, frame, fontsize_pt_to_cm(self.style.fontsize))
             xmin, xmax, ymin, ymax = -xr, xr, -yr, yr
+        else:
+            scans = {
+                "x": self._get_data_xlim,
+                "y": self._get_data_ylim,
+                "y2": self._get_data_y2lim,
+                "x2": self._get_data_x2lim,
+            }
+            has_data = {
+                "x": True,
+                "y": True,
+                "y2": ax.has_y2_plots(),
+                "x2": ax.has_x2_plots(),
+            }
+            data_extents = {
+                which: scan(ax, resolution)
+                for which, scan in scans.items()
+                if has_data[which]
+                and None in self._axis_limits(ax, which)
+                and getattr(ax, f"{which}scale") != "log"
+            }
         if ax.math_mode:
             for name, other, scale, lo, hi in (
                 ("x", "y", ax.xscale, ax.xmin, ax.xmax),
@@ -3994,6 +4030,7 @@ class Figure:
                 else self.graph.title_distance
             ),
             title_font=ax.title_font,
+            data_extents=data_extents,
         )
         if ax._facecolor is not None and not ax._frame_off:
             writer.add_background(ax._facecolor)
@@ -5190,9 +5227,21 @@ class Figure:
         resolution: Optional[SourceResolution] = None,
         positive_only: bool = False,
     ) -> Tuple[Optional[float], Optional[float]]:
-        """Calculate y-axis limits from data (see :meth:`_get_data_xlim`)."""
+        """Calculate y-axis limits from data (see :meth:`_get_data_xlim`).
+
+        The series drawn against y2 do not count: GLE scales y2 from its own
+        datasets, as matplotlib's ``twinx`` scales each axis from its own
+        artists. On an axes with no series on the primary axis at all, they
+        still bound it, as they always have.
+        """
         resolution = resolution or SourceResolution()
         ymin, ymax = None, None
+        skip_y2 = any(
+            not _on_y2(series)
+            for attr in SERIES_ATTRS
+            if attr != "texts"
+            for series in resolution.visible(getattr(ax, attr))
+        )
 
         # A series' ``offset`` shifts its trace vertically at plot time (the .dat
         # values stay raw), so autoscale must add it back when bounding the data
@@ -5204,6 +5253,8 @@ class Figure:
         )
         for data_list in offset_bearing:
             for data in data_list:
+                if skip_y2 and _on_y2(data):
+                    continue
                 y = _plottable(
                     np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
                 )
@@ -5232,6 +5283,8 @@ class Figure:
             )
 
         for hist in resolution.visible(ax.hists):
+            if skip_y2 and _on_y2(hist):
+                continue
             hy0, hy1 = self._histogram_y_extent(hist, positive_only)
             if hy0 is None:
                 continue
@@ -5256,6 +5309,8 @@ class Figure:
                     ymax = float(all_y.max())
 
         for eb_data in resolution.visible(ax.errorbars):
+            if skip_y2 and _on_y2(eb_data):
+                continue
             y = np.asarray(eb_data["y"]) + eb_data.get("offset", 0.0)
             yerr_up = eb_data.get("yerr_up")
             yerr_down = eb_data.get("yerr_down")
@@ -5344,9 +5399,8 @@ class Figure:
     ) -> Tuple[Optional[float], Optional[float]]:
         """Calculate secondary-y limits from the series drawn against y2.
 
-        Deliberately narrower than :meth:`_get_data_ylim`, which bounds *every*
-        series on the axes regardless of which y axis it belongs to: y2 limits
-        are normally left to GLE, and the one thing gleplot has to know for
+        The mirror of :meth:`_get_data_ylim`, which leaves these series out:
+        y2 limits are normally left to GLE, and the one thing gleplot has to know for
         itself is what a log-scaled y2 can legally span. Only the series kinds
         that carry a ``yaxis`` field can be on y2 at all; bars, fills, grids
         and reference lines are always primary.
@@ -5360,7 +5414,7 @@ class Figure:
             resolution.visible(ax.errorbars),
         ):
             for data in data_list:
-                if data.get("yaxis") != "y2":
+                if not _on_y2(data):
                     continue
                 y = _plottable(
                     np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
@@ -5372,7 +5426,7 @@ class Figure:
                         y2max = float(y.max())
 
         for hist in resolution.visible(ax.hists):
-            if hist.get("yaxis") != "y2" or hist.get("histtype") == "stepfilled":
+            if not _on_y2(hist):
                 continue
             hy0, hy1 = self._histogram_y_extent(hist, positive_only)
             if hy0 is None:

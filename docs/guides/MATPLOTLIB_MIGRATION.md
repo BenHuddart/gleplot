@@ -7,6 +7,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | matplotlib | gleplot |
 |---|---|
 | `plt.figure()` | `glp.figure()` |
+| `plt.close(fig)` / `plt.close('all')` | same; gleplot tracks only the current figure, so `'all'` closes that one, and a figure number or label matches nothing and warns |
 | `plt.subplots(nrows, ncols)` | `glp.subplots(nrows, ncols)`: the same numpy array of axes, with `squeeze`, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
@@ -25,7 +26,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
 | `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` (`'x'`/`'x2'`, `'y'`/`'y2'`; another string raises). A dict there is taken as matplotlib's positional `fontdict` |
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
-| `ax.set_xlim(...)` / `ax.set_ylim(...)` | same, including `left`/`right`, `bottom`/`top`, a `(low, high)` pair and the `xmin`/`xmax`, `ymin`/`ymax` aliases; an omitted limit keeps its setting. A limit passed as `None` is automatic, chosen from the data when the figure is saved, where matplotlib keeps the current value. `emit=False` and `auto=True` warn. The third positional argument is gleplot's `axis` (`'x2'`, `'y2'`), and the call returns the axes, not the `(low, high)` limits |
+| `ax.set_xlim(...)` / `ax.set_ylim(...)` | same, including `left`/`right`, `bottom`/`top`, a `(low, high)` pair and the `xmin`/`xmax`, `ymin`/`ymax` aliases; an omitted limit keeps its setting. A limit passed as `None` is automatic, chosen from the data when the figure is saved, where matplotlib keeps the current value. `emit=False` and `auto=True` warn, and a NaN, infinite or non-numeric limit raises. The third positional argument is gleplot's `axis` (`'x2'`, `'y2'`) |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
 | `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
@@ -210,7 +211,7 @@ ax.stem(x, y)
 
 ## Segments
 
-`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. The arguments are listed in the API reference for `Axes.vlines`. GLE breaks a line at `*`. It drops a `nan` row and joins its neighbours, so a NaN in `ax.plot` is not a gap.
+`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. The arguments are listed in the API reference for `Axes.vlines`. GLE breaks a line at `*` and drops a `nan` row, joining its neighbours, so `ax.plot` and `ax.step` write a NaN in a drawn line as `*`: the line breaks there, as in matplotlib. Such a line is not smoothed by `GLEGraphConfig(smooth_curves=True)`, which would fit one curve through the pieces.
 
 | argument | gleplot |
 |---|---|
@@ -586,6 +587,12 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     Give the axes a limit with `set_xlim`/`set_ylim` to keep the guide
     under the data. See
     [Reference Lines and Shaded Spans](REFERENCE_LINES_AND_SPANS.md).
+14. A masked value (`numpy.ma`) is read as NaN wherever matplotlib leaves a
+    masked point out: the data of `plot`, `step`, `stem`, `scatter` (`x`,
+    `y` and `c`), the heights of `bar` and `barh`, `errorbar`,
+    `fill_between`, `fill_betweenx`, `hist`, `hlines` and `vlines`. It then
+    behaves as a NaN does there. As in matplotlib, `fill`, `stackplot` and
+    the `bar` positions and `bottom` use the values under the mask.
 
 ## Migration Strategy
 

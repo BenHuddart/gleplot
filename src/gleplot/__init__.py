@@ -413,18 +413,18 @@ def colorbar(mappable=None, cax=None, ax=None, **kwargs):
 def subplots(
     nrows: int = 1,
     ncols: int = 1,
+    *,
+    sharex: bool = False,
+    sharey: bool = False,
+    squeeze: bool = True,
+    width_ratios=None,
+    height_ratios=None,
     figsize=None,
     dpi=100,
     style=None,
     graph=None,
     marker=None,
-    sharex: bool = False,
-    sharey: bool = False,
     data_prefix=None,
-    height_ratios=None,
-    width_ratios=None,
-    *,
-    squeeze: bool = True,
     **kwargs,
 ):
     """
@@ -438,6 +438,28 @@ def subplots(
         Number of rows of subplots. Default: 1
     ncols : int, optional
         Number of columns of subplots. Default: 1
+    sharex : bool, optional
+        If True, all subplots share the same x-axis. Only the bottom row
+        will show x-axis labels and ticks. Default: False
+    sharey : bool, optional
+        If True, all subplots share the same y-axis. Only the leftmost column
+        will show y-axis labels and ticks. Default: False
+    squeeze : bool, default: True
+        As in matplotlib: if True, drop the extra dimensions of the returned
+        array, so a single subplot comes back as an :class:`Axes` and a
+        single row or column as a 1-D array. If False, always return a 2-D
+        array, even for a 1x1 grid.
+    width_ratios : sequence of float, optional
+        Relative width of each of the ``ncols`` subplot columns, matplotlib-
+        ``gridspec`` style (e.g. ``[1, 3]`` makes the second of two columns
+        three times as wide). Must have length ``ncols`` if given. ``None``
+        (default) keeps every column the same width. See
+        :class:`gleplot.figure.Figure` for full semantics (validated against
+        the actual column count at GLE-generation time).
+    height_ratios : sequence of float, optional
+        Relative height of each of the ``nrows`` subplot rows (e.g.
+        ``[3, 3, 3, 1, 4]`` for 5 rows whose 4th is thin). Same semantics as
+        ``width_ratios``, for rows; must have length ``nrows`` if given.
     figsize : tuple, optional
         Figure size (width, height) in inches. If None, auto-scales
         based on grid size (6 inches per column, 4 inches per row).
@@ -449,34 +471,11 @@ def subplots(
         Graph configuration.
     marker : GLEMarkerConfig, optional
         Marker configuration.
-    sharex : bool, optional
-        If True, all subplots share the same x-axis. Only the bottom row
-        will show x-axis labels and ticks. Default: False
-    sharey : bool, optional
-        If True, all subplots share the same y-axis. Only the leftmost column
-        will show y-axis labels and ticks. Default: False
     data_prefix : str, optional
         Custom prefix for data file names (e.g., 'test9' creates 'test9_0.dat', 'test9_1.dat').
         If None, uses global counter with ``data_`` prefix. Used verbatim, so
         it must be usable as a GLE data filename: whitespace, control
         characters and any of ``! " + / \\`` raise ``ValueError``.
-    height_ratios : sequence of float, optional
-        Relative height of each of the ``nrows`` subplot rows, matplotlib-
-        ``gridspec`` style (e.g. ``[3, 3, 3, 1, 4]`` for 5 rows whose 4th is
-        thin). Must have length ``nrows`` if given. ``None`` (default) keeps
-        every row the same height -- the historical behaviour, byte-
-        identical output. See :class:`gleplot.figure.Figure` for full
-        semantics (validated against the actual row count at GLE-generation
-        time).
-    width_ratios : sequence of float, optional
-        Relative width of each of the ``ncols`` subplot columns. Same
-        semantics as ``height_ratios``, for columns; must have length
-        ``ncols`` if given.
-    squeeze : bool, default: True
-        As in matplotlib: if True, drop the extra dimensions of the returned
-        array, so a single subplot comes back as an :class:`Axes` and a
-        single row or column as a 1-D array. If False, always return a 2-D
-        array, even for a 1x1 grid.
     **kwargs
         ``gridspec_kw``'s ``height_ratios`` and ``width_ratios`` are taken as
         the keywords of those names. Any other matplotlib keyword
@@ -490,6 +489,12 @@ def subplots(
     axes : Axes or numpy.ndarray of Axes
         The subplots in a ``(nrows, ncols)`` object array, indexed
         ``axes[row, col]``, squeezed as described for ``squeeze``.
+
+    Notes
+    -----
+    As in matplotlib, every parameter after ``ncols`` is keyword-only.
+    ``figsize`` and the other figure settings are the keywords
+    :func:`figure` takes; ``figsize`` is in inches.
 
     Examples
     --------
@@ -651,14 +656,34 @@ def view(dpi=None, format="png"):
 
 
 def close(fig=None):
-    """Close figure."""
+    """Close a figure, as ``matplotlib.pyplot.close``.
+
+    Parameters
+    ----------
+    fig : None, Figure or 'all', optional
+        ``None`` (default) or ``'all'`` closes the current figure, the one
+        figure gleplot keeps track of; a :class:`Figure` closes that figure.
+        gleplot does not number or name its figures, so an int or another
+        string matches no figure: it warns and closes nothing.
+    """
     global _current_figure
-    if fig is None:
-        if _current_figure:
-            _current_figure.close()
-            _current_figure = None
-    else:
+    if fig is None or (isinstance(fig, str) and fig == "all"):
+        fig = _current_figure
+    elif isinstance(fig, (int, str)) and not isinstance(fig, bool):
+        _warn.warn_external(
+            f"close({fig!r}) closes nothing: gleplot does not number or name "
+            "its figures. Pass the Figure, 'all' or None."
+        )
+        return
+    elif not isinstance(fig, Figure):
+        raise TypeError(
+            f"close({fig!r}): expected a Figure, 'all' or None, "
+            f"not {type(fig).__name__}."
+        )
+    if fig is not None:
         fig.close()
+        if fig is _current_figure:
+            _current_figure = None
 
 
 __all__ = [

@@ -69,6 +69,20 @@ class TestAxisProperties:
         self.ax.set_ylim(4, ymin=None)
         assert self.ax.ymin == 4
 
+    def test_axis_limits_store_numpy_scalars_as_python_numbers(self):
+        self.ax.set_xlim(np.int64(1), np.array(2.5))
+        assert self.ax.get_xlim() == (1, 2.5)
+        assert [type(v) for v in self.ax.get_xlim()] == [int, float]
+        with pytest.raises(ValueError, match=r"set_xlim\(xmax=nan\)"):
+            self.ax.set_xlim(xmax=np.float64("nan"))
+
+    def test_axis_limits_return_the_new_limits(self):
+        """As matplotlib: (low, high), with None for an automatic limit."""
+        assert self.ax.set_xlim(1, 2) == (1, 2)
+        assert self.ax.set_xlim(right=None) == (1, None)
+        assert self.ax.set_ylim(top=5, axis="y2") == (None, 5)
+        assert self.ax.twiny().set_xlim(3, 4) == (3, 4)
+
     def test_axis_limits_reject_a_limit_and_its_alias(self):
         with pytest.raises(TypeError, match=r"'left' \(0\) and 'xmin' \(1\)"):
             self.ax.set_xlim(0, xmin=1)
@@ -76,6 +90,25 @@ class TestAxisProperties:
             self.ax.set_ylim(top=1, ymax=2)
         with pytest.raises(ValueError, match="two entries"):
             self.ax.set_xlim((0, 1, 2))
+
+    @pytest.mark.parametrize(
+        "call, error",
+        [
+            (lambda ax: ax.set_xlim(0, 1, "y"), ValueError),
+            (lambda ax: ax.set_ylim(0, 1, "x2"), ValueError),
+            (lambda ax: ax.set_xlim(0, float("nan")), ValueError),
+            (lambda ax: ax.set_ylim(bottom=float("inf")), ValueError),
+            (lambda ax: ax.set_xlim("0", 1), TypeError),
+            (lambda ax: ax.set_xlim("05"), TypeError),
+            (lambda ax: ax.set_xlim(True, 2), TypeError),
+            (lambda ax: ax.set_xlim(np.array([1.0]), 2), TypeError),
+        ],
+    )
+    def test_axis_limits_reject_a_bad_axis_or_limit(self, call, error):
+        with pytest.raises(error, match=r"set_[xy]lim\("):
+            call(self.ax)
+        assert self.ax.get_xlim() == (None, None)
+        assert self.ax.get_ylim() == (None, None)
 
     def test_axis_limits_warn_on_emit_and_auto(self):
         with pytest.warns(UserWarning, match="ignores unsupported keyword.*auto"):
@@ -201,6 +234,25 @@ class TestSubplots:
         assert lone.shape == (1, 1) and isinstance(lone[0, 0], glp.Axes)
         _, grid = glp.subplots(1, 3, squeeze=False)
         assert grid.shape == (1, 3)
+
+    def test_subplots_takes_only_the_grid_positionally(self):
+        """matplotlib's order: everything after ncols is keyword-only."""
+        with pytest.raises(TypeError):
+            glp.subplots(2, 2, (8, 6))
+        fig, axes = glp.subplots(
+            2,
+            3,
+            sharex=True,
+            sharey=True,
+            squeeze=False,
+            width_ratios=[1, 2, 3],
+            height_ratios=[4, 5],
+            figsize=(8, 6),
+        )
+        assert fig.figsize == (8, 6) and axes.shape == (2, 3)
+        assert fig.sharex and fig.sharey
+        assert list(fig.width_ratios) == [1, 2, 3]
+        assert list(fig.height_ratios) == [4, 5]
 
     def test_subplots_array_is_row_major(self):
         """axes[row, col] is the panel add_subplot numbers row by row."""
@@ -934,6 +986,37 @@ class TestSecondaryYAxis:
         assert 'y2title "Secondary"' in gle
         assert "y2axis min 0 max 30" in gle
         assert "y2axis" in gle  # y2axis keyword on plot command
+
+    def test_primary_autoscale_leaves_out_the_y2_series(self):
+        """GLE scales y2 from its own datasets, so the left range is the left's."""
+        self.ax.plot([1, 2, 3], [2, 4, 6])
+        self.ax.plot([1, 2, 3], [20, 30, 40], yaxis="y2")
+        self.ax.errorbar([1, 2], [50, 60], yerr=5, yaxis="y2")
+        self.ax.hist([1, 1, 2, 2, 2, 2, 2, 2, 2, 2], yaxis="y2")
+        lines = self.fig._generate_gle().splitlines()
+        assert "    yaxis min 2 max 6" in lines
+
+    def test_primary_autoscale_counts_what_is_drawn_on_the_primary_axis(self):
+        """A stepfilled histogram is drawn on the left whatever yaxis says,
+        and a function curve, which GLE bounds itself, keeps y2 out too."""
+        with pytest.warns(UserWarning, match="stepfilled"):
+            self.ax.hist([1, 1, 2], histtype="stepfilled", yaxis="y2")
+        self.ax.plot([1, 2], [20, 40], yaxis="y2")
+        assert "    yaxis min 0 max 2" in self.fig._generate_gle().splitlines()
+
+        fig = glp.figure()
+        ax = fig.add_subplot(111)
+        ax.function("sin(x)", 1, 3)
+        ax.plot([1, 2, 3], [20, 30, 40], yaxis="y2")
+        assert not any(
+            line.strip().startswith("yaxis min")
+            for line in fig._generate_gle().splitlines()
+        )
+
+    def test_primary_autoscale_with_only_y2_series_spans_them(self):
+        """With nothing on the left, its range is still the one y2 would copy."""
+        self.ax.plot([1, 2, 3], [20, 30, 40], yaxis="y2")
+        assert "    yaxis min 20 max 40" in self.fig._generate_gle().splitlines()
 
     def test_y2_log_scale_gle(self):
         """Test that y2axis log scale generates correct GLE code."""
