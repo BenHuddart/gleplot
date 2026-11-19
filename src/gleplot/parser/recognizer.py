@@ -307,7 +307,7 @@ from ..dataio import (
     extract_columns,
     resolve_data_reference,
 )
-from ..figure import Figure
+from ..figure import Figure, _share_mode
 from ..guides import (
     GRAPHUTIL_INCLUDE,
     GUIDE_MARKER_FIELDS,
@@ -1995,8 +1995,19 @@ class _Recognizer:
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
         """The ``Figure`` described by the metadata and the preamble."""
         dpi = int(meta.get("dpi", 100))
-        sharex = bool(meta.get("sharex", False))
-        sharey = bool(meta.get("sharey", False))
+        shares = []
+        for key in ("sharex", "sharey"):
+            value = meta.get(key, False)
+            try:
+                shares.append(_share_mode(key, value))
+            except ValueError:
+                shares.append(bool(value))
+                self._note(
+                    ImportCategory.METADATA,
+                    f"metadata: {key} = {value!r} is not true, false, 'all', "
+                    f"'none', 'row' or 'col'; read as {shares[-1]}.",
+                )
+        sharex, sharey = shares
         msize_scale = float(meta.get("msize_scale", 1.0))
         metadata_extra = {
             k: v

@@ -737,6 +737,7 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``one_point_default_width`` moved, and ``guides_after_graph`` was added,
     when a guide gleplot cannot range started being drawn after the graph;
     ``rug_field_options`` moved when ``rugs.gle`` started drawing rugs.
+    ``subplots_share_col_row`` was added with matplotlib's string sharing.
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
