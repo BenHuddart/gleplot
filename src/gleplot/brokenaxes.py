@@ -49,7 +49,7 @@ from __future__ import annotations
 from typing import Any, List, Optional, Sequence, Tuple, cast
 
 from ._warn import warn_external
-from .axes import Axes
+from .axes import Axes, _finite_float
 from .colors import _stored_color
 
 #: Accepted ``divider`` styles.
@@ -558,7 +558,7 @@ class BrokenAxes:
         """
         if self.axis == "x":
             return self._fanout("axhline", y, *args, **kwargs)
-        index = self._segment_for(float(y))
+        index = self._segment_for(_finite_float(y, "axhline(y=...)"))
         if index is None:
             warn_external(
                 f"axhline() at y={y!r} falls in the break between segments "
@@ -591,7 +591,12 @@ class BrokenAxes:
         """
         if self.axis == "x":
             return self._fanout("axhspan", ymin, ymax, *args, **kwargs)
-        lo, hi = sorted((float(ymin), float(ymax)))
+        lo, hi = sorted(
+            (
+                _finite_float(ymin, "axhspan(ymin=...)"),
+                _finite_float(ymax, "axhspan(ymax=...)"),
+            )
+        )
         first = None
         for seg, (seg_lo, seg_hi) in zip(self.segments, self._lims):
             if hi <= seg_lo or lo >= seg_hi:

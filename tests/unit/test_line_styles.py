@@ -188,7 +188,7 @@ def test_a_reference_line_on_an_empty_axes_is_drawn(linestyle, expected, recwarn
 
 
 def test_dash_dot_emits_exactly_one_lstyle_token():
-    """Regression: add_plot_line used to append a stray hard-coded 'lstyle 4'
+    """Regression: the line writer used to append a stray hard-coded 'lstyle 4'
     after the configured dash-dot value, so '-.' silently rendered as GLE's
     sparse-dotted style and ignored the config entirely."""
     fig = glp.figure(data_prefix="lsdd")
