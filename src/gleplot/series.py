@@ -710,10 +710,20 @@ class ScatterSeries(_XYSeries):
     #: GLE ``mdata``: each point's marker size as a multiple of
     #: ``markersize``, one per point. Absent: every marker at ``markersize``.
     mdata: np.ndarray
+    #: ``scatter(c=...)``: one value per point, coloured through ``cmap``
+    #: from ``vmin`` (its first colour) to ``vmax`` (its last). Absent: every
+    #: point in ``color``. ``cmap``, ``vmin`` and ``vmax`` are present
+    #: exactly when this is.
+    cdata: np.ndarray
+    cmap: str
+    vmin: float
+    vmax: float
 
     def default_column_names(self) -> Optional[List[str]]:
         if "mdata" in self:
             return _build_column_names("x", ["y", "mdata"], self.get("label"))
+        if "cdata" in self:
+            return _build_column_names("x", ["y", "c"], self.get("label"))
         return super().default_column_names()
 
 
