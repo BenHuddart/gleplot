@@ -909,8 +909,9 @@ DEFAULT_COLORBAR_NTICKS = 5
 #: :meth:`GLEWriter.add_cells_sidecar`).
 CELLS_MARKER = "! gleplot: cells"
 
-#: How the comment line under a ``.z`` header that marks a ``contourf`` grid
-#: begins; the grid's edges follow (see :meth:`GLEWriter.add_nodes_sidecar`).
+#: How the comment line under a ``.z`` header that marks an ``imshow`` or
+#: ``contourf`` node grid begins; the grid's edges follow (see
+#: :meth:`GLEWriter.add_nodes_sidecar`).
 NODES_MARKER = "! gleplot: nodes"
 
 #: How the comment line in a ``gleplot_contourf<k>`` palette sub that holds
@@ -2021,6 +2022,14 @@ class GLEWriter:
         written after it can still override what it sets.
         """
         self.lines_gle.append("    math")
+
+    def add_background(self, color: str) -> None:
+        """GLE's graph ``background``: fill the frame with ``color``.
+
+        GLE fills it before drawing anything in the graph, wherever the line
+        stands in the block.
+        """
+        self.lines_gle.append(f"    background {color}")
 
     def add_axes(
         self,
@@ -6222,6 +6231,8 @@ class GLEWriter:
         elif "levels" in series:
             self.add_nodes_sidecar(series)
             self.add_contourf_sub(series)
+        elif self.writes_node_grid(series):
+            self.add_nodes_sidecar(series)
         else:
             self.add_z_sidecar(
                 data_file, series["z"], series["extent"], series["origin"]
@@ -6263,15 +6274,28 @@ class GLEWriter:
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
 
+    @staticmethod
+    def writes_node_grid(series: Series) -> bool:
+        """Whether a heatmap's ``.z`` is a node grid (:meth:`add_nodes_sidecar`).
+
+        A ``contourf``, or an ``imshow`` grid of two or more nodes each way:
+        one row or column has no node spacing to place by.
+        """
+        if series["source"] != "grid" or series.get("cells"):
+            return False
+        return "levels" in series or min(np.shape(series["z"])) >= 2
+
     def add_nodes_sidecar(self, series: Series):
-        """Write a ``contourf`` heatmap's ``.z`` with its nodes where they are.
+        """Write a grid heatmap's ``.z`` with its nodes where they are.
 
         GLE's ``colormap`` puts node ``k`` of ``n`` at ``xmin + k * (xmax -
         xmin) / n``, one spacing short of ``xmax``, while ``begin contour``
         puts the last node on ``xmax``. Writing ``xmax`` (and ``ymax``) one
         node spacing past the last node makes the colormap's nodes the grid's
-        own, so the bands sit where the levels cross the grid; the graph
-        window, which the grid's extent sets, clips the extra spacing.
+        own, where a ``contour`` of the same grid puts them (and a
+        ``contourf``'s bands where the levels cross the grid); the graph
+        window, which the grid's extent sets, clips the extra spacing. Rows
+        go ymin first, flipped for ``origin='upper'``.
 
         The line under the header, which GLE skips, holds the grid's edges
         as every extent is written, and the header is computed from those
@@ -6291,7 +6315,7 @@ class GLEWriter:
             "! nx {} ny {} xmin {} xmax {} ymin {} ymax {}".format(nx, ny, *bounds),
             "{} xmin {} xmax {} ymin {} ymax {}".format(NODES_MARKER, *edges),
         ]
-        lines.extend(self._format_grid(z))
+        lines.extend(self._format_grid(z[::-1] if series["origin"] == "upper" else z))
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
 
