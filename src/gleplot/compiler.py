@@ -743,10 +743,14 @@ class GLECompiler:
         )
 
         try:
+            # GLE echoes script lines, which gleplot writes as UTF-8, so decode
+            # as UTF-8 whatever the locale (cp1252 on Windows); a byte that is
+            # not UTF-8 (a path in the ANSI code page) is replaced, not raised.
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
@@ -788,7 +792,11 @@ class GLECompiler:
         """Get GLE version and info."""
         try:
             result = subprocess.run(
-                [self.gle_path, "-info"], capture_output=True, text=True, timeout=5
+                [self.gle_path, "-info"],
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
             )
             return {"version": result.stdout.strip()}
         except Exception as e:
