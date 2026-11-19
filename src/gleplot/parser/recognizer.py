@@ -6798,6 +6798,20 @@ class _Recognizer:
                 )
                 return
 
+        if attrs["unread"]:
+            # A series built from this line would drop those tokens on
+            # re-save; keep the line as written, and its dataset defined.
+            info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
+            info["_raw_datasets"].add(d_name)
+            self._note(
+                ImportCategory.DATA,
+                f"{d_name}: {' '.join(attrs['unread'])} not modelled; the "
+                "dataset line was kept as raw GLE and still draws, but is "
+                "not editable",
+                (line_no, line_no) if line_no is not None else None,
+            )
+            return
+
         if attrs["mdata"] is not None and str(attrs["marker"] or "").lower().startswith(
             CDATA_SUB_PREFIX
         ):
@@ -7079,6 +7093,10 @@ class _Recognizer:
         All three keywords also set GLE's ``line`` flag (a smoothed dataset
         draws a curve whether or not ``line`` was written), which is why they
         set ``has_line`` here, exactly as ``lstyle`` already does.
+
+        Every token the scan does not read (a keyword no series models, such
+        as ``mscale`` or ``mcolor``, or a value it cannot evaluate) is listed
+        in ``unread``, so a caller keeps the line raw instead of dropping it.
         """
         a: Dict[str, Any] = {
             "has_line": False,
@@ -7112,6 +7130,9 @@ class _Recognizer:
             # mdist / deresolve / deresolve_average / xmin..ymax, each only
             # when written: the series fields of the same names.
             "qualifiers": {},
+            # Source text of every token the scan did not read: a keyword
+            # no series models, or a value it could not evaluate.
+            "unread": [],
         }
         i = 0
         m = len(toks)
@@ -7149,6 +7170,7 @@ class _Recognizer:
                     # ("constant, function, or unary operator expected"), so
                     # there is no engine behaviour to mirror. Skip the keyword
                     # and let the remaining tokens scan normally.
+                    a["unread"].append(t.value)
                     i += 1
                     continue
                 a["has_line"] = True
@@ -7167,6 +7189,7 @@ class _Recognizer:
                     a["qualifiers"][w] = float(v)
                     i = nxt
                     continue
+                a["unread"].append(t.value)
                 i += 1
                 continue
             if w == "deresolve" and i + 1 < m:
@@ -7175,6 +7198,7 @@ class _Recognizer:
                 # it.
                 v, nxt = _collect_value(toks, i + 1)
                 if v is None or not math.isfinite(v):
+                    a["unread"].append(t.value)
                     i += 1
                     continue
                 a["qualifiers"]["deresolve"] = int(v)
@@ -7191,8 +7215,12 @@ class _Recognizer:
                 continue
             if w == "lwidth" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
-                a["lwidth"] = v
-                i = nxt if v is not None else i + 2
+                if v is not None:
+                    a["lwidth"] = v
+                    i = nxt
+                    continue
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "lstyle" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
@@ -7212,7 +7240,8 @@ class _Recognizer:
                     a["has_line"] = True
                     i = nxt
                     continue
-                i += 2
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "marker" and i + 1 < m:
                 a["marker"] = toks[i + 1].value
@@ -7224,8 +7253,12 @@ class _Recognizer:
                 continue
             if w == "msize" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
-                a["msize"] = v
-                i = nxt if v is not None else i + 2
+                if v is not None:
+                    a["msize"] = v
+                    i = nxt
+                    continue
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if (
                 w in ("err", "errup", "errdown", "herr", "herrleft", "herrright")
@@ -7247,17 +7280,26 @@ class _Recognizer:
                     a["err_consts"][w] = (const, is_percent)
                     i = nxt
                     continue
-                i += 2
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "errwidth" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
-                a["errwidth"] = v
-                i = nxt if v is not None else i + 2
+                if v is not None:
+                    a["errwidth"] = v
+                    i = nxt
+                    continue
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "herrwidth" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
-                a["herrwidth"] = v
-                i = nxt if v is not None else i + 2
+                if v is not None:
+                    a["herrwidth"] = v
+                    i = nxt
+                    continue
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "y2axis":
                 a["y2axis"] = True
@@ -7278,6 +7320,7 @@ class _Recognizer:
                 a["label"] = label_value if label_value != "" else None
                 i += 2
                 continue
+            a["unread"].append(t.value)
             i += 1
         return a
 
@@ -8163,11 +8206,12 @@ class _Recognizer:
         base = cdata_file[: -len("-cdata.dat")]
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
-        if attrs["qualifiers"]:
+        dropped = list(attrs["qualifiers"]) + attrs["unread"]
+        if dropped:
             # ContourSeries has no such fields; say so rather than lose them.
             self._note(
                 ImportCategory.DATA,
-                f"{', '.join(attrs['qualifiers'])} on a contour's dataset line "
+                f"{', '.join(dropped)} on a contour's dataset line "
                 "is not modelled and was dropped on re-save",
                 span,
             )
