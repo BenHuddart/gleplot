@@ -8,6 +8,8 @@
 
 <img src="https://benhuddart.github.io/gleplot/_static/gallery/example_combined_errorbars.png" alt="Measured points with horizontal and vertical error bars, and a dashed y = x² curve through them" width="560">
 
+The code that draws it (the gallery's [Combined X+Y Error Bars](https://benhuddart.github.io/gleplot/gallery.html#combined-x-y-error-bars) example):
+
 ```python
 import numpy as np
 import gleplot as glp
@@ -19,8 +21,8 @@ yerr = np.array([0.3, 0.5, 0.6, 0.8, 1.0])
 
 fig = glp.figure(figsize=(8, 6))
 ax = fig.add_subplot(111)
-ax.errorbar(x, y, yerr=yerr, xerr=xerr, marker="o", fmt="none",
-            color="blue", capsize=4, label="Measured")
+ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="o", color="blue", capsize=4,
+            label="Measured")
 x_fit = np.linspace(0.5, 5.5, 100)
 ax.plot(x_fit, x_fit**2, color="red", linestyle="--", label="y = x²")
 ax.set_xlabel("x")
@@ -34,14 +36,14 @@ fig.savefig("fit.pdf")  # compiled by GLE
 
 ## Why gleplot
 
-- **The output is a script you can read and edit.** `fit.gle` is a few dozen lines of plain GLE, with the data in `.dat` files beside it. Change a label or a colour by hand, and GLE compiles it to vector PDF, EPS or SVG, or to PNG or JPG.
+- **The output is a script you can read and edit.** `fit.gle` is a short plain-text GLE file, with the data in `.dat` files beside it. Change a label or a colour by hand, and GLE compiles it to vector PDF, EPS or SVG, or to PNG or JPG.
 - **Scripts open again.** `glp.open_gle("fit.gle")` reads a `.gle` file back into a `Figure` you can change from Python and save.
-- **Nothing is lost on the way back.** GLE that gleplot does not recognise is kept and written out again, not dropped, so a script you edited by hand survives a round trip.
+- **Unrecognised GLE is kept.** When you open a hand-written file, GLE that gleplot does not model is written back in place on save rather than dropped, and each place it had to keep raw GLE or guess is recorded as a note ([opening GLE files](https://benhuddart.github.io/gleplot/guides/OPENING_GLE_FILES.html)).
 - **GLE is optional for writing.** Saving `.gle` works without GLE installed; you need GLE only to compile.
 
 ## Install
 
-gleplot needs Python 3.9 or later and numpy. It is not on PyPI yet; install it from GitHub:
+gleplot needs Python 3.9 or later and numpy. Install it from GitHub:
 
 ```bash
 pip install git+https://github.com/BenHuddart/gleplot.git
