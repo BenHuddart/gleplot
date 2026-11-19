@@ -8,7 +8,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 |---|---|
 | `plt.figure()` | `glp.figure()` |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
-| `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background, and axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
+| `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
 | `ax.plot(...)` | same |
 | `ax.scatter(...)` | same, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
@@ -22,7 +22,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.contourf(...)` | same on a uniform grid, see [Filled contours](#filled-contours) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
-| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` |
+| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` (`'x'`/`'x2'`, `'y'`/`'y2'`; another string raises). A dict there is taken as matplotlib's positional `fontdict` |
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
 | `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
@@ -35,6 +35,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.semilogx(...)` / `semilogy` / `loglog` | same; `base` other than 10, `subs` and `nonpositive` warn |
 | `ax.set_xticklabels(labels)` / `set_yticklabels` | same, after `set_xticks(ticks)`; `minor=True` and text properties warn |
 | `ax.axis('off')` / `ax.set_axis_off()` | same, but the axis labels stay (with a warning); `'equal'`, `'scaled'`, `'image'`, `'square'` and `emit=False` warn, use `set_aspect` |
+| `ax.set_facecolor(color)` | same, as GLE's graph `background`; an axes has none until it is set, where matplotlib's is white. On a polar axes it warns and does nothing: GLE's background fills the rectangular window, not the circle |
 | `ax.set_aspect(...)` / `ax.get_aspect()` | same, resizing the box about its centre; `adjustable='datalim'`, an `anchor` other than `'C'` and `share=True` warn, see [Axes and Legends](AXES_AND_LEGENDS.md) |
 | `plt.savefig(...)` | `fig.savefig(...)` or `glp.savefig(...)` |
 
@@ -228,7 +229,12 @@ keeps the full name, with a warning, unless the full name is left at its
 default. A `linewidth` that is NaN, infinite or negative raises
 `ValueError` at the call, on these and the other line-drawing calls below,
 `line_from_file`, `function` and `hist(histtype='step')`, where
-matplotlib does not check it.
+matplotlib does not check it. GLE has no zero-width stroke, so `lw=0` on
+`plot` (and `step`, `stem`, `semilogx`, `semilogy`, `loglog`), `errorbar`,
+`line_from_file`, `axhline`, `axvline`, `hlines` and `vlines` draws no
+line, as `linestyle='none'` does; `errorbar` still draws its error bars.
+`function` and `hist(histtype='step')` are only their line, so `lw=0`
+there warns and draws the default width.
 
 A keyword GLE cannot draw, such as `alpha`, `markeredgecolor` (`mec`),
 `markeredgewidth` (`mew`), `dashes`, `transform` or `clip_on`, warns and is
@@ -253,7 +259,9 @@ tuple such as `(0, (5, 2))` warns and is drawn solid, and so does a value
 that is not a line style. This holds for `plot` and the calls above, for
 `line_from_file`, `hist(histtype='step')`, and the single `linestyles` of
 `contour` and `tricontour`. A `(offset, None)` tuple is matplotlib's solid
-line and is drawn solid without a warning.
+line and is drawn solid without a warning. Passing `None` asks for
+matplotlib's default: a solid line from `plot`, `axhline`, `axvline` and
+`line_from_file`, and the style `fmt` gives from `errorbar`.
 
 ## Marker spacing, thinning and data ranges
 
@@ -311,14 +319,15 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 
 ## Heatmaps and contour lines
 
-`imshow` and `tripcolor` take the arguments listed in their API entries.
+`imshow` and `tripcolor` take the arguments listed in their API entries. `imshow`'s `extent` gives the first and last grid nodes, where `contour` puts them, not the box the image fills: matplotlib's pixels reach half a pixel past the outer centres, and gleplot's colormap stops at those nodes. To match a matplotlib figure, pass the outer pixel centres as `extent`.
 Every other keyword, such as `alpha`, `norm` or `aspect`, warns and is
 ignored: a GLE colormap is opaque and one per axes (see "One Heatmap Per
 Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
 `contour` and `tricontour` take matplotlib's `linewidth` (`lw`) and
 `linestyle` (`ls`) for `linewidths` and `linestyles`, one value each: GLE
 draws every level as one dataset, so a per-level list of differing values
-warns and its first entry is used. Their other keywords
+warns and its first entry is used. `None` for `colors`, `linewidths` or
+`linestyles` means the default. Their other keywords
 warn and are ignored, among them `extent` and `origin`: pass the grid's
 coordinates, `contour(x, y, Z)`, to place it. A misspelt keyword warns the
 same way.
@@ -565,6 +574,14 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     `alpha=` keyword where the function has one (`fill_between`, `fill`,
     `axhspan`, `axvspan`). As in matplotlib, `alpha=` overrides the colour's
     own alpha, and then nothing warns.
+13. A guide (`axhline`, `axvline`, `axhspan`, `axvspan`) on an axis gleplot
+    cannot range, because the axes has no data and no limit for it or its
+    data collapses to one value, is drawn after the graph against the range
+    GLE picks. It is then drawn above the data, the grid and the ticks
+    rather than under them, and a line outside the frame is not clipped.
+    Give the axes a limit with `set_xlim`/`set_ylim` to keep the guide
+    under the data. See
+    [Reference Lines and Shaded Spans](REFERENCE_LINES_AND_SPANS.md).
 
 ## Migration Strategy
 

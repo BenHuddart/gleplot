@@ -510,6 +510,16 @@ def inset_axes():
     return fig
 
 
+def inset_facecolor():
+    """A shaded panel under a white inset that hides the curve behind it."""
+    fig, ax = glp.subplots(data_prefix="golden")
+    ax.plot([0, 1], [0, 1])
+    ax.set_facecolor("whitesmoke")
+    inset = fig.add_axes([0.5, 0.2, 0.3, 0.3], facecolor="white")
+    inset.plot([0, 1], [1, 0], color="red")
+    return fig
+
+
 def insets_off_panel():
     """Insets the frames do not nest: one across a panel edge, one in the margin.
 
@@ -559,6 +569,18 @@ def file_series():
         label="eb-file",
     )
     ax.legend()
+    return fig
+
+
+def file_series_without_a_line():
+    """``line_from_file(linestyle='none')``: a dataset with no ``line`` token,
+    one with a marker as well, and one feeding a derived curve."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.line_from_file("external.dat", 1, 2, color="green", linestyle="none", label="x")
+    ax.line_from_file("external.dat", 1, 3, linestyle="none", linewidth=2)
+    ax.file_series[-1].update(marker="CIRCLE", markersize=0.2)
+    ax.derived("2*d1", ax.file_series[0], label="twice")
     return fig
 
 
@@ -1482,11 +1504,36 @@ def one_point_default_width():
     curves = fig.add_subplot(132)
     curves.function("x/2", xmin=0, xmax=2)
     curves.contour([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], levels=[1.5])
-    # Nothing resolves the y range, so this guide is a layered draw call.
+    # Nothing resolves the y range, so this guide is drawn after the graph.
     guides = fig.add_subplot(133)
     guides.axvline(1.0, label="drawn")
     guides.set_xlim(0, 2)
     guides.legend()
+    return fig
+
+
+def guides_after_graph():
+    """Guides on an axis gleplot cannot range, drawn after ``end graph``.
+
+    A dashed, labelled line; one over a fraction of the frame; one with no
+    line; a translucent labelled band with its own swatch; and a band over a
+    fraction. The second axes' collapsed range sends its guides there too.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(121)
+    ax.set_ylim(-3.0, None)
+    ax.axvline(0.5, color="red", linestyle="--", linewidth=2.0, label="cut")
+    ax.axvline(0.7, ymin=0.2, ymax=0.6)
+    ax.axvline(0.8, linestyle="none")
+    band = ax.axvspan(0.1, 0.3, color="orange", alpha=0.35, label="window")
+    band["swatch_color"] = "BLUE"
+    ax.axvspan(-0.4, -0.2, ymin=0.25)
+    ax.legend()
+    point = fig.add_subplot(122)
+    point.plot([5.0], [7.0], marker="o")
+    point.axhline(7.0, xmin=0.1, xmax=0.9, label="level")
+    point.axhspan(6.0, 8.0, xmin=0.5)
+    point.legend()
     return fig
 
 
@@ -1645,6 +1692,15 @@ def trailer_stray_amoves():
     ax = fig.add_subplot(111)
     ax.plot([0, 1, 2], [0, 1, 4])
     fig.passthrough_trailer = ["amove 1 1", "amove 2 2"]
+    return fig
+
+
+def trailer_amove_after_subplots():
+    """#216: an ``amove`` trailer after a subplot grid's last blank line."""
+    fig = glp.figure(data_prefix="golden")
+    fig.add_subplot(121).plot([0, 1], [0, 1])
+    fig.add_subplot(122).plot([0, 1], [1, 0])
+    fig.passthrough_trailer = ["amove 1 1", "circle 0.4"]
     return fig
 
 
@@ -1894,13 +1950,14 @@ def placed_images():
 
 def data_beyond_six_figures():
     """Columns that six significant figures would merge, zero or cut."""
-    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    fig, (left, right, grid) = glp.subplots(1, 3, data_prefix="golden")
     stamps = 1.7e9 + np.array([0.0, 60.0, 121.0])
     left.plot(stamps, [1.0, 2.0, 3.0])
     left.set_xlim(stamps[0], stamps[-1])
     left.plot(stamps, [1e-12, 2.5e-12, 4e-12])
     right.plot([1.23456789e12, 2.5e12], np.cos([0.0, np.pi / 2]))
-    right.imshow(1.0 + 1e-8 * np.arange(6.0).reshape(2, 3), extent=(0, 3, 0, 2))
+    # On its own axes: other data would reach past the grid's last node.
+    grid.imshow(1.0 + 1e-8 * np.arange(6.0).reshape(2, 3), extent=(0, 3, 0, 2))
     return fig
 
 
@@ -1937,10 +1994,12 @@ BUILDERS = [
     subplots_grid_mixed,
     subplots_spanning,
     inset_axes,
+    inset_facecolor,
     insets_off_panel,
     inset_alone,
     aspect_ratios,
     file_series,
+    file_series_without_a_line,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,
@@ -1981,6 +2040,7 @@ BUILDERS = [
     function_curves,
     function_curves_beside_modelled_lets,
     one_point_default_width,
+    guides_after_graph,
     fit_curves,
     closed_form_fits,
     fit_result_legends,
@@ -1995,6 +2055,7 @@ BUILDERS = [
     axes_styling_grid_only,
     contour_in_second_subplot,
     trailer_stray_amoves,
+    trailer_amove_after_subplots,
     pie_chart,
     pie_field_options,
     line_cap_join_dashlen,

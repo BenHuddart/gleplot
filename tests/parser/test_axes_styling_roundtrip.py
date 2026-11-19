@@ -597,3 +597,30 @@ def test_a_symmetric_tick_length_comes_back_as_the_whole_tick(tmp_path):
     assert ax.passthrough == []
     assert ax.xsymticks is True
     assert ax.xtick_length == pytest.approx(0.2 / 0.03528)
+
+
+# -- graph background (set_facecolor) -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "body, color",
+    [
+        ("   background gray10\n", "gray10"),
+        ("   background rgb(0.9,0.9,1)\n   background WHITE\n", "WHITE"),
+    ],
+)
+def test_graph_background_is_the_axes_facecolor(tmp_path, body, color):
+    """GLE fills with the last background, wherever it stands in the block."""
+    ax = parse_gle_figure(_write(tmp_path, "f.gle", body)).figure.axes_list[0]
+    assert ax._facecolor == color
+    assert not ax.passthrough
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["background red blue", 'background "red"', "background red ! paper"],
+)
+def test_graph_background_gleplot_cannot_read_stays_raw(tmp_path, line):
+    ax = parse_gle_figure(_write(tmp_path, "f.gle", f"   {line}\n")).figure.axes_list[0]
+    assert ax._facecolor is None
+    assert any(line in kept for kept in ax.passthrough)

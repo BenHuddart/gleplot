@@ -1,6 +1,7 @@
 """Unit tests for plotting functionality."""
 
 import tempfile
+import warnings
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -3106,6 +3107,80 @@ def test_other_line_calls_reject_a_bad_linewidth_by_their_own_name(name, draw):
         draw(ax)
 
 
+@pytest.mark.parametrize("no_line", ["none", "None", "", " "])
+def test_line_from_file_without_a_line_writes_no_line_token(no_line, tmp_path):
+    fig = glp.figure(data_prefix="lf")
+    ax = fig.add_subplot(111)
+    ax.line_from_file("f.dat", 1, 2, color="red", linestyle=no_line)
+    out = tmp_path / "fig.gle"
+    fig.savefig(str(out))
+    assert "    d1 color RED lwidth 0.05292" in out.read_text().splitlines()
+
+
+@pytest.mark.parametrize(
+    "draw",
+    [
+        lambda ax, **kw: ax.plot([0, 1], [0, 1], **kw),
+        lambda ax, **kw: ax.plot([0, 1], [0, 1], marker="o", **kw),
+        lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw),
+        lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, **kw),
+        lambda ax, **kw: ax.axhline(0.5, **kw),
+        lambda ax, **kw: ax.axvline(0.5, **kw),
+        lambda ax, **kw: ax.step([0, 1, 2], [0, 1, 0], marker="o", **kw),
+        lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, drawstyle="steps", **kw),
+    ],
+    ids=[
+        "plot",
+        "plot-marker",
+        "errorbar",
+        "line_from_file",
+        "axhline",
+        "axvline",
+        "step",
+        "line_from_file-steps",
+    ],
+)
+def test_linewidth_zero_draws_no_line(draw, tmp_path, recwarn):
+    """matplotlib's ``lw=0`` draws no stroke, the same as ``linestyle='none'``,
+    and says nothing about a line mode it drops with the line."""
+
+    def script(**kw):
+        glp.close()
+        fig = glp.figure(data_prefix="lw")
+        draw(fig.add_subplot(111), **kw)
+        out = tmp_path / "fig.gle"
+        fig.savefig(str(out))
+        return out.read_text()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        no_line = script(linestyle="none")
+    recwarn.clear()
+    assert script(linewidth=0) == no_line
+    assert not recwarn.list
+    assert script(linewidth=0) != script()
+
+
+def test_segments_with_linewidth_zero_are_left_out():
+    ax = glp.figure(data_prefix="lw").add_subplot(111)
+    ax.hlines([0.5, 1], 0, 1, linewidths=[0, 2])
+    ax.vlines([0.5], 0, 1, linewidths=0)
+    assert [s["linewidth"] for s in ax.lines] == [2.0]
+
+
+@pytest.mark.parametrize(
+    "name, draw",
+    [
+        ("function", lambda ax: ax.function("x", 0, 1, linewidth=0)),
+        ("hist", lambda ax: ax.hist([1.0, 2.0], histtype="step", linewidth=0)),
+    ],
+)
+def test_a_curve_that_is_only_its_line_warns_on_linewidth_zero(name, draw):
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match=rf"{name}\(\) cannot leave out"):
+        draw(ax)
+
+
 def _saved(fig, tmp_path):
     """The saved script and its sidecars, by file name."""
     out = tmp_path / "fig.gle"
@@ -3153,7 +3228,7 @@ def test_a_heatmap_grid_keeps_values_six_figures_would_merge(tmp_path):
     ax = fig.add_subplot(111)
     ax.imshow(1.0 + 1e-8 * np.arange(4.0).reshape(2, 2), extent=(0, 2, 0, 2))
     grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
-    assert grid.splitlines()[1:] == ["1 1.00000001", "1.00000002 1.00000003"]
+    assert grid.splitlines()[2:] == ["1 1.00000001", "1.00000002 1.00000003"]
 
 
 def test_raised_columns_zero_nothing_six_figures_kept(tmp_path):
@@ -3182,4 +3257,6 @@ def test_a_timestamp_heatmap_extent_keeps_its_width(tmp_path):
     ax = fig.add_subplot(111)
     ax.imshow(np.arange(6.0).reshape(2, 3), extent=(1.7e9, 1.7e9 + 60, 0, 1))
     grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
-    assert grid.startswith("! nx 3 ny 2 xmin 1.7e+09 xmax 1.70000006e+09 ymin 0")
+    header, marker = grid.splitlines()[:2]
+    assert header.startswith("! nx 3 ny 2 xmin 1700000000 xmax 1700000090 ymin 0")
+    assert marker.startswith("! gleplot: nodes xmin 1.7e+09 xmax 1.70000006e+09")

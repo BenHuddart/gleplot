@@ -123,7 +123,7 @@ def test_one_sub_per_marker_and_cmap():
 
 def test_a_heatmap_and_a_scatter_share_one_palette_sub():
     ax = _ax()
-    ax.imshow(np.arange(4.0).reshape(2, 2), cmap="viridis")
+    ax.imshow(np.arange(4.0).reshape(2, 2), extent=(0, 10, 0, 10), cmap="viridis")
     ax.scatter(X, Y, c=[1, 2, 3])
     text, _files = _script(ax)
     assert text.count("sub gleplot_viridis z") == 1
@@ -410,7 +410,7 @@ def test_a_heatmap_bar_replaces_the_scatter_bar_on_its_axes():
     ax.scatter(X, Y, c=[1, 2, 3])
     fig = ax.figure
     fig.colorbar(ax=ax)
-    im = ax.imshow(np.arange(4.0).reshape(2, 2), cmap="plasma")
+    im = ax.imshow(np.arange(4.0).reshape(2, 2), extent=(0, 10, 0, 10), cmap="plasma")
     fig.colorbar(im)
     assert "colorbar" not in ax.scatters[0]
     assert _script(ax)[0].count("\ngleplot_colorbar_v zmin") == 1
