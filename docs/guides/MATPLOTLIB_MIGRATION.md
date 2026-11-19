@@ -9,6 +9,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `plt.figure()` | `glp.figure()` |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background, and axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
+| `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
 | `ax.plot(...)` | same |
 | `ax.scatter(...)` | same, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
 | `ax.errorbar(...)` | same |
