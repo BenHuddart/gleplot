@@ -68,7 +68,6 @@ __all__ = [
     "cmap_needs_sub",
     "palette_sub_name",
     "palette_call_name",
-    "colorbar_cmap",
     "palette_sub_text",
     "colorbar_sub_name",
     "colorbar_sub_text",
