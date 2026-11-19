@@ -3520,16 +3520,12 @@ class Figure:
         for ref in ax.engine_range_guides(ax.reflines, limits):
             add(
                 ref,
-                writer.legend_swatch(
-                    ref["color"], ref.get("linestyle"), ref.get("linewidth")
-                ),
+                writer.legend_swatch(ref["color"], ref.get("linestyle"), ref),
             )
         for ref in ax.dataset_form_guides(ax.reflines, limits):
             add(
                 ref,
-                writer.legend_swatch(
-                    ref["color"], ref.get("linestyle"), ref.get("linewidth")
-                ),
+                writer.legend_swatch(ref["color"], ref.get("linestyle"), ref),
             )
         for kind, series, data in resolution.drawables(ax):
             add(series, self._drawable_legend_swatch(writer, kind, data))
@@ -3560,7 +3556,7 @@ class Figure:
         return writer.legend_swatch(
             data.get("color") or "BLUE",
             None if kind == "scatter" else data.get("linestyle", "-"),
-            data.get("linewidth", 1),
+            data,
             marker,
             data.get("markersize"),
         )
@@ -3578,7 +3574,7 @@ class Figure:
                 if kind == "errorbar" and not fs.get("linestyle")
                 else fs.get("linestyle", "-" if kind == "line" else "none")
             ),
-            fs.get("linewidth", 1),
+            fs,
             fs.get("marker"),
             fs.get("markersize"),
         )
