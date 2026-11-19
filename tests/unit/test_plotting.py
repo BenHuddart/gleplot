@@ -2986,6 +2986,18 @@ def test_from_file_keywords_reach_the_emitted_references():
     ]
 
 
+def test_a_two_curve_file_fill_without_its_second_column_raises():
+    """No ``y2_col`` and no ``target`` would write ``c None`` into the data line."""
+    from gleplot.series import FileSeries
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    fill = FileSeries(series_type="fill", data_file="a.dat", x_col=1, y1_col=2)
+    with pytest.raises(ValueError, match="needs y2_col .* or target"):
+        writer.add_file_series(fill)
+    assert writer.lines_gle == []
+
+
 def test_add_text_keywords_reach_the_emitted_text():
     """The keyword form of ``GLEWriter.add_text_annotation`` maps every
     argument to its field (``halign``/``valign`` to ``ha``/``va``); gleplot
