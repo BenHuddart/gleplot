@@ -2856,6 +2856,10 @@ class _Recognizer:
             "_y2labels_on_line": None,
             "_x2labels_on_raw": None,
             "_x2labels_on_line": None,
+            # The raw text of a bare 'y2ticks on' / 'x2ticks on', judged once
+            # the block is read (see _reconcile_axis_styling).
+            "_y2ticks_on": None,
+            "_x2ticks_on": None,
             "nofirst_x": False,
             "nolast_x": False,
             "nofirst_y": False,
@@ -3486,19 +3490,33 @@ class _Recognizer:
         ``xside off``, ``yside off``, ``xticks off`` and ``yticks off`` are
         recovered together as ``Axes._frame_off``, and only when each appears
         exactly once. Otherwise the set is empty and every one of them stays
-        raw GLE, as before.
+        raw GLE, as before. An ``xticks off`` directly followed by
+        ``xlabels off`` is an empty places list (see
+        :meth:`_is_empty_places`), not part of a hidden frame.
         """
         found: Dict[str, List[int]] = {kw: [] for kw in cls._FRAME_OFF_KEYWORDS}
-        for child in block.body:
-            if not isinstance(child, Statement):
-                continue
-            toks = _words_and_values(child)
+        statements = [c for c in block.body if isinstance(c, Statement)]
+        for child, following in zip(statements, statements[1:] + [None]):
             kw = (child.keyword or "").lower()
-            if kw in found and len(toks) == 2 and toks[1].value.lower() == "off":
-                found[kw].append(child.line_no)
+            if kw not in found or not cls._is_bare_off(child):
+                continue
+            if (
+                kw in ("xticks", "yticks")
+                and following is not None
+                and (following.keyword or "").lower() == f"{kw[0]}labels"
+                and cls._is_bare_off(following)
+            ):
+                continue
+            found[kw].append(child.line_no)
         if any(len(lines) != 1 for lines in found.values()):
             return set()
         return {lines[0] for lines in found.values()}
+
+    @staticmethod
+    def _is_bare_off(stmt: Statement) -> bool:
+        """``<keyword> off`` and nothing else."""
+        toks = _words_and_values(stmt)
+        return len(toks) == 2 and toks[1].value.lower() == "off"
 
     #: The statements whose ``on`` may switch the top or right axis on.
     _SWITCH_ON_KEYWORDS = {
@@ -4319,6 +4337,17 @@ class _Recognizer:
                 )
                 info[f"_{prefix}subticks"] = None
         for prefix in ("y2", "x2"):
+            # The writer switches a twin scale back on with both lines.
+            reenabled = (
+                self._twin_reenabled(prefix, info)
+                and info[f"_{prefix}labels_on_raw"] is not None
+            )
+            ticks_on = info[f"_{prefix}ticks_on"]
+            if ticks_on is not None and reenabled:
+                passthrough = info["passthrough"]
+                del passthrough[
+                    next(i for i, x in enumerate(passthrough) if x is ticks_on)
+                ]
             raw = info[f"_{prefix}labels_on_raw"]
             if raw is None:
                 continue
@@ -4331,6 +4360,7 @@ class _Recognizer:
                 or info[f"{prefix}max"] is not None
                 or info[f"{prefix}log"]
                 or bool(info[f"{prefix}label"])
+                or (reenabled and ticks_on is not None)
             )
             if not implied:
                 info["passthrough"].append(raw)
@@ -4520,6 +4550,18 @@ class _Recognizer:
             return
         if kw in ("xticks", "yticks", "xsubticks", "ysubticks"):
             self._parse_ticks_line(kw, toks, info, stmt)
+            return
+        if (
+            kw in ("y2ticks", "x2ticks")
+            and len(toks) == 2
+            and toks[1].value.lower() == "on"
+            and info[f"_{kw[:2]}ticks_on"] is None
+        ):
+            # Kept in place as raw GLE unless it turns out to be the
+            # writer's (see _reconcile_axis_styling).
+            raw = self._stmt_text(stmt)
+            info["passthrough"].append(raw)
+            info[f"_{kw[:2]}ticks_on"] = raw
             return
         if kw in ("xplaces", "yplaces", "xnames", "ynames"):
             self._parse_places_or_names_line(kw, toks, info, stmt)
@@ -4760,6 +4802,29 @@ class _Recognizer:
             info[f"{prefix}labels_color"] = opts["color"]
         if loglabels is not None:
             info[f"{prefix}loglabels"] = loglabels
+
+    @staticmethod
+    def _twin_reenabled(prefix, info) -> bool:
+        """Whether the writer switches twin scale ``prefix`` back on.
+
+        It does after an empty places list on the primary axis, whose
+        ``ticks off``/``labels off`` GLE copies onto the twin, when the twin
+        is configured or carries a dataset (``Axes.has_y2_plots`` /
+        ``has_x2_plots``) and is not itself off.
+        """
+        primary = prefix[0]
+        if info[f"{primary}places"] != [] or info[f"{prefix}axis_off"]:
+            return False
+        if (
+            info[f"{prefix}min"] is not None
+            or info[f"{prefix}max"] is not None
+            or info[f"{prefix}log"]
+            or bool(info[f"{prefix}label"])
+        ):
+            return True
+        groups = ("lines", "scatters", "errorbars", "hists", "file_series")
+        axis = "yaxis" if primary == "y" else "xaxis"
+        return any(s.get(axis) == prefix for group in groups for s in info[group])
 
     @staticmethod
     def _is_empty_places(prefix, ticks, subticks, info) -> bool:

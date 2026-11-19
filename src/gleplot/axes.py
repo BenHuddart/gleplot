@@ -9873,6 +9873,7 @@ class Axes:
             self.scatters,
             self.errorbars,
             self.hists,
+            self.file_series,
         )
         for plot_list in y2_capable:
             for plot_data in plot_list:

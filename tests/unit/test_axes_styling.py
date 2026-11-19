@@ -691,9 +691,27 @@ def test_an_empty_tick_list_on_a_hidden_frame_adds_no_second_ticks_off():
     fig, ax = _fig()
     ax.axis("off")
     ax.set_xticks([])
+    ax.set_yticks([], labels=[])
     lines = _graph_lines(fig)
     assert lines.count("xticks off") == 1
     assert lines.count("xlabels off") == 1
+    assert not any("names" in line for line in lines)
+
+
+def test_an_empty_tick_list_leaves_a_twin_scale_its_ticks():
+    """GLE copies ``yticks off``/``ylabels off`` onto y2; a twin is put back."""
+    fig, ax = _fig()
+    ax.twinx().plot([1, 2, 3], [5, 6, 7])
+    ax.set_yticks([])
+    ax.set_xticks([])
+    lines = _graph_lines(fig)
+    assert lines[lines.index("yticks off") :][:4] == [
+        "yticks off",
+        "ylabels off",
+        "y2ticks on",
+        "y2labels on",
+    ]
+    assert "x2ticks on" not in lines and "x2labels on" not in lines
 
 
 def test_symticks_false_goes_back_to_the_default():

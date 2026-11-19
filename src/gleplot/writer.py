@@ -2034,6 +2034,7 @@ class GLEWriter:
         y2style: Optional[AxisStyle] = None,
         x2style: Optional[AxisStyle] = None,
         x2_series: bool = False,
+        y2_series: bool = False,
         title_size: Optional[float] = None,
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
@@ -2083,6 +2084,10 @@ class GLEWriter:
         xplaces, yplaces : list of float, optional
             Explicit tick positions (GLE ``xplaces``/``yplaces``), emitted as
             their own statement. Overrides the automatic/``dticks`` placement.
+            An empty list is ``xticks off`` and ``xlabels off`` instead (GLE
+            reads a bare ``xplaces`` as automatic placement), with no names,
+            no-tick positions or tick styling; a top or right scale in use
+            is switched back on after them, as GLE copies both onto it.
         xnames, ynames : list of str, optional
             Tick labels to go with ``xplaces``/``yplaces`` (GLE
             ``xnames``/``ynames``). Must be the same length as the
@@ -2109,6 +2114,8 @@ class GLEWriter:
             ``xaxis log`` onto x2 (``do_axis_part_all``), so a linear top
             scale that actually carries data has to say ``x2axis lin``
             afterwards. A figure that never uses the top scale does not.
+        y2_series : bool
+            True when a dataset is drawn against the right-hand scale.
         title_size, title_color, title_dist, title_font : optional
             The graph title's ``hei`` (points), ``color``, ``dist`` (cm) and
             ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
@@ -2158,13 +2165,6 @@ class GLEWriter:
             x2style = replace(x2style, side_off=False)
         if ystyle.side_off and not y2axis_off and not frame_off:
             y2style = replace(y2style, side_off=False)
-        if frame_off:
-            # The hidden frame's own 'xticks off' already hides the ticks an
-            # empty places list asks to hide; only the labels remain.
-            if xplaces == []:
-                xplaces, show_xticks = None, False
-            if yplaces == []:
-                yplaces, show_yticks = None, False
         self._log_axes = {"x": xlog, "y": ylog, "y2": y2log, "x2": x2log}
         if title:
             opts = self._text_options(title_size, title_color, title_dist, title_font)
@@ -2192,6 +2192,7 @@ class GLEWriter:
             places=xplaces,
             names=xnames,
             show_ticks=show_xticks,
+            frame_off=frame_off,
         )
         self._add_primary_axis(
             "y",
@@ -2207,6 +2208,7 @@ class GLEWriter:
             places=yplaces,
             names=ynames,
             show_ticks=show_yticks,
+            frame_off=frame_off,
         )
         self._add_y2_axis(
             y2min,
@@ -2216,6 +2218,8 @@ class GLEWriter:
             style=y2style,
             off=y2axis_off,
             yaxis_off=yaxis_off,
+            y2_series=y2_series,
+            yticks_off=yplaces == [] and not frame_off,
         )
         self._add_x2_axis(
             x2min,
@@ -2227,6 +2231,7 @@ class GLEWriter:
             xaxis_off=xaxis_off,
             xlog=xlog,
             x2_series=x2_series,
+            xticks_off=xplaces == [] and not frame_off,
         )
         if frame_off:
             for prefix in ("x", "y"):
@@ -2260,6 +2265,7 @@ class GLEWriter:
         places: Optional[List[float]],
         names: Optional[List[str]],
         show_ticks: bool,
+        frame_off: bool,
     ) -> None:
         """The ``xaxis``/``yaxis`` line, its places/names, labels and grid."""
         lo, hi, negate = self._axis_direction(lo, hi)
@@ -2287,8 +2293,10 @@ class GLEWriter:
         if places == []:
             # GLE reads an empty 'xplaces' as "place them automatically", so
             # no ticks is 'xticks off' (which takes the subticks too) and no
-            # labels; styling ticks that are not drawn would be a no-op.
-            self.lines_gle.append(f"    {prefix}ticks off")
+            # labels; styling ticks that are not drawn would be a no-op. A
+            # hidden frame writes its own 'xticks off' (see add_axes).
+            if not frame_off:
+                self.lines_gle.append(f"    {prefix}ticks off")
             self.lines_gle.append(f"    {prefix}labels off")
             self._add_axis_line_style(prefix, style)
             return
@@ -2328,6 +2336,8 @@ class GLEWriter:
         style: AxisStyle,
         off: bool,
         yaxis_off: bool,
+        y2_series: bool,
+        yticks_off: bool,
     ) -> None:
         """The ``y2axis`` line and ``y2labels on``, when y2 is configured.
 
@@ -2383,10 +2393,9 @@ class GLEWriter:
         # harmless, idempotent no-op for the already-working series case
         # (GLE has no "on but no numbers" state to disturb).
         y2_used = lo is not None or hi is not None or log or bool(label)
-        if not off and (y2_used or style.has_tick_label_styling()):
-            opts = self._text_options(style.label_size, style.label_color, None)
-            self.lines_gle.append(f"    y2labels on{opts}")
-        self._add_axis_line_style("y2", style)
+        self._add_twin_ticks_labels(
+            "y2", style, off, y2_used, y2_used or y2_series, yticks_off
+        )
 
     def _add_x2_axis(
         self,
@@ -2400,6 +2409,7 @@ class GLEWriter:
         xaxis_off: bool,
         xlog: bool,
         x2_series: bool,
+        xticks_off: bool,
     ) -> None:
         """The top scale: the ``x2axis`` line and ``x2labels on``.
 
@@ -2454,10 +2464,33 @@ class GLEWriter:
             if cmd != "    x2axis":
                 self.lines_gle.append(cmd)
         x2_used = lo is not None or hi is not None or log or bool(label)
-        if not off and (x2_used or style.has_tick_label_styling()):
+        self._add_twin_ticks_labels(
+            "x2", style, off, x2_used, x2_used or x2_series, xticks_off
+        )
+
+    def _add_twin_ticks_labels(
+        self,
+        prefix: str,
+        style: AxisStyle,
+        off: bool,
+        used: bool,
+        in_use: bool,
+        primary_ticks_off: bool,
+    ) -> None:
+        """``y2labels on`` (or ``x2``), the ticks switch, and the side style.
+
+        ``used`` is a configured scale, ``in_use`` one that is configured or
+        carries a dataset. A primary axis with no ticks writes ``yticks off``
+        and ``ylabels off``, which GLE copies onto y2 (``do_axis_part_all``),
+        so a scale in use is switched back on after them.
+        """
+        reenable = not off and primary_ticks_off and in_use
+        if reenable:
+            self.lines_gle.append(f"    {prefix}ticks on")
+        if not off and (used or reenable or style.has_tick_label_styling()):
             opts = self._text_options(style.label_size, style.label_color, None)
-            self.lines_gle.append(f"    x2labels on{opts}")
-        self._add_axis_line_style("x2", style)
+            self.lines_gle.append(f"    {prefix}labels on{opts}")
+        self._add_axis_line_style(prefix, style)
 
     # -- axes styling helpers -------------------------------------------
 

@@ -995,6 +995,27 @@ def no_ticks_styled():
     return fig
 
 
+def no_ticks_twins():
+    """Empty tick lists under twin scales, and beside hidden axis lines.
+
+    GLE copies ``yticks off``/``ylabels off`` onto y2, so a twin scale is
+    switched back on; four ``... off`` lines that are not ``axis('off')``
+    must not be read back as a hidden frame.
+    """
+    fig, (twinned, sides) = glp.subplots(1, 2, data_prefix="golden")
+    twinned.plot([0, 1, 2], [0, 1, 4], color="blue")
+    twinned.twinx().plot([0, 1, 2], [5, 6, 7], color="red")
+    twinned.twiny().plot([10, 20, 30], [1, 2, 3], color="green")
+    twinned.set_xticks([])
+    twinned.set_yticks([])
+    sides.plot([0, 1, 2], [4, 1, 0], color="red")
+    sides.set_xticks([])
+    sides.set_yticks([])
+    sides.set_axis_line("x", visible=False)
+    sides.set_axis_line("y", visible=False)
+    return fig
+
+
 def tick_intervals():
     """``dticks``/``dsubticks`` on x and y (set_xticks/set_yticks, #155)."""
     fig = glp.figure(data_prefix="golden")
@@ -1857,6 +1878,7 @@ BUILDERS = [
     custom_tick_labels,
     no_ticks,
     no_ticks_styled,
+    no_ticks_twins,
     tick_intervals,
     tick_label_nofirst_nolast,
     line_modes,
