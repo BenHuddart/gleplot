@@ -2866,7 +2866,7 @@ def test_finding20_stacked_bar_reproduction_renders_with_parity(tmp_path):
 # 2. Writer bug (``GLEWriter.add_line``'s no-line branch): unconditional
 #    ``f" marker {marker} ..."`` with no ``if marker:`` guard -- the sibling
 #    branch (line+marker) and every other marker-emitting site in the writer
-#    (``add_errorbar_series``, ``add_errorbar_from_file``) already guard it. Bug 1
+#    (``add_errorbar_series``, ``add_file_series``) already guard it. Bug 1
 #    fed a ``linestyle="none"``, ``marker=None`` series into this branch and
 #    it emitted the literal text ``marker None``, which GLE rejects
 #    ("invalid marker name 'None'") -- a compile failure. The same branch is
