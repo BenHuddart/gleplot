@@ -188,7 +188,7 @@ def bars_over_provider_backed_data():
 
 
 def a_bar_referencing_an_unresolved_file():
-    """The recognizer's passthrough shape: ``add_bar_from_file``.
+    """The recognizer's passthrough shape: a ``FileSeries`` bar (``add_file_series``).
 
     No in-memory points at all, so the predicate has nothing to measure and
     must not guess -- the statement is re-emitted verbatim (see the report's
