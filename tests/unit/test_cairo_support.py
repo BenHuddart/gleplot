@@ -301,6 +301,30 @@ class TestSavefigCairoWiring:
         _args, kwargs = compiler.compile.call_args
         assert kwargs.get("cairo") is False
 
+    def test_svg_is_compiled_with_the_cairo_flag(self, tmp_path):
+        """Without it GLE leaves PostScript-font text out of the SVG (#280)."""
+        fig = self._plain_figure()
+        fig.style.font = CAIRO_SAFE_FONT
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fig.savefig(str(tmp_path / "out.svg"))
+        _args, kwargs = fig.compiler.compile.call_args
+        assert kwargs.get("cairo") is True
+
+    def test_cairo_false_on_an_svg_warns_it_has_no_effect(self, tmp_path):
+        fig = self._plain_figure()
+        fig.style.font = CAIRO_SAFE_FONT
+        fig.compiler = mock.Mock()
+        with pytest.warns(UserWarning, match="cairo=False has no effect on an SVG"):
+            fig.savefig(str(tmp_path / "out.svg"), cairo=False)
+
+    def test_unsafe_font_warns_for_svg_output(self, tmp_path):
+        fig = self._plain_figure()  # font left at GLE default ("rm")
+        fig.compiler = mock.Mock()
+        with pytest.warns(UserWarning, match=r"texcmr.*\(SVG output is drawn"):
+            fig.savefig(str(tmp_path / "out.svg"))
+
     def test_gle_output_unaffected_by_cairo_kwarg(self, tmp_path):
         # The flag is compile-time only, never script-time: the same figure
         # must write byte-identical .gle text regardless of the cairo

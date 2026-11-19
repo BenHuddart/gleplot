@@ -368,7 +368,8 @@ def test_compact_and_facecolor_share_the_key_line(tmp_path):
 
 
 def test_engine_range_span_and_refline_keep_their_swatches(tmp_path):
-    """No data and no limits: the guides are draws, and the swatches are bridges."""
+    """No data and no limits: the guides are drawn after the graph, and the
+    swatches are data-free bridges in it."""
     from gleplot import open_gle
 
     fig = glp.figure(data_prefix="legtest")
@@ -378,8 +379,8 @@ def test_engine_range_span_and_refline_keep_their_swatches(tmp_path):
     path = tmp_path / "bridge.gle"
     fig.savefig_gle(str(path))
     gle = path.read_text()
-    assert "draw gleplot_vspan" in gle
-    assert "draw gleplot_vline" in gle
+    assert "\nbox " in gle
+    assert "\ngraph_vline 0.3" in gle
     assert "keyfill" in gle and 'key "window"' in gle
     assert 'key "cut"' in gle
     # The span swatch is the data-free bridge, not a fill command.

@@ -1,6 +1,6 @@
-"""G17, engine side: a drawn guide spans the frame GLE actually chose.
+"""G17, engine side: a guide drawn after the graph spans the frame GLE chose.
 
-The claim the draw form makes is numeric, so it is measured against the live
+The claim the after-graph form makes is numeric, so it is measured against the live
 binary rather than asserted about script text (cross-cutting rule 2): compile
 what gleplot wrote, ask GLE where the guide's endpoints landed, and compare
 them with the frame rectangle gleplot wrote for the same block.
@@ -188,7 +188,7 @@ _GUIDE_BUILDERS = {
 @pytest.mark.parametrize("kind", sorted(_GUIDE_BUILDERS))
 @pytest.mark.parametrize("with_point", [False, True], ids=["empty", "lone-point"])
 def test_every_guide_kind_compiles_in_draw_form(kind, with_point, tmp_path):
-    """The four kinds x the two situations that route them to the draw form.
+    """The four kinds x the two situations that draw them after the graph.
 
     On an empty axes both ranges are GLE's; over a lone data point both
     collapse and are handed back (G15). Either way the guide must compile and
@@ -205,9 +205,12 @@ def test_every_guide_kind_compiles_in_draw_form(kind, with_point, tmp_path):
         fig, tmp_path, name, ["xgmin", "xgmax", "ygmin", "ygmax"]
     )
 
-    sub = "gleplot_" + kind[2:]  # axvline -> gleplot_vline
-    assert f"sub {sub} " in text
-    assert f"draw {sub} " in text
+    after = text.split("end graph", 1)[1]
+    if kind.endswith("line"):
+        assert f"\ngraph_{kind[2:]} " in after  # axvline -> graph_vline
+        assert 'include "graphutil.gle"' in text
+    else:
+        assert "\nbox " in after
     # A real, non-degenerate frame in both directions -- the failure mode this
     # guards is GLE aborting on an illegal range before drawing anything.
     assert xgmax > xgmin and ygmax > ygmin
@@ -217,8 +220,8 @@ def test_every_guide_kind_compiles_in_draw_form(kind, with_point, tmp_path):
 def test_a_labelled_drawn_guide_renders_its_legend_entry(tmp_path, kind):
     """The data-free ``dN key`` bridge really does reach the key box.
 
-    A ``draw`` owns no dataset and so cannot carry a key. Reflines borrow an
-    empty one (``dN key``). Bands borrow one with ``keyfill`` so the swatch is
+    A drawing after the graph owns no dataset and so cannot carry a key.
+    Reflines borrow an empty one (``dN key``). Bands borrow one with ``keyfill`` so the swatch is
     the band colour. Compiling is what puts the entry in the box.
     """
     fig = glp.figure(data_prefix="gl")
