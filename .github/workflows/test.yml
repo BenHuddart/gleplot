@@ -166,46 +166,43 @@ jobs:
             glib \
             extra-cmake-modules
 
-      # Ghostscript comes from Artifex's official installer, pinned by release
-      # and checksum: the Chocolatey package's installer hung until the job
-      # timed out (#325).
-      - name: Restore cached Ghostscript installer (Windows)
+      # Ghostscript comes from Artifex's official Windows release, pinned by
+      # tag and checksum, and is unpacked with 7-Zip rather than installed:
+      # both the Chocolatey package and the silent installer hung until the
+      # step timed out (#325). The unpacked tree is cached.
+      - name: Restore cached Ghostscript (Windows)
+        id: gs-cache
         if: runner.os == 'Windows'
         uses: actions/cache@v4
         with:
-          path: ~/gs-installer
-          key: gs-installer-${{ env.GS_WIN_RELEASE }}
+          path: ~/gs
+          key: gs-${{ env.GS_WIN_RELEASE }}-${{ runner.arch }}-1
 
-      # GLE runs gswin64c.exe by bare name, and the installer does not put it
-      # on PATH.
       - name: Install GLE dependencies (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.gs-cache.outputs.cache-hit != 'true'
         timeout-minutes: 10
         shell: pwsh
         run: |
           $name = "$($env:GS_WIN_RELEASE)w64.exe"
-          $dir = Join-Path $HOME 'gs-installer'
-          $exe = Join-Path $dir $name
-          if (-not (Test-Path $exe)) {
-            New-Item -ItemType Directory -Force -Path $dir | Out-Null
-            $url = "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$($env:GS_WIN_RELEASE)/$name"
-            Write-Host "Downloading $url"
-            curl.exe --fail --location --silent --show-error --output $exe $url
-            if ($LASTEXITCODE -ne 0) { throw "Download of $name failed" }
-          }
+          $exe = Join-Path $env:RUNNER_TEMP $name
+          $url = "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$($env:GS_WIN_RELEASE)/$name"
+          Write-Host "Downloading $url"
+          curl.exe --fail --location --silent --show-error --output $exe $url
+          if ($LASTEXITCODE -ne 0) { throw "Download of $name failed" }
           if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $env:GS_WIN_SHA256) {
-            Remove-Item $exe
-            throw "Ghostscript installer $name does not match GS_WIN_SHA256"
+            throw "$name does not match GS_WIN_SHA256"
           }
-          Write-Host "Running $name /S"
-          $p = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
-          if ($p.ExitCode -ne 0) {
-            throw "Ghostscript installer exited with code $($p.ExitCode)"
-          }
-          $bin = Get-ChildItem 'C:\Program Files\gs' -Directory |
-            Sort-Object { [version]($_.Name -replace '^gs', '') } |
-            Select-Object -Last 1 |
-            ForEach-Object { Join-Path $_.FullName 'bin' }
+          Write-Host "Unpacking $name"
+          7z x -y -bd "-o$(Join-Path $HOME 'gs')" $exe | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip could not unpack $name" }
+
+      # GLE runs gswin64c.exe by bare name.
+      - name: Put Ghostscript on PATH (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $bin = Join-Path $HOME 'gs\bin'
           & (Join-Path $bin 'gswin64c.exe') --version
           if ($LASTEXITCODE -ne 0) { throw "gswin64c.exe did not run" }
           Add-Content -Path $env:GITHUB_PATH -Value $bin
