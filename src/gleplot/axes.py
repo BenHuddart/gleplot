@@ -1375,22 +1375,52 @@ def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
         ("linewidths", linewidths, 1.0, ("linewidth", "lw")),
         ("linestyles", linestyles, "-", ("linestyle", "ls")),
     ):
-        given = value is not None and not (np.ndim(value) == 0 and value == default)
-        winner = plural if given else None
+        styles = plural == "linestyles"
+        value = _one_for_all_levels(name, plural, value, styles)
+        winner = plural if value is not None and value != default else None
         for alias in aliases:
             short = kwargs.pop(alias, None)
             if short is None:
                 continue
             if winner is None:
-                value, winner = short, alias
+                value = _one_for_all_levels(name, alias, short, styles)
+                winner = alias
             else:
                 warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
         resolved.append(value)
     warn_unsupported_keywords(name, kwargs)
-    styles = resolved[1]
-    if isinstance(styles, str) or _is_dash_pattern(styles):
+    widths, styles = resolved
+    if styles is not None:
         styles = _line_style(name, styles)
-    return resolved[0], styles
+    return widths, styles
+
+
+def _one_for_all_levels(name: str, keyword: str, value, styles: bool):
+    """``value``, or the one value a per-level sequence gives every level.
+
+    GLE draws every traced contour level as one dataset (the generated
+    ``-cdata.dat``), so it takes one width and one line style for them all.
+    A sequence of differing values warns and its first entry is used.
+    """
+    if isinstance(value, np.ndarray) and value.ndim == 0:
+        return value.item()
+    if not isinstance(value, (list, tuple, np.ndarray)) or (
+        styles and _is_dash_pattern(value)
+    ):
+        return value
+    entries = [e.item() if isinstance(e, np.generic) else e for e in value]
+    if not entries:
+        raise ValueError(
+            f"{name}() {keyword} is an empty sequence; pass one value, e.g. "
+            f"{keyword}={repr('--') if styles else '1.0'}."
+        )
+    if any(entry != entries[0] for entry in entries[1:]):
+        warn_external(
+            f"{name}() draws every level with one {'style' if styles else 'width'}"
+            f": GLE traces the levels as one dataset. {keyword}={entries!r} "
+            f"uses the first, {entries[0]!r}."
+        )
+    return entries[0]
 
 
 _MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
@@ -7863,11 +7893,14 @@ class Axes:
         colors : str
             Contour line colour.
         linewidths : float
-            Line width (matplotlib points).
+            Line width (matplotlib points). GLE draws every level as one
+            dataset, so a per-level sequence of differing widths warns and
+            its first entry is used.
         linestyles : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'`` or matplotlib's
             name for one (``'dashed'``, ...). A dash tuple or any other
-            value warns and is drawn solid.
+            value warns and is drawn solid. A per-level sequence warns and
+            its first entry is used, as for ``linewidths``.
         clabel : bool
             Draw inline contour labels from the generated ``-clabels.dat``.
         clabel_fmt : str
