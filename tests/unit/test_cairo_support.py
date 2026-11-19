@@ -335,7 +335,7 @@ class TestSavefigCairoWiring:
         fig.compiler = mock.Mock()
         with pytest.warns(UserWarning, match=r"\(cairo=True was requested\)") as rec:
             fig.savefig(str(tmp_path / "out.pdf"), cairo=True)
-        assert "semi-transparent" not in str(rec[0].message)
+        assert not any("semi-transparent" in str(w.message) for w in rec)
 
     def test_safe_font_does_not_warn_when_cairo_active(self, tmp_path):
         fig = self._figure_with_alpha(font=CAIRO_SAFE_FONT)
