@@ -2,8 +2,9 @@
 
 Mirrors the ``tests/unit/test_plotting.py`` style -- assert the object-model
 dicts each API call stores AND substrings of the generated GLE. Covers
-``imshow``, ``contour``, ``tripcolor``, ``tricontour``, ``Figure.colorbar``,
-palette emission, the ``.z``/points sidecars, and the one-heatmap-per-axes rule.
+``imshow``, ``pcolormesh``, ``contour``, ``tripcolor``, ``tricontour``,
+``Figure.colorbar``, palette emission, the ``.z``/points sidecars, and the
+one-heatmap-per-axes rule.
 """
 
 from __future__ import annotations
@@ -291,6 +292,158 @@ def test_function2d_counts_as_the_axes_heatmap():
     ax.imshow(np.zeros((2, 2)))
     with pytest.raises(ValueError, match="at most one heatmap"):
         ax.function2d("x", extent=(0, 1, 0, 1))
+
+
+# --------------------------------------------------------------------------- #
+# pcolormesh (cells)
+# --------------------------------------------------------------------------- #
+
+
+def test_pcolormesh_writes_a_cell_grid():
+    """The header sits half a cell outside the mesh and row/column 0 repeat."""
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    hm = ax.pcolormesh(
+        np.linspace(0, 4, 5), np.linspace(0, 3, 4), np.arange(12.0).reshape(3, 4)
+    )
+    text, files = _gle(fig)
+
+    assert hm is ax.heatmaps[0]
+    assert hm["cells"] is True
+    assert hm["extent"] == [0.0, 4.0, 0.0, 3.0]
+    assert hm["interpolation"] == "nearest"
+    assert (
+        'colormap "t_heatmap1.z" 200 200 palette gleplot_viridis interpolate nearest'
+        in text
+    )
+    assert "    xaxis min 0 max 4" in text
+    assert files["t_heatmap1.z"].splitlines() == [
+        "! nx 5 ny 4 xmin -0.5 xmax 4.5 ymin -0.5 ymax 3.5",
+        "! gleplot: cells",
+        "0 0 1 2 3",
+        "0 0 1 2 3",
+        "4 4 5 6 7",
+        "8 8 9 10 11",
+    ]
+
+
+def test_imshow_has_no_cells_field():
+    ax = glp.figure().add_subplot(111)
+    assert "cells" not in ax.imshow(np.zeros((2, 2)))
+
+
+@pytest.mark.parametrize(
+    "args, shading, extent",
+    [
+        # C alone: edges 0..n, or centres 0..n-1 for 'nearest'.
+        ((), None, [0.0, 4.0, 0.0, 3.0]),
+        ((), "nearest", [-0.5, 3.5, -0.5, 2.5]),
+        # 'auto' picks 'flat' for edges and 'nearest' for centres.
+        ((np.arange(5.0), np.arange(4.0)), "auto", [0.0, 4.0, 0.0, 3.0]),
+        ((np.arange(4.0), np.arange(3.0)), None, [-0.5, 3.5, -0.5, 2.5]),
+        ((np.arange(5.0), np.arange(4.0)), "flat", [0.0, 4.0, 0.0, 3.0]),
+        (
+            np.meshgrid(np.linspace(1, 2.5, 4), np.linspace(10, 30, 3)),
+            "nearest",
+            [0.75, 2.75, 5.0, 35.0],
+        ),
+    ],
+)
+def test_pcolormesh_shading_sets_the_cell_edges(args, shading, extent):
+    ax = glp.figure().add_subplot(111)
+    hm = ax.pcolormesh(*args, np.zeros((3, 4)), shading=shading)
+    assert hm["extent"] == extent
+
+
+def test_pcolormesh_takes_a_2d_x_with_a_1d_y():
+    """matplotlib accepts the two in either form, so gleplot does too."""
+    ax = glp.figure().add_subplot(111)
+    X = np.tile(np.arange(5.0), (4, 1))
+    hm = ax.pcolormesh(X, np.arange(4.0), np.zeros((3, 4)))
+    assert hm["extent"] == [0.0, 4.0, 0.0, 3.0]
+
+
+def test_pcolormesh_turns_decreasing_coordinates_round():
+    ax = glp.figure().add_subplot(111)
+    C = np.arange(6.0).reshape(2, 3)
+    hm = ax.pcolormesh([3.0, 2.0, 1.0, 0.0], [5.0, 4.0, 3.0], C)
+    assert hm["extent"] == [0.0, 3.0, 3.0, 5.0]
+    np.testing.assert_array_equal(hm["z"], C[::-1, ::-1])
+
+
+@pytest.mark.parametrize(
+    "args, match",
+    [
+        ((np.arange(5.0), np.arange(3.0)), r"needs 5 x and 4 y .* got 5 and 3"),
+        (([0.0, 1.0, 3.0, 4.0, 5.0], np.arange(4.0)), r"tripcolor\(x, y, z\)"),
+        (
+            (np.array([[0.0, 1.0], [0.5, 1.5]]), np.zeros((2, 2))),
+            r"pcolormesh\(X, Y, C\): the 2-D X is not a regular grid",
+        ),
+        ((np.arange(5.0),), "takes C or X, Y, C"),
+        ((np.zeros((2, 2, 2)), np.arange(4.0)), "needs 1-D X and Y"),
+    ],
+)
+def test_pcolormesh_rejects_a_grid_it_cannot_draw(args, match):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=match):
+        ax.pcolormesh(*args, np.zeros((3, 4)))
+
+
+def test_pcolormesh_rejects_bad_input():
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match="shading='smooth'"):
+        ax.pcolormesh(np.zeros((2, 2)), shading="smooth")
+    with pytest.raises(ValueError, match=r"needs a 2-D C; got shape \(3,\)"):
+        ax.pcolormesh(np.zeros(3))
+    with pytest.raises(ValueError, match="NaN"):
+        ax.pcolormesh(np.array([[0.0, np.nan]]))
+    with pytest.raises(ValueError, match="at least two centres"):
+        ax.pcolormesh(np.zeros((1, 3)), shading="nearest")
+    ax.imshow(np.zeros((2, 2)))
+    with pytest.raises(ValueError, match="at most one heatmap"):
+        ax.pcolormesh(np.zeros((2, 2)))
+
+
+def test_pcolormesh_warns_for_what_gle_cannot_draw():
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning) as record:
+        ax.pcolormesh(
+            np.zeros((2, 2)),
+            shading="gouraud",
+            alpha=0.5,
+            norm="log",
+            antialiased=True,
+            linewidth=2,
+            edgecolors="k",
+        )
+    messages = " | ".join(str(w.message) for w in record)
+    assert "shading='gouraud') is drawn as shading='nearest'" in messages
+    assert "pcolormesh(alpha=...) is ignored" in messages
+    assert "pcolormesh(norm=...) is ignored" in messages
+    assert "antialiased=True) is ignored" in messages
+    assert "unsupported keyword(s): edgecolors, linewidth" in messages
+
+
+def test_pcolormesh_takes_the_edgecolors_it_draws_without_a_warning(recwarn):
+    ax = glp.figure().add_subplot(111)
+    ax.pcolormesh(np.zeros((2, 2)), edgecolors="none", edgecolor="face")
+    assert not recwarn.list
+
+
+def test_pcolormesh_mesh_takes_a_colorbar():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    hm = ax.pcolormesh(np.arange(4.0).reshape(2, 2), cmap="magma")
+    fig.colorbar(hm, ax=ax)
+    text, _ = _gle(fig)
+    assert 'palette "gleplot_magma"' in text
+
+
+def test_module_level_pcolormesh():
+    glp.figure()
+    glp.pcolormesh(np.zeros((2, 2)))
+    assert glp.gca().heatmaps[0]["cells"] is True
 
 
 # --------------------------------------------------------------------------- #

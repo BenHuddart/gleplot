@@ -47,6 +47,8 @@ Plotting helpers
 
 .. autofunction:: gleplot.imshow
 
+.. autofunction:: gleplot.pcolormesh
+
 .. autofunction:: gleplot.contour
 
 .. autofunction:: gleplot.tripcolor

@@ -876,6 +876,10 @@ COLORBAR_NTICKS = "nticks"
 #: Colorbar tick-interval count when none was given (``Figure.colorbar``'s).
 DEFAULT_COLORBAR_NTICKS = 5
 
+#: The comment line under a ``.z`` header that marks a ``pcolormesh`` grid
+#: (see :meth:`GLEWriter.add_cells_sidecar`).
+CELLS_MARKER = "! gleplot: cells"
+
 #: The ``plot`` series fields :meth:`GLEWriter._dataset_qualifier_clause`
 #: writes.
 _DATASET_QUALIFIERS = (
@@ -5941,10 +5945,36 @@ class GLEWriter:
         if series["source"] == "points":
             self.add_points_sidecar(data_file, series["x"], series["y"], series["zpts"])
             self.add_fitz_block(data_file, series["extent"], series["gridsize"], None)
+        elif series.get("cells"):
+            self.add_cells_sidecar(series)
         else:
             self.add_z_sidecar(
                 data_file, series["z"], series["extent"], series["origin"]
             )
+
+    def add_cells_sidecar(self, series: Series):
+        """Write a ``pcolormesh`` heatmap's ``.z`` so each value fills its cell.
+
+        GLE's ``colormap ... interpolate nearest`` gives a pixel the value of
+        node ``round(n * (x - xmin) / (xmax - xmin))``, so node ``k`` covers
+        ``xmin + (k - 1/2, k + 1/2) * (xmax - xmin) / n``, and the bitmap
+        stops at ``xmin`` and ``xmax``. With the header half a cell outside
+        the mesh and the first row and column repeated, node ``k`` covers
+        cell ``k - 1`` exactly; the graph window, which the mesh's extent
+        sets, clips the half cell left over at each end. The
+        ``! gleplot: cells`` comment, which GLE skips, tells the recognizer
+        to undo this.
+        """
+        z = np.asarray(series["z"], dtype=float)
+        z = np.vstack([z[:1], z])
+        z = np.hstack([z[:, :1], z])
+        x0, x1, y0, y1 = series["extent"]
+        hx = (x1 - x0) / (z.shape[1] - 1) / 2
+        hy = (y1 - y0) / (z.shape[0] - 1) / 2
+        name = series["data_file"]
+        self.add_z_sidecar(name, z, [x0 - hx, x1 + hx, y0 - hy, y1 + hy], "lower")
+        header, rows = self.data_files[name].split("\n", 1)
+        self.data_files[name] = f"{header}\n{CELLS_MARKER}\n{rows}"
 
     def add_heatmap(self, series: Series):
         """Emit a heatmap's ``colormap`` statement inside its graph block.

@@ -333,6 +333,7 @@ from ..series import (
 )
 from ..writer import (
     CDATA_SUB_PREFIX,
+    CELLS_MARKER,
     IMAGE_LAYER,
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
@@ -8001,7 +8002,21 @@ class _Recognizer:
                     self._stmt_span(stmt),
                 )
                 return
-            z, extent = grid
+            z, extent, cells = grid
+            if cells:
+                mesh = self._mesh_from_cells_grid(z, extent, interpolation)
+                if mesh is None:
+                    self._note(
+                        ImportCategory.DATA,
+                        f"grid {zfile!r} is marked as a pcolormesh mesh but is "
+                        "not one gleplot wrote (it needs interpolate nearest "
+                        "and a repeated first row and column); read as an "
+                        "imshow heatmap, and the marker is dropped on re-save",
+                        self._stmt_span(stmt),
+                    )
+                    cells = False
+                else:
+                    z, extent = mesh
             hm = HeatmapSeries(
                 type="heatmap",
                 source="grid",
@@ -8015,6 +8030,7 @@ class _Recognizer:
                 vmin=vmin,
                 vmax=vmax,
                 interpolation="nearest" if interpolation == "nearest" else "bicubic",
+                **({"cells": True} if cells else {}),
                 pixels=[int(px), int(py)],
                 invert=invert,
                 gridsize=None,
@@ -8092,7 +8108,7 @@ class _Recognizer:
                     span,
                 )
                 return
-            z, extent = grid
+            z, extent, _cells = grid
             ct = ContourSeries(
                 type="contour",
                 source="grid",
@@ -8114,18 +8130,22 @@ class _Recognizer:
             )
         info["contours"].append(ct)
 
-    def _read_z_grid(self, filename) -> Optional[Tuple[np.ndarray, List[float]]]:
-        """Read a ``.z`` grid sidecar -> (z ndarray (ny,nx), [x0,x1,y0,y1]).
+    def _read_z_grid(self, filename) -> Optional[Tuple[np.ndarray, List[float], bool]]:
+        """Read a ``.z`` grid sidecar -> (z (ny,nx), [x0,x1,y0,y1], cells).
 
         Returns ``None`` when the file cannot be resolved/parsed. The array is
         returned y-increasing (row 0 = ymin), matching GLE's ``.z`` convention;
         the recovered heatmap/contour therefore always uses ``origin='lower'``
-        (a documented, rendering-neutral normalization).
+        (a documented, rendering-neutral normalization). ``cells`` is whether
+        the file carries the ``pcolormesh`` marker line
+        (:meth:`GLEWriter.add_cells_sidecar`); the grid and header are
+        returned as written.
         """
         text = self._read_sidecar_text(filename)
         if text is None:
             return None
         header = None
+        cells = False
         values: List[float] = []
         for raw in text.splitlines():
             s = raw.strip()
@@ -8134,6 +8154,8 @@ class _Recognizer:
             if s.startswith("!"):
                 if header is None:
                     header = s
+                elif s == CELLS_MARKER:
+                    cells = True
                 continue
             for tok in s.replace(",", " ").split():
                 try:
@@ -8149,7 +8171,25 @@ class _Recognizer:
         if len(values) != nx * ny:
             return None
         z = np.asarray(values, dtype=float).reshape(ny, nx)
-        return z, [x0, x1, y0, y1]
+        return z, [x0, x1, y0, y1], cells
+
+    @staticmethod
+    def _mesh_from_cells_grid(z, extent, interpolation):
+        """Undo :meth:`GLEWriter.add_cells_sidecar`: ``(C, cell edges)``.
+
+        ``None`` when the grid is not one that method writes: sampled other
+        than ``nearest``, smaller than two by two, or without its first row
+        and column repeated.
+        """
+        ny, nx = z.shape
+        if interpolation != "nearest" or nx < 2 or ny < 2:
+            return None
+        if not (np.array_equal(z[0], z[1]) and np.array_equal(z[:, 0], z[:, 1])):
+            return None
+        x0, x1, y0, y1 = extent
+        hx = (x1 - x0) / nx / 2
+        hy = (y1 - y0) / ny / 2
+        return z[1:, 1:], [x0 + hx, x1 - hx, y0 + hy, y1 - hy]
 
     @staticmethod
     def _parse_z_header(header: str):

@@ -17,6 +17,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.hlines(...)` / `ax.vlines(...)` | same, see [Segments](#segments) |
 | `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
 | `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
+| `ax.pcolormesh(...)` | same on a uniform grid, see [Cells](#cells) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
 | `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` |
@@ -240,6 +241,18 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 
 `fig.colorbar()` does not yet take a scatter: it shows a heatmap's colour scale only.
 
+## Cells
+
+`ax.pcolormesh(X, Y, C)` draws one flat colour per cell, with the cell edges where matplotlib puts them. It is a heatmap, so it is the axes' one colormap, as `imshow` is. How gleplot writes it is in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+
+| `pcolormesh()` argument | gleplot |
+|---|---|
+| `C`, `X`, `Y`, `cmap`, `vmin`, `vmax` | wired. `X` and `Y` must be uniformly spaced; another grid raises `ValueError`, and `tripcolor` takes scattered or irregular data. Values must be finite: `NaN` raises `ValueError` rather than leaving the cell blank. |
+| `shading` | `'flat'`, `'nearest'` and `'auto'` as in matplotlib; `'gouraud'` warns and is drawn as `'nearest'`. |
+| `alpha`, `norm`, `colorizer`, `data`, `antialiased=True` | warn and are ignored: a GLE colormap is opaque and maps colours linearly from `vmin` to `vmax`. |
+| `edgecolors` | `'none'` and `'face'` are what is drawn; any other value warns, as do `linewidth`, `zorder` and the other keywords. |
+| `pixels` | gleplot's own: the bitmap resolution, as for `imshow`. Each cell edge is drawn to within one pixel. |
+
 ## Line caps and joins
 
 matplotlib caps and joins each line on its own; GLE sets them once for the
@@ -325,7 +338,7 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 
 ## Colorbars
 
-`fig.colorbar(im, ax=ax)` takes the heatmap `imshow` or `tripcolor` returned, so each axes of a grid can carry its own bar. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned, so each axes of a grid can carry its own bar. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
 
 | `colorbar()` argument | gleplot |
 |---|---|
@@ -462,7 +475,7 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
    (`'lambda_tail'` is not a subscript) and math is opt-in via `$...$`. Unlike
    matplotlib, a backslash outside `$...$` still opens GLE's own text markup
    (`r'\chi{}'`), as do braced scripts (`'T_{N}'`).
-9. A second or translucent `imshow` is not possible; see
+9. A second or translucent `imshow` or `pcolormesh` is not possible; see
    [Contours and Heatmaps](CONTOUR_AND_HEATMAPS.md) for why and what to use
    instead.
 10. `ax.tick_params` honours `which`, `reset`, `direction`, `length`,

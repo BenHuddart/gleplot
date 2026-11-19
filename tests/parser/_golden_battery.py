@@ -793,6 +793,27 @@ def heatmap_reversed_palettes():
     return fig
 
 
+def heatmap_pcolormesh():
+    """pcolormesh cells: edges from a meshgrid, and centres that decrease.
+
+    The left mesh has a colorbar; the right one's y centres run downwards,
+    so its rows are flipped before they are written.
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    X, Y = np.meshgrid(np.linspace(0, 2, 5), np.linspace(-1, 0.5, 4))
+    hm = left.pcolormesh(X, Y, np.arange(12, dtype=float).reshape(3, 4) ** 1.5)
+    fig.colorbar(hm, ax=left)
+    right.pcolormesh(
+        np.linspace(0.1, 0.7, 4),
+        np.linspace(3.3, 1.1, 3),
+        np.arange(12, dtype=float).reshape(3, 4),
+        cmap="RdBu",
+        vmin=0,
+        pixels=(80, 60),
+    )
+    return fig
+
+
 def heatmap_function():
     """An expression heatmap with a colorbar."""
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
@@ -1721,6 +1742,7 @@ BUILDERS = [
     heatmap_field_options,
     heatmap_brewer_palettes,
     heatmap_reversed_palettes,
+    heatmap_pcolormesh,
     heatmap_function,
     heatmap_function_field_options,
     contour_grid_levels_clabel,
