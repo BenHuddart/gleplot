@@ -1323,11 +1323,29 @@ def test_contour_per_level_lists_warn_and_take_the_first(name, args):
     )
 
 
-def test_contour_one_entry_list_is_that_value_and_an_empty_one_raises(recwarn):
+def test_contour_uniform_lists_and_0d_arrays_are_one_value(recwarn):
     fig, ax = glp.subplots()
     ax.contour(_GRID, linestyles=[":"], linewidths=(2.0,))
-    assert (ax.contours[0]["linewidth"], ax.contours[0]["linestyle"]) == (2.0, 2)
+    ax.contour(_GRID, linestyles=[":"] * 3, linewidths=np.array([2.0, 2.0]))
+    ax.contour(_GRID, linestyles=":", linewidths=np.array(2.0))
+    for series in ax.contours:
+        assert (series["linewidth"], series["linestyle"]) == (2.0, 2)
     assert not recwarn.list
+
+
+def test_contour_per_level_warning_names_the_keyword_passed():
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning, match=r"lw=\[3, 1\] uses the first, 3"):
+        ax.contour(_GRID, lw=[3, 1])
+    with pytest.warns(UserWarning) as record:
+        ax.contour(_GRID, linestyles=[(0, (5, 2)), "--"])
+    messages = [str(w.message) for w in record]
+    assert "uses the first, (0, (5, 2))" in messages[0]
+    assert "dash pattern" in messages[1]
+
+
+def test_contour_empty_per_level_list_raises():
+    fig, ax = glp.subplots()
     with pytest.raises(ValueError, match=r"linestyles is an empty sequence"):
         ax.contour(_GRID, linestyles=[])
 
