@@ -3407,12 +3407,11 @@ class Figure:
         return right, below
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/colorbar/clabel/wedge/box/rug/polar/image subs.
+        """Gather the palette/wedge/box/rug/polar/image subs.
 
         Returns the deterministic ordered list of sub-definition texts: used
-        palette subs (a heatmap's or a per-point colour's) sorted by name, then
-        then the contour-labels sub (if any clabel), then the pie-wedge sub
-        (if any wedge), then the box-plot subs (if any box), then the rug subs
+        palette subs (a heatmap's or a per-point colour's) sorted by name,
+        then the pie-wedge sub (if any wedge), then the box-plot subs (if any box), then the rug subs
         (if any rug has a tick), then one per-point marker-size sub per marker
         that a scatter with ``mdata`` uses, sorted by name, then one per-point
         colour sub per marker and colormap that a scatter with ``cdata`` uses,
@@ -3430,7 +3429,6 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         used_cmaps = set()
-        any_clabel = False
         for ax in self.axes_list:
             for hm in resolution.visible(ax.heatmaps):
                 if _pal.cmap_needs_sub(hm["cmap"]) and "levels" not in hm:
@@ -3442,9 +3440,6 @@ class Figure:
                     bar_cmap = _pal.colorbar_cmap(hm["cmap"], True)
                     if _pal.cmap_needs_sub(bar_cmap):
                         used_cmaps.add(bar_cmap)
-            for ct in resolution.visible(ax.contours):
-                if ct.get("clabel"):
-                    any_clabel = True
 
         coloured: Set[Tuple[str, str]] = set()
         for ax in self.axes_list:
@@ -3466,8 +3461,6 @@ class Figure:
             text = _pal.palette_sub_text(cmap)
             if text:
                 subs.append(text)
-        if any_clabel:
-            subs.append(_pal.contour_labels_sub_text())
         if any(resolution.visible(ax.wedges) for ax in self.axes_list):
             subs.append(WEDGE_SUB)
         if any(resolution.visible(ax.boxes) for ax in self.axes_list):
@@ -3583,7 +3576,7 @@ class Figure:
     def _emit_post_graph_calls(
         self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
     ):
-        """Write the post-graph colorbars and contour-label sub calls."""
+        """Write the post-graph colorbars and contour labels."""
         resolution = resolution or SourceResolution()
         for holder in _colorbar_holders(ax, resolution):
             writer.add_colorbar(holder)

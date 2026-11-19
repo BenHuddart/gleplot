@@ -337,6 +337,12 @@ warn and are ignored, among them `extent` and `origin`: pass the grid's
 coordinates, `contour(x, y, Z)`, to place it. A misspelt keyword warns the
 same way.
 
+matplotlib labels contours with a separate `ax.clabel(cs)` call; gleplot takes
+`clabel=True` (and `clabel_fmt`) on `contour` and `tricontour`. The labels are
+drawn by `contour_labels` from GLE's `contour.gle`, which writes them in blue,
+0.25 cm high, in a white box, whatever the line colour; matplotlib draws them
+in the line's colour.
+
 ## Line caps and joins
 
 matplotlib caps and joins each line on its own; GLE sets them once for the

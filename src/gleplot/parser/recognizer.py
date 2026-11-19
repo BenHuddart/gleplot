@@ -346,6 +346,7 @@ from ..writer import (
     CELLS_MARKER,
     COLOR_INCLUDE,
     COLORBAR_STEP_SCALE,
+    CONTOUR_INCLUDE,
     CONTOURF_EXTENDS,
     CONTOURF_MARKER,
     IMAGE_LAYER,
@@ -757,6 +758,7 @@ _LEGACY_SUBS = frozenset(
         "gleplot_yrug",
         "gleplot_colorbar_v",
         "gleplot_colorbar_h",
+        "gleplot_contour_labels",
     }
 )
 
@@ -1912,9 +1914,13 @@ class _Recognizer:
         # --- data-file naming state for byte-identical re-save. ---
         self._finalize_data_state(fig)
         # The writer includes rugs.gle only for a rug, color.gle only for a
-        # colorbar; an include nothing read back will regenerate stays.
+        # colorbar, contour.gle only for contour labels; an include nothing
+        # read back will regenerate stays.
         regenerated = {
             RUGS_INCLUDE: any(ax.rugs for ax in fig.axes_list),
+            CONTOUR_INCLUDE: any(
+                ct.get("clabel") for ax in fig.axes_list for ct in ax.contours
+            ),
             COLOR_INCLUDE: any(
                 s.get("colorbar")
                 for ax in fig.axes_list
@@ -1979,6 +1985,7 @@ class _Recognizer:
         # back, and put them in the header again if no rug was read.
         names.add(RUGS_INCLUDE)
         names.add(COLOR_INCLUDE)
+        names.add(CONTOUR_INCLUDE)
         lines = set()
         for node in nodes:
             if not (
@@ -1990,7 +1997,7 @@ class _Recognizer:
             name = self._first_string(_words_and_values(node))
             if name in names:
                 lines.add(node.line_no)
-            if name in (RUGS_INCLUDE, COLOR_INCLUDE):
+            if name in (RUGS_INCLUDE, COLOR_INCLUDE, CONTOUR_INCLUDE):
                 self._held_includes.append((name, self._stmt_text(node)))
         return lines
 
@@ -9305,12 +9312,13 @@ class _Recognizer:
     # -- post-graph colorbar / contour-label calls ----------------------
 
     def _consume_post_graph_calls(self, nodes, start, axes_info) -> int:
-        """Consume the colorbar groups and ``gleplot_contour_labels`` calls.
+        """Consume the colorbar and contour-label groups.
 
         A colorbar is a ``gsave`` .. ``grestore`` group (:meth:`_colorbar_group`)
         whose ``amove`` is ``xg(xgmax)+S yg(ygmin)`` for a vertical bar and
-        ``xg(xgmin) yg(ygmin)-S`` for a horizontal one; the labels' call is
-        preceded by ``amove 0 0``. Attaches the recovered colorbar
+        ``xg(xgmin) yg(ygmin)-S`` for a horizontal one; a contour's labels are
+        a ``contour_labels`` call alone in its own ``gsave`` .. ``grestore``,
+        on that contour's ``-clabels.dat`` file. Attaches the recovered colorbar
         to this axes' heatmap and sets ``clabel`` on the matching contour.
         Returns the index of the first node not consumed.
         """
@@ -9329,20 +9337,18 @@ class _Recognizer:
             end, toks, amove_sep, label = colorbar
             self._apply_colorbar_call(toks, amove_sep, label, axes_info)
             return end
-        # optional leading amove, then the sub call.
-        j = i
-        st = self._as_statement(nodes[j]) if j < len(nodes) else None
-        if st is not None and st.keyword == "amove":
-            j += 1
-        st = self._as_statement(nodes[j]) if j < len(nodes) else None
-        if st is None:
+        # gsave, contour_labels file F format "..." , grestore.
+        stmts = [
+            st for st in map(self._as_statement, nodes[i : i + 3]) if st is not None
+        ]
+        words = [(st.keyword or "").lower() for st in stmts]
+        if words != ["gsave", "contour_labels", "grestore"]:
             return None
-        kw = st.keyword
-        toks = _words_and_values(st)
-        if kw == "gleplot_contour_labels":
-            self._apply_clabel_call(toks, axes_info)
-            return j + 1
-        return None
+        toks = _words_and_values(stmts[1])
+        args = self._named_args(toks[1:])
+        if set(args) != {"file", "format"} or len(toks) != 5:
+            return None
+        return i + 3 if self._apply_clabel_call(toks, axes_info) else None
 
     def _colorbar_group(
         self, nodes, i
@@ -9510,16 +9516,17 @@ class _Recognizer:
             cb["orientation"] = "horizontal"
         hm["colorbar"] = cb
 
-    def _apply_clabel_call(self, toks, axes_info) -> None:
+    def _apply_clabel_call(self, toks, axes_info) -> bool:
+        """Set ``clabel`` on the contour whose labels file the call reads.
+
+        Returns whether one did; a call on any other file stays raw GLE.
+        """
         args = self._named_args(toks[1:])
         fname = args.get("file")
-        fmt = args.get("format") or "fix 1"
+        fmt = args.get("format")
         contours = axes_info.get("contours") or []
-        if not fname or not fname.endswith("-clabels.dat"):
-            if contours:
-                contours[0]["clabel"] = True
-                contours[0]["clabel_fmt"] = fmt
-            return
+        if not isinstance(fname, str) or not fname.endswith("-clabels.dat"):
+            return False
         base = fname[: -len("-clabels.dat")]
         for ct in contours:
             df = ct["data_file"]
@@ -9528,13 +9535,11 @@ class _Recognizer:
                 if df.endswith(".dat")
                 else (df[:-2] if df.endswith(".z") else df)
             )
-            if ct_base == base:
+            if ct_base == base and not ct.get("clabel"):
                 ct["clabel"] = True
                 ct["clabel_fmt"] = fmt
-                return
-        if contours:
-            contours[0]["clabel"] = True
-            contours[0]["clabel_fmt"] = fmt
+                return True
+        return False
 
     #: Recognized colorbar/clabel call argument names (used to delimit the
     #: unmodeled bar-length expression argument).
