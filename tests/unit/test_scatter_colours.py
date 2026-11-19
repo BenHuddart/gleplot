@@ -328,7 +328,7 @@ def test_plain_scatter_is_untouched():
 def test_colorbar_shows_the_scatter_range():
     ax = _ax()
     ax.scatter(X, Y, c=[3, 1, 2], vmin=0, vmax=300)
-    cb = ax.figure.colorbar()
+    cb = ax.figure.colorbar(label="T (K)")
     assert ax.scatters[0]["colorbar"] is cb
     assert (cb["zmin"], cb["zmax"], cb["zstep"]) == (0.0, 300.0, 60.0)
     text, _files = _script(ax)
@@ -339,7 +339,14 @@ def test_colorbar_shows_the_scatter_range():
         "amove xg(xgmax)+0.3 yg(ygmin)\n"
         "color_range_vertical zmin 0 zmax 300 zstep (300-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width 0.5 height yg(ygmax)-yg(ygmin) '
-        'format "fix 0" pixels 200'
+        'format "fix 0" pixels 200\n'
+        "amove xg(xgmax)+(1.33333)+max(twidth(format$(0,\"fix 0\")),"
+        'twidth(format$(300,"fix 0"))) (yg(ygmin)+yg(ygmax))/2\n'
+        "set just tc\n"
+        "begin rotate 90\n"
+        'write "T (K)"\n'
+        "end rotate\n"
+        "grestore"
     ) in text
 
 
@@ -402,7 +409,7 @@ def test_a_scatter_colorbar_survives_to_dict():
     ax = _ax()
     ax.scatter(X, Y, c=[1, 2, 3])
     fig = ax.figure
-    fig.colorbar(orientation="horizontal")
+    fig.colorbar(orientation="horizontal", label="v")
     restored = glp.Figure.from_dict(fig.to_dict())
     assert restored._generate_gle_with_files() == fig._generate_gle_with_files()
 

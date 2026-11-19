@@ -55,6 +55,7 @@ from .writer import (
     BOX_SUB,
     CDATA_SUB_PREFIX,
     COLORBAR_AUTO_RANGE,
+    COLORBAR_LABEL_PAD,
     COLORBAR_NTICKS,
     DEFAULT_COLORBAR_NTICKS,
     IMAGE_SUBS,
@@ -1906,9 +1907,8 @@ class Figure:
             of the axes; ``'horizontal'`` draws it below the axes, under the
             x tick labels and title.
         label : str, optional
-            Not supported: ``color.gle``'s colour range has no label, so a
-            label warns and is not drawn. Place a text with
-            :meth:`Figure.text` instead.
+            Colorbar axis label: rotated, to the right of a vertical bar's
+            tick numbers; centred under a horizontal one's.
         format : str, optional
             GLE ``format$`` string for the tick labels (e.g. ``'fix 1'``).
             Default: fixed-point with as many decimals as the tick values
@@ -2038,14 +2038,8 @@ class Figure:
                 sep = round(self._AUTO_MARGIN_BOTTOM_HEI * hei + 0.3, 2)
             else:
                 sep = 0.3
-        if label:
-            warn_external(
-                f"colorbar(label={label!r}) is not drawn: GLE's colour range "
-                "(color.gle) has no label. Place the text with fig.text() "
-                "instead. See the matplotlib migration guide."
-            )
         cb = {
-            "label": None,
+            "label": owner._text(label),
             "format": None if format is None else str(format),
             "width": float(width),
             "sep": float(sep),
@@ -3350,7 +3344,9 @@ class Figure:
 
         Sized from how ``color.gle``'s ``color_range_vertical`` lays out:
         the ``sep`` gap, the bar (``width``), then the tick marks and numbers
-        to its right (a tick a third of the width long, a gap as long again).
+        to its right (a tick a third of the width long, a gap as long again),
+        then the rotated ``label`` (see
+        :meth:`gleplot.writer.GLEWriter.colorbar_label_lines`).
         """
         wd = float(cb["width"])
         sep = float(cb["sep"])
@@ -3358,6 +3354,8 @@ class Figure:
         charw = 0.6 * hei
         nchars = cls._estimate_tick_chars(cb["zmin"], cb["zmax"], _cbar_format(cb))
         tick_extent = 2 * wd / 3.0 + nchars * charw
+        if cb.get("label"):
+            tick_extent += COLORBAR_LABEL_PAD + hei
         return sep + wd + tick_extent + 0.3  # + safety pad
 
     def _colorbar_h_reserved_cm(self, cb: dict) -> Tuple[float, float]:
@@ -3366,13 +3364,16 @@ class Figure:
         ``below`` is measured down from ``ygmin``, following ``color.gle``'s
         ``color_range_horizontal``: the ``sep`` gap, the bar (``width``), then
         the ticks and numbers (a tick a third of the width long, a gap as
-        long again). ``right`` is how far the last number, centred on the
+        long again), then the ``label`` under them. ``right`` is how far the
+        last number, centred on the
         bar's end, runs past ``xgmax``. The text is the figure's own ``hei``,
         which the routine writes in, so the room grows with the font.
         """
         wd = float(cb["width"])
         hei = max(self._CBAR_TEXT_HEI_CM, fontsize_pt_to_cm(self.style.fontsize))
         below = float(cb["sep"]) + wd + 2 * wd / 3.0 + hei
+        if cb.get("label"):
+            below += COLORBAR_LABEL_PAD + hei
         nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], _cbar_format(cb))
         right = nchars * 0.6 * hei / 2.0 + 0.3
         return right, below + 0.3  # + safety pad

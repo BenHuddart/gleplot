@@ -1711,7 +1711,7 @@ def test_a_scatter_colorbar_is_recovered_onto_its_scatter(tmp_path):
     ax = fig.add_subplot(111)
     ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="plasma")
     ax.scatter([0, 1, 2], [1, 2, 1], c=[4, 5, 6])
-    fig.colorbar(ax=ax)
+    fig.colorbar(ax=ax, label="v")
     # Move the bar onto the first scatter, which ax= alone does not pick.
     ax.scatters[0]["colorbar"] = ax.scatters[1].pop("colorbar")
     ax.scatters[0]["colorbar"].update(zmin=1.0, zmax=3.0, zstep=0.4)
@@ -1719,7 +1719,7 @@ def test_a_scatter_colorbar_is_recovered_onto_its_scatter(tmp_path):
     fig.savefig_gle(str(path))
     rec = parse_gle_figure(path)
     first, second = rec.figure.axes_list[0].scatters
-    assert first["colorbar"]["zmax"] == 3.0
+    assert first["colorbar"]["zmax"] == 3.0 and first["colorbar"]["label"] == "v"
     assert "colorbar" not in second
     assert rec.warnings == []
 

@@ -99,6 +99,15 @@ def bar_stack():
     return fig
 
 
+def bar_missing():
+    """A NaN height is a missing row, plain and on a baseline (#317)."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, np.nan, 1], color="gray")
+    ax.bar([1, 2, 3], [1, np.nan, 2], bottom=[2, 3, 1], color="white")
+    return fig
+
+
 def bar_recovered_fields():
     """Bar fields only a recovered script sets, set here on the series.
 
@@ -785,7 +794,7 @@ def heatmap_imshow_colorbar():
     ax.imshow(Z, extent=(0, 10, 0, 8), cmap="viridis", vmin=-1, vmax=1)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    fig.colorbar(format="fix 1")
+    fig.colorbar(label="signal", format="fix 1")
     return fig
 
 
@@ -802,6 +811,7 @@ def heatmap_grid_colorbars():
         fig.colorbar(
             hm,
             ax=ax,
+            label=f"z{k}",
             orientation=("vertical", "horizontal")[k % 2],
             width=0.4,
         )
@@ -938,7 +948,7 @@ def heatmap_contourf_colorbar():
     cf = right.contourf(x, y, Z, [-0.6, 0.2, 0.5], cmap="plasma")
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", "colorbar.. of a contourf with unevenly")
-        fig.colorbar(cf, orientation="horizontal", format="fix 2")
+        fig.colorbar(cf, orientation="horizontal", label="z", format="fix 2")
     return fig
 
 
@@ -947,7 +957,7 @@ def heatmap_function():
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
     ax = fig.add_subplot(111)
     ax.function2d("sin(x)*cos(y)", extent=(0, 6.28, 0, 6.28), vmin=-1, vmax=1)
-    fig.colorbar()
+    fig.colorbar(label="z")
     return fig
 
 
@@ -1044,7 +1054,7 @@ def tripcolor_tricontour_combo():
     )
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    fig.colorbar(format="fix 1")
+    fig.colorbar(label="z", format="fix 1")
     return fig
 
 
@@ -1385,9 +1395,11 @@ def scatter_colorbars():
     fig, (a, b) = glp.subplots(1, 2, data_prefix="golden")
     a.scatter([0, 1, 2], [1, 2, 3], c=[1, 2, 3], cmap="magma")
     a.scatter([0, 1, 2], [3, 2, 1], c=[-4, 0, 9.5], vmin=-5, vmax=10)
-    fig.colorbar(ax=a, nticks=3)
+    fig.colorbar(ax=a, label="T (K)", nticks=3)
     b.scatter([0, 1, 2], [1, 2, 3], c=[10, 20, 30], cmap="gray", marker="s")
-    fig.colorbar(ax=b, orientation="horizontal", format="fix 0", width=0.3, sep=1.2)
+    fig.colorbar(
+        ax=b, orientation="horizontal", label="v", format="fix 0", width=0.3, sep=1.2
+    )
     return fig
 
 
@@ -2011,6 +2023,7 @@ BUILDERS = [
     bar_edge,
     bar_per_color,
     bar_stack,
+    bar_missing,
     bar_recovered_fields,
     bar_hatch,
     barh,

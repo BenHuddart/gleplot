@@ -9310,8 +9310,8 @@ class _Recognizer:
     def _try_one_post_call(self, nodes, i, axes_info) -> Optional[int]:
         colorbar = self._colorbar_group(nodes, i)
         if colorbar is not None:
-            end, toks, amove_sep = colorbar
-            self._apply_colorbar_call(toks, amove_sep, axes_info)
+            end, toks, amove_sep, label = colorbar
+            self._apply_colorbar_call(toks, amove_sep, label, axes_info)
             return end
         # optional leading amove, then the sub call.
         j = i
@@ -9328,43 +9328,92 @@ class _Recognizer:
             return j + 1
         return None
 
-    def _colorbar_group(self, nodes, i) -> Optional[Tuple[int, List[Token], object]]:
+    def _colorbar_group(
+        self, nodes, i
+    ) -> Optional[Tuple[int, List[Token], object, Optional[str]]]:
         """The ``gsave`` .. ``grestore`` group drawing one colorbar, at ``i``.
 
         ``gsave``, the ``amove`` to the bar (and, for a horizontal one, the
         ``rmove`` down by its thickness), the ``color_range_vertical`` or
-        ``color_range_horizontal`` call, ``grestore``: what
-        :meth:`gleplot.writer.GLEWriter.add_colorbar` writes. Returns
-        ``(next_index, call tokens, sep)`` or ``None``.
+        ``color_range_horizontal`` call, the label's lines if it has one,
+        ``grestore``: what :meth:`gleplot.writer.GLEWriter.add_colorbar`
+        writes. Returns ``(next_index, call tokens, sep, label)`` or ``None``.
         """
         stmts: List[Statement] = []
         j = i
-        while j < len(nodes) and len(stmts) < 5:
+        while j < len(nodes) and len(stmts) < 4:
             st = self._as_statement(nodes[j])
             if st is None:
                 break
             stmts.append(st)
             j += 1
-            if (st.keyword or "").lower() == "grestore":
+            if (st.keyword or "").lower().startswith("color_range_"):
                 break
         words = [(st.keyword or "").lower() for st in stmts]
-        if len(words) < 4 or words[0] != "gsave" or words[-1] != "grestore":
+        if len(words) < 3 or words[0] != "gsave":
             return None
         expected = {
             "color_range_vertical": ["amove"],
             "color_range_horizontal": ["amove", "rmove"],
-        }.get(words[-2])
-        if expected is None or words[1:-2] != expected:
+        }.get(words[-1])
+        if expected is None or words[1:-1] != expected:
             return None
-        toks = _words_and_values(stmts[-2])
+        toks = _words_and_values(stmts[-1])
         # Only the call the writer writes: every argument, at 200 steps.
-        length = "width" if words[-2] == "color_range_horizontal" else "height"
+        horizontal = words[-1] == "color_range_horizontal"
+        length = "width" if horizontal else "height"
         args = self._named_args(toks[1:], expr_arg=length)
         required = self._CALL_ARG_NAMES - {"file", length}
         if not required <= set(args) or args["pixels"] != 200:
             return None
         sep = self._amove_colorbar_sep(_words_and_values(stmts[1]))
-        return j, toks, sep
+        # The label's lines, up to the closing grestore.
+        body = []
+        while j < len(nodes) and len(body) < 5:
+            st = self._as_statement(nodes[j])
+            if st is not None and (st.keyword or "").lower() == "grestore":
+                break
+            body.append(nodes[j])
+            j += 1
+        if j == len(nodes) or self._as_statement(nodes[j]) is None:
+            return None
+        label = None
+        if body:
+            label = self._colorbar_label(body, args, sep, horizontal)
+            if label is None:
+                return None
+        return j + 1, toks, sep, label
+
+    def _colorbar_label(self, body, args, sep, horizontal) -> Optional[str]:
+        """The label a colorbar group's ``body`` writes, or ``None``.
+
+        ``body`` must be exactly the lines
+        :meth:`gleplot.writer.GLEWriter.colorbar_label_lines` writes for the
+        bar read from ``args`` and ``sep``.
+        """
+        last = body[-1]
+        if isinstance(last, OpaqueBlock) and last.block_type == "rotate":
+            inner = _rotate_or_box_body(last.inner_lines)
+            label = inner[0] if inner is not None and inner[1:] == (None, None) else None
+        else:
+            label = _plain_write_string(self._as_statement(last))
+        if not label or sep is None:
+            return None
+        cb = {
+            "label": label,
+            "sep": sep,
+            "width": _as_float(args.get("height" if horizontal else "width"), 0.5),
+        }
+        if horizontal:
+            cb["orientation"] = "horizontal"
+        written = GLEWriter.colorbar_label_lines(
+            cb,
+            _as_float(args.get("zmin"), 0.0),
+            _as_float(args.get("zmax"), 1.0),
+            str(args.get("format")),
+        )
+        read = [line.strip() for node in body for line in self._raw_lines(node)]
+        return label if read == written else None
 
     @staticmethod
     def _amove_colorbar_sep(toks) -> Optional[float]:
@@ -9386,7 +9435,7 @@ class _Recognizer:
         except ValueError:
             return None
 
-    def _apply_colorbar_call(self, toks, sep, axes_info) -> None:
+    def _apply_colorbar_call(self, toks, sep, label, axes_info) -> None:
         # A vertical bar's thickness is its ``width`` and its length the
         # ``height`` expression; a horizontal bar's are the other way round.
         horizontal = toks[0].value.lower() == "color_range_horizontal"
@@ -9432,7 +9481,7 @@ class _Recognizer:
             return
         hm = holders[0]
         cb = {
-            "label": None,
+            "label": label,
             "format": args.get("format") or "fix 1",
             "width": _as_float(args.get(thickness), 0.5),
             "sep": sep if sep is not None else 0.3,

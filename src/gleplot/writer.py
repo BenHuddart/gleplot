@@ -413,6 +413,9 @@ COLOR_INCLUDE = "color.gle"
 #: floating-point stepping does not pass ``zmax`` before its last tick.
 COLORBAR_STEP_SCALE = "0.999999999"
 
+#: The gap (cm) between a colorbar's tick numbers and its label.
+COLORBAR_LABEL_PAD = 0.2
+
 
 def colorbar_format(zmin: float, zstep: float) -> str:
     """The default ``fix N`` format of a colorbar's tick labels.
@@ -5998,15 +6001,13 @@ class GLEWriter:
         shift is far below a printed digit). A collapsed range is widened to
         one unit, as the routine divides by its span. 200 colour steps make
         the bar a smooth scale.
+
+        The routine draws no label, so a ``label`` is written after it as
+        plain text (:meth:`colorbar_label_lines`).
         """
         cb = series.get("colorbar")
         if not cb:
             return
-        if cb.get("label"):
-            warn_external(
-                f"colorbar label {cb['label']!r} is not drawn: GLE's colour "
-                "range (color.gle) has no label. Place the text with fig.text()."
-            )
         fmt = self._format_number
         sep = float(cb["sep"])
         thickness = fmt(cb["width"])
@@ -6039,9 +6040,53 @@ class GLEWriter:
             f'palette "{palette}" {size} '
             f'format "{number_format}" pixels 200'
         )
+        lines += self.colorbar_label_lines(cb, zmin, zmax, number_format)
         lines.append("grestore")
         self.lines_gle.extend(lines)
         self._includes.add(COLOR_INCLUDE)
+
+    @classmethod
+    def colorbar_label_lines(
+        cls, cb: dict, zmin: float, zmax: float, number_format: str
+    ) -> List[str]:
+        """The lines that write a colorbar's ``label`` beside its bar.
+
+        ``cb`` is the colorbar dict; ``zmin``, ``zmax`` and ``number_format``
+        are the range and format the bar is drawn with. No label writes
+        nothing. A vertical bar's label reads bottom to top, centred on the
+        bar, :data:`COLORBAR_LABEL_PAD` cm right of the widest of the first
+        and last tick numbers (measured by GLE's ``twidth``); a horizontal
+        bar's is centred under its tick numbers, as far below them.
+        ``color.gle`` puts the numbers two thirds of the bar's thickness
+        past its edge.
+        """
+        label = cb.get("label")
+        if not label:
+            return []
+        fmt = cls._format_number
+        offset = (
+            float(cb["sep"]) + 5 * float(cb["width"]) / 3 + COLORBAR_LABEL_PAD
+        )
+        text = f'write "{cls._escape_gle_string(label)}"'
+        if cb.get("orientation") == "horizontal":
+            # Written as ``-(off)``: a negative gap must not print ``--``.
+            return [
+                f"amove (xg(xgmin)+xg(xgmax))/2 "
+                f'yg(ygmin)-({fmt(offset)})-theight("0")',
+                "set just tc",
+                text,
+            ]
+        widest = ",".join(
+            f'twidth(format$({fmt(z)},"{number_format}"))' for z in (zmin, zmax)
+        )
+        return [
+            f"amove xg(xgmax)+({fmt(offset)})+max({widest}) "
+            "(yg(ygmin)+yg(ygmax))/2",
+            "set just tc",
+            "begin rotate 90",
+            text,
+            "end rotate",
+        ]
 
     @classmethod
     def _colorbar_step(cls, zmin: float, zmax: float, zstep: float) -> str:

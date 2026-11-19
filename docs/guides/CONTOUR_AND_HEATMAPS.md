@@ -36,7 +36,7 @@ ax.contour(x, y, Z, levels=6, colors='white', linewidths=0.7)
 
 ax.set_xlabel('x')
 ax.set_ylabel('y')
-fig.colorbar()
+fig.colorbar(label='amplitude')
 
 fig.savefig('gaussian.pdf')
 ```
@@ -114,7 +114,7 @@ import gleplot as glp
 fig = glp.figure(figsize=(8, 6))
 ax = fig.add_subplot(111)
 ax.function2d('sin(x)*cos(y)', extent=(0, 6.28, 0, 6.28), vmin=-1, vmax=1)
-fig.colorbar()
+fig.colorbar(label='z')
 fig.savefig('waves.pdf')
 ```
 
@@ -195,12 +195,12 @@ y, x = np.mgrid[0:20, 0:30]
 fig, (a, b) = glp.subplots(1, 2, figsize=(10, 4))
 ha = a.imshow(np.sin(x / 5.0) * np.cos(y / 4.0), cmap='viridis')
 hb = b.imshow(100.0 * x * y, cmap='magma')
-fig.colorbar(ha, ax=a)
-fig.colorbar(hb, ax=b, orientation='horizontal')
+fig.colorbar(ha, ax=a, label='amplitude')
+fig.colorbar(hb, ax=b, orientation='horizontal', label='counts')
 fig.savefig('two_bars.pdf')
 ```
 
-A vertical bar sits `sep` cm to the right of its axes. A horizontal bar spans its axes' width, below the x tick labels and title; its `sep` is measured from the frame's bottom edge, and the default clears them at the figure's font size when `colorbar()` is called. `width` is the bar's thickness either way. The bar is drawn by `color_range_vertical` or `color_range_horizontal` from GLE's include library (`color.gle`, see [GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library)). That routine has no label, so `label=` warns and draws nothing; place the text with `fig.text()`. The tick labels default to fixed-point with as many decimals as the first value and the tick step need (`format=` overrides it). The subplot grid makes room for every bar: a vertical bar widens the gap to the right of its column, a horizontal bar the gap below its row, and a bar on the last column or row widens the page margin instead.
+A vertical bar sits `sep` cm to the right of its axes. A horizontal bar spans its axes' width, below the x tick labels and title; its `sep` is measured from the frame's bottom edge, and the default clears them at the figure's font size when `colorbar()` is called. `width` is the bar's thickness either way. The bar is drawn by `color_range_vertical` or `color_range_horizontal` from GLE's include library (`color.gle`, see [GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library)), and its `label` is written beside it as plain text: rotated, to the right of a vertical bar's tick numbers, or centred under a horizontal one's. The tick labels default to fixed-point with as many decimals as the first value and the tick step need (`format=` overrides it). The subplot grid makes room for every bar: a vertical bar widens the gap to the right of its column, a horizontal bar the gap below its row, and a bar on the last column or row widens the page margin instead.
 
 `ax` must be the axes holding the heatmap: the bar is drawn beside its own heatmap's axes. `cax` is not supported. Passing it warns, and the bar is drawn beside the heatmap's axes.
 
@@ -211,7 +211,7 @@ import gleplot as glp
 
 fig, ax = glp.subplots()
 ax.scatter([1, 2, 3, 4], [1, 4, 9, 16], c=[0, 100, 200, 300], cmap='viridis')
-fig.colorbar(ax=ax)
+fig.colorbar(ax=ax, label='T (K)')
 fig.savefig('scatter_bar.pdf')
 ```
 
@@ -287,7 +287,7 @@ ax.tricontour(
 
 ax.set_xlabel('Temperature (K)')
 ax.set_ylabel('Magnetic field (T)')
-fig.colorbar(format='fix 2')
+fig.colorbar(label=r'\chi{} (emu mol^{-1})', format='fix 2')
 
 fig.savefig('phase_diagram.pdf')
 fig.savefig('phase_diagram.png')
@@ -305,7 +305,7 @@ python basic/heatmap_imshow.py
 
 ## Greek Letters and Math in Labels
 
-You can write labels in **either** matplotlib-style `$...$` mathtext **or** GLE's own TeX-like markup — both reach the same result. Every display string entering the model (axis titles, series `label=`, `title`/`text`, …) is translated at store time by `gleplot.mathtext_to_gle`, so matplotlib users get Greek/math rendering without learning GLE markup.
+You can write labels in **either** matplotlib-style `$...$` mathtext **or** GLE's own TeX-like markup — both reach the same result. Every display string entering the model (axis titles, series `label=`, `title`/`text`, `colorbar(label=)`, …) is translated at store time by `gleplot.mathtext_to_gle`, so matplotlib users get Greek/math rendering without learning GLE markup.
 
 To typeset labels with LaTeX itself instead, see `usetex` in the
 [Configuration Guide](CONFIGURATION.md); the translation below is then skipped.
@@ -352,7 +352,7 @@ Direct GLE markup still works — a backslash outside `$...$` opens GLE's text c
 - Use Python **raw strings** so the backslash reaches GLE intact: `r'\chi'`, not `'\chi'` (which Python would treat as an invalid escape).
 
 ```python
-ax.set_xlabel(r'\chi{} (emu mol^{-1})')     # renders: χ (emu mol⁻¹)
+fig.colorbar(label=r'\chi{} (emu mol^{-1})')   # renders: χ (emu mol⁻¹)
 ax.set_ylabel(r'T_{N} (K)')                    # renders: T_N (K)
 ```
 

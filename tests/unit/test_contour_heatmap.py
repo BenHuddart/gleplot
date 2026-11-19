@@ -993,7 +993,7 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
         vmin=0,
         vmax=10,
     )
-    cb = fig.colorbar(format="fix 1", nticks=5, width=0.4, sep=0.5)
+    cb = fig.colorbar(label="χ", format="fix 1", nticks=5, width=0.4, sep=0.5)
 
     assert ax.heatmaps[0]["colorbar"] is cb
     assert cb["zmin"] == 0.0 and cb["zmax"] == 10.0
@@ -1008,6 +1008,12 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
         "color_range_vertical zmin 0 zmax 10 zstep (10-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width 0.4 height yg(ygmax)-yg(ygmin) '
         'format "fix 1" pixels 200\n'
+        "amove xg(xgmax)+(1.36667)+max(twidth(format$(0,\"fix 1\")),"
+        'twidth(format$(10,"fix 1"))) (yg(ygmin)+yg(ygmax))/2\n'
+        "set just tc\n"
+        "begin rotate 90\n"
+        'write "χ"\n'
+        "end rotate\n"
         "grestore"
     ) in text
 
@@ -1057,8 +1063,8 @@ def _placements(text):
 
 def test_colorbar_per_axes_gives_each_heatmap_its_own_bar():
     fig, a, b, ha, hb = _two_heatmaps()
-    ca = fig.colorbar(ha, ax=a)
-    cb = fig.colorbar(hb)
+    ca = fig.colorbar(ha, ax=a, label="a")
+    cb = fig.colorbar(hb, label="b")
 
     assert ha["colorbar"] is ca and hb["colorbar"] is cb
     assert (ca["zmin"], ca["zmax"]) == (0.0, 3.0)
@@ -1093,7 +1099,7 @@ def test_horizontal_colorbar_is_drawn_below_and_reserves_the_bottom():
     ax.imshow(np.array([[0.0, 1.0], [2.0, 4.0]]), cmap="viridis")
     ((_, y0, _, h0),) = _placements(_gle(fig)[0])
 
-    cb = fig.colorbar(orientation="horizontal", width=0.4, sep=1.5)
+    cb = fig.colorbar(orientation="horizontal", label="z", width=0.4, sep=1.5)
     text, _ = _gle(fig)
     ((_, y1, _, h1),) = _placements(text)
 
@@ -1105,7 +1111,11 @@ def test_horizontal_colorbar_is_drawn_below_and_reserves_the_bottom():
         "rmove 0 -0.4\n"
         "color_range_horizontal zmin 0 zmax 4 zstep (4-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width xg(xgmax)-xg(xgmin) height 0.4 '
-        'format "fix 1" pixels 200'
+        'format "fix 1" pixels 200\n'
+        'amove (xg(xgmin)+xg(xgmax))/2 yg(ygmin)-(2.36667)-theight("0")\n'
+        "set just tc\n"
+        'write "z"\n'
+        "grestore"
     ) in text
     _right, below = fig._axes_colorbar_reserved_cm(ax)
     assert y1 >= below - 1e-4
@@ -1169,7 +1179,7 @@ def test_extent_drives_autoscale():
 def test_module_level_wrappers():
     glp.figure(data_prefix="t")
     glp.imshow(np.zeros((2, 2)), cmap="viridis")
-    glp.colorbar()
+    glp.colorbar(label="v")
     ax = glp.gca()
     assert ax.heatmaps and ax.heatmaps[0]["colorbar"] is not None
 
@@ -1264,12 +1274,17 @@ def test_the_default_tick_format_writes_every_tick_exactly(zmin, zstep, expected
     assert colorbar_format(zmin, zstep) == expected
 
 
-def test_a_colorbar_label_warns_and_is_not_drawn():
-    fig = glp.figure(data_prefix="t")
-    fig.add_subplot(111).imshow(np.zeros((2, 2)) + [[0.0], [1.0]])
-    with pytest.warns(UserWarning, match="label"):
-        cb = fig.colorbar(label="z")
-    assert cb["label"] is None
+@pytest.mark.parametrize("orientation", ["vertical", "horizontal"])
+def test_a_colorbar_label_makes_room_beside_the_bar(orientation):
+    def frame(label):
+        fig = glp.figure(data_prefix="t")
+        fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2))
+        fig.colorbar(label=label, orientation=orientation)
+        ((_, _, w, h),) = _placements(_gle(fig)[0])
+        return w, h
+
+    (w0, h0), (w1, h1) = frame(None), frame("z")
+    assert (w1 < w0) if orientation == "vertical" else (h1 < h0)
 
 
 # --------------------------------------------------------------------------- #

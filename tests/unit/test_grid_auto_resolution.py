@@ -499,11 +499,12 @@ def test_colorbar_on_a_reference_backed_heatmap_no_longer_crashes():
     fig, ax = _figure()
     _heatmap_grid(ax)
 
-    cb = fig.colorbar()
+    cb = fig.colorbar(label="z")
 
     assert cb[COLORBAR_AUTO_RANGE] is True
     assert cb[COLORBAR_NTICKS] == 5
     assert cb["zmin"] is None and cb["zmax"] is None and cb["zstep"] is None
+    assert cb["label"] == "z"
 
 
 def test_colorbar_with_explicit_vmin_vmax_proceeds_without_an_auto_marker():
@@ -691,7 +692,7 @@ def test_autoscale_without_a_resolution_ignores_an_unresolved_auto_extent():
 def test_the_auto_states_survive_a_document_round_trip():
     fig, ax = _figure()
     _heatmap_grid(ax)
-    fig.colorbar(nticks=3)
+    fig.colorbar(label="z", nticks=3)
 
     restored = Figure.from_dict(fig.to_dict())
     hm = restored.axes_list[0].heatmaps[0]
