@@ -128,7 +128,8 @@ def _new_limits(
     ``names``/``values`` are ``(left, right, xmin, xmax)`` or the y names.
     A ``(lo, hi)`` pair as the first limit is both; ``xmin``/``xmax`` stand
     for ``left``/``right`` (a ``None`` on one side gives way to the other);
-    an omitted limit keeps ``current``.
+    an omitted limit keeps ``current``. A limit given must be ``None`` or
+    a finite number.
     """
     lo_name, hi_name, min_name, max_name = names
     lo, hi, lo_alias, hi_alias = values
@@ -153,7 +154,13 @@ def _new_limits(
                     f"{method}() got both {name!r} ({value!r}) and {alias_name!r} "
                     f"({alias!r}); pass only {name!r}."
                 )
-        resolved.append(old if value is _UNCHANGED else value)
+        if value is _UNCHANGED:
+            value = old
+        elif value is not None:
+            if isinstance(value, (str, bytes)):
+                raise TypeError(f"{method}({name}={value!r}): a limit is a number")
+            _finite_float(value, f"{method}({name}={value!r}): the limit")
+        resolved.append(value)
     ignored = ["emit"] if emit is not True else []
     ignored += ["auto"] if auto else []
     warn_unsupported_keywords(method, ignored)
@@ -8738,9 +8745,11 @@ class Axes:
         left, right : float or None, optional
             Axis limits; ``None`` = auto. An omitted limit keeps its current
             setting, as in matplotlib. ``left`` may also be a
-            ``(left, right)`` pair.
+            ``(left, right)`` pair. A NaN or infinite limit raises
+            ``ValueError``, as in matplotlib.
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top)
+            Which axis: 'x' (bottom, default) or 'x2' (top); another value
+            raises ``ValueError``.
         emit, auto : optional
             Accepted for matplotlib compatibility. gleplot has no limit
             callbacks or autoscaling state, so ``emit=False`` and ``auto=True``
@@ -8754,6 +8763,10 @@ class Axes:
         Axes
             ``self``.
         """
+        if axis not in ("x", "x2"):
+            raise ValueError(
+                f"set_xlim(axis={axis!r}): expected 'x' (bottom) or 'x2' (top)."
+            )
         x2 = axis == "x2"
         lo, hi = _new_limits(
             "set_xlim",
@@ -8981,7 +8994,8 @@ class Axes:
             limit keeps its current setting, and ``bottom`` may be a
             ``(bottom, top)`` pair.
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right); another value
+            raises ``ValueError``.
         emit, auto : optional
             As for :meth:`set_xlim`.
         ymin, ymax : float or None, optional
@@ -8997,6 +9011,10 @@ class Axes:
         On a polar axes these are the radial limits: ``bottom`` must be 0 or
         ``None``, and ``top``, the outer ring, positive or ``None``.
         """
+        if axis not in ("y", "y2"):
+            raise ValueError(
+                f"set_ylim(axis={axis!r}): expected 'y' (left) or 'y2' (right)."
+            )
         y2 = axis == "y2"
         lo, hi = _new_limits(
             "set_ylim",

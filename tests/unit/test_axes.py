@@ -76,6 +76,23 @@ class TestAxisProperties:
         with pytest.raises(ValueError, match="two entries"):
             self.ax.set_xlim((0, 1, 2))
 
+    @pytest.mark.parametrize(
+        "call, error",
+        [
+            (lambda ax: ax.set_xlim(0, 1, "y"), ValueError),
+            (lambda ax: ax.set_ylim(0, 1, "x2"), ValueError),
+            (lambda ax: ax.set_xlim(0, float("nan")), ValueError),
+            (lambda ax: ax.set_ylim(bottom=float("inf")), ValueError),
+            (lambda ax: ax.set_xlim("0", 1), TypeError),
+            (lambda ax: ax.set_xlim("05"), TypeError),
+        ],
+    )
+    def test_axis_limits_reject_a_bad_axis_or_limit(self, call, error):
+        with pytest.raises(error, match=r"set_[xy]lim\("):
+            call(self.ax)
+        assert self.ax.get_xlim() == (None, None)
+        assert self.ax.get_ylim() == (None, None)
+
     def test_axis_limits_warn_on_emit_and_auto(self):
         with pytest.warns(UserWarning, match="ignores unsupported keyword.*auto"):
             self.ax.set_xlim(0, 1, auto=True)
