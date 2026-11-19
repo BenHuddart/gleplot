@@ -190,6 +190,7 @@ gleplot does not model as one of these series.
 ax.plot(x, y, marker='o', mdist=0.5)               # a marker every 0.5 cm
 ax.plot(x, y, deresolve=10, deresolve_average=True)  # mean of every 10 points
 ax.plot(x, y, xmin=0, xmax=5)                      # drawn as if the x axis ran 0..5
+ax.errorbar(x, y, yerr=err, ymax=2)                # error bars follow the range
 ```
 
 matplotlib's `markevery` has no GLE equivalent; see the

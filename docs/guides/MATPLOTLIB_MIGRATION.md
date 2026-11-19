@@ -261,7 +261,7 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 | `deresolve=5, deresolve_average=True` | `deresolve 5 average`: each window of five points is drawn as its mean. |
 | `xmin`, `xmax`, `ymin`, `ymax` | the series' own data range: it is drawn as if its axes ran over that range, and nothing outside it is drawn. This rescales the series; it is not a clip window, and the tick labels keep the axis' own range. An omitted edge is the limit of the axis the series is drawn against. |
 
-A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` does not take them: GLE thins the markers but not the whiskers under `deresolve`.
+A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` takes the data range, and draws its error bars against it too, but not `mdist` or `deresolve`: GLE thins the markers but not the whiskers under `deresolve`.
 
 ## Scatter colours
 
