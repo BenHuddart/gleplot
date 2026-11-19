@@ -486,7 +486,8 @@ single axis limit. On the axis above, `ax.axvline(1.7e9 + 30)` is written
 `1.70000003e+09` rather than `1.7e+09`. On a log axis these numbers keep 6
 figures. So do the coordinates of bars, histograms, fits, box plots, placed
 images and pie wedges, and a guide drawn after the graph (see
-[Axes gleplot cannot range](REFERENCE_LINES_AND_SPANS.md#axes-gleplot-cannot-range)).
+"Axes gleplot cannot range" in
+[Reference lines and spans](REFERENCE_LINES_AND_SPANS.md)).
 
 ## Resetting to Defaults
 
