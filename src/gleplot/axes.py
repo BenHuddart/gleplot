@@ -4483,8 +4483,10 @@ class Axes:
         self,
         x,
         y,
-        color: Optional[str] = None,
         s: Optional[Union[float, Sequence[float]]] = None,
+        c: Any = None,
+        *,
+        color: Optional[str] = None,
         marker: Optional[str] = None,
         label: Optional[str] = None,
         yaxis: str = "y",
@@ -4493,8 +4495,6 @@ class Axes:
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
         zorder: Optional[float] = None,
-        *,
-        c: Any = None,
         cmap: Optional[str] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
@@ -4525,12 +4525,18 @@ class Axes:
         ----------
         x, y : array-like
             Data coordinates
-        color : str, optional
-            Point color
         s : float or array-like, optional
             Marker area in points**2 (matplotlib ``scatter`` convention).
             Default 20 when neither ``s`` nor ``markersize`` is given. An
             array gives each point its own size; see Notes.
+        c : array-like or color, optional
+            One number per point colours each point through ``cmap``, as in
+            matplotlib. One colour is the same as ``color``; a sequence with
+            one colour per point is drawn as one series per distinct colour.
+            Cannot be combined with ``color``.
+        color : str, optional
+            Point color. This and every parameter after ``c`` are
+            keyword-only, as in matplotlib.
         marker : str, optional
             Marker symbol. Omitted or ``None``, a circle (``'o'``), as in
             matplotlib.
@@ -4551,11 +4557,6 @@ class Axes:
         zorder : float, optional
             Draw order relative to other data series on the same axes.
             Higher values are drawn on top.
-        c : array-like or color, optional
-            One number per point colours each point through ``cmap``, as in
-            matplotlib. One colour is the same as ``color``; a sequence with
-            one colour per point is drawn as one series per distinct colour.
-            Cannot be combined with ``color``.
         cmap : str, optional
             Colormap for numeric ``c``. Default: the figure graph config's
             ``default_cmap``.

@@ -11,7 +11,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
 | `ax.plot(...)` | same |
-| `ax.scatter(...)` | same, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
+| `ax.scatter(...)` | same, with matplotlib's positional order `scatter(x, y, s, c)` and every other argument keyword-only, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
 | `ax.errorbar(...)` | same |
 | `ax.fill_between(...)` | same |
 | `ax.fill_betweenx(...)` / `ax.stackplot(...)` | same, see [Fills](#fills) |

@@ -81,11 +81,14 @@ def test_s_quadrupled_doubles_the_marker():
     assert _msize(b) == pytest.approx(2 * _msize(a))
 
 
-def test_s_is_still_positional():
-    """scatter(x, y, color, s) -- the historical positional order holds."""
+def test_s_and_c_are_matplotlibs_positional_order():
+    """scatter(x, y, s, c), as in matplotlib; everything after is keyword-only."""
     ax = _ax()
-    ax.scatter(X, Y, "red", 50)
+    ax.scatter(X, Y, 50, "red")
     assert _msize(ax) == pytest.approx(markersize_to_msize(np.sqrt(50) * 1.2))
+    assert ax.scatters[0]["color"] == "RED"
+    with pytest.raises(TypeError):
+        ax.scatter(X, Y, 50, "red", "o")
 
 
 # --------------------------------------------------------------------------- #

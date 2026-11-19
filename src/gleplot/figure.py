@@ -1605,9 +1605,9 @@ class Figure:
         """Stem plot on current axes."""
         return self.gca().stem(*args, **kwargs)
 
-    def scatter(self, x, y, **kwargs):
-        """Scatter on current axes."""
-        return self.gca().scatter(x, y, **kwargs)
+    def scatter(self, x, y, *args, **kwargs):
+        """Scatter on current axes. See :meth:`Axes.scatter`."""
+        return self.gca().scatter(x, y, *args, **kwargs)
 
     def bar(self, x, height, **kwargs):
         """Bar chart on current axes."""
