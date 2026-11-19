@@ -293,6 +293,42 @@ def remove_generated_intermediates(
     return removed
 
 
+def _remove_tex_cache(
+    cache_dir: Union[str, Path], stem: str, existing: "set[str]"
+) -> None:
+    """Delete what compiling ``<stem>.gle`` left in GLE's LaTeX cache.
+
+    GLE runs LaTeX for ``begin tex`` blocks and ``set texlabels 1`` labels
+    in a ``.gle/`` directory beside the script: a ``<stem>/`` folder that
+    belongs to that script alone, and ``texpreamble.*`` files that every
+    script in the directory with the same preamble shares. The ``<stem>/``
+    folder is removed. A ``texpreamble.*`` file is removed only if it is not
+    in ``existing`` (the names the cache held before the compile) and no
+    other script's folder is in the cache, since that script may be using
+    the preamble right now. The cache directory goes only if that leaves it
+    empty. Nothing else is touched.
+
+    Two first-time compiles started together in one directory can still
+    race: if one finishes before the other's LaTeX run has made its folder,
+    it removes the preamble that run is using, and that compile may fail.
+    """
+    cache_dir = Path(cache_dir)
+    if not stem or stem in (".", ".."):
+        return
+    shutil.rmtree(cache_dir / stem, ignore_errors=True)
+    try:
+        entries = list(cache_dir.iterdir())
+        if all(e.name.startswith("texpreamble.") for e in entries):
+            for entry in entries:
+                if entry.name not in existing:
+                    entry.unlink()
+        cache_dir.rmdir()
+    except OSError:
+        # Best effort: a missing or non-empty cache, or a file another
+        # process holds, must not fail a compile that succeeded.
+        pass
+
+
 def _iter_well_known_gle_paths() -> "list[str]":
     """Return existing GLE executables among the well-known locations.
 
@@ -743,10 +779,14 @@ class GLECompiler:
         )
 
         try:
+            # GLE echoes script lines, which gleplot writes as UTF-8, so decode
+            # as UTF-8 whatever the locale (cp1252 on Windows); a byte that is
+            # not UTF-8 (a path in the ANSI code page) is replaced, not raised.
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
@@ -788,7 +828,11 @@ class GLECompiler:
         """Get GLE version and info."""
         try:
             result = subprocess.run(
-                [self.gle_path, "-info"], capture_output=True, text=True, timeout=5
+                [self.gle_path, "-info"],
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
             )
             return {"version": result.stdout.strip()}
         except Exception as e:

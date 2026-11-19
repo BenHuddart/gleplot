@@ -2,6 +2,52 @@
 
 <!-- version list -->
 
+## v5.6.3 (2026-11-19)
+
+### Bug Fixes
+
+- Draw matplotlib's named line styles and warn on undrawable ones
+  ([`035fc06`](https://github.com/BenHuddart/gleplot/commit/035fc06e2f8fe7544b092baab768c54e2b40b1e6))
+
+- Give scatter() matplotlib's marker=None default
+  ([`e539380`](https://github.com/BenHuddart/gleplot/commit/e539380f1aaf553a839ec5375b13966be76510c0))
+
+- Keep a dN line with unmodelled qualifiers as raw GLE
+  ([`22be88c`](https://github.com/BenHuddart/gleplot/commit/22be88ccbcc113fcf69bf211ea4d4350c5ee7fc1))
+
+- Keep a stored colour equal across a to_dict JSON round trip
+  ([#273](https://github.com/BenHuddart/gleplot/pull/273),
+  [`18d9132`](https://github.com/BenHuddart/gleplot/commit/18d9132a9538141a650d86d46a356c14783e233a))
+
+- Keep raised columns from zeroing values and cover heatmap extents and log limits
+  ([#250](https://github.com/BenHuddart/gleplot/pull/250),
+  [`db845de`](https://github.com/BenHuddart/gleplot/commit/db845de70c5ada17da63318552e9c36bf7e2601a))
+
+- Keep view()'s output for every format and tolerate locked work files
+  ([`7bb2d3e`](https://github.com/BenHuddart/gleplot/commit/7bb2d3e7c503e785d63adc1fd8c230faa39d48a8))
+
+- Map named line styles in contour and keep (offset, None) solid
+  ([`fee1164`](https://github.com/BenHuddart/gleplot/commit/fee11643132b5d1106fa8556acb23a24902bad1b))
+
+- Model the series and report what is dropped where a raw dN line would break
+  ([#165](https://github.com/BenHuddart/gleplot/pull/165),
+  [`323e64b`](https://github.com/BenHuddart/gleplot/commit/323e64b1a501c668428a759a5726b85eaf432a1c))
+
+- Remove view()'s script, sidecars and GLE work files after compiling
+  ([`1380d76`](https://github.com/BenHuddart/gleplot/commit/1380d76f625afa454e8bd3fd52a66fc1a23e08c0))
+
+- Scatter(marker=None) draws matplotlib's default circle
+  ([`df36b8c`](https://github.com/BenHuddart/gleplot/commit/df36b8cd4a7f42ac28b0e726114d8129819db7b2))
+
+- Store an array colour in the style config or a broken axes as a tuple
+  ([#273](https://github.com/BenHuddart/gleplot/pull/273),
+  [`4ad3631`](https://github.com/BenHuddart/gleplot/commit/4ad3631aa3edf862d383f598e0b9bd1f89dbd568))
+
+- Write data columns and axis ranges at the precision their values need
+  ([#250](https://github.com/BenHuddart/gleplot/pull/250),
+  [`4829c4c`](https://github.com/BenHuddart/gleplot/commit/4829c4cf86dd9b172790c32bcbff8c495906067f))
+
+
 ## v5.6.2 (2026-11-19)
 
 ### Bug Fixes
