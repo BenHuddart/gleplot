@@ -3430,6 +3430,52 @@ def test_a_timestamp_heatmap_extent_keeps_its_width(tmp_path):
     assert marker.startswith("! gleplot: nodes xmin 1.7e+09 xmax 1.70000006e+09")
 
 
+def test_coordinates_on_a_timestamp_axis_keep_their_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1.7e9, 1.7e9 + 120], [1.0, 3.0])
+    ax.axvline(1.7e9 + 30)
+    ax.text(1.7e9 + 90, 2.0, "t")
+    ax.set_xticks([1.7e9 + 30])
+    files = _saved(fig, tmp_path)
+    script = files["fig.gle"]
+    assert "xplaces 1.70000003e+09" in script
+    assert "refline v value 1.70000003e+09" in script
+    assert "amove xg(1.70000009e+09) yg(2)" in script
+    assert "x y\n1.70000003e+09 1\n1.70000003e+09 3\n" in files.values()
+
+
+def test_a_one_sided_limit_is_held_to_the_data_it_bounds(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1.0, 2.0], [1.7e9, 1.7e9 + 120], yaxis="y2")
+    ax.set_ylim(1.7e9 + 30, None, axis="y2")
+    assert "y2axis min 1.70000003e+09" in _saved(fig, tmp_path)["fig.gle"]
+
+
+def test_coordinates_on_a_log_axis_keep_six_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1e11, 1e13], [1.0, 2.0])
+    ax.set_xscale("log")
+    ax.axvline(3.1415926535e12)
+    ax.text(2.718281828e11, 1.5, "t")
+    script = _saved(fig, tmp_path)["fig.gle"]
+    assert "refline v value 3.142e+12" in script
+    assert "amove xg(2.718e+11) yg(1.5)" in script
+
+
+def test_coordinates_six_figures_keep_are_unchanged(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([0.0, 1.0], [0.0, 1.0])
+    ax.axvline(1 / 3)
+    ax.text(2 / 3, 1 / 7, "t")
+    files = _saved(fig, tmp_path)
+    assert "amove xg(0.666667) yg(0.142857)" in files["fig.gle"]
+    assert "refline v value 0.333333" in files["fig.gle"]
+
+
 _MASKED = np.ma.masked_array([1.0, 77.0, 3.0], mask=[False, True, False])
 _NAN = np.array([1.0, np.nan, 3.0])
 _ONES = [1.0, 2.0, 3.0]
