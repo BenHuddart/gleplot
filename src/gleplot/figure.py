@@ -4945,7 +4945,26 @@ class Figure:
         resolution: Optional[SourceResolution] = None,
         positive_only: bool = False,
     ) -> Tuple[Optional[float], Optional[float]]:
-        """Calculate y-axis limits from data (see :meth:`_get_data_xlim`)."""
+        """Calculate y-axis limits from data (see :meth:`_get_data_xlim`).
+
+        The series drawn against y2 do not count: GLE scales y2 from its own
+        datasets, as matplotlib's ``twinx`` scales each axis from its own
+        artists. When nothing on the primary axis bounds the range, they do,
+        so the primary axis still has the range GLE would copy to y2.
+        """
+        limits = self._y_data_extent(ax, resolution, positive_only, skip_y2=True)
+        if limits == (None, None):
+            limits = self._y_data_extent(ax, resolution, positive_only, skip_y2=False)
+        return limits
+
+    def _y_data_extent(
+        self,
+        ax: Axes,
+        resolution: Optional[SourceResolution],
+        positive_only: bool,
+        skip_y2: bool,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """The y range of the series on ``ax``, those on y2 left out if asked."""
         resolution = resolution or SourceResolution()
         ymin, ymax = None, None
 
@@ -4959,6 +4978,8 @@ class Figure:
         )
         for data_list in offset_bearing:
             for data in data_list:
+                if skip_y2 and data.get("yaxis") == "y2":
+                    continue
                 y = _plottable(
                     np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
                 )
@@ -4987,6 +5008,14 @@ class Figure:
             )
 
         for hist in resolution.visible(ax.hists):
+            # A stepfilled histogram is drawn on the primary axis whatever
+            # its yaxis says (Axes.hist warns), as _get_data_y2lim assumes.
+            if (
+                skip_y2
+                and hist.get("yaxis") == "y2"
+                and hist.get("histtype") != "stepfilled"
+            ):
+                continue
             hy0, hy1 = self._histogram_y_extent(hist, positive_only)
             if hy0 is None:
                 continue
@@ -5011,6 +5040,8 @@ class Figure:
                     ymax = float(all_y.max())
 
         for eb_data in resolution.visible(ax.errorbars):
+            if skip_y2 and eb_data.get("yaxis") == "y2":
+                continue
             y = np.asarray(eb_data["y"]) + eb_data.get("offset", 0.0)
             yerr_up = eb_data.get("yerr_up")
             yerr_down = eb_data.get("yerr_down")
@@ -5099,9 +5130,8 @@ class Figure:
     ) -> Tuple[Optional[float], Optional[float]]:
         """Calculate secondary-y limits from the series drawn against y2.
 
-        Deliberately narrower than :meth:`_get_data_ylim`, which bounds *every*
-        series on the axes regardless of which y axis it belongs to: y2 limits
-        are normally left to GLE, and the one thing gleplot has to know for
+        The mirror of :meth:`_get_data_ylim`, which leaves these series out:
+        y2 limits are normally left to GLE, and the one thing gleplot has to know for
         itself is what a log-scaled y2 can legally span. Only the series kinds
         that carry a ``yaxis`` field can be on y2 at all; bars, fills, grids
         and reference lines are always primary.

@@ -778,6 +778,20 @@ class TestSecondaryYAxis:
         assert "y2axis min 0 max 30" in gle
         assert "y2axis" in gle  # y2axis keyword on plot command
 
+    def test_primary_autoscale_leaves_out_the_y2_series(self):
+        """GLE scales y2 from its own datasets, so the left range is the left's."""
+        self.ax.plot([1, 2, 3], [2, 4, 6])
+        self.ax.plot([1, 2, 3], [20, 30, 40], yaxis="y2")
+        self.ax.errorbar([1, 2], [50, 60], yerr=5, yaxis="y2")
+        self.ax.hist([1, 1, 2, 2, 2, 2, 2, 2, 2, 2], yaxis="y2")
+        lines = self.fig._generate_gle().splitlines()
+        assert "    yaxis min 2 max 6" in lines
+
+    def test_primary_autoscale_with_only_y2_series_spans_them(self):
+        """With nothing on the left, its range is still the one y2 would copy."""
+        self.ax.plot([1, 2, 3], [20, 30, 40], yaxis="y2")
+        assert "    yaxis min 20 max 40" in self.fig._generate_gle().splitlines()
+
     def test_y2_log_scale_gle(self):
         """Test that y2axis log scale generates correct GLE code."""
         import numpy as np
