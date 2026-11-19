@@ -81,19 +81,25 @@ returns a fresh list and never writes back onto the axes. The `.dat` sidecar
 name, on the other hand, is reserved at call time, so it is stable across
 repeated saves.
 
-If an axes has no data *and* no explicit limits, the guide spans **0..1** —
-the range GLE itself renders for a graph block that gives no bounds (measured
-against GLE 4.3.10: `xgmin xgmax ygmin ygmax` = `0 1 0 1`), so the guide lands
-across exactly the frame that gets drawn. Substitution is per bound, so
-`set_ylim(0, None)` on an empty axes keeps the `0` and fills in the `1`.
-Materialization runs on every write, so adding data or limits later
-re-materializes the guide against the real range with no further action.
+### Axes gleplot cannot range
 
-> Earlier versions dropped such a guide with a `UserWarning` instead. One
-> caveat remains: a *lone* vertical guide on an empty axes is the only thing
-> bounding x, so the x range autoscales to a single value and GLE rejects
-> `xaxis min v max v` ("illegal range for xaxis"). Give the axes a
-> `set_xlim`, a second guide, or use a span.
+When gleplot has no range for the axis a guide spans, because the axes has no
+data and no limit for it or its data collapses to a single value, GLE picks
+the range after the script is written. A literal dataset would then join
+GLE's autoscale and move the frame it was measured against, so the guide is
+drawn **after the graph** instead, against the range GLE chose: a line with
+`graph_hline`/`graph_vline` from GLE's include library (`graphutil.gle`, see
+[GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library)),
+a band as a `box`.
+
+GLE cannot draw these inside the graph block: a graph `draw` command's
+arguments are evaluated before the axis range exists, and a `draw` call
+cannot set its own colour or line style. So such a guide is drawn **above**
+the data, the grid and the ticks rather than under them, and a line outside
+the frame is not clipped to it. Give the axes a limit with `set_xlim` /
+`set_ylim` to keep the guide under the data. Which form a guide takes is
+decided on every write, so adding data or limits later switches it back to the
+dataset form.
 
 ## Limitations
 
@@ -104,6 +110,7 @@ re-materializes the guide against the real range with no further action.
   (`'lightgray'`, `'lightcyan'`, …) instead. This matches the existing
   behaviour of `fill_between`.
 - **Round-tripping.** Reading a generated `.gle` file back with `open_gle()`
-  recovers the guides as ordinary line/fill series, not as `reflines`/`spans`.
-  Nothing is lost or silently dropped, but re-saving bakes in the limits that
-  were in force when the file was written.
+  recovers the guides as `reflines`/`spans`, from the `! gleplot:guide`
+  comment gleplot writes beside each one. A guide whose lines were edited by
+  hand so that they no longer match that comment is kept as raw GLE, with a
+  note.

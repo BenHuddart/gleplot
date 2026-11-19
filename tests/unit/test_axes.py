@@ -807,6 +807,13 @@ class TestSecondaryYAxis:
         self.ax.plot(x, x**3, yaxis="y2")
         assert self.ax.has_y2_plots()
 
+    def test_has_y2_plots_counts_a_file_series(self):
+        """A file series on the right scale is a y2 plot, as on x2 (#229)."""
+        self.ax.line_from_file("data.dat", 1, 2)
+        assert not self.ax.has_y2_plots()
+        self.ax.line_from_file("data.dat", 1, 3, yaxis="y2")
+        assert self.ax.has_y2_plots()
+
     def test_y2_gle_generation(self):
         """Test that y2axis generates correct GLE code."""
         import numpy as np

@@ -147,7 +147,8 @@ def build_compile_args(
         Deciding *when* to enable Cairo is the caller's job:
         :meth:`gleplot.figure.Figure.savefig` passes
         ``figure.requires_cairo()`` automatically; other callers pass an
-        explicit override.
+        explicit override. An ``svg`` always gets the flag, whatever this
+        says (see the Notes).
     transparent : bool, optional
         When ``True`` and ``output_format`` is ``png``, appends
         ``-transparent`` (an alpha channel instead of a white background).
@@ -181,8 +182,8 @@ def build_compile_args(
       against the default (PostScript) font and GLE still exits 0 but drops
       the affected text from the output (a hard, uncaught
       ``PostScript fonts not supported with '-cairo'`` at the point each
-      character would have been drawn). Passing ``-cairo`` explicitly for an
-      SVG compile lets GLE's own graceful fallback run instead.
+      character would have been drawn). So an SVG compile always passes
+      ``-cairo``, which lets GLE's own graceful fallback run instead.
 
     Returns
     -------
@@ -202,7 +203,7 @@ def build_compile_args(
         )
 
     args = ["-d", fmt]
-    if cairo:
+    if cairo or fmt == "svg":
         args.append("-cairo")
     if grayscale:
         args.append("-nocolor")
@@ -738,7 +739,8 @@ class GLECompiler:
             is the caller that *does* have the figure and passes
             ``figure.requires_cairo()`` here automatically; pass an explicit
             ``True``/``False`` yourself when compiling a ``.gle`` file this
-            compiler didn't write (or to force the flag either way).
+            compiler didn't write (or to force the flag either way). An
+            ``svg`` always gets the flag (see :func:`build_compile_args`).
         transparent : bool
             Give a PNG an alpha channel instead of a white background (GLE's
             ``-transparent``); see :func:`build_compile_args` for the other
