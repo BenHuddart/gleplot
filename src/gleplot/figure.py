@@ -2057,7 +2057,8 @@ class Figure:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right), as for
+            :meth:`Axes.set_ylabel`.
         **kwargs
             As for :meth:`Axes.set_ylabel`.
         """

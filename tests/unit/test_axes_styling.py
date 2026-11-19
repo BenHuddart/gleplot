@@ -1159,12 +1159,21 @@ def test_set_xticks_rejects_bad_minor_and_label_options(kwargs, match):
     [
         (lambda ax: ax.set_xlabel("X", axis="top"), "'x' or 'x2', got 'top'"),
         (lambda ax: ax.set_ylabel("Y", axis="y3"), "'y' or 'y2', got 'y3'"),
-        (lambda ax: ax.set_ylabel("Y", {"fontsize": 9}), "fontdict=..."),
         (lambda ax: ax.figure.xlabel("X", axis="top"), "set_xlabel() axis"),
     ],
 )
 def test_a_label_axis_that_is_not_an_axis_raises(call, shown):
-    _fig, ax = glp.subplots()
+    _, ax = _fig()
     with pytest.raises(ValueError, match=re.escape(shown)):
         call(ax)
+    with pytest.raises(TypeError, match=re.escape("got 2")):
+        ax.set_xlabel("X", 2)
     assert (ax.xlabel_text, ax.ylabel_text) == ("", "")
+
+
+def test_a_positional_fontdict_is_matplotlibs_and_labels_the_primary_axis():
+    _, ax = _fig()
+    with pytest.warns(UserWarning, match="fontdict"):
+        ax.set_ylabel("Y", {"fontsize": 9})
+    ax.set_xlabel("X", None)
+    assert (ax.xlabel_text, ax.ylabel_text) == ("X", "Y")

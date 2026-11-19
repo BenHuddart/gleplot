@@ -712,19 +712,24 @@ def _finite_float(value: Any, what: str) -> float:
     return number
 
 
-def _label_axis(caller: str, axis: Any, names: Tuple[str, str]) -> str:
-    """``axis`` if it names one of ``names``, else an error saying so."""
-    if isinstance(axis, str) and axis in names:
-        return axis
-    hint = (
-        ""
-        if isinstance(axis, str)
-        else "; matplotlib's second positional argument is fontdict, which "
-        "gleplot takes as a keyword: fontdict=..."
-    )
-    raise ValueError(
-        f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}{hint}"
-    )
+def _label_axis(caller: str, axis: Any, names: Tuple[str, str], fontdict: Any):
+    """``(axis, fontdict)`` for a ``set_xlabel``/``set_ylabel`` call.
+
+    matplotlib's second positional argument is ``fontdict``; here it is
+    ``axis``. A dict or ``None`` in that place is matplotlib's, so it is
+    taken as ``fontdict`` and the axis is the primary one.
+    """
+    if axis is None or isinstance(axis, dict):
+        return names[0], axis if fontdict is None else fontdict
+    if not isinstance(axis, str):
+        raise TypeError(
+            f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}"
+        )
+    if axis not in names:
+        raise ValueError(
+            f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}"
+        )
+    return axis, fontdict
 
 
 def _count(value: Any, what: str) -> int:
@@ -8212,8 +8217,9 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top). Any other value raises
-            ``ValueError``.
+            Which axis: 'x' (bottom, default) or 'x2' (top). Another string
+            raises ``ValueError``. A dict or ``None`` here is taken as
+            matplotlib's positional ``fontdict``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8231,7 +8237,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = _label_axis("set_xlabel", axis, ("x", "x2"))
+        prefix, fontdict = _label_axis("set_xlabel", axis, ("x", "x2"), fontdict)
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict
@@ -8258,8 +8264,9 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right). Any other value raises
-            ``ValueError``.
+            Which axis: 'y' (left, default) or 'y2' (right). Another string
+            raises ``ValueError``. A dict or ``None`` here is taken as
+            matplotlib's positional ``fontdict``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8277,7 +8284,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = _label_axis("set_ylabel", axis, ("y", "y2"))
+        prefix, fontdict = _label_axis("set_ylabel", axis, ("y", "y2"), fontdict)
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict
