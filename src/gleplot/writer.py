@@ -2564,6 +2564,19 @@ class GLEWriter:
     # are sticky interpreter state in GLE and would otherwise leak into the
     # following graph block.
 
+    def _seam_style(
+        self, color: str, linewidth: Optional[float], lstyle: Optional[int]
+    ) -> None:
+        """``gsave`` and the colour, width and style of a broken-axis seam."""
+        self.lines_gle.append("gsave")
+        self.lines_gle.append(f"set color {color}")
+        if linewidth is not None:
+            self.lines_gle.append(
+                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
+            )
+        if lstyle is not None:
+            self.lines_gle.append(f"set lstyle {int(lstyle)}")
+
     def add_break_divider(
         self,
         gap_cm: float,
@@ -2577,14 +2590,7 @@ class GLEWriter:
         join when ``gap_cm`` is 0.
         """
         offset = self._format_number(gap_cm / 2.0)
-        self.lines_gle.append("gsave")
-        self.lines_gle.append(f"set color {color}")
-        if linewidth is not None:
-            self.lines_gle.append(
-                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
-            )
-        if lstyle is not None:
-            self.lines_gle.append(f"set lstyle {int(lstyle)}")
+        self._seam_style(color, linewidth, lstyle)
         self.lines_gle.append(f"amove xg(xgmax)+{offset} yg(ygmin)")
         self.lines_gle.append(f"aline xg(xgmax)+{offset} yg(ygmax)")
         self.lines_gle.append("grestore")
@@ -2611,17 +2617,76 @@ class GLEWriter:
         h = self._format_number(height_cm)
         sep = self._format_number(separation_cm)
 
-        self.lines_gle.append("gsave")
-        self.lines_gle.append(f"set color {color}")
-        if linewidth is not None:
-            self.lines_gle.append(
-                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
-            )
-        self.lines_gle.append("set lstyle 1")
+        self._seam_style(color, linewidth, 1)
         for side in ("ygmin", "ygmax"):
             for sign in ("-", "+"):
                 self.lines_gle.append(f"amove {centre}{sign}{sep}-{w} yg({side})-{h}")
                 self.lines_gle.append(f"aline {centre}{sign}{sep}+{w} yg({side})+{h}")
+        self.lines_gle.append("grestore")
+
+    def add_ybreak_divider(
+        self,
+        gap_cm: float,
+        color: str = "BLACK",
+        linewidth: Optional[float] = None,
+        lstyle: Optional[int] = None,
+    ):
+        """Draw a single horizontal rule across the seam of a broken y-axis.
+
+        The broken-y counterpart of :meth:`add_break_divider`, emitted after
+        the LOWER segment's ``end graph``: the rule sits at the centre of the
+        gap above its top edge.
+        """
+        offset = self._format_number(gap_cm / 2.0)
+        self._seam_style(color, linewidth, lstyle)
+        self.lines_gle.append(f"amove xg(xgmin) yg(ygmax)+{offset}")
+        self.lines_gle.append(f"aline xg(xgmax) yg(ygmax)+{offset}")
+        self.lines_gle.append("grestore")
+
+    def add_ybreak_marks(
+        self,
+        gap_cm: float,
+        color: str = "BLACK",
+        linewidth: Optional[float] = None,
+        width_cm: float = 0.20,
+        height_cm: float = 0.13,
+        separation_cm: float = 0.06,
+    ):
+        """Draw double-slash break marks across the seam of a broken y-axis.
+
+        The broken-y counterpart of :meth:`add_break_marks`: two short
+        parallel strokes on the left frame line and two on the right one,
+        centred on the gap above the LOWER segment. ``width_cm`` and
+        ``height_cm`` are the half-extents of each stroke, and
+        ``separation_cm`` is the half-distance between the pair.
+        """
+        centre = f"yg(ygmax)+{self._format_number(gap_cm / 2.0)}"
+        w = self._format_number(width_cm)
+        h = self._format_number(height_cm)
+        sep = self._format_number(separation_cm)
+
+        self._seam_style(color, linewidth, 1)
+        for side in ("xgmin", "xgmax"):
+            for sign in ("-", "+"):
+                self.lines_gle.append(f"amove xg({side})-{w} {centre}{sign}{sep}-{h}")
+                self.lines_gle.append(f"aline xg({side})+{w} {centre}{sign}{sep}+{h}")
+        self.lines_gle.append("grestore")
+
+    def add_page_ytitle(self, x_expr: str, y_cm: float, text: str):
+        """Write a y title at an absolute page position, outside any graph.
+
+        Used for a broken y-axis' shared y title, which must be centred on
+        the WHOLE assembly rather than on one segment. The text reads bottom
+        to top, centred on ``y_cm``, with its baseline side ending at
+        ``x_expr``, a raw GLE expression such as ``'xg(xgmin)-1.06'``.
+        """
+        self.lines_gle.append("gsave")
+        self.lines_gle.append("set just bc")
+        self.lines_gle.append("set color BLACK")
+        self.lines_gle.append(f"amove {x_expr} {self._format_number(y_cm)}")
+        self.lines_gle.append("begin rotate 90")
+        self.lines_gle.append(f'write "{self._escape_gle_string(text)}"')
+        self.lines_gle.append("end rotate")
         self.lines_gle.append("grestore")
 
     def add_page_text(

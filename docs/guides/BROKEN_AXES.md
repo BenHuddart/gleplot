@@ -1,4 +1,4 @@
-# Broken (Split) X-Axes
+# Broken (Split) Axes
 
 A **broken axis** is one logical panel whose x-axis is cut into two or more
 adjacent linear segments covering very different ranges, sharing a single
@@ -42,6 +42,10 @@ A full worked panel in the style of PRL 134, 046702 Fig. 2(a) is in
 [`examples/advanced/broken_axis.py`](https://github.com/benhuddart/gleplot/blob/main/examples/advanced/broken_axis.py)
 compares the three seam styles and shows a three-segment split.
 
+A **broken y-axis** is the same assembly turned on its side: segments
+stacked bottom to top, sharing one x-axis. It is the usual answer to a bar
+chart with one outlier — see [Broken y-axes](#broken-y-axes) below.
+
 ## API
 
 ### `Figure.add_broken_xaxes(xlims, **kwargs) -> BrokenAxes`
@@ -83,6 +87,49 @@ cannot be fanned out — a segment that excludes `x` would draw the label
 outside its own box). Text falling in the break warns and is not drawn.
 
 **`set_xlim`** raises `TypeError`: the ranges are the `xlims` argument.
+
+## Broken y-axes
+
+```python
+fig = glp.figure(figsize=(4.0, 3.2))
+bax = fig.add_broken_yaxes(
+    [(0.0, 0.9), (10.6, 11.6)],   # one (ymin, ymax) per segment, bottom up
+    height_ratios=[3, 1],
+    divider='slash',
+)
+bax.bar([1, 2, 3, 4, 5], [0.42, 0.65, 11.3, 0.58, 0.31], color='C0')
+bax.set_xlim(0.5, 5.5)               # the x-axis is shared
+bax.set_yticks(dticks=[0.2, 0.4])    # one interval per segment, bottom up
+bax.set_xlabel('Sample')
+bax.set_ylabel('Counts (arb.)')
+bax.set_title('One outlier')
+```
+
+[`examples/advanced/broken_axis.py`](https://github.com/benhuddart/gleplot/blob/main/examples/advanced/broken_axis.py)
+has this figure as `broken_axis_y`.
+
+`Figure.add_broken_yaxes(ylims, **kwargs)` takes `height_ratios` in place of
+`width_ratios` and `ylabel_dist` in place of `xlabel_dist`; the other
+keywords are those of `add_broken_xaxes`. The roles of the two axes swap:
+
+- **Fanned out** as on a broken x-axis, except that `axhline` goes to the
+  segment whose range contains it, `axhspan` is drawn in each segment it
+  overlaps, cut to that segment's range, and `text`/`annotate` are routed by
+  `y`. One that falls in a break warns and is not drawn.
+- **Shared:** `set_xlim`, `get_xlim`, `set_xscale`, `set_xticks`, plus
+  `set_ylabel`, `set_title` and `legend` for the assembly. The x title is the
+  bottom segment's own.
+- **Per segment:** `bax.set_yticks(dticks=..., dsubticks=..., segment=...)`
+  and `bax.set_yscale(...)` take a scalar or one value per segment, bottom
+  up; `get_ylim()` returns the ranges.
+- **`set_ylim`** raises `TypeError`: the ranges are the `ylims` argument.
+- **The y title** is page text centred on the whole assembly, 2.5 times the
+  font height left of the frame. That clears tick labels up to about four
+  characters wide; GLE does not report the width of the labels it draws, so
+  for wider ones pass `ylabel_dist` (cm). The title is page text above the
+  top segment, as on a broken x-axis: GLE draws a graph's `title` with its
+  x axis, which the upper segments switch off.
+- The legend goes to the tallest segment unless `segment=` says otherwise.
 
 ## How it works
 
@@ -141,12 +188,13 @@ figure's font size (measured against a native `xtitle` render to ~0.02 cm);
 
 ## Limitations
 
-- **No broken y-axis.** The y-axis is always shared across segments.
 - **The `.gle` parser does not reconstruct a `BrokenAxes`.** Reading a
   generated file back with `open_gle()` yields the segments as independent
   subplots; the axis options the recognizer cannot model (`dticks`, the
   per-side `off`) are preserved as per-axes passthrough *with warnings*, and
-  the seam decoration and shared titles are preserved as trailer passthrough.
+  the seam decoration and shared titles are preserved as trailer passthrough,
+  after the last segment, where a re-save draws the seam marks at the outer
+  frame instead of at the seam.
   Nothing is dropped, but the assembly's geometry is re-derived from the
   subplot grid on re-save, so a round-tripped file will not lay out
   identically. Keep the producing script as the source of truth.

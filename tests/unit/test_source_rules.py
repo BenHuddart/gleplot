@@ -165,6 +165,12 @@ _METHOD_ENTRY_POINTS = {
     "broken text alignment": lambda fig, ax: fig.add_broken_xaxes(
         [(0, 1), (2, 3)]
     ).text(0.5, 1.0, "t", ha="justify"),
+    "broken y axhline": lambda fig, ax: fig.add_broken_yaxes([(0, 1), (2, 3)]).axhline(
+        1.5
+    ),
+    "broken y axhspan": lambda fig, ax: fig.add_broken_yaxes([(0, 1), (2, 3)]).axhspan(
+        1.2, 1.8
+    ),
     "broken annotate": lambda fig, ax: fig.add_broken_xaxes([(0, 1), (2, 3)]).annotate(
         "a", (2.5, 1.0), xytext=(0.5, 1.0), arrowprops={}
     ),
