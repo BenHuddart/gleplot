@@ -4518,7 +4518,15 @@ class _Recognizer:
         if kw == "title":
             self._parse_title_line(toks, info, stmt)
             return
-        if kw == "background":
+        # Read back only as the writer writes it: a word or colour expression
+        # with no comment after it, in a graph whose frame is drawn.
+        if (
+            kw == "background"
+            and len(toks) == len(stmt.tokens)
+            and len(toks) > 1
+            and toks[1].type is TokenType.WORD
+            and not info["frame_off"]
+        ):
             color, nxt = _collect_color(toks, 1)
             if color is not None and nxt == len(toks):
                 # GLE keeps the last one, wherever it stands in the block.

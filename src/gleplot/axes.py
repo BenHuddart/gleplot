@@ -9185,8 +9185,9 @@ class Axes:
         Parameters
         ----------
         color : color or None
-            Any colour gleplot accepts elsewhere. ``None`` or ``'none'``
-            draws no background, the default.
+            Any colour gleplot accepts elsewhere; an RGBA colour's alpha makes
+            it see-through. ``None``, ``'none'`` or an alpha of 0 draws no
+            background, the default.
 
         Notes
         -----
@@ -9194,8 +9195,10 @@ class Axes:
         anything in the graph is drawn. Unlike matplotlib, an axes has no
         background until this is called, so an inset from
         :meth:`Figure.add_axes` shows what is behind it unless it is given
-        one (``facecolor='white'``). A polar axes' background fills its
-        rectangular graph window.
+        one (``facecolor='white'``). As in matplotlib, an axes with its
+        frame off (:meth:`set_axis_off`, ``pie()``) draws no background. A
+        polar axes has none either: GLE's fills the rectangular graph
+        window, not the circle, so this warns there and does nothing.
 
         Examples
         --------
@@ -9203,10 +9206,21 @@ class Axes:
         >>> fig, ax = glp.subplots()
         >>> ax.set_facecolor("whitesmoke")
         """
-        if color is None or (isinstance(color, str) and color.lower() == "none"):
+        if self._polar:
+            warn_external(
+                "set_facecolor() has no effect on a polar axes: GLE's graph "
+                "background fills the rectangular window, not the circle."
+            )
+            return
+        rgb, alpha = _rgba_parts(color)
+        if (
+            color is None
+            or (isinstance(color, str) and color.strip().lower() == "none")
+            or (isinstance(alpha, (int, float)) and alpha <= 0)
+        ):
             self._facecolor = None
         else:
-            self._facecolor = rgb_to_gle(color)
+            self._facecolor = apply_alpha(rgb_to_gle(rgb), alpha)
 
     @_cartesian_only
     def set_axis_off(self):

@@ -466,6 +466,31 @@ class TestSubplots:
         assert backgrounds == ([f"    background {written}"] if written else [])
         assert ax.to_dict().get("facecolor") == written
 
+    @pytest.mark.parametrize(
+        "color, written",
+        [((1, 1, 1, 0), None), ((1, 0, 0, 0.5), "rgba255(255,0,0,128)")],
+    )
+    def test_set_facecolor_alpha(self, color, written, recwarn):
+        ax = glp.figure().add_subplot(111)
+        ax.set_facecolor(color)
+        assert ax._facecolor == written
+        assert not recwarn.list
+
+    def test_set_facecolor_draws_nothing_where_the_frame_is_off(self):
+        fig = glp.figure()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor("w")
+        ax.pie([1, 2, 3])
+        assert "background" not in fig._generate_gle()
+        with pytest.warns(UserWarning, match="no effect on a polar axes"):
+            fig.add_axes([0.1, 0.1, 0.3, 0.3], polar=True, fc="w")
+
+    def test_add_axes_takes_fc_or_facecolor_not_both(self):
+        inset = glp.figure().add_axes([0.1, 0.1, 0.3, 0.3], fc="w")
+        assert inset._facecolor == "WHITE"
+        with pytest.raises(TypeError, match="both facecolor and fc"):
+            glp.figure().add_axes([0.1, 0.1, 0.3, 0.3], fc="w", facecolor="w")
+
     def test_add_axes_polar(self):
         inset = glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], polar=True)
         with pytest.raises(NotImplementedError):

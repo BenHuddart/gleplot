@@ -888,7 +888,8 @@ class Figure:
         polar : bool, default: False
             ``True`` is ``projection='polar'``.
         **kwargs
-            Axes properties in matplotlib. ``facecolor`` is passed to
+            Axes properties in matplotlib. ``facecolor`` (alias ``fc``) is
+            passed to
             :meth:`Axes.set_facecolor`; the others are not supported: they
             warn and are ignored, so call the setters on the returned axes
             instead.
@@ -945,7 +946,9 @@ class Figure:
                 f"add_axes(projection={projection!r}) is not supported; "
                 "use None, 'rectilinear' or 'polar'."
             )
-        facecolor = kwargs.pop("facecolor", None)
+        if "facecolor" in kwargs and "fc" in kwargs:
+            raise TypeError("add_axes() got both facecolor and fc; pass one.")
+        facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
         if kwargs:
             warn_external(
                 f"add_axes() ignores {', '.join(sorted(kwargs))}: set them on "
@@ -963,7 +966,8 @@ class Figure:
         )
         if projection == "polar":
             _make_polar(ax)
-        ax.set_facecolor(facecolor)
+        if facecolor is not None:
+            ax.set_facecolor(facecolor)
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -3866,7 +3870,7 @@ class Figure:
             ),
             title_font=ax.title_font,
         )
-        if ax._facecolor is not None:
+        if ax._facecolor is not None and not ax._frame_off:
             writer.add_background(ax._facecolor)
         if rmax is not None:
             writer.add_polar_frame(rmax)

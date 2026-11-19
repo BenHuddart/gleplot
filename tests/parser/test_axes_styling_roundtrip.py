@@ -586,9 +586,11 @@ def test_graph_background_is_the_axes_facecolor(tmp_path, body, color):
     assert not ax.passthrough
 
 
-def test_graph_background_gleplot_cannot_read_stays_raw(tmp_path):
-    ax = parse_gle_figure(
-        _write(tmp_path, "f.gle", "   background red blue\n")
-    ).figure.axes_list[0]
+@pytest.mark.parametrize(
+    "line",
+    ["background red blue", 'background "red"', "background red ! paper"],
+)
+def test_graph_background_gleplot_cannot_read_stays_raw(tmp_path, line):
+    ax = parse_gle_figure(_write(tmp_path, "f.gle", f"   {line}\n")).figure.axes_list[0]
     assert ax._facecolor is None
-    assert any("background red blue" in line for line in ax.passthrough)
+    assert any(line in kept for kept in ax.passthrough)
