@@ -240,7 +240,8 @@ def test_grid_mode_auto_extent_reaches_the_z_sidecar_header_and_the_axis_limits(
 
     assert fig.source_warnings == []
     assert files["g13_heatmap1.z"] == (
-        "! nx 3 ny 2 xmin 0 xmax 3 ymin 0 ymax 2\n1 2 3\n4 5 6\n"
+        "! nx 3 ny 2 xmin 0 xmax 4.5 ymin 0 ymax 4\n"
+        "! gleplot: nodes xmin 0 xmax 3 ymin 0 ymax 2\n1 2 3\n4 5 6\n"
     )
     # Autoscale saw the resolved extent, so the graph window spans it.
     assert "xaxis min 0 max 3" in text

@@ -403,6 +403,46 @@ def test_key_spacing_without_a_position_is_kept(tmp_path):
     assert "key pos tr llen 0.8" in out.read_text()
 
 
+def test_key_hei_nobox_without_a_position_are_kept(tmp_path):
+    # GLE's key defaults to top right; the options still apply.
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2\n"
+        '   d1 line color blue lwidth 0.05 key "s"\n'
+        "   key hei 0.3 nobox\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.legend_fontsize is not None
+    assert ax.legend_frameon is False
+    assert not any("no 'key' command" in w for w in rec.warnings)
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "key pos tr hei 0.3 nobox" in out.read_text()
+
+
+def test_key_offset_without_a_position_stays_raw(tmp_path):
+    # Without 'pos', GLE measures 'offset' from the graph origin, which
+    # 'key pos tr offset ...' would not reproduce.
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2\n"
+        '   d1 line color blue lwidth 0.05 key "s"\n'
+        "   key hei 0.3 offset 0.5 0.2\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.legend_offset is None
+    assert "key hei 0.3 offset 0.5 0.2" in "\n".join(ax.passthrough)
+    assert any("key has unsupported options" in w for w in rec.warnings)
+
+
 def test_unequal_key_margins_stay_raw(tmp_path):
     # One matplotlib borderpad cannot say two different margins.
     src = (
@@ -907,6 +947,84 @@ def test_constant_error_on_own_file_reference_restores_data_line(tmp_path):
     p = _write(tmp_path, "own.gle", src, {"hand.dat": "0 1 2\n1 2 3\n"})
     ax = parse_gle_figure(p).figure.axes_list[0]
     assert ax.passthrough[0] == '   data "hand.dat"'
+
+
+@pytest.mark.parametrize(
+    "display, unwritable",
+    [
+        ("d2 line marker fcircle err d3", "a connecting line"),
+        ("d2 marker fcircle lwidth 0.05 err d3", "lwidth"),
+        ("d2 marker fcircle herr d3", "herr"),
+        ("d2 marker fcircle errup d3", "errup"),
+    ],
+)
+def test_file_errorbar_a_reference_cannot_write_stays_raw(
+    tmp_path, display, unwritable
+):
+    """#188: what errorbar_from_file cannot write keeps the line as written."""
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "hand.dat"\n'
+        "   d1 line color red\n"
+        f"   {display}\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "eb.gle", src, {"hand.dat": "0 1 2 1\n1 2 3 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.file_series) == 1
+    assert ax.passthrough == ["    data hand.dat d2=c1,c3 d3=c1,c4", f"   {display}"]
+    (note,) = [w for w in rec.warnings if "error-bar dataset" in w]
+    assert note.startswith(f"data: {unwritable} on")
+    out1 = tmp_path / "out1.gle"
+    rec.figure.savefig_gle(str(out1))
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == out1.read_text(encoding="utf-8")
+
+
+def test_file_errorbar_with_its_error_in_another_file_stays_raw(tmp_path):
+    """#188: errorbar_from_file reads the error from the points' own file."""
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "pts.dat" d1=c1,c2\n'
+        '   data "err.dat" d2=c1,c2\n'
+        "   d1 marker fcircle err d2\n"
+        "end graph\n"
+    )
+    files = {"pts.dat": "0 1\n1 2\n", "err.dat": "0 0.1\n1 0.2\n"}
+    rec = parse_gle_figure(_write(tmp_path, "eb.gle", src, files))
+    ax = rec.figure.axes_list[0]
+    assert ax.file_series == []
+    assert "   d1 marker fcircle err d2" in ax.passthrough
+    text, _ = rec.figure._generate_gle_with_files()
+    assert '   data "pts.dat" d1=c1,c2' in text and '   data "err.dat" d2=c1,c2' in text
+    assert any(
+        w.startswith("data: err d2 not read from that file") for w in rec.warnings
+    )
+
+
+def test_file_errorbar_on_a_secondary_axis_stays_modelled(tmp_path):
+    """#188: the layout reserves room for its axis, so the drop is reported."""
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "hand.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d1 line marker fcircle err d2 y2axis\n"
+        "end graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "y2.gle", src, {"hand.dat": "0 1 2\n"}))
+    (series,) = rec.figure.axes_list[0].file_series
+    assert series["yaxis"] == "y2"
+    assert (
+        "data: a connecting line on error-bar dataset d1 is not modelled and "
+        in (rec.warnings)[0]
+    )
 
 
 def test_raw_mdata_on_shared_file_reference_keeps_datasets_defined(tmp_path):
