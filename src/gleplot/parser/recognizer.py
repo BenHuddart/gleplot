@@ -7984,18 +7984,19 @@ class _Recognizer:
         self, info, d_name, data_file, xcol, ycol, attrs, has_line, error=None
     ):
         markersize = _dn_markersize(attrs)
-        # Branch on has_line ALONE: a 'd1 line marker circle lwidth X' reference
-        # is a line (carrying line/lwidth/linestyle) that ALSO has a marker --
-        # not an errorbar. Losing the line/lwidth/linestyle by classifying it as
-        # an errorbar (the old behavior) drops the whole styled line. Keep the
-        # marker as an additional field so it survives on the model.
-        if has_line:
+        # A 'd1 line marker circle lwidth X' reference is a line (carrying
+        # line/lwidth/linestyle) that ALSO has a marker -- not an errorbar.
+        # Classifying it as an errorbar would drop the whole styled line, so
+        # the marker is kept as an additional field. A dataset without a line
+        # that still sets ``lwidth`` is the writer's line reference with
+        # ``linestyle='none'``: an errorbar reference never writes a width.
+        if has_line or attrs["lwidth"] is not None:
             entry = FileSeries(
                 series_type="line",
                 data_file=data_file,
                 x_col=xcol,
                 y_col=ycol,
-                linestyle=attrs["linestyle"],
+                linestyle=attrs["linestyle"] if has_line else "none",
                 **_dn_width(attrs),
                 nomiss=attrs["nomiss"],
                 **_dn_fields(attrs),
