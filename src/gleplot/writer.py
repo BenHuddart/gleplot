@@ -405,6 +405,37 @@ def image_sub_name(path: str) -> Optional[str]:
     return _IMAGE_SUB_BY_SUFFIX.get(Path(path).suffix.lower())
 
 
+#: The gleinc file whose ``color_range_vertical``/``_horizontal`` draw a
+#: colorbar (:meth:`GLEWriter.add_colorbar`).
+COLOR_INCLUDE = "color.gle"
+
+#: What a colorbar's tick step is written scaled by, so that ``color.gle``'s
+#: floating-point stepping does not pass ``zmax`` before its last tick.
+COLORBAR_STEP_SCALE = "0.999999999"
+
+#: The gap (cm) between a colorbar's tick numbers and its label.
+COLORBAR_LABEL_PAD = 0.2
+
+
+def colorbar_format(zmin: float, zstep: float) -> str:
+    """The default ``fix N`` format of a colorbar's tick labels.
+
+    N is the fewest decimals, up to 3 (or one past the step's first
+    significant digit, if that is more), in which the first value and the
+    step are both exact: a step of 0.15 gets ``fix 2`` and a step of 2 gets
+    ``fix 0``. With none, N is one past the step's first significant digit
+    (a step of 0.19168 from 0.0202184 gets ``fix 2``).
+    """
+    step = abs(float(zstep))
+    cap = max(0, math.ceil(-math.log10(step)) + 1) if step > 0 else 1
+    for decimals in range(max(cap, 3) + 1):
+        if all(
+            abs(round(v, decimals) - v) <= 1e-6 * (step or 1.0) for v in (zmin, zstep)
+        ):
+            return f"fix {decimals}"
+    return f"fix {cap}"
+
+
 #: The frame edges a rug can stand on, per axis; the first is the default.
 #: The ticks of an ``axis`` rug are drawn by ``<axis>rug`` from GLE's
 #: ``rugs.gle`` (:meth:`GLEWriter.add_rug`).
@@ -861,7 +892,7 @@ class SourceResolution:
 
 #: Marker key on a colorbar dict meaning "this range is computed per write".
 #: Absent (the historical shape, and what the recognizer rebuilds from an
-#: emitted ``gleplot_colorbar_v`` call) means the stored numbers are explicit
+#: emitted ``color_range_vertical`` call) means the stored numbers are explicit
 #: and are emitted untouched.
 COLORBAR_AUTO_RANGE = "auto_range"
 
@@ -6137,21 +6168,37 @@ class GLEWriter:
         )
 
     def add_colorbar(self, series: Series):
-        """Emit the colorbar sub call after a series' graph, if it has one.
+        """Draw a series' colorbar after its graph, if it has one.
 
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`, or
         a colour-mapped :class:`~gleplot.series.ScatterSeries`; its ``cmap``
         names the palette (a ``contourf``'s is its band sub, see
         :meth:`add_contourf_sub`) and its ``colorbar`` dict (see
-        :meth:`gleplot.Figure.colorbar`) holds the call's range, size, format
-        and label. A series without one writes nothing.
+        :meth:`gleplot.Figure.colorbar`) holds the range, size and format.
+        A series without one writes nothing.
 
-        A vertical bar starts at ``xg(xgmax)+sep yg(ygmin)`` and spans the
-        graph's height; a horizontal one hangs from ``xg(xgmin) yg(ygmin)-sep``
-        and spans its width. Both subs take ``wd``/``hi`` as the bar's x/y
-        extent, so the graph-sized one is an expression. Named-argument call
-        style (``zmin V zmax V ...``); note GLE matches named args by the
-        parameter name WITHOUT the ``$`` suffix.
+        The bar is ``color_range_vertical`` or ``color_range_horizontal``
+        from GLE's ``color.gle``, in ``gsave``/``grestore`` because the
+        routine leaves its justification set. A vertical bar starts at
+        ``xg(xgmax)+sep yg(ygmin)`` and spans the graph's height; a
+        horizontal one hangs from ``xg(xgmin) yg(ygmin)-sep`` and spans its
+        width. Named-argument call style (``zmin V zmax V ...``); GLE matches
+        named args by the parameter name without the ``$`` suffix.
+
+        Notes
+        -----
+        The routine draws a tick at ``zmin``, ``zmin+zstep``, ... while the
+        value is at most ``zmax``, adding the step in floating point, which
+        can step past ``zmax`` and drop the last tick. A step that divides
+        the range is therefore written as ``(zmax-(zmin))/n``, from the same
+        printed numbers GLE reads as ``zmin`` and ``zmax``, and every step is
+        scaled by :data:`COLORBAR_STEP_SCALE`, which keeps the last tick (the
+        shift is far below a printed digit). A collapsed range is widened to
+        one unit, as the routine divides by its span. 200 colour steps make
+        the bar a smooth scale.
+
+        The routine draws no label, so a ``label`` is written after it as
+        plain text (:meth:`colorbar_label_lines`).
         """
         cb = series.get("colorbar")
         if not cb:
@@ -6159,30 +6206,89 @@ class GLEWriter:
         fmt = self._format_number
         sep = float(cb["sep"])
         thickness = fmt(cb["width"])
+        zmin, zmax = float(cb["zmin"]), float(cb["zmax"])
+        if zmax == zmin:
+            zmax = zmin + 1
+        zstep = float(cb["zstep"]) or (zmax - zmin) / 5
+        number_format = cb.get("format") or colorbar_format(zmin, zstep)
+        lines = ["gsave"]
         if cb.get("orientation") == "horizontal":
             # ``yg(ygmin)--S`` would not parse back, so a negative gap flips
             # the operator instead.
             below = f"-{fmt(sep)}" if sep >= 0 else f"+{fmt(-sep)}"
-            self.lines_gle.append(f"amove xg(xgmin) yg(ygmin){below}")
-            sub = "gleplot_colorbar_h"
-            size = f"wd xg(xgmax)-xg(xgmin) hi {thickness}"
+            lines += [f"amove xg(xgmin) yg(ygmin){below}", f"rmove 0 -{thickness}"]
+            routine = "color_range_horizontal"
+            size = f"width xg(xgmax)-xg(xgmin) height {thickness}"
         else:
-            self.lines_gle.append(f"amove xg(xgmax)+{fmt(sep)} yg(ygmin)")
-            sub = "gleplot_colorbar_v"
-            size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
-        lbl = self._escape_gle_string(cb.get("label") or "")
+            lines.append(f"amove xg(xgmax)+{fmt(sep)} yg(ygmin)")
+            routine = "color_range_vertical"
+            size = f"width {thickness} height yg(ygmax)-yg(ygmin)"
         if "levels" in series:
             # A contourf's bar draws its bands through the band sub.
             palette = self._contourf_subs[series["data_file"]]
         else:
             cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
             palette = _pal.palette_call_name(cmap)
-        self.lines_gle.append(
-            f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
-            f"zstep {fmt(cb['zstep'])} "
+        lines.append(
+            f"{routine} zmin {fmt(zmin)} zmax {fmt(zmax)} "
+            f"zstep {self._colorbar_step(zmin, zmax, zstep)} "
             f'palette "{palette}" {size} '
-            f'format "{cb["format"]}" label "{lbl}"'
+            f'format "{number_format}" pixels 200'
         )
+        drawn = dict(cb, zmin=zmin, zmax=zmax, format=number_format)
+        lines += self.colorbar_label_lines(drawn)
+        lines.append("grestore")
+        self.lines_gle.extend(lines)
+        self._includes.add(COLOR_INCLUDE)
+
+    @classmethod
+    def colorbar_label_lines(cls, cb: dict) -> List[str]:
+        """The lines that write a colorbar's ``label`` beside its bar.
+
+        ``cb`` is the colorbar dict, with the ``zmin``, ``zmax`` and
+        ``format`` the bar is drawn with. No label writes nothing. A
+        vertical bar's label reads bottom to top, centred on the bar,
+        :data:`COLORBAR_LABEL_PAD` cm right of the widest of the first
+        and last tick numbers (measured by GLE's ``twidth``); a horizontal
+        bar's is centred under its tick numbers, as far below them.
+        ``color.gle`` puts the numbers two thirds of the bar's thickness
+        past its edge.
+        """
+        label = cb.get("label")
+        if not label:
+            return []
+        fmt = cls._format_number
+        # Built from the printed sep and width, so a re-read writes it again.
+        offset = f"{fmt(cb['sep'])}+{fmt(cb['width'])}*5/3+{COLORBAR_LABEL_PAD}"
+        text = f'write "{cls._escape_gle_string(label)}"'
+        if cb.get("orientation") == "horizontal":
+            return [
+                f"amove (xg(xgmin)+xg(xgmax))/2 " f'yg(ygmin)-({offset})-theight("0")',
+                "set just tc",
+                text,
+            ]
+        widest = ",".join(
+            f'twidth(format$({fmt(cb[z])},"{cb["format"]}"))' for z in ("zmin", "zmax")
+        )
+        return [
+            f"amove xg(xgmax)+({offset})+max({widest}) (yg(ygmin)+yg(ygmax))/2",
+            "set just tc",
+            "begin rotate 90",
+            text,
+            "end rotate",
+        ]
+
+    @classmethod
+    def _colorbar_step(cls, zmin: float, zmax: float, zstep: float) -> str:
+        """A colorbar's ``zstep`` argument (see :meth:`add_colorbar`)."""
+        fmt = cls._format_number
+        span = zmax - zmin
+        count = round(span / zstep) if zstep > 0 else 0
+        if count >= 1 and abs(count * zstep - span) <= 1e-6 * abs(span):
+            step = f"({fmt(zmax)}-({fmt(zmin)}))/{count}"
+        else:
+            step = fmt(zstep)
+        return f"{step}*{COLORBAR_STEP_SCALE}"
 
     def add_contour_data(self, series: Series):
         """Write a contour's sidecar, ``fitz`` if scattered, and contour block.
