@@ -66,7 +66,9 @@ The font tables in the [GLE manual](https://glx.sourceforge.io/manual/index.html
 list every name. GLE's Cairo backend, which draws SVG output and any figure
 compiled with `-cairo` (semi-transparent colours, or `savefig(..., cairo=True)`),
 cannot draw the PostScript fonts, and `rm`, `ss` and `tt` are PostScript fonts
-too. Use the TeX Computer Modern (`texcm*`) fonts for figures drawn that way.
+too. gleplot compiles those figures with `-cairo`, so GLE draws such text in
+`texcmr` instead, and saving warns. Use the TeX Computer Modern (`texcm*`)
+fonts for figures drawn that way to choose the font yourself.
 
 ### Line Styles
 
@@ -483,7 +485,8 @@ This covers a text position, a reference line or span, a tick position from
 single axis limit. On the axis above, `ax.axvline(1.7e9 + 30)` is written
 `1.70000003e+09` rather than `1.7e+09`. On a log axis these numbers keep 6
 figures. So do the coordinates of bars, histograms, fits, box plots, placed
-images and pie wedges.
+images and pie wedges, and a guide drawn after the graph (see
+[Axes gleplot cannot range](REFERENCE_LINES_AND_SPANS.md#axes-gleplot-cannot-range)).
 
 ## Resetting to Defaults
 

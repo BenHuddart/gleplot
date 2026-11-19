@@ -508,6 +508,40 @@ def test_fitz_feeding_foreign_colormap_preserved(tmp_path):
     assert 'colormap "scatter.z" 300 300 palette mypal' in text2
 
 
+@pytest.mark.parametrize(
+    "clauses",
+    ["zmin lo zmax 1", "zmin -pi zmax pi", "interpolate bilinear"],
+)
+def test_file_colormap_with_inexact_clauses_preserved(tmp_path, clauses):
+    """#206: a ``.z`` colormap clause not written back as it reads stays raw.
+
+    So does the ``begin fitz`` block producing the grid it reads.
+    """
+    (tmp_path / "scatter.dat").write_text("0 0 0\n1 1 1\n2 2 2\n", encoding="utf-8")
+    line = f'colormap "scatter.z" 300 300 color {clauses}'
+    src = (
+        "size 12 9\n"
+        "lo = 0\n"
+        "begin fitz\n"
+        '   data "scatter.dat"\n'
+        "   x from 0 to 10 step 0.5\n"
+        "   y from 0 to 8 step 0.4\n"
+        "end fitz\n"
+        "begin graph\n"
+        f"   {line}\n"
+        "end graph\n"
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(src, encoding="utf-8")
+
+    rec = parse_gle_figure(p)
+    assert not rec.figure.axes_list[0].heatmaps
+    assert any("cannot write back as it reads" in w for w in rec.warnings)
+    text2, _ = rec.figure._generate_gle_with_files()
+    assert "begin fitz" in text2
+    assert line in text2
+
+
 def test_contour_cdata_with_unreadable_grid_preserved(tmp_path):
     """A gleplot-shaped contour whose grid ``.z`` is missing loses nothing.
 

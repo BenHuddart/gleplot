@@ -217,6 +217,24 @@ def test_a_range_the_caller_asked_for_and_gle_cannot_draw_compiles_after_the_dro
     assert ranges[0] < ranges[1]
 
 
+@pytest.mark.parametrize(
+    "draw, axis, value",
+    [
+        (lambda ax: ax.boxplot([2, 2, 2]), "y", 2.0),
+        (lambda ax: ax.rug([5]), "x", 5.0),
+    ],
+    ids=["box", "rug"],
+)
+def test_a_collapsed_axis_with_no_dataset_frames_its_value(tmp_path, draw, axis, value):
+    """With no dataset GLE takes 0..1, which would clip the value (#219)."""
+    fig = glp.figure(data_prefix="dg")
+    draw(fig.add_subplot(111))
+    text = _gleplot_script(fig, tmp_path)
+
+    lo, hi = _probe(tmp_path, text, [f"{axis}gmin", f"{axis}gmax"])
+    assert lo < value < hi
+
+
 def test_a_shared_grid_whose_union_collapses_compiles(tmp_path):
     fig, axes = glp.subplots(2, 1, sharex=True, data_prefix="dgc")
     for ax in axes:
