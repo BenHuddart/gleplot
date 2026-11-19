@@ -6136,23 +6136,24 @@ class Axes:
                 x = np.array([x0, x1], dtype=float)
                 y = np.array([entry["value"], entry["value"]], dtype=float)
 
-            out.append(
-                LineSeries(
-                    type="line",
-                    x=x,
-                    y=y,
-                    color=entry["color"],
-                    marker=None,
-                    markersize=0.1,
-                    linestyle=entry["linestyle"],
-                    linewidth=entry["linewidth"],
-                    label=entry["label"],
-                    yaxis="y",
-                    offset=0.0,
-                    data_file=entry["data_file"],
-                    column_names=entry["column_names"],
-                )
+            line = LineSeries(
+                type="line",
+                x=x,
+                y=y,
+                color=entry["color"],
+                marker=None,
+                markersize=0.1,
+                linestyle=entry["linestyle"],
+                linewidth=entry["linewidth"],
+                label=entry["label"],
+                yaxis="y",
+                offset=0.0,
+                data_file=entry["data_file"],
+                column_names=entry["column_names"],
             )
+            if "_lwidth_verbatim" in entry:
+                line["_lwidth_verbatim"] = entry["_lwidth_verbatim"]
+            out.append(line)
         return out
 
     def materialize_spans(self, limits) -> List[FillSeries]:
@@ -7245,7 +7246,8 @@ class Axes:
         pixels : int or (px, py), optional
             Bitmap resolution. Default from graph config ``colormap_pixels``.
         invert : bool
-            Invert the colour mapping.
+            Invert the colour mapping. A colorbar for this image draws the
+            reversed palette to match.
         label : str, optional
             Series label (not drawn by the colormap itself; kept so an
             application can list the series by name).
@@ -7346,7 +7348,8 @@ class Axes:
         pixels : int or (px, py), optional
             Bitmap resolution, as for :meth:`imshow`.
         invert : bool
-            Invert the colour mapping.
+            Invert the colour mapping. A colorbar for this image draws the
+            reversed palette to match.
         label : str, optional
             Series label (not drawn by the colormap itself).
 
