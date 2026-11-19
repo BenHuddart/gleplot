@@ -459,6 +459,37 @@ def _make_polar(ax: Axes) -> None:
     ax.xgrid = ax.ygrid = None
 
 
+def _axes_options(
+    caller: str, projection: Any, polar: Any, kwargs: Dict[str, Any]
+) -> Tuple[Any, Any]:
+    """``(projection, facecolor)`` from an ``add_subplot``/``add_axes`` call.
+
+    ``polar=True`` is ``projection='polar'``; ``facecolor`` (alias ``fc``)
+    is the one axes property honoured, and the others warn.
+    """
+    if polar:
+        if projection not in (None, "polar"):
+            raise ValueError(
+                f"{caller}(polar=True, projection={projection!r}): pass "
+                "only one of them."
+            )
+        projection = "polar"
+    if projection not in (None, "rectilinear", "polar"):
+        raise ValueError(
+            f"{caller}(projection={projection!r}) is not supported; "
+            "use None, 'rectilinear' or 'polar'."
+        )
+    if "facecolor" in kwargs and "fc" in kwargs:
+        raise TypeError(f"{caller}() got both facecolor and fc; pass one.")
+    facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
+    if kwargs:
+        warn_external(
+            f"{caller}() ignores {', '.join(sorted(kwargs))}: set them on "
+            "the returned axes instead."
+        )
+    return projection, facecolor
+
+
 def _subplot_span(rows: int, cols: int, idx) -> Union[int, Tuple[int, int]]:
     """Check an ``add_subplot`` ``(first, last)`` index, as matplotlib does.
 
@@ -873,7 +904,9 @@ class Figure:
 
         self._subplot_adjust = candidate
 
-    def add_subplot(self, *args, projection: Optional[str] = None) -> Axes:
+    def add_subplot(
+        self, *args, projection: Optional[str] = None, polar: bool = False, **kwargs
+    ) -> Axes:
         """
         Add subplot to figure.
 
@@ -892,6 +925,11 @@ class Figure:
             :meth:`Axes.scatter` take ``(theta, r)`` with theta in radians,
             and :meth:`Axes.function` reads ``x`` in its expression as
             theta. ``set_ylim(0, rmax)`` sets the radial limit.
+        polar : bool, default: False
+            ``True`` is ``projection='polar'``.
+        **kwargs
+            Axes properties, as for :meth:`add_axes`: ``facecolor`` (alias
+            ``fc``) is honoured, and the others warn and are ignored.
 
         Returns
         -------
@@ -906,11 +944,7 @@ class Figure:
         other plotting methods and cartesian settings such as
         :meth:`Axes.set_xlim` raise ``NotImplementedError``.
         """
-        if projection not in (None, "rectilinear", "polar"):
-            raise ValueError(
-                f"add_subplot(projection={projection!r}) is not supported; "
-                "use None, 'rectilinear' or 'polar'."
-            )
+        projection, facecolor = _axes_options("add_subplot", projection, polar, kwargs)
         if not args:
             args = (1, 1, 1)
         if len(args) == 1 and isinstance(args[0], (int, np.integer)):
@@ -953,6 +987,8 @@ class Figure:
         self._apply_shared_axes_flags(ax)
         if projection == "polar":
             _make_polar(ax)
+        if facecolor is not None:
+            ax.set_facecolor(facecolor)
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -1017,26 +1053,7 @@ class Figure:
             raise ValueError(
                 f"add_axes(rect) needs a positive width and height, got {rect!r}."
             )
-        if polar:
-            if projection not in (None, "polar"):
-                raise ValueError(
-                    f"add_axes(polar=True, projection={projection!r}): pass "
-                    "only one of them."
-                )
-            projection = "polar"
-        if projection not in (None, "rectilinear", "polar"):
-            raise ValueError(
-                f"add_axes(projection={projection!r}) is not supported; "
-                "use None, 'rectilinear' or 'polar'."
-            )
-        if "facecolor" in kwargs and "fc" in kwargs:
-            raise TypeError("add_axes() got both facecolor and fc; pass one.")
-        facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
-        if kwargs:
-            warn_external(
-                f"add_axes() ignores {', '.join(sorted(kwargs))}: set them on "
-                "the returned axes instead."
-            )
+        projection, facecolor = _axes_options("add_axes", projection, polar, kwargs)
 
         width_cm, height_cm = (inches_to_cm(v) for v in self.figsize)
         ax = Axes(self, None)
@@ -3905,7 +3922,7 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         writer.reserve_datasets(ax.passthrough)
-        self._write_axis_setup(writer, ax, frame)
+        self._write_axis_setup(writer, ax, frame, resolution)
         self._warn_data_range_edges(ax, resolution)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
@@ -3929,12 +3946,18 @@ class Figure:
         self._write_legend(writer, ax, legend, resolution)
 
     def _write_axis_setup(
-        self, writer: GLEWriter, ax: Axes, frame: Optional[Tuple[float, float]]
+        self,
+        writer: GLEWriter,
+        ax: Axes,
+        frame: Optional[Tuple[float, float]],
+        resolution: SourceResolution,
     ) -> None:
         """Titles, scales, ranges, ticks and grid of the graph block.
 
         A polar axes' ranges are the window :func:`~gleplot.writer.polar_window`
-        fits to ``frame``, and its grid is the polar one.
+        fits to ``frame``, and its grid is the polar one. A linear axis
+        missing a limit hands the writer its data extent, which sets how
+        precisely the coordinates on it are written.
         """
         xmin, xmax, ymin, ymax = ax.xmin, ax.xmax, ax.ymin, ax.ymax
         # Set by _resolve_axis_limits on every polar axes. Rounded as the
@@ -3944,9 +3967,30 @@ class Figure:
             if ax._polar and ax.ymax is not None
             else None
         )
+        data_extents = {}
         if rmax is not None:
             xr, yr = polar_window(rmax, frame, fontsize_pt_to_cm(self.style.fontsize))
             xmin, xmax, ymin, ymax = -xr, xr, -yr, yr
+        else:
+            scans = {
+                "x": self._get_data_xlim,
+                "y": self._get_data_ylim,
+                "y2": self._get_data_y2lim,
+                "x2": self._get_data_x2lim,
+            }
+            has_data = {
+                "x": True,
+                "y": True,
+                "y2": ax.has_y2_plots(),
+                "x2": ax.has_x2_plots(),
+            }
+            data_extents = {
+                which: scan(ax, resolution)
+                for which, scan in scans.items()
+                if has_data[which]
+                and None in self._axis_limits(ax, which)
+                and getattr(ax, f"{which}scale") != "log"
+            }
         if ax.math_mode:
             for name, other, scale, lo, hi in (
                 ("x", "y", ax.xscale, ax.xmin, ax.xmax),
@@ -4055,6 +4099,7 @@ class Figure:
                 else self.graph.title_distance
             ),
             title_font=ax.title_font,
+            data_extents=data_extents,
         )
         if ax._facecolor is not None and not ax._frame_off:
             writer.add_background(ax._facecolor)

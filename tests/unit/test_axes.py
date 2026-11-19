@@ -69,6 +69,20 @@ class TestAxisProperties:
         self.ax.set_ylim(4, ymin=None)
         assert self.ax.ymin == 4
 
+    def test_axis_limits_store_numpy_scalars_as_python_numbers(self):
+        self.ax.set_xlim(np.int64(1), np.array(2.5))
+        assert self.ax.get_xlim() == (1, 2.5)
+        assert [type(v) for v in self.ax.get_xlim()] == [int, float]
+        with pytest.raises(ValueError, match=r"set_xlim\(xmax=nan\)"):
+            self.ax.set_xlim(xmax=np.float64("nan"))
+
+    def test_axis_limits_return_the_new_limits(self):
+        """As matplotlib: (low, high), with None for an automatic limit."""
+        assert self.ax.set_xlim(1, 2) == (1, 2)
+        assert self.ax.set_xlim(right=None) == (1, None)
+        assert self.ax.set_ylim(top=5, axis="y2") == (None, 5)
+        assert self.ax.twiny().set_xlim(3, 4) == (3, 4)
+
     def test_axis_limits_reject_a_limit_and_its_alias(self):
         with pytest.raises(TypeError, match=r"'left' \(0\) and 'xmin' \(1\)"):
             self.ax.set_xlim(0, xmin=1)
@@ -76,6 +90,25 @@ class TestAxisProperties:
             self.ax.set_ylim(top=1, ymax=2)
         with pytest.raises(ValueError, match="two entries"):
             self.ax.set_xlim((0, 1, 2))
+
+    @pytest.mark.parametrize(
+        "call, error",
+        [
+            (lambda ax: ax.set_xlim(0, 1, "y"), ValueError),
+            (lambda ax: ax.set_ylim(0, 1, "x2"), ValueError),
+            (lambda ax: ax.set_xlim(0, float("nan")), ValueError),
+            (lambda ax: ax.set_ylim(bottom=float("inf")), ValueError),
+            (lambda ax: ax.set_xlim("0", 1), TypeError),
+            (lambda ax: ax.set_xlim("05"), TypeError),
+            (lambda ax: ax.set_xlim(True, 2), TypeError),
+            (lambda ax: ax.set_xlim(np.array([1.0]), 2), TypeError),
+        ],
+    )
+    def test_axis_limits_reject_a_bad_axis_or_limit(self, call, error):
+        with pytest.raises(error, match=r"set_[xy]lim\("):
+            call(self.ax)
+        assert self.ax.get_xlim() == (None, None)
+        assert self.ax.get_ylim() == (None, None)
 
     def test_axis_limits_warn_on_emit_and_auto(self):
         with pytest.warns(UserWarning, match="ignores unsupported keyword.*auto"):
@@ -265,6 +298,49 @@ class TestSubplots:
         assert "xlabels off" not in gle
         assert gle.count("xaxis min 0 max 9") == 2
         assert gle.count("xaxis min 20 max 30") == 2
+
+    def test_subplots_passes_matplotlib_subplot_and_gridspec_keywords(self):
+        fig, axes = glp.subplots(
+            1,
+            2,
+            subplot_kw={"projection": "polar"},
+            gridspec_kw={"width_ratios": [1, 2], "wspace": 0.3, "left": 0.2},
+        )
+        assert all(ax._polar for ax in axes)
+        assert list(fig.width_ratios) == [1, 2]
+        assert fig._subplot_adjust["wspace"] == 0.3
+        assert fig._subplot_adjust["left"] == 0.2
+        _, grid = glp.subplots(squeeze=False, subplot_kw={"polar": True})
+        assert grid[0, 0]._polar
+
+    def test_subplots_warns_on_what_it_cannot_use(self):
+        with pytest.warns(UserWarning) as record:
+            glp.subplots(
+                1, 2, num=3, layout="constrained", gridspec_kw={"figure": None}
+            )
+        (message,) = [str(w.message) for w in record]
+        for name in ("num", "layout", "gridspec_kw['figure']"):
+            assert name in message
+        with pytest.warns(UserWarning, match=r"add_subplot\(\) ignores alpha"):
+            glp.subplots(subplot_kw={"alpha": 0.5, "facecolor": "red"})
+
+    def test_subplots_checks_its_keywords_before_replacing_the_figure(self):
+        current = glp.figure()
+        for kwargs in (
+            {"gridspec_kw": {"wspace": -1}},
+            {"subplot_kw": {"polar": True, "projection": "rectilinear"}},
+        ):
+            with pytest.raises(ValueError, match=r"subplots\(gridspec_kw|polar=True"):
+                glp.subplots(1, 2, **kwargs)
+            assert glp.gcf() is current
+        with pytest.raises(ValueError, match="height_ratios"):
+            glp.subplots(2, height_ratios=[1, 2], gridspec_kw={"height_ratios": [1, 2]})
+
+    def test_subplots_rejects_a_ratio_given_twice(self):
+        with pytest.raises(ValueError, match="width_ratios"):
+            glp.subplots(
+                1, 2, width_ratios=[1, 2], gridspec_kw={"width_ratios": [1, 2]}
+            )
 
     def test_subplots_array_is_row_major(self):
         """axes[row, col] is the panel add_subplot numbers row by row."""

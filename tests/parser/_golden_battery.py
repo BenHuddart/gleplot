@@ -264,6 +264,26 @@ def fill_between():
     return fig
 
 
+def raw_lines_reading_modelled_datasets():
+    """Raw lines in a second panel that read its modelled datasets.
+
+    ``_gle_name`` is what ``open_gle`` sets when a kept raw line reads a
+    series' dataset: here the names the panel's series are written under.
+    The ``let`` target and the comment are not reads.
+    """
+    fig, (top, bottom) = glp.subplots(2, 1, data_prefix="golden")
+    top.plot([1, 2, 3], [1, 2, 1])
+    bottom.plot([1, 2, 3], [0, 1, 0], color="red")
+    bottom.plot([1, 2, 3], [2, 3, 2], color="blue")
+    bottom.lines[0]["_gle_name"] = "d2"
+    bottom.lines[1]["_gle_name"] = "d3"
+    bottom.passthrough = [
+        "   fill d2,d3 color gray foo",
+        '   let d9 = d3*2 ! "d2"',
+    ]
+    return fig
+
+
 def text_annotations():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -620,6 +640,16 @@ def file_series_without_a_line():
     ax.line_from_file("external.dat", 1, 3, linestyle="none", linewidth=2)
     ax.file_series[-1].update(marker="CIRCLE", markersize=0.2)
     ax.derived("2*d1", ax.file_series[0], label="twice")
+    return fig
+
+
+def line_with_nan_gaps():
+    """A NaN breaks a plotted and a stepped line, written as GLE's ``*``."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    nan = float("nan")
+    ax.plot([0, 1, 2, 3, 4], [0, 1, nan, 3, 4], color="red", label="broken")
+    ax.step([0, 1, 2, 3], [1, nan, 2, 2], where="post")
     return fig
 
 
@@ -2025,7 +2055,28 @@ def data_beyond_six_figures():
     return fig
 
 
+def coordinates_beyond_six_figures():
+    """Lone coordinates on a timestamp axis: guides, text, ticks, a limit."""
+    fig, (left, right, ticks, narrow) = glp.subplots(1, 4, data_prefix="golden")
+    ticks.plot([1.7e9, 1.7e9 + 120], [1.0, 3.0])
+    ticks.set_xticks(dticks=30, ftick=1.7e9 + 30)
+    ticks.rug([1.7e9 + 30, 1.7e9 + 60])
+    ticks.axhspan(1.5, 2.5)
+    # A band narrower than its axis: marker and fill must write it alike.
+    narrow.plot([4.156750504153, 4.156755839588], [1.0, 2.0])
+    narrow.axvspan(4.156746290208, 4.156748511543)
+    left.plot([1.7e9, 1.7e9 + 120], [1.0, 3.0])
+    left.axvline(1.7e9 + 30)
+    left.axvspan(1.7e9 + 40, 1.7e9 + 40.5)
+    left.text(1.7e9 + 90, 2.0, "t")
+    left.set_xticks([1.7e9 + 30])
+    right.plot([1.0, 2.0], [1.7e9, 1.7e9 + 120], yaxis="y2")
+    right.set_ylim(1.7e9 + 30, None, axis="y2")
+    return fig
+
+
 BUILDERS = [
+    coordinates_beyond_six_figures,
     single_line,
     multi_series_styles,
     scatter,
@@ -2044,6 +2095,7 @@ BUILDERS = [
     errorbar_field_options,
     errorbar_data_range,
     fill_between,
+    raw_lines_reading_modelled_datasets,
     text_annotations,
     axes_fraction_text,
     annotations_with_arrows,
@@ -2068,6 +2120,7 @@ BUILDERS = [
     file_series_data_range,
     errorbar_thinned_from_a_file,
     file_series_without_a_line,
+    line_with_nan_gaps,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,
