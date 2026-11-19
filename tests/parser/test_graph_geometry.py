@@ -574,7 +574,7 @@ def test_shared_axes_label_suppression_survives_the_round_trip(tmp_path):
     fig, axes = glp.subplots(
         2, 2, figsize=(8, 6), sharex=True, sharey=True, data_prefix="geom"
     )
-    for idx, ax in enumerate(axes, start=1):
+    for idx, ax in enumerate(axes.flat, start=1):
         ax.plot(np.array([0.0, 1.0, 2.0]), np.array([0.0, float(idx), 0.0]))
         ax.set_xlabel("t")
         ax.set_ylabel("v")

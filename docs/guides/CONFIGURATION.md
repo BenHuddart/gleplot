@@ -134,7 +134,7 @@ if nothing else is left in it; pass `keep_intermediates=True` to keep them.
 Controls graph layout and rendering:
 
     graph = glp.GLEGraphConfig(
-        scale_mode='auto',           # 'auto' (default), 'fullsize' or 'fixed'; see Scale Modes
+        scale_mode='auto',           # 'auto' (default) or 'fullsize'; see Scale Modes
         title_distance=None,         # Default Axes.title_dist (cm)
         xlabel_distance=None,        # Default Axes.xlabel_dist (cm)
         ylabel_distance=None,        # Default Axes.ylabel_dist (cm)
@@ -277,8 +277,10 @@ points.
   single-graph file opened with `open_gle` too. A figure with several axes, or
   an axes made with `add_axes`, keeps gleplot's layout as under `'auto'`.
 
-- **`'fixed'`** - Has no effect: the figure is written exactly as under
-  `'auto'`.
+- **`'fixed'`** - Has no effect and warns: the figure is written exactly
+  as under `'auto'`.
+
+Any other value raises `ValueError`.
 
 ### Legend Positions
 

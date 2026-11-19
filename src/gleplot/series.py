@@ -1129,6 +1129,12 @@ class ErrorbarSeries(Series):
     xmax: float
     ymin: float
     ymax: float
+    #: ``mdist``, ``deresolve`` and ``deresolve_average`` as on
+    #: ``_XYSeries``, read from a file only: :meth:`Axes.errorbar` does not
+    #: take them, since GLE thins the markers but not the error bars.
+    mdist: float
+    deresolve: int
+    deresolve_average: bool
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_errorbar_column_names(
@@ -1527,8 +1533,9 @@ class PlacedImage(Series):
 class Rug(Series):
     """One rug -- ``Axes.rug`` stores one per call.
 
-    Drawn after the graph block, one ``gleplot_xrug`` or ``gleplot_yrug``
-    call per value.
+    Its values are written to :attr:`data_file` and loaded as a dataset in
+    the graph; ``xrug`` or ``yrug`` from GLE's ``rugs.gle`` draws them after
+    the graph block.
     """
 
     ATTR = "rugs"
@@ -1546,6 +1553,8 @@ class Rug(Series):
     color: str
     #: Points.
     linewidth: float
+    #: The sidecar the values are written to, one per line.
+    data_file: str
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
 

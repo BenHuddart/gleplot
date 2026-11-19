@@ -179,3 +179,27 @@ def test_contourf_bands_fall_on_their_levels(tmp_path):
     bands = sorted(counts[(values > 0) & (values < 255)])[-4:]
     assert len(bands) == 4
     assert max(bands) - min(bands) <= 0.03 * max(bands), bands
+
+
+def test_contourf_colorbar_draws_one_block_per_band(tmp_path):
+    """The bar of four grey bands shows four greys, stacked in equal blocks."""
+    from PIL import Image
+
+    fig = glp.figure(figsize=(6, 4), data_prefix="cbar")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 10, 11)
+    cf = ax.contourf(x, x, np.tile(x, (11, 1)), [0, 2.5, 5, 7.5, 10], cmap="gray")
+    fig.colorbar(cf)
+    out = fig.savefig(str(tmp_path / "cbar.png"), dpi=150)
+    im = np.asarray(Image.open(out).convert("L"))
+
+    # The bar is the rightmost column of the page holding mid greys.
+    mid = (im > 10) & (im < 245)
+    column = im[:, np.nonzero(mid.sum(axis=0) > im.shape[0] // 3)[0][-1] - 2]
+    values, counts = np.unique(
+        column[(column > 10) & (column < 245)], return_counts=True
+    )
+    blocks = sorted(counts)[-4:]
+    assert len(values) >= 4
+    assert min(blocks) >= 0.9 * max(blocks), (values, counts)
+    assert sum(blocks) >= 0.95 * counts.sum(), (values, counts)

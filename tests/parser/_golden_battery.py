@@ -480,10 +480,10 @@ def subplots_sharex_with_colored_text():
 
 def subplots_grid_mixed():
     fig, axes = glp.subplots(2, 2, data_prefix="golden")
-    axes[0].plot([1, 2, 3], [1, 2, 3])
-    axes[1].scatter([1, 2, 3], [3, 2, 1], marker="o")
-    axes[2].bar([1, 2, 3], [2, 4, 6], color="red")
-    axes[3].errorbar([1, 2, 3], [1, 2, 3], yerr=0.2, capsize=3)
+    axes[0, 0].plot([1, 2, 3], [1, 2, 3])
+    axes[0, 1].scatter([1, 2, 3], [3, 2, 1], marker="o")
+    axes[1, 0].bar([1, 2, 3], [2, 4, 6], color="red")
+    axes[1, 1].errorbar([1, 2, 3], [1, 2, 3], yerr=0.2, capsize=3)
     fig.subplots_adjust(hspace=0.4, wspace=0.4)
     return fig
 
@@ -569,6 +569,26 @@ def file_series():
         label="eb-file",
     )
     ax.legend()
+    return fig
+
+
+def file_series_data_range():
+    """An errorbar file reference with its own data range."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.errorbar_from_file("external.dat", 1, 2, yerr_col=3, xmin=0.5, ymax=12)
+    return fig
+
+
+def errorbar_thinned_from_a_file():
+    """An error-bar dataset with the mdist and deresolve only a file can give.
+
+    Axes.errorbar does not take them; open_gle keeps them (#343).
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.errorbar([0, 1, 2, 3], [1, 2, 1, 2], yerr=0.1, marker="o")
+    ax.errorbars[0].update(mdist=0.4, deresolve=2, deresolve_average=True)
     return fig
 
 
@@ -844,7 +864,7 @@ def heatmap_brewer_palettes():
 
 def heatmap_reversed_palettes():
     """Reversed cmaps: a ramp with its colorbar, a stepped set, both built-ins."""
-    fig, (ramp, stepped, gray, rainbow) = glp.subplots(
+    fig, ((ramp, stepped), (gray, rainbow)) = glp.subplots(
         2, 2, figsize=(9, 8), data_prefix="golden"
     )
     Z = np.arange(12, dtype=float).reshape(3, 4)
@@ -909,6 +929,24 @@ def heatmap_contourf_smooth():
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", r"contourf\(\) is drawn as a smooth")
         ax.contourf(np.add.outer(np.arange(4.0), np.arange(5.0)) ** 2, 5, extend="both")
+    return fig
+
+
+def heatmap_contourf_colorbar():
+    """contourf bars drawn through the band sub, vertical and horizontal.
+
+    Left: levels below zero and more than ten of them, so the ticks thin.
+    Right: a horizontal bar on uneven levels, ticked at even steps.
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    x = np.linspace(0, 4, 41)
+    y = np.linspace(-1, 2, 31)
+    Z = np.sin(1.5 * x)[None, :] * np.cos(y)[:, None]
+    fig.colorbar(left.contourf(x, y, Z, np.linspace(-1, 1, 13)))
+    cf = right.contourf(x, y, Z, [-0.6, 0.2, 0.5], cmap="plasma")
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "colorbar.. of a contourf with unevenly")
+        fig.colorbar(cf, orientation="horizontal", label="z", format="fix 2")
     return fig
 
 
@@ -1889,6 +1927,20 @@ def figure_legend():
     return fig
 
 
+def legend_curves():
+    """#236: a histogram and a function curve listed by ``begin key`` blocks,
+    an axes legend with ``labelcolor`` and a figure legend."""
+    fig, axes = glp.subplots(1, 2, figsize=(8, 4), data_prefix="golden")
+    axes[0].plot([0, 1, 2], [0, 1, 0], label="line")
+    axes[0].hist([0.2, 0.5, 0.6, 1.4], histtype="step", label="hist")
+    axes[0].legend(labelcolor="blue")
+    axes[1].scatter([0, 1], [1, 0], label="pts")
+    axes[1].function("x", xmin=0, xmax=1, label="f")
+    fig.legend(loc="lower center", ncol=4)
+    fig.subplots_adjust(bottom=0.25)
+    return fig
+
+
 def figure_legend_options():
     """A figure legend anchored off the page corner, with every option."""
     fig = glp.figure(data_prefix="golden")
@@ -2020,6 +2072,8 @@ BUILDERS = [
     inset_alone,
     aspect_ratios,
     file_series,
+    file_series_data_range,
+    errorbar_thinned_from_a_file,
     file_series_without_a_line,
     file_series_field_options,
     file_series_read_options,
@@ -2035,6 +2089,7 @@ BUILDERS = [
     heatmap_pcolormesh,
     heatmap_contourf,
     heatmap_contourf_smooth,
+    heatmap_contourf_colorbar,
     heatmap_function,
     heatmap_function_field_options,
     contour_grid_levels_clabel,
@@ -2090,6 +2145,7 @@ BUILDERS = [
     figure_text_and_suptitle,
     figure_text_only,
     figure_legend,
+    legend_curves,
     figure_legend_options,
     polar_plot,
     polar_field_options,
