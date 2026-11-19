@@ -3172,7 +3172,8 @@ class GLEWriter:
           dataset.
         - ``color``: ``None`` writes no ``color``, so GLE draws in the current
           colour (a recovered dataset line that set none).
-        - ``linewidth``: points; 0 or 1 means the style's default width, and
+        - ``linewidth``: points; 0 or 1 means the style's default width
+          (unless ``_lwidth_verbatim``, see :meth:`_lwidth_cm`), and
           ``None`` writes no ``lwidth`` (GLE's current line width).
         - ``nomiss``: draw a line through missing values instead of leaving a
           gap (GLE's ``nomiss`` qualifier). No effect when no line is drawn.
@@ -4479,7 +4480,8 @@ class GLEWriter:
 
         - ``linestyle``: a matplotlib linestyle (``'-'``, ``'--'``, ``':'``,
           ``'-.'``); ``'none'`` or empty draws no line.
-        - ``linewidth``: points; 0 or 1 means the style's default width.
+        - ``linewidth``: points; 0 or 1 means the style's default width
+          (unless ``_lwidth_verbatim``, see :meth:`_lwidth_cm`).
         - ``gle_capsize``: the cap width in cm. A series without it (one saved
           before it existed) falls back to ``capsize``.
         - ``column_names``: the sidecar header row (e.g. ``['x', 'signal',
@@ -5720,7 +5722,7 @@ class GLEWriter:
         self,
         color: str,
         linestyle: Optional[str] = None,
-        line: Optional[Series] = None,
+        series: Optional[Series] = None,
         marker: Optional[str] = None,
         markersize: Optional[float] = None,
         fill: Optional[str] = None,
@@ -5734,8 +5736,8 @@ class GLEWriter:
         width and ``lstyle`` the dataset command would, which is what makes
         ``entry->lstyle`` non-empty so the key draws a stroke
         (``key.cpp``). A marker-only series is ``marker`` / ``msize`` /
-        ``color``, the same tokens as the dataset line. ``line`` is the series
-        whose ``linewidth`` the stroke restates (1 pt when it has none).
+        ``color``, the same tokens as the dataset line. ``series`` is the
+        one whose ``linewidth`` the stroke restates (1 pt when it has none).
         """
         if fill is not None:
             return f"fill {fill}" + (f" pattern {pattern}" if pattern else "")
@@ -5743,9 +5745,9 @@ class GLEWriter:
         has_line = linestyle not in ("none", "None", "", " ", None)
         if has_line:
             parts.append(f"color {color}")
-            linewidth = None if line is None else line.get("linewidth")
+            linewidth = None if series is None else series.get("linewidth")
             width = self._lwidth_cm(
-                1.0 if linewidth is None else float(linewidth), line
+                1.0 if linewidth is None else float(linewidth), series
             )
             parts.append(f"lwidth {self._format_number(width)}")
             style = self._lstyle_for(linestyle or "-")
@@ -6293,10 +6295,7 @@ class GLEWriter:
         the lines are the ``-cdata.dat`` file its contour block generates,
         drawn in ``color`` at ``linewidth`` and ``linestyle``.
         """
-        cdata = _grid_z_file(series)[:-2] + "-cdata.dat"
-        self.add_contour_line(
-            cdata, series["color"], series["linewidth"], series["linestyle"]
-        )
+        self.add_contour_line(series)
 
     def add_contour_labels(self, series: Series):
         """Emit the contour-label sub call after a contour's graph, if asked.
@@ -6347,24 +6346,22 @@ class GLEWriter:
             cmd += " interpolate nearest"
         self.lines_gle.append(cmd)
 
-    def add_contour_line(
-        self, cdata_file: str, color: str, linewidth: float, lstyle: Optional[int]
-    ):
+    def add_contour_line(self, series: Series):
         """Emit the ``data``/``dN line`` pair that draws a contour's polylines.
 
-        ``cdata_file`` is the ``-cdata.dat`` file GLE generates from the
-        contour block; it is plotted as a ``line`` dataset.
+        The ``-cdata.dat`` file GLE generates from the contour block is
+        plotted as a ``line`` dataset in the contour's ``color``,
+        ``linewidth`` and ``linestyle``.
         """
+        cdata_file = _grid_z_file(series)[:-2] + "-cdata.dat"
         d_name = self._new_dataset()
         self.lines_gle.append(f"    data {_quote_filename(cdata_file)} {d_name}=c1,c2")
-        if linewidth == 0 or linewidth == 1:
-            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
-        else:
-            gle_lwidth = linewidth_pt_to_cm(linewidth)
+        gle_lwidth = self._lwidth_cm(series["linewidth"], series)
         cmd = (
-            f"    {d_name} line color {color} "
+            f"    {d_name} line color {series['color']} "
             f"lwidth {self._format_number(gle_lwidth)}"
         )
+        lstyle = series["linestyle"]
         if lstyle is not None:
             cmd += f" lstyle {int(lstyle)}"
         self.lines_gle.append(cmd)

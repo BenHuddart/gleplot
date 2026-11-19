@@ -8330,8 +8330,10 @@ class _Recognizer:
                 span,
             )
         color = attrs["color"] or "BLACK"
-        linewidth = (
-            linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
+        width = (
+            _width_fields(linewidth_cm_to_pt(attrs["lwidth"]))
+            if attrs["lwidth"] is not None
+            else {"linewidth": 1.0}
         )
         lstyle = attrs["lstyle"]  # int or None (None = solid)
 
@@ -8360,7 +8362,7 @@ class _Recognizer:
                 extent=list(fitz["extent"]),
                 levels=levels,
                 color=color,
-                linewidth=linewidth,
+                **width,
                 linestyle=lstyle,
                 clabel=False,
                 clabel_fmt="fix 1",
@@ -8391,7 +8393,7 @@ class _Recognizer:
                 extent=extent,
                 levels=levels,
                 color=color,
-                linewidth=linewidth,
+                **width,
                 linestyle=lstyle,
                 clabel=False,
                 clabel_fmt="fix 1",

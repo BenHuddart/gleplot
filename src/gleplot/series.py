@@ -1347,6 +1347,9 @@ class ContourSeries(_GridSeries):
     levels: Optional[List[float]]
     color: str
     linewidth: float
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     linestyle: Optional[int]
     clabel: bool
     clabel_fmt: str

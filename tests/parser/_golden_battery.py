@@ -1374,7 +1374,9 @@ def one_point_default_width():
     ax.hist([0.2, 0.4, 0.4, 1.6], bins=2, range=(0, 2), histtype="step")
     ax.axhline(1.5, label="guide")
     ax.legend()
-    fig.add_subplot(132).function("x/2", xmin=0, xmax=2)
+    curves = fig.add_subplot(132)
+    curves.function("x/2", xmin=0, xmax=2)
+    curves.contour([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], levels=[1.5])
     # Nothing resolves the y range, so this guide is a layered draw call.
     guides = fig.add_subplot(133)
     guides.axvline(1.0, label="drawn")

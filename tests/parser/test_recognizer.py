@@ -17,6 +17,7 @@ Covers, beyond the byte-identical fixed-point guard in ``test_fixed_point.py``:
 
 from __future__ import annotations
 
+import re
 import warnings
 from pathlib import Path
 
@@ -354,8 +355,7 @@ def normalize(d: dict) -> dict:
                 for k in ("vmin", "vmax"):
                     if s.get(k) is not None:
                         s[k] = _snap_num(s[k])
-                if "linewidth" in s:
-                    s["linewidth"] = _snap_linewidth(s["linewidth"])
+                _snap_width(s)
                 cb = s.get("colorbar")
                 if cb:
                     for k in ("zmin", "zmax", "zstep", "width", "sep"):
@@ -2074,13 +2074,12 @@ def test_a_default_sentinel_width_from_a_file_is_written_as_given(tmp_path, body
     (tmp_path / "a.dat").write_text("0 1\n1 2\n2 1\n", encoding="utf-8")
     src = _graph_file(tmp_path, *body)
     figure = parse_gle_figure(src).figure
-    (series,) = getattr(figure.axes_list[0], kind)
-    assert series["_lwidth_verbatim"] is True
+    assert len(getattr(figure.axes_list[0], kind)) == 1
     out = tmp_path / "out.gle"
     figure.savefig_gle(str(out))
     width = body[1].split("lwidth ")[1].split()[0]
     written = out.read_text(encoding="utf-8")
-    assert f"line lwidth {width}" in written or f"lwidth {width}\n" in written
+    assert re.findall(r" lwidth (\S+)", written) == [width]
     again = tmp_path / "again.gle"
     parse_gle_figure(out).figure.savefig_gle(str(again))
     assert again.read_text(encoding="utf-8") == written
