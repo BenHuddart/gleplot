@@ -1970,6 +1970,31 @@ class TestDatasetQualifiers:
         assert len(self.ax.errorbars) == 2
         assert "deresolve" not in self.ax.errorbars[1]
 
+    @pytest.mark.parametrize(
+        "kwargs, match",
+        [
+            ({"ymin": 100}, "only ymin = 100, .* missing ymax from the y axis limit 9"),
+            ({"xmax": -1}, "only xmax = -1, .* missing xmin from the x axis limit 0"),
+        ],
+    )
+    def test_a_lone_edge_past_the_axis_limit_warns_at_save(self, kwargs, match):
+        """GLE fills the other edge from the axis limit: an empty range."""
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], **kwargs)
+        with pytest.warns(UserWarning, match=match):
+            self.fig._generate_gle()
+
+    def test_a_non_positive_edge_on_a_log_axis_warns_at_save(self):
+        self.ax.plot([1, 2], [1, 10], ymin=0, ymax=20)
+        self.ax.set_yscale("log")
+        with pytest.warns(UserWarning, match="y edge 0 on the log y axis"):
+            self.fig._generate_gle()
+
+    def test_a_range_gle_can_draw_does_not_warn(self, recwarn):
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], ymin=100, ymax=200)
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], ymin=2)
+        self.fig._generate_gle()
+        assert not recwarn.list
+
 
 class TestHistogram:
     """Counts via ``let dK = hist``, drawn as a step or adjoining bars."""
