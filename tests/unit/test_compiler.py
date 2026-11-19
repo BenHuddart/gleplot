@@ -913,6 +913,77 @@ def test_savefig_passes_transparent_and_grayscale_to_the_compiler(tmp_path):
     assert (kwargs["transparent"], kwargs["grayscale"]) == (True, True)
 
 
+def _tex_compile(script, *args, **kwargs):
+    """Write the ``.gle/`` LaTeX cache a real GLE compile of a TeX figure does."""
+    stem = Path(script).stem
+    cache = Path(script).parent / ".gle"
+    (cache / stem).mkdir(parents=True, exist_ok=True)
+    (cache / "texpreamble.tex").write_text("new")
+    (cache / stem / f"{stem}_tex.tex").write_text("new")
+
+
+def _tex_figure_with_fake_compiler():
+    fig = _line_figure()
+    fig.tex(2, 2, r"\textbf{Note}")
+    fig.compiler = mock.Mock()
+    fig.compiler.compile.side_effect = _tex_compile
+    return fig
+
+
+def test_savefig_removes_the_tex_cache_it_created(tmp_path):
+    _tex_figure_with_fake_compiler().savefig(str(tmp_path / "f.pdf"))
+    assert not (tmp_path / ".gle").exists()
+
+
+def test_savefig_keeps_tex_cache_entries_that_were_already_there(tmp_path):
+    cache = tmp_path / ".gle"
+    (cache / "other").mkdir(parents=True)
+    (cache / "texpreamble.tex").write_text("old")
+    _tex_figure_with_fake_compiler().savefig(str(tmp_path / "f.pdf"))
+    assert sorted(p.name for p in cache.iterdir()) == ["other", "texpreamble.tex"]
+
+
+def test_savefig_removes_its_own_tex_folder_left_by_an_earlier_save(tmp_path):
+    fig = _tex_figure_with_fake_compiler()
+    fig.savefig(str(tmp_path / "f.pdf"), keep_intermediates=True)
+    fig.savefig(str(tmp_path / "f.pdf"))
+    assert sorted(p.name for p in (tmp_path / ".gle").iterdir()) == ["texpreamble.tex"]
+
+
+def test_savefig_keeps_new_preamble_while_another_script_uses_the_cache(tmp_path):
+    fig = _tex_figure_with_fake_compiler()
+
+    def concurrent(script, *args, **kwargs):
+        _tex_compile(script)
+        (Path(script).parent / ".gle" / "other").mkdir()
+
+    fig.compiler.compile.side_effect = concurrent
+    fig.savefig(str(tmp_path / "f.pdf"))
+    assert sorted(p.name for p in (tmp_path / ".gle").iterdir()) == [
+        "other",
+        "texpreamble.tex",
+    ]
+
+
+def test_savefig_keep_intermediates_keeps_the_tex_cache(tmp_path):
+    fig = _tex_figure_with_fake_compiler()
+    fig.savefig(str(tmp_path / "f.pdf"), keep_intermediates=True)
+    assert (tmp_path / ".gle" / "f" / "f_tex.tex").exists()
+
+
+def test_failed_compile_keeps_the_tex_cache(tmp_path):
+    fig = _tex_figure_with_fake_compiler()
+
+    def fail(script, *args, **kwargs):
+        _tex_compile(script)
+        raise GLECompileError("LaTeX failed", errors=[], raw_output="")
+
+    fig.compiler.compile.side_effect = fail
+    with pytest.raises(GLECompileError):
+        fig.savefig(str(tmp_path / "f.pdf"))
+    assert (tmp_path / ".gle" / "texpreamble.tex").exists()
+
+
 @pytest.mark.parametrize(
     "name, value",
     [

@@ -27,6 +27,7 @@ from .compiler import (
     SUFFIX_TO_COMPILE_FORMAT,
     CompileFormat,
     GLECompiler,
+    _remove_tex_cache,
     remove_generated_intermediates,
 )
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
@@ -2552,10 +2553,10 @@ class Figure:
             If True, skip the post-compile cleanup of GLE-generated contour/
             ``fitz`` intermediates (``-cdata.dat``/``-clabels.dat``/
             ``-cvalues.dat``, and a points-sourced heatmap/contour's
-            generated ``.z``) that a compiled export otherwise removes from
-            ``export_dir`` afterwards -- see the "Engine intermediates"
-            note below. Default False. Has no effect when this figure has
-            no contour/heatmap series, or when ``format == 'gle'`` (no
+            generated ``.z``) and of GLE's ``.gle/`` LaTeX cache entries
+            that a compiled export otherwise removes from ``export_dir``
+            afterwards -- see the "Engine intermediates" note below.
+            Default False. Has no effect when ``format == 'gle'`` (no
             compile runs, so nothing was generated to clean up).
         preview_decimation : DecimationPolicy, optional
             Preview-only ``deresolve`` factor -- see :meth:`savefig_gle` for
@@ -2612,6 +2613,18 @@ class Figure:
         a contour's raw crossings while debugging. A failed compile raises
         before cleanup runs, so its intermediates (if any were written) are
         never removed -- they may help diagnose the failure.
+
+        **LaTeX cache.** A figure GLE renders through LaTeX (:meth:`tex`,
+        or ``GLEStyleConfig(usetex=True)``) makes GLE write a ``.gle/``
+        cache directory into ``export_dir``. A successful compile removes
+        this script's folder in it and any ``texpreamble.*`` files the
+        compile created, then the directory if it is empty. Preamble files
+        are left if they were already there, or if another figure's folder
+        is in the cache, since other figures in the same directory share
+        them. Two first-time compiles started together in one directory can
+        still remove a preamble the other is using; give such parallel
+        saves separate directories. ``keep_intermediates=True`` keeps the
+        cache.
         """
         # matplotlib keywords with no GLE counterpart, and their defaults.
         for name, default in (
@@ -2735,6 +2748,11 @@ class Figure:
                         )
 
             output_dpi = dpi or self.dpi
+            tex_cache = export_dir / ".gle"
+            try:
+                tex_cache_before = {p.name for p in tex_cache.iterdir()}
+            except OSError:
+                tex_cache_before = set()
             self.compiler.compile(
                 str(base_path),
                 cast(CompileFormat, format),
@@ -2751,6 +2769,7 @@ class Figure:
                 remove_generated_intermediates(
                     export_dir, self._engine_intermediate_filenames()
                 )
+                _remove_tex_cache(tex_cache, base_path.stem, tex_cache_before)
 
             return output_path.with_suffix(f".{format}")
 
