@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v5.1.0 (2026-11-19)
+
+### Features
+
+- Place an inset with Figure.add_axes(rect)
+  ([`bb6a364`](https://github.com/BenHuddart/gleplot/commit/bb6a364d3d5236777481ea3941c9fae29770ded0))
+
+- Record add_axes insets in the metadata header
+  ([#85](https://github.com/BenHuddart/gleplot/pull/85),
+  [`fa6b809`](https://github.com/BenHuddart/gleplot/commit/fa6b809c0dbdea83df6cc334904462d2f8f3f9b5))
+
+- Review fixes for add_axes insets ([#85](https://github.com/BenHuddart/gleplot/pull/85),
+  [`84d5419`](https://github.com/BenHuddart/gleplot/commit/84d5419d796daa5598c47a6f9c5f7f8058343353))
+
+- Review fixes for spanning add_subplot ([#85](https://github.com/BenHuddart/gleplot/pull/85),
+  [`16eff6c`](https://github.com/BenHuddart/gleplot/commit/16eff6c382196b02ba14fc26192cda8afa2ca509))
+
+- Span several grid cells with add_subplot(rows, cols, (first, last))
+  ([`e3b48a0`](https://github.com/BenHuddart/gleplot/commit/e3b48a03c30e7549e57457892fa4c98b06d2f55a))
+
+
 ## v5.0.0 (2026-11-19)
 
 ### Features
