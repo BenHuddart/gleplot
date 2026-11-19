@@ -321,6 +321,25 @@ def test_an_explicit_bound_beside_a_lone_rug_is_kept():
     assert _axis_line(text, "x") == "xaxis min -2 max 0"
 
 
+@pytest.mark.parametrize(
+    "other",
+    [
+        lambda ax: ax.plot([], []),
+        lambda ax: ax.plot([1.0, 2.0], [float("nan"), float("nan")]),
+    ],
+    ids=["empty-line", "all-nan-line"],
+)
+def test_a_dataset_that_cannot_reach_the_axis_does_not_count(other):
+    fig, ax = _axes()
+    ax.boxplot([2, 2, 2])
+    other(ax)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        text, _files = fig._generate_gle_with_files()
+    assert _axis_line(text, "y") == "yaxis min 0 max 4"
+
+
 def test_a_box_beside_a_dataset_still_leaves_the_range_to_gle():
     fig, ax = _axes()
     ax.boxplot([2, 2, 2])

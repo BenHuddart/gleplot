@@ -4435,6 +4435,12 @@ class Figure:
     # emitting: the axis' range is left out of the script and GLE scales it.
     # Reproducing that arithmetic in Python would be a second, drifting
     # implementation of a number gleplot never needs to know.
+    #
+    # GLE widens from the datasets it draws, though. An axis no dataset
+    # reaches (only box plots, rugs, text or images, drawn after ``end graph``
+    # or by ``draw``) gets 0..1 from it, which clips what is drawn. There
+    # gleplot writes its own margin, the value's magnitude either side (or 1
+    # at zero): GLE's x range for a lone point, though not its rounded y one.
 
     def _defer_degenerate_range(
         self,
@@ -4444,7 +4450,8 @@ class Figure:
         hi_auto: bool,
         resolution: Optional[SourceResolution] = None,
     ) -> None:
-        """Hand ``which``'s range back to GLE if it collapsed to a point.
+        """Hand ``which``'s range back to GLE if it collapsed to a point,
+        or give it a margin where GLE has no dataset to widen it from.
 
         Parameters
         ----------
@@ -4461,12 +4468,10 @@ class Figure:
         one; there is no way to draw it, so it is dropped and said out loud,
         the way :meth:`_apply_log_limits` reports an impossible log range.
 
-        GLE widens a collapsed range from the datasets it draws. On an axes
-        drawing none (only box plots, rugs, text, images: subs and ``draw``
-        calls after ``end graph``) it has nothing to widen and draws 0..1,
-        so the range GLE's rule would give is written instead: ``v - |v|``
-        to ``v + |v|``, or -1 to 1 at zero (``axis.cpp``), without the
-        rounding GLE applies to its own.
+        Where no dataset GLE draws reaches the axis (see
+        :meth:`_engine_can_scale`), the derived bounds are written as
+        ``v - |v|`` and ``v + |v|`` instead (-1 and 1 at zero), so a lone box
+        plot or rug is not clipped by GLE's 0..1.
         """
         lo, hi = self._axis_limits(ax, which)
         if lo is None or hi is None or lo != hi:
@@ -4479,15 +4484,20 @@ class Figure:
                 "y2": "set_ylim(axis='y2')",
                 "x2": "set_xlim(axis='x2')",
             }[which]
+            instead = (
+                "Leaving the range out of the script, so GLE autoscales around "
+                "the value instead."
+                if self._engine_can_scale(ax, which, resolution)
+                else "Widening it by the value's magnitude either side instead."
+            )
             warn_external(
                 f"{which}-axis limits are both {lo!r}, an empty range that GLE "
-                'refuses to draw ("illegal range"). Leaving the range out of '
-                "the script, so GLE autoscales around the value instead. Call "
+                f'refuses to draw ("illegal range"). {instead} Call '
                 f"{setter} with a non-empty range to choose your own.",
             )
             lo_auto = hi_auto = True
 
-        if not self._engine_can_scale(ax, resolution):
+        if not self._engine_can_scale(ax, which, resolution):
             width = abs(lo) or 1.0
             self._set_axis_limits(
                 ax,
@@ -4509,15 +4519,27 @@ class Figure:
     _ENGINE_BLIND = frozenset({"texts", "wedges", "boxes", "rugs", "images"})
 
     def _engine_can_scale(
-        self, ax: Axes, resolution: Optional[SourceResolution]
+        self, ax: Axes, which: str, resolution: Optional[SourceResolution]
     ) -> bool:
-        """Whether ``ax`` draws a series GLE can widen a collapsed range from."""
+        """Whether ``ax`` draws a dataset GLE can widen ``which``'s range from.
+
+        One drawn against that axis (a ``y2`` series does not scale ``y``)
+        with at least one finite point on it; a series with no point arrays
+        (a function curve, a grid) counts.
+        """
         resolution = resolution or SourceResolution()
-        return any(
-            resolution.visible(getattr(ax, attr, []))
-            for attr in SERIES_ATTRS
-            if attr not in self._ENGINE_BLIND
-        )
+        field, axis = ("yaxis", which) if which[0] == "y" else ("xaxis", which)
+        primary = axis in ("x", "y")
+        for attr in SERIES_ATTRS:
+            if attr in self._ENGINE_BLIND:
+                continue
+            for series in resolution.visible(getattr(ax, attr)):
+                if (series.get(field, axis[0]) == axis[0]) != primary:
+                    continue
+                values = series.get(axis[0])
+                if values is None or np.isfinite(np.asarray(values, dtype=float)).any():
+                    return True
+        return False
 
     def _normalize_inverted_log_limits(self, ax: Axes):
         """Undo an axis inversion on a log axis, which GLE cannot draw.
@@ -4775,7 +4797,7 @@ class Figure:
                 ax.ymin, ax.ymax = hi_global, lo_global
             else:
                 ax.ymin, ax.ymax = lo_global, hi_global
-            self._defer_degenerate_range(ax, "y", lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, "y", lo_auto, hi_auto, resolution)
 
     def _get_data_xlim(
         self,
