@@ -3083,6 +3083,7 @@ class _Recognizer:
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
         self._keep_plain_derived_lets(block, pass1, info)
         self._keep_plain_function_lets(block, pass1, info)
+        self._keep_owned_hist_lets(block, pass1, info)
         self._keep_colour_lets(pass1, info)
         return pass1
 
@@ -5864,16 +5865,9 @@ class _Recognizer:
         source = record.get("_fit_source")
         if source is None:
             return True
-        data_file, xcol, ycol = pass1.datasets[source]
-        if (
-            source in pass1.merged_attr_toks
-            or source in self._data_read_options
-            or info.get("_dataset_group", {}).get(source) != [source]
-            or _mention_count(texts, source) != 2
-            or [entry[0] for entry in pass1.datasets.values()].count(data_file) != 1
-            or not self._is_import(data_file)
-        ):
+        if not self._owns_sidecar(texts, pass1, info, source):
             return False
+        data_file, xcol, ycol = pass1.datasets[source]
         loaded = self._load_series(data_file, xcol, ycol)
         if loaded.get("error"):
             return False
@@ -5881,6 +5875,45 @@ class _Recognizer:
         record["y"] = np.asarray(loaded["y"], dtype=float)
         record["data_file"] = data_file
         return True
+
+    def _owns_sidecar(self, texts, pass1: _GraphDatasets, info, source) -> bool:
+        """True when ``source`` is read by its ``let`` alone, from a sidecar.
+
+        The writer rewrites a fit's or histogram's data file with just the
+        columns it reads, which would break any other reader of the file, and
+        a file of the caller's own is never rewritten. ``texts`` are the
+        block's non-``dN`` statements: the ``data`` statement and the ``let``
+        are the two that may name ``source``.
+        """
+        data_file = pass1.datasets[source][0]
+        return not (
+            source in pass1.merged_attr_toks
+            or source in self._data_read_options
+            or info.get("_dataset_group", {}).get(source) != [source]
+            or _mention_count(texts, source) != 2
+            or [entry[0] for entry in pass1.datasets.values()].count(data_file) != 1
+            or not self._is_import(data_file)
+        )
+
+    def _keep_owned_hist_lets(self, block, pass1: _GraphDatasets, info) -> None:
+        """Leave raw each histogram let whose samples it does not own.
+
+        Pass 2 then keeps the ``let`` and its display as written.
+        """
+        texts = self._non_dataset_texts(block)
+        for target, record in list(info["_hist_lets"].items()):
+            source = record["source"]
+            if self._owns_sidecar(texts, pass1, info, source):
+                continue
+            del info["_hist_lets"][target]
+            info["_hist_let_pending"].pop(target, None)
+            self._note(
+                ImportCategory.DATA,
+                f"histogram let {target} was kept as raw GLE: its samples "
+                f"({source} in '{pass1.datasets[source][0]}') are not in a "
+                "gleplot data file only the let reads, and modelling it would "
+                "rewrite that file",
+            )
 
     def _build_function_series(self, name, attr_toks, info) -> None:
         """Append the ``FunctionSeries`` or ``FitSeries`` for a kept let."""

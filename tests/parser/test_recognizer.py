@@ -1968,6 +1968,32 @@ def test_a_hist_let_with_no_display_command_stays_raw(tmp_path):
     assert any("histogram let d2 was not paired" in w for w in recognized.warnings)
 
 
+@pytest.mark.parametrize("marker_line", ["", "   d1 marker circle\n"])
+def test_a_hist_let_on_a_users_file_stays_raw(tmp_path, marker_line):
+    """#174: a histogram of a file gleplot did not write never rewrites it."""
+    dat = "0 2.3\n0.4 1.9\n0.9 2.5\n1.3 3.1\n"
+    src = (
+        "size 10 8\nbegin graph\n"
+        '   data "d.dat" d1\n'
+        "   let d2 = hist d1 step 0.5\n"
+        f"{marker_line}"
+        "   d2 line hist color red\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "h.gle", src, {"d.dat": dat})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.hists == []
+    assert "   let d2 = hist d1 step 0.5" in ax.passthrough
+    assert "   d2 line hist color red" in ax.passthrough
+    assert any("histogram let d2 was kept as raw GLE" in w for w in rec.warnings)
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert (tmp_path / "d.dat").read_text(encoding="utf-8") == dat
+    assert "import-data = d.dat" not in out.read_text(encoding="utf-8")
+
+
 def _graph_file(tmp_path, *body):
     src = tmp_path / "fn.gle"
     src.write_text(
