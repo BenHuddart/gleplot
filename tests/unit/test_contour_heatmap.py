@@ -119,6 +119,29 @@ def test_imshow_nearest_and_invert():
     assert " interpolate nearest" in line
 
 
+@pytest.mark.parametrize(
+    "cmap, bar_palette, bar_sub",
+    [
+        ("viridis", "gleplot_viridis_r", "sub gleplot_viridis_r z"),
+        ("viridis_r", "gleplot_viridis", "sub gleplot_viridis z"),
+        ("gray", "gleplot_gray_r", "sub gleplot_gray_r z"),
+        ("rainbow_r", "color", None),
+    ],
+)
+def test_colorbar_of_an_inverted_image_draws_the_reversed_palette(
+    cmap, bar_palette, bar_sub
+):
+    """GLE's ``invert`` flips only the image, so the bar takes the reversed map."""
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    hm = ax.imshow(np.zeros((2, 2)), cmap=cmap, invert=True)
+    fig.colorbar(hm)
+    text, _ = _gle(fig)
+    assert f'palette "{bar_palette}"' in text
+    if bar_sub is not None:
+        assert bar_sub in text
+
+
 def test_only_one_heatmap_per_axes():
     fig = glp.figure()
     ax = fig.add_subplot(111)

@@ -1697,6 +1697,30 @@ def test_a_scatter_bar_beside_a_heatmap_stays_the_scatters(tmp_path, cmap):
         assert rec.figure.axes_list[0].scatters[0]["colorbar"]["zmin"] == 0.0
 
 
+@pytest.mark.parametrize("old_file", [False, True])
+def test_an_inverted_heatmaps_bar_stays_the_heatmaps(tmp_path, old_file):
+    """Its bar draws the reversed palette; older files wrote the forward one."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="viridis_r", vmin=5, vmax=9)
+    ax.scatter([0, 1, 2], [1, 2, 1], c=[4, 5, 6], cmap="viridis", vmin=5, vmax=9)
+    hm = ax.imshow(
+        [[0.0, 1.0], [2.0, 3.0]], cmap="viridis", extent=(0, 2, 0, 2), invert=True
+    )
+    fig.colorbar(hm, ax=ax)
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    assert 'palette "gleplot_viridis_r"' in text
+    if old_file:
+        text = text.replace('palette "gleplot_viridis_r"', 'palette "gleplot_viridis"')
+        path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path).figure.axes_list[0]
+    assert rec.heatmaps[0]["colorbar"]["zmax"] == 3.0
+    assert not any(sc.get("colorbar") for sc in rec.scatters)
+
+
 def test_a_scatter_bar_goes_to_the_scatter_with_its_range(tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
@@ -1971,6 +1995,78 @@ def test_a_hist_let_with_no_display_command_stays_raw(tmp_path):
     assert ax.hists == []
     assert any("let d2 = hist d1" in ln for ln in ax.passthrough)
     assert any("histogram let d2 was not paired" in w for w in recognized.warnings)
+
+
+@pytest.mark.parametrize(
+    "before, after, written",
+    [
+        ("", "", '   data "d.dat" d1'),
+        # Its source is drawn too, and keeps reading the same file.
+        ("", "   d1 marker circle\n", '   data "d.dat" d1'),
+        # A series written first is renumbered; the let still reads d.dat.
+        ('   data "e.dat" d5\n   d5 line\n', "   d1 line\n", '   data "d.dat" d1'),
+        # A sibling on the same statement is written on its own.
+        ("", "   d3 line\n", "    data d.dat d1=c1,c2"),
+    ],
+)
+def test_a_hist_let_on_a_users_file_stays_raw(tmp_path, before, after, written):
+    """#174: a histogram of a file gleplot did not write never rewrites it."""
+    dat = "0 2.3 5\n0.4 1.9 6\n0.9 2.5 7\n1.3 3.1 8\n"
+    data = '   data "d.dat" d1=c1,c2 d3=c1,c3\n' if "d3" in after else ""
+    src = (
+        "size 10 8\nbegin graph\n"
+        + before
+        + (data or '   data "d.dat" d1\n')
+        + "   let d2 = hist d1 step 0.5\n"
+        + after
+        + "   d2 line hist color red\n"
+        + "end graph\n"
+    )
+    p = _write(tmp_path, "h.gle", src, {"d.dat": dat, "e.dat": "0 9\n1 8\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.hists == []
+    assert "   let d2 = hist d1 step 0.5" in ax.passthrough
+    assert any("histogram let d2 reads d1" in w for w in rec.warnings)
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert (tmp_path / "d.dat").read_text(encoding="utf-8") == dat
+    assert "import-data = d.dat" not in text
+    assert written + "\n   let d2 = hist d1 step 0.5\n" in text
+
+
+def test_a_hist_let_on_an_offset_let_stays_raw(tmp_path):
+    """#174: a histogram of a ``let`` that stays raw is kept as written."""
+    src = (
+        "size 10 8\nbegin graph\n"
+        '   data "d.dat" d1\n'
+        "   let d2 = d1+1\n"
+        "   let d3 = hist d2\n"
+        "   d1 line\n"
+        "   d2 line\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "o.gle", src, {"d.dat": "0 1\n1 2\n"})
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    assert ax.hists == []
+    assert "   let d3 = hist d2" in ax.passthrough
+
+
+def test_a_string_naming_a_hist_source_does_not_keep_it_raw(tmp_path):
+    """#174: only statements, not a title, can read a histogram's samples."""
+    fig = gleplot.figure(data_prefix="hist")
+    ax = fig.add_subplot(111)
+    ax.hist([0, 1, 1], bins=2, range=(0, 1), histtype="step")
+    ax.set_title("d1")
+    first = tmp_path / "first.gle"
+    fig.savefig_gle(str(first))
+    recognized = parse_gle_figure(first)
+    assert len(recognized.figure.axes_list[0].hists) == 1
+    second = tmp_path / "second.gle"
+    recognized.figure.savefig_gle(str(second))
+    assert second.read_text(encoding="utf-8") == first.read_text(encoding="utf-8")
 
 
 def _graph_file(tmp_path, *body):

@@ -795,6 +795,22 @@ def heatmap_field_options():
     return fig
 
 
+def heatmap_inverted_colorbars():
+    """Colorbars of inverted images draw the reversed palette.
+
+    A vertical bar for an inverted ``viridis_r`` image (forward ``viridis``
+    bar) and a horizontal one for an inverted ``gray`` image (a
+    ``gleplot_gray_r`` sub).
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    Z = np.arange(12, dtype=float).reshape(3, 4)
+    hm = left.imshow(Z, extent=(0, 4, 0, 3), cmap="viridis_r", invert=True)
+    fig.colorbar(hm, ax=left)
+    hm = right.imshow(Z, extent=(0, 4, 0, 3), cmap="gray", invert=True)
+    fig.colorbar(hm, ax=right, orientation="horizontal")
+    return fig
+
+
 def heatmap_brewer_palettes():
     """ColorBrewer cmaps: an interpolated diverging ramp and a stepped set."""
     fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
@@ -1841,6 +1857,7 @@ BUILDERS = [
     heatmap_imshow_colorbar,
     heatmap_grid_colorbars,
     heatmap_field_options,
+    heatmap_inverted_colorbars,
     heatmap_brewer_palettes,
     heatmap_reversed_palettes,
     heatmap_pcolormesh,

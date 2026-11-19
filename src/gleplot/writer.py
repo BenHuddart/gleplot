@@ -695,6 +695,11 @@ class ColumnBinding:
             return private, role
         return key, self.names.get(key, role)
 
+    def with_private(self, roles: Sequence[str]) -> "ColumnBinding":
+        """A copy in which ``roles`` get columns private to this series."""
+        keys = {role: key for role, key in self.keys.items() if role not in roles}
+        return ColumnBinding(self.data_file, keys, self.names, self.uid)
+
 
 class _SharedSidecar:
     """A ``.dat`` file accumulating the union of several series' columns.
@@ -718,7 +723,11 @@ class _SharedSidecar:
             pass
         self.keys.append(key)
         self.names.append(name)
-        self.columns.append(np.asarray(values, dtype=float))
+        values = np.asarray(values)
+        # Only the ``*`` missing values of _as_missing are kept as written.
+        if values.dtype != object or not (values == "*").any():
+            values = values.astype(float)
+        self.columns.append(values)
         return len(self.keys)
 
     def header(self) -> List[str]:
@@ -3393,12 +3402,7 @@ class GLEWriter:
         written as a missing value (``*``) instead, which GLE keeps and does
         not draw.
         """
-        x = np.asarray(series["x"])
-        y = np.asarray(series["y"])
-        if binding is None:
-            x, y = self._missing_where_gle_drops(
-                x, y, series.get("xaxis", "x"), series.get("yaxis", "y")
-            )
+        x, y, binding = self._missing_where_gle_drops(series, binding)
         d_name, d_sizes = self._mdata_data_line(
             series, binding, x, y, ("mdata", np.asarray(series["mdata"]))
         )
@@ -3435,15 +3439,10 @@ class GLEWriter:
         not finite (only a file read back can hold one: ``scatter`` leaves
         such a point out).
         """
-        x = np.asarray(series["x"])
-        y = np.asarray(series["y"])
         values = np.asarray(series["cdata"], dtype=float)
-        if binding is None:
-            unmapped = ~np.isfinite(values)
-            x, y = self._missing_where_gle_drops(
-                x, y, series.get("xaxis", "x"), series.get("yaxis", "y"), unmapped
-            )
-            values = self._as_missing(values, unmapped)
+        unmapped = ~np.isfinite(values)
+        x, y, binding = self._missing_where_gle_drops(series, binding, unmapped)
+        values = self._as_missing(values, unmapped)
         d_name, d_values = self._mdata_data_line(series, binding, x, y, ("c", values))
         d_mapped = self._new_dataset()
         low = self._format_number(float(series["vmin"]))
@@ -3512,27 +3511,33 @@ class GLEWriter:
 
     def _missing_where_gle_drops(
         self,
-        x: np.ndarray,
-        y: np.ndarray,
-        xaxis: str,
-        yaxis: str,
+        series: Series,
+        binding: Optional[ColumnBinding],
         also: Optional[np.ndarray] = None,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """``x`` and ``y`` with ``*`` where GLE would drop the point.
+    ) -> Tuple[np.ndarray, np.ndarray, Optional[ColumnBinding]]:
+        """``series``' x and y with ``*`` where GLE would drop the point.
 
-        ``also`` marks more points to write as missing. Unchanged (the same
-        arrays) when no point is missing.
+        ``also`` marks more points to write as missing. When a point is
+        missing, a provider-backed series gets its own x and y columns in the
+        shared sidecar: another series may read the table's columns, and
+        must still see the values.
         """
+        x = np.asarray(series["x"])
+        y = np.asarray(series["y"])
         xf = np.asarray(x, dtype=float)
         yf = np.asarray(y, dtype=float)
         drop = np.isnan(xf) | np.isnan(yf)
         if also is not None:
             drop |= also
-        if self._log_axes.get(xaxis):
+        if self._log_axes.get(series.get("xaxis", "x")):
             drop |= xf < 0
-        if self._log_axes.get(yaxis):
+        if self._log_axes.get(series.get("yaxis", "y")):
             drop |= yf < 0
-        return self._as_missing(x, drop), self._as_missing(y, drop)
+        if not drop.any():
+            return x, y, binding
+        if binding is not None:
+            binding = binding.with_private(("x", "y"))
+        return self._as_missing(x, drop), self._as_missing(y, drop), binding
 
     # -- bar width, the one number GLE derives from the data's shape -------
     #
@@ -6255,10 +6260,11 @@ class GLEWriter:
             sub = "gleplot_colorbar_v"
             size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
         lbl = self._escape_gle_string(cb.get("label") or "")
+        cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
         self.lines_gle.append(
             f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
             f"zstep {fmt(cb['zstep'])} "
-            f'palette "{_pal.palette_call_name(series["cmap"])}" {size} '
+            f'palette "{_pal.palette_call_name(cmap)}" {size} '
             f'format "{cb["format"]}" label "{lbl}"'
         )
 
