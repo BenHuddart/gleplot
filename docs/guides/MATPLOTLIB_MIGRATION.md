@@ -28,7 +28,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.spines[...].set_visible(False)` | `ax.set_axis_line(axis, visible=False)`, with `'x'`, `'y'`, `'x2'`, `'y2'` for bottom, left, top, right |
 | `ax.spines['left'].set_position('zero')` and `ax.spines['bottom'].set_position('zero')` | `ax.set_math_mode()` |
 | `ax.legend(...)` | same |
-| `ax.twinx()` / `ax.twiny()` | same, a view of the right or top scale, see [Secondary axes](#secondary-axes); `twinx`'s `axes_class`, `delta_zorder` and other keywords warn |
+| `ax.twinx()` / `ax.twiny()` | same, a view of the right or top scale, see [Secondary axes](#secondary-axes); their `axes_class`, `delta_zorder` and other keywords warn |
 | `ax.invert_xaxis()` / `ax.invert_yaxis()` | same; automatic limits are fixed to the data plotted so far, so plot first. On a `twinx()`/`twiny()` view, set the limits first |
 | `ax.semilogx(...)` / `semilogy` / `loglog` | same; `base` other than 10, `subs` and `nonpositive` warn |
 | `ax.set_xticklabels(labels)` / `set_yticklabels` | same, after `set_xticks(ticks)`; `minor=True` and text properties warn |

@@ -104,6 +104,27 @@ def _cartesian_only(method: _Method) -> _Method:
     return cast(_Method, wrapper)
 
 
+def _warn_twin_keywords(caller: str, edge: str, axes_class, delta_zorder, kwargs):
+    """Warn about the matplotlib keywords ``twinx``/``twiny`` cannot use.
+
+    GLE draws the second scale on the same graph, so there is no new axes
+    for ``axes_class``, ``delta_zorder`` or the other keywords to configure.
+    """
+    ignored = [
+        name
+        for name, given in (
+            ("axes_class", axes_class is not None),
+            ("delta_zorder", delta_zorder != 0.0),
+        )
+        if given
+    ] + sorted(kwargs)
+    if ignored:
+        warn_external(
+            f"{caller}() ignores {', '.join(ignored)}: the {edge} scale is "
+            "drawn on this graph, not on a new axes."
+        )
+
+
 def _text_fields(
     style,
     caller,
@@ -8486,16 +8507,26 @@ class Axes:
         return self
 
     @_cartesian_only
-    def twiny(self) -> SecondaryXAxis:
+    def twiny(self, axes_class=None, *, delta_zorder=0.0, **kwargs) -> SecondaryXAxis:
         """Open the top x axis as its own data scale.
 
         The returned view plots against that scale (``xaxis='x2'``) and
         shares this axes' y axis. Limits, log, and the axis label set on
         the view are the top scale; they do not move the bottom one.
 
-        GLE's top axis is the same graph, not a second subplot, so the
-        view is not an entry of :attr:`Figure.axes_list`.
+        Parameters
+        ----------
+        axes_class, delta_zorder, **kwargs
+            Accepted for matplotlib compatibility. GLE's top axis is part
+            of this graph, not a new axes, so they have no effect and warn.
+
+        Returns
+        -------
+        SecondaryXAxis
+            A view of this axes bound to the top scale. It is not an entry
+            of :attr:`Figure.axes_list`.
         """
+        _warn_twin_keywords("twiny", "top", axes_class, delta_zorder, kwargs)
         return SecondaryXAxis(self)
 
     @_cartesian_only
@@ -8519,19 +8550,7 @@ class Axes:
             A view of this axes bound to the right scale. It is not an entry
             of :attr:`Figure.axes_list`.
         """
-        ignored = [
-            name
-            for name, given in (
-                ("axes_class", axes_class is not None),
-                ("delta_zorder", delta_zorder != 0.0),
-            )
-            if given
-        ] + sorted(kwargs)
-        if ignored:
-            warn_external(
-                f"twinx() ignores {', '.join(ignored)}: the right-hand scale is "
-                "drawn on this graph, not on a new axes."
-            )
+        _warn_twin_keywords("twinx", "right-hand", axes_class, delta_zorder, kwargs)
         return SecondaryYAxis(self)
 
     @_cartesian_only
