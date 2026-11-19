@@ -3906,7 +3906,7 @@ class Figure:
                             f"on the log {axis} axis, so GLE draws nothing of "
                             "it. Give positive edges."
                         )
-                    continue
+                        continue
                 limits = (getattr(ax, f"{axis}min"), getattr(ax, f"{axis}max"))
                 if None in limits:
                     continue

@@ -2725,7 +2725,9 @@ class Axes:
             tick labels keep the axis' own range, so they no longer read
             off this series. An omitted edge is the limit of the axis the
             series is drawn against. ``xmin`` must be below ``xmax``,
-            ``ymin`` below ``ymax``.
+            ``ymin`` below ``ymax``. Saving warns where the range draws
+            nothing: a lone edge at or past the far axis limit, which GLE
+            rejects, or an edge at or below zero on a log axis.
         **kwargs
             Additional matplotlib-compatible arguments. ``lw``, ``ls``,
             ``c``, ``ms``, ``mfc`` and ``ds`` are matplotlib's short names
@@ -4082,7 +4084,8 @@ class Axes:
             it is not a clip window. The tick labels keep the axis' own
             range, so they no longer read off this series. An omitted edge
             is the limit of the axis the series is drawn against. ``xmin``
-            must be below ``xmax``, ``ymin`` below ``ymax``.
+            must be below ``xmax``, ``ymin`` below ``ymax``. Saving warns
+            where the range draws nothing, as for :meth:`plot`.
         **kwargs
             ``linestyle`` (alias ``ls``) overrides the line style ``fmt``
             gives, as in matplotlib, except under ``fmt='none'``. ``lw``,

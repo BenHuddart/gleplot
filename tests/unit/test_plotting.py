@@ -1998,6 +1998,13 @@ class TestDatasetQualifiers:
         with pytest.warns(UserWarning, match="y edge 0 on the log y axis"):
             self.fig._generate_gle()
 
+    def test_a_lone_edge_past_a_log_axis_limit_warns_at_save(self):
+        self.ax.plot([1, 2], [1, 10], ymin=1000)
+        self.ax.set_yscale("log")
+        self.ax.set_ylim(1, 100)
+        with pytest.warns(UserWarning, match="only ymin = 1000"):
+            self.fig._generate_gle()
+
     def test_a_range_gle_can_draw_does_not_warn(self, recwarn):
         self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], ymin=100, ymax=200)
         self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], ymin=2)

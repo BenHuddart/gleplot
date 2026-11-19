@@ -570,6 +570,18 @@ def file_series_data_range():
     return fig
 
 
+def errorbar_thinned_from_a_file():
+    """An error-bar dataset with the mdist and deresolve only a file can give.
+
+    Axes.errorbar does not take them; open_gle keeps them (#343).
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.errorbar([0, 1, 2, 3], [1, 2, 1, 2], yerr=0.1, marker="o")
+    ax.errorbars[0].update(mdist=0.4, deresolve=2, deresolve_average=True)
+    return fig
+
+
 def file_series_field_options():
     """File-series fields the ``file_series`` builder leaves at their defaults.
 
@@ -1950,6 +1962,7 @@ BUILDERS = [
     aspect_ratios,
     file_series,
     file_series_data_range,
+    errorbar_thinned_from_a_file,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,

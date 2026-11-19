@@ -35,6 +35,7 @@
  "golden:exact_rgb_colors": "b3a5fd09f16f3cf3433031d00e43fe6c261442ba338c7f9223ea6d2d33abc7b9",
  "golden:file_series": "7e0776b851323e283db7f17036f1655528475da907e80baf75f6388004397d26",
  "golden:file_series_data_range": "1d2ec7d14a7c401e05c608b90d0253c1958a971fe8b69469e9b729dfe96f3302",
+ "golden:errorbar_thinned_from_a_file": "d041161b9ba4e5344383b3480d2724942970772cf9f0fa915a37b799073da53c",
  "golden:file_series_field_options": "83e8b6a96cd62d52d769fe80bd99968acb97e1e8ac23001e9e3db9071e2b0bca",
  "golden:file_series_read_options": "9896b1b62480c9e9ae4ad6a547d5100b73164f719ed98d1946936f611d4afe0f",
  "golden:fill_between": "5f747ec8565514b6ffcaf352aedcf843362be5a4e167af4d5bd40f65918fc327",
