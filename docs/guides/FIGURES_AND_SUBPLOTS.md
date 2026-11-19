@@ -67,8 +67,8 @@ fig.add_subplot(2, 2, 3).plot(x, np.cos(x))
 fig.add_subplot(2, 2, 4).plot(x, x)
 ```
 
-With shared axes, a spanning panel counts as being in the last row or
-column it reaches. `open_gle` recovers the spans of a grid whose panels
+With shared axes, a spanning panel keeps its x tick labels when it reaches
+the bottom row, and its y tick labels when it reaches the left column. `open_gle` recovers the spans of a grid whose panels
 cover every cell once.
 
 ## Shared axes

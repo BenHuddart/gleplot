@@ -4,7 +4,7 @@ import math
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, cast
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union, cast
 
 import numpy as np
 
@@ -277,23 +277,31 @@ def _grid_cells(ax: Axes) -> Tuple[int, int, Tuple[int, int], Tuple[int, int]]:
     return rows, cols, (rows_[0], rows_[1]), (cols_[0], cols_[1])
 
 
-def _subplot_span(rows: int, cols: int, idx: tuple) -> Tuple[int, int]:
-    """Check an ``add_subplot`` ``(first, last)`` index and return it as ints."""
+def _subplot_span(rows: int, cols: int, idx) -> Union[int, Tuple[int, int]]:
+    """Check an ``add_subplot`` ``(first, last)`` index, as matplotlib does.
+
+    A span of one cell comes back as that cell's plain index, the form
+    ``open_gle`` recovers it in.
+    """
     n = rows * cols
-    if len(idx) != 2 or not all(
-        isinstance(i, (int, np.integer)) and not isinstance(i, bool) for i in idx
+    if (
+        not isinstance(idx, tuple)
+        or len(idx) != 2
+        or not all(
+            isinstance(i, (int, np.integer)) and not isinstance(i, bool) for i in idx
+        )
     ):
         raise ValueError(
             "add_subplot() takes a spanning index as a (first, last) tuple of "
             f"two integers, got {idx!r}."
         )
     first, last = int(idx[0]), int(idx[1])
-    if not (1 <= first <= n and 1 <= last <= n):
+    if not (1 <= first <= last <= n):
         raise ValueError(
-            f"add_subplot({rows}, {cols}, {idx!r}): both ends of the span must "
-            f"be subplot numbers from 1 to {n}."
+            f"add_subplot({rows}, {cols}, {idx!r}): the span must run from a "
+            f"subplot number to the same or a later one, between 1 and {n}."
         )
-    return first, last
+    return first if first == last else (first, last)
 
 
 @dataclass(frozen=True)
@@ -708,7 +716,7 @@ class Figure:
                 raise ValueError(f"Invalid subplot spec: {args[0]}")
         else:
             rows, cols, idx = args
-        if isinstance(idx, tuple):
+        if isinstance(idx, (tuple, list)):
             idx = _subplot_span(rows, cols, idx)
 
         ax = Axes(self, (rows, cols, idx))

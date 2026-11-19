@@ -314,22 +314,27 @@ class TestSubplots:
         assert th == pytest.approx(lh)
         assert ty > ly
 
-    def test_add_subplot_span_reversed_corners(self):
-        """Any two corners name the same rectangle, whatever their order."""
+    def test_add_subplot_span_corners_in_either_column_order(self):
+        """(2, 3) names the rectangle from the top right to the bottom left."""
         fig = glp.figure()
-        ax = fig.add_subplot(2, 2, (3, 2))
+        ax = fig.add_subplot(2, 2, (2, 3))
         ax.plot([1, 2], [1, 2])
-        fig.add_subplot(2, 2, 1).plot([1, 2], [1, 2])
+        fig.add_subplot(2, 2, (1, 4)).plot([1, 2], [1, 2])
         sizes = self._extract_sizes(fig._generate_gle())[1:]
-        assert sizes[0][0] > sizes[1][0] and sizes[0][1] > sizes[1][1]
+        assert sizes[0] == sizes[1]
+
+    def test_add_subplot_one_cell_span_is_a_plain_index(self):
+        assert glp.figure().add_subplot(2, 2, (2, 2)).position == (2, 2, 2)
 
     @pytest.mark.parametrize(
         "index, match",
         [
-            ((1, 5), "from 1 to 4"),
-            ((0, 2), "from 1 to 4"),
+            ((1, 5), "between 1 and 4"),
+            ((0, 2), "between 1 and 4"),
+            ((3, 2), "between 1 and 4"),
             ((1, 2, 3), "two integers"),
             ((1.0, 2), "two integers"),
+            ([1, 2], "tuple"),
         ],
     )
     def test_add_subplot_bad_span_raises(self, index, match):
@@ -340,9 +345,13 @@ class TestSubplots:
     def test_add_subplot_span_shared_x_labels_its_bottom_row(self):
         """With sharex, a span reaching the bottom row keeps its x labels."""
         fig = glp.Figure(sharex=True)
-        tall = fig.add_subplot(2, 2, (1, 3))
-        upper = fig.add_subplot(2, 2, 2)
-        assert tall._show_xticks and not upper._show_xticks
+        fig.add_subplot(2, 2, (1, 3)).plot([1, 2], [1, 2])
+        fig.add_subplot(2, 2, 2).plot([1, 2], [1, 2])
+        fig.add_subplot(2, 2, 4).plot([1, 2], [1, 2])
+        tall, upper, lower = fig._generate_gle().split("begin graph")[1:]
+        assert "xlabels off" not in tall
+        assert "xlabels off" in upper
+        assert "xlabels off" not in lower
 
     def test_add_subplot_span_round_trips_through_to_dict(self):
         fig = glp.figure()
