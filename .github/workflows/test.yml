@@ -166,9 +166,14 @@ jobs:
             glib \
             extra-cmake-modules
 
+      # GLE runs gswin64c.exe by bare name, and the Chocolatey package does
+      # not put it on PATH.
       - name: Install GLE dependencies (Windows)
         if: runner.os == 'Windows'
-        run: choco install ghostscript --yes --no-progress
+        run: |
+          choco install ghostscript --yes --no-progress
+          gs_bin="$(ls -d "/c/Program Files/gs/"gs*/bin | tail -1)"
+          cygpath -w "$gs_bin" >> "$GITHUB_PATH"
 
       # The built GLE is cached, keyed on its version and the runner image.
       # Bump the trailing number to force a rebuild. A pull request can read
@@ -220,10 +225,8 @@ jobs:
           archive="gle-graphics-${GLE_VERSION#v}-win64s.zip"
           curl -sSfL -o "$RUNNER_TEMP/$archive" \
             "https://github.com/vlabella/GLE/releases/download/$GLE_VERSION/$archive"
-          unzip -q "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP/gle-unzip"
-          find "$RUNNER_TEMP/gle-unzip" -maxdepth 3 | head -50
-          gle_exe="$(find "$RUNNER_TEMP/gle-unzip" -name gle.exe | head -1)"
-          mv "$(dirname "$(dirname "$gle_exe")")" "$HOME/gle"
+          unzip -q "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/${archive%.zip}" "$HOME/gle"
 
       - name: Put GLE on PATH
         run: |
