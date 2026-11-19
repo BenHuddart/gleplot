@@ -507,7 +507,8 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
 12. An RGBA colour's alpha is honoured by `hist` only. Elsewhere the colour
     is drawn opaque and a warning says so: pass an RGB colour and use the
     `alpha=` keyword where the function has one (`fill_between`, `fill`,
-    `axhspan`, ...).
+    `axhspan`, `axvspan`). As in matplotlib, `alpha=` overrides the colour's
+    own alpha, and then nothing warns.
 
 ## Migration Strategy
 

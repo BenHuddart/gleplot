@@ -25,7 +25,7 @@ when the figure is rebuilt.
 """
 
 import re
-from typing import Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -186,14 +186,25 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
         and color.ndim == 1
         and np.issubdtype(color.dtype, np.number)
     ):
-        if len(color) >= 3:
-            if len(color) == 4 and float(color[3]) < 1:
+        if len(color) == 4:
+            try:
+                opaque = float(color[3]) >= 1
+            except (TypeError, ValueError):
+                opaque = False
+            if not opaque:
+                # No colour in the text, so a per-point colour list warns once.
                 warn_external(
-                    f"Colour {color!r} has alpha {color[3]!r}, which is not "
-                    f"applied here: the colour is drawn opaque. Pass an RGB "
-                    f"colour and give the transparency with the alpha= "
-                    f"keyword where the function has one.",
+                    "An RGBA colour's alpha (its fourth value) is not applied "
+                    "here. Pass an RGB colour, and give the transparency with "
+                    "the alpha= keyword where the function has one "
+                    "(fill_between, fill, axhspan, axvspan, hist).",
                 )
+        elif len(color) > 4:
+            warn_external(
+                f"Colour {color!r} has {len(color)} values; a colour sequence "
+                f"has 3 (RGB) or 4 (RGBA). Using the first three.",
+            )
+        if len(color) >= 3:
             return _rgb01_to_gle(color[0], color[1], color[2])
 
     # Handle string colors
@@ -272,6 +283,21 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
             f"or 4 numbers in [0, 1]. Falling back to BLACK.",
         )
     return "BLACK"
+
+
+def _rgba_parts(color: Any) -> Tuple[Any, Any]:
+    """``(rgb, alpha)`` for an RGBA sequence or array, else ``(color, None)``.
+
+    For a caller that applies the alpha itself, so :func:`rgb_to_gle` does
+    not warn that it is dropped.
+    """
+    if isinstance(color, np.ndarray) and color.ndim == 2 and color.shape[0] == 1:
+        color = color.reshape(-1)
+    if isinstance(color, np.ndarray) and color.ndim == 1:
+        color = color.tolist()
+    if isinstance(color, (tuple, list)) and len(color) == 4:
+        return tuple(color[:3]), color[3]
+    return color, None
 
 
 def rgb255_expr(r: int, g: int, b: int) -> str:

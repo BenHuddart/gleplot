@@ -189,18 +189,58 @@ def test_unrecognized_non_string_colour_warns_while_falling_back(requested):
         assert rgb_to_gle(requested) == "BLACK"
 
 
-@pytest.mark.parametrize("requested", [(1.0, 0.0, 0.0, 0.5), np.array([1, 0, 0, 0.5])])
+@pytest.mark.parametrize(
+    "requested",
+    [
+        (1.0, 0.0, 0.0, 0.5),
+        np.array([1, 0, 0, 0.5]),
+        np.array([1, 0, 0, np.nan]),
+        (1.0, 0.0, 0.0, None),
+    ],
+)
 def test_rgba_alpha_that_is_not_applied_warns(requested):
     with pytest.warns(UserWarning, match="alpha"):
         assert rgb_to_gle(requested) == "rgb255(255,0,0)"
 
 
+def test_too_long_colour_sequence_warns_and_keeps_rgb():
+    with pytest.warns(UserWarning, match="has 5 values"):
+        assert rgb_to_gle((1, 0, 0, 1, 9)) == "rgb255(255,0,0)"
+
+
 def test_rgba_alpha_dropped_by_plot_and_fill_between_warns():
     ax = glp.figure().gca()
-    with pytest.warns(UserWarning, match="drawn opaque"):
+    with pytest.warns(UserWarning, match="alpha"):
         ax.plot([0, 1], [0, 1], color=(1.0, 0.0, 0.0, 0.5))
-    with pytest.warns(UserWarning, match="drawn opaque"):
+    with pytest.warns(UserWarning, match="alpha"):
         ax.fill_between([0, 1], [0, 1], color=(1.0, 0.0, 0.0, 0.3))
+
+
+def test_alpha_keyword_overrides_rgba_alpha_without_warning(tmp_path):
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*alpha")
+        ax.fill_between([0, 1], [0, 1], color=(1.0, 0.0, 0.0, 0.3), alpha=0.5)
+        ax.fill([0, 1, 1], [0, 0, 1], color=(1.0, 0.0, 0.0, 0.3), alpha=0.5)
+        ax.axhspan(0.2, 0.4, color=(1.0, 0.0, 0.0, 0.3), alpha=0.5)
+    out = tmp_path / "fills.gle"
+    fig.savefig(str(out))
+    assert out.read_text().count("rgba255(255,0,0,128)") == 3
+
+
+def test_rgba_arrays_in_a_hist_colour_list_keep_their_alpha(tmp_path):
+    fig = glp.figure()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*alpha")
+        fig.add_subplot(111).hist(
+            [[1, 2], [3, 4]],
+            color=[np.array([1.0, 0, 0, 0.5]), np.array([0, 1.0, 0, 0.5])],
+        )
+    out = tmp_path / "hists.gle"
+    fig.savefig(str(out))
+    text = out.read_text()
+    assert "rgba255(255,0,0,128)" in text and "rgba255(0,255,0,128)" in text
 
 
 def test_unresolvable_color_still_falls_back_to_black():
