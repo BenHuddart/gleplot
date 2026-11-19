@@ -91,6 +91,28 @@ def test_s_and_c_are_matplotlibs_positional_order():
         ax.scatter(X, Y, 50, "red", "o")
 
 
+def test_a_colour_in_the_old_third_position_names_the_new_order():
+    ax = _ax()
+    with pytest.raises(TypeError, match=r"\(x, y, s, c\); pass a colour as color="):
+        ax.scatter(X, Y, "red")
+
+
+@pytest.mark.parametrize("size", [-4, float("nan")])
+def test_a_scalar_size_must_be_finite_and_not_negative(size):
+    with pytest.raises(ValueError, match="finite and not negative"):
+        _ax().scatter(X, Y, size)
+
+
+def test_figure_and_module_scatter_forward_s_and_c_positionally():
+    fig = glp.figure()
+    fig.add_subplot(111)
+    fig.scatter(X, Y, 50, "red")
+    glp.scatter(X, Y, 50, "blue")
+    first, second = fig.gca().scatters
+    assert (first["color"], second["color"]) == ("RED", "BLUE")
+    assert first["markersize"] == second["markersize"]
+
+
 # --------------------------------------------------------------------------- #
 # markersize -- Line2D's convention (diameter in points)
 # --------------------------------------------------------------------------- #

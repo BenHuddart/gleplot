@@ -4652,18 +4652,19 @@ class Axes:
         default_size = float(np.sqrt(self.SCATTER_DEFAULT_S) * 1.2)
         diameters = None
         size = default_size
+        if isinstance(s, str):
+            raise TypeError(
+                f"scatter() s must be a marker area in points**2, got {s!r}. "
+                "As in matplotlib, scatter's positional arguments are "
+                "(x, y, s, c); pass a colour as color=... or c=...."
+            )
         if markersize is None:
             if s is None:
                 s = self.SCATTER_DEFAULT_S
             # matplotlib: s is an area in points**2 and markersize a diameter
             # in points, so markersize = sqrt(s). The 1.2 is gleplot's own
             # visibility factor, kept so scatter sizes are unchanged.
-            if np.ndim(s) == 0:
-                size = float(np.sqrt(np.asarray(s, dtype=float)) * 1.2)
-            else:
-                diameters = np.sqrt(_point_sizes("s", s, np.size(x))) * 1.2
-        elif np.ndim(markersize) == 0:
-            size = float(np.asarray(markersize, dtype=float))
+            diameters = np.sqrt(_point_sizes("s", s, np.size(x))) * 1.2
         else:
             diameters = _point_sizes("markersize", markersize, np.size(x))
         mdata = None
