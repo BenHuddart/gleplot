@@ -2995,6 +2995,9 @@ def test_a_two_curve_file_fill_without_its_second_column_raises():
     fill = FileSeries(series_type="fill", data_file="a.dat", x_col=1, y1_col=2)
     with pytest.raises(ValueError, match="needs y2_col .* or target"):
         writer.add_file_series(fill)
+    fill.update(target="X1", y2_col=3)
+    with pytest.raises(ValueError, match="target must be .* got target='X1'"):
+        writer.add_file_series(fill)
     assert writer.lines_gle == []
 
 
