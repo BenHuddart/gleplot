@@ -772,7 +772,7 @@ def heatmap_imshow_colorbar():
     ax.imshow(Z, extent=(0, 10, 0, 8), cmap="viridis", vmin=-1, vmax=1)
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    fig.colorbar(label="signal", format="fix 1")
+    fig.colorbar(format="fix 1")
     return fig
 
 
@@ -789,7 +789,6 @@ def heatmap_grid_colorbars():
         fig.colorbar(
             hm,
             ax=ax,
-            label=f"z{k}",
             orientation=("vertical", "horizontal")[k % 2],
             width=0.4,
         )
@@ -917,7 +916,7 @@ def heatmap_function():
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
     ax = fig.add_subplot(111)
     ax.function2d("sin(x)*cos(y)", extent=(0, 6.28, 0, 6.28), vmin=-1, vmax=1)
-    fig.colorbar(label="z")
+    fig.colorbar()
     return fig
 
 
@@ -1014,7 +1013,7 @@ def tripcolor_tricontour_combo():
     )
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    fig.colorbar(label="z", format="fix 1")
+    fig.colorbar(format="fix 1")
     return fig
 
 
@@ -1355,11 +1354,9 @@ def scatter_colorbars():
     fig, (a, b) = glp.subplots(1, 2, data_prefix="golden")
     a.scatter([0, 1, 2], [1, 2, 3], c=[1, 2, 3], cmap="magma")
     a.scatter([0, 1, 2], [3, 2, 1], c=[-4, 0, 9.5], vmin=-5, vmax=10)
-    fig.colorbar(ax=a, label="T (K)", nticks=3)
+    fig.colorbar(ax=a, nticks=3)
     b.scatter([0, 1, 2], [1, 2, 3], c=[10, 20, 30], cmap="gray", marker="s")
-    fig.colorbar(
-        ax=b, orientation="horizontal", label="v", format="fix 0", width=0.3, sep=1.2
-    )
+    fig.colorbar(ax=b, orientation="horizontal", format="fix 0", width=0.3, sep=1.2)
     return fig
 
 

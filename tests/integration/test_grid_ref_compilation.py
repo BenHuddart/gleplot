@@ -99,7 +99,7 @@ def _grid_heatmap_figure():
             colorbar=None,
         )
     )
-    fig.colorbar(label="signal")  # auto range: no arrays to bake one from
+    fig.colorbar()  # auto range: no arrays to bake one from
     return fig
 
 
@@ -136,8 +136,8 @@ def test_a_provider_data_change_alters_the_compiled_colorbar_range(tmp_path):
     first = fig._generate_gle(data_provider=_provider(t1=_grid_table()))
     second = fig._generate_gle(data_provider=_provider(t1=_grid_table(scale=10.0)))
 
-    assert "gleplot_colorbar_v zmin 0 zmax 11" in first
-    assert "gleplot_colorbar_v zmin 0 zmax 110" in second
+    assert "color_range_vertical zmin 0 zmax 11" in first
+    assert "color_range_vertical zmin 0 zmax 110" in second
 
     fig.savefig(
         str(tmp_path / "before.eps"),
@@ -156,8 +156,8 @@ def test_a_provider_data_change_alters_the_compiled_colorbar_range(tmp_path):
     # GLE drew the bar's ticks from the range THIS write resolved, not from a
     # value baked when the series had no arrays at all. (The colorbar is the
     # last thing on the page, so its tick run plus its label is the tail.)
-    assert before.endswith("0.02.24.46.68.811.0signal")
-    assert after.endswith("0.022.044.066.088.0110.0signal")
+    assert before.endswith("0.02.24.46.68.811.0")
+    assert after.endswith("022446688110")
 
 
 @pytest.mark.gle

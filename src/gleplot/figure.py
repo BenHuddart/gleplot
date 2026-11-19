@@ -62,6 +62,7 @@ from .writer import (
     _grid_z_file,
     cdata_sub_name,
     cdata_sub_text,
+    colorbar_format,
     image_sub_name,
     legend_column_breaks,
     mdata_sub_text,
@@ -1807,7 +1808,7 @@ class Figure:
         *,
         orientation: Optional[str] = None,
         label: Optional[str] = None,
-        format: str = "fix 1",
+        format: Optional[str] = None,
         nticks: Optional[int] = None,
         width: float = 0.5,
         sep: Optional[float] = None,
@@ -1839,10 +1840,13 @@ class Figure:
             of the axes; ``'horizontal'`` draws it below the axes, under the
             x tick labels and title.
         label : str, optional
-            Colorbar axis label: rotated, to the right of a vertical bar;
-            centred under a horizontal one.
-        format : str
+            Not supported: ``color.gle``'s colour range has no label, so a
+            label warns and is not drawn. Place a text with
+            :meth:`Figure.text` instead.
+        format : str, optional
             GLE ``format$`` string for the tick labels (e.g. ``'fix 1'``).
+            Default: fixed-point with as many decimals as the tick values
+            need, from the first value and the tick step.
         nticks : int, optional
             Approximate number of tick intervals. Default: 5.
         width : float
@@ -1954,9 +1958,15 @@ class Figure:
                 sep = round(self._AUTO_MARGIN_BOTTOM_HEI * hei + 0.3, 2)
             else:
                 sep = 0.3
+        if label:
+            warn_external(
+                f"colorbar(label={label!r}) is not drawn: GLE's colour range "
+                "(color.gle) has no label. Place the text with fig.text() "
+                "instead. See the matplotlib migration guide."
+            )
         cb = {
-            "label": owner._text(label),
-            "format": str(format),
+            "label": None,
+            "format": None if format is None else str(format),
             "width": float(width),
             "sep": float(sep),
             "zmin": zmin,
@@ -1968,7 +1978,10 @@ class Figure:
             cb["orientation"] = "horizontal"
         if zmin is not None and zmax is not None:
             span = zmax - zmin
-            cb["zstep"] = (span / divisions) if span > 0 else 1.0
+            zstep = (span / divisions) if span > 0 else 1.0
+            cb["zstep"] = zstep
+            if cb["format"] is None:
+                cb["format"] = colorbar_format(zmin, zstep)
         else:
             # No arrays and no explicit bound for at least one end. That is a
             # legal, resolvable state only for a reference-backed heatmap;
@@ -3228,36 +3241,31 @@ class Figure:
     def _colorbar_reserved_cm(cls, cb: dict) -> float:
         """Right-hand space (cm), measured from ``xgmax``, a vertical bar needs.
 
-        Sized honestly from how ``gleplot_colorbar_v`` lays out (see
-        :func:`gleplot.palettes.colorbar_sub_text`): the ``sep`` gap, the bar
-        (``wd``), then whichever is wider -- the tick marks + numbers to the
-        bar's right, or the rotated axis ``label`` (drawn at ``rc + 1.3``).
+        Sized from how ``color.gle``'s ``color_range_vertical`` lays out:
+        the ``sep`` gap, the bar (``width``), then the tick marks and numbers
+        to its right (a tick a third of the width long, a gap as long again).
         """
         wd = float(cb["width"])
         sep = float(cb["sep"])
         hei = cls._CBAR_TEXT_HEI_CM
         charw = 0.6 * hei
         nchars = cls._estimate_tick_chars(cb["zmin"], cb["zmax"], cb.get("format"))
-        # Both extents are measured from the bar's right edge.
-        tick_extent = wd / 3.0 + 0.1 + nchars * charw
-        label_extent = (1.3 + hei) if cb.get("label") else 0.0
-        return sep + wd + max(tick_extent, label_extent) + 0.3  # + safety pad
+        tick_extent = 2 * wd / 3.0 + nchars * charw
+        return sep + wd + tick_extent + 0.3  # + safety pad
 
     def _colorbar_h_reserved_cm(self, cb: dict) -> Tuple[float, float]:
         """``(right, below)`` space (cm) a horizontal bar needs.
 
-        ``below`` is measured down from ``ygmin``, following
-        :func:`gleplot.palettes.colorbar_h_sub_text`: the ``sep`` gap, the bar
-        (``hi``), the ticks and numbers, then the ``label`` 0.2 cm under them.
-        ``right`` is how far the last number, centred on the bar's end, runs
-        past ``xgmax``. The text is the figure's own ``hei``, which the sub
-        writes in, so the room grows with the font.
+        ``below`` is measured down from ``ygmin``, following ``color.gle``'s
+        ``color_range_horizontal``: the ``sep`` gap, the bar (``width``), then
+        the ticks and numbers (a tick a third of the width long, a gap as
+        long again). ``right`` is how far the last number, centred on the
+        bar's end, runs past ``xgmax``. The text is the figure's own ``hei``,
+        which the routine writes in, so the room grows with the font.
         """
         wd = float(cb["width"])
         hei = max(self._CBAR_TEXT_HEI_CM, fontsize_pt_to_cm(self.style.fontsize))
-        below = float(cb["sep"]) + wd + wd / 3.0 + 0.1 + hei
-        if cb.get("label"):
-            below += 0.2 + hei
+        below = float(cb["sep"]) + wd + 2 * wd / 3.0 + hei
         nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], cb.get("format"))
         right = nchars * 0.6 * hei / 2.0 + 0.3
         return right, below + 0.3  # + safety pad
@@ -3309,8 +3317,6 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         used_cmaps = set()
-        any_colorbar = False
-        any_colorbar_h = False
         any_clabel = False
         for ax in self.axes_list:
             for hm in resolution.visible(ax.heatmaps):
@@ -3323,10 +3329,6 @@ class Figure:
                     bar_cmap = _pal.colorbar_cmap(hm["cmap"], True)
                     if _pal.cmap_needs_sub(bar_cmap):
                         used_cmaps.add(bar_cmap)
-                if cb and cb.get("orientation") == "horizontal":
-                    any_colorbar_h = True
-                elif cb:
-                    any_colorbar = True
             for ct in resolution.visible(ax.contours):
                 if ct.get("clabel"):
                     any_clabel = True
@@ -3351,10 +3353,6 @@ class Figure:
             text = _pal.palette_sub_text(cmap)
             if text:
                 subs.append(text)
-        if any_colorbar:
-            subs.append(_pal.colorbar_sub_text())
-        if any_colorbar_h:
-            subs.append(_pal.colorbar_h_sub_text())
         if any_clabel:
             subs.append(_pal.contour_labels_sub_text())
         if any(resolution.visible(ax.wedges) for ax in self.axes_list):

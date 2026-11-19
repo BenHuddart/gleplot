@@ -43,7 +43,7 @@ def test_imshow_colorbar_recovered(tmp_path):
         interpolation="nearest",
         invert=True,
     )
-    fig.colorbar(label="phi", format="fix 2", width=0.4, sep=0.6)
+    fig.colorbar(format="fix 2", width=0.4, sep=0.6)
     path = _save(fig, tmp_path)
 
     rec = parse_gle_figure(path)
@@ -57,7 +57,7 @@ def test_imshow_colorbar_recovered(tmp_path):
     assert hm["extent"] == [0.0, 4.0, 0.0, 3.0]
     assert hm["z"].shape == (3, 4)
     cb = hm["colorbar"]
-    assert cb["label"] == "phi" and cb["format"] == "fix 2"
+    assert cb["label"] is None and cb["format"] == "fix 2"
     assert cb["width"] == 0.4 and cb["sep"] == 0.6
 
 
@@ -65,16 +65,16 @@ def test_per_axes_and_horizontal_colorbars_recovered(tmp_path):
     fig, (a, b) = glp.subplots(1, 2, figsize=(10, 4), data_prefix="g")
     ha = a.imshow(np.arange(4.0).reshape(2, 2), cmap="viridis")
     hb = b.imshow(np.arange(4.0).reshape(2, 2) * 10, cmap="magma")
-    fig.colorbar(ha, ax=a, label="a", width=0.4)
-    fig.colorbar(hb, ax=b, orientation="horizontal", label="b", width=0.3, sep=1.2)
+    fig.colorbar(ha, ax=a, width=0.4)
+    fig.colorbar(hb, ax=b, orientation="horizontal", width=0.3, sep=1.2)
 
     rec = parse_gle_figure(_save(fig, tmp_path))
     assert rec.warnings == []
     ra, rb = (ax.heatmaps[0]["colorbar"] for ax in rec.figure.axes_list)
     assert "orientation" not in ra
-    assert (ra["label"], ra["width"], ra["sep"]) == ("a", 0.4, 0.3)
+    assert (ra["width"], ra["sep"]) == (0.4, 0.3)
     assert rb["orientation"] == "horizontal"
-    assert (rb["label"], rb["width"], rb["sep"]) == ("b", 0.3, 1.2)
+    assert (rb["width"], rb["sep"]) == (0.3, 1.2)
     assert (rb["zmin"], rb["zmax"]) == (0.0, 30.0)
 
 
@@ -649,6 +649,6 @@ def test_structural_roundtrip_of_contour_file_unchanged(tmp_path):
         levels=[1.0, 3.0],
         clabel=True,
     )
-    fig.colorbar(label="v")
+    fig.colorbar()
     text = fig._generate_gle_with_files()[0]
     assert emit(parse_gle_source(text)) == text

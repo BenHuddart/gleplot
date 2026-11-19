@@ -199,15 +199,6 @@ class TestEntryPointsStoreTranslated:
         ax.text(1.0, 1.0, r"$\theta = 90^\circ$")
         assert ax.texts[0]["text"] == r"\theta = 90^{\circ}"
 
-    def test_colorbar_label_translated(self):
-        import numpy as np
-
-        fig = gleplot.figure()
-        ax = fig.gca()
-        ax.imshow(np.arange(9).reshape(3, 3))
-        cb = fig.colorbar(label=r"$\rho$ (a.u.)")
-        assert cb["label"] == r"\rho{} (a.u.)"
-
     def test_emitted_gle_contains_translated_label(self, tmp_path):
         fig = gleplot.figure()
         ax = fig.gca()
@@ -362,12 +353,8 @@ class TestUsetex:
         fig.add_subplot(111).set_xlabel(r"$\mu$")
         assert "texlabels" not in fig._generate_gle()
 
-    def test_colorbar_and_broken_axes_labels(self):
-        import numpy as np
-
+    def test_broken_axes_labels(self):
         fig, ax = self._axes()
-        ax.imshow(np.arange(9).reshape(3, 3))
-        assert fig.colorbar(label=r"$\rho$")["label"] == r"$\rho$"
         bax = gleplot.BrokenAxes(fig, [(0, 1), (2, 3)])
         bax.set_xlabel(r"$t$ (s)")
         bax.set_title(r"$T_N$")

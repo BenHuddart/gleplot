@@ -102,10 +102,7 @@ def example_phase_diagram():
     ax.set_ylabel("Magnetic field (T)")
     ax.set_title("Antiferromagnet Phase Diagram (synthetic data)")
 
-    # Greek chi via GLE's TeX-like markup. The '{}' after \chi is required:
-    # GLE (like TeX) swallows the space right after a macro name, so
-    # r'\chi (emu ...)' would render as "chi(emu ...)" with no gap.
-    fig.colorbar(label=r"\chi{} (emu mol^{-1})", format="fix 2")
+    fig.colorbar(format="fix 2")
 
     # Companion panel: susceptibility line cuts at representative fields,
     # showing the peak shifting to lower T and broadening as H -> Hc.
@@ -120,10 +117,9 @@ def example_phase_diagram():
         ax2.plot(T_line, chi_line, color=color, linewidth=2, label=f"H = {H_val:.0f} T")
 
     ax2.set_xlabel("Temperature (K)")
-    # Same label as the colorbar above, but written as matplotlib-style
-    # mathtext instead of GLE markup -- gleplot translates $...$ segments to
-    # GLE markup at store time (here to r'\chi{} (emu mol^{-1})'), so both
-    # styles render identically. Text outside the $...$ passes through.
+    # Matplotlib-style mathtext: gleplot translates $...$ segments to GLE
+    # markup at store time (here to r'\chi{} (emu mol^{-1})'). Text outside
+    # the $...$ passes through.
     ax2.set_ylabel(r"$\chi$ (emu mol$^{-1}$)")
     ax2.set_title("Susceptibility line cuts")
     ax2.set_ylim(0, 1.2)

@@ -499,12 +499,11 @@ def test_colorbar_on_a_reference_backed_heatmap_no_longer_crashes():
     fig, ax = _figure()
     _heatmap_grid(ax)
 
-    cb = fig.colorbar(label="z")
+    cb = fig.colorbar()
 
     assert cb[COLORBAR_AUTO_RANGE] is True
     assert cb[COLORBAR_NTICKS] == 5
     assert cb["zmin"] is None and cb["zmax"] is None and cb["zstep"] is None
-    assert cb["label"] == "z"
 
 
 def test_colorbar_with_explicit_vmin_vmax_proceeds_without_an_auto_marker():
@@ -602,8 +601,8 @@ def test_a_provider_data_change_alters_the_emitted_colorbar_range():
     edited = {k: [v * 10 for v in col] for k, col in _GRID_TABLE.items()}
     after, _ = fig._generate_gle_with_files(data_provider=_provider(t1=edited))
 
-    assert "gleplot_colorbar_v zmin 1 zmax 6" in before
-    assert "gleplot_colorbar_v zmin 10 zmax 60" in after
+    assert "color_range_vertical zmin 1 zmax 6" in before
+    assert "color_range_vertical zmin 10 zmax 60" in after
 
 
 def test_an_auto_colorbar_on_an_all_nan_grid_skips_rather_than_raises():
@@ -620,8 +619,8 @@ def test_an_auto_colorbar_on_an_all_nan_grid_skips_rather_than_raises():
 
     assert [w.reason for w in fig.source_warnings] == ["unusable-data"]
     assert files == {}
-    assert "gleplot_colorbar_v" not in text
-    assert "sub gleplot_colorbar_v" not in text
+    assert "color_range_vertical" not in text
+    assert "color_range_vertical" not in text
 
 
 def test_colorbar_without_data_and_without_a_reference_raises_a_clear_error():
@@ -692,7 +691,7 @@ def test_autoscale_without_a_resolution_ignores_an_unresolved_auto_extent():
 def test_the_auto_states_survive_a_document_round_trip():
     fig, ax = _figure()
     _heatmap_grid(ax)
-    fig.colorbar(label="z", nticks=3)
+    fig.colorbar(nticks=3)
 
     restored = Figure.from_dict(fig.to_dict())
     hm = restored.axes_list[0].heatmaps[0]

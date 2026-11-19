@@ -421,10 +421,11 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 
 | `colorbar()` argument | gleplot |
 |---|---|
-| `mappable`, `ax`, `orientation`, `label` | wired. `ax` must be the axes that holds `mappable`; a list of axes is rejected. |
+| `mappable`, `ax`, `orientation` | wired. `ax` must be the axes that holds `mappable`; a list of axes is rejected. |
+| `label` | warns and is not drawn: GLE's colour range (`color.gle`) has no label. Place the text with `fig.text()`. |
 | `cax` | warns and is ignored. The bar is drawn beside its heatmap's or scatter's axes. |
 | `use_gridspec` | accepted. The grid always makes room for the bar. |
-| `format` | a GLE `format$` string such as `'fix 2'`, not a `'%.2f'` format. |
+| `format` | a GLE `format$` string such as `'fix 2'`, not a `'%.2f'` format. Default: fixed-point with as many decimals as the tick values need. |
 | `location`, `fraction`, `shrink`, `aspect`, `pad`, `ticks`, `extend` | not accepted. Use `orientation`, `width`, `sep` and `nticks`. |
 | a contour set as `mappable` | not supported: contour lines draw in one colour, so there is no scale to show. |
 

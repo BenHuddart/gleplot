@@ -328,16 +328,18 @@ def test_plain_scatter_is_untouched():
 def test_colorbar_shows_the_scatter_range():
     ax = _ax()
     ax.scatter(X, Y, c=[3, 1, 2], vmin=0, vmax=300)
-    cb = ax.figure.colorbar(label="T (K)")
+    cb = ax.figure.colorbar()
     assert ax.scatters[0]["colorbar"] is cb
     assert (cb["zmin"], cb["zmax"], cb["zstep"]) == (0.0, 300.0, 60.0)
     text, _files = _script(ax)
-    assert "sub gleplot_colorbar_v" in text
+    assert 'include "color.gle"' in text
     assert (
         "end graph\n"
+        "gsave\n"
         "amove xg(xgmax)+0.3 yg(ygmin)\n"
-        'gleplot_colorbar_v zmin 0 zmax 300 zstep 60 palette "gleplot_viridis" '
-        'wd 0.5 hi yg(ygmax)-yg(ygmin) format "fix 1" label "T (K)"'
+        "color_range_vertical zmin 0 zmax 300 zstep 60*0.999999999 "
+        'palette "gleplot_viridis" width 0.5 height yg(ygmax)-yg(ygmin) '
+        'format "fix 0" pixels 200'
     ) in text
 
 
@@ -363,8 +365,8 @@ def test_colorbar_on_ax_takes_the_last_mapped_scatter_and_moves():
     assert [("colorbar" in s) for s in ax.scatters] == [False, False, True]
     fig.colorbar(ax=ax, orientation="horizontal")
     text, _files = _script(ax)
-    assert text.count("gleplot_colorbar_h zmin 4 zmax 6") == 1
-    assert "gleplot_colorbar_v zmin" not in text
+    assert text.count("color_range_horizontal zmin 4 zmax 6") == 1
+    assert "color_range_vertical zmin" not in text
 
 
 def test_a_heatmap_keeps_the_bar_on_its_axes():
@@ -400,7 +402,7 @@ def test_a_scatter_colorbar_survives_to_dict():
     ax = _ax()
     ax.scatter(X, Y, c=[1, 2, 3])
     fig = ax.figure
-    fig.colorbar(orientation="horizontal", label="v")
+    fig.colorbar(orientation="horizontal")
     restored = glp.Figure.from_dict(fig.to_dict())
     assert restored._generate_gle_with_files() == fig._generate_gle_with_files()
 
@@ -413,7 +415,7 @@ def test_a_heatmap_bar_replaces_the_scatter_bar_on_its_axes():
     im = ax.imshow(np.arange(4.0).reshape(2, 2), extent=(0, 10, 0, 10), cmap="plasma")
     fig.colorbar(im)
     assert "colorbar" not in ax.scatters[0]
-    assert _script(ax)[0].count("\ngleplot_colorbar_v zmin") == 1
+    assert _script(ax)[0].count("\ncolor_range_vertical zmin") == 1
 
 
 def test_a_lone_heatmap_still_takes_the_figure_bar():

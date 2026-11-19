@@ -176,5 +176,5 @@ def test_a_colorbar_on_every_axes_keeps_its_ink_on_the_page(
     y, x = np.mgrid[0:5, 0:6]
     for k, ax in enumerate(fig.axes_list):
         hm = ax.imshow((k + 1) * 1234.5 * x * y, cmap="viridis")
-        fig.colorbar(hm, ax=ax, label="signal", orientation=orientation)
+        fig.colorbar(hm, ax=ax, orientation=orientation)
     _assert_on_page(fig, tmp_path)

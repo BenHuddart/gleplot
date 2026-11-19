@@ -40,7 +40,7 @@ def example_heatmap_imshow():
     ax.set_ylabel("y")
     ax.set_title("2-D Gaussian (imshow + contour)")
 
-    fig.colorbar(label="amplitude")
+    fig.colorbar()
 
     fig.savefig_gle("example_heatmap_imshow.gle")
     print("  Saved to example_heatmap_imshow.gle")

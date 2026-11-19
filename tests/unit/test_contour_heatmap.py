@@ -17,6 +17,7 @@ import pytest
 import gleplot as glp
 from gleplot import axes as _axes_module
 from gleplot import palettes
+from gleplot.writer import colorbar_format
 
 
 def _gle(fig):
@@ -958,7 +959,7 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
         vmin=0,
         vmax=10,
     )
-    cb = fig.colorbar(label="χ", format="fix 1", nticks=5, width=0.4, sep=0.5)
+    cb = fig.colorbar(format="fix 1", nticks=5, width=0.4, sep=0.5)
 
     assert ax.heatmaps[0]["colorbar"] is cb
     assert cb["zmin"] == 0.0 and cb["zmax"] == 10.0
@@ -966,11 +967,14 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
     assert cb["width"] == 0.4 and cb["sep"] == 0.5
 
     text, _ = _gle(fig)
-    assert "sub gleplot_colorbar_v" in text
-    assert "amove xg(xgmax)+0.5 yg(ygmin)" in text
+    assert 'include "color.gle"' in text
     assert (
-        'gleplot_colorbar_v zmin 0 zmax 10 zstep 2 palette "gleplot_viridis" '
-        'wd 0.4 hi yg(ygmax)-yg(ygmin) format "fix 1" label "χ"'
+        "gsave\n"
+        "amove xg(xgmax)+0.5 yg(ygmin)\n"
+        "color_range_vertical zmin 0 zmax 10 zstep 2*0.999999999 "
+        'palette "gleplot_viridis" width 0.4 height yg(ygmax)-yg(ygmin) '
+        'format "fix 1" pixels 200\n'
+        "grestore"
     ) in text
 
 
@@ -1019,16 +1023,16 @@ def _placements(text):
 
 def test_colorbar_per_axes_gives_each_heatmap_its_own_bar():
     fig, a, b, ha, hb = _two_heatmaps()
-    ca = fig.colorbar(ha, ax=a, label="a")
-    cb = fig.colorbar(hb, label="b")
+    ca = fig.colorbar(ha, ax=a)
+    cb = fig.colorbar(hb)
 
     assert ha["colorbar"] is ca and hb["colorbar"] is cb
     assert (ca["zmin"], ca["zmax"]) == (0.0, 3.0)
     assert (cb["zmin"], cb["zmax"]) == (10.0, 50.0)
     text, _ = _gle(fig)
-    assert text.count("sub gleplot_colorbar_v") == 1
-    assert 'palette "gleplot_viridis" wd 0.5' in text
-    assert 'palette "gleplot_magma" wd 0.5' in text
+    assert text.count('include "color.gle"') == 1
+    assert 'palette "gleplot_viridis" width 0.5' in text
+    assert 'palette "gleplot_magma" width 0.5' in text
 
 
 def test_colorbar_ax_alone_picks_that_axes_heatmap():
@@ -1055,17 +1059,19 @@ def test_horizontal_colorbar_is_drawn_below_and_reserves_the_bottom():
     ax.imshow(np.array([[0.0, 1.0], [2.0, 4.0]]), cmap="viridis")
     ((_, y0, _, h0),) = _placements(_gle(fig)[0])
 
-    cb = fig.colorbar(orientation="horizontal", label="z", width=0.4, sep=1.5)
+    cb = fig.colorbar(orientation="horizontal", width=0.4, sep=1.5)
     text, _ = _gle(fig)
     ((_, y1, _, h1),) = _placements(text)
 
     assert cb["orientation"] == "horizontal"
-    assert "sub gleplot_colorbar_h" in text
-    assert "sub gleplot_colorbar_v" not in text
-    assert "amove xg(xgmin) yg(ygmin)-1.5\n" in text
+    assert "color_range_horizontal" in text
+    assert "color_range_vertical" not in text
     assert (
-        'gleplot_colorbar_h zmin 0 zmax 4 zstep 0.8 palette "gleplot_viridis" '
-        'wd xg(xgmax)-xg(xgmin) hi 0.4 format "fix 1" label "z"'
+        "amove xg(xgmin) yg(ygmin)-1.5\n"
+        "rmove 0 -0.4\n"
+        "color_range_horizontal zmin 0 zmax 4 zstep 0.8*0.999999999 "
+        'palette "gleplot_viridis" width xg(xgmax)-xg(xgmin) height 0.4 '
+        'format "fix 1" pixels 200'
     ) in text
     _right, below = fig._axes_colorbar_reserved_cm(ax)
     assert y1 >= below - 1e-4
@@ -1126,7 +1132,7 @@ def test_extent_drives_autoscale():
 def test_module_level_wrappers():
     glp.figure(data_prefix="t")
     glp.imshow(np.zeros((2, 2)), cmap="viridis")
-    glp.colorbar(label="v")
+    glp.colorbar()
     ax = glp.gca()
     assert ax.heatmaps and ax.heatmaps[0]["colorbar"] is not None
 
@@ -1205,11 +1211,28 @@ def test_contour_levels_partially_in_range_ok():
     assert ct["levels"] == [5.0, 200.0]
 
 
-def test_colorbar_sub_guards_degenerate_range():
-    """The colorbar sub must guard zmax == zmin (constant field) so it does not
-    divide by zero and abort the render."""
-    text = palettes.colorbar_sub_text()
-    assert "if zmax = zmin then" in text
+def test_a_collapsed_colorbar_range_is_widened_to_one_unit():
+    """color.gle divides by zmax - zmin, so a constant field's bar spans one unit."""
+    fig = glp.figure(data_prefix="t")
+    fig.add_subplot(111).imshow(np.full((2, 2), 3.0))
+    fig.colorbar()
+    assert "color_range_vertical zmin 3 zmax 4 zstep 1*" in _gle(fig)[0]
+
+
+@pytest.mark.parametrize(
+    "zmin, zstep, expected",
+    [(0, 2, "fix 0"), (0, 0.2, "fix 1"), (0, 0.15, "fix 2"), (0.05, 1, "fix 2")],
+)
+def test_the_default_tick_format_writes_every_tick_exactly(zmin, zstep, expected):
+    assert colorbar_format(zmin, zstep) == expected
+
+
+def test_a_colorbar_label_warns_and_is_not_drawn():
+    fig = glp.figure(data_prefix="t")
+    fig.add_subplot(111).imshow(np.zeros((2, 2)) + [[0.0], [1.0]])
+    with pytest.warns(UserWarning, match="label"):
+        cb = fig.colorbar(label="z")
+    assert cb["label"] is None
 
 
 # --------------------------------------------------------------------------- #

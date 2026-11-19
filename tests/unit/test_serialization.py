@@ -54,7 +54,7 @@ def _heatmap_contour_figure():
         colors="black",
         clabel=True,
     )
-    fig.colorbar(label="signal")
+    fig.colorbar()
     return fig
 
 
@@ -86,7 +86,6 @@ def test_heatmap_colorbar_dict_survives_roundtrip():
     fig2 = Figure.from_dict(fig.to_dict())
     cb = fig2.axes_list[0].heatmaps[0]["colorbar"]
     assert cb is not None
-    assert cb["label"] == "signal"
     assert cb["zmin"] == 0.0 and cb["zmax"] == 11.0
 
 
