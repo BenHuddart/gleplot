@@ -504,6 +504,25 @@ def test_contour_cdata_with_unreadable_grid_preserved(tmp_path):
     assert "d1 line color red" in text2
 
 
+@pytest.mark.parametrize("extra", ["   smooth 5", "   ! my note"])
+def test_a_line_gleplot_does_not_write_in_a_contour_block_is_reported(tmp_path, extra):
+    """#176: the contour is recovered and the dropped line is named."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.contour(np.arange(9.0).reshape(3, 3), levels=[4.0], clabel=True)
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace("end contour", f"{extra}\nend contour")
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    (contour,) = rec.figure.axes_list[0].contours
+    assert contour["levels"] == [4.0] and contour["clabel"]
+    line_no = text.splitlines().index(extra) + 1
+    (note,) = rec.notes
+    assert extra.strip() in note.message and "dropped" in note.message
+    assert note.source_span == (line_no, line_no)
+
+
 def test_handwritten_gleplot_authored_style_recovers(tmp_path):
     """A hand-authored file using the gleplot idiom (quoted files, gleplot_
     palette) recovers as a heatmap even without a metadata block."""

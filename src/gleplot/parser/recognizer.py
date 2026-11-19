@@ -367,6 +367,7 @@ from .syntax import (
     BlankOrComment,
     GraphBlock,
     OpaqueBlock,
+    SourceLine,
     Statement,
     parse_gle_source,
 )
@@ -7917,6 +7918,13 @@ class _Recognizer:
                 continue
             self._contour_blocks[zfile] = info
             self._mark_block_consumed(node)
+            for sl in info["dropped"]:
+                self._note(
+                    ImportCategory.DATA,
+                    f"{sl.text.strip()!r} in the begin contour block for "
+                    f"{zfile!r} is not modelled and was dropped on re-save",
+                    (sl.line_no, sl.line_no),
+                )
 
         # A fitz block is ours iff its generated .z feeds a recognized colormap
         # or a recognized contour block, AND its scattered points are readable.
@@ -8062,16 +8070,22 @@ class _Recognizer:
         """Parse a ``begin contour`` block matching gleplot's shape, or ``None``.
 
         Recovers the ``.z`` file it reads and the explicit ``values`` list
-        (``None`` when a bare block using GLE's default 10 levels).
+        (``None`` when a bare block using GLE's default 10 levels), and lists
+        under ``dropped`` the other non-blank lines, which are not rewritten.
         """
         zfile = None
         levels = None
+        dropped: List[SourceLine] = []
         for sl in node.inner_lines:
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
+                if sl.text.strip():
+                    dropped.append(sl)
                 continue
             kw = toks[0].value.lower()
-            if kw == "data" and len(toks) >= 2:
+            if kw not in ("data", "values"):
+                dropped.append(sl)
+            elif kw == "data" and len(toks) >= 2:
                 zfile, _ = self._read_filename(toks, 1)
             elif kw == "values":
                 # Only the explicit ``values v1 v2 ...`` form is modeled;
@@ -8091,7 +8105,7 @@ class _Recognizer:
                     levels = vals
         if zfile is None:
             return None
-        return {"zfile": zfile, "levels": levels}
+        return {"zfile": zfile, "levels": levels, "dropped": dropped}
 
     @staticmethod
     def _parse_from_to_step(toks) -> Optional[Tuple[float, float, float]]:
