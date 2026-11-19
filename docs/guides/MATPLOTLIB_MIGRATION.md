@@ -247,11 +247,12 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 
 | `pcolormesh()` argument | gleplot |
 |---|---|
-| `C`, `X`, `Y`, `cmap`, `vmin`, `vmax` | wired. `X` and `Y` must be uniformly spaced; another grid raises `ValueError`, and `tripcolor` takes scattered or irregular data. Values must be finite: `NaN` raises `ValueError` rather than leaving the cell blank. |
+| `C`, `X`, `Y`, `cmap`, `vmin`, `vmax` | wired. `X` and `Y` must be uniformly spaced; another grid raises `ValueError`, and `tripcolor` takes scattered or irregular data. Values must be finite: `NaN` or a masked value raises `ValueError` rather than leaving the cell blank. |
 | `shading` | `'flat'`, `'nearest'` and `'auto'` as in matplotlib; `'gouraud'` warns and is drawn as `'nearest'`. |
 | `alpha`, `norm`, `colorizer`, `data`, `antialiased=True` | warn and are ignored: a GLE colormap is opaque and maps colours linearly from `vmin` to `vmax`. |
 | `edgecolors` | `'none'` and `'face'` are what is drawn; any other value warns, as do `linewidth`, `zorder` and the other keywords. |
 | `pixels` | gleplot's own: the bitmap resolution, as for `imshow`. Each cell edge is drawn to within one pixel. |
+| axis limits beyond the mesh | the edge cells show half a cell wider there, and saving warns; see [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md). |
 
 ## Line caps and joins
 

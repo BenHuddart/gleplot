@@ -319,12 +319,24 @@ def test_pcolormesh_writes_a_cell_grid():
     assert "    xaxis min 0 max 4" in text
     assert files["t_heatmap1.z"].splitlines() == [
         "! nx 5 ny 4 xmin -0.5 xmax 4.5 ymin -0.5 ymax 3.5",
-        "! gleplot: cells",
+        "! gleplot: cells xmin 0 xmax 4 ymin 0 ymax 3",
         "0 0 1 2 3",
         "0 0 1 2 3",
         "4 4 5 6 7",
         "8 8 9 10 11",
     ]
+
+
+def test_pcolormesh_header_places_cells_the_extent_would_round_away():
+    """The header has more digits than an extent, so edges stay on the cells."""
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.pcolormesh(np.linspace(1e5, 1e5 + 0.7, 8), [0.0, 1.0], np.zeros((1, 7)))
+    _, files = _gle(fig)
+    header, marker = files["t_heatmap1.z"].splitlines()[:2]
+    assert marker == "! gleplot: cells xmin 100000 xmax 100001 ymin 0 ymax 1"
+    # Half a cell outside the written edges 100000 and 100001 (7 cells).
+    assert "xmin 99999.9285714 xmax 100001.071429" in header
 
 
 def test_imshow_has_no_cells_field():
@@ -398,6 +410,10 @@ def test_pcolormesh_rejects_bad_input():
         ax.pcolormesh(np.zeros(3))
     with pytest.raises(ValueError, match="NaN"):
         ax.pcolormesh(np.array([[0.0, np.nan]]))
+    with pytest.raises(ValueError, match="NaN"):
+        ax.pcolormesh(np.ma.masked_array([[1.0, 2.0]], mask=[[0, 1]]))
+    with pytest.raises(ValueError, match="pcolormesh X contains NaN"):
+        ax.pcolormesh(np.ma.masked_array([0.0, 1, 2], mask=[0, 1, 0]), [0, 1], [[1, 2]])
     with pytest.raises(ValueError, match="at least two centres"):
         ax.pcolormesh(np.zeros((1, 3)), shading="nearest")
     ax.imshow(np.zeros((2, 2)))
@@ -413,22 +429,55 @@ def test_pcolormesh_warns_for_what_gle_cannot_draw():
             shading="gouraud",
             alpha=0.5,
             norm="log",
+            colorizer="c",
+            data={},
             antialiased=True,
             linewidth=2,
-            edgecolors="k",
+            edgecolors=np.array([0.0, 0.0, 0.0]),
         )
     messages = " | ".join(str(w.message) for w in record)
     assert "shading='gouraud') is drawn as shading='nearest'" in messages
-    assert "pcolormesh(alpha=...) is ignored" in messages
-    assert "pcolormesh(norm=...) is ignored" in messages
+    assert "pcolormesh(alpha=...) is ignored: a GLE colormap is opaque" in messages
+    assert "pcolormesh(norm=...) is ignored: colours are mapped linearly" in messages
+    assert "pcolormesh(colorizer=...) is ignored: pass cmap=" in messages
+    assert "pcolormesh(data=...) is ignored: pass the arrays themselves" in messages
     assert "antialiased=True) is ignored" in messages
     assert "unsupported keyword(s): edgecolors, linewidth" in messages
 
 
 def test_pcolormesh_takes_the_edgecolors_it_draws_without_a_warning(recwarn):
     ax = glp.figure().add_subplot(111)
-    ax.pcolormesh(np.zeros((2, 2)), edgecolors="none", edgecolor="face")
+    ax.pcolormesh(np.zeros((2, 2)), edgecolors="None", edgecolor="face")
+    ax = glp.figure().add_subplot(111)
+    ax.pcolormesh(np.zeros((2, 2)), shading="Flat")
     assert not recwarn.list
+
+
+def test_pcolormesh_warns_when_the_limits_reach_beyond_the_mesh():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    ax.pcolormesh([0.0, 1, 2, 3], [0.0, 1, 2], np.zeros((2, 3)))
+    ax.plot([-0.5, 2], [0, 1])
+    with pytest.warns(UserWarning, match=r"The x limits \(-0.5 to 3\) reach beyond"):
+        _gle(fig)
+
+
+def test_pcolormesh_inside_its_own_limits_does_not_warn(recwarn):
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    ax.pcolormesh([0.0, 1, 2, 3], [0.0, 1, 2], np.zeros((2, 3)))
+    ax.set_xlim(0.5, 2.5)
+    _gle(fig)
+    assert not recwarn.list
+
+
+def test_pcolormesh_warns_when_a_log_axis_cannot_draw_it():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    ax.pcolormesh([1.0, 4, 7, 10], [0.0, 1, 2], np.zeros((2, 3)))
+    ax.set_xscale("log")
+    with pytest.warns(UserWarning, match=r"not drawn: on a log x axis .* x = -0.5"):
+        _gle(fig)
 
 
 def test_pcolormesh_mesh_takes_a_colorbar():

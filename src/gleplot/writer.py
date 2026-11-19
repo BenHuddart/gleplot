@@ -876,8 +876,9 @@ COLORBAR_NTICKS = "nticks"
 #: Colorbar tick-interval count when none was given (``Figure.colorbar``'s).
 DEFAULT_COLORBAR_NTICKS = 5
 
-#: The comment line under a ``.z`` header that marks a ``pcolormesh`` grid
-#: (see :meth:`GLEWriter.add_cells_sidecar`).
+#: How the comment line under a ``.z`` header that marks a ``pcolormesh``
+#: grid begins; the mesh's edges follow (see
+#: :meth:`GLEWriter.add_cells_sidecar`).
 CELLS_MARKER = "! gleplot: cells"
 
 #: The ``plot`` series fields :meth:`GLEWriter._dataset_qualifier_clause`
@@ -5960,21 +5961,34 @@ class GLEWriter:
         ``xmin + (k - 1/2, k + 1/2) * (xmax - xmin) / n``, and the bitmap
         stops at ``xmin`` and ``xmax``. With the header half a cell outside
         the mesh and the first row and column repeated, node ``k`` covers
-        cell ``k - 1`` exactly; the graph window, which the mesh's extent
-        sets, clips the half cell left over at each end. The
-        ``! gleplot: cells`` comment, which GLE skips, tells the recognizer
-        to undo this.
+        cell ``k - 1`` exactly; the graph window clips the half cell left
+        over at each end.
+
+        The line under the header, which GLE skips as a comment, holds the
+        mesh's own edges at the precision every extent is written with, and
+        the header is computed from those written edges, so a reload reads
+        the same mesh back and writes the same file. The header carries more
+        digits than an extent, so the cells land on edges that the shorter
+        form would round away.
         """
+        fmt = self._format_number
+        edges = [fmt(v) for v in series["extent"]]
+        x0, x1, y0, y1 = (float(v) for v in edges)
         z = np.asarray(series["z"], dtype=float)
-        z = np.vstack([z[:1], z])
-        z = np.hstack([z[:, :1], z])
-        x0, x1, y0, y1 = series["extent"]
-        hx = (x1 - x0) / (z.shape[1] - 1) / 2
-        hy = (y1 - y0) / (z.shape[0] - 1) / 2
-        name = series["data_file"]
-        self.add_z_sidecar(name, z, [x0 - hx, x1 + hx, y0 - hy, y1 + hy], "lower")
-        header, rows = self.data_files[name].split("\n", 1)
-        self.data_files[name] = f"{header}\n{CELLS_MARKER}\n{rows}"
+        ny, nx = z.shape
+        hx, hy = (x1 - x0) / nx / 2, (y1 - y0) / ny / 2
+        bounds = (fmt(v, 12) for v in (x0 - hx, x1 + hx, y0 - hy, y1 + hy))
+        lines = [
+            "! nx {} ny {} xmin {} xmax {} ymin {} ymax {}".format(
+                nx + 1, ny + 1, *bounds
+            ),
+            "{} xmin {} xmax {} ymin {} ymax {}".format(CELLS_MARKER, *edges),
+        ]
+        for row in np.vstack([z[:1], z]):
+            cells = [fmt(v) for v in row]
+            lines.append(" ".join([cells[0]] + cells))
+        self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
+        self.raw_sidecars.add(series["data_file"])
 
     def add_heatmap(self, series: Series):
         """Emit a heatmap's ``colormap`` statement inside its graph block.

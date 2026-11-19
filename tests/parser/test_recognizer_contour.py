@@ -161,19 +161,31 @@ def test_pcolormesh_recovered(tmp_path):
     np.testing.assert_array_equal(hm["z"], C)
 
 
+def test_pcolormesh_recovers_the_edges_it_wrote(tmp_path):
+    """Edges come from the marker line, not from undoing the rounded header."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.pcolormesh(np.linspace(0, 1, 4), np.linspace(0, 1, 8), np.zeros((7, 3)))
+    rec = parse_gle_figure(_save(fig, tmp_path))
+    assert rec.figure.axes_list[0].heatmaps[0]["extent"] == [0.0, 1.0, 0.0, 1.0]
+
+
 @pytest.mark.parametrize(
-    "rows, clause",
+    "header, rows, clause",
     [
-        (["0 1 2", "0 1 2"], " interpolate nearest"),  # first column not repeated
-        (["0 0 1", "0 0 1"], ""),  # bicubic, not nearest
+        # first column not repeated
+        ("xmin -0.5 xmax 2.5", ["0 1 2", "0 1 2"], " interpolate nearest"),
+        # bicubic, not nearest
+        ("xmin -0.5 xmax 2.5", ["0 0 1", "0 0 1"], ""),
+        # header not half a cell outside the marker's edges
+        ("xmin 0 xmax 3", ["0 0 1", "0 0 1"], " interpolate nearest"),
     ],
 )
-def test_cells_marker_on_another_grid_reads_as_imshow(tmp_path, rows, clause):
+def test_cells_marker_on_another_grid_reads_as_imshow(tmp_path, header, rows, clause):
     """A marked grid that is not a mesh is drawn as written, and says so."""
     (tmp_path / "grid.z").write_text(
-        "! nx 3 ny 2 xmin 0 xmax 3 ymin 0 ymax 2\n! gleplot: cells\n"
-        + "\n".join(rows)
-        + "\n",
+        f"! nx 3 ny 2 {header} ymin -0.5 ymax 1.5\n"
+        "! gleplot: cells xmin 0 xmax 2 ymin 0 ymax 1\n" + "\n".join(rows) + "\n",
         encoding="utf-8",
     )
     p = tmp_path / "f.gle"
@@ -185,7 +197,7 @@ def test_cells_marker_on_another_grid_reads_as_imshow(tmp_path, rows, clause):
     rec = parse_gle_figure(p)
     hm = rec.figure.axes_list[0].heatmaps[0]
     assert "cells" not in hm
-    assert hm["extent"] == [0.0, 3.0, 0.0, 2.0]
+    assert hm["extent"][2:] == [-0.5, 1.5]
     assert any("marked as a pcolormesh mesh" in w for w in rec.warnings)
 
 

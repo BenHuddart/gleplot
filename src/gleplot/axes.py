@@ -2304,7 +2304,7 @@ class Axes:
         # External-file series definitions (column references).
         self.file_series: List[FileSeries] = []
         self.texts: List[TextAnnotation] = []  # In-plot text annotations
-        self.heatmaps: List[HeatmapSeries] = []  # imshow/tripcolor colormaps
+        self.heatmaps: List[HeatmapSeries] = []  # imshow/pcolormesh/tripcolor
         self.contours: List[ContourSeries] = []  # contour/tricontour lines
         # Reference lines (axvline/axhline) and shaded bands (axvspan/
         # axhspan). Stored as *declarations* -- a value plus a fractional
@@ -7195,14 +7195,17 @@ class Axes:
         Notes
         -----
         Like :meth:`imshow`, a mesh is the axes' one heatmap, and its values
-        must be finite. Coordinates that decrease are drawn the same as
+        must be finite: a ``NaN`` or a masked value raises ``ValueError``,
+        where matplotlib leaves the cell blank. The mesh's bitmap runs half a
+        cell past each edge, which the axes frame normally hides; saving
+        warns when the axis limits reach beyond the mesh, or when a log axis
+        puts that half cell at or below zero, where GLE does not draw it. Coordinates that decrease are drawn the same as
         increasing ones, as in matplotlib. ``edgecolors='none'`` and
         ``'face'`` are what is drawn; other keywords (another
         ``edgecolors``, ``linewidth``, ``zorder``, ...) warn and are ignored.
         """
         label = self._text(label)
-        if shading is None:
-            shading = "auto"
+        shading = "auto" if shading is None else str(shading).lower()
         if shading not in ("auto", "flat", "nearest", "gouraud"):
             raise ValueError(
                 f"pcolormesh() got shading={shading!r}; expected 'auto', "
@@ -7214,25 +7217,24 @@ class Axes:
                 "gleplot colours each cell flat."
             )
             shading = "nearest"
-        for name, value in (
-            ("alpha", alpha),
-            ("norm", norm),
-            ("colorizer", colorizer),
-            ("data", data),
+        for name, value, why in (
+            ("alpha", alpha, "a GLE colormap is opaque"),
+            ("norm", norm, "colours are mapped linearly; pass vmin= and vmax="),
+            ("colorizer", colorizer, "pass cmap=, vmin= and vmax= instead"),
+            ("data", data, "pass the arrays themselves"),
         ):
             if value is not None:
-                warn_external(
-                    f"pcolormesh({name}=...) is ignored: a GLE colormap is "
-                    "opaque and maps colours linearly from vmin to vmax. Pass "
-                    "the arrays with cmap=, vmin= and vmax= instead."
-                )
+                warn_external(f"pcolormesh({name}=...) is ignored: {why}.")
         if antialiased:
             warn_external(
                 "pcolormesh(antialiased=True) is ignored: the mesh is drawn as "
                 "one bitmap."
             )
         for key in ("edgecolors", "edgecolor"):
-            if kwargs.get(key, "none") in (None, "none", "face"):
+            edge = kwargs.get(key)
+            if edge is None or (
+                isinstance(edge, str) and edge.lower() in ("none", "face")
+            ):
                 kwargs.pop(key, None)
         if kwargs:
             names = ", ".join(sorted(kwargs))
@@ -7280,7 +7282,9 @@ class Axes:
                 "pcolormesh() takes C or X, Y, C as positional arguments; got "
                 f"{len(args)} of them"
             )
-        z = np.asarray(args[-1], dtype=float)
+        # A masked value has no colour GLE can leave blank, so it raises as
+        # NaN does rather than being drawn with the value under the mask.
+        z = np.ma.filled(np.ma.asarray(args[-1], dtype=float), np.nan)
         if z.ndim != 2:
             raise ValueError(f"pcolormesh() needs a 2-D C; got shape {z.shape}")
         _require_finite(z, "pcolormesh C")
@@ -7292,8 +7296,10 @@ class Axes:
                 x = np.arange(nx + 1, dtype=float)
                 y = np.arange(ny + 1, dtype=float)
         else:
-            x = np.asarray(args[0], dtype=float)
-            y = np.asarray(args[1], dtype=float)
+            x = np.ma.filled(np.ma.asarray(args[0], dtype=float), np.nan)
+            y = np.ma.filled(np.ma.asarray(args[1], dtype=float), np.nan)
+            _require_finite(x, "pcolormesh X")
+            _require_finite(y, "pcolormesh Y")
             if x.ndim == 2:
                 x = _axis_from_meshgrid(
                     x, "x", "pcolormesh(X, Y, C)", "tripcolor(x, y, z)"
@@ -7316,8 +7322,6 @@ class Axes:
                 f"{want[1]} y coordinates for C of shape {z.shape}; got "
                 f"{len(x)} and {len(y)}"
             )
-        _require_finite(x, "pcolormesh X")
-        _require_finite(y, "pcolormesh Y")
         if shading == "nearest" and (nx < 2 or ny < 2):
             raise ValueError(
                 "pcolormesh(shading='nearest') needs at least two centres along "
