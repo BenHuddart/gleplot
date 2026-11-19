@@ -737,6 +737,8 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``one_point_default_width`` moved, and ``guides_after_graph`` was added,
     when a guide gleplot cannot range started being drawn after the graph;
     ``rug_field_options`` moved when ``rugs.gle`` started drawing rugs.
+    ``tripcolor_tricontour_combo`` moved when a tripcolor's fitz range
+    started reaching past its last node, as colormap places nodes (#376).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():

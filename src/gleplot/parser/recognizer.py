@@ -8346,13 +8346,20 @@ class _Recognizer:
         """Parse a ``begin fitz`` block matching gleplot's shape, or ``None``.
 
         Recovers ``points_file``, ``extent`` (x0,x1,y0,y1), ``gridsize``
-        (nx,ny from the ``from..to..step`` ranges) and optional ``ncontour``.
+        (nx,ny from the ``from..to..step`` ranges) and optional ``ncontour``,
+        as a contour reads the grid; ``ranges`` keeps the ranges and
+        ``marker`` the node-grid comment line a heatmap's block holds, from
+        which :meth:`_fitz_heatmap_grid` reads a colormap's grid instead.
         ``zfile`` is the generated grid name (points base + ``.z``).
         """
         data_file = None
         xr = yr = None
         ncontour = None
+        marker = None
         for sl in node.inner_lines:
+            if sl.text.strip().startswith(NODES_MARKER + " "):
+                marker = sl
+                continue
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
                 continue
@@ -8385,7 +8392,47 @@ class _Recognizer:
             "extent": [x0, x1, y0, y1],
             "gridsize": [nx, ny],
             "ncontour": ncontour,
+            "ranges": (xr, yr),
+            "marker": marker,
         }
+
+    def _fitz_heatmap_grid(self, fitz: dict) -> Tuple[List[float], List[int]]:
+        """A ``colormap``'s ``(extent, gridsize)`` over a fitz block's grid.
+
+        A block :meth:`GLEWriter.add_fitz_block` wrote for a heatmap gives
+        the extent on its marker line and has GLE's node count,
+        ``floor((to - from) / step + 1)``. Any other block, such as a
+        hand-written one or one an earlier gleplot wrote, has its last node
+        where ``colormap`` draws it, one spacing short of ``to``, so
+        re-saving draws it where it was.
+        """
+        (x0, x1, xs), (y0, y1, ys) = fitz["ranges"]
+        if min(xs, ys) <= 0 or x1 <= x0 or y1 <= y0:
+            return list(fitz["extent"]), list(fitz["gridsize"])
+        counts = [math.floor((x1 - x0) / xs + 1), math.floor((y1 - y0) / ys + 1)]
+        sl = fitz["marker"]
+        if sl is not None:
+            edges = self._marker_edges(sl.text.strip())
+            if (
+                edges is not None
+                and min(counts) >= 2
+                and edges[0] == x0
+                and edges[2] == y0
+                and abs(x0 + (counts[0] - 1) * xs - edges[1]) <= 0.01 * xs
+                and abs(y0 + (counts[1] - 1) * ys - edges[3]) <= 0.01 * ys
+            ):
+                return edges, counts
+            self._note(
+                ImportCategory.DATA,
+                f"the begin fitz block for {fitz['zfile']!r} has a node-grid "
+                "marker line that does not match its ranges; read where GLE "
+                "draws its nodes, and the marker line is rewritten on re-save",
+                (sl.line_no, sl.line_no),
+            )
+        if min(counts) < 2:
+            return list(fitz["extent"]), list(fitz["gridsize"])
+        extent = [x0, x1 - (x1 - x0) / counts[0], y0, y1 - (y1 - y0) / counts[1]]
+        return extent, counts
 
     def _parse_contour_block(self, node: OpaqueBlock) -> Optional[dict]:
         """Parse a ``begin contour`` block matching gleplot's shape, or ``None``.
@@ -8623,6 +8670,7 @@ class _Recognizer:
                     self._stmt_span(stmt),
                 )
                 return
+            extent, gridsize = self._fitz_heatmap_grid(fitz)
             hm = HeatmapSeries(
                 type="heatmap",
                 source="points",
@@ -8630,7 +8678,7 @@ class _Recognizer:
                 x=pts[0],
                 y=pts[1],
                 zpts=pts[2],
-                extent=list(fitz["extent"]),
+                extent=extent,
                 origin="lower",
                 cmap=cmap,
                 vmin=vmin,
@@ -8638,7 +8686,7 @@ class _Recognizer:
                 interpolation="nearest" if interpolation == "nearest" else "bicubic",
                 pixels=[int(px), int(py)],
                 invert=invert,
-                gridsize=list(fitz["gridsize"]),
+                gridsize=gridsize,
                 ncontour=None,
                 label=None,
                 data_file=fitz["points_file"],
@@ -9008,21 +9056,29 @@ class _Recognizer:
         return [x0, x1 - (x1 - x0) / nx, y0, y1 - (y1 - y0) / ny]
 
     @staticmethod
+    def _marker_edges(marker: Optional[str]) -> Optional[List[float]]:
+        """The ``xmin xmax ymin ymax`` a node-grid marker line gives, or ``None``."""
+        if marker is None or not marker.startswith(NODES_MARKER):
+            return None
+        words = marker[len(NODES_MARKER) :].split()
+        if words[0::2] != ["xmin", "xmax", "ymin", "ymax"] or len(words) != 8:
+            return None
+        try:
+            return [float(v) for v in words[1::2]]
+        except ValueError:
+            return None
+
+    @staticmethod
     def _nodes_extent(marker, header, nx, ny) -> Optional[List[float]]:
         """The edges a node grid's marker line gives, or ``None``.
 
         ``None`` without the line, or when the header is not one node
         spacing past them as :meth:`GLEWriter.add_nodes_sidecar` writes it.
         """
-        if marker is None or not marker.startswith(NODES_MARKER) or min(nx, ny) < 2:
+        edges = _Recognizer._marker_edges(marker)
+        if edges is None or min(nx, ny) < 2:
             return None
-        words = marker[len(NODES_MARKER) :].split()
-        if words[0::2] != ["xmin", "xmax", "ymin", "ymax"]:
-            return None
-        try:
-            x0, x1, y0, y1 = (float(v) for v in words[1::2])
-        except ValueError:
-            return None
+        x0, x1, y0, y1 = edges
         want = [x0, x1 + (x1 - x0) / (nx - 1), y0, y1 + (y1 - y0) / (ny - 1)]
         span = max(abs(v) for v in want + [x1 - x0, y1 - y0])
         if not np.allclose(header, want, rtol=0, atol=1e-9 * span):

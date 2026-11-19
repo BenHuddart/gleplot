@@ -240,7 +240,7 @@ A colorbar over a **constant** field (`zmax == zmin`) is handled gracefully — 
 
 At **GLE compile time** (not written by gleplot), GLE itself generates further files next to your `.gle` script:
 
-- `begin fitz` grids a points sidecar into `<points-base>.z`.
+- `begin fitz` grids a points sidecar into `<points-base>.z`, with `gridsize` nodes from the extent's first edge to its last. For a `tricontour` the header's range is the extent. For a `tripcolor` it reaches just short of one node spacing past the last node, as an `imshow` header does, so the heatmap lines up with a `tricontour` of the same points; a `! gleplot: nodes ...` line in the `begin fitz` block holds the extent. Axis limits beyond the extent show that extra spacing, and saving warns.
 - `begin contour` on a `.z` file produces `<z-base>-cdata.dat` (the drawn polylines), and, when `clabel=True`, `<z-base>-clabels.dat` (label positions/values) and `<z-base>-cvalues.dat`.
 
 These generated files only exist after compilation; `savefig()` (or the GLE binary itself) tolerates their absence beforehand, and you never need to create or manage them yourself.

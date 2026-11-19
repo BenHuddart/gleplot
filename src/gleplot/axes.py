@@ -8260,10 +8260,14 @@ class Axes:
         gridsize : (nx, ny)
             Interpolation grid resolution.
         extent : tuple, optional
-            ``(xmin, xmax, ymin, ymax)``. Default: data bounds.
+            ``(xmin, xmax, ymin, ymax)``: the first and last grid nodes,
+            where :meth:`tricontour` places them. Default: data bounds.
 
         Notes
         -----
+        Axis limits beyond the extent show up to one node spacing of the
+        edge nodes' colours, as for :meth:`imshow`, and saving warns.
+
         The remaining keyword arguments are as for :meth:`imshow`; others
         warn and are ignored.
         """
