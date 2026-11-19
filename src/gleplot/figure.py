@@ -5202,9 +5202,8 @@ class Figure:
             displayed inline in Jupyter. Nothing is printed; outside a notebook,
             open the returned path to see the figure. A PDF cannot be shown
             inline, so in a notebook ``format='pdf'`` warns and returns the path.
-            The returned file is the only one left in the temporary directory:
-            the ``.gle`` script and data files are removed, and the caller may
-            delete the returned file when done with it.
+            The ``.gle`` script and data files compiled to make the image are
+            removed; only the returned file is left, for the caller to delete.
 
         Raises
         ------
@@ -5224,6 +5223,7 @@ class Figure:
         Requires GLE to be installed for compilation.
         In non-Jupyter environments, saves to a temporary file instead.
         """
+        import shutil
         import tempfile
 
         if not self.compiler:
@@ -5243,27 +5243,27 @@ class Figure:
 
         # savefig writes the script, its sidecars and (for usetex) GLE's .gle/
         # working folder beside the output, so compile in a directory that is
-        # removed afterwards and copy out only the file view() returns.
-        with tempfile.TemporaryDirectory() as work_dir:
-            work_path = Path(work_dir) / f"figure.{format}"
-            self.savefig(str(work_path), format=format, dpi=output_dpi)
-
+        # removed afterwards and copy out only the file view() returns. The
+        # removal ignores errors: on Windows a file can still be locked by GLE.
+        work_dir = tempfile.mkdtemp()
+        try:
+            output = self.savefig(
+                str(Path(work_dir) / f"figure.{format}"), format=format, dpi=output_dpi
+            )
             if in_notebook and format == "png":
-                display(Image(data=work_path.read_bytes(), format="png"))
+                display(Image(data=output.read_bytes(), format="png"))
                 return None
-            if in_notebook and format != "pdf":
-                return None
-
-            with tempfile.NamedTemporaryFile(suffix=f".{format}", delete=False) as tmp:
-                tmp.write(work_path.read_bytes())
-            tmp_path = Path(tmp.name)
+            with tempfile.NamedTemporaryFile(suffix=output.suffix, delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+            shutil.copyfile(output, tmp_path)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
         if in_notebook:
             warn_external(
-                f"view(format='pdf') cannot display a PDF inline; it was "
-                f"saved to {tmp_path}, which view() returns. Use "
-                f"view(format='png') to display the figure in the "
-                f"notebook.",
+                f"view(format={format!r}) cannot display {format.upper()} "
+                f"inline; it was saved to {tmp_path}, which view() returns. "
+                f"Use view(format='png') to display the figure in the notebook.",
             )
         return tmp_path
 

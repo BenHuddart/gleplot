@@ -23,8 +23,9 @@ class TestBasicPlotting:
     """Test basic line plotting functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure(figsize=(8, 6))
         self.ax = self.fig.add_subplot(111)
@@ -167,8 +168,9 @@ class TestScatterPlots:
     """Test scatter plot functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -207,8 +209,9 @@ class TestBarCharts:
     """Test bar chart functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -460,8 +463,9 @@ class TestFillBetween:
     """Test fill_between functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -1113,8 +1117,9 @@ class TestErrorBars:
     """Test error bar functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -1425,6 +1430,7 @@ def _fake_savefig(*args, **kwargs):
     out.with_name(out.stem + "_0.dat").write_text("1 2\n")
     (out.parent / ".gle").mkdir()
     (out.parent / ".gle" / "texpreamble.tex").write_text("")
+    return out
 
 
 @pytest.mark.skipif(not IPYTHON_AVAILABLE, reason="IPython not installed")
@@ -1432,8 +1438,9 @@ class TestViewDisplay:
     """Test figure view behavior across environments."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.fig.add_subplot(111).plot([1, 2, 3], [1, 4, 9])
@@ -1505,6 +1512,16 @@ def test_view_leaves_only_the_returned_file(viewable_figure, tmp_path, fmt):
     result = viewable_figure.view(format=fmt)
 
     assert sorted(tmp_path.iterdir()) == [result]
+
+
+def test_view_svg_in_notebook_warns_and_returns_path(viewable_figure, tmp_path):
+    pytest.importorskip("IPython")
+    with patch("IPython.get_ipython", return_value=Mock(config={"IPKernelApp": 1})):
+        with pytest.warns(UserWarning, match="cannot display SVG inline"):
+            result = viewable_figure.view(format="svg")
+
+    assert sorted(tmp_path.iterdir()) == [result]
+    assert result.suffix == ".svg"
 
 
 def test_view_cleans_up_when_savefig_fails(viewable_figure, tmp_path):
