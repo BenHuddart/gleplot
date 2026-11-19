@@ -41,7 +41,8 @@ fig.savefig('plot.gle')
 gle plot.gle -d PDF
 ```
 
-3. Check that fonts referenced by your style are available in your GLE install.
+3. If GLE reports `invalid font name`, set the font to a GLE font name; see
+   "Available Fonts" in [Configuration](CONFIGURATION.md).
 
 ## Unexpected Data File Names
 

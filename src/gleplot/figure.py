@@ -492,7 +492,7 @@ class Figure:
     -----
     **Global defaults are copied, not shared.** ``GlobalConfig.style``/
     ``.graph``/``.marker`` are process-wide singletons. Setting
-    ``GlobalConfig.style.font = 'psh'`` *before* creating a figure
+    ``GlobalConfig.style.font = 'texcmss'`` *before* creating a figure
     still changes that figure's default font, exactly as documented in
     :class:`gleplot.config.GlobalConfig`. But once a ``Figure`` exists, its
     ``style``/``graph``/``marker_config`` are independent objects (when no

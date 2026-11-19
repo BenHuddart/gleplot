@@ -168,13 +168,13 @@ def figure(
 
     Create a figure with custom style:
 
-    >>> style = glp.GLEStyleConfig(font='psh', fontsize=12)
+    >>> style = glp.GLEStyleConfig(font='texcmss', fontsize=12)
     >>> fig = glp.figure(style=style)
 
     Or modify global defaults:
 
-    >>> glp.GlobalConfig.style.font = 'psh'
-    >>> fig = glp.figure()  # Will use PostScript Helvetica
+    >>> glp.GlobalConfig.style.font = 'texcmss'
+    >>> fig = glp.figure()  # Will use Computer Modern Sans Serif
 
     A 5-row grid built with add_subplot, with a short 4th "separator" row:
 

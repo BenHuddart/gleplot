@@ -18,7 +18,7 @@ Access and modify global defaults through `GlobalConfig`:
     import gleplot as glp
     
     # Modify global defaults
-    glp.GlobalConfig.style.font = 'psh'  # PostScript Helvetica
+    glp.GlobalConfig.style.font = 'texcmss'  # TeX Computer Modern Sans Serif
     glp.GlobalConfig.style.fontsize = 12
     glp.GlobalConfig.graph.legend_position = 'tl'
     
@@ -44,7 +44,7 @@ it is still stored by reference, as it always was.
 Controls text and line rendering:
 
     style = glp.GLEStyleConfig(
-        font='psh',                # a GLE font name; see Available Fonts below
+        font='texcmss',            # a GLE font name; see Available Fonts below
         fontsize=10,               # Points (default: 12)
         default_linewidth=1.0,     # Line width in points (default: 1.5)
         default_color='BLUE',      # Default line color
@@ -63,9 +63,10 @@ own default font. Common names:
 - `pstr`, `psh`, `psc` - PostScript Times-Roman, Helvetica, Courier
 
 The font tables in the [GLE manual](https://glx.sourceforge.io/manual/index.html)
-list every name. When a figure uses semi-transparent colours, GLE compiles it
-with its `-cairo` device, which draws only the `texcm*` fonts; gleplot warns
-that GLE will substitute `texcmr` for any other font.
+list every name. GLE's Cairo backend, which draws SVG output and any figure
+compiled with `-cairo` (semi-transparent colours, or `savefig(..., cairo=True)`),
+cannot draw the PostScript fonts, and `rm`, `ss` and `tt` are PostScript fonts
+too. Use the TeX Computer Modern (`texcm*`) fonts for figures drawn that way.
 
 ### Line Styles
 
@@ -318,7 +319,7 @@ GLE-specific markers:
     import gleplot as glp
     
     # Set global defaults
-    glp.GlobalConfig.style.font = 'psh'  # PostScript Helvetica
+    glp.GlobalConfig.style.font = 'texcmss'  # TeX Computer Modern Sans Serif
     glp.GlobalConfig.style.fontsize = 12
     glp.GlobalConfig.graph.legend_position = 'tl'
     
@@ -338,7 +339,7 @@ GLE-specific markers:
 ### Example 2: Per-Figure Configuration
 
     style = glp.GLEStyleConfig(
-        font='psc',  # PostScript Courier
+        font='texcmtt',  # TeX Computer Modern Typewriter
         fontsize=10,
         default_linewidth=2.0,
     )
@@ -357,7 +358,7 @@ GLE-specific markers:
 
     # Figure 1: Publication (serif font, small labels)
     pub_style = glp.GLEStyleConfig(
-        font='pstr',  # PostScript Times-Roman
+        font='texcmr',  # TeX Computer Modern Roman
         fontsize=8,
         default_linewidth=1.5,
     )
@@ -365,7 +366,7 @@ GLE-specific markers:
     
     # Figure 2: Presentation (sans-serif, larger labels)
     pres_style = glp.GLEStyleConfig(
-        font='psh',  # PostScript Helvetica
+        font='texcmss',  # TeX Computer Modern Sans Serif
         fontsize=14,
         default_linewidth=2.0,
     )
