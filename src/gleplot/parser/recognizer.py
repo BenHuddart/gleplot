@@ -4065,7 +4065,7 @@ class _Recognizer:
           the guide by editing the ``.dat``);
         * the display command carries something no guide emission has: a
           marker, a ``y2axis`` binding, an offset ``let``, smoothing, a
-          dataset qualifier (``mdist``, ``deresolve``, a clip window);
+          dataset qualifier (``mdist``, ``deresolve``, a data range);
         * or lacks the ``color`` and ``lwidth`` every guide emission writes.
 
         Never guessed at, never half-applied: the caller then appends the

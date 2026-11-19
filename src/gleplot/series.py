@@ -656,8 +656,9 @@ class _XYSeries(Series):
     #: GLE ``deresolve N average``: each window of N points is drawn as its
     #: mean. Only present together with ``deresolve``.
     deresolve_average: bool
-    #: GLE's per-dataset clip window, in data coordinates. Absent: that edge
-    #: is open.
+    #: GLE's per-dataset range, in data coordinates: the series is drawn as
+    #: if its axes ran over it, and nothing outside it is drawn. Absent:
+    #: that edge is the limit of the axis the series is drawn against.
     xmin: float
     xmax: float
     ymin: float
@@ -1176,9 +1177,9 @@ class FileSeries(Series):
     #: ``'fill'`` variant: ``"x1"``, ``"x2"`` or ``"polygon"``. Absent means
     #: the two-curve ``fill dA,dB``.
     target: str
-    #: Clip window: the ``fill`` command's on the ``'fill'`` variant, the
-    #: dataset's (``_XYSeries.xmin``) on ``'line'`` and ``'errorbar'``.
-    #: Absent: that edge is open.
+    #: The ``fill`` command's clip window on the ``'fill'`` variant (absent:
+    #: not clipped on that edge); the dataset's range (``_XYSeries.xmin``)
+    #: on ``'line'`` and ``'errorbar'``.
     xmin: float
     xmax: float
     ymin: float

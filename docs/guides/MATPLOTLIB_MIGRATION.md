@@ -248,7 +248,7 @@ that is not a line style. This holds for `plot` and the calls above, for
 `contour` and `tricontour`. A `(offset, None)` tuple is matplotlib's solid
 line and is drawn solid without a warning.
 
-## Marker spacing, thinning and clipping
+## Marker spacing, thinning and data ranges
 
 GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. Use `mdist` instead: it places the markers every `mdist` cm along the drawn curve, whatever the point spacing. That is closest to matplotlib's float form of `markevery`. These keywords are gleplot's names for GLE's dataset qualifiers, and `scatter` passes them on to `plot`:
 
@@ -257,7 +257,7 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 | `mdist=0.5` | `mdist 0.5`. Needs a `marker`; without one it warns and is dropped. `GLEMarkerConfig(mdist=...)` is the default for every marked line in the figure. |
 | `deresolve=5` | `deresolve 5`: one point in every five is drawn. GLE keeps a line's first and last point. |
 | `deresolve=5, deresolve_average=True` | `deresolve 5 average`: each window of five points is drawn as its mean. |
-| `xmin`, `xmax`, `ymin`, `ymax` | the series' own clip window in data coordinates. Nothing is drawn outside it. |
+| `xmin`, `xmax`, `ymin`, `ymax` | the series' own data range: it is drawn as if its axes ran over that range, and nothing outside it is drawn. This rescales the series; it is not a clip window, and the tick labels keep the axis' own range. An omitted edge is the limit of the axis the series is drawn against. |
 
 A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` takes the data range, which moves its error bars with the points, but not `mdist` or `deresolve`: GLE thins the markers but not the whiskers under `deresolve`.
 
@@ -422,7 +422,7 @@ ax.set_ylim(0, 2)
 
 | matplotlib | gleplot |
 |---|---|
-| `ax.plot(theta, r)`, `ax.scatter(theta, r)` | same. `yaxis`, `xaxis`, `offset`, `drawstyle`/`ds`/`line_mode` and the `xmin`/`xmax`/`ymin`/`ymax` clip window raise `ValueError`. |
+| `ax.plot(theta, r)`, `ax.scatter(theta, r)` | same. `yaxis`, `xaxis`, `offset`, `drawstyle`/`ds`/`line_mode` and the `xmin`/`xmax`/`ymin`/`ymax` data range raise `ValueError`. |
 | `ax.set_ylim(0, rmax)`, `ax.set_ylim(top=...)` | `ax.set_ylim(0, rmax)` or `ax.set_ylim(None, rmax)`. A lower limit other than 0 raises `ValueError`. Left unset, the outer ring is the largest radius in the data rounded up to a ring, or 1 when the axes has only function curves. |
 | `ax.set_rmax`, `set_rticks`, `set_thetagrids`, `set_theta_zero_location`, `set_theta_direction`, `set_rlabel_position` | not available. Rings are evenly spaced, at most five; spokes and angle labels are every 45°, counter-clockwise from the right; ring labels lie along 22.5°. |
 | `ax.grid(True)` | does nothing: the polar grid is always drawn. `ax.grid(False)`, `ax.grid()` and grid styling warn and are ignored. `GLEGraphConfig(show_grid=True)` does not apply. |
