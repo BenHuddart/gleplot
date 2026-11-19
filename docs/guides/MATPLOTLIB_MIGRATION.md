@@ -7,6 +7,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | matplotlib | gleplot |
 |---|---|
 | `plt.figure()` | `glp.figure()` |
+| `plt.close(fig)` / `plt.close('all')` | same; gleplot tracks only the current figure, so `'all'` closes that one, and a figure number or label matches nothing and warns |
 | `plt.subplots(nrows, ncols)` | `glp.subplots(nrows, ncols)`: the same numpy array of axes, with `squeeze`, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
@@ -595,6 +596,12 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     Give the axes a limit with `set_xlim`/`set_ylim` to keep the guide
     under the data. See
     [Reference Lines and Shaded Spans](REFERENCE_LINES_AND_SPANS.md).
+14. A masked value (`numpy.ma`) is read as NaN wherever matplotlib leaves a
+    masked point out: the data of `plot`, `step`, `stem`, `scatter` (`x`,
+    `y` and `c`), the heights of `bar` and `barh`, `errorbar`,
+    `fill_between`, `fill_betweenx`, `hist`, `hlines` and `vlines`. It then
+    behaves as a NaN does there. As in matplotlib, `fill`, `stackplot` and
+    the `bar` positions and `bottom` use the values under the mask.
 
 ## Migration Strategy
 
