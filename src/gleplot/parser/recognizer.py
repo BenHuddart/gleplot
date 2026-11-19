@@ -1711,7 +1711,8 @@ class _Recognizer:
         self._table_cache: Dict[str, object] = {}
         self._import_list: Optional[List[str]] = None
         # 1-based numbers of the graphs the metadata names as insets; None
-        # when it names none, and they are recognized by their frames.
+        # in a file with no gleplot metadata, whose insets are recognized
+        # by their frames.
         self._insets: Optional[Set[int]] = None
         self._used_prefix_indices: Dict[str, int] = {}  # prefix -> max index+1
         self._used_data_files: set = set()
@@ -1886,8 +1887,9 @@ class _Recognizer:
             self._note(ImportCategory.METADATA, meta_msg, meta_span)
         if "import-data" in meta:
             self._import_list = list(meta.get("import-data") or [])
-        if "insets" in meta:
-            self._insets = set(meta["insets"])
+        if meta:
+            # A gleplot file names its insets; one without the key has none.
+            self._insets = set(meta.get("insets") or [])
         return meta
 
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
@@ -9254,7 +9256,7 @@ class _Recognizer:
         the other graphs.
         """
         if self._insets is not None:
-            inset = [k + 1 in self._insets for k in range(len(parsed_axes))]
+            inset = self._named_insets(parsed_axes, self._insets)
         else:
             inset = self._nested_graphs(parsed_axes)
         grid = iter(
@@ -9263,6 +9265,35 @@ class _Recognizer:
             )
         )
         return [None if is_inset else next(grid) for is_inset in inset]
+
+    def _named_insets(self, parsed_axes, numbers) -> List[bool]:
+        """Per graph, whether the metadata names it as an inset.
+
+        A named graph whose frame rect was not recovered cannot be placed
+        outside the grid, so it stays in it; that, and a number naming no
+        graph, is noted.
+        """
+        inset = []
+        for k, info in enumerate(parsed_axes):
+            named = k + 1 in numbers
+            if named and self._frame_rect(info) is None:
+                self._note(
+                    ImportCategory.LAYOUT,
+                    f"graph {k + 1} is listed as an inset but has no amove + "
+                    "size + scale 1 1 frame; it is laid out in the grid",
+                    None,
+                )
+                named = False
+            inset.append(named)
+        stray = sorted(n for n in numbers if not 1 <= n <= len(parsed_axes))
+        if stray:
+            self._note(
+                ImportCategory.LAYOUT,
+                f"the metadata lists insets {stray} but the file has "
+                f"{len(parsed_axes)} graphs; those numbers are ignored",
+                None,
+            )
+        return inset
 
     def _nested_graphs(self, parsed_axes) -> List[bool]:
         """Per graph, whether its frame rect lies inside another graph's."""

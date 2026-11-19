@@ -269,7 +269,7 @@ def _grid_cells(ax: Axes) -> Tuple[int, int, Tuple[int, int], Tuple[int, int]]:
     position (see :meth:`Figure._grid_axes`).
     """
     position = ax.position
-    assert position is not None, "an axes in a figure always has a grid position"
+    assert position is not None, "an add_axes inset has no grid cells"
     rows, cols, idx = position
     first, last = idx if isinstance(idx, tuple) else (idx, idx)
     rows_ = sorted(((first - 1) // cols, (last - 1) // cols))
@@ -779,24 +779,18 @@ class Figure:
         >>> fig, ax = glp.subplots()
         >>> inset = fig.add_axes([0.55, 0.55, 0.3, 0.3])
         """
-        if isinstance(rect, (Axes, str, dict)):
-            raise TypeError(
-                "add_axes() takes a rect [left, bottom, width, height] in "
-                f"figure fractions, got {rect!r}; adding an existing axes is "
-                "not supported."
-            )
         try:
+            if isinstance(rect, (Axes, str, dict)):
+                raise TypeError
             values = [float(v) for v in rect]
+            if len(values) != 4:
+                raise TypeError
         except (TypeError, ValueError):
             raise TypeError(
                 "add_axes(rect) takes [left, bottom, width, height] as four "
-                f"numbers, got {rect!r}."
+                f"numbers in figure fractions, got {rect!r}; adding an "
+                "existing axes is not supported."
             ) from None
-        if len(values) != 4:
-            raise TypeError(
-                "add_axes(rect) takes [left, bottom, width, height] as four "
-                f"numbers, got {rect!r}."
-            )
         if not all(math.isfinite(v) for v in values):
             raise ValueError(f"add_axes(rect) must be finite, got {rect!r}.")
         if values[2] <= 0 or values[3] <= 0:
@@ -1357,9 +1351,14 @@ class Figure:
         for ax in self.axes_list:
             if ax.position is None:
                 # An inset is not in the grid: its rect is its placement.
-                rect = cast(tuple, ax.placement)
-                rects.append(rect)
-                cells.append((rect[0], rect[2]))
+                # (Its cell is never read: only a broken-axis seam uses one.)
+                if ax.placement is None:
+                    raise ValueError(
+                        "an axes from add_axes has no placement to draw it at; "
+                        "set Axes.placement to its (x, y, width, height) in cm."
+                    )
+                rects.append(ax.placement)
+                cells.append((ax.placement[0], ax.placement[2]))
                 continue
             _rows, _cols, (top_row, bottom_row), (left_col, right_col) = _grid_cells(ax)
             cell_x = col_x_offsets[left_col]

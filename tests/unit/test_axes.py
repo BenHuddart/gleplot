@@ -411,6 +411,15 @@ class TestSubplots:
         with pytest.raises(error, match="rect"):
             glp.figure().add_axes(rect)
 
+    def test_add_axes_inset_without_placement_raises_on_save(self):
+        fig = glp.figure()
+        inset = fig.add_axes([0.1, 0.1, 0.5, 0.5])
+        inset.plot([1, 2], [1, 2])
+        fig.add_subplot(111).plot([1, 2], [1, 2])
+        inset.placement = None
+        with pytest.raises(ValueError, match="placement"):
+            fig._generate_gle()
+
     def test_add_axes_axes_properties_warn(self):
         with pytest.warns(UserWarning, match="ignores facecolor"):
             glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], facecolor="w")

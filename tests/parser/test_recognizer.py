@@ -1067,17 +1067,46 @@ def test_insets_are_read_from_the_metadata(tmp_path):
 
 
 def test_inset_is_recovered_from_its_frame_without_metadata(tmp_path):
-    """In a file with no insets key, a graph inside another's frame is one."""
+    """In a file without gleplot metadata, a graph inside another's frame is one."""
     _gleplot_axes._global_data_file_counter = 0
     gle_path = tmp_path / "inset.gle"
     golden.inset_axes().savefig_gle(str(gle_path))
-    text = gle_path.read_text()
-    gle_path.write_text(text.replace("! gleplot: insets = 3\n", ""))
-    assert "insets" not in gle_path.read_text()
+    lines = gle_path.read_text().splitlines(keepends=True)
+    gle_path.write_text("".join(line for line in lines if "gleplot" not in line))
     rec = parse_gle_figure(gle_path)
     positions = [ax.position for ax in rec.figure.axes_list]
     assert positions == [(1, 2, 1), (1, 2, 2), None]
     assert not any(w.startswith("layout:") for w in rec.warnings)
+
+
+def test_gleplot_file_without_insets_key_has_no_insets(tmp_path):
+    """Nested frames in a gleplot file with no insets key stay in the grid."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig, (a, _b, c) = gleplot.subplots(1, 3, sharey=True)
+    for ax in (a, _b, c):
+        ax.plot([1, 2], [1, 2])
+    c.placement = (3.0, 4.0, 3.0, 2.0)  # inside a's frame
+    gle_path = tmp_path / "nested.gle"
+    fig.savefig_gle(str(gle_path))
+    rec = parse_gle_figure(gle_path)
+    assert None not in [ax.position for ax in rec.figure.axes_list]
+
+
+def test_metadata_inset_without_a_frame_stays_in_the_grid(tmp_path):
+    """A listed inset whose amove was removed is laid out, with a note."""
+    _gleplot_axes._global_data_file_counter = 0
+    gle_path = tmp_path / "inset.gle"
+    golden.inset_axes().savefig_gle(str(gle_path))
+    lines = gle_path.read_text().splitlines(keepends=True)
+    last_amove = max(i for i, line in enumerate(lines) if line.startswith("amove"))
+    del lines[last_amove]
+    text = "".join(lines).replace("insets = 3", "insets = 3, 7")
+    gle_path.write_text(text)
+    rec = parse_gle_figure(gle_path)
+    assert None not in [ax.position for ax in rec.figure.axes_list]
+    assert any("graph 3 is listed as an inset" in w for w in rec.warnings)
+    assert any("insets [7]" in w for w in rec.warnings)
+    rec.figure.savefig_gle(str(tmp_path / "again.gle"))
 
 
 def test_graphs_that_do_not_tile_a_grid_fall_back(tmp_path):
