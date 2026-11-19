@@ -617,13 +617,14 @@ def log_axis_without_major_ticks():
     """``set_xticks([])`` on a log axis keeps the minor ticks, as matplotlib,
     unless ``minorticks_off`` took them away."""
     fig = glp.figure(data_prefix="golden")
-    for index, minor in ((1, True), (2, False)):
-        ax = fig.add_subplot(1, 2, index)
+    for index, minor in ((1, None), (2, False), (3, True)):
+        ax = fig.add_subplot(1, 3, index)
         ax.plot([1, 10, 100], [1, 2, 3])
-        ax.set_xscale("log")
+        if index < 3:
+            ax.set_xscale("log")
         ax.set_xticks([])
-        if not minor:
-            ax.minorticks_off()
+        if minor is not None:
+            ax.xminorticks = minor
     return fig
 
 

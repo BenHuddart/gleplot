@@ -4381,9 +4381,13 @@ class _Recognizer:
                 info[f"{prefix}labels_off"] = False
                 info[f"_{prefix}ticks"] = None
                 info[f"_{prefix}subticks"] = None
-                if info[f"{prefix}log"] and subticks is None:
+                log = info[f"{prefix}log"]
+                if not gridded and log == (subticks is None):
+                    # A log axis without the line had its minor ticks
+                    # switched off; a linear one with it had them asked for.
+                    on = subticks is not None
                     info[f"_{prefix}subtick_marks"] = dict(
-                        length=None, lwidth=None, color=None, on=False, off=True
+                        length=None, lwidth=None, color=None, on=on, off=not on
                     )
                 continue
             if not gridded:
@@ -4939,8 +4943,9 @@ class _Recognizer:
 
         Only a bare ``xticks off`` with a bare ``xlabels off`` qualifies, on
         an axis with no places, names, no-tick positions or subtick line: the
-        writer would drop any of those beside an empty places list. A log
-        axis may add a bare ``xsubticks on``, which the writer writes there.
+        writer would drop any of those beside an empty places list. An axis
+        without a grid may add a bare ``xsubticks on``, which the writer
+        writes there for minor ticks.
         """
         style = ("lstyle", "lwidth", "length", "color")
         return (
@@ -4951,7 +4956,7 @@ class _Recognizer:
             and (
                 subticks is None
                 or (
-                    info[f"{prefix}log"]
+                    not info[f"{prefix}grid"]
                     and subticks["ok"]
                     and subticks["on"]
                     and all(subticks[k] is None for k in style)
