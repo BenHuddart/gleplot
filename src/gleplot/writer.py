@@ -86,8 +86,8 @@ from .sources import (
     resolve_reference,
 )
 
-#: A quoted string in a GLE line.
-_QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
+#: The parts of a GLE line that are not code: quoted strings and a comment.
+_NOT_CODE_RE = re.compile(r"(\"[^\"]*\"|'[^']*'|!.*)")
 
 #: The linestyles a guide draws no line for.
 _NO_LINE = ("none", "None", "", " ", None)
@@ -1519,6 +1519,10 @@ class GLEWriter:
         # (reserve_datasets); _new_dataset skips them. GLE clears its datasets
         # at 'begin graph', so end_graph clears these.
         self._reserved_datasets: Set[int] = set()
+        # In the current graph block, the ``_gle_name`` of each written
+        # series that carries one -> the name it was written under, for the
+        # raw lines that read it (see _bind_raw_reads).
+        self._raw_reads: Dict[str, str] = {}
         # id of each series written as one dataset -> the raw (unshifted) name
         # it was given, for the ``let`` of a DerivedSeries that reads it.
         self._dataset_names: Dict[int, str] = {}
@@ -1867,9 +1871,10 @@ class GLEWriter:
         changes the REAL GLE state but not this Python-side bookkeeping.
         """
         if passthrough:
-            self.lines_gle.extend(passthrough)
+            self.lines_gle.extend(self._bind_raw_reads(passthrough))
         self.lines_gle.append("end graph")
         self._reserved_datasets = set()
+        self._raw_reads = {}
         # Guides GLE has to range for itself: drawn now, while xgmin and
         # xg() address the graph just closed (gleplot.guides).
         self.lines_gle.extend(self._pending_guide_lines)
@@ -3222,8 +3227,8 @@ class GLEWriter:
         -----
         Only the names raw GLE defines are reserved: those a ``data``
         statement names and the target of a ``let``. A raw line that only
-        reads a dataset (a fit, a fill, a restyle) is left reading the name
-        the written series would have had anyway.
+        reads a written series' dataset (a fit, a fill, a restyle) is
+        renamed to follow it instead (:meth:`_bind_raw_reads`).
 
         A ``data`` statement that names no datasets fills the lowest
         undefined ones (``freedataset`` in GLE's graph.cpp), and the raw
@@ -3231,27 +3236,80 @@ class GLEWriter:
         one, every name up to the highest a raw line uses is reserved,
         leaving those slots free for it.
         """
-        defined: Set[int] = set()
-        used = 0
-        bare_data = False
-        for line in raw_lines:
-            # Names inside a string or a comment are not datasets.
-            code = _QUOTED_RE.sub("", line).split("!", 1)[0]
-            words = code.split(None, 1)
-            if not words:
-                continue
-            names = [int(m[1:]) for m in _DATASET_NAME_RE.findall(code)]
-            used = max([used, *names])
-            keyword = words[0].lower()
-            if keyword == "data":
-                defined.update(names)
-                bare_data = bare_data or not names
-            elif keyword == "let":
-                target = _DATASET_NAME_RE.findall(code.split("=", 1)[0])
-                defined.update(int(m[1:]) for m in target)
+        defined, read, bare_data = self.raw_dataset_use(raw_lines)
+        numbers = {int(name[1:]) for name in defined}
         if bare_data:
-            defined.update(range(1, used + 1))
-        self._reserved_datasets = defined
+            used = max((int(name[1:]) for name in defined | read), default=0)
+            numbers.update(range(1, used + 1))
+        self._reserved_datasets = numbers
+
+    @staticmethod
+    def raw_dataset_use(raw_lines: Sequence[str]) -> Tuple[Set[str], Set[str], bool]:
+        """The ``dN`` names *raw_lines* define and read, lowercased, and
+        whether one of them is a ``data`` statement that names no datasets.
+
+        A ``data`` statement defines the names it gives and a ``let`` its
+        target; every other name a line mentions is read. Names inside a
+        string or a comment are not datasets.
+        """
+        defined: Set[str] = set()
+        read: Set[str] = set()
+        bare_data = False
+
+        def names(code: str) -> Set[str]:
+            return {m.lower() for m in _DATASET_NAME_RE.findall(code)}
+
+        for line in raw_lines:
+            code = _NOT_CODE_RE.sub("", line)
+            words = code.split(None, 1)
+            keyword = words[0].lower() if words else ""
+            if keyword == "data":
+                defined |= names(code)
+                bare_data = bare_data or not names(code)
+                continue
+            if keyword == "let":
+                target, _equals, code = code.partition("=")
+                defined |= names(target)
+            read |= names(code)
+        return defined, read, bare_data
+
+    def _name_dataset(self, series: Series, name: str) -> None:
+        """Record that *series* was written as dataset *name*."""
+        self._dataset_names[id(series)] = name
+        if "_gle_name" in series:
+            self._raw_reads[series["_gle_name"].lower()] = name
+
+    def _bind_raw_reads(self, raw_lines: Sequence[str]) -> List[str]:
+        """*raw_lines* reading each written series under the name it was given.
+
+        A series loaded from a file carries ``_gle_name``, its dataset name
+        there, when a raw line kept in its block reads it (a ``fill``, a
+        ``bar``, a fit ``let``). The writer numbers datasets afresh, so each
+        such reference is renamed to the name the series was written under.
+
+        Notes
+        -----
+        ``open_gle`` never sets ``_gle_name`` to a name a raw ``data`` or
+        ``let`` in the block defines, and no series is written under one
+        (:meth:`reserve_datasets`), so a raw dataset keeps its name. Names
+        inside a string or a comment are not datasets.
+        """
+        names = {old: new for old, new in self._raw_reads.items() if old != new}
+        if not names:
+            return list(raw_lines)
+
+        def rename(code: str) -> str:
+            return _DATASET_NAME_RE.sub(
+                lambda m: names.get(m.group(0).lower(), m.group(0)), code
+            )
+
+        bound = []
+        for line in raw_lines:
+            parts = _NOT_CODE_RE.split(line)
+            bound.append(
+                "".join(part if i % 2 else rename(part) for i, part in enumerate(parts))
+            )
+        return bound
 
     def _new_dataset(self) -> str:
         """Name a fresh dataset: the next ``dN`` that raw GLE does not use."""
@@ -3394,7 +3452,7 @@ class GLEWriter:
 
         # Generate plot command with unique dataset name
         d_name = self._new_dataset()
-        self._dataset_names[id(series)] = d_name
+        self._name_dataset(series, d_name)
 
         cmd = (
             f"    data {_format_data_filename(file_name)} "
@@ -3527,7 +3585,7 @@ class GLEWriter:
             if name in series:
                 line[name] = series[name]
         self.add_line(line, binding=binding)
-        self._dataset_names[id(series)] = self._dataset_names.pop(id(line))
+        self._name_dataset(series, self._dataset_names.pop(id(line)))
 
     def _add_sized_scatter(self, series: Series, binding: Optional[ColumnBinding]):
         """A scatter whose points each have their own size (GLE ``mdata``).
@@ -3619,6 +3677,7 @@ class GLEWriter:
         )
         file_name = binding.data_file if binding is not None else series["data_file"]
         d_name = self._new_dataset()
+        self._name_dataset(series, d_name)
         d_extra = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(file_name)} "
@@ -4073,7 +4132,7 @@ class GLEWriter:
     ) -> None:
         """``let dK = <definition> [from a] [to b] [step h] [options]`` and its line."""
         target = self._new_dataset()
-        self._dataset_names[id(series)] = target
+        self._name_dataset(series, target)
         parts = [f"let {target} = {definition}"]
         for key, word in (("let_from", "from"), ("let_to", "to"), ("let_step", "step")):
             if key in series:
@@ -4871,7 +4930,7 @@ class GLEWriter:
         nomiss = series.get("nomiss", False)
         line_mode = series.get("line_mode")
         d_main = self._new_dataset()
-        self._dataset_names[id(series)] = d_main
+        self._name_dataset(series, d_main)
 
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"
