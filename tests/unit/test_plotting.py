@@ -2966,3 +2966,32 @@ def test_a_heatmap_grid_keeps_values_six_figures_would_merge(tmp_path):
     ax.imshow(1.0 + 1e-8 * np.arange(4.0).reshape(2, 2), extent=(0, 2, 0, 2))
     grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
     assert grid.splitlines()[1:] == ["1 1.00000001", "1.00000002 1.00000003"]
+
+
+def test_raised_columns_zero_nothing_six_figures_kept(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([0.0, 1.0, 2.0, 3.0], [0.001, 0.002, 1e5, 1e5 + 0.3])
+    assert _saved(fig, tmp_path)["p_0.dat"].splitlines()[1:] == [
+        "0 0.001",
+        "1 0.002",
+        "2 100000",
+        "3 100000.3",
+    ]
+
+
+def test_a_log_limit_below_1e10_is_not_written_zero(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1.0, 2.0], [1e-11, 1.0])
+    ax.set_yscale("log")
+    ax.set_ylim(1e-12, 1.0)
+    assert "yaxis min 1e-12 max 1 log" in _saved(fig, tmp_path)["fig.gle"]
+
+
+def test_a_timestamp_heatmap_extent_keeps_its_width(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.arange(6.0).reshape(2, 3), extent=(1.7e9, 1.7e9 + 60, 0, 1))
+    grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
+    assert grid.startswith("! nx 3 ny 2 xmin 1.7e+09 xmax 1.70000006e+09 ymin 0")

@@ -470,10 +470,12 @@ figures as it needs instead, and so is an axis range set with `set_xlim` or
     ax.plot([1.7e9, 1.7e9 + 60, 1.7e9 + 121], [1, 2, 3])
     fig.savefig('stamps.gle')   # stamps_0.dat holds 1700000000, 1700000060, ...
 
-Only a difference larger than a millionth of the range a column covers counts,
-so a densely sampled curve keeps 6 figures where neighbouring samples near a
-peak round alike, and floating-point noise such as `np.cos(np.pi / 2)` is still
-written `0`.
+Only a difference larger than a millionth of the range a column covers counts.
+A densely sampled curve keeps 6 figures where neighbouring samples near a peak
+round alike, and floating-point noise such as `np.cos(np.pi / 2)` in a column
+of values near 1 is still written `0`. A column of nothing but noise is written
+as it is, as matplotlib plots it. Other numbers in data units, such as a text
+position or a reference line, keep 6 figures.
 
 ## Resetting to Defaults
 

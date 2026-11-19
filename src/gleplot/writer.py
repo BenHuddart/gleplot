@@ -963,7 +963,10 @@ def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     back from its file decides the same way.
     """
     fmt = GLEWriter._format_number
-    z = np.vectorize(lambda v: float(fmt(float(v))))(np.asarray(series["z"], float))
+    z = np.asarray(series["z"], float)
+    z = np.array([float(t) for t in GLEWriter._format_column(z.ravel())]).reshape(
+        z.shape
+    )
     levels = [float(fmt(v)) for v in series["levels"]]
     ny, nx = z.shape
     px, py = series["pixels"]
@@ -2246,7 +2249,7 @@ class GLEWriter:
         lo, hi, negate = self._axis_direction(lo, hi)
         bare = f"    {prefix}axis"
         cmd = bare
-        cmd += self._axis_range(lo, hi)
+        cmd += self._axis_range(lo, hi, log)
         if log:
             cmd += " log"
         if negate:
@@ -2320,7 +2323,7 @@ class GLEWriter:
         y2_styled = style is not _NO_STYLE and style != _NO_STYLE
         if lo is not None or hi is not None or log or off or y2_on or y2_styled:
             cmd = "    y2axis"
-            cmd += self._axis_range(lo, hi)
+            cmd += self._axis_range(lo, hi, log)
             if log:
                 cmd += " log"
             if negate:
@@ -2412,7 +2415,7 @@ class GLEWriter:
             or x2_tick_styled
         ):
             cmd = "    x2axis"
-            cmd += self._axis_range(lo, hi)
+            cmd += self._axis_range(lo, hi, log)
             if log:
                 cmd += " log"
             elif x2_lin:
@@ -5894,7 +5897,7 @@ class GLEWriter:
         """
         z = np.asarray(z, dtype=float)
         ny, nx = z.shape
-        x0, x1, y0, y1 = (self._format_number(v) for v in extent)
+        x0, x1, y0, y1 = self._format_extent(extent)
         header = f"! nx {nx} ny {ny} xmin {x0} xmax {x1} ymin {y0} ymax {y1}"
         rows = z[::-1] if origin == "upper" else z
         lines = [header]
@@ -6042,7 +6045,7 @@ class GLEWriter:
         form would round away.
         """
         fmt = self._format_number
-        edges = [fmt(v) for v in series["extent"]]
+        edges = self._format_extent(series["extent"])
         x0, x1, y0, y1 = (float(v) for v in edges)
         z = np.asarray(series["z"], dtype=float)
         ny, nx = z.shape
@@ -6075,7 +6078,7 @@ class GLEWriter:
         :meth:`add_cells_sidecar`.
         """
         fmt = self._format_number
-        edges = [fmt(v) for v in series["extent"]]
+        edges = self._format_extent(series["extent"])
         x0, x1, y0, y1 = (float(v) for v in edges)
         z = np.asarray(series["z"], dtype=float)
         ny, nx = z.shape
@@ -6866,12 +6869,24 @@ class GLEWriter:
         return str(val)
 
     @classmethod
-    def _axis_range(cls, lo: Optional[float], hi: Optional[float]) -> str:
-        """The `` min .. max ..`` of an axis line; the pair is one column."""
-        lo_text, hi_text = cls._format_column([lo, hi])
+    def _axis_range(cls, lo: Optional[float], hi: Optional[float], log: bool) -> str:
+        """The `` min .. max ..`` of an axis line.
+
+        The pair is one column; on a log axis each end is its own, since a
+        linear span says nothing about how far a decade-wide limit may move.
+        """
+        if log:
+            lo_text, hi_text = cls._format_column([lo]) + cls._format_column([hi])
+        else:
+            lo_text, hi_text = cls._format_column([lo, hi])
         return (f" min {lo_text}" if lo is not None else "") + (
             f" max {hi_text}" if hi is not None else ""
         )
+
+    @classmethod
+    def _format_extent(cls, extent: Sequence[float]) -> List[str]:
+        """``(xmin, xmax, ymin, ymax)`` as text, each axis's pair one column."""
+        return cls._format_column(extent[:2]) + cls._format_column(extent[2:4])
 
     @classmethod
     def _format_grid(cls, z: np.ndarray, joined: bool = True) -> List[Any]:
@@ -6904,22 +6919,33 @@ class GLEWriter:
             for i, v in enumerate(values)
             if isinstance(v, (int, float)) and math.isfinite(v)
         ]
-        out = [cls._format_number(v) for v in values]
-        nums = [float(values[i]) for i in index]
-        precision = cls._column_precision(nums)
+        numeric = set(index)
+        out = [
+            "" if i in numeric else cls._format_number(v) for i, v in enumerate(values)
+        ]
+        if not index:
+            return out
+        ordered, where = np.unique(
+            np.asarray([values[i] for i in index], dtype=float), return_inverse=True
+        )
+        texts = [cls._format_number(v) for v in ordered]
+        precision = cls._column_precision(ordered, texts)
         while precision is not None:
-            tol = cls._column_tolerance(np.unique(nums))
-            texts = cls._column_texts(nums, precision, tol)
-            nums = [float(t) for t in texts]
-            settled = cls._column_precision(nums)
+            texts = cls._column_texts(ordered, precision)
+            ordered = np.unique(np.asarray([float(t) for t in texts]))
+            # Rounding can only merge values, never reorder them.
+            where = np.searchsorted(ordered, [float(t) for t in texts])[where]
+            texts = cls._column_texts(ordered, precision)
+            settled = cls._column_precision(
+                ordered, [cls._format_number(v) for v in ordered]
+            )
             if settled == precision:
-                for i, text in zip(index, texts):
-                    out[i] = text
                 break
+            if settled is None:
+                texts = [cls._format_number(v) for v in ordered]
             precision = settled
-        else:
-            for i, v in zip(index, nums):
-                out[i] = cls._format_number(v)
+        for i, k in zip(index, where.ravel()):
+            out[i] = texts[k]
         return out
 
     @staticmethod
@@ -6928,36 +6954,49 @@ class GLEWriter:
 
         A millionth of the column's span: six significant figures of the
         range the values cover, so samples a millionth of a curve's height
-        apart near a peak are not data, while timestamps a minute apart are.
+        apart near a peak are not data, while timestamps a minute apart over
+        a few minutes are.
         Never below 1e-12 of the largest magnitude, which is float noise
         (``cos(pi / 2)`` is ``6e-17``).
         """
         size = max(abs(ordered[0]), abs(ordered[-1]))
         return float(max(1e-6 * (ordered[-1] - ordered[0]), 1e-12 * size))
 
-    @staticmethod
-    def _column_texts(nums: List[float], precision: int, tol: float) -> List[str]:
-        """``nums`` at ``precision`` significant figures; below ``tol / 2`` is 0."""
-        return ["0" if abs(v) <= tol / 2 else f"{v:.{precision}g}" for v in nums]
+    @classmethod
+    def _column_texts(cls, ordered: np.ndarray, precision: int) -> List[str]:
+        """``ordered`` at ``precision`` significant figures.
+
+        A value :meth:`_format_number` writes ``0`` stays ``0`` while it is
+        within half the column's tolerance of it, so float noise is not
+        written out and nothing is zeroed that was not zeroed before.
+        """
+        tol = cls._column_tolerance(ordered)
+        return [
+            "0" if abs(v) < 1e-10 and abs(v) <= tol / 2 else f"{v:.{precision}g}"
+            for v in ordered
+        ]
 
     @classmethod
-    def _column_precision(cls, nums: List[float]) -> Optional[int]:
-        """None when :meth:`_format_number` keeps ``nums``, else the precision."""
-        if not nums:
-            return None
-        ordered = np.unique(np.asarray(nums, dtype=float))
+    def _column_precision(cls, ordered: np.ndarray, texts: List[str]) -> Optional[int]:
+        """None when ``texts``, the sorted distinct ``ordered`` as
+        :meth:`_format_number` writes them, keep the column; else the precision.
+        """
         tol = cls._column_tolerance(ordered)
-        fmt = cls._format_number
         size = np.abs(ordered)
         if not (
             np.any((size < 1e-10) & (size > tol / 2))
-            or any(abs(float(fmt(v)) - v) > tol / 2 for v in ordered[size > 1e10])
-            or cls._merges(ordered, [fmt(v) for v in ordered], tol)
+            or any(
+                abs(float(t) - v) > tol / 2
+                for t, v, big in zip(texts, ordered, size > 1e10)
+                if big
+            )
+            or cls._merges(ordered, texts, tol)
         ):
             return None
         for precision in range(6, 17):
-            texts = cls._column_texts(list(ordered), precision, tol)
-            written = np.array([float(t) for t in texts])
+            written = np.array(
+                [float(t) for t in cls._column_texts(ordered, precision)]
+            )
             if np.all(np.abs(written - ordered) <= tol / 2):
                 return precision
         return 17
