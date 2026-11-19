@@ -1867,7 +1867,7 @@ def _is_straight_connection(connection: Any) -> bool:
 class Axes:
     """Matplotlib-like axes for plotting."""
 
-    def __init__(self, figure, position: Optional[Tuple[int, ...]] = None):
+    def __init__(self, figure, position: Optional[tuple] = None):
         """
         Initialize axes.
 
@@ -1876,7 +1876,8 @@ class Axes:
         figure : Figure
             Parent figure
         position : tuple
-            Subplot position (rows, cols, index) for future multi-plot support
+            Subplot position ``(rows, cols, index)``; ``index`` is an int, or
+            a ``(first, last)`` tuple for an axes spanning several cells.
         """
         self.figure = figure
         self.position = position
@@ -8393,7 +8394,11 @@ class Axes:
             # before this field existed simply has no key here, and
             # from_dict tolerates that by minting a fresh id on load.
             "axes_id": self.axes_id,
-            "position": list(self.position) if self.position is not None else None,
+            "position": (
+                [list(v) if isinstance(v, tuple) else v for v in self.position]
+                if self.position is not None
+                else None
+            ),
             "xlabel_text": self.xlabel_text,
             "ylabel_text": self.ylabel_text,
             "y2label_text": self.y2label_text,
@@ -8493,7 +8498,7 @@ class Axes:
         """
         position = d.get("position")
         if position is not None:
-            position = tuple(position)
+            position = tuple(tuple(v) if isinstance(v, list) else v for v in position)
         ax = cls(figure, position)
 
         # Stable opaque identity (see __init__). ``cls(figure, position)``

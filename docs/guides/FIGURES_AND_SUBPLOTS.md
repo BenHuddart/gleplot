@@ -48,6 +48,29 @@ fig.savefig('grid.gle')
 The axes come back as a flat list in row order, not matplotlib's 2-D array;
 a 1×1 grid returns the axes itself.
 
+### Panels spanning several cells
+
+As in matplotlib, an index that is a `(first, last)` tuple makes one axes
+span the rectangle of cells between those two, and the gaps between them:
+
+```python
+import numpy as np
+import gleplot as glp
+
+x = np.linspace(0, 10, 100)
+fig = glp.figure(figsize=(8, 6))
+
+top = fig.add_subplot(2, 2, (1, 2))   # the whole top row
+top.plot(x, np.sin(x))
+
+fig.add_subplot(2, 2, 3).plot(x, np.cos(x))
+fig.add_subplot(2, 2, 4).plot(x, x)
+```
+
+With shared axes, a spanning panel counts as being in the last row or
+column it reaches. `open_gle` recovers the spans of a grid whose panels
+cover every cell once.
+
 ## Shared axes
 
 Share the x-axis or y-axis when panels should be compared directly.

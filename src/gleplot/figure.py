@@ -258,8 +258,12 @@ def _page_text(kind: str, s) -> str:
     return "\n".join(lines)
 
 
-def _grid_position(ax: Axes) -> Tuple[int, int, int]:
-    """``(rows, cols, index)`` of an axes that belongs to a figure.
+def _grid_cells(ax: Axes) -> Tuple[int, int, Tuple[int, int], Tuple[int, int]]:
+    """``(rows, cols, (first_row, last_row), (first_col, last_col))`` of an axes.
+
+    Rows and columns count from 0 at the top left and the ranges are
+    inclusive. An ``index`` that is a ``(first, last)`` pair spans the
+    rectangle of cells between those two, as matplotlib's does.
 
     ``Axes.position`` is optional only because an axes can be constructed
     detached; every axes a figure lays out was given one by ``add_subplot``.
@@ -267,7 +271,29 @@ def _grid_position(ax: Axes) -> Tuple[int, int, int]:
     position = ax.position
     assert position is not None, "an axes in a figure always has a grid position"
     rows, cols, idx = position
-    return rows, cols, idx
+    first, last = idx if isinstance(idx, tuple) else (idx, idx)
+    rows_ = sorted(((first - 1) // cols, (last - 1) // cols))
+    cols_ = sorted(((first - 1) % cols, (last - 1) % cols))
+    return rows, cols, (rows_[0], rows_[1]), (cols_[0], cols_[1])
+
+
+def _subplot_span(rows: int, cols: int, idx: tuple) -> Tuple[int, int]:
+    """Check an ``add_subplot`` ``(first, last)`` index and return it as ints."""
+    n = rows * cols
+    if len(idx) != 2 or not all(
+        isinstance(i, (int, np.integer)) and not isinstance(i, bool) for i in idx
+    ):
+        raise ValueError(
+            "add_subplot() takes a spanning index as a (first, last) tuple of "
+            f"two integers, got {idx!r}."
+        )
+    first, last = int(idx[0]), int(idx[1])
+    if not (1 <= first <= n and 1 <= last <= n):
+        raise ValueError(
+            f"add_subplot({rows}, {cols}, {idx!r}): both ends of the span must "
+            f"be subplot numbers from 1 to {n}."
+        )
+    return first, last
 
 
 @dataclass(frozen=True)
@@ -640,10 +666,13 @@ class Figure:
 
         Parameters
         ----------
-        *args : int
+        *args : int or (int, int)
             Subplot specification (rows, cols, index) or single int
             E.g., add_subplot(2, 2, 1) or add_subplot(221). Omitted, the
-            figure's only subplot, ``(1, 1, 1)``.
+            figure's only subplot, ``(1, 1, 1)``. An index that is a
+            ``(first, last)`` tuple spans every cell of the rectangle between
+            those two, as in matplotlib: ``add_subplot(2, 2, (1, 2))`` takes
+            the whole top row.
         projection : {None, 'rectilinear', 'polar'}, optional
             ``'polar'`` makes a polar axes: :meth:`Axes.plot` and
             :meth:`Axes.scatter` take ``(theta, r)`` with theta in radians,
@@ -679,6 +708,8 @@ class Figure:
                 raise ValueError(f"Invalid subplot spec: {args[0]}")
         else:
             rows, cols, idx = args
+        if isinstance(idx, tuple):
+            idx = _subplot_span(rows, cols, idx)
 
         ax = Axes(self, (rows, cols, idx))
 
@@ -769,21 +800,19 @@ class Figure:
         flags to what a fresh ``add_subplot``
         would have produced. Changing the rules here changes them everywhere.
         """
-        rows, cols, idx = _grid_position(ax)
-        # Convert 1-based index to 0-based row/col.
-        row = (idx - 1) // cols  # 0 = top row
-        col = (idx - 1) % cols  # 0 = left col
+        # A spanning axes is judged by its bottom row and its outer columns.
+        rows, cols, (top_row, bottom_row), (left_col, right_col) = _grid_cells(ax)
 
         if self.sharex:
             # Only show x-axis labels/ticks on bottom row
-            ax._show_xlabel = row == rows - 1
-            ax._show_xticks = row == rows - 1
+            ax._show_xlabel = bottom_row == rows - 1
+            ax._show_xticks = bottom_row == rows - 1
             # Remove last x-tick label if not the bottom row (to prevent overlap when subplots touch)
-            ax._remove_last_xtick = row < rows - 1
+            ax._remove_last_xtick = bottom_row < rows - 1
             ax._remove_first_xtick = False
             # When sharing x, y-axes touch vertically - remove last (top) y-label from all but top row
             # (highest y-label of lower plots could overlap upward into the plot above)
-            ax._remove_last_ytick = row > 0
+            ax._remove_last_ytick = top_row > 0
             ax._remove_first_ytick = False
         else:
             ax._show_xlabel = True
@@ -795,10 +824,10 @@ class Figure:
 
         if self.sharey:
             # Only show y-axis labels/ticks on leftmost column
-            ax._show_ylabel = col == 0
-            ax._show_yticks = col == 0
+            ax._show_ylabel = left_col == 0
+            ax._show_yticks = left_col == 0
             # When sharing y, x-axes touch horizontally - remove last x-label from all but rightmost
-            ax._remove_last_xtick = col < cols - 1
+            ax._remove_last_xtick = right_col < cols - 1
             ax._remove_first_xtick = False
             # Y-axis labels don't overlap in horizontal arrangement (only shown on leftmost)
             # No need to remove first/last y-labels when plots are side-by-side
@@ -1077,8 +1106,8 @@ class Figure:
 
     def _grid_shape(self) -> Tuple[int, int]:
         """``(rows, cols)`` of the subplot grid the layout fills."""
-        max_rows = max((_grid_position(ax)[0] for ax in self.axes_list), default=1)
-        max_cols = max((_grid_position(ax)[1] for ax in self.axes_list), default=1)
+        max_rows = max((_grid_cells(ax)[0] for ax in self.axes_list), default=1)
+        max_cols = max((_grid_cells(ax)[1] for ax in self.axes_list), default=1)
         return max_rows, max_cols
 
     def _colorbar_gaps_cm(
@@ -1097,8 +1126,9 @@ class Figure:
             vertical, horizontal = self._axes_colorbar_reserved_cm(ax, resolution)
             if not (vertical or horizontal):
                 continue
-            _rows, cols, idx = _grid_position(ax)
-            row, col = (idx - 1) // cols, (idx - 1) % cols
+            # A spanning axes' bar sits beside its last column / below its
+            # last row.
+            _rows, _cols, (_r0, row), (_c0, col) = _grid_cells(ax)
             col_extra[col] = max(col_extra.get(col, 0.0), vertical)
             row_extra[row] = max(row_extra.get(row, 0.0), horizontal)
         return col_extra, row_extra
@@ -1207,15 +1237,20 @@ class Figure:
         rects: List[tuple] = []
         cells: List[tuple] = []
         for ax in self.axes_list:
-            _rows, cols, idx = _grid_position(ax)
-            # Convert 1-based index to row/col (row-major, top-to-bottom)
-            row = (idx - 1) // cols  # 0-based, 0 = top row
-            col = (idx - 1) % cols  # 0-based, 0 = left col
-
-            cell_x = col_x_offsets[col]
-            cell_w = col_widths[col]
-            cell_h = row_heights[row]
-            y_pos = row_y_bottoms[row]
+            _rows, _cols, (top_row, bottom_row), (left_col, right_col) = _grid_cells(ax)
+            cell_x = col_x_offsets[left_col]
+            y_pos = row_y_bottoms[bottom_row]
+            # A spanning axes covers its cells and the gaps between them. The
+            # one-cell case keeps the plain cell size, so its arithmetic (and
+            # emitted size) is unchanged.
+            if right_col > left_col:
+                cell_w = col_x_offsets[right_col] + col_widths[right_col] - cell_x
+            else:
+                cell_w = col_widths[left_col]
+            if bottom_row > top_row:
+                cell_h = row_y_bottoms[top_row] + row_heights[top_row] - y_pos
+            else:
+                cell_h = row_heights[top_row]
 
             # A broken-axis segment occupies a slice of its grid cell rather
             # than the whole thing; everything else about the emission is

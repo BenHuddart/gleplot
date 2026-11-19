@@ -9240,7 +9240,7 @@ class _Recognizer:
         )
         return stmts[0].raw == expected
 
-    def _infer_positions(self, parsed_axes) -> List[Tuple[int, int, int]]:
+    def _infer_positions(self, parsed_axes) -> List[tuple]:
         """Infer (rows, cols, idx) per axes from recovered amove positions."""
         n = len(parsed_axes)
         if n <= 1:
@@ -9273,6 +9273,9 @@ class _Recognizer:
         rows = len(row_clusters)
         cols = len(col_clusters)
         if rows * cols != n:
+            spanned = self._infer_spans(parsed_axes)
+            if spanned is not None:
+                return spanned
             self._note(
                 ImportCategory.LAYOUT,
                 "amove positions do not form a clean grid; using n x 1 fallback",
@@ -9286,6 +9289,47 @@ class _Recognizer:
             row = _which_cluster(a[1], row_clusters, reverse=True)
             one_based = row * cols + col + 1
             positions.append((rows, cols, one_based))
+        return positions
+
+    def _infer_spans(self, parsed_axes) -> Optional[List[tuple]]:
+        """Grid positions for graphs that tile a grid with spanning cells.
+
+        Each graph's frame rect (its ``amove`` + ``size w h`` + ``scale 1 1``)
+        is placed on the columns and rows its clustered edges mark out (see
+        :func:`_grid_bands`): a graph that starts in one column or row and
+        ends in another spans those cells, and gets ``add_subplot``'s
+        ``(first, last)`` index. ``None`` unless every graph has such a rect
+        and together they cover each cell of the grid exactly once.
+        """
+        rects = []
+        for info in parsed_axes:
+            size = self._invertible_triple(info.get("geometry_stmts") or [])
+            if size is None:
+                return None
+            x, y = info["amove"]
+            rects.append((x, y, x + size[0], y + size[1]))
+
+        cols_ = _grid_bands([r[0] for r in rects], [r[2] for r in rects])
+        rows_ = _grid_bands([r[3] for r in rects], [r[1] for r in rects], reverse=True)
+        rows, cols = len(rows_[1]), len(cols_[1])
+
+        positions: List[tuple] = []
+        covered: Set[Tuple[int, int]] = set()
+        for x0, y0, x1, y1 in rects:
+            c0, c1 = _band_span(cols_, x0, x1)
+            r0, r1 = _band_span(rows_, y1, y0)
+            if c0 is None or c1 is None or r0 is None or r1 is None:
+                return None
+            if c0 > c1 or r0 > r1:
+                return None
+            cells = {(r, c) for r in range(r0, r1 + 1) for c in range(c0, c1 + 1)}
+            if cells & covered:
+                return None
+            covered |= cells
+            first, last = r0 * cols + c0 + 1, r1 * cols + c1 + 1
+            positions.append((rows, cols, first if first == last else (first, last)))
+        if len(covered) != rows * cols:
+            return None
         return positions
 
     def _populate_axes(self, ax, info):
@@ -9872,6 +9916,37 @@ def _cluster(values, tol=0.5, reverse=False):
     # representative = mean of each cluster
     reps = [sum(c) / len(c) for c in clusters]
     return reps
+
+
+def _grid_bands(starts, ends, reverse=False):
+    """Columns (or rows) marked out by the start and end edges of frame rects.
+
+    Returns ``(edges, bands)``: the clustered edges in order, and each band
+    as a pair of indices into them. Every interval between neighbouring
+    edges is a band, except one running from an edge where only frames end
+    to an edge where only frames start: that is the gap between two cells.
+    A cell no frame starts or ends in on its own (one a spanning frame
+    covers) merges with its neighbour into one band.
+    """
+    edges = _cluster(list(starts) + list(ends), reverse=reverse)
+    is_start = {_which_cluster(v, edges) for v in starts}
+    is_end = {_which_cluster(v, edges) for v in ends}
+    bands = [
+        (i, i + 1) for i in range(len(edges) - 1) if i in is_start or i + 1 in is_end
+    ]
+    return edges, bands
+
+
+def _band_span(grid, start, end):
+    """``(first, last)`` band indices a frame from ``start`` to ``end`` covers.
+
+    ``None`` for an end that does not sit on a band's edge.
+    """
+    edges, bands = grid
+    i, j = _which_cluster(start, edges), _which_cluster(end, edges)
+    first = next((k for k, band in enumerate(bands) if band[0] == i), None)
+    last = next((k for k, band in enumerate(bands) if band[1] == j), None)
+    return first, last
 
 
 def _which_cluster(value, reps, tol=None, reverse=False):

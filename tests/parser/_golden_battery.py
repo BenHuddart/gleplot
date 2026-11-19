@@ -463,6 +463,17 @@ def subplots_grid_mixed():
     return fig
 
 
+def subplots_spanning():
+    """Cells spanning columns, rows, and a whole row, with shared x."""
+    fig = glp.Figure(data_prefix="golden", sharex=True)
+    fig.add_subplot(3, 3, (1, 2)).plot([1, 2, 3], [1, 2, 3])
+    fig.add_subplot(3, 3, (3, 6)).bar([1, 2, 3], [2, 4, 6])
+    for idx in (4, 5):
+        fig.add_subplot(3, 3, idx).scatter([1, 2, 3], [3, 2, 1], marker="o")
+    fig.add_subplot(3, 3, (7, 9)).plot([1, 2, 3], [3, 1, 2])
+    return fig
+
+
 def file_series():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1593,6 +1604,7 @@ BUILDERS = [
     subplots_sharex,
     subplots_sharex_with_colored_text,
     subplots_grid_mixed,
+    subplots_spanning,
     file_series,
     file_series_field_options,
     file_series_read_options,
