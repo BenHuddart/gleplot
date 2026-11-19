@@ -1597,6 +1597,36 @@ def test_a_scatter_colorbar_is_recovered_onto_its_scatter(tmp_path):
     assert rec.warnings == []
 
 
+@pytest.mark.parametrize("cmap", ["plasma", "viridis"])
+def test_a_scatter_bar_beside_a_heatmap_stays_the_scatters(tmp_path, cmap):
+    """A heatmap added after the scatter's bar draws no bar of its own."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], vmin=0)
+    fig.colorbar(ax=ax)
+    ax.imshow([[0.0, 1.0], [2.0, 3.0]], cmap=cmap, extent=(0, 2, 0, 2))
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path)
+    assert rec.figure._generate_gle_with_files() == fig._generate_gle_with_files()
+    if cmap == "plasma":
+        assert rec.figure.axes_list[0].scatters[0]["colorbar"]["zmin"] == 0.0
+
+
+def test_a_scatter_bar_goes_to_the_scatter_with_its_range(tmp_path):
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3])
+    fig.colorbar(ax=ax)
+    ax.scatter([0, 1, 2], [1, 2, 1], c=[4, 5, 6])
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    first, second = parse_gle_figure(path).figure.axes_list[0].scatters
+    assert first["colorbar"]["zmax"] == 3.0 and "colorbar" not in second
+
+
 def test_a_colorbar_call_with_nothing_to_show_is_noted(tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()

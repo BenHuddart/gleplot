@@ -403,3 +403,22 @@ def test_a_scatter_colorbar_survives_to_dict():
     fig.colorbar(orientation="horizontal", label="v")
     restored = glp.Figure.from_dict(fig.to_dict())
     assert restored._generate_gle_with_files() == fig._generate_gle_with_files()
+
+
+def test_a_heatmap_bar_replaces_the_scatter_bar_on_its_axes():
+    ax = _ax()
+    ax.scatter(X, Y, c=[1, 2, 3])
+    fig = ax.figure
+    fig.colorbar(ax=ax)
+    im = ax.imshow(np.arange(4.0).reshape(2, 2), cmap="plasma")
+    fig.colorbar(im)
+    assert "colorbar" not in ax.scatters[0]
+    assert _script(ax)[0].count("\ngleplot_colorbar_v zmin") == 1
+
+
+def test_a_lone_heatmap_still_takes_the_figure_bar():
+    """``fig.colorbar()`` found the heatmap before scatters had bars."""
+    fig, (a, b) = glp.subplots(1, 2)
+    im = a.imshow(np.arange(4.0).reshape(2, 2))
+    b.scatter(X, Y, c=[1, 2, 3])
+    assert fig.colorbar() is im["colorbar"]
