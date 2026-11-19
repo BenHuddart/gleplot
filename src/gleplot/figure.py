@@ -3753,6 +3753,7 @@ class Figure:
         resolution = resolution or SourceResolution()
         writer.reserve_datasets(ax.passthrough)
         self._write_axis_setup(writer, ax, frame)
+        self._warn_data_range_edges(ax, resolution)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
         for image in resolution.visible(ax.images):
@@ -3917,6 +3918,55 @@ class Figure:
             elif GLEWriter.writes_node_grid(hm):
                 self._warn_node_grid_overhang(ax, hm)
             writer.add_heatmap(hm)
+
+    @staticmethod
+    def _warn_data_range_edges(ax: Axes, resolution: SourceResolution) -> None:
+        """Warn where a series' data range (``xmin`` ... ``ymax``) draws nothing.
+
+        GLE takes a missing edge from the limit of the series' axis, so an
+        edge given alone at or beyond the far limit leaves an empty range,
+        and GLE stops with "invalid range". On a log axis an edge at or
+        below zero hides the series. Only limits the script writes can be
+        checked; ones left to GLE are not known here.
+        """
+        for series in resolution.visible(
+            [*ax.lines, *ax.scatters, *ax.errorbars, *ax.file_series]
+        ):
+            for dim in ("x", "y"):
+                lo, hi = series.get(f"{dim}min"), series.get(f"{dim}max")
+                if lo is None and hi is None:
+                    continue
+                axis = series.get(f"{dim}axis") or dim
+                name = (
+                    f"series {series['label']!r}" if series.get("label") else "a series"
+                )
+                if getattr(ax, f"{axis}scale") == "log":
+                    bad = [v for v in (lo, hi) if v is not None and v <= 0]
+                    if bad:
+                        warn_external(
+                            f"The data range of {name} has {dim} edge {bad[0]:g} "
+                            f"on the log {axis} axis, so GLE draws nothing of "
+                            "it. Give positive edges."
+                        )
+                        continue
+                limits = (getattr(ax, f"{axis}min"), getattr(ax, f"{axis}max"))
+                if None in limits:
+                    continue
+                low, high = sorted(cast(Tuple[float, float], limits))
+                if lo is not None and hi is None and lo >= high:
+                    given, key, far, missing = lo, "min", high, "max"
+                elif hi is not None and lo is None and hi <= low:
+                    given, key, far, missing = hi, "max", low, "min"
+                else:
+                    continue
+                warn_external(
+                    f"The data range of {name} gives only {dim}{key} = "
+                    f"{given:g}, and GLE takes the missing {dim}{missing} "
+                    f"from the {axis} axis limit {far:g}, so the range is "
+                    "empty and GLE stops with 'invalid range for dimension "
+                    f"{dim.upper()}'. Give {dim}{missing} too, or widen the "
+                    f"{axis} limits."
+                )
 
     @staticmethod
     def _warn_node_grid_overhang(ax: Axes, grid: Series) -> None:

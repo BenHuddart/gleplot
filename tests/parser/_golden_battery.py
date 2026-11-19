@@ -572,6 +572,26 @@ def file_series():
     return fig
 
 
+def file_series_data_range():
+    """An errorbar file reference with its own data range."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.errorbar_from_file("external.dat", 1, 2, yerr_col=3, xmin=0.5, ymax=12)
+    return fig
+
+
+def errorbar_thinned_from_a_file():
+    """An error-bar dataset with the mdist and deresolve only a file can give.
+
+    Axes.errorbar does not take them; open_gle keeps them (#343).
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.errorbar([0, 1, 2, 3], [1, 2, 1, 2], yerr=0.1, marker="o")
+    ax.errorbars[0].update(mdist=0.4, deresolve=2, deresolve_average=True)
+    return fig
+
+
 def file_series_without_a_line():
     """``line_from_file(linestyle='none')``: a dataset with no ``line`` token,
     one with a marker as well, and one feeding a derived curve."""
@@ -2013,6 +2033,8 @@ BUILDERS = [
     inset_alone,
     aspect_ratios,
     file_series,
+    file_series_data_range,
+    errorbar_thinned_from_a_file,
     file_series_without_a_line,
     file_series_field_options,
     file_series_read_options,

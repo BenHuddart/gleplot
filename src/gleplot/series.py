@@ -1129,6 +1129,12 @@ class ErrorbarSeries(Series):
     xmax: float
     ymin: float
     ymax: float
+    #: ``mdist``, ``deresolve`` and ``deresolve_average`` as on
+    #: ``_XYSeries``, read from a file only: :meth:`Axes.errorbar` does not
+    #: take them, since GLE thins the markers but not the error bars.
+    mdist: float
+    deresolve: int
+    deresolve_average: bool
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_errorbar_column_names(
