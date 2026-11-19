@@ -225,6 +225,14 @@ the writer emits.
   area is halfway between the largest and smallest point's, as in
   matplotlib's legend. Sizes must be finite and not negative, and cannot be
   combined with `mdist` or `deresolve`.
+- Per-point colours work the same way: `ax.scatter(x, y, c=temperature,
+  cmap='viridis', vmin=0, vmax=300)` gets a `gleplot_cdata_<marker>_<cmap>`
+  sub, the values go into the data file, and a `let` maps them onto the
+  colormap. `c` may also be one colour, or one colour per point, which draws
+  one series per colour. Per-point colours cannot be combined with per-point
+  sizes. See "Scatter colours" in the
+  [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md) for how they differ
+  from matplotlib.
 - If a color or marker cannot be resolved, gleplot falls back to defaults (`BLACK` for color, `FCIRCLE` for marker).
 - Error bars take the series `color`, and so do their caps -- including bars-only
   series (`fmt='none'`, no marker and no line) and `capsize=0`. GLE draws error

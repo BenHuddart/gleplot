@@ -225,6 +225,39 @@ def mdata_sub_text(marker: str) -> str:
     )
 
 
+#: Name prefix of the subs behind per-point colours
+#: (:meth:`GLEWriter.add_scatter`): ``gleplot_cdata_<marker>_<cmap>``, lower
+#: case. No marker name has an underscore, so the first one ends the marker.
+CDATA_SUB_PREFIX = "gleplot_cdata_"
+
+
+def cdata_sub_name(marker: str, cmap: str) -> str:
+    """The marker sub that draws ``marker`` in ``cmap``'s colour per point."""
+    return f"{CDATA_SUB_PREFIX}{marker.lower()}_{_pal.canonical_cmap(cmap)}"
+
+
+def cdata_sub_text(marker: str, cmap: str) -> str:
+    """The sub and ``define marker`` that colour a built-in marker per point.
+
+    The sub's ``data`` is the point's ``mdata`` value: its colour value
+    already mapped onto ``[0, 1]`` by a ``let``, which the palette sub
+    clamps. GLE draws the legend marker with ``data`` 1, the colormap's last
+    colour. Like :func:`mdata_sub_text`, its text depends on nothing but its
+    name.
+    """
+    name = cdata_sub_name(marker, cmap)
+    return (
+        f"sub {name} size data\n"
+        "   gsave\n"
+        "   set hei size\n"
+        f"   set color gleplot_{_pal.canonical_cmap(cmap)}(data)\n"
+        f"   marker {marker.upper()}\n"
+        "   grestore\n"
+        "end sub\n"
+        f"define marker {name} {name}"
+    )
+
+
 #: The subs behind a polar axes (:meth:`GLEWriter.add_polar_frame`). The grid
 #: is drawn inside the graph block, in layer 200 with GLE's own grid, so the
 #: curves go over it; the tick labels are written after ``end graph``, like
@@ -3112,10 +3145,14 @@ class GLEWriter:
         Notes
         -----
         A series with per-point sizes (``mdata``) is drawn by
-        :meth:`_add_sized_scatter` instead.
+        :meth:`_add_sized_scatter` instead, and one with per-point colours
+        (``cdata``) by :meth:`_add_coloured_scatter`.
         """
         if "mdata" in series:
             self._add_sized_scatter(series, binding)
+            return
+        if "cdata" in series:
+            self._add_coloured_scatter(series, binding)
             return
         line = LineSeries(
             x=series["x"],
@@ -3205,16 +3242,93 @@ class GLEWriter:
         rows[mask] = "*"
         return rows
 
+    def _add_coloured_scatter(
+        self, series: Series, binding: Optional[ColumnBinding]
+    ) -> None:
+        """A scatter whose points each have their own colour (``cdata``).
+
+        Writes the values as a hidden dataset ``dC``, maps them onto
+        ``[0, 1]`` with ``let dK = (dC-vmin)/(vmax-vmin)`` (``(dC-v)*0`` when
+        the two limits are equal, which gives every point the colormap's first
+        colour), and draws ``dN marker gleplot_cdata_<marker>_<cmap> msize
+        <size> mdata dK``: the sub :func:`cdata_sub_text` defines colours each
+        point from its ``dK`` value. Neither ``dC`` nor ``dK`` has a display
+        line, so GLE neither draws nor autoscales to them.
+
+        As for :meth:`_add_sized_scatter`, a point GLE would drop from ``dN``
+        is written as a missing value, and so is one whose colour value is
+        not finite, which matplotlib does not draw either.
+        """
+        label = series["label"]
+        column_names = series.get("column_names")
+        x = np.asarray(series["x"])
+        y = np.asarray(series["y"])
+        values = np.asarray(series["cdata"], dtype=float)
+        if binding is None:
+            unmapped = ~np.isfinite(values)
+            x, y = self._missing_where_gle_drops(
+                x, y, series.get("xaxis", "x"), series.get("yaxis", "y"), unmapped
+            )
+            if unmapped.any():
+                cells = values.astype(object)
+                cells[unmapped] = "*"
+                values = cells
+        cols = self._write_columns(
+            series["data_file"],
+            [("x", x), ("y", y), ("c", values)],
+            column_names,
+            binding,
+        )
+        file_name = binding.data_file if binding is not None else series["data_file"]
+        d_name = f"d{self.dataset_index}"
+        d_values = f"d{self.dataset_index + 1}"
+        d_mapped = f"d{self.dataset_index + 2}"
+        self.dataset_index += 3
+        self.lines_gle.append(
+            f"    data {_format_data_filename(file_name)} "
+            f"{d_name}=c{cols[0]},c{cols[1]} {d_values}=c{cols[0]},c{cols[2]}"
+        )
+        low = self._format_number(float(series["vmin"]))
+        high = self._format_number(float(series["vmax"]))
+        # ``d2--5`` would not parse, so a negative vmin flips the operator.
+        shift = f"+{low[1:]}" if low.startswith("-") else f"-{low}"
+        scale = "*0" if low == high else f"/({high}{shift})"
+        self.lines_gle.append(f"    let {d_mapped} = ({d_values}{shift}){scale}")
+        offset = series.get("offset", 0.0)
+        display_name = self._apply_offset(d_name, offset) if offset else d_name
+        if self._polar_graph:
+            display_name = self._polar_dataset(display_name)
+        marker = cdata_sub_name(str(series["marker"]), series["cmap"])
+        msize = self._format_number(series["markersize"])
+        self.lines_gle.append(
+            f"    {display_name} marker {marker} msize {msize} mdata {d_mapped}"
+            + self._color_clause(series["color"])
+            + self._dataset_axis_clause(
+                series.get("xaxis", "x"), series.get("yaxis", "y")
+            )
+            + self._dataset_qualifier_clause(series, False)
+            + self._key_clause(label, bool(column_names) or binding is not None)
+        )
+        self._finish_legend_entry(label)
+
     def _missing_where_gle_drops(
-        self, x: np.ndarray, y: np.ndarray, xaxis: str, yaxis: str
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        xaxis: str,
+        yaxis: str,
+        also: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """``x`` and ``y`` with ``*`` where GLE would drop the point.
 
-        Unchanged (the same arrays) when GLE drops no point.
+        ``also`` marks more points to write as missing. Unchanged (the same
+        arrays) when no point is missing.
         """
         xf = np.asarray(x, dtype=float)
         yf = np.asarray(y, dtype=float)
         drop = np.isnan(xf) | np.isnan(yf)
+        if also is not None:
+            drop |= also
         if self._log_axes.get(xaxis):
             drop |= xf < 0
         if self._log_axes.get(yaxis):

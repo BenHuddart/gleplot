@@ -1133,6 +1133,41 @@ def scatter_per_point_sizes():
     return fig
 
 
+def scatter_per_point_colours():
+    """Per-point colours (GLE ``mdata`` through a generated colour sub).
+
+    Values with explicit limits (a negative ``vmin``, values outside them),
+    the default limits on the top axis with an offset and a clip window,
+    equal limits on a built-in palette, and a colour sequence.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = [0, 1, 2, 3]
+    ax.scatter(
+        x,
+        [1, 2, 3, 4],
+        c=[-2, 5, 7.5, 12],
+        cmap="plasma_r",
+        vmin=-1.5,
+        vmax=10,
+        label="mapped",
+    )
+    ax.scatter(
+        x,
+        [4, 3, 2, 1],
+        c=[0.25, 0.5, 0.75, 1.0],
+        marker="s",
+        fillstyle="none",
+        offset=0.5,
+        xaxis="x2",
+        ymax=3.0,
+    )
+    ax.scatter(x, [2, 2, 2, 2], c=[3, 3, 3, 3], cmap="gray", marker="^")
+    ax.scatter(x, [3, 1, 3, 1], c=["red", "blue", "red", "green"], label="listed")
+    ax.legend()
+    return fig
+
+
 def fill_forms():
     """Axis fill, a clipped band, and a closed polygon."""
     fig = glp.figure(data_prefix="golden")
@@ -1698,6 +1733,7 @@ BUILDERS = [
     dataset_qualifiers,
     scatter_field_options,
     scatter_per_point_sizes,
+    scatter_per_point_colours,
     fill_forms,
     fill_field_options,
     fill_orientations,

@@ -10,7 +10,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background, and axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `ax.plot(...)` | same |
-| `ax.scatter(...)` | same |
+| `ax.scatter(...)` | same, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
 | `ax.errorbar(...)` | same |
 | `ax.fill_between(...)` | same |
 | `ax.fill_betweenx(...)` / `ax.stackplot(...)` | same, see [Fills](#fills) |
@@ -224,6 +224,21 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 | `xmin`, `xmax`, `ymin`, `ymax` | the series' own clip window in data coordinates. Nothing is drawn outside it. |
 
 A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` does not take them: GLE thins the markers but not the whiskers under `deresolve`.
+
+## Scatter colours
+
+`ax.scatter(x, y, c=values, cmap='viridis', vmin=0, vmax=300)` colours each point, as in matplotlib. A GLE dataset has one colour, so the script gets a `gleplot_cdata_<marker>_<cmap>` sub that draws each point in its own colour. Each point's value comes from GLE's `mdata` and is mapped onto the colormap by a `let`. The values go into the series' data file as given. Where gleplot differs:
+
+| `scatter()` argument | gleplot |
+|---|---|
+| `c` with one number per point | wired, with `cmap`, `vmin` and `vmax`. A value outside `vmin`..`vmax` takes the end colour, and a point whose value is not finite is not drawn. The legend marker is drawn in the colormap's last colour, not the first point's: GLE draws a legend marker as if its value were `vmax`. |
+| `c` as one colour | the same as `color`. Passing both `c` and `color` raises `ValueError`. |
+| `c` with one colour per point | one series per distinct colour, in the order each colour first appears. Only the first series carries `label`. Points of one colour are drawn together, which only matters where points overlap. |
+| `c` with one number per point and `s` with one size per point | raises `ValueError`: a GLE dataset carries one per-point value. Pass one size, or one colour. |
+| `cmap`, `vmin`, `vmax` without numbers to map | warn and are ignored, as in matplotlib. |
+| `norm` | warns and is ignored: colours are always mapped linearly from `vmin` to `vmax`. |
+
+`fig.colorbar()` does not yet take a scatter: it shows a heatmap's colour scale only.
 
 ## Line caps and joins
 

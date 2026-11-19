@@ -38,6 +38,7 @@ from .series import HeatmapSeries, Series, TextAnnotation, is_visible
 from .sources import DataSource, source_of
 from .writer import (
     BOX_SUB,
+    CDATA_SUB_PREFIX,
     COLORBAR_AUTO_RANGE,
     COLORBAR_NTICKS,
     DEFAULT_COLORBAR_NTICKS,
@@ -52,6 +53,7 @@ from .writer import (
     KeyOptions,
     SourceResolution,
     _grid_z_file,
+    cdata_sub_text,
     image_sub_name,
     legend_column_breaks,
     mdata_sub_text,
@@ -64,6 +66,36 @@ from .writer import (
 _MDATA_MARKER_RE = re.compile(
     r"\bmarker\s+" + re.escape(MDATA_SUB_PREFIX) + r"(\w+)", re.IGNORECASE
 )
+
+#: A ``marker gleplot_cdata_<marker>_<cmap>`` reference in raw GLE; groups 1
+#: and 2 are the marker and the colormap.
+_CDATA_MARKER_RE = re.compile(
+    r"\bmarker\s+" + re.escape(CDATA_SUB_PREFIX) + r"([a-z0-9]+)_(\w+)",
+    re.IGNORECASE,
+)
+
+
+def _coloured_markers(ax: Axes, resolution: SourceResolution) -> Set[Tuple[str, str]]:
+    """The ``(marker, cmap)`` of each per-point colour sub ``ax`` draws with.
+
+    A dataset line kept as raw GLE may name one too: the parser dropped its
+    sub, so it is written again.
+    """
+    found = {
+        (str(sc["marker"]).lower(), sc["cmap"])
+        for sc in resolution.visible(ax.scatters)
+        if "cdata" in sc
+    }
+    for line in ax.passthrough:
+        for marker, cmap in _CDATA_MARKER_RE.findall(line):
+            try:
+                canonical = _pal.canonical_cmap(cmap)
+            except ValueError:
+                continue
+            if marker.upper() in MARKERS and canonical == cmap.lower():
+                found.add((marker.lower(), canonical))
+    return found
+
 
 #: Envelope identifiers for the gleplot project-file format.
 PROJECT_FORMAT = "gleplot-project"
@@ -3083,12 +3115,14 @@ class Figure:
         """Gather the palette/colorbar/clabel/wedge/box/rug/polar/image subs.
 
         Returns the deterministic ordered list of sub-definition texts: used
-        palette subs sorted by name, then the vertical and horizontal colorbar
-        subs (each if any bar uses it), then the contour-labels sub (if any
-        clabel), then the pie-wedge sub (if any wedge), then the box-plot subs
-        (if any box), then the rug subs (if any rug has a tick), then one
-        per-point marker-size sub per marker that a
-        scatter with ``mdata`` uses, sorted by name, then the polar subs
+        palette subs (a heatmap's or a per-point colour's) sorted by name, then
+        the vertical and horizontal colorbar subs (each if any bar uses it),
+        then the contour-labels sub (if any clabel), then the pie-wedge sub
+        (if any wedge), then the box-plot subs (if any box), then the rug subs
+        (if any rug has a tick), then one per-point marker-size sub per marker
+        that a scatter with ``mdata`` uses, sorted by name, then one per-point
+        colour sub per marker and colormap that a scatter with ``cdata`` uses,
+        sorted, then the polar subs
         (if any polar axes), then the image subs (if any placed image).
         Skipped (dangling) series contribute nothing, so a write that drops
         the only heatmap does not leave an unused palette sub behind.
@@ -3117,8 +3151,17 @@ class Figure:
                 if ct.get("clabel"):
                     any_clabel = True
 
+        coloured: Set[Tuple[str, str]] = set()
+        for ax in self.axes_list:
+            coloured |= _coloured_markers(ax, resolution)
+        # A per-point colour calls its palette sub, gray and rainbow included.
+        point_cmaps = {cmap for _marker, cmap in coloured}
+
         subs = []
-        for cmap in sorted(used_cmaps):
+        for cmap in sorted(used_cmaps | point_cmaps):
+            if cmap in point_cmaps:
+                subs.append(_pal.point_palette_sub_text(cmap))
+                continue
             text = _pal.palette_sub_text(cmap)
             if text:
                 subs.append(text)
@@ -3152,6 +3195,7 @@ class Figure:
                     if name.upper() in MARKERS
                 )
         subs.extend(mdata_sub_text(marker) for marker in sorted(sized_markers))
+        subs.extend(cdata_sub_text(*pair) for pair in sorted(coloured))
         if any(ax._polar for ax in self.axes_list):
             subs.append(POLAR_SUB)
         used_images = {

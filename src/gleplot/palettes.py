@@ -511,6 +511,21 @@ def palette_sub_text(cmap: str) -> Optional[str]:
     return f"sub gleplot_{c} z\n   z = 1-z\n{body}"
 
 
+def point_palette_sub_text(cmap: str) -> str:
+    """The ``sub gleplot_<name> z`` a per-point colour calls for ``cmap``.
+
+    :func:`palette_sub_text`, plus the forward ``gray`` and ``rainbow`` subs
+    that a colormap does not need: a marker's colour is a function call, not
+    a ``colormap`` palette switch.
+    """
+    c = canonical_cmap(cmap)
+    text = palette_sub_text(c)
+    if text is not None:
+        return text
+    body = _GRAY_BODY if c == "gray" else _RAINBOW_BODY
+    return f"sub gleplot_{c} z\n{body}"
+
+
 # ---------------------------------------------------------------------------
 # Colorbar subroutine (vertical colour range drawn after the graph)
 # ---------------------------------------------------------------------------

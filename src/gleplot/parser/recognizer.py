@@ -307,6 +307,7 @@ from ..guides import (
     REFLINE_LAYER,
     SPAN_LAYER,
 )
+from ..palettes import canonical_cmap
 from ..series import (
     _DATASET_NAME_RE,
     BarSeries,
@@ -331,6 +332,7 @@ from ..series import (
     Wedge,
 )
 from ..writer import (
+    CDATA_SUB_PREFIX,
     IMAGE_LAYER,
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
@@ -388,6 +390,15 @@ __all__ = ["ImportCategory", "ImportNote", "RecognizedFigure", "parse_gle_figure
 
 
 _DATASET_RE = re.compile(r"^d\d+$", re.IGNORECASE)
+
+#: ``let dK = (dJ-a)/(b-a)`` (or ``(dJ-a)*0``): a per-point colour's values
+#: mapped onto the colormap (``GLEWriter._add_coloured_scatter``). A negative
+#: ``a`` is written ``+|a|``. Groups: target, source, operator, ``|a|``, ``b``.
+_CDATA_LET_RE = re.compile(
+    r"^\s*let\s+(d\d+)\s*=\s*\((d\d+)([+-])(\d[\w.+-]*)\)"
+    r"(?:/\((-?\d[\w.+-]*)\3\4\)|\*0)\s*$",
+    re.IGNORECASE,
+)
 
 #: ``define marker gleplot_X gleplot_X`` (lower-cased): the line that makes a
 #: generated per-point-size sub a marker (``writer.mdata_sub_text``).
@@ -2911,6 +2922,11 @@ class _Recognizer:
             # unmodelled ``mdata``, with the size dataset it names. Their
             # ``data`` statement is kept too: nothing else writes it.
             "_raw_mdata_datasets": set(),
+            # ``let dK = (dJ-a)/(b-a)`` statements that map a per-point
+            # colour's values (``_CDATA_LET_RE``), keyed by target, with the
+            # source, the limits and the raw text. Consumed by the scatter
+            # whose ``mdata`` names the target, or kept raw with it.
+            "_colour_lets": {},
             # ``let dK = hist dJ ...`` recorded in pass 1, keyed by the
             # target. The target is not registered as a file dataset: its
             # points are bin centres GLE computes, and a later plain ``dK
@@ -3008,6 +3024,7 @@ class _Recognizer:
                 self._record_function_let(let_toks, info)
                 self._record_fit_let(let_toks, pass1.datasets, info)
                 self._record_derived_let(let_toks, info)
+                self._record_colour_let(child, pass1.datasets, info)
             elif kw is not None and _DATASET_RE.match(kw):
                 kw = info["_polar_aliases"].get(kw, kw)
                 if kw not in pass1.merged_attr_toks:
@@ -3017,7 +3034,52 @@ class _Recognizer:
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
         self._keep_plain_derived_lets(block, pass1, info)
         self._keep_plain_function_lets(block, pass1, info)
+        self._keep_colour_lets(pass1, info)
         return pass1
+
+    def _record_colour_let(self, stmt, datasets, info) -> None:
+        """Record a per-point colour's ``let`` (see ``_CDATA_LET_RE``)."""
+        raw = self._stmt_text(stmt)
+        match = _CDATA_LET_RE.match(raw)
+        if match is None or match.group(2).lower() not in datasets:
+            return
+        target, source, op, shift, high = match.groups()
+        try:
+            low = float(shift) if op == "-" else -float(shift)
+            high_value = low if high is None else float(high)
+        except ValueError:
+            return
+        info["_colour_lets"][target.lower()] = {
+            "source": source.lower(),
+            "vmin": low,
+            "vmax": high_value,
+            "raw": raw,
+        }
+
+    @staticmethod
+    def _keep_colour_lets(pass1: _GraphDatasets, info) -> None:
+        """Drop each recorded colour let that is not one scatter's ``mdata``.
+
+        Kept: a target with no line of its own that exactly one dataset line
+        names as ``mdata`` with a ``gleplot_cdata_`` marker, so that line's
+        builder either models the let or keeps it raw beside itself.
+        """
+        for target in list(info["_colour_lets"]):
+            users = []
+            for name, attr_toks in pass1.merged_attr_toks.items():
+                words = [tok.value.lower() for tok in attr_toks]
+                pairs = list(zip(words, words[1:]))
+                if ("mdata", target) in pairs and any(
+                    key == "marker" and value.startswith(CDATA_SUB_PREFIX)
+                    for key, value in pairs
+                ):
+                    users.append(name)
+            if (
+                target in pass1.merged_attr_toks
+                or target in pass1.datasets
+                or len(users) != 1
+            ):
+                del info["_colour_lets"][target]
 
     def _parse_graph_comment(self, child: BlankOrComment, info) -> None:
         """Keep a blank line or comment inside a graph block as passthrough."""
@@ -3070,6 +3132,7 @@ class _Recognizer:
             or target in info["_offset_let_datasets"]
             or target in info["_hist_lets"]
             or target in info["_function_lets"]
+            or target in info["_colour_lets"]
         )
 
     def _parse_dataset_line(
@@ -6653,6 +6716,13 @@ class _Recognizer:
                 )
                 return
 
+        if attrs["mdata"] is not None and str(attrs["marker"] or "").lower().startswith(
+            CDATA_SUB_PREFIX
+        ):
+            self._build_coloured_scatter(
+                info, d_name, datasets, attrs, toks, line_no, raw_stmts
+            )
+            return
         if attrs["mdata"] is not None:
             self._build_sized_scatter(
                 info, d_name, datasets, attrs, toks, line_no, raw_stmts
@@ -6756,6 +6826,96 @@ class _Recognizer:
             self._smooth_lines.append(
                 (entry, attrs["smooth_mode"], attrs["svg_smooth"])
             )
+
+    def _build_coloured_scatter(
+        self, info, d_name, datasets, attrs, toks, line_no, raw_stmts
+    ) -> None:
+        """A ``dN`` line with a ``gleplot_cdata_`` marker -> per-point colours.
+
+        Modelled only in the form :meth:`GLEWriter.add_scatter` writes: a
+        marker-only dataset whose marker is a ``gleplot_cdata_<marker>_<cmap>``
+        sub and whose ``mdata`` is a recorded colour let of a column of the
+        same imported file. Anything else stays raw GLE, the let with it, and
+        gets a note.
+        """
+        data_file, xcol, ycol = datasets[d_name]
+        name = str(attrs["marker"]).lower()
+        builtin, _, cmap = name[len(CDATA_SUB_PREFIX) :].partition("_")
+        try:
+            known_cmap = canonical_cmap(cmap) == cmap
+        except ValueError:
+            known_cmap = False
+        let = info["_colour_lets"].get(attrs["mdata"])
+        values_ref = datasets.get(let["source"]) if let is not None else None
+        loaded: Dict[str, Any] = {}
+        if (
+            builtin.upper() in MARKERS
+            and known_cmap
+            and not attrs["has_line"]
+            and not attrs["err_refs"]
+            and not attrs["err_consts"]
+            and values_ref is not None
+            and values_ref[0] == data_file
+            and self._is_import(data_file)
+        ):
+            loaded = self._load_series(
+                data_file, xcol, ycol, extra_cols=[values_ref[2]], line_no=line_no
+            )
+        values = None
+        if values_ref is not None and not loaded.get("error"):
+            values = loaded.get(f"c{values_ref[2]}")
+        if (
+            let is None
+            or values_ref is None
+            or values is None
+            or len(values) != len(loaded["x"])
+        ):
+            if let is not None:
+                info["passthrough"].append(let["raw"])
+            info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
+            info["_raw_mdata_datasets"].update((d_name, attrs["mdata"]))
+            why = (
+                "its data could not be read"
+                if loaded.get("error")
+                else "they are modelled only on a marker-only scatter gleplot "
+                "wrote, with the values in its own data file"
+            )
+            self._note(
+                ImportCategory.DATA,
+                f"per-point colours ('mdata' with marker {name}) on {d_name} "
+                f"were not modelled because {why}; the dataset line was kept "
+                "as raw GLE, not editable",
+                (line_no, line_no) if line_no is not None else None,
+            )
+            return
+        entry = ScatterSeries(
+            type="scatter",
+            x=loaded["x"],
+            y=loaded["y"],
+            marker=builtin.upper(),
+            markersize=_dn_markersize(attrs),
+            linestyle="none",
+            linewidth=_dn_linewidth(attrs),
+            nomiss=attrs["nomiss"],
+            **_dn_fields(attrs),
+            offset=info["_dataset_offsets"].get(d_name, 0.0),
+            data_file=data_file,
+            cdata=np.asarray(values, dtype=float),
+            cmap=cmap,
+            vmin=let["vmin"],
+            vmax=let["vmax"],
+        )
+        entry.update(attrs["qualifiers"])
+        column_names = self._recovered_column_names(
+            data_file, [xcol, ycol, values_ref[2]]
+        )
+        if column_names is not None:
+            entry["column_names"] = column_names
+        entry["_draw_seq"] = info["_draw_seq_counter"]
+        info["_draw_seq_counter"] += 1
+        info["scatters"].append(entry)
+        # The values' dataset is read through the let, not a line of its own.
+        info["_let_source_datasets"].add(let["source"])
 
     def _build_sized_scatter(
         self, info, d_name, datasets, attrs, toks, line_no, raw_stmts

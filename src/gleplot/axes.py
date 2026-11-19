@@ -1915,6 +1915,48 @@ def _point_sizes(name: str, values: Any, n_points: int) -> np.ndarray:
     return sizes
 
 
+def _scatter_c(c: Any, n_points: int) -> Tuple[str, Any]:
+    """Classify ``scatter``'s ``c`` the way matplotlib does.
+
+    Returns ``('color', one colour)``, ``('colors', one colour per point)``
+    or ``('values', float array)``. Numbers, one per point, are values to
+    colour-map, even when there are three or four of them. Raises
+    ``ValueError`` for any other count.
+    """
+    if isinstance(c, str):
+        return "color", c
+    items: Optional[List[Any]] = None
+    if not isinstance(c, np.ndarray):
+        try:
+            items = list(c)
+        except TypeError:
+            pass
+    # A string is a colour even when it reads as a number ('0.5' is a grey).
+    if items is None or not any(isinstance(item, str) for item in items):
+        try:
+            numbers = np.asarray(c, dtype=float)
+        except (TypeError, ValueError):
+            numbers = None
+        if numbers is not None:
+            one_row = numbers.shape in ((1, 3), (1, 4))
+            if numbers.size == n_points and not one_row:
+                return "values", numbers.ravel()
+            if one_row or (numbers.ndim == 1 and numbers.size in (3, 4)):
+                return "color", tuple(numbers.ravel().tolist())
+            if numbers.shape in ((n_points, 3), (n_points, 4)):
+                return "colors", [tuple(row) for row in numbers.tolist()]
+            items = None
+    if items is not None and len(items) == 1:
+        return "color", items[0]
+    if items and len(items) == n_points:
+        return "colors", items
+    raise ValueError(
+        f"scatter(c=...) does not match the {n_points} points: got {c!r}. "
+        "Pass one number per point to colour-map, one colour, or one colour "
+        "per point."
+    )
+
+
 def _is_straight_connection(connection: Any) -> bool:
     """Whether a matplotlib ``connectionstyle`` is a straight ``arc3``."""
     kind, _, params = str(connection).partition(",")
@@ -4075,6 +4117,12 @@ class Axes:
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
         zorder: Optional[float] = None,
+        *,
+        c: Any = None,
+        cmap: Optional[str] = None,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        norm: Any = None,
         **kwargs,
     ):
         """
@@ -4126,6 +4174,21 @@ class Axes:
         zorder : float, optional
             Draw order relative to other data series on the same axes.
             Higher values are drawn on top.
+        c : array-like or color, optional
+            One number per point colours each point through ``cmap``, as in
+            matplotlib. One colour is the same as ``color``; a sequence with
+            one colour per point is drawn as one series per distinct colour.
+            Cannot be combined with ``color``.
+        cmap : str, optional
+            Colormap for numeric ``c``. Default: the figure graph config's
+            ``default_cmap``.
+        vmin, vmax : float, optional
+            The values given the colormap's first and last colour. Default:
+            the smallest and largest finite value of ``c``. A value outside
+            them takes the end colour.
+        norm : optional
+            Not supported: colours are always mapped linearly from ``vmin``
+            to ``vmax``. Passing it warns.
         **kwargs
             Passed to :meth:`plot`, which owns ``mdist``, ``deresolve``,
             ``deresolve_average`` and the ``xmin`` / ``xmax`` / ``ymin`` /
@@ -4144,7 +4207,65 @@ class Axes:
         point's size. The legend marker's area is halfway between the largest
         and smallest point's, as in matplotlib's legend. Per-point sizes
         cannot be combined with ``mdist`` or ``deresolve``.
+
+        Per-point colours (numeric ``c``) work the same way: the script gets
+        a ``gleplot_cdata_<marker>_<cmap>`` sub that draws the built-in
+        marker in each point's colour. The values are written to the data
+        file as given, and a ``let`` maps them onto the colormap. A point
+        whose value is not finite is not drawn. The legend marker takes the
+        colormap's last colour. Per-point colours cannot be combined with
+        per-point sizes, ``mdist`` or ``deresolve``.
+
+        A colour sequence draws one series per distinct colour, in the order
+        each first appears; only the first carries ``label``.
         """
+        values = None
+        colors = None
+        if c is not None:
+            if color is not None:
+                raise ValueError(
+                    f"scatter() got both c={c!r} and color={color!r}; pass one "
+                    "of them."
+                )
+            kind, found = _scatter_c(c, int(np.size(x)))
+            if kind == "color":
+                color = found
+            elif kind == "colors":
+                colors = found
+            else:
+                values = found
+        if values is None:
+            for name, value in (("cmap", cmap), ("vmin", vmin), ("vmax", vmax)):
+                if value is not None:
+                    warn_external(
+                        f"scatter({name}={value!r}) is ignored: there are no "
+                        "values to colour-map. Pass c= with one number per "
+                        "point."
+                    )
+        if norm is not None:
+            warn_external(
+                f"scatter(norm={norm!r}) is ignored: gleplot maps colours "
+                "linearly from vmin to vmax. Pass vmin= and vmax= instead."
+            )
+        if colors is not None:
+            return self._scatter_by_color(
+                x,
+                y,
+                colors,
+                s=s,
+                markersize=markersize,
+                label=label,
+                marker=marker,
+                yaxis=yaxis,
+                xaxis=xaxis,
+                fillstyle=fillstyle,
+                markerfacecolor=markerfacecolor,
+                zorder=zorder,
+                **kwargs,
+            )
+        mapping = None
+        if values is not None:
+            mapping = self._color_mapping(values, cmap, vmin, vmax)
         label = self._text(label)
 
         default_size = float(np.sqrt(self.SCATTER_DEFAULT_S) * 1.2)
@@ -4168,6 +4289,12 @@ class Axes:
         if diameters is not None and diameters.size == 1:
             size = float(diameters[0])
         elif diameters is not None and diameters.size > 1:
+            if mapping is not None:
+                raise ValueError(
+                    "scatter() cannot give each point both its own colour (c=) "
+                    "and its own size (s= or markersize=) yet: GLE carries one "
+                    "per-point value on a dataset. Pass one size, or one colour."
+                )
             for qualifier in ("mdist", "deresolve"):
                 if kwargs.get(qualifier) is not None:
                     raise ValueError(
@@ -4184,6 +4311,15 @@ class Axes:
                 # size and scale every point down to nothing.
                 size = default_size
             mdata = diameters / size
+        if mapping is not None:
+            for qualifier in ("mdist", "deresolve"):
+                if kwargs.get(qualifier) is not None:
+                    raise ValueError(
+                        f"scatter({qualifier}={kwargs[qualifier]!r}) cannot be "
+                        "combined with per-point colours: GLE ignores them "
+                        f"under {qualifier}. Pass one colour, or drop "
+                        f"{qualifier}."
+                    )
         count = len(self.scatters)
         self.plot(
             x,
@@ -4209,6 +4345,82 @@ class Axes:
             series = self.scatters[-1]
             series["mdata"] = mdata
             series["column_names"] = series.default_column_names()
+        if (
+            mapping is not None
+            and len(self.scatters) > count
+            and self.scatters[-1]["marker"]
+        ):
+            series = self.scatters[-1]
+            # The marker sub sets each point's colour; the line carries none.
+            series["color"] = None
+            series.update(mapping)
+            series["column_names"] = series.default_column_names()
+        return self
+
+    def _color_mapping(self, values, cmap, vmin, vmax) -> Dict[str, Any]:
+        """``scatter``'s ``cdata``, ``cmap``, ``vmin`` and ``vmax`` fields.
+
+        Raises ``ValueError`` for an unknown ``cmap``, a limit that is not a
+        finite number, or ``vmin`` above ``vmax``.
+        """
+        limits: List[Optional[float]] = []
+        for name, value in (("vmin", vmin), ("vmax", vmax)):
+            try:
+                number = None if value is None else float(value)
+            except (TypeError, ValueError):
+                number = float("nan")
+            if number is not None and not np.isfinite(number):
+                raise ValueError(
+                    f"scatter({name}=...) must be a finite number, got {value!r}."
+                )
+            limits.append(number)
+        finite = values[np.isfinite(values)]
+        lo, hi = limits
+        if lo is None:
+            lo = float(finite.min()) if finite.size else (hi or 0.0)
+        if hi is None:
+            hi = float(finite.max()) if finite.size else lo
+        if lo > hi:
+            raise ValueError(
+                f"scatter() needs vmin <= vmax, got vmin={lo!r} and vmax={hi!r}."
+            )
+        return {
+            "cdata": values,
+            "cmap": self._resolve_cmap(cmap),
+            "vmin": lo,
+            "vmax": hi,
+        }
+
+    def _scatter_by_color(self, x, y, colors, s, markersize, label, **kwargs):
+        """``scatter`` with one colour per point: one series per colour.
+
+        A GLE dataset has one colour. The series follow the order in which
+        each colour first appears, and only the first carries ``label``.
+        """
+        n_points = len(colors)
+        for name, sizes in (("s", s), ("markersize", markersize)):
+            if sizes is not None and np.ndim(sizes) > 0:
+                _point_sizes(name, sizes, n_points)
+        tokens = [rgb_to_gle(item) for item in colors]
+        x = np.asarray(x)
+        y = np.asarray(y)
+
+        def subset(sizes, mask):
+            if sizes is not None and np.ndim(sizes) > 0 and np.size(sizes) > 1:
+                return np.asarray(sizes, dtype=float).ravel()[mask]
+            return sizes
+
+        for index, token in enumerate(dict.fromkeys(tokens)):
+            mask = np.array([item == token for item in tokens])
+            self.scatter(
+                x[mask],
+                y[mask],
+                color=token,
+                s=subset(s, mask),
+                markersize=subset(markersize, mask),
+                label=label if index == 0 else None,
+                **kwargs,
+            )
         return self
 
     @_cartesian_only
@@ -9248,8 +9460,11 @@ class Axes:
                 # ``bottom`` / ``top`` are arrays but not in ``ARRAY_FIELDS``:
                 # that loop inserts a missing key, and a bar with no baseline
                 # must keep the key absent so its snapshot stays historical.
-                # Nor is a scatter's optional ``mdata``.
-                optional = {BarSeries: ("bottom", "top"), ScatterSeries: ("mdata",)}
+                # Nor are a scatter's optional ``mdata`` and ``cdata``.
+                optional = {
+                    BarSeries: ("bottom", "top"),
+                    ScatterSeries: ("mdata", "cdata"),
+                }
                 for key in optional.get(series_cls, ()):
                     if key in item and item[key] is not None:
                         item[key] = _to_float_array(item[key])
