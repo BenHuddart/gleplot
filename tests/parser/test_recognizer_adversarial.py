@@ -752,6 +752,96 @@ def test_finding11_constant_error_broken_ref_keeps_raw(tmp_path):
     assert any(w.startswith("data:") for w in rec.warnings)
 
 
+def test_constant_error_on_shared_file_reference_keeps_dataset_defined(tmp_path):
+    """#133: a raw ``dN ... err 0.5`` keeps its ``dN`` defined on re-save.
+
+    The bare ``data`` statement also defines a modelled line. Its rewritten
+    ``data`` line names only that line's dataset, so the raw error-bar
+    dataset gets a ``data`` statement of its own, read from the same file.
+    """
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "hand.dat" ignore 1\n'
+        "   d1 line color red\n"
+        "   d2 marker fcircle err 0.5\n"
+        "end graph\n"
+    )
+    dat = "x a b\n0 1 2\n1 2 3\n2 3 2\n3 5 4\n"
+    p = _write(tmp_path, "min.gle", src, {"hand.dat": dat})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.file_series) == 1
+    assert ax.passthrough == [
+        "    data hand.dat d2=c1,c3 ignore 1",
+        "   d2 marker fcircle err 0.5",
+    ]
+    assert any(
+        w.startswith("data:") and "read from 'hand.dat'" in w for w in rec.warnings
+    )
+    assert not any("mixes datasets" in w for w in rec.warnings)
+
+    out1 = tmp_path / "out1.gle"
+    rec.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+    assert "data hand.dat d1=c1,c2 ignore 1" in text1
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == text1
+
+
+def test_constant_error_on_own_file_reference_restores_data_line(tmp_path):
+    """#133: a file read only by raw error-bar lines keeps its ``data`` line."""
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        '   data "hand.dat"\n'
+        "   d1 marker fcircle err 10%\n"
+        "   d2 marker fcircle err 10%\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "own.gle", src, {"hand.dat": "0 1 2\n1 2 3\n"})
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    assert ax.passthrough[0] == '   data "hand.dat"'
+
+
+def test_raw_mdata_on_shared_file_reference_keeps_datasets_defined(tmp_path):
+    """#133: a raw ``mdata`` scatter keeps itself and its sizes defined."""
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        '   data "h3.dat"\n'
+        "   d1 line color red\n"
+        "   d2 marker fcircle mdata d3\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "md.gle", src, {"h3.dat": "0 1 2 1\n1 2 3 2\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].passthrough[0] == (
+        "    data h3.dat d2=c1,c3 d3=c1,c4"
+    )
+    assert not any("mixes datasets" in w for w in rec.warnings)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # Nothing draws d2 or d3: no data statement is invented for them.
+        "   d1 line color red\n",
+        # The fill rewrites h3.dat with its own two columns on save, so c4
+        # would not be there for a d3 statement.
+        "   fill d1,d2 color gray\n   d3 marker fcircle err 0.5\n",
+    ],
+)
+def test_no_data_statement_added_for_unused_or_rewritten_file(tmp_path, body):
+    """#133: a ``data`` statement is added only where it still reads true."""
+    src = 'size 12 9\nbegin graph\n   data "h3.dat"\n' + body + "end graph\n"
+    p = _write(tmp_path, "md.gle", src, {"h3.dat": "0 1 2 1\n1 2 3 2\n"})
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    assert not any(line.lstrip().startswith("data") for line in ax.passthrough)
+
+
 # --------------------------------------------------------------------------- #
 # Finding 12 -- duplicate data command redefining a dataset
 # --------------------------------------------------------------------------- #

@@ -21,7 +21,7 @@ from typing import (
 
 import numpy as np
 
-from ._warn import warn_external
+from ._warn import warn_external, warn_unsupported_keywords
 from .colors import _rgba_parts, apply_alpha, hatch_to_gle, rgb_to_gle
 from .config import LINE_CAPS, LINE_JOINS, GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
@@ -1321,6 +1321,25 @@ def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
     return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
 
 
+def _pop_line_alias(kwargs: dict, caller: str, alias: str, name: str, value, default):
+    """``value``, or what ``kwargs`` gives matplotlib's short ``alias`` for it.
+
+    The alias is removed from ``kwargs``. ``None`` is matplotlib's "the
+    default" and leaves ``value`` alone. A ``value`` other than its
+    ``default`` was passed by name, and wins over the alias with a warning
+    (matplotlib raises for the pair).
+    """
+    if alias not in kwargs:
+        return value
+    short = kwargs.pop(alias)
+    if short is None:
+        return value
+    if (value is not None) if default is None else (value != default):
+        warn_external(f"{caller}() got both {name} and {alias}; {name} wins.")
+        return value
+    return short
+
+
 _MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
 _MPL_JOINSTYLES = {"miter": "mitre", "round": "round", "bevel": "bevel"}
 
@@ -2569,12 +2588,18 @@ class Axes:
             is open. ``xmin`` must be below ``xmax``, ``ymin`` below
             ``ymax``.
         **kwargs
-            Additional matplotlib-compatible arguments. ``solid_capstyle``,
+            Additional matplotlib-compatible arguments. ``lw``, ``ls``,
+            ``c`` and ``ms`` are matplotlib's short names for
+            ``linewidth``, ``linestyle``, ``color`` and ``markersize``.
+            matplotlib raises for a name passed with its short name; here
+            the full name wins, with a warning, unless it is left at its
+            default. ``solid_capstyle``,
             ``dash_capstyle``, ``solid_joinstyle`` and ``dash_joinstyle``
             take matplotlib's values; GLE caps and joins every line in the
             figure alike, so one that differs from the figure's
             :class:`~gleplot.GLEStyleConfig` ``line_cap``/``line_join``
-            warns and is not applied.
+            warns and is not applied. Any other keyword (``alpha``,
+            ``markeredgecolor``, ...) warns and is ignored.
 
         Returns
         -------
@@ -2584,6 +2609,19 @@ class Axes:
         data_name = kwargs.pop("data_name", None)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
+        # Private: the public method this call came through, for its warnings.
+        caller = kwargs.pop("_caller", "plot")
+        # matplotlib's scatter and stem take no Line2D keywords, so these
+        # short names are no aliases there.
+        if caller not in ("scatter", "stem"):
+            linestyle = _pop_line_alias(
+                kwargs, caller, "ls", "linestyle", linestyle, "-"
+            )
+            linewidth = _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
+            color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
+            markersize = _pop_line_alias(
+                kwargs, caller, "ms", "markersize", markersize, 6
+            )
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
@@ -2619,6 +2657,7 @@ class Axes:
                 "point. Pass mdist= (cm along the curve) to space the markers "
                 "out instead.",
             )
+        warn_unsupported_keywords(caller, kwargs)
         if "mdist" in qualifiers and marker is None:
             warn_external(
                 "plot(mdist=...) spaces markers, and this series has no "
@@ -2742,7 +2781,7 @@ class Axes:
             kwargs.pop("drawstyle", None)
             kwargs.pop("ds", None)
         kwargs["drawstyle"] = "steps-" + where_key
-        return self.plot(x, y, **kwargs)
+        return self.plot(x, y, _caller="step", **kwargs)
 
     @_cartesian_only
     def stem(
@@ -2883,7 +2922,9 @@ class Axes:
             )
         else:
             kwargs["line_mode"] = "impulses"
-        return self.plot(x, y, linestyle=linestyle, marker=marker, **kwargs)
+        return self.plot(
+            x, y, linestyle=linestyle, marker=marker, _caller="stem", **kwargs
+        )
 
     @_cartesian_only
     def hist(
@@ -2989,9 +3030,7 @@ class Axes:
         zorder = kwargs.pop("zorder", None)
         edgecolor = kwargs.pop("edgecolor", None)
         alpha = kwargs.pop("alpha", None)
-        if kwargs:
-            names = ", ".join(sorted(kwargs))
-            warn(f"hist() ignores unsupported keyword(s): {names}.")
+        warn_unsupported_keywords("hist", kwargs)
 
         if yaxis not in ("y", "y2"):
             raise ValueError(f"yaxis must be 'y' or 'y2', got {yaxis!r}")
@@ -4421,6 +4460,7 @@ class Axes:
             fillstyle=fillstyle,
             markerfacecolor=markerfacecolor,
             zorder=zorder,
+            _caller="scatter",
             **kwargs,
         )
         # No marker draws nothing, so there is no size to give each point.
@@ -4637,11 +4677,7 @@ class Axes:
                 "bar(align='edge') is drawn centered: GLE places each bar "
                 "on its x value.",
             )
-        if kwargs:
-            names = ", ".join(sorted(str(key) for key in kwargs))
-            warn_external(
-                f"bar() ignores unsupported keyword(s): {names}.",
-            )
+        warn_unsupported_keywords("bar", kwargs)
         if error_kw is None:
             error_extra: Dict[str, Any] = {}
         elif isinstance(error_kw, dict):
@@ -5084,9 +5120,7 @@ class Axes:
                 f"{name}(step=) is not a GLE fill mode; the band is "
                 "drawn through the samples."
             )
-        if kwargs:
-            names = ", ".join(sorted(kwargs))
-            warn_external(f"{name}() ignores unsupported keyword(s): {names}.")
+        warn_unsupported_keywords(name, kwargs)
         return color, clip, data_name
 
     @_cartesian_only
@@ -5296,13 +5330,10 @@ class Axes:
                 f"stackplot() each layer must have one value per x ({np.size(x)}), "
                 f"got layers of shape {y.shape}"
             )
-        unknown = sorted(set(kwargs) - _STACKPLOT_BAND_KEYWORDS)
-        if unknown:
-            warn_external(
-                f"stackplot() ignores unsupported keyword(s): {', '.join(unknown)}."
-            )
-            for name in unknown:
-                kwargs.pop(name)
+        unknown = set(kwargs) - _STACKPLOT_BAND_KEYWORDS
+        warn_unsupported_keywords("stackplot", unknown)
+        for name in unknown:
+            kwargs.pop(name)
         label_iter = iter(labels)
         lower = [first_line] + [stack[i, :] for i in range(len(y) - 1)]
         added: List[FillSeries] = []
@@ -5381,9 +5412,7 @@ class Axes:
                 clip[key] = float(kwargs.pop(key))
             else:
                 kwargs.pop(key, None)
-        if kwargs:
-            names = ", ".join(sorted(kwargs))
-            warn(f"fill() ignores unsupported keyword(s): {names}.")
+        warn_unsupported_keywords("fill", kwargs)
 
         label = self._text(label)
         x_arr = np.asarray(x, dtype=float)
@@ -5532,9 +5561,7 @@ class Axes:
             kwargs.pop(key)
             warn_external(f"{name}() got both {given[0]} and {key}; {given[0]} wins.")
         zorder = kwargs.pop("zorder", None)
-        if kwargs:
-            names = ", ".join(sorted(kwargs))
-            warn_external(f"{name}() ignores unsupported keyword(s): {names}.")
+        warn_unsupported_keywords(name, kwargs)
 
         lo_name, hi_name = ("xmin", "xmax") if orient == "h" else ("ymin", "ymax")
         pos_arr = np.ravel(np.asarray(pos, dtype=float))
@@ -7318,9 +7345,7 @@ class Axes:
                 isinstance(edge, str) and edge.lower() in ("none", "face")
             ):
                 kwargs.pop(key, None)
-        if kwargs:
-            names = ", ".join(sorted(kwargs))
-            warn_external(f"pcolormesh() ignores unsupported keyword(s): {names}.")
+        warn_unsupported_keywords("pcolormesh", kwargs)
         z, ext = self._mesh_from_args(args, shading)
         if self.heatmaps:
             raise ValueError(
@@ -7540,9 +7565,7 @@ class Axes:
                     f"contourf({key}=...) is ignored: GLE fills the bands from "
                     "the colormap. Pass cmap=, vmin= and vmax= instead."
                 )
-        if kwargs:
-            names = ", ".join(sorted(kwargs))
-            warn_external(f"contourf() ignores unsupported keyword(s): {names}.")
+        warn_unsupported_keywords("contourf", kwargs)
         if self.heatmaps:
             raise ValueError(
                 "GLE supports at most one heatmap (colormap) per axes; "
@@ -8454,7 +8477,7 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("semilogx", kwargs)
-        result = self.plot(*args, **kwargs)
+        result = self.plot(*args, _caller="semilogx", **kwargs)
         self.set_xscale("log")
         return result
 
@@ -8468,7 +8491,7 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("semilogy", kwargs)
-        result = self.plot(*args, **kwargs)
+        result = self.plot(*args, _caller="semilogy", **kwargs)
         self.set_yscale("log")
         return result
 
@@ -8482,7 +8505,7 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("loglog", kwargs)
-        result = self.plot(*args, **kwargs)
+        result = self.plot(*args, _caller="loglog", **kwargs)
         self.set_xscale("log")
         self.set_yscale("log")
         return result
