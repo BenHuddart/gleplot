@@ -790,6 +790,117 @@ class TestFillBetween:
             self.ax.stackplot([0, 1], [1, 1], colors=[])
 
 
+class TestSegmentLines:
+    """``hlines`` / ``vlines``: data-bounded segments as lines with gaps."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_teardown(self):
+        glp.close()
+        self.fig = glp.figure(data_prefix="seg")
+        self.ax = self.fig.add_subplot(111)
+        yield
+        glp.close()
+
+    def _generate(self):
+        return self.fig._generate_gle_with_files()
+
+    def test_vlines_is_one_line_with_missing_value_gaps(self):
+        returned = self.ax.vlines([1, 2], 0, [3, 4], label="peaks")
+        assert returned is self.ax
+        (series,) = self.ax.lines
+        assert series["gaps"] is True
+        assert series["smooth_mode"] == "none"
+        assert series["color"] == "rgb255(31,119,180)"  # matplotlib's 'C0'
+        assert series["label"] == "peaks"
+        text, files = self._generate()
+        assert 'd1 line color rgb255(31,119,180) lwidth 0.05292 key "peaks"' in text
+        assert files["seg_0.dat"] == "x peaks\n1 0\n1 3\n* *\n2 0\n2 4\n"
+
+    def test_hlines_runs_from_xmin_to_xmax(self):
+        self.ax.hlines([1, 2], [0, 5], 3, colors="r", linestyles="dashed")
+        (series,) = self.ax.lines
+        assert series["linestyle"] == "--"
+        _text, files = self._generate()
+        assert files["seg_0.dat"] == "x y\n0 1\n3 1\n* *\n5 2\n3 2\n"
+
+    def test_one_dataset_per_style_and_the_label_on_the_first(self):
+        self.ax.vlines(
+            [1, 2, 3], 0, 1, colors=["k", "r"], linestyles=["-", ":"], lw=[1, 2, 1]
+        )
+        styles = [(s["color"], s["linestyle"], s["linewidth"]) for s in self.ax.lines]
+        assert styles == [("BLACK", "-", 1.0), ("RED", ":", 2.0)]
+        assert [len(s["x"]) for s in self.ax.lines] == [5, 2]
+        assert "gaps" not in self.ax.lines[1]  # one segment: no gap row
+
+    def test_label_goes_on_the_first_group_only(self):
+        self.ax.vlines([1, 2], 0, 1, colors=["k", "r"], label="pair")
+        assert [s["label"] for s in self.ax.lines] == ["pair", None]
+
+    def test_a_segment_with_a_nan_end_is_not_drawn(self):
+        self.ax.vlines([1, 2, 3], 0, [1, float("nan"), 2])
+        assert list(self.ax.lines[0]["x"][[0, 1, 3, 4]]) == [1, 1, 3, 3]
+        assert len(self.ax.lines[0]["x"]) == 5
+
+    def test_autoscale_skips_the_gap_rows(self):
+        self.ax.vlines([1, 4], -1, [2, 3])
+        text, _files = self._generate()
+        assert "xaxis min 1 max 4" in text
+        assert "yaxis min -1 max 3" in text
+
+    def test_plot_still_writes_nan_without_gaps(self):
+        self.ax.plot([0, float("nan"), 2], [0, float("nan"), 2])
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        _text, files = self._generate()
+        assert "nan nan" in files["seg_0.dat"]
+        assert "*" not in files["seg_0.dat"]
+
+    def test_figure_and_module_wrappers(self):
+        assert self.fig.vlines(1, 0, 1) is self.ax
+        assert self.fig.hlines(1, 0, 1) is self.ax
+        assert glp.vlines([1, 2], 0, 1) is self.ax
+        assert glp.hlines(1, 0, 1, "k") is self.ax
+        assert len(self.ax.lines) == 4
+
+    def test_colors_forms(self):
+        self.ax.vlines([1, 2], 0, 1, colors=(1, 0, 0))
+        self.ax.vlines([1, 2], 0, 1, colors=np.array([[0, 0, 1.0], [0, 0, 1.0]]))
+        assert [s["color"] for s in self.ax.lines] == [
+            "rgb255(255,0,0)",
+            "rgb255(0,0,255)",
+        ]
+
+    def test_bad_arguments_are_rejected_or_warned(self):
+        with pytest.raises(ValueError, match=r"vlines\(\) ymax has length 3"):
+            self.ax.vlines([1, 2], 0, [1, 2, 3])
+        with pytest.raises(ValueError, match="linestyles must be"):
+            self.ax.hlines(1, 0, 1, linestyles="wavy")
+        with pytest.raises(ValueError, match="colors must not be empty"):
+            self.ax.vlines(1, 0, 1, colors=[])
+        with pytest.warns(UserWarning, match="dash pattern"):
+            self.ax.vlines(1, 0, 1, linestyles=[(0, (5, 5))])
+        with pytest.warns(
+            UserWarning, match=r"ignores unsupported keyword\(s\): alpha"
+        ):
+            self.ax.vlines(1, 0, 1, alpha=0.5)
+        with pytest.warns(UserWarning, match=r"hlines\(data=\.\.\.\)"):
+            self.ax.hlines(1, 0, 1, data={})
+
+    def test_nothing_finite_adds_nothing(self):
+        assert self.ax.vlines([], 0, 1) is self.ax
+        assert self.ax.lines == []
+
+    def test_gaps_survive_open_gle(self, tmp_path):
+        from gleplot.parser.recognizer import parse_gle_figure
+
+        self.ax.vlines([1, 2], 0, 1)
+        self.ax.plot([0, 1], [0, 1])
+        path = self.fig.savefig_gle(str(tmp_path / "seg.gle"))
+        lines = parse_gle_figure(path).figure.axes_list[0].lines
+        assert [s.get("gaps") for s in lines] == [True, None]
+        assert lines[0]["smooth_mode"] == "none"
+
+
 class TestDataPrefixValidation:
     """Test that a figure-level data_prefix is validated, not sanitized.
 

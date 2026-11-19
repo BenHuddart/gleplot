@@ -2957,6 +2957,8 @@ class GLEWriter:
           ``xmax`` / ``ymin`` / ``ymax`` clip window: GLE's dataset
           qualifiers, see :meth:`_dataset_qualifier_clause`. A series with
           its own ``deresolve`` gets no preview-only one.
+        - ``gaps``: NaN rows are written ``*`` (GLE's missing value), so the
+          line breaks there instead of joining across them.
         """
         x_array = np.asarray(series["x"])
         y_array = np.asarray(series["y"])
@@ -2988,9 +2990,12 @@ class GLEWriter:
         order = self._row_order(
             x_array, has_line, shared=binding is not None, smooth_mode=smooth_mode
         )
+        x_rows, y_rows = x_array[order], y_array[order]
+        if series.get("gaps") and binding is None:
+            x_rows, y_rows = self._nan_as_missing(x_rows), self._nan_as_missing(y_rows)
         cols = self._write_columns(
             data_file,
-            [("x", x_array[order]), ("y", y_array[order])],
+            [("x", x_rows), ("y", y_rows)],
             column_names,
             binding,
         )
@@ -3181,6 +3186,21 @@ class GLEWriter:
             + self._key_clause(label, bool(column_names) or binding is not None)
         )
         self._finish_legend_entry(label)
+
+    @staticmethod
+    def _nan_as_missing(values: np.ndarray) -> np.ndarray:
+        """``values`` with each NaN written ``*``, GLE's missing value.
+
+        GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks the
+        line there. Unchanged (the same array) when there is no NaN.
+        """
+        as_float = np.asarray(values, dtype=float)
+        gap = np.isnan(as_float)
+        if not gap.any():
+            return values
+        rows = as_float.astype(object)
+        rows[gap] = "*"
+        return rows
 
     def _missing_where_gle_drops(
         self, x: np.ndarray, y: np.ndarray, xaxis: str, yaxis: str

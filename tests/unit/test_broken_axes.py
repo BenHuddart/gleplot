@@ -380,6 +380,16 @@ def test_fill_betweenx_and_stackplot_fan_out_onto_shared_sidecars():
         assert len(files) == 1
 
 
+def test_hlines_and_vlines_fan_out_onto_shared_sidecars():
+    _fig_, bax = _fig()
+    assert bax.vlines([0.01, 1.0], 0, 0.5) is bax
+    assert bax.hlines(0.2, 0.0, 3.0) is bax
+    for index in range(2):
+        files = {seg.lines[index]["data_file"] for seg in bax.segments}
+        assert len(files) == 1
+    assert all(seg.lines[0]["gaps"] for seg in bax.segments)
+
+
 def test_fanout_returns_the_underlying_return_value_for_guides():
     _fig_, bax = _fig()
     entry = bax.axvline(0.5)

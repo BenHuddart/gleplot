@@ -231,6 +231,15 @@ def test_extract_columns_missing_values_are_nan(tmp_path):
     assert result["y"][1] == 5.0
 
 
+def test_star_missing_marks_the_columns_with_a_literal_star(tmp_path):
+    """``*`` and ``nan`` both load as NaN; only ``*`` breaks a GLE line."""
+    p = _write(tmp_path, "s.dat", "x y z\n1 * nan\n2 5 6\n")
+    table = load_data_file(p)
+
+    assert table.star_missing == [False, True, False]
+    assert np.isnan(table.columns[1][0]) and np.isnan(table.columns[2][0])
+
+
 # ---------------------------------------------------------------------------
 # Delimiter sniffing: ragged rows must not defeat detection
 # ---------------------------------------------------------------------------

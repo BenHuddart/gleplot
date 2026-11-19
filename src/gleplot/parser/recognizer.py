@@ -6734,6 +6734,8 @@ class _Recognizer:
         else:
             if attrs["line_mode"]:
                 entry["line_mode"] = attrs["line_mode"]
+            if self._has_star_missing(data_file, [xcol, ycol]):
+                entry["gaps"] = True
             # A marked line is an axvline/axhline that materialized into this
             # dataset (G18-lite): it becomes the declaration it came from,
             # never a drawable, so it takes no ``_draw_seq`` and no smoothing
@@ -8422,6 +8424,19 @@ class _Recognizer:
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
 
+    def _has_star_missing(self, data_file, cols_1based) -> bool:
+        """Whether a column of an imported sidecar holds a literal ``*``.
+
+        The writer writes a ``gaps`` line's NaN rows as ``*`` and any other
+        NaN as ``nan``; both load as NaN, so the token is what tells them
+        apart (:attr:`gleplot.dataio.DataTable.star_missing`).
+        """
+        resolved = self._resolve_table(data_file)
+        if resolved.table is None:
+            return False
+        flags = resolved.table.star_missing
+        return any(0 < col <= len(flags) and flags[col - 1] for col in cols_1based)
+
     def _recovered_column_names(self, data_file, cols_1based) -> Optional[List[str]]:
         """Recover a series' ``column_names`` from its sidecar's header row.
 
@@ -9752,9 +9767,13 @@ class _Recognizer:
             # A line mode with no smooth keyword must stay unsmoothed even
             # when that matches the figure default. Otherwise a later
             # smooth_curves flip splines the points before the join
-            # (graph2.cpp transform_data, then drawLine). An explicit
-            # smooth on the same dataset still follows the default rule.
-            pin_unsmoothed = bool(entry.get("line_mode")) and mode == "none"
+            # (graph2.cpp transform_data, then drawLine). A line with gaps
+            # (hlines / vlines) is pinned the same way: GLE cannot smooth
+            # its repeated x ("Identical X values"). An explicit smooth on
+            # the same dataset still follows the default rule.
+            pin_unsmoothed = (
+                bool(entry.get("line_mode")) or bool(entry.get("gaps"))
+            ) and mode == "none"
             if mode != default_mode or pin_unsmoothed:
                 entry["smooth_mode"] = mode
             if iterations is not None:

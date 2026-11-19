@@ -1185,6 +1185,16 @@ def fill_orientations():
     return fig
 
 
+def segment_lines():
+    """``vlines`` in two colours and dashed ``hlines``: lines with ``*`` gaps."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.vlines([1, 2, 3, 4], 0, [3, 1.5, 4, 2], colors=["k", "red"], label="peaks")
+    ax.hlines([0.5, 3.5], 0.5, [3, 4.5], linestyles="dashed", lw=2)
+    ax.legend()
+    return fig
+
+
 def histogram():
     """One step outline and one filled histogram, both labelled."""
     fig = glp.figure(data_prefix="golden")
@@ -1691,6 +1701,7 @@ BUILDERS = [
     fill_forms,
     fill_field_options,
     fill_orientations,
+    segment_lines,
     histogram,
     function_curves,
     fit_curves,
