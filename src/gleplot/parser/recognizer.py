@@ -7820,10 +7820,7 @@ class _Recognizer:
             ),
             data_file=data_file,
         )
-        qualifiers = dict(attrs["qualifiers"])
-        for name in ("xmin", "xmax", "ymin", "ymax"):
-            if name in qualifiers:
-                entry[name] = qualifiers.pop(name)
+        entry.update(attrs["qualifiers"])
         if not err_consts:
             # Column indices in the SAME order the writer emits them (x, y,
             # then y-error column(s) collapsed to one when symmetric i.e.
@@ -7845,19 +7842,6 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
-        if qualifiers:
-            # Axes.errorbar has no such fields: GLE thins the markers but
-            # not the whiskers under deresolve (getErrorBarData).
-            # Name the GLE words the file used, not the field names.
-            names = ", ".join(
-                "average" if q == "deresolve_average" else q for q in qualifiers
-            )
-            self._note(
-                ImportCategory.DATA,
-                f"{names} on an error-bar dataset is not modelled and was "
-                "dropped on re-save",
-                span,
-            )
         info["errorbars"].append(entry)
 
     def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
