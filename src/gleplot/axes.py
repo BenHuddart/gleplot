@@ -716,23 +716,16 @@ def _line_width(caller: str, linewidth: Any) -> Any:
     """A line's ``linewidth`` in points; ``None`` is matplotlib's default, 1.
 
     Raises for a value that is not a number, not finite, or negative. A
-    valid value is returned as given, so the stored series is unchanged.
+    number is returned as given, so the stored series keeps its type.
     """
     if linewidth is None:
         return 1
-    try:
-        width = float(linewidth)
-    except (TypeError, ValueError):
-        raise TypeError(
-            f"{caller}() linewidth must be a number of points or None, "
-            f"got {linewidth!r}"
-        ) from None
-    if not np.isfinite(width) or width < 0:
+    width = _finite_float(linewidth, f"{caller}() linewidth")
+    if width < 0:
         raise ValueError(
-            f"{caller}() linewidth must be a finite number of points, 0 or "
-            f"more, got {linewidth!r}"
+            f"{caller}() linewidth must be 0 or more points, got {linewidth!r}"
         )
-    return linewidth
+    return linewidth if isinstance(linewidth, Real) else width
 
 
 def _count(value: Any, what: str) -> int:
@@ -2737,6 +2730,8 @@ class Axes:
                 kwargs, caller, "ms", "markersize", markersize, 6
             )
         linestyle = _line_style(caller, linestyle)
+        # 1 is the writer's "style default" (see GLEWriter.add_line).
+        linewidth = _line_width(caller, linewidth)
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
@@ -2814,9 +2809,6 @@ class Axes:
         gle_markersize = markersize_to_msize(
             markersize, self.figure.marker_config.msize_scale
         )
-
-        # 1 is the writer's "style default" (see GLEWriter.add_line).
-        linewidth = _line_width(caller, linewidth)
 
         plot_fields = dict(
             type=plot_type,
@@ -3217,7 +3209,7 @@ class Axes:
                 fields["linestyle"] = (
                     "-" if one_ls is None else _line_style("hist", one_ls)
                 )
-                fields["linewidth"] = float(1 if one_lw is None else one_lw)
+                fields["linewidth"] = float(_line_width("hist", one_lw))
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
             else:
@@ -3286,7 +3278,7 @@ class Axes:
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
-            Line width in points.
+            Line width in points, finite and 0 or more.
         label : str, optional
             Legend entry.
         zorder : float, optional
@@ -3381,7 +3373,7 @@ class Axes:
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
-            Line width in points.
+            Line width in points, finite and 0 or more.
         label : str, optional
             Legend entry. With ``model``, it can show the fitted values:
             see the Notes.
@@ -3555,7 +3547,7 @@ class Axes:
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
-            Line width in points.
+            Line width in points, finite and 0 or more.
         label : str, optional
             Legend entry.
 
@@ -3865,12 +3857,7 @@ class Axes:
                 fields[key] = bounds[name]
         fields["color"] = self._resolve_color(color)
         fields["linestyle"] = linestyle
-        try:
-            fields["linewidth"] = float(linewidth)
-        except (TypeError, ValueError):
-            raise TypeError(
-                f"{caller}() linewidth must be a number of points, got {linewidth!r}"
-            ) from None
+        fields["linewidth"] = float(_line_width(caller, linewidth))
         if label is not None:
             fields["label"] = self._text(str(label))
         return fields
@@ -4323,8 +4310,9 @@ class Axes:
         ``drawstyle`` and ``line_mode`` are the same line modes as
         :meth:`plot`. ``linestyle='none'`` warns and drops the mode: there
         is no line for it to qualify. The series is still a line reference;
-        this method has no scatter form. ``linewidth`` is in points, and
-        ``None`` is the default width, as for :meth:`plot`.
+        this method has no scatter form. ``linewidth`` is in points, finite
+        and 0 or more, and ``None`` is the default width, as for
+        :meth:`plot`.
 
         ``skiprows`` skips that many leading lines of the file, ``comment``
         replaces GLE's comment marker ``!``, and ``max_rows`` stops after
@@ -5786,6 +5774,7 @@ class Axes:
                 linewidth=width,
                 label=text,
                 zorder=zorder,
+                _caller=name,
             )
             series = self.lines[-1]
             # The NaN rows are gaps, written as GLE missing values. A lone
@@ -5861,7 +5850,8 @@ class Axes:
             one (``'dashed'``, ...). A dash tuple or any other value warns
             and is drawn solid.
         linewidth : float
-            Line width in points. ``None`` is the default width.
+            Line width in points, finite and 0 or more. ``None`` is the
+            default width.
         label : str, optional
             Legend label.
         **kwargs

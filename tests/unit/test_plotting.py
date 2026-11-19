@@ -2217,7 +2217,7 @@ class TestFunction:
             ({"xmin": float("nan")}, ValueError, "xmin must be finite"),
             ({"xmax": "end"}, TypeError, "xmax must be a number"),
             ({"linestyle": "none"}, ValueError, "linestyle must be"),
-            ({"linewidth": None}, TypeError, "linewidth must be a number"),
+            ({"linewidth": "thick"}, TypeError, "linewidth must be a number"),
         ],
     )
     def test_rejects_bad_options_when_called(self, kwargs, error, message):
@@ -3034,8 +3034,22 @@ def test_a_linewidth_that_is_not_a_number_raises(name, draw):
 @pytest.mark.parametrize("width", [float("nan"), float("inf"), -3])
 def test_a_non_finite_or_negative_linewidth_raises(name, draw, width):
     ax = glp.figure().add_subplot(111)
-    with pytest.raises(ValueError, match=rf"{name}\(\) linewidth .*0 or more"):
+    with pytest.raises(ValueError, match=rf"{name}\(\) linewidth must be"):
         draw(ax, linewidth=width)
+
+
+@pytest.mark.parametrize(
+    "name, draw",
+    [
+        ("vlines", lambda ax: ax.vlines([0.5], 0, 1, linewidths=-2)),
+        ("hist", lambda ax: ax.hist([1.0, 2.0], histtype="step", linewidth=-2)),
+        ("function", lambda ax: ax.function("x", 0, 1, linewidth=float("nan"))),
+    ],
+)
+def test_other_line_calls_reject_a_bad_linewidth_by_their_own_name(name, draw):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=rf"{name}\(\) linewidth must be"):
+        draw(ax)
 
 
 def _saved(fig, tmp_path):

@@ -223,7 +223,10 @@ names `lw`, `ls`, `c` and `ms` for `linewidth`, `linestyle`, `color` and
 `markersize`, and `None` for one of them means the default, as in
 matplotlib. matplotlib raises for a name passed with its short name; gleplot
 keeps the full name, with a warning, unless the full name is left at its
-default.
+default. A `linewidth` that is NaN, infinite or negative raises
+`ValueError` at the call, on these and the other line-drawing calls below,
+`line_from_file`, `function` and `hist(histtype='step')`, where
+matplotlib does not check it.
 
 A keyword GLE cannot draw, such as `alpha`, `markeredgecolor` (`mec`),
 `markeredgewidth` (`mew`), `dashes`, `transform` or `clip_on`, warns and is
