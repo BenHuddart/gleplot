@@ -190,8 +190,9 @@ figure's font size (measured against a native `xtitle` render to ~0.02 cm);
 
 - **The `.gle` parser does not reconstruct a `BrokenAxes`.** Reading a
   generated file back with `open_gle()` yields the segments as independent
-  subplots; the axis options the recognizer cannot model (`dticks`, the
-  per-side `off`) are preserved as per-axes passthrough *with warnings*, and
+  subplots, each keeping its own tick spacing (`dticks`); the axis options
+  the recognizer cannot model (the per-side `off`) are preserved as per-axes
+  passthrough *with warnings*, and
   the seam decoration and shared titles are preserved as trailer passthrough,
   after the last segment, where a re-save draws the seam marks at the outer
   frame instead of at the seam.

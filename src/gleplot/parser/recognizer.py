@@ -87,8 +87,8 @@ for rendering, applied by the test-side ``normalize()`` helper)
    in the axes passthrough instead, its ``data`` statement is kept (see #14)
    and a ``data:`` warning is emitted.
 9. **Axis-remainder passthrough (hand-written only).** Unrecognized ``xaxis``/
-   ``yaxis``/``y2axis``/``x2axis`` sub-tokens (``off``/``grid``/``dticks``/
-   ``dsubticks``/``nticks``/``format "..."``/...) are peeled off the recognized
+   ``yaxis``/``y2axis``/``x2axis`` sub-tokens (``hei``/``dticks pi/2``/
+   ``y2axis dticks 1``/``format "..."``/...) are peeled off the recognized
    ``min``/``max``/``log``/``nofirst``/``nolast`` (which populate the model) and
    re-emitted as a *supplementary* axis line in the axes passthrough. GLE axis
    lines are cumulative, so the model-emitted axis line + the passthrough line
@@ -2823,6 +2823,10 @@ class _Recognizer:
             "ynoticks": None,
             "xnsubticks": None,
             "ynsubticks": None,
+            "xdticks": None,
+            "ydticks": None,
+            "xdsubticks": None,
+            "ydsubticks": None,
             # 'xlabels log MODE' (x and y only).
             "xloglabels": None,
             "yloglabels": None,
@@ -4943,11 +4947,13 @@ class _Recognizer:
 
     @staticmethod
     def _take_tick_placement(w, toks, i, prefix, info) -> Optional[int]:
-        """Model ``nticks``/``ftick``/``shift``/``symticks``/``nsubticks``.
+        """Model ``nticks``/``ftick``/``shift``/``symticks``/``nsubticks``/
+        ``dticks``/``dsubticks``.
 
         Returns the index after the option when it is one of them, on x or
         y, and fits the model; otherwise None. A repeat, a fractional
-        ``nticks``/``nsubticks`` or ``symticks on|off`` is left to the remainder, which
+        ``nticks``/``nsubticks``, a ``dticks``/``dsubticks`` written as an
+        expression or ``symticks on|off`` is left to the remainder, which
         keeps it as raw GLE, and so is any later occurrence of the same
         option (see ``_raw_axis_opts``).
         """
@@ -4961,12 +4967,16 @@ class _Recognizer:
             info[f"{prefix}symticks"] = True
             return i + 1
         if (
-            w not in ("nticks", "ftick", "shift", "nsubticks")
+            w not in ("nticks", "ftick", "shift", "nsubticks", "dticks", "dsubticks")
             or info[f"{prefix}{w}"] is not None
         ):
             return None
         value, nxt = _collect_value(toks, i + 1)
         if value is None:
+            return None
+        if w in ("dticks", "dsubticks") and nxt != i + 2:
+            # An expression ('dticks pi/2') stays raw GLE: the model holds
+            # a number, and writing it back would round the interval.
             return None
         if w in ("nticks", "nsubticks"):
             if not float(value).is_integer() or value < 1:
@@ -10094,6 +10104,8 @@ class _Recognizer:
                 "noticks",
                 "nsubticks",
                 "loglabels",
+                "dticks",
+                "dsubticks",
             ):
                 setattr(ax, f"{prefix}{name}", info[f"{prefix}{name}"])
             for kind in ("tick", "subtick"):
