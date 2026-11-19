@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import warnings
 from types import FrameType
-from typing import Optional, Type, Union
+from typing import Any, Iterable, Optional, Type, Union
 
 
 def warn_external(
@@ -27,3 +27,15 @@ def warn_external(
         frame = frame.f_back
         stacklevel += 1
     warnings.warn(message, category, stacklevel=stacklevel)
+
+
+def warn_unsupported_keywords(caller: str, names: Iterable[Any]) -> None:
+    """One warning listing the keyword ``names`` that ``caller()`` ignores.
+
+    The shared message for keywords a public call accepts but cannot honour.
+    The caller first takes out what it handles, matplotlib's short aliases
+    included; nothing is said when ``names`` is empty.
+    """
+    listed = ", ".join(sorted(str(name) for name in names))
+    if listed:
+        warn_external(f"{caller}() ignores unsupported keyword(s): {listed}.")
