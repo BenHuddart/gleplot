@@ -5,6 +5,7 @@ import math
 import os
 import re
 import uuid
+from collections.abc import Mapping
 from numbers import Real
 from typing import (
     Any,
@@ -324,11 +325,11 @@ _global_sidecar_counters: Dict[str, int] = {}
 #: and pinned by ``tests/integration/test_refline_fallback_compiles.py``.
 #:
 #: G14 used it as the stand-in range to *materialize* a guide over when the
-#: axis it spans resolved to nothing. Since G17 such a guide is emitted as a
-#: ``draw`` reading GLE's own ``xgmin``/``ygmax`` instead
+#: axis it spans resolved to nothing. Since G17 such a guide is drawn after
+#: ``end graph`` against GLE's own ``xgmin``/``ygmax`` instead
 #: (:mod:`gleplot.guides`), so the constant no longer decides where anything
 #: lands: it survives as the measured statement of what an unbounded GLE axis
-#: does -- the value the draw form reproduces by construction on a truly empty
+#: does -- the value that form reproduces by construction on a truly empty
 #: axes -- and as the safety net in :meth:`Axes._spanned_range`.
 EMPTY_AXIS_FALLBACK_RANGE = (0.0, 1.0)
 
@@ -710,6 +711,27 @@ def _finite_float(value: Any, what: str) -> float:
     if not np.isfinite(number):
         raise ValueError(f"{what} must be finite, got {value!r}")
     return number
+
+
+def _label_axis(caller: str, axis: Any, names: Tuple[str, str], fontdict: Any):
+    """``(axis, fontdict)`` for a ``set_xlabel``/``set_ylabel`` call.
+
+    matplotlib's second positional argument is ``fontdict``; here it is
+    ``axis``. A mapping or ``None`` in that place is matplotlib's, so it is
+    taken as ``fontdict`` (an explicit ``fontdict=`` wins) and the axis is
+    the primary one.
+    """
+    if axis is None or isinstance(axis, Mapping):
+        return names[0], axis if fontdict is None else fontdict
+    if not isinstance(axis, str):
+        raise TypeError(
+            f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}"
+        )
+    if axis not in names:
+        raise ValueError(
+            f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}"
+        )
+    return axis, fontdict
 
 
 def _line_width(caller: str, linewidth: Any) -> Any:
@@ -1464,9 +1486,9 @@ def _pop_line_ends(kwargs: dict, linestyle, style) -> None:
     ``solid_*`` keywords concern a solid line, the ``dash_*`` ones a dashed
     line, and neither a series drawn without a line.
     """
-    # The writer's own tests: no line for None or a _NO_LINE value, and a
-    # dash only where the linestyle maps to an lstyle.
-    drawn = linestyle is not None and linestyle not in _NO_LINE
+    # The writer's own tests: no line for a _NO_LINE value, and a dash only
+    # where the linestyle maps to an lstyle.
+    drawn = linestyle not in _NO_LINE
     solid = Axes._linestyle_to_lstyle(linestyle) is None
     for keyword, (for_solid, field, gle_default, words) in _LINE_END_KEYWORDS.items():
         value = kwargs.pop(keyword, None)
@@ -1707,12 +1729,13 @@ def _is_dash_pattern(value) -> bool:
 def _line_style(caller: str, linestyle):
     """A line's matplotlib ``linestyle`` as the symbol the writer draws.
 
-    The symbols, ``None`` and the no-line values pass through; a named
-    style becomes its symbol. A dash pattern or an unknown style warns and
-    is drawn solid.
+    The symbols and the no-line values pass through; a named style becomes
+    its symbol. ``None`` is matplotlib's default, a solid line (the string
+    ``'None'`` is no line). A dash pattern or an unknown style warns and is
+    drawn solid.
     """
     if linestyle is None:
-        return None
+        return "-"
     if isinstance(linestyle, str):
         if linestyle in ("-", "--", ":", "-.") or linestyle in _NO_LINE:
             return linestyle
@@ -2019,8 +2042,8 @@ class SecondaryXAxis:
     def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_xlim(axis="x2")
 
-    def set_xlabel(self, label: str, **kwargs):
-        return self._axes.set_xlabel(label, axis="x2", **kwargs)
+    def set_xlabel(self, label: str, fontdict=None, **kwargs):
+        return self._axes.set_xlabel(label, "x2", fontdict=fontdict, **kwargs)
 
     def set_xscale(self, scale: str):
         return self._axes.set_xscale(scale, axis="x2")
@@ -2094,8 +2117,8 @@ class SecondaryYAxis:
     def get_ylim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_ylim(axis="y2")
 
-    def set_ylabel(self, label: str, **kwargs):
-        return self._axes.set_ylabel(label, axis="y2", **kwargs)
+    def set_ylabel(self, label: str, fontdict=None, **kwargs):
+        return self._axes.set_ylabel(label, "y2", fontdict=fontdict, **kwargs)
 
     def set_yscale(self, scale: str):
         return self._axes.set_yscale(scale, axis="y2")
@@ -2665,8 +2688,9 @@ class Axes:
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
-            or ``'none'`` for no line. A dash tuple or any other value
-            warns and is drawn solid.
+            or ``'none'`` for no line. Passing ``None`` asks for
+            matplotlib's default, a solid line. A dash tuple or any other
+            value warns and is drawn solid.
         color : str, optional
             Color name or code ('b', 'red', etc.)
         marker : str, optional
@@ -3245,9 +3269,7 @@ class Axes:
             if one_label is not None:
                 fields["label"] = self._text(str(one_label))
             if style_name == "step":
-                fields["linestyle"] = (
-                    "-" if one_ls is None else _line_style("hist", one_ls)
-                )
+                fields["linestyle"] = _line_style("hist", one_ls)
                 fields["linewidth"] = float(_line_width("hist", one_lw))
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
@@ -4126,7 +4148,8 @@ class Axes:
         linestyle = _pop_line_alias(
             kwargs, "errorbar", "ls", "linestyle", kwargs.pop("linestyle", None), None
         )
-        linestyle = _line_style("errorbar", linestyle)
+        if linestyle is not None:  # None leaves the style to fmt
+            linestyle = _line_style("errorbar", linestyle)
         data_range = _dataset_qualifiers(None, None, False, xmin, xmax, ymin, ymax)
         warn_unsupported_keywords("errorbar", kwargs)
         label = self._text(label)
@@ -5925,7 +5948,10 @@ class Axes:
         -----
         The line is realized as a two-point dataset whose end points are
         computed when the figure is written, so it tracks any axis limits set
-        afterwards. It is drawn *underneath* the data series.
+        afterwards. It is drawn *underneath* the data series. When the axis
+        it spans has no data and no limit, or its data collapses to one
+        value, it is drawn after the graph instead, above the data; see
+        :doc:`guides/REFERENCE_LINES_AND_SPANS`.
         """
         return self._add_refline(
             "v", x, ymin, ymax, color, linestyle, linewidth, label, kwargs
@@ -6116,8 +6142,8 @@ class Axes:
         write time -- an axes with nothing to resolve that axis from (G14), or
         a range that collapsed and was handed back to the engine (G15). Such a
         guide cannot be materialized into a literal dataset without inventing
-        the very range GLE has yet to choose, so it is emitted as a layered
-        ``draw`` over ``xgmin``/``ygmax`` instead (:mod:`gleplot.guides`).
+        the very range GLE has yet to choose, so it is drawn after ``end
+        graph`` against ``xgmin``/``ygmax`` instead (:mod:`gleplot.guides`).
 
         False -- the overwhelmingly common case -- keeps the historical
         two-point dataset emission untouched, byte for byte.
@@ -6126,7 +6152,7 @@ class Axes:
         return lo is None or hi is None
 
     def engine_range_guides(self, series_list, limits) -> List[Series]:
-        """The visible guides in ``series_list`` routed to the draw form."""
+        """The visible guides in ``series_list`` drawn after the graph."""
         return [
             entry
             for entry in series_list
@@ -6171,7 +6197,7 @@ class Axes:
         Two kinds of guide materialize into nothing here: hidden ones
         (``visible = False``, SPEC 14.6), and -- since G17 -- ones whose
         spanned axis has an unresolved bound. The latter are the figures the
-        literal dataset got wrong; they are emitted as ``draw`` calls instead
+        literal dataset got wrong; they are drawn after the graph instead
         (see :meth:`guide_needs_engine_range` and :mod:`gleplot.guides`), and
         :meth:`engine_range_guides` is how the writer collects them.
         """
@@ -8245,7 +8271,9 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top)
+            Which axis: 'x' (bottom, default) or 'x2' (top). Another string
+            raises ``ValueError``. A dict or ``None`` here is taken as
+            matplotlib's positional ``fontdict``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8263,7 +8291,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = "x2" if axis == "x2" else "x"
+        prefix, fontdict = _label_axis("set_xlabel", axis, ("x", "x2"), fontdict)
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict
@@ -8290,7 +8318,9 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right). Another string
+            raises ``ValueError``. A dict or ``None`` here is taken as
+            matplotlib's positional ``fontdict``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8308,7 +8338,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = "y2" if axis == "y2" else "y"
+        prefix, fontdict = _label_axis("set_ylabel", axis, ("y", "y2"), fontdict)
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict

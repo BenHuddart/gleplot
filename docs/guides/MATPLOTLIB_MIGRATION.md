@@ -22,7 +22,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.contourf(...)` | same on a uniform grid, see [Filled contours](#filled-contours) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
-| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` |
+| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` (`'x'`/`'x2'`, `'y'`/`'y2'`; another string raises). A dict there is taken as matplotlib's positional `fontdict` |
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
 | `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
@@ -254,7 +254,9 @@ tuple such as `(0, (5, 2))` warns and is drawn solid, and so does a value
 that is not a line style. This holds for `plot` and the calls above, for
 `line_from_file`, `hist(histtype='step')`, and the single `linestyles` of
 `contour` and `tricontour`. A `(offset, None)` tuple is matplotlib's solid
-line and is drawn solid without a warning.
+line and is drawn solid without a warning. Passing `None` asks for
+matplotlib's default: a solid line from `plot`, `axhline`, `axvline` and
+`line_from_file`, and the style `fmt` gives from `errorbar`.
 
 ## Marker spacing, thinning and data ranges
 
@@ -567,6 +569,14 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     `alpha=` keyword where the function has one (`fill_between`, `fill`,
     `axhspan`, `axvspan`). As in matplotlib, `alpha=` overrides the colour's
     own alpha, and then nothing warns.
+13. A guide (`axhline`, `axvline`, `axhspan`, `axvspan`) on an axis gleplot
+    cannot range, because the axes has no data and no limit for it or its
+    data collapses to one value, is drawn after the graph against the range
+    GLE picks. It is then drawn above the data, the grid and the ticks
+    rather than under them, and a line outside the frame is not clipped.
+    Give the axes a limit with `set_xlim`/`set_ylim` to keep the guide
+    under the data. See
+    [Reference Lines and Shaded Spans](REFERENCE_LINES_AND_SPANS.md).
 
 ## Migration Strategy
 
