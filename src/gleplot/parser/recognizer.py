@@ -2845,6 +2845,7 @@ class _Recognizer:
             "yloglabels": None,
             # A bare 'math' ahead of everything but geometry (_prescan_math).
             "math_mode": None,
+            "facecolor": None,
             # (prefix, keyword) of every axis-line option (and tick-label
             # "loglabels") kept as raw GLE.
             # Raw lines are written at the end of the block, so a later
@@ -4557,6 +4558,20 @@ class _Recognizer:
         if kw == "title":
             self._parse_title_line(toks, info, stmt)
             return
+        # Read back only as the writer writes it: a word or colour expression
+        # with no comment after it, in a graph whose frame is drawn.
+        if (
+            kw == "background"
+            and len(toks) == len(stmt.tokens)
+            and len(toks) > 1
+            and toks[1].type is TokenType.WORD
+            and not info["frame_off"]
+        ):
+            color, nxt = _collect_color(toks, 1)
+            if color is not None and nxt == len(toks):
+                # GLE keeps the last one, wherever it stands in the block.
+                info["facecolor"] = color
+                return
         if kw in ("xtitle", "ytitle", "y2title", "x2title"):
             self._parse_axis_title_line(kw, toks, info, stmt)
             return
@@ -10468,6 +10483,7 @@ class _Recognizer:
             setattr(ax, f"{prefix}ticklabel_color", info[f"{prefix}labels_color"])
             setattr(ax, f"{prefix}ticklabel_angle", info[f"{prefix}angle"])
         ax.math_mode = info["math_mode"]
+        ax._facecolor = info["facecolor"]
         for prefix in ("x", "y"):
             for name in (
                 "nticks",

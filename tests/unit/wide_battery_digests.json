@@ -95,6 +95,7 @@
  "golden:subplots_sharex_with_colored_text": "ae2763ab40de35a0e4bd5c34a961fbfc364ee2cc9c4c73ee542a0932e5e09d6a",
  "golden:subplots_spanning": "838da003aa1302fc09ecf32c7a23ec35c2d5fe8af7bf9da68c5326a79788727c",
  "golden:inset_axes": "748fef45fbe99aa88e64a1ce58fd4a24508c509a458ff07d05deb9f6027ad018",
+ "golden:inset_facecolor": "ebbdc3de87b9804e58bb79afd08106a46f2fc4bb1a46abc49ef51b73be1e8cdc",
  "golden:insets_off_panel": "170acfb891e717f0285f23948ca8fad80e06f62c45a1af0db828e2568070b33f",
  "golden:inset_alone": "ff4a70f03813d95d737e8f48d1f09221294852289b22e07c43792ff09503fa02",
  "golden:aspect_ratios": "e7aee86d53acdf541b48d4859c73b8d3f8ba7c8c9a8af3143f4e3bf48726d07e",
