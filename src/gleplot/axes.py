@@ -690,11 +690,19 @@ def _unmasked(value):
 
     ``np.asarray`` keeps the value under a mask. matplotlib leaves a masked
     point out wherever it leaves out a NaN one, so the data arguments that
-    do so here pass through this first.
+    do so here pass through this first. A list or tuple (an asymmetric
+    error) is read item by item. Nothing changes when nothing is masked, or
+    for values that are not numbers (colour names).
     """
-    if np.ma.isMaskedArray(value):
-        return np.ma.filled(value.astype(float), np.nan)
-    return value
+    if isinstance(value, (list, tuple)):
+        return type(value)(_unmasked(item) for item in value)
+    if (
+        not np.ma.isMaskedArray(value)
+        or not np.ma.getmaskarray(value).any()
+        or not np.issubdtype(value.dtype, np.number)
+    ):
+        return value
+    return np.ma.filled(value.astype(float), np.nan)
 
 
 def _require_finite(arr: np.ndarray, what: str) -> None:

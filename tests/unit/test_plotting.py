@@ -3368,6 +3368,7 @@ _ONES = [1.0, 2.0, 3.0]
         lambda ax, v: ax.barh(_ONES, v),
         lambda ax, v: ax.errorbar(_ONES, v, yerr=0.1),
         lambda ax, v: ax.errorbar(_ONES, _ONES, xerr=v, yerr=v),
+        lambda ax, v: ax.errorbar(_ONES, _ONES, yerr=[v, v]),
         lambda ax, v: ax.fill_between(_ONES, v),
         lambda ax, v: ax.fill_betweenx(_ONES, v),
         lambda ax, v: ax.hist(v),
@@ -3386,6 +3387,7 @@ _ONES = [1.0, 2.0, 3.0]
         "barh",
         "errorbar",
         "errorbar-err",
+        "errorbar-asymmetric",
         "fill_between",
         "fill_betweenx",
         "hist",
@@ -3402,6 +3404,7 @@ def test_a_masked_value_is_a_nan(draw):
         fig = glp.figure(data_prefix="p")
         draw(fig.add_subplot(111), values)
         emitted.append(fig._generate_gle_with_files())
+    glp.close()
     assert emitted[0] == emitted[1]
     text, files = emitted[0]
     assert "max 77" not in text
@@ -3412,4 +3415,17 @@ def test_fill_draws_the_value_under_the_mask_as_matplotlib_does():
     fig = glp.figure(data_prefix="p")
     fig.add_subplot(111).fill(_ONES, _MASKED)
     _text, files = fig._generate_gle_with_files()
+    glp.close()
     assert "2 77" in "".join(files.values())
+
+
+def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
+    """No mask leaves integers whole; colour names are not numbers."""
+    stamps = np.ma.masked_array([1700000000, 1700000031, 1700000060])
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot(stamps, _ONES)
+    ax.scatter(_ONES, _ONES, c=np.ma.masked_array(["r", "g", "b"], mask=[0, 1, 0]))
+    _text, files = fig._generate_gle_with_files()
+    glp.close()
+    assert "1700000031 2" in "".join(files.values())
