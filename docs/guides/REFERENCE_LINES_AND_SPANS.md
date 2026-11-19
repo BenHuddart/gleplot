@@ -103,12 +103,11 @@ dataset form.
 
 ## Limitations
 
-- **`alpha` is not rendered.** It is accepted and stored for matplotlib API
-  compatibility, but GLE 4.3.10 refuses semi-transparency unless it is driven
-  with `-cairo` (*"semi-transparency only supported with command line option
-  `-cairo`"*), which gleplot's compiler does not use. Use a light colour
-  (`'lightgray'`, `'lightcyan'`, …) instead. This matches the existing
-  behaviour of `fill_between`.
+- **Transparency.** A span's `alpha` is folded into its colour as GLE's
+  `rgba255(...)`, and a figure with a semi-transparent colour is compiled
+  with GLE's `-cairo` device, which GLE requires to draw it. `axvline` and
+  `axhline` take no `alpha`: it warns and is ignored, so use a light colour
+  (`'lightgray'`, `'lightcyan'`, …) for a faint line.
 - **Round-tripping.** Reading a generated `.gle` file back with `open_gle()`
   recovers the guides as `reflines`/`spans`, from the `! gleplot:guide`
   comment gleplot writes beside each one. A guide whose lines were edited by
