@@ -728,6 +728,23 @@ class Figure:
         return list(self._source_warnings)
 
     @property
+    def axes(self) -> List[Axes]:
+        """The figure's axes, in the order they were added.
+
+        A new list on each access, as in matplotlib: add axes with
+        :meth:`add_subplot` or :meth:`add_axes`, not by changing the list.
+        For a figure from :func:`gleplot.open_gle`, the order is that of the
+        graph blocks in the file.
+
+        Notes
+        -----
+        The views :meth:`gleplot.Axes.twinx` and :meth:`gleplot.Axes.twiny`
+        return draw on their parent axes' graph, so unlike matplotlib they
+        are not entries of this list.
+        """
+        return list(self.axes_list)
+
+    @property
     def preview_decimation_report(self) -> List:
         """Series the most recent generation actually decimated, and by how much.
 
