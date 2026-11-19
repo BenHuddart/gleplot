@@ -16,7 +16,12 @@ Format (fixed, versioned)::
     ! gleplot: sharey = false
     ! gleplot: msize_scale = 1.0
     ! gleplot: import-data = data_0.dat, data_1.dat
+    ! gleplot: insets = 3
     ! gleplot-meta-end
+
+``insets`` lists, by 1-based graph block number, the axes placed outside the
+subplot grid by :meth:`gleplot.Figure.add_axes`. It is written only when the
+figure has such an axes.
 
 This module is intentionally standalone: it does not import the writer, and
 nothing wires it into ``GLEWriter`` yet (that is a later phase). It only
@@ -167,6 +172,8 @@ def _split_list(raw: str) -> List[str]:
 
 
 def _format_value(key: str, value: Any) -> str:
+    if key == "insets":
+        return ", ".join(str(int(n)) for n in value)
     if key == "import-data":
         names = value or []
         return ", ".join(_quote_list_item(str(n)) for n in names)
@@ -181,7 +188,8 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
     data : dict
         Metadata values to persist. Recognized keys: ``dpi`` (int),
         ``sharex`` / ``sharey`` (bool), ``msize_scale`` (float),
-        ``import-data`` (list of str filenames). Unknown keys are emitted
+        ``import-data`` (list of str filenames), ``insets`` (list of int
+        graph numbers, emitted only when present). Unknown keys are emitted
         verbatim (as strings) so callers can round-trip forward-compatible
         extra fields; a bare list/tuple value is rendered as a comma-list,
         anything else via ``str()``.
@@ -288,6 +296,8 @@ def _parse_scalar(raw: str) -> Any:
 
 def _parse_value(key: str, raw: str) -> Any:
     raw = raw.strip()
+    if key == "insets":
+        return [int(n) for n in _split_list(raw)]
     if key == "import-data":
         if not raw:
             return []
@@ -361,7 +371,10 @@ def parse_metadata(lines: List[str]) -> Tuple[Dict[str, Any], List[str]]:
             warnings.append(f"Skipping malformed metadata line (empty key): {line!r}")
             continue
 
-        data[key] = _parse_value(key, raw_value)
+        try:
+            data[key] = _parse_value(key, raw_value)
+        except ValueError:
+            warnings.append(f"Skipping malformed metadata line (bad value): {line!r}")
 
     if not found_block:
         return {}, []

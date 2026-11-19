@@ -1710,6 +1710,10 @@ class _Recognizer:
         # resolved-table cache per data_file name
         self._table_cache: Dict[str, object] = {}
         self._import_list: Optional[List[str]] = None
+        # 1-based numbers of the graphs the metadata names as insets; None
+        # in a file with no gleplot metadata, whose insets are recognized
+        # by their frames.
+        self._insets: Optional[Set[int]] = None
         self._used_prefix_indices: Dict[str, int] = {}  # prefix -> max index+1
         self._used_data_files: set = set()
         # Sticky text-cluster state (GLE 'set hei'/'set color'/'set just' are
@@ -1883,6 +1887,9 @@ class _Recognizer:
             self._note(ImportCategory.METADATA, meta_msg, meta_span)
         if "import-data" in meta:
             self._import_list = list(meta.get("import-data") or [])
+        if meta:
+            # A gleplot file names its insets; one without the key has none.
+            self._insets = set(meta.get("insets") or [])
         return meta
 
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
@@ -1894,7 +1901,8 @@ class _Recognizer:
         metadata_extra = {
             k: v
             for k, v in meta.items()
-            if k not in ("dpi", "sharex", "sharey", "msize_scale", "import-data")
+            if k
+            not in ("dpi", "sharex", "sharey", "msize_scale", "import-data", "insets")
         }
 
         (
@@ -9036,8 +9044,7 @@ class _Recognizer:
         positions = self._infer_positions(parsed_axes)
 
         for idx, info in enumerate(parsed_axes):
-            rows, cols, one_based = positions[idx]
-            ax = Axes(fig, (rows, cols, one_based))
+            ax = Axes(fig, positions[idx])
             self._populate_axes(ax, info)
             fig._apply_shared_axes_flags(ax)
             # Restore explicit visibility flags recovered from GLE (override
@@ -9240,7 +9247,76 @@ class _Recognizer:
         )
         return stmts[0].raw == expected
 
-    def _infer_positions(self, parsed_axes) -> List[tuple]:
+    def _infer_positions(self, parsed_axes) -> List[Optional[tuple]]:
+        """Infer (rows, cols, idx) per axes; ``None`` for an inset.
+
+        The insets (:meth:`Figure.add_axes`) are the graphs the metadata's
+        ``insets`` names, or, in a file without that key, each graph whose
+        frame rect lies inside another graph's. The grid is inferred from
+        the other graphs.
+        """
+        if self._insets is not None:
+            inset = self._named_insets(parsed_axes, self._insets)
+        else:
+            inset = self._nested_graphs(parsed_axes)
+        grid = iter(
+            self._infer_grid_positions(
+                [info for info, is_inset in zip(parsed_axes, inset) if not is_inset]
+            )
+        )
+        return [None if is_inset else next(grid) for is_inset in inset]
+
+    def _named_insets(self, parsed_axes, numbers) -> List[bool]:
+        """Per graph, whether the metadata names it as an inset.
+
+        A named graph whose frame rect was not recovered cannot be placed
+        outside the grid, so it stays in it; that, and a number naming no
+        graph, is noted.
+        """
+        inset = []
+        for k, info in enumerate(parsed_axes):
+            named = k + 1 in numbers
+            if named and self._frame_rect(info) is None:
+                self._note(
+                    ImportCategory.LAYOUT,
+                    f"graph {k + 1} is listed as an inset but has no amove + "
+                    "size + scale 1 1 frame; it is laid out in the grid",
+                    None,
+                )
+                named = False
+            inset.append(named)
+        stray = sorted(n for n in numbers if not 1 <= n <= len(parsed_axes))
+        if stray:
+            self._note(
+                ImportCategory.LAYOUT,
+                f"the metadata lists insets {stray} but the file has "
+                f"{len(parsed_axes)} graphs; those numbers are ignored",
+                None,
+            )
+        return inset
+
+    def _nested_graphs(self, parsed_axes) -> List[bool]:
+        """Per graph, whether its frame rect lies inside another graph's."""
+        rects = [self._frame_rect(info) for info in parsed_axes]
+        return [
+            a is not None
+            and any(
+                b is not None and _rect_inside(a, b) and not _rect_inside(b, a)
+                for b in rects
+            )
+            for a in rects
+        ]
+
+    def _frame_rect(self, info) -> Optional[Tuple[float, float, float, float]]:
+        """``(x0, y0, x1, y1)`` of a graph placed by ``amove`` + size + scale 1 1."""
+        size = self._invertible_triple(info.get("geometry_stmts") or [])
+        amove = info.get("amove")
+        if size is None or amove is None:
+            return None
+        x, y = amove
+        return (x, y, x + size[0], y + size[1])
+
+    def _infer_grid_positions(self, parsed_axes) -> List[tuple]:
         """Infer (rows, cols, idx) per axes from recovered amove positions."""
         n = len(parsed_axes)
         if n <= 1:
@@ -9303,11 +9379,10 @@ class _Recognizer:
         """
         rects = []
         for info in parsed_axes:
-            size = self._invertible_triple(info.get("geometry_stmts") or [])
-            if size is None:
+            rect = self._frame_rect(info)
+            if rect is None:
                 return None
-            x, y = info["amove"]
-            rects.append((x, y, x + size[0], y + size[1]))
+            rects.append(rect)
 
         cols_ = _grid_bands([r[0] for r in rects], [r[2] for r in rects])
         rows_ = _grid_bands([r[3] for r in rects], [r[1] for r in rects], reverse=True)
@@ -9916,6 +9991,16 @@ def _cluster(values, tol=0.5, reverse=False):
     # representative = mean of each cluster
     reps = [sum(c) / len(c) for c in clusters]
     return reps
+
+
+def _rect_inside(inner, outer, tol=1e-3) -> bool:
+    """True if rect ``inner`` lies within ``outer`` (both ``(x0, y0, x1, y1)``)."""
+    return (
+        inner[0] >= outer[0] - tol
+        and inner[1] >= outer[1] - tol
+        and inner[2] <= outer[2] + tol
+        and inner[3] <= outer[3] + tol
+    )
 
 
 def _grid_bands(starts, ends, reverse=False):

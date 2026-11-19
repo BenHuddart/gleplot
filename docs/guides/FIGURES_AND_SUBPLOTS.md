@@ -71,6 +71,30 @@ With shared axes, a spanning panel keeps its x tick labels when it reaches
 the bottom row, and its y tick labels when it reaches the left column. `open_gle` recovers the spans of a grid whose panels
 cover every cell once.
 
+### Insets
+
+`fig.add_axes([left, bottom, width, height])` places an axes anywhere on the
+page, in fractions of the figure, as in matplotlib:
+
+```python
+import numpy as np
+import gleplot as glp
+
+x = np.linspace(0, 10, 200)
+fig, ax = glp.subplots(figsize=(6, 4))
+ax.plot(x, np.exp(-x / 3) * np.cos(4 * x))
+
+inset = fig.add_axes([0.55, 0.55, 0.3, 0.25])
+inset.plot(x[:40], np.exp(-x[:40] / 3) * np.cos(4 * x[:40]), color='red')
+```
+
+The inset stands outside the grid: it does not move the other panels or
+their margins, and `sharex`/`sharey` do not apply to it. It is drawn on top
+of the axes added before it but, unlike matplotlib, has no background, so
+what is behind it shows through. gleplot lists its insets in the file's
+metadata header, so `open_gle` reads them back as insets; in a hand-written
+file, a graph that lies inside another graph's frame is read as an inset.
+
 ## Shared axes
 
 Share the x-axis or y-axis when panels should be compared directly.

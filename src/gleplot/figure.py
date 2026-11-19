@@ -33,7 +33,7 @@ from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfi
 from .markers import MARKERS
 from .parser import metadata as _gle_metadata
 from .parser.tables import LEGEND_SPACING_TO_KEY
-from .parser.units import fontsize_pt_to_cm
+from .parser.units import fontsize_pt_to_cm, inches_to_cm
 from .series import HeatmapSeries, Series, TextAnnotation, is_visible
 from .sources import DataSource, source_of
 from .writer import (
@@ -265,16 +265,25 @@ def _grid_cells(ax: Axes) -> Tuple[int, int, Tuple[int, int], Tuple[int, int]]:
     inclusive. An ``index`` that is a ``(first, last)`` pair spans the
     rectangle of cells between those two, as matplotlib's does.
 
-    ``Axes.position`` is optional only because an axes can be constructed
-    detached; every axes a figure lays out was given one by ``add_subplot``.
+    Only for an axes in the grid: an :meth:`Figure.add_axes` inset has no
+    position (see :meth:`Figure._grid_axes`).
     """
     position = ax.position
-    assert position is not None, "an axes in a figure always has a grid position"
+    assert position is not None, "an add_axes inset has no grid cells"
     rows, cols, idx = position
     first, last = idx if isinstance(idx, tuple) else (idx, idx)
     rows_ = sorted(((first - 1) // cols, (last - 1) // cols))
     cols_ = sorted(((first - 1) % cols, (last - 1) % cols))
     return rows, cols, (rows_[0], rows_[1]), (cols_[0], cols_[1])
+
+
+def _make_polar(ax: Axes) -> None:
+    """Turn a new axes into a polar one."""
+    # The polar grid and its labels replace the frame and ticks.
+    ax._polar = True
+    ax._frame_off = True
+    ax._show_xticks = ax._show_yticks = False
+    ax.xgrid = ax.ygrid = None
 
 
 def _subplot_span(rows: int, cols: int, idx) -> Union[int, Tuple[int, int]]:
@@ -727,11 +736,96 @@ class Figure:
         # toggles instead of duplicating the logic.
         self._apply_shared_axes_flags(ax)
         if projection == "polar":
-            # The polar grid and its labels replace the frame and ticks.
-            ax._polar = True
-            ax._frame_off = True
-            ax._show_xticks = ax._show_yticks = False
-            ax.xgrid = ax.ygrid = None
+            _make_polar(ax)
+
+        self.axes_list.append(ax)
+        self._current_axes = ax
+        return ax
+
+    def add_axes(self, rect, projection=None, polar=False, **kwargs) -> Axes:
+        """Add an axes at a given place on the page, such as an inset.
+
+        Parameters
+        ----------
+        rect : sequence of 4 floats
+            ``[left, bottom, width, height]`` of the axes frame, in fractions
+            of the figure: ``[0, 0, 1, 1]`` is the whole page.
+        projection : {None, 'rectilinear', 'polar'}, optional
+            As for :meth:`add_subplot`.
+        polar : bool, default: False
+            ``True`` is ``projection='polar'``.
+        **kwargs
+            Axes properties in matplotlib. Not supported: they warn and are
+            ignored; call the setters on the returned axes instead.
+
+        Returns
+        -------
+        Axes
+            The new axes, also the figure's current axes.
+
+        Notes
+        -----
+        The axes stands outside the subplot grid: it does not move the grid,
+        and ``sharex``/``sharey`` do not apply to it. It is written after the
+        axes added before it, so it is drawn on top of them, but unlike
+        matplotlib it has no background, so what is behind it shows through.
+
+        The rect is turned into centimetres from the figure's ``figsize``
+        when this is called, and is kept as :attr:`Axes.placement`.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, ax = glp.subplots()
+        >>> inset = fig.add_axes([0.55, 0.55, 0.3, 0.3])
+        """
+        try:
+            if isinstance(rect, (Axes, str, dict)):
+                raise TypeError
+            values = [float(v) for v in rect]
+            if len(values) != 4:
+                raise TypeError
+        except (TypeError, ValueError):
+            raise TypeError(
+                "add_axes(rect) takes [left, bottom, width, height] as four "
+                f"numbers in figure fractions, got {rect!r}; adding an "
+                "existing axes is not supported."
+            ) from None
+        if not all(math.isfinite(v) for v in values):
+            raise ValueError(f"add_axes(rect) must be finite, got {rect!r}.")
+        if values[2] <= 0 or values[3] <= 0:
+            raise ValueError(
+                f"add_axes(rect) needs a positive width and height, got {rect!r}."
+            )
+        if polar:
+            if projection not in (None, "polar"):
+                raise ValueError(
+                    f"add_axes(polar=True, projection={projection!r}): pass "
+                    "only one of them."
+                )
+            projection = "polar"
+        if projection not in (None, "rectilinear", "polar"):
+            raise ValueError(
+                f"add_axes(projection={projection!r}) is not supported; "
+                "use None, 'rectilinear' or 'polar'."
+            )
+        if kwargs:
+            warn_external(
+                f"add_axes() ignores {', '.join(sorted(kwargs))}: set them on "
+                "the returned axes instead."
+            )
+
+        width_cm, height_cm = (inches_to_cm(v) for v in self.figsize)
+        ax = Axes(self, None)
+        left, bottom, width, height = values
+        ax.placement = (
+            left * width_cm,
+            bottom * height_cm,
+            width * width_cm,
+            height * height_cm,
+        )
+        if projection == "polar":
+            _make_polar(ax)
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -809,7 +903,10 @@ class Figure:
         would have produced. Changing the rules here changes them everywhere.
         """
         # A spanning axes is judged by its bottom row and its outer columns.
-        rows, cols, (top_row, bottom_row), (left_col, right_col) = _grid_cells(ax)
+        # An inset shares nothing, which is what a lone 1x1 cell gets.
+        rows, cols, (top_row, bottom_row), (left_col, right_col) = (
+            _grid_cells(ax) if ax.position is not None else (1, 1, (0, 0), (0, 0))
+        )
 
         if self.sharex:
             # Only show x-axis labels/ticks on bottom row
@@ -1060,8 +1157,9 @@ class Figure:
         """
         hei = fontsize_pt_to_cm(self.style.fontsize)
         titled = self._has_titles()
-        has_y2 = any(self._axes_has_y2(ax) for ax in self.axes_list)
-        has_x2 = any(self._axes_has_x2(ax) for ax in self.axes_list)
+        grid_axes = self._grid_axes()
+        has_y2 = any(self._axes_has_y2(ax) for ax in grid_axes)
+        has_x2 = any(self._axes_has_x2(ax) for ax in grid_axes)
         margin_left = self._AUTO_MARGIN_LEFT_HEI * hei
         margin_bottom = self._AUTO_MARGIN_BOTTOM_HEI * hei
         if has_x2:
@@ -1114,8 +1212,9 @@ class Figure:
 
     def _grid_shape(self) -> Tuple[int, int]:
         """``(rows, cols)`` of the subplot grid the layout fills."""
-        max_rows = max((_grid_cells(ax)[0] for ax in self.axes_list), default=1)
-        max_cols = max((_grid_cells(ax)[1] for ax in self.axes_list), default=1)
+        cells = [_grid_cells(ax) for ax in self._grid_axes()]
+        max_rows = max((c[0] for c in cells), default=1)
+        max_cols = max((c[1] for c in cells), default=1)
         return max_rows, max_cols
 
     def _colorbar_gaps_cm(
@@ -1130,7 +1229,7 @@ class Figure:
         """
         col_extra: Dict[int, float] = {}
         row_extra: Dict[int, float] = {}
-        for ax in self.axes_list:
+        for ax in self._grid_axes():
             vertical, horizontal = self._axes_colorbar_reserved_cm(ax, resolution)
             if not (vertical or horizontal):
                 continue
@@ -1142,10 +1241,14 @@ class Figure:
         return col_extra, row_extra
 
     def _has_titles(self) -> bool:
-        """True if any subplot has a title (a broken axis titles the assembly)."""
-        return any(ax.title_text for ax in self.axes_list) or any(
+        """True if any grid axes has a title (a broken axis titles the assembly)."""
+        return any(ax.title_text for ax in self._grid_axes()) or any(
             bax.title_text for bax in self.broken_axes
         )
+
+    def _grid_axes(self) -> List[Axes]:
+        """The axes the subplot grid lays out: all but :meth:`add_axes` insets."""
+        return [ax for ax in self.axes_list if ax.position is not None]
 
     def _layout_rects(self, writer, resolution) -> Tuple[List[tuple], List[tuple]]:
         """Default frame rect + grid cell for every axes, in ``axes_list`` order.
@@ -1182,8 +1285,9 @@ class Figure:
         # height_ratios/width_ratios are ignored rather than validated -- a
         # figure-level setting left over from a grid must not turn a lone
         # plot into a ValueError (see _grid_axis_sizes' length check).
-        height_ratios = self.height_ratios if len(self.axes_list) > 1 else None
-        width_ratios = self.width_ratios if len(self.axes_list) > 1 else None
+        grid_axes = self._grid_axes()
+        height_ratios = self.height_ratios if len(grid_axes) > 1 else None
+        width_ratios = self.width_ratios if len(grid_axes) > 1 else None
 
         avail_w = max(
             writer.width_cm - margin_left - margin_right - sum(col_gaps),
@@ -1245,6 +1349,17 @@ class Figure:
         rects: List[tuple] = []
         cells: List[tuple] = []
         for ax in self.axes_list:
+            if ax.position is None:
+                # An inset is not in the grid: its rect is its placement.
+                # (Its cell is never read: only a broken-axis seam uses one.)
+                if ax.placement is None:
+                    raise ValueError(
+                        "an axes from add_axes has no placement to draw it at; "
+                        "set Axes.placement to its (x, y, width, height) in cm."
+                    )
+                rects.append(ax.placement)
+                cells.append((ax.placement[0], ax.placement[2]))
+                continue
             _rows, _cols, (top_row, bottom_row), (left_col, right_col) = _grid_cells(ax)
             cell_x = col_x_offsets[left_col]
             y_pos = row_y_bottoms[bottom_row]
@@ -2469,6 +2584,10 @@ class Figure:
             # vouched for as such -- excluded from ``import-data``.
             "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
+        # Which graphs are add_axes insets, so open_gle need not guess.
+        insets = [i + 1 for i, ax in enumerate(self.axes_list) if ax.position is None]
+        if insets:
+            data["insets"] = insets
         data.update(self.metadata_extra)
         return data
 
@@ -2592,10 +2711,11 @@ class Figure:
                     # passthrough_header, so nothing is fabricated in front.
                     writer.begin_graph()
                     writer.add_graph_geometry_passthrough(ax.geometry_passthrough)
-                elif self.graph.scale_mode == "fullsize":
+                elif self.graph.scale_mode == "fullsize" and ax.position is not None:
                     # An explicit writer-level opt-out of gleplot's own layout:
                     # GLE fits the graph (labels included) to the whole page.
-                    # There is no rect to emit, so no amove either.
+                    # There is no rect to emit, so no amove either. An inset
+                    # keeps the rect it was given.
                     writer.begin_graph()
                     writer.add_graph_size()
                 else:
@@ -4110,8 +4230,9 @@ class Figure:
         # panel is one the shared range may hand back to GLE if it collapses
         # (see _defer_degenerate_range). The union of several panels is rarely
         # a point, but it is whenever they all sit on the same single value.
-        # A polar axes' limits are its own (see _resolve_axis_limits).
-        shared = [ax for ax in self.axes_list if not ax._polar]
+        # A polar axes' limits are its own (see _resolve_axis_limits), and so
+        # are an inset's.
+        shared = [ax for ax in self._grid_axes() if not ax._polar]
         lo_auto = all(ax.xmin is None for ax in shared)
         hi_auto = all(ax.xmax is None for ax in shared)
 
@@ -4152,8 +4273,9 @@ class Figure:
         inverted = False
 
         # See _synchronize_x_limits.
-        # A polar axes' limits are its own (see _resolve_axis_limits).
-        shared = [ax for ax in self.axes_list if not ax._polar]
+        # A polar axes' limits are its own (see _resolve_axis_limits), and so
+        # are an inset's.
+        shared = [ax for ax in self._grid_axes() if not ax._polar]
         lo_auto = all(ax.ymin is None for ax in shared)
         hi_auto = all(ax.ymax is None for ax in shared)
 
