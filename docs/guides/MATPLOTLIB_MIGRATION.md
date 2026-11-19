@@ -230,6 +230,15 @@ ignored, and so does a misspelt one:
 `stem` warn the same way, under their own names, for keywords they do not
 take, `lw`, `ls` and `ms` included.
 
+The other line-drawing calls follow the same rule:
+
+| call | short names honoured | warns, for example |
+|---|---|---|
+| `errorbar` | `lw`, `c`, `ms`, and `linestyle` (`ls`), which overrides the line style `fmt` gives unless `fmt='none'` | `ecolor`, `elinewidth`, `capthick`, `barsabove`, `errorevery` |
+| `errorbar_from_file` | `c`, `ms` | `lw`, `ls`, `ecolor` |
+| `axvline`, `axhline` | `lw`, `ls`, `c` | `alpha`, `zorder`, `transform` |
+| `axvspan`, `axhspan` | `facecolor` (`fc`) for `color` | `edgecolor`, `linewidth`, `hatch`, `zorder` |
+
 ## Marker spacing, thinning and clipping
 
 GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. Use `mdist` instead: it places the markers every `mdist` cm along the drawn curve, whatever the point spacing. That is closest to matplotlib's float form of `markevery`. These keywords are gleplot's names for GLE's dataset qualifiers, and `scatter` passes them on to `plot`:

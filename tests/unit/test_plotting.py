@@ -1120,6 +1120,35 @@ class TestErrorBars:
         yield
         glp.close()
 
+    def test_matplotlib_keywords_are_honoured(self, recwarn):
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, lw=2, c="red", ms=10, ls="--")
+        series = self.ax.errorbars[0]
+        assert (series["linewidth"], series["color"], series["linestyle"]) == (
+            2,
+            "RED",
+            "--",
+        )
+        assert series["markersize"] == pytest.approx(0.25)
+        assert not recwarn.list
+
+    def test_linestyle_overrides_fmt_but_not_fmt_none(self):
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="--", linestyle=":")
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="none", ls="--")
+        assert [s["linestyle"] for s in self.ax.errorbars] == [":", "none"]
+
+    def test_a_none_full_name_leaves_the_short_name_alone(self, recwarn):
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, linewidth=None, lw=3)
+        assert self.ax.errorbars[0]["linewidth"] == 3
+        assert not recwarn.list
+
+    def test_unsupported_keywords_warn_and_are_ignored(self):
+        with pytest.warns(UserWarning) as caught:
+            self.ax.errorbar([1, 2], [1, 2], yerr=0.1, ecolor="k", elinewidth=2)
+        assert [str(w.message) for w in caught] == [
+            "errorbar() ignores unsupported keyword(s): ecolor, elinewidth."
+        ]
+        assert caught[0].filename == __file__
+
     def test_symmetric_yerr_scalar(self):
         """Test symmetric vertical error bars with scalar value."""
         x = [1, 2, 3]
@@ -1264,6 +1293,13 @@ class TestErrorbarFromFile:
         )
         yield
         glp.close()
+
+    def test_unsupported_keywords_warn_and_are_ignored(self):
+        with pytest.warns(
+            UserWarning, match=r"^errorbar_from_file\(\) ignores .*: ecolor\.$"
+        ):
+            self.ax.errorbar_from_file(str(self.data_path), 1, 2, 3, ecolor="k")
+        assert len(self.ax.file_series) == 1
 
     def test_errorbar_from_file_basic(self):
         """Test basic errorbar_from_file with column references."""

@@ -42,7 +42,7 @@ def _marked_figure():
     ax = fig.add_subplot(111)
     ax.plot([0.0, 1.0, 2.0, 3.0], [0.0, 1.0, 4.0, 9.0], label="data")
     ax.axvline(1.5, color="red", linestyle="--", linewidth=2.0, label="threshold")
-    ax.axhline(2.0, color="blue", linestyle=":", ymin=0.1, ymax=0.9)
+    ax.axhline(2.0, color="blue", linestyle=":")
     ax.axvspan(0.5, 1.0, color="orange", label="band")
     ax.axhspan(3.0, 5.0, color="lightgray", xmin=0.2, xmax=0.8)
     ax.legend()
