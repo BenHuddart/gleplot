@@ -1708,6 +1708,38 @@ def test_show_views_the_current_figure(viewable_figure, tmp_path, capsys):
     assert capsys.readouterr() == ("", "")
 
 
+def test_close_all_closes_the_current_figure():
+    """matplotlib's close('all'); gleplot tracks one figure."""
+    fig = glp.figure()
+    glp.plot([1, 2], [1, 2])
+    glp.close("all")
+    assert fig.axes_list == []
+    assert glp.gcf() is not fig
+
+
+def test_closing_the_current_figure_starts_a_new_one():
+    fig = glp.figure()
+    glp.plot([1, 2], [1, 2])
+    glp.close(fig)
+    assert fig.axes_list == []
+    assert glp.gcf() is not fig
+
+
+@pytest.mark.parametrize("fig", [1, "fig1"])
+def test_close_by_number_or_label_warns_and_closes_nothing(fig):
+    current = glp.figure()
+    glp.plot([1, 2], [1, 2])
+    with pytest.warns(UserWarning, match="closes nothing"):
+        glp.close(fig)
+    assert glp.gcf() is current and current.axes_list
+
+
+@pytest.mark.parametrize("fig", [2.0, True])
+def test_close_rejects_a_wrong_type(fig):
+    with pytest.raises(TypeError, match=rf"close\({fig!r}\)"):
+        glp.close(fig)
+
+
 class TestLineModes:
     """Step, stem and histogram outlines are GLE line modes."""
 
@@ -3102,6 +3134,21 @@ def test_add_file_series_writes_every_field_of_each_variant():
     ]
 
 
+def test_a_two_curve_file_fill_without_its_second_column_raises():
+    """No ``y2_col`` and no ``target`` would write ``c None`` into the data line."""
+    from gleplot.series import FileSeries
+    from gleplot.writer import GLEWriter
+
+    writer = GLEWriter()
+    fill = FileSeries(series_type="fill", data_file="a.dat", x_col=1, y1_col=2)
+    with pytest.raises(ValueError, match="needs y2_col .* or target"):
+        writer.add_file_series(fill)
+    fill.update(target="X1", y2_col=3)
+    with pytest.raises(ValueError, match="target must be .* got target='X1'"):
+        writer.add_file_series(fill)
+    assert writer.lines_gle == []
+
+
 def test_add_text_annotation_writes_every_field():
     from gleplot.series import TextAnnotation
     from gleplot.writer import GLEWriter
@@ -3407,3 +3454,84 @@ def test_a_timestamp_heatmap_extent_keeps_its_width(tmp_path):
     header, marker = grid.splitlines()[:2]
     assert header.startswith("! nx 3 ny 2 xmin 1700000000 xmax 1700000090 ymin 0")
     assert marker.startswith("! gleplot: nodes xmin 1.7e+09 xmax 1.70000006e+09")
+
+
+_MASKED = np.ma.masked_array([1.0, 77.0, 3.0], mask=[False, True, False])
+_NAN = np.array([1.0, np.nan, 3.0])
+_ONES = [1.0, 2.0, 3.0]
+
+
+@pytest.mark.parametrize(
+    "draw",
+    [
+        lambda ax, v: ax.plot(_ONES, v),
+        lambda ax, v: ax.plot(v, _ONES),
+        lambda ax, v: ax.step(_ONES, v),
+        lambda ax, v: ax.stem(_ONES, v),
+        lambda ax, v: ax.scatter(_ONES, v),
+        lambda ax, v: ax.scatter(_ONES, _ONES, c=v),
+        lambda ax, v: ax.bar(_ONES, v),
+        lambda ax, v: ax.barh(_ONES, v),
+        lambda ax, v: ax.errorbar(_ONES, v, yerr=0.1),
+        lambda ax, v: ax.errorbar(_ONES, _ONES, xerr=v, yerr=v),
+        lambda ax, v: ax.errorbar(_ONES, _ONES, yerr=[v, v]),
+        lambda ax, v: ax.fill_between(_ONES, v),
+        lambda ax, v: ax.fill_betweenx(_ONES, v),
+        lambda ax, v: ax.hist(v),
+        lambda ax, v: ax.hist(np.ma.column_stack([v, v])),
+        lambda ax, v: ax.vlines(v, 0, 1),
+        lambda ax, v: ax.hlines(_ONES, 0, v),
+    ],
+    ids=[
+        "plot-y",
+        "plot-x",
+        "step",
+        "stem",
+        "scatter",
+        "scatter-c",
+        "bar",
+        "barh",
+        "errorbar",
+        "errorbar-err",
+        "errorbar-asymmetric",
+        "fill_between",
+        "fill_betweenx",
+        "hist",
+        "hist-2d",
+        "vlines",
+        "hlines",
+    ],
+)
+def test_a_masked_value_is_a_nan(draw):
+    """matplotlib leaves a masked point out where it leaves a NaN out (#318)."""
+    emitted = []
+    for values in (_MASKED, _NAN):
+        glp.close()
+        fig = glp.figure(data_prefix="p")
+        draw(fig.add_subplot(111), values)
+        emitted.append(fig._generate_gle_with_files())
+    glp.close()
+    assert emitted[0] == emitted[1]
+    text, files = emitted[0]
+    assert "max 77" not in text
+    assert not any("77" in sidecar for sidecar in files.values())
+
+
+def test_fill_draws_the_value_under_the_mask_as_matplotlib_does():
+    fig = glp.figure(data_prefix="p")
+    fig.add_subplot(111).fill(_ONES, _MASKED)
+    _text, files = fig._generate_gle_with_files()
+    glp.close()
+    assert "2 77" in "".join(files.values())
+
+
+def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
+    """No mask leaves integers whole; colour names are not numbers."""
+    stamps = np.ma.masked_array([1700000000, 1700000031, 1700000060])
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot(stamps, _ONES)
+    ax.scatter(_ONES, _ONES, c=np.ma.masked_array(["r", "g", "b"], mask=[0, 1, 0]))
+    _text, files = fig._generate_gle_with_files()
+    glp.close()
+    assert "1700000031 2" in "".join(files.values())
