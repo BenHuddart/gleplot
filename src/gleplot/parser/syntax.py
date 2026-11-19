@@ -532,6 +532,7 @@ def _build_structure(
     round-tripping, so mixed lines pass through as plain statements.
     """
     nodes: List[Node] = []
+    open_statements: List[str] = []
     n_lines = len(per_line)
     idx = 0
     while idx < n_lines:
@@ -557,20 +558,25 @@ def _build_structure(
                 nodes.append(_wrap_single(stmt))
                 idx += 1
                 continue
-            # 'end sub' and 'end if' close a 'sub' and an 'if ... then', not
-            # a 'begin' block.
             words = [t.value.lower() for t in stmt.tokens if t.type is TokenType.WORD]
-            if _is_end(stmt) and words[1:2] not in (["sub"], ["if"]):
-                # A stray 'end' with no matching open block at this level.
-                warnings.append(
-                    ParseWarning(
-                        stmt.line_no,
-                        "'end' without matching 'begin'; treated as statement",
+            # A 'sub' and a multi-line 'if ... then' are closed by 'end sub'
+            # and 'end if', not by the end of a 'begin' block.
+            if words[0:1] == ["sub"] or (words[0:1] == ["if"] and words[-1] == "then"):
+                open_statements.append(words[0])
+            elif words[0:1] == ["end"]:
+                if (
+                    words[1:2] in (["sub"], ["if"])
+                    and open_statements[-1:] == words[1:2]
+                ):
+                    open_statements.pop()
+                else:
+                    # A stray 'end' with no matching open block at this level.
+                    warnings.append(
+                        ParseWarning(
+                            stmt.line_no,
+                            "'end' without matching 'begin'; treated as statement",
+                        )
                     )
-                )
-                nodes.append(_wrap_single(stmt))
-                idx += 1
-                continue
             nodes.append(_wrap_single(stmt))
             idx += 1
         else:

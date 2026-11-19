@@ -194,7 +194,7 @@ def test_stray_end_recovers_with_warning():
     assert emit(doc) == "size 1 1\nend graph\n"
 
 
-@pytest.mark.parametrize("closer", ["end", "end box"])
+@pytest.mark.parametrize("closer", ["end", "end box", "end sub", "end if"])
 def test_a_bare_or_unknown_stray_end_still_warns(closer):
     doc = parse_gle_source(f"size 1 1\n{closer}\n")
     assert any("without matching" in w.message for w in doc.warnings)
@@ -204,11 +204,16 @@ def test_end_sub_and_end_if_are_not_stray_ends():
     """#189: they close a 'sub' and an 'if ... then', not a 'begin' block."""
     src = (
         "size 10 8\n"
-        "sub crossbox size\n"
+        "SUB crossbox size\n"
+        "    if size > 1 then box size size\n"
         "    if size > 1 then\n"
         "        box size size\n"
-        "    end if\n"
+        "    End If\n"
         "end sub\n"
+        "begin graph\n"
+        "    if 1 then\n"
+        "    end if\n"
+        "end graph\n"
     )
     doc = parse_gle_source(src)
     assert doc.warnings == []
