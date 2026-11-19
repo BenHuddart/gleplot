@@ -1663,6 +1663,22 @@ def _line_style(caller: str, linestyle):
     return "-"
 
 
+def _drawn_line_mode(mode, linestyle):
+    """``mode``, or ``None`` with a warning when ``linestyle`` draws no line.
+
+    A GLE line mode is a qualifier of ``line``. With the line switched off
+    there is nothing for it to qualify, and storing it would not survive a
+    round trip (the writer emits no ``line`` token).
+    """
+    if mode and linestyle in _NO_LINE:
+        warn_external(
+            f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
+            "omits it, so the series is drawn without that mode.",
+        )
+        return None
+    return mode
+
+
 def _color_list(name: str, colors, default: list) -> list:
     """A ``colors`` argument as a list to cycle over layers or segments.
 
@@ -2737,15 +2753,7 @@ class Axes:
         # (not silently dropped). Only when there is *no* line is the series a
         # true scatter.
         is_scatter = marker is not None and linestyle in _NO_LINE
-        # A GLE line mode is a qualifier of ``line``. With the line switched
-        # off there is nothing for it to qualify, and storing it would not
-        # survive a round trip (the writer emits no ``line`` token).
-        if mode and linestyle in _NO_LINE:
-            warn_external(
-                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
-                "omits it, so the series is drawn without that mode.",
-            )
-            mode = None
+        mode = _drawn_line_mode(mode, linestyle)
 
         # Handle color. Which style default applies depends on what this
         # series turns out to be, which is why it is resolved after
@@ -4290,12 +4298,7 @@ class Axes:
         gle_color = self._resolve_color(color)
         linestyle = _line_style("line_from_file", linestyle)
         mode = resolve_line_mode(drawstyle, line_mode)
-        if mode and linestyle in _NO_LINE:
-            warn_external(
-                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
-                "omits it, so the series is drawn without that mode.",
-            )
-            mode = None
+        mode = _drawn_line_mode(mode, linestyle)
 
         fields = dict(
             series_type="line",
