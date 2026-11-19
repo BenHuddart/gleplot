@@ -315,5 +315,5 @@ def test_axis_emit_false_warns():
 
 def test_axis_equal_warns():
     _fig, ax = _axes()
-    with pytest.warns(UserWarning, match="no aspect-ratio"):
+    with pytest.warns(UserWarning, match="set_aspect"):
         ax.axis("equal")

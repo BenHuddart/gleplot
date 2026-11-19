@@ -2229,6 +2229,10 @@ class Axes:
         # re-emits byte-for-byte rather than being normalized to 'scale auto'.
         self.placement: Optional[Tuple[float, float, float, float]] = None
         self.geometry_passthrough: list = []
+        # A y unit's length over an x unit's (set_aspect); None is 'auto'.
+        # Resolved into the frame rect when the figure is written, so it is
+        # not recovered from a .gle file: the rect it produced is.
+        self._aspect: Optional[float] = None
 
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
@@ -7506,8 +7510,8 @@ class Axes:
             :meth:`set_axis_off`, ``'on'`` or ``True`` :meth:`set_axis_on`.
             ``'tight'`` and ``'auto'`` put x and y back on automatic limits,
             which gleplot fits to the data. ``'equal'``, ``'scaled'``,
-            ``'image'`` and ``'square'`` warn and have no effect: GLE has
-            no aspect-ratio constraint. ``[xmin, xmax, ymin, ymax]`` sets the
+            ``'image'`` and ``'square'`` warn and have no effect; use
+            :meth:`set_aspect` instead. ``[xmin, xmax, ymin, ymax]`` sets the
             limits.
         emit : bool
             Accepted for matplotlib compatibility; ``False`` warns, since
@@ -7553,9 +7557,8 @@ class Axes:
                 self.set_ylim(None, None)
             elif option in ("equal", "scaled", "image", "square"):
                 warn_external(
-                    f"axis({arg!r}) has no effect: GLE has no aspect-ratio "
-                    "constraint. Choose figsize and the limits so that a unit "
-                    "has the same length on both axes."
+                    f"axis({arg!r}) has no effect. Use ax.set_aspect('equal') "
+                    "to give a unit the same length on both axes."
                 )
             else:
                 raise ValueError(
@@ -7581,6 +7584,123 @@ class Axes:
                     old_lo if lo is None else lo, old_hi if hi is None else hi
                 )
         return (*self.get_xlim(), *self.get_ylim())
+
+    @_cartesian_only
+    def set_aspect(self, aspect, adjustable=None, anchor=None, share=False):
+        """Fix the ratio of a y unit's length to an x unit's, as matplotlib does.
+
+        Parameters
+        ----------
+        aspect : {'auto', 'equal'} or float
+            ``'auto'`` lets the frame fill its place. ``'equal'`` gives a
+            unit the same length on both axes, and a number ``a`` makes a y
+            unit ``a`` times as long as an x unit. On a log axis a unit is
+            a decade.
+        adjustable : {None, 'box', 'datalim'}, optional
+            gleplot always adjusts the box; ``'datalim'`` warns.
+        anchor : None, str or (float, float), optional
+            gleplot always centres the box in its place; anything but
+            ``None`` or ``'C'`` warns.
+        share : bool, default: False
+            ``True`` warns: the aspect is set on this axes only.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        ValueError
+            If ``aspect`` is not ``'auto'``, ``'equal'`` or a finite positive
+            number, or ``adjustable`` or ``anchor`` is not one of matplotlib's
+            values.
+        TypeError
+            If ``aspect`` is neither a string nor a number.
+        NotImplementedError
+            On a polar axes or a broken-axis segment.
+
+        Notes
+        -----
+        When the figure is saved, the frame is shrunk about its centre
+        until its sides have the ratio the axis limits and the aspect call
+        for. The limits are those the figure is saved with; with no data
+        to set them, the aspect warns and is skipped.
+
+        The frame is written into the ``.gle`` script as its rectangle, so
+        a figure opened again with :func:`gleplot.open_gle` keeps that
+        rectangle but not the aspect: changing its limits afterwards does
+        not reshape the frame.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, ax = glp.subplots()
+        >>> ax.set_aspect("equal")
+        """
+        if self._break_owner is not None:
+            raise NotImplementedError(
+                "set_aspect() is not supported on a broken-axis segment: the "
+                "segments share one height. Choose figsize and the limits "
+                "instead."
+            )
+        if isinstance(aspect, str) and aspect in ("auto", "equal"):
+            value: Optional[float] = None if aspect == "auto" else 1.0
+        else:
+            try:
+                value = float(aspect)
+            except TypeError:
+                raise TypeError(
+                    f"set_aspect(aspect={aspect!r}) must be 'auto', 'equal' or "
+                    "a finite positive number."
+                ) from None
+            except ValueError:
+                value = float("nan")
+            if not (np.isfinite(value) and value > 0):
+                raise ValueError(
+                    f"set_aspect(aspect={aspect!r}) must be 'auto', 'equal' or "
+                    "a finite positive number."
+                )
+        if adjustable not in (None, "box", "datalim"):
+            raise ValueError(
+                f"set_aspect(adjustable={adjustable!r}) is not supported; use "
+                "None, 'box' or 'datalim'."
+            )
+        if isinstance(anchor, str):
+            if anchor not in ("C", "SW", "S", "SE", "E", "NE", "N", "NW", "W"):
+                raise ValueError(
+                    f"set_aspect(anchor={anchor!r}) must be one of 'C', 'SW', "
+                    "'S', 'SE', 'E', 'NE', 'N', 'NW', 'W' or an (x, y) pair."
+                )
+            centred = anchor == "C"
+        else:
+            centred = anchor is None
+        if adjustable == "datalim":
+            warn_external(
+                "set_aspect(adjustable='datalim') is not supported: gleplot "
+                "resizes the box instead. Set the limits with set_xlim and "
+                "set_ylim to choose them yourself."
+            )
+        if not centred:
+            warn_external(
+                f"set_aspect(anchor={anchor!r}) is not supported: gleplot "
+                "centres the resized box in its place."
+            )
+        if share:
+            warn_external(
+                "set_aspect(share=True) is not supported: the aspect is set on "
+                "this axes only. Call set_aspect on each axes."
+            )
+        self._aspect = value
+
+    def get_aspect(self):
+        """The aspect :meth:`set_aspect` set: ``'auto'`` or a float.
+
+        ``'equal'`` reads back as ``1.0``, and a polar axes, whose units are
+        always equal, as ``1.0``.
+        """
+        if self._polar:
+            return 1.0
+        return "auto" if self._aspect is None else self._aspect
 
     @_cartesian_only
     def set_axis_off(self):
@@ -8475,6 +8595,9 @@ class Axes:
         if self._polar:
             # Only on a polar axes, so every other payload is unchanged.
             payload["polar"] = True
+        if self._aspect is not None:
+            # Likewise only when set.
+            payload["aspect"] = self._aspect
         return payload
 
     @classmethod
@@ -8581,6 +8704,7 @@ class Axes:
         ax._y2axis_off = d.get("y2axis_off", False)
         ax._frame_off = d.get("frame_off", False)
         ax._polar = d.get("polar", False)
+        ax._aspect = d.get("aspect")
         # ``_break_owner`` is a back-reference rebound by Figure.from_dict
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")

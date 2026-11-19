@@ -9342,29 +9342,24 @@ class _Recognizer:
             )
             return [(n, 1, k + 1) for k in range(n)]
 
-        xs = [a[0] for a in amoves]
-        ys = [a[1] for a in amoves]
-        col_clusters = _cluster(xs)
-        row_clusters = _cluster(ys, reverse=True)  # top row = highest y
-        rows = len(row_clusters)
-        cols = len(col_clusters)
-        if rows * cols != n:
-            spanned = self._infer_spans(parsed_axes)
-            if spanned is not None:
-                return spanned
+        positions = _clean_grid(amoves)
+        if positions is None:
+            positions = self._infer_spans(parsed_axes)
+        if positions is None:
+            # A frame set_aspect shrank keeps its cell's centre, not its corner.
+            rects = [self._frame_rect(info) for info in parsed_axes]
+            frames = [r for r in rects if r is not None]
+            if len(frames) == n:
+                positions = _clean_grid(
+                    [((r[0] + r[2]) / 2, (r[1] + r[3]) / 2) for r in frames]
+                )
+        if positions is None:
             self._note(
                 ImportCategory.LAYOUT,
                 "amove positions do not form a clean grid; using n x 1 fallback",
                 arrangement_span,
             )
             return [(n, 1, k + 1) for k in range(n)]
-
-        positions = []
-        for a in amoves:
-            col = _which_cluster(a[0], col_clusters)
-            row = _which_cluster(a[1], row_clusters, reverse=True)
-            one_based = row * cols + col + 1
-            positions.append((rows, cols, one_based))
         return positions
 
     def _infer_spans(self, parsed_axes) -> Optional[List[tuple]]:
@@ -9991,6 +9986,29 @@ def _cluster(values, tol=0.5, reverse=False):
     # representative = mean of each cluster
     reps = [sum(c) / len(c) for c in clusters]
     return reps
+
+
+def _clean_grid(points) -> Optional[List[tuple]]:
+    """``(rows, cols, idx)`` per point, if the points form a full grid.
+
+    Columns and rows are the clustered x and y values (the top row has the
+    highest y); ``None`` unless there is one point per cell.
+    """
+    col_clusters = _cluster([p[0] for p in points])
+    row_clusters = _cluster([p[1] for p in points], reverse=True)
+    rows, cols = len(row_clusters), len(col_clusters)
+    if rows * cols != len(points):
+        return None
+    return [
+        (
+            rows,
+            cols,
+            _which_cluster(p[1], row_clusters, reverse=True) * cols
+            + _which_cluster(p[0], col_clusters)
+            + 1,
+        )
+        for p in points
+    ]
 
 
 def _rect_inside(inner, outer, tol=1e-3) -> bool:
