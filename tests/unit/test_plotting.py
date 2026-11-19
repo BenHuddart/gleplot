@@ -100,6 +100,67 @@ class TestBasicPlotting:
             draw_lines
         ), f"Expected a draw command with both 'line' and 'marker'.\n{gle}"
 
+    def test_matplotlib_short_names_are_honoured(self, recwarn):
+        self.ax.plot([0, 1], [0, 1], lw=2.5, ls="--", c="red", ms=10, marker="o")
+        self.ax.plot([0, 1], [1, 0], linewidth=2.5, linestyle="--", color="red")
+        short, full = self.ax.lines
+        assert (short["linewidth"], short["linestyle"], short["color"]) == (
+            2.5,
+            "--",
+            "RED",
+        )
+        assert short["markersize"] == 0.25
+        assert (full["linewidth"], full["linestyle"], full["color"]) == (
+            2.5,
+            "--",
+            "RED",
+        )
+        assert not recwarn.list
+
+    @pytest.mark.parametrize(
+        "name, alias, value, short, stored",
+        [("linewidth", "lw", 3, 2, 3), ("color", "c", "red", "blue", "RED")],
+    )
+    def test_full_name_wins_over_its_short_name(
+        self, name, alias, value, short, stored
+    ):
+        with pytest.warns(UserWarning, match=f"both {name} and {alias}; {name} wins"):
+            self.ax.plot([0, 1], [0, 1], **{name: value, alias: short})
+        assert self.ax.lines[0][name] == stored
+
+    def test_unsupported_keywords_warn_and_are_ignored(self):
+        with pytest.warns(UserWarning) as caught:
+            self.ax.plot([0, 1], [0, 1], alpha=0.5, mec="k", transform=None)
+        messages = [str(w.message) for w in caught]
+        assert messages == [
+            "plot() ignores unsupported keyword(s): alpha, mec, transform."
+        ]
+        assert caught[0].filename == __file__
+        assert "alpha" not in self.ax.lines[0]
+
+    def test_a_short_name_given_none_keeps_the_default(self, recwarn):
+        self.ax.plot([0, 1], [0, 1], marker="o", ls=None, lw=None, ms=None, c=None)
+        line = self.ax.lines[0]
+        assert (line["linestyle"], line["linewidth"]) == ("-", 1)
+        assert line["markersize"] == pytest.approx(0.15)
+        assert not recwarn.list
+
+    @pytest.mark.parametrize("name", ["step", "semilogy", "scatter", "stem"])
+    def test_wrappers_of_plot_warn_under_their_own_name(self, name):
+        with pytest.warns(UserWarning) as caught:
+            getattr(self.ax, name)([1, 2], [1, 2], alpha=0.5)
+        assert [str(w.message) for w in caught] == [
+            f"{name}() ignores unsupported keyword(s): alpha."
+        ]
+
+    @pytest.mark.parametrize("name", ["scatter", "stem"])
+    def test_scatter_and_stem_take_no_line_short_names(self, name):
+        with pytest.warns(UserWarning) as caught:
+            getattr(self.ax, name)([1, 2], [1, 2], lw=3, ms=12)
+        assert [str(w.message) for w in caught] == [
+            f"{name}() ignores unsupported keyword(s): lw, ms."
+        ]
+
 
 class TestScatterPlots:
     """Test scatter plot functionality."""
