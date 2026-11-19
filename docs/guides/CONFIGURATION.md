@@ -124,7 +124,7 @@ delete.
 Controls graph layout and rendering:
 
     graph = glp.GLEGraphConfig(
-        scale_mode='auto',           # 'auto', 'fixed', or 'fullsize'
+        scale_mode='auto',           # 'auto' or 'fullsize'; see Scale Modes
         title_distance=None,         # Default Axes.title_dist (cm)
         xlabel_distance=None,        # Default Axes.xlabel_dist (cm)
         ylabel_distance=None,        # Default Axes.ylabel_dist (cm)
@@ -255,17 +255,19 @@ points.
 
 ### Scale Modes
 
-- **`'auto'` (default)** - Automatically sizes and centers axes within the graph box
-  - Best for most plots
-  - Leaves room for labels and titles
-  
-- **`'fixed'`** - Use explicit graph dimensions
-  - Requires setting width/height in `add_graph_size()`
-  - Axes scale to fill the specified box
-  
-- **`'fullsize'`** - Axes fill entire graph box with no margins
-  - Equivalent to GLE's `fullsize` keyword
-  - No automatic room for labels/titles (they may overlap axes)
+- **`'auto'` (default)** - gleplot sizes and places every axes frame itself,
+  from its subplot grid cell or its `add_axes` rect, leaving margins for
+  labels and titles. Change the layout with `figsize`, `subplots_adjust` or
+  `add_axes`.
+
+- **`'fullsize'`** - A figure whose only axes comes from `add_subplot` or
+  `subplots` leaves the graph size to GLE's `fullsize` keyword: the graph fills
+  the page with no margins, so labels and titles may overlap the axes, and
+  `set_aspect` cannot apply (it warns). A figure with several axes, or an axes
+  made with `add_axes`, keeps gleplot's layout as under `'auto'`.
+
+- **`'fixed'`** - Has no effect: the figure is written exactly as under
+  `'auto'`.
 
 ### Legend Positions
 
@@ -338,7 +340,6 @@ GLE-specific markers:
     )
     
     graph = glp.GLEGraphConfig(
-        scale_mode='fixed',
         legend_position='br',
     )
     
