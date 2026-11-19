@@ -368,7 +368,7 @@ def normalize(d: dict) -> dict:
         # ``set just``.
         #
         # Sticky-fontsize normalization: 'set hei' is GLE interpreter-global
-        # state (see recognizer._try_one_text / writer.add_text). The writer
+        # state (see recognizer._try_one_text / writer.add_text_annotation). The writer
         # only emits 'set hei' when a text's fontsize DIFFERS from whatever is
         # currently active -- so a text with fontsize=None (or one equal to
         # the already-active height) genuinely renders in real GLE at the
