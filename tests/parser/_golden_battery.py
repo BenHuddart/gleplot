@@ -1375,6 +1375,32 @@ def function_curves():
     return fig
 
 
+def one_point_default_width():
+    """A 1 pt default width: each kind's ``lwidth 0.03528`` comes back as 1 pt.
+
+    The writer reads 1 pt as "the style default", so a recovered 1 pt width
+    is kept as given rather than widened to the default it was loaded with.
+    """
+    fig = glp.figure(
+        style=glp.GLEStyleConfig(default_linewidth=1.0), data_prefix="golden"
+    )
+    ax = fig.add_subplot(131)
+    ax.plot([0, 1, 2], [1, 2, 1], label="line")
+    ax.errorbar([0, 1, 2], [2, 3, 2], yerr=0.2, fmt="o-")
+    ax.hist([0.2, 0.4, 0.4, 1.6], bins=2, range=(0, 2), histtype="step")
+    ax.axhline(1.5, label="guide")
+    ax.legend()
+    curves = fig.add_subplot(132)
+    curves.function("x/2", xmin=0, xmax=2)
+    curves.contour([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], levels=[1.5])
+    # Nothing resolves the y range, so this guide is a layered draw call.
+    guides = fig.add_subplot(133)
+    guides.axvline(1.0, label="drawn")
+    guides.set_xlim(0, 2)
+    guides.legend()
+    return fig
+
+
 def fit_curves():
     """Two GLE-fitted curves: one with a range, step, style and label, one bare."""
     fig = glp.figure(data_prefix="golden")
@@ -1860,6 +1886,7 @@ BUILDERS = [
     segment_lines,
     histogram,
     function_curves,
+    one_point_default_width,
     fit_curves,
     closed_form_fits,
     fit_result_legends,

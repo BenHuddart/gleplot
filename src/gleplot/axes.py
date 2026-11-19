@@ -6136,23 +6136,24 @@ class Axes:
                 x = np.array([x0, x1], dtype=float)
                 y = np.array([entry["value"], entry["value"]], dtype=float)
 
-            out.append(
-                LineSeries(
-                    type="line",
-                    x=x,
-                    y=y,
-                    color=entry["color"],
-                    marker=None,
-                    markersize=0.1,
-                    linestyle=entry["linestyle"],
-                    linewidth=entry["linewidth"],
-                    label=entry["label"],
-                    yaxis="y",
-                    offset=0.0,
-                    data_file=entry["data_file"],
-                    column_names=entry["column_names"],
-                )
+            line = LineSeries(
+                type="line",
+                x=x,
+                y=y,
+                color=entry["color"],
+                marker=None,
+                markersize=0.1,
+                linestyle=entry["linestyle"],
+                linewidth=entry["linewidth"],
+                label=entry["label"],
+                yaxis="y",
+                offset=0.0,
+                data_file=entry["data_file"],
+                column_names=entry["column_names"],
             )
+            if "_lwidth_verbatim" in entry:
+                line["_lwidth_verbatim"] = entry["_lwidth_verbatim"]
+            out.append(line)
         return out
 
     def materialize_spans(self, limits) -> List[FillSeries]:
