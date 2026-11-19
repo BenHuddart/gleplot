@@ -157,6 +157,8 @@ def test_reopened_custom_marker_definitions_compile(tmp_path):
     src = tmp_path / "cm.gle"
     src.write_text(_CUSTOM_MARKER_SRC, encoding="utf-8")
     out = tmp_path / "again.gle"
-    glp.open_gle(str(src)).savefig_gle(str(out))
+    with pytest.warns(UserWarning, match="programmatic:"):
+        fig = glp.open_gle(str(src))
+    fig.savefig_gle(str(out))
     # GLE rejects a marker name it has no definition for.
     assert GLECompiler().compile(str(out), output_format="pdf").exists()
