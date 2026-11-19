@@ -52,7 +52,7 @@ figure(figsize=(8, 6), dpi=100)
     Create a new figure
 """
 
-__version__ = "5.6.0"
+__version__ = "5.6.1"
 __author__ = "gleplot contributors"
 
 from .axes import Axes, validate_tick_format
@@ -168,13 +168,13 @@ def figure(
 
     Create a figure with custom style:
 
-    >>> style = glp.GLEStyleConfig(font='helvetica', fontsize=12)
+    >>> style = glp.GLEStyleConfig(font='texcmss', fontsize=12)
     >>> fig = glp.figure(style=style)
 
     Or modify global defaults:
 
-    >>> glp.GlobalConfig.style.font = 'helvetica'
-    >>> fig = glp.figure()  # Will use helvetica font
+    >>> glp.GlobalConfig.style.font = 'texcmss'
+    >>> fig = glp.figure()  # Will use Computer Modern Sans Serif
 
     A 5-row grid built with add_subplot, with a short 4th "separator" row:
 
