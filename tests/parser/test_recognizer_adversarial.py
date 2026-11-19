@@ -403,6 +403,46 @@ def test_key_spacing_without_a_position_is_kept(tmp_path):
     assert "key pos tr llen 0.8" in out.read_text()
 
 
+def test_key_hei_nobox_without_a_position_are_kept(tmp_path):
+    # GLE's key defaults to top right; the options still apply.
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2\n"
+        '   d1 line color blue lwidth 0.05 key "s"\n'
+        "   key hei 0.3 nobox\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.legend_fontsize is not None
+    assert ax.legend_frameon is False
+    assert not any("no 'key' command" in w for w in rec.warnings)
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "key pos tr hei 0.3 nobox" in out.read_text()
+
+
+def test_key_offset_without_a_position_stays_raw(tmp_path):
+    # Without 'pos', GLE measures 'offset' from the graph origin, which
+    # 'key pos tr offset ...' would not reproduce.
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data data_b.dat d1=c1,c2\n"
+        '   d1 line color blue lwidth 0.05 key "s"\n'
+        "   key hei 0.3 offset 0.5 0.2\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "k.gle", src, {"data_b.dat": "0 0\n1 1\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.legend_offset is None
+    assert "key hei 0.3 offset 0.5 0.2" in "\n".join(ax.passthrough)
+    assert any("key has unsupported options" in w for w in rec.warnings)
+
+
 def test_unequal_key_margins_stay_raw(tmp_path):
     # One matplotlib borderpad cannot say two different margins.
     src = (

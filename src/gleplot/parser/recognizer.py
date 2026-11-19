@@ -2887,6 +2887,7 @@ class _Recognizer:
             "_yplaces_raw": None,
             "_xnames_raw": None,
             "_ynames_raw": None,
+            "key_line": False,  # a modelled 'key' option line was read
             "key_pos": None,  # short-form position or None
             "key_off": False,
             "key_hei": None,  # 'hei' in cm, or None (= inherit 'set hei')
@@ -6855,7 +6856,16 @@ class _Recognizer:
         # a negative literal like the writer's own 'offset 1.5 -0.5' tokenizes
         # as an OP '-' followed by a NUMBER, not a single signed NUMBER token.
         parsed = self._scan_key_options(toks[1:])
+        if (
+            parsed is not None
+            and "offset" in parsed
+            and parsed.get("pos", info["key_pos"]) is None
+        ):
+            # Without 'pos', GLE measures 'offset' from the graph origin, not
+            # inward from a corner as the model's legend_offset does.
+            parsed = None
         if parsed is not None:
+            info["key_line"] = True
             info["key_pos"] = parsed.get("pos", info["key_pos"])
             info["key_hei"] = parsed.get("hei", info["key_hei"])
             info["key_nobox"] = parsed.get("nobox", info["key_nobox"])
@@ -10369,10 +10379,13 @@ class _Recognizer:
             )
         elif info["key_off"]:
             ax.legend_on = False
-        elif info["key_pos"] is not None:
+        elif info["key_line"]:
+            # A 'key' option line; without 'pos' GLE's key sits top right,
+            # the model's default position.
             pos_short = info["key_pos"]
-            ax.legend_pos = KEY_POSITIONS_SHORT_TO_LONG.get(pos_short, pos_short)
-            # 'key pos P' + labels -> auto (None); + no labels -> True.
+            if pos_short is not None:
+                ax.legend_pos = KEY_POSITIONS_SHORT_TO_LONG.get(pos_short, pos_short)
+            # A key line + labels -> auto (None); + no labels -> True.
             ax.legend_on = None if labels_present else True
             if info["key_hei"] is not None:
                 ax.legend_fontsize = fontsize_cm_to_pt(info["key_hei"])
@@ -10399,7 +10412,6 @@ class _Recognizer:
             ax.legend_on = None if ax.legend_on is False else True
 
         if info["key_spacing"] and not external:
-            # Also without 'key pos': the re-save adds GLE's default 'pos tr'.
             ax.legend_spacing = _legend_spacing(
                 info["key_spacing"], ax.legend_fontsize, ax.figure
             )
