@@ -8707,15 +8707,14 @@ class _Recognizer:
         base = cdata_file[: -len("-cdata.dat")]
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
-        dropped = list(attrs["qualifiers"])
-        if attrs["unread"]:
-            dropped.append(" ".join(attrs["unread"]))
+        dropped = self._contour_line_extras(attrs)
         if dropped:
             # ContourSeries has no such fields; say so rather than lose them.
             self._note(
                 ImportCategory.DATA,
-                f"{', '.join(dropped)} on a contour's dataset line "
-                "is not modelled and was dropped on re-save",
+                f"{', '.join(repr(word) for word in dropped)} on a contour's "
+                "dataset line: not modelled, so not written back on save. Add "
+                "it to the saved file by hand if you need it",
                 span,
             )
         color = attrs["color"] or "BLACK"
@@ -8792,6 +8791,43 @@ class _Recognizer:
                 data_file=zfile,
             )
         info["contours"].append(ct)
+
+    @staticmethod
+    def _contour_line_extras(attrs) -> List[str]:
+        """What a contour's dataset line sets that ``ContourSeries`` cannot hold.
+
+        ``attrs`` is the line's :meth:`_scan_series_attrs`. Only its
+        colour, ``lwidth`` and ``lstyle`` are modelled, and the writer
+        always draws the ``line``; everything else is named here as GLE
+        spells it, so the note can say it was dropped.
+        """
+        extras = [
+            word
+            for word, present in (
+                ("no line", not attrs["has_line"]),
+                ("marker", attrs["marker"] is not None),
+                ("msize", attrs["msize"] is not None),
+                ("mdata", attrs["mdata"] is not None),
+                ("key", attrs["label"] is not None),
+                (attrs["smooth_mode"], attrs["smooth_mode"] != "none"),
+                ("svg_smooth", attrs["svg_smooth"] is not None),
+                ("nomiss", attrs["nomiss"]),
+                (str(attrs["line_mode"]), attrs["line_mode"] is not None),
+                ("y2axis", attrs["y2axis"]),
+                ("x2axis", attrs["x2axis"]),
+                ("error bars", bool(attrs["err_refs"] or attrs["err_consts"])),
+                ("errwidth", attrs["errwidth"] is not None),
+                ("herrwidth", attrs["herrwidth"] is not None),
+            )
+            if present
+        ]
+        extras.extend(
+            "average" if name == "deresolve_average" else name
+            for name in attrs["qualifiers"]
+        )
+        if attrs["unread"]:
+            extras.append(" ".join(attrs["unread"]))
+        return extras
 
     def _read_z_grid(
         self, filename
