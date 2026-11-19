@@ -4,7 +4,8 @@ Colour fidelity contract
 ------------------------
 A colour that the user supplies as a **GLE colour name** (any case: ``red``,
 ``DARKBLUE``, ``gray55``) is passed through as that name. Anything else --
-a hex string, an RGB tuple, a matplotlib cycle code -- is converted to an
+a hex string, an RGB tuple, a grey-level string such as ``'0.3'``, a
+matplotlib cycle code -- is converted to an
 **exact** GLE colour expression ``rgb255(r,g,b)``.
 
 This replaces the original "snap to the nearest of ~8 named colours by
