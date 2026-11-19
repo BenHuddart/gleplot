@@ -331,6 +331,29 @@ def test_shared_sidecar_is_listed_in_the_import_data_metadata():
     assert "import-data" in text and "u_0.dat" in text
 
 
+def test_series_writing_the_same_columns_to_one_file_leave_it_as_written():
+    fig = glp.figure(data_prefix="u")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 4, 9])
+    ax.plot([1, 2, 3], [1, 4, 9], color="red")
+    ax.lines[1]["data_file"] = ax.lines[0]["data_file"]
+    ax.lines[0]["column_names"] = ax.lines[1]["column_names"] = None
+    text, files = fig._generate_gle_with_files()
+    assert files == {"u_0.dat": "1 1\n2 4\n3 9\n"}
+    assert text.count("data u_0.dat d1=c1,c2") == 1
+    assert "data u_0.dat d2=c1,c2" in text
+
+
+def test_series_of_different_lengths_cannot_share_a_file():
+    fig = glp.figure(data_prefix="u")
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 4, 9])
+    ax.plot([1, 2], [5, 6])
+    ax.lines[1]["data_file"] = ax.lines[0]["data_file"]
+    with pytest.raises(ValueError, match=r"'u_0\.dat' with 3 and 2 rows"):
+        fig._generate_gle_with_files()
+
+
 def test_inline_column_rides_along_in_a_shared_sidecar():
     """A table-backed centre with a constant error column still works."""
     fig = glp.figure(data_prefix="u")
