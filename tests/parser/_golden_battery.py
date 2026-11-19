@@ -1889,6 +1889,20 @@ def figure_legend():
     return fig
 
 
+def legend_curves():
+    """#236: a histogram and a function curve listed by ``begin key`` blocks,
+    an axes legend with ``labelcolor`` and a figure legend."""
+    fig, axes = glp.subplots(1, 2, figsize=(8, 4), data_prefix="golden")
+    axes[0].plot([0, 1, 2], [0, 1, 0], label="line")
+    axes[0].hist([0.2, 0.5, 0.6, 1.4], histtype="step", label="hist")
+    axes[0].legend(labelcolor="blue")
+    axes[1].scatter([0, 1], [1, 0], label="pts")
+    axes[1].function("x", xmin=0, xmax=1, label="f")
+    fig.legend(loc="lower center", ncol=4)
+    fig.subplots_adjust(bottom=0.25)
+    return fig
+
+
 def figure_legend_options():
     """A figure legend anchored off the page corner, with every option."""
     fig = glp.figure(data_prefix="golden")
@@ -2069,6 +2083,7 @@ BUILDERS = [
     figure_text_and_suptitle,
     figure_text_only,
     figure_legend,
+    legend_curves,
     figure_legend_options,
     polar_plot,
     polar_field_options,
