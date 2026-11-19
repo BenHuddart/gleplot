@@ -510,6 +510,16 @@ def inset_axes():
     return fig
 
 
+def inset_facecolor():
+    """A shaded panel under a white inset that hides the curve behind it."""
+    fig, ax = glp.subplots(data_prefix="golden")
+    ax.plot([0, 1], [0, 1])
+    ax.set_facecolor("whitesmoke")
+    inset = fig.add_axes([0.5, 0.2, 0.3, 0.3], facecolor="white")
+    inset.plot([0, 1], [1, 0], color="red")
+    return fig
+
+
 def insets_off_panel():
     """Insets the frames do not nest: one across a panel edge, one in the margin.
 
@@ -1871,6 +1881,7 @@ BUILDERS = [
     subplots_grid_mixed,
     subplots_spanning,
     inset_axes,
+    inset_facecolor,
     insets_off_panel,
     inset_alone,
     aspect_ratios,

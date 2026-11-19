@@ -2526,6 +2526,9 @@ class Axes:
         # Resolved into the frame rect when the figure is written, so it is
         # not recovered from a .gle file: the rect it produced is.
         self._aspect: Optional[float] = None
+        # The GLE colour GLE's graph ``background`` fills the frame with
+        # (set_facecolor); None draws no background, so what is behind shows.
+        self._facecolor: Optional[str] = None
 
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
@@ -9176,6 +9179,35 @@ class Axes:
             return 1.0
         return "auto" if self._aspect is None else self._aspect
 
+    def set_facecolor(self, color):
+        """Fill the area inside the axes frame with ``color``.
+
+        Parameters
+        ----------
+        color : color or None
+            Any colour gleplot accepts elsewhere. ``None`` or ``'none'``
+            draws no background, the default.
+
+        Notes
+        -----
+        Written as GLE's graph ``background``, which fills the frame before
+        anything in the graph is drawn. Unlike matplotlib, an axes has no
+        background until this is called, so an inset from
+        :meth:`Figure.add_axes` shows what is behind it unless it is given
+        one (``facecolor='white'``). A polar axes' background fills its
+        rectangular graph window.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, ax = glp.subplots()
+        >>> ax.set_facecolor("whitesmoke")
+        """
+        if color is None or (isinstance(color, str) and color.lower() == "none"):
+            self._facecolor = None
+        else:
+            self._facecolor = rgb_to_gle(color)
+
     @_cartesian_only
     def set_axis_off(self):
         """Hide the axis lines, ticks and tick labels.
@@ -10072,6 +10104,8 @@ class Axes:
         if self._aspect is not None:
             # Likewise only when set.
             payload["aspect"] = self._aspect
+        if self._facecolor is not None:
+            payload["facecolor"] = self._facecolor
         return payload
 
     @classmethod
@@ -10179,6 +10213,7 @@ class Axes:
         ax._frame_off = d.get("frame_off", False)
         ax._polar = d.get("polar", False)
         ax._aspect = d.get("aspect")
+        ax._facecolor = d.get("facecolor")
         # ``_break_owner`` is a back-reference rebound by Figure.from_dict
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")

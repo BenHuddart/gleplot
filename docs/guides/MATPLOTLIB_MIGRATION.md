@@ -8,7 +8,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 |---|---|
 | `plt.figure()` | `glp.figure()` |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
-| `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background, and axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
+| `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
 | `ax.plot(...)` | same |
 | `ax.scatter(...)` | same, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
@@ -35,6 +35,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.semilogx(...)` / `semilogy` / `loglog` | same; `base` other than 10, `subs` and `nonpositive` warn |
 | `ax.set_xticklabels(labels)` / `set_yticklabels` | same, after `set_xticks(ticks)`; `minor=True` and text properties warn |
 | `ax.axis('off')` / `ax.set_axis_off()` | same, but the axis labels stay (with a warning); `'equal'`, `'scaled'`, `'image'`, `'square'` and `emit=False` warn, use `set_aspect` |
+| `ax.set_facecolor(color)` | same, as GLE's graph `background`; an axes has none until it is set, where matplotlib's is white |
 | `ax.set_aspect(...)` / `ax.get_aspect()` | same, resizing the box about its centre; `adjustable='datalim'`, an `anchor` other than `'C'` and `share=True` warn, see [Axes and Legends](AXES_AND_LEGENDS.md) |
 | `plt.savefig(...)` | `fig.savefig(...)` or `glp.savefig(...)` |
 

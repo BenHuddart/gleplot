@@ -1998,6 +1998,14 @@ class GLEWriter:
         """
         self.lines_gle.append("    math")
 
+    def add_background(self, color: str) -> None:
+        """GLE's graph ``background``: fill the frame with ``color``.
+
+        GLE fills it before drawing anything in the graph, wherever the line
+        stands in the block.
+        """
+        self.lines_gle.append(f"    background {color}")
+
     def add_axes(
         self,
         xlabel: Optional[str] = None,
