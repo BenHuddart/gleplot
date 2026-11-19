@@ -1682,6 +1682,38 @@ def test_show_views_the_current_figure(viewable_figure, tmp_path, capsys):
     assert capsys.readouterr() == ("", "")
 
 
+def test_close_all_closes_the_current_figure():
+    """matplotlib's close('all'); gleplot tracks one figure."""
+    fig = glp.figure()
+    glp.plot([1, 2], [1, 2])
+    glp.close("all")
+    assert fig.axes_list == []
+    assert glp.gcf() is not fig
+
+
+def test_closing_the_current_figure_starts_a_new_one():
+    fig = glp.figure()
+    glp.plot([1, 2], [1, 2])
+    glp.close(fig)
+    assert fig.axes_list == []
+    assert glp.gcf() is not fig
+
+
+@pytest.mark.parametrize("fig", [1, "fig1"])
+def test_close_by_number_or_label_warns_and_closes_nothing(fig):
+    current = glp.figure()
+    glp.plot([1, 2], [1, 2])
+    with pytest.warns(UserWarning, match="closes nothing"):
+        glp.close(fig)
+    assert glp.gcf() is current and current.axes_list
+
+
+@pytest.mark.parametrize("fig", [2.0, True])
+def test_close_rejects_a_wrong_type(fig):
+    with pytest.raises(TypeError, match=rf"close\({fig!r}\)"):
+        glp.close(fig)
+
+
 class TestLineModes:
     """Step, stem and histogram outlines are GLE line modes."""
 

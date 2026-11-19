@@ -628,14 +628,34 @@ def view(dpi=None, format="png"):
 
 
 def close(fig=None):
-    """Close figure."""
+    """Close a figure, as ``matplotlib.pyplot.close``.
+
+    Parameters
+    ----------
+    fig : None, Figure or 'all', optional
+        ``None`` (default) or ``'all'`` closes the current figure, the one
+        figure gleplot keeps track of; a :class:`Figure` closes that figure.
+        gleplot does not number or name its figures, so an int or another
+        string matches no figure: it warns and closes nothing.
+    """
     global _current_figure
-    if fig is None:
-        if _current_figure:
-            _current_figure.close()
-            _current_figure = None
-    else:
+    if fig is None or (isinstance(fig, str) and fig == "all"):
+        fig = _current_figure
+    elif isinstance(fig, (int, str)) and not isinstance(fig, bool):
+        _warn.warn_external(
+            f"close({fig!r}) closes nothing: gleplot does not number or name "
+            "its figures. Pass the Figure, 'all' or None."
+        )
+        return
+    elif not isinstance(fig, Figure):
+        raise TypeError(
+            f"close({fig!r}): expected a Figure, 'all' or None, "
+            f"not {type(fig).__name__}."
+        )
+    if fig is not None:
         fig.close()
+        if fig is _current_figure:
+            _current_figure = None
 
 
 __all__ = [
