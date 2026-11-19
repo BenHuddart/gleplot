@@ -1330,6 +1330,7 @@ class Figure:
             bbox=options.pop("bbox", None),
             rotation=options.pop("rotation", None),
             kwargs=options,
+            supported="fontdict, color, fontsize, ha, va, rotation, bbox",
         )
         text = TextAnnotation(**fields)
         self.texts.append(text)
@@ -1372,7 +1373,7 @@ class Figure:
         >>> fig, axes = glp.subplots(1, 2)
         >>> title = fig.suptitle("Sample A")
         """
-        fontsize = kwargs.pop("fontsize", "large")
+        fontsize = kwargs.pop("fontsize", None)
         fields = _text_fields(
             self.style,
             "suptitle",
@@ -1380,12 +1381,17 @@ class Figure:
             _finite_float(kwargs.pop("y", 0.98), "y"),
             t,
             color=kwargs.pop("color", None),
-            fontsize=_resolve_fontsize(self.style, fontsize, "suptitle(fontsize"),
+            fontsize=_resolve_fontsize(
+                self.style,
+                "large" if fontsize is None else fontsize,
+                "suptitle(fontsize",
+            ),
             ha=kwargs.pop("ha", "center"),
             va=kwargs.pop("va", "top"),
             bbox=kwargs.pop("bbox", None),
             rotation=kwargs.pop("rotation", None),
             kwargs=kwargs,
+            supported="x, y, color, fontsize, ha, va, rotation, bbox",
         )
         self._suptitle = TextAnnotation(**fields)
         return self._suptitle
@@ -1729,11 +1735,11 @@ class Figure:
         anchor = kwargs.pop("bbox_to_anchor", None)
         if anchor is not None:
             anchor = Axes._resolve_legend_anchor(anchor, position, "figure")
-        spacing = {
-            name: _finite_float(kwargs.pop(name), f"legend({name}=...)")
-            for name in LEGEND_SPACING_TO_KEY
-            if kwargs.get(name) is not None
-        }
+        spacing = {}
+        for name in LEGEND_SPACING_TO_KEY:
+            value = kwargs.pop(name, None)
+            if value is not None:
+                spacing[name] = _finite_float(value, f"legend({name}=...)")
         for name in sorted(kwargs):
             warn_external(
                 f"legend({name}=...) is not supported for a figure legend and "

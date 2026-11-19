@@ -2204,18 +2204,13 @@ class _Recognizer:
         """The run of ``Figure`` page drawings at ``nodes[i]``, and the next index."""
         drawings: List[Dict[str, Any]] = []
         while i < len(nodes):
-            stmt = self._as_statement(nodes[i])
-            if stmt is None or stmt.keyword != "gsave":
+            end = self._group_end(nodes, i)
+            if end is None:
                 break
-            end = i + 1
-            while end < len(nodes) and not (
-                isinstance(nodes[end], Statement) and nodes[end].keyword == "grestore"
-            ):
-                end += 1
             lines = [
                 line for node in nodes[i : end + 1] for line in self._raw_lines(node)
             ]
-            drawing = _page_drawing(lines) if end < len(nodes) else None
+            drawing = _page_drawing(lines)
             if drawing is None:
                 break
             drawings.append(drawing)

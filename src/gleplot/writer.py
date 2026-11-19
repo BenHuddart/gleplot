@@ -5019,13 +5019,14 @@ class GLEWriter:
         self.add_text_annotation(series)
 
     @classmethod
-    def _text_write_lines(
-        cls, escaped_text: str, box_color, rotation, name: Optional[str]
-    ) -> List[str]:
+    def _text_write_lines(cls, series: Series, name: Optional[str]) -> List[str]:
         """The ``write`` of a text at the current point, boxed and rotated.
 
-        ``name`` names the box, for an annotation arrow to ``join``.
+        ``series`` is a :class:`~gleplot.series.TextAnnotation`; ``name``
+        names the box, for an annotation arrow to ``join``.
         """
+        box_color = series.get("box_color")
+        rotation = series.get("rotation")
         # Same zero cut as ``_format_number``: an angle it would print as ``0``
         # is not a rotation, and emitting ``begin rotate 0`` would not round
         # trip back to an absent ``rotation`` field.
@@ -5049,7 +5050,7 @@ class GLEWriter:
             if name is not None:
                 head += f" name {name}"
             lines.append(head)
-        lines.append(f'write "{escaped_text}"')
+        lines.append(f'write "{cls._escape_gle_string(series["text"])}"')
         if boxed:
             lines.append("end box")
         if angle is not None:
@@ -5084,14 +5085,7 @@ class GLEWriter:
             f"amove {cls._page_fraction('pagewidth', series['x'])} "
             f"{cls._page_fraction('pageheight', series['y'])}"
         )
-        lines.extend(
-            cls._text_write_lines(
-                cls._escape_gle_string(series["text"]),
-                series.get("box_color"),
-                series.get("rotation"),
-                None,
-            )
-        )
+        lines.extend(cls._text_write_lines(series, None))
         lines.append("grestore")
         return lines
 
@@ -5126,19 +5120,15 @@ class GLEWriter:
         """
         x = series["x"]
         y = series["y"]
-        text = series["text"]
         color = series.get("color", "BLACK")
         fontsize = series.get("fontsize")
         halign = series.get("ha", "left")
         valign = series.get("va", "center")
-        box_color = series.get("box_color")
-        rotation = series.get("rotation")
         xy = series.get("xy")
         arrow = series.get("arrow")
         arrowstyle = series.get("arrowstyle")
         arrow_color = series.get("arrow_color", "BLACK")
         arrow_linewidth = series.get("arrow_linewidth")
-        escaped_text = self._escape_gle_string(text)
 
         if fontsize is not None:
             hei_cm = self._format_number(fontsize_pt_to_cm(float(fontsize)))
@@ -5167,9 +5157,7 @@ class GLEWriter:
         if arrow is not None and xy is not None:
             self._annotation_count += 1
             name = f"ann{self._annotation_count}"
-        self._pending_graph_text_lines.extend(
-            self._text_write_lines(escaped_text, box_color, rotation, name)
-        )
+        self._pending_graph_text_lines.extend(self._text_write_lines(series, name))
         if name is not None:
             assert xy is not None
             tip = f"{name}_xy"

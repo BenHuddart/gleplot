@@ -2,6 +2,7 @@
 ``Figure.legend``."""
 
 import re
+import warnings
 
 import pytest
 
@@ -128,6 +129,16 @@ def test_figure_text_warns_on_a_transform():
         fig.text(0.5, 0.5, "x", transform=None)
 
 
+def test_text_size_names_are_relative_to_the_figure_font_size():
+    fig = glp.figure()
+    text = fig.text(0.5, 0.5, "x", fontsize="large")
+    assert text["fontsize"] == pytest.approx(1.2 * fig.style.fontsize)
+    assert fig.suptitle("t", fontsize=None)["fontsize"] == text["fontsize"]
+    ax = fig.add_subplot(111)
+    ax.text(0, 0, "y", fontsize="small")
+    assert ax.texts[0]["fontsize"] == pytest.approx(0.833 * fig.style.fontsize)
+
+
 def test_figure_text_rejects_a_non_finite_position():
     fig = glp.figure()
     with pytest.raises(ValueError, match="x"):
@@ -175,6 +186,14 @@ def test_figure_legend_anchor_is_in_figure_fractions():
     fig.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
     assert fig._legend["anchor"] == [1.0, 0.5]
     assert "absolute pagewidth()*1+0.21164 pageheight()*0.5" in fig._generate_gle()
+
+
+def test_a_none_spacing_keyword_is_the_default_and_does_not_warn():
+    fig = glp.figure()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fig.legend(borderpad=None, handlelength=None)
+    assert fig._legend["spacing"] == {}
 
 
 def test_best_is_not_a_figure_legend_location():

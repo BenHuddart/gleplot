@@ -98,14 +98,29 @@ def _cartesian_only(method: _Method) -> _Method:
 
 
 def _text_fields(
-    style, caller, x, y, s, *, color, fontsize, ha, va, bbox, rotation, kwargs
+    style,
+    caller,
+    x,
+    y,
+    s,
+    *,
+    color,
+    fontsize,
+    ha,
+    va,
+    bbox,
+    rotation,
+    kwargs,
+    supported,
 ) -> Dict[str, Any]:
     """Validated :class:`TextAnnotation` fields for ``text``/``annotate``.
 
     ``caller`` names the public method in warnings, which are attributed
-    to that method's caller. ``style`` is the figure's
+    to that method's caller, and ``supported`` lists its keywords for the
+    warning about the rest. ``style`` is the figure's
     :class:`~gleplot.config.GLEStyleConfig`: under ``usetex`` the text is
-    stored as given, for LaTeX, else as GLE markup.
+    stored as given, for LaTeX, else as GLE markup, and a matplotlib size
+    name is relative to its font size.
     """
     if color is None:
         gle_color = "BLACK"
@@ -180,13 +195,6 @@ def _text_fields(
         else:
             box_color = rgb_to_gle(facecolor)
 
-    supported = "color, fontsize, ha, va, rotation, bbox"
-    if caller == "text":
-        supported += ", transform"
-    if caller == "suptitle":
-        supported = "x, y, " + supported
-    if caller == "annotate":
-        supported = "xytext, xycoords, textcoords, arrowprops, " + supported
     for name in sorted(kwargs):
         warn_external(
             f"{caller}({name}=...) is not supported and was ignored. "
@@ -198,7 +206,16 @@ def _text_fields(
         y=float(y),
         text=str(s) if style.usetex else mathtext_to_gle(str(s)),
         color=gle_color,
-        fontsize=float(fontsize) if fontsize is not None else None,
+        fontsize=(
+            None
+            if fontsize is None
+            else (
+                _resolve_fontsize(style, fontsize, f"{caller}(fontsize")
+                if isinstance(fontsize, str)
+                and fontsize.strip().lower() in MATPLOTLIB_RELATIVE_FONTSIZES
+                else float(fontsize)
+            )
+        ),
         ha=ha_norm,
         va=va_norm,
         box_color=box_color,
@@ -5235,8 +5252,9 @@ class Axes:
             Text to render.
         color : str, optional
             Text color.
-        fontsize : float, optional
-            Font size in points.
+        fontsize : float or str, optional
+            Font size in points, or a matplotlib size name (``'small'``,
+            ``'large'``, ...) relative to the figure's font size.
         ha : {'left', 'center', 'right'}, optional
             Horizontal alignment. The alignment point is ``(x, y)``.
         va : {'top', 'center', 'bottom'}, optional
@@ -5283,6 +5301,7 @@ class Axes:
             bbox=bbox,
             rotation=rotation,
             kwargs=kwargs,
+            supported="color, fontsize, ha, va, rotation, bbox, transform",
         )
         if transform is not None:
             fields["transform"] = transform
@@ -5407,7 +5426,17 @@ class Axes:
             )
         }
         fields = _text_fields(
-            self._style(), "annotate", tx, ty, text, kwargs=kwargs, **text_kwargs
+            self._style(),
+            "annotate",
+            tx,
+            ty,
+            text,
+            kwargs=kwargs,
+            supported=(
+                "xytext, xycoords, textcoords, arrowprops, color, fontsize, "
+                "ha, va, rotation, bbox"
+            ),
+            **text_kwargs,
         )
         if arrowprops is not None and not isinstance(arrowprops, dict):
             warn_external(
