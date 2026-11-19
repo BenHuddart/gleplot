@@ -25,7 +25,7 @@ when the figure is rebuilt.
 """
 
 import re
-from typing import Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -261,6 +261,20 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
 
     # Default fallback
     return "BLACK"
+
+
+def _stored_color(color: Any) -> Any:
+    """``color`` as a model field keeps it: an RGB(A) array or list becomes a
+    tuple of Python numbers, so the object compares with ``==`` and its
+    ``to_dict()`` survives JSON (which reads the tuple back as a list, and
+    this turns it back into a tuple). Anything else is returned unchanged."""
+    if isinstance(color, np.ndarray):
+        if color.ndim == 2 and color.shape[0] == 1:
+            color = color.reshape(-1)
+        color = color.tolist()
+    if isinstance(color, (list, tuple)):
+        return tuple(c.item() if isinstance(c, np.generic) else c for c in color)
+    return color
 
 
 def rgb255_expr(r: int, g: int, b: int) -> str:

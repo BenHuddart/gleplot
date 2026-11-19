@@ -815,7 +815,7 @@ def test_default_marker_color_config_drives_an_uncoloured_scatter():
     assert "color RED" not in text
 
 
-def test_array_default_colors_compare_and_serialise():
+def test_array_default_colors_compare_and_serialise(tmp_path):
     def style():
         return glp.GLEStyleConfig(
             default_color=np.array([0.0, 1.0, 0.0]),
@@ -824,9 +824,16 @@ def test_array_default_colors_compare_and_serialise():
 
     assert style() == style()
     fig = glp.figure(data_prefix="style", style=style())
-    fig.add_subplot(111).plot([1, 2], [1, 2])
-    json.dumps(fig.to_dict())
-    assert "d1 line color rgb255(0,255,0)" in fig._generate_gle()
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2], [1, 2])
+    ax.scatter([1, 2], [1, 2])
+    restored = glp.Figure.from_dict(json.loads(json.dumps(fig.to_dict())))
+    assert restored.style == fig.style
+    out = tmp_path / "style.gle"
+    fig.savefig(str(out))
+    text = out.read_text()
+    assert "d1 line color rgb255(0,255,0)" in text
+    assert "marker FCIRCLE msize 0.134164 color rgb255(255,0,0)" in text
 
 
 def test_default_colors_out_of_the_box_are_the_historical_blue():

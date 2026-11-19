@@ -46,12 +46,11 @@ Limitations
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple, cast
-
-import numpy as np
+from typing import Any, List, Optional, Sequence, Tuple, cast
 
 from ._warn import warn_external
 from .axes import Axes
+from .colors import _stored_color
 
 #: Accepted ``divider`` styles.
 DIVIDER_STYLES = ("none", "line", "slash")
@@ -251,13 +250,6 @@ class BrokenAxes:
             float(gap) if gap is not None else (0.15 if divider == "slash" else 0.0)
         )
         self.divider = divider
-        if isinstance(divider_color, np.ndarray):
-            # An array breaks the JSON of to_dict().
-            divider_color = (
-                tuple(divider_color.ravel().tolist())
-                if divider_color.ndim
-                else divider_color.item()
-            )
         self.divider_color = divider_color
         self.divider_linewidth = divider_linewidth
         self.divider_lstyle = divider_lstyle
@@ -951,6 +943,15 @@ class BrokenAxes:
     def has_plots(self) -> bool:
         """True if any segment carries content."""
         return any(seg.has_plots() for seg in self.segments)
+
+    @property
+    def divider_color(self) -> Any:
+        """The colour of the seam divider, as given."""
+        return self._divider_color
+
+    @divider_color.setter
+    def divider_color(self, value: Any) -> None:
+        self._divider_color = _stored_color(value)
 
     # -- serialization ---------------------------------------------------
 

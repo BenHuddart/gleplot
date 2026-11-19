@@ -253,7 +253,9 @@ def test_divider_style_and_colour_are_emitted():
 
 
 def test_array_divider_colour_serialises_and_is_emitted():
-    fig, _bax = _fig(divider="line", divider_color=np.array([1.0, 0.0, 0.0]))
+    fig, bax = _fig(divider="line", divider_color=np.array([0.0, 0.0, 1.0]))
+    assert bax.divider_color == (0.0, 0.0, 1.0)
+    bax.divider_color = np.array([1.0, 0.0, 0.0])
     json.dumps(fig.to_dict())
     text, _files = _gle(fig)
     assert "set color rgb255(255,0,0)" in text
