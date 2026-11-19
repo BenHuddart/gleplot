@@ -119,3 +119,19 @@ def test_alpha_fill_gle_text_identical_regardless_of_cairo_flag(tmp_path):
     assert (tmp_path / "a.gle").read_text() == (tmp_path / "b.gle").read_text()
     assert (tmp_path / "a.pdf").exists()
     assert (tmp_path / "a.pdf").stat().st_size > 0
+
+
+def test_svg_draws_text_in_the_default_font(tmp_path):
+    """GLE leaves PostScript-font text out of an SVG compiled without
+    ``-cairo`` (#280); its glyphs are paths, so the title adds paths."""
+
+    def paths(title, name):
+        fig = glp.figure(data_prefix=name)
+        ax = fig.add_subplot(111)
+        ax.plot([0, 1], [0, 1])
+        ax.set_title(title)
+        with pytest.warns(UserWarning, match="SVG output is drawn"):
+            out = fig.savefig(str(tmp_path / f"{name}.svg"))
+        return out.read_text(encoding="utf-8").count("<path")
+
+    assert paths("A title in the default font", "titled") > paths("", "plain")
