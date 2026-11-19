@@ -35,6 +35,7 @@
  "golden:exact_rgb_colors": "b3a5fd09f16f3cf3433031d00e43fe6c261442ba338c7f9223ea6d2d33abc7b9",
  "golden:file_series": "7e0776b851323e283db7f17036f1655528475da907e80baf75f6388004397d26",
  "golden:file_series_field_options": "83e8b6a96cd62d52d769fe80bd99968acb97e1e8ac23001e9e3db9071e2b0bca",
+ "golden:file_series_without_a_line": "0ba14ab630ba952984cfef6dfb56c8cf2a388f051a619db51225472eb4359ec3",
  "golden:file_series_read_options": "9896b1b62480c9e9ae4ad6a547d5100b73164f719ed98d1946936f611d4afe0f",
  "golden:fill_between": "5f747ec8565514b6ffcaf352aedcf843362be5a4e167af4d5bd40f65918fc327",
  "golden:fill_field_options": "c666a084ac9c9dc69ecc88fede39ba7ee0ac241b21263d0ee270e5127ee9ced3",
@@ -68,7 +69,7 @@
  "golden:line_modes": "79b4a2d363500b462d31499c133bd0920e7e49ea8516335212acd0b7ce755f1e",
  "golden:math_mode_axes": "a20d599a1be1708c1cff9867678250ab7e80f1b8f72b325f892e9897e2ba0eb0",
  "golden:multi_series_styles": "15bbbafbcc5dbb11e5017a17a29b21c4348fe5013798db563a2dba65b695f701",
- "golden:one_point_default_width": "abe6d1210680aaaacd40da279b7d92995db2401faca492efd58c193867ce3188",
+ "golden:one_point_default_width": "a35536c247e293c76622d36b0dffbe8116192e9be6d3110bdec7dbeb7156eb88",
  "golden:page_drawings": "e42542ae3e3f8b362f8484cd7597268d938c04bb3235455056380a2c75adaf5b",
  "golden:page_drawings_only": "5c67c8a63c4675b226e0e3d144c220782d05d4c41faef1ae426c082362b405cb",
  "golden:figure_text_and_suptitle": "6ef7e849c3233485389da969c5909d16b762b2a903f6c5c7e88f744701ec2599",
@@ -102,6 +103,7 @@
  "golden:text_annotations": "933eb6e4bd5cdf00e1b91e682436b1e99b293ef640a32f3a565e581ac5fe2c3b",
  "golden:tick_label_nofirst_nolast": "d64c44f52af2d3fb21d7b38c6b87953713806143d5cd9e7dab8c8b24c088d3ba",
  "golden:trailer_stray_amoves": "17defe5e9a82a0aadfbf2208e7c57fb10c309235e247f886a635369443cd3f1e",
+ "golden:trailer_amove_after_subplots": "5af8903eeff7a31ed27e2d1bee075e2379c5c5973fcbcf8e6f90dd089fd61190",
  "golden:tripcolor_tricontour_combo": "a4d07db161f35b11697643f876dff7768e98e8ebeefb62e0cf82430eb7b2db23",
  "golden:usetex_labels": "49acc57761d5e7c47e7cfb676a4b138cc7f5c6a8d47843912c3f5a58065b25bd",
  "project:bar": "01e8328c45fe3ed62bec5c9b9d543a368d764dc55e5cd70741515deb8745979a",
@@ -126,5 +128,6 @@
  "golden:data_beyond_six_figures": "81d05db4ed44323f52155269552cdb2fd900d651c28d720b8f7a8f92e1e21efb",
  "golden:no_ticks": "03a33149516bf5ae44a6b9a54c8e70a41f74c8457cf1eb0d39012a27432784ef",
  "golden:no_ticks_styled": "b7a6f5c7dbc00f1a7cf6bc7ad352cebcc58a1dfb60ded9769ca5d179db786f18",
- "golden:no_ticks_twins": "e93253c9ca4e4311712e5c8a3751c6ce37b1aaf790c8d481aca2d686518d5f74"
+ "golden:no_ticks_twins": "e93253c9ca4e4311712e5c8a3751c6ce37b1aaf790c8d481aca2d686518d5f74",
+ "golden:guides_after_graph": "c6012e0c7eb2a8e63458420570870f9c1c3a3c593b33f115f6b2bc475002159a"
 }
