@@ -611,14 +611,16 @@ def test_the_neighbour_snapshot_covers_the_whole_battery():
 def test_a_resolvable_range_emits_byte_identically_to_pre_g15(name):
     """Every figure GLE could already compile is byte-stable, warnings included.
 
-    Two entries have moved since capture. G18-lite gave ``guides_over_data``
+    Three entries have moved since capture. G18-lite gave ``guides_over_data``
     a ``! gleplot:guide ...`` comment over each of its four materialized
     guides (:mod:`gleplot.guides`); comments only, and the wide digest sweep
     below (which contains no guides) is untouched.
     ``tests/unit/test_refline_fallback.py`` pins that pure-insertion property
     for the whole guide battery. ``errorbars`` widened its x axis when
     ``xerr`` started counting toward the autoscaled range, so a horizontal
-    whisker is not clipped.
+    whisker is not clipped. ``tiny_but_nonzero_span`` moved when a column
+    or axis range that six significant figures would collapse started
+    being written at the precision that keeps its values apart (#250).
     """
     text, files, raised = db.emit(name)
 
