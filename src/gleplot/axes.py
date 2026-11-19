@@ -1486,9 +1486,9 @@ def _pop_line_ends(kwargs: dict, linestyle, style) -> None:
     ``solid_*`` keywords concern a solid line, the ``dash_*`` ones a dashed
     line, and neither a series drawn without a line.
     """
-    # The writer's own tests: no line for None or a _NO_LINE value, and a
-    # dash only where the linestyle maps to an lstyle.
-    drawn = linestyle is not None and linestyle not in _NO_LINE
+    # The writer's own tests: no line for a _NO_LINE value, and a dash only
+    # where the linestyle maps to an lstyle.
+    drawn = linestyle not in _NO_LINE
     solid = Axes._linestyle_to_lstyle(linestyle) is None
     for keyword, (for_solid, field, gle_default, words) in _LINE_END_KEYWORDS.items():
         value = kwargs.pop(keyword, None)
@@ -1729,12 +1729,13 @@ def _is_dash_pattern(value) -> bool:
 def _line_style(caller: str, linestyle):
     """A line's matplotlib ``linestyle`` as the symbol the writer draws.
 
-    The symbols, ``None`` and the no-line values pass through; a named
-    style becomes its symbol. A dash pattern or an unknown style warns and
-    is drawn solid.
+    The symbols and the no-line values pass through; a named style becomes
+    its symbol. ``None`` is matplotlib's default, a solid line (the string
+    ``'None'`` is no line). A dash pattern or an unknown style warns and is
+    drawn solid.
     """
     if linestyle is None:
-        return None
+        return "-"
     if isinstance(linestyle, str):
         if linestyle in ("-", "--", ":", "-.") or linestyle in _NO_LINE:
             return linestyle
@@ -2687,8 +2688,9 @@ class Axes:
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
-            or ``'none'`` for no line. A dash tuple or any other value
-            warns and is drawn solid.
+            or ``'none'`` for no line. Passing ``None`` asks for
+            matplotlib's default, a solid line. A dash tuple or any other
+            value warns and is drawn solid.
         color : str, optional
             Color name or code ('b', 'red', etc.)
         marker : str, optional
@@ -3267,9 +3269,7 @@ class Axes:
             if one_label is not None:
                 fields["label"] = self._text(str(one_label))
             if style_name == "step":
-                fields["linestyle"] = (
-                    "-" if one_ls is None else _line_style("hist", one_ls)
-                )
+                fields["linestyle"] = _line_style("hist", one_ls)
                 fields["linewidth"] = float(_line_width("hist", one_lw))
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
@@ -4148,7 +4148,8 @@ class Axes:
         linestyle = _pop_line_alias(
             kwargs, "errorbar", "ls", "linestyle", kwargs.pop("linestyle", None), None
         )
-        linestyle = _line_style("errorbar", linestyle)
+        if linestyle is not None:  # None leaves the style to fmt
+            linestyle = _line_style("errorbar", linestyle)
         data_range = _dataset_qualifiers(None, None, False, xmin, xmax, ymin, ymax)
         warn_unsupported_keywords("errorbar", kwargs)
         label = self._text(label)

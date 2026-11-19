@@ -254,7 +254,9 @@ tuple such as `(0, (5, 2))` warns and is drawn solid, and so does a value
 that is not a line style. This holds for `plot` and the calls above, for
 `line_from_file`, `hist(histtype='step')`, and the single `linestyles` of
 `contour` and `tricontour`. A `(offset, None)` tuple is matplotlib's solid
-line and is drawn solid without a warning.
+line and is drawn solid without a warning. Passing `None` asks for
+matplotlib's default: a solid line from `plot`, `axhline`, `axvline` and
+`line_from_file`, and the style `fmt` gives from `errorbar`.
 
 ## Marker spacing, thinning and data ranges
 
