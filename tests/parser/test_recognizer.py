@@ -588,6 +588,27 @@ def test_positional_x_follows_gle(tmp_path, body, data, written):
     assert written in out.read_text(encoding="utf-8")
 
 
+def test_options_on_one_graph_do_not_stop_another_loading_the_file(tmp_path):
+    """#169: GLE reads the file afresh in each graph."""
+    src = (
+        "begin graph\n   data f.dat d1=c1,c2 ignore 1\n   bar d1\nend graph\n"
+        "begin graph\n   data f.dat d2=c1,c3\n   bar d2\nend graph\n"
+    )
+    p = _write(tmp_path, "two.gle", src, {"f.dat": "1 2 3\n2 3 4\n"})
+    first, second = parse_gle_figure(p).figure.axes_list
+    assert (len(first.bars), len(second.bars)) == (0, 1)
+
+
+def test_a_single_text_column_defines_no_dataset(tmp_path):
+    """#169: GLE reads a lone text column as x labels only; the statement
+    is kept as written."""
+    src = 'begin graph\n   data "w.dat"\n   d1 line\nend graph\n'
+    p = _write(tmp_path, "w.gle", src, {"w.dat": "a\nb\nc\n"})
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    assert ax.file_series == [] and ax.lines == []
+    assert '   data "w.dat"' in ax.passthrough
+
+
 def test_an_unmodelled_data_option_is_reported(tmp_path):
     """#169: ``delimiters`` is not modelled; the note says it is dropped."""
     src = (
