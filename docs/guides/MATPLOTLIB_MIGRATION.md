@@ -234,7 +234,8 @@ The other line-drawing calls follow the same rule:
 
 | call | short names honoured | warns, for example |
 |---|---|---|
-| `errorbar` | `lw`, `c`, `ms`, and `linestyle` (`ls`), which overrides the line style `fmt` gives | `ecolor`, `elinewidth`, `capthick`, `barsabove`, `errorevery` |
+| `errorbar` | `lw`, `c`, `ms`, and `linestyle` (`ls`), which overrides the line style `fmt` gives unless `fmt='none'` | `ecolor`, `elinewidth`, `capthick`, `barsabove`, `errorevery` |
+| `errorbar_from_file` | `c`, `ms` | `lw`, `ls`, `ecolor` |
 | `axvline`, `axhline` | `lw`, `ls`, `c` | `alpha`, `zorder`, `transform` |
 | `axvspan`, `axhspan` | `facecolor` (`fc`) for `color` | `edgecolor`, `linewidth`, `hatch`, `zorder` |
 

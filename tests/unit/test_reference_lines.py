@@ -303,3 +303,15 @@ def test_guides_warn_on_keywords_they_ignore(name, args):
         f"{name}() ignores unsupported keyword(s): transform, zorder."
     ]
     assert caught[0].filename == __file__
+
+
+def test_span_names_the_pair_given_when_color_and_facecolor_clash():
+    fig, ax = _fig()
+    with pytest.warns(UserWarning) as caught:
+        ax.axvspan(1.0, 2.0, color="red", facecolor="blue")
+        ax.axvspan(1.0, 2.0, facecolor="red", fc="blue")
+    assert [str(w.message) for w in caught] == [
+        "axvspan() got both color and facecolor; color wins.",
+        "axvspan() got both facecolor and fc; facecolor wins.",
+    ]
+    assert [span["color"] for span in ax.spans] == ["RED", "RED"]

@@ -1325,16 +1325,16 @@ def _pop_line_alias(kwargs: dict, caller: str, alias: str, name: str, value, def
     """``value``, or what ``kwargs`` gives matplotlib's short ``alias`` for it.
 
     The alias is removed from ``kwargs``. ``None`` is matplotlib's "the
-    default" and leaves ``value`` alone. A ``value`` other than its
-    ``default`` was passed by name, and wins over the alias with a warning
-    (matplotlib raises for the pair).
+    default", for the alias and for ``value`` alike. A ``value`` other than
+    ``None`` and its ``default`` was passed by name, and wins over the alias
+    with a warning (matplotlib raises for the pair).
     """
     if alias not in kwargs:
         return value
     short = kwargs.pop(alias)
     if short is None:
         return value
-    if (value is not None) if default is None else (value != default):
+    if value is not None and (default is None or value != default):
         warn_external(f"{caller}() got both {name} and {alias}; {name} wins.")
         return value
     return short
@@ -3936,7 +3936,7 @@ class Axes:
             above lines and scatters (the historical gleplot default).
         **kwargs
             ``linestyle`` (alias ``ls``) overrides the line style ``fmt``
-            gives, as in matplotlib. ``lw``, ``c`` and ``ms`` are
+            gives, as in matplotlib, except under ``fmt='none'``. ``lw``, ``c`` and ``ms`` are
             matplotlib's short names for ``linewidth``, ``color`` and
             ``markersize``; the full name wins, with a warning, unless it is
             left at its default. Any other keyword (``ecolor``,
@@ -3997,8 +3997,9 @@ class Axes:
         elif len(fmt) == 1 and fmt in "os^vD+x":
             parsed_marker = parsed_marker or fmt
             parsed_linestyle = "none"
-        # As in matplotlib, a linestyle keyword overrides fmt's.
-        if linestyle is not None:
+        # As in matplotlib, a linestyle keyword overrides fmt's, except that
+        # fmt='none' draws no data line whatever the keywords say.
+        if linestyle is not None and fmt.lower() != "none":
             parsed_linestyle = linestyle
 
         # Determine GLE marker
@@ -4140,14 +4141,18 @@ class Axes:
         white-filled one.
 
         ``skiprows``, ``comment`` and ``max_rows`` control how GLE reads
-        the file, as for :meth:`line_from_file`. Any other keyword warns and
-        is ignored.
+        the file, as for :meth:`line_from_file`. ``c`` and ``ms`` are
+        accepted for ``color`` and ``markersize``, as by :meth:`errorbar`;
+        any other keyword warns and is ignored.
         """
         _check_file_columns(x_col, y_col=y_col, yerr_col=yerr_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
 
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
-        warn_unsupported_keywords("errorbar_from_file", kwargs)
+        caller = "errorbar_from_file"
+        color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
+        markersize = _pop_line_alias(kwargs, caller, "ms", "markersize", markersize, 6)
+        warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
         gle_color = self._resolve_color(color)
 
@@ -5885,8 +5890,13 @@ class Axes:
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
-        for alias in ("facecolor", "fc"):
-            color = _pop_line_alias(kwargs, caller, alias, "color", color, None)
+        face = _pop_line_alias(
+            kwargs, caller, "fc", "facecolor", kwargs.pop("facecolor", None), None
+        )
+        if face is not None and color is not None:
+            warn_external(f"{caller}() got both color and facecolor; color wins.")
+        elif face is not None:
+            color = face
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
         gle_color = "LIGHTGRAY" if color is None else rgb_to_gle(color)

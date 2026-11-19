@@ -1131,9 +1131,15 @@ class TestErrorBars:
         assert series["markersize"] == pytest.approx(0.25)
         assert not recwarn.list
 
-    def test_linestyle_overrides_fmt(self):
+    def test_linestyle_overrides_fmt_but_not_fmt_none(self):
         self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="--", linestyle=":")
-        assert self.ax.errorbars[0]["linestyle"] == ":"
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="none", ls="--")
+        assert [s["linestyle"] for s in self.ax.errorbars] == [":", "none"]
+
+    def test_a_none_full_name_leaves_the_short_name_alone(self, recwarn):
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, linewidth=None, lw=3)
+        assert self.ax.errorbars[0]["linewidth"] == 3
+        assert not recwarn.list
 
     def test_unsupported_keywords_warn_and_are_ignored(self):
         with pytest.warns(UserWarning) as caught:
