@@ -144,6 +144,7 @@ def _refline_axis_values(ax, orient: str):
     counts: the extent along the other axis is an axes fraction, so feeding it
     back into autoscale would be circular. A hidden guide (SPEC 14.6)
     contributes nothing: it is not drawn, so it does not hold the axis open.
+    A non-finite coordinate contributes nothing either (see :func:`_plottable`).
     """
     values = []
     for entry in getattr(ax, "reflines", ()):
@@ -153,7 +154,7 @@ def _refline_axis_values(ax, orient: str):
         if entry["orient"] == orient and is_visible(entry):
             values.append(float(entry["start"]))
             values.append(float(entry["end"]))
-    return values
+    return [v for v in values if math.isfinite(v)]
 
 
 def _plottable(values: np.ndarray, positive_only: bool) -> np.ndarray:

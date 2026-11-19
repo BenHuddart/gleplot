@@ -352,8 +352,27 @@ NAN = float("nan")
             "xaxis min 0 max 2",
             "yaxis min 0 max 3",
         ),
+        (
+            lambda ax: ax.bar([1, 2, 3], [1, NAN, 3]),
+            "xaxis min 1 max 3",
+            "yaxis min 0 max 3",
+        ),
+        (
+            lambda ax: (ax.plot([0, 1], [0, 1]), ax.axhline(NAN), ax.axvline(np.inf)),
+            "xaxis min 0 max 1",
+            "yaxis min 0 max 1",
+        ),
     ],
-    ids=["plot", "plot-inf", "scatter", "errorbar", "fill_between", "fill_betweenx"],
+    ids=[
+        "plot",
+        "plot-inf",
+        "scatter",
+        "errorbar",
+        "fill_between",
+        "fill_betweenx",
+        "bar",
+        "guides",
+    ],
 )
 def test_a_non_finite_value_does_not_reach_the_range(draw, xline, yline):
     """A NaN bound is ``xaxis min nan max nan``, which GLE refuses (#243)."""
@@ -374,6 +393,18 @@ def test_a_non_finite_value_does_not_reach_a_log_range():
     text, _files = _generate(fig)
     assert _axis_line(text, "x") == "xaxis min 1 max 100 log"
     assert _axis_line(text, "y") == "yaxis min 10 max 1000 log"
+
+
+def test_a_non_finite_value_does_not_reach_a_log_secondary_range():
+    fig, ax = _axes()
+    ax.plot([1, 2, 3], [1, 2, 3])
+    ax2 = ax.twinx()
+    ax2.plot([1, 2, 3, 4], [0, 10, NAN, 1000])
+    ax2.set_yscale("log")
+
+    with pytest.warns(UserWarning, match="Using 10 .. 1000"):
+        text, _files = fig._generate_gle_with_files()
+    assert _axis_line(text, "y2") == "y2axis min 10 max 1000 log"
 
 
 # --------------------------------------------------------------------------- #
