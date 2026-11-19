@@ -87,8 +87,8 @@ for rendering, applied by the test-side ``normalize()`` helper)
    in the axes passthrough instead, its ``data`` statement is kept (see #14)
    and a ``data:`` warning is emitted.
 9. **Axis-remainder passthrough (hand-written only).** Unrecognized ``xaxis``/
-   ``yaxis``/``y2axis``/``x2axis`` sub-tokens (``off``/``grid``/``dticks``/
-   ``dsubticks``/``nticks``/``format "..."``/...) are peeled off the recognized
+   ``yaxis``/``y2axis``/``x2axis`` sub-tokens (``hei``/``dticks pi/2``/
+   ``y2axis dticks 1``/``format "..."``/...) are peeled off the recognized
    ``min``/``max``/``log``/``nofirst``/``nolast`` (which populate the model) and
    re-emitted as a *supplementary* axis line in the axes passthrough. GLE axis
    lines are cumulative, so the model-emitted axis line + the passthrough line
@@ -2823,6 +2823,10 @@ class _Recognizer:
             "ynoticks": None,
             "xnsubticks": None,
             "ynsubticks": None,
+            "xdticks": None,
+            "ydticks": None,
+            "xdsubticks": None,
+            "ydsubticks": None,
             # 'xlabels log MODE' (x and y only).
             "xloglabels": None,
             "yloglabels": None,
@@ -4906,12 +4910,12 @@ class _Recognizer:
                 info[f"{prefix}grid"] = True
                 i += 1
                 continue
-            # Unrecognized axis sub-token (off/grid/dticks/dsubticks/nticks/
-            # format/hei/...). GLE axis lines are cumulative, so we peel the
-            # recognized min/max/log/nofirst/nolast into the model and re-emit
+            # Unrecognized axis sub-token (hei, an expression dticks, any
+            # option on y2/x2, a repeat, ...). GLE axis lines are cumulative,
+            # so we peel the recognized options into the model and re-emit
             # the UNRECOGNIZED remainder as a supplementary axis line in
             # passthrough. e.g. 'xaxis min 0 max 2*pi dticks pi/2 grid' ->
-            # model gets min/max; passthrough gets 'xaxis dticks pi/2 grid'.
+            # model gets min/max/grid; passthrough gets 'xaxis dticks pi/2'.
             remainder.append(toks[i])
             info["_raw_axis_opts"].add((prefix, w))
             # A recognized keyword may take a value; unrecognized ones we cannot
@@ -4943,11 +4947,13 @@ class _Recognizer:
 
     @staticmethod
     def _take_tick_placement(w, toks, i, prefix, info) -> Optional[int]:
-        """Model ``nticks``/``ftick``/``shift``/``symticks``/``nsubticks``.
+        """Model ``nticks``/``ftick``/``shift``/``symticks``/``nsubticks``/
+        ``dticks``/``dsubticks``.
 
         Returns the index after the option when it is one of them, on x or
         y, and fits the model; otherwise None. A repeat, a fractional
-        ``nticks``/``nsubticks`` or ``symticks on|off`` is left to the remainder, which
+        ``nticks``/``nsubticks``, a ``dticks``/``dsubticks`` written as an
+        expression or ``symticks on|off`` is left to the remainder, which
         keeps it as raw GLE, and so is any later occurrence of the same
         option (see ``_raw_axis_opts``).
         """
@@ -4961,12 +4967,22 @@ class _Recognizer:
             info[f"{prefix}symticks"] = True
             return i + 1
         if (
-            w not in ("nticks", "ftick", "shift", "nsubticks")
+            w not in ("nticks", "ftick", "shift", "nsubticks", "dticks", "dsubticks")
             or info[f"{prefix}{w}"] is not None
         ):
             return None
         value, nxt = _collect_value(toks, i + 1)
         if value is None:
+            return None
+        if w in ("dticks", "dsubticks") and (
+            toks[i + 1].type is not TokenType.NUMBER
+            or nxt != i + 2
+            or value <= 0
+            or float(GLEWriter._format_number(value)) != value
+        ):
+            # Only a positive literal the writer writes back unchanged is
+            # modelled. An expression ('dticks pi/2', 'dticks pi') or a
+            # value it would round stays raw GLE, exactly as written.
             return None
         if w in ("nticks", "nsubticks"):
             if not float(value).is_integer() or value < 1:
@@ -10172,6 +10188,8 @@ class _Recognizer:
                 "noticks",
                 "nsubticks",
                 "loglabels",
+                "dticks",
+                "dsubticks",
             ):
                 setattr(ax, f"{prefix}{name}", info[f"{prefix}{name}"])
             for kind in ("tick", "subtick"):

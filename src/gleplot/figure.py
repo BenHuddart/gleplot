@@ -10,7 +10,7 @@ import numpy as np
 
 from . import axes as _axes_module
 from . import palettes as _pal
-from ._warn import warn_external
+from ._warn import warn_external, warn_unsupported_keywords
 from .axes import (
     Axes,
     _finite_float,
@@ -2462,7 +2462,7 @@ class Figure:
             If True, place the ``.gle`` script and generated data files
             in a sibling ``<name>.gleplot`` directory.
         **kwargs
-            Additional options
+            Any other keyword warns and is ignored.
 
         Returns
         -------
@@ -2473,6 +2473,7 @@ class Figure:
             filepath,
             folder=kwargs.pop("folder", False),
         )
+        warn_unsupported_keywords("savefig_gle", kwargs)
         export_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate and save GLE content with data files
@@ -2589,7 +2590,8 @@ class Figure:
             Additional arguments. matplotlib's ``bbox_inches``,
             ``pad_inches``, ``facecolor`` and ``edgecolor`` are accepted and
             warn: the page is always ``figsize``, and its background is not
-            settable.
+            settable. Any other keyword (``metadata``, ``orientation``, a
+            misspelt one, ...) warns and is ignored.
 
         Returns
         -------
@@ -2635,6 +2637,7 @@ class Figure:
             filepath,
             folder=kwargs.pop("folder", False),
         )
+        warn_unsupported_keywords("savefig", kwargs)
 
         # Determine output format from the file suffix. Driven by
         # SUFFIX_TO_COMPILE_FORMAT (shared with GLECompiler) so this can't
