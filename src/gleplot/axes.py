@@ -97,6 +97,155 @@ def _cartesian_only(method: _Method) -> _Method:
     return cast(_Method, wrapper)
 
 
+def _text_fields(
+    style,
+    caller,
+    x,
+    y,
+    s,
+    *,
+    color,
+    fontsize,
+    ha,
+    va,
+    bbox,
+    rotation,
+    kwargs,
+    supported,
+) -> Dict[str, Any]:
+    """Validated :class:`TextAnnotation` fields for ``text``/``annotate``.
+
+    ``caller`` names the public method in warnings, which are attributed
+    to that method's caller, and ``supported`` lists its keywords for the
+    warning about the rest. ``style`` is the figure's
+    :class:`~gleplot.config.GLEStyleConfig`: under ``usetex`` the text is
+    stored as given, for LaTeX, else as GLE markup, and a matplotlib size
+    name is relative to its font size.
+    """
+    if color is None:
+        gle_color = "BLACK"
+    else:
+        gle_color = rgb_to_gle(color)
+
+    ha_norm = str(ha).strip().lower()
+    if ha_norm not in TEXT_HA_VALUES:
+        warn_external(
+            f"{caller}(ha={ha!r}) is not supported; using 'left'. "
+            f"Supported values: {', '.join(repr(v) for v in TEXT_HA_VALUES)}.",
+        )
+        ha_norm = "left"
+
+    va_norm = str(va).strip().lower()
+    if va_norm not in TEXT_VA_VALUES:
+        warn_external(
+            f"{caller}(va={va!r}) is not supported; using 'center'. "
+            "GLE aligns text to its top, center, or bottom "
+            f"({', '.join(repr(v) for v in TEXT_VA_VALUES)}); "
+            "there is no separate baseline.",
+        )
+        va_norm = "center"
+
+    # Same cut as the writer's ``_format_number``: an angle that would
+    # print as ``0`` is not stored, so the dict stays free of a rotation
+    # key the script will not mention.
+    angle = None
+    if rotation is not None:
+        try:
+            angle = float(rotation)
+        except (TypeError, ValueError):
+            warn_external(
+                f"{caller}(rotation={rotation!r}) is not a number and was " "ignored.",
+            )
+            angle = None
+        else:
+            if not np.isfinite(angle):
+                warn_external(
+                    f"{caller}(rotation={rotation!r}) is not finite and was "
+                    "ignored.",
+                )
+                angle = None
+            elif abs(angle) < 1e-10:
+                angle = None
+
+    box_color = None
+    if bbox is not None and not isinstance(bbox, dict):
+        warn_external(
+            f"{caller}(bbox={bbox!r}) is not a dict and was ignored. "
+            "Pass bbox={'facecolor': ...} to draw a filled background.",
+        )
+    elif isinstance(bbox, dict):
+        if "facecolor" in bbox:
+            facecolor = bbox.get("facecolor")
+        elif "fill" in bbox:
+            facecolor = bbox.get("fill")
+        else:
+            facecolor = None
+        unsupported = sorted(key for key in bbox if key not in ("facecolor", "fill"))
+        if unsupported:
+            warn_external(
+                f"{caller}(bbox=...) ignores "
+                f"{unsupported}: only facecolor (alias fill) is emitted, "
+                "as GLE 'begin box fill'. The outline, pad, and box "
+                "style have no separate setting.",
+            )
+        if facecolor is None:
+            warn_external(
+                f"{caller}(bbox=...) has no facecolor; no background box " "was drawn.",
+            )
+        else:
+            box_color = rgb_to_gle(facecolor)
+
+    for name in sorted(kwargs):
+        warn_external(
+            f"{caller}({name}=...) is not supported and was ignored. "
+            f"Supported arguments: {supported}.",
+        )
+
+    fields = dict(
+        x=float(x),
+        y=float(y),
+        text=str(s) if style.usetex else mathtext_to_gle(str(s)),
+        color=gle_color,
+        fontsize=(
+            None
+            if fontsize is None
+            else (
+                _resolve_fontsize(style, fontsize, f"{caller}(fontsize")
+                if isinstance(fontsize, str)
+                and fontsize.strip().lower() in MATPLOTLIB_RELATIVE_FONTSIZES
+                else float(fontsize)
+            )
+        ),
+        ha=ha_norm,
+        va=va_norm,
+        box_color=box_color,
+    )
+    if angle is not None:
+        fields["rotation"] = angle
+    return fields
+
+
+def _resolve_fontsize(style, fontsize, argument: str = "legend(fontsize") -> float:
+    """Resolve a matplotlib ``fontsize`` (number or name) to points.
+
+    ``argument`` is the call up to the value, e.g. ``"legend(fontsize"``,
+    and names the argument in the error. A name is relative to ``style``'s
+    font size.
+    """
+    if isinstance(fontsize, str):
+        name = fontsize.strip().lower()
+        if name not in MATPLOTLIB_RELATIVE_FONTSIZES:
+            raise ValueError(
+                f"{argument}={fontsize!r}) is not a number or one of "
+                f"{sorted(MATPLOTLIB_RELATIVE_FONTSIZES)}"
+            )
+        return float(style.fontsize) * MATPLOTLIB_RELATIVE_FONTSIZES[name]
+    size = _finite_float(fontsize, f"{argument}=...)")
+    if size <= 0:
+        raise ValueError(f"{argument}={fontsize!r}) must be positive")
+    return size
+
+
 class _Transform:
     """``Axes.transAxes`` / ``Axes.transData``: a coordinate system ``text`` reads.
 
@@ -5103,8 +5252,9 @@ class Axes:
             Text to render.
         color : str, optional
             Text color.
-        fontsize : float, optional
-            Font size in points.
+        fontsize : float or str, optional
+            Font size in points, or a matplotlib size name (``'small'``,
+            ``'large'``, ...) relative to the figure's font size.
         ha : {'left', 'center', 'right'}, optional
             Horizontal alignment. The alignment point is ``(x, y)``.
         va : {'top', 'center', 'bottom'}, optional
@@ -5138,7 +5288,8 @@ class Axes:
         >>> _ = ax.text(0.05, 0.95, "(b)", transform=ax.transAxes, va="top")
         """
         transform = self._text_transform(kwargs.pop("transform", None))
-        fields = self._text_fields(
+        fields = _text_fields(
+            self._style(),
             "text",
             x,
             y,
@@ -5150,6 +5301,7 @@ class Axes:
             bbox=bbox,
             rotation=rotation,
             kwargs=kwargs,
+            supported="color, fontsize, ha, va, rotation, bbox, transform",
         )
         if transform is not None:
             fields["transform"] = transform
@@ -5190,116 +5342,6 @@ class Axes:
     def transData(self) -> _Transform:
         """Data coordinates, for ``text(transform=ax.transData)``: the default."""
         return _Transform(self, "data")
-
-    def _text_fields(
-        self, caller, x, y, s, *, color, fontsize, ha, va, bbox, rotation, kwargs
-    ) -> Dict[str, Any]:
-        """Validated :class:`TextAnnotation` fields shared by ``text``/``annotate``.
-
-        ``caller`` names the public method in warnings, which are attributed
-        to that method's caller.
-        """
-        if color is None:
-            gle_color = "BLACK"
-        else:
-            gle_color = rgb_to_gle(color)
-
-        ha_norm = str(ha).strip().lower()
-        if ha_norm not in TEXT_HA_VALUES:
-            warn_external(
-                f"{caller}(ha={ha!r}) is not supported; using 'left'. "
-                f"Supported values: {', '.join(repr(v) for v in TEXT_HA_VALUES)}.",
-            )
-            ha_norm = "left"
-
-        va_norm = str(va).strip().lower()
-        if va_norm not in TEXT_VA_VALUES:
-            warn_external(
-                f"{caller}(va={va!r}) is not supported; using 'center'. "
-                "GLE aligns text to its top, center, or bottom "
-                f"({', '.join(repr(v) for v in TEXT_VA_VALUES)}); "
-                "there is no separate baseline.",
-            )
-            va_norm = "center"
-
-        # Same cut as the writer's ``_format_number``: an angle that would
-        # print as ``0`` is not stored, so the dict stays free of a rotation
-        # key the script will not mention.
-        angle = None
-        if rotation is not None:
-            try:
-                angle = float(rotation)
-            except (TypeError, ValueError):
-                warn_external(
-                    f"{caller}(rotation={rotation!r}) is not a number and was "
-                    "ignored.",
-                )
-                angle = None
-            else:
-                if not np.isfinite(angle):
-                    warn_external(
-                        f"{caller}(rotation={rotation!r}) is not finite and was "
-                        "ignored.",
-                    )
-                    angle = None
-                elif abs(angle) < 1e-10:
-                    angle = None
-
-        box_color = None
-        if bbox is not None and not isinstance(bbox, dict):
-            warn_external(
-                f"{caller}(bbox={bbox!r}) is not a dict and was ignored. "
-                "Pass bbox={'facecolor': ...} to draw a filled background.",
-            )
-        elif isinstance(bbox, dict):
-            if "facecolor" in bbox:
-                facecolor = bbox.get("facecolor")
-            elif "fill" in bbox:
-                facecolor = bbox.get("fill")
-            else:
-                facecolor = None
-            unsupported = sorted(
-                key for key in bbox if key not in ("facecolor", "fill")
-            )
-            if unsupported:
-                warn_external(
-                    f"{caller}(bbox=...) ignores "
-                    f"{unsupported}: only facecolor (alias fill) is emitted, "
-                    "as GLE 'begin box fill'. The outline, pad, and box "
-                    "style have no separate setting.",
-                )
-            if facecolor is None:
-                warn_external(
-                    f"{caller}(bbox=...) has no facecolor; no background box "
-                    "was drawn.",
-                )
-            else:
-                box_color = rgb_to_gle(facecolor)
-
-        supported = "color, fontsize, ha, va, rotation, bbox"
-        if caller == "text":
-            supported += ", transform"
-        if caller == "annotate":
-            supported = "xytext, xycoords, textcoords, arrowprops, " + supported
-        for name in sorted(kwargs):
-            warn_external(
-                f"{caller}({name}=...) is not supported and was ignored. "
-                f"Supported arguments: {supported}.",
-            )
-
-        fields = dict(
-            x=float(x),
-            y=float(y),
-            text=self._text(str(s)),
-            color=gle_color,
-            fontsize=float(fontsize) if fontsize is not None else None,
-            ha=ha_norm,
-            va=va_norm,
-            box_color=box_color,
-        )
-        if angle is not None:
-            fields["rotation"] = angle
-        return fields
 
     @_cartesian_only
     def annotate(
@@ -5383,8 +5425,18 @@ class Axes:
                 ("rotation", None),
             )
         }
-        fields = self._text_fields(
-            "annotate", tx, ty, text, kwargs=kwargs, **text_kwargs
+        fields = _text_fields(
+            self._style(),
+            "annotate",
+            tx,
+            ty,
+            text,
+            kwargs=kwargs,
+            supported=(
+                "xytext, xycoords, textcoords, arrowprops, color, fontsize, "
+                "ha, va, rotation, bbox"
+            ),
+            **text_kwargs,
         )
         if arrowprops is not None and not isinstance(arrowprops, dict):
             warn_external(
@@ -5609,7 +5661,9 @@ class Axes:
         fontsize = None
         for key, value in (textprops or {}).items():
             if key in ("fontsize", "size"):
-                fontsize = self._resolve_fontsize(value, f"pie(textprops={key!r}")
+                fontsize = _resolve_fontsize(
+                    self._style(), value, f"pie(textprops={key!r}"
+                )
             else:
                 warn_external(
                     f"pie(textprops={{{key!r}: ...}}) is not supported and was "
@@ -6799,7 +6853,9 @@ class Axes:
                 (
                     None
                     if fontsize is None
-                    else self._resolve_fontsize(fontsize, f"{caller}(fontsize")
+                    else _resolve_fontsize(
+                        self._style(), fontsize, f"{caller}(fontsize"
+                    )
                 ),
             )
         if "color" in kwargs:
@@ -7821,7 +7877,7 @@ class Axes:
         if "fontsize" in kwargs:
             fontsize = kwargs.pop("fontsize")
             self.legend_fontsize = (
-                None if fontsize is None else self._resolve_fontsize(fontsize)
+                None if fontsize is None else _resolve_fontsize(self._style(), fontsize)
             )
 
         if "frameon" in kwargs:
@@ -7914,8 +7970,13 @@ class Axes:
         return self
 
     @staticmethod
-    def _resolve_legend_anchor(anchor, pos: str) -> Optional[Tuple[float, float]]:
-        """The axes-fraction point a ``bbox_to_anchor`` puts corner ``pos`` on.
+    def _resolve_legend_anchor(
+        anchor, pos: str, coords: str = "axes"
+    ) -> Optional[Tuple[float, float]]:
+        """The ``coords``-fraction point a ``bbox_to_anchor`` puts corner ``pos`` on.
+
+        ``coords`` is ``'axes'`` for ``Axes.legend``, ``'figure'`` for
+        ``Figure.legend``, and names the fractions in messages.
 
         A 4-tuple is matplotlib's box: the legend's ``pos`` corner goes on
         the same corner of the box (its centre for a ``center`` side).
@@ -7926,7 +7987,7 @@ class Axes:
             # bbox_transform says otherwise; gleplot has neither.
             warn_external(
                 f"{what} was ignored: a Bbox object is not supported. Pass "
-                "(x, y) or (x, y, width, height) in axes fractions.",
+                f"(x, y) or (x, y, width, height) in {coords} fractions.",
             )
             return None
         try:
@@ -7937,7 +7998,7 @@ class Axes:
             values = []
         if len(values) not in (2, 4):
             raise ValueError(
-                f"{what} expects (x, y) or (x, y, width, height) in axes "
+                f"{what} expects (x, y) or (x, y, width, height) in {coords} "
                 f"fractions, got {anchor!r}"
             )
         x, y = values[0], values[1]
@@ -8011,26 +8072,6 @@ class Axes:
         if as_int < 1 or as_float != as_int:
             raise ValueError(f"legend(ncol=...) must be an integer >= 1, got {ncol!r}")
         return as_int
-
-    def _resolve_fontsize(self, fontsize, argument: str = "legend(fontsize") -> float:
-        """Resolve a matplotlib ``fontsize`` (number or name) to points.
-
-        ``argument`` is the call up to the value, e.g. ``"legend(fontsize"``,
-        and names the argument in the error.
-        """
-        if isinstance(fontsize, str):
-            name = fontsize.strip().lower()
-            if name not in MATPLOTLIB_RELATIVE_FONTSIZES:
-                raise ValueError(
-                    f"{argument}={fontsize!r}) is not a number or one of "
-                    f"{sorted(MATPLOTLIB_RELATIVE_FONTSIZES)}"
-                )
-            style = getattr(self.figure, "style", None) or GlobalConfig.get_style()
-            return float(style.fontsize) * MATPLOTLIB_RELATIVE_FONTSIZES[name]
-        size = _finite_float(fontsize, f"{argument}=...)")
-        if size <= 0:
-            raise ValueError(f"{argument}={fontsize!r}) must be positive")
-        return size
 
     def grid(
         self,

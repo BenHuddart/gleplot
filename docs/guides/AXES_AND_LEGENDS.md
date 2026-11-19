@@ -207,3 +207,15 @@ ax.legend(loc='upper right')  # custom location
 The legend is GLE's `key` command. Which `legend()` keywords are honoured, and
 what happens to the rest, is listed in the
 [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md).
+
+One legend for several axes is `fig.legend()`. It lists the labelled series of
+every axes, and while it exists an axes draws its own legend only if
+`ax.legend()` was called on it:
+
+```python
+fig, axes = glp.subplots(1, 2)
+axes[0].plot(x, y1, label='Series 1')
+axes[1].plot(x, y2, label='Series 2')
+fig.legend(loc='lower center', ncol=2)
+fig.subplots_adjust(bottom=0.2)
+```

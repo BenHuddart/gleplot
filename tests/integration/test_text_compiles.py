@@ -110,3 +110,33 @@ def test_axes_fraction_text_lands_on_the_frame_fraction(tmp_path):
     assert y_at_ymin > y_at_ymax  # the inverted axis is exercised
     assert x == pytest.approx(x0 + 0.25 * (x1 - x0), abs=1e-3)
     assert y == pytest.approx(y_at_ymax + 0.75 * (y_at_ymin - y_at_ymax), abs=1e-3)
+
+
+def test_figure_text_lands_on_the_page_fraction(tmp_path):
+    """``Figure.text`` and ``suptitle`` compile, at their fraction of the page.
+
+    ``print`` reports GLE's current point after the text's ``amove``; a
+    negative fraction is still a number GLE reads.
+    """
+    fig, axes = glp.subplots(1, 2, figsize=(8, 4), data_prefix="txtg")
+    for ax in axes:
+        ax.plot([0, 1], [0, 1])
+    fig.suptitle("Sample A")
+    fig.text(0.25, -0.1, "(a)", rotation=10, bbox={"facecolor": "white"})
+    fig.savefig_gle(str(tmp_path / "figure.gle"))
+    lines = (tmp_path / "figure.gle").read_text(encoding="utf-8").split("\n")
+    at = lines.index("amove pagewidth()*0.25 pageheight()*-0.1")
+    lines[at + 1 : at + 1] = ['print "AT" xpos() ypos()']
+    (tmp_path / "probe.gle").write_text("\n".join(lines), encoding="utf-8")
+    proc = subprocess.run(
+        [str(find_gle()), "-d", "pdf", "probe.gle"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+    output = proc.stdout + proc.stderr
+    found = re.search(r"AT\s+([-\d.eE+]+)\s+([-\d.eE+]+)", output)
+    assert found is not None, output
+    assert float(found.group(1)) == pytest.approx(0.25 * 8 * 2.54, abs=1e-3)
+    assert float(found.group(2)) == pytest.approx(-0.1 * 4 * 2.54, abs=1e-3)
+    assert (tmp_path / "probe.pdf").stat().st_size > 0

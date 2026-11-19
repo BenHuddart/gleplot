@@ -57,3 +57,22 @@ def test_spacing_anchor_and_labelcolor_compile(tmp_path, kwargs):
     fig.savefig(str(out))
     assert out.is_file()
     assert out.stat().st_size > 0
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(loc="lower center", ncol=2, frameon=False, labelcolor="gray"),
+        dict(loc="center left", bbox_to_anchor=(-0.1, 0.5), facecolor="yellow"),
+    ],
+)
+def test_figure_legend_compiles(tmp_path, kwargs):
+    """A page-level ``begin key`` placed with ``pagewidth()``/``pageheight()``."""
+    fig, axes = glp.subplots(1, 2, data_prefix="legf")
+    axes[0].plot([0, 1, 2], [0.5, 1.5, 0.5], label="fit", marker="o")
+    axes[1].bar([0, 1], [1, 2], label="counts")
+    fig.legend(**kwargs)
+    out = tmp_path / "legend.pdf"
+    fig.savefig(str(out))
+    assert out.is_file()
+    assert out.stat().st_size > 0

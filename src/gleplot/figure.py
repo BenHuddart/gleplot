@@ -14,6 +14,8 @@ from ._warn import warn_external
 from .axes import (
     Axes,
     _finite_float,
+    _resolve_fontsize,
+    _text_fields,
     _validate_data_prefix,
     histogram_counts,
 )
@@ -30,8 +32,9 @@ from .compiler import (
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
 from .markers import MARKERS
 from .parser import metadata as _gle_metadata
+from .parser.tables import LEGEND_SPACING_TO_KEY
 from .parser.units import fontsize_pt_to_cm
-from .series import HeatmapSeries, Series, is_visible
+from .series import HeatmapSeries, Series, TextAnnotation, is_visible
 from .sources import DataSource, source_of
 from .writer import (
     BOX_SUB,
@@ -514,6 +517,16 @@ class Figure:
         # Figure.tex), one dict per call with its "kind", in call order.
         # Written after every graph block, before passthrough_trailer.
         self._drawings: List[dict] = []
+
+        # Figure-level text in figure fractions and the figure legend
+        # (Figure.suptitle, Figure.text, Figure.legend). Written after the
+        # page drawings: the suptitle, the texts in call order, then the
+        # legend, which lists the labelled series of every axes.
+        self._suptitle: Optional[TextAnnotation] = None
+        #: The figure texts (:meth:`text`), in call order. Their ``x`` and
+        #: ``y`` are figure fractions.
+        self.texts: List[TextAnnotation] = []
+        self._legend: Optional[dict] = None
 
         # Unknown keys recovered from a parsed '! gleplot:' metadata block,
         # re-emitted verbatim in the metadata block on regeneration. Default:
@@ -1025,6 +1038,8 @@ class Figure:
         margin_right = (
             self._AUTO_MARGIN_Y2_HEI if has_y2 else self._AUTO_MARGIN_PLAIN_HEI
         ) * hei
+        if self._suptitle is not None:
+            margin_top += self._suptitle_room_cm(writer.height_cm)
 
         # Convert margin overrides from normalized figure fractions to cm.
         if "left" in self._subplot_adjust:
@@ -1047,6 +1062,18 @@ class Figure:
             margin_bottom = max(margin_bottom, row_extra[max_rows - 1])
 
         return margin_left, margin_right, margin_bottom, margin_top
+
+    def _suptitle_room_cm(self, page_height_cm: float) -> float:
+        """How far the suptitle reaches down from the top of the page, in cm.
+
+        The title's text height below its alignment point (all of it for
+        ``va='top'``, half for ``'center'``), plus a quarter of it as a gap.
+        """
+        title = cast(TextAnnotation, self._suptitle)
+        hei = fontsize_pt_to_cm(float(title.get("fontsize") or self.style.fontsize))
+        below = {"top": 1.0, "center": 0.5}.get(title.get("va", "top"), 0.0)
+        bottom_cm = float(title["y"]) * page_height_cm - below * hei
+        return max(0.0, page_height_cm - bottom_cm) + 0.25 * hei
 
     def _grid_shape(self) -> Tuple[int, int]:
         """``(rows, cols)`` of the subplot grid the layout fills."""
@@ -1250,9 +1277,124 @@ class Figure:
         """Error bar plot on current axes."""
         return self.gca().errorbar(x, y, **kwargs)
 
-    def text(self, x, y, s, **kwargs):
-        """Add text on current axes."""
-        return self.gca().text(x, y, s, **kwargs)
+    def text(self, x, y, s, fontdict=None, **kwargs) -> TextAnnotation:
+        """Add text to the figure, in figure fractions.
+
+        Parameters
+        ----------
+        x, y : float
+            Position as fractions of the page: ``(0, 0)`` is the bottom-left
+            corner and ``(1, 1)`` the top-right, as matplotlib's figure
+            coordinates.
+        s : str
+            The text.
+        fontdict : dict, optional
+            Text keywords, overridden by the same keyword passed directly.
+        **kwargs
+            ``color``, ``fontsize``, ``ha``, ``va``, ``rotation`` and
+            ``bbox``, as for :meth:`Axes.text`. Any other keyword, including
+            ``transform``, warns and is ignored.
+
+        Returns
+        -------
+        TextAnnotation
+            The stored text, also appended to :attr:`texts`.
+
+        Notes
+        -----
+        Written after every axes, so it sits on top of them. Use
+        :meth:`Axes.text` to place text in one axes' data coordinates.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, axes = glp.subplots(1, 2)
+        >>> label = fig.text(0.02, 0.98, "(a)", ha="left", va="top")
+        """
+        if fontdict is not None and not isinstance(fontdict, dict):
+            raise TypeError(
+                f"text(fontdict=...) must be a dict of text keywords, got "
+                f"{fontdict!r}"
+            )
+        options = {**(fontdict or {}), **kwargs}
+        fields = _text_fields(
+            self.style,
+            "Figure.text",
+            _finite_float(x, "x"),
+            _finite_float(y, "y"),
+            s,
+            color=options.pop("color", None),
+            fontsize=options.pop("fontsize", None),
+            ha=options.pop("ha", "left"),
+            va=options.pop("va", "center"),
+            bbox=options.pop("bbox", None),
+            rotation=options.pop("rotation", None),
+            kwargs=options,
+            supported="fontdict, color, fontsize, ha, va, rotation, bbox",
+        )
+        text = TextAnnotation(**fields)
+        self.texts.append(text)
+        return text
+
+    def suptitle(self, t, **kwargs) -> TextAnnotation:
+        """Add a centred title to the figure, above every axes.
+
+        Parameters
+        ----------
+        t : str
+            The title.
+        x, y : float, default: 0.5, 0.98
+            Position in figure fractions, as for :meth:`text`.
+        ha : {'center', 'left', 'right'}, default: 'center'
+            Horizontal alignment.
+        va : {'top', 'center', 'bottom'}, default: 'top'
+            Vertical alignment.
+        fontsize : float or str, default: 'large'
+            Points, or a matplotlib size name relative to the figure's
+            ``GLEStyleConfig.fontsize``.
+        **kwargs
+            ``color``, ``rotation`` and ``bbox``, as for :meth:`text`. Any
+            other keyword warns and is ignored.
+
+        Returns
+        -------
+        TextAnnotation
+            The stored title.
+
+        Notes
+        -----
+        A second call replaces the title, as in matplotlib. Unlike
+        matplotlib, the layout lowers the top of the axes to leave room for
+        the title, unless ``subplots_adjust(top=...)`` sets that edge.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, axes = glp.subplots(1, 2)
+        >>> title = fig.suptitle("Sample A")
+        """
+        fontsize = kwargs.pop("fontsize", None)
+        fields = _text_fields(
+            self.style,
+            "suptitle",
+            _finite_float(kwargs.pop("x", 0.5), "x"),
+            _finite_float(kwargs.pop("y", 0.98), "y"),
+            t,
+            color=kwargs.pop("color", None),
+            fontsize=_resolve_fontsize(
+                self.style,
+                "large" if fontsize is None else fontsize,
+                "suptitle(fontsize",
+            ),
+            ha=kwargs.pop("ha", "center"),
+            va=kwargs.pop("va", "top"),
+            bbox=kwargs.pop("bbox", None),
+            rotation=kwargs.pop("rotation", None),
+            kwargs=kwargs,
+            supported="x, y, color, fontsize, ha, va, rotation, bbox",
+        )
+        self._suptitle = TextAnnotation(**fields)
+        return self._suptitle
 
     def axvline(self, x=0.0, **kwargs):
         """Vertical reference line on current axes."""
@@ -1520,9 +1662,104 @@ class Figure:
         """Set title on current axes."""
         return self.gca().set_title(label)
 
-    def legend(self, **kwargs):
-        """Add legend to current axes."""
-        return self.gca().legend(**kwargs)
+    def legend(self, *args, **kwargs) -> "Figure":
+        """Add one legend for the whole figure, listing every axes' series.
+
+        Parameters
+        ----------
+        loc : str, default: 'upper right'
+            The corner of the page the legend sits in, as a matplotlib
+            location (``'upper center'``, ``'lower left'``, ...). As in
+            matplotlib, ``'best'`` is not supported for a figure legend and
+            raises ``ValueError``.
+        bbox_to_anchor : tuple of float, optional
+            ``(x, y)`` or ``(x, y, width, height)`` in figure fractions: the
+            ``loc`` corner of the legend sits on that point, or on that
+            corner of the box.
+        ncol, ncols, fontsize, frameon, facecolor, labelcolor : optional
+            As for :meth:`Axes.legend`.
+        borderpad, handlelength, handletextpad, columnspacing : float, optional
+            As for :meth:`Axes.legend`.
+        **kwargs
+            Any other matplotlib legend keyword warns and is ignored.
+
+        Returns
+        -------
+        self
+
+        Notes
+        -----
+        The entries are the labelled series of every axes, axes by axes in
+        the order they were created, and each axes' series in the order they
+        were added. Explicit handles and labels are not supported: legend
+        text comes from each series' ``label=``. While a figure legend
+        exists, an axes draws its own legend only if :meth:`Axes.legend` was
+        called on it, as in matplotlib. The legend is a GLE ``begin key``
+        block written after every axes, half a font size in from the page
+        edges its corner is anchored to. A second call replaces the legend.
+        The layout does not make room for it: leave room with
+        ``subplots_adjust``.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, axes = glp.subplots(1, 2)
+        >>> _ = axes[0].plot([0, 1], [0, 1], label="a")
+        >>> _ = axes[1].plot([0, 1], [1, 0], label="b")
+        >>> _ = fig.legend(loc="upper center", ncol=2)
+        """
+        if args:
+            warn_external(
+                "legend(): explicit handles/labels are not supported; legend "
+                "text comes from each series' label= argument. The positional "
+                "arguments were ignored.",
+            )
+        loc = kwargs.pop("loc", None)
+        if isinstance(loc, str) and loc.strip().lower() == "best":
+            raise ValueError(
+                "legend(loc='best') is not supported for a figure legend, as "
+                "in matplotlib. Pass a corner such as 'upper right'."
+            )
+        position = Axes._resolve_legend_loc(loc)
+        ncol = 1
+        for name in ("ncol", "ncols"):
+            if name in kwargs:
+                value = kwargs.pop(name)
+                ncol = 1 if value is None else Axes._resolve_legend_ncol(value)
+        fontsize = kwargs.pop("fontsize", None)
+        frameon = kwargs.pop("frameon", None)
+        facecolor = kwargs.pop("facecolor", None)
+        labelcolor = Axes._resolve_legend_labelcolor(
+            kwargs.pop("labelcolor", None), None
+        )
+        anchor = kwargs.pop("bbox_to_anchor", None)
+        if anchor is not None:
+            anchor = Axes._resolve_legend_anchor(anchor, position, "figure")
+        spacing = {}
+        for name in LEGEND_SPACING_TO_KEY:
+            value = kwargs.pop(name, None)
+            if value is not None:
+                spacing[name] = _finite_float(value, f"legend({name}=...)")
+        for name in sorted(kwargs):
+            warn_external(
+                f"legend({name}=...) is not supported for a figure legend and "
+                "was ignored. Supported arguments: loc, bbox_to_anchor, ncol, "
+                "ncols, fontsize, frameon, facecolor, labelcolor, borderpad, "
+                "handlelength, handletextpad and columnspacing.",
+            )
+        self._legend = {
+            "loc": position,
+            "anchor": None if anchor is None else list(anchor),
+            "ncol": ncol,
+            "fontsize": (
+                None if fontsize is None else _resolve_fontsize(self.style, fontsize)
+            ),
+            "frameon": True if frameon is None else bool(frameon),
+            "facecolor": None if facecolor is None else rgb_to_gle(facecolor),
+            "labelcolor": labelcolor,
+            "spacing": spacing,
+        }
+        return self
 
     # Free page drawing. Positions and sizes are in cm from the bottom-left
     # corner of the page, like Axes.placement, not in data coordinates.
@@ -2257,7 +2494,11 @@ class Figure:
         # genuinely empty figure with no passthrough keeps the historical
         # default empty graph block (existing tests rely on it).
         no_fabricate = not self.axes_list and (
-            self.passthrough_header or self.passthrough_trailer or self._drawings
+            self.passthrough_header
+            or self.passthrough_trailer
+            or self._drawings
+            or self._suptitle is not None
+            or self.texts
         )
 
         # Palette / colorbar / contour-label subs needed by any axes. Emitted
@@ -2271,7 +2512,7 @@ class Figure:
                 passthrough_before_hei=self.passthrough_before_hei,
                 page_box=self.page_box,
             )
-            self._write_drawings(writer)
+            self._write_page_content(writer, resolution)
             writer.finalize(
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
             )
@@ -2333,7 +2574,7 @@ class Figure:
                 writer.add_graph_size()
                 writer.end_graph()
 
-            self._write_drawings(writer)
+            self._write_page_content(writer, resolution)
             if self.passthrough_trailer:
                 writer.lines_gle.extend(self.passthrough_trailer)
         else:
@@ -2400,7 +2641,7 @@ class Figure:
                     )
                 writer.lines_gle.append("")  # Blank line between subplots
 
-            self._write_drawings(writer)
+            self._write_page_content(writer, resolution)
             writer.finalize(
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
             )
@@ -2670,9 +2911,62 @@ class Figure:
         subs.extend(text for name, text in IMAGE_SUBS.items() if name in used_images)
         return subs
 
-    def _write_drawings(self, writer: GLEWriter) -> None:
+    def _write_page_content(
+        self, writer: GLEWriter, resolution: SourceResolution
+    ) -> None:
+        """Everything drawn on the page after the axes, in a fixed order.
+
+        The page drawings, then the suptitle and the figure texts, then the
+        figure legend: the order the recognizer reads them back in.
+        """
         for drawing in self._drawings:
             writer.add_page_drawing(drawing)
+        if self._suptitle is not None:
+            writer.add_figure_text(self._suptitle)
+        for text in self.texts:
+            writer.add_figure_text(text)
+        if self._legend is not None:
+            self._write_figure_legend(writer, resolution)
+
+    def _write_figure_legend(
+        self, writer: GLEWriter, resolution: SourceResolution
+    ) -> None:
+        """The ``Figure.legend`` key: every axes' entries in addition order.
+
+        Each axes' entries are those its own key would list, so they are
+        computed against the limits its graph was written with. A broken
+        axis lists its series once, from its first segment.
+        """
+        legend = cast(dict, self._legend)
+        entries: List[tuple] = []
+        for ax in self.axes_list:
+            if ax._break_owner is not None and ax._break_index:
+                continue
+            limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
+            found = self._legend_entries(writer, ax, resolution, limits)
+            entries.extend(
+                (resolution.data(series) or series, label, swatch)
+                for series, label, swatch in (
+                    found[i] for i in self._legend_addition_order(found)
+                )
+            )
+        if not entries:
+            warn_external(
+                "Figure.legend(): no labelled series in any axes, so no legend "
+                "was drawn. Pass label= when you plot a series.",
+            )
+            return
+        key = KeyOptions(
+            position=legend["loc"],
+            fontsize=legend["fontsize"],
+            frameon=legend["frameon"],
+            background=legend["facecolor"],
+            spacing=dict(legend["spacing"]),
+            anchor=None if legend["anchor"] is None else tuple(legend["anchor"]),
+            labelcolor=legend["labelcolor"],
+        )
+        breaks = legend_column_breaks(len(entries), legend["ncol"])
+        writer.add_figure_legend(entries, breaks, key)
 
     def _emit_pre_graph_blocks(
         self, writer: GLEWriter, ax: Axes, resolution: Optional[SourceResolution] = None
@@ -3122,7 +3416,9 @@ class Figure:
         """
         entries = self._legend_entries(writer, ax, resolution, limits)
         n_legend = len(entries)
-        show = ax.legend_on if ax.legend_on is not None else n_legend > 0
+        # With a figure legend, an axes shows its own only if asked to.
+        auto = n_legend > 0 and self._legend is None
+        show = ax.legend_on if ax.legend_on is not None else auto
         # Addition order is matplotlib's legend order. GLE's in-graph
         # ``key separator`` is inserted where the statement stands, and a
         # dataset stays where it was first used, which is draw order. When
@@ -4501,6 +4797,16 @@ class Figure:
             # "axes" (the segments themselves are serialized there in full).
             "broken_axes": [bax.to_dict() for bax in self.broken_axes],
         }
+        # Figure-level text and legend, only when set: a figure without them
+        # keeps the snapshot it always had.
+        if self._suptitle is not None:
+            figure_block["suptitle"] = dict(self._suptitle)
+        if self.texts:
+            figure_block["texts"] = [dict(text) for text in self.texts]
+        if self._legend is not None:
+            figure_block["legend"] = _json_drawing(
+                {**self._legend, "spacing": dict(self._legend["spacing"])}
+            )
 
         return {
             "format": PROJECT_FORMAT,
@@ -4645,6 +4951,22 @@ class Figure:
         fig.passthrough_trailer = list(fig_block.get("passthrough_trailer", []))
         fig.page_box = bool(fig_block.get("page_box", False))
         fig._drawings = [_json_drawing(d) for d in fig_block.get("drawings", [])]
+        suptitle = fig_block.get("suptitle")
+        fig._suptitle = (
+            None
+            if suptitle is None
+            else cast(TextAnnotation, TextAnnotation._restore(suptitle))
+        )
+        fig.texts = [
+            cast(TextAnnotation, TextAnnotation._restore(t))
+            for t in fig_block.get("texts", [])
+        ]
+        legend = fig_block.get("legend")
+        fig._legend = (
+            None
+            if legend is None
+            else {**_json_drawing(legend), "spacing": dict(legend["spacing"])}
+        )
         fig.metadata_extra = dict(fig_block.get("metadata_extra", {}))
 
         saved_counter = fig_block.get("global_data_counter", 0)
@@ -4680,4 +5002,7 @@ class Figure:
         self.axes_list.clear()
         self.broken_axes.clear()
         self._drawings.clear()
+        self._suptitle = None
+        self.texts.clear()
+        self._legend = None
         self._current_axes = None
