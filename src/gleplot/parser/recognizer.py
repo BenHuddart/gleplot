@@ -4268,6 +4268,13 @@ class _Recognizer:
             ticks = info[f"_{prefix}ticks"]
             subticks = info[f"_{prefix}subticks"]
             gridded = info[f"{prefix}grid"]
+            if self._is_empty_places(prefix, ticks, subticks, info):
+                # 'xticks off' + 'xlabels off' is how GLEWriter writes an
+                # empty places list (GLE ignores an empty 'xplaces').
+                info[f"{prefix}places"] = []
+                info[f"{prefix}labels_off"] = False
+                info[f"_{prefix}ticks"] = None
+                continue
             if not gridded:
                 self._reconcile_tick_marks(prefix, ticks, subticks, info)
                 continue
@@ -4753,6 +4760,26 @@ class _Recognizer:
             info[f"{prefix}labels_color"] = opts["color"]
         if loglabels is not None:
             info[f"{prefix}loglabels"] = loglabels
+
+    @staticmethod
+    def _is_empty_places(prefix, ticks, subticks, info) -> bool:
+        """Whether the axis says no ticks and no labels, and nothing more.
+
+        Only a bare ``xticks off`` with a bare ``xlabels off`` qualifies, on
+        an axis with no places, names, no-tick positions or subtick line: the
+        writer would drop any of those beside an empty places list.
+        """
+        return (
+            ticks is not None
+            and ticks["ok"]
+            and ticks["off"]
+            and all(ticks[k] is None for k in ("lstyle", "lwidth", "length", "color"))
+            and subticks is None
+            and info[f"{prefix}labels_off"]
+            and info[f"{prefix}places"] is None
+            and info[f"{prefix}names"] is None
+            and info[f"{prefix}noticks"] is None
+        )
 
     def _reconcile_tick_marks(self, prefix, ticks, subticks, info) -> None:
         """``xticks``/``xsubticks`` on an axis with no grid: tick marks.
@@ -10337,8 +10364,9 @@ class _Recognizer:
         """Reproduce the writer's emission conditions for tick visibility.
 
         The writer emits:
-          - ``xlabels off``          when ``show_xticks`` is False
-          - ``ylabels off``          when ``show_yticks`` is False
+          - ``xlabels off``          when ``show_xticks`` is False, or
+                                     with ``xticks off`` for empty ``xplaces``
+          - ``ylabels off``          when ``show_yticks`` is False (or as x)
           - ``xaxis ... nofirst``    when ``remove_first_xtick``
           - ``xaxis ... nolast``     when ``remove_last_xtick``
           - (same for y)

@@ -2158,6 +2158,13 @@ class GLEWriter:
             x2style = replace(x2style, side_off=False)
         if ystyle.side_off and not y2axis_off and not frame_off:
             y2style = replace(y2style, side_off=False)
+        if frame_off:
+            # The hidden frame's own 'xticks off' already hides the ticks an
+            # empty places list asks to hide; only the labels remain.
+            if xplaces == []:
+                xplaces, show_xticks = None, False
+            if yplaces == []:
+                yplaces, show_yticks = None, False
         self._log_axes = {"x": xlog, "y": ylog, "y2": y2log, "x2": x2log}
         if title:
             opts = self._text_options(title_size, title_color, title_dist, title_font)
@@ -2277,6 +2284,14 @@ class GLEWriter:
         if cmd != bare:
             self.lines_gle.append(cmd)
 
+        if places == []:
+            # GLE reads an empty 'xplaces' as "place them automatically", so
+            # no ticks is 'xticks off' (which takes the subticks too) and no
+            # labels; styling ticks that are not drawn would be a no-op.
+            self.lines_gle.append(f"    {prefix}ticks off")
+            self.lines_gle.append(f"    {prefix}labels off")
+            self._add_axis_line_style(prefix, style)
+            return
         if places is not None:
             self.lines_gle.append(
                 f"    {prefix}places "

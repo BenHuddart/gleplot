@@ -663,6 +663,39 @@ def test_noticks_is_its_own_statement_and_an_empty_list_clears_it():
     assert not any(line.startswith("ynoticks") for line in _graph_lines(fig))
 
 
+def test_an_empty_tick_list_switches_the_ticks_and_labels_off():
+    """GLE reads a bare ``xplaces`` as automatic ticks (#181)."""
+    fig, ax = _fig()
+    ax.set_xticks([])
+    ax.set_yticks([], labels=[])
+    ax.grid(True, color="red")
+    ax.set_yticks(noticks=[2])
+    lines = _graph_lines(fig)
+    assert lines[lines.index("xaxis min 1 max 3 grid") :][:5] == [
+        "xaxis min 1 max 3 grid",
+        "xticks off",
+        "xlabels off",
+        "yaxis min 1 max 9 grid",
+        "yticks off",
+    ]
+    assert not any("places" in line or "names" in line for line in lines)
+    assert [line for line in lines if line.startswith(("xticks", "yticks"))] == [
+        "xticks off",
+        "yticks off",
+    ]
+
+
+def test_an_empty_tick_list_on_a_hidden_frame_adds_no_second_ticks_off():
+    """``axis('off')`` writes ``xticks off`` already, and it must stay one of
+    the four lines the parser recovers as a hidden frame."""
+    fig, ax = _fig()
+    ax.axis("off")
+    ax.set_xticks([])
+    lines = _graph_lines(fig)
+    assert lines.count("xticks off") == 1
+    assert lines.count("xlabels off") == 1
+
+
 def test_symticks_false_goes_back_to_the_default():
     fig, ax = _fig()
     ax.set_xticks(symticks=True)
