@@ -348,3 +348,33 @@ def test_axis_equal_warns():
     _fig, ax = _axes()
     with pytest.warns(UserWarning, match="set_aspect"):
         ax.axis("equal")
+
+
+@pytest.mark.parametrize(
+    "call, name",
+    [
+        (lambda fig, ax: ax.pie([1, 2], wedgeprops2=1), "pie"),
+        (lambda fig, ax: ax.boxplot([[1, 2, 3]], showcaps2=True), "boxplot"),
+        (lambda fig, ax: glp.figure(num=3), "figure"),
+        (lambda fig, ax: glp.subplots(subplot_kw={}), "subplots"),
+        (lambda fig, ax: fig.add_subplot(212, title="t"), "add_subplot"),
+    ],
+)
+def test_calls_without_kwargs_before_now_warn_on_unknown_keywords(call, name):
+    fig, ax = _axes()
+    with pytest.warns(UserWarning, match=rf"{name}\(\) ignores unsupported keyword"):
+        call(fig, ax)
+
+
+def test_add_subplot_polar_true_is_projection_polar():
+    fig = glp.figure()
+    assert fig.add_subplot(111, polar=True)._polar
+
+
+def test_subplots_takes_gridspec_kw_ratios():
+    fig, axes = glp.subplots(2, 1, gridspec_kw={"height_ratios": [3, 1]})
+    expected, _ = glp.subplots(2, 1, height_ratios=[3, 1])
+    assert (
+        fig.to_dict()["figure"]["height_ratios"]
+        == expected.to_dict()["figure"]["height_ratios"]
+    )

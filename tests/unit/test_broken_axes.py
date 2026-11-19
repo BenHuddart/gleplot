@@ -908,3 +908,11 @@ def test_broken_x_y2_title_warns_and_is_not_drawn():
     with pytest.warns(UserWarning, match=r"set_ylabel\(axis='y2'\) is not supported"):
         bax.set_ylabel("R", axis="y2")
     assert [seg.y2label_text for seg in bax] == ["", ""]
+
+
+def test_broken_y_x2_title_warns_and_is_not_drawn():
+    fig = glp.figure(data_prefix="by")
+    bax = fig.add_broken_yaxes(ylims=[(0, 1), (2, 3)])
+    with pytest.warns(UserWarning, match=r"set_xlabel\(axis='x2'\) is not supported"):
+        bax.set_xlabel("T", axis="x2")
+    assert [seg.x2label_text for seg in bax] == ["", ""]

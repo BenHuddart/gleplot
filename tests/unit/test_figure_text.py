@@ -211,8 +211,24 @@ def test_figure_legend_warns_on_handles_and_unsupported_keywords():
     fig = glp.figure()
     with pytest.warns(UserWarning, match="handles"):
         fig.legend(["a"])
-    with pytest.warns(UserWarning, match=r"legend\(title=...\)"):
+    with pytest.warns(
+        UserWarning, match=r"Figure.legend\(\) ignores unsupported keyword\(s\): title"
+    ):
         fig.legend(title="t")
+
+
+def test_text_aliases_resolve_against_each_calls_own_defaults(recwarn):
+    fig, ax = glp.subplots()
+    title = fig.suptitle("T", horizontalalignment="left", size=20)
+    label = fig.text(0.1, 0.1, "a", c="red", verticalalignment="top")
+    ax.text(0, 0, "b", horizontalalignment="right", size=9)
+    note = ax.texts[-1]
+    ann = ax.annotate("c", (0, 0), c="blue", size=8)
+    assert (title["ha"], title["fontsize"]) == ("left", 20.0)
+    assert (label["color"], label["va"]) == ("RED", "top")
+    assert (note["ha"], note["fontsize"]) == ("right", 9.0)
+    assert (ann["color"], ann["fontsize"]) == ("BLUE", 8.0)
+    assert not recwarn.list
 
 
 def test_figure_legend_without_labels_warns_and_draws_nothing():

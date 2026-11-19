@@ -14,6 +14,7 @@ from ._warn import warn_external, warn_unsupported_keywords
 from .axes import (
     Axes,
     _finite_float,
+    _rename_text_aliases,
     _resolve_fontsize,
     _text_fields,
     _validate_data_prefix,
@@ -843,10 +844,19 @@ class Figure:
         other plotting methods and cartesian settings such as
         :meth:`Axes.set_xlim` raise ``NotImplementedError``.
 
-        Any other keyword, such as matplotlib's Axes properties (``title``,
+        matplotlib's ``polar=True`` is ``projection='polar'``. Any other
+        keyword, such as matplotlib's Axes properties (``title``,
         ``xlabel``, ...), warns and is ignored: set them on the returned
         axes.
         """
+        if kwargs.pop("polar", False):
+            # matplotlib's polar=True is projection='polar'.
+            if projection not in (None, "polar"):
+                raise ValueError(
+                    f"add_subplot() got polar=True and projection={projection!r}; "
+                    "pass one of them."
+                )
+            projection = "polar"
         warn_unsupported_keywords("add_subplot", kwargs)
         if projection not in (None, "rectilinear", "polar"):
             raise ValueError(
@@ -1685,6 +1695,7 @@ class Figure:
                 f"{fontdict!r}"
             )
         options = {**(fontdict or {}), **kwargs}
+        _rename_text_aliases("Figure.text", options)
         fields = _text_fields(
             self.style,
             "Figure.text",
@@ -1741,6 +1752,7 @@ class Figure:
         >>> fig, axes = glp.subplots(1, 2)
         >>> title = fig.suptitle("Sample A")
         """
+        _rename_text_aliases("suptitle", kwargs)
         fontsize = kwargs.pop("fontsize", None)
         fields = _text_fields(
             self.style,
@@ -2169,13 +2181,13 @@ class Figure:
             value = kwargs.pop(name, None)
             if value is not None:
                 spacing[name] = _finite_float(value, f"legend({name}=...)")
-        for name in sorted(kwargs):
-            warn_external(
-                f"legend({name}=...) is not supported for a figure legend and "
-                "was ignored. Supported arguments: loc, bbox_to_anchor, ncol, "
-                "ncols, fontsize, frameon, facecolor, labelcolor, borderpad, "
-                "handlelength, handletextpad and columnspacing.",
-            )
+        warn_unsupported_keywords(
+            "Figure.legend",
+            kwargs,
+            "A figure legend takes loc, bbox_to_anchor, ncol, ncols, fontsize, "
+            "frameon, facecolor, labelcolor, borderpad, handlelength, "
+            "handletextpad and columnspacing.",
+        )
         self._legend = {
             "loc": position,
             "anchor": None if anchor is None else list(anchor),

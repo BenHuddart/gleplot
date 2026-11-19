@@ -470,7 +470,9 @@ def subplots(
         semantics as ``height_ratios``, for columns; must have length
         ``ncols`` if given.
     **kwargs
-        Any other matplotlib keyword (``subplot_kw``, ``gridspec_kw``, ...)
+        ``gridspec_kw``'s ``height_ratios`` and ``width_ratios`` are taken as
+        the keywords of those names. Any other matplotlib keyword
+        (``subplot_kw``, ``squeeze``, the rest of ``gridspec_kw``, ...)
         warns and is ignored.
 
     Returns
@@ -507,6 +509,22 @@ def subplots(
     ...                          height_ratios=[3, 3, 1])
     >>> # axes[2] gets 1/7 of the plotting height, axes[0]/axes[1] get 3/7 each
     """
+    gridspec_kw = dict(kwargs.pop("gridspec_kw", None) or {})
+    for name in ("height_ratios", "width_ratios"):
+        if name in gridspec_kw:
+            # matplotlib takes the ratios here too; the keyword wins over it.
+            ratios = gridspec_kw.pop(name)
+            if name == "height_ratios" and height_ratios is None:
+                height_ratios = ratios
+            elif name == "width_ratios" and width_ratios is None:
+                width_ratios = ratios
+            else:
+                _warn.warn_external(
+                    f"subplots() got both {name} and gridspec_kw[{name!r}]; "
+                    f"{name} wins."
+                )
+    if gridspec_kw:
+        kwargs["gridspec_kw"] = gridspec_kw
     _warn.warn_unsupported_keywords("subplots", kwargs)
     global _current_figure
 

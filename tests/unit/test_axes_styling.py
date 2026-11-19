@@ -1256,3 +1256,17 @@ def test_a_positional_fontdict_is_matplotlibs_and_labels_the_primary_axis():
     with pytest.warns(UserWarning, match="fontdict"):
         ax.twiny().set_xlabel("T", {"fontsize": 9})
     assert (ax.y2label_text, ax.x2label_text) == ("R", "T")
+
+
+def test_grid_with_only_an_unknown_keyword_turns_the_grid_on():
+    _, ax = _fig()
+    ax.grid(True)
+    with pytest.warns(UserWarning, match="alpha"):
+        ax.grid(alpha=0.3)
+    assert ax.xgrid
+
+
+def test_title_aliases_c_and_size():
+    _, ax = _fig()
+    ax.set_title("T", c="red", size=12)
+    assert (ax.title_color, ax.title_size) == ("RED", 12.0)

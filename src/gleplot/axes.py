@@ -130,6 +130,32 @@ def _warn_twin_keywords(
     )
 
 
+#: matplotlib's Text aliases as ``(alias, name)``; ``name`` is what
+#: gleplot's text calls read.
+_TEXT_ALIASES = (
+    ("c", "color"),
+    ("size", "fontsize"),
+    ("horizontalalignment", "ha"),
+    ("verticalalignment", "va"),
+)
+
+
+def _rename_text_aliases(caller: str, kwargs: Dict[str, Any], aliases=_TEXT_ALIASES):
+    """Rename matplotlib's Text aliases in ``kwargs`` to gleplot's names.
+
+    matplotlib raises for an alias passed with its name; here the name
+    gleplot reads wins, with a warning.
+    """
+    for alias, name in aliases:
+        if alias not in kwargs:
+            continue
+        if name in kwargs:
+            kwargs.pop(alias)
+            warn_external(f"{caller}() got both {name} and {alias}; {name} wins.")
+        else:
+            kwargs[name] = kwargs.pop(alias)
+
+
 def _text_fields(
     style,
     caller,
@@ -155,10 +181,6 @@ def _text_fields(
     stored as given, for LaTeX, else as GLE markup, and a matplotlib size
     name is relative to its font size.
     """
-    color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
-    fontsize = _pop_line_alias(kwargs, caller, "size", "fontsize", fontsize, None)
-    ha = _pop_line_alias(kwargs, caller, "horizontalalignment", "ha", ha, "left")
-    va = _pop_line_alias(kwargs, caller, "verticalalignment", "va", va, "center")
     if color is None:
         gle_color = "BLACK"
     else:
@@ -6427,6 +6449,10 @@ class Axes:
         >>> _ = ax.text(0.05, 0.95, "(b)", transform=ax.transAxes, va="top")
         """
         transform = self._text_transform(kwargs.pop("transform", None))
+        color = _pop_line_alias(kwargs, "text", "c", "color", color, None)
+        fontsize = _pop_line_alias(kwargs, "text", "size", "fontsize", fontsize, None)
+        ha = _pop_line_alias(kwargs, "text", "horizontalalignment", "ha", ha, "left")
+        va = _pop_line_alias(kwargs, "text", "verticalalignment", "va", va, "center")
         fields = _text_fields(
             self._style(),
             "text",
@@ -6553,6 +6579,7 @@ class Axes:
 
         x, y = (float(v) for v in xy)
         tx, ty = (x, y) if xytext is None else (float(v) for v in xytext)
+        _rename_text_aliases("annotate", kwargs)
         text_kwargs = {
             key: kwargs.pop(key, default)
             for key, default in (
@@ -8448,15 +8475,7 @@ class Axes:
                     f"{caller}(loc={loc!r}) is drawn centred: GLE centres "
                     "every title.",
                 )
-        for alias, name in (("size", "fontsize"), ("c", "color")):
-            if alias in kwargs:
-                if name in kwargs:
-                    kwargs.pop(alias)
-                    warn_external(
-                        f"{caller}() got both {name} and {alias}; {name} wins."
-                    )
-                else:
-                    kwargs[name] = kwargs.pop(alias)
+        _rename_text_aliases(caller, kwargs, _TEXT_ALIASES[:2])
         if "fontsize" in kwargs:
             fontsize = kwargs.pop("fontsize")
             setattr(
@@ -9127,8 +9146,9 @@ class Axes:
         ValueError
             On an unknown string option.
         TypeError
-            If ``arg`` is a sequence of the wrong length, or on any other
-            keyword, or limit keywords passed together with ``arg``.
+            If ``arg`` is a sequence of the wrong length, or limit keywords
+            are passed together with ``arg``. Any other keyword warns and is
+            ignored.
         """
         unknown = set(kwargs) - {"xmin", "xmax", "ymin", "ymax"}
         warn_unsupported_keywords(
@@ -9894,8 +9914,9 @@ class Axes:
         Raises
         ------
         ValueError
-            On an unknown ``which``/``axis``/``linestyle`` value, a
-            non-positive ``linewidth``, or an unsupported keyword argument.
+            On an unknown ``which``/``axis``/``linestyle`` value or a
+            non-positive ``linewidth``. Any other keyword warns and is
+            ignored, but turns the grid on, as in matplotlib.
 
         Notes
         -----
@@ -9912,11 +9933,12 @@ class Axes:
         warn_unsupported_keywords(
             "grid", kwargs, "It takes color, linestyle and linewidth."
         )
-        kwargs.clear()
+        # matplotlib's grid() toggles only when it gets no keyword at all.
+        keyworded = bool(kwargs)
         if self._polar:
             styled = not (color is None and linestyle is None and linewidth is None)
             # Without True, matplotlib's grid() toggles, which here would hide.
-            if visible is not True or styled or kwargs:
+            if visible is not True or styled or keyworded:
                 warn_external(
                     "grid() cannot hide or restyle the grid of a polar axes; "
                     "it is always drawn, in grey. This call was ignored."
@@ -9931,6 +9953,8 @@ class Axes:
 
         targets = ("x", "y") if axis == "both" else (axis,)
         styled = color is not None or linestyle is not None or linewidth is not None
+        if visible is None and keyworded:
+            visible = True
 
         mode = which
         if which == "minor":
