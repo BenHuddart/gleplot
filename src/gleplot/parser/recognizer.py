@@ -1732,7 +1732,7 @@ class _Recognizer:
         # dataset name (lower) -> the FileSeries reading fields (skiprows,
         # comment, max_rows) its 'data' statement set; absent when none.
         self._data_read_options: Dict[str, Dict[str, Any]] = {}
-        # Files a note has already said gleplot does not load.
+        # Files a note has already said gleplot does not load, this graph.
         self._noted_unloaded: Set[str] = set()
         # resolved-table cache per data_file name
         self._table_cache: Dict[str, object] = {}
@@ -3025,6 +3025,7 @@ class _Recognizer:
         pass1 = _GraphDatasets()
         # GLE clears its datasets at 'begin graph'; so do the options.
         self._data_read_options.clear()
+        self._noted_unloaded.clear()
         for child in block.body:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue

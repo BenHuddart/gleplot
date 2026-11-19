@@ -1158,7 +1158,8 @@ class FileSeries(Series):
     #: ``'x2'`` binds the referenced columns to the top scale. Absent
     #: means the primary x axis.
     xaxis: str
-    #: Why the referenced data could not be loaded, when it could not be.
+    #: Why the recognizer did not load the referenced data, when it did not:
+    #: the file is unreadable, or GLE reads it in a way the loader does not.
     #: Present only on entries the recognizer degraded to a bare reference.
     data_error: str
     _draw_seq: int
