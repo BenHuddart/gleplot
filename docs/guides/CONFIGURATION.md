@@ -18,7 +18,7 @@ Access and modify global defaults through `GlobalConfig`:
     import gleplot as glp
     
     # Modify global defaults
-    glp.GlobalConfig.style.font = 'helvetica'
+    glp.GlobalConfig.style.font = 'texcmss'  # TeX Computer Modern Sans Serif
     glp.GlobalConfig.style.fontsize = 12
     glp.GlobalConfig.graph.legend_position = 'tl'
     
@@ -44,7 +44,7 @@ it is still stored by reference, as it always was.
 Controls text and line rendering:
 
     style = glp.GLEStyleConfig(
-        font='helvetica',          # 'texcmr' (default), 'helvetica', 'timesroman', etc.
+        font='texcmss',            # a GLE font name; see Available Fonts below
         fontsize=10,               # Points (default: 12)
         default_linewidth=1.0,     # Line width in points (default: 1.5)
         default_color='BLUE',      # Default line color
@@ -55,11 +55,18 @@ Controls text and line rendering:
 
 ### Available Fonts
 
-Common GLE fonts:
-- `texcmr` (default) - TeX Computer Modern Roman
-- `helvetica` - Sans-serif
-- `timesroman` - Serif
-- `courier` - Monospace
+`font` takes a GLE font name, not a family name such as `'helvetica'`, which
+GLE rejects with `invalid font name`. Leave it empty (the default) for GLE's
+own default font. Common names:
+- `texcmr`, `texcmss`, `texcmtt` - TeX Computer Modern Roman, Sans Serif, Typewriter
+- `rm`, `ss`, `tt` - Roman, Sans Serif, Typewriter
+- `pstr`, `psh`, `psc` - PostScript Times-Roman, Helvetica, Courier
+
+The font tables in the [GLE manual](https://glx.sourceforge.io/manual/index.html)
+list every name. GLE's Cairo backend, which draws SVG output and any figure
+compiled with `-cairo` (semi-transparent colours, or `savefig(..., cairo=True)`),
+cannot draw the PostScript fonts, and `rm`, `ss` and `tt` are PostScript fonts
+too. Use the TeX Computer Modern (`texcm*`) fonts for figures drawn that way.
 
 ### Line Styles
 
@@ -124,7 +131,7 @@ delete.
 Controls graph layout and rendering:
 
     graph = glp.GLEGraphConfig(
-        scale_mode='auto',           # 'auto', 'fixed', or 'fullsize'
+        scale_mode='auto',           # 'auto' (default), 'fullsize' or 'fixed'; see Scale Modes
         title_distance=None,         # Default Axes.title_dist (cm)
         xlabel_distance=None,        # Default Axes.xlabel_dist (cm)
         ylabel_distance=None,        # Default Axes.ylabel_dist (cm)
@@ -255,17 +262,20 @@ points.
 
 ### Scale Modes
 
-- **`'auto'` (default)** - Automatically sizes and centers axes within the graph box
-  - Best for most plots
-  - Leaves room for labels and titles
-  
-- **`'fixed'`** - Use explicit graph dimensions
-  - Requires setting width/height in `add_graph_size()`
-  - Axes scale to fill the specified box
-  
-- **`'fullsize'`** - Axes fill entire graph box with no margins
-  - Equivalent to GLE's `fullsize` keyword
-  - No automatic room for labels/titles (they may overlap axes)
+- **`'auto'` (default)** - gleplot sizes and places every axes frame itself,
+  from its subplot grid cell or its `add_axes` rect, leaving margins for
+  labels and titles. Change the layout with `figsize`, `subplots_adjust` or
+  `add_axes`.
+
+- **`'fullsize'`** - A figure with a single axes, other than one made with
+  `add_axes`, leaves the graph size to GLE's `fullsize` keyword: the graph
+  fills the page with no margins, so labels and titles may overlap the axes,
+  and `set_aspect` cannot apply (it warns). This replaces the placement of a
+  single-graph file opened with `open_gle` too. A figure with several axes, or
+  an axes made with `add_axes`, keeps gleplot's layout as under `'auto'`.
+
+- **`'fixed'`** - Has no effect: the figure is written exactly as under
+  `'auto'`.
 
 ### Legend Positions
 
@@ -312,7 +322,7 @@ GLE-specific markers:
     import gleplot as glp
     
     # Set global defaults
-    glp.GlobalConfig.style.font = 'helvetica'
+    glp.GlobalConfig.style.font = 'texcmss'  # TeX Computer Modern Sans Serif
     glp.GlobalConfig.style.fontsize = 12
     glp.GlobalConfig.graph.legend_position = 'tl'
     
@@ -332,13 +342,12 @@ GLE-specific markers:
 ### Example 2: Per-Figure Configuration
 
     style = glp.GLEStyleConfig(
-        font='courier',
+        font='texcmtt',  # TeX Computer Modern Typewriter
         fontsize=10,
         default_linewidth=2.0,
     )
     
     graph = glp.GLEGraphConfig(
-        scale_mode='fixed',
         legend_position='br',
     )
     
@@ -351,7 +360,7 @@ GLE-specific markers:
 
     # Figure 1: Publication (serif font, small labels)
     pub_style = glp.GLEStyleConfig(
-        font='timesroman',
+        font='texcmr',  # TeX Computer Modern Roman
         fontsize=8,
         default_linewidth=1.5,
     )
@@ -359,7 +368,7 @@ GLE-specific markers:
     
     # Figure 2: Presentation (sans-serif, larger labels)
     pres_style = glp.GLEStyleConfig(
-        font='helvetica',
+        font='texcmss',  # TeX Computer Modern Sans Serif
         fontsize=14,
         default_linewidth=2.0,
     )
@@ -473,10 +482,9 @@ performance impact. Configurations are only used during GLE script generation
 - Check GLE version: `gle --version`
 - Refer to your GLE manual for supported options
 
-**"Font not found"**
-- Not all fonts are available on all systems
-- Fallback fonts: 'texcmr' (always available), 'helvetica', 'courier'
-- Check GLE installation for available fonts
+**"invalid font name"**
+- `font` must be a GLE font name such as `'texcmr'`, `'ss'` or `'psh'`, not a family name such as `'helvetica'`
+- See [Available Fonts](#available-fonts)
 
 **"Overlapping labels with fullsize mode"**
 - `fullsize` leaves no automatic margins

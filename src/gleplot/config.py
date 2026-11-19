@@ -25,8 +25,9 @@ class GLEStyleConfig:
     Attributes
     ----------
     font : str or None
-        GLE font name (e.g., 'times8', 'psagb', 'plti').
-        If None or empty string, uses GLE's default font. Default: None
+        GLE font name (e.g., 'texcmr', 'ss', 'psh'), not a family name such
+        as 'helvetica', which GLE rejects. If None or empty string, uses
+        GLE's default font. Default: ''
 
     fontsize : float
         Font size in points. Default: 12 (optimized for GLE/PDF readability)
@@ -184,8 +185,12 @@ class GLEGraphConfig:
     Attributes
     ----------
     scale_mode : str
-        Graph scaling mode: 'auto' (auto-sizes and centers), 'fixed' (uses specified size),
-        or 'fullsize' (axes fill entire box, no margins). Default: 'auto'
+        Who sizes the graph. 'auto' (the default): gleplot places each axes
+        frame from its subplot cell or ``add_axes`` rect, with margins for
+        labels. 'fullsize': a figure with a single axes, other than one made
+        with ``add_axes``, is written with GLE's ``fullsize``, filling the
+        page with no margins; figures with several axes keep gleplot's
+        layout. 'fixed': no effect; the figure is written as under 'auto'.
 
     title_distance : float or None
         Figure-wide default for ``Axes.title_dist`` -- the ``dist`` option of
@@ -253,7 +258,7 @@ class GLEGraphConfig:
         when ``imshow(pixels=...)`` is not given. Default: 200
     """
 
-    scale_mode: str = "auto"  # 'auto', 'fixed', 'fullsize'
+    scale_mode: str = "auto"  # 'auto' or 'fullsize' ('fixed' has no effect)
     # None = emit no 'dist' option (GLE's atitledist/titlescale spacing).
     # See the class docstring for why these are no longer 0.1.
     title_distance: Optional[float] = None
@@ -357,7 +362,7 @@ class GlobalConfig(metaclass=GlobalConfigMeta):
     --------
     >>> from gleplot.config import GlobalConfig
     >>> # Change default font globally
-    >>> GlobalConfig.style.font = 'helvetica'
+    >>> GlobalConfig.style.font = 'texcmss'  # TeX Computer Modern Sans Serif
     >>> # All new figures will use this font
 
     >>> # Or reset to defaults
