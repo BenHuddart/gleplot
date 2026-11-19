@@ -125,6 +125,11 @@ def test_named_colors_pass_through_as_names(requested, expected):
         (np.array([1.0, 0.0, 0.0]), "rgb255(255,0,0)"),
         (np.array([0.0, 1.0, 0.0, 0.5]), "rgb255(0,255,0)"),
         (np.array([[0.55, 0.4, 0.74]]), "rgb255(140,102,189)"),
+        # matplotlib grey levels: a number string in [0, 1].
+        ("0.3", "rgb255(76,76,76)"),
+        ("0", "rgb255(0,0,0)"),
+        ("1", "rgb255(255,255,255)"),
+        (" .75 ", "rgb255(191,191,191)"),
     ],
 )
 def test_non_name_colors_convert_to_exact_rgb255(requested, expected):
@@ -182,6 +187,21 @@ def test_unresolvable_color_warns_while_falling_back(requested):
     """
     with pytest.warns(UserWarning, match=re.escape(requested)):
         assert rgb_to_gle(requested) == "BLACK"
+
+
+@pytest.mark.parametrize("requested", ["1.5", "-0.1", "nan"])
+def test_out_of_range_grey_level_warns_while_falling_back(requested):
+    """matplotlib rejects a grey-level string outside [0, 1]; gleplot warns."""
+    with pytest.warns(UserWarning, match="within 0-1"):
+        assert rgb_to_gle(requested) == "BLACK"
+
+
+def test_grey_level_string_reaches_the_script(tmp_path):
+    fig = glp.figure()
+    fig.add_subplot(111).plot([0, 1], [0, 1], color="0.3")
+    out = tmp_path / "grey.gle"
+    fig.savefig(str(out))
+    assert "color rgb255(76,76,76)" in out.read_text()
 
 
 #: Every "grey"-spelled name that must map exactly like its "gray" form:

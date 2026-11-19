@@ -4,7 +4,8 @@ Colour fidelity contract
 ------------------------
 A colour that the user supplies as a **GLE colour name** (any case: ``red``,
 ``DARKBLUE``, ``gray55``) is passed through as that name. Anything else --
-a hex string, an RGB tuple, a matplotlib cycle code -- is converted to an
+a hex string, an RGB tuple, a grey-level string such as ``'0.3'``, a
+matplotlib cycle code -- is converted to an
 **exact** GLE colour expression ``rgb255(r,g,b)``.
 
 This replaces the original "snap to the nearest of ~8 named colours by
@@ -154,8 +155,9 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
     color : str, tuple, list or numpy.ndarray
         Matplotlib color: a name, a single-letter code, a ``C0``..``C9``
         cycle reference, a ``tab:`` name, a ``#RRGGBB``/``#RGB`` hex string,
-        an RGB tuple/list/1-D array with components in [0, 1], or an
-        already-formed GLE colour expression.
+        a grey level as a number string in [0, 1] (``'0.3'``), an RGB
+        tuple/list/1-D array with components in [0, 1], or an already-formed
+        GLE colour expression.
 
     Returns
     -------
@@ -228,6 +230,21 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
         # Try hex color
         if color_lower.startswith("#"):
             return _hex_to_gle(color_lower)
+
+        # matplotlib grey level: a string holding a number in [0, 1].
+        try:
+            level = float(text)
+        except ValueError:
+            pass
+        else:
+            if 0 <= level <= 1:
+                return _rgb01_to_gle(level, level, level)
+            warn_external(
+                f"Invalid grey level {color!r}: a colour given as a number "
+                f"string must be within 0-1 (e.g. '0.3'). Falling back to "
+                f"BLACK.",
+            )
+            return "BLACK"
 
         # Unrecognized name: neither a GLE colour, a matplotlib code/cycle
         # reference, nor a hex string. gleplot's house rule is "no silent
