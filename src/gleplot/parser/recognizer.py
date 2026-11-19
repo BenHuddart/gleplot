@@ -416,6 +416,9 @@ _CDATA_LET_RE = re.compile(
 #: ``define marker gleplot_X gleplot_X`` (lower-cased): the line that makes a
 #: generated per-point-size sub a marker (``writer.mdata_sub_text``).
 _GLEPLOT_DEFINE_MARKER_RE = re.compile(r"^define\s+marker\s+(gleplot_\w+)\s+\1$")
+# The statement a contourf band sub starts with when it is also a colorbar's
+# palette (writer.GLEWriter.add_contourf_sub), lower-cased.
+_CONTOURF_RESCALE_RE = re.compile(r"^z = (\S+)\*\(1-z\)\+(\S+)\*z$")
 
 #: What :meth:`_Recognizer._try_one_text` returns for a polar axes' label
 #: call, which the axes regenerates; compared by identity.
@@ -1788,6 +1791,9 @@ class _Recognizer:
         # read while those subs are scanned.
         self._contourf_subs: Dict[str, str] = {}
         self._contourf_sub_spans: Dict[str, set] = {}
+        # gleplot_contourf<k> sub name -> the (zmin, zmax) its first statement
+        # maps the colormap's 0..1 back from, when it is a colorbar's palette.
+        self._contourf_rescales: Dict[str, Tuple[float, float]] = {}
         # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
         self._fitz_blocks: Dict[str, dict] = {}
         # contour ``.z`` file -> {levels}
@@ -2368,6 +2374,19 @@ class _Recognizer:
         self._polar_labels_rmax = axes_info["polar_rmax"]
         texts, consumed = self._consume_text_cluster(nodes, after_key)
         self._polar_labels_rmax = None
+        for node in nodes[after_key:consumed]:
+            # The matcher skips comments as it skips blank lines; the
+            # model has nowhere to keep one in place.
+            if (
+                isinstance(node, BlankOrComment)
+                and self._stmt_text(node.statement).strip()
+            ):
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    "comment among the text, pie, box or rug commands after "
+                    "'end graph' is not written back on save",
+                    self._stmt_span(node.statement),
+                )
         if axes_info["polar_rmax"] is not None and not any(
             t is _POLAR_LABELS for t in texts
         ):
@@ -3437,6 +3456,8 @@ class _Recognizer:
             for t in pass1.merged_attr_toks.get(name, ()):
                 if _DATASET_RE.match(t.value):
                     raw_refs.add(t.value.lower())
+        # Raw lines that may read a dataset; a comment or a string never does.
+        raw_code = [re.sub(r'"[^"]*"|!.*', "", line) for line in info["passthrough"]]
         restored: List[str] = []
         for names, text, data_line_no, defs, read_options in pass1.data_stmts:
             if not any(n in consumed for n in names):
@@ -3445,17 +3466,25 @@ class _Recognizer:
                 # Mixed: some of this statement's datasets became real
                 # series (the writer will regenerate a 'data' line for
                 # those), others are orphaned (raw text refers to them but
-                # nothing carries 'data_file' for them). Re-emitting the
-                # whole original line would duplicate the modeled portion;
-                # dropping it silently loses the rest.
-                orphans = [n for n in names if n in raw_refs]
-                if orphans:
-                    clause = self._orphan_data_clause(
-                        [(n, defs[n]) for n in orphans], read_options, info
-                    )
-                    if clause is not None:
-                        restored.append(clause)
-                        continue
+                # nothing carries 'data_file' for them), and any others are
+                # read by nothing. Re-emitting the whole original line would
+                # duplicate the modeled portion; dropping it silently loses
+                # the orphans.
+                orphans = [
+                    n
+                    for n in names
+                    if n not in consumed
+                    and (n in raw_refs or _mention_count(raw_code, n))
+                ]
+                if not orphans:
+                    # The rest are read by nothing: dropping them loses nothing.
+                    continue
+                clause = self._orphan_data_clause(
+                    [(n, defs[n]) for n in orphans], read_options, info
+                )
+                if clause is not None:
+                    restored.append(clause)
+                    continue
                 # Otherwise surface it instead of guessing.
                 #
                 # A bar that cannot be modeled (an unmodelled sub-command, or
@@ -7956,10 +7985,7 @@ class _Recognizer:
             ),
             data_file=data_file,
         )
-        qualifiers = dict(attrs["qualifiers"])
-        for name in ("xmin", "xmax", "ymin", "ymax"):
-            if name in qualifiers:
-                entry[name] = qualifiers.pop(name)
+        entry.update(attrs["qualifiers"])
         if not err_consts:
             # Column indices in the SAME order the writer emits them (x, y,
             # then y-error column(s) collapsed to one when symmetric i.e.
@@ -7981,19 +8007,6 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
-        if qualifiers:
-            # Axes.errorbar has no such fields: GLE thins the markers but
-            # not the whiskers under deresolve (getErrorBarData).
-            # Name the GLE words the file used, not the field names.
-            names = ", ".join(
-                "average" if q == "deresolve_average" else q for q in qualifiers
-            )
-            self._note(
-                ImportCategory.DATA,
-                f"{names} on an error-bar dataset is not modelled and was "
-                "dropped on re-save",
-                span,
-            )
         info["errorbars"].append(entry)
 
     def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
@@ -8117,6 +8130,15 @@ class _Recognizer:
                 self._contourf_sub_spans[sub_name].add(idx)
                 if low.startswith(CONTOURF_MARKER + " "):
                     self._contourf_subs[sub_name] = line.strip()
+                rescale = _CONTOURF_RESCALE_RE.match(low)
+                if rescale:
+                    try:
+                        self._contourf_rescales[sub_name] = (
+                            float(rescale.group(1)),
+                            float(rescale.group(2)),
+                        )
+                    except ValueError:
+                        pass
             if low == "end sub" or low.startswith("end sub "):
                 in_sub = False
         return nums
@@ -8775,24 +8797,34 @@ class _Recognizer:
         """Whether a ``colormap`` is one a ``contourf`` heatmap can be read from.
 
         It must be the statement :meth:`GLEWriter.add_heatmap` writes for
-        one (a ``.z`` file, ``zmin 0 zmax 1`` and its band sub as palette,
+        one (a ``.z`` file, ``zmin``/``zmax`` and its band sub as palette,
         nothing else), the sub's comment line must parse, and the grid must
-        be readable. Checked before anything is dropped, so that a colormap
-        kept as raw GLE keeps its band sub too.
+        be readable. ``zmin 0 zmax 1`` passes values through; any other
+        range must be the one the sub maps back from, as with a colorbar.
+        Checked before anything is dropped, so that a colormap kept as raw
+        GLE keeps its band sub too.
         """
         if len(toks) < 4 or toks[1].type is not TokenType.STRING:
             return False
         zfile, idx = self._read_filename(toks, 1)
-        rest = [t.value.lower() for t in toks[idx:]]
         if (
-            len(rest) != 8
-            or rest[2:7] != ["zmin", "0", "zmax", "1", "palette"]
+            idx + 8 > len(toks)
             or _num(toks[idx]) is None
             or _num(toks[idx + 1]) is None
+            or toks[idx + 2].value.lower() != "zmin"
             or not zfile.lower().endswith((".z", ".gz"))
         ):
             return False
-        comment = self._contourf_subs.get(rest[7])
+        zmin, at = _collect_value(toks, idx + 3)
+        if at + 4 > len(toks) or toks[at].value.lower() != "zmax":
+            return False
+        zmax, at = _collect_value(toks, at + 1)
+        rest = [t.value.lower() for t in toks[at:]]
+        if len(rest) != 2 or rest[0] != "palette":
+            return False
+        if (zmin, zmax) != self._contourf_rescales.get(rest[1], (0.0, 1.0)):
+            return False
+        comment = self._contourf_subs.get(rest[1])
         return (
             comment is not None
             and self._contourf_fields(comment) is not None

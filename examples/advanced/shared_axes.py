@@ -109,31 +109,31 @@ def example_both_shared():
     # Different transformations of the same data
     # Top-left: Linear
     y1 = x
-    axes[0].plot(x, y1, color="blue", label="y = x")
-    axes[0].set_ylabel("y")  # Only left column shows y-label
-    axes[0].set_title("Linear")
-    axes[0].legend()
+    axes[0, 0].plot(x, y1, color="blue", label="y = x")
+    axes[0, 0].set_ylabel("y")  # Only left column shows y-label
+    axes[0, 0].set_title("Linear")
+    axes[0, 0].legend()
 
     # Top-right: Quadratic
     y2 = x**2 - 5
-    axes[1].plot(x, y2, color="red", label="y = x²-5")
-    axes[1].set_title("Quadratic")
-    axes[1].legend()
+    axes[0, 1].plot(x, y2, color="red", label="y = x²-5")
+    axes[0, 1].set_title("Quadratic")
+    axes[0, 1].legend()
 
     # Bottom-left: Cubic
     y3 = 0.3 * x**3
-    axes[2].plot(x, y3, color="green", label="y = 0.3x³")
-    axes[2].set_xlabel("x")  # Only bottom row shows x-label
-    axes[2].set_ylabel("y")
-    axes[2].set_title("Cubic")
-    axes[2].legend()
+    axes[1, 0].plot(x, y3, color="green", label="y = 0.3x³")
+    axes[1, 0].set_xlabel("x")  # Only bottom row shows x-label
+    axes[1, 0].set_ylabel("y")
+    axes[1, 0].set_title("Cubic")
+    axes[1, 0].legend()
 
     # Bottom-right: Sine
     y4 = 8 * np.sin(x)
-    axes[3].plot(x, y4, color="purple", label="y = 8sin(x)")
-    axes[3].set_xlabel("x")
-    axes[3].set_title("Sine")
-    axes[3].legend()
+    axes[1, 1].plot(x, y4, color="purple", label="y = 8sin(x)")
+    axes[1, 1].set_xlabel("x")
+    axes[1, 1].set_title("Sine")
+    axes[1, 1].legend()
 
     fig.savefig("example_shared_both_axes.gle")
     print("  ✓ Saved to example_shared_both_axes.gle")

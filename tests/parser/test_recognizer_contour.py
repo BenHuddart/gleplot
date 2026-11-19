@@ -223,6 +223,18 @@ def test_contourf_recovered(tmp_path):
     np.testing.assert_allclose(hm["z"], Z, rtol=1e-5)
 
 
+def test_contourf_colormap_off_its_bar_range_is_kept_raw(tmp_path):
+    """A band sub mapping from one range under a colormap on another."""
+    rec = _contourf_file(
+        tmp_path,
+        "! gleplot: contourf cmap viridis extend neither levels 0 1 2\n"
+        "   z = 0*(1-z)+2*z",
+        "! gleplot: nodes xmin 0 xmax 1 ymin 0 ymax 1\n",
+    )
+    assert not rec.figure.axes_list[0].heatmaps
+    assert any("unknown palette 'gleplot_contourf1'" in w for w in rec.warnings)
+
+
 def _contourf_file(tmp_path, comment, marker, options=""):
     (tmp_path / "grid.z").write_text(
         "! nx 2 ny 2 xmin 0 xmax 2 ymin 0 ymax 2\n" + marker + "0 1\n1 2\n",

@@ -7,6 +7,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | matplotlib | gleplot |
 |---|---|
 | `plt.figure()` | `glp.figure()` |
+| `plt.subplots(nrows, ncols)` | `glp.subplots(nrows, ncols)`: the same numpy array of axes, with `squeeze`, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
@@ -229,7 +230,9 @@ keeps the full name, with a warning, unless the full name is left at its
 default. A `linewidth` that is NaN, infinite or negative raises
 `ValueError` at the call, on these and the other line-drawing calls below,
 `line_from_file`, `function` and `hist(histtype='step')`, where
-matplotlib does not check it. GLE has no zero-width stroke, so `lw=0` on
+matplotlib does not check it. So does a NaN or infinite position or edge on
+`axhline`, `axvline`, `axhspan` or `axvspan`, which matplotlib draws as nothing.
+GLE has no zero-width stroke, so `lw=0` on
 `plot` (and `step`, `stem`, `semilogx`, `semilogy`, `loglog`), `errorbar`,
 `line_from_file`, `axhline`, `axvline`, `hlines` and `vlines` draws no
 line, as `linestyle='none'` does; `errorbar` still draws its error bars.
@@ -274,7 +277,7 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 | `deresolve=5, deresolve_average=True` | `deresolve 5 average`: each window of five points is drawn as its mean. |
 | `xmin`, `xmax`, `ymin`, `ymax` | the series' own data range: it is drawn as if its axes ran over that range, and nothing outside it is drawn. This rescales the series; it is not a clip window, and the tick labels keep the axis' own range. An omitted edge is the limit of the axis the series is drawn against. |
 
-A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` takes the data range, and draws its error bars against it too, but not `mdist` or `deresolve`: GLE thins the markers but not the whiskers under `deresolve`.
+A bad value raises `ValueError` at the call. A range GLE cannot draw warns when the figure is saved: a lone edge at or beyond the far axis limit (GLE fills the missing edge from that limit and stops with "invalid range"), or an edge at or below zero on a log axis. A series with its own `deresolve` gets no preview-only decimation. `errorbar` and `errorbar_from_file` take the data range, and draw their error bars against it too, but not `mdist` or `deresolve`: GLE thins the markers but not the whiskers under `deresolve`. `open_gle` keeps either one on an error-bar dataset that has it.
 
 ## Scatter colours
 
@@ -417,7 +420,7 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 
 ## Colorbars
 
-`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned (a `contourf` gets the colormap's continuous scale, with a warning), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh`, `tripcolor` or `contourf` returned (a `contourf`'s bar shows its bands, but has no `extend` end caps; thinned ticks start at the first level rather than nearest zero; and with uneven levels each band's room is in proportion to its range, ticked in equal steps, where matplotlib gives every band the same room and ticks the levels), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
 
 | `colorbar()` argument | gleplot |
 |---|---|

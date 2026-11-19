@@ -368,7 +368,7 @@ def normalize(d: dict) -> dict:
         # ``set just``.
         #
         # Sticky-fontsize normalization: 'set hei' is GLE interpreter-global
-        # state (see recognizer._try_one_text / writer.add_text). The writer
+        # state (see recognizer._try_one_text / writer.add_text_annotation). The writer
         # only emits 'set hei' when a text's fontsize DIFFERS from whatever is
         # currently active -- so a text with fontsize=None (or one equal to
         # the already-active height) genuinely renders in real GLE at the
@@ -1927,7 +1927,7 @@ def test_marker_config_mdist_comes_back_on_the_series(tmp_path):
     assert again.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
 
 
-def test_dataset_qualifiers_on_an_errorbar_keep_the_data_range(tmp_path):
+def test_dataset_qualifiers_on_an_errorbar_are_kept(tmp_path):
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -1953,10 +1953,16 @@ def test_dataset_qualifiers_on_an_errorbar_keep_the_data_range(tmp_path):
     path.write_text(text, encoding="utf-8")
     rec = parse_gle_figure(path)
     errorbar = rec.figure.axes_list[0].errorbars[0]
-    assert "deresolve" not in errorbar
+    # As the reference above keeps them: GLE thins the markers, not the bars.
+    assert (errorbar["deresolve"], errorbar["deresolve_average"]) == (2, True)
     assert errorbar["xmin"] == 0.5
-    notes = [w for w in rec.warnings if "error-bar dataset" in w]
-    assert len(notes) == 1 and "deresolve, average on" in notes[0]
+    assert rec.warnings == []
+    again = tmp_path / "again.gle"
+    rec.figure.savefig_gle(str(again))
+    assert " deresolve 2 average xmin 0.5" in again.read_text(encoding="utf-8")
+    third = tmp_path / "third.gle"
+    parse_gle_figure(again).figure.savefig_gle(str(third))
+    assert third.read_text(encoding="utf-8") == again.read_text(encoding="utf-8")
 
 
 def test_an_explicit_smooth_on_a_step_series_round_trips(tmp_path):

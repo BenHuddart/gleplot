@@ -709,13 +709,47 @@ def test_imshow_within_its_grid_does_not_warn():
         _gle(fig)
 
 
-def test_contourf_colorbar_warns_it_shows_no_bands():
-    """The bar spans the outer levels, the scale the bands are coloured on."""
+def test_contourf_colorbar_draws_the_bands_ticked_at_the_levels(recwarn):
+    """The band sub is the bar's palette, over the levels whatever vmin is."""
+    fig = glp.figure(data_prefix="t")
+    _, hm = _ramp_contourf(fig, [-1, 0.5, 2, 3.5, 5], vmin=-4)
+    fig.colorbar(hm)
+    assert not recwarn.list
+    assert (hm["colorbar"]["zmin"], hm["colorbar"]["zmax"]) == (-1.0, 5.0)
+    assert hm["colorbar"]["zstep"] == 1.5
+    lines = _gle(fig)[0].splitlines()
+    start = lines.index("sub gleplot_contourf1 z")
+    # The colormap scales onto the bar's range; the sub maps it back first.
+    assert lines[start + 2] == "   z = -1*(1-z)+5*z"
+    assert (
+        '    colormap "t_heatmap1.z" 200 200 zmin -1 zmax 5 palette gleplot_contourf1'
+        in lines
+    )
+    assert any(
+        line.startswith("color_range_vertical zmin -1 zmax 5 zstep 1.5*")
+        and 'palette "gleplot_contourf1"' in line
+        for line in lines
+    )
+
+
+@pytest.mark.parametrize("nticks, step", [(None, 3), (4, 6)])
+def test_contourf_colorbar_ticks_as_many_levels_as_matplotlib(nticks, step):
+    """FixedLocator(levels, nbins=10): every ceil(len(levels)/nbins)-th level."""
     fig = glp.figure()
-    _, hm = _ramp_contourf(fig, [0.5, 2, 5.5])
-    with pytest.warns(UserWarning, match="not its bands"):
+    _, hm = _ramp_contourf(fig, list(np.linspace(0, 6, 21)))
+    fig.colorbar(hm, nticks=nticks)
+    assert hm["colorbar"]["zstep"] == pytest.approx(0.3 * step)
+
+
+def test_contourf_colorbar_says_what_it_cannot_draw():
+    fig = glp.figure()
+    _, hm = _ramp_contourf(fig, [0.5, 2, 5.5], extend="both")
+    with pytest.warns(UserWarning) as caught:
         fig.colorbar(hm)
-    assert (hm["colorbar"]["zmin"], hm["colorbar"]["zmax"]) == (0.5, 5.5)
+    messages = [str(w.message) for w in caught]
+    assert any("no triangular end caps" in m for m in messages)
+    assert any("unevenly spaced levels" in m for m in messages)
+    assert hm["colorbar"]["zstep"] == 1.0
 
 
 def test_module_level_contourf():
@@ -1090,6 +1124,9 @@ def test_colorbar_rejects_bad_arguments():
     fig, a, b, ha, hb = _two_heatmaps()
     with pytest.raises(ValueError, match="orientation must be"):
         fig.colorbar(ha, orientation="diagonal")
+    for nticks in (0, -3, 2.5, True):
+        with pytest.raises(ValueError, match=f"nticks must be .* got {nticks!r}"):
+            fig.colorbar(ha, nticks=nticks)
     with pytest.raises(TypeError, match="mappable must be"):
         fig.colorbar("a label")
     with pytest.raises(TypeError, match="ax must be one Axes"):

@@ -67,14 +67,8 @@ from .parser.units import (
 from .series import (
     _DATASET_NAME_RE,
     SERIES_CLASSES,
-    BarSeries,
-    ErrorbarSeries,
-    FileSeries,
-    FillSeries,
-    HistSeries,
     LineSeries,
     Series,
-    TextAnnotation,
     _unique_column_names,
     is_visible,
     normalize_smooth_mode,
@@ -968,6 +962,17 @@ def _band_of(values: np.ndarray, levels: List[float]) -> np.ndarray:
     return band
 
 
+def _contourf_bar_range(series: Mapping[str, Any]) -> Optional[Tuple[Any, Any]]:
+    """The ``(zmin, zmax)`` a ``contourf``'s colormap scales its values onto.
+
+    Its colorbar's range, which the band sub maps back from (see
+    :meth:`GLEWriter.add_contourf_sub`); ``None`` without a colorbar, when
+    the values pass through unscaled.
+    """
+    cb = series.get("colorbar")
+    return (cb["zmin"], cb["zmax"]) if cb else None
+
+
 def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     """Whether GLE draws a ``contourf`` heatmap's bands where its levels are.
 
@@ -1429,16 +1434,6 @@ def legend_corner(position: str) -> Tuple[float, float]:
     x = 0.0 if "left" in words else 1.0 if "right" in words else 0.5
     y = 1.0 if "top" in words else 0.0 if "bottom" in words else 0.5
     return (x, y)
-
-
-def _warn_keyword_form(name: str, series_class: str, method: str) -> None:
-    """Deprecation warning for a keyword form of a series entry point."""
-    warn_external(
-        f"GLEWriter.{name}() is deprecated and will be removed in a future major "
-        f"release. Build a gleplot.series.{series_class} and call "
-        f"GLEWriter.{method}(series) instead.",
-        DeprecationWarning,
-    )
 
 
 class GLEWriter:
@@ -1939,14 +1934,14 @@ class GLEWriter:
     ):
         """Set graph dimensions and scaling.
 
-        Uses the configured scale_mode (auto, fixed, or fullsize).
+        Uses the configured scale_mode ('auto' or 'fullsize').
 
         Parameters
         ----------
         width_cm : float, optional
-            Graph width in cm. Used if scale_mode is 'fixed' or force_size is True.
+            Graph width in cm. Used if force_size is True.
         height_cm : float, optional
-            Graph height in cm. Used if scale_mode is 'fixed' or force_size is True.
+            Graph height in cm. Used if force_size is True.
         force_size : bool
             If True, always emit the size command regardless of scale_mode.
             This is how every placed graph is emitted: ``size w h`` +
@@ -1969,15 +1964,6 @@ class GLEWriter:
             self.lines_gle.append(
                 "    scale 1 1"
             )  # Fill entire graph box for tight subplot layout
-        elif (
-            self.graph.scale_mode == "fixed"
-            and width_cm is not None
-            and height_cm is not None
-        ):
-            self.lines_gle.append(
-                f"    size {self._format_number(width_cm)} {self._format_number(height_cm)}"
-            )
-            self.lines_gle.append("    scale 1 1")
         elif self.graph.scale_mode == "fullsize":
             self.lines_gle.append("    fullsize")
         else:  # 'auto' - default
@@ -3254,58 +3240,6 @@ class GLEWriter:
         self.lines_gle.append(f"    let {shifted} = {source_name}{sign}{mag}")
         return shifted
 
-    def add_plot_line(
-        self,
-        x: np.ndarray,
-        y: np.ndarray,
-        data_file: str,
-        color: str = "BLUE",
-        linestyle: str = "-",
-        linewidth: float = 1.0,
-        label: Optional[str] = None,
-        marker: Optional[str] = None,
-        markersize: float = 0.1,
-        nomiss: bool = False,
-        yaxis: str = "y",
-        xaxis: str = "x",
-        offset: float = 0.0,
-        column_names: Optional[List[str]] = None,
-        binding: Optional[ColumnBinding] = None,
-        smooth_mode: Optional[str] = None,
-        svg_smooth: Optional[int] = None,
-        line_mode: Optional[str] = None,
-    ):
-        """Add a line plot from per-field keywords.
-
-        The keyword form of :meth:`add_line`: each argument is the
-        :class:`~gleplot.series.LineSeries` field of the same name, and
-        ``binding`` is passed through.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.LineSeries` and call :meth:`add_line` instead.
-        """
-        _warn_keyword_form("add_plot_line", "LineSeries", "add_line")
-        series = LineSeries(
-            x=x,
-            y=y,
-            data_file=data_file,
-            color=color,
-            linestyle=linestyle,
-            linewidth=linewidth,
-            label=label,
-            marker=marker,
-            markersize=markersize,
-            nomiss=nomiss,
-            yaxis=yaxis,
-            xaxis=xaxis,
-            offset=offset,
-            column_names=column_names,
-            smooth_mode=smooth_mode,
-            svg_smooth=svg_smooth,
-            line_mode=line_mode,
-        )
-        self.add_line(series, binding=binding)
-
     def add_line(self, series: Series, binding: Optional[ColumnBinding] = None):
         """
         Add a line series to the graph.
@@ -3858,52 +3792,6 @@ class GLEWriter:
         # abs(): a negative width draws a mirrored bar of the same extent.
         return abs(explicit) if explicit is not None else derived
 
-    def add_histogram(
-        self,
-        samples: np.ndarray,
-        data_file: str,
-        histtype: str = "step",
-        color: str = "BLUE",
-        linestyle: str = "-",
-        linewidth: float = 1.0,
-        label: Optional[str] = None,
-        yaxis: str = "y",
-        xaxis: str = "x",
-        hist_from: Optional[float] = None,
-        hist_to: Optional[float] = None,
-        bins: Optional[float] = None,
-        bin_step: Optional[float] = None,
-        edgecolor: Optional[str] = None,
-        bar_width: Optional[float] = None,
-    ):
-        """Draw a histogram GLE bins itself, from per-field keywords.
-
-        The keyword form of :meth:`add_hist`: each argument is the
-        :class:`~gleplot.series.HistSeries` field of the same name.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.HistSeries` and call :meth:`add_hist` instead.
-        """
-        _warn_keyword_form("add_histogram", "HistSeries", "add_hist")
-        series = HistSeries(
-            samples=samples,
-            data_file=data_file,
-            histtype=histtype,
-            color=color,
-            linestyle=linestyle,
-            linewidth=linewidth,
-            label=label,
-            yaxis=yaxis,
-            xaxis=xaxis,
-            hist_from=hist_from,
-            hist_to=hist_to,
-            bins=bins,
-            bin_step=bin_step,
-            edgecolor=edgecolor,
-            bar_width=bar_width,
-        )
-        self.add_hist(series)
-
     def add_hist(self, series: Series):
         """Draw a histogram GLE bins itself.
 
@@ -4164,61 +4052,6 @@ class GLEWriter:
             line_cmd += self._key_clause(label, has_header=False)
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
-
-    def add_bar_chart(
-        self,
-        x: np.ndarray,
-        heights: np.ndarray,
-        data_file: str,
-        colors: Optional[List[str]] = None,
-        label: Optional[str] = None,
-        column_names: Optional[List[str]] = None,
-        binding: Optional[ColumnBinding] = None,
-        width: Optional[float] = None,
-        swatch_color: Optional[str] = None,
-        edgecolor: Optional[str] = None,
-        edge_list: Optional[Sequence[str]] = None,
-        fill_list: Optional[Sequence[str]] = None,
-        linestyle: Optional[str] = None,
-        lstyle: Optional[str] = None,
-        linewidth: Optional[float] = None,
-        horiz: bool = False,
-        bottom: Optional[np.ndarray] = None,
-        top: Optional[np.ndarray] = None,
-        dist: Optional[float] = None,
-    ):
-        """Add a bar chart from per-field keywords.
-
-        The keyword form of :meth:`add_bar`: each argument is the
-        :class:`~gleplot.series.BarSeries` field of the same name, except
-        ``heights``, which is the series' ``height``. ``binding`` is passed
-        through.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.BarSeries` and call :meth:`add_bar` instead.
-        """
-        _warn_keyword_form("add_bar_chart", "BarSeries", "add_bar")
-        series = BarSeries(
-            x=x,
-            height=heights,
-            data_file=data_file,
-            colors=colors,
-            label=label,
-            column_names=column_names,
-            width=width,
-            swatch_color=swatch_color,
-            edgecolor=edgecolor,
-            edge_list=edge_list,
-            fill_list=fill_list,
-            linestyle=linestyle,
-            lstyle=lstyle,
-            linewidth=linewidth,
-            horiz=horiz,
-            bottom=bottom,
-            top=top,
-            dist=dist,
-        )
-        self.add_bar(series, binding=binding)
 
     def add_bar(self, series: Series, binding: Optional[ColumnBinding] = None):
         """
@@ -4549,62 +4382,6 @@ class GLEWriter:
         elif has_header:
             self.lines_gle.append(f'    {d_name} key ""')
 
-    def add_errorbar(
-        self,
-        x: np.ndarray,
-        y: np.ndarray,
-        data_file: str,
-        color: str = "BLUE",
-        linestyle: str = "-",
-        linewidth: float = 1.0,
-        label: Optional[str] = None,
-        marker: Optional[str] = None,
-        markersize: float = 0.1,
-        yerr_up: Optional[np.ndarray] = None,
-        yerr_down: Optional[np.ndarray] = None,
-        xerr_left: Optional[np.ndarray] = None,
-        xerr_right: Optional[np.ndarray] = None,
-        capsize: Optional[float] = None,
-        yaxis: str = "y",
-        xaxis: str = "x",
-        offset: float = 0.0,
-        column_names: Optional[List[str]] = None,
-        binding: Optional[ColumnBinding] = None,
-    ):
-        """Add a plot with error bars from per-field keywords.
-
-        The keyword form of :meth:`add_errorbar_series`: each argument is the
-        :class:`~gleplot.series.ErrorbarSeries` field of the same name, except
-        ``capsize``, which is the emitted cap width in cm (the series'
-        ``gle_capsize``). ``binding`` is passed through.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.ErrorbarSeries` and call
-        :meth:`add_errorbar_series` instead.
-        """
-        _warn_keyword_form("add_errorbar", "ErrorbarSeries", "add_errorbar_series")
-        series = ErrorbarSeries(
-            x=x,
-            y=y,
-            data_file=data_file,
-            color=color,
-            linestyle=linestyle,
-            linewidth=linewidth,
-            label=label,
-            marker=marker,
-            markersize=markersize,
-            yerr_up=yerr_up,
-            yerr_down=yerr_down,
-            xerr_left=xerr_left,
-            xerr_right=xerr_right,
-            gle_capsize=capsize,
-            yaxis=yaxis,
-            xaxis=xaxis,
-            offset=offset,
-            column_names=column_names,
-        )
-        self.add_errorbar_series(series, binding=binding)
-
     def add_errorbar_series(
         self, series: Series, binding: Optional[ColumnBinding] = None
     ):
@@ -4928,46 +4705,6 @@ class GLEWriter:
         else:
             self._add_errorbar_file_series(series)
 
-    def add_errorbar_from_file(
-        self,
-        data_file: str,
-        x_col: int,
-        y_col: int,
-        yerr_col: Optional[int] = None,
-        color: str = "BLUE",
-        marker: Optional[str] = None,
-        markersize: float = 0.1,
-        label: Optional[str] = None,
-        capsize: Optional[float] = None,
-        yaxis: str = "y",
-        xaxis: str = "x",
-    ):
-        """Add an errorbar file reference from per-field keywords.
-
-        The keyword form of :meth:`add_file_series` for ``series_type
-        'errorbar'``: each argument is the :class:`~gleplot.series.FileSeries`
-        field of the same name.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.FileSeries` and call :meth:`add_file_series` instead.
-        """
-        _warn_keyword_form("add_errorbar_from_file", "FileSeries", "add_file_series")
-        series = FileSeries(
-            series_type="errorbar",
-            data_file=data_file,
-            x_col=x_col,
-            y_col=y_col,
-            yerr_col=yerr_col,
-            color=color,
-            marker=marker,
-            markersize=markersize,
-            label=label,
-            capsize=capsize,
-            yaxis=yaxis,
-            xaxis=xaxis,
-        )
-        self.add_file_series(series)
-
     def _add_errorbar_file_series(self, series: Series):
         """A marker/errorbar series that references columns in an external file."""
         data_file = series["data_file"]
@@ -5015,50 +4752,6 @@ class GLEWriter:
 
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
-
-    def add_plot_line_from_file(
-        self,
-        data_file: str,
-        x_col: int,
-        y_col: int,
-        color: str = "BLUE",
-        linestyle: str = "-",
-        linewidth: float = 1.0,
-        label: Optional[str] = None,
-        yaxis: str = "y",
-        xaxis: str = "x",
-        marker: Optional[str] = None,
-        markersize: float = 0.1,
-        nomiss: bool = False,
-        line_mode: Optional[str] = None,
-    ):
-        """Add a line file reference from per-field keywords.
-
-        The keyword form of :meth:`add_file_series` for ``series_type
-        'line'``: each argument is the :class:`~gleplot.series.FileSeries`
-        field of the same name.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.FileSeries` and call :meth:`add_file_series` instead.
-        """
-        _warn_keyword_form("add_plot_line_from_file", "FileSeries", "add_file_series")
-        series = FileSeries(
-            series_type="line",
-            data_file=data_file,
-            x_col=x_col,
-            y_col=y_col,
-            color=color,
-            linestyle=linestyle,
-            linewidth=linewidth,
-            label=label,
-            yaxis=yaxis,
-            xaxis=xaxis,
-            marker=marker,
-            markersize=markersize,
-            nomiss=nomiss,
-            line_mode=line_mode,
-        )
-        self.add_file_series(series)
 
     def _add_line_file_series(self, series: Series):
         """A line series that references columns in an external data file.
@@ -5128,36 +4821,6 @@ class GLEWriter:
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
 
-    def add_bar_from_file(
-        self,
-        data_file: str,
-        x_col: int,
-        y_col: int,
-        color: str = "RED",
-        label: Optional[str] = None,
-        swatch_color: Optional[str] = None,
-    ):
-        """Add a bar file reference from per-field keywords.
-
-        The keyword form of :meth:`add_file_series` for ``series_type
-        'bar'``: each argument is the :class:`~gleplot.series.FileSeries`
-        field of the same name.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.FileSeries` and call :meth:`add_file_series` instead.
-        """
-        _warn_keyword_form("add_bar_from_file", "FileSeries", "add_file_series")
-        series = FileSeries(
-            series_type="bar",
-            data_file=data_file,
-            x_col=x_col,
-            y_col=y_col,
-            color=color,
-            label=label,
-            swatch_color=swatch_color,
-        )
-        self.add_file_series(series)
-
     def _add_bar_file_series(self, series: Series):
         """A bar series that references columns in an external data file.
 
@@ -5215,48 +4878,6 @@ class GLEWriter:
         elif has_header:
             self.lines_gle.append(f'    {dataset} key ""')
 
-    def add_fill_from_file(
-        self,
-        data_file: str,
-        x_col: int,
-        y1_col: int,
-        y2_col: Optional[int] = None,
-        color: str = "LIGHTBLUE",
-        label: Optional[str] = None,
-        swatch_color: Optional[str] = None,
-        target: Optional[str] = None,
-        xmin: Optional[float] = None,
-        xmax: Optional[float] = None,
-        ymin: Optional[float] = None,
-        ymax: Optional[float] = None,
-    ):
-        """Add a fill file reference from per-field keywords.
-
-        The keyword form of :meth:`add_file_series` for ``series_type
-        'fill'``: each argument is the :class:`~gleplot.series.FileSeries`
-        field of the same name.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.FileSeries` and call :meth:`add_file_series` instead.
-        """
-        _warn_keyword_form("add_fill_from_file", "FileSeries", "add_file_series")
-        series = FileSeries(
-            series_type="fill",
-            data_file=data_file,
-            x_col=x_col,
-            y1_col=y1_col,
-            y2_col=y2_col,
-            color=color,
-            label=label,
-            swatch_color=swatch_color,
-            target=target,
-            xmin=xmin,
-            xmax=xmax,
-            ymin=ymin,
-            ymax=ymax,
-        )
-        self.add_file_series(series)
-
     def _add_fill_file_series(self, series: Series):
         """A fill that references columns in an external data file.
 
@@ -5297,54 +4918,6 @@ class GLEWriter:
         )
         self._append_fill(f"{d1_name},{d2_name}", color, clip)
         self._fill_key(d1_name, color, label, swatch_color, False)
-
-    def add_fill_between(
-        self,
-        x: np.ndarray,
-        y1: np.ndarray,
-        y2: Optional[np.ndarray],
-        data_file: str,
-        color: str = "LIGHTBLUE",
-        alpha: float = 1.0,
-        offset: float = 0.0,
-        column_names: Optional[List[str]] = None,
-        binding: Optional[ColumnBinding] = None,
-        label: Optional[str] = None,
-        swatch_color: Optional[str] = None,
-        target: Optional[str] = None,
-        xmin: Optional[float] = None,
-        xmax: Optional[float] = None,
-        ymin: Optional[float] = None,
-        ymax: Optional[float] = None,
-    ):
-        """Add a fill from per-field keywords.
-
-        The keyword form of :meth:`add_fill`: each argument is the
-        :class:`~gleplot.series.FillSeries` field of the same name, and
-        ``binding`` is passed through.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.FillSeries` and call :meth:`add_fill` instead.
-        """
-        _warn_keyword_form("add_fill_between", "FillSeries", "add_fill")
-        series = FillSeries(
-            x=x,
-            y1=y1,
-            y2=y2,
-            data_file=data_file,
-            color=color,
-            alpha=alpha,
-            offset=offset,
-            column_names=column_names,
-            label=label,
-            swatch_color=swatch_color,
-            target=target,
-            xmin=xmin,
-            xmax=xmax,
-            ymin=ymin,
-            ymax=ymax,
-        )
-        self.add_fill(series, binding=binding)
 
     def add_fill(self, series: Series, binding: Optional[ColumnBinding] = None):
         """
@@ -5456,53 +5029,6 @@ class GLEWriter:
         self._fill_key(fill_a, color_token, label, swatch_color, has_header)
         if fill_b is not None and has_header:
             self.lines_gle.append(f'    {fill_b} key ""')
-
-    def add_text(
-        self,
-        x: float,
-        y: float,
-        text: str,
-        color: str = "BLACK",
-        fontsize: Optional[float] = None,
-        halign: str = "left",
-        box_color: Optional[str] = None,
-        valign: str = "center",
-        rotation: Optional[float] = None,
-        xy: Optional[Sequence[float]] = None,
-        arrow: Optional[str] = None,
-        arrowstyle: Optional[str] = None,
-        arrow_color: str = "BLACK",
-        arrow_linewidth: Optional[float] = None,
-    ):
-        """Add a text annotation from per-field keywords.
-
-        The keyword form of :meth:`add_text_annotation`: ``halign`` and
-        ``valign`` are the :class:`~gleplot.series.TextAnnotation` fields
-        ``ha`` and ``va``, and every other argument is the field of the same
-        name.
-
-        Deprecated, and removed in a future major release: build a
-        :class:`~gleplot.series.TextAnnotation` and call
-        :meth:`add_text_annotation` instead.
-        """
-        _warn_keyword_form("add_text", "TextAnnotation", "add_text_annotation")
-        series = TextAnnotation(
-            x=x,
-            y=y,
-            text=text,
-            color=color,
-            fontsize=fontsize,
-            ha=halign,
-            va=valign,
-            box_color=box_color,
-            rotation=rotation,
-            xy=xy,
-            arrow=arrow,
-            arrowstyle=arrowstyle,
-            arrow_color=arrow_color,
-            arrow_linewidth=arrow_linewidth,
-        )
-        self.add_text_annotation(series)
 
     @classmethod
     def _text_write_lines(cls, series: Series, name: Optional[str]) -> List[str]:
@@ -6333,8 +5859,9 @@ class GLEWriter:
     def add_contourf_sub(self, series: Series):
         """Define the palette sub a ``contourf`` heatmap's colormap calls.
 
-        The colormap passes each pixel's value through unscaled (``zmin 0
-        zmax 1``), so the sub compares it with the levels themselves. A value
+        The sub compares each pixel's value with the levels themselves: the
+        colormap passes it through unscaled (``zmin 0 zmax 1``), or, with a
+        colorbar, the sub maps it back first (below). A value
         above one level and up to the next takes the colour ``cmap`` gives
         the middle of that band on the ``vmin``..``vmax`` scale (the outer levels when unset), as
         matplotlib colours a band. Below the first level and above the last
@@ -6342,6 +5869,12 @@ class GLEWriter:
         smoothing would not put the band edges on the levels
         (:func:`contourf_bands_fit`), the sub maps the value straight onto the
         colormap instead, inside the same limits.
+
+        With a colorbar the sub is also the bar's palette, which the colorbar
+        sub calls with a value from 0 to 1 along the bar. The colormap then
+        scales each pixel's value onto the bar's ``zmin``..``zmax`` too, and
+        the sub's first statement maps it back, so the image and the bar both
+        show the bands.
 
         The sub's first line, a comment GLE skips, holds the series' colouring
         as written, which is what the recognizer reads back. The sub goes
@@ -6365,9 +5898,11 @@ class GLEWriter:
         white = "rgb(1, 1, 1)"
         under = f"{call}(0)" if extend in ("min", "both") else white
         over = f"{call}(1)" if extend in ("max", "both") else white
-        lines = [
-            f"sub {name} z",
-            f"   {head}",
+        lines = [f"sub {name} z", f"   {head}"]
+        bar = _contourf_bar_range(series)
+        if bar:
+            lines.append(f"   z = {fmt(bar[0])}*(1-z)+{fmt(bar[1])}*z")
+        lines += [
             f"   if z < {levels[0]} then return {under}",
             f"   if z > {levels[-1]} then return {over}",
         ]
@@ -6409,8 +5944,15 @@ class GLEWriter:
             operand = _quote_filename(_grid_z_file(series))
         if "levels" in series:
             name = self._contourf_subs[series["data_file"]]
+            zmin, zmax = _contourf_bar_range(series) or (0, 1)
             self.add_colormap(
-                operand, series["pixels"], ("palette", name), 0, 1, False, "bicubic"
+                operand,
+                series["pixels"],
+                ("palette", name),
+                zmin,
+                zmax,
+                False,
+                "bicubic",
             )
             return
         self.add_colormap(
@@ -6428,7 +5970,8 @@ class GLEWriter:
 
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`, or
         a colour-mapped :class:`~gleplot.series.ScatterSeries`; its ``cmap``
-        names the palette and its ``colorbar`` dict (see
+        names the palette (a ``contourf``'s is its band sub, see
+        :meth:`add_contourf_sub`) and its ``colorbar`` dict (see
         :meth:`gleplot.Figure.colorbar`) holds the range, size and format.
         A series without one writes nothing.
 
@@ -6473,11 +6016,16 @@ class GLEWriter:
             lines.append(f"amove xg(xgmax)+{fmt(sep)} yg(ygmin)")
             routine = "color_range_vertical"
             size = f"width {thickness} height yg(ygmax)-yg(ygmin)"
-        cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
+        if "levels" in series:
+            # A contourf's bar draws its bands through the band sub.
+            palette = self._contourf_subs[series["data_file"]]
+        else:
+            cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
+            palette = _pal.palette_call_name(cmap)
         lines.append(
             f"{routine} zmin {fmt(zmin)} zmax {fmt(zmax)} "
             f"zstep {fmt(zstep)}*{COLORBAR_STEP_SCALE} "
-            f'palette "{_pal.palette_call_name(cmap)}" {size} '
+            f'palette "{palette}" {size} '
             f'format "{number_format}" pixels 200'
         )
         lines.append("grestore")

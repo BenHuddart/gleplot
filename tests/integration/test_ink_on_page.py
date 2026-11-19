@@ -86,9 +86,10 @@ def _overhang_cm(fig, tmp_path):
 
 def _labelled_grid(rows, cols, **kwargs):
     """A grid whose y tick labels ("-1", "-0.5") are the wide, negative kind."""
-    fig, axes = glp.subplots(rows, cols, figsize=(8, 6), data_prefix="ink", **kwargs)
-    axes = axes if isinstance(axes, list) else [axes]
-    for ax in axes:
+    fig, axes = glp.subplots(
+        rows, cols, figsize=(8, 6), data_prefix="ink", squeeze=False, **kwargs
+    )
+    for ax in axes.flat:
         ax.plot(np.array([0.0, 1.0, 2.0]), np.array([-1.0, -0.5, -1.0]))
         ax.set_xlabel("time")
         ax.set_ylabel("voltage")
