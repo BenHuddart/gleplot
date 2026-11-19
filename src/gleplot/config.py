@@ -5,12 +5,16 @@ import numbers
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
+from ._warn import warn_external
 from .colors import _stored_color
 
 #: GLE's ``set cap`` and ``set join`` words, in GLE's own numbering order, so
 #: the first is GLE's default.
 LINE_CAPS = ("butt", "round", "square")
 LINE_JOINS = ("mitre", "round", "bevel")
+
+#: ``GLEGraphConfig.scale_mode`` values; 'fixed' is accepted and warns.
+_SCALE_MODES = ("auto", "fullsize", "fixed")
 
 _LINE_WORDS = {
     "line_cap": (LINE_CAPS, "matplotlib's 'projecting' is 'square'."),
@@ -190,7 +194,8 @@ class GLEGraphConfig:
         labels. 'fullsize': a figure with a single axes, other than one made
         with ``add_axes``, is written with GLE's ``fullsize``, filling the
         page with no margins; figures with several axes keep gleplot's
-        layout. 'fixed': no effect; the figure is written as under 'auto'.
+        layout. 'fixed': no effect, and warns; the figure is written as under
+        'auto'. Any other value raises ``ValueError``.
 
     title_distance : float or None
         Figure-wide default for ``Axes.title_dist`` -- the ``dist`` option of
@@ -271,6 +276,26 @@ class GLEGraphConfig:
     show_grid: bool = False
     default_cmap: str = "viridis"
     colormap_pixels: int = 200
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Checked on every assignment, as GLEStyleConfig's words are.
+        if name == "scale_mode":
+            if not isinstance(value, str):
+                raise TypeError(
+                    f"scale_mode must be 'auto' or 'fullsize'; got {value!r}."
+                )
+            if value not in _SCALE_MODES:
+                raise ValueError(
+                    f"scale_mode must be 'auto' or 'fullsize' ('fixed' is "
+                    f"accepted but has no effect); got {value!r}."
+                )
+            if value == "fixed":
+                warn_external(
+                    "scale_mode='fixed' has no effect: gleplot places every "
+                    "axes frame itself, as under 'auto'. Use 'auto', or "
+                    "'fullsize' to let GLE size a single graph."
+                )
+        super().__setattr__(name, value)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""

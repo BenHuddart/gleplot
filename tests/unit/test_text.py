@@ -41,7 +41,7 @@ class TestTextAnnotations:
         # 'BLACK'/'left' are GLE's own defaults (and the sticky state the
         # writer starts in), so a text using them needs no 'set color'/'set
         # just' restated -- the writer skips redundant lines that would not
-        # change anything (see GLEWriter.add_text sticky-state tracking).
+        # change anything (see GLEWriter.add_text_annotation sticky-state tracking).
         assert "set color BLACK" not in gle
         assert "set just left" not in gle
         assert gle.find("end graph") < gle.find("amove xg(1.25) yg(0.45)")
@@ -452,7 +452,7 @@ class TestColorStateDoesNotLeakAcrossPanels:
     coloured text ending one subplot panel must not colour the axes/ticks
     GLE draws for the NEXT panel.
 
-    Root cause: graph-data-coordinate text is queued by ``add_text`` and
+    Root cause: graph-data-coordinate text is queued by ``add_text_annotation`` and
     flushed by ``GLEWriter.end_graph`` right AFTER 'end graph' -- i.e. at
     the PAGE level, where 'set color' is sticky interpreter state shared by
     every graph block in the script (not scoped to the panel that requested

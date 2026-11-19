@@ -1778,6 +1778,24 @@ def _line_style(caller: str, linestyle):
     return "-"
 
 
+def _drawn_line_mode(mode, linestyle, linewidth):
+    """``mode``, or ``None`` when ``linestyle`` draws no line.
+
+    A GLE line mode is a qualifier of ``line``; with the line switched off
+    there is nothing for it to qualify. That warns, unless ``linewidth`` is
+    0: ``lw=0`` asked for no stroke, and the mode goes with it.
+    """
+    if mode and linestyle in _NO_LINE:
+        if linewidth != 0:
+            warn_external(
+                f"line mode {mode!r} needs a drawn line; "
+                f"linestyle={linestyle!r} omits it, so the series is drawn "
+                "without that mode.",
+            )
+        return None
+    return mode
+
+
 def _color_list(name: str, colors, default: list) -> list:
     """A ``colors`` argument as a list to cycle over layers or segments.
 
@@ -2774,7 +2792,9 @@ class Axes:
             tick labels keep the axis' own range, so they no longer read
             off this series. An omitted edge is the limit of the axis the
             series is drawn against. ``xmin`` must be below ``xmax``,
-            ``ymin`` below ``ymax``.
+            ``ymin`` below ``ymax``. Saving warns where the range draws
+            nothing: a lone edge at or past the far axis limit, which GLE
+            rejects, or an edge at or below zero on a log axis.
         **kwargs
             Additional matplotlib-compatible arguments. ``lw``, ``ls``,
             ``c``, ``ms``, ``mfc`` and ``ds`` are matplotlib's short names
@@ -2868,17 +2888,7 @@ class Axes:
         # (not silently dropped). Only when there is *no* line is the series a
         # true scatter.
         is_scatter = marker is not None and linestyle in _NO_LINE
-        # A GLE line mode is a qualifier of ``line``. With the line switched
-        # off there is nothing for it to qualify, and storing it would not
-        # survive a round trip (the writer emits no ``line`` token).
-        if mode and linestyle in _NO_LINE:
-            if linewidth != 0:  # lw=0 asked for no stroke: the mode goes too
-                warn_external(
-                    f"line mode {mode!r} needs a drawn line; "
-                    f"linestyle={linestyle!r} omits it, so the series is drawn "
-                    "without that mode.",
-                )
-            mode = None
+        mode = _drawn_line_mode(mode, linestyle, linewidth)
 
         # Handle color. Which style default applies depends on what this
         # series turns out to be, which is why it is resolved after
@@ -4134,7 +4144,8 @@ class Axes:
             it is not a clip window. The tick labels keep the axis' own
             range, so they no longer read off this series. An omitted edge
             is the limit of the axis the series is drawn against. ``xmin``
-            must be below ``xmax``, ``ymin`` below ``ymax``.
+            must be below ``xmax``, ``ymin`` below ``ymax``. Saving warns
+            where the range draws nothing, as for :meth:`plot`.
         **kwargs
             ``linestyle`` (alias ``ls``) overrides the line style ``fmt``
             gives, as in matplotlib, except under ``fmt='none'``. ``lw``,
@@ -4333,6 +4344,10 @@ class Axes:
         skiprows: int = 0,
         comment: Optional[str] = None,
         max_rows: Optional[int] = None,
+        xmin: Optional[float] = None,
+        xmax: Optional[float] = None,
+        ymin: Optional[float] = None,
+        ymax: Optional[float] = None,
         **kwargs,
     ):
         """Plot by referencing columns in an existing external data file.
@@ -4346,12 +4361,15 @@ class Axes:
         white-filled one.
 
         ``skiprows``, ``comment`` and ``max_rows`` control how GLE reads
-        the file, as for :meth:`line_from_file`. ``c`` and ``ms`` are
-        accepted for ``color`` and ``markersize``, as by :meth:`errorbar`;
-        any other keyword warns and is ignored.
+        the file, as for :meth:`line_from_file`. ``xmin``, ``xmax``,
+        ``ymin`` and ``ymax`` are the series' own data range, as for
+        :meth:`errorbar`. ``c`` and ``ms`` are accepted for ``color`` and
+        ``markersize``, as by :meth:`errorbar`; any other keyword warns and
+        is ignored.
         """
         _check_file_columns(x_col, y_col=y_col, yerr_col=yerr_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
+        data_range = _dataset_qualifiers(None, None, False, xmin, xmax, ymin, ymax)
 
         caller = "errorbar_from_file"
         marker_fill = _pop_marker_fill(kwargs, caller, fillstyle, markerfacecolor)
@@ -4380,6 +4398,7 @@ class Axes:
             capsize=gle_capsize,
             yaxis=yaxis,
             **read_options,
+            **data_range,
         )
         _apply_xaxis(entry, xaxis)
         self._register_series_draw_meta(entry, "errorbar")
@@ -4434,14 +4453,7 @@ class Axes:
         width = float(_line_width("line_from_file", linewidth))
         linestyle = _stroked(linestyle, width)
         mode = resolve_line_mode(drawstyle, line_mode)
-        if mode and linestyle in _NO_LINE:
-            if width != 0:  # lw=0 asked for no stroke: the mode goes too
-                warn_external(
-                    f"line mode {mode!r} needs a drawn line; "
-                    f"linestyle={linestyle!r} omits it, so the series is drawn "
-                    "without that mode.",
-                )
-            mode = None
+        mode = _drawn_line_mode(mode, linestyle, width)
 
         fields = dict(
             series_type="line",
@@ -5947,7 +5959,7 @@ class Axes:
         Parameters
         ----------
         x : float
-            Position of the line, in data coordinates.
+            Position of the line, in data coordinates; a finite number.
         ymin, ymax : float
             Vertical extent as a fraction of the axes height (matplotlib
             semantics): ``0`` is the bottom of the axes, ``1`` the top.
@@ -6014,6 +6026,8 @@ class Axes:
         """Shared implementation of :meth:`axvline` / :meth:`axhline`."""
         caller = "axvline" if orient == "v" else "axhline"
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
+        axis_name = "x" if orient == "v" else "y"
+        position = _finite_float(value, f"{caller}({axis_name}=...)")
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
         linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
@@ -6030,7 +6044,7 @@ class Axes:
         entry = RefLine(
             type="refline",
             orient=orient,
-            value=float(value),
+            value=position,
             span_lo=lo,
             span_hi=hi,
             color=gle_color,
@@ -6116,6 +6130,9 @@ class Axes:
         """Shared implementation of :meth:`axvspan` / :meth:`axhspan`."""
         caller = "axvspan" if orient == "v" else "axhspan"
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
+        edge = "x" if orient == "v" else "y"
+        start = _finite_float(start, f"{caller}({edge}min=...)")
+        end = _finite_float(end, f"{caller}({edge}max=...)")
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
         face = _pop_line_alias(
@@ -6135,8 +6152,8 @@ class Axes:
         entry = Span(
             type="span",
             orient=orient,
-            start=float(start),
-            end=float(end),
+            start=start,
+            end=end,
             span_lo=lo,
             span_hi=hi,
             color=gle_color,
@@ -7249,8 +7266,12 @@ class Axes:
         Notes
         -----
         The rug is drawn after the graph block, above the axes' other
-        series; a value outside the axis range draws no tick. The values
-        widen the autoscaled range of their axis.
+        series, by ``xrug``/``yrug`` from GLE's include library
+        (``rugs.gle``). Its values are written to a sidecar file like any
+        other series. They widen the autoscaled range of their axis; a value
+        outside an axis range set with ``set_xlim``/``set_ylim`` still draws
+        its tick, outside the frame. On an inverted axis, ``'bottom'`` and
+        ``'left'`` are the edges at the axis minimum.
         """
         if axis not in RUG_EDGES:
             raise ValueError(f"rug(axis={axis!r}) must be 'x' or 'y'.")
@@ -7291,6 +7312,7 @@ class Axes:
             position=position,
             color=rgb_to_gle(color),
             linewidth=float(linewidth),
+            data_file=_resolve_data_file(self.figure, None),
         )
         self.rugs.append(entry)
         return entry
@@ -10381,6 +10403,10 @@ class Axes:
                         item["column_names"] = defaults
                 restored.append(item)
             setattr(ax, attr, restored)
+        # A rug saved before rugs.gle drew them had no sidecar; it needs one.
+        for rug in ax.rugs:
+            if "data_file" not in rug:
+                rug["data_file"] = _resolve_data_file(figure, None)
 
         ax.passthrough = list(d.get("passthrough", []))
 
