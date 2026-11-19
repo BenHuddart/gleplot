@@ -11,6 +11,7 @@ identical to what it produced before sources existed.
 """
 
 import math
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import (
@@ -89,6 +90,12 @@ from .sources import (
     GridRef,
     resolve_reference,
 )
+
+#: A dataset a raw ``data`` statement or ``let`` defines: ``d2=c1,c3``,
+#: ``let d2 = ...``. Group 1 is its number.
+_DATASET_TARGET_RE = re.compile(r"(?<![A-Za-z0-9_])d([0-9]+)\s*=(?!=)", re.I)
+#: A quoted string in a GLE line.
+_QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
 
 #: The sub behind every pie slice (:meth:`GLEWriter.add_wedge`). Called after
 #: ``end graph``, where ``xg()``/``yg()`` still address the graph just closed.
@@ -3028,17 +3035,33 @@ class GLEWriter:
 
         Notes
         -----
-        The datasets a raw ``let`` reads are not reserved: a fit gleplot
-        cannot model stays raw and reads the dataset of a series that is
-        still written, under the name it had in the source.
+        Only the names raw GLE defines are reserved: the ``dN=`` targets of a
+        ``data`` statement and of a ``let``. A raw line that only reads a
+        dataset (a fit, a fill, a restyle) reads one a written series still
+        defines, under the name it had in the source.
+
+        A ``data`` statement without ``dN=`` targets fills the lowest
+        undefined datasets (``freedataset`` in GLE's graph.cpp), and the raw
+        statement is written after the series' own. So when the block keeps
+        one, the names its raw ``dN`` lines use are reserved too, leaving
+        those slots free for it.
         """
-        reserved: Set[int] = set()
+        defined: Set[int] = set()
+        drawn: Set[int] = set()
+        bare_data = False
         for line in raw_lines:
-            words = line.split(None, 1)
-            if words and words[0].lower() == "let":
-                line = line.split("=", 1)[0]
-            reserved.update(int(m[1:]) for m in _DATASET_NAME_RE.findall(line))
-        self._reserved_datasets = reserved
+            # Names inside a string or a comment are not datasets.
+            code = _QUOTED_RE.sub("", line).split("!", 1)[0]
+            words = code.split()
+            targets = _DATASET_TARGET_RE.findall(code)
+            defined.update(int(n) for n in targets)
+            if not words:
+                continue
+            if words[0].lower() == "data" and not targets:
+                bare_data = True
+            elif _DATASET_NAME_RE.fullmatch(words[0]):
+                drawn.update(int(m[1:]) for m in _DATASET_NAME_RE.findall(code))
+        self._reserved_datasets = defined | drawn if bare_data else defined
 
     def _new_dataset(self) -> str:
         """Name a fresh dataset: the next ``dN`` that raw GLE does not use."""

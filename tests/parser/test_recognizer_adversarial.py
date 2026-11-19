@@ -828,6 +828,43 @@ def test_raw_dataset_names_are_not_reused_by_written_series(tmp_path):
     assert "    d3 line color red" in text3
 
 
+@pytest.mark.parametrize(
+    "body, written",
+    [
+        # A bare 'data' statement fills the lowest undefined datasets, and
+        # the raw one is written after the modelled line's own.
+        (
+            '   data "a.dat"\n'
+            '   data "a.dat" d3=c1,c2\n'
+            "   d1 marker fcircle err 10%\n"
+            "   d2 marker fcircle err 10%\n"
+            "   d3 line color blue\n",
+            ["    d3 line color blue"],
+        ),
+        # A raw line that only reads the modelled datasets keeps them named.
+        (
+            '   data "a.dat" d1=c1,c2 d2=c1,c3\n'
+            "   d1 line color blue\n"
+            "   d2 line color red\n"
+            "   fill d1,d2 color red xmin 0.5 pattern shade\n",
+            ["    d1 line color blue", "    d2 line color red"],
+        ),
+    ],
+)
+def test_written_series_names_around_raw_datasets(tmp_path, body, written):
+    """#275: datasets raw GLE defines are reserved; those it reads are not."""
+    src = "size 12 9\nbegin graph\n   size 10 7\n" + body + "end graph\n"
+    p = _write(tmp_path, "raw.gle", src, {"a.dat": "0 1 2\n1 2 3\n2 3 2\n"})
+    out1 = tmp_path / "out1.gle"
+    parse_gle_figure(p).figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+    for line in written:
+        assert line in text1
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == text1
+
+
 def test_constant_error_on_own_file_reference_restores_data_line(tmp_path):
     """#133: a file read only by raw error-bar lines keeps its ``data`` line."""
     src = (
