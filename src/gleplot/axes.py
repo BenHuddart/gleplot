@@ -4284,7 +4284,7 @@ class Axes:
         y,
         color: Optional[str] = None,
         s: Optional[Union[float, Sequence[float]]] = None,
-        marker: str = "o",
+        marker: Optional[str] = "o",
         label: Optional[str] = None,
         yaxis: str = "y",
         xaxis: str = "x",
@@ -4331,7 +4331,8 @@ class Axes:
             Default 20 when neither ``s`` nor ``markersize`` is given. An
             array gives each point its own size; see Notes.
         marker : str
-            Marker symbol
+            Marker symbol. ``None`` is the default, ``'o'``, as in
+            matplotlib.
         label : str, optional
             Legend label
         yaxis : str, optional
@@ -4395,6 +4396,8 @@ class Axes:
         A colour sequence draws one series per distinct colour, in the order
         each first appears; only the first carries ``label``.
         """
+        if marker is None:
+            marker = "o"  # matplotlib's rcParams['scatter.marker']
         values = None
         colors = None
         if c is not None:
