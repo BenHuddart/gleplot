@@ -94,7 +94,7 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 
 - Reject a bad argument **when the call is made**, not later at `savefig`. Raise `ValueError` (or `TypeError` for a wrong type) with a message that names the argument, shows the value received, and lists what is accepted.
 - Anything gleplot accepts but cannot honour, or recovers imperfectly from a file, gets a `UserWarning` raised through `_warn.warn_external`, which attributes it to the caller's line however deep the call. Nothing is dropped silently. `tests/unit/test_source_rules.py` fails on a `warnings.warn` called anywhere else.
-- An unknown keyword name gets a `UserWarning` through one shared helper, the same for every function; gleplot never raises for one.
+- An unknown keyword *name* is the exception to raising: it gets a `UserWarning` through one shared helper, worded the same for every function, and gleplot never raises for one, not even in a major.
 - A message is written for someone who knows matplotlib and has never read this source: say what to do next, in terms of the public API.
 - No `print()` in library code; `tests/unit/test_source_rules.py` checks this. Results go through return values, exceptions, and warnings. Diagnostic output a user opts into goes through the `gleplot` logger.
 
@@ -102,8 +102,8 @@ Gleplot-specific API stays explicit and is not disguised as matplotlib: `data_pr
 
 - Removing or renaming a public name, changing a default, or changing emitted GLE for an existing script is a **breaking change**. It needs the maintainer's agreement and a `feat!`/`fix!` commit. Honouring a keyword that gleplot accepted with a `UserWarning` saying it had no effect is not breaking: the warning already told the user it was ignored.
 - Correcting output that silently ignored valid matplotlib input (a named linestyle drawn solid, `marker=None` drawing nothing, an ignored `lw` or `c` alias, lossy number formatting) is a `fix`, not a breaking change, when no reasonable script relies on the old output. A change a user may reasonably have accepted as intended stays `!`.
-- Junk input that is silently accepted today warns now (`fix`) and raises in the next major (`fix!`).
-- Breaking changes for a major merge into the integration branch `next` and land on main in one push. Where sensible, a minor ships a `FutureWarning` or an opt-in first.
+- A junk argument *value* that is silently accepted today warns now (`fix`) and raises in the next major (`fix!`).
+- Breaking changes for a major merge into the integration branch `next` and land on main in one push. Where sensible, a minor ships a `FutureWarning` (`warn_external(..., FutureWarning)`) or an opt-in first.
 - Emitted GLE is output users keep under version control. Do not reorder or reformat it as a side effect of another change.
 - Private names (leading underscore) may change freely. Do not add a compatibility alias or shim for one.
 
