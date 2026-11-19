@@ -6555,6 +6555,20 @@ class _Recognizer:
         return True
 
     @staticmethod
+    def _bar_gaps_match(loaded_to, loaded_from) -> bool:
+        """True when each ``from`` dataset is missing where its ``to`` is.
+
+        GLE refuses a stack whose two datasets disagree, and the writer
+        writes such a row missing in both, which would drop the other value.
+        """
+        for to_row, from_row in zip(loaded_to, loaded_from):
+            to_gaps = np.isnan(np.asarray(to_row["y"], dtype=float))
+            from_gaps = np.isnan(np.asarray(from_row["y"], dtype=float))
+            if not np.array_equal(to_gaps, from_gaps):
+                return False
+        return True
+
+    @staticmethod
     def _claim_bar_file(info, name: str) -> str:
         """The sidecar name for this bar command.
 
@@ -6705,7 +6719,9 @@ class _Recognizer:
                 return
             self._keep_bar_raw(scanned, info, stmt, toks)
             return
-        if not self._bar_xs_match(loaded_to + loaded_from):
+        if not self._bar_xs_match(loaded_to + loaded_from) or not self._bar_gaps_match(
+            loaded_to, loaded_from
+        ):
             self._keep_bar_raw(scanned, info, stmt, toks)
             return
 

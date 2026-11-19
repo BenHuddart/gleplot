@@ -667,7 +667,7 @@ def test_the_neighbour_snapshot_covers_the_whole_battery():
 def test_a_resolvable_range_emits_byte_identically_to_pre_g15(name):
     """Every figure GLE could already compile is byte-stable, warnings included.
 
-    Three entries have moved since capture. G18-lite gave ``guides_over_data``
+    Five entries have moved since capture. G18-lite gave ``guides_over_data``
     a ``! gleplot:guide ...`` comment over each of its four materialized
     guides (:mod:`gleplot.guides`); comments only, and the wide digest sweep
     below (which contains no guides) is untouched.
@@ -677,6 +677,9 @@ def test_a_resolvable_range_emits_byte_identically_to_pre_g15(name):
     whisker is not clipped. ``tiny_but_nonzero_span`` moved when a column
     or axis range that six significant figures would collapse started
     being written at the precision that keeps its values apart (#250).
+    ``secondary_y_axis_auto`` and ``secondary_y_axis_explicit`` narrowed
+    their primary ``yaxis`` range when the series on y2 stopped counting
+    toward it (#142).
     """
     text, files, raised = db.emit(name)
 
@@ -728,6 +731,9 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     the draw order became a ``begin key``. ``errorbar_asymmetric_xy`` and
     ``errorbar_xerr`` moved when an autoscaled x axis started including
     ``xerr``. ``bar_yerr`` and ``barh_xerr`` are the bar-whisker builders.
+    ``secondary_yaxis`` (both batteries), ``errorbar_field_options``,
+    ``no_ticks_twins`` and ``scatter_field_options`` moved their primary
+    ``yaxis`` range when the series on y2 stopped counting toward it (#142).
     ``one_point_default_width`` moved, and ``guides_after_graph`` was added,
     when a guide gleplot cannot range started being drawn after the graph;
     ``rug_field_options`` moved when ``rugs.gle`` started drawing rugs. The

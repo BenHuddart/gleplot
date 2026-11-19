@@ -280,7 +280,7 @@ def test_a_tiny_radius_does_not_divide_by_zero():
 
 
 @pytest.mark.parametrize(
-    "args,match", [((0.5, 2), "ymin=0.5"), ((0, -1), "ymax=-1"), ((0, 0), "ymax=0")]
+    "args,match", [((0.5, 2), "bottom=0.5"), ((0, -1), "top=-1"), ((0, 0), "top=0")]
 )
 def test_set_ylim_on_a_polar_axes_checks_the_radial_limits(args, match):
     _fig, ax = _polar()

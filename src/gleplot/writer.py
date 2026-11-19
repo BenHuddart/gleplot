@@ -4106,6 +4106,10 @@ class GLEWriter:
           to GLE, which is what every bar chart gleplot wrote before the field
           existed; a number is emitted verbatim and suppresses G16's derived
           width. See ``bar_width_to_emit``.
+        - a row whose x or value is NaN: its value columns are written as
+          GLE's missing value ``*``, so the bar is left out (see
+          ``_bar_rows_missing``). A provider-backed series then writes its
+          own value columns rather than the table's.
         """
         x = np.asarray(series["x"], dtype=float)
         heights = np.asarray(series["height"], dtype=float)
@@ -4143,6 +4147,12 @@ class GLEWriter:
         if bottom is not None:
             base = np.asarray(bottom, dtype=float)
             tops = np.asarray(top, dtype=float) if top is not None else base + heights
+            missing = self._bar_rows_missing(x, base, tops)
+            if missing.any():
+                base = self._as_missing(base, missing)
+                tops = self._as_missing(tops, missing)
+                if binding is not None:
+                    binding = binding.with_private(("bottom", "top"))
             names = column_names if column_names and len(column_names) == 3 else None
             # A header we could not line up with the three columns would
             # raise in ``_write_columns``. Dropping it also drops the
@@ -4162,6 +4172,11 @@ class GLEWriter:
             )
             bar_cmd = f"    bar {d_name} from {d_from} fill {','.join(fill_tokens)}"
         else:
+            missing = self._bar_rows_missing(x, heights)
+            if missing.any():
+                heights = self._as_missing(heights, missing)
+                if binding is not None:
+                    binding = binding.with_private(("height",))
             cols = self._write_columns(
                 data_file, [("x", x), ("height", heights)], column_names, binding
             )
@@ -4222,12 +4237,14 @@ class GLEWriter:
                         if stored is not None
                         else base + height
                     )
-                columns.append(("bottom", base))
+                missing = self._bar_rows_missing(x, base, tops)
+                columns.append(("bottom", self._as_missing(base, missing)))
                 from_slots.append(len(columns) - 1)
-                columns.append(("top", tops))
+                columns.append(("top", self._as_missing(tops, missing)))
                 to_slots.append(len(columns) - 1)
             else:
-                columns.append(("height", height))
+                missing = self._bar_rows_missing(x, height)
+                columns.append(("height", self._as_missing(height, missing)))
                 from_slots.append(None)
                 to_slots.append(len(columns) - 1)
 
@@ -4285,6 +4302,22 @@ class GLEWriter:
                 member.get("swatch_color"),
                 has_header,
             )
+
+    @staticmethod
+    def _bar_rows_missing(x: np.ndarray, *values: np.ndarray) -> np.ndarray:
+        """The bar rows to write as missing (``*``): any value is NaN.
+
+        GLE draws a ``nan`` height as a polygon at ``-nan``, which
+        Ghostscript rejects, but skips a missing point (``drawBar`` in
+        ``graph2.cpp``). A ``from`` and its ``to`` dataset must be missing
+        at the same points, so the caller marks every value column of the
+        row. The x column is left as written: GLE sizes the bars from its
+        consecutive gaps, and a missing x would read as 0.
+        """
+        missing = np.isnan(x)
+        for column in values:
+            missing = missing | np.isnan(column)
+        return missing
 
     @staticmethod
     def _bar_pattern_clause(members: Sequence[Mapping[str, Any]]) -> str:
@@ -4700,7 +4733,15 @@ class GLEWriter:
             ``'fill'``, or ``'errorbar'`` (also when absent). ``data_file``
             and the variant's column fields are required, and so is
             ``color`` for an errorbar reference; every other field is read
-            with the default its absence has always meant.
+            with the default its absence has always meant. A fill's
+            ``target`` is ``'x1'``, ``'x2'`` or ``'polygon'``, or absent for
+            the two-curve fill, which needs ``y2_col``.
+
+        Raises
+        ------
+        ValueError
+            If a fill's ``target`` is not one of those, or a two-curve fill
+            has no ``y2_col``.
         """
         series_type = series.get("series_type", "errorbar")
         if series_type == "line":
@@ -4901,6 +4942,17 @@ class GLEWriter:
         label = series.get("label")
         swatch_color = series.get("swatch_color")
         target = series.get("target")
+        if target not in (None, "x1", "x2", "polygon"):
+            raise ValueError(
+                f"A file fill's target must be 'x1', 'x2', 'polygon' or absent "
+                f"(a two-curve fill), got target={target!r} for {data_file!r}."
+            )
+        if target is None and y2_col is None:
+            raise ValueError(
+                "A file fill FileSeries needs y2_col (the second curve's column) "
+                "or target ('x1', 'x2' or 'polygon'); it has neither, got "
+                f"y2_col=None, target=None for {data_file!r}."
+            )
         clip = {name: series.get(name) for name in ("xmin", "xmax", "ymin", "ymax")}
         d1_name = self._new_dataset()
         if target in ("x1", "x2", "polygon"):
