@@ -4046,7 +4046,7 @@ class Figure:
         for hm in resolution.visible(ax.heatmaps):
             if hm.get("cells"):
                 self._warn_mesh_overhang(ax, hm)
-            elif GLEWriter.writes_node_grid(hm):
+            elif hm["source"] == "points" or GLEWriter.writes_node_grid(hm):
                 self._warn_node_grid_overhang(ax, hm)
             writer.add_heatmap(hm)
 
@@ -4104,11 +4104,15 @@ class Figure:
         """Warn where a grid heatmap's extra spacing would show.
 
         GLE draws the bitmap one node spacing past the grid's last node (see
-        :meth:`GLEWriter.add_nodes_sidecar`), and only the graph window hides
+        :meth:`GLEWriter.add_nodes_sidecar` and, for a ``tripcolor``,
+        :meth:`GLEWriter.add_fitz_block`), and only the graph window hides
         it. Before the first node there is no bitmap, as matplotlib draws
         nothing there.
         """
-        kind = "contourf" if "levels" in grid else "imshow"
+        if "levels" in grid:
+            kind = "contourf"
+        else:
+            kind = "tripcolor" if grid["source"] == "points" else "imshow"
         x0, x1, y0, y1 = grid["extent"]
         for name, lo, hi, a, b in (
             ("x", x0, x1, ax.xmin, ax.xmax),
