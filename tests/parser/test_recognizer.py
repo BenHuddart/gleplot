@@ -544,6 +544,83 @@ def test_broken_sidecar_keeps_its_reading_options(tmp_path):
     assert all("data_error" in fs for fs in refs)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "   data f.dat d1=c1,c2 ignore 2\n   bar d1\n",
+        "   data f.dat d1=c1,c2 d2=c1,c3 numrows 2\n   fill d1,d2 color red\n",
+    ],
+)
+def test_a_file_read_with_options_is_not_loaded(tmp_path, body):
+    """#169: the loader would read rows GLE skips; keep a reference instead."""
+    src = "size 12 9\nbegin graph\n   size 10 7\n" + body + "end graph\n"
+    p = _write(tmp_path, "o.gle", src, {"f.dat": "99 99 99\n1 2 3\n2 3 4\n3 5 6\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.bars == [] and ax.fills == [] and ax.errorbars == []
+    assert len(ax.file_series) == 1
+    assert {"skiprows", "max_rows", "comment"} & set(ax.file_series[0])
+    assert any(w.startswith("data:") and "'f.dat'" in w for w in rec.warnings)
+    out = tmp_path / "again.gle"
+    rec.figure.savefig_gle(str(out))
+    assert body.splitlines()[0].strip() in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "body, data, written",
+    [
+        # A text first column labels the x axis; x is the point index.
+        ('data "t.dat"\n   d1 line', "a 2 3\nb 3 4\n", "data t.dat d1=c0,c2"),
+        ('data "t.dat" d1 d2\n   d2 line', "a 2 3\nb 3 4\n", "data t.dat d1=c0,c3"),
+        ('data "t.dat"\n   bar d1', "a 2 3\nb 3 4\n", "data t.dat d1=c0,c2"),
+        # 'nox' makes x the point index and y start at c1.
+        ('data "n.dat" d1 d2 nox\n   d2 line', "1 2 3\n2 3 4\n", "data n.dat d1=c0,c2"),
+    ],
+)
+def test_positional_x_follows_gle(tmp_path, body, data, written):
+    """#169: datasets given without columns get the x GLE gives them."""
+    src = f"size 12 9\nbegin graph\n   size 10 7\n   {body}\nend graph\n"
+    p = _write(tmp_path, "p.gle", src, {"t.dat": data, "n.dat": data})
+    fig = parse_gle_figure(p).figure
+    assert fig.axes_list[0].bars == []
+    out = tmp_path / "again.gle"
+    fig.savefig_gle(str(out))
+    assert written in out.read_text(encoding="utf-8")
+
+
+def test_options_on_one_graph_do_not_stop_another_loading_the_file(tmp_path):
+    """#169: GLE reads the file afresh in each graph."""
+    src = (
+        "begin graph\n   data f.dat d1=c1,c2 ignore 1\n   bar d1\nend graph\n"
+        "begin graph\n   data f.dat d2=c1,c3\n   bar d2\nend graph\n"
+    )
+    p = _write(tmp_path, "two.gle", src, {"f.dat": "1 2 3\n2 3 4\n"})
+    first, second = parse_gle_figure(p).figure.axes_list
+    assert (len(first.bars), len(second.bars)) == (0, 1)
+
+
+def test_a_single_text_column_defines_no_dataset(tmp_path):
+    """#169: GLE reads a lone text column as x labels only; the statement
+    is kept as written."""
+    src = 'begin graph\n   data "w.dat"\n   d1 line\nend graph\n'
+    p = _write(tmp_path, "w.gle", src, {"w.dat": "a\nb\nc\n"})
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    assert ax.file_series == [] and ax.lines == []
+    assert '   data "w.dat"' in ax.passthrough
+
+
+def test_an_unmodelled_data_option_is_reported(tmp_path):
+    """#169: ``delimiters`` is not modelled; the note says it is dropped."""
+    src = (
+        'begin graph\n   data "s.dat" d1=c1,c2 delimiters ";"\n   d1 line\nend graph\n'
+    )
+    p = _write(tmp_path, "s.gle", src, {"s.dat": "1;2\n2;3\n"})
+    rec = parse_gle_figure(p)
+    assert any(
+        w.startswith("data:") and "'delimiters \";\"'" in w for w in rec.warnings
+    )
+
+
 def test_broken_bar_becomes_file_series_with_error(tmp_path):
     """``bar dN fill COLOR`` against a missing data file -> FileSeries('bar')."""
     _gleplot_axes._global_data_file_counter = 0
