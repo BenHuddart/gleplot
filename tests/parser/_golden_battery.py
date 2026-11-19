@@ -1398,6 +1398,24 @@ def function_curves():
     return fig
 
 
+def function_curves_beside_modelled_lets():
+    """Function and derived curves after a histogram's and a colour's ``let``.
+
+    Each function curve has a series after it, so one kept raw would move.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.hist([0, 0.2, 0.4, 0.6, 0.9], bins=4, range=(0, 1), histtype="step")
+    ax.function("sin(x)", xmin=0, xmax=1)
+    ax.errorbar([0.2, 0.5], [0.3, 0.6], yerr=[0.1, 0.1])
+    ax.scatter([0.1, 0.4, 0.8], [0.2, 0.5, 0.7], c=[0.1, 0.5, 0.9])
+    ax.function("x/2", xmin=0, xmax=1)
+    ax.plot([0, 1], [1, 0])
+    ax.derived("d1*2", [ax.lines[0]])
+    ax.plot([0, 1], [0.5, 0.5])
+    return fig
+
+
 def one_point_default_width():
     """A 1 pt default width: each kind's ``lwidth 0.03528`` comes back as 1 pt.
 
@@ -1910,6 +1928,7 @@ BUILDERS = [
     segment_lines,
     histogram,
     function_curves,
+    function_curves_beside_modelled_lets,
     one_point_default_width,
     fit_curves,
     closed_form_fits,

@@ -3095,10 +3095,12 @@ class _Recognizer:
                     pass1.merged_attr_raw[kw] = []
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
-        self._keep_plain_derived_lets(block, pass1, info)
-        self._keep_plain_function_lets(block, pass1, info)
+        # Histogram and colour lets are filtered first: a function let stays
+        # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
         self._keep_colour_lets(pass1, info)
+        self._keep_plain_derived_lets(block, pass1, info)
+        self._keep_plain_function_lets(block, pass1, info)
         return pass1
 
     def _record_colour_let(self, stmt, datasets, info) -> None:
@@ -5602,6 +5604,8 @@ class _Recognizer:
                     and target not in info["_offset_let_datasets"]
                     and target not in info["_derived_lets"]
                     and target not in info["_polar_aliases"]
+                    and target not in info["_hist_lets"]
+                    and target not in info["_colour_lets"]
                 ):
                     info["_function_lets"].clear()
                     info["_derived_lets"].clear()
