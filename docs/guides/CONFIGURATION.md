@@ -168,8 +168,9 @@ the polyline are indistinguishable anyway.
     glp.GlobalConfig.graph.smooth_curves = True
 
 The flag is per figure and is the *default* for every line series in it
-(`plot`, `line_from_file`, and the line drawn by `errorbar`). Fills and
-contour lines are never smoothed: GLE's `fill` command takes no `smooth`
+(`plot`, `line_from_file`, and the line drawn by `errorbar`), except a
+`plot` line broken by NaN, which warns and is drawn unsmoothed: a spline
+would join its pieces. Fills and contour lines are never smoothed: GLE's `fill` command takes no `smooth`
 qualifier, and contour polylines come out of GLE's own contouring of the
 gridded surface, where splining would move the level off the surface it was
 computed from.

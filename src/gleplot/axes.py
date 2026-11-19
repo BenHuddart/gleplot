@@ -826,10 +826,10 @@ def _warn_unstrokable_zero(caller: str, linewidth: float) -> None:
         )
 
 
-def _has_nan(values: Any) -> bool:
-    """Whether numeric ``values`` hold a NaN; non-numeric data holds none."""
+def _has_nonfinite(values: Any) -> bool:
+    """Whether numeric ``values`` hold a NaN or an infinity."""
     try:
-        return bool(np.isnan(np.asarray(values, dtype=float)).any())
+        return not bool(np.isfinite(np.asarray(values, dtype=float)).all())
     except (TypeError, ValueError):
         return False
 
@@ -2786,8 +2786,8 @@ class Axes:
         Parameters
         ----------
         x, y : array-like
-            Data coordinates. A NaN breaks a drawn line there, as in
-            matplotlib.
+            Data coordinates. A NaN or infinity breaks a drawn line there,
+            as in matplotlib; such a line is not smoothed or thinned.
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
@@ -3004,17 +3004,37 @@ class Axes:
             self.scatters.append(scatter_data)
         else:
             line_data = LineSeries(**plot_fields)
-            if linestyle not in _NO_LINE and (_has_nan(x) or _has_nan(y)):
-                # matplotlib breaks a line at NaN; GLE breaks it at a missing
-                # value, which a gaps series writes its NaN rows as. As for
-                # hlines, a figure-wide smooth would fit one curve through
-                # the pieces, so the line is pinned unsmoothed.
+            if linestyle not in _NO_LINE and (_has_nonfinite(x) or _has_nonfinite(y)):
+                # matplotlib breaks a line at NaN or inf; GLE breaks it at a
+                # missing value, which a gaps series writes those rows as.
                 line_data["gaps"] = True
-                line_data["smooth_mode"] = "none"
+                self._pin_gapped_line(line_data, caller)
             self._register_series_draw_meta(line_data, "line", zorder)
             self.lines.append(line_data)
 
         return self  # Return self for method chaining
+
+    def _pin_gapped_line(self, series, caller: str) -> None:
+        """Keep a line with gaps unsmoothed and unthinned.
+
+        A figure-wide smooth would fit one curve through the pieces, and
+        ``deresolve`` would keep rows on both sides of a gap and join them.
+        """
+        series["smooth_mode"] = "none"
+        if caller in ("hlines", "vlines"):
+            return
+        if self.figure.graph.smooth_curves:
+            warn_external(
+                f"{caller}() draws a line with NaN gaps unsmoothed: a smooth "
+                "curve would join its pieces. GLEGraphConfig(smooth_curves="
+                "True) does not apply to it."
+            )
+        if series.pop("deresolve", None) is not None:
+            series.pop("deresolve_average", None)
+            warn_external(
+                f"{caller}(deresolve=...) is ignored for a line with NaN gaps: "
+                "thinning would join its pieces."
+            )
 
     @_cartesian_only
     def step(self, x, y, *args, where: str = "pre", **kwargs):
@@ -5969,13 +5989,9 @@ class Axes:
                 zorder=zorder,
                 _caller=name,
             )
-            series = self.lines[-1]
-            # The NaN rows are gaps, written as GLE missing values. A lone
-            # segment has none, so it stays a plain two-point line. A
-            # figure-wide smooth would fit a curve through the segments.
-            if len(members) > 1:
-                series["gaps"] = True
-            series["smooth_mode"] = "none"
+            # plot() writes the NaN rows between segments as gaps; a lone
+            # segment is pinned unsmoothed the same way.
+            self.lines[-1]["smooth_mode"] = "none"
             text = None
         return self
 

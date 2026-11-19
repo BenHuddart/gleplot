@@ -696,10 +696,11 @@ class LineSeries(_XYSeries):
     #: asked for one keeps the historical dict shape and the writer emits a
     #: bare ``line``. See :data:`gleplot.parser.tables.LINE_MODES`.
     line_mode: str
-    #: The NaN rows are gaps: the writer writes them as GLE missing values
-    #: (``*``), which break the line, so each run of points is its own
-    #: polyline (``Axes.hlines`` / ``Axes.vlines``). Absent: NaN is written
-    #: ``nan``, which GLE drops, joining the neighbours.
+    #: The non-finite rows are gaps: the writer writes them as GLE missing
+    #: values (``*``), which break the line, so each run of points is its
+    #: own polyline (``Axes.plot`` / ``step`` with NaN, ``Axes.hlines`` /
+    #: ``Axes.vlines``). Absent: NaN is written ``nan``, which GLE drops,
+    #: joining the neighbours.
     gaps: bool
 
 
