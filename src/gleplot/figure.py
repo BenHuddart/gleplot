@@ -144,6 +144,7 @@ def _refline_axis_values(ax, orient: str):
     counts: the extent along the other axis is an axes fraction, so feeding it
     back into autoscale would be circular. A hidden guide (SPEC 14.6)
     contributes nothing: it is not drawn, so it does not hold the axis open.
+    A non-finite coordinate contributes nothing either (see :func:`_plottable`).
     """
     values = []
     for entry in getattr(ax, "reflines", ()):
@@ -153,23 +154,18 @@ def _refline_axis_values(ax, orient: str):
         if entry["orient"] == orient and is_visible(entry):
             values.append(float(entry["start"]))
             values.append(float(entry["end"]))
-    return values
+    return [v for v in values if math.isfinite(v)]
 
 
-def _plottable(
-    values: np.ndarray, positive_only: bool, gaps: bool = False
-) -> np.ndarray:
+def _plottable(values: np.ndarray, positive_only: bool) -> np.ndarray:
     """``values``, restricted to what the axis can actually show.
 
-    With ``positive_only`` (a log axis) the non-positive entries are dropped,
+    Non-finite entries are dropped, as matplotlib's autoscale ignores them: a
+    NaN or infinite bound is an axis range GLE refuses to compile. With
+    ``positive_only`` (a log axis) the non-positive entries are dropped too,
     mirroring matplotlib, which masks them rather than refusing to autoscale.
-    With ``gaps`` (a series whose NaN rows separate its segments, see
-    :class:`~gleplot.series.LineSeries`) the NaN entries are dropped. Without
-    either this is the identity, so every ordinary axis is bounded by exactly
-    the values it always was.
     """
-    if gaps:
-        values = values[~np.isnan(values)]
+    values = values[np.isfinite(values)]
     if not positive_only:
         return values
     return values[values > 0]
@@ -4743,7 +4739,7 @@ class Figure:
                     if xerr_right is not None:
                         pieces.append(x + np.asarray(xerr_right, dtype=float))
                     values = np.concatenate(pieces)
-                values = _plottable(values, positive_only, bool(data.get("gaps")))
+                values = _plottable(values, positive_only)
                 if len(values) > 0:
                     if xmin is None or values.min() < xmin:
                         xmin = float(values.min())
@@ -4919,9 +4915,7 @@ class Figure:
         for data_list in offset_bearing:
             for data in data_list:
                 y = _plottable(
-                    np.asarray(data["y"]) + data.get("offset", 0.0),
-                    positive_only,
-                    bool(data.get("gaps")),
+                    np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
                 )
                 if len(y) > 0:
                     if ymin is None or y.min() < ymin:
