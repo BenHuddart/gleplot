@@ -66,7 +66,7 @@ def test_segments_are_real_axes_in_the_figure():
 
 
 def test_each_segment_gets_its_own_x_range():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     assert bax[0].get_xlim() == (0.0, 0.02)
     assert bax[1].get_xlim() == (0.02, 3.0)
 
@@ -96,7 +96,7 @@ def test_invalid_construction_raises(kwargs):
 
 
 def test_set_xlim_is_refused_with_a_pointer_to_the_right_knob():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     with pytest.raises(TypeError, match="one range per segment"):
         bax.set_xlim(0, 1)
 
@@ -139,7 +139,7 @@ def test_segment_extent_rejects_a_cell_too_small_for_the_gaps():
 
 
 def test_inner_frame_sides_are_switched_off():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     left, right = bax.segments
     assert left._y2axis_off is True and left._yaxis_off is False
     assert right._yaxis_off is True and right._y2axis_off is False
@@ -196,7 +196,7 @@ def test_middle_segment_does_not_get_an_outer_frame_edge():
 
 
 def test_contiguous_segments_drop_the_duplicated_seam_label():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     assert bax[1]._remove_first_xtick is True
 
 
@@ -382,7 +382,7 @@ def test_hist_fans_out_onto_one_shared_sidecar():
 
 
 def test_fill_betweenx_and_stackplot_fan_out_onto_shared_sidecars():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     assert bax.fill_betweenx([0.2, 0.4], [0.01, 1.0]) is bax
     bands = bax.stackplot([0.01, 1.0], [0.1, 0.2], [0.1, 0.1])
     assert bands == bax[0].fills[1:]
@@ -392,7 +392,7 @@ def test_fill_betweenx_and_stackplot_fan_out_onto_shared_sidecars():
 
 
 def test_hlines_and_vlines_fan_out_onto_shared_sidecars():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     assert bax.vlines([0.01, 1.0], 0, 0.5) is bax
     assert bax.hlines(0.2, 0.0, 3.0) is bax
     for index in range(2):
@@ -402,13 +402,13 @@ def test_hlines_and_vlines_fan_out_onto_shared_sidecars():
 
 
 def test_fanout_returns_the_underlying_return_value_for_guides():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     entry = bax.axvline(0.5)
     assert entry is bax[0].reflines[0]
 
 
 def test_text_goes_to_the_segment_that_contains_x():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     bax.text(1.0, 0.5, "late")
     assert bax[0].texts == []
     assert len(bax[1].texts) == 1
@@ -449,7 +449,7 @@ def test_annotate_goes_to_the_text_segment_and_drops_a_cross_seam_arrow():
 
 
 def test_set_ylim_applies_to_every_segment():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     bax.set_ylim(-2.0, 7.0)
     assert all(seg.get_ylim() == (-2.0, 7.0) for seg in bax.segments)
     assert bax.get_ylim() == (-2.0, 7.0)
@@ -465,7 +465,7 @@ def test_per_segment_tick_intervals():
 
 
 def test_scalar_tick_interval_applies_to_all_segments():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     bax.set_xticks(dsubticks=0.5)
     assert all(seg.xdsubticks == 0.5 for seg in bax.segments)
 
@@ -478,7 +478,7 @@ def test_y_tick_intervals_are_written_on_every_segment():
 
 
 def test_tick_interval_sequence_of_the_wrong_length_raises():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     with pytest.raises(ValueError, match="one per"):
         bax.set_xticks(dticks=[1.0, 2.0, 3.0])
 
@@ -516,7 +516,7 @@ def test_legend_turns_exactly_one_segment_on():
 
 
 def test_legend_defaults_to_the_widest_segment():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     bax.plot(T, A, label="2 K")
     bax.legend()
     assert bax[1].legend_on is True
@@ -524,7 +524,7 @@ def test_legend_defaults_to_the_widest_segment():
 
 
 def test_legend_segment_is_selectable():
-    _fig_, bax = _fig()
+    bax = _fig()[1]
     bax.plot(T, A, label="2 K")
     bax.legend(segment=0)
     assert bax[0].legend_on is True and bax[1].legend_on is False
@@ -688,17 +688,33 @@ def test_a_segment_title_takes_the_text_keywords(orient):
 
 
 @pytest.mark.parametrize(
-    "orient, setter", [("x", "set_xlabel"), ("x", "set_title"), ("y", "set_ylabel")]
+    "orient, setter, dist",
+    [
+        ("x", "set_xlabel", "xlabel_dist to add_broken_xaxes"),
+        ("x", "set_title", "title_dist to add_broken_xaxes"),
+        ("y", "set_title", "title_dist to add_broken_yaxes"),
+        ("y", "set_ylabel", "ylabel_dist to add_broken_yaxes"),
+    ],
 )
-def test_a_shared_title_warns_and_ignores_the_text_keywords(orient, setter):
+def test_a_shared_title_warns_and_ignores_the_text_keywords(
+    orient, setter, dist, recwarn
+):
     fig, bax = _fig() if orient == "x" else _yfig()
-    getattr(bax, setter)("T")
+    getattr(bax, setter)("T", fontsize=None, color=None)  # defaults: silent
+    assert not recwarn.list
     plain = _gle(fig)[0]
     with pytest.warns(
-        UserWarning, match=rf"{setter}\(\) on a broken axis ignores color, fontsize"
+        UserWarning,
+        match=rf"{setter}\(\) on a broken axis ignores color, fontsize.*{dist}",
     ):
         getattr(bax, setter)("T", fontsize=9, color="red")
     assert _gle(fig)[0] == plain
+
+
+def test_a_broken_x_axis_has_no_x2_title():
+    bax = _fig()[1]
+    with pytest.raises(ValueError, match="axis must be 'x', got 'x2'"):
+        bax.set_xlabel("Top", axis="x2")
 
 
 def test_a_shared_title_warns_for_matplotlibs_positional_arguments():

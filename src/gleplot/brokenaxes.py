@@ -56,19 +56,21 @@ from .colors import _stored_color
 DIVIDER_STYLES = ("none", "line", "slash")
 
 
-def _ignore_shared_title_keywords(caller: str, kwargs: dict) -> None:
+def _ignore_shared_title_keywords(
+    caller: str, kwargs: dict, dist: str, maker: str
+) -> None:
     """Warn about the text keywords a broken axis' shared title ignores.
 
     A shared title is page text centred on the assembly, drawn in the
-    figure's font at the ``*_dist`` gap given to ``add_broken_xaxes`` /
-    ``add_broken_yaxes``.
+    figure's font at the ``dist`` gap given to ``maker``. ``None`` is a
+    keyword's default and is not reported.
     """
-    if kwargs:
+    names = sorted(name for name, value in kwargs.items() if value is not None)
+    if names:
         warn_external(
-            f"{caller}() on a broken axis ignores {', '.join(sorted(kwargs))}: "
-            "its shared title is drawn in the figure's font and colour. Pass "
-            "xlabel_dist, ylabel_dist or title_dist to add_broken_xaxes() or "
-            "add_broken_yaxes() to set its gap."
+            f"{caller}() on a broken axis ignores {', '.join(names)}: its "
+            "shared title is drawn in the figure's font and colour. Pass "
+            f"{dist} to {maker}() to set its gap."
         )
 
 
@@ -690,18 +692,24 @@ class BrokenAxes:
 
     # -- shared axis state ----------------------------------------------
 
-    def set_xlabel(self, label: str, **kwargs):
+    def set_xlabel(self, label: str, axis: str = "x", **kwargs):
         """Set the x title.
 
-        A broken x-axis draws it centred under the whole assembly; a broken
-        y-axis gives it to the bottom segment, which takes the keywords of
-        :meth:`Axes.set_xlabel`. The shared title is drawn in the figure's
-        font, so text keywords warn and are ignored there.
+        A broken x-axis draws it centred under the whole assembly, in the
+        figure's font, so text keywords warn and are ignored there; it has
+        no ``x2`` title. A broken y-axis gives it to the bottom segment,
+        which takes the arguments of :meth:`Axes.set_xlabel`.
         """
         if self.axis == "y":
-            self.segments[0].set_xlabel(label, **kwargs)
+            self.segments[0].set_xlabel(label, axis, **kwargs)
             return self
-        _ignore_shared_title_keywords("set_xlabel", kwargs)
+        if axis != "x":
+            raise ValueError(
+                f"a broken x-axis has one x title; axis must be 'x', got {axis!r}"
+            )
+        _ignore_shared_title_keywords(
+            "set_xlabel", kwargs, "xlabel_dist", "add_broken_xaxes"
+        )
         self.xlabel_text = self.segments[0]._text(label)
         return self
 
@@ -711,9 +719,9 @@ class BrokenAxes:
         It is drawn in the figure's font, so ``fontdict``, ``loc``, ``pad``
         and text keywords warn and are ignored; ``title_dist`` sets its gap.
         """
-        given = {"fontdict": fontdict, "loc": loc, "pad": pad}
-        kwargs.update({name: v for name, v in given.items() if v is not None})
-        _ignore_shared_title_keywords("set_title", kwargs)
+        kwargs.update(fontdict=fontdict, loc=loc, pad=pad)
+        maker = "add_broken_yaxes" if self.axis == "y" else "add_broken_xaxes"
+        _ignore_shared_title_keywords("set_title", kwargs, "title_dist", maker)
         self.title_text = self.segments[0]._text(label)
         return self
 
@@ -733,7 +741,9 @@ class BrokenAxes:
             raise ValueError(
                 f"a broken y-axis has one y title; axis must be 'y', got {axis!r}"
             )
-        _ignore_shared_title_keywords("set_ylabel", kwargs)
+        _ignore_shared_title_keywords(
+            "set_ylabel", kwargs, "ylabel_dist", "add_broken_yaxes"
+        )
         self.ylabel_text = self.segments[0]._text(label)
         return self
 
