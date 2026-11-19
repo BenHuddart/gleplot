@@ -94,14 +94,24 @@ def test_twinx_shares_the_x_axis():
 
 def test_twinx_warns_on_matplotlib_keywords_it_cannot_use():
     _fig, ax = _axes()
-    with pytest.warns(UserWarning, match="twinx\\(\\) ignores delta_zorder"):
+    with pytest.warns(
+        UserWarning,
+        match="twinx\\(\\) ignores unsupported keyword\\(s\\): delta_zorder",
+    ):
         ax.twinx(delta_zorder=1.0)
+
+
+def test_twin_keywords_warn_by_name_whatever_their_value():
+    _fig, ax = _axes()
+    with pytest.warns(UserWarning, match=r"ignores unsupported keyword\(s\): label"):
+        ax.twinx(label=None)
 
 
 def test_twiny_takes_matplotlibs_signature_and_warns_on_its_keywords():
     _fig, ax = _axes()
     with pytest.warns(
-        UserWarning, match="twiny\\(\\) ignores axes_class, delta_zorder, zorder"
+        UserWarning,
+        match="twiny\\(\\) ignores unsupported keyword\\(s\\): axes_class, delta_zorder, zorder",
     ):
         top = ax.twiny(object, delta_zorder=1.0, zorder=3)
     top.plot([1, 2], [3, 4])

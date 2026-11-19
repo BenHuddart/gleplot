@@ -901,3 +901,10 @@ def test_figure_legend_lists_a_guide_routed_to_an_upper_segment():
     assert key.count('text "n"') == 1
     assert key.count('text "high"') == 1
     assert key.count('text "band"') == 1
+
+
+def test_broken_x_y2_title_warns_and_is_not_drawn():
+    fig, bax = _fig()
+    with pytest.warns(UserWarning, match=r"set_ylabel\(axis='y2'\) is not supported"):
+        bax.set_ylabel("R", axis="y2")
+    assert [seg.y2label_text for seg in bax] == ["", ""]

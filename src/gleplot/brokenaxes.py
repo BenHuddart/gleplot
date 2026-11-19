@@ -729,12 +729,21 @@ class BrokenAxes:
         """Set the shared y title.
 
         A broken x-axis draws it on the leftmost segment, which takes the
-        keywords of :meth:`Axes.set_ylabel`. A broken y-axis draws it
+        keywords of :meth:`Axes.set_ylabel`; a ``y2`` title warns and is not
+        drawn there. A broken y-axis draws it
         centred beside the whole assembly, ``ylabel_dist`` from the frame,
         in the figure's font, so text keywords warn and are ignored there;
         it has no ``y2`` title.
         """
         if self.axis == "x":
+            if axis == "y2":
+                # The leftmost segment is written with 'y2axis off'.
+                warn_external(
+                    "set_ylabel(axis='y2') is not supported on a broken x-axis "
+                    "and was ignored: its y2 axis is not drawn. Label the "
+                    "rightmost segment, bax[-1].set_ylabel(label, axis='y2')."
+                )
+                return self
             self.segments[0].set_ylabel(label, axis=axis, **kwargs)
             return self
         if axis != "y":

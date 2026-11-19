@@ -112,20 +112,22 @@ def _warn_twin_keywords(
 
     GLE draws the second scale on the same graph, so there is no new axes
     for ``axes_class``, ``delta_zorder`` or the other keywords to configure.
+    A named parameter left at matplotlib's default asks for nothing, so it
+    is not listed; any other keyword is, whatever its value.
     """
-    ignored = [
+    named = [
         name
         for name, given in (
             ("axes_class", axes_class is not None),
             ("delta_zorder", delta_zorder != 0.0),
         )
         if given
-    ] + sorted(kwargs)
-    if ignored:
-        warn_external(
-            f"{caller}() ignores {', '.join(ignored)}: the {edge} scale is "
-            "drawn on this graph, not on a new axes."
-        )
+    ]
+    warn_unsupported_keywords(
+        caller,
+        named + list(kwargs),
+        f"The {edge} scale is drawn on this graph, not on a new axes.",
+    )
 
 
 def _text_fields(
@@ -4581,7 +4583,9 @@ class Axes:
         whose value is not finite is left out, as matplotlib leaves it out
         of the plot and its limits. The legend marker takes the
         colormap's last colour. Per-point colours cannot be combined with
-        per-point sizes, ``mdist`` or ``deresolve``.
+        ``mdist`` or ``deresolve``. With per-point sizes as well, the colours
+        are drawn and the sizes are not: every point takes the legend
+        marker's middle size, with a warning.
 
         A colour sequence draws one series per distinct colour, in the order
         each first appears; only the first carries ``label``.
@@ -4658,12 +4662,6 @@ class Axes:
         if diameters is not None and diameters.size == 1:
             size = float(diameters[0])
         elif diameters is not None and diameters.size > 1:
-            if mapping is not None:
-                raise ValueError(
-                    "scatter() cannot give each point both its own colour (c=) "
-                    "and its own size (s= or markersize=) yet: GLE carries one "
-                    "per-point value on a dataset. Pass one size, or one colour."
-                )
             # The legend marker's area is halfway between the largest and
             # smallest point's, as in matplotlib's scatter legend.
             size = float(np.sqrt((diameters.max() ** 2 + diameters.min() ** 2) / 2))
@@ -4671,7 +4669,15 @@ class Axes:
                 # GLE reads msize 0 as "the font height": keep the default
                 # size and scale every point down to nothing.
                 size = default_size
-            mdata = diameters / size
+            if mapping is not None:
+                warn_external(
+                    "scatter() draws per-point colours (c=) at one size: GLE "
+                    "carries one per-point value on a dataset, so the per-point "
+                    "sizes (s= or markersize=) are drawn at their middle size. "
+                    "Pass one size to silence this."
+                )
+            else:
+                mdata = diameters / size
         per_point = (
             "colour" if mapping is not None else "size" if mdata is not None else None
         )
