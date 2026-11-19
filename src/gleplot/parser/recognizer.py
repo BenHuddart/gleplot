@@ -7922,7 +7922,8 @@ class _Recognizer:
                 self._note(
                     ImportCategory.DATA,
                     f"{sl.text.strip()!r} in the begin contour block for "
-                    f"{zfile!r} is not modelled and was dropped on re-save",
+                    f"{zfile!r} is not modelled and is not written back on "
+                    "save; add it to the saved file by hand if you need it",
                     (sl.line_no, sl.line_no),
                 )
 
@@ -8072,10 +8073,14 @@ class _Recognizer:
         Recovers the ``.z`` file it reads and the explicit ``values`` list
         (``None`` when a bare block using GLE's default 10 levels), and lists
         under ``dropped`` the other non-blank lines, which are not rewritten.
+        A ``data`` or ``values`` line it cannot read whole (``values from a
+        to b step s`` among them), or a repeated one, keeps the block as
+        written.
         """
         zfile = None
-        levels = None
+        levels: Optional[List[float]] = None
         dropped: List[SourceLine] = []
+        seen: Set[str] = set()
         for sl in node.inner_lines:
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
@@ -8085,24 +8090,20 @@ class _Recognizer:
             kw = toks[0].value.lower()
             if kw not in ("data", "values"):
                 dropped.append(sl)
-            elif kw == "data" and len(toks) >= 2:
+                continue
+            if kw in seen or len(toks) < 2:
+                return None
+            seen.add(kw)
+            if kw == "data":
                 zfile, _ = self._read_filename(toks, 1)
-            elif kw == "values":
-                # Only the explicit ``values v1 v2 ...`` form is modeled;
-                # ``values from a to b step s`` stays a foreign block.
-                if len(toks) >= 2 and toks[1].value.lower() == "from":
+                continue
+            levels = []
+            k = 1
+            while k < len(toks):
+                v, k = _collect_value(toks, k)
+                if v is None:
                     return None
-                vals: List[float] = []
-                k = 1
-                while k < len(toks):
-                    v, nxt = _collect_value(toks, k)
-                    if v is None:
-                        k += 1
-                        continue
-                    vals.append(v)
-                    k = nxt
-                if vals:
-                    levels = vals
+                levels.append(v)
         if zfile is None:
             return None
         return {"zfile": zfile, "levels": levels, "dropped": dropped}
