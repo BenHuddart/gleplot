@@ -1340,6 +1340,33 @@ def _pop_line_alias(kwargs: dict, caller: str, alias: str, name: str, value, def
     return short
 
 
+def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
+    """``(linewidths, linestyles)`` after matplotlib's singular aliases.
+
+    ``contour`` and ``tricontour`` share this. The plural wins when it is
+    not left at its default, else the first alias given; a later name of
+    the same pair warns. Consumes ``kwargs``: what is left warns too.
+    """
+    resolved = []
+    for plural, value, default, aliases in (
+        ("linewidths", linewidths, 1.0, ("linewidth", "lw")),
+        ("linestyles", linestyles, "-", ("linestyle", "ls")),
+    ):
+        given = value is not None and not (np.ndim(value) == 0 and value == default)
+        winner = plural if given else None
+        for alias in aliases:
+            short = kwargs.pop(alias, None)
+            if short is None:
+                continue
+            if winner is None:
+                value, winner = short, alias
+            else:
+                warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
+        resolved.append(value)
+    warn_unsupported_keywords(name, kwargs)
+    return resolved[0], resolved[1]
+
+
 _MPL_CAPSTYLES = {"butt": "butt", "round": "round", "projecting": "square"}
 _MPL_JOINSTYLES = {"miter": "mitre", "round": "round", "bevel": "bevel"}
 
@@ -7692,9 +7719,10 @@ class Axes:
         -----
         As in matplotlib, ``linewidth`` (``lw``) and ``linestyle`` (``ls``)
         are accepted for ``linewidths`` and ``linestyles``. Other matplotlib
-        keywords (``alpha``, ``cmap``, ``extend``, ...) warn and are ignored.
+        keywords (``alpha``, ``extent``, ``origin``, ...) warn and are
+        ignored; pass ``x`` and ``y`` to place the grid.
         """
-        linewidths, linestyles = self._contour_line_keywords(
+        linewidths, linestyles = _contour_line_keywords(
             "contour", linewidths, linestyles, kwargs
         )
         label = self._text(label)
@@ -7828,23 +7856,6 @@ class Axes:
             return [float(v) for v in np.linspace(zmin, zmax, n + 2)[1:-1]]
         return [float(v) for v in levels]
 
-    @staticmethod
-    def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
-        """``(linewidths, linestyles)`` after matplotlib's singular aliases.
-
-        Consumes ``kwargs``: what is left after the aliases warns.
-        """
-        for alias in ("linewidth", "lw"):
-            linewidths = _pop_line_alias(
-                kwargs, name, alias, "linewidths", linewidths, 1.0
-            )
-        for alias in ("linestyle", "ls"):
-            linestyles = _pop_line_alias(
-                kwargs, name, alias, "linestyles", linestyles, "-"
-            )
-        warn_unsupported_keywords(name, kwargs)
-        return linewidths, linestyles
-
     @_cartesian_only
     def tripcolor(
         self,
@@ -7949,7 +7960,7 @@ class Axes:
         The remaining keyword arguments are as for :meth:`contour`, aliases
         included; others warn and are ignored.
         """
-        linewidths, linestyles = self._contour_line_keywords(
+        linewidths, linestyles = _contour_line_keywords(
             "tricontour", linewidths, linestyles, kwargs
         )
         label = self._text(label)

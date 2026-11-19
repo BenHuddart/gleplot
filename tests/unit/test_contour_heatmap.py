@@ -1290,3 +1290,10 @@ def test_contour_plural_wins_over_its_alias():
     with pytest.warns(UserWarning, match="both linewidths and lw; linewidths wins"):
         ax.contour(_GRID, linewidths=3, lw=2)
     assert ax.contours[0]["linewidth"] == 3
+
+
+def test_contour_second_alias_of_a_pair_warns_and_loses():
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning, match="both linewidth and lw; linewidth wins"):
+        ax.contour(_GRID, linewidth=2, lw=3)
+    assert ax.contours[0]["linewidth"] == 2

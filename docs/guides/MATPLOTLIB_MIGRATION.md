@@ -291,9 +291,10 @@ Every other keyword, such as `alpha`, `norm` or `aspect`, warns and is
 ignored: a GLE colormap is opaque and one per axes (see "One Heatmap Per
 Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
 `contour` and `tricontour` take matplotlib's `linewidth` (`lw`) and
-`linestyle` (`ls`) for `linewidths` and `linestyles`; their other keywords
-(`alpha`, `cmap`, `extend`, ...) warn and are ignored. A misspelt keyword
-warns the same way.
+`linestyle` (`ls`) for `linewidths` and `linestyles`. Their other keywords
+warn and are ignored, among them `extent` and `origin`: pass the grid's
+coordinates, `contour(x, y, Z)`, to place it. A misspelt keyword warns the
+same way.
 
 ## Line caps and joins
 
