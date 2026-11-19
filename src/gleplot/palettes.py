@@ -42,7 +42,9 @@ Every name also has a reversed form with ``_r`` appended, as in matplotlib
 name, draw it reversed too: the forward body with ``z = 1-z`` first, or, for a
 stepped (qualitative) map, its colours listed backwards. GLE's
 ``colormap ... invert`` switch flips the normalized z in the same way but only
-for the image, and gleplot already exposes it as ``imshow(invert=True)``.
+for the image, and gleplot already exposes it as ``imshow(invert=True)``; the
+colorbar of an inverted image draws the reversed palette instead (see
+:func:`colorbar_cmap`).
 ``gray_r`` and ``rainbow_r`` have no built-in switch to fall back on, so they
 are subs too, reproducing GLE's grayscale ramp and its ``color`` rainbow.
 
@@ -351,6 +353,19 @@ def palette_call_name(cmap: str) -> str:
     if c == "rainbow":
         return "color"
     return f"gleplot_{c}"
+
+
+def colorbar_cmap(cmap: str, invert: bool) -> str:
+    """The cmap a colorbar draws for an image in ``cmap``.
+
+    GLE's ``colormap ... invert`` flips only the image, so the bar of an
+    inverted image draws the reversed palette (``viridis`` <-> ``viridis_r``)
+    to match it. Without ``invert`` it is ``cmap`` unchanged.
+    """
+    if not invert:
+        return cmap
+    c = canonical_cmap(cmap)
+    return c[:-2] if c.endswith("_r") else c + "_r"
 
 
 # ---------------------------------------------------------------------------

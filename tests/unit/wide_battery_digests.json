@@ -45,6 +45,7 @@
  "golden:heatmap_brewer_palettes": "fddea1c858089aae1f38849a89da43d8c9fc02716f088dec01b8e1456bf9005b",
  "golden:heatmap_reversed_palettes": "9ff50799224f253d3b934323c8bce68b3b0fb7edbee5143baf0c88a88e7d7f7b",
  "golden:heatmap_field_options": "04ad00b7bd686c20965d9fb3218b2222ddc6b101ac32fd12657e096d4e03d2ab",
+ "golden:heatmap_inverted_colorbars": "88c70ccba0eb86b59b779eeb039a8a55aed090fe8eb9411e7fbe80071f338176",
  "golden:heatmap_grid_colorbars": "0faa49259ae6568efd169e485bdfa04be6511d1acbf8347ba8476b637b5084f7",
  "golden:heatmap_pcolormesh": "31b27d488fc20a655b92187dbd5061f6f5583b8261bd65339bcc40c34af00659",
  "golden:heatmap_contourf": "cfb6f35fdb3ceac69b0630c2cdd439542f11435740228ff46bbd03dddede066e",

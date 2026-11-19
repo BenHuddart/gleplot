@@ -3299,6 +3299,11 @@ class Figure:
                     used_cmaps.add(hm["cmap"])
             for hm in _colorbar_holders(ax, resolution):
                 cb = hm.get("colorbar")
+                if cb and hm.get("invert"):
+                    # The reversed palette add_colorbar draws (colorbar_cmap).
+                    bar_cmap = _pal.colorbar_cmap(hm["cmap"], True)
+                    if _pal.cmap_needs_sub(bar_cmap):
+                        used_cmaps.add(bar_cmap)
                 if cb and cb.get("orientation") == "horizontal":
                     any_colorbar_h = True
                 elif cb:

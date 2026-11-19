@@ -2671,10 +2671,14 @@ class Axes:
             middle x of the window (GLE ``deresolve N average``). Needs
             ``deresolve``.
         xmin, xmax, ymin, ymax : float, optional
-            Clip window for this series in data coordinates (GLE's ``dN
-            xmin ... ymax``): nothing is drawn outside it. An omitted edge
-            is open. ``xmin`` must be below ``xmax``, ``ymin`` below
-            ``ymax``.
+            This series' own data range (GLE's ``dN xmin ... ymax``): it is
+            drawn as if its x axis ran from ``xmin`` to ``xmax`` and its y
+            axis from ``ymin`` to ``ymax``, and nothing outside that range
+            is drawn. This rescales the series; it is not a clip window. The
+            tick labels keep the axis' own range, so they no longer read
+            off this series. An omitted edge is the limit of the axis the
+            series is drawn against. ``xmin`` must be below ``xmax``,
+            ``ymin`` below ``ymax``.
         **kwargs
             Additional matplotlib-compatible arguments. ``lw``, ``ls``,
             ``c`` and ``ms`` are matplotlib's short names for
@@ -4445,7 +4449,7 @@ class Axes:
         **kwargs
             Passed to :meth:`plot`, which owns ``mdist``, ``deresolve``,
             ``deresolve_average`` and the ``xmin`` / ``xmax`` / ``ymin`` /
-            ``ymax`` clip window.
+            ``ymax`` data range.
 
         Returns
         -------
@@ -7242,7 +7246,8 @@ class Axes:
         pixels : int or (px, py), optional
             Bitmap resolution. Default from graph config ``colormap_pixels``.
         invert : bool
-            Invert the colour mapping.
+            Invert the colour mapping. A colorbar for this image draws the
+            reversed palette to match.
         label : str, optional
             Series label (not drawn by the colormap itself; kept so an
             application can list the series by name).
@@ -7343,7 +7348,8 @@ class Axes:
         pixels : int or (px, py), optional
             Bitmap resolution, as for :meth:`imshow`.
         invert : bool
-            Invert the colour mapping.
+            Invert the colour mapping. A colorbar for this image draws the
+            reversed palette to match.
         label : str, optional
             Series label (not drawn by the colormap itself).
 

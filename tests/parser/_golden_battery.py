@@ -772,6 +772,22 @@ def heatmap_field_options():
     return fig
 
 
+def heatmap_inverted_colorbars():
+    """Colorbars of inverted images draw the reversed palette.
+
+    A vertical bar for an inverted ``viridis_r`` image (forward ``viridis``
+    bar) and a horizontal one for an inverted ``gray`` image (a
+    ``gleplot_gray_r`` sub).
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    Z = np.arange(12, dtype=float).reshape(3, 4)
+    hm = left.imshow(Z, extent=(0, 4, 0, 3), cmap="viridis_r", invert=True)
+    fig.colorbar(hm, ax=left)
+    hm = right.imshow(Z, extent=(0, 4, 0, 3), cmap="gray", invert=True)
+    fig.colorbar(hm, ax=right, orientation="horizontal")
+    return fig
+
+
 def heatmap_brewer_palettes():
     """ColorBrewer cmaps: an interpolated diverging ramp and a stepped set."""
     fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
@@ -1129,7 +1145,7 @@ def line_field_options():
 
 
 def dataset_qualifiers():
-    """GLE's ``mdist``, ``deresolve [average]`` and clip-window qualifiers.
+    """GLE's ``mdist``, ``deresolve [average]`` and data-range qualifiers.
 
     On a marked line, a line, a scatter, and a line and an errorbar file
     reference. File references get them only from a recovered script, so
@@ -1182,7 +1198,7 @@ def scatter_per_point_sizes():
     """Per-point marker sizes (GLE ``mdata`` through a generated marker sub).
 
     ``s`` and ``markersize`` arrays, two marker shapes sharing nothing, an
-    offset, the top axis and a clip window, and a size of 0.
+    offset, the top axis and a data range, and a size of 0.
     """
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1206,7 +1222,7 @@ def scatter_per_point_colours():
     """Per-point colours (GLE ``mdata`` through a generated colour sub).
 
     Values with explicit limits (a negative ``vmin``, values outside them),
-    the default limits on the top axis with an offset and a clip window,
+    the default limits on the top axis with an offset and a data range,
     equal limits on a built-in palette, and a colour sequence.
     """
     fig = glp.figure(data_prefix="golden")
@@ -1817,6 +1833,7 @@ BUILDERS = [
     heatmap_imshow_colorbar,
     heatmap_grid_colorbars,
     heatmap_field_options,
+    heatmap_inverted_colorbars,
     heatmap_brewer_palettes,
     heatmap_reversed_palettes,
     heatmap_pcolormesh,
