@@ -184,10 +184,10 @@ def _subplots_sharey_adjust():
 
 def _subplots_grid():
     fig, axes = glp.subplots(2, 2, data_prefix="fig")
-    axes[0].plot([1, 2, 3], [1, 2, 3])
-    axes[1].scatter([1, 2, 3], [3, 2, 1], marker="o")
-    axes[2].bar([1, 2, 3], [2, 4, 6], color="red")
-    axes[3].errorbar([1, 2, 3], [1, 2, 3], yerr=0.2, capsize=3)
+    axes[0, 0].plot([1, 2, 3], [1, 2, 3])
+    axes[0, 1].scatter([1, 2, 3], [3, 2, 1], marker="o")
+    axes[1, 0].bar([1, 2, 3], [2, 4, 6], color="red")
+    axes[1, 1].errorbar([1, 2, 3], [1, 2, 3], yerr=0.2, capsize=3)
     fig.subplots_adjust(hspace=0.4, wspace=0.4)
     return fig
 

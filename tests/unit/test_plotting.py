@@ -1,5 +1,6 @@
 """Unit tests for plotting functionality."""
 
+import re
 import tempfile
 import warnings
 from pathlib import Path
@@ -1415,6 +1416,15 @@ class TestErrorbarFromFile:
         series = self.ax.file_series[0]
         assert series["yaxis"] == "y2"
 
+    def test_errorbar_from_file_takes_the_data_range(self, recwarn):
+        self.ax.errorbar_from_file(str(self.data_path), 1, 2, 3, xmin=0.5, ymax=12)
+        assert not recwarn.list
+        series = self.ax.file_series[0]
+        assert (series["xmin"], series["ymax"]) == (0.5, 12.0)
+        assert "xmax" not in series
+        with pytest.raises(ValueError, match="ymin must be less than ymax"):
+            self.ax.errorbar_from_file(str(self.data_path), 1, 2, ymin=3, ymax=1)
+
     def test_errorbar_from_file_with_capsize(self):
         """Test errorbar_from_file with capsize parameter."""
         self.ax.errorbar_from_file(
@@ -1970,6 +1980,38 @@ class TestDatasetQualifiers:
             self.ax.errorbar([0, 1], [0, 1], yerr=0.1, deresolve=2)
         assert len(self.ax.errorbars) == 2
         assert "deresolve" not in self.ax.errorbars[1]
+
+    @pytest.mark.parametrize(
+        "kwargs, match",
+        [
+            ({"ymin": 100}, "only ymin = 100, .* missing ymax from the y axis limit 9"),
+            ({"xmax": -1}, "only xmax = -1, .* missing xmin from the x axis limit 0"),
+        ],
+    )
+    def test_a_lone_edge_past_the_axis_limit_warns_at_save(self, kwargs, match):
+        """GLE fills the other edge from the axis limit: an empty range."""
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], **kwargs)
+        with pytest.warns(UserWarning, match=match):
+            self.fig._generate_gle()
+
+    def test_a_non_positive_edge_on_a_log_axis_warns_at_save(self):
+        self.ax.plot([1, 2], [1, 10], ymin=0, ymax=20)
+        self.ax.set_yscale("log")
+        with pytest.warns(UserWarning, match="y edge 0 on the log y axis"):
+            self.fig._generate_gle()
+
+    def test_a_lone_edge_past_a_log_axis_limit_warns_at_save(self):
+        self.ax.plot([1, 2], [1, 10], ymin=1000)
+        self.ax.set_yscale("log")
+        self.ax.set_ylim(1, 100)
+        with pytest.warns(UserWarning, match="only ymin = 1000"):
+            self.fig._generate_gle()
+
+    def test_a_range_gle_can_draw_does_not_warn(self, recwarn):
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], ymin=100, ymax=200)
+        self.ax.plot([0, 1, 2, 3], [0, 1, 4, 9], ymin=2)
+        self.fig._generate_gle()
+        assert not recwarn.list
 
 
 class TestHistogram:
@@ -2687,17 +2729,16 @@ class TestDerived:
         assert "xaxis min 0 max 5" in self._script()
 
 
-def test_add_plot_line_keywords_reach_the_emitted_line():
-    """The deprecated keyword form of ``GLEWriter.add_line`` warns and maps
-    every argument to its field."""
+def test_add_line_writes_every_field():
+    from gleplot.series import LineSeries
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter()
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_plot_line\(\)"):
-        writer.add_plot_line(
-            [0, 1, 2],
-            [1, 2, 3],
-            "k.dat",
+    writer.add_line(
+        LineSeries(
+            x=[0, 1, 2],
+            y=[1, 2, 3],
+            data_file="k.dat",
             color="RED",
             linestyle="--",
             linewidth=2,
@@ -2712,12 +2753,19 @@ def test_add_plot_line_keywords_reach_the_emitted_line():
             smooth_mode="smoothm",
             svg_smooth=2,
         )
-    with pytest.warns(
-        DeprecationWarning, match=r"GLEWriter\.add_plot_line\(\)"
-    ) as record:
-        writer.add_plot_line([0, 1, 2], [1, 2, 3], "s.dat", line_mode="steps")
-    # Attributed to the caller's line, not to gleplot's.
-    assert record[0].filename == __file__
+    )
+    writer.add_line(
+        LineSeries(
+            x=[0, 1, 2],
+            y=[1, 2, 3],
+            data_file="s.dat",
+            color="BLUE",
+            linestyle="-",
+            linewidth=1.0,
+            label=None,
+            line_mode="steps",
+        )
+    )
     assert writer.lines_gle == [
         "    data k.dat d1=c1,c2",
         "    let d2 = d1+1.5",
@@ -2728,18 +2776,16 @@ def test_add_plot_line_keywords_reach_the_emitted_line():
     ]
 
 
-def test_add_errorbar_keywords_reach_the_emitted_dataset():
-    """The keyword form of ``GLEWriter.add_errorbar_series`` maps every
-    argument to its field (``capsize`` to ``gle_capsize``); gleplot itself no
-    longer calls it, so the mapping is pinned here."""
+def test_add_errorbar_series_writes_every_field():
+    from gleplot.series import ErrorbarSeries
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter()
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_errorbar\(\)"):
-        writer.add_errorbar(
-            [0, 1, 2],
-            [1, 2, 3],
-            "e.dat",
+    writer.add_errorbar_series(
+        ErrorbarSeries(
+            x=[0, 1, 2],
+            y=[1, 2, 3],
+            data_file="e.dat",
             color="RED",
             linestyle=":",
             linewidth=2,
@@ -2750,12 +2796,13 @@ def test_add_errorbar_keywords_reach_the_emitted_dataset():
             yerr_down=np.array([0.3, 0.2, 0.1]),
             xerr_left=np.array([0.1, 0.1, 0.1]),
             xerr_right=np.array([0.1, 0.1, 0.1]),
-            capsize=0.25,
+            gle_capsize=0.25,
             yaxis="y2",
             xaxis="x2",
             offset=2.0,
             column_names=["x", "e", "up", "down", "xe"],
         )
+    )
     assert writer.lines_gle == [
         "    data e.dat d1=c1,c2 d2=c1,c3 d3=c1,c4 d4=c1,c5",
         "    let d5 = d1+2",
@@ -2766,20 +2813,18 @@ def test_add_errorbar_keywords_reach_the_emitted_dataset():
     assert writer.data_files["e.dat"].splitlines()[0] == "x e up down xe"
 
 
-def test_add_bar_chart_keywords_reach_the_emitted_bar():
-    """The keyword form of ``GLEWriter.add_bar`` maps every argument to its
-    field (``heights`` to ``height``); gleplot itself no longer calls it, so
-    the mapping is pinned here."""
+def test_add_bar_writes_every_field():
+    from gleplot.series import BarSeries
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter()
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_bar_chart\(\)"):
-        writer.add_bar_chart(
-            [1, 2],
-            [5, 3],
-            "a.dat",
-            ["RED", "RED"],
-            "a",
+    writer.add_bar(
+        BarSeries(
+            x=[1, 2],
+            height=[5, 3],
+            data_file="a.dat",
+            colors=["RED", "RED"],
+            label="a",
             column_names=["x", "a"],
             width=0.3,
             swatch_color="GREEN",
@@ -2791,17 +2836,19 @@ def test_add_bar_chart_keywords_reach_the_emitted_bar():
             horiz=True,
             dist=0.4,
         )
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_bar_chart\(\)"):
-        writer.add_bar_chart(
-            [1, 2],
-            [1, 1],
-            "b.dat",
-            ["WHITE"],
-            None,
+    )
+    writer.add_bar(
+        BarSeries(
+            x=[1, 2],
+            height=[1, 1],
+            data_file="b.dat",
+            colors=["WHITE"],
+            label=None,
             bottom=[5, 3],
             top=[6, 4],
             lstyle="9",
         )
+    )
     assert writer.lines_gle == [
         "    data a.dat d1=c1,c2",
         "    bar d1 fill RED,BLUE color BLACK,GRAY lstyle 3 lwidth 0.05292"
@@ -2813,18 +2860,17 @@ def test_add_bar_chart_keywords_reach_the_emitted_bar():
     assert writer.data_files == {"a.dat": "x a\n1 5\n2 3\n", "b.dat": "1 5 6\n2 3 4\n"}
 
 
-def test_add_fill_between_keywords_reach_the_emitted_fill():
-    """The keyword form of ``GLEWriter.add_fill`` maps every argument to its
-    field; gleplot itself no longer calls it, so the mapping is pinned here."""
+def test_add_fill_writes_every_field():
+    from gleplot.series import FillSeries
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter()
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_fill_between\(\)"):
-        writer.add_fill_between(
-            [0, 1],
-            [2, 3],
-            [1, 1],
-            "a.dat",
+    writer.add_fill(
+        FillSeries(
+            x=[0, 1],
+            y1=[2, 3],
+            y2=[1, 1],
+            data_file="a.dat",
             color="GREEN",
             alpha=1.0,
             offset=0.5,
@@ -2834,18 +2880,20 @@ def test_add_fill_between_keywords_reach_the_emitted_fill():
             xmin=0.2,
             xmax=0.8,
         )
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_fill_between\(\)"):
-        writer.add_fill_between(
-            [0, 1],
-            [1, 2],
-            None,
-            "b.dat",
+    )
+    writer.add_fill(
+        FillSeries(
+            x=[0, 1],
+            y1=[1, 2],
+            y2=None,
+            data_file="b.dat",
             color="ORANGE",
             alpha=0.5,
             target="x1",
             ymin=0.5,
             ymax=2.5,
         )
+    )
     assert writer.lines_gle == [
         "    data a.dat d1=c1,c2 d2=c1,c3",
         "    let d3 = d1+0.5",
@@ -2862,16 +2910,15 @@ def test_add_fill_between_keywords_reach_the_emitted_fill():
     }
 
 
-def test_add_histogram_keywords_reach_the_emitted_histogram():
-    """The keyword form of ``GLEWriter.add_hist`` maps every argument to its
-    field; gleplot itself no longer calls it, so the mapping is pinned here."""
+def test_add_hist_writes_every_field():
+    from gleplot.series import HistSeries
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter()
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_histogram\(\)"):
-        writer.add_histogram(
-            [0.1, 0.6],
-            "a.dat",
+    writer.add_hist(
+        HistSeries(
+            samples=[0.1, 0.6],
+            data_file="a.dat",
             histtype="step",
             color="GREEN",
             linestyle=":",
@@ -2883,10 +2930,11 @@ def test_add_histogram_keywords_reach_the_emitted_histogram():
             hist_to=1,
             bins=2,
         )
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_histogram\(\)"):
-        writer.add_histogram(
-            [0.1, 0.6],
-            "b.dat",
+    )
+    writer.add_hist(
+        HistSeries(
+            samples=[0.1, 0.6],
+            data_file="b.dat",
             histtype="stepfilled",
             color="RED",
             label="b",
@@ -2896,6 +2944,7 @@ def test_add_histogram_keywords_reach_the_emitted_histogram():
             edgecolor="BLACK",
             bar_width=0.5,
         )
+    )
     assert writer.lines_gle == [
         "    data a.dat d1=c1,c2",
         "    let d2 = hist d1 from 0 to 1 bins 2",
@@ -2907,20 +2956,17 @@ def test_add_histogram_keywords_reach_the_emitted_histogram():
     ]
 
 
-def test_from_file_keywords_reach_the_emitted_references():
-    """The keyword forms of ``GLEWriter.add_file_series`` map every argument
-    to its field; gleplot itself no longer calls them, so the mapping is
-    pinned here."""
+def test_add_file_series_writes_every_field_of_each_variant():
+    from gleplot.series import FileSeries
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter()
-    with pytest.warns(
-        DeprecationWarning, match=r"GLEWriter\.add_plot_line_from_file\(\)"
-    ):
-        writer.add_plot_line_from_file(
-            "a.dat",
-            1,
-            2,
+    for series in (
+        FileSeries(
+            series_type="line",
+            data_file="a.dat",
+            x_col=1,
+            y_col=2,
             color="GREEN",
             linestyle="--",
             linewidth=2,
@@ -2931,14 +2977,12 @@ def test_from_file_keywords_reach_the_emitted_references():
             markersize=0.2,
             nomiss=True,
             line_mode="steps",
-        )
-    with pytest.warns(
-        DeprecationWarning, match=r"GLEWriter\.add_errorbar_from_file\(\)"
-    ):
-        writer.add_errorbar_from_file(
-            "a.dat",
-            1,
-            2,
+        ),
+        FileSeries(
+            series_type="errorbar",
+            data_file="a.dat",
+            x_col=1,
+            y_col=2,
             yerr_col=3,
             color="RED",
             marker="FSQUARE",
@@ -2947,17 +2991,22 @@ def test_from_file_keywords_reach_the_emitted_references():
             capsize=0.1,
             yaxis="y2",
             xaxis="x2",
-        )
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_bar_from_file\(\)"):
-        writer.add_bar_from_file(
-            "a.dat", 1, 4, color="ORANGE", label="bar", swatch_color="BLACK"
-        )
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_fill_from_file\(\)"):
-        writer.add_fill_from_file(
-            "a.dat",
-            1,
-            2,
-            3,
+        ),
+        FileSeries(
+            series_type="bar",
+            data_file="a.dat",
+            x_col=1,
+            y_col=4,
+            color="ORANGE",
+            label="bar",
+            swatch_color="BLACK",
+        ),
+        FileSeries(
+            series_type="fill",
+            data_file="a.dat",
+            x_col=1,
+            y1_col=2,
+            y2_col=3,
             color="GRAY10",
             label="band",
             swatch_color="GRAY20",
@@ -2965,9 +3014,17 @@ def test_from_file_keywords_reach_the_emitted_references():
             xmax=1.5,
             ymin=0,
             ymax=2,
-        )
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_fill_from_file\(\)"):
-        writer.add_fill_from_file("a.dat", 1, 2, color="BLUE", target="x2")
+        ),
+        FileSeries(
+            series_type="fill",
+            data_file="a.dat",
+            x_col=1,
+            y1_col=2,
+            color="BLUE",
+            target="x2",
+        ),
+    ):
+        writer.add_file_series(series)
     assert writer.lines_gle == [
         "    data a.dat d1=c1,c2",
         "    d1 line steps nomiss color GREEN lwidth 0.07056 lstyle 3 "
@@ -3001,36 +3058,36 @@ def test_a_two_curve_file_fill_without_its_second_column_raises():
     assert writer.lines_gle == []
 
 
-def test_add_text_keywords_reach_the_emitted_text():
-    """The keyword form of ``GLEWriter.add_text_annotation`` maps every
-    argument to its field (``halign``/``valign`` to ``ha``/``va``); gleplot
-    itself no longer calls it, so the mapping is pinned here."""
+def test_add_text_annotation_writes_every_field():
+    from gleplot.series import TextAnnotation
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter()
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_text\(\)"):
-        writer.add_text(
-            1,
-            2,
-            "plain",
+    writer.add_text_annotation(
+        TextAnnotation(
+            x=1,
+            y=2,
+            text="plain",
             color="RED",
             fontsize=14,
-            halign="right",
-            valign="top",
+            ha="right",
+            va="top",
             box_color="YELLOW",
             rotation=30,
         )
-    with pytest.warns(DeprecationWarning, match=r"GLEWriter\.add_text\(\)"):
-        writer.add_text(
-            3,
-            4,
-            "arrow",
+    )
+    writer.add_text_annotation(
+        TextAnnotation(
+            x=3,
+            y=4,
+            text="arrow",
             xy=[5, 6],
             arrow="->",
             arrowstyle="filled",
             arrow_color="BLUE",
             arrow_linewidth=2,
         )
+    )
     writer.end_graph()
     assert writer.lines_gle == [
         "end graph",
@@ -3120,6 +3177,37 @@ def test_other_line_calls_reject_a_bad_linewidth_by_their_own_name(name, draw):
     ax = glp.figure().add_subplot(111)
     with pytest.raises(ValueError, match=rf"{name}\(\) linewidth must be"):
         draw(ax)
+
+
+@pytest.mark.parametrize(
+    "draw, error, shown",
+    [
+        (lambda ax: ax.axhline(float("nan")), ValueError, "axhline(y=...) must be"),
+        (lambda ax: ax.axvline(float("inf")), ValueError, "axvline(x=...) must be"),
+        (lambda ax: ax.axvline("mid"), TypeError, "axvline(x=...) must be a number"),
+        (lambda ax: ax.axvspan(float("nan"), 1), ValueError, "axvspan(xmin=...)"),
+        (lambda ax: ax.axhspan(0, float("inf")), ValueError, "axhspan(ymax=...)"),
+    ],
+)
+def test_a_reference_line_position_must_be_a_finite_number(draw, error, shown):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(error, match=re.escape(shown)):
+        draw(ax)
+    assert ax.reflines == [] and ax.spans == []
+
+
+@pytest.mark.parametrize(
+    "draw, shown",
+    [
+        (lambda bax: bax.axhline(float("nan")), "axhline(y=...)"),
+        (lambda bax: bax.axhspan(0, float("nan")), "axhspan(ymax=...)"),
+    ],
+)
+def test_a_broken_y_axis_guide_position_must_be_a_finite_number(draw, shown):
+    fig = glp.figure()
+    bax = fig.add_broken_yaxes(ylims=[(0, 1), (2, 3)])
+    with pytest.raises(ValueError, match=re.escape(shown)):
+        draw(bax)
 
 
 @pytest.mark.parametrize("no_line", ["none", "None", "", " "])

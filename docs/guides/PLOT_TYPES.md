@@ -243,7 +243,13 @@ A rug marks each value with a short tick on the frame: on the bottom, top or
 both edges for `axis='x'`, on the left, right or both for `axis='y'`. The
 ticks are `length` cm long (0.3 by default) and point into the axes; a
 negative length points out, as GLE's tick lengths do. Matplotlib has no rug,
-so `Axes.rug` is gleplot's own.
+so `Axes.rug` is gleplot's own. The values are written to a data file and
+drawn by `xrug`/`yrug` from GLE's include library (`rugs.gle`, see
+[GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library)).
+The values widen the autoscaled range, so every tick is on the frame unless
+you set a narrower limit: a value outside it still gets a tick, outside the
+frame. On an inverted axis, the bottom and left edges are the ones at the axis
+minimum.
 
 ## Polar plots
 
