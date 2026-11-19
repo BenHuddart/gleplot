@@ -318,3 +318,88 @@ def test_plain_scatter_is_untouched():
         warnings.simplefilter("error")
         ax.scatter(X, Y, color="red")
     assert "gleplot_cdata" not in _script(ax)[0]
+
+
+# --------------------------------------------------------------------------- #
+# colorbar
+# --------------------------------------------------------------------------- #
+
+
+def test_colorbar_shows_the_scatter_range():
+    ax = _ax()
+    ax.scatter(X, Y, c=[3, 1, 2], vmin=0, vmax=300)
+    cb = ax.figure.colorbar(label="T (K)")
+    assert ax.scatters[0]["colorbar"] is cb
+    assert (cb["zmin"], cb["zmax"], cb["zstep"]) == (0.0, 300.0, 60.0)
+    text, _files = _script(ax)
+    assert "sub gleplot_colorbar_v" in text
+    assert (
+        "end graph\n"
+        "amove xg(xgmax)+0.3 yg(ygmin)\n"
+        'gleplot_colorbar_v zmin 0 zmax 300 zstep 60 palette "gleplot_viridis" '
+        'wd 0.5 hi yg(ygmax)-yg(ygmin) format "fix 1" label "T (K)"'
+    ) in text
+
+
+def test_colorbar_makes_room_beside_the_scatter():
+    plain, barred = _ax(), _ax()
+    for ax in (plain, barred):
+        ax.scatter(X, Y, c=[1, 2, 3])
+    barred.figure.colorbar()
+    width = [
+        float(_script(ax)[0].split("    size ", 1)[1].split()[0])
+        for ax in (plain, barred)
+    ]
+    assert width[1] < width[0]
+
+
+def test_colorbar_on_ax_takes_the_last_mapped_scatter_and_moves():
+    ax = _ax()
+    ax.scatter(X, Y, c=[1, 2, 3])
+    ax.scatter(X, Y, color="red")
+    ax.scatter(X, Y, c=[4, 5, 6], cmap="magma")
+    fig = ax.figure
+    fig.colorbar(ax=ax)
+    assert [("colorbar" in s) for s in ax.scatters] == [False, False, True]
+    fig.colorbar(ax=ax, orientation="horizontal")
+    text, _files = _script(ax)
+    assert text.count("gleplot_colorbar_h zmin 4 zmax 6") == 1
+    assert "gleplot_colorbar_v zmin" not in text
+
+
+def test_a_heatmap_keeps_the_bar_on_its_axes():
+    ax = _ax()
+    ax.imshow(np.arange(4.0).reshape(2, 2))
+    ax.scatter(X, Y, c=[1, 2, 3])
+    ax.figure.colorbar(ax=ax)
+    assert "colorbar" not in ax.scatters[0]
+    assert ax.heatmaps[0]["colorbar"] is not None
+
+
+def test_colorbar_is_ambiguous_across_axes_until_ax_picks_one():
+    fig, (a, b) = glp.subplots(1, 2)
+    a.scatter(X, Y, c=[1, 2, 3])
+    b.scatter(X, Y, c=[1, 2, 3], cmap="gray")
+    with pytest.raises(ValueError, match="more than one axes"):
+        fig.colorbar()
+    fig.colorbar(ax=b)
+    text, _files = fig._generate_gle_with_files()
+    assert 'palette "gray"' in text
+
+
+def test_colorbar_needs_a_mapped_scatter():
+    ax = _ax()
+    ax.scatter(X, Y, color="red")
+    with pytest.raises(ValueError, match="colour-mapped scatter"):
+        ax.figure.colorbar(ax=ax)
+    with pytest.raises(TypeError, match="For a scatter, pass its axes as ax="):
+        ax.figure.colorbar(ax)
+
+
+def test_a_scatter_colorbar_survives_to_dict():
+    ax = _ax()
+    ax.scatter(X, Y, c=[1, 2, 3])
+    fig = ax.figure
+    fig.colorbar(orientation="horizontal", label="v")
+    restored = glp.Figure.from_dict(fig.to_dict())
+    assert restored._generate_gle_with_files() == fig._generate_gle_with_files()

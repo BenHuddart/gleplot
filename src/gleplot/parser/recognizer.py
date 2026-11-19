@@ -307,7 +307,7 @@ from ..guides import (
     REFLINE_LAYER,
     SPAN_LAYER,
 )
-from ..palettes import canonical_cmap
+from ..palettes import canonical_cmap, palette_call_name
 from ..series import (
     _DATASET_NAME_RE,
     BarSeries,
@@ -8450,9 +8450,27 @@ class _Recognizer:
         thickness, length = ("hi", "wd") if horizontal else ("wd", "hi")
         args = self._named_args(toks[1:], expr_arg=length)
         heatmaps = axes_info.get("heatmaps") or []
-        if not heatmaps:
+        # Without a heatmap, the bar is a colour-mapped scatter's: the last
+        # one drawn in the bar's palette (only one carries a bar per axes).
+        holders = (
+            heatmaps[:1]
+            or [
+                sc
+                for sc in axes_info.get("scatters") or []
+                if "cdata" in sc
+                and palette_call_name(sc["cmap"]) == args.get("palette")
+            ][-1:]
+        )
+        if not holders:
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"a {toks[0].value} call was dropped: its axes has no heatmap or "
+                f"colour-mapped scatter in palette {args.get('palette')!r} to "
+                "attach it to",
+                None,
+            )
             return
-        hm = heatmaps[0]
+        hm = holders[0]
         cb = {
             "label": args.get("label") or None,
             "format": args.get("format") or "fix 1",

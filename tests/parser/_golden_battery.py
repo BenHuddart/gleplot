@@ -1168,6 +1168,23 @@ def scatter_per_point_colours():
     return fig
 
 
+def scatter_colorbars():
+    """A colorbar on each of two colour-mapped scatters.
+
+    A vertical bar on the last of two mapped scatters in one axes, and a
+    horizontal bar on a built-in palette with its own label, width and gap.
+    """
+    fig, (a, b) = glp.subplots(1, 2, data_prefix="golden")
+    a.scatter([0, 1, 2], [1, 2, 3], c=[1, 2, 3], cmap="magma")
+    a.scatter([0, 1, 2], [3, 2, 1], c=[-4, 0, 9.5], vmin=-5, vmax=10)
+    fig.colorbar(ax=a, label="T (K)", nticks=3)
+    b.scatter([0, 1, 2], [1, 2, 3], c=[10, 20, 30], cmap="gray", marker="s")
+    fig.colorbar(
+        ax=b, orientation="horizontal", label="v", format="fix 0", width=0.3, sep=1.2
+    )
+    return fig
+
+
 def fill_forms():
     """Axis fill, a clipped band, and a closed polygon."""
     fig = glp.figure(data_prefix="golden")
@@ -1734,6 +1751,7 @@ BUILDERS = [
     scatter_field_options,
     scatter_per_point_sizes,
     scatter_per_point_colours,
+    scatter_colorbars,
     fill_forms,
     fill_field_options,
     fill_orientations,
