@@ -296,3 +296,49 @@ def test_config_dataclasses_have_no_mutable_fields():
                 "shallow-copies it, so Figure/GLEWriter would still share "
                 "it by reference."
             )
+
+
+@pytest.mark.parametrize(
+    "value, error", [("full", ValueError), ("Auto", ValueError), (None, TypeError)]
+)
+def test_an_unknown_scale_mode_raises(value, error):
+    with pytest.raises(error, match="scale_mode must be 'auto' or 'fullsize'"):
+        GLEGraphConfig(scale_mode=value)
+    graph = GLEGraphConfig()
+    with pytest.raises(error, match="scale_mode"):
+        graph.scale_mode = value
+
+
+def test_a_saved_unknown_scale_mode_loads_as_auto_with_a_warning():
+    fig = glp.figure(data_prefix="f")
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    saved = fig.to_dict()
+    saved["figure"]["config"]["graph"]["scale_mode"] = "full"
+    with pytest.warns(UserWarning, match="read as 'auto'"):
+        loaded = glp.Figure.from_dict(saved)
+    assert loaded.graph.scale_mode == "auto"
+
+
+def test_scale_mode_fixed_warns_and_writes_what_auto_writes(tmp_path):
+    with pytest.warns(UserWarning, match="scale_mode='fixed' has no effect"):
+        fixed = glp.figure(graph=GLEGraphConfig(scale_mode="fixed"), data_prefix="f")
+    auto = glp.figure(data_prefix="f")
+    scripts = []
+    for fig in (fixed, auto):
+        fig.add_subplot(111).plot([0, 1], [0, 1])
+        out = tmp_path / "fig.gle"
+        fig.savefig(str(out))
+        scripts.append(out.read_text())
+    assert scripts[0] == scripts[1]
+
+
+def test_a_fixed_global_scale_mode_warns_once_when_set(recwarn):
+    saved = GlobalConfig.graph.scale_mode
+    try:
+        with pytest.warns(UserWarning, match="scale_mode='fixed'"):
+            GlobalConfig.graph.scale_mode = "fixed"
+        recwarn.clear()
+        glp.figure()
+        assert not recwarn.list
+    finally:
+        GlobalConfig.graph.scale_mode = saved

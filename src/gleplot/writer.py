@@ -1898,14 +1898,14 @@ class GLEWriter:
     ):
         """Set graph dimensions and scaling.
 
-        Uses the configured scale_mode (auto, fixed, or fullsize).
+        Uses the configured scale_mode ('auto' or 'fullsize').
 
         Parameters
         ----------
         width_cm : float, optional
-            Graph width in cm. Used if scale_mode is 'fixed' or force_size is True.
+            Graph width in cm. Used if force_size is True.
         height_cm : float, optional
-            Graph height in cm. Used if scale_mode is 'fixed' or force_size is True.
+            Graph height in cm. Used if force_size is True.
         force_size : bool
             If True, always emit the size command regardless of scale_mode.
             This is how every placed graph is emitted: ``size w h`` +
@@ -1928,15 +1928,6 @@ class GLEWriter:
             self.lines_gle.append(
                 "    scale 1 1"
             )  # Fill entire graph box for tight subplot layout
-        elif (
-            self.graph.scale_mode == "fixed"
-            and width_cm is not None
-            and height_cm is not None
-        ):
-            self.lines_gle.append(
-                f"    size {self._format_number(width_cm)} {self._format_number(height_cm)}"
-            )
-            self.lines_gle.append("    scale 1 1")
         elif self.graph.scale_mode == "fullsize":
             self.lines_gle.append("    fullsize")
         else:  # 'auto' - default
