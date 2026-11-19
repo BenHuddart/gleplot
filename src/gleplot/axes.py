@@ -1460,6 +1460,13 @@ def _curve_crossing(x0, diff0, x1, diff1):
     return float(x0 + frac * (x1 - x0))
 
 
+#: The ``fill_between`` keywords ``stackplot`` passes on to every layer.
+_STACKPLOT_BAND_KEYWORDS = frozenset(
+    {"alpha", "where", "interpolate", "step", "offset", "data_name"}
+    | {"xmin", "xmax", "ymin", "ymax"}
+)
+
+
 def _where_windows(x, y1, y2, where, interpolate: bool):
     """GLE clip windows for a matplotlib ``where`` mask.
 
@@ -4770,7 +4777,6 @@ class Axes:
                 "fill_betweenx() takes where= or a ymin/ymax clip, not both"
             )
 
-        label = self._text(label)
         y_arr = np.asarray(y, dtype=float)
         if y_arr.ndim != 1:
             raise ValueError("fill_betweenx() y must be 1-dimensional")
@@ -4779,7 +4785,6 @@ class Axes:
         n = int(y_arr.size)
         x1_arr = _as_curve("x1", x1, n)
         x2_arr = _as_curve("x2", x2, n)
-        gle_color = "LIGHTBLUE" if color is None else rgb_to_gle(color)
 
         if where is None:
             windows: List[dict] = [dict(clip)]
@@ -4808,21 +4813,15 @@ class Axes:
         vertex_x = np.concatenate([x1_arr, x2_arr[::-1]])
         vertex_y = np.concatenate([y_arr, y_arr[::-1]])
         for index, window in enumerate(windows):
-            fill_data = FillSeries(
-                x=vertex_x,
-                y1=vertex_y,
-                y2=None,
-                color=gle_color,
-                alpha=float(alpha),
+            self.fill(
+                vertex_x,
+                vertex_y,
+                color=color,
+                alpha=alpha,
                 label=label if index == 0 else None,
-                offset=0.0,
-                target="polygon",
-                data_file=_resolve_data_file(self.figure, data_name),
-                column_names=_unique_column_names(["x", "y"]),
+                data_name=data_name,
                 **window,
             )
-            self._register_series_draw_meta(fill_data, "fill")
-            self.fills.append(fill_data)
         return self
 
     @_cartesian_only
@@ -4920,24 +4919,43 @@ class Axes:
             first_line = center - 0.5 * total
             stack += first_line
 
-        # As in matplotlib, a facecolor (or color) keyword replaces ``colors``.
-        face = None
-        for key in ("facecolor", "fc", "color"):
-            value = kwargs.pop(key, None)
-            if face is None:
-                face = value
+        # As in matplotlib, a facecolor keyword replaces ``colors``. ``color``
+        # is an alias here, and wins over facecolor as on fill_between.
+        face = kwargs.pop("facecolor", None)
+        if face is None:
+            face = kwargs.pop("fc", None)
+        if "color" in kwargs:
+            if face is not None:
+                warn_external("stackplot() got both color and facecolor; color wins.")
+            face = kwargs.pop("color")
         if face is not None:
-            single = isinstance(face, str) or (
-                np.ndim(face) == 1
-                and all(isinstance(v, (int, float, np.number)) for v in face)
-            )
-            colors = [face] if single else face
+            colors = face
         if colors is None:
             colors = [f"C{i}" for i in range(10)]
+        elif isinstance(colors, str) or (
+            np.ndim(colors) == 1
+            and len(colors) > 0
+            and all(isinstance(v, (int, float, np.number)) for v in colors)
+        ):
+            colors = [tuple(colors) if np.ndim(colors) else colors]
         else:
-            colors = list(colors)
+            # Rows of an RGB(A) array (a colormap sample) are tuples, the
+            # colour form rgb_to_gle reads.
+            colors = [tuple(c) if np.ndim(c) == 1 else c for c in colors]
             if not colors:
                 raise ValueError("stackplot() colors must not be empty, got []")
+        if y.ndim != 2 or y.shape[1] != np.size(x):
+            raise ValueError(
+                f"stackplot() each layer must have one value per x ({np.size(x)}), "
+                f"got layers of shape {y.shape}"
+            )
+        unknown = sorted(set(kwargs) - _STACKPLOT_BAND_KEYWORDS)
+        if unknown:
+            warn_external(
+                f"stackplot() ignores unsupported keyword(s): {', '.join(unknown)}."
+            )
+            for name in unknown:
+                kwargs.pop(name)
         label_iter = iter(labels)
         lower = [first_line] + [stack[i, :] for i in range(len(y) - 1)]
         added: List[FillSeries] = []

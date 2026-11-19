@@ -754,6 +754,26 @@ class TestFillBetween:
             bands = self.ax.stackplot([0, 1], [1, 1], [1, 1], fc="red", hatch="//")
         assert [b["color"] for b in bands] == ["RED", "RED"]
 
+    @pytest.mark.parametrize(
+        "colors",
+        ["red", (1, 0, 0), np.array([1.0, 0.0, 0.0]), np.array([[1.0, 0, 0]] * 2)],
+    )
+    def test_stackplot_reads_a_single_colour_or_an_rgb_array(self, colors):
+        bands = self.ax.stackplot([0, 1], [1, 1], [1, 1], colors=colors)
+        assert {b["color"] for b in bands} <= {"RED", "rgb255(255,0,0)"}
+
+    def test_stackplot_color_wins_over_facecolor_with_a_warning(self):
+        with pytest.warns(UserWarning, match="color wins"):
+            bands = self.ax.stackplot([0, 1], [1, 1], color="red", facecolor="b")
+        assert bands[0]["color"] == "RED"
+
+    def test_stackplot_names_its_own_arguments(self):
+        with pytest.raises(ValueError, match=r"stackplot\(\) each layer"):
+            self.ax.stackplot([0, 1, 2], [1, 2])
+        with pytest.warns(UserWarning, match=r"stackplot\(\) ignores .*edgecolor"):
+            self.ax.stackplot([0, 1], [1, 1], edgecolor="k", alpha=0.5)
+        assert self.ax.fills[0]["alpha"] == 0.5
+
     def test_figure_and_module_wrappers_reach_the_current_axes(self):
         assert self.fig.fill_betweenx([0, 1], [1, 1], 2) is self.ax
         assert len(self.fig.stackplot([0, 1], [1, 1])) == 1

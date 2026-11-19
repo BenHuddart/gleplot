@@ -196,7 +196,7 @@ ax.fill_between(x, y, y2, alpha=0.3, color='blue')
 ax.fill_between(x, y, where=(x > 5))
 ax.fill_between(x, y, baseline='x1')
 ax.fill(x, y, alpha=0.4)
-ax.fill_betweenx(x, y, y2, alpha=0.3)
+ax.fill_betweenx(depth, lo, hi, alpha=0.3)
 ax.stackplot(x, y, y2, labels=['a', 'b'])
 ```
 
