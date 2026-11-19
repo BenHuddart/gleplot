@@ -750,6 +750,27 @@ def _line_width(caller: str, linewidth: Any) -> Any:
     return linewidth if isinstance(linewidth, Real) else width
 
 
+def _stroked(linestyle: Any, linewidth: Any) -> Any:
+    """``linestyle``, or ``'none'`` for a zero ``linewidth``.
+
+    matplotlib's ``lw=0`` draws no stroke. GLE has no zero-width stroke
+    (``lwidth 0`` is its thinnest line, and the writer reads 0 as the
+    style's default width), so the dataset is written without its line, as
+    for ``linestyle='none'``.
+    """
+    return "none" if linewidth == 0 else linestyle
+
+
+def _warn_unstrokable_zero(caller: str, linewidth: float) -> None:
+    """Warn that a curve that is only its line cannot take ``lw=0``."""
+    if linewidth == 0:
+        warn_external(
+            f"{caller}() cannot leave out the line it draws, and GLE has no "
+            "zero-width stroke; linewidth=0 is drawn at the default width. "
+            "Leave the call out to draw nothing."
+        )
+
+
 def _count(value: Any, what: str) -> int:
     """``value`` as a positive whole number; ``what`` is ``"method(name"``."""
     number = _finite_float(value, f"{what}=...)")
@@ -2699,7 +2720,7 @@ class Axes:
             Marker size (matplotlib convention, 1-100)
         linewidth : float or None
             Line width in points, finite and 0 or more; ``None`` means the
-            default width.
+            default width. 0 draws no line, as ``linestyle='none'`` does.
         label : str, optional
             Legend label
         yaxis : str, optional
@@ -2793,6 +2814,7 @@ class Axes:
         linestyle = _line_style(caller, linestyle)
         # 1 is the writer's "style default" (see GLEWriter.add_line).
         linewidth = _line_width(caller, linewidth)
+        linestyle = _stroked(linestyle, linewidth)
         marker_fill = _pop_marker_fill(kwargs, caller, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
@@ -2850,10 +2872,12 @@ class Axes:
         # off there is nothing for it to qualify, and storing it would not
         # survive a round trip (the writer emits no ``line`` token).
         if mode and linestyle in _NO_LINE:
-            warn_external(
-                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
-                "omits it, so the series is drawn without that mode.",
-            )
+            if linewidth != 0:  # lw=0 asked for no stroke: the mode goes too
+                warn_external(
+                    f"line mode {mode!r} needs a drawn line; "
+                    f"linestyle={linestyle!r} omits it, so the series is drawn "
+                    "without that mode.",
+                )
             mode = None
 
         # Handle color. Which style default applies depends on what this
@@ -3271,6 +3295,7 @@ class Axes:
             if style_name == "step":
                 fields["linestyle"] = _line_style("hist", one_ls)
                 fields["linewidth"] = float(_line_width("hist", one_lw))
+                _warn_unstrokable_zero("hist", fields["linewidth"])
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
             else:
@@ -3919,6 +3944,7 @@ class Axes:
         fields["color"] = self._resolve_color(color)
         fields["linestyle"] = linestyle
         fields["linewidth"] = float(_line_width(caller, linewidth))
+        _warn_unstrokable_zero(caller, fields["linewidth"])
         if label is not None:
             fields["label"] = self._text(str(label))
         return fields
@@ -4078,7 +4104,7 @@ class Axes:
             Marker size (matplotlib convention, 1-100)
         linewidth : float or None
             Line width in points, finite and 0 or more; ``None`` means the
-            default width.
+            default width. 0 draws no line, as ``linestyle='none'`` does.
         label : str, optional
             Legend label
         capsize : float, optional
@@ -4256,6 +4282,7 @@ class Axes:
 
         # 1 is the writer's "style default" (see GLEWriter.add_errorbar_series).
         linewidth = _line_width("errorbar", linewidth)
+        parsed_linestyle = _stroked(parsed_linestyle, linewidth)
 
         errbar_data = ErrorbarSeries(
             type="errorbar",
@@ -4390,7 +4417,7 @@ class Axes:
         is no line for it to qualify. The series is still a line reference;
         this method has no scatter form. ``linewidth`` is in points, finite
         and 0 or more, and ``None`` is the default width, as for
-        :meth:`plot`.
+        :meth:`plot`; 0 draws no line, as ``linestyle='none'`` does.
 
         ``skiprows`` skips that many leading lines of the file, ``comment``
         replaces GLE's comment marker ``!``, and ``max_rows`` stops after
@@ -4404,14 +4431,17 @@ class Axes:
         label = self._text(label)
         gle_color = self._resolve_color(color)
         linestyle = _line_style("line_from_file", linestyle)
+        width = float(_line_width("line_from_file", linewidth))
+        linestyle = _stroked(linestyle, width)
         mode = resolve_line_mode(drawstyle, line_mode)
         if mode and linestyle in _NO_LINE:
-            warn_external(
-                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
-                "omits it, so the series is drawn without that mode.",
-            )
+            if width != 0:  # lw=0 asked for no stroke: the mode goes too
+                warn_external(
+                    f"line mode {mode!r} needs a drawn line; "
+                    f"linestyle={linestyle!r} omits it, so the series is drawn "
+                    "without that mode.",
+                )
             mode = None
-        width = float(_line_width("line_from_file", linewidth))
 
         fields = dict(
             series_type="line",
@@ -5829,7 +5859,7 @@ class Axes:
                 styles[i % len(styles)],
                 width_list[i % len(width_list)],
             )
-            if key[1] == "none":
+            if key[1] == "none" or key[2] == 0:  # 0 draws no stroke
                 continue
             groups.setdefault(key, []).append(i)
 
@@ -5929,7 +5959,7 @@ class Axes:
             and is drawn solid.
         linewidth : float
             Line width in points, finite and 0 or more. ``None`` is the
-            default width.
+            default width; 0 draws no line.
         label : str, optional
             Legend label.
         **kwargs
@@ -5991,6 +6021,7 @@ class Axes:
         linewidth = _line_width(
             caller, _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
         )
+        linestyle = _stroked(linestyle, linewidth)
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)

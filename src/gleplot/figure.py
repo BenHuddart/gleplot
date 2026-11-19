@@ -2563,16 +2563,19 @@ class Figure:
             compile behaviour (and its written ``.gle`` text -- the flag is
             compile-time only, never script-time) is completely unchanged.
             Pass ``True``/``False`` to force the flag either way. Ignored
-            when ``format`` is ``'gle'`` (no compile happens).
+            when ``format`` is ``'gle'`` (no compile happens). An ``'svg'``
+            is always compiled with the flag, and ``False`` warns: GLE draws
+            SVG through Cairo anyway, and without the flag it leaves out text
+            in a PostScript font.
 
-            When Cairo ends up active (auto or forced) and this figure's
+            When Cairo ends up active (auto, forced or SVG) and this figure's
             configured font (:attr:`style`'s ``font``) is not one of GLE's
             Cairo-safe fonts, a :class:`UserWarning` naming why Cairo is on
-            (the figure's semi-transparent colours, or ``cairo=True``) is
-            raised: GLE itself substitutes a Cairo-safe font in that case (see
-            :mod:`gleplot.cairo_support`), and SPEC's "no silent drops" rule
-            means that substitution must never happen without gleplot saying
-            so.
+            (the figure's semi-transparent colours, ``cairo=True`` or SVG
+            output) is raised: GLE itself substitutes a Cairo-safe font in
+            that case (see :mod:`gleplot.cairo_support`), and SPEC's "no
+            silent drops" rule means that substitution must never happen
+            without gleplot saying so.
         data_provider : DataProvider, optional
             Supplies the tables that ``ColumnRef``/``GridRef`` series
             reference (:mod:`gleplot.sources`). Injected **here**, at write
@@ -2740,25 +2743,30 @@ class Figure:
                     "Install GLE or use savefig_gle() to save script only."
                 )
 
-            effective_cairo = self.requires_cairo() if cairo is None else cairo
-            why = (
-                "figure requires Cairo for its semi-transparent colours"
-                if cairo is None
-                else "cairo=True was requested"
-            )
-            # GLE's Cairo device, which SVG always uses, draws nothing for
-            # the 'postscript' command.
-            if (effective_cairo or format.lower() == "svg") and any(
+            # SVG is always compiled with -cairo (build_compile_args).
+            svg = format.lower() == "svg"
+            if svg and cairo is False:
+                warn_external(
+                    "cairo=False has no effect on an SVG: GLE draws SVG with "
+                    "its Cairo device, and gleplot passes -cairo so text in a "
+                    "PostScript font is drawn. Save as PDF or EPS to compile "
+                    "without Cairo."
+                )
+            effective_cairo = svg or (self.requires_cairo() if cairo is None else cairo)
+            if svg:
+                why = "SVG output is drawn by GLE's Cairo device"
+            elif cairo is None:
+                why = "figure requires Cairo for its semi-transparent colours"
+            else:
+                why = "cairo=True was requested"
+            # GLE's Cairo device draws nothing for the 'postscript' command.
+            if effective_cairo and any(
                 image_sub_name(image["file"]) == "gleplot_postscript"
                 for ax in self.axes_list
                 for image in ax.images
                 if is_visible(image)
             ):
-                reason = (
-                    "in SVG output"
-                    if format.lower() == "svg"
-                    else f"with GLE's Cairo device ({why})"
-                )
+                reason = "in SVG output" if svg else f"with GLE's Cairo device ({why})"
                 warn_external(
                     f"image(...) EPS files are not drawn {reason}; convert the "
                     "image to PNG, or save as PDF, EPS or PNG without Cairo."
