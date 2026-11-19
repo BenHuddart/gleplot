@@ -1940,7 +1940,7 @@ def test_a_qualifier_on_a_contour_line_is_reported(tmp_path):
     )
     rec = parse_gle_figure(path)
     assert len(rec.figure.axes_list[0].contours) == 1
-    assert any("deresolve on a contour" in w for w in rec.warnings)
+    assert any("'deresolve' on a contour" in w for w in rec.warnings)
 
 
 def test_marker_config_mdist_comes_back_on_the_series(tmp_path):
