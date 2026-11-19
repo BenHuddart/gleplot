@@ -474,6 +474,17 @@ def subplots_spanning():
     return fig
 
 
+def inset_axes():
+    """An inset over the left panel of a shared-y pair, unshared itself."""
+    fig, (left, right) = glp.subplots(1, 2, sharey=True, data_prefix="golden")
+    left.plot([1, 2, 3], [1, 4, 9])
+    right.plot([1, 2, 3], [9, 4, 1])
+    inset = fig.add_axes([0.2, 0.55, 0.2, 0.25])
+    inset.plot([10, 20], [100, 200], color="red")
+    inset.set_title("zoom")
+    return fig
+
+
 def file_series():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1605,6 +1616,7 @@ BUILDERS = [
     subplots_sharex_with_colored_text,
     subplots_grid_mixed,
     subplots_spanning,
+    inset_axes,
     file_series,
     file_series_field_options,
     file_series_read_options,

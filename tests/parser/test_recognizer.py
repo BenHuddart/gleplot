@@ -1053,8 +1053,19 @@ def test_spanning_subplots_are_recovered(tmp_path):
     assert not any(w.startswith("layout:") for w in rec.warnings)
 
 
+def test_inset_is_recovered_outside_the_grid(tmp_path):
+    """A graph inside another's frame comes back as an add_axes inset."""
+    _gleplot_axes._global_data_file_counter = 0
+    gle_path = tmp_path / "inset.gle"
+    golden.inset_axes().savefig_gle(str(gle_path))
+    rec = parse_gle_figure(gle_path)
+    positions = [ax.position for ax in rec.figure.axes_list]
+    assert positions == [(1, 2, 1), (1, 2, 2), None]
+    assert not any(w.startswith("layout:") for w in rec.warnings)
+
+
 def test_graphs_that_do_not_tile_a_grid_fall_back(tmp_path):
-    """Overlapping frames are no grid with spans: n x 1 fallback + warning."""
+    """Frames that overlap without nesting: n x 1 fallback + warning."""
     graph = (
         "amove {x} {y}\n"
         "begin graph\n"
@@ -1066,7 +1077,7 @@ def test_graphs_that_do_not_tile_a_grid_fall_back(tmp_path):
     src = (
         "size 20 15\n"
         + graph.format(x=2, y=2, w=16, h=11)
-        + graph.format(x=10, y=8, w=6, h=4)
+        + graph.format(x=10, y=8, w=10, h=4)
         + graph.format(x=2, y=13, w=4, h=1)
     )
     p = _write(tmp_path, "overlap.gle", src, {"g_1.dat": "1 1\n2 2\n"})

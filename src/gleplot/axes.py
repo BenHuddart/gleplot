@@ -1878,6 +1878,8 @@ class Axes:
         position : tuple
             Subplot position ``(rows, cols, index)``; ``index`` is an int, or
             a ``(first, last)`` tuple for an axes spanning several cells.
+            ``None`` for an axes outside the grid, placed by its
+            :attr:`placement` (:meth:`gleplot.Figure.add_axes`).
         """
         self.figure = figure
         self.position = position

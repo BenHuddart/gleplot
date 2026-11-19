@@ -361,6 +361,74 @@ class TestSubplots:
         assert restored.axes_list[0].position == (2, 2, (1, 2))
         assert restored.to_dict() == payload
 
+    def test_add_axes_places_the_frame_in_figure_fractions(self):
+        fig = glp.figure(figsize=(10 / 2.54, 5 / 2.54))
+        inset = fig.add_axes([0.5, 0.2, 0.4, 0.6])
+        assert inset.position is None
+        assert inset.placement == pytest.approx((5.0, 1.0, 4.0, 3.0))
+        assert fig.gca() is inset
+        inset.plot([1, 2], [1, 2])
+        gle = fig._generate_gle()
+        assert self._extract_amove_points(gle) == [(5.0, 1.0)]
+        assert self._extract_sizes(gle)[1] == (4.0, 3.0)
+
+    def test_add_axes_inset_leaves_the_grid_alone(self):
+        """The grid, its margins and its sharing ignore an inset."""
+
+        def build(with_inset):
+            fig, (left, right) = glp.subplots(1, 2, sharex=True, sharey=True)
+            left.plot([0, 1], [0, 1])
+            right.plot([0, 2], [0, 3])
+            if with_inset:
+                inset = fig.add_axes([0.2, 0.5, 0.2, 0.3])
+                inset.plot([10, 20], [100, 200])
+                inset.set_title("inset")
+            return fig._generate_gle()
+
+        plain, with_inset = build(False), build(True)
+        assert self._extract_amove_points(with_inset)[:2] == (
+            self._extract_amove_points(plain)
+        )
+        assert self._extract_sizes(with_inset)[:3] == self._extract_sizes(plain)
+        blocks = with_inset.split("begin graph")
+        assert "ylabels off" in blocks[2]
+        inset_block = blocks[3]
+        assert "xaxis min 10 max 20" in inset_block
+        assert "labels off" not in inset_block
+
+    @pytest.mark.parametrize(
+        "rect, error",
+        [
+            ([0.1, 0.1, 0.3], TypeError),
+            ("abcd", TypeError),
+            ([0.1, 0.1, float("nan"), 0.3], ValueError),
+            ([0.1, 0.1, 0.0, 0.3], ValueError),
+            ([0.1, 0.1, 0.3, -0.3], ValueError),
+        ],
+    )
+    def test_add_axes_bad_rect_raises(self, rect, error):
+        with pytest.raises(error, match="rect"):
+            glp.figure().add_axes(rect)
+
+    def test_add_axes_axes_properties_warn(self):
+        with pytest.warns(UserWarning, match="ignores facecolor"):
+            glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], facecolor="w")
+
+    def test_add_axes_polar(self):
+        inset = glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], polar=True)
+        with pytest.raises(NotImplementedError):
+            inset.set_xlim(0, 1)
+
+    def test_add_axes_round_trips_through_to_dict(self):
+        fig, ax = glp.subplots()
+        ax.plot([1, 2], [1, 2])
+        fig.add_axes([0.5, 0.5, 0.3, 0.3]).plot([1, 2], [2, 1])
+        payload = fig.to_dict()
+        restored = Figure.from_dict(json.loads(json.dumps(payload)))
+        assert restored.axes_list[1].position is None
+        assert restored.to_dict() == payload
+        assert restored._generate_gle() == fig._generate_gle()
+
     def test_subplot_savefig(self, tmp_path):
         """Test saving multi-subplot figure."""
         fig, axes = glp.subplots(1, 2)

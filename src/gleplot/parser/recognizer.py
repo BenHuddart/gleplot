@@ -9036,8 +9036,7 @@ class _Recognizer:
         positions = self._infer_positions(parsed_axes)
 
         for idx, info in enumerate(parsed_axes):
-            rows, cols, one_based = positions[idx]
-            ax = Axes(fig, (rows, cols, one_based))
+            ax = Axes(fig, positions[idx])
             self._populate_axes(ax, info)
             fig._apply_shared_axes_flags(ax)
             # Restore explicit visibility flags recovered from GLE (override
@@ -9240,7 +9239,38 @@ class _Recognizer:
         )
         return stmts[0].raw == expected
 
-    def _infer_positions(self, parsed_axes) -> List[tuple]:
+    def _infer_positions(self, parsed_axes) -> List[Optional[tuple]]:
+        """Infer (rows, cols, idx) per axes; ``None`` for an inset.
+
+        A graph whose frame rect lies inside another graph's is an inset
+        (:meth:`Figure.add_axes`); the grid is inferred from the others.
+        """
+        rects = [self._frame_rect(info) for info in parsed_axes]
+        inset = [
+            a is not None
+            and any(
+                b is not None and _rect_inside(a, b) and not _rect_inside(b, a)
+                for b in rects
+            )
+            for a in rects
+        ]
+        grid = iter(
+            self._infer_grid_positions(
+                [info for info, is_inset in zip(parsed_axes, inset) if not is_inset]
+            )
+        )
+        return [None if is_inset else next(grid) for is_inset in inset]
+
+    def _frame_rect(self, info) -> Optional[Tuple[float, float, float, float]]:
+        """``(x0, y0, x1, y1)`` of a graph placed by ``amove`` + size + scale 1 1."""
+        size = self._invertible_triple(info.get("geometry_stmts") or [])
+        amove = info.get("amove")
+        if size is None or amove is None:
+            return None
+        x, y = amove
+        return (x, y, x + size[0], y + size[1])
+
+    def _infer_grid_positions(self, parsed_axes) -> List[tuple]:
         """Infer (rows, cols, idx) per axes from recovered amove positions."""
         n = len(parsed_axes)
         if n <= 1:
@@ -9303,11 +9333,10 @@ class _Recognizer:
         """
         rects = []
         for info in parsed_axes:
-            size = self._invertible_triple(info.get("geometry_stmts") or [])
-            if size is None:
+            rect = self._frame_rect(info)
+            if rect is None:
                 return None
-            x, y = info["amove"]
-            rects.append((x, y, x + size[0], y + size[1]))
+            rects.append(rect)
 
         cols_ = _grid_bands([r[0] for r in rects], [r[2] for r in rects])
         rows_ = _grid_bands([r[3] for r in rects], [r[1] for r in rects], reverse=True)
@@ -9916,6 +9945,16 @@ def _cluster(values, tol=0.5, reverse=False):
     # representative = mean of each cluster
     reps = [sum(c) / len(c) for c in clusters]
     return reps
+
+
+def _rect_inside(inner, outer, tol=1e-3) -> bool:
+    """True if rect ``inner`` lies within ``outer`` (both ``(x0, y0, x1, y1)``)."""
+    return (
+        inner[0] >= outer[0] - tol
+        and inner[1] >= outer[1] - tol
+        and inner[2] <= outer[2] + tol
+        and inner[3] <= outer[3] + tol
+    )
 
 
 def _grid_bands(starts, ends, reverse=False):
