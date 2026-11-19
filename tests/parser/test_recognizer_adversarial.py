@@ -791,6 +791,43 @@ def test_constant_error_on_shared_file_reference_keeps_dataset_defined(tmp_path)
     assert out2.read_text(encoding="utf-8") == text1
 
 
+def test_raw_dataset_names_are_not_reused_by_written_series(tmp_path):
+    """#275: series written next to a raw ``dN`` line take other names.
+
+    The raw ``d1`` comes first in the source, so numbering the modelled line
+    from ``d1`` would redefine it, and so would a line plotted after loading.
+    """
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "a.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d1 marker fcircle err 0.5\n"
+        "   d2 line color red\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "raw.gle", src, {"a.dat": "0 1 2\n1 2 3\n2 3 2\n"})
+    fig = parse_gle_figure(p).figure
+    ax = fig.axes_list[0]
+    assert ax.passthrough[-1] == "   d1 marker fcircle err 0.5"
+
+    out1 = tmp_path / "out1.gle"
+    fig.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+    assert "    d2 line color red" in text1
+    assert text1.count("d1=") == 1
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == text1
+
+    ax.plot([0, 1], [1, 0])
+    out3 = tmp_path / "out3.gle"
+    fig.savefig_gle(str(out3))
+    text3 = out3.read_text(encoding="utf-8")
+    assert text3.count("d1=") == 1
+    assert "    d3 line color red" in text3
+
+
 def test_constant_error_on_own_file_reference_restores_data_line(tmp_path):
     """#133: a file read only by raw error-bar lines keeps its ``data`` line."""
     src = (

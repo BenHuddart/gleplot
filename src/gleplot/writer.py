@@ -1509,6 +1509,10 @@ class GLEWriter:
         self.dataset_index = (
             1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         )
+        # Dataset numbers the raw GLE kept in the current graph block uses;
+        # _new_dataset skips them. GLE clears its datasets at 'begin graph',
+        # so only names inside the same block can collide.
+        self._reserved_datasets: Set[int] = set()
         # id of each series written as one dataset -> the raw (unshifted) name
         # it was given, for the ``let`` of a DerivedSeries that reads it.
         self._dataset_names: Dict[int, str] = {}
@@ -3015,6 +3019,35 @@ class GLEWriter:
                 self.add_data_file(filename, shared.columns, shared.header())
         self._shared_sidecars.clear()
 
+    def reserve_datasets(self, raw_lines: Sequence[str]) -> None:
+        """Keep the next graph block's datasets off the ``dN`` names
+        *raw_lines* use.
+
+        *raw_lines* is the raw GLE kept in that block (``Axes.passthrough``).
+        Replaces the previous block's reservations.
+
+        Notes
+        -----
+        The datasets a raw ``let`` reads are not reserved: a fit gleplot
+        cannot model stays raw and reads the dataset of a series that is
+        still written, under the name it had in the source.
+        """
+        reserved: Set[int] = set()
+        for line in raw_lines:
+            words = line.split(None, 1)
+            if words and words[0].lower() == "let":
+                line = line.split("=", 1)[0]
+            reserved.update(int(m[1:]) for m in _DATASET_NAME_RE.findall(line))
+        self._reserved_datasets = reserved
+
+    def _new_dataset(self) -> str:
+        """Name a fresh dataset: the next ``dN`` that raw GLE does not use."""
+        while self.dataset_index in self._reserved_datasets:
+            self.dataset_index += 1
+        name = f"d{self.dataset_index}"
+        self.dataset_index += 1
+        return name
+
     def _apply_offset(self, source_name: str, offset: float) -> str:
         """Emit a ``let`` command that shifts *source_name* vertically by *offset*.
 
@@ -3031,8 +3064,7 @@ class GLEWriter:
         ``let d2 = d1+5`` works, so the operator is glued to its operands. A
         negative offset is emitted as ``d1-5`` (not ``d1+-5``).
         """
-        shifted = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        shifted = self._new_dataset()
         mag = self._format_number(abs(offset))
         sign = "-" if offset < 0 else "+"
         self.lines_gle.append(f"    let {shifted} = {source_name}{sign}{mag}")
@@ -3191,8 +3223,7 @@ class GLEWriter:
         file_name = binding.data_file if binding is not None else data_file
 
         # Generate plot command with unique dataset name
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         self._dataset_names[id(series)] = d_name
 
         cmd = (
@@ -3394,8 +3425,7 @@ class GLEWriter:
             )
             values = self._as_missing(values, unmapped)
         d_name, d_values = self._mdata_data_line(series, binding, x, y, ("c", values))
-        d_mapped = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_mapped = self._new_dataset()
         low = self._format_number(float(series["vmin"]))
         high = self._format_number(float(series["vmax"]))
         # ``d2--5`` would not parse, so a negative vmin flips the operator.
@@ -3425,9 +3455,8 @@ class GLEWriter:
             binding,
         )
         file_name = binding.data_file if binding is not None else series["data_file"]
-        d_name = f"d{self.dataset_index}"
-        d_extra = f"d{self.dataset_index + 1}"
-        self.dataset_index += 2
+        d_name = self._new_dataset()
+        d_extra = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(file_name)} "
             f"{d_name}=c{cols[0]},c{cols[1]} {d_extra}=c{cols[0]},c{cols[2]}"
@@ -3721,10 +3750,8 @@ class GLEWriter:
         values = np.asarray(samples, dtype=float).ravel()
         index = np.arange(len(values), dtype=float)
         cols = self._write_columns(data_file, [("x", index), ("y", values)], None)
-        source = f"d{self.dataset_index}"
-        self.dataset_index += 1
-        target = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        source = self._new_dataset()
+        target = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{source}=c{cols[0]},c{cols[1]}"
@@ -3818,8 +3845,7 @@ class GLEWriter:
         cols = self._write_columns(
             series["data_file"], [("x", series["x"]), ("y", series["y"])], None
         )
-        source = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        source = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(series['data_file'])} "
             f"{source}=c{cols[0]},c{cols[1]}"
@@ -3923,8 +3949,7 @@ class GLEWriter:
         self, definition: str, series: Series, options: Sequence[str] = ()
     ) -> None:
         """``let dK = <definition> [from a] [to b] [step h] [options]`` and its line."""
-        target = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        target = self._new_dataset()
         self._dataset_names[id(series)] = target
         parts = [f"let {target} = {definition}"]
         for key, word in (("let_from", "from"), ("let_to", "to"), ("let_step", "step")):
@@ -4099,10 +4124,8 @@ class GLEWriter:
                 names,
                 binding,
             )
-            d_from = f"d{self.dataset_index}"
-            self.dataset_index += 1
-            d_name = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            d_from = self._new_dataset()
+            d_name = self._new_dataset()
             self.lines_gle.append(
                 f"    data {_format_data_filename(file_name)} "
                 f"{d_from}=c{cols[0]},c{cols[1]} {d_name}=c{cols[0]},c{cols[2]}"
@@ -4112,8 +4135,7 @@ class GLEWriter:
             cols = self._write_columns(
                 data_file, [("x", x), ("height", heights)], column_names, binding
             )
-            d_name = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            d_name = self._new_dataset()
             self.lines_gle.append(
                 f"    data {_format_data_filename(file_name)} "
                 f"{d_name}=c{cols[0]},c{cols[1]}"
@@ -4187,12 +4209,10 @@ class GLEWriter:
         clause = []
         for slot, origin in zip(to_slots, from_slots):
             if origin is not None:
-                from_name = f"d{self.dataset_index}"
-                self.dataset_index += 1
+                from_name = self._new_dataset()
                 from_names.append(from_name)
                 clause.append(f"{from_name}=c{cols[0]},c{cols[origin]}")
-            to_name = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            to_name = self._new_dataset()
             to_names.append(to_name)
             clause.append(f"{to_name}=c{cols[0]},c{cols[slot]}")
         self.lines_gle.append(
@@ -4553,8 +4573,7 @@ class GLEWriter:
             return cols[local_pos - 1]
 
         # Generate dataset name for main data
-        d_main = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_main = self._new_dataset()
 
         # Build data command with all dataset references
         data_cmd = (
@@ -4567,37 +4586,31 @@ class GLEWriter:
 
         if has_yerr:
             if yerr_symmetric:
-                d_yerr = f"d{self.dataset_index}"
-                self.dataset_index += 1
+                d_yerr = self._new_dataset()
                 data_cmd += f" {d_yerr}=c{cols[0]},c{_c(yerr_up_col)}"
                 err_datasets["yerr"] = d_yerr
             else:
                 if yerr_up_col is not None:
-                    d_yerr_up = f"d{self.dataset_index}"
-                    self.dataset_index += 1
+                    d_yerr_up = self._new_dataset()
                     data_cmd += f" {d_yerr_up}=c{cols[0]},c{_c(yerr_up_col)}"
                     err_datasets["yerr_up"] = d_yerr_up
                 if yerr_down_col is not None:
-                    d_yerr_down = f"d{self.dataset_index}"
-                    self.dataset_index += 1
+                    d_yerr_down = self._new_dataset()
                     data_cmd += f" {d_yerr_down}=c{cols[0]},c{_c(yerr_down_col)}"
                     err_datasets["yerr_down"] = d_yerr_down
 
         if has_xerr:
             if xerr_symmetric:
-                d_xerr = f"d{self.dataset_index}"
-                self.dataset_index += 1
+                d_xerr = self._new_dataset()
                 data_cmd += f" {d_xerr}=c{cols[0]},c{_c(xerr_left_col)}"
                 err_datasets["xerr"] = d_xerr
             else:
                 if xerr_left_col is not None:
-                    d_xerr_left = f"d{self.dataset_index}"
-                    self.dataset_index += 1
+                    d_xerr_left = self._new_dataset()
                     data_cmd += f" {d_xerr_left}=c{cols[0]},c{_c(xerr_left_col)}"
                     err_datasets["xerr_left"] = d_xerr_left
                 if xerr_right_col is not None:
-                    d_xerr_right = f"d{self.dataset_index}"
-                    self.dataset_index += 1
+                    d_xerr_right = self._new_dataset()
                     data_cmd += f" {d_xerr_right}=c{cols[0]},c{_c(xerr_right_col)}"
                     err_datasets["xerr_right"] = d_xerr_right
 
@@ -4771,16 +4784,14 @@ class GLEWriter:
         capsize = series.get("capsize")
         yaxis = series.get("yaxis", "y")
         xaxis = series.get("xaxis", "x")
-        d_main = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_main = self._new_dataset()
 
         data_cmd = (
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"
         )
         d_yerr = None
         if yerr_col is not None:
-            d_yerr = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            d_yerr = self._new_dataset()
             data_cmd += f" {d_yerr}=c{x_col},c{yerr_col}"
         self.lines_gle.append(data_cmd + self._data_read_clause(series))
 
@@ -4881,8 +4892,7 @@ class GLEWriter:
         markersize = series.get("markersize", 0.1)
         nomiss = series.get("nomiss", False)
         line_mode = series.get("line_mode")
-        d_main = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_main = self._new_dataset()
         self._dataset_names[id(series)] = d_main
 
         self.lines_gle.append(
@@ -4962,8 +4972,7 @@ class GLEWriter:
         color = series.get("color", "RED")
         label = series.get("label")
         swatch_color = series.get("swatch_color")
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_name}=c{x_col},c{y_col}"
             + self._data_read_clause(series)
@@ -5065,8 +5074,7 @@ class GLEWriter:
         swatch_color = series.get("swatch_color")
         target = series.get("target")
         clip = {name: series.get(name) for name in ("xmin", "xmax", "ymin", "ymax")}
-        d1_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d1_name = self._new_dataset()
         if target in ("x1", "x2", "polygon"):
             self.lines_gle.append(
                 f"    data {_format_data_filename(data_file)} "
@@ -5081,8 +5089,7 @@ class GLEWriter:
             self._append_fill(head, color, clip)
             self._fill_key(d1_name, color, label, swatch_color, False)
             return
-        d2_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d2_name = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{d1_name}=c{x_col},c{y1_col} {d2_name}=c{x_col},c{y2_col}"
@@ -5215,16 +5222,14 @@ class GLEWriter:
         file_name = binding.data_file if binding is not None else data_file
         clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
 
-        d1_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d1_name = self._new_dataset()
         data_cmd = (
             f"    data {_format_data_filename(file_name)} "
             f"{d1_name}=c{cols[0]},c{cols[1]}"
         )
         d2_name: Optional[str] = None
         if not single:
-            d2_name = f"d{self.dataset_index}"
-            self.dataset_index += 1
+            d2_name = self._new_dataset()
             data_cmd += f" {d2_name}=c{cols[0]},c{cols[2]}"
         self.lines_gle.append(data_cmd)
 
@@ -5527,8 +5532,7 @@ class GLEWriter:
         Returns ``dK``, the dataset to draw. GLE keeps the points in their
         order, so a curve that winds back on itself is drawn as given.
         """
-        target = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        target = self._new_dataset()
         self.lines_gle.append(f"    let {target} = {source}*cos(x),{source}*sin(x)")
         return target
 
@@ -6331,8 +6335,7 @@ class GLEWriter:
         ``cdata_file`` is the ``-cdata.dat`` file GLE generates from the
         contour block; it is plotted as a ``line`` dataset.
         """
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         self.lines_gle.append(f"    data {_quote_filename(cdata_file)} {d_name}=c1,c2")
         if linewidth == 0 or linewidth == 1:
             gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
@@ -6578,8 +6581,7 @@ class GLEWriter:
         difference is that no ``data`` statement ever gives this dataset any
         rows. Returns the dataset name.
         """
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         cmd = f"    {d_name}"
         if linestyle not in ("none", "None", "", " ", None):
             cmd += self._line_token()
@@ -6603,8 +6605,7 @@ class GLEWriter:
         it carries ``keyfill`` and a non-empty ``key``. Returns the dataset
         name. ``color`` is the same token the fill or the span sub uses.
         """
-        d_name = f"d{self.dataset_index}"
-        self.dataset_index += 1
+        d_name = self._new_dataset()
         self.lines_gle.append(
             f"    {d_name} keyfill {color} key {self._quote_gle_key(label)}"
         )

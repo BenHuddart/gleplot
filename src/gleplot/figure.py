@@ -3667,6 +3667,7 @@ class Figure:
         datasets they fall between.
         """
         resolution = resolution or SourceResolution()
+        writer.reserve_datasets(ax.passthrough)
         self._write_axis_setup(writer, ax, frame)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
