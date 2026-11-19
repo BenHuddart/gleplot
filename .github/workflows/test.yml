@@ -96,8 +96,8 @@ jobs:
       GLE_VERSION: v4.3.9
       # Windows Ghostscript: an ArtifexSoftware/ghostpdl-downloads release tag
       # and the SHA-256 of its gs*w64.exe asset.
-      GS_WIN_RELEASE: gs10080
-      GS_WIN_SHA256: 52A91B8BF09298788D7A57B9206127026C23EACD75405F0A131E26DC381DCE50
+      GS_WIN_RELEASE: gs10071
+      GS_WIN_SHA256: 3A4C28D0AAC47AA7CCCD35A5932C55110376E9DBD966898DDE388B7FABA444A4
       # One flag for the pytest invocation, the file check, and the upload.
       COVERAGE: ${{ matrix.os == 'ubuntu-24.04' }}
 
@@ -189,12 +189,15 @@ jobs:
           if (-not (Test-Path $exe)) {
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
             $url = "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$($env:GS_WIN_RELEASE)/$name"
-            Invoke-WebRequest -Uri $url -OutFile $exe
+            Write-Host "Downloading $url"
+            curl.exe --fail --location --silent --show-error --output $exe $url
+            if ($LASTEXITCODE -ne 0) { throw "Download of $name failed" }
           }
           if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $env:GS_WIN_SHA256) {
             Remove-Item $exe
             throw "Ghostscript installer $name does not match GS_WIN_SHA256"
           }
+          Write-Host "Running $name /S"
           $p = Start-Process -FilePath $exe -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) {
             throw "Ghostscript installer exited with code $($p.ExitCode)"
