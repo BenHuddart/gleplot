@@ -240,7 +240,7 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 | `cmap`, `vmin`, `vmax` without numbers to map | warn and are ignored, as in matplotlib. |
 | `norm` | warns and is ignored: colours are always mapped linearly from `vmin` to `vmax`. |
 
-`fig.colorbar()` does not yet take a scatter: it shows a heatmap's colour scale only.
+`fig.colorbar(ax=ax)`, or `fig.colorbar()` when only one axes has something to show, draws a bar for the axes' colour-mapped scatter, from its `vmin` to its `vmax`. matplotlib's `fig.colorbar(sc)` is not available: `scatter` returns the axes, not a mappable. See [Colorbars](#colorbars).
 
 ## Cells
 
@@ -353,12 +353,12 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 
 ## Colorbars
 
-`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned (a `contourf` gets the colormap's continuous scale, with a warning), so each axes of a grid can carry its own bar. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned (a `contourf` gets the colormap's continuous scale, with a warning), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
 
 | `colorbar()` argument | gleplot |
 |---|---|
 | `mappable`, `ax`, `orientation`, `label` | wired. `ax` must be the axes that holds `mappable`; a list of axes is rejected. |
-| `cax` | warns and is ignored. The bar is drawn beside its heatmap's axes. |
+| `cax` | warns and is ignored. The bar is drawn beside its heatmap's or scatter's axes. |
 | `use_gridspec` | accepted. The grid always makes room for the bar. |
 | `format` | a GLE `format$` string such as `'fix 2'`, not a `'%.2f'` format. |
 | `location`, `fraction`, `shrink`, `aspect`, `pad`, `ticks`, `extend` | not accepted. Use `orientation`, `width`, `sep` and `nticks`. |

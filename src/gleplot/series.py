@@ -718,6 +718,10 @@ class ScatterSeries(_XYSeries):
     cmap: str
     vmin: float
     vmax: float
+    #: Colorbar declaration dict of a colour-mapped scatter, as on
+    #: :attr:`HeatmapSeries.colorbar`, with ``zmin``/``zmax`` its ``vmin``
+    #: and ``vmax``. Absent: no colorbar. See :meth:`gleplot.Figure.colorbar`.
+    colorbar: Dict[str, Any]
 
     def default_column_names(self) -> Optional[List[str]]:
         if "mdata" in self:

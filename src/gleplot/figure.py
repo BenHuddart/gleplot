@@ -34,7 +34,13 @@ from .markers import MARKERS
 from .parser import metadata as _gle_metadata
 from .parser.tables import LEGEND_SPACING_TO_KEY
 from .parser.units import fontsize_pt_to_cm, inches_to_cm
-from .series import HeatmapSeries, Series, TextAnnotation, is_visible
+from .series import (
+    HeatmapSeries,
+    ScatterSeries,
+    Series,
+    TextAnnotation,
+    is_visible,
+)
 from .sources import DataSource, source_of
 from .writer import (
     BOX_SUB,
@@ -96,6 +102,20 @@ def _coloured_markers(ax: Axes, resolution: SourceResolution) -> Set[Tuple[str, 
             if marker.upper() in MARKERS and canonical == cmap.lower():
                 found.add((marker.lower(), canonical))
     return found
+
+
+def _colorbar_holders(ax: Axes, resolution: SourceResolution) -> List[Series]:
+    """The series of ``ax`` that may carry a colorbar, in emission order."""
+    return [*resolution.visible(ax.heatmaps), *resolution.visible(ax.scatters)]
+
+
+def _axes_colorbar_holder(ax: Axes) -> Optional[Series]:
+    """The series ``colorbar(ax=ax)`` shows: the axes' heatmap, else its
+    colour-mapped scatter drawn last (matplotlib's current image)."""
+    if ax.heatmaps:
+        return ax.heatmaps[0]
+    mapped = [sc for sc in ax.scatters if "cdata" in sc]
+    return mapped[-1] if mapped else None
 
 
 #: Envelope identifiers for the gleplot project-file format.
@@ -1768,16 +1788,21 @@ class Figure:
         width: float = 0.5,
         sep: Optional[float] = None,
     ):
-        """Attach a colorbar to a heatmap.
+        """Attach a colorbar to a heatmap or a colour-mapped scatter.
 
         Parameters
         ----------
         mappable : HeatmapSeries, optional
             The heatmap the bar shows, as returned by :meth:`Axes.imshow`,
-            :meth:`Axes.pcolormesh` or :meth:`Axes.tripcolor`. Default: the heatmap on ``ax``, or the
-            figure's only heatmap when ``ax`` is not given either.
+            :meth:`Axes.pcolormesh` or :meth:`Axes.tripcolor`. Default: the
+            heatmap on ``ax``, or, on an axes with no heatmap, its
+            colour-mapped scatter (``scatter(c=...)``) drawn last. With no
+            ``ax`` either: the one axes with a heatmap, or, if no axes has
+            one, the one axes with a colour-mapped scatter.
+            :meth:`Axes.scatter` returns the axes, not a mappable, so a
+            scatter's bar is chosen by ``ax``.
         cax : Axes, optional
-            Not supported: GLE draws the bar beside its heatmap's axes, not
+            Not supported: GLE draws the bar beside the axes it belongs to, not
             into another one. Passing it warns and is otherwise ignored.
         ax : Axes, optional
             The axes the bar is drawn beside. It must be the axes holding
@@ -1809,15 +1834,16 @@ class Figure:
         Returns
         -------
         dict
-            The stored colorbar dict (also attached to the heatmap under
-            ``'colorbar'``).
+            The stored colorbar dict (also attached to the heatmap or scatter
+            under ``'colorbar'``).
 
         Raises
         ------
         ValueError
-            If there is no heatmap to show (none on the figure, none on
-            ``ax``, or more than one axes has one and neither ``mappable``
-            nor ``ax`` picks it), if ``mappable`` is not on this figure or
+            If there is nothing to show (no heatmap or colour-mapped scatter
+            on the figure or on ``ax``, or more than one axes has one and
+            neither ``mappable`` nor ``ax`` picks it), if ``mappable`` is not
+            on this figure or
             not on ``ax``, if ``orientation`` is not an accepted value, or
             if the heatmap has neither z data nor explicit ``vmin``/``vmax``
             to derive a colour range from and no reference to resolve one
@@ -1829,7 +1855,9 @@ class Figure:
         -----
         A heatmap carries at most one bar, and each axes at most one
         heatmap, so a grid of heatmaps shows one bar per axes, each on its
-        own scale. The subplot grid makes room for every bar: a vertical bar
+        own scale. A scatter's bar runs from its ``vmin`` to its ``vmax``;
+        a scatter's bar gives way to the next bar called on its axes, so an
+        axes shows one bar. The subplot grid makes room for every bar: a vertical bar
         widens the gap to the right of its column (or the right margin), and
         a horizontal one the gap below its row (or the bottom margin).
 
@@ -1856,34 +1884,42 @@ class Figure:
             )
         if cax is not None:
             warn_external(
-                "colorbar() cax is not supported: GLE draws the bar beside its "
-                "heatmap's axes, so cax is ignored. Pass ax= (or nothing) instead."
+                "colorbar() cax is not supported: GLE draws the bar beside the "
+                "axes of the heatmap or scatter it shows, so cax is ignored. "
+                "Pass ax= (or nothing) instead."
             )
-        hm = self._colorbar_heatmap(mappable, ax)
-        owner = next(a for a in self.axes_list if any(h is hm for h in a.heatmaps))
+        hm, owner = self._colorbar_holder(mappable, ax)
+        # An axes shows one bar: a scatter's bar gives way to the new one.
+        for other in owner.scatters:
+            other.pop("colorbar", None)
 
-        values = hm["z"] if hm["source"] == "grid" else hm["zpts"]
-        have_values = values is not None and np.asarray(values).size > 0
-        zmin = float(hm["vmin"]) if hm["vmin"] is not None else None
-        zmax = float(hm["vmax"]) if hm["vmax"] is not None else None
-        if "levels" in hm:
-            # A contourf colours on the scale of its outer levels.
-            warn_external(
-                "colorbar() of a contourf draws the colormap as a continuous "
-                "scale from vmin to vmax (the first and last level when "
-                "unset), not its bands."
-            )
-            zmin = hm["levels"][0] if zmin is None else zmin
-            zmax = hm["levels"][-1] if zmax is None else zmax
-        if have_values:
-            if zmin is None:
-                zmin = float(np.nanmin(values))
-            if zmax is None:
-                zmax = float(np.nanmax(values))
-        elif hm["source"] == "function":
-            # GLE maps a function colormap from 0 to 1 unless told otherwise.
-            zmin = 0.0 if zmin is None else zmin
-            zmax = 1.0 if zmax is None else zmax
+        zmin: Optional[float]
+        zmax: Optional[float]
+        if isinstance(hm, ScatterSeries):
+            zmin, zmax = float(hm["vmin"]), float(hm["vmax"])
+        else:
+            values = hm["z"] if hm["source"] == "grid" else hm["zpts"]
+            have_values = values is not None and np.asarray(values).size > 0
+            zmin = float(hm["vmin"]) if hm["vmin"] is not None else None
+            zmax = float(hm["vmax"]) if hm["vmax"] is not None else None
+            if "levels" in hm:
+                # A contourf colours on the scale of its outer levels.
+                warn_external(
+                    "colorbar() of a contourf draws the colormap as a continuous "
+                    "scale from vmin to vmax (the first and last level when "
+                    "unset), not its bands."
+                )
+                zmin = hm["levels"][0] if zmin is None else zmin
+                zmax = hm["levels"][-1] if zmax is None else zmax
+            if have_values:
+                if zmin is None:
+                    zmin = float(np.nanmin(values))
+                if zmax is None:
+                    zmax = float(np.nanmax(values))
+            elif hm["source"] == "function":
+                # GLE maps a function colormap from 0 to 1 unless told otherwise.
+                zmin = 0.0 if zmin is None else zmin
+                zmax = 1.0 if zmax is None else zmax
 
         divisions = int(nticks) if nticks else DEFAULT_COLORBAR_NTICKS
 
@@ -1927,8 +1963,13 @@ class Figure:
         hm["colorbar"] = cb
         return cb
 
-    def _colorbar_heatmap(self, mappable, ax: Optional[Axes]):
-        """The heatmap :meth:`colorbar` attaches to, from ``mappable``/``ax``."""
+    def _colorbar_holder(self, mappable, ax: Optional[Axes]) -> Tuple[Series, Axes]:
+        """The heatmap or scatter :meth:`colorbar` attaches to, and its axes.
+
+        With neither ``mappable`` nor ``ax``, the one axes with a heatmap
+        wins, as before scatters could carry a bar; failing that, the one
+        axes with a colour-mapped scatter.
+        """
         if ax is not None and not any(a is ax for a in self.axes_list):
             raise ValueError(
                 "colorbar() ax is not an axes of this figure; call colorbar() "
@@ -1936,30 +1977,39 @@ class Figure:
             )
         if mappable is None:
             if ax is not None:
-                if not ax.heatmaps:
+                holder = _axes_colorbar_holder(ax)
+                if holder is None:
                     raise ValueError(
-                        "colorbar() needs a heatmap on ax: draw one there with "
-                        "ax.imshow(), ax.pcolormesh() or ax.tripcolor() first"
+                        "colorbar() needs a heatmap or a colour-mapped scatter "
+                        "on ax: draw one there with ax.imshow(), "
+                        "ax.pcolormesh(), ax.tripcolor() or "
+                        "ax.scatter(..., c=values) first"
                     )
-                return ax.heatmaps[0]
-            bearing = [a for a in self.axes_list if a.heatmaps]
+                return holder, ax
+            bearing = [a for a in self.axes_list if a.heatmaps] or [
+                a for a in self.axes_list if _axes_colorbar_holder(a)
+            ]
             if not bearing:
                 raise ValueError(
                     "colorbar() requires a heatmap (imshow/pcolormesh/tripcolor/"
-                    "function2d) on some axes"
+                    "function2d) or a colour-mapped scatter "
+                    "(scatter(..., c=values)) on some axes"
                 )
             if len(bearing) > 1:
                 raise ValueError(
-                    "colorbar() is ambiguous: more than one axes has a heatmap. "
-                    "Pass the one to show, as imshow() returned it: "
-                    "fig.colorbar(im)"
+                    "colorbar() is ambiguous: more than one axes has a heatmap "
+                    "or a colour-mapped scatter. Pass the heatmap to show, as "
+                    "imshow() returned it: fig.colorbar(im), or the axes: "
+                    "fig.colorbar(ax=ax)"
                 )
-            return bearing[0].heatmaps[0]
+            (only,) = bearing
+            return cast(Series, _axes_colorbar_holder(only)), only
         if not isinstance(mappable, HeatmapSeries):
             raise TypeError(
                 f"colorbar() mappable must be the heatmap imshow(), pcolormesh() "
                 f"or tripcolor() returned, got {type(mappable).__name__}. "
-                f"Pass a label as label=..."
+                f"For a scatter, pass its axes as ax=...; pass a label as "
+                f"label=..."
             )
         owner = next(
             (a for a in self.axes_list if any(h is mappable for h in a.heatmaps)),
@@ -1975,7 +2025,7 @@ class Figure:
                 "colorbar() ax must be the axes holding mappable: gleplot draws "
                 "the bar beside its heatmap's own axes"
             )
-        return mappable
+        return mappable, owner
 
     def xlabel(self, label: str):
         """Set x label on current axes."""
@@ -3158,7 +3208,7 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         right = below = 0.0
-        for hm in resolution.visible(ax.heatmaps):
+        for hm in _colorbar_holders(ax, resolution):
             cb = hm.get("colorbar")
             if not cb:
                 continue
@@ -3201,6 +3251,7 @@ class Figure:
             for hm in resolution.visible(ax.heatmaps):
                 if _pal.cmap_needs_sub(hm["cmap"]) and "levels" not in hm:
                     used_cmaps.add(hm["cmap"])
+            for hm in _colorbar_holders(ax, resolution):
                 cb = hm.get("colorbar")
                 if cb and cb.get("orientation") == "horizontal":
                     any_colorbar_h = True
@@ -3357,8 +3408,8 @@ class Figure:
     ):
         """Write the post-graph colorbar and contour-label sub calls."""
         resolution = resolution or SourceResolution()
-        for hm in resolution.visible(ax.heatmaps):
-            writer.add_heatmap_colorbar(hm)
+        for holder in _colorbar_holders(ax, resolution):
+            writer.add_colorbar(holder)
         for ct in resolution.visible(ax.contours):
             writer.add_contour_labels(ct)
 

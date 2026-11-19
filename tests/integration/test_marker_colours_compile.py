@@ -59,3 +59,21 @@ def test_each_point_is_drawn_in_its_own_colour(tmp_path):
     for got, want in zip(colours, [_FIRST, _MIDDLE, _LAST, _LAST]):
         # The palette sub interpolates matplotlib's table piecewise.
         assert got == pytest.approx(want, abs=0.01)
+
+
+@pytest.mark.parametrize(
+    "cmap, decode", [("viridis", "[0 1 0 1 0 1]"), ("gray", "[0 1]")]
+)
+def test_a_scatter_colorbar_is_drawn_in_its_palette(tmp_path, cmap, decode):
+    """The bar is the one bitmap on the page: RGB for a palette sub, one grey
+    channel for GLE's own gray."""
+    fig = glp.figure(data_prefix="bar")
+    ax = fig.add_subplot(111)
+    ax.scatter([1, 2, 3], [1, 2, 3], c=[0, 5, 10], cmap=cmap)
+    fig.colorbar(orientation="horizontal")
+    out = tmp_path / "bar.eps"
+    fig.savefig(str(out))
+    images = re.findall(
+        r"(\[[\d ]+\])/DataSource \S+>> image", out.read_text("latin-1")
+    )
+    assert images == [decode]
