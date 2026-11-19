@@ -728,6 +728,16 @@ def _line_width(caller: str, linewidth: Any) -> Any:
     return linewidth if isinstance(linewidth, Real) else width
 
 
+def _stroked(linestyle: Any, linewidth: Any) -> Any:
+    """``linestyle``, or ``'none'`` for a zero ``linewidth``.
+
+    matplotlib's ``lw=0`` draws no stroke. GLE has no zero width (its
+    ``lwidth 0`` is the thinnest line), so the dataset is written without
+    its line, as for ``linestyle='none'``.
+    """
+    return "none" if linewidth == 0 else linestyle
+
+
 def _count(value: Any, what: str) -> int:
     """``value`` as a positive whole number; ``what`` is ``"method(name"``."""
     number = _finite_float(value, f"{what}=...)")
@@ -2671,7 +2681,7 @@ class Axes:
             Marker size (matplotlib convention, 1-100)
         linewidth : float or None
             Line width in points, finite and 0 or more; ``None`` means the
-            default width.
+            default width. 0 draws no line, as ``linestyle='none'`` does.
         label : str, optional
             Legend label
         yaxis : str, optional
@@ -2765,6 +2775,7 @@ class Axes:
         linestyle = _line_style(caller, linestyle)
         # 1 is the writer's "style default" (see GLEWriter.add_line).
         linewidth = _line_width(caller, linewidth)
+        linestyle = _stroked(linestyle, linewidth)
         marker_fill = _pop_marker_fill(kwargs, caller, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
@@ -4052,7 +4063,7 @@ class Axes:
             Marker size (matplotlib convention, 1-100)
         linewidth : float or None
             Line width in points, finite and 0 or more; ``None`` means the
-            default width.
+            default width. 0 draws no line, as ``linestyle='none'`` does.
         label : str, optional
             Legend label
         capsize : float, optional
@@ -4229,6 +4240,7 @@ class Axes:
 
         # 1 is the writer's "style default" (see GLEWriter.add_errorbar_series).
         linewidth = _line_width("errorbar", linewidth)
+        parsed_linestyle = _stroked(parsed_linestyle, linewidth)
 
         errbar_data = ErrorbarSeries(
             type="errorbar",
@@ -4363,7 +4375,7 @@ class Axes:
         is no line for it to qualify. The series is still a line reference;
         this method has no scatter form. ``linewidth`` is in points, finite
         and 0 or more, and ``None`` is the default width, as for
-        :meth:`plot`.
+        :meth:`plot`; 0 draws no line, as ``linestyle='none'`` does.
 
         ``skiprows`` skips that many leading lines of the file, ``comment``
         replaces GLE's comment marker ``!``, and ``max_rows`` stops after
@@ -4377,6 +4389,8 @@ class Axes:
         label = self._text(label)
         gle_color = self._resolve_color(color)
         linestyle = _line_style("line_from_file", linestyle)
+        width = float(_line_width("line_from_file", linewidth))
+        linestyle = _stroked(linestyle, width)
         mode = resolve_line_mode(drawstyle, line_mode)
         if mode and linestyle in _NO_LINE:
             warn_external(
@@ -4384,7 +4398,6 @@ class Axes:
                 "omits it, so the series is drawn without that mode.",
             )
             mode = None
-        width = float(_line_width("line_from_file", linewidth))
 
         fields = dict(
             series_type="line",
@@ -5902,7 +5915,7 @@ class Axes:
             and is drawn solid.
         linewidth : float
             Line width in points, finite and 0 or more. ``None`` is the
-            default width.
+            default width; 0 draws no line.
         label : str, optional
             Legend label.
         **kwargs
@@ -5961,6 +5974,7 @@ class Axes:
         linewidth = _line_width(
             caller, _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
         )
+        linestyle = _stroked(linestyle, linewidth)
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)

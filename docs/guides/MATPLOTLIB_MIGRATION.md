@@ -228,7 +228,9 @@ keeps the full name, with a warning, unless the full name is left at its
 default. A `linewidth` that is NaN, infinite or negative raises
 `ValueError` at the call, on these and the other line-drawing calls below,
 `line_from_file`, `function` and `hist(histtype='step')`, where
-matplotlib does not check it.
+matplotlib does not check it. GLE has no zero-width stroke, so `lw=0` on
+`plot`, `errorbar`, `line_from_file`, `axhline` and `axvline` draws no
+line, as `linestyle='none'` does, the way matplotlib's `lw=0` looks.
 
 A keyword GLE cannot draw, such as `alpha`, `markeredgecolor` (`mec`),
 `markeredgewidth` (`mew`), `dashes`, `transform` or `clip_on`, warns and is

@@ -3116,6 +3116,32 @@ def test_line_from_file_without_a_line_writes_no_line_token(no_line, tmp_path):
     assert "    d1 color RED lwidth 0.05292" in out.read_text().splitlines()
 
 
+@pytest.mark.parametrize(
+    "draw",
+    [
+        lambda ax, **kw: ax.plot([0, 1], [0, 1], **kw),
+        lambda ax, **kw: ax.plot([0, 1], [0, 1], marker="o", **kw),
+        lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw),
+        lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, **kw),
+        lambda ax, **kw: ax.axhline(0.5, **kw),
+    ],
+    ids=["plot", "plot-marker", "errorbar", "line_from_file", "axhline"],
+)
+def test_linewidth_zero_draws_no_line(draw, tmp_path):
+    """matplotlib's ``lw=0`` draws no stroke, the same as ``linestyle='none'``."""
+
+    def script(**kw):
+        glp.close()
+        fig = glp.figure(data_prefix="lw")
+        draw(fig.add_subplot(111), **kw)
+        out = tmp_path / "fig.gle"
+        fig.savefig(str(out))
+        return out.read_text()
+
+    assert script(linewidth=0) == script(linestyle="none")
+    assert script(linewidth=0) != script()
+
+
 def _saved(fig, tmp_path):
     """The saved script and its sidecars, by file name."""
     out = tmp_path / "fig.gle"
