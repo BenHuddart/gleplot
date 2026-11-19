@@ -3269,7 +3269,9 @@ class GLEWriter:
             line_cmd += self._line_token(smooth_mode, svg_smooth, line_mode)
             if nomiss:
                 line_cmd += " nomiss"
-            line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
+            line_cmd += self._color_clause(color) + self._lwidth_clause(
+                linewidth, series
+            )
 
             # Use configured line styles from style config. (A stray second
             # ``lstyle 4`` used to follow the dash-dot case here, overriding
@@ -3803,7 +3805,7 @@ class GLEWriter:
                 linewidth = 1.0
         line_cmd = f"    {target}"
         line_cmd += self._line_token(smooth_mode="none", line_mode="hist")
-        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
+        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth, series)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
         elif linestyle == ":":
@@ -3984,7 +3986,7 @@ class GLEWriter:
         label = series.get("label")
         line_cmd = f"    {target}" + self._line_token(smooth_mode="none")
         line_cmd += self._color_clause(series.get("color"))
-        line_cmd += self._lwidth_clause(series.get("linewidth"))
+        line_cmd += self._lwidth_clause(series.get("linewidth"), series)
         if linestyle in ("--", ":", "-."):
             line_cmd += f" lstyle {self._lstyle_for(linestyle)}"
         expression = self._fit_keys.get(id(series))
@@ -4659,7 +4661,7 @@ class GLEWriter:
             color_emitted = True
             # Also add line if linestyle is not 'none'
             if has_line:
-                line_cmd += self._line_token() + self._lwidth_clause(linewidth)
+                line_cmd += self._line_token() + self._lwidth_clause(linewidth, series)
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
                 elif linestyle == ":":
@@ -4669,7 +4671,9 @@ class GLEWriter:
         else:
             if has_line:
                 line_cmd += self._line_token()
-                line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
+                line_cmd += self._color_clause(color) + self._lwidth_clause(
+                    linewidth, series
+                )
                 color_emitted = True
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
@@ -4928,7 +4932,7 @@ class GLEWriter:
         line_cmd = f"    {d_draw}{self._line_token(smooth_mode, line_mode=line_mode)}"
         if nomiss:
             line_cmd += " nomiss"
-        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
+        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth, series)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
         elif linestyle == ":":
@@ -5716,7 +5720,7 @@ class GLEWriter:
         self,
         color: str,
         linestyle: Optional[str] = None,
-        linewidth: Optional[float] = None,
+        line: Optional[Series] = None,
         marker: Optional[str] = None,
         markersize: Optional[float] = None,
         fill: Optional[str] = None,
@@ -5730,7 +5734,8 @@ class GLEWriter:
         width and ``lstyle`` the dataset command would, which is what makes
         ``entry->lstyle`` non-empty so the key draws a stroke
         (``key.cpp``). A marker-only series is ``marker`` / ``msize`` /
-        ``color``, the same tokens as the dataset line.
+        ``color``, the same tokens as the dataset line. ``line`` is the series
+        whose ``linewidth`` the stroke restates (1 pt when it has none).
         """
         if fill is not None:
             return f"fill {fill}" + (f" pattern {pattern}" if pattern else "")
@@ -5738,8 +5743,9 @@ class GLEWriter:
         has_line = linestyle not in ("none", "None", "", " ", None)
         if has_line:
             parts.append(f"color {color}")
-            width = self._guide_lwidth_cm(
-                1.0 if linewidth is None else float(linewidth)
+            linewidth = None if line is None else line.get("linewidth")
+            width = self._lwidth_cm(
+                1.0 if linewidth is None else float(linewidth), line
             )
             parts.append(f"lwidth {self._format_number(width)}")
             style = self._lstyle_for(linestyle or "-")
@@ -6380,19 +6386,15 @@ class GLEWriter:
         """
         return "" if color is None else f" color {color}"
 
-    def _lwidth_clause(self, linewidth: Optional[float]) -> str:
+    def _lwidth_clause(self, linewidth: Optional[float], series: Series) -> str:
         """`` lwidth <cm>`` for a width in points, or nothing for ``None``.
 
-        0 or 1 means the style's default width. ``None`` is a recovered
-        dataset line that set no width; GLE draws it at the current width.
+        ``None`` is a recovered dataset line that set no width; GLE draws it
+        at the current width. 0 and 1 are as :meth:`_lwidth_cm` reads them.
         """
         if linewidth is None:
             return ""
-        if linewidth == 0 or linewidth == 1:
-            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
-        else:
-            gle_lwidth = linewidth_pt_to_cm(linewidth)
-        return f" lwidth {self._format_number(gle_lwidth)}"
+        return f" lwidth {self._format_number(self._lwidth_cm(linewidth, series))}"
 
     # -- guides drawn against GLE's own range (G17) ----------------------
 
@@ -6414,9 +6416,14 @@ class GLEWriter:
             "-.": self.style.line_style_dashdot,
         }.get(linestyle, 0)
 
-    def _guide_lwidth_cm(self, linewidth: float) -> float:
-        """A guide's ``lwidth`` in cm, with :meth:`add_line`'s defaulting."""
-        if linewidth == 0 or linewidth == 1:
+    def _lwidth_cm(self, linewidth: float, series: Optional[Series]) -> float:
+        """A width in points as GLE ``lwidth`` cm.
+
+        0 or 1 means the style's default width, unless ``series`` carries
+        ``_lwidth_verbatim``: a width read from a file is written as given.
+        """
+        verbatim = series is not None and series.get("_lwidth_verbatim", False)
+        if (linewidth == 0 or linewidth == 1) and not verbatim:
             return linewidth_pt_to_cm(self.style.default_linewidth)
         return linewidth_pt_to_cm(linewidth)
 
@@ -6434,21 +6441,40 @@ class GLEWriter:
     def add_refline(self, series: Series):
         """Draw a reference line as a layered ``draw`` call (G17).
 
-        ``series`` is the :class:`~gleplot.series.RefLine` declaration; its
-        ``orient``, ``value``, ``span_lo``/``span_hi``, ``color``,
-        ``linestyle``, ``linewidth`` and ``label`` go to
-        :meth:`add_refline_draw`, which says when this form is used.
+        ``series`` is the :class:`~gleplot.series.RefLine` declaration.
+
+        Used only when the axis the guide spans has an unresolved bound, so
+        the fraction ``span_lo``..``span_hi`` has to be taken against the
+        range GLE picks rather than one gleplot invents -- see
+        :meth:`gleplot.axes.Axes.guide_needs_engine_range`.
+
+        A labelled guide also gets a **data-free** ``dN`` display line
+        carrying the same style and the ``key`` text. A ``draw`` owns no
+        dataset and so cannot carry a key itself; an empty dataset can, and
+        (verified against GLE 4.3.10) draws no ink and takes no part in
+        autoscale, so the legend entry survives without the literal dataset
+        coming back.
         """
-        self.add_refline_draw(
-            series["orient"],
-            series["value"],
-            series["span_lo"],
-            series["span_hi"],
-            series["color"],
-            series["linestyle"],
-            series["linewidth"],
-            series["label"],
+        orient = series["orient"]
+        color = series["color"]
+        linestyle = series["linestyle"]
+        label = series["label"]
+        gle_lwidth = self._lwidth_cm(series["linewidth"], series)
+        self._add_guide_draw(
+            REFLINE_LAYER,
+            guide_sub_name("refline", orient),
+            [
+                self._format_number(series["value"]),
+                self._format_number(series["span_lo"]),
+                self._format_number(series["span_hi"]),
+                f'"{self._escape_gle_string(color)}"',
+                self._format_number(gle_lwidth),
+                str(self._lstyle_for(linestyle)),
+                f'"{self._escape_gle_string(label or "")}"',
+            ],
         )
+        if label:
+            self.add_guide_key(color, linestyle, gle_lwidth, label)
 
     def add_refline_dataset(self, series: Series, line: Series):
         """Draw a reference line as a marked two-point dataset.
@@ -6463,48 +6489,6 @@ class GLEWriter:
             series["orient"], series["value"], series["span_lo"], series["span_hi"]
         )
         self.add_line(line)
-
-    def add_refline_draw(
-        self,
-        orient: str,
-        value: float,
-        span_lo: float,
-        span_hi: float,
-        color: str,
-        linestyle: str,
-        linewidth: float,
-        label: Optional[str],
-    ):
-        """Emit an ``axvline``/``axhline`` as a layered ``draw`` call (G17).
-
-        Used only when the axis the guide spans has an unresolved bound, so
-        the fraction ``span_lo``..``span_hi`` has to be taken against the
-        range GLE picks rather than one gleplot invents -- see
-        :meth:`gleplot.axes.Axes.guide_needs_engine_range`.
-
-        A labelled guide also gets a **data-free** ``dN`` display line
-        carrying the same style and the ``key`` text. A ``draw`` owns no
-        dataset and so cannot carry a key itself; an empty dataset can, and
-        (verified against GLE 4.3.10) draws no ink and takes no part in
-        autoscale, so the legend entry survives without the literal dataset
-        coming back.
-        """
-        gle_lwidth = self._guide_lwidth_cm(linewidth)
-        self._add_guide_draw(
-            REFLINE_LAYER,
-            guide_sub_name("refline", orient),
-            [
-                self._format_number(value),
-                self._format_number(span_lo),
-                self._format_number(span_hi),
-                f'"{self._escape_gle_string(color)}"',
-                self._format_number(gle_lwidth),
-                str(self._lstyle_for(linestyle)),
-                f'"{self._escape_gle_string(label or "")}"',
-            ],
-        )
-        if label:
-            self.add_guide_key(color, linestyle, gle_lwidth, label)
 
     def add_span(self, series: Series):
         """Draw a span as a layered ``draw`` call (G17).

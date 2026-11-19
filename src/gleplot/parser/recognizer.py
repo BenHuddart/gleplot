@@ -1185,8 +1185,8 @@ def _dn_markersize(attrs: Dict[str, Any]) -> float:
     return attrs["msize"] if attrs["msize"] is not None else 0.15
 
 
-def _dn_linewidth(attrs: Dict[str, Any]) -> Optional[float]:
-    """A ``dN`` line's ``lwidth`` in matplotlib points.
+def _dn_width(attrs: Dict[str, Any]) -> Dict[str, Any]:
+    """A ``dN`` line's ``lwidth`` as series fields, in matplotlib points.
 
     The model stores points; the writer converts back to cm. ``None`` when
     the dataset draws a line but sets no ``lwidth``: GLE draws it at the
@@ -1194,17 +1194,28 @@ def _dn_linewidth(attrs: Dict[str, Any]) -> Optional[float]:
     it draws no line, since no width is written for it.
     """
     if attrs["lwidth"] is not None:
-        return linewidth_cm_to_pt(attrs["lwidth"])
-    return None if attrs["has_line"] else 1.0
+        return _width_fields(linewidth_cm_to_pt(attrs["lwidth"]))
+    return {"linewidth": None if attrs["has_line"] else 1.0}
+
+
+def _width_fields(linewidth: float) -> Dict[str, Any]:
+    """``linewidth`` read from a file, marked to be written as given.
+
+    The writer reads 0 and 1 pt as the style's default width; a file that
+    wrote one of them meant that width.
+    """
+    fields: Dict[str, Any] = {"linewidth": linewidth}
+    if linewidth in (0.0, 1.0):
+        fields["_lwidth_verbatim"] = True
+    return fields
 
 
 def _plain_function_line(toks: List[Token]) -> bool:
     """True when ``dK`` attribute tokens are what ``add_function`` writes.
 
     That is ``line`` with any of ``color``, ``lwidth``, a dashed ``lstyle``
-    and a non-empty ``key``. A solid or unknown ``lstyle`` number, a width
-    of 0 or 1 pt, a marker, smoothing or an axis switch would be lost or
-    changed on save.
+    and a non-empty ``key``. A solid or unknown ``lstyle`` number, a marker,
+    smoothing or an axis switch would be lost or changed on save.
     """
     has_line = False
     i = 0
@@ -1221,8 +1232,7 @@ def _plain_function_line(toks: List[Token]) -> bool:
             i = nxt
         elif word == "lwidth" and i + 1 < m:
             val, nxt = _collect_value(toks, i + 1)
-            # 0 and 1 pt are the writer's "style default" width.
-            if val is None or linewidth_cm_to_pt(val) in (0.0, 1.0):
+            if val is None:
                 return False
             i = nxt
         elif word == "lstyle" and i + 1 < m:
@@ -3807,7 +3817,7 @@ class _Recognizer:
             linestyle=(
                 "none" if lstyle_i == 0 else LSTYLE_TO_MATPLOTLIB.get(lstyle_i, "-")
             ),
-            linewidth=linewidth_cm_to_pt(float(lwidth)),  # type: ignore[arg-type]
+            **_width_fields(linewidth_cm_to_pt(float(cast(float, lwidth)))),
             label=label or None,
             data_file=None,
         )
@@ -4103,7 +4113,7 @@ class _Recognizer:
             # marker carries only what they cannot state (gleplot.guides).
             color=entry["color"],
             linestyle=entry["linestyle"],
-            linewidth=entry["linewidth"],
+            **_width_fields(entry["linewidth"]),
             label=entry["label"],
             data_file=entry["data_file"],
         )
@@ -5905,7 +5915,7 @@ class _Recognizer:
         style: Dict[str, Any] = {
             "color": attrs["color"],
             "linestyle": attrs["linestyle"] or "-",
-            "linewidth": _dn_linewidth(attrs),
+            **_dn_width(attrs),
         }
         if attrs["label"]:
             style["label"] = attrs["label"]
@@ -5953,7 +5963,7 @@ class _Recognizer:
             line_no,
             histtype="step",
             linestyle=attrs["linestyle"],
-            linewidth=_dn_linewidth(attrs),
+            **_dn_width(attrs),
             **_dn_fields(attrs),
         )
         if entry is None:
@@ -6944,7 +6954,7 @@ class _Recognizer:
             marker=attrs["marker"],
             markersize=_dn_markersize(attrs),
             linestyle=linestyle,
-            linewidth=_dn_linewidth(attrs),
+            **_dn_width(attrs),
             nomiss=attrs["nomiss"],
             **_dn_fields(attrs),
             offset=info["_dataset_offsets"].get(d_name, 0.0),
@@ -7162,7 +7172,7 @@ class _Recognizer:
             marker=marker,
             markersize=_dn_markersize(attrs),
             linestyle="none",
-            linewidth=_dn_linewidth(attrs),
+            **_dn_width(attrs),
             nomiss=attrs["nomiss"],
             **_dn_fields(attrs),
             offset=info["_dataset_offsets"].get(d_name, 0.0),
@@ -7653,7 +7663,7 @@ class _Recognizer:
             marker=marker,
             markersize=markersize,
             linestyle=linestyle,
-            linewidth=_dn_linewidth(attrs),
+            **_dn_width(attrs),
             capsize=stored_capsize,
             gle_capsize=gle_capsize,
             **_dn_fields(attrs),
@@ -7743,7 +7753,7 @@ class _Recognizer:
                 x_col=xcol,
                 y_col=ycol,
                 linestyle=attrs["linestyle"],
-                linewidth=_dn_linewidth(attrs),
+                **_dn_width(attrs),
                 nomiss=attrs["nomiss"],
                 **_dn_fields(attrs),
             )
