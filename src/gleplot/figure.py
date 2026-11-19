@@ -3871,7 +3871,7 @@ class Figure:
         for hm in resolution.visible(ax.heatmaps):
             if hm.get("cells"):
                 self._warn_mesh_overhang(ax, hm)
-            elif hm["source"] == "grid" and min(np.shape(hm["z"])) >= 2:
+            elif GLEWriter.writes_node_grid(hm):
                 self._warn_node_grid_overhang(ax, hm)
             writer.add_heatmap(hm)
 

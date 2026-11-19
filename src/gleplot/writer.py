@@ -895,8 +895,9 @@ DEFAULT_COLORBAR_NTICKS = 5
 #: :meth:`GLEWriter.add_cells_sidecar`).
 CELLS_MARKER = "! gleplot: cells"
 
-#: How the comment line under a ``.z`` header that marks a ``contourf`` grid
-#: begins; the grid's edges follow (see :meth:`GLEWriter.add_nodes_sidecar`).
+#: How the comment line under a ``.z`` header that marks an ``imshow`` or
+#: ``contourf`` node grid begins; the grid's edges follow (see
+#: :meth:`GLEWriter.add_nodes_sidecar`).
 NODES_MARKER = "! gleplot: nodes"
 
 #: How the comment line in a ``gleplot_contourf<k>`` palette sub that holds
@@ -6068,10 +6069,9 @@ class GLEWriter:
         elif "levels" in series:
             self.add_nodes_sidecar(series)
             self.add_contourf_sub(series)
-        elif min(np.shape(series["z"])) >= 2:
+        elif self.writes_node_grid(series):
             self.add_nodes_sidecar(series)
         else:
-            # One row or column has no node spacing to place by.
             self.add_z_sidecar(
                 data_file, series["z"], series["extent"], series["origin"]
             )
@@ -6111,6 +6111,17 @@ class GLEWriter:
             lines.append(" ".join([cells[0]] + cells))
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
+
+    @staticmethod
+    def writes_node_grid(series: Series) -> bool:
+        """Whether a heatmap's ``.z`` is a node grid (:meth:`add_nodes_sidecar`).
+
+        A ``contourf``, or an ``imshow`` grid of two or more nodes each way:
+        one row or column has no node spacing to place by.
+        """
+        if series["source"] != "grid" or series.get("cells"):
+            return False
+        return "levels" in series or min(np.shape(series["z"])) >= 2
 
     def add_nodes_sidecar(self, series: Series):
         """Write a grid heatmap's ``.z`` with its nodes where they are.

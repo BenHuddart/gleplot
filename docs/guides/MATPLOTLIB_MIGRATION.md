@@ -306,7 +306,7 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 
 ## Heatmaps and contour lines
 
-`imshow` and `tripcolor` take the arguments listed in their API entries.
+`imshow` and `tripcolor` take the arguments listed in their API entries. `imshow`'s `extent` gives the first and last grid nodes, where `contour` puts them, not the box the image fills: matplotlib's pixels reach half a pixel past the outer centres, and gleplot's colormap stops at those nodes. To match a matplotlib figure, pass the outer pixel centres as `extent`.
 Every other keyword, such as `alpha`, `norm` or `aspect`, warns and is
 ignored: a GLE colormap is opaque and one per axes (see "One Heatmap Per
 Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
