@@ -1765,6 +1765,9 @@ class _Recognizer:
         # dataset name (lower) -> the FileSeries reading fields (skiprows,
         # comment, max_rows) its 'data' statement set; absent when none.
         self._data_read_options: Dict[str, Dict[str, Any]] = {}
+        # Datasets of this graph left undefined so that whatever reads them
+        # stays raw GLE (see _hold_dataset).
+        self._held_datasets: Set[str] = set()
         # Files a note has already said gleplot does not load, this graph.
         self._noted_unloaded: Set[str] = set()
         # resolved-table cache per data_file name
@@ -3142,6 +3145,7 @@ class _Recognizer:
         pass1 = _GraphDatasets()
         # GLE clears its datasets at 'begin graph'; so do the options.
         self._data_read_options.clear()
+        self._held_datasets.clear()
         self._noted_unloaded.clear()
         for child in block.body:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
@@ -3151,8 +3155,9 @@ class _Recognizer:
                 names = self._parse_data_command(
                     _words_and_values(child), pass1.datasets, line_no=child.line_no
                 )
-                # One defining no dataset (an unresolved file, or a lone text
-                # column GLE reads as x labels) is restored as written.
+                # One defining no dataset (an unresolved file, a lone text
+                # column GLE reads as x labels, or an option gleplot cannot
+                # write back) is restored as written.
                 pass1.data_stmts.append(
                     (
                         names,
@@ -3183,6 +3188,8 @@ class _Recognizer:
                 # recorded separately: the display command that follows
                 # decides whether it becomes a histogram.
                 let_toks = _words_and_values(child)
+                if self._hold_let_target(let_toks, pass1.datasets):
+                    continue
                 self._parse_let_command(let_toks, pass1.datasets, info)
                 self._record_hist_let(
                     let_toks,
@@ -3446,7 +3453,8 @@ class _Recognizer:
         # regenerated GLE. Restore any 'data' statement whose datasets are
         # entirely unconsumed, ahead of the passthrough content that (being
         # later in body order) may depend on it.
-        raw = info["_raw_datasets"]
+        # A held dataset is drawn by raw lines too (see _hold_dataset).
+        raw = info["_raw_datasets"] | self._held_datasets
         consumed = (
             set(info["_key_suppress_datasets"])
             | pass1.emitted
@@ -5444,7 +5452,10 @@ class _Recognizer:
 
         The reading options ``ignore n``, ``comment c`` and ``numrows n``
         may appear anywhere after the file name; each named dataset records
-        them (see :attr:`_data_read_options`). Any other word is reported.
+        them (see :attr:`_data_read_options`). Any other word (``delimiters``,
+        a count that is not a plain number) cannot be written back: the
+        statement is reported and returns no names, so it is kept as written,
+        and the datasets it names are held undefined (:meth:`_hold_dataset`).
 
         The filename token is *unwrapped* (STRING tokens have their quotes
         stripped) so ``data "wave.dat"`` registers ``wave.dat`` rather than the
@@ -5523,13 +5534,17 @@ class _Recognizer:
                 )
 
         if unread:
+            for name, _cols in given:
+                self._hold_dataset(name, datasets)
             self._note(
                 ImportCategory.DATA,
                 f"'{' '.join(unread)}' on the 'data' statement for "
-                f"'{data_file}' is not modelled; a 'data' line gleplot writes "
-                "for this file leaves it out",
+                f"'{data_file}' is not modelled; the statement and every "
+                "line that reads its datasets were kept as raw GLE, which "
+                "still draws but is not editable",
                 (line_no, line_no) if line_no is not None else None,
             )
+            return []
 
         need_auto = not given or any(c is None for _n, c in given)
         ncols = self._file_column_count(data_file, read_options) if need_auto else None
@@ -5577,11 +5592,40 @@ class _Recognizer:
                 )
         return [name for name, _cols in given]
 
+    def _hold_dataset(self, name, datasets) -> None:
+        """Leave dataset ``name`` undefined, so whatever reads it stays raw.
+
+        A line reading a dataset no ``data`` statement defines is kept as
+        written; that is how a statement gleplot cannot write back keeps
+        every reader of its datasets with it.
+        """
+        datasets.pop(name, None)
+        self._datasets.pop(name, None)
+        self._data_read_options.pop(name, None)
+        self._held_datasets.add(name)
+
+    def _hold_let_target(self, toks, datasets) -> bool:
+        """Hold a ``let``'s target when it reads a held dataset.
+
+        The ``let`` stays raw and redefines its target, so a ``dK`` line
+        drawing the target reads the ``let``, not an earlier ``data``.
+        """
+        if len(toks) < 2 or not self._held_datasets:
+            return False
+        read = " ".join(tok.value for tok in toks[2:])
+        if not {m.lower() for m in _DATASET_NAME_RE.findall(read)} & (
+            self._held_datasets
+        ):
+            return False
+        self._hold_dataset(toks[1].value.lower(), datasets)
+        return True
+
     def _register_dataset(
         self, name, data_file, xcol, ycol, datasets, read_options=None
     ):
         datasets[name] = (data_file, xcol, ycol)
         self._datasets[name] = (data_file, xcol, ycol)
+        self._held_datasets.discard(name)
         if read_options:
             self._data_read_options[name] = read_options
         else:
