@@ -712,6 +712,21 @@ def _finite_float(value: Any, what: str) -> float:
     return number
 
 
+def _label_axis(caller: str, axis: Any, names: Tuple[str, str]) -> str:
+    """``axis`` if it names one of ``names``, else an error saying so."""
+    if isinstance(axis, str) and axis in names:
+        return axis
+    hint = (
+        ""
+        if isinstance(axis, str)
+        else "; matplotlib's second positional argument is fontdict, which "
+        "gleplot takes as a keyword: fontdict=..."
+    )
+    raise ValueError(
+        f"{caller}() axis must be {names[0]!r} or {names[1]!r}, got {axis!r}{hint}"
+    )
+
+
 def _count(value: Any, what: str) -> int:
     """``value`` as a positive whole number; ``what`` is ``"method(name"``."""
     number = _finite_float(value, f"{what}=...)")
@@ -8197,7 +8212,8 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top)
+            Which axis: 'x' (bottom, default) or 'x2' (top). Any other value raises
+            ``ValueError``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8215,7 +8231,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = "x2" if axis == "x2" else "x"
+        prefix = _label_axis("set_xlabel", axis, ("x", "x2"))
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict
@@ -8242,7 +8258,8 @@ class Axes:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right). Any other value raises
+            ``ValueError``.
         fontdict : dict, optional
             Not supported; warns and is ignored. Pass ``fontsize`` and
             ``color`` as keywords.
@@ -8260,7 +8277,7 @@ class Axes:
             ``color``; ``None`` for either goes back to the default. Other
             matplotlib text keywords warn and are ignored.
         """
-        prefix = "y2" if axis == "y2" else "y"
+        prefix = _label_axis("set_ylabel", axis, ("y", "y2"))
         setattr(self, f"{prefix}label_text", self._text(label))
         if fontdict is not None:
             kwargs["fontdict"] = fontdict

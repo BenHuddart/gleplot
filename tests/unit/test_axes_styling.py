@@ -14,6 +14,7 @@ against the real binary in ``tests/integration/test_axes_styling_compiles.py``.
 """
 
 import json
+import re
 import warnings
 
 import numpy as np
@@ -1151,3 +1152,19 @@ def test_set_xticks_rejects_bad_minor_and_label_options(kwargs, match):
     _, ax = _fig()
     with pytest.raises(ValueError, match=match):
         ax.set_xticks(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "call, shown",
+    [
+        (lambda ax: ax.set_xlabel("X", axis="top"), "'x' or 'x2', got 'top'"),
+        (lambda ax: ax.set_ylabel("Y", axis="y3"), "'y' or 'y2', got 'y3'"),
+        (lambda ax: ax.set_ylabel("Y", {"fontsize": 9}), "fontdict=..."),
+        (lambda ax: ax.figure.xlabel("X", axis="top"), "set_xlabel() axis"),
+    ],
+)
+def test_a_label_axis_that_is_not_an_axis_raises(call, shown):
+    _fig, ax = glp.subplots()
+    with pytest.raises(ValueError, match=re.escape(shown)):
+        call(ax)
+    assert (ax.xlabel_text, ax.ylabel_text) == ("", "")
