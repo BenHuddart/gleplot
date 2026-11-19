@@ -4253,7 +4253,6 @@ class Axes:
                 "omits it, so the series is drawn without that mode.",
             )
             mode = None
-        # As in plot(), None is the default width.
         width = 1.0 if linewidth is None else linewidth
         try:
             width = float(width)
@@ -5772,7 +5771,7 @@ class Axes:
         linestyle : str
             ``'-'``, ``'--'``, ``':'`` or ``'-.'``.
         linewidth : float
-            Line width in points.
+            Line width in points. ``None`` is the default width.
         label : str, optional
             Legend label.
         **kwargs
@@ -5828,6 +5827,8 @@ class Axes:
         data_name = kwargs.pop("data_name", None)
         linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
         linewidth = _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
+        if linewidth is None:
+            linewidth = 1
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)

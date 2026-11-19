@@ -2985,8 +2985,10 @@ def test_add_text_keywords_reach_the_emitted_text():
         lambda ax, **kw: ax.plot([0, 1], [0, 1], **kw),
         lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw),
         lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, **kw),
+        lambda ax, **kw: ax.axhline(0.5, **kw),
+        lambda ax, **kw: ax.axvline(0.5, **kw),
     ],
-    ids=["plot", "errorbar", "line_from_file"],
+    ids=["plot", "errorbar", "line_from_file", "axhline", "axvline"],
 )
 def test_linewidth_none_means_the_default_width(draw):
     """matplotlib reads ``linewidth=None`` as the default width."""
