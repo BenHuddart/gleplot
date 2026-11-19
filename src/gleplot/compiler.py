@@ -293,43 +293,33 @@ def remove_generated_intermediates(
     return removed
 
 
-def _remove_new_tex_cache_entries(
-    cache_dir: Union[str, Path], existing: Optional["set[str]"]
+def _remove_tex_cache(
+    cache_dir: Union[str, Path], stem: str, existing: "set[str]"
 ) -> None:
-    """Delete what one compile added to GLE's LaTeX cache directory.
+    """Delete what compiling ``<stem>.gle`` left in GLE's LaTeX cache.
 
-    GLE compiles ``begin tex`` blocks and ``set texlabels 1`` labels through
-    LaTeX in a ``.gle/`` directory beside the script (``texpreamble.*`` plus
-    a ``<stem>/`` folder). Other figures in the same directory may share it,
-    so only top-level entries absent before the compile are removed.
-
-    Parameters
-    ----------
-    cache_dir : str or Path
-        The ``.gle`` directory beside the compiled script.
-    existing : set of str or None
-        The entry names it held before the compile, or None if it did not
-        exist; then the whole directory is the compile's own and is removed.
+    GLE runs LaTeX for ``begin tex`` blocks and ``set texlabels 1`` labels
+    in a ``.gle/`` directory beside the script: a ``<stem>/`` folder that
+    belongs to that script alone, and ``texpreamble.*`` files that every
+    script in the directory with the same preamble shares. The ``<stem>/``
+    folder is removed; a ``texpreamble.*`` file only if it is not in
+    ``existing`` (the names the cache held before the compile), and the
+    cache directory only if that leaves it empty. Nothing else is touched,
+    so another script's entries survive.
     """
     cache_dir = Path(cache_dir)
-    if existing is None:
-        shutil.rmtree(cache_dir, ignore_errors=True)
+    if not stem or stem in (".", ".."):
         return
+    shutil.rmtree(cache_dir / stem, ignore_errors=True)
     try:
-        names = os.listdir(cache_dir)
-    except OSError:
-        return
-    for name in names:
-        if name in existing:
-            continue
-        entry = cache_dir / name
-        if entry.is_dir():
-            shutil.rmtree(entry, ignore_errors=True)
-        else:
-            try:
+        for entry in cache_dir.iterdir():
+            if entry.name.startswith("texpreamble.") and entry.name not in existing:
                 entry.unlink()
-            except OSError:
-                pass
+        cache_dir.rmdir()
+    except OSError:
+        # Best effort: a missing or non-empty cache, or a file another
+        # process holds, must not fail a compile that succeeded.
+        pass
 
 
 def _iter_well_known_gle_paths() -> "list[str]":

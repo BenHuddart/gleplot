@@ -942,6 +942,13 @@ def test_savefig_keeps_tex_cache_entries_that_were_already_there(tmp_path):
     assert sorted(p.name for p in cache.iterdir()) == ["other", "texpreamble.tex"]
 
 
+def test_savefig_removes_its_own_tex_folder_left_by_an_earlier_save(tmp_path):
+    fig = _tex_figure_with_fake_compiler()
+    fig.savefig(str(tmp_path / "f.pdf"), keep_intermediates=True)
+    fig.savefig(str(tmp_path / "f.pdf"))
+    assert sorted(p.name for p in (tmp_path / ".gle").iterdir()) == ["texpreamble.tex"]
+
+
 def test_savefig_keep_intermediates_keeps_the_tex_cache(tmp_path):
     fig = _tex_figure_with_fake_compiler()
     fig.savefig(str(tmp_path / "f.pdf"), keep_intermediates=True)

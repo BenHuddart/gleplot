@@ -1,7 +1,6 @@
 """Figure class for gleplot."""
 
 import math
-import os
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -28,7 +27,7 @@ from .compiler import (
     SUFFIX_TO_COMPILE_FORMAT,
     CompileFormat,
     GLECompiler,
-    _remove_new_tex_cache_entries,
+    _remove_tex_cache,
     remove_generated_intermediates,
 )
 from .config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig, GlobalConfig
@@ -2622,10 +2621,10 @@ class Figure:
         **LaTeX cache.** A figure GLE renders through LaTeX (:meth:`tex`,
         or ``GLEStyleConfig(usetex=True)``) makes GLE write a ``.gle/``
         cache directory into ``export_dir``. A successful compile removes
-        what it added there, and the directory itself if the compile created
-        it; entries that were there before are left, since other figures in
-        the same directory may share them. ``keep_intermediates=True`` keeps
-        the cache too.
+        this script's folder in it and any ``texpreamble.*`` files the
+        compile created, then the directory if it is empty. Preamble files
+        that were already there are left, since other figures in the same
+        directory share them. ``keep_intermediates=True`` keeps the cache.
         """
         # matplotlib keywords with no GLE counterpart, and their defaults.
         for name, default in (
@@ -2750,9 +2749,10 @@ class Figure:
 
             output_dpi = dpi or self.dpi
             tex_cache = export_dir / ".gle"
-            tex_cache_before = (
-                set(os.listdir(tex_cache)) if tex_cache.is_dir() else None
-            )
+            try:
+                tex_cache_before = {p.name for p in tex_cache.iterdir()}
+            except OSError:
+                tex_cache_before = set()
             self.compiler.compile(
                 str(base_path),
                 cast(CompileFormat, format),
@@ -2769,7 +2769,7 @@ class Figure:
                 remove_generated_intermediates(
                     export_dir, self._engine_intermediate_filenames()
                 )
-                _remove_new_tex_cache_entries(tex_cache, tex_cache_before)
+                _remove_tex_cache(tex_cache, base_path.stem, tex_cache_before)
 
             return output_path.with_suffix(f".{format}")
 
