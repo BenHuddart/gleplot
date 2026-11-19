@@ -179,6 +179,11 @@ class DataTable:
         any) were dropped. Together with ``delimiter`` and ``has_header``,
         this is enough for a caller to report "delimiter found / header
         found / N comment lines skipped" without recomputing anything.
+    gle_missing : list of bool
+        Per-column flag: ``True`` if a field in that column is one of GLE's
+        missing-value tokens (``*``, ``?``, ``-``, ``.``), which break a
+        line where a ``nan`` (also loaded as NaN) is dropped and its
+        neighbours joined.
     """
 
     column_names: List[str]
@@ -191,6 +196,7 @@ class DataTable:
     warnings: List[str] = field(default_factory=list)
     header_source: Optional[str] = None
     comment_lines_skipped: int = 0
+    gle_missing: List[bool] = field(default_factory=list)
 
     @property
     def n_cols(self) -> int:
@@ -806,10 +812,12 @@ def load_data_file(
     # Build columns.
     columns: List[np.ndarray] = []
     is_numeric: List[bool] = []
+    gle_missing: List[bool] = []
     n_rows = len(padded_rows)
 
     for col_idx in range(max_cols):
         raw_values = [row[col_idx] for row in padded_rows]
+        gle_missing.append(any(v.strip() in _MISSING_TOKENS for v in raw_values))
         normalized = [_normalize_token(v) for v in raw_values]
         floats = [_try_float(v) for v in normalized]
 
@@ -843,6 +851,7 @@ def load_data_file(
         warnings=warnings,
         header_source=header_source,
         comment_lines_skipped=comment_lines_skipped,
+        gle_missing=gle_missing,
     )
 
 

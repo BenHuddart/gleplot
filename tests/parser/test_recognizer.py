@@ -76,8 +76,11 @@ def normalize(d: dict) -> dict:
         the recognizer stamps encounter order (= what GLE actually draws),
         which legitimately differs from the built figure's call order
         whenever lines and markers interleave.
+      * NaN: compared as the string ``"nan"``, since ``nan != nan`` would
+        fail a line's gap rows on both sides alike.
     """
     import copy
+    import math
 
     from gleplot.colors import apply_alpha as _apply_alpha
     from gleplot.parser.units import (
@@ -101,6 +104,17 @@ def normalize(d: dict) -> dict:
                 _drop_draw_seq(v)
 
     _drop_draw_seq(d)
+
+    def _nan_token(node):
+        if isinstance(node, dict):
+            return {k: _nan_token(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [_nan_token(v) for v in node]
+        if isinstance(node, float) and math.isnan(node):
+            return "nan"
+        return node
+
+    d = _nan_token(d)
     fig = d["figure"]
 
     # figsize is recovered as float (cm->inches) even if the source used int

@@ -67,6 +67,10 @@ Plotting helpers
 
 .. autofunction:: gleplot.axhline
 
+.. autofunction:: gleplot.hlines
+
+.. autofunction:: gleplot.vlines
+
 .. autofunction:: gleplot.axvspan
 
 .. autofunction:: gleplot.axhspan

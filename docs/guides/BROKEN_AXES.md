@@ -65,7 +65,8 @@ compares the three seam styles and shows a three-segment split.
 **Fanned out to every segment** — declare a series once:
 `plot`, `scatter`, `errorbar`, `bar`, `fill_between`, `fill_betweenx`,
 `stackplot`, `fill`, `line_from_file`,
-`errorbar_from_file`, `axvline`, `axhline`, `axvspan`, `axhspan`.
+`errorbar_from_file`, `axvline`, `axhline`, `axvspan`, `axhspan`, `hlines`,
+`vlines`.
 
 **Shared state:** `set_ylabel`, `set_ylim`, `get_ylim`, `set_yscale`,
 `set_yticks` (the y-axis is always shared), plus `set_xlabel`, `set_title`

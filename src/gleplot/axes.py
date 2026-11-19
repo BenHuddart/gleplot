@@ -1467,6 +1467,65 @@ _STACKPLOT_BAND_KEYWORDS = frozenset(
 )
 
 
+#: matplotlib's named line styles, as the symbols ``plot`` takes.
+_NAMED_LINESTYLES = {"solid": "-", "dashed": "--", "dotted": ":", "dashdot": "-."}
+
+
+def _segment_linestyle(name: str, style) -> str:
+    """One ``hlines`` / ``vlines`` line style as a ``plot`` linestyle.
+
+    ``'none'`` (matplotlib's no-line styles) means the segment is not drawn.
+    """
+    if isinstance(style, str):
+        key = style.strip().lower()
+        key = _NAMED_LINESTYLES.get(key, key)
+        if key in ("-", "--", ":", "-."):
+            return key
+        if key in ("none", ""):
+            return "none"
+        raise ValueError(
+            f"{name}() linestyles must be 'solid', 'dashed', 'dotted', "
+            f"'dashdot', '-', '--', ':', '-.' or 'none', got {style!r}"
+        )
+    warn_external(
+        f"{name}() linestyle {style!r} is a dash pattern GLE cannot draw; "
+        "the segment is solid."
+    )
+    return "-"
+
+
+def _is_dash_pattern(value) -> bool:
+    """matplotlib's ``(offset, on_off_sequence)`` line style."""
+    return (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and isinstance(value[0], Real)
+        and (value[1] is None or isinstance(value[1], (tuple, list)))
+    )
+
+
+def _color_list(name: str, colors, default: list) -> list:
+    """A ``colors`` argument as a list to cycle over layers or segments.
+
+    ``None`` is ``default``. A string or an RGB(A) tuple is one colour; the
+    rows of a 2-D array are tuples, the form ``rgb_to_gle`` reads.
+    """
+    if colors is None:
+        return list(default)
+    if isinstance(colors, str):
+        return [colors]
+    if np.ndim(colors) == 1 and all(
+        isinstance(v, (int, float, np.number)) for v in colors
+    ):
+        if len(colors) == 0:
+            raise ValueError(f"{name}() colors must not be empty, got {colors!r}")
+        return [tuple(colors)]
+    found = [tuple(c) if np.ndim(c) == 1 else c for c in colors]
+    if not found:
+        raise ValueError(f"{name}() colors must not be empty, got {colors!r}")
+    return found
+
+
 def _where_windows(x, y1, y2, where, interpolate: bool):
     """GLE clip windows for a matplotlib ``where`` mask.
 
@@ -4930,20 +4989,7 @@ class Axes:
             face = kwargs.pop("color")
         if face is not None:
             colors = face
-        if colors is None:
-            colors = [f"C{i}" for i in range(10)]
-        elif isinstance(colors, str) or (
-            np.ndim(colors) == 1
-            and len(colors) > 0
-            and all(isinstance(v, (int, float, np.number)) for v in colors)
-        ):
-            colors = [tuple(colors) if np.ndim(colors) else colors]
-        else:
-            # Rows of an RGB(A) array (a colormap sample) are tuples, the
-            # colour form rgb_to_gle reads.
-            colors = [tuple(c) if np.ndim(c) == 1 else c for c in colors]
-            if not colors:
-                raise ValueError("stackplot() colors must not be empty, got []")
+        colors = _color_list("stackplot", colors, [f"C{i}" for i in range(10)])
         if y.ndim != 2 or y.shape[1] != np.size(x):
             raise ValueError(
                 f"stackplot() each layer must have one value per x ({np.size(x)}), "
@@ -5066,6 +5112,213 @@ class Axes:
         )
         self._register_series_draw_meta(fill_data, "fill")
         self.fills.append(fill_data)
+        return self
+
+    # -- data-bounded segments (hlines / vlines) ---------------------------
+
+    @_cartesian_only
+    def hlines(
+        self,
+        y,
+        xmin,
+        xmax,
+        colors=None,
+        linestyles="solid",
+        *,
+        label="",
+        **kwargs,
+    ):
+        """Draw horizontal segments at each ``y`` from ``xmin`` to ``xmax``.
+
+        Unlike :meth:`axhline`, the ends are data coordinates. See
+        :meth:`vlines`, which this mirrors, for how the segments are drawn.
+        """
+        return self._add_segments(
+            "hlines", "h", y, xmin, xmax, colors, linestyles, label, kwargs
+        )
+
+    @_cartesian_only
+    def vlines(
+        self,
+        x,
+        ymin,
+        ymax,
+        colors=None,
+        linestyles="solid",
+        *,
+        label="",
+        **kwargs,
+    ):
+        """Draw vertical segments at each ``x`` from ``ymin`` to ``ymax``.
+
+        Unlike :meth:`axvline`, the ends are data coordinates.
+
+        Parameters
+        ----------
+        x : float or array-like
+            Where the segments are.
+        ymin, ymax : float or array-like
+            Their ends. A scalar applies to every segment.
+        colors : color or sequence of colors, optional
+            Cycled over the segments. Default: matplotlib's ``'C0'``. Alias
+            ``color``.
+        linestyles : str or sequence of str
+            ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``, their
+            symbols ``'-'``, ``'--'``, ``':'``, ``'-.'``, or ``'none'`` (the
+            segment is not drawn), cycled over the segments. Alias
+            ``linestyle`` / ``ls``.
+        label : str
+            Legend label for the whole set. Empty means no legend entry.
+        **kwargs
+            ``linewidths`` (alias ``linewidth``, ``lw``), in points, a
+            number or one per segment, and ``zorder``. Others warn.
+
+        Returns
+        -------
+        Axes
+            This axes. matplotlib returns a ``LineCollection``.
+
+        Raises
+        ------
+        ValueError
+            If the ends do not match the positions in length, or a line
+            style is not one of the above.
+
+        Notes
+        -----
+        The segments are one line dataset per distinct style, with a missing
+        value (``*``) between segments so GLE does not join them. The legend
+        entry is on the first of those datasets. A segment with a NaN end is
+        not drawn. A dash pattern given as a tuple warns and is drawn solid.
+        A figure read back with :func:`gleplot.open_gle` has a :meth:`plot`
+        line with NaN gaps in its place.
+        """
+        return self._add_segments(
+            "vlines", "v", x, ymin, ymax, colors, linestyles, label, kwargs
+        )
+
+    def _add_segments(
+        self, name, orient, pos, lo, hi, colors, linestyles, label, kwargs
+    ):
+        """Shared implementation of :meth:`hlines` / :meth:`vlines`."""
+        if "data" in kwargs:
+            kwargs.pop("data")
+            warn_external(
+                f"{name}(data=...) is not supported and was ignored. "
+                "Pass the arrays directly."
+            )
+        # matplotlib's LineCollection aliases. The plural name wins, as the
+        # first of fill_between's color/facecolor pair does there.
+        if "color" in kwargs:
+            alias = kwargs.pop("color")
+            if colors is None:
+                colors = alias
+            else:
+                warn_external(f"{name}() got both colors and color; colors wins.")
+        for key in ("linestyle", "ls"):
+            if key in kwargs:
+                alias = kwargs.pop(key)
+                if linestyles == "solid":
+                    linestyles = alias
+                else:
+                    warn_external(
+                        f"{name}() got both linestyles and {key}; linestyles wins."
+                    )
+        given = [k for k in ("linewidths", "linewidth", "lw") if k in kwargs]
+        widths: Any = kwargs.pop(given[0]) if given else None
+        for key in given[1:]:
+            kwargs.pop(key)
+            warn_external(f"{name}() got both {given[0]} and {key}; {given[0]} wins.")
+        zorder = kwargs.pop("zorder", None)
+        if kwargs:
+            names = ", ".join(sorted(kwargs))
+            warn_external(f"{name}() ignores unsupported keyword(s): {names}.")
+
+        lo_name, hi_name = ("xmin", "xmax") if orient == "h" else ("ymin", "ymax")
+        pos_arr = np.ravel(np.asarray(pos, dtype=float))
+        n = int(pos_arr.size)
+        ends = []
+        for arg_name, value in ((lo_name, lo), (hi_name, hi)):
+            arr = np.ravel(np.asarray(value, dtype=float))
+            if arr.size == 1:
+                arr = np.full(n, arr[0])
+            if arr.size != n:
+                raise ValueError(
+                    f"{name}() {arg_name} has length {arr.size}, expected 1 or "
+                    f"{n} to match the positions"
+                )
+            ends.append(arr)
+
+        one_style = isinstance(linestyles, str) or _is_dash_pattern(linestyles)
+        styles = [
+            _segment_linestyle(name, s)
+            for s in ([linestyles] if one_style else linestyles)
+        ]
+        palette = [rgb_to_gle(c) for c in _color_list(name, colors, ["C0"])]
+        try:
+            if widths is None:
+                width_list: List[Optional[float]] = [None]
+            elif np.ndim(widths) == 0:
+                width_list = [float(widths)]
+            else:
+                width_list = [float(w) for w in widths]
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"{name}() linewidths must be a number of points or one per "
+                f"segment, got {widths!r}"
+            ) from None
+        if not styles or not width_list:
+            raise ValueError(
+                f"{name}() linestyles and linewidths must not be empty, got "
+                f"{linestyles!r} and {widths!r}"
+            )
+
+        # One dataset per distinct style, in first-use order.
+        groups: Dict[tuple, List[int]] = {}
+        for i in range(n):
+            if not (
+                np.isfinite(pos_arr[i])
+                and np.isfinite(ends[0][i])
+                and np.isfinite(ends[1][i])
+            ):
+                continue
+            key = (
+                palette[i % len(palette)],
+                styles[i % len(styles)],
+                width_list[i % len(width_list)],
+            )
+            if key[1] == "none":
+                continue
+            groups.setdefault(key, []).append(i)
+
+        text = label if label else None
+        for (color, style, width), members in groups.items():
+            along: List[float] = []
+            across: List[float] = []
+            for k, i in enumerate(members):
+                if k:
+                    along.append(np.nan)
+                    across.append(np.nan)
+                along.extend([ends[0][i], ends[1][i]])
+                across.extend([pos_arr[i], pos_arr[i]])
+            x, y = (along, across) if orient == "h" else (across, along)
+            self.plot(
+                np.array(x),
+                np.array(y),
+                linestyle=style,
+                color=color,
+                linewidth=width,
+                label=text,
+                zorder=zorder,
+            )
+            series = self.lines[-1]
+            # The NaN rows are gaps, written as GLE missing values. A lone
+            # segment has none, so it stays a plain two-point line. A
+            # figure-wide smooth would fit a curve through the segments.
+            if len(members) > 1:
+                series["gaps"] = True
+            series["smooth_mode"] = "none"
+            text = None
         return self
 
     # -- reference lines & shaded spans ----------------------------------

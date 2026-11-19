@@ -333,6 +333,16 @@ def axhline(*args, **kwargs):
     return gca().axhline(*args, **kwargs)
 
 
+def hlines(*args, **kwargs):
+    """Horizontal segments on the current axes. See :meth:`gleplot.Axes.hlines`."""
+    return gca().hlines(*args, **kwargs)
+
+
+def vlines(*args, **kwargs):
+    """Vertical segments on the current axes. See :meth:`gleplot.Axes.vlines`."""
+    return gca().vlines(*args, **kwargs)
+
+
 def axvspan(*args, **kwargs):
     """Shaded vertical band on current axes."""
     return gca().axvspan(*args, **kwargs)
@@ -609,6 +619,8 @@ __all__ = [
     "annotate",
     "axvline",
     "axhline",
+    "hlines",
+    "vlines",
     "axvspan",
     "axhspan",
     "imshow",

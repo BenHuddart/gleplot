@@ -103,14 +103,20 @@ def _refline_axis_values(ax, orient: str):
     return values
 
 
-def _plottable(values: np.ndarray, positive_only: bool) -> np.ndarray:
+def _plottable(
+    values: np.ndarray, positive_only: bool, gaps: bool = False
+) -> np.ndarray:
     """``values``, restricted to what the axis can actually show.
 
     With ``positive_only`` (a log axis) the non-positive entries are dropped,
     mirroring matplotlib, which masks them rather than refusing to autoscale.
-    Without it this is the identity, so every ordinary axis is bounded by
-    exactly the values it always was.
+    With ``gaps`` (a series whose NaN rows separate its segments, see
+    :class:`~gleplot.series.LineSeries`) the NaN entries are dropped. Without
+    either this is the identity, so every ordinary axis is bounded by exactly
+    the values it always was.
     """
+    if gaps:
+        values = values[~np.isnan(values)]
     if not positive_only:
         return values
     return values[values > 0]
@@ -1627,6 +1633,14 @@ class Figure:
     def axvline(self, x=0.0, **kwargs):
         """Vertical reference line on current axes."""
         return self.gca().axvline(x, **kwargs)
+
+    def hlines(self, y, xmin, xmax, *args, **kwargs):
+        """Horizontal segments on the current axes. See :meth:`Axes.hlines`."""
+        return self.gca().hlines(y, xmin, xmax, *args, **kwargs)
+
+    def vlines(self, x, ymin, ymax, *args, **kwargs):
+        """Vertical segments on the current axes. See :meth:`Axes.vlines`."""
+        return self.gca().vlines(x, ymin, ymax, *args, **kwargs)
 
     def axhline(self, y=0.0, **kwargs):
         """Horizontal reference line on current axes."""
@@ -4423,7 +4437,7 @@ class Figure:
                     if xerr_right is not None:
                         pieces.append(x + np.asarray(xerr_right, dtype=float))
                     values = np.concatenate(pieces)
-                values = _plottable(values, positive_only)
+                values = _plottable(values, positive_only, bool(data.get("gaps")))
                 if len(values) > 0:
                     if xmin is None or values.min() < xmin:
                         xmin = float(values.min())
@@ -4599,7 +4613,9 @@ class Figure:
         for data_list in offset_bearing:
             for data in data_list:
                 y = _plottable(
-                    np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
+                    np.asarray(data["y"]) + data.get("offset", 0.0),
+                    positive_only,
+                    bool(data.get("gaps")),
                 )
                 if len(y) > 0:
                     if ymin is None or y.min() < ymin:

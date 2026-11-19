@@ -4,7 +4,8 @@
 axes: a critical temperature, a zero level, a background band, an excluded
 region. They are available on `Axes`, on `Figure` (acting on the current
 axes), on the module (`glp.axvline(...)`), and on a broken x-axis
-(see [BROKEN_AXES.md](BROKEN_AXES.md)).
+(see [BROKEN_AXES.md](BROKEN_AXES.md)). For segments whose ends are data
+coordinates, use `hlines` / `vlines` (see [Plot Types](PLOT_TYPES.md)).
 
 Before these existed the usual workaround was a two-point `plot()` call and a
 hand-built `fill_between()` band, which had to be redone by hand whenever the

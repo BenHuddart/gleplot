@@ -231,6 +231,15 @@ def test_extract_columns_missing_values_are_nan(tmp_path):
     assert result["y"][1] == 5.0
 
 
+def test_gle_missing_marks_the_columns_with_a_gle_missing_token(tmp_path):
+    """``*`` and ``nan`` both load as NaN; only ``*`` (or ``?``) breaks a line."""
+    p = _write(tmp_path, "s.dat", "x y z w\n1 * nan ?\n2 5 6 7\n")
+    table = load_data_file(p)
+
+    assert table.gle_missing == [False, True, False, True]
+    assert np.isnan(table.columns[1][0]) and np.isnan(table.columns[2][0])
+
+
 # ---------------------------------------------------------------------------
 # Delimiter sniffing: ragged rows must not defeat detection
 # ---------------------------------------------------------------------------

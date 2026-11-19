@@ -14,6 +14,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.errorbar(...)` | same |
 | `ax.fill_between(...)` | same |
 | `ax.fill_betweenx(...)` / `ax.stackplot(...)` | same, see [Fills](#fills) |
+| `ax.hlines(...)` / `ax.vlines(...)` | same, see [Segments](#segments) |
 | `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
 | `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
@@ -199,6 +200,17 @@ ax.stem(x, y)
 | `stem` `orientation="horizontal"` | warns. Impulses are vertical. |
 | `stem` return value | the axes. There is no `StemContainer`. |
 | `stem(data=...)`, `use_line_collection` | warn and are ignored. |
+
+## Segments
+
+`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. The arguments are listed in the API reference for `Axes.vlines`. GLE breaks a line at `*`. It drops a `nan` row and joins its neighbours, so a NaN in `ax.plot` is not a gap.
+
+| argument | gleplot |
+|---|---|
+| a dash tuple in `linestyles` | warns and is drawn solid. |
+| `alpha` and other `LineCollection` keywords | warn and are ignored. |
+| return value | the axes. There is no `LineCollection`. |
+| `open_gle` | the segments come back as `plot` lines with NaN gap rows. |
 
 ## Marker spacing, thinning and clipping
 

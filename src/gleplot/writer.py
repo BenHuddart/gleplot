@@ -2957,6 +2957,9 @@ class GLEWriter:
           ``xmax`` / ``ymin`` / ``ymax`` clip window: GLE's dataset
           qualifiers, see :meth:`_dataset_qualifier_clause`. A series with
           its own ``deresolve`` gets no preview-only one.
+        - ``gaps``: NaN rows are written ``*`` (GLE's missing value), so the
+          line breaks there instead of joining across them, and no preview
+          ``deresolve`` is added.
         """
         x_array = np.asarray(series["x"])
         y_array = np.asarray(series["y"])
@@ -2988,9 +2991,15 @@ class GLEWriter:
         order = self._row_order(
             x_array, has_line, shared=binding is not None, smooth_mode=smooth_mode
         )
+        x_rows, y_rows = x_array[order], y_array[order]
+        if series.get("gaps") and binding is None:
+            # GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks
+            # the line there.
+            x_rows = self._as_missing(x_rows, np.isnan(np.asarray(x_rows, dtype=float)))
+            y_rows = self._as_missing(y_rows, np.isnan(np.asarray(y_rows, dtype=float)))
         cols = self._write_columns(
             data_file,
-            [("x", x_array[order]), ("y", y_array[order])],
+            [("x", x_rows), ("y", y_rows)],
             column_names,
             binding,
         )
@@ -3071,7 +3080,9 @@ class GLEWriter:
         # gleplot's own KIND split for these two series classes.
         # A series' own ``deresolve`` wins: GLE keeps the last one on the
         # line, so a preview clause after it would replace the caller's.
-        if "deresolve" not in series:
+        # A line with gaps is not thinned: every Nth row would join the ends
+        # of different segments across the ``*`` rows.
+        if "deresolve" not in series and not series.get("gaps"):
             line_cmd += self._deresolve_clause(
                 display_name, label, len(x_array), "line" if has_line else "scatter"
             )
@@ -3182,6 +3193,18 @@ class GLEWriter:
         )
         self._finish_legend_entry(label)
 
+    @staticmethod
+    def _as_missing(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """``values`` with the rows in ``mask`` written ``*``, GLE's missing value.
+
+        Unchanged (the same array) when ``mask`` selects nothing.
+        """
+        if not mask.any():
+            return values
+        rows = np.asarray(values, dtype=float).astype(object)
+        rows[mask] = "*"
+        return rows
+
     def _missing_where_gle_drops(
         self, x: np.ndarray, y: np.ndarray, xaxis: str, yaxis: str
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -3196,13 +3219,7 @@ class GLEWriter:
             drop |= xf < 0
         if self._log_axes.get(yaxis):
             drop |= yf < 0
-        if not drop.any():
-            return x, y
-        xs = xf.astype(object)
-        ys = yf.astype(object)
-        xs[drop] = "*"
-        ys[drop] = "*"
-        return xs, ys
+        return self._as_missing(x, drop), self._as_missing(y, drop)
 
     # -- bar width, the one number GLE derives from the data's shape -------
     #

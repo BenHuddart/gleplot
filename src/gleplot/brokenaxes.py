@@ -393,6 +393,16 @@ class BrokenAxes:
         """Horizontal guide, spanning every segment."""
         return self._fanout("axhline", *args, **kwargs)
 
+    def hlines(self, *args, **kwargs):
+        """Horizontal segments, in every segment they reach."""
+        self._fanout("hlines", *args, **kwargs)
+        return self
+
+    def vlines(self, *args, **kwargs):
+        """Vertical segments, in the segment whose range holds each one."""
+        self._fanout("vlines", *args, **kwargs)
+        return self
+
     def axvspan(self, *args, **kwargs):
         """Vertical band, clipped to whichever segment(s) it overlaps."""
         return self._fanout("axvspan", *args, **kwargs)

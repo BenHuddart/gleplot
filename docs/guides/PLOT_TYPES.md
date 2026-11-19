@@ -28,6 +28,18 @@ ax = fig.add_subplot(111)
 ax.plot(x, y, label='data', color='blue', linestyle='-', linewidth=2)
 ```
 
+`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` draw segments
+whose ends are data coordinates. How they are written is in the
+[migration guide](MATPLOTLIB_MIGRATION.md) ("Segments"):
+
+```python
+ax.vlines(peaks, 0, heights, colors='k', label='peaks')
+ax.hlines([0.5, 1.5], 0, [2, 3], linestyles='dashed')
+```
+
+For a guide across the whole axes, see
+[Reference lines and spans](REFERENCE_LINES_AND_SPANS.md).
+
 ## Scatter
 
 ```python
