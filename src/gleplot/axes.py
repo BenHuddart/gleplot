@@ -731,11 +731,22 @@ def _line_width(caller: str, linewidth: Any) -> Any:
 def _stroked(linestyle: Any, linewidth: Any) -> Any:
     """``linestyle``, or ``'none'`` for a zero ``linewidth``.
 
-    matplotlib's ``lw=0`` draws no stroke. GLE has no zero width (its
-    ``lwidth 0`` is the thinnest line), so the dataset is written without
-    its line, as for ``linestyle='none'``.
+    matplotlib's ``lw=0`` draws no stroke. GLE has no zero-width stroke
+    (``lwidth 0`` is its thinnest line, and the writer reads 0 as the
+    style's default width), so the dataset is written without its line, as
+    for ``linestyle='none'``.
     """
     return "none" if linewidth == 0 else linestyle
+
+
+def _warn_unstrokable_zero(caller: str, linewidth: float) -> None:
+    """Warn that a curve that is only its line cannot take ``lw=0``."""
+    if linewidth == 0:
+        warn_external(
+            f"{caller}() cannot leave out the line it draws, and GLE has no "
+            "zero-width stroke; linewidth=0 is drawn at the default width. "
+            "Leave the call out to draw nothing."
+        )
 
 
 def _count(value: Any, what: str) -> int:
@@ -2833,10 +2844,12 @@ class Axes:
         # off there is nothing for it to qualify, and storing it would not
         # survive a round trip (the writer emits no ``line`` token).
         if mode and linestyle in _NO_LINE:
-            warn_external(
-                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
-                "omits it, so the series is drawn without that mode.",
-            )
+            if linewidth != 0:  # lw=0 asked for no stroke: the mode goes too
+                warn_external(
+                    f"line mode {mode!r} needs a drawn line; "
+                    f"linestyle={linestyle!r} omits it, so the series is drawn "
+                    "without that mode.",
+                )
             mode = None
 
         # Handle color. Which style default applies depends on what this
@@ -3256,6 +3269,7 @@ class Axes:
                     "-" if one_ls is None else _line_style("hist", one_ls)
                 )
                 fields["linewidth"] = float(_line_width("hist", one_lw))
+                _warn_unstrokable_zero("hist", fields["linewidth"])
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
             else:
@@ -3904,6 +3918,7 @@ class Axes:
         fields["color"] = self._resolve_color(color)
         fields["linestyle"] = linestyle
         fields["linewidth"] = float(_line_width(caller, linewidth))
+        _warn_unstrokable_zero(caller, fields["linewidth"])
         if label is not None:
             fields["label"] = self._text(str(label))
         return fields
@@ -4393,10 +4408,12 @@ class Axes:
         linestyle = _stroked(linestyle, width)
         mode = resolve_line_mode(drawstyle, line_mode)
         if mode and linestyle in _NO_LINE:
-            warn_external(
-                f"line mode {mode!r} needs a drawn line; linestyle={linestyle!r} "
-                "omits it, so the series is drawn without that mode.",
-            )
+            if width != 0:  # lw=0 asked for no stroke: the mode goes too
+                warn_external(
+                    f"line mode {mode!r} needs a drawn line; "
+                    f"linestyle={linestyle!r} omits it, so the series is drawn "
+                    "without that mode.",
+                )
             mode = None
 
         fields = dict(
@@ -5815,7 +5832,7 @@ class Axes:
                 styles[i % len(styles)],
                 width_list[i % len(width_list)],
             )
-            if key[1] == "none":
+            if key[1] == "none" or key[2] == 0:  # 0 draws no stroke
                 continue
             groups.setdefault(key, []).append(i)
 

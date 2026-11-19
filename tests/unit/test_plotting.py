@@ -1,6 +1,7 @@
 """Unit tests for plotting functionality."""
 
 import tempfile
+import warnings
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -3124,11 +3125,24 @@ def test_line_from_file_without_a_line_writes_no_line_token(no_line, tmp_path):
         lambda ax, **kw: ax.errorbar([0, 1], [0, 1], yerr=[1, 1], **kw),
         lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, **kw),
         lambda ax, **kw: ax.axhline(0.5, **kw),
+        lambda ax, **kw: ax.axvline(0.5, **kw),
+        lambda ax, **kw: ax.step([0, 1, 2], [0, 1, 0], marker="o", **kw),
+        lambda ax, **kw: ax.line_from_file("f.dat", 1, 2, drawstyle="steps", **kw),
     ],
-    ids=["plot", "plot-marker", "errorbar", "line_from_file", "axhline"],
+    ids=[
+        "plot",
+        "plot-marker",
+        "errorbar",
+        "line_from_file",
+        "axhline",
+        "axvline",
+        "step",
+        "line_from_file-steps",
+    ],
 )
-def test_linewidth_zero_draws_no_line(draw, tmp_path):
-    """matplotlib's ``lw=0`` draws no stroke, the same as ``linestyle='none'``."""
+def test_linewidth_zero_draws_no_line(draw, tmp_path, recwarn):
+    """matplotlib's ``lw=0`` draws no stroke, the same as ``linestyle='none'``,
+    and says nothing about a line mode it drops with the line."""
 
     def script(**kw):
         glp.close()
@@ -3138,8 +3152,33 @@ def test_linewidth_zero_draws_no_line(draw, tmp_path):
         fig.savefig(str(out))
         return out.read_text()
 
-    assert script(linewidth=0) == script(linestyle="none")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        no_line = script(linestyle="none")
+    recwarn.clear()
+    assert script(linewidth=0) == no_line
+    assert not recwarn.list
     assert script(linewidth=0) != script()
+
+
+def test_segments_with_linewidth_zero_are_left_out():
+    ax = glp.figure(data_prefix="lw").add_subplot(111)
+    ax.hlines([0.5, 1], 0, 1, linewidths=[0, 2])
+    ax.vlines([0.5], 0, 1, linewidths=0)
+    assert [s["linewidth"] for s in ax.lines] == [2.0]
+
+
+@pytest.mark.parametrize(
+    "name, draw",
+    [
+        ("function", lambda ax: ax.function("x", 0, 1, linewidth=0)),
+        ("hist", lambda ax: ax.hist([1.0, 2.0], histtype="step", linewidth=0)),
+    ],
+)
+def test_a_curve_that_is_only_its_line_warns_on_linewidth_zero(name, draw):
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match=rf"{name}\(\) cannot leave out"):
+        draw(ax)
 
 
 def _saved(fig, tmp_path):
