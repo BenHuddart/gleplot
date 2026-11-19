@@ -274,3 +274,32 @@ def test_figure_level_convenience_methods():
     fig.axhspan(1.0, 2.0)
     ax = fig.axes_list[0]
     assert len(ax.reflines) == 2 and len(ax.spans) == 2
+
+
+@pytest.mark.parametrize("name", ["axvline", "axhline"])
+def test_reference_line_takes_matplotlibs_short_names(name, recwarn):
+    fig, ax = _fig()
+    getattr(ax, name)(1.0, lw=2.5, ls="--", c="red")
+    line = ax.reflines[0]
+    assert (line["linewidth"], line["linestyle"], line["color"]) == (2.5, "--", "RED")
+    assert not recwarn.list
+
+
+@pytest.mark.parametrize("name", ["axvspan", "axhspan"])
+def test_span_takes_facecolor_for_color(name, recwarn):
+    fig, ax = _fig()
+    getattr(ax, name)(1.0, 2.0, fc="red")
+    getattr(ax, name)(1.0, 2.0, facecolor="blue")
+    assert [span["color"] for span in ax.spans] == ["RED", "BLUE"]
+    assert not recwarn.list
+
+
+@pytest.mark.parametrize("name, args", [("axhline", (1.0,)), ("axvspan", (1.0, 2.0))])
+def test_guides_warn_on_keywords_they_ignore(name, args):
+    fig, ax = _fig()
+    with pytest.warns(UserWarning) as caught:
+        getattr(ax, name)(*args, transform=None, zorder=3)
+    assert [str(w.message) for w in caught] == [
+        f"{name}() ignores unsupported keyword(s): transform, zorder."
+    ]
+    assert caught[0].filename == __file__

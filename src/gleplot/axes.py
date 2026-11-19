@@ -3935,7 +3935,12 @@ class Axes:
             Higher values are drawn on top. When omitted, error bars sit
             above lines and scatters (the historical gleplot default).
         **kwargs
-            Additional arguments
+            ``linestyle`` (alias ``ls``) overrides the line style ``fmt``
+            gives, as in matplotlib. ``lw``, ``c`` and ``ms`` are
+            matplotlib's short names for ``linewidth``, ``color`` and
+            ``markersize``; the full name wins, with a warning, unless it is
+            left at its default. Any other keyword (``ecolor``,
+            ``elinewidth``, ``capthick``, ...) warns and is ignored.
 
         Returns
         -------
@@ -3958,6 +3963,16 @@ class Axes:
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
+        data_name = kwargs.pop("data_name", None)
+        linewidth = _pop_line_alias(kwargs, "errorbar", "lw", "linewidth", linewidth, 1)
+        color = _pop_line_alias(kwargs, "errorbar", "c", "color", color, None)
+        markersize = _pop_line_alias(
+            kwargs, "errorbar", "ms", "markersize", markersize, 6
+        )
+        linestyle = _pop_line_alias(
+            kwargs, "errorbar", "ls", "linestyle", kwargs.pop("linestyle", None), None
+        )
+        warn_unsupported_keywords("errorbar", kwargs)
         label = self._text(label)
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
@@ -3982,6 +3997,9 @@ class Axes:
         elif len(fmt) == 1 and fmt in "os^vD+x":
             parsed_marker = parsed_marker or fmt
             parsed_linestyle = "none"
+        # As in matplotlib, a linestyle keyword overrides fmt's.
+        if linestyle is not None:
+            parsed_linestyle = linestyle
 
         # Determine GLE marker
         gle_marker = None
@@ -4056,8 +4074,6 @@ class Axes:
                 xerr_left = err_arr
                 xerr_right = err_arr
 
-        data_name = kwargs.pop("data_name", None)
-
         # matplotlib reads None as the default width; 1 is the writer's
         # "style default" (see GLEWriter.add_errorbar_series).
         if linewidth is None:
@@ -4124,12 +4140,14 @@ class Axes:
         white-filled one.
 
         ``skiprows``, ``comment`` and ``max_rows`` control how GLE reads
-        the file, as for :meth:`line_from_file`.
+        the file, as for :meth:`line_from_file`. Any other keyword warns and
+        is ignored.
         """
         _check_file_columns(x_col, y_col=y_col, yerr_col=yerr_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
 
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
+        warn_unsupported_keywords("errorbar_from_file", kwargs)
         label = self._text(label)
         gle_color = self._resolve_color(color)
 
@@ -5718,6 +5736,12 @@ class Axes:
             Line width in points.
         label : str, optional
             Legend label.
+        **kwargs
+            ``lw``, ``ls`` and ``c`` are matplotlib's short names for
+            ``linewidth``, ``linestyle`` and ``color``; the full name wins,
+            with a warning, unless it is left at its default. Any other
+            keyword (``alpha``, ``zorder``, ``transform``, ...) warns and is
+            ignored.
 
         Returns
         -------
@@ -5759,9 +5783,14 @@ class Axes:
         self, orient, value, lo, hi, color, linestyle, linewidth, label, kwargs
     ):
         """Shared implementation of :meth:`axvline` / :meth:`axhline`."""
+        caller = "axvline" if orient == "v" else "axhline"
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
+        linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
+        linewidth = _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
+        color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
+        warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
         gle_color = "BLACK" if color is None else rgb_to_gle(color)
 
@@ -5818,6 +5847,10 @@ class Axes:
             and SPEC §6.1/§10.6.
         label : str, optional
             Legend label.
+        **kwargs
+            ``facecolor`` (``fc``) is accepted for ``color``; ``color``
+            wins, with a warning, when both are given. Any other keyword
+            (``edgecolor``, ``hatch``, ``zorder``, ...) warns and is ignored.
 
         Returns
         -------
@@ -5848,9 +5881,13 @@ class Axes:
 
     def _add_span(self, orient, start, end, lo, hi, color, alpha, label, kwargs):
         """Shared implementation of :meth:`axvspan` / :meth:`axhspan`."""
+        caller = "axvspan" if orient == "v" else "axhspan"
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
         lo, hi = self._check_axes_fraction(lo, hi, names)
         data_name = kwargs.pop("data_name", None)
+        for alias in ("facecolor", "fc"):
+            color = _pop_line_alias(kwargs, caller, alias, "color", color, None)
+        warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
         gle_color = "LIGHTGRAY" if color is None else rgb_to_gle(color)
 
