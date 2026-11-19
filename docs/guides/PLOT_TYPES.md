@@ -47,8 +47,9 @@ ax.scatter(x, y, s=50, color='red', marker='o', alpha=0.6)
 ```
 
 `s` is an area in points², as in matplotlib. Pass one value per point for a
-bubble chart, e.g. `s=population / 1e6`; see
-[Colors and Markers](COLORS_AND_MARKERS.md).
+bubble chart, e.g. `s=population / 1e6`, or one number per point for `c` to
+colour each point through a colormap, e.g. `c=temperature, cmap='viridis'`;
+see [Colors and Markers](COLORS_AND_MARKERS.md).
 
 ## Error bars
 

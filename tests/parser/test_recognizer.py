@@ -176,7 +176,7 @@ def normalize(d: dict) -> dict:
     # recovered arrays are rounded. Snap BOTH sides to that emitted precision.
     _ARRAY_KEYS = {
         "lines": ("x", "y"),
-        "scatters": ("x", "y", "mdata"),
+        "scatters": ("x", "y", "mdata", "cdata"),
         "bars": ("x", "height", "bottom", "top"),
         "hists": ("samples",),
         "fits": ("x", "y"),
@@ -1466,6 +1466,133 @@ def test_a_hand_written_mdata_is_kept_raw_and_warned(tmp_path, marker):
     assert "define marker bub bubble\n" in text
     assert '   data "m.dat" d1=c1,c2 d2=c1,c3\n' in text
     assert f"   d1 marker {marker} msize 0.4 mdata d2 color RED\n" in text
+
+
+def test_per_point_colours_are_recovered(tmp_path):
+    """gleplot's colour-mapped scatter comes back as values, cmap and limits."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[3, -1, 8], cmap="Blues", vmin=-2.5, marker="D")
+    path = tmp_path / "coloured.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path)
+    (series,) = rec.figure.axes_list[0].scatters
+    assert series["marker"] == "FDIAMOND"
+    assert list(series["cdata"]) == [3, -1, 8]
+    assert (series["cmap"], series["vmin"], series["vmax"]) == ("blues", -2.5, 8.0)
+    assert series["color"] is None
+    assert rec.warnings == []
+
+
+def test_a_point_without_a_colour_round_trips(tmp_path):
+    """A missing value in the colour column of a file read back: the point is
+    written missing, so GLE does not draw it, and that reads back the same."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    fig.add_subplot(111).scatter([0, 1, 2], [2, 1, 2], c=[1, 5, 2])
+    path = tmp_path / "gap.gle"
+    fig.savefig_gle(str(path))
+    dat = tmp_path / "data_0.dat"
+    dat.write_text(dat.read_text().replace("1 1 5\n", "1 1 *\n"))
+    rec = parse_gle_figure(path)
+    (series,) = rec.figure.axes_list[0].scatters
+    assert np.isnan(series["cdata"][1])
+    text, files = rec.figure._generate_gle_with_files()
+    assert files["data_0.dat"].splitlines()[2] == "* * *"
+    rec.figure.savefig_gle(str(path))
+    again = parse_gle_figure(path).figure
+    assert again._generate_gle_with_files() == (text, files)
+
+
+def test_an_edited_coloured_scatter_kept_raw_keeps_its_let_and_subs(tmp_path):
+    """The parser drops the generated subs; a raw line naming one gets them
+    back, and its ``let`` stays beside it."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    fig.add_subplot(111).scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="magma")
+    path = tmp_path / "edited.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("mdata d3 key", "mdata d3 line key"), encoding="utf-8")
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].scatters == []
+    assert any("per-point colours" in w and "raw GLE" in w for w in rec.warnings)
+    out = tmp_path / "edited-again.gle"
+    rec.figure.savefig_gle(str(out))
+    again = out.read_text(encoding="utf-8")
+    assert again.count("sub gleplot_cdata_fcircle_magma size data\n") == 1
+    assert again.count("sub gleplot_magma z\n") == 1
+    assert (
+        "    data data_0.dat d1=c1,c2 d2=c1,c3\n"
+        "    let d3 = (d2-1)/(3-1)\n"
+        "    d1 marker gleplot_cdata_fcircle_magma msize 0.134164 mdata d3 line"
+    ) in again
+
+
+def test_a_polar_coloured_scatter_round_trips(tmp_path):
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111, projection="polar")
+    ax.scatter([0.0, 1.0, 2.0], [1, 2, 3], c=[1, 2, 3], label="p")
+    path = tmp_path / "polar.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path)
+    assert rec.warnings == []
+    assert rec.figure._generate_gle_with_files() == fig._generate_gle_with_files()
+
+
+def test_a_colour_marker_whose_mdata_is_not_a_colour_let_is_kept_raw(tmp_path):
+    p = _write(
+        tmp_path,
+        "m.gle",
+        _USER_MDATA.format(marker="gleplot_cdata_fcircle_viridis"),
+        {"m.dat": "1 1 0.5\n2 2 1\n3 3 2\n"},
+    )
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].scatters == []
+    assert any("per-point colours" in w for w in rec.warnings)
+    out = tmp_path / "m-again.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert '   data "m.dat" d1=c1,c2 d2=c1,c3\n' in text
+    assert "sub gleplot_cdata_fcircle_viridis size data\n" in text
+
+
+def test_a_colour_marker_with_an_unknown_colormap_is_kept_raw(tmp_path):
+    src = _USER_MDATA.format(marker="gleplot_cdata_fcircle_nope")
+    src = src.replace("mdata d2", "mdata d3").replace(
+        "d2=c1,c3\n", "d2=c1,c3\n   let d3 = (d2-0)/(2-0)\n"
+    )
+    p = _write(tmp_path, "m.gle", src, {"m.dat": "1 1 0.5\n2 2 1\n3 3 2\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].scatters == []
+    assert any("per-point colours" in w for w in rec.warnings)
+    out = tmp_path / "m-again.gle"
+    rec.figure.savefig_gle(str(out))
+    text = out.read_text(encoding="utf-8")
+    assert (
+        "   let d3 = (d2-0)/(2-0)\n"
+        "   d1 marker gleplot_cdata_fcircle_nope msize 0.4 mdata d3 color RED\n"
+    ) in text
+
+
+def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
+    """``let dK = (dJ-a)/(b-a)`` with a line of its own is an ordinary curve."""
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        '   data "m.dat" d1=c1,c2\n'
+        "   let d2 = (d1-1)/(3-1)\n"
+        "   d2 line color RED\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "m.gle", src, {"m.dat": "1 1\n2 2\n3 3\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].scatters == []
+    out = tmp_path / "m-again.gle"
+    rec.figure.savefig_gle(str(out))
+    assert "let d2 = (d1-1)/(3-1)\n" in out.read_text(encoding="utf-8")
 
 
 def test_a_non_finite_qualifier_is_skipped(tmp_path):
