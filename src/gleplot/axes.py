@@ -129,7 +129,7 @@ def _new_limits(
     A ``(lo, hi)`` pair as the first limit is both; ``xmin``/``xmax`` stand
     for ``left``/``right`` (a ``None`` on one side gives way to the other);
     an omitted limit keeps ``current``. A limit given must be ``None`` or
-    a finite number.
+    a finite number; a numpy scalar is stored as the Python number.
     """
     lo_name, hi_name, min_name, max_name = names
     lo, hi, lo_alias, hi_alias = values
@@ -148,7 +148,7 @@ def _new_limits(
     ):
         if alias is not _UNCHANGED:
             if value is _UNCHANGED or value is None:
-                value = alias
+                value, name = alias, alias_name
             elif alias is not None:
                 raise TypeError(
                     f"{method}() got both {name!r} ({value!r}) and {alias_name!r} "
@@ -157,8 +157,13 @@ def _new_limits(
         if value is _UNCHANGED:
             value = old
         elif value is not None:
-            if isinstance(value, (str, bytes)):
-                raise TypeError(f"{method}({name}={value!r}): a limit is a number")
+            if isinstance(value, (np.generic, np.ndarray)) and np.ndim(value) == 0:
+                value = value.item()
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(
+                    f"{method}({name}={value!r}): a limit is a number, or None "
+                    "for an automatic one."
+                )
             _finite_float(value, f"{method}({name}={value!r}): the limit")
         resolved.append(value)
     ignored = ["emit"] if emit is not True else []
@@ -8749,7 +8754,8 @@ class Axes:
             Axis limits; ``None`` = auto. An omitted limit keeps its current
             setting, as in matplotlib. ``left`` may also be a
             ``(left, right)`` pair. A NaN or infinite limit raises
-            ``ValueError``, as in matplotlib.
+            ``ValueError``, as in matplotlib, and a limit that is not a
+            number ``TypeError``.
         axis : str, optional
             Which axis: 'x' (bottom, default) or 'x2' (top); another value
             raises ``ValueError``.
@@ -8995,7 +9001,8 @@ class Axes:
         bottom, top : float or None, optional
             Axis limits; ``None`` = auto (see :meth:`set_xlim`). An omitted
             limit keeps its current setting, and ``bottom`` may be a
-            ``(bottom, top)`` pair.
+            ``(bottom, top)`` pair. A limit that is not a finite number
+            raises, as for :meth:`set_xlim`.
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right); another value
             raises ``ValueError``.

@@ -69,6 +69,13 @@ class TestAxisProperties:
         self.ax.set_ylim(4, ymin=None)
         assert self.ax.ymin == 4
 
+    def test_axis_limits_store_numpy_scalars_as_python_numbers(self):
+        self.ax.set_xlim(np.int64(1), np.array(2.5))
+        assert self.ax.get_xlim() == (1, 2.5)
+        assert [type(v) for v in self.ax.get_xlim()] == [int, float]
+        with pytest.raises(ValueError, match=r"set_xlim\(xmax=nan\)"):
+            self.ax.set_xlim(xmax=np.float64("nan"))
+
     def test_axis_limits_return_the_new_limits(self):
         """As matplotlib: (low, high), with None for an automatic limit."""
         assert self.ax.set_xlim(1, 2) == (1, 2)
@@ -93,6 +100,8 @@ class TestAxisProperties:
             (lambda ax: ax.set_ylim(bottom=float("inf")), ValueError),
             (lambda ax: ax.set_xlim("0", 1), TypeError),
             (lambda ax: ax.set_xlim("05"), TypeError),
+            (lambda ax: ax.set_xlim(True, 2), TypeError),
+            (lambda ax: ax.set_xlim(np.array([1.0]), 2), TypeError),
         ],
     )
     def test_axis_limits_reject_a_bad_axis_or_limit(self, call, error):
