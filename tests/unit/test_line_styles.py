@@ -179,11 +179,12 @@ def test_contour_line_style_names_draw_their_style(call):
 
 @pytest.mark.parametrize("linestyle,expected", [("dashed", 3), ("wavy", 1)])
 def test_a_reference_line_on_an_empty_axes_is_drawn(linestyle, expected, recwarn):
-    # On an empty axes a reference line is a guide sub call, which draws
-    # nothing for an lstyle of 0: an unmapped style used to vanish.
+    # On an empty axes a reference line is drawn after the graph; an
+    # unmapped style is drawn solid rather than vanishing.
     fig = glp.figure(data_prefix="lse")
     fig.add_subplot(111).axvline(0.5, linestyle=linestyle)
-    assert re.search(f'draw gleplot_vline .* "BLACK" \\S+ {expected} ""', _gle(fig))
+    style = f" lstyle {expected}" if expected != 1 else ""
+    assert f"set color BLACK lwidth 0.05292{style}\ngraph_vline 0.5" in _gle(fig)
 
 
 def test_dash_dot_emits_exactly_one_lstyle_token():

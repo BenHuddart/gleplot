@@ -1504,11 +1504,36 @@ def one_point_default_width():
     curves = fig.add_subplot(132)
     curves.function("x/2", xmin=0, xmax=2)
     curves.contour([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], levels=[1.5])
-    # Nothing resolves the y range, so this guide is a layered draw call.
+    # Nothing resolves the y range, so this guide is drawn after the graph.
     guides = fig.add_subplot(133)
     guides.axvline(1.0, label="drawn")
     guides.set_xlim(0, 2)
     guides.legend()
+    return fig
+
+
+def guides_after_graph():
+    """Guides on an axis gleplot cannot range, drawn after ``end graph``.
+
+    A dashed, labelled line; one over a fraction of the frame; one with no
+    line; a translucent labelled band with its own swatch; and a band over a
+    fraction. The second axes' collapsed range sends its guides there too.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(121)
+    ax.set_ylim(-3.0, None)
+    ax.axvline(0.5, color="red", linestyle="--", linewidth=2.0, label="cut")
+    ax.axvline(0.7, ymin=0.2, ymax=0.6)
+    ax.axvline(0.8, linestyle="none")
+    band = ax.axvspan(0.1, 0.3, color="orange", alpha=0.35, label="window")
+    band["swatch_color"] = "BLUE"
+    ax.axvspan(-0.4, -0.2, ymin=0.25)
+    ax.legend()
+    point = fig.add_subplot(122)
+    point.plot([5.0], [7.0], marker="o")
+    point.axhline(7.0, xmin=0.1, xmax=0.9, label="level")
+    point.axhspan(6.0, 8.0, xmin=0.5)
+    point.legend()
     return fig
 
 
@@ -2006,6 +2031,7 @@ BUILDERS = [
     function_curves,
     function_curves_beside_modelled_lets,
     one_point_default_width,
+    guides_after_graph,
     fit_curves,
     closed_form_fits,
     fit_result_legends,
