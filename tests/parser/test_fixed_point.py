@@ -183,6 +183,13 @@ def _shared_line_and_masked_sizes(ax):
     ax.scatters[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "gap"})
 
 
+def _shared_line_reading_one_column_twice(ax):
+    ax.plot([1, 2, 3], [1, 2, 3])
+    ax.scatter([1, 2, 3], [1, 2, 3])
+    ax.lines[0]["data_source"] = ColumnRef("t", {"x": "z", "y": "z"})
+    ax.scatters[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+
+
 @pytest.mark.parametrize(
     "draw",
     [
@@ -217,6 +224,31 @@ def test_a_shared_provider_sidecar_survives_a_re_save(draw, tmp_path):
 
     assert data2 == data1
     assert text2 == text1
+
+
+def test_a_series_reading_one_shared_column_twice_keeps_it(tmp_path):
+    """Its repeated column keeps its own place when another series merges in.
+
+    An inline series writes ``c1..cN``, so ``d1=c1,c1`` comes back as two
+    columns: not the same bytes, but every series reads what it read.
+    """
+    table = TableData.from_mapping({"x": [1, 2, 3], "y": [1, 4, 9], "z": [5, 6, 7]})
+    fig = gleplot.figure(data_prefix="r")
+    _shared_line_reading_one_column_twice(fig.add_subplot(111))
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    fig.savefig_gle(
+        str(first / "figure.gle"), data_provider=DictDataProvider({"t": table})
+    )
+    parse_gle_figure(first / "figure.gle").figure.savefig_gle(
+        str(second / "figure.gle")
+    )
+
+    ax = parse_gle_figure(second / "figure.gle").figure.axes_list[0]
+    assert list(ax.lines[0]["x"]) == list(ax.lines[0]["y"]) == [5, 6, 7]
+    assert list(ax.scatters[0]["x"]) == [1, 2, 3]
+    assert list(ax.scatters[0]["y"]) == [1, 4, 9]
 
 
 def _read_saved(directory: Path):
