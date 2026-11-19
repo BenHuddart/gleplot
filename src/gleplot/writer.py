@@ -3170,7 +3170,8 @@ class GLEWriter:
         binding : ColumnBinding, optional
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
-            that table (see :meth:`_write_columns`).
+            that table (see :meth:`_write_columns`). A ``gaps`` series gets
+            its own copy of a table column holding NaN, written with ``*``.
 
         Notes
         -----
