@@ -4314,6 +4314,12 @@ class GLEWriter:
         if bottom is not None:
             base = np.asarray(bottom, dtype=float)
             tops = np.asarray(top, dtype=float) if top is not None else base + heights
+            missing = self._bar_rows_missing(x, base, tops)
+            if missing.any():
+                base = self._as_missing(base, missing)
+                tops = self._as_missing(tops, missing)
+                if binding is not None:
+                    binding = binding.with_private(("bottom", "top"))
             names = column_names if column_names and len(column_names) == 3 else None
             # A header we could not line up with the three columns would
             # raise in ``_write_columns``. Dropping it also drops the
@@ -4333,6 +4339,11 @@ class GLEWriter:
             )
             bar_cmd = f"    bar {d_name} from {d_from} fill {','.join(fill_tokens)}"
         else:
+            missing = self._bar_rows_missing(x, heights)
+            if missing.any():
+                heights = self._as_missing(heights, missing)
+                if binding is not None:
+                    binding = binding.with_private(("height",))
             cols = self._write_columns(
                 data_file, [("x", x), ("height", heights)], column_names, binding
             )
@@ -4393,12 +4404,14 @@ class GLEWriter:
                         if stored is not None
                         else base + height
                     )
-                columns.append(("bottom", base))
+                missing = self._bar_rows_missing(x, base, tops)
+                columns.append(("bottom", self._as_missing(base, missing)))
                 from_slots.append(len(columns) - 1)
-                columns.append(("top", tops))
+                columns.append(("top", self._as_missing(tops, missing)))
                 to_slots.append(len(columns) - 1)
             else:
-                columns.append(("height", height))
+                missing = self._bar_rows_missing(x, height)
+                columns.append(("height", self._as_missing(height, missing)))
                 from_slots.append(None)
                 to_slots.append(len(columns) - 1)
 
@@ -4456,6 +4469,22 @@ class GLEWriter:
                 member.get("swatch_color"),
                 has_header,
             )
+
+    @staticmethod
+    def _bar_rows_missing(x: np.ndarray, *values: np.ndarray) -> np.ndarray:
+        """The bar rows to write as missing (``*``): any value is NaN.
+
+        GLE draws a ``nan`` height as a polygon at ``-nan``, which
+        Ghostscript rejects, but skips a missing point (``drawBar`` in
+        ``graph2.cpp``). A ``from`` and its ``to`` dataset must be missing
+        at the same points, so the caller marks every value column of the
+        row. The x column is left as written: GLE sizes the bars from its
+        consecutive gaps, and a missing x would read as 0.
+        """
+        missing = np.isnan(x)
+        for column in values:
+            missing = missing | np.isnan(column)
+        return missing
 
     @staticmethod
     def _bar_pattern_clause(members: Sequence[Mapping[str, Any]]) -> str:

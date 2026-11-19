@@ -323,6 +323,24 @@ def test_a_grouped_bar_shares_one_command(tmp_path, monkeypatch):
     assert Path("again.gle").read_text(encoding="utf-8") == text
 
 
+def test_a_missing_grouped_bar_stays_missing(tmp_path, monkeypatch):
+    """A ``*`` row comes back as ``*``, never as a ``nan`` GLE draws (#317)."""
+    monkeypatch.chdir(tmp_path)
+    body = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "g.dat" d1=c1,c2 d2=c1,c3\n'
+        "   bar d1,d2 fill green,blue\n"
+        "end graph\n"
+    )
+    _write(tmp_path, "g.gle", body, {"g.dat": "1 5 6\n2 * 4\n3 3 *\n"})
+    rec = parse_gle_figure("g.gle")
+    assert rec.figure.axes_list[0].bars[0]["group"] is not None
+    rec.figure.savefig_gle("out.gle")
+    rows = Path("g.dat").read_text(encoding="utf-8").splitlines()
+    assert rows[1:] == ["1 5 6", "2 * 4", "3 3 *"]
+
+
 def test_a_from_list_of_the_wrong_length_stays_raw(tmp_path):
     """``from`` is positional. A shorter list would apply to the wrong bars."""
     body = (

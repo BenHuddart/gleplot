@@ -472,6 +472,39 @@ class TestBarCharts:
         assert self.ax.errorbars == []
         assert "err " not in self.fig._generate_gle()
 
+    def test_a_nan_bar_is_written_missing(self):
+        """GLE skips a missing (``*``) bar but draws ``nan`` as garbage (#317)."""
+        self.ax.bar([1, 2, 3], [1, np.nan, 3])
+        self.ax.bar([1, 2, 3], [1, np.nan, 1], bottom=[1, 2, 3])
+        _text, files = self.fig._generate_gle_with_files()
+        plain, stacked = (files[name].splitlines()[1:] for name in sorted(files))
+        assert plain == ["1 1", "2 *", "3 3"]
+        # A ``from`` and its ``to`` dataset must be missing at the same rows.
+        assert stacked == ["1 1 2", "2 * *", "3 3 4"]
+
+    def test_a_nan_table_bar_gets_its_own_missing_column(self):
+        """The table's column stays as it is: another series may read it."""
+        from gleplot.sources import ColumnRef, DictDataProvider, TableData
+
+        self.ax.bar([1, 2, 3], [1, 2, 3])
+        self.ax.plot([1, 2, 3], [1, 2, 3])
+        for series in (self.ax.bars[0], self.ax.lines[0]):
+            series["data_source"] = ColumnRef("t", {"x": "x", "height": "y", "y": "y"})
+        table = TableData.from_mapping({"x": [1, 2, 3], "y": [1, np.nan, 3]})
+        text, files = self.fig._generate_gle_with_files(
+            data_provider=DictDataProvider({"t": table})
+        )
+        (name,) = files
+        rows = [line.split() for line in files[name].splitlines()]
+        assert rows == [
+            ["x", "height", "y"],
+            ["1", "1", "1"],
+            ["2", "*", "nan"],
+            ["3", "3", "3"],
+        ]
+        assert f"data {name} d1=c1,c2\n" in text
+        assert f"data {name} d2=c1,c3\n" in text
+
 
 class TestFillBetween:
     """Test fill_between functionality."""

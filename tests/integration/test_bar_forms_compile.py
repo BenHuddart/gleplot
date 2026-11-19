@@ -51,3 +51,16 @@ def test_issue_46_bar_errors_compile(tmp_path):
     ax.legend()
     fig.savefig(str(tmp_path / "barerr.png"))
     assert (tmp_path / "barerr.png").exists()
+
+
+def test_a_nan_height_leaves_its_bar_out(tmp_path):
+    """A ``nan`` row drew a ``-nan`` polygon, which Ghostscript rejects (#317).
+
+    GLE itself exits 0 either way, so the EPS is read for the polygon.
+    """
+    fig = glp.figure(data_prefix="barmissing")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [1, float("nan"), 3])
+    ax.bar([1, 2, 3], [1, float("nan"), 1], bottom=[1, 2, 3], color="white")
+    out = fig.savefig(str(tmp_path / "barmissing.eps"))
+    assert "nan" not in out.read_text(encoding="latin-1")
