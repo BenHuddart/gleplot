@@ -2027,11 +2027,14 @@ class Figure:
             )
         return mappable, owner
 
-    def xlabel(self, label: str):
-        """Set x label on current axes."""
-        return self.gca().set_xlabel(label)
+    def xlabel(self, label: str, **kwargs):
+        """Set x label on current axes.
 
-    def ylabel(self, label: str, axis: str = "y"):
+        Keywords are as for :meth:`Axes.set_xlabel`.
+        """
+        return self.gca().set_xlabel(label, **kwargs)
+
+    def ylabel(self, label: str, axis: str = "y", **kwargs):
         """Set y label on current axes.
 
         Parameters
@@ -2040,12 +2043,17 @@ class Figure:
             Axis label text
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        **kwargs
+            As for :meth:`Axes.set_ylabel`.
         """
-        return self.gca().set_ylabel(label, axis=axis)
+        return self.gca().set_ylabel(label, axis=axis, **kwargs)
 
-    def title(self, label: str):
-        """Set title on current axes."""
-        return self.gca().set_title(label)
+    def title(self, label: str, **kwargs):
+        """Set title on current axes.
+
+        Keywords are as for :meth:`Axes.set_title`.
+        """
+        return self.gca().set_title(label, **kwargs)
 
     def legend(self, *args, **kwargs) -> "Figure":
         """Add one legend for the whole figure, listing every axes' series.
