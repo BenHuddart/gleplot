@@ -1698,11 +1698,55 @@ def test_an_unmodelled_dataset_qualifier_keeps_the_line_raw(tmp_path, qualifiers
     ax = rec.figure.axes_list[0]
     assert ax.file_series == [] and ax.lines == []
     assert ax.passthrough == ['   data "a.dat" d1=c1,c2', line]
-    assert any(w.startswith("data: d1: ") and "not modelled" in w for w in rec.warnings)
+    assert any(
+        w.startswith("data: '") and "on d1 is not modelled; the dataset line" in w
+        for w in rec.warnings
+    )
 
     out = tmp_path / "out.gle"
     rec.figure.savefig_gle(str(out))
     assert line in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        # Drawn through an offset let the recognizer consumed.
+        "   let d2 = d1+0.5\n   d2 line color red mscale 2\n",
+        # On the secondary axis, which the layout reserves room for.
+        "   d1 line color red y2axis mscale 2\n",
+    ],
+)
+def test_an_unmodelled_qualifier_the_line_cannot_keep_is_reported(tmp_path, lines):
+    """#165: the series is modelled, and the note says what is dropped."""
+    src = f'begin graph\n   data "a.dat" d1=c1,c2\n{lines}end graph\n'
+    p = _write(tmp_path, "q.gle", src, {"a.dat": "0 1\n1 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.file_series) == 1
+    assert not any("mscale" in line for line in ax.passthrough)
+    assert any(
+        w.startswith("data: 'mscale 2' on d") and "dropped on re-save" in w
+        for w in rec.warnings
+    )
+
+
+def test_a_colour_mapped_scatter_kept_raw_keeps_its_let(tmp_path):
+    """#165: a raw ``gleplot_cdata_`` line keeps the colour let it reads."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    fig.add_subplot(111).scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="viridis")
+    path = tmp_path / "c.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    line = next(
+        ln for ln in text.splitlines() if "gleplot_cdata_" in ln and " mdata " in ln
+    )
+    path.write_text(text.replace(line, line + " mscale 2"), encoding="utf-8")
+    ax = parse_gle_figure(path).figure.axes_list[0]
+    assert ax.scatters == []
+    assert any(line.lstrip().startswith("let d") for line in ax.passthrough)
+    assert ax.passthrough[-1].endswith("mscale 2")
 
 
 def test_a_qualifier_on_a_contour_line_is_reported(tmp_path):

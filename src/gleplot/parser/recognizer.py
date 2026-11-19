@@ -5923,9 +5923,9 @@ class _Recognizer:
     def _hist_line_tokens_ok(toks) -> bool:
         """True when every token is one ``line hist`` may round-trip.
 
-        ``_scan_series_attrs`` skips words it does not know, which would
-        drop them. A histogram line only round-trips color, width, style,
-        key and y2axis.
+        A histogram line only round-trips color, width, style, key and
+        y2axis; anything else, read by ``_scan_series_attrs`` or not, keeps
+        the line raw.
         """
         i = 1
         m = len(toks)
@@ -6798,20 +6798,6 @@ class _Recognizer:
                 )
                 return
 
-        if attrs["unread"]:
-            # A series built from this line would drop those tokens on
-            # re-save; keep the line as written, and its dataset defined.
-            info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
-            info["_raw_datasets"].add(d_name)
-            self._note(
-                ImportCategory.DATA,
-                f"{d_name}: {' '.join(attrs['unread'])} not modelled; the "
-                "dataset line was kept as raw GLE and still draws, but is "
-                "not editable",
-                (line_no, line_no) if line_no is not None else None,
-            )
-            return
-
         if attrs["mdata"] is not None and str(attrs["marker"] or "").lower().startswith(
             CDATA_SUB_PREFIX
         ):
@@ -6823,6 +6809,11 @@ class _Recognizer:
             self._build_sized_scatter(
                 info, d_name, datasets, attrs, toks, line_no, raw_stmts
             )
+            return
+
+        if attrs["unread"] and self._keep_unread_line_raw(
+            d_name, attrs, info, toks, line_no, raw_stmts
+        ):
             return
 
         has_line = attrs["has_line"]
@@ -6923,6 +6914,43 @@ class _Recognizer:
                 (entry, attrs["smooth_mode"], attrs["svg_smooth"])
             )
 
+    def _keep_unread_line_raw(
+        self, d_name, attrs, info, toks, line_no, raw_stmts
+    ) -> bool:
+        """Keep a ``dN`` line with unread tokens as written, when it can be.
+
+        A series built from the line would drop them on re-save. The line
+        stays raw, with its dataset kept defined, unless something else
+        the writer emits depends on the series: a dataset drawn through a
+        ``let`` the recognizer consumed (an offset alias, a polar curve), or
+        one on a secondary axis, which the layout reserves room for. Then
+        the series is modelled and the note says what is dropped. Returns
+        whether the line was kept raw.
+        """
+        unread = " ".join(attrs["unread"])
+        span = (line_no, line_no) if line_no is not None else None
+        if (
+            d_name in info["_offset_let_datasets"]
+            or info["polar_rmax"] is not None
+            or attrs["y2axis"]
+            or attrs["x2axis"]
+        ):
+            self._note(
+                ImportCategory.DATA,
+                f"'{unread}' on {d_name} is not modelled and was dropped on " "re-save",
+                span,
+            )
+            return False
+        info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
+        info["_raw_datasets"].add(d_name)
+        self._note(
+            ImportCategory.DATA,
+            f"'{unread}' on {d_name} is not modelled; the dataset line was "
+            "kept as raw GLE and still draws, but is not editable",
+            span,
+        )
+        return True
+
     def _build_coloured_scatter(
         self, info, d_name, datasets, attrs, toks, line_no, raw_stmts
     ) -> None:
@@ -7022,6 +7050,7 @@ class _Recognizer:
         loaded: Dict[str, Any] = {}
         if (
             marker in MARKERS
+            and not attrs["unread"]
             and not attrs["has_line"]
             and not attrs["err_refs"]
             and not attrs["err_consts"]
@@ -7040,12 +7069,15 @@ class _Recognizer:
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
             info["_raw_datasets"].update((d_name, attrs["mdata"]))
             # A file that could not be read already has its own note.
-            why = (
-                "its data could not be read"
-                if loaded.get("error")
-                else "they are modelled only on a marker-only scatter gleplot "
-                f"wrote, with the {values} in its own data file"
-            )
+            if loaded.get("error"):
+                why = "its data could not be read"
+            elif attrs["unread"]:
+                why = f"the line also has '{' '.join(attrs['unread'])}'"
+            else:
+                why = (
+                    "they are modelled only on a marker-only scatter gleplot "
+                    f"wrote, with the {values} in its own data file"
+                )
             self._note(
                 ImportCategory.DATA,
                 f"{what} on {d_name} were not modelled because {why}; the "
@@ -8206,7 +8238,9 @@ class _Recognizer:
         base = cdata_file[: -len("-cdata.dat")]
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
-        dropped = list(attrs["qualifiers"]) + attrs["unread"]
+        dropped = list(attrs["qualifiers"])
+        if attrs["unread"]:
+            dropped.append(" ".join(attrs["unread"]))
         if dropped:
             # ContourSeries has no such fields; say so rather than lose them.
             self._note(
