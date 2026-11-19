@@ -94,6 +94,13 @@ jobs:
       # Pinned to a release tag: building an unpinned upstream master broke
       # CI when it grew a hard docbook-to-man requirement for man pages.
       GLE_VERSION: v4.3.9
+      # gle-library commit whose include/ is installed as GLE's gleinc on
+      # the source builds; the Windows zip ships its own gleinc.
+      GLE_LIBRARY_COMMIT: 5b05bb7e70909eb2481cfe0f2709aae1371b602c
+      # Windows Ghostscript: an ArtifexSoftware/ghostpdl-downloads release tag
+      # and the SHA-256 of its gs*w64.exe asset.
+      GS_WIN_RELEASE: gs10071
+      GS_WIN_SHA256: 3A4C28D0AAC47AA7CCCD35A5932C55110376E9DBD966898DDE388B7FABA444A4
       # One flag for the pytest invocation, the file check, and the upload.
       COVERAGE: ${{ matrix.os == 'ubuntu-24.04' }}
 
@@ -162,15 +169,46 @@ jobs:
             glib \
             extra-cmake-modules
 
-      # GLE runs gswin64c.exe by bare name, and the Chocolatey package does
-      # not put it on PATH.
-      - name: Install GLE dependencies (Windows)
+      # Ghostscript comes from Artifex's official Windows release, pinned by
+      # tag and checksum, and is unpacked with 7-Zip rather than installed:
+      # both the Chocolatey package and the silent installer hung until the
+      # step timed out (#325). The unpacked tree is cached.
+      - name: Restore cached Ghostscript (Windows)
+        id: gs-cache
         if: runner.os == 'Windows'
-        shell: bash
+        uses: actions/cache@v4
+        with:
+          path: ~/gs
+          key: gs-${{ env.GS_WIN_RELEASE }}-${{ runner.arch }}-1
+
+      - name: Install GLE dependencies (Windows)
+        if: runner.os == 'Windows' && steps.gs-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        shell: pwsh
         run: |
-          choco install ghostscript --yes --no-progress
-          gs_bin="$(ls -d "/c/Program Files/gs/"gs*/bin | sort -V | tail -1)"
-          cygpath -w "$gs_bin" >> "$GITHUB_PATH"
+          $name = "$($env:GS_WIN_RELEASE)w64.exe"
+          $exe = Join-Path $env:RUNNER_TEMP $name
+          $url = "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$($env:GS_WIN_RELEASE)/$name"
+          Write-Host "Downloading $url"
+          curl.exe --fail --location --silent --show-error --output $exe $url
+          if ($LASTEXITCODE -ne 0) { throw "Download of $name failed" }
+          if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $env:GS_WIN_SHA256) {
+            throw "$name does not match GS_WIN_SHA256"
+          }
+          Write-Host "Unpacking $name"
+          7z x -y -bd "-o$(Join-Path $HOME 'gs')" $exe | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip could not unpack $name" }
+
+      # GLE runs gswin64c.exe by bare name.
+      - name: Put Ghostscript on PATH (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $bin = Join-Path $HOME 'gs\bin'
+          & (Join-Path $bin 'gswin64c.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw "gswin64c.exe did not run" }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
 
       # GLE is cached, keyed on its version and the runner image. Bump the
       # trailing number to force a fresh install. A pull request can read the
@@ -181,7 +219,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/gle
-          key: gle-${{ env.GLE_VERSION }}-${{ matrix.os }}-${{ runner.arch }}-1
+          key: gle-${{ env.GLE_VERSION }}-lib-${{ env.GLE_LIBRARY_COMMIT }}-${{ matrix.os }}-${{ runner.arch }}-1
 
       # A restored binary can stop loading if the runner image moves the
       # libraries it was linked against. Install it again then instead of
@@ -199,14 +237,23 @@ jobs:
           fi
 
       # Man pages and the QGLE GUI are disabled - the tests only need the
-      # gle CLI.
+      # gle CLI. GLE installs gle-library's include/ as gleinc only when
+      # GLE_EXAMPLES_LIBRARY_PATH points at a checkout; only include/ is
+      # fetched.
       - name: Build GLE
         if: steps.gle-check.outputs.usable != 'true' && runner.os != 'Windows'
         run: |
           git clone --depth=1 --branch "$GLE_VERSION" https://github.com/vlabella/GLE.git "$RUNNER_TEMP/GLE"
+          lib="$RUNNER_TEMP/gle-library"
+          git init -q "$lib"
+          git -C "$lib" remote add origin https://github.com/vlabella/gle-library.git
+          git -C "$lib" sparse-checkout set include
+          git -C "$lib" fetch -q --depth=1 --filter=blob:none origin "$GLE_LIBRARY_COMMIT"
+          git -C "$lib" checkout -q FETCH_HEAD
           cmake -S "$RUNNER_TEMP/GLE/src" -B "$RUNNER_TEMP/GLE/build" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$HOME/gle" \
+            -DGLE_EXAMPLES_LIBRARY_PATH="$lib" \
             -DBUILD_MANPAGES=OFF \
             -DBUILD_GUI=OFF
           # Bounded: a bare --parallel passes an unlimited -j to make, which
@@ -240,6 +287,21 @@ jobs:
       - name: Verify GLE installation
         run: |
           gle -info
+
+      # gleplot's scripts include these from GLE's include library.
+      - name: Check GLE's include library
+        shell: bash
+        run: |
+          top=$(gle -info | sed -n 's/^GLE_TOP: *//p' | tr -d '\r')
+          if [ "$RUNNER_OS" = "Windows" ]; then top=$(cygpath -u "$top"); fi
+          missing=0
+          for f in palettes.gle color.gle contour.gle rugs.gle piesub.gle polarplot.gle graphutil.gle; do
+            if [ ! -f "$top/gleinc/$f" ]; then
+              echo "::error::$top/gleinc/$f is missing"
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Set up Python
         uses: actions/setup-python@v5

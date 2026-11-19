@@ -166,7 +166,7 @@ gleplot's generated palette subroutines **clamp** the normalized value into `[0,
 | `gray` | GLE's built-in grayscale; emits no palette clause. |
 | `rainbow` (alias `jet`) | GLE's built-in rainbow; emits `colormap ... color` instead of a `palette` clause. |
 
-Every name also has a reversed form with `_r` appended, as in matplotlib: `cmap='RdBu_r'` runs blue to red from `vmin` to `vmax`, and `jet_r` is `rainbow_r`. A reversed map is written as its own `gleplot_<name>_r` palette subroutine, so a colorbar shows it reversed too; this is also how `gray_r` and `rainbow_r` are written, since only their forward forms are GLE built-ins.
+Every name also has a reversed form with `_r` appended, as in matplotlib: `cmap='RdBu_r'` runs blue to red from `vmin` to `vmax`, and `jet_r` is `rainbow_r`. A reversed map is written as its own `gleplot_<name>_r` palette subroutine, so a colorbar shows it reversed too; this is also how `gray_r` and `rainbow_r` are written, since only their forward forms are GLE built-ins. `invert=True` flips the image the same way, and a colorbar for an inverted image draws the reversed palette to match.
 
 Names are matched case-insensitively. Unknown names raise `ValueError` listing the supported set. `viridis`/`magma`/`inferno`/`plasma`/`cividis` are transcribed from `gle-library`'s `include/palettes.gle` RGB stop tables; `coolwarm` from `include/color.gle`'s `palette_blue_white_red`; the ColorBrewer maps from the colours in `include/brewer.gle`. All are emitted as self-contained `sub gleplot_<name> z ... end sub` subroutines directly in the `.gle` script (deduplicated — only palettes actually used are written), so the output compiles without the `gle-library` on the include path.
 

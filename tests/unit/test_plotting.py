@@ -926,6 +926,42 @@ class TestSegmentLines:
         assert "xaxis min 1 max 4" in text
         assert "yaxis min -1 max 3" in text
 
+    def test_a_table_backed_gap_series_breaks_at_its_gaps(self):
+        """It gets its own ``*`` column; the table's stays for the other line."""
+        from gleplot.sources import ColumnRef, DictDataProvider, TableData
+
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.lines[0]["gaps"] = True
+        for line in self.ax.lines:
+            line["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        table = TableData.from_mapping({"x": [0, 1, 2], "y": [0, float("nan"), 2]})
+        text, files = self.fig._generate_gle_with_files(
+            data_provider=DictDataProvider({"t": table})
+        )
+        (name,) = files
+        assert files[name].splitlines() == ["x y y_2", "0 0 0", "1 * nan", "2 2 2"]
+        assert f"data {name} d1=c1,c2" in text
+        assert f"data {name} d2=c1,c3" in text
+
+    def test_a_table_backed_gap_in_x_gets_its_own_x_column(self):
+        from gleplot.sources import ColumnRef, DictDataProvider, TableData
+
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.lines[0]["gaps"] = True
+        self.ax.lines[0]["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        table = TableData.from_mapping({"x": [0, float("nan"), 2], "y": [0, 1, 2]})
+        text, files = self.fig._generate_gle_with_files(
+            data_provider=DictDataProvider({"t": table})
+        )
+        (name,) = files
+        assert files[name].splitlines() == ["x y", "0 0", "* 1", "2 2"]
+        assert f"data {name} d1=c1,c2" in text
+
     def test_plot_still_writes_nan_without_gaps(self):
         self.ax.plot([0, float("nan"), 2], [0, float("nan"), 2])
         self.ax.set_xlim(0, 2)
@@ -1643,6 +1679,13 @@ class TestLineModes:
         assert self.ax.lines[1]["line_mode"] == "steps"
         assert "line_mode" not in self.ax.lines[2]
 
+    def test_drawstyle_wins_over_ds_with_a_warning(self):
+        with pytest.warns(UserWarning, match="got both drawstyle and ds"):
+            self.ax.plot([0, 1], [0, 1], drawstyle="steps-pre", ds="steps-post")
+        assert self.ax.lines[0]["line_mode"] == "fsteps"
+        self.ax.plot([0, 1], [0, 1], drawstyle="default", ds="steps-post")
+        assert self.ax.lines[1]["line_mode"] == "steps"
+
     def test_unknown_where_or_drawstyle_raises(self):
         with pytest.raises(ValueError):
             self.ax.step([0, 1], [0, 1], where="side")
@@ -1650,8 +1693,6 @@ class TestLineModes:
             self.ax.plot([0, 1], [0, 1], drawstyle="steps-left")
         with pytest.raises(ValueError):
             self.ax.plot([0, 1], [0, 1], line_mode="spline")
-        with pytest.raises(ValueError):
-            self.ax.plot([0, 1], [0, 1], drawstyle="steps-pre", ds="steps-post")
         with pytest.raises(ValueError):
             self.ax.stem([0, 1], orientation="sideways")
         with pytest.raises(TypeError):
@@ -1813,7 +1854,7 @@ class TestLineModes:
 
 
 class TestDatasetQualifiers:
-    """``mdist``, ``deresolve [average]`` and the per-dataset clip window."""
+    """``mdist``, ``deresolve [average]`` and the per-dataset data range."""
 
     @pytest.fixture(autouse=True)
     def _setup_teardown(self):
@@ -1915,6 +1956,19 @@ class TestDatasetQualifiers:
     def test_wrong_types_raise_type_error(self, kwargs):
         with pytest.raises(TypeError):
             self.ax.plot([0, 1], [0, 1], marker="o", **kwargs)
+
+    def test_errorbar_takes_the_data_range(self):
+        self.ax.errorbar([0, 1, 2], [1, 2, 1], yerr=0.1, xmin=0.5, ymax=1.5)
+        (line,) = self._dn_lines()
+        assert line.endswith(' err d2 xmin 0.5 ymax 1.5 key ""')
+        with pytest.raises(ValueError, match="xmin must be less than xmax"):
+            self.ax.errorbar([0, 1], [0, 1], yerr=0.1, xmin=2, xmax=1)
+        with pytest.raises(TypeError, match="ymin"):
+            self.ax.errorbar([0, 1], [0, 1], yerr=0.1, ymin="a")
+        with pytest.warns(UserWarning, match="deresolve"):
+            self.ax.errorbar([0, 1], [0, 1], yerr=0.1, deresolve=2)
+        assert len(self.ax.errorbars) == 2
+        assert "deresolve" not in self.ax.errorbars[1]
 
 
 class TestHistogram:

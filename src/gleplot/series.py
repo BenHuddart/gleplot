@@ -624,6 +624,9 @@ class _XYSeries(Series):
     #: ``None`` is a recovered ``dN`` line that drew a line but set no
     #: ``lwidth``: the writer writes none (GLE's current line width).
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     #: GLE's ``nomiss qualifier: draw the line through a missing value
     #: instead of leaving a gap (GLE default: gap). Only meaningful when a
     #: line is drawn, but preserved verbatim on scatter-only series too so a
@@ -656,8 +659,9 @@ class _XYSeries(Series):
     #: GLE ``deresolve N average``: each window of N points is drawn as its
     #: mean. Only present together with ``deresolve``.
     deresolve_average: bool
-    #: GLE's per-dataset clip window, in data coordinates. Absent: that edge
-    #: is open.
+    #: GLE's per-dataset range, in data coordinates: the series is drawn as
+    #: if its axes ran over it, and nothing outside it is drawn. Absent:
+    #: that edge is the limit of the axis the series is drawn against.
     xmin: float
     xmax: float
     ymin: float
@@ -867,6 +871,9 @@ class HistSeries(Series):
     #: ``None`` is a recovered ``dN`` line that drew a line but set no
     #: ``lwidth``: the writer writes none (GLE's current line width).
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     yaxis: str
     #: ``'x2'`` binds the histogram to the top scale. Absent means the
@@ -914,6 +921,9 @@ class FunctionSeries(Series):
     linestyle: str
     #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     _draw_seq: int
     zorder: float
@@ -959,6 +969,9 @@ class FitSeries(Series):
     linestyle: str
     #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     data_file: Optional[str]
     _draw_seq: int
@@ -1006,6 +1019,9 @@ class DerivedSeries(Series):
     linestyle: str
     #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     _draw_seq: int
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
@@ -1085,6 +1101,9 @@ class ErrorbarSeries(Series):
     #: ``None`` is a recovered ``dN`` line that drew a line but set no
     #: ``lwidth``: the writer writes none (GLE's current line width).
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     #: Cap size as the caller gave it (matplotlib points, or cm when set
     #: through ``capsize_cm``); ``gle_capsize`` is the emitted cm value.
@@ -1104,6 +1123,12 @@ class ErrorbarSeries(Series):
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
+    #: GLE's per-dataset range, as on ``_XYSeries``; the error bars are
+    #: drawn against it too. Absent: that edge is the axis limit.
+    xmin: float
+    xmax: float
+    ymin: float
+    ymax: float
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_errorbar_column_names(
@@ -1146,6 +1171,9 @@ class FileSeries(Series):
     #: ``None`` (``'line'`` variant) is a recovered ``dN`` line that set no
     #: ``lwidth``: the writer writes none.
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     #: ``'line'`` variant only: GLE's ``nomiss`` qualifier (see
     #: ``_XYSeries.nomiss``).
     nomiss: bool
@@ -1170,9 +1198,9 @@ class FileSeries(Series):
     #: ``'fill'`` variant: ``"x1"``, ``"x2"`` or ``"polygon"``. Absent means
     #: the two-curve ``fill dA,dB``.
     target: str
-    #: Clip window: the ``fill`` command's on the ``'fill'`` variant, the
-    #: dataset's (``_XYSeries.xmin``) on ``'line'`` and ``'errorbar'``.
-    #: Absent: that edge is open.
+    #: The ``fill`` command's clip window on the ``'fill'`` variant (absent:
+    #: not clipped on that edge); the dataset's range (``_XYSeries.xmin``)
+    #: on ``'line'`` and ``'errorbar'``.
     xmin: float
     xmax: float
     ymin: float
@@ -1326,6 +1354,9 @@ class ContourSeries(_GridSeries):
     levels: Optional[List[float]]
     color: str
     linewidth: float
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     linestyle: Optional[int]
     clabel: bool
     clabel_fmt: str
@@ -1360,6 +1391,9 @@ class RefLine(Series):
     color: str
     linestyle: str
     linewidth: float
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     data_file: Optional[str]
     column_names: Optional[List[str]]

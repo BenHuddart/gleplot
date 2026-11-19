@@ -46,6 +46,27 @@ Verify your install:
    gle -finddeps
    gle -info
 
+GLE's include library
+~~~~~~~~~~~~~~~~~~~~~
+
+The scripts gleplot writes ``include`` routines from GLE's own include
+library, ``gleinc``, rather than defining them themselves. The official GLE
+installers and packages ship it in the ``gleinc`` folder under the ``GLE_TOP``
+directory that ``gle -info`` prints. Check that it is there:
+
+.. code-block:: bash
+
+   gle -info          # note the GLE_TOP line
+   ls <GLE_TOP>/gleinc
+
+A GLE built from source has no ``gleinc`` unless CMake is pointed at a
+checkout of `gle-library <https://github.com/vlabella/gle-library>`_ with
+``-DGLE_EXAMPLES_LIBRARY_PATH=/path/to/gle-library``. Without rebuilding, set
+the ``GLE_USRLIB`` environment variable to that checkout's ``include`` folder.
+GLE looks for an included file next to the script, then in
+``<GLE_TOP>/gleinc``, then in ``GLE_USRLIB``. When it finds none, ``savefig``
+raises a ``GLECompileError`` naming the missing file.
+
 First Plot (Step by Step)
 -------------------------
 
