@@ -912,7 +912,7 @@ def test_constant_error_on_own_file_reference_restores_data_line(tmp_path):
 @pytest.mark.parametrize(
     "display, unwritable",
     [
-        ("d2 line marker fcircle err d3", "line"),
+        ("d2 line marker fcircle err d3", "a connecting line"),
         ("d2 marker fcircle lwidth 0.05 err d3", "lwidth"),
         ("d2 marker fcircle herr d3", "herr"),
         ("d2 marker fcircle errup d3", "errup"),
@@ -963,7 +963,28 @@ def test_file_errorbar_with_its_error_in_another_file_stays_raw(tmp_path):
     assert "   d1 marker fcircle err d2" in ax.passthrough
     text, _ = rec.figure._generate_gle_with_files()
     assert '   data "pts.dat" d1=c1,c2' in text and '   data "err.dat" d2=c1,c2' in text
-    assert any(w.startswith("data: err d2 from another file") for w in rec.warnings)
+    assert any(
+        w.startswith("data: err d2 not read from that file") for w in rec.warnings
+    )
+
+
+def test_file_errorbar_on_a_secondary_axis_stays_modelled(tmp_path):
+    """#188: the layout reserves room for its axis, so the drop is reported."""
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        "   size 10 7\n"
+        '   data "hand.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d1 line marker fcircle err d2 y2axis\n"
+        "end graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "y2.gle", src, {"hand.dat": "0 1 2\n"}))
+    (series,) = rec.figure.axes_list[0].file_series
+    assert series["yaxis"] == "y2"
+    assert (
+        "data: a connecting line on error-bar dataset d1 is not modelled and "
+        in (rec.warnings)[0]
+    )
 
 
 def test_raw_mdata_on_shared_file_reference_keeps_datasets_defined(tmp_path):

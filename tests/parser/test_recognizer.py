@@ -1330,7 +1330,9 @@ def test_line_mode_on_a_file_errorbar_keeps_it_raw(tmp_path):
     ax = rec.figure.axes_list[0]
     assert ax.lines == [] and ax.file_series == []
     assert "   d1 line steps err d2 color BLUE" in ax.passthrough
-    assert any(w.startswith("data: line, err d2 from another") for w in rec.warnings)
+    assert any(
+        w.startswith("data: a connecting line, err d2 not read") for w in rec.warnings
+    )
 
 
 def test_dataset_qualifiers_are_recovered_and_round_trip(tmp_path):

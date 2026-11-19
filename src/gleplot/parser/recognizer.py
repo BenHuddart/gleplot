@@ -7516,39 +7516,55 @@ class _Recognizer:
         :meth:`gleplot.axes.Axes.errorbar_from_file` draws markers and one
         symmetric vertical error read from the same file; a connecting line,
         its ``lwidth``, ``nomiss``, horizontal or one-sided errors, or an
-        error from another file have no field there. True when the line sets
-        one, after keeping it and its datasets as written with a note.
+        error from elsewhere have no field there. When the line sets one it
+        stays raw, with its datasets kept defined, unless the writer depends
+        on its series (see :meth:`_keep_unread_line_raw`); then the note says
+        what is dropped. Returns whether the line was kept raw.
         """
         data_file = datasets[d_name][0]
         err_ref = attrs["err_refs"].get("err")
-        other_file = (
-            err_ref is not None
-            and datasets.get(err_ref.lower(), (None,))[0] != data_file
-        )
         unwritable = [
             word
             for word, present in (
-                ("line", attrs["has_line"]),
+                ("a connecting line", attrs["has_line"]),
                 ("lwidth", attrs["lwidth"] is not None),
                 ("nomiss", attrs["nomiss"]),
-                ("herrwidth", attrs["herrwidth"] is not None),
-                (f"err {err_ref} from another file", other_file),
+                (
+                    f"err {err_ref} not read from that file",
+                    err_ref is not None
+                    and datasets.get(err_ref, (None,))[0] != data_file,
+                ),
             )
             if present
         ]
         unwritable += [kind for kind in attrs["err_refs"] if kind != "err"]
         if not unwritable:
             return False
+        what = ", ".join(unwritable)
+        span = (line_no, line_no) if line_no is not None else None
+        if (
+            d_name in info["_offset_let_datasets"]
+            or info["polar_rmax"] is not None
+            or attrs["y2axis"]
+            or attrs["x2axis"]
+        ):
+            self._note(
+                ImportCategory.DATA,
+                f"{what} on error-bar dataset {d_name} is not modelled and was "
+                "dropped on re-save",
+                span,
+            )
+            return False
         self._passthrough_original_dn(info, toks, raw_stmts)
         info["_raw_datasets"].add(d_name)
-        info["_raw_datasets"].update(ref.lower() for ref in attrs["err_refs"].values())
+        info["_raw_datasets"].update(attrs["err_refs"].values())
         self._note(
             ImportCategory.DATA,
-            f"{', '.join(unwritable)} on an error-bar dataset read from "
-            f"'{data_file}' is not modelled; its 'dN ... err' line was kept as "
-            "raw GLE and still draws, but is not editable. To edit it, load "
-            "the columns and plot them with Axes.errorbar(x, y, yerr=...)",
-            (line_no, line_no) if line_no is not None else None,
+            f"{what} on an error-bar dataset read from '{data_file}' is not "
+            "modelled; its 'dN ... err' line was kept as raw GLE and still "
+            "draws, but is not editable. To edit it, load the columns and plot "
+            "them with Axes.errorbar()",
+            span,
         )
         return True
 
