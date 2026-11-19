@@ -4284,7 +4284,7 @@ class Axes:
         y,
         color: Optional[str] = None,
         s: Optional[Union[float, Sequence[float]]] = None,
-        marker: Optional[str] = "o",
+        marker: Optional[str] = None,
         label: Optional[str] = None,
         yaxis: str = "y",
         xaxis: str = "x",
@@ -4330,8 +4330,8 @@ class Axes:
             Marker area in points**2 (matplotlib ``scatter`` convention).
             Default 20 when neither ``s`` nor ``markersize`` is given. An
             array gives each point its own size; see Notes.
-        marker : str
-            Marker symbol. ``None`` is the default, ``'o'``, as in
+        marker : str, optional
+            Marker symbol. Omitted or ``None``, a circle (``'o'``), as in
             matplotlib.
         label : str, optional
             Legend label

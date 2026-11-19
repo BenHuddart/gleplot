@@ -194,19 +194,17 @@ class TestScatterPlots:
         assert self.ax.scatters[0]["marker"] == "FSQUARE"
 
     @pytest.mark.parametrize(
-        "extra, sub",
-        [({}, None), ({"s": [10, 40]}, "gleplot_mdata_"), ({"c": [1, 2]}, "cdata")],
+        "extra, drawn",
+        [
+            ({}, "marker FCIRCLE"),
+            ({"s": [10, 40]}, "marker gleplot_mdata_fcircle "),
+            ({"c": [1, 2]}, "marker gleplot_cdata_fcircle_"),
+        ],
     )
-    def test_scatter_marker_none_is_the_default_circle(self, extra, sub):
+    def test_scatter_marker_none_is_the_default_circle(self, extra, drawn):
         """matplotlib reads marker=None as rcParams['scatter.marker'], 'o'."""
         self.ax.scatter([1, 2], [1, 2], marker=None, **extra)
-        default = glp.figure().add_subplot(111)
-        default.scatter([1, 2], [1, 2], **extra)
-        assert self.ax.scatters[0]["marker"] == default.scatters[0]["marker"]
-        script = self.fig._generate_gle()
-        assert "marker FCIRCLE" in script or "marker gleplot_" in script
-        if sub is not None:
-            assert sub in script
+        assert drawn in self.fig._generate_gle()
 
     def test_plot_as_scatter(self):
         """Test plot() with marker creates scatter."""
