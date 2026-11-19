@@ -37,6 +37,10 @@ Plotting helpers
 
 .. autofunction:: gleplot.fill_between
 
+.. autofunction:: gleplot.fill_betweenx
+
+.. autofunction:: gleplot.stackplot
+
 .. autofunction:: gleplot.fill
 
 .. autofunction:: gleplot.errorbar

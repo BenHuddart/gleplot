@@ -358,6 +358,18 @@ class BrokenAxes:
         self._fanout("fill_between", *args, **kwargs)
         return self
 
+    def fill_betweenx(self, *args, **kwargs):
+        """Fill between two x curves across every segment."""
+        self._fanout("fill_betweenx", *args, **kwargs)
+        return self
+
+    def stackplot(self, *args, **kwargs):
+        """Stacked bands across every segment.
+
+        Returns the first segment's bands, as :meth:`gleplot.Axes.stackplot`.
+        """
+        return self._fanout("stackplot", *args, **kwargs)
+
     def fill(self, *args, **kwargs):
         """Fill one polygon in every segment."""
         self._fanout("fill", *args, **kwargs)

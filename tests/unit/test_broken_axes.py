@@ -370,6 +370,16 @@ def test_hist_fans_out_onto_one_shared_sidecar():
     assert text.count(" line hist ") == len(bax.segments)
 
 
+def test_fill_betweenx_and_stackplot_fan_out_onto_shared_sidecars():
+    _fig_, bax = _fig()
+    assert bax.fill_betweenx([0.2, 0.4], [0.01, 1.0]) is bax
+    bands = bax.stackplot([0.01, 1.0], [0.1, 0.2], [0.1, 0.1])
+    assert bands == bax[0].fills[1:]
+    for index in range(3):
+        files = {seg.fills[index]["data_file"] for seg in bax.segments}
+        assert len(files) == 1
+
+
 def test_fanout_returns_the_underlying_return_value_for_guides():
     _fig_, bax = _fig()
     entry = bax.axvline(0.5)

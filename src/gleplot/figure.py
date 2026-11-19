@@ -1486,6 +1486,17 @@ class Figure:
         """Fill between on current axes. See :meth:`Axes.fill_between`."""
         return self.gca().fill_between(x, y1, y2, **kwargs)
 
+    def fill_betweenx(self, y, x1, x2=0, **kwargs):
+        """Fill between two x curves on the current axes.
+
+        See :meth:`Axes.fill_betweenx`.
+        """
+        return self.gca().fill_betweenx(y, x1, x2, **kwargs)
+
+    def stackplot(self, x, *args, **kwargs):
+        """Stacked bands on the current axes. See :meth:`Axes.stackplot`."""
+        return self.gca().stackplot(x, *args, **kwargs)
+
     def fill(self, x, y, *args, **kwargs):
         """Fill a polygon on the current axes. See :meth:`Axes.fill`."""
         return self.gca().fill(x, y, *args, **kwargs)

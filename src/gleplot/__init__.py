@@ -280,6 +280,19 @@ def fill_between(*args, **kwargs):
     return gca().fill_between(*args, **kwargs)
 
 
+def fill_betweenx(*args, **kwargs):
+    """Fill between two x curves on the current axes.
+
+    See :meth:`gleplot.Axes.fill_betweenx`.
+    """
+    return gca().fill_betweenx(*args, **kwargs)
+
+
+def stackplot(*args, **kwargs):
+    """Stacked bands on the current axes. See :meth:`gleplot.Axes.stackplot`."""
+    return gca().stackplot(*args, **kwargs)
+
+
 def fill(*args, **kwargs):
     """Fill a polygon on the current axes. See :meth:`gleplot.Axes.fill`."""
     return gca().fill(*args, **kwargs)
@@ -586,6 +599,8 @@ __all__ = [
     "bar",
     "barh",
     "fill_between",
+    "fill_betweenx",
+    "stackplot",
     "fill",
     "errorbar",
     "pie",
