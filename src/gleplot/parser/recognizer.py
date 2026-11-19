@@ -87,8 +87,8 @@ for rendering, applied by the test-side ``normalize()`` helper)
    in the axes passthrough instead, its ``data`` statement is kept (see #14)
    and a ``data:`` warning is emitted.
 9. **Axis-remainder passthrough (hand-written only).** Unrecognized ``xaxis``/
-   ``yaxis``/``y2axis``/``x2axis`` sub-tokens (``off``/``grid``/``dticks``/
-   ``dsubticks``/``nticks``/``format "..."``/...) are peeled off the recognized
+   ``yaxis``/``y2axis``/``x2axis`` sub-tokens (``hei``/``dticks pi/2``/
+   ``y2axis dticks 1``/``format "..."``/...) are peeled off the recognized
    ``min``/``max``/``log``/``nofirst``/``nolast`` (which populate the model) and
    re-emitted as a *supplementary* axis line in the axes passthrough. GLE axis
    lines are cumulative, so the model-emitted axis line + the passthrough line
@@ -2823,6 +2823,10 @@ class _Recognizer:
             "ynoticks": None,
             "xnsubticks": None,
             "ynsubticks": None,
+            "xdticks": None,
+            "ydticks": None,
+            "xdsubticks": None,
+            "ydsubticks": None,
             # 'xlabels log MODE' (x and y only).
             "xloglabels": None,
             "yloglabels": None,
@@ -4906,12 +4910,12 @@ class _Recognizer:
                 info[f"{prefix}grid"] = True
                 i += 1
                 continue
-            # Unrecognized axis sub-token (off/grid/dticks/dsubticks/nticks/
-            # format/hei/...). GLE axis lines are cumulative, so we peel the
-            # recognized min/max/log/nofirst/nolast into the model and re-emit
+            # Unrecognized axis sub-token (hei, an expression dticks, any
+            # option on y2/x2, a repeat, ...). GLE axis lines are cumulative,
+            # so we peel the recognized options into the model and re-emit
             # the UNRECOGNIZED remainder as a supplementary axis line in
             # passthrough. e.g. 'xaxis min 0 max 2*pi dticks pi/2 grid' ->
-            # model gets min/max; passthrough gets 'xaxis dticks pi/2 grid'.
+            # model gets min/max/grid; passthrough gets 'xaxis dticks pi/2'.
             remainder.append(toks[i])
             info["_raw_axis_opts"].add((prefix, w))
             # A recognized keyword may take a value; unrecognized ones we cannot
@@ -4943,11 +4947,13 @@ class _Recognizer:
 
     @staticmethod
     def _take_tick_placement(w, toks, i, prefix, info) -> Optional[int]:
-        """Model ``nticks``/``ftick``/``shift``/``symticks``/``nsubticks``.
+        """Model ``nticks``/``ftick``/``shift``/``symticks``/``nsubticks``/
+        ``dticks``/``dsubticks``.
 
         Returns the index after the option when it is one of them, on x or
         y, and fits the model; otherwise None. A repeat, a fractional
-        ``nticks``/``nsubticks`` or ``symticks on|off`` is left to the remainder, which
+        ``nticks``/``nsubticks``, a ``dticks``/``dsubticks`` written as an
+        expression or ``symticks on|off`` is left to the remainder, which
         keeps it as raw GLE, and so is any later occurrence of the same
         option (see ``_raw_axis_opts``).
         """
@@ -4961,12 +4967,22 @@ class _Recognizer:
             info[f"{prefix}symticks"] = True
             return i + 1
         if (
-            w not in ("nticks", "ftick", "shift", "nsubticks")
+            w not in ("nticks", "ftick", "shift", "nsubticks", "dticks", "dsubticks")
             or info[f"{prefix}{w}"] is not None
         ):
             return None
         value, nxt = _collect_value(toks, i + 1)
         if value is None:
+            return None
+        if w in ("dticks", "dsubticks") and (
+            toks[i + 1].type is not TokenType.NUMBER
+            or nxt != i + 2
+            or value <= 0
+            or float(GLEWriter._format_number(value)) != value
+        ):
+            # Only a positive literal the writer writes back unchanged is
+            # modelled. An expression ('dticks pi/2', 'dticks pi') or a
+            # value it would round stays raw GLE, exactly as written.
             return None
         if w in ("nticks", "nsubticks"):
             if not float(value).is_integer() or value < 1:
@@ -5923,9 +5939,9 @@ class _Recognizer:
     def _hist_line_tokens_ok(toks) -> bool:
         """True when every token is one ``line hist`` may round-trip.
 
-        ``_scan_series_attrs`` skips words it does not know, which would
-        drop them. A histogram line only round-trips color, width, style,
-        key and y2axis.
+        A histogram line only round-trips color, width, style, key and
+        y2axis; anything else, read by ``_scan_series_attrs`` or not, keeps
+        the line raw.
         """
         i = 1
         m = len(toks)
@@ -6811,6 +6827,11 @@ class _Recognizer:
             )
             return
 
+        if attrs["unread"] and self._keep_unread_line_raw(
+            d_name, attrs, info, toks, line_no, raw_stmts
+        ):
+            return
+
         has_line = attrs["has_line"]
         has_marker = attrs["marker"] is not None
         is_errorbar = bool(attrs["err_refs"]) or bool(attrs["err_consts"])
@@ -6908,6 +6929,43 @@ class _Recognizer:
             self._smooth_lines.append(
                 (entry, attrs["smooth_mode"], attrs["svg_smooth"])
             )
+
+    def _keep_unread_line_raw(
+        self, d_name, attrs, info, toks, line_no, raw_stmts
+    ) -> bool:
+        """Keep a ``dN`` line with unread tokens as written, when it can be.
+
+        A series built from the line would drop them on re-save. The line
+        stays raw, with its dataset kept defined, unless something else
+        the writer emits depends on the series: a dataset drawn through a
+        ``let`` the recognizer consumed (an offset alias, a polar curve), or
+        one on a secondary axis, which the layout reserves room for. Then
+        the series is modelled and the note says what is dropped. Returns
+        whether the line was kept raw.
+        """
+        unread = " ".join(attrs["unread"])
+        span = (line_no, line_no) if line_no is not None else None
+        if (
+            d_name in info["_offset_let_datasets"]
+            or info["polar_rmax"] is not None
+            or attrs["y2axis"]
+            or attrs["x2axis"]
+        ):
+            self._note(
+                ImportCategory.DATA,
+                f"'{unread}' on {d_name} is not modelled and was dropped on " "re-save",
+                span,
+            )
+            return False
+        info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
+        info["_raw_datasets"].add(d_name)
+        self._note(
+            ImportCategory.DATA,
+            f"'{unread}' on {d_name} is not modelled; the dataset line was "
+            "kept as raw GLE and still draws, but is not editable",
+            span,
+        )
+        return True
 
     def _build_coloured_scatter(
         self, info, d_name, datasets, attrs, toks, line_no, raw_stmts
@@ -7008,6 +7066,7 @@ class _Recognizer:
         loaded: Dict[str, Any] = {}
         if (
             marker in MARKERS
+            and not attrs["unread"]
             and not attrs["has_line"]
             and not attrs["err_refs"]
             and not attrs["err_consts"]
@@ -7026,12 +7085,15 @@ class _Recognizer:
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
             info["_raw_datasets"].update((d_name, attrs["mdata"]))
             # A file that could not be read already has its own note.
-            why = (
-                "its data could not be read"
-                if loaded.get("error")
-                else "they are modelled only on a marker-only scatter gleplot "
-                f"wrote, with the {values} in its own data file"
-            )
+            if loaded.get("error"):
+                why = "its data could not be read"
+            elif attrs["unread"]:
+                why = f"the line also has '{' '.join(attrs['unread'])}'"
+            else:
+                why = (
+                    "they are modelled only on a marker-only scatter gleplot "
+                    f"wrote, with the {values} in its own data file"
+                )
             self._note(
                 ImportCategory.DATA,
                 f"{what} on {d_name} were not modelled because {why}; the "
@@ -7079,6 +7141,10 @@ class _Recognizer:
         All three keywords also set GLE's ``line`` flag (a smoothed dataset
         draws a curve whether or not ``line`` was written), which is why they
         set ``has_line`` here, exactly as ``lstyle`` already does.
+
+        Every token the scan does not read (a keyword no series models, such
+        as ``mscale`` or ``mcolor``, or a value it cannot evaluate) is listed
+        in ``unread``, so a caller keeps the line raw instead of dropping it.
         """
         a: Dict[str, Any] = {
             "has_line": False,
@@ -7112,6 +7178,9 @@ class _Recognizer:
             # mdist / deresolve / deresolve_average / xmin..ymax, each only
             # when written: the series fields of the same names.
             "qualifiers": {},
+            # Source text of every token the scan did not read: a keyword
+            # no series models, or a value it could not evaluate.
+            "unread": [],
         }
         i = 0
         m = len(toks)
@@ -7149,6 +7218,7 @@ class _Recognizer:
                     # ("constant, function, or unary operator expected"), so
                     # there is no engine behaviour to mirror. Skip the keyword
                     # and let the remaining tokens scan normally.
+                    a["unread"].append(t.value)
                     i += 1
                     continue
                 a["has_line"] = True
@@ -7167,6 +7237,7 @@ class _Recognizer:
                     a["qualifiers"][w] = float(v)
                     i = nxt
                     continue
+                a["unread"].append(t.value)
                 i += 1
                 continue
             if w == "deresolve" and i + 1 < m:
@@ -7175,6 +7246,7 @@ class _Recognizer:
                 # it.
                 v, nxt = _collect_value(toks, i + 1)
                 if v is None or not math.isfinite(v):
+                    a["unread"].append(t.value)
                     i += 1
                     continue
                 a["qualifiers"]["deresolve"] = int(v)
@@ -7191,8 +7263,12 @@ class _Recognizer:
                 continue
             if w == "lwidth" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
-                a["lwidth"] = v
-                i = nxt if v is not None else i + 2
+                if v is not None:
+                    a["lwidth"] = v
+                    i = nxt
+                    continue
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "lstyle" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
@@ -7212,7 +7288,8 @@ class _Recognizer:
                     a["has_line"] = True
                     i = nxt
                     continue
-                i += 2
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "marker" and i + 1 < m:
                 a["marker"] = toks[i + 1].value
@@ -7224,8 +7301,12 @@ class _Recognizer:
                 continue
             if w == "msize" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
-                a["msize"] = v
-                i = nxt if v is not None else i + 2
+                if v is not None:
+                    a["msize"] = v
+                    i = nxt
+                    continue
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if (
                 w in ("err", "errup", "errdown", "herr", "herrleft", "herrright")
@@ -7247,17 +7328,26 @@ class _Recognizer:
                     a["err_consts"][w] = (const, is_percent)
                     i = nxt
                     continue
-                i += 2
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "errwidth" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
-                a["errwidth"] = v
-                i = nxt if v is not None else i + 2
+                if v is not None:
+                    a["errwidth"] = v
+                    i = nxt
+                    continue
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "herrwidth" and i + 1 < m:
                 v, nxt = _collect_value(toks, i + 1)
-                a["herrwidth"] = v
-                i = nxt if v is not None else i + 2
+                if v is not None:
+                    a["herrwidth"] = v
+                    i = nxt
+                    continue
+                a["unread"].append(t.value)
+                i += 1
                 continue
             if w == "y2axis":
                 a["y2axis"] = True
@@ -7278,6 +7368,7 @@ class _Recognizer:
                 a["label"] = label_value if label_value != "" else None
                 i += 2
                 continue
+            a["unread"].append(t.value)
             i += 1
         return a
 
@@ -8163,11 +8254,14 @@ class _Recognizer:
         base = cdata_file[: -len("-cdata.dat")]
         zfile = base + ".z"
         attrs = self._scan_series_attrs(toks[1:])
-        if attrs["qualifiers"]:
+        dropped = list(attrs["qualifiers"])
+        if attrs["unread"]:
+            dropped.append(" ".join(attrs["unread"]))
+        if dropped:
             # ContourSeries has no such fields; say so rather than lose them.
             self._note(
                 ImportCategory.DATA,
-                f"{', '.join(attrs['qualifiers'])} on a contour's dataset line "
+                f"{', '.join(dropped)} on a contour's dataset line "
                 "is not modelled and was dropped on re-save",
                 span,
             )
@@ -10094,6 +10188,8 @@ class _Recognizer:
                 "noticks",
                 "nsubticks",
                 "loglabels",
+                "dticks",
+                "dsubticks",
             ):
                 setattr(ax, f"{prefix}{name}", info[f"{prefix}{name}"])
             for kind in ("tick", "subtick"):

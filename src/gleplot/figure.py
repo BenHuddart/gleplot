@@ -10,7 +10,7 @@ import numpy as np
 
 from . import axes as _axes_module
 from . import palettes as _pal
-from ._warn import warn_external
+from ._warn import warn_external, warn_unsupported_keywords
 from .axes import (
     Axes,
     _finite_float,
@@ -2462,7 +2462,7 @@ class Figure:
             If True, place the ``.gle`` script and generated data files
             in a sibling ``<name>.gleplot`` directory.
         **kwargs
-            Additional options
+            Any other keyword warns and is ignored.
 
         Returns
         -------
@@ -2473,6 +2473,7 @@ class Figure:
             filepath,
             folder=kwargs.pop("folder", False),
         )
+        warn_unsupported_keywords("savefig_gle", kwargs)
         export_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate and save GLE content with data files
@@ -2589,7 +2590,8 @@ class Figure:
             Additional arguments. matplotlib's ``bbox_inches``,
             ``pad_inches``, ``facecolor`` and ``edgecolor`` are accepted and
             warn: the page is always ``figsize``, and its background is not
-            settable.
+            settable. Any other keyword (``metadata``, ``orientation``, a
+            misspelt one, ...) warns and is ignored.
 
         Returns
         -------
@@ -2635,6 +2637,7 @@ class Figure:
             filepath,
             folder=kwargs.pop("folder", False),
         )
+        warn_unsupported_keywords("savefig", kwargs)
 
         # Determine output format from the file suffix. Driven by
         # SUFFIX_TO_COMPILE_FORMAT (shared with GLECompiler) so this can't
@@ -5199,6 +5202,8 @@ class Figure:
             displayed inline in Jupyter. Nothing is printed; outside a notebook,
             open the returned path to see the figure. A PDF cannot be shown
             inline, so in a notebook ``format='pdf'`` warns and returns the path.
+            The ``.gle`` script and data files compiled to make the image are
+            removed; only the returned file is left, for the caller to delete.
 
         Raises
         ------
@@ -5218,6 +5223,7 @@ class Figure:
         Requires GLE to be installed for compilation.
         In non-Jupyter environments, saves to a temporary file instead.
         """
+        import shutil
         import tempfile
 
         if not self.compiler:
@@ -5235,36 +5241,31 @@ class Figure:
         except ImportError:
             in_notebook = False
 
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(suffix=f".{format}", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-
+        # savefig writes the script, its sidecars and (for usetex) GLE's .gle/
+        # working folder beside the output, so compile in a directory that is
+        # removed afterwards and copy out only the file view() returns. The
+        # removal ignores errors: on Windows a file can still be locked by GLE.
+        work_dir = tempfile.mkdtemp()
         try:
-            # Save to temporary file
-            self.savefig(str(tmp_path), format=format, dpi=output_dpi)
-
-            if in_notebook:
-                # Display inline in Jupyter
-                if format == "png":
-                    img = Image(filename=str(tmp_path))
-                    display(img)
-                    return None
-                elif format == "pdf":
-                    warn_external(
-                        f"view(format='pdf') cannot display a PDF inline; it was "
-                        f"saved to {tmp_path}, which view() returns. Use "
-                        f"view(format='png') to display the figure in the "
-                        f"notebook.",
-                    )
-                    return tmp_path
+            output = self.savefig(
+                str(Path(work_dir) / f"figure.{format}"), format=format, dpi=output_dpi
+            )
+            if in_notebook and format == "png":
+                display(Image(data=output.read_bytes(), format="png"))
                 return None
-            return tmp_path
+            with tempfile.NamedTemporaryFile(suffix=output.suffix, delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+            shutil.copyfile(output, tmp_path)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
-        except Exception as e:
-            # Clean up on error
-            if tmp_path.exists():
-                tmp_path.unlink()
-            raise e
+        if in_notebook:
+            warn_external(
+                f"view(format={format!r}) cannot display {format.upper()} "
+                f"inline; it was saved to {tmp_path}, which view() returns. "
+                f"Use view(format='png') to display the figure in the notebook.",
+            )
+        return tmp_path
 
     # -- Serialization ------------------------------------------------------
 

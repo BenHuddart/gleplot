@@ -968,6 +968,17 @@ def custom_tick_labels():
     return fig
 
 
+def tick_intervals():
+    """``dticks``/``dsubticks`` on x and y (set_xticks/set_yticks, #155)."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], color="blue", label="quad")
+    ax.set_xticks(dticks=0.5, dsubticks=0.25)
+    ax.set_yticks(dticks=1, dsubticks=0.5)
+    ax.legend()
+    return fig
+
+
 def tick_label_nofirst_nolast():
     """``nofirst``/``nolast`` on both x and y.
 
@@ -1817,6 +1828,7 @@ BUILDERS = [
     contour_field_options,
     tripcolor_tricontour_combo,
     custom_tick_labels,
+    tick_intervals,
     tick_label_nofirst_nolast,
     line_modes,
     line_field_options,

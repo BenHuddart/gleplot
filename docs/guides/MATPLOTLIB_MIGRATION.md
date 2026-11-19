@@ -230,6 +230,15 @@ ignored, and so does a misspelt one:
 `stem` warn the same way, under their own names, for keywords they do not
 take, `lw`, `ls` and `ms` included.
 
+The other line-drawing calls follow the same rule:
+
+| call | short names honoured | warns, for example |
+|---|---|---|
+| `errorbar` | `lw`, `c`, `ms`, and `linestyle` (`ls`), which overrides the line style `fmt` gives unless `fmt='none'` | `ecolor`, `elinewidth`, `capthick`, `barsabove`, `errorevery` |
+| `errorbar_from_file` | `c`, `ms` | `lw`, `ls`, `ecolor` |
+| `axvline`, `axhline` | `lw`, `ls`, `c` | `alpha`, `zorder`, `transform` |
+| `axvspan`, `axhspan` | `facecolor` (`fc`) for `color` | `edgecolor`, `linewidth`, `hatch`, `zorder` |
+
 ## Marker spacing, thinning and clipping
 
 GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. Use `mdist` instead: it places the markers every `mdist` cm along the drawn curve, whatever the point spacing. That is closest to matplotlib's float form of `markevery`. These keywords are gleplot's names for GLE's dataset qualifiers, and `scatter` passes them on to `plot`:
@@ -480,6 +489,7 @@ or `.jpg` name, compiles it with GLE.
 | `transparent` | wired — a PNG gets an alpha channel instead of a white background (GLE `-transparent`). PDF, EPS and SVG have no background to begin with. A JPEG has no alpha channel, so `True` warns there; a grayscale PNG keeps its alpha channel only with `cairo=True`, and warns without it. |
 | `grayscale` | gleplot keyword, not a matplotlib one: the colours GLE draws become their grey level (GLE `-nocolor`). A heatmap's image is greyed only in PNG and JPEG; in PDF, EPS and SVG it stays in colour and `True` warns. |
 | `bbox_inches`, `pad_inches`, `facecolor`, `edgecolor` | warn. The page is always the figure's `figsize`, and its background is not settable. |
+| `metadata`, `orientation`, `papertype`, `backend`, `bbox_extra_artists`, `pil_kwargs` and any other keyword | warn and are ignored, whatever the value: `savefig() ignores unsupported keyword(s): metadata.` `savefig_gle` warns the same way for any keyword but `folder`. |
 
 `transparent` and `grayscale` act when GLE compiles, so they warn when only
 the `.gle` script is saved.

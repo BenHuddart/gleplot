@@ -1362,8 +1362,8 @@ def test_a_reference_line_with_a_qualifier_stays_a_line(tmp_path):
     assert [line.get("ymax") for line in ax2.lines] == [2.0, None]
 
 
-def test_a_qualifier_with_no_value_is_skipped(tmp_path):
-    """``mdist`` / ``deresolve`` with nothing after them carry no setting."""
+def test_a_qualifier_with_no_value_keeps_the_line_raw(tmp_path):
+    """``mdist`` / ``deresolve`` with no value are kept as written (#165)."""
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -1374,9 +1374,15 @@ def test_a_qualifier_with_no_value_is_skipped(tmp_path):
         "end graph\n"
     )
     p = _write(tmp_path, "v.gle", src, {"v.dat": "0 1\n1 2\n"})
-    first, second = parse_gle_figure(p).figure.axes_list[0].file_series
-    assert "mdist" not in first and first["color"] == "RED"
-    assert "deresolve" not in second and second["color"] == "BLUE"
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.file_series == []
+    assert ax.passthrough == [
+        '   data "v.dat" d1=c1,c2 d2=c1,c2',
+        "   d1 line mdist color RED",
+        "   d2 line deresolve color BLUE",
+    ]
+    assert sum("not modelled" in w for w in rec.warnings) == 2
 
 
 def test_per_point_marker_sizes_are_recovered(tmp_path):
@@ -1663,8 +1669,8 @@ def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
     assert "let d2 = (d1-1)/(3-1)\n" in out.read_text(encoding="utf-8")
 
 
-def test_a_non_finite_qualifier_is_skipped(tmp_path):
-    """``deresolve 1e999`` has no integer count; it must not stop the load."""
+def test_a_non_finite_qualifier_keeps_the_line_raw(tmp_path):
+    """``deresolve 1e999`` has no integer count: kept as written (#165)."""
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -1674,9 +1680,73 @@ def test_a_non_finite_qualifier_is_skipped(tmp_path):
         "end graph\n"
     )
     p = _write(tmp_path, "inf.gle", src, {"v.dat": "0 1\n1 2\n"})
-    (series,) = parse_gle_figure(p).figure.axes_list[0].file_series
-    assert "deresolve" not in series and "xmin" not in series
-    assert series["color"] == "RED"
+    ax = parse_gle_figure(p).figure.axes_list[0]
+    assert ax.file_series == []
+    assert "   d1 line deresolve 1e999 xmin 1e999 color RED" in ax.passthrough
+
+
+@pytest.mark.parametrize(
+    "qualifiers",
+    ["mscale 2 mcolor red", "autoscale", "nomissing", "bigfile", "x0axis"],
+)
+def test_an_unmodelled_dataset_qualifier_keeps_the_line_raw(tmp_path, qualifiers):
+    """#165: a ``dN`` line with a word no series models is kept as written."""
+    line = f"   d1 line marker circle {qualifiers}"
+    src = f'begin graph\n   data "a.dat" d1=c1,c2\n{line}\nend graph\n'
+    p = _write(tmp_path, "q.gle", src, {"a.dat": "0 1\n1 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.file_series == [] and ax.lines == []
+    assert ax.passthrough == ['   data "a.dat" d1=c1,c2', line]
+    assert any(
+        w.startswith("data: '") and "on d1 is not modelled; the dataset line" in w
+        for w in rec.warnings
+    )
+
+    out = tmp_path / "out.gle"
+    rec.figure.savefig_gle(str(out))
+    assert line in out.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        # Drawn through an offset let the recognizer consumed.
+        "   let d2 = d1+0.5\n   d2 line color red mscale 2\n",
+        # On the secondary axis, which the layout reserves room for.
+        "   d1 line color red y2axis mscale 2\n",
+    ],
+)
+def test_an_unmodelled_qualifier_the_line_cannot_keep_is_reported(tmp_path, lines):
+    """#165: the series is modelled, and the note says what is dropped."""
+    src = f'begin graph\n   data "a.dat" d1=c1,c2\n{lines}end graph\n'
+    p = _write(tmp_path, "q.gle", src, {"a.dat": "0 1\n1 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert len(ax.file_series) == 1
+    assert not any("mscale" in line for line in ax.passthrough)
+    assert any(
+        w.startswith("data: 'mscale 2' on d") and "dropped on re-save" in w
+        for w in rec.warnings
+    )
+
+
+def test_a_colour_mapped_scatter_kept_raw_keeps_its_let(tmp_path):
+    """#165: a raw ``gleplot_cdata_`` line keeps the colour let it reads."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    fig.add_subplot(111).scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="viridis")
+    path = tmp_path / "c.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    line = next(
+        ln for ln in text.splitlines() if "gleplot_cdata_" in ln and " mdata " in ln
+    )
+    path.write_text(text.replace(line, line + " mscale 2"), encoding="utf-8")
+    ax = parse_gle_figure(path).figure.axes_list[0]
+    assert ax.scatters == []
+    assert any(line.lstrip().startswith("let d") for line in ax.passthrough)
+    assert ax.passthrough[-1].endswith("mscale 2")
 
 
 def test_a_qualifier_on_a_contour_line_is_reported(tmp_path):

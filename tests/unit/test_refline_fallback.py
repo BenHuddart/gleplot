@@ -451,7 +451,11 @@ def test_only_the_writers_own_shape_is_read_back_as_a_guide(block, tmp_path):
     src = tmp_path / "hand.gle"
     src.write_text(_HAND_WRITTEN.format(block=block), encoding="utf-8")
 
-    parsed = glp.open_gle(str(src))
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        parsed = glp.open_gle(str(src))
+    # Whatever open_gle reports for a near miss is a structure note.
+    assert all(str(w.message).startswith("structure: ") for w in record)
     ax = parsed.axes_list[0]
     assert ax.reflines == [] and ax.spans == []
     assert any("draw " in line for line in ax.passthrough)

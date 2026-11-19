@@ -575,7 +575,8 @@ def test_round_trip_of_a_hand_written_rgb255_script(tmp_path):
         encoding="utf-8",
     )
 
-    fig = glp.open_gle(source)
+    with pytest.warns(UserWarning, match="layout: graph geometry"):
+        fig = glp.open_gle(source)
     # An externally-referenced .dat comes back as a reference-mode file series.
     series = fig.axes_list[0].file_series[0]
     assert series["color"] == "rgb255(140,140,140)"

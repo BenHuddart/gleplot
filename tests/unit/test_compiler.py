@@ -942,6 +942,29 @@ def test_savefig_page_keyword_defaults_do_not_warn(tmp_path):
         )
 
 
+@pytest.mark.parametrize("save", ["savefig", "savefig_gle"])
+def test_savefig_warns_on_keywords_it_ignores(tmp_path, save):
+    fig = _line_figure()
+    with pytest.warns(UserWarning) as record:
+        getattr(fig, save)(
+            str(tmp_path / "a.gle"), metadata={"Title": "t"}, transparant=True
+        )
+    assert [str(w.message) for w in record] == [
+        f"{save}() ignores unsupported keyword(s): metadata, transparant."
+    ]
+    assert record[0].filename == __file__
+    assert (tmp_path / "a.gle").exists()
+
+
+def test_module_savefig_warns_on_keywords_it_ignores(tmp_path):
+    glp.close()
+    glp.plot([0, 1], [0, 1])
+    with pytest.warns(UserWarning, match=r"savefig\(\) ignores .*: orientation") as rec:
+        glp.savefig(str(tmp_path / "a.gle"), orientation="landscape")
+    assert rec[0].filename == __file__
+    glp.close()
+
+
 @pytest.mark.parametrize("name", ["transparent", "grayscale"])
 def test_savefig_warns_that_compile_options_need_a_compile(tmp_path, name):
     with pytest.warns(UserWarning, match=f"savefig\\({name}=True\\) has no effect"):

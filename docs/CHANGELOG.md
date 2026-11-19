@@ -2,6 +2,88 @@
 
 <!-- version list -->
 
+## v5.6.2 (2026-11-19)
+
+### Bug Fixes
+
+- Alpha= overrides an RGBA colour's alpha without a warning
+  ([#267](https://github.com/BenHuddart/gleplot/pull/267),
+  [`5b79a9f`](https://github.com/BenHuddart/gleplot/commit/5b79a9ff574894ac380f4f477ccdab57a5d31405))
+
+- Errorbar, axvline/axhline and axvspan/axhspan honour aliases and warn on ignored keywords
+  ([#233](https://github.com/BenHuddart/gleplot/pull/233),
+  [`90f5e34`](https://github.com/BenHuddart/gleplot/commit/90f5e34ad5188b5673c59cd8feae9d5a3ca2eda1))
+
+- Imshow, contour, tripcolor and tricontour warn on keywords they ignore
+  ([#177](https://github.com/BenHuddart/gleplot/pull/177),
+  [`b381cd5`](https://github.com/BenHuddart/gleplot/commit/b381cd55a6a2b782b4fb6b5cf004041b038f8154))
+
+- Model only tick intervals the writer writes back unchanged
+  ([#155](https://github.com/BenHuddart/gleplot/pull/155),
+  [`666edec`](https://github.com/BenHuddart/gleplot/commit/666edec8bbb4b8b7e45539d05f3dfcf5268b0edf))
+
+- Open_gle raises each recovery note as a UserWarning
+  ([`0135197`](https://github.com/BenHuddart/gleplot/commit/0135197e057ec99ca33d09c448cec15e6c7344c8))
+
+- Open_gle recovers dticks/dsubticks onto the axes
+  ([`7406745`](https://github.com/BenHuddart/gleplot/commit/74067459a6143bafab0a559d658c111973bacc77))
+
+- Review fixes for contour keyword aliases ([#177](https://github.com/BenHuddart/gleplot/pull/177),
+  [`03c13ce`](https://github.com/BenHuddart/gleplot/commit/03c13ce7fa4df51c41cc8ee058c2c6dbe919af9b))
+
+- Review fixes for errorbar and span keyword aliases
+  ([#233](https://github.com/BenHuddart/gleplot/pull/233),
+  [`e209677`](https://github.com/BenHuddart/gleplot/commit/e2096772c4355ef5369b8891277393cc6bceb284))
+
+- Review fixes for open_gle recovery warnings
+  ([#135](https://github.com/BenHuddart/gleplot/pull/135),
+  [`db5eed7`](https://github.com/BenHuddart/gleplot/commit/db5eed761f3bb996d30f3ceb4ab82e99ae058e67))
+
+- Review fixes for savefig keyword warnings ([#183](https://github.com/BenHuddart/gleplot/pull/183),
+  [`0a66f21`](https://github.com/BenHuddart/gleplot/commit/0a66f219dc109ea493409228e7eac7bc742289bb))
+
+- Savefig warns on keywords it ignores ([#183](https://github.com/BenHuddart/gleplot/pull/183),
+  [`a5ee4b6`](https://github.com/BenHuddart/gleplot/commit/a5ee4b68272a7ea7f75f4b841c411ce32d02e847))
+
+- Warn when a colour silently becomes BLACK or loses its alpha
+  ([#267](https://github.com/BenHuddart/gleplot/pull/267),
+  [`7132d7a`](https://github.com/BenHuddart/gleplot/commit/7132d7a84b7ea9a3924cdaca391d3fa17d8db918))
+
+### Continuous Integration
+
+- Add a Windows leg with GLE to the test job
+  ([#102](https://github.com/BenHuddart/gleplot/pull/102),
+  [`4e69f91`](https://github.com/BenHuddart/gleplot/commit/4e69f918cf6f0f119da95dfd5b9b194afdc8713e))
+
+- Put Ghostscript on PATH for the Windows GLE leg
+  ([#102](https://github.com/BenHuddart/gleplot/pull/102),
+  [`9ef1780`](https://github.com/BenHuddart/gleplot/commit/9ef1780b4b42ebafd485e40051ad9bf58c1e2606))
+
+- Scope Git Bash to the steps that need it ([#102](https://github.com/BenHuddart/gleplot/pull/102),
+  [`92645de`](https://github.com/BenHuddart/gleplot/commit/92645ded699cf40458732739f6d2d00177cbd50f))
+
+### Documentation
+
+- Address review of the scale_mode docs ([#131](https://github.com/BenHuddart/gleplot/pull/131),
+  [`8d47cc3`](https://github.com/BenHuddart/gleplot/commit/8d47cc3b6d86ccaca87136c1c0de575e82a1e285))
+
+- Describe scale_mode in public terms; 'fixed' has no effect
+  ([#131](https://github.com/BenHuddart/gleplot/pull/131),
+  [`625aa95`](https://github.com/BenHuddart/gleplot/commit/625aa9535ab65786af8778e10c3104e25a898774))
+
+- Mention the Windows GLE leg in the testing guide
+  ([#102](https://github.com/BenHuddart/gleplot/pull/102),
+  [`c38f936`](https://github.com/BenHuddart/gleplot/commit/c38f936930f04062be90ecf71e74ef734872a441))
+
+- Prefer Cairo-safe TeX fonts in the font examples
+  ([#128](https://github.com/BenHuddart/gleplot/pull/128),
+  [`6610b31`](https://github.com/BenHuddart/gleplot/commit/6610b31eaf1c3b2a9ec28a68aff86bdcebfcb18d))
+
+- Use GLE font names in the configuration docs
+  ([#128](https://github.com/BenHuddart/gleplot/pull/128),
+  [`3805ca3`](https://github.com/BenHuddart/gleplot/commit/3805ca3ee4e3e51c41fa61f41ce69e5a9275aff6))
+
+
 ## v5.6.1 (2026-11-19)
 
 ### Bug Fixes

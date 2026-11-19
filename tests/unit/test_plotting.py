@@ -1,6 +1,7 @@
 """Unit tests for plotting functionality."""
 
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -22,8 +23,9 @@ class TestBasicPlotting:
     """Test basic line plotting functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure(figsize=(8, 6))
         self.ax = self.fig.add_subplot(111)
@@ -166,8 +168,9 @@ class TestScatterPlots:
     """Test scatter plot functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -206,8 +209,9 @@ class TestBarCharts:
     """Test bar chart functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -459,8 +463,9 @@ class TestFillBetween:
     """Test fill_between functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
@@ -1112,13 +1117,43 @@ class TestErrorBars:
     """Test error bar functionality."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.ax = self.fig.add_subplot(111)
         yield
         glp.close()
+
+    def test_matplotlib_keywords_are_honoured(self, recwarn):
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, lw=2, c="red", ms=10, ls="--")
+        series = self.ax.errorbars[0]
+        assert (series["linewidth"], series["color"], series["linestyle"]) == (
+            2,
+            "RED",
+            "--",
+        )
+        assert series["markersize"] == pytest.approx(0.25)
+        assert not recwarn.list
+
+    def test_linestyle_overrides_fmt_but_not_fmt_none(self):
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="--", linestyle=":")
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="none", ls="--")
+        assert [s["linestyle"] for s in self.ax.errorbars] == [":", "none"]
+
+    def test_a_none_full_name_leaves_the_short_name_alone(self, recwarn):
+        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, linewidth=None, lw=3)
+        assert self.ax.errorbars[0]["linewidth"] == 3
+        assert not recwarn.list
+
+    def test_unsupported_keywords_warn_and_are_ignored(self):
+        with pytest.warns(UserWarning) as caught:
+            self.ax.errorbar([1, 2], [1, 2], yerr=0.1, ecolor="k", elinewidth=2)
+        assert [str(w.message) for w in caught] == [
+            "errorbar() ignores unsupported keyword(s): ecolor, elinewidth."
+        ]
+        assert caught[0].filename == __file__
 
     def test_symmetric_yerr_scalar(self):
         """Test symmetric vertical error bars with scalar value."""
@@ -1264,6 +1299,13 @@ class TestErrorbarFromFile:
         )
         yield
         glp.close()
+
+    def test_unsupported_keywords_warn_and_are_ignored(self):
+        with pytest.warns(
+            UserWarning, match=r"^errorbar_from_file\(\) ignores .*: ecolor\.$"
+        ):
+            self.ax.errorbar_from_file(str(self.data_path), 1, 2, 3, ecolor="k")
+        assert len(self.ax.file_series) == 1
 
     def test_errorbar_from_file_basic(self):
         """Test basic errorbar_from_file with column references."""
@@ -1416,13 +1458,25 @@ class TestLineFromFile:
         assert 'key "Fit line"' in gle
 
 
+def _fake_savefig(*args, **kwargs):
+    """Write what a real ``savefig`` leaves beside its output, without GLE."""
+    out = Path(args[-1])
+    out.write_bytes(b"image")
+    out.with_suffix(".gle").write_text("size 10 10\n")
+    out.with_name(out.stem + "_0.dat").write_text("1 2\n")
+    (out.parent / ".gle").mkdir()
+    (out.parent / ".gle" / "texpreamble.tex").write_text("")
+    return out
+
+
 @pytest.mark.skipif(not IPYTHON_AVAILABLE, reason="IPython not installed")
 class TestViewDisplay:
     """Test figure view behavior across environments."""
 
     @pytest.fixture(autouse=True)
-    def _setup_teardown(self):
+    def _setup_teardown(self, tmp_path, monkeypatch):
         """Create fresh figure for each test."""
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
         glp.close()
         self.fig = glp.figure()
         self.fig.add_subplot(111).plot([1, 2, 3], [1, 4, 9])
@@ -1432,7 +1486,7 @@ class TestViewDisplay:
     @patch("IPython.display.display")
     @patch("IPython.display.Image")
     @patch("IPython.get_ipython")
-    @patch.object(glp.Figure, "savefig")
+    @patch.object(glp.Figure, "savefig", autospec=True, side_effect=_fake_savefig)
     def test_view_notebook_png_displays_once_and_returns_none(
         self,
         mock_savefig,
@@ -1449,11 +1503,11 @@ class TestViewDisplay:
 
         assert result is None
         mock_savefig.assert_called_once()
-        mock_image.assert_called_once()
+        mock_image.assert_called_once_with(data=b"image", format="png")
         mock_display.assert_called_once_with(image_obj)
 
     @patch("IPython.get_ipython")
-    @patch.object(glp.Figure, "savefig")
+    @patch.object(glp.Figure, "savefig", autospec=True, side_effect=_fake_savefig)
     def test_view_non_notebook_returns_temp_path(self, mock_savefig, mock_get_ipython):
         """Non-notebook view should return temp file path."""
         mock_get_ipython.return_value = None
@@ -1473,7 +1527,7 @@ def viewable_figure(tmp_path, monkeypatch):
     fig = glp.figure()
     fig.add_subplot(111).plot([1, 2, 3], [1, 4, 9])
     fig.compiler = Mock()
-    monkeypatch.setattr(glp.Figure, "savefig", Mock())
+    monkeypatch.setattr(glp.Figure, "savefig", Mock(side_effect=_fake_savefig))
     yield fig
     glp.close()
 
@@ -1485,7 +1539,34 @@ def test_view_outside_notebook_returns_path_and_prints_nothing(
 
     assert result.parent == tmp_path
     assert result.suffix == ".png"
+    assert result.read_bytes() == b"image"
     assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("fmt", ["png", "pdf"])
+def test_view_leaves_only_the_returned_file(viewable_figure, tmp_path, fmt):
+    result = viewable_figure.view(format=fmt)
+
+    assert sorted(tmp_path.iterdir()) == [result]
+
+
+def test_view_svg_in_notebook_warns_and_returns_path(viewable_figure, tmp_path):
+    pytest.importorskip("IPython")
+    with patch("IPython.get_ipython", return_value=Mock(config={"IPKernelApp": 1})):
+        with pytest.warns(UserWarning, match="cannot display SVG inline"):
+            result = viewable_figure.view(format="svg")
+
+    assert sorted(tmp_path.iterdir()) == [result]
+    assert result.suffix == ".svg"
+
+
+def test_view_cleans_up_when_savefig_fails(viewable_figure, tmp_path):
+    glp.Figure.savefig.side_effect = RuntimeError("compile failed")
+
+    with pytest.raises(RuntimeError, match="compile failed"):
+        viewable_figure.view()
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_view_pdf_in_notebook_warns_and_returns_path(viewable_figure, capsys):
