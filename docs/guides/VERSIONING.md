@@ -7,18 +7,20 @@ from [conventional commit](https://www.conventionalcommits.org/) messages on
 
 ## Stability
 
-6.0 is gleplot's first stable release. From 6.0 on, a public name, a default
-or the GLE a script emits changes only in a major release. A minor adds
-capability, and a patch corrects output that was wrong.
+6.0 is gleplot's first stable release. From 6.0 on, a public name or a
+default changes only in a major release, and so does the GLE a script emits
+when that output was correct. A minor adds capability, and a patch changes
+emitted GLE only to correct output that was wrong.
 
 ## Gathering a major
 
 To gather breaking changes into one major, the maintainer pauses releases by
 disabling the Release workflow. While it is paused, commits still land on
 `main` with their usual types, breaking (`!`) changes included, and nothing is
-published. When the maintainer re-enables the workflow, the next run cuts one
-release from every commit since the last tag: a single major if any of them
-is breaking.
+published. Re-enabling the workflow does not run it: the maintainer then runs
+it by hand (**Actions → Release → Run workflow**, `auto`), and that run cuts
+one release from every commit since the last tag, a single major if any of
+them is breaking.
 
 ## Commit messages
 

@@ -11,8 +11,8 @@ Requirements
 
 - Python 3.9 or later
 - numpy >= 1.16.0
-- To compile figures: GLE 4.3 or later, with GLE's include library
-  (``gleinc``); see `GLE's include library`_ below
+- To compile figures: GLE, with its include library (``gleinc``); see
+  `GLE's include library`_ below
 
 Install gleplot
 ~~~~~~~~~~~~~~~

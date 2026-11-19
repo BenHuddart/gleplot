@@ -1,7 +1,7 @@
 gleplot Documentation
 =====================
 
-A Python library to **write standard GLE (Graphics Layout Engine) from Python, with matplotlib-shaped names**, for publication-quality vector graphics. It exposes what GLE does natively; where a matplotlib behaviour has no GLE equivalent, gleplot accepts the keyword, warns and documents the gap.
+A Python library to **write standard GLE (Graphics Layout Engine) from Python, with matplotlib-shaped names**, for publication-quality vector graphics. Where gleplot differs from matplotlib is listed in :doc:`guides/MATPLOTLIB_MIGRATION`.
 
 Start with :doc:`getting_started` for installation and your first plot, then the user guide (starting with :doc:`guides/FIGURES_AND_SUBPLOTS`) and the :doc:`gallery` for common patterns.
 
