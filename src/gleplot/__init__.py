@@ -528,29 +528,26 @@ def subplots(
 
 
 def xlabel(label: str, fontdict=None, labelpad=None, *, loc=None, **kwargs):
-    """Set x label on current axes: :meth:`Axes.set_xlabel` on :func:`gca`.
-
-    ``fontdict`` warns and is ignored; pass ``fontsize`` and ``color`` as
-    keywords.
-    """
-    if fontdict is not None:
-        kwargs["fontdict"] = fontdict
-    return gca().set_xlabel(label, labelpad=labelpad, loc=loc, **kwargs)
+    """Set x label on current axes: :meth:`Axes.set_xlabel` on :func:`gca`."""
+    return gca().set_xlabel(
+        label, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs
+    )
 
 
 def ylabel(label: str, fontdict=None, labelpad=None, *, loc=None, **kwargs):
-    """Set y label on current axes: :meth:`Axes.set_ylabel` on :func:`gca`.
+    """Set y label on current axes: :meth:`Axes.set_ylabel` on :func:`gca`."""
+    return gca().set_ylabel(
+        label, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs
+    )
 
-    ``fontdict`` warns and is ignored; pass ``fontsize`` and ``color`` as
-    keywords.
+
+def title(label: str, fontdict=None, loc=None, pad=None, *, y=None, **kwargs):
+    """Set title on current axes: :meth:`Axes.set_title` on :func:`gca`.
+
+    ``y`` warns and is ignored, as on :meth:`Axes.set_title`.
     """
-    if fontdict is not None:
-        kwargs["fontdict"] = fontdict
-    return gca().set_ylabel(label, labelpad=labelpad, loc=loc, **kwargs)
-
-
-def title(label: str, fontdict=None, loc=None, pad=None, **kwargs):
-    """Set title on current axes: :meth:`Axes.set_title` on :func:`gca`."""
+    if y is not None:
+        kwargs["y"] = y
     return gca().set_title(label, fontdict, loc, pad, **kwargs)
 
 

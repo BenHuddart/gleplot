@@ -8128,6 +8128,7 @@ class Axes:
         label: str,
         axis: str = "x",
         *,
+        fontdict: Optional[Dict[str, Any]] = None,
         labelpad: Optional[float] = None,
         loc: Optional[str] = None,
         fontname: Optional[str] = None,
@@ -8141,6 +8142,9 @@ class Axes:
             Axis label text
         axis : str, optional
             Which axis: 'x' (bottom, default) or 'x2' (top)
+        fontdict : dict, optional
+            Not supported; warns and is ignored. Pass ``fontsize`` and
+            ``color`` as keywords.
         labelpad : float, optional
             Gap between the label and the tick labels, in points (GLE
             ``xtitle ... dist``). ``None`` keeps the current gap.
@@ -8157,6 +8161,8 @@ class Axes:
         """
         prefix = "x2" if axis == "x2" else "x"
         setattr(self, f"{prefix}label_text", self._text(label))
+        if fontdict is not None:
+            kwargs["fontdict"] = fontdict
         self._style_title(
             f"{prefix}label", "set_xlabel", "labelpad", labelpad, loc, fontname, kwargs
         )
@@ -8167,6 +8173,7 @@ class Axes:
         label: str,
         axis: str = "y",
         *,
+        fontdict: Optional[Dict[str, Any]] = None,
         labelpad: Optional[float] = None,
         loc: Optional[str] = None,
         fontname: Optional[str] = None,
@@ -8180,6 +8187,9 @@ class Axes:
             Axis label text
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        fontdict : dict, optional
+            Not supported; warns and is ignored. Pass ``fontsize`` and
+            ``color`` as keywords.
         labelpad : float, optional
             Gap between the label and the tick labels, in points (GLE
             ``ytitle ... dist``). ``None`` keeps the current gap.
@@ -8196,6 +8206,8 @@ class Axes:
         """
         prefix = "y2" if axis == "y2" else "y"
         setattr(self, f"{prefix}label_text", self._text(label))
+        if fontdict is not None:
+            kwargs["fontdict"] = fontdict
         self._style_title(
             f"{prefix}label", "set_ylabel", "labelpad", labelpad, loc, fontname, kwargs
         )

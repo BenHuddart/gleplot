@@ -499,9 +499,15 @@ def test_the_module_wrappers_take_matplotlibs_positional_order():
         glp.xlabel("X", {"fontsize": 9}, 4)
     with pytest.warns(UserWarning, match=r"set_title\(loc='left'\) is drawn"):
         glp.title("T", None, "left", 6)
+    with pytest.warns(UserWarning, match=r"set_ylabel\(\): fontdict not"):
+        glp.ylabel("Y", {"fontsize": 9}, 2)
+    with pytest.warns(UserWarning, match=r"set_title\(\): y not"):
+        glp.title("T", y=1.1)
     dist4, dist6 = f"{fontsize_pt_to_cm(4):.6g}", f"{fontsize_pt_to_cm(6):.6g}"
     assert _line_starting(fig, "xtitle") == f'xtitle "X" dist {dist4}'
     assert _line_starting(fig, "title ") == f'title "T" dist {dist6}'
+    dist2 = f"{fontsize_pt_to_cm(2):.6g}"
+    assert _line_starting(fig, "ytitle") == f'ytitle "Y" dist {dist2}'
 
 
 def test_relabelling_keeps_the_style_and_none_resets_it():
