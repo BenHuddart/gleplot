@@ -1228,3 +1228,8 @@ def test_a_positional_fontdict_is_matplotlibs_and_labels_the_primary_axis():
         ax.set_ylabel("Y", {"fontsize": 9})
     ax.set_xlabel("X", None)
     assert (ax.xlabel_text, ax.ylabel_text) == ("X", "Y")
+    with pytest.warns(UserWarning, match="fontdict"):
+        ax.twinx().set_ylabel("R", {"fontsize": 9})
+    with pytest.warns(UserWarning, match="fontdict"):
+        ax.twiny().set_xlabel("T", {"fontsize": 9})
+    assert (ax.y2label_text, ax.x2label_text) == ("R", "T")

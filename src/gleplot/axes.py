@@ -5,6 +5,7 @@ import math
 import os
 import re
 import uuid
+from collections.abc import Mapping
 from numbers import Real
 from typing import (
     Any,
@@ -716,10 +717,11 @@ def _label_axis(caller: str, axis: Any, names: Tuple[str, str], fontdict: Any):
     """``(axis, fontdict)`` for a ``set_xlabel``/``set_ylabel`` call.
 
     matplotlib's second positional argument is ``fontdict``; here it is
-    ``axis``. A dict or ``None`` in that place is matplotlib's, so it is
-    taken as ``fontdict`` and the axis is the primary one.
+    ``axis``. A mapping or ``None`` in that place is matplotlib's, so it is
+    taken as ``fontdict`` (an explicit ``fontdict=`` wins) and the axis is
+    the primary one.
     """
-    if axis is None or isinstance(axis, dict):
+    if axis is None or isinstance(axis, Mapping):
         return names[0], axis if fontdict is None else fontdict
     if not isinstance(axis, str):
         raise TypeError(
@@ -2022,8 +2024,8 @@ class SecondaryXAxis:
     def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_xlim(axis="x2")
 
-    def set_xlabel(self, label: str, **kwargs):
-        return self._axes.set_xlabel(label, axis="x2", **kwargs)
+    def set_xlabel(self, label: str, fontdict=None, **kwargs):
+        return self._axes.set_xlabel(label, "x2", fontdict=fontdict, **kwargs)
 
     def set_xscale(self, scale: str):
         return self._axes.set_xscale(scale, axis="x2")
@@ -2097,8 +2099,8 @@ class SecondaryYAxis:
     def get_ylim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_ylim(axis="y2")
 
-    def set_ylabel(self, label: str, **kwargs):
-        return self._axes.set_ylabel(label, axis="y2", **kwargs)
+    def set_ylabel(self, label: str, fontdict=None, **kwargs):
+        return self._axes.set_ylabel(label, "y2", fontdict=fontdict, **kwargs)
 
     def set_yscale(self, scale: str):
         return self._axes.set_yscale(scale, axis="y2")
