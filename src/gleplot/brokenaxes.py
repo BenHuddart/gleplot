@@ -46,10 +46,11 @@ Limitations
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple, cast
+from typing import Any, List, Optional, Sequence, Tuple, cast
 
 from ._warn import warn_external
 from .axes import Axes
+from .colors import _stored_color
 
 #: Accepted ``divider`` styles.
 DIVIDER_STYLES = ("none", "line", "slash")
@@ -942,6 +943,15 @@ class BrokenAxes:
     def has_plots(self) -> bool:
         """True if any segment carries content."""
         return any(seg.has_plots() for seg in self.segments)
+
+    @property
+    def divider_color(self) -> Any:
+        """The colour of the seam divider, as given."""
+        return self._divider_color
+
+    @divider_color.setter
+    def divider_color(self, value: Any) -> None:
+        self._divider_color = _stored_color(value)
 
     # -- serialization ---------------------------------------------------
 

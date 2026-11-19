@@ -10,6 +10,7 @@ segments read as one panel, the seam decoration, and the fan-out contract
 
 from __future__ import annotations
 
+import json
 import re
 
 import numpy as np
@@ -249,6 +250,15 @@ def test_divider_style_and_colour_are_emitted():
     text, _files = _gle(fig)
     assert "set color RED" in text
     assert "set lstyle 3" in text
+
+
+def test_array_divider_colour_serialises_and_is_emitted():
+    fig, bax = _fig(divider="line", divider_color=np.array([0.0, 0.0, 1.0]))
+    assert bax.divider_color == (0.0, 0.0, 1.0)
+    bax.divider_color = np.array([1.0, 0.0, 0.0])
+    json.dumps(fig.to_dict())
+    text, _files = _gle(fig)
+    assert "set color rgb255(255,0,0)" in text
 
 
 def test_seam_decoration_is_wrapped_so_state_does_not_leak():
