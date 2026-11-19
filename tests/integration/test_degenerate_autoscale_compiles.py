@@ -560,7 +560,12 @@ def test_a_hand_written_single_bar_width_survives_the_round_trip(tmp_path):
     which is what makes the field more than a string that survives.
     """
     (tmp_path / "one.dat").write_text("1 5\n", encoding="utf-8")
+    # The import list names one.dat gleplot's own: a bar on a file of the
+    # user's own stays raw rather than rewrite it, and is not modelled.
     (tmp_path / "hand.gle").write_text(
+        "! gleplot-meta-begin v2\n"
+        "! gleplot: import-data = one.dat\n"
+        "! gleplot-meta-end\n"
         "size 8 6\n"
         "begin graph\n"
         '   data "one.dat" d1=c1,c2\n'

@@ -23,7 +23,10 @@ The other half of the task is unchanged and is the point of the file: *nothing
 else moved*. Every figure in ``_refline_battery`` has resolvable limits and
 must emit exactly the bytes the pre-G14 writer produced, which
 ``refline_resolvable_emissions.json`` (captured on base commit 83dcdd9) pins --
-byte for byte, through G14 and G17 alike.
+byte for byte, through G14 and G17 alike. One entry has moved since:
+``guides_beside_a_secondary_y_axis`` narrowed its primary ``yaxis`` range,
+and the vertical guides that span it, when the series on y2 stopped counting
+toward that range (#142).
 
 **G18-lite adds one line per materialized guide, and only that.** The snapshot
 was regenerated for it: every guide-bearing entry gained its

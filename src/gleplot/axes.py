@@ -105,6 +105,61 @@ def _cartesian_only(method: _Method) -> _Method:
     return cast(_Method, wrapper)
 
 
+class _Unchanged:
+    """The default of an omitted ``set_xlim``/``set_ylim`` limit."""
+
+    def __repr__(self) -> str:
+        return "<unchanged>"
+
+
+_UNCHANGED: Any = _Unchanged()
+
+
+def _new_limits(
+    method: str,
+    names: Tuple[str, str, str, str],
+    values: Tuple[Any, Any, Any, Any],
+    current: Tuple[Optional[float], Optional[float]],
+    emit: Any,
+    auto: Any,
+) -> Tuple[Optional[float], Optional[float]]:
+    """The two limits a ``set_xlim``/``set_ylim`` call asks for, as matplotlib.
+
+    ``names``/``values`` are ``(left, right, xmin, xmax)`` or the y names.
+    A ``(lo, hi)`` pair as the first limit is both; ``xmin``/``xmax`` stand
+    for ``left``/``right`` (a ``None`` on one side gives way to the other);
+    an omitted limit keeps ``current``.
+    """
+    lo_name, hi_name, min_name, max_name = names
+    lo, hi, lo_alias, hi_alias = values
+    if (hi is _UNCHANGED or hi is None) and np.iterable(lo) and not isinstance(lo, str):
+        try:
+            lo, hi = lo
+        except ValueError:
+            raise ValueError(
+                f"{method}({lo_name}={lo!r}): a pair of limits must have two "
+                "entries, (low, high)."
+            ) from None
+    resolved = []
+    for name, value, alias_name, alias, old in (
+        (lo_name, lo, min_name, lo_alias, current[0]),
+        (hi_name, hi, max_name, hi_alias, current[1]),
+    ):
+        if alias is not _UNCHANGED:
+            if value is _UNCHANGED or value is None:
+                value = alias
+            elif alias is not None:
+                raise TypeError(
+                    f"{method}() got both {name!r} ({value!r}) and {alias_name!r} "
+                    f"({alias!r}); pass only {name!r}."
+                )
+        resolved.append(old if value is _UNCHANGED else value)
+    ignored = ["emit"] if emit is not True else []
+    ignored += ["auto"] if auto else []
+    warn_unsupported_keywords(method, ignored)
+    return resolved[0], resolved[1]
+
+
 def _warn_twin_keywords(
     caller: str, edge: str, axes_class: Any, delta_zorder: Any, kwargs: Dict[str, Any]
 ) -> None:
@@ -683,6 +738,26 @@ def _bar_error_limits(err, n: int, name: str):
         upper = np.full(n, float(arr[1, 0]))
         return lower, upper
     raise ValueError(f"bar() {name} must be a scalar, shape ({n},), or shape (2, {n})")
+
+
+def _unmasked(value):
+    """``value``, with a masked array's masked entries as NaN.
+
+    ``np.asarray`` keeps the value under a mask. matplotlib leaves a masked
+    point out wherever it leaves out a NaN one, so the data arguments that
+    do so here pass through this first. A list or tuple (an asymmetric
+    error) is read item by item. Nothing changes when nothing is masked, or
+    for values that are not numbers (colour names).
+    """
+    if isinstance(value, (list, tuple)):
+        return type(value)(_unmasked(item) for item in value)
+    if (
+        not np.ma.isMaskedArray(value)
+        or not np.ma.getmaskarray(value).any()
+        or not np.issubdtype(value.dtype, np.number)
+    ):
+        return value
+    return np.ma.filled(value.astype(float), np.nan)
 
 
 def _require_finite(arr: np.ndarray, what: str) -> None:
@@ -1608,6 +1683,7 @@ def _split_histogram_samples(x):
     other sequence of sequences is one set per element, lengths free to
     differ; a sequence of numbers is one set.
     """
+    x = _unmasked(x)
     if isinstance(x, np.ndarray):
         if x.ndim == 0:
             raise ValueError("hist() x must be one or more 1d sample arrays")
@@ -1633,7 +1709,7 @@ def _split_histogram_samples(x):
         return [np.asarray(items, dtype=float)]
     sets = []
     for item in items:
-        arr = np.asarray(item, dtype=float)
+        arr = np.asarray(_unmasked(item), dtype=float)
         if arr.ndim != 1:
             raise ValueError("each hist() dataset must be 1-dimensional")
         sets.append(arr)
@@ -1776,6 +1852,24 @@ def _line_style(caller: str, linestyle):
             "'dotted', 'dashdot' or 'none'."
         )
     return "-"
+
+
+def _drawn_line_mode(mode, linestyle, linewidth):
+    """``mode``, or ``None`` when ``linestyle`` draws no line.
+
+    A GLE line mode is a qualifier of ``line``; with the line switched off
+    there is nothing for it to qualify. That warns, unless ``linewidth`` is
+    0: ``lw=0`` asked for no stroke, and the mode goes with it.
+    """
+    if mode and linestyle in _NO_LINE:
+        if linewidth != 0:
+            warn_external(
+                f"line mode {mode!r} needs a drawn line; "
+                f"linestyle={linestyle!r} omits it, so the series is drawn "
+                "without that mode.",
+            )
+        return None
+    return mode
 
 
 def _color_list(name: str, colors, default: list) -> list:
@@ -2057,8 +2151,8 @@ class SecondaryXAxis:
         kwargs["xaxis"] = "x2"
         return self._axes.errorbar_from_file(*args, **kwargs)
 
-    def set_xlim(self, xmin: Optional[float], xmax: Optional[float]):
-        return self._axes.set_xlim(xmin, xmax, axis="x2")
+    def set_xlim(self, *args, **kwargs):
+        return self._axes.set_xlim(*args, axis="x2", **kwargs)
 
     def get_xlim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_xlim(axis="x2")
@@ -2072,8 +2166,8 @@ class SecondaryXAxis:
     def set_tick_format(self, fmt: Optional[str]):
         return self._axes.set_tick_format(fmt, axis="x2")
 
-    def set_ylim(self, ymin: Optional[float], ymax: Optional[float], axis: str = "y"):
-        return self._axes.set_ylim(ymin, ymax, axis=axis)
+    def set_ylim(self, *args, **kwargs):
+        return self._axes.set_ylim(*args, **kwargs)
 
     def set_ylabel(self, label: str, axis: str = "y", **kwargs):
         return self._axes.set_ylabel(label, axis=axis, **kwargs)
@@ -2132,8 +2226,8 @@ class SecondaryYAxis:
         kwargs["yaxis"] = "y2"
         return self._axes.errorbar_from_file(*args, **kwargs)
 
-    def set_ylim(self, ymin: Optional[float], ymax: Optional[float]):
-        return self._axes.set_ylim(ymin, ymax, axis="y2")
+    def set_ylim(self, *args, **kwargs):
+        return self._axes.set_ylim(*args, axis="y2", **kwargs)
 
     def get_ylim(self) -> Tuple[Optional[float], Optional[float]]:
         return self._axes.get_ylim(axis="y2")
@@ -2150,8 +2244,8 @@ class SecondaryYAxis:
     def invert_yaxis(self):
         return self._axes._invert_axis("y2", "invert_yaxis")
 
-    def set_xlim(self, xmin: Optional[float], xmax: Optional[float], axis: str = "x"):
-        return self._axes.set_xlim(xmin, xmax, axis=axis)
+    def set_xlim(self, *args, **kwargs):
+        return self._axes.set_xlim(*args, **kwargs)
 
     def set_xlabel(self, label: str, axis: str = "x", **kwargs):
         return self._axes.set_xlabel(label, axis=axis, **kwargs)
@@ -2862,25 +2956,15 @@ class Axes:
             )
             del qualifiers["mdist"]
 
-        x = np.asarray(x)
-        y = np.asarray(y)
+        x = np.asarray(_unmasked(x))
+        y = np.asarray(_unmasked(y))
 
         # Handle marker. GLE supports markers on line datasets natively, so a
         # marker requested alongside a solid/dashed line must be preserved
         # (not silently dropped). Only when there is *no* line is the series a
         # true scatter.
         is_scatter = marker is not None and linestyle in _NO_LINE
-        # A GLE line mode is a qualifier of ``line``. With the line switched
-        # off there is nothing for it to qualify, and storing it would not
-        # survive a round trip (the writer emits no ``line`` token).
-        if mode and linestyle in _NO_LINE:
-            if linewidth != 0:  # lw=0 asked for no stroke: the mode goes too
-                warn_external(
-                    f"line mode {mode!r} needs a drawn line; "
-                    f"linestyle={linestyle!r} omits it, so the series is drawn "
-                    "without that mode.",
-                )
-            mode = None
+        mode = _drawn_line_mode(mode, linestyle, linewidth)
 
         # Handle color. Which style default applies depends on what this
         # series turns out to be, which is why it is resolved after
@@ -4165,6 +4249,8 @@ class Axes:
 
         >>> ax.errorbar(x, y, yerr=0.5, xerr=0.3)
         """
+        x, y = _unmasked(x), _unmasked(y)
+        xerr, yerr = _unmasked(xerr), _unmasked(yerr)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
         marker_fill = _pop_marker_fill(kwargs, "errorbar", fillstyle, markerfacecolor)
@@ -4445,14 +4531,7 @@ class Axes:
         width = float(_line_width("line_from_file", linewidth))
         linestyle = _stroked(linestyle, width)
         mode = resolve_line_mode(drawstyle, line_mode)
-        if mode and linestyle in _NO_LINE:
-            if width != 0:  # lw=0 asked for no stroke: the mode goes too
-                warn_external(
-                    f"line mode {mode!r} needs a drawn line; "
-                    f"linestyle={linestyle!r} omits it, so the series is drawn "
-                    "without that mode.",
-                )
-            mode = None
+        mode = _drawn_line_mode(mode, linestyle, width)
 
         fields = dict(
             series_type="line",
@@ -4483,8 +4562,10 @@ class Axes:
         self,
         x,
         y,
-        color: Optional[str] = None,
         s: Optional[Union[float, Sequence[float]]] = None,
+        c: Any = None,
+        *,
+        color: Optional[str] = None,
         marker: Optional[str] = None,
         label: Optional[str] = None,
         yaxis: str = "y",
@@ -4493,8 +4574,6 @@ class Axes:
         fillstyle: Optional[str] = None,
         markerfacecolor: Optional[str] = None,
         zorder: Optional[float] = None,
-        *,
-        c: Any = None,
         cmap: Optional[str] = None,
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
@@ -4525,12 +4604,18 @@ class Axes:
         ----------
         x, y : array-like
             Data coordinates
-        color : str, optional
-            Point color
         s : float or array-like, optional
             Marker area in points**2 (matplotlib ``scatter`` convention).
             Default 20 when neither ``s`` nor ``markersize`` is given. An
             array gives each point its own size; see Notes.
+        c : array-like or color, optional
+            One number per point colours each point through ``cmap``, as in
+            matplotlib. One colour is the same as ``color``; a sequence with
+            one colour per point is drawn as one series per distinct colour.
+            Cannot be combined with ``color``.
+        color : str, optional
+            Point color. This and every parameter after ``c`` are
+            keyword-only, as in matplotlib.
         marker : str, optional
             Marker symbol. Omitted or ``None``, a circle (``'o'``), as in
             matplotlib.
@@ -4551,11 +4636,6 @@ class Axes:
         zorder : float, optional
             Draw order relative to other data series on the same axes.
             Higher values are drawn on top.
-        c : array-like or color, optional
-            One number per point colours each point through ``cmap``, as in
-            matplotlib. One colour is the same as ``color``; a sequence with
-            one colour per point is drawn as one series per distinct colour.
-            Cannot be combined with ``color``.
         cmap : str, optional
             Colormap for numeric ``c``. Default: the figure graph config's
             ``default_cmap``.
@@ -4597,6 +4677,7 @@ class Axes:
         A colour sequence draws one series per distinct colour, in the order
         each first appears; only the first carries ``label``.
         """
+        x, y, c = _unmasked(x), _unmasked(y), _unmasked(c)
         if marker is None:
             marker = "o"  # matplotlib's rcParams['scatter.marker']
         values = None
@@ -4651,18 +4732,19 @@ class Axes:
         default_size = float(np.sqrt(self.SCATTER_DEFAULT_S) * 1.2)
         diameters = None
         size = default_size
+        if isinstance(s, str):
+            raise TypeError(
+                f"scatter() s must be a marker area in points**2, got {s!r}. "
+                "As in matplotlib, scatter's positional arguments are "
+                "(x, y, s, c); pass a colour as color=... or c=...."
+            )
         if markersize is None:
             if s is None:
                 s = self.SCATTER_DEFAULT_S
             # matplotlib: s is an area in points**2 and markersize a diameter
             # in points, so markersize = sqrt(s). The 1.2 is gleplot's own
             # visibility factor, kept so scatter sizes are unchanged.
-            if np.ndim(s) == 0:
-                size = float(np.sqrt(np.asarray(s, dtype=float)) * 1.2)
-            else:
-                diameters = np.sqrt(_point_sizes("s", s, np.size(x))) * 1.2
-        elif np.ndim(markersize) == 0:
-            size = float(np.asarray(markersize, dtype=float))
+            diameters = np.sqrt(_point_sizes("s", s, np.size(x))) * 1.2
         else:
             diameters = _point_sizes("markersize", markersize, np.size(x))
         mdata = None
@@ -4915,6 +4997,7 @@ class Axes:
         -------
         self
         """
+        height = _unmasked(height)
         data_name = kwargs.pop("data_name", None)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
@@ -5251,6 +5334,7 @@ class Axes:
 
         Returns this axes. A mask that fills nothing adds no series.
         """
+        x, y1, y2 = _unmasked(x), _unmasked(y1), _unmasked(y2)
 
         def warn(message: str) -> None:
             warn_external(message)
@@ -5417,6 +5501,7 @@ class Axes:
 
         Returns this axes. A mask that fills nothing adds no series.
         """
+        y, x1, x2 = _unmasked(y), _unmasked(x1), _unmasked(x2)
         color, clip, data_name = self._fill_keywords(
             "fill_betweenx", color, step, kwargs
         )
@@ -5818,11 +5903,11 @@ class Axes:
         warn_unsupported_keywords(name, kwargs)
 
         lo_name, hi_name = ("xmin", "xmax") if orient == "h" else ("ymin", "ymax")
-        pos_arr = np.ravel(np.asarray(pos, dtype=float))
+        pos_arr = np.ravel(np.asarray(_unmasked(pos), dtype=float))
         n = int(pos_arr.size)
         ends = []
         for arg_name, value in ((lo_name, lo), (hi_name, hi)):
-            arr = np.ravel(np.asarray(value, dtype=float))
+            arr = np.ravel(np.asarray(_unmasked(value), dtype=float))
             if arr.size == 1:
                 arr = np.full(n, arr[0])
             if arr.size != n:
@@ -8661,7 +8746,17 @@ class Axes:
         return self
 
     @_cartesian_only
-    def set_xlim(self, xmin: Optional[float], xmax: Optional[float], axis: str = "x"):
+    def set_xlim(
+        self,
+        left=_UNCHANGED,
+        right=_UNCHANGED,
+        axis: str = "x",
+        *,
+        emit=True,
+        auto=False,
+        xmin=_UNCHANGED,
+        xmax=_UNCHANGED,
+    ):
         """Set x-axis limits.
 
         ``None`` puts that bound back on AUTO -- derived from the data at
@@ -8670,17 +8765,40 @@ class Axes:
 
         Parameters
         ----------
-        xmin, xmax : float or None
-            Axis limits; ``None`` = auto.
+        left, right : float or None, optional
+            Axis limits; ``None`` = auto. An omitted limit keeps its current
+            setting, as in matplotlib. ``left`` may also be a
+            ``(left, right)`` pair.
         axis : str, optional
             Which axis: 'x' (bottom, default) or 'x2' (top)
+        emit, auto : optional
+            Accepted for matplotlib compatibility. gleplot has no limit
+            callbacks or autoscaling state, so ``emit=False`` and ``auto=True``
+            warn and have no effect.
+        xmin, xmax : float or None, optional
+            matplotlib's aliases of ``left`` and ``right``; passing both
+            forms of one limit raises ``TypeError``.
+
+        Returns
+        -------
+        Axes
+            ``self``.
         """
-        if axis == "x2":
-            self.x2min = xmin
-            self.x2max = xmax
+        x2 = axis == "x2"
+        lo, hi = _new_limits(
+            "set_xlim",
+            ("left", "right", "xmin", "xmax"),
+            (left, right, xmin, xmax),
+            (self.x2min, self.x2max) if x2 else (self.xmin, self.xmax),
+            emit,
+            auto,
+        )
+        if x2:
+            self.x2min = lo
+            self.x2max = hi
         else:
-            self.xmin = xmin
-            self.xmax = xmax
+            self.xmin = lo
+            self.xmax = hi
         return self
 
     @_cartesian_only
@@ -8873,42 +8991,72 @@ class Axes:
                 "values <= 0 on it."
             )
 
-    def set_ylim(self, ymin: Optional[float], ymax: Optional[float], axis: str = "y"):
+    def set_ylim(
+        self,
+        bottom=_UNCHANGED,
+        top=_UNCHANGED,
+        axis: str = "y",
+        *,
+        emit=True,
+        auto=False,
+        ymin=_UNCHANGED,
+        ymax=_UNCHANGED,
+    ):
         """Set y-axis limits.
 
         Parameters
         ----------
-        ymin, ymax : float or None
-            Axis limits; ``None`` = auto (see :meth:`set_xlim`).
+        bottom, top : float or None, optional
+            Axis limits; ``None`` = auto (see :meth:`set_xlim`). An omitted
+            limit keeps its current setting, and ``bottom`` may be a
+            ``(bottom, top)`` pair.
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        emit, auto : optional
+            As for :meth:`set_xlim`.
+        ymin, ymax : float or None, optional
+            matplotlib's aliases of ``bottom`` and ``top``.
+
+        Returns
+        -------
+        Axes
+            ``self``.
 
         Notes
         -----
-        On a polar axes these are the radial limits: ``ymin`` must be 0 or
-        ``None``, and ``ymax``, the outer ring, positive or ``None``.
+        On a polar axes these are the radial limits: ``bottom`` must be 0 or
+        ``None``, and ``top``, the outer ring, positive or ``None``.
         """
+        y2 = axis == "y2"
+        lo, hi = _new_limits(
+            "set_ylim",
+            ("bottom", "top", "ymin", "ymax"),
+            (bottom, top, ymin, ymax),
+            (self.y2min, self.y2max) if y2 else (self.ymin, self.ymax),
+            emit,
+            auto,
+        )
         if self._polar:
             if axis != "y":
                 raise ValueError(
                     f"set_ylim(axis={axis!r}) is not supported on a polar axes; "
                     "use axis='y'."
                 )
-            if ymin not in (None, 0):
+            if lo not in (None, 0):
                 raise ValueError(
-                    f"set_ylim(ymin={ymin!r}) is not supported on a polar axes: "
+                    f"set_ylim(bottom={lo!r}) is not supported on a polar axes: "
                     "the radial axis starts at 0. Pass 0 or None."
                 )
-            if ymax is not None and not ymax > 0:
+            if hi is not None and not hi > 0:
                 raise ValueError(
-                    f"set_ylim(ymax={ymax!r}) on a polar axes must be positive."
+                    f"set_ylim(top={hi!r}) on a polar axes must be positive."
                 )
-        if axis == "y2":
-            self.y2min = ymin
-            self.y2max = ymax
+        if y2:
+            self.y2min = lo
+            self.y2max = hi
         else:
-            self.ymin = ymin
-            self.ymax = ymax
+            self.ymin = lo
+            self.ymax = hi
         return self
 
     @_cartesian_only
