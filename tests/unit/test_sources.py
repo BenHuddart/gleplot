@@ -429,7 +429,8 @@ def test_grid_ref_heatmap_resolves_to_a_z_sidecar():
     # The listed columns stack left-to-right into the grid, so the table's
     # rows are the grid's rows.
     assert files["u_heatmap1.z"] == (
-        "! nx 3 ny 2 xmin 0 xmax 3 ymin 0 ymax 2\n1 2 3\n4 5 6\n"
+        "! nx 3 ny 2 xmin 0 xmax 4.5 ymin 0 ymax 4\n"
+        "! gleplot: nodes xmin 0 xmax 3 ymin 0 ymax 2\n1 2 3\n4 5 6\n"
     )
     assert "colormap" in text
     # A grid sidecar is raw content, not a columnar import.

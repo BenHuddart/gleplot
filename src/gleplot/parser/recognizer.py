@@ -8429,14 +8429,6 @@ class _Recognizer:
                 )
                 return
             z, extent, marker = grid
-            if marker is not None and marker.startswith(NODES_MARKER):
-                self._note(
-                    ImportCategory.DATA,
-                    f"grid {zfile!r} is written for a contourf but its colormap "
-                    "is not a contourf's; read as an imshow heatmap over the "
-                    "header's range, and its marker line is dropped on re-save",
-                    self._stmt_span(stmt),
-                )
             cells = marker is not None and marker.startswith(CELLS_MARKER)
             if cells:
                 mesh = self._mesh_from_cells_grid(z, extent, marker, interpolation)
@@ -8447,12 +8439,15 @@ class _Recognizer:
                         "not one gleplot wrote (it needs interpolate nearest, "
                         "a repeated first row and column, and a header half a "
                         "cell outside the edges the marker gives); read as an "
-                        "imshow heatmap, and the marker is dropped on re-save",
+                        "imshow heatmap where GLE draws its nodes, and the "
+                        "marker is dropped on re-save",
                         self._stmt_span(stmt),
                     )
                     cells = False
                 else:
                     z, extent = mesh
+            if not cells:
+                extent = self._imshow_node_extent(zfile, z, extent, marker, stmt)
             hm = HeatmapSeries(
                 type="heatmap",
                 source="grid",
@@ -8748,9 +8743,36 @@ class _Recognizer:
         fields["levels"] = levels
         return fields
 
+    def _imshow_node_extent(self, zfile, z, header, marker, stmt) -> List[float]:
+        """An imshow grid's extent: its first and last nodes, as GLE draws it.
+
+        A grid :meth:`GLEWriter.add_nodes_sidecar` wrote gives them on its
+        marker line. Any other grid of two or more nodes each way, such as a
+        hand-written one or one an earlier gleplot wrote, has its last node
+        where ``colormap`` draws it, one spacing short of the header's
+        ``xmax``/``ymax``, so re-saving draws it where it was. A grid one node
+        wide or tall is read over its header, as the writer writes it.
+        """
+        ny, nx = z.shape
+        nodes = self._nodes_extent(marker, header, nx, ny)
+        if nodes is not None:
+            return nodes
+        if marker is not None and marker.startswith(NODES_MARKER):
+            self._note(
+                ImportCategory.DATA,
+                f"grid {zfile!r} has a node-grid marker line that does not "
+                "match its header; read where GLE draws its nodes, and the "
+                "marker line is rewritten on re-save",
+                self._stmt_span(stmt),
+            )
+        if min(nx, ny) < 2:
+            return list(header)
+        x0, x1, y0, y1 = header
+        return [x0, x1 - (x1 - x0) / nx, y0, y1 - (y1 - y0) / ny]
+
     @staticmethod
     def _nodes_extent(marker, header, nx, ny) -> Optional[List[float]]:
-        """The edges a ``contourf`` grid's marker line gives, or ``None``.
+        """The edges a node grid's marker line gives, or ``None``.
 
         ``None`` without the line, or when the header is not one node
         spacing past them as :meth:`GLEWriter.add_nodes_sidecar` writes it.
