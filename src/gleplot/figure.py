@@ -1041,7 +1041,7 @@ class Figure:
         >>> fig = glp.figure(figsize=(3.4, 2.6))
         >>> bax = fig.add_broken_xaxes([(0, 0.02), (0.02, 3)],
         ...                            width_ratios=[1, 3], divider='slash')
-        >>> bax.errorbar(t, a, yerr=e, marker='o', fmt='none')
+        >>> bax.errorbar(t, a, yerr=e, marker='o', linestyle='none')
         >>> bax.set_xlabel('t (us)')
         >>> bax.set_ylabel('Asymmetry (%)')
         """
@@ -1624,9 +1624,9 @@ class Figure:
 
     # Convenience plotting methods (plot on current axes)
 
-    def plot(self, x, y, **kwargs):
-        """Plot on current axes."""
-        return self.gca().plot(x, y, **kwargs)
+    def plot(self, x, y, *args, **kwargs):
+        """Plot on current axes. See :meth:`Axes.plot`."""
+        return self.gca().plot(x, y, *args, **kwargs)
 
     def step(self, x, y, *args, **kwargs):
         """Step plot on current axes."""
@@ -1667,9 +1667,9 @@ class Figure:
         """Fill a polygon on the current axes. See :meth:`Axes.fill`."""
         return self.gca().fill(x, y, *args, **kwargs)
 
-    def errorbar(self, x, y, **kwargs):
-        """Error bar plot on current axes."""
-        return self.gca().errorbar(x, y, **kwargs)
+    def errorbar(self, x, y, *args, **kwargs):
+        """Error bar plot on current axes. See :meth:`Axes.errorbar`."""
+        return self.gca().errorbar(x, y, *args, **kwargs)
 
     def text(self, x, y, s, fontdict=None, **kwargs) -> TextAnnotation:
         """Add text to the figure, in figure fractions.

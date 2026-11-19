@@ -24,7 +24,7 @@ bax = fig.add_broken_xaxes(
 bax.set_ylim(0.0, 28.0)
 
 # Declared ONCE; drawn in every segment, from one shared data sidecar.
-bax.errorbar(t, a, yerr=e, marker='o', fmt='none', color='blue', label='2 K')
+bax.errorbar(t, a, yerr=e, marker='o', linestyle='none', color='blue', label='2 K')
 bax.plot(t_model, a_model, color='blue', linestyle='--')
 bax.axhline(2.4, color='gray', linestyle=':')     # background level
 

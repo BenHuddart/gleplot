@@ -1344,47 +1344,47 @@ _FMT_COLOR_CHARS = frozenset("bgrcmykw")
 _FMT_MARKERS = frozenset(MATPLOTLIB_TO_GLE_MARKERS)
 
 
-def _plot_format(caller: str, fmt: str):
-    """``(linestyle, marker, color)`` for a ``plot``/``errorbar`` format.
+def _apply_plot_format(caller, argument, fmt, linestyle, marker, color):
+    """``(linestyle, marker, color)`` after a ``plot``/``errorbar`` format.
 
-    The simple subset GLE draws directly: a colour letter (or ``'C0'`` to
-    ``'C9'``), a marker character and a line style. A part the format does
-    not set is
-    ``None``; a marker with no line style means no line, and ``''`` is the
-    default solid line, as in matplotlib. Anything else warns, and is
-    ``None``: the call is drawn as if no format was given.
+    ``fmt`` is matplotlib's format string, read in the simple subset GLE
+    draws directly: a colour letter (or ``'C0'`` to ``'C9'``), a marker
+    character and a line style. A marker with no line style means no line;
+    ``''`` is the default line. A ``linestyle``, ``marker`` or ``color``
+    keyword (``None`` when not given) wins over the format, with a warning
+    when they differ, as in matplotlib. A format outside the subset warns
+    and is ignored; ``argument`` names it in that warning.
     """
-    text = str(fmt).strip()
-    if str(fmt) == "":
-        return "-", None, None
-    try:
-        linestyle, marker, color = _split_plot_format(text)
-    except ValueError:
-        warn_external(
-            f"{caller}() linestyle {fmt!r} is not a line style or a format "
-            "string gleplot can draw, and was ignored. Use a colour letter, a "
-            "marker character and a line style, such as 'ro' or 'k--', or "
-            "pass color=, marker= and linestyle= instead."
-        )
-        return None
-    if marker == "none":
-        marker = None
-    if linestyle is None and marker is not None:
-        linestyle = "none"
-    return linestyle, marker, color
-
-
-def _fmt_or_keyword(caller: str, name: str, keyword, from_fmt, fmt):
-    """The keyword, else the format string's value; both warns."""
-    if from_fmt is None:
-        return keyword
-    if keyword is None or keyword == from_fmt:
-        return keyword if keyword is not None else from_fmt
-    warn_external(
-        f"{caller}() {name} is set by both {name}= and the format string "
-        f"{fmt!r}; the keyword wins, as in matplotlib."
-    )
-    return keyword
+    parts = (None, None, None)
+    if fmt != "":
+        try:
+            parts = _split_plot_format(str(fmt).strip())
+        except ValueError:
+            what = "a line style or " if argument == "linestyle" else ""
+            warn_external(
+                f"{caller}() {argument} {fmt!r} is not {what}a format string "
+                "gleplot can draw, and was ignored. Use a colour letter, a "
+                "marker character and a line style, such as 'ro' or 'k--', or "
+                "pass color=, marker= and linestyle= instead."
+            )
+    fmt_linestyle, fmt_marker, fmt_color = parts
+    if fmt_marker == "none":
+        fmt_marker = None
+    if fmt_linestyle is None and fmt_marker is not None:
+        fmt_linestyle = "none"
+    resolved = []
+    for name, keyword, from_fmt in (
+        ("linestyle", linestyle, fmt_linestyle),
+        ("marker", marker, fmt_marker),
+        ("color", color, fmt_color),
+    ):
+        if keyword is not None and from_fmt is not None and keyword != from_fmt:
+            warn_external(
+                f"{caller}() {name} is set by both {name}= and the format "
+                f"string {fmt!r}; the keyword wins, as in matplotlib."
+            )
+        resolved.append(from_fmt if keyword is None else keyword)
+    return tuple(resolved)
 
 
 def _split_plot_format(fmt):
@@ -2719,7 +2719,7 @@ class Axes:
         self,
         x,
         y,
-        linestyle: str = "-",
+        linestyle: Optional[str] = "-",
         color: Optional[str] = None,
         marker: Optional[str] = None,
         markersize: float = 6,
@@ -2848,6 +2848,17 @@ class Axes:
             zorder = kwargs.pop("zorder")
         # Private: the public method this call came through, for its warnings.
         caller = kwargs.pop("_caller", "plot")
+        # Private: step's format string, which leaves linestyle free.
+        fmt = kwargs.pop("_fmt", None)
+        argument = "format string"
+        if fmt is None and (
+            isinstance(linestyle, str)
+            and linestyle not in ("-", "--", ":", "-.")
+            and linestyle not in _NO_LINE
+            and linestyle not in _NAMED_LINESTYLES
+        ):
+            # matplotlib's plot(x, y, fmt) lands here as the third argument.
+            fmt, linestyle, argument = linestyle, None, "linestyle"
         # matplotlib's scatter and stem take no Line2D keywords, so these
         # short names are no aliases there.
         if caller not in ("scatter", "stem"):
@@ -2859,18 +2870,10 @@ class Axes:
             markersize = _pop_line_alias(
                 kwargs, caller, "ms", "markersize", markersize, 6
             )
-        if (
-            isinstance(linestyle, str)
-            and linestyle not in ("-", "--", ":", "-.")
-            and linestyle not in _NO_LINE
-            and linestyle not in _NAMED_LINESTYLES
-        ):
-            fmt = linestyle
-            parsed = _plot_format(caller, fmt)
-            fmt_linestyle, fmt_marker, fmt_color = parsed or (None, None, None)
-            linestyle = fmt_linestyle or "-"
-            marker = _fmt_or_keyword(caller, "marker", marker, fmt_marker, fmt)
-            color = _fmt_or_keyword(caller, "color", color, fmt_color, fmt)
+        if fmt is not None:
+            linestyle, marker, color = _apply_plot_format(
+                caller, argument, fmt, linestyle, marker, color
+            )
         linestyle = _line_style(caller, linestyle)
         # 1 is the writer's "style default" (see GLEWriter.add_line).
         linewidth = _line_width(caller, linewidth)
@@ -3020,8 +3023,9 @@ class Axes:
         where_key = str(where).strip().lower()
         if where_key not in ("pre", "post", "mid"):
             raise ValueError(f"where must be 'pre', 'post', or 'mid', got {where!r}")
-        if len(args) == 1 and isinstance(args[0], str) and "linestyle" not in kwargs:
-            kwargs["linestyle"] = args[0]  # plot reads it as a format string
+        if len(args) == 1 and isinstance(args[0], str):
+            kwargs["_fmt"] = args[0]  # plot reads it as a format string
+            kwargs.setdefault("linestyle", None)  # so the format's style applies
         elif args:
             warn_external(
                 f"step() takes one format string after x and y; {args!r} was "
@@ -4250,23 +4254,23 @@ class Axes:
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
 
+        if fmt is None:
+            fmt = ""
         # As in matplotlib, fmt='none' draws only the error bars: no data
         # line and no markers, whatever the keywords say.
-        bars_only = str(fmt) != "" and str(fmt).strip().lower() in ("", "none")
-        parsed = None if bars_only else _plot_format("errorbar", fmt)
-        fmt_linestyle, fmt_marker, fmt_color = parsed or (None, None, None)
-        color = _fmt_or_keyword("errorbar", "color", color, fmt_color, fmt)
-        parsed_marker = (
-            None
-            if bars_only
-            else _fmt_or_keyword("errorbar", "marker", marker, fmt_marker, fmt)
-        )
-        if bars_only:
-            parsed_linestyle = "none"
-        elif linestyle is not None:
-            parsed_linestyle = linestyle
+        if fmt != "" and fmt in _NO_LINE:
+            if marker is not None:
+                warn_external(
+                    f"errorbar(fmt={fmt!r}) draws only the error bars, so "
+                    f"marker={marker!r} is not drawn. Pass linestyle='none' "
+                    "instead of fmt='none' for markers with no line."
+                )
+            parsed_linestyle, parsed_marker = "none", None
         else:
-            parsed_linestyle = _line_style("errorbar", fmt_linestyle or "-")
+            parsed_linestyle, parsed_marker, color = _apply_plot_format(
+                "errorbar", "fmt", fmt, linestyle, marker, color
+            )
+            parsed_linestyle = _line_style("errorbar", parsed_linestyle)
 
         # Handle color (see _resolve_color: None = the style default).
         color = self._resolve_color(color)

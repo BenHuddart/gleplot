@@ -473,7 +473,8 @@ def test_a_keyword_wins_over_the_format_string_with_a_warning():
 
 def test_errorbar_fmt_none_draws_only_the_bars():
     ax = glp.figure().add_subplot(111)
-    ax.errorbar(X, Y, yerr=0.1, fmt="none", marker="o")
+    with pytest.warns(UserWarning, match="marker='o' is not drawn"):
+        ax.errorbar(X, Y, yerr=0.1, fmt="none", marker="o")
     series = ax.errorbars[0]
     assert series["marker"] is None and series["linestyle"] == "none"
 
@@ -484,3 +485,25 @@ def test_a_format_string_gleplot_cannot_draw_warns():
         ax.plot(X, Y, "rq")
     with pytest.warns(UserWarning, match="format string gleplot can draw"):
         ax.errorbar(X, Y, yerr=0.1, fmt="red")
+
+
+def test_a_linestyle_keyword_wins_over_the_format_in_plot_and_step():
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match="linestyle is set by both"):
+        ax.plot(X, Y, "r--", ls=":")
+    with pytest.warns(UserWarning, match="linestyle is set by both"):
+        ax.step(X, Y, "r--", linestyle=":")
+    assert [(s["color"], s["linestyle"]) for s in ax.lines] == [
+        ("RED", ":"),
+        ("RED", ":"),
+    ]
+
+
+def test_figure_plot_and_errorbar_forward_a_format_string():
+    fig = glp.figure()
+    fig.add_subplot(111)
+    fig.plot(X, Y, "ro")
+    fig.errorbar(X, Y, 0.1, None, "k--")
+    ax = fig.gca()
+    assert ax.scatters[0]["color"] == "RED"
+    assert (ax.errorbars[0]["color"], ax.errorbars[0]["linestyle"]) == ("BLACK", "--")

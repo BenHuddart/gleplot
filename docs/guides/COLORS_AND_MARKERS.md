@@ -141,9 +141,9 @@ spellings are accepted by `plot`, `scatter`, `errorbar` and
 `errorbar_from_file`:
 
 ```python
-ax.errorbar(t, a1, yerr=e1, marker='o', fmt='none', label='2 K')                   # filled
-ax.errorbar(t, a2, yerr=e2, marker='o', fmt='none', fillstyle='none', label='20 K')  # open
-ax.errorbar(t, a3, yerr=e3, marker='o', fmt='none', mfc='none')                     # same thing
+ax.errorbar(t, a1, yerr=e1, marker='o', linestyle='none', label='2 K')                   # filled
+ax.errorbar(t, a2, yerr=e2, marker='o', linestyle='none', fillstyle='none', label='20 K')  # open
+ax.errorbar(t, a3, yerr=e3, marker='o', linestyle='none', mfc='none')                     # same thing
 ax.scatter(x, y, marker='s', markerfacecolor='white')                               # white-filled
 ```
 

@@ -120,7 +120,7 @@ def example_prl_fig2a_style():
             t,
             noisy,
             yerr=err,
-            fmt="none",
+            linestyle="none",
             marker=marker,
             markersize=3.6,
             color=color,

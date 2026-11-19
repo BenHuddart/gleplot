@@ -314,7 +314,7 @@ def test_x_and_title_distances_are_overridable():
 
 def test_a_series_declared_once_appears_in_every_segment():
     fig, bax = _fig()
-    bax.errorbar(T, A, yerr=0.05, fmt="none", marker="o")
+    bax.errorbar(T, A, yerr=0.05, linestyle="none", marker="o")
     assert len(bax[0].errorbars) == 1
     assert len(bax[1].errorbars) == 1
 
@@ -556,7 +556,7 @@ def test_round_trip_through_to_dict():
 
 def test_regenerated_gle_is_byte_identical_after_a_round_trip():
     fig, bax = _fig(divider="slash")
-    bax.errorbar(T, A, yerr=0.05, fmt="none", marker="o", label="data")
+    bax.errorbar(T, A, yerr=0.05, linestyle="none", marker="o", label="data")
     bax.set_xlabel("t")
     restored = glp.Figure.from_dict(fig.to_dict())
     assert restored._generate_gle_with_files()[0] == fig._generate_gle_with_files()[0]
