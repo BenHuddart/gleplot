@@ -4170,7 +4170,7 @@ class Figure:
             ]
             breaks = (
                 legend_column_breaks(n_legend, legend.ncol)
-                if legend.show and legend.ncol > 1
+                if legend.ncol > 1
                 else set()
             )
             writer.queue_external_legend(ordered, breaks, key)
