@@ -293,6 +293,45 @@ def remove_generated_intermediates(
     return removed
 
 
+def _remove_new_tex_cache_entries(
+    cache_dir: Union[str, Path], existing: Optional["set[str]"]
+) -> None:
+    """Delete what one compile added to GLE's LaTeX cache directory.
+
+    GLE compiles ``begin tex`` blocks and ``set texlabels 1`` labels through
+    LaTeX in a ``.gle/`` directory beside the script (``texpreamble.*`` plus
+    a ``<stem>/`` folder). Other figures in the same directory may share it,
+    so only top-level entries absent before the compile are removed.
+
+    Parameters
+    ----------
+    cache_dir : str or Path
+        The ``.gle`` directory beside the compiled script.
+    existing : set of str or None
+        The entry names it held before the compile, or None if it did not
+        exist; then the whole directory is the compile's own and is removed.
+    """
+    cache_dir = Path(cache_dir)
+    if existing is None:
+        shutil.rmtree(cache_dir, ignore_errors=True)
+        return
+    try:
+        names = os.listdir(cache_dir)
+    except OSError:
+        return
+    for name in names:
+        if name in existing:
+            continue
+        entry = cache_dir / name
+        if entry.is_dir():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            try:
+                entry.unlink()
+            except OSError:
+                pass
+
+
 def _iter_well_known_gle_paths() -> "list[str]":
     """Return existing GLE executables among the well-known locations.
 

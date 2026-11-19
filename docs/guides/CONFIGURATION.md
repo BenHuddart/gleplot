@@ -123,8 +123,9 @@ Saving the `.gle` script needs nothing extra. Compiling needs a LaTeX
 installation that GLE can run, and a LaTeX error fails the compile with
 LaTeX's message in the `GLECompileError`. PDF, EPS, PNG and JPG work; SVG
 raises `ValueError`, because GLE cannot put LaTeX in SVG. GLE keeps LaTeX's
-working files in a `.gle` directory beside the script, which is safe to
-delete.
+working files in a `.gle` directory beside the script. `savefig` removes what
+its compile added there once the compile succeeds; pass
+`keep_intermediates=True` to keep them.
 
 ## Graph Configuration (GLEGraphConfig)
 
