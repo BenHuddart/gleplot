@@ -237,8 +237,8 @@ the writer emits.
   cmap='viridis', vmin=0, vmax=300)` gets a `gleplot_cdata_<marker>_<cmap>`
   sub, the values go into the data file, and a `let` maps them onto the
   colormap. `c` may also be one colour, or one colour per point, which draws
-  one series per colour. Per-point colours cannot be combined with per-point
-  sizes. `fig.colorbar(ax=ax)` shows the colour scale; see "Colorbars" in
+  one series per colour. With per-point sizes as well, the colours are drawn
+  at one size, with a warning. `fig.colorbar(ax=ax)` shows the colour scale; see "Colorbars" in
   [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md). See "Scatter colours" in the
   [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md) for how they differ
   from matplotlib.

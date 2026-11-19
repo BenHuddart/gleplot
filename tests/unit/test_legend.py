@@ -213,7 +213,7 @@ def test_ncol_rejects_a_non_positive_integer(ncol):
 def test_unsupported_kwargs_warn(kwargs):
     """Silent parameter swallowing was the bug; every survivor must speak."""
     fig, ax = _labeled_figure()
-    with pytest.warns(UserWarning, match="not supported"):
+    with pytest.warns(UserWarning, match=r"legend\(\) ignores unsupported keyword"):
         ax.legend(**kwargs)
 
 

@@ -165,7 +165,10 @@ figure's font size (measured against a native `xtitle` render to ~0.02 cm);
 the figure's font and colour: `fontsize`, `color`, `labelpad`, `pad`,
 `fontname` and the other text keywords warn and are ignored. A title a
 segment owns (the y title of a broken x-axis, the x title of a broken
-y-axis) takes them as `Axes.set_xlabel`/`set_ylabel` does.
+y-axis) takes them as `Axes.set_xlabel`/`set_ylabel` does. On a broken
+x-axis, `bax.set_ylabel(..., axis='y2')` warns and draws nothing, since the
+leftmost segment's `y2axis` is off; label the rightmost segment instead,
+`bax[-1].set_ylabel(..., axis='y2')`.
 
 ## Practical notes
 
