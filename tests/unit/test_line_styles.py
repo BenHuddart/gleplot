@@ -348,9 +348,35 @@ def test_keywords_for_the_other_kind_of_line_are_ignored(recwarn):
     ax.plot(X, Y, dash_capstyle="round", dash_joinstyle="bevel")
     ax.plot(X, Y, linestyle="--", solid_capstyle="round")
     ax.plot(X, Y, linestyle="none", marker="o", solid_capstyle="round")
-    # The writer draws no line for None.
-    ax.plot(X, Y, linestyle=None, solid_capstyle="round")
     assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda ax, **kw: ax.plot(X, Y, **kw),
+        lambda ax, **kw: ax.axhline(0.5, **kw),
+        lambda ax, **kw: ax.line_from_file("d.dat", 1, 2, **kw),
+    ],
+)
+def test_linestyle_none_is_the_default_solid_line(call, recwarn):
+    """matplotlib's ``None`` is the default style."""
+    scripts = []
+    for kw in ({}, {"linestyle": None}):
+        ax = glp.figure(data_prefix="ls").add_subplot(111)
+        call(ax, **kw)
+        scripts.append(_gle(ax.figure))
+    assert scripts[0] == scripts[1]
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+@pytest.mark.parametrize("no_line", ["None", "none", "", " "])
+def test_the_no_line_strings_still_draw_no_line(no_line):
+    ax = glp.figure(data_prefix="ls").add_subplot(111)
+    ax.plot(X, Y, linestyle=no_line, marker="o")
+    ax.axhline(0.5, linestyle=no_line)
+    assert ax.lines == [] and ax.scatters[0]["linestyle"] == no_line
+    assert ax.reflines[0]["linestyle"] == no_line
 
 
 def test_a_linestyle_drawn_solid_takes_the_solid_keywords():

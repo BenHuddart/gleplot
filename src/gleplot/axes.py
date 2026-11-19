@@ -1659,12 +1659,13 @@ def _is_dash_pattern(value) -> bool:
 def _line_style(caller: str, linestyle):
     """A line's matplotlib ``linestyle`` as the symbol the writer draws.
 
-    The symbols, ``None`` and the no-line values pass through; a named
-    style becomes its symbol. A dash pattern or an unknown style warns and
-    is drawn solid.
+    The symbols and the no-line values pass through; a named style becomes
+    its symbol. ``None`` is matplotlib's default, a solid line (the string
+    ``'None'`` is no line). A dash pattern or an unknown style warns and is
+    drawn solid.
     """
     if linestyle is None:
-        return None
+        return "-"
     if isinstance(linestyle, str):
         if linestyle in ("-", "--", ":", "-.") or linestyle in _NO_LINE:
             return linestyle
@@ -2614,8 +2615,8 @@ class Axes:
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
-            or ``'none'`` for no line. A dash tuple or any other value
-            warns and is drawn solid.
+            or ``'none'`` for no line. ``None`` is the default, solid. A
+            dash tuple or any other value warns and is drawn solid.
         color : str, optional
             Color name or code ('b', 'red', etc.)
         marker : str, optional
@@ -4059,7 +4060,8 @@ class Axes:
         linestyle = _pop_line_alias(
             kwargs, "errorbar", "ls", "linestyle", kwargs.pop("linestyle", None), None
         )
-        linestyle = _line_style("errorbar", linestyle)
+        if linestyle is not None:  # None leaves the style to fmt
+            linestyle = _line_style("errorbar", linestyle)
         warn_unsupported_keywords("errorbar", kwargs)
         label = self._text(label)
         x = np.asarray(x, dtype=float)

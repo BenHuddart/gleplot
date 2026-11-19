@@ -243,7 +243,7 @@ The other line-drawing calls follow the same rule:
 
 A `linestyle` is `'-'`, `'--'`, `':'` or `'-.'`, or matplotlib's name for
 one: `'solid'`, `'dashed'`, `'dotted'` or `'dashdot'`. `'none'` (or `''`,
-`' '`, `'None'`) draws no line. GLE has no custom dash patterns, so a dash
+`' '`, `'None'`) draws no line, while `None` is the default solid line. GLE has no custom dash patterns, so a dash
 tuple such as `(0, (5, 2))` warns and is drawn solid, and so does a value
 that is not a line style. This holds for `plot` and the calls above, for
 `line_from_file`, `hist(histtype='step')`, and the single `linestyles` of
