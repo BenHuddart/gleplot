@@ -572,6 +572,18 @@ class TestCompileIntegration:
         output_path = gle_file.with_suffix(".pdf")
         assert not output_path.exists()
 
+    def test_compile_missing_include_names_the_file_and_the_library(self):
+        gle_file = self.tempdir / "inc.gle"
+        gle_file.write_text('size 8 6\ninclude "no_such_routines.gle"\n')
+        with pytest.raises(GLECompileError) as ctx:
+            self.compiler.compile(str(gle_file), output_format="pdf")
+
+        message = str(ctx.value)
+        assert "'no_such_routines.gle'" in message
+        assert "include library" in message
+        assert "getting_started.html#gle-s-include-library" in message
+        assert ctx.value.errors[0].line == 2
+
     def test_compile_missing_input_raises_file_not_found(self):
         missing = self.tempdir / "does_not_exist.gle"
         with pytest.raises(FileNotFoundError):
