@@ -1045,6 +1045,41 @@ def test_raw_mdata_on_shared_file_reference_keeps_datasets_defined(tmp_path):
     assert not any("mixes datasets" in w for w in rec.warnings)
 
 
+def test_raw_mdata_naming_a_modelled_dataset_is_a_fixed_point(tmp_path):
+    """#278: the restored statement keeps d1, so the line takes another name.
+
+    The raw ``mdata d1`` reads the modelled line's dataset. Its ``data``
+    statement is restored whole, and the writer numbers the modelled line
+    past every name that statement fills, so neither defines d1 twice and
+    re-saving changes nothing.
+    """
+    src = (
+        "size 12 9\n"
+        "begin graph\n"
+        '   data "hand.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d1 line color red\n"
+        "   d2 marker fcircle mdata d1\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "md.gle", src, {"hand.dat": "1 2 0.1\n2 3 0.2\n"})
+    first = tmp_path / "first.gle"
+    rec = parse_gle_figure(p)
+    assert any(w.startswith("data: per-point marker sizes") for w in rec.warnings)
+    rec.figure.savefig_gle(str(first))
+    text = first.read_text(encoding="utf-8")
+    graph = text[text.index("begin graph") :]
+    data_lines = [ln for ln in graph.splitlines() if ln.lstrip().startswith("data ")]
+    assert len(data_lines) == 2
+    assert "    data hand.dat d3=c1,c2\n    d3 line color red\n" in graph
+    assert (
+        '   data "hand.dat" d1=c1,c2 d2=c1,c3\n   d2 marker fcircle mdata d1\n' in graph
+    )
+
+    second = tmp_path / "second.gle"
+    parse_gle_figure(first).figure.savefig_gle(str(second))
+    assert second.read_text(encoding="utf-8") == text
+
+
 @pytest.mark.parametrize(
     "body",
     [
