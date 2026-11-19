@@ -5078,6 +5078,8 @@ class GLEWriter:
         linestyle = series.get("linestyle", "-")
         linewidth = series.get("linewidth", 1.0)
         label = series.get("label")
+        yaxis = series.get("yaxis", "y")
+        xaxis = series.get("xaxis", "x")
         marker = series.get("marker")
         markersize = series.get("markersize", 0.1)
         nomiss = series.get("nomiss", False)
@@ -5095,14 +5097,12 @@ class GLEWriter:
         # the mode is drawn and would replace the discrete join.
         smooth_mode = "none" if line_mode else None
         d_draw = self._polar_dataset(d_main) if self._polar_graph else d_main
-        if linestyle in ("", "none", " ", "None"):
-            line_cmd = f"    {d_draw}" + self._color_clause(color)
-            line_cmd += self._lwidth_clause(linewidth, series)
-            self._finish_file_line(series, line_cmd, marker, markersize, label)
-            return
-        line_cmd = f"    {d_draw}{self._line_token(smooth_mode, line_mode=line_mode)}"
-        if nomiss:
-            line_cmd += " nomiss"
+        has_line = linestyle not in ("none", "None", "", " ", None)
+        line_cmd = f"    {d_draw}"
+        if has_line:
+            line_cmd += self._line_token(smooth_mode, line_mode=line_mode)
+            if nomiss:
+                line_cmd += " nomiss"
         line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth, series)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
@@ -5110,17 +5110,12 @@ class GLEWriter:
             line_cmd += f" lstyle {self.style.line_style_dotted}"
         elif linestyle == "-.":
             line_cmd += f" lstyle {self.style.line_style_dashdot}"
-        self._finish_file_line(series, line_cmd, marker, markersize, label)
 
-    def _finish_file_line(self, series, line_cmd, marker, markersize, label):
-        """Write a line file reference's marker, axis, qualifier and key clauses."""
         if marker:
             line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
 
-        line_cmd += self._dataset_axis_clause(
-            series.get("xaxis", "x"), series.get("yaxis", "y")
-        )
-        line_cmd += self._dataset_qualifier_clause(series, bool(marker))
+        line_cmd += self._dataset_axis_clause(xaxis, yaxis)
+        line_cmd += self._dataset_qualifier_clause(series, has_line and bool(marker))
 
         if label:
             line_cmd += f" key {self._quote_gle_key(label)}"
