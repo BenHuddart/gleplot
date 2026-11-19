@@ -3871,19 +3871,20 @@ class Figure:
         for hm in resolution.visible(ax.heatmaps):
             if hm.get("cells"):
                 self._warn_mesh_overhang(ax, hm)
-            elif "levels" in hm:
-                self._warn_contourf_overhang(ax, hm)
+            elif hm["source"] == "grid" and min(np.shape(hm["z"])) >= 2:
+                self._warn_node_grid_overhang(ax, hm)
             writer.add_heatmap(hm)
 
     @staticmethod
-    def _warn_contourf_overhang(ax: Axes, grid: Series) -> None:
-        """Warn where a ``contourf`` bitmap's extra spacing would show.
+    def _warn_node_grid_overhang(ax: Axes, grid: Series) -> None:
+        """Warn where a grid heatmap's extra spacing would show.
 
         GLE draws the bitmap one node spacing past the grid's last node (see
         :meth:`GLEWriter.add_nodes_sidecar`), and only the graph window hides
-        it. Below the first node there is no bitmap, as matplotlib draws
+        it. Before the first node there is no bitmap, as matplotlib draws
         nothing there.
         """
+        kind = "contourf" if "levels" in grid else "imshow"
         x0, x1, y0, y1 = grid["extent"]
         for name, lo, hi, a, b in (
             ("x", x0, x1, ax.xmin, ax.xmax),
@@ -3891,10 +3892,10 @@ class Figure:
         ):
             if a is not None and b is not None and max(a, b) > hi + 1e-9 * (hi - lo):
                 warn_external(
-                    f"The {name} limits reach {max(a, b):g}, beyond the "
-                    f"contourf grid's last {name} = {hi:g}, where GLE draws "
-                    "its last values on for up to one grid spacing. Keep the "
-                    f"upper {name} limit within the grid."
+                    f"The {name} limits reach {max(a, b):g}, beyond the {kind} "
+                    f"grid's last {name} = {hi:g}, where GLE draws its last "
+                    "values on for up to one grid spacing. Keep the upper "
+                    f"{name} limit within the grid."
                 )
 
     @staticmethod

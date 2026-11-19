@@ -3081,7 +3081,7 @@ def test_a_heatmap_grid_keeps_values_six_figures_would_merge(tmp_path):
     ax = fig.add_subplot(111)
     ax.imshow(1.0 + 1e-8 * np.arange(4.0).reshape(2, 2), extent=(0, 2, 0, 2))
     grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
-    assert grid.splitlines()[1:] == ["1 1.00000001", "1.00000002 1.00000003"]
+    assert grid.splitlines()[2:] == ["1 1.00000001", "1.00000002 1.00000003"]
 
 
 def test_raised_columns_zero_nothing_six_figures_kept(tmp_path):
@@ -3110,4 +3110,6 @@ def test_a_timestamp_heatmap_extent_keeps_its_width(tmp_path):
     ax = fig.add_subplot(111)
     ax.imshow(np.arange(6.0).reshape(2, 3), extent=(1.7e9, 1.7e9 + 60, 0, 1))
     grid = next(v for k, v in _saved(fig, tmp_path).items() if k.endswith(".z"))
-    assert grid.startswith("! nx 3 ny 2 xmin 1.7e+09 xmax 1.70000006e+09 ymin 0")
+    header, marker = grid.splitlines()[:2]
+    assert header.startswith("! nx 3 ny 2 xmin 1700000000 xmax 1700000090 ymin 0")
+    assert marker.startswith("! gleplot: nodes xmin 1.7e+09 xmax 1.70000006e+09")

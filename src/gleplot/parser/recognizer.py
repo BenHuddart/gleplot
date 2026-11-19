@@ -8319,13 +8319,22 @@ class _Recognizer:
                 return
             z, extent, marker = grid
             if marker is not None and marker.startswith(NODES_MARKER):
-                self._note(
-                    ImportCategory.DATA,
-                    f"grid {zfile!r} is written for a contourf but its colormap "
-                    "is not a contourf's; read as an imshow heatmap over the "
-                    "header's range, and its marker line is dropped on re-save",
-                    self._stmt_span(stmt),
-                )
+                # GLEWriter.add_nodes_sidecar: the header is one node spacing
+                # past the grid's own edges, which the marker line gives. A
+                # grid without the line (written before) is read over its
+                # header's range.
+                nodes = self._nodes_extent(marker, extent, z.shape[1], z.shape[0])
+                if nodes is None:
+                    self._note(
+                        ImportCategory.DATA,
+                        f"grid {zfile!r} is marked as a node grid but its header "
+                        "is not one node spacing past the edges the marker "
+                        "gives; read over the header's range, and the marker "
+                        "line is rewritten on re-save",
+                        self._stmt_span(stmt),
+                    )
+                else:
+                    extent = nodes
             cells = marker is not None and marker.startswith(CELLS_MARKER)
             if cells:
                 mesh = self._mesh_from_cells_grid(z, extent, marker, interpolation)

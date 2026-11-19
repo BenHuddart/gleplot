@@ -6068,7 +6068,10 @@ class GLEWriter:
         elif "levels" in series:
             self.add_nodes_sidecar(series)
             self.add_contourf_sub(series)
+        elif min(np.shape(series["z"])) >= 2:
+            self.add_nodes_sidecar(series)
         else:
+            # One row or column has no node spacing to place by.
             self.add_z_sidecar(
                 data_file, series["z"], series["extent"], series["origin"]
             )
@@ -6110,14 +6113,16 @@ class GLEWriter:
         self.raw_sidecars.add(series["data_file"])
 
     def add_nodes_sidecar(self, series: Series):
-        """Write a ``contourf`` heatmap's ``.z`` with its nodes where they are.
+        """Write a grid heatmap's ``.z`` with its nodes where they are.
 
         GLE's ``colormap`` puts node ``k`` of ``n`` at ``xmin + k * (xmax -
         xmin) / n``, one spacing short of ``xmax``, while ``begin contour``
         puts the last node on ``xmax``. Writing ``xmax`` (and ``ymax``) one
         node spacing past the last node makes the colormap's nodes the grid's
-        own, so the bands sit where the levels cross the grid; the graph
-        window, which the grid's extent sets, clips the extra spacing.
+        own, where a ``contour`` of the same grid puts them (and a
+        ``contourf``'s bands where the levels cross the grid); the graph
+        window, which the grid's extent sets, clips the extra spacing. Rows
+        go ymin first, flipped for ``origin='upper'``.
 
         The line under the header, which GLE skips, holds the grid's edges
         as every extent is written, and the header is computed from those
@@ -6137,7 +6142,7 @@ class GLEWriter:
             "! nx {} ny {} xmin {} xmax {} ymin {} ymax {}".format(nx, ny, *bounds),
             "{} xmin {} xmax {} ymin {} ymax {}".format(NODES_MARKER, *edges),
         ]
-        lines.extend(self._format_grid(z))
+        lines.extend(self._format_grid(z[::-1] if series["origin"] == "upper" else z))
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
 

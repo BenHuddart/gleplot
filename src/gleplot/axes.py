@@ -7243,7 +7243,8 @@ class Axes:
             Gridded scalar field.
         extent : tuple, optional
             ``(xmin, xmax, ymin, ymax)`` mapping the grid onto data
-            coordinates. Default ``(0, nx, 0, ny)``.
+            coordinates: the first and last grid nodes, where ``contour``
+            puts them. Default ``(0, nx, 0, ny)``.
         origin : {'lower', 'upper'}
             ``'lower'`` (default) puts row 0 of ``Z`` at ``ymin`` (the
             scientific convention; note this differs from matplotlib's
