@@ -1643,6 +1643,13 @@ class TestLineModes:
         assert self.ax.lines[1]["line_mode"] == "steps"
         assert "line_mode" not in self.ax.lines[2]
 
+    def test_drawstyle_wins_over_ds_with_a_warning(self):
+        with pytest.warns(UserWarning, match="got both drawstyle and ds"):
+            self.ax.plot([0, 1], [0, 1], drawstyle="steps-pre", ds="steps-post")
+        assert self.ax.lines[0]["line_mode"] == "fsteps"
+        self.ax.plot([0, 1], [0, 1], drawstyle="default", ds="steps-post")
+        assert self.ax.lines[1]["line_mode"] == "steps"
+
     def test_unknown_where_or_drawstyle_raises(self):
         with pytest.raises(ValueError):
             self.ax.step([0, 1], [0, 1], where="side")
@@ -1650,8 +1657,6 @@ class TestLineModes:
             self.ax.plot([0, 1], [0, 1], drawstyle="steps-left")
         with pytest.raises(ValueError):
             self.ax.plot([0, 1], [0, 1], line_mode="spline")
-        with pytest.raises(ValueError):
-            self.ax.plot([0, 1], [0, 1], drawstyle="steps-pre", ds="steps-post")
         with pytest.raises(ValueError):
             self.ax.stem([0, 1], orientation="sideways")
         with pytest.raises(TypeError):

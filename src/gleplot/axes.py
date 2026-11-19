@@ -1306,18 +1306,19 @@ def _split_plot_format(fmt):
     return linestyle, marker, color
 
 
-def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
+def _pop_marker_fill(
+    kwargs: dict, caller: str, fillstyle=None, markerfacecolor=None
+) -> str:
     """Resolve the marker fill mode from the plotting methods' kwargs.
 
-    Accepts matplotlib's short aliases (``mfc`` for ``markerfacecolor``) out
-    of ``**kwargs`` so a call copied straight from a matplotlib script works,
-    and removes them so they never reach the series dict. Returns one of
-    ``'full'`` / ``'none'`` / ``'white'`` (see
-    :func:`gleplot.markers.resolve_marker_fill`).
+    Accepts matplotlib's short alias ``mfc`` for ``markerfacecolor`` out of
+    ``**kwargs`` (see :func:`_pop_line_alias`) so a call copied straight from
+    a matplotlib script works. Returns one of ``'full'`` / ``'none'`` /
+    ``'white'`` (see :func:`gleplot.markers.resolve_marker_fill`).
     """
-    mfc = kwargs.pop("mfc", None)
-    if markerfacecolor is None:
-        markerfacecolor = mfc
+    markerfacecolor = _pop_line_alias(
+        kwargs, caller, "mfc", "markerfacecolor", markerfacecolor, None
+    )
     return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
 
 
@@ -2623,7 +2624,8 @@ class Axes:
             polyline. The step styles are GLE line modes: ``'steps'`` and
             ``'steps-pre'`` emit ``line fsteps`` (matplotlib ``where='pre'``),
             ``'steps-post'`` emits ``line steps``, and ``'steps-mid'`` emits
-            ``line hist``. ``ds`` is accepted as an alias. An unknown value
+            ``line hist``. ``ds`` is accepted as an alias (see
+            ``**kwargs``). An unknown value
             raises ``ValueError``.
         line_mode : {'steps', 'fsteps', 'hist', 'bar', 'impulses'}, optional
             The GLE line mode itself, for a caller that already speaks GLE.
@@ -2652,8 +2654,9 @@ class Axes:
             ``ymax``.
         **kwargs
             Additional matplotlib-compatible arguments. ``lw``, ``ls``,
-            ``c`` and ``ms`` are matplotlib's short names for
-            ``linewidth``, ``linestyle``, ``color`` and ``markersize``.
+            ``c``, ``ms``, ``mfc`` and ``ds`` are matplotlib's short names
+            for ``linewidth``, ``linestyle``, ``color``, ``markersize``,
+            ``markerfacecolor`` and ``drawstyle``.
             matplotlib raises for a name passed with its short name; here
             the full name wins, with a warning, unless it is left at its
             default. ``solid_capstyle``,
@@ -2686,17 +2689,16 @@ class Axes:
                 kwargs, caller, "ms", "markersize", markersize, 6
             )
         linestyle = _line_style(caller, linestyle)
-        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
+        marker_fill = _pop_marker_fill(kwargs, caller, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
-        ds = kwargs.pop("ds", None)
         if self._polar:
             for name, value, default in (
                 ("yaxis", yaxis, "y"),
                 ("xaxis", xaxis, "x"),
                 ("offset", offset, 0),
                 ("drawstyle", drawstyle, None),
-                ("ds", ds, None),
+                ("ds", kwargs.get("ds"), None),
                 ("line_mode", line_mode, None),
                 ("xmin", xmin, None),
                 ("xmax", xmax, None),
@@ -2711,7 +2713,10 @@ class Axes:
                         "where plot() and scatter() take only theta and r; "
                         "leave it out."
                     )
-        mode = resolve_line_mode(drawstyle, line_mode, ds)
+        drawstyle = _pop_line_alias(
+            kwargs, caller, "ds", "drawstyle", drawstyle, "default"
+        )
+        mode = resolve_line_mode(drawstyle, line_mode)
         qualifiers = _dataset_qualifiers(
             mdist, deresolve, deresolve_average, xmin, xmax, ymin, ymax
         )
@@ -4000,9 +4005,9 @@ class Axes:
             above lines and scatters (the historical gleplot default).
         **kwargs
             ``linestyle`` (alias ``ls``) overrides the line style ``fmt``
-            gives, as in matplotlib, except under ``fmt='none'``. ``lw``, ``c`` and ``ms`` are
-            matplotlib's short names for ``linewidth``, ``color`` and
-            ``markersize``; the full name wins, with a warning, unless it is
+            gives, as in matplotlib, except under ``fmt='none'``. ``lw``, ``c``, ``ms`` and
+            ``mfc`` are matplotlib's short names for ``linewidth``,
+            ``color``, ``markersize`` and ``markerfacecolor``; the full name wins, with a warning, unless it is
             left at its default. Any other keyword (``ecolor``,
             ``elinewidth``, ``capthick``, ...) warns and is ignored.
 
@@ -4026,7 +4031,7 @@ class Axes:
         """
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
-        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
+        marker_fill = _pop_marker_fill(kwargs, "errorbar", fillstyle, markerfacecolor)
         data_name = kwargs.pop("data_name", None)
         linewidth = _pop_line_alias(kwargs, "errorbar", "lw", "linewidth", linewidth, 1)
         color = _pop_line_alias(kwargs, "errorbar", "c", "color", color, None)
@@ -4213,8 +4218,8 @@ class Axes:
         _check_file_columns(x_col, y_col=y_col, yerr_col=yerr_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
 
-        marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         caller = "errorbar_from_file"
+        marker_fill = _pop_marker_fill(kwargs, caller, fillstyle, markerfacecolor)
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         markersize = _pop_line_alias(kwargs, caller, "ms", "markersize", markersize, 6)
         warn_unsupported_keywords(caller, kwargs)
