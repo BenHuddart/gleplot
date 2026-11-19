@@ -331,10 +331,18 @@ def normalize(d: dict) -> dict:
         # ``_parse_fill_command``), so it is not representable as a *number*
         # post round-trip, only baked into 'color'. Its data arrays already
         # snapped above.
-        for s in ax.get("fills", []):
+        for s in ax.get("fills", []) + ax.get("spans", []):
             if "color" in s:
                 s["color"] = _apply_alpha(s["color"], s.get("alpha"))
             s.pop("alpha", None)
+
+        # A guide drawn after the graph writes no sidecar, so the name it is
+        # given on load is a fresh reservation, not the one it was built
+        # with. A dataset-form guide's sidecar name is pinned byte for byte
+        # by the fixed point.
+        for group in ("reflines", "spans"):
+            for s in ax.get(group, []):
+                s.pop("data_file", None)
 
         # Heatmap / contour series: grids and scattered points are written to
         # ``.z``/``.dat`` sidecars at 6 significant figures, extents/levels/

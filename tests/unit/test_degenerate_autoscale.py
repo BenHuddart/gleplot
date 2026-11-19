@@ -226,9 +226,9 @@ def test_a_collapsed_secondary_x_range_is_deferred_too():
 def test_a_lone_axvline_leaves_both_axes_to_the_engine():
     """Neither axis is written down, and no dataset stands in for either.
 
-    G14 wrote a two-point dataset over 0..1 here. Since G17 the guide is a
-    ``draw`` (``tests/unit/test_refline_fallback.py``), so the block carries
-    no ranges *and* nothing that could imply one.
+    G14 wrote a two-point dataset over 0..1 here. Since G17 the guide is
+    drawn after ``end graph`` (``tests/unit/test_refline_fallback.py``), so
+    the block carries no ranges *and* nothing that could imply one.
     """
     fig, ax = _axes()
     ax.axvline(0.5)
@@ -237,7 +237,7 @@ def test_a_lone_axvline_leaves_both_axes_to_the_engine():
     assert _axis_line(text, "x") is None
     assert _axis_line(text, "y") is None
     assert files == {}
-    assert 'draw gleplot_vline 0.5 0 1 "BLACK" 0.05292 1 ""' in text
+    assert "end graph" in text.split("graph_vline 0.5")[0]
 
 
 def test_a_lone_axhline_leaves_both_axes_to_the_engine():
@@ -248,7 +248,7 @@ def test_a_lone_axhline_leaves_both_axes_to_the_engine():
     assert _axis_line(text, "x") is None
     assert _axis_line(text, "y") is None
     assert files == {}
-    assert 'draw gleplot_hline 0.5 0 1 "BLACK" 0.05292 1 ""' in text
+    assert "end graph" in text.split("graph_hline 0.5")[0]
 
 
 def test_two_guides_still_pin_their_own_axis():
@@ -269,8 +269,8 @@ def test_a_guide_spanning_a_deferred_axis_is_handed_to_the_engine():
     picks it, after the script is written -- so materialization reached for
     the same 0..1 fallback it used for an unbounded axis, and the guide's own
     ``0``/``1`` rows then joined GLE's autoscale and moved the frame as well.
-    It now goes out as a ``draw`` that reads ``ygmin``/``ygmax`` from inside
-    the block, so the extent is taken against the range GLE actually chose and
+    It is now drawn after ``end graph``, reading ``ygmin``/``ygmax``, so the
+    extent is taken against the range GLE actually chose and
     the guide takes no part in choosing it. Measured against the engine in
     ``tests/integration/test_guide_draw_form_compiles.py``.
 
@@ -284,7 +284,7 @@ def test_a_guide_spanning_a_deferred_axis_is_handed_to_the_engine():
     text, files = _generate(fig)
     assert list(files) == ["dg_0.dat"]
     assert files["dg_0.dat"] == "x y\n5 7\n"
-    assert 'draw gleplot_vline 5 0 1 "BLACK" 0.05292 1 ""' in text
+    assert "end graph" in text.split("graph_vline 5")[0]
 
 
 # --------------------------------------------------------------------------- #

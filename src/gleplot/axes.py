@@ -324,11 +324,11 @@ _global_sidecar_counters: Dict[str, int] = {}
 #: and pinned by ``tests/integration/test_refline_fallback_compiles.py``.
 #:
 #: G14 used it as the stand-in range to *materialize* a guide over when the
-#: axis it spans resolved to nothing. Since G17 such a guide is emitted as a
-#: ``draw`` reading GLE's own ``xgmin``/``ygmax`` instead
+#: axis it spans resolved to nothing. Since G17 such a guide is drawn after
+#: ``end graph`` against GLE's own ``xgmin``/``ygmax`` instead
 #: (:mod:`gleplot.guides`), so the constant no longer decides where anything
 #: lands: it survives as the measured statement of what an unbounded GLE axis
-#: does -- the value the draw form reproduces by construction on a truly empty
+#: does -- the value that form reproduces by construction on a truly empty
 #: axes -- and as the safety net in :meth:`Axes._spanned_range`.
 EMPTY_AXIS_FALLBACK_RANGE = (0.0, 1.0)
 
@@ -6108,8 +6108,8 @@ class Axes:
         write time -- an axes with nothing to resolve that axis from (G14), or
         a range that collapsed and was handed back to the engine (G15). Such a
         guide cannot be materialized into a literal dataset without inventing
-        the very range GLE has yet to choose, so it is emitted as a layered
-        ``draw`` over ``xgmin``/``ygmax`` instead (:mod:`gleplot.guides`).
+        the very range GLE has yet to choose, so it is drawn after ``end
+        graph`` against ``xgmin``/``ygmax`` instead (:mod:`gleplot.guides`).
 
         False -- the overwhelmingly common case -- keeps the historical
         two-point dataset emission untouched, byte for byte.
@@ -6118,7 +6118,7 @@ class Axes:
         return lo is None or hi is None
 
     def engine_range_guides(self, series_list, limits) -> List[Series]:
-        """The visible guides in ``series_list`` routed to the draw form."""
+        """The visible guides in ``series_list`` drawn after the graph."""
         return [
             entry
             for entry in series_list

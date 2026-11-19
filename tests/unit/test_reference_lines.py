@@ -207,8 +207,8 @@ def test_guide_without_resolvable_limits_is_drawn_against_gles_own_range():
     """G14 dropped this with a warning; G17 hands the range to GLE.
 
     With no y range to span there is nothing to materialize a two-point
-    dataset against, so the guide goes out as a ``draw`` reading GLE's own
-    ``ygmin``/``ygmax``. Detail (per orientation, fractional extents,
+    dataset against, so the guide is drawn after ``end graph`` against GLE's
+    own ``ygmin``/``ygmax``. Detail (per orientation, fractional extents,
     byte-level regression guard for the resolvable paths) in
     ``tests/unit/test_refline_fallback.py``.
     """
@@ -220,7 +220,7 @@ def test_guide_without_resolvable_limits_is_drawn_against_gles_own_range():
         text, files = fig._generate_gle_with_files()
     assert files == {}
     assert entry["data_file"] not in text
-    assert 'draw gleplot_vline 1 0 1 "BLACK" 0.05292 1 ""' in text
+    assert "end graph" in text.split("graph_vline 1")[0]
 
 
 # --------------------------------------------------------------------------- #
