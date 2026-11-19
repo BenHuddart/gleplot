@@ -1393,7 +1393,7 @@ def test_comment_header_vouched_sidecar_does_not_adopt_comment_names(tmp_path):
 # color'/'set just', and string fidelity for backslash+brace content.
 # --------------------------------------------------------------------------- #
 #
-# The writer (writer.py GLEWriter.add_text) always restates 'set color' and
+# The writer (writer.py GLEWriter.add_text_annotation) always restates 'set color' and
 # 'set just' for every text and conditionally restates 'set hei' -- but a
 # hand-written (or hand-edited) .gle file may rely on GLE's real interpreter
 # semantics instead: 'set hei'/'set color'/'set just' are GLOBAL state that
@@ -1848,7 +1848,7 @@ def test_finding15_backslash_brace_survives_a_second_round_trip(tmp_path):
 #
 # Root cause: _try_one_text(nodes, i) is handed a BlankOrComment node at
 # ``i`` whenever a blank line separates two clusters (a hand-edited file, not
-# anything the writer itself emits -- see writer.add_text, which never
+# anything the writer itself emits -- see writer.add_text_annotation, which never
 # inserts blank lines between clusters). _as_statement(BlankOrComment) always
 # returned None, so the mandatory 'amove xg()/yg()' check failed immediately
 # and _try_one_text returned (i, None) with no attempt to look past the
@@ -2047,7 +2047,7 @@ def test_finding16_resave_is_byte_exact_fixed_point(tmp_path):
     """Parse -> save -> parse -> save must be a fixed point once the blank-
     line-separated clusters are recognized (the recovered figure has no
     blank lines between its own clusters, since the writer never emits
-    them -- see writer.add_text -- so re-emission is canonical, not a replay
+    them -- see writer.add_text_annotation -- so re-emission is canonical, not a replay
     of the original blank-line formatting)."""
     src = (
         "size 10 8\n"
@@ -2919,7 +2919,7 @@ def test_finding20_stacked_bar_reproduction_renders_with_parity(tmp_path):
 # 2. Writer bug (``GLEWriter.add_line``'s no-line branch): unconditional
 #    ``f" marker {marker} ..."`` with no ``if marker:`` guard -- the sibling
 #    branch (line+marker) and every other marker-emitting site in the writer
-#    (``add_errorbar_series``, ``add_errorbar_from_file``) already guard it. Bug 1
+#    (``add_errorbar_series``, ``_add_errorbar_file_series``) already guard it. Bug 1
 #    fed a ``linestyle="none"``, ``marker=None`` series into this branch and
 #    it emitted the literal text ``marker None``, which GLE rejects
 #    ("invalid marker name 'None'") -- a compile failure. The same branch is
