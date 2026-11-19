@@ -1062,10 +1062,13 @@ def test_compile_output_goes_to_the_logger_only_when_verbose(verbose, capsys, ca
     assert capsys.readouterr() == ("", "")
 
 
-def test_undecodable_gle_output_still_raises_gle_compile_error():
-    # 0x81 is undefined in cp1252 (Windows) and invalid UTF-8 (elsewhere).
+def test_gle_output_is_read_as_utf8_with_bad_bytes_replaced():
+    # A UTF-8 echo of the script, then 0x81: invalid UTF-8, undefined cp1252.
     real_run = subprocess.run
-    emit = "import sys; sys.stderr.buffer.write(b'bad \\x81 byte'); sys.exit(1)"
+    emit = (
+        "import sys; sys.stderr.buffer.write(b'\\xc3\\x85 bad \\x81 byte'); "
+        "sys.exit(1)"
+    )
 
     def fake_gle(cmd, **kwargs):
         return real_run([sys.executable, "-c", emit], **kwargs)
@@ -1076,4 +1079,4 @@ def test_undecodable_gle_output_still_raises_gle_compile_error():
             with pytest.raises(GLECompileError) as excinfo:
                 compiler.compile("in.gle")
 
-    assert "bad " in excinfo.value.raw_output
+    assert "\u00c5 bad \ufffd byte" in excinfo.value.raw_output
