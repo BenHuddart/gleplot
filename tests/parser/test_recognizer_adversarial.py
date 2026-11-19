@@ -1191,6 +1191,90 @@ def test_a_raw_fill_keeps_its_datasets_beside_a_modelled_line(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# #310 -- a raw line reading a modelled dataset follows the name it is written
+# under
+# --------------------------------------------------------------------------- #
+
+_TWO_COLUMNS = {"a.dat": "0 1 2\n1 2 3\n2 1 4\n"}
+
+
+def _graph_lines(text):
+    """The stripped lines of each graph block in ``text``."""
+    return [
+        [line.strip() for line in block.split("end graph")[0].splitlines()]
+        for block in text.split("begin graph")[1:]
+    ]
+
+
+def test_raw_fill_follows_datasets_numbered_with_gaps(tmp_path):
+    src = (
+        "size 12 9\nbegin graph\n"
+        '   data "a.dat" d3=c1,c2 d5=c1,c3\n'
+        "   d3 line color red\n   d5 line color blue\n"
+        "   fill d3,d5 color gray foo\nend graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "g.gle", src, _TWO_COLUMNS))
+    (block,) = _graph_lines(rec.figure._generate_gle_with_files()[0])
+    assert "d1 line color red" in block and "d2 line color blue" in block
+    assert block[-1] == "fill d1,d2 color gray foo"
+
+
+def test_raw_fill_in_a_second_panel_follows_its_datasets(tmp_path):
+    graph = (
+        "begin graph\n   size 10 7\n"
+        '   data "a.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d1 line color red\n   d2 line color blue\n{}end graph\n"
+    )
+    src = (
+        "size 12 18\namove 0 9\n"
+        + graph.format("")
+        + "amove 0 0\n"
+        + graph.format("   fill d1,d2 color gray foo\n")
+    )
+    rec = parse_gle_figure(_write(tmp_path, "g.gle", src, _TWO_COLUMNS))
+    first, second = _graph_lines(rec.figure._generate_gle_with_files()[0])
+    assert "fill" not in " ".join(first)
+    assert "d3 line color red" in second and "d4 line color blue" in second
+    assert second[-1] == "fill d3,d4 color gray foo"
+
+
+def test_raw_fill_follows_its_datasets_after_ax_plot(tmp_path):
+    """A line plotted after loading and drawn first takes ``d1``."""
+    src = (
+        "size 12 9\nbegin graph\n"
+        '   data "a.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d1 line color red\n   d2 line color blue\n"
+        "   fill d1,d2 color gray foo\nend graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "g.gle", src, _TWO_COLUMNS))
+    rec.figure.axes_list[0].plot([0, 2], [3, 3], color="green", zorder=0)
+    (block,) = _graph_lines(rec.figure._generate_gle_with_files()[0])
+    assert any(line.startswith("d1 line color GREEN") for line in block)
+    assert "d2 line color red" in block and "d3 line color blue" in block
+    assert block[-1] == "fill d2,d3 color gray foo"
+
+
+def test_raw_reads_are_renamed_at_once_and_only_in_code(tmp_path):
+    """Swapped names, a ``let`` target, a comment and a string."""
+    src = (
+        "size 12 9\nbegin graph\n"
+        '   data "a.dat" d1=c1,c2 d2=c1,c3\n'
+        "   d2 line color red\n   d1 line color blue\n"
+        "   fill d1,d2 color gray foo\n"
+        "   let d5 = d1*2 ! d1\n"
+        '   d5 line color green key "d2" foo\nend graph\n'
+    )
+    rec = parse_gle_figure(_write(tmp_path, "g.gle", src, _TWO_COLUMNS))
+    (block,) = _graph_lines(rec.figure._generate_gle_with_files()[0])
+    assert "d1 line color red" in block and "d2 line color blue" in block
+    assert block[-3:] == [
+        "fill d2,d1 color gray foo",
+        "let d5 = d2*2 ! d1",
+        'd5 line color green key "d2" foo',
+    ]
+
+
+# --------------------------------------------------------------------------- #
 # Finding 12 -- duplicate data command redefining a dataset
 # --------------------------------------------------------------------------- #
 

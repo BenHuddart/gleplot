@@ -646,6 +646,10 @@ class _XYSeries(Series):
     data_source: Optional[DataSource]
     #: Display-command order within the axes; absent on pre-zorder projects.
     _draw_seq: int
+    #: Set by ``open_gle`` when a raw line kept in the block reads this
+    #: series' dataset: its name in the file, which the writer renames in
+    #: those lines to the name it writes the series under.
+    _gle_name: str
     #: Only present when the caller asked for an explicit draw order.
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
@@ -696,10 +700,11 @@ class LineSeries(_XYSeries):
     #: asked for one keeps the historical dict shape and the writer emits a
     #: bare ``line``. See :data:`gleplot.parser.tables.LINE_MODES`.
     line_mode: str
-    #: The NaN rows are gaps: the writer writes them as GLE missing values
-    #: (``*``), which break the line, so each run of points is its own
-    #: polyline (``Axes.hlines`` / ``Axes.vlines``). Absent: NaN is written
-    #: ``nan``, which GLE drops, joining the neighbours.
+    #: The non-finite rows are gaps: the writer writes them as GLE missing
+    #: values (``*``), which break the line, so each run of points is its
+    #: own polyline (``Axes.plot`` / ``step`` with NaN, ``Axes.hlines`` /
+    #: ``Axes.vlines``). Absent: NaN is written ``nan``, which GLE drops,
+    #: joining the neighbours.
     gaps: bool
 
 
@@ -926,6 +931,8 @@ class FunctionSeries(Series):
     _lwidth_verbatim: bool
     label: Optional[str]
     _draw_seq: int
+    #: See ``_XYSeries._gle_name``.
+    _gle_name: str
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
@@ -975,6 +982,8 @@ class FitSeries(Series):
     label: Optional[str]
     data_file: Optional[str]
     _draw_seq: int
+    #: See ``_XYSeries._gle_name``.
+    _gle_name: str
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
@@ -1197,6 +1206,8 @@ class FileSeries(Series):
     #: Present only on entries the recognizer degraded to a bare reference.
     data_error: str
     _draw_seq: int
+    #: See ``_XYSeries._gle_name``.
+    _gle_name: str
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
     #: Legend swatch colour when a bar or fill ``keyfill`` is not ``color``.

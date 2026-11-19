@@ -641,6 +641,50 @@ def test_a_line_gleplot_does_not_write_in_a_contour_block_is_reported(tmp_path, 
 
 
 @pytest.mark.parametrize(
+    "extra, named",
+    [
+        ("marker circle msize 0.2", "'marker', 'msize'"),
+        ('key "levels"', "'key'"),
+        ("smooth", "'smooth'"),
+        ("y2axis", "'y2axis'"),
+        ("nomiss deresolve 2 average", "'nomiss', 'deresolve', 'average'"),
+        ("marker circle mscale 2", "'marker', 'mscale 2'"),
+    ],
+)
+def test_what_a_contour_dataset_line_drops_is_reported(tmp_path, extra, named):
+    """#296: what ``ContourSeries`` cannot hold is named, not dropped silently."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.contour(np.arange(9.0).reshape(3, 3), levels=[4.0])
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8")
+    line = next(s for s in text.splitlines() if s.strip().startswith("d1 line"))
+    path.write_text(text.replace(line, f"{line} {extra}"), encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    (contour,) = rec.figure.axes_list[0].contours
+    assert contour["levels"] == [4.0]
+    (note,) = rec.notes
+    assert note.message.startswith(f"{named} on a contour's dataset line: ")
+    assert note.source_span is not None
+
+
+def test_a_contour_dataset_line_without_line_is_reported(tmp_path):
+    """#296: the writer draws the ``line`` the file left out."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.contour(np.arange(9.0).reshape(3, 3), levels=[4.0])
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8")
+    line = next(s for s in text.splitlines() if s.strip().startswith("d1 line"))
+    path.write_text(text.replace(line, line.replace(" line", "")), encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    (note,) = rec.notes
+    assert note.message.startswith("'no line' on a contour's dataset line: ")
+
+
+@pytest.mark.parametrize(
     "levels", ["   values 4 lev", "   values 4\n   values 5", "   values"]
 )
 def test_contour_levels_gleplot_cannot_read_keep_the_block(tmp_path, levels):
