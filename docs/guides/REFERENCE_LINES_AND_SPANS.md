@@ -104,8 +104,8 @@ dataset form.
 ## Limitations
 
 - **Transparency.** A span's `alpha` is folded into its colour as GLE's
-  `rgba255(...)`, so `open_gle` reads it back as that colour with `alpha`
-  1. GLE draws a semi-transparent colour only with its `-cairo` device;
+  `rgba255(...)`, so `open_gle` reads it back as that colour with
+  `alpha=1.0`. GLE draws a semi-transparent colour only with its `-cairo` device;
   `savefig` uses it for such a figure unless told `cairo=False`, and its
   font cost is in the [Configuration Guide](CONFIGURATION.md) ("Available Fonts").
   A `.gle` compiled some other way needs `-cairo` too. `axvline` and
