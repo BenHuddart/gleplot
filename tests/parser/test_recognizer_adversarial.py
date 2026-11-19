@@ -1088,6 +1088,42 @@ def test_a_fill_on_a_users_file_is_a_reference_that_leaves_it_alone(tmp_path):
     assert "data h3.dat d3=c1,c4" in text
 
 
+@pytest.mark.parametrize(
+    "draw",
+    ["d2 line color red", "fill d2 color gray", "fill x1,d2 color gray", "bar d2"],
+)
+def test_an_offset_let_on_a_users_file_stays_raw(tmp_path, draw):
+    """A file reference has no offset, so the shift is kept as written."""
+    body = ['   data "u.dat" d1=c1,c2', "   let d2 = d1+1", f"   {draw}"]
+    src = "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "let.gle", src, {"u.dat": "1 2\n2 3\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.passthrough == body
+    rec.figure.savefig_gle(str(p))
+    assert "\n".join(body) in p.read_text(encoding="utf-8")
+
+
+def test_a_fill_between_two_files_stays_raw(tmp_path):
+    """The fill's series reads one file, so it cannot hold the pair."""
+    body = [
+        '   data "a.dat" d1=c1,c2',
+        '   data "b.dat" d2=c1,c2',
+        "   fill d1,d2 color gray",
+    ]
+    src = _meta("a.dat", "b.dat") + (
+        "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    )
+    p = _write(tmp_path, "two.gle", src, {"a.dat": "1 2\n2 3\n", "b.dat": "1 4\n2 5\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.fills == [] and ax.file_series == []
+    assert ax.passthrough == body
+    assert any(
+        w.startswith("structure:") and "two data files" in w for w in rec.warnings
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Finding 12 -- duplicate data command redefining a dataset
 # --------------------------------------------------------------------------- #

@@ -683,7 +683,7 @@ def _bar_scan_is_plain(scanned: dict) -> bool:
     """A single dataset, a fill, and at most a width.
 
     That is the shape :class:`~gleplot.series.FileSeries` can still carry
-    when the file cannot be read, and the shape a histogram ``bar dK fill``
+    when the file is not loaded (with no width), and the shape a histogram ``bar dK fill``
     already owns. Anything else on an unreadable file stays raw.
     """
     fills = scanned["fills"]
@@ -5526,7 +5526,9 @@ class _Recognizer:
             return
         if op not in ("+", "-"):
             return
-        if source not in datasets:
+        # A series on a file gleplot did not write is a FileSeries
+        # reference, which has no offset to carry the shift.
+        if source not in datasets or not self._is_import(datasets[source][0]):
             return
         magnitude = eval_gle_number(toks[5:])
         if magnitude is None:
@@ -6393,7 +6395,10 @@ class _Recognizer:
         line. An unmodelled sub-command, a ``from`` list that is not the
         same length as the datasets, or a group whose x columns disagree
         all do the same: modeling any bar on that file would rewrite the
-        sidecar and drop what the raw command reads.
+        sidecar and drop what the raw command reads. On a file gleplot did
+        not write, a bar a file reference cannot carry (anything but a plain
+        bar with no width) does the same, so a sibling reference does not
+        write a ``data`` statement that leaves the raw command's undefined.
         """
         seed = set()
         for child in block.body:
@@ -6531,9 +6536,7 @@ class _Recognizer:
         elif user_file is not None:
             message = (
                 f"bar on '{user_file}', a data file gleplot did not write, is "
-                "kept as raw GLE, not editable, so the file is not rewritten; "
-                "only a plain 'bar dN fill COLOR' on such a file loads, as a "
-                "file reference"
+                "kept as raw GLE, not editable, so the file is not rewritten"
             )
         elif len(scanned["datasets"]) > 1 or scanned["from_names"]:
             shown = list(scanned["datasets"])
@@ -6557,7 +6560,9 @@ class _Recognizer:
         exact top, so the writer can emit ``bar dTo from dFrom`` without
         rebuilding the top by subtraction. A command with an unmodelled
         keyword, or one whose file is shared with a raw ``fill``, is kept
-        whole.
+        whole. A bar on a file gleplot did not write is never loaded: a
+        plain one is a :class:`~gleplot.series.FileSeries` reference, and
+        :meth:`_mark_bars_that_stay_raw` holds any other.
         """
         scanned = _scan_bar_command(toks)
         if self._try_hist_bar(scanned, datasets, info, stmt, toks):
@@ -6804,6 +6809,17 @@ class _Recognizer:
             return
         if any(name not in datasets for name in d_names):
             passthrough()
+            return
+        if len({datasets[name][0] for name in d_names}) != 1:
+            # The fill's series names one file, so both curves must be in it.
+            passthrough()
+            self._note(
+                ImportCategory.STRUCTURE,
+                "fill between curves from two data files ("
+                + ",".join(d_names)
+                + ") has no model; it is kept as raw GLE, not editable",
+                self._stmt_span(stmt),
+            )
             return
         if target is not None:
             # ``data f.dat`` with several columns registers d1, d2, ... .
