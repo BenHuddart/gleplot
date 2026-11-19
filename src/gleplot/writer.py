@@ -5039,11 +5039,11 @@ class GLEWriter:
         """A line series that references columns in an external data file.
 
         ``marker``/``markersize`` overlay a marker on the line (GLE natively
-        supports both on one dataset) -- this function is only ever called
-        for a series that already has a line (see ``_build_file_series``'s
-        ``has_line`` branch; a no-line, marker-only reference is an
-        ``'errorbar'`` reference instead), so there is no separate
-        no-line/marker-only case to guard here, unlike ``add_line``.
+        supports both on one dataset). A no-line ``linestyle`` (``'none'``,
+        ``''``, ``' '``, ``'None'``) leaves out the ``line`` token, so GLE
+        draws no line, but keeps ``lwidth``: an ``errorbar_from_file``
+        reference never writes one, so the recognizer reads the dataset back
+        as this line reference.
 
         ``nomiss`` : draw the line through a missing value instead of
         leaving a gap (GLE's ``nomiss`` qualifier).
@@ -5077,9 +5077,12 @@ class GLEWriter:
         # the mode is drawn and would replace the discrete join.
         smooth_mode = "none" if line_mode else None
         d_draw = self._polar_dataset(d_main) if self._polar_graph else d_main
-        line_cmd = f"    {d_draw}{self._line_token(smooth_mode, line_mode=line_mode)}"
-        if nomiss:
-            line_cmd += " nomiss"
+        has_line = linestyle not in ("none", "None", "", " ", None)
+        line_cmd = f"    {d_draw}"
+        if has_line:
+            line_cmd += self._line_token(smooth_mode, line_mode=line_mode)
+            if nomiss:
+                line_cmd += " nomiss"
         line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth, series)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
@@ -5092,7 +5095,7 @@ class GLEWriter:
             line_cmd += f" marker {marker} msize {self._format_number(markersize)}"
 
         line_cmd += self._dataset_axis_clause(xaxis, yaxis)
-        line_cmd += self._dataset_qualifier_clause(series, bool(marker))
+        line_cmd += self._dataset_qualifier_clause(series, has_line and bool(marker))
 
         if label:
             line_cmd += f" key {self._quote_gle_key(label)}"

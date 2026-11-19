@@ -2081,7 +2081,7 @@ class _Recognizer:
                 drawings, texts, after = self._consume_page_content(
                     nodes, start_at, parsed_axes
                 )
-                if after != start_at:
+                if after != i:
                     i = after
                     continue
 
@@ -2260,6 +2260,8 @@ class _Recognizer:
             pool = self._legend_pool(info)
             chunk = labels[start : start + len(pool)]
             if sorted(chunk) != sorted(series["label"] for series in pool):
+                return None
+            if len(set(chunk)) != len(chunk):
                 return None
             chunks.append((info, chunk))
             start += len(pool)
@@ -8011,18 +8013,19 @@ class _Recognizer:
         self, info, d_name, data_file, xcol, ycol, attrs, has_line, error=None
     ):
         markersize = _dn_markersize(attrs)
-        # Branch on has_line ALONE: a 'd1 line marker circle lwidth X' reference
-        # is a line (carrying line/lwidth/linestyle) that ALSO has a marker --
-        # not an errorbar. Losing the line/lwidth/linestyle by classifying it as
-        # an errorbar (the old behavior) drops the whole styled line. Keep the
-        # marker as an additional field so it survives on the model.
-        if has_line:
+        # A 'd1 line marker circle lwidth X' reference is a line (carrying
+        # line/lwidth/linestyle) that ALSO has a marker -- not an errorbar.
+        # Classifying it as an errorbar would drop the whole styled line, so
+        # the marker is kept as an additional field. A dataset without a line
+        # that still sets ``lwidth`` is the writer's line reference with
+        # ``linestyle='none'``: an errorbar reference never writes a width.
+        if has_line or attrs["lwidth"] is not None:
             entry = FileSeries(
                 series_type="line",
                 data_file=data_file,
                 x_col=xcol,
                 y_col=ycol,
-                linestyle=attrs["linestyle"],
+                linestyle=attrs["linestyle"] if has_line else "none",
                 **_dn_width(attrs),
                 nomiss=attrs["nomiss"],
                 **_dn_fields(attrs),
@@ -8206,7 +8209,8 @@ class _Recognizer:
 
         Mirrors the accept criteria of :meth:`_parse_colormap` (palette known
         or ``color``/grayscale, a ``.z``/``.gz`` file rather than a function
-        expression, and no unrecognized options) but WITHOUT touching disk --
+        expression, no unrecognized options, and ``zmin``/``zmax``/
+        ``interpolate`` values written back as they read) but WITHOUT touching disk --
         data readability is handled separately. Returns ``None`` for any
         colormap that :meth:`_parse_colormap` would send to passthrough, so the
         prescan never drops the fitz block feeding a foreign colormap.
@@ -8231,12 +8235,15 @@ class _Recognizer:
             elif w == "invert":
                 i += 1
             elif w in ("zmin", "zmax") and i + 1 < m:
-                _, nxt = _collect_value(toks, i + 1)
-                i = nxt if nxt > i + 1 else i + 2
+                v, nxt = _collect_value(toks, i + 1)
+                unknown = unknown or not _is_number_literal(toks[i + 1 : nxt])
+                i = nxt if v is not None else i + 2
             elif w == "palette" and i + 1 < m:
                 palette = toks[i + 1].value
                 i += 2
             elif w == "interpolate" and i + 1 < m:
+                mode = toks[i + 1].value.lower()
+                unknown = unknown or mode not in ("bicubic", "nearest")
                 i += 2
             else:
                 unknown = True
@@ -8507,6 +8514,16 @@ class _Recognizer:
                 colorbar=None,
             )
             info["heatmaps"].append(hm)
+            return
+
+        if not exact:
+            info["passthrough"].append(self._stmt_text(stmt))
+            self._note(
+                ImportCategory.STRUCTURE,
+                "colormap of a .z file with a zmin, zmax or interpolate value "
+                "gleplot cannot write back as it reads; kept as raw GLE",
+                self._stmt_span(stmt),
+            )
             return
 
         fitz = self._fitz_blocks.get(zfile)
@@ -9143,8 +9160,11 @@ class _Recognizer:
             "lines",
             "scatters",
             "errorbars",
-            "file_series",
+            "hists",
+            "functions",
             "fits",
+            "file_series",
+            "derived_series",
         ):
             for series in info.get(group, []):
                 if series.get("label"):
@@ -9156,25 +9176,18 @@ class _Recognizer:
         """Stamp ``legend_seq`` so the next save rebuilds this entry order.
 
         Returns False, and changes nothing, when ``labels`` is not exactly
-        the labelled series (each label used once).
+        the labelled series, or names one twice: the entries carry no
+        series identity besides the label, so which of two same-label
+        series an entry lists is unknown.
         """
         pool = _Recognizer._legend_pool(info)
-        if len(pool) != len(labels):
+        by_label = {s["label"]: s for s in pool}
+        if not len(labels) == len(set(labels)) == len(by_label) == len(pool):
             return False
-        used = [False] * len(pool)
-        chosen = []
-        for label in labels:
-            found = None
-            for j, series in enumerate(pool):
-                if not used[j] and series.get("label") == label:
-                    found = j
-                    break
-            if found is None:
-                return False
-            used[found] = True
-            chosen.append(pool[found])
-        for i, series in enumerate(chosen):
-            series["legend_seq"] = i
+        if set(labels) != set(by_label):
+            return False
+        for i, label in enumerate(labels):
+            by_label[label]["legend_seq"] = i
         return True
 
     # -- post-graph colorbar / contour-label calls ----------------------
@@ -10121,13 +10134,9 @@ class _Recognizer:
             i += 1
         return x, y
 
-    def _more_graphs_after(self, nodes, i) -> bool:
-        for k in range(i + 1, len(nodes)):
-            if isinstance(nodes[k], GraphBlock):
-                return True
-            if self._match_amove(nodes[k]) is not None:
-                return True
-        return False
+    @staticmethod
+    def _more_graphs_after(nodes, i) -> bool:
+        return any(isinstance(node, GraphBlock) for node in nodes[i + 1 :])
 
     # -- axes assembly ---------------------------------------------------
 

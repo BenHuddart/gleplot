@@ -572,6 +572,18 @@ def file_series():
     return fig
 
 
+def file_series_without_a_line():
+    """``line_from_file(linestyle='none')``: a dataset with no ``line`` token,
+    one with a marker as well, and one feeding a derived curve."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.line_from_file("external.dat", 1, 2, color="green", linestyle="none", label="x")
+    ax.line_from_file("external.dat", 1, 3, linestyle="none", linewidth=2)
+    ax.file_series[-1].update(marker="CIRCLE", markersize=0.2)
+    ax.derived("2*d1", ax.file_series[0], label="twice")
+    return fig
+
+
 def file_series_field_options():
     """File-series fields the ``file_series`` builder leaves at their defaults.
 
@@ -1683,6 +1695,15 @@ def trailer_stray_amoves():
     return fig
 
 
+def trailer_amove_after_subplots():
+    """#216: an ``amove`` trailer after a subplot grid's last blank line."""
+    fig = glp.figure(data_prefix="golden")
+    fig.add_subplot(121).plot([0, 1], [0, 1])
+    fig.add_subplot(122).plot([0, 1], [1, 0])
+    fig.passthrough_trailer = ["amove 1 1", "circle 0.4"]
+    return fig
+
+
 def pie_chart():
     """A titled pie with labels and percentages, then a text drawn after it."""
     fig = glp.figure(data_prefix="golden")
@@ -1978,6 +1999,7 @@ BUILDERS = [
     inset_alone,
     aspect_ratios,
     file_series,
+    file_series_without_a_line,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,
@@ -2033,6 +2055,7 @@ BUILDERS = [
     axes_styling_grid_only,
     contour_in_second_subplot,
     trailer_stray_amoves,
+    trailer_amove_after_subplots,
     pie_chart,
     pie_field_options,
     line_cap_join_dashlen,

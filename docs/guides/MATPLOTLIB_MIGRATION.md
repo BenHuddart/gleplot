@@ -22,7 +22,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.contourf(...)` | same on a uniform grid, see [Filled contours](#filled-contours) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
 | `fig.add_subplot(projection='polar')` | same, lines, scatters and function curves, see [Polar axes](#polar-axes) |
-| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` |
+| `ax.set_xlabel(...)` | same; `fontsize`, `color` and `labelpad` are honoured, other text keywords warn; `labelpad` is keyword-only, since the second positional argument is gleplot's `axis` (`'x'`/`'x2'`, `'y'`/`'y2'`; another string raises). A dict there is taken as matplotlib's positional `fontdict` |
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
 | `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
@@ -229,7 +229,12 @@ keeps the full name, with a warning, unless the full name is left at its
 default. A `linewidth` that is NaN, infinite or negative raises
 `ValueError` at the call, on these and the other line-drawing calls below,
 `line_from_file`, `function` and `hist(histtype='step')`, where
-matplotlib does not check it.
+matplotlib does not check it. GLE has no zero-width stroke, so `lw=0` on
+`plot` (and `step`, `stem`, `semilogx`, `semilogy`, `loglog`), `errorbar`,
+`line_from_file`, `axhline`, `axvline`, `hlines` and `vlines` draws no
+line, as `linestyle='none'` does; `errorbar` still draws its error bars.
+`function` and `hist(histtype='step')` are only their line, so `lw=0`
+there warns and draws the default width.
 
 A keyword GLE cannot draw, such as `alpha`, `markeredgecolor` (`mec`),
 `markeredgewidth` (`mew`), `dashes`, `transform` or `clip_on`, warns and is
@@ -254,7 +259,9 @@ tuple such as `(0, (5, 2))` warns and is drawn solid, and so does a value
 that is not a line style. This holds for `plot` and the calls above, for
 `line_from_file`, `hist(histtype='step')`, and the single `linestyles` of
 `contour` and `tricontour`. A `(offset, None)` tuple is matplotlib's solid
-line and is drawn solid without a warning.
+line and is drawn solid without a warning. Passing `None` asks for
+matplotlib's default: a solid line from `plot`, `axhline`, `axvline` and
+`line_from_file`, and the style `fmt` gives from `errorbar`.
 
 ## Marker spacing, thinning and data ranges
 

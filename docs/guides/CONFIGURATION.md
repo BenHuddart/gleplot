@@ -66,7 +66,9 @@ The font tables in the [GLE manual](https://glx.sourceforge.io/manual/index.html
 list every name. GLE's Cairo backend, which draws SVG output and any figure
 compiled with `-cairo` (semi-transparent colours, or `savefig(..., cairo=True)`),
 cannot draw the PostScript fonts, and `rm`, `ss` and `tt` are PostScript fonts
-too. Use the TeX Computer Modern (`texcm*`) fonts for figures drawn that way.
+too. gleplot compiles those figures with `-cairo`, so GLE draws such text in
+`texcmr` instead, and saving warns. Use the TeX Computer Modern (`texcm*`)
+fonts for figures drawn that way to choose the font yourself.
 
 ### Line Styles
 
