@@ -45,8 +45,10 @@ fig.savefig('grid.gle')
 ```
 
 `glp.subplots(nrows, ncols)` creates the figure and all its axes at once.
-The axes come back as a flat list in row order, not matplotlib's 2-D array;
-a 1×1 grid returns the axes itself.
+As in matplotlib, the axes come back as a numpy array indexed
+`axes[row, col]`. A single row or column comes back as a 1-D array, and a
+1×1 grid as the axes itself; pass `squeeze=False` to always get the 2-D
+array, as code that loops over `axes.flat` for any grid size needs.
 
 ### Panels spanning several cells
 
@@ -146,7 +148,7 @@ import gleplot as glp
 fig, axes = glp.subplots(2, 2, figsize=(10, 8))
 x = np.linspace(0, 10, 100)
 
-for i, ax in enumerate(axes, start=1):
+for i, ax in enumerate(axes.flat, start=1):
     ax.plot(x, np.sin(x + i), label=f'Panel {i}')
     ax.legend()
 

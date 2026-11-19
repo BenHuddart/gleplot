@@ -145,16 +145,45 @@ class TestSubplots:
         """Test subplots() convenience function for grid."""
         fig, axes = glp.subplots(2, 3)
 
-        assert isinstance(axes, list)
-        assert len(axes) == 6
+        assert isinstance(axes, np.ndarray)
+        assert axes.shape == (2, 3)
+        assert list(axes.flat) == fig.axes_list
+        assert axes[1, 2] is fig.axes_list[5]
         assert fig.figsize == (18, 8)  # 6*3, 4*2
+
+    def test_subplots_squeeze(self):
+        """A single row or column squeezes to 1-D; squeeze=False keeps 2-D."""
+        _, row = glp.subplots(1, 3)
+        _, col = glp.subplots(3, 1)
+        assert row.shape == (3,) and col.shape == (3,)
+        _, lone = glp.subplots(squeeze=False)
+        assert lone.shape == (1, 1) and isinstance(lone[0, 0], glp.Axes)
+        _, grid = glp.subplots(1, 3, squeeze=False)
+        assert grid.shape == (1, 3)
+
+    def test_subplots_array_is_row_major(self):
+        """axes[row, col] is the panel add_subplot numbers row by row."""
+        fig, axes = glp.subplots(3, 2)
+        assert axes[2, 0] is fig.axes_list[4]
+        assert axes[0, 1].position == (3, 2, 2)
+
+    @pytest.mark.parametrize("kwargs", [{"nrows": 0}, {"ncols": -1}])
+    def test_subplots_rejects_a_non_positive_grid(self, kwargs):
+        name, value = next(iter(kwargs.items()))
+        with pytest.raises(ValueError, match=rf"{name}={value}"):
+            glp.subplots(**kwargs)
+
+    @pytest.mark.parametrize("value", [2.0, "2", None])
+    def test_subplots_rejects_a_non_int_grid(self, value):
+        with pytest.raises(TypeError, match="nrows"):
+            glp.subplots(nrows=value)
 
     def test_subplots_function_custom_figsize(self):
         """Test subplots() with custom figsize."""
         fig, axes = glp.subplots(2, 2, figsize=(10, 8))
 
         assert fig.figsize == (10, 8)
-        assert len(axes) == 4
+        assert axes.shape == (2, 2)
 
     def test_subplot_independent_axes(self):
         """Test that subplots have independent axis properties."""
@@ -253,7 +282,7 @@ class TestSubplots:
     def test_subplots_adjust_wspace_hspace_reduce_cell_size(self):
         """Positive wspace/hspace should reduce per-panel graph size."""
         fig, axes = glp.subplots(2, 2, figsize=(10, 8))
-        for idx, ax in enumerate(axes):
+        for idx, ax in enumerate(axes.flat):
             ax.plot([1, 2, 3], [idx + 1, idx + 2, idx + 3])
 
         default_sizes = self._extract_sizes(fig._generate_gle())
@@ -303,10 +332,10 @@ class TestSubplots:
 
         fig, axes = glp.subplots(2, 2, figsize=(12, 10))
 
-        axes[0].plot([1, 2, 3], [1, 4, 9], color="blue")
-        axes[1].scatter([1, 2, 3], [3, 6, 2], color="red")
-        axes[2].bar([1, 2, 3], [10, 20, 30], color="green")
-        axes[3].errorbar([1, 2, 3], [5, 10, 15], yerr=1, marker="o")
+        axes[0, 0].plot([1, 2, 3], [1, 4, 9], color="blue")
+        axes[0, 1].scatter([1, 2, 3], [3, 6, 2], color="red")
+        axes[1, 0].bar([1, 2, 3], [10, 20, 30], color="green")
+        axes[1, 1].errorbar([1, 2, 3], [5, 10, 15], yerr=1, marker="o")
 
         gle = fig._generate_gle()
         # Should contain all plot types
@@ -912,8 +941,8 @@ class TestDecorationMargins:
 
     @staticmethod
     def _build(rows, cols, **kwargs):
-        fig, axes = glp.subplots(rows, cols, figsize=(8, 6), **kwargs)
-        for ax in (axes if isinstance(axes, list) else [axes]):
+        fig, axes = glp.subplots(rows, cols, figsize=(8, 6), squeeze=False, **kwargs)
+        for ax in axes.flat:
             ax.plot([0, 1, 2], [-1.0, -0.5, -1.0], color="blue")
             ax.set_xlabel("time")
             ax.set_ylabel("voltage")
