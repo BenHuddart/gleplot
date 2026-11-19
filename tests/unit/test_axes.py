@@ -95,6 +95,24 @@ class TestSubplots:
         assert ax.position == (2, 3, 4)
         assert len(fig.axes_list) == 1
 
+    def test_figure_axes_lists_axes_in_order_as_a_copy(self):
+        """fig.axes is matplotlib's list of axes, a new list on each access."""
+        fig, (ax1, ax2) = glp.subplots(1, 2)
+        inset = fig.add_axes([0.6, 0.6, 0.3, 0.3])
+        ax1.twinx()
+
+        axes = fig.axes
+        assert axes == [ax1, ax2, inset]
+        axes.clear()
+        assert fig.axes == [ax1, ax2, inset]
+        with pytest.raises(AttributeError):
+            fig.axes = []
+        assert glp.figure().axes == []
+
+        broken = glp.figure()
+        bax = broken.add_broken_xaxes([(0, 1), (5, 6)])
+        assert broken.axes == list(bax.segments)
+
     def test_add_subplot_shorthand(self):
         """Test add_subplot with single int shorthand (e.g., 221)."""
         fig = glp.figure()

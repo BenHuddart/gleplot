@@ -104,6 +104,29 @@ def _cartesian_only(method: _Method) -> _Method:
     return cast(_Method, wrapper)
 
 
+def _warn_twin_keywords(
+    caller: str, edge: str, axes_class: Any, delta_zorder: Any, kwargs: Dict[str, Any]
+) -> None:
+    """Warn about the matplotlib keywords ``twinx``/``twiny`` cannot use.
+
+    GLE draws the second scale on the same graph, so there is no new axes
+    for ``axes_class``, ``delta_zorder`` or the other keywords to configure.
+    """
+    ignored = [
+        name
+        for name, given in (
+            ("axes_class", axes_class is not None),
+            ("delta_zorder", delta_zorder != 0.0),
+        )
+        if given
+    ] + sorted(kwargs)
+    if ignored:
+        warn_external(
+            f"{caller}() ignores {', '.join(ignored)}: the {edge} scale is "
+            "drawn on this graph, not on a new axes."
+        )
+
+
 def _text_fields(
     style,
     caller,
@@ -4255,7 +4278,7 @@ class Axes:
         y_col: int,
         color: Optional[str] = None,
         linestyle: str = "-",
-        linewidth: float = 1,
+        linewidth: Optional[float] = 1,
         label: Optional[str] = None,
         yaxis: str = "y",
         xaxis: str = "x",
@@ -4275,7 +4298,8 @@ class Axes:
         ``drawstyle`` and ``line_mode`` are the same line modes as
         :meth:`plot`. ``linestyle='none'`` warns and drops the mode: there
         is no line for it to qualify. The series is still a line reference;
-        this method has no scatter form.
+        this method has no scatter form. ``linewidth`` is in points, and
+        ``None`` is the default width, as for :meth:`plot`.
 
         ``skiprows`` skips that many leading lines of the file, ``comment``
         replaces GLE's comment marker ``!``, and ``max_rows`` stops after
@@ -4296,6 +4320,14 @@ class Axes:
                 "omits it, so the series is drawn without that mode.",
             )
             mode = None
+        width = 1.0 if linewidth is None else linewidth
+        try:
+            width = float(width)
+        except (TypeError, ValueError):
+            raise TypeError(
+                "line_from_file() linewidth must be a number of points or "
+                f"None, got {linewidth!r}"
+            ) from None
 
         fields = dict(
             series_type="line",
@@ -4304,7 +4336,7 @@ class Axes:
             y_col=int(y_col),
             color=gle_color,
             linestyle=linestyle,
-            linewidth=float(linewidth),
+            linewidth=width,
             nomiss=False,
             label=label,
             yaxis=yaxis,
@@ -5811,7 +5843,7 @@ class Axes:
             one (``'dashed'``, ...). A dash tuple or any other value warns
             and is drawn solid.
         linewidth : float
-            Line width in points.
+            Line width in points. ``None`` is the default width.
         label : str, optional
             Legend label.
         **kwargs
@@ -5868,6 +5900,8 @@ class Axes:
         linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
         linestyle = _line_style(caller, linestyle)
         linewidth = _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
+        if linewidth is None:
+            linewidth = 1
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
@@ -8128,6 +8162,7 @@ class Axes:
         label: str,
         axis: str = "x",
         *,
+        fontdict: Optional[Dict[str, Any]] = None,
         labelpad: Optional[float] = None,
         loc: Optional[str] = None,
         fontname: Optional[str] = None,
@@ -8141,6 +8176,9 @@ class Axes:
             Axis label text
         axis : str, optional
             Which axis: 'x' (bottom, default) or 'x2' (top)
+        fontdict : dict, optional
+            Not supported; warns and is ignored. Pass ``fontsize`` and
+            ``color`` as keywords.
         labelpad : float, optional
             Gap between the label and the tick labels, in points (GLE
             ``xtitle ... dist``). ``None`` keeps the current gap.
@@ -8157,6 +8195,8 @@ class Axes:
         """
         prefix = "x2" if axis == "x2" else "x"
         setattr(self, f"{prefix}label_text", self._text(label))
+        if fontdict is not None:
+            kwargs["fontdict"] = fontdict
         self._style_title(
             f"{prefix}label", "set_xlabel", "labelpad", labelpad, loc, fontname, kwargs
         )
@@ -8167,6 +8207,7 @@ class Axes:
         label: str,
         axis: str = "y",
         *,
+        fontdict: Optional[Dict[str, Any]] = None,
         labelpad: Optional[float] = None,
         loc: Optional[str] = None,
         fontname: Optional[str] = None,
@@ -8180,6 +8221,9 @@ class Axes:
             Axis label text
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        fontdict : dict, optional
+            Not supported; warns and is ignored. Pass ``fontsize`` and
+            ``color`` as keywords.
         labelpad : float, optional
             Gap between the label and the tick labels, in points (GLE
             ``ytitle ... dist``). ``None`` keeps the current gap.
@@ -8196,6 +8240,8 @@ class Axes:
         """
         prefix = "y2" if axis == "y2" else "y"
         setattr(self, f"{prefix}label_text", self._text(label))
+        if fontdict is not None:
+            kwargs["fontdict"] = fontdict
         self._style_title(
             f"{prefix}label", "set_ylabel", "labelpad", labelpad, loc, fontname, kwargs
         )
@@ -8486,16 +8532,26 @@ class Axes:
         return self
 
     @_cartesian_only
-    def twiny(self) -> SecondaryXAxis:
+    def twiny(self, axes_class=None, *, delta_zorder=0.0, **kwargs) -> SecondaryXAxis:
         """Open the top x axis as its own data scale.
 
         The returned view plots against that scale (``xaxis='x2'``) and
         shares this axes' y axis. Limits, log, and the axis label set on
         the view are the top scale; they do not move the bottom one.
 
-        GLE's top axis is the same graph, not a second subplot, so the
-        view is not an entry of :attr:`Figure.axes_list`.
+        Parameters
+        ----------
+        axes_class, delta_zorder, **kwargs
+            Accepted for matplotlib compatibility. GLE's top axis is part
+            of this graph, not a new axes, so they have no effect and warn.
+
+        Returns
+        -------
+        SecondaryXAxis
+            A view of this axes bound to the top scale. It is not an entry
+            of :attr:`Figure.axes_list`.
         """
+        _warn_twin_keywords("twiny", "top", axes_class, delta_zorder, kwargs)
         return SecondaryXAxis(self)
 
     @_cartesian_only
@@ -8519,19 +8575,7 @@ class Axes:
             A view of this axes bound to the right scale. It is not an entry
             of :attr:`Figure.axes_list`.
         """
-        ignored = [
-            name
-            for name, given in (
-                ("axes_class", axes_class is not None),
-                ("delta_zorder", delta_zorder != 0.0),
-            )
-            if given
-        ] + sorted(kwargs)
-        if ignored:
-            warn_external(
-                f"twinx() ignores {', '.join(ignored)}: the right-hand scale is "
-                "drawn on this graph, not on a new axes."
-            )
+        _warn_twin_keywords("twinx", "right-hand", axes_class, delta_zorder, kwargs)
         return SecondaryYAxis(self)
 
     @_cartesian_only

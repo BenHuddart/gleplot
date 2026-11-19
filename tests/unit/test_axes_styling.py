@@ -479,6 +479,37 @@ def test_the_twin_views_pass_the_label_keywords_through():
     assert _line_starting(fig, "x2title") == f'x2title "W" hei {hei}'
 
 
+@pytest.mark.parametrize("via", ["module", "figure"])
+def test_the_wrappers_pass_the_label_keywords_through(via):
+    fig, ax = _fig()
+    target = glp if via == "module" else fig
+    target.xlabel("X", fontsize=9, labelpad=4)
+    target.ylabel("Y", color="red")
+    target.title("T", fontsize=11, pad=6)
+    hei9, hei11 = f"{fontsize_pt_to_cm(9):.6g}", f"{fontsize_pt_to_cm(11):.6g}"
+    dist4, dist6 = f"{fontsize_pt_to_cm(4):.6g}", f"{fontsize_pt_to_cm(6):.6g}"
+    assert _line_starting(fig, "xtitle") == f'xtitle "X" hei {hei9} dist {dist4}'
+    assert _line_starting(fig, "ytitle") == 'ytitle "Y" color RED'
+    assert _line_starting(fig, "title ") == f'title "T" hei {hei11} dist {dist6}'
+
+
+def test_the_module_wrappers_take_matplotlibs_positional_order():
+    fig, ax = _fig()
+    with pytest.warns(UserWarning, match=r"set_xlabel\(\): fontdict not"):
+        glp.xlabel("X", {"fontsize": 9}, 4)
+    with pytest.warns(UserWarning, match=r"set_title\(loc='left'\) is drawn"):
+        glp.title("T", None, "left", 6)
+    with pytest.warns(UserWarning, match=r"set_ylabel\(\): fontdict not"):
+        glp.ylabel("Y", {"fontsize": 9}, 2)
+    with pytest.warns(UserWarning, match=r"set_title\(\): y not"):
+        glp.title("T", y=1.1)
+    dist4, dist6 = f"{fontsize_pt_to_cm(4):.6g}", f"{fontsize_pt_to_cm(6):.6g}"
+    assert _line_starting(fig, "xtitle") == f'xtitle "X" dist {dist4}'
+    assert _line_starting(fig, "title ") == f'title "T" dist {dist6}'
+    dist2 = f"{fontsize_pt_to_cm(2):.6g}"
+    assert _line_starting(fig, "ytitle") == f'ytitle "Y" dist {dist2}'
+
+
 def test_relabelling_keeps_the_style_and_none_resets_it():
     fig, ax = _fig()
     ax.set_xlabel("X", fontsize=9, color="red", labelpad=2)
