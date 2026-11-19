@@ -170,6 +170,15 @@ def test_plot_mfc_alias():
     assert "mfc" not in ax.lines[0]
 
 
+def test_markerfacecolor_wins_over_mfc_with_a_warning():
+    fig = glp.figure(data_prefix="om")
+    ax = fig.add_subplot(111)
+    ax.plot(X, Y, marker="s", markerfacecolor="white")
+    with pytest.warns(UserWarning, match="got both markerfacecolor and mfc"):
+        ax.plot(X, Y, marker="s", markerfacecolor="white", mfc="none")
+    assert ax.lines[1]["marker"] == ax.lines[0]["marker"]
+
+
 def test_scatter_open_markers():
     fig = glp.figure(data_prefix="om")
     ax = fig.add_subplot(111)

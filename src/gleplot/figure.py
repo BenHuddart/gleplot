@@ -435,7 +435,7 @@ class _LegendLayout:
     ``entries`` are ``(series, label, swatch)`` in emission order and
     ``addition`` their indices in matplotlib addition order. ``external``
     means the in-graph key is off and a ``begin key`` block lists the
-    entries in addition order instead.
+    entries in addition order instead; it is only ever set with ``show``.
     """
 
     entries: List[tuple]
@@ -723,6 +723,24 @@ class Figure:
         latest ``savefig``/``savefig_gle`` rather than accumulating.
         """
         return list(self._source_warnings)
+
+    @property
+    def axes(self) -> List[Axes]:
+        """The figure's axes, in the order they were added.
+
+        A new list on each access, as in matplotlib: add axes with
+        :meth:`add_subplot` or :meth:`add_axes`, not by changing the list.
+        For a figure from :func:`gleplot.open_gle`, the order is that of the
+        graph blocks in the file. Each segment of a broken axis
+        (:meth:`add_broken_xaxes`, :meth:`add_broken_yaxes`) is an entry.
+
+        Notes
+        -----
+        Unlike matplotlib, the secondary axes that :meth:`gleplot.Axes.twinx`
+        and :meth:`gleplot.Axes.twiny` return are not entries: they draw on
+        their parent axes' graph.
+        """
+        return list(self.axes_list)
 
     @property
     def preview_decimation_report(self) -> List:
@@ -2024,11 +2042,14 @@ class Figure:
             )
         return mappable, owner
 
-    def xlabel(self, label: str):
-        """Set x label on current axes."""
-        return self.gca().set_xlabel(label)
+    def xlabel(self, label: str, **kwargs):
+        """Set x label on current axes.
 
-    def ylabel(self, label: str, axis: str = "y"):
+        Keywords are as for :meth:`Axes.set_xlabel`.
+        """
+        return self.gca().set_xlabel(label, **kwargs)
+
+    def ylabel(self, label: str, axis: str = "y", **kwargs):
         """Set y label on current axes.
 
         Parameters
@@ -2037,12 +2058,17 @@ class Figure:
             Axis label text
         axis : str, optional
             Which axis: 'y' (left, default) or 'y2' (right)
+        **kwargs
+            As for :meth:`Axes.set_ylabel`.
         """
-        return self.gca().set_ylabel(label, axis=axis)
+        return self.gca().set_ylabel(label, axis=axis, **kwargs)
 
-    def title(self, label: str):
-        """Set title on current axes."""
-        return self.gca().set_title(label)
+    def title(self, label: str, **kwargs):
+        """Set title on current axes.
+
+        Keywords are as for :meth:`Axes.set_title`.
+        """
+        return self.gca().set_title(label, **kwargs)
 
     def legend(self, *args, **kwargs) -> "Figure":
         """Add one legend for the whole figure, listing every axes' series.
@@ -3273,6 +3299,11 @@ class Figure:
                     used_cmaps.add(hm["cmap"])
             for hm in _colorbar_holders(ax, resolution):
                 cb = hm.get("colorbar")
+                if cb and hm.get("invert"):
+                    # The reversed palette add_colorbar draws (colorbar_cmap).
+                    bar_cmap = _pal.colorbar_cmap(hm["cmap"], True)
+                    if _pal.cmap_needs_sub(bar_cmap):
+                        used_cmaps.add(bar_cmap)
                 if cb and cb.get("orientation") == "horizontal":
                     any_colorbar_h = True
                 elif cb:
@@ -3489,16 +3520,12 @@ class Figure:
         for ref in ax.engine_range_guides(ax.reflines, limits):
             add(
                 ref,
-                writer.legend_swatch(
-                    ref["color"], ref.get("linestyle"), ref.get("linewidth")
-                ),
+                writer.legend_swatch(ref["color"], ref.get("linestyle"), ref),
             )
         for ref in ax.dataset_form_guides(ax.reflines, limits):
             add(
                 ref,
-                writer.legend_swatch(
-                    ref["color"], ref.get("linestyle"), ref.get("linewidth")
-                ),
+                writer.legend_swatch(ref["color"], ref.get("linestyle"), ref),
             )
         for kind, series, data in resolution.drawables(ax):
             add(series, self._drawable_legend_swatch(writer, kind, data))
@@ -3529,7 +3556,7 @@ class Figure:
         return writer.legend_swatch(
             data.get("color") or "BLUE",
             None if kind == "scatter" else data.get("linestyle", "-"),
-            data.get("linewidth", 1),
+            data,
             marker,
             data.get("markersize"),
         )
@@ -3547,7 +3574,7 @@ class Figure:
                 if kind == "errorbar" and not fs.get("linestyle")
                 else fs.get("linestyle", "-" if kind == "line" else "none")
             ),
-            fs.get("linewidth", 1),
+            fs,
             fs.get("marker"),
             fs.get("markersize"),
         )
@@ -3825,6 +3852,7 @@ class Figure:
             y2style=self._axis_style(ax, "y2"),
             x2style=self._axis_style(ax, "x2"),
             x2_series=ax.has_x2_plots(),
+            y2_series=ax.has_y2_plots(),
             title_size=ax.title_size,
             title_color=ax.title_color,
             title_dist=(
@@ -4168,11 +4196,7 @@ class Figure:
                     legend.entries[i] for i in legend.addition
                 )
             ]
-            breaks = (
-                legend_column_breaks(n_legend, legend.ncol)
-                if legend.show and legend.ncol > 1
-                else set()
-            )
+            breaks = legend_column_breaks(n_legend, legend.ncol)
             writer.queue_external_legend(ordered, breaks, key)
         elif legend.show:
             writer.add_legend(key)

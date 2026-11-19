@@ -479,6 +479,37 @@ def test_the_twin_views_pass_the_label_keywords_through():
     assert _line_starting(fig, "x2title") == f'x2title "W" hei {hei}'
 
 
+@pytest.mark.parametrize("via", ["module", "figure"])
+def test_the_wrappers_pass_the_label_keywords_through(via):
+    fig, ax = _fig()
+    target = glp if via == "module" else fig
+    target.xlabel("X", fontsize=9, labelpad=4)
+    target.ylabel("Y", color="red")
+    target.title("T", fontsize=11, pad=6)
+    hei9, hei11 = f"{fontsize_pt_to_cm(9):.6g}", f"{fontsize_pt_to_cm(11):.6g}"
+    dist4, dist6 = f"{fontsize_pt_to_cm(4):.6g}", f"{fontsize_pt_to_cm(6):.6g}"
+    assert _line_starting(fig, "xtitle") == f'xtitle "X" hei {hei9} dist {dist4}'
+    assert _line_starting(fig, "ytitle") == 'ytitle "Y" color RED'
+    assert _line_starting(fig, "title ") == f'title "T" hei {hei11} dist {dist6}'
+
+
+def test_the_module_wrappers_take_matplotlibs_positional_order():
+    fig, ax = _fig()
+    with pytest.warns(UserWarning, match=r"set_xlabel\(\): fontdict not"):
+        glp.xlabel("X", {"fontsize": 9}, 4)
+    with pytest.warns(UserWarning, match=r"set_title\(loc='left'\) is drawn"):
+        glp.title("T", None, "left", 6)
+    with pytest.warns(UserWarning, match=r"set_ylabel\(\): fontdict not"):
+        glp.ylabel("Y", {"fontsize": 9}, 2)
+    with pytest.warns(UserWarning, match=r"set_title\(\): y not"):
+        glp.title("T", y=1.1)
+    dist4, dist6 = f"{fontsize_pt_to_cm(4):.6g}", f"{fontsize_pt_to_cm(6):.6g}"
+    assert _line_starting(fig, "xtitle") == f'xtitle "X" dist {dist4}'
+    assert _line_starting(fig, "title ") == f'title "T" dist {dist6}'
+    dist2 = f"{fontsize_pt_to_cm(2):.6g}"
+    assert _line_starting(fig, "ytitle") == f'ytitle "Y" dist {dist2}'
+
+
 def test_relabelling_keeps_the_style_and_none_resets_it():
     fig, ax = _fig()
     ax.set_xlabel("X", fontsize=9, color="red", labelpad=2)
@@ -661,6 +692,57 @@ def test_noticks_is_its_own_statement_and_an_empty_list_clears_it():
     assert _line_starting(fig, "ynoticks") == "ynoticks 2 4.5"
     ax.set_yticks(noticks=[])
     assert not any(line.startswith("ynoticks") for line in _graph_lines(fig))
+
+
+def test_an_empty_tick_list_switches_the_ticks_and_labels_off():
+    """GLE reads a bare ``xplaces`` as automatic ticks (#181)."""
+    fig, ax = _fig()
+    ax.set_xticks([])
+    ax.set_yticks([], labels=[])
+    ax.grid(True, color="red")
+    ax.set_yticks(noticks=[2])
+    lines = _graph_lines(fig)
+    assert lines[lines.index("xaxis min 1 max 3 grid") :][:5] == [
+        "xaxis min 1 max 3 grid",
+        "xticks off",
+        "xlabels off",
+        "yaxis min 1 max 9 grid",
+        "yticks off",
+    ]
+    assert not any("places" in line or "names" in line for line in lines)
+    assert [line for line in lines if line.startswith(("xticks", "yticks"))] == [
+        "xticks off",
+        "yticks off",
+    ]
+
+
+def test_an_empty_tick_list_on_a_hidden_frame_adds_no_second_ticks_off():
+    """``axis('off')`` writes ``xticks off`` already, and it must stay one of
+    the four lines the parser recovers as a hidden frame."""
+    fig, ax = _fig()
+    ax.axis("off")
+    ax.set_xticks([])
+    ax.set_yticks([], labels=[])
+    lines = _graph_lines(fig)
+    assert lines.count("xticks off") == 1
+    assert lines.count("xlabels off") == 1
+    assert not any("names" in line for line in lines)
+
+
+def test_an_empty_tick_list_leaves_a_twin_scale_its_ticks():
+    """GLE copies ``yticks off``/``ylabels off`` onto y2; a twin is put back."""
+    fig, ax = _fig()
+    ax.twinx().plot([1, 2, 3], [5, 6, 7])
+    ax.set_yticks([])
+    ax.set_xticks([])
+    lines = _graph_lines(fig)
+    assert lines[lines.index("yticks off") :][:4] == [
+        "yticks off",
+        "ylabels off",
+        "y2ticks on",
+        "y2labels on",
+    ]
+    assert "x2ticks on" not in lines and "x2labels on" not in lines
 
 
 def test_symticks_false_goes_back_to_the_default():

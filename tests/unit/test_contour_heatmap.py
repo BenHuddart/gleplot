@@ -119,6 +119,29 @@ def test_imshow_nearest_and_invert():
     assert " interpolate nearest" in line
 
 
+@pytest.mark.parametrize(
+    "cmap, bar_palette, bar_sub",
+    [
+        ("viridis", "gleplot_viridis_r", "sub gleplot_viridis_r z"),
+        ("viridis_r", "gleplot_viridis", "sub gleplot_viridis z"),
+        ("gray", "gleplot_gray_r", "sub gleplot_gray_r z"),
+        ("rainbow_r", "color", None),
+    ],
+)
+def test_colorbar_of_an_inverted_image_draws_the_reversed_palette(
+    cmap, bar_palette, bar_sub
+):
+    """GLE's ``invert`` flips only the image, so the bar takes the reversed map."""
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    hm = ax.imshow(np.zeros((2, 2)), cmap=cmap, invert=True)
+    fig.colorbar(hm)
+    text, _ = _gle(fig)
+    assert f'palette "{bar_palette}"' in text
+    if bar_sub is not None:
+        assert bar_sub in text
+
+
 def test_only_one_heatmap_per_axes():
     fig = glp.figure()
     ax = fig.add_subplot(111)
@@ -1283,6 +1306,48 @@ def test_contour_takes_matplotlibs_singular_line_aliases(name, args, recwarn):
     assert (short["linewidth"], short["linestyle"]) == (2.5, 3)
     assert (full["linewidth"], full["linestyle"]) == (2.5, 3)
     assert not recwarn.list
+
+
+@pytest.mark.parametrize("name, args", [("contour", (_GRID,)), ("tricontour", _PTS)])
+def test_contour_per_level_lists_warn_and_take_the_first(name, args):
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning) as record:
+        getattr(ax, name)(*args, linewidths=[2.5, 1], linestyles=["--", ":"])
+    messages = " ".join(str(w.message) for w in record)
+    assert "uses the first, 2.5" in messages and "uses the first, '--'" in messages
+    getattr(ax, name)(*args, linewidths=2.5, linestyles="--")
+    listed, single = ax.contours
+    assert (listed["linewidth"], listed["linestyle"]) == (
+        single["linewidth"],
+        single["linestyle"],
+    )
+
+
+def test_contour_uniform_lists_and_0d_arrays_are_one_value(recwarn):
+    fig, ax = glp.subplots()
+    ax.contour(_GRID, linestyles=[":"], linewidths=(2.0,))
+    ax.contour(_GRID, linestyles=[":"] * 3, linewidths=np.array([2.0, 2.0]))
+    ax.contour(_GRID, linestyles=":", linewidths=np.array(2.0))
+    for series in ax.contours:
+        assert (series["linewidth"], series["linestyle"]) == (2.0, 2)
+    assert not recwarn.list
+
+
+def test_contour_per_level_warning_names_the_keyword_passed():
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning, match=r"lw=\[3, 1\] uses the first, 3"):
+        ax.contour(_GRID, lw=[3, 1])
+    with pytest.warns(UserWarning) as record:
+        ax.contour(_GRID, linestyles=[(0, (5, 2)), "--"])
+    messages = [str(w.message) for w in record]
+    assert "uses the first, (0, (5, 2))" in messages[0]
+    assert "dash pattern" in messages[1]
+
+
+def test_contour_empty_per_level_list_raises():
+    fig, ax = glp.subplots()
+    with pytest.raises(ValueError, match=r"linestyles is an empty sequence"):
+        ax.contour(_GRID, linestyles=[])
 
 
 def test_contour_plural_wins_over_its_alias():

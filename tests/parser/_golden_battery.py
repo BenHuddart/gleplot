@@ -223,6 +223,29 @@ def errorbar_field_options():
     return fig
 
 
+def errorbar_data_range():
+    """An errorbar data range: all four edges, and one edge with an offset."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0.0, 5.0, 11)
+    ax.errorbar(
+        x,
+        np.sin(x),
+        yerr=0.2,
+        xerr=0.1,
+        marker="o",
+        color="blue",
+        xmin=0.5,
+        xmax=4.5,
+        ymin=-0.8,
+        ymax=0.8,
+        label="window",
+    )
+    ax.errorbar(x, 0.2 * x, yerr=0.1, fmt="none", offset=1.0, color="red", ymax=1.5)
+    ax.legend()
+    return fig
+
+
 def fill_between():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -772,6 +795,22 @@ def heatmap_field_options():
     return fig
 
 
+def heatmap_inverted_colorbars():
+    """Colorbars of inverted images draw the reversed palette.
+
+    A vertical bar for an inverted ``viridis_r`` image (forward ``viridis``
+    bar) and a horizontal one for an inverted ``gray`` image (a
+    ``gleplot_gray_r`` sub).
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    Z = np.arange(12, dtype=float).reshape(3, 4)
+    hm = left.imshow(Z, extent=(0, 4, 0, 3), cmap="viridis_r", invert=True)
+    fig.colorbar(hm, ax=left)
+    hm = right.imshow(Z, extent=(0, 4, 0, 3), cmap="gray", invert=True)
+    fig.colorbar(hm, ax=right, orientation="horizontal")
+    return fig
+
+
 def heatmap_brewer_palettes():
     """ColorBrewer cmaps: an interpolated diverging ramp and a stepped set."""
     fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
@@ -968,6 +1007,54 @@ def custom_tick_labels():
     return fig
 
 
+def no_ticks():
+    """``set_xticks([])`` / ``set_yticks([])``: no ticks and no labels (#181)."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], color="blue")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    return fig
+
+
+def no_ticks_styled():
+    """Empty tick lists on a gridded axis and beside a styled one.
+
+    Styling an axis with no ticks is not written (there is nothing to style),
+    so only the axes that keep their ticks are styled here.
+    """
+    fig, (gridded, styled) = glp.subplots(1, 2, data_prefix="golden")
+    gridded.plot([0, 1, 2], [0, 1, 4], color="blue")
+    gridded.grid(True)
+    gridded.set_xticks([])
+    gridded.set_yticks([0, 2, 4])
+    styled.plot([0, 1, 2], [1, 2, 3], color="green")
+    styled.tick_params(axis="x", direction="out", length=5, color="red")
+    styled.set_yticks([])
+    return fig
+
+
+def no_ticks_twins():
+    """Empty tick lists under twin scales, and beside hidden axis lines.
+
+    GLE copies ``yticks off``/``ylabels off`` onto y2, so a twin scale is
+    switched back on; four ``... off`` lines that are not ``axis('off')``
+    must not be read back as a hidden frame.
+    """
+    fig, (twinned, sides) = glp.subplots(1, 2, data_prefix="golden")
+    twinned.plot([0, 1, 2], [0, 1, 4], color="blue")
+    twinned.twinx().plot([0, 1, 2], [5, 6, 7], color="red")
+    twinned.twiny().plot([10, 20, 30], [1, 2, 3], color="green")
+    twinned.set_xticks([])
+    twinned.set_yticks([])
+    sides.plot([0, 1, 2], [4, 1, 0], color="red")
+    sides.set_xticks([])
+    sides.set_yticks([])
+    sides.set_axis_line("x", visible=False)
+    sides.set_axis_line("y", visible=False)
+    return fig
+
+
 def tick_intervals():
     """``dticks``/``dsubticks`` on x and y (set_xticks/set_yticks, #155)."""
     fig = glp.figure(data_prefix="golden")
@@ -1129,7 +1216,7 @@ def line_field_options():
 
 
 def dataset_qualifiers():
-    """GLE's ``mdist``, ``deresolve [average]`` and clip-window qualifiers.
+    """GLE's ``mdist``, ``deresolve [average]`` and data-range qualifiers.
 
     On a marked line, a line, a scatter, and a line and an errorbar file
     reference. File references get them only from a recovered script, so
@@ -1182,7 +1269,7 @@ def scatter_per_point_sizes():
     """Per-point marker sizes (GLE ``mdata`` through a generated marker sub).
 
     ``s`` and ``markersize`` arrays, two marker shapes sharing nothing, an
-    offset, the top axis and a clip window, and a size of 0.
+    offset, the top axis and a data range, and a size of 0.
     """
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1206,7 +1293,7 @@ def scatter_per_point_colours():
     """Per-point colours (GLE ``mdata`` through a generated colour sub).
 
     Values with explicit limits (a negative ``vmin``, values outside them),
-    the default limits on the top axis with an offset and a clip window,
+    the default limits on the top axis with an offset and a data range,
     equal limits on a built-in palette, and a colour sequence.
     """
     fig = glp.figure(data_prefix="golden")
@@ -1356,6 +1443,50 @@ def function_curves():
     )
     ax.function("x/3")
     ax.legend()
+    return fig
+
+
+def function_curves_beside_modelled_lets():
+    """Function and derived curves after a histogram's and a colour's ``let``.
+
+    Each function curve has a series after it, so one kept raw would move.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.hist([0, 0.2, 0.4, 0.6, 0.9], bins=4, range=(0, 1), histtype="step")
+    ax.function("sin(x)", xmin=0, xmax=1)
+    ax.errorbar([0.2, 0.5], [0.3, 0.6], yerr=[0.1, 0.1])
+    ax.scatter([0.1, 0.4, 0.8], [0.2, 0.5, 0.7], c=[0.1, 0.5, 0.9])
+    ax.function("x/2", xmin=0, xmax=1)
+    ax.plot([0, 1], [1, 0])
+    ax.derived("d1*2", [ax.lines[0]])
+    ax.plot([0, 1], [0.5, 0.5])
+    return fig
+
+
+def one_point_default_width():
+    """A 1 pt default width: each kind's ``lwidth 0.03528`` comes back as 1 pt.
+
+    The writer reads 1 pt as "the style default", so a recovered 1 pt width
+    is kept as given rather than widened to the default it was loaded with.
+    """
+    fig = glp.figure(
+        style=glp.GLEStyleConfig(default_linewidth=1.0), data_prefix="golden"
+    )
+    ax = fig.add_subplot(131)
+    ax.plot([0, 1, 2], [1, 2, 1], label="line")
+    ax.errorbar([0, 1, 2], [2, 3, 2], yerr=0.2, fmt="o-")
+    ax.hist([0.2, 0.4, 0.4, 1.6], bins=2, range=(0, 2), histtype="step")
+    ax.axhline(1.5, label="guide")
+    ax.legend()
+    curves = fig.add_subplot(132)
+    curves.function("x/2", xmin=0, xmax=2)
+    curves.contour([[0.0, 1.0, 2.0], [1.0, 2.0, 3.0]], levels=[1.5])
+    # Nothing resolves the y range, so this guide is a layered draw call.
+    guides = fig.add_subplot(133)
+    guides.axvline(1.0, label="drawn")
+    guides.set_xlim(0, 2)
+    guides.legend()
     return fig
 
 
@@ -1789,6 +1920,7 @@ BUILDERS = [
     errorbar_symmetric,
     errorbar_asymmetric_xy,
     errorbar_field_options,
+    errorbar_data_range,
     fill_between,
     text_annotations,
     axes_fraction_text,
@@ -1817,6 +1949,7 @@ BUILDERS = [
     heatmap_imshow_colorbar,
     heatmap_grid_colorbars,
     heatmap_field_options,
+    heatmap_inverted_colorbars,
     heatmap_brewer_palettes,
     heatmap_reversed_palettes,
     heatmap_pcolormesh,
@@ -1828,6 +1961,9 @@ BUILDERS = [
     contour_field_options,
     tripcolor_tricontour_combo,
     custom_tick_labels,
+    no_ticks,
+    no_ticks_styled,
+    no_ticks_twins,
     tick_intervals,
     tick_label_nofirst_nolast,
     line_modes,
@@ -1843,6 +1979,8 @@ BUILDERS = [
     segment_lines,
     histogram,
     function_curves,
+    function_curves_beside_modelled_lets,
+    one_point_default_width,
     fit_curves,
     closed_form_fits,
     fit_result_legends,

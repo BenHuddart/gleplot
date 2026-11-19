@@ -9,7 +9,7 @@ change and save again like any figure you built in Python.
 import gleplot as glp
 
 fig = glp.open_gle('figure.gle')
-ax = fig.axes_list[0]          # the axes, in the order of the graph blocks
+ax = fig.axes[0]               # the axes, in the order of the graph blocks
 ax.set_title('Revised title')
 fig.savefig('figure_revised.gle')
 ```

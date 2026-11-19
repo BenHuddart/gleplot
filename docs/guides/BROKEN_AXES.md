@@ -161,7 +161,11 @@ The x title and the title are written as absolute page text centred on the
 *whole* assembly, because GLE's own `xtitle`/`title` centre on their own
 graph box. The default offsets reproduce GLE's native placement for the
 figure's font size (measured against a native `xtitle` render to ~0.02 cm);
-`xlabel_dist`/`title_dist` override them.
+`xlabel_dist`/`title_dist` override them. These shared titles are drawn in
+the figure's font and colour: `fontsize`, `color`, `labelpad`, `pad`,
+`fontname` and the other text keywords warn and are ignored. A title a
+segment owns (the y title of a broken x-axis, the x title of a broken
+y-axis) takes them as `Axes.set_xlabel`/`set_ylabel` does.
 
 ## Practical notes
 

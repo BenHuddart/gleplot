@@ -10,6 +10,7 @@ sidecar machinery below is unchanged for inline figures and byte-for-byte
 identical to what it produced before sources existed.
 """
 
+import hashlib
 import math
 import re
 from dataclasses import dataclass, field, replace
@@ -21,6 +22,7 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    NamedTuple,
     Optional,
     Sequence,
     Set,
@@ -714,6 +716,9 @@ class _SharedSidecar:
         self.keys: List[str] = []
         self.names: List[str] = []
         self.columns: List[np.ndarray] = []
+        #: Whether the file gets a header row: not when an inline series
+        #: whose own file had none shares it (a header could name its keys).
+        self.named = True
 
     def index_of(self, key: str, values: np.ndarray, name: str) -> int:
         """1-based column index of ``key``, appending it on first mention."""
@@ -738,6 +743,14 @@ class _SharedSidecar:
                 for i, name in enumerate(self.names)
             ]
         )
+
+
+class _InlineSidecar(NamedTuple):
+    """The sidecar one inline series wrote: its columns, header, column keys."""
+
+    columns: List[Tuple[str, np.ndarray]]
+    column_names: Optional[List[str]]
+    keys: List[str]
 
 
 # -- write-time source resolution ----------------------------------------------
@@ -1518,6 +1531,10 @@ class GLEWriter:
         # contributed, so they are rendered into ``data_files`` by
         # :meth:`finalize_shared_sidecars` at the end of the write.
         self._shared_sidecars: Dict[str, _SharedSidecar] = {}
+        # Each sidecar an inline series wrote, as (columns, header names,
+        # column keys), so a second series naming the same file is merged
+        # into it rather than overwriting it (see _write_inline_columns).
+        self._inline_sidecars: Dict[str, _InlineSidecar] = {}
         # Raw-content sidecars (heatmap/contour ``.z`` grids and scattered
         # ``points.dat`` triples). They are written like any data file but are
         # NOT columnar imports, so they are excluded from the ``import-data``
@@ -2043,6 +2060,7 @@ class GLEWriter:
         y2style: Optional[AxisStyle] = None,
         x2style: Optional[AxisStyle] = None,
         x2_series: bool = False,
+        y2_series: bool = False,
         title_size: Optional[float] = None,
         title_color: Optional[str] = None,
         title_dist: Optional[float] = None,
@@ -2092,6 +2110,10 @@ class GLEWriter:
         xplaces, yplaces : list of float, optional
             Explicit tick positions (GLE ``xplaces``/``yplaces``), emitted as
             their own statement. Overrides the automatic/``dticks`` placement.
+            An empty list is ``xticks off`` and ``xlabels off`` instead (GLE
+            reads a bare ``xplaces`` as automatic placement), with no names,
+            no-tick positions or tick styling; a top or right scale in use
+            is switched back on after them, as GLE copies both onto it.
         xnames, ynames : list of str, optional
             Tick labels to go with ``xplaces``/``yplaces`` (GLE
             ``xnames``/``ynames``). Must be the same length as the
@@ -2118,6 +2140,8 @@ class GLEWriter:
             ``xaxis log`` onto x2 (``do_axis_part_all``), so a linear top
             scale that actually carries data has to say ``x2axis lin``
             afterwards. A figure that never uses the top scale does not.
+        y2_series : bool
+            True when a dataset is drawn against the right-hand scale.
         title_size, title_color, title_dist, title_font : optional
             The graph title's ``hei`` (points), ``color``, ``dist`` (cm) and
             ``font`` -- GLE ``title "..." hei H color C font F dist D``. GLE's title belongs to
@@ -2194,6 +2218,7 @@ class GLEWriter:
             places=xplaces,
             names=xnames,
             show_ticks=show_xticks,
+            frame_off=frame_off,
         )
         self._add_primary_axis(
             "y",
@@ -2209,6 +2234,7 @@ class GLEWriter:
             places=yplaces,
             names=ynames,
             show_ticks=show_yticks,
+            frame_off=frame_off,
         )
         self._add_y2_axis(
             y2min,
@@ -2218,6 +2244,8 @@ class GLEWriter:
             style=y2style,
             off=y2axis_off,
             yaxis_off=yaxis_off,
+            y2_series=y2_series,
+            yticks_off=yplaces == [] and not frame_off,
         )
         self._add_x2_axis(
             x2min,
@@ -2229,6 +2257,7 @@ class GLEWriter:
             xaxis_off=xaxis_off,
             xlog=xlog,
             x2_series=x2_series,
+            xticks_off=xplaces == [] and not frame_off,
         )
         if frame_off:
             for prefix in ("x", "y"):
@@ -2262,6 +2291,7 @@ class GLEWriter:
         places: Optional[List[float]],
         names: Optional[List[str]],
         show_ticks: bool,
+        frame_off: bool,
     ) -> None:
         """The ``xaxis``/``yaxis`` line, its places/names, labels and grid."""
         lo, hi, negate = self._axis_direction(lo, hi)
@@ -2286,6 +2316,16 @@ class GLEWriter:
         if cmd != bare:
             self.lines_gle.append(cmd)
 
+        if places == []:
+            # GLE reads an empty 'xplaces' as "place them automatically", so
+            # no ticks is 'xticks off' (which takes the subticks too) and no
+            # labels; styling ticks that are not drawn would be a no-op. A
+            # hidden frame writes its own 'xticks off' (see add_axes).
+            if not frame_off:
+                self.lines_gle.append(f"    {prefix}ticks off")
+            self.lines_gle.append(f"    {prefix}labels off")
+            self._add_axis_line_style(prefix, style)
+            return
         if places is not None:
             self.lines_gle.append(
                 f"    {prefix}places "
@@ -2322,6 +2362,8 @@ class GLEWriter:
         style: AxisStyle,
         off: bool,
         yaxis_off: bool,
+        y2_series: bool,
+        yticks_off: bool,
     ) -> None:
         """The ``y2axis`` line and ``y2labels on``, when y2 is configured.
 
@@ -2377,10 +2419,9 @@ class GLEWriter:
         # harmless, idempotent no-op for the already-working series case
         # (GLE has no "on but no numbers" state to disturb).
         y2_used = lo is not None or hi is not None or log or bool(label)
-        if not off and (y2_used or style.has_tick_label_styling()):
-            opts = self._text_options(style.label_size, style.label_color, None)
-            self.lines_gle.append(f"    y2labels on{opts}")
-        self._add_axis_line_style("y2", style)
+        self._add_twin_ticks_labels(
+            "y2", style, off, y2_used, y2_used or y2_series, yticks_off
+        )
 
     def _add_x2_axis(
         self,
@@ -2394,6 +2435,7 @@ class GLEWriter:
         xaxis_off: bool,
         xlog: bool,
         x2_series: bool,
+        xticks_off: bool,
     ) -> None:
         """The top scale: the ``x2axis`` line and ``x2labels on``.
 
@@ -2448,10 +2490,33 @@ class GLEWriter:
             if cmd != "    x2axis":
                 self.lines_gle.append(cmd)
         x2_used = lo is not None or hi is not None or log or bool(label)
-        if not off and (x2_used or style.has_tick_label_styling()):
+        self._add_twin_ticks_labels(
+            "x2", style, off, x2_used, x2_used or x2_series, xticks_off
+        )
+
+    def _add_twin_ticks_labels(
+        self,
+        prefix: str,
+        style: AxisStyle,
+        off: bool,
+        used: bool,
+        in_use: bool,
+        primary_ticks_off: bool,
+    ) -> None:
+        """``y2labels on`` (or ``x2``), the ticks switch, and the side style.
+
+        ``used`` is a configured scale, ``in_use`` one that is configured or
+        carries a dataset. A primary axis with no ticks writes ``yticks off``
+        and ``ylabels off``, which GLE copies onto y2 (``do_axis_part_all``),
+        so a scale in use is switched back on after them.
+        """
+        reenable = not off and primary_ticks_off and in_use
+        if reenable:
+            self.lines_gle.append(f"    {prefix}ticks on")
+        if not off and (used or reenable or style.has_tick_label_styling()):
             opts = self._text_options(style.label_size, style.label_color, None)
-            self.lines_gle.append(f"    x2labels on{opts}")
-        self._add_axis_line_style("x2", style)
+            self.lines_gle.append(f"    {prefix}labels on{opts}")
+        self._add_axis_line_style(prefix, style)
 
     # -- axes styling helpers -------------------------------------------
 
@@ -3004,17 +3069,101 @@ class GLEWriter:
         sidecar named by it and the indices are wherever they landed there.
         """
         if binding is None:
+            return self._write_inline_columns(data_file, named_columns, column_names)
+
+        shared = self._shared_sidecars.get(binding.data_file)
+        if shared is None:
+            shared = self._shared_sidecars[binding.data_file] = _SharedSidecar()
+            prior = self._inline_sidecars.get(binding.data_file)
+            if prior is not None:
+                self._seed_shared(shared, prior)
+        indices = []
+        for role, array in named_columns:
+            key, name = binding.column_for(role)
+            indices.append(
+                self._share_column(shared, binding.data_file, key, array, name)
+            )
+        return indices
+
+    def _write_inline_columns(
+        self,
+        data_file: str,
+        named_columns: Sequence[Tuple[str, np.ndarray]],
+        column_names: Optional[List[str]],
+    ) -> List[int]:
+        """An inline series' columns, in a file of its own unless one is named.
+
+        Several series can name one file: a figure read back from a sidecar a
+        data provider shared, or a broken axis whose segments all write the
+        same data. A file already holding every column (same name, same
+        written text) is read as it is; otherwise the columns join a shared
+        sidecar, each such column stored once, the first series' own columns
+        kept in place so its ``data`` line still reads them.
+        """
+        if column_names and len(column_names) != len(named_columns):
+            raise ValueError(
+                f"column_names has {len(column_names)} entries but there are "
+                f"{len(named_columns)} columns for {data_file!r}"
+            )
+        names = [
+            column_names[i] if column_names else role
+            for i, (role, _array) in enumerate(named_columns)
+        ]
+        keys = [
+            self._column_key(name, array)
+            for name, (_role, array) in zip(names, named_columns)
+        ]
+        shared = self._shared_sidecars.get(data_file)
+        prior = self._inline_sidecars.get(data_file)
+        if shared is None and prior is None:
+            self._inline_sidecars[data_file] = _InlineSidecar(
+                list(named_columns), column_names, keys
+            )
             self.add_data_file(
                 data_file, [array for _role, array in named_columns], column_names
             )
             return list(range(1, len(named_columns) + 1))
+        if shared is None:
+            assert prior is not None
+            if all(key in prior.keys for key in keys):
+                return [prior.keys.index(key) + 1 for key in keys]
+            shared = self._shared_sidecars[data_file] = _SharedSidecar()
+            self._seed_shared(shared, prior)
+        if column_names is None:
+            shared.named = False
+        return [
+            self._share_column(shared, data_file, key, array, name)
+            for key, name, (_role, array) in zip(keys, names, named_columns)
+        ]
 
-        shared = self._shared_sidecars.setdefault(binding.data_file, _SharedSidecar())
-        indices = []
-        for role, array in named_columns:
-            key, name = binding.column_for(role)
-            indices.append(shared.index_of(key, array, name))
-        return indices
+    @staticmethod
+    def _seed_shared(shared: _SharedSidecar, prior: _InlineSidecar) -> None:
+        """Put the columns an inline series already wrote first, in place."""
+        shared.named = prior.column_names is not None
+        for i, (key, (role, array)) in enumerate(zip(prior.keys, prior.columns)):
+            name = prior.column_names[i] if prior.column_names else role
+            # A column the series repeats keeps its own index.
+            shared.index_of(
+                key if key not in shared.keys else f"{key}\x00{i}", array, name
+            )
+
+    @staticmethod
+    def _share_column(
+        shared: _SharedSidecar, data_file: str, key: str, array: Any, name: str
+    ) -> int:
+        """``shared.index_of``, refusing a column the file's rows cannot hold."""
+        if shared.columns and len(array) != len(shared.columns[0]):
+            raise ValueError(
+                f"Two series write the data file {data_file!r} with "
+                f"{len(shared.columns[0])} and {len(array)} rows. Give one of "
+                "them its own data_file."
+            )
+        return shared.index_of(key, array, name)
+
+    def _column_key(self, name: str, array: Any) -> str:
+        """A column's name and a digest of its written text."""
+        text = "\n".join(self._format_column(np.asarray(array).ravel()))
+        return f"{name}\x00{hashlib.sha1(text.encode('utf-8')).hexdigest()}"
 
     def finalize_shared_sidecars(self) -> None:
         """Render the accumulated provider-table sidecars into ``data_files``.
@@ -3024,7 +3173,8 @@ class GLEWriter:
         """
         for filename, shared in self._shared_sidecars.items():
             if shared.columns:
-                self.add_data_file(filename, shared.columns, shared.header())
+                header = shared.header() if shared.named else None
+                self.add_data_file(filename, shared.columns, header)
         self._shared_sidecars.clear()
 
     def reserve_datasets(self, raw_lines: Sequence[str]) -> None:
@@ -3170,7 +3320,8 @@ class GLEWriter:
         binding : ColumnBinding, optional
             Present when this series was resolved from a provider table; its
             columns then go into a sidecar shared with the other series on
-            that table (see :meth:`_write_columns`).
+            that table (see :meth:`_write_columns`). A ``gaps`` series gets
+            its own copy of a table column holding NaN, written with ``*``.
 
         Notes
         -----
@@ -3181,7 +3332,8 @@ class GLEWriter:
           dataset.
         - ``color``: ``None`` writes no ``color``, so GLE draws in the current
           colour (a recovered dataset line that set none).
-        - ``linewidth``: points; 0 or 1 means the style's default width, and
+        - ``linewidth``: points; 0 or 1 means the style's default width
+          (unless ``_lwidth_verbatim``, see :meth:`_lwidth_cm`), and
           ``None`` writes no ``lwidth`` (GLE's current line width).
         - ``nomiss``: draw a line through missing values instead of leaving a
           gap (GLE's ``nomiss`` qualifier). No effect when no line is drawn.
@@ -3199,7 +3351,7 @@ class GLEWriter:
           ``'impulses'``): GLE's ``dn line`` mode, emitted immediately after
           ``line``. Absent leaves the bare ``line`` token.
         - ``mdist``, ``deresolve``, ``deresolve_average`` and the ``xmin`` /
-          ``xmax`` / ``ymin`` / ``ymax`` clip window: GLE's dataset
+          ``xmax`` / ``ymin`` / ``ymax`` data range: GLE's dataset
           qualifiers, see :meth:`_dataset_qualifier_clause`. A series with
           its own ``deresolve`` gets no preview-only one.
         - ``gaps``: NaN rows are written ``*`` (GLE's missing value), so the
@@ -3237,11 +3389,17 @@ class GLEWriter:
             x_array, has_line, shared=binding is not None, smooth_mode=smooth_mode
         )
         x_rows, y_rows = x_array[order], y_array[order]
-        if series.get("gaps") and binding is None:
+        if series.get("gaps"):
             # GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks
-            # the line there.
-            x_rows = self._as_missing(x_rows, np.isnan(np.asarray(x_rows, dtype=float)))
-            y_rows = self._as_missing(y_rows, np.isnan(np.asarray(y_rows, dtype=float)))
+            # the line there. A table column another series may read keeps
+            # its values, so this series gets its own copy.
+            x_gaps = np.isnan(np.asarray(x_rows, dtype=float))
+            y_gaps = np.isnan(np.asarray(y_rows, dtype=float))
+            x_rows = self._as_missing(x_rows, x_gaps)
+            y_rows = self._as_missing(y_rows, y_gaps)
+            if binding is not None:
+                private = [r for r, m in (("x", x_gaps), ("y", y_gaps)) if m.any()]
+                binding = binding.with_private(private)
         cols = self._write_columns(
             data_file,
             [("x", x_rows), ("y", y_rows)],
@@ -3278,7 +3436,9 @@ class GLEWriter:
             line_cmd += self._line_token(smooth_mode, svg_smooth, line_mode)
             if nomiss:
                 line_cmd += " nomiss"
-            line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
+            line_cmd += self._color_clause(color) + self._lwidth_clause(
+                linewidth, series
+            )
 
             # Use configured line styles from style config. (A stray second
             # ``lstyle 4`` used to follow the dash-dot case here, overriding
@@ -3808,7 +3968,7 @@ class GLEWriter:
                 linewidth = 1.0
         line_cmd = f"    {target}"
         line_cmd += self._line_token(smooth_mode="none", line_mode="hist")
-        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
+        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth, series)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
         elif linestyle == ":":
@@ -3989,7 +4149,7 @@ class GLEWriter:
         label = series.get("label")
         line_cmd = f"    {target}" + self._line_token(smooth_mode="none")
         line_cmd += self._color_clause(series.get("color"))
-        line_cmd += self._lwidth_clause(series.get("linewidth"))
+        line_cmd += self._lwidth_clause(series.get("linewidth"), series)
         if linestyle in ("--", ":", "-."):
             line_cmd += f" lstyle {self._lstyle_for(linestyle)}"
         expression = self._fit_keys.get(id(series))
@@ -4482,9 +4642,13 @@ class GLEWriter:
 
         - ``linestyle``: a matplotlib linestyle (``'-'``, ``'--'``, ``':'``,
           ``'-.'``); ``'none'`` or empty draws no line.
-        - ``linewidth``: points; 0 or 1 means the style's default width.
+        - ``linewidth``: points; 0 or 1 means the style's default width
+          (unless ``_lwidth_verbatim``, see :meth:`_lwidth_cm`).
         - ``gle_capsize``: the cap width in cm. A series without it (one saved
           before it existed) falls back to ``capsize``.
+        - ``xmin`` / ``xmax`` / ``ymin`` / ``ymax``: GLE's dataset range,
+          see :meth:`_dataset_qualifier_clause`. GLE draws the error bars
+          against it as well as the line and markers.
         - ``column_names``: the sidecar header row (e.g. ``['x', 'signal',
           'err']``). Only the MAIN dataset's ``key`` clause needs suppressing
           when unlabeled (see :meth:`_key_clause`) -- error sub-datasets
@@ -4664,7 +4828,7 @@ class GLEWriter:
             color_emitted = True
             # Also add line if linestyle is not 'none'
             if has_line:
-                line_cmd += self._line_token() + self._lwidth_clause(linewidth)
+                line_cmd += self._line_token() + self._lwidth_clause(linewidth, series)
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
                 elif linestyle == ":":
@@ -4674,7 +4838,9 @@ class GLEWriter:
         else:
             if has_line:
                 line_cmd += self._line_token()
-                line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
+                line_cmd += self._color_clause(color) + self._lwidth_clause(
+                    linewidth, series
+                )
                 color_emitted = True
                 if linestyle == "--":
                     line_cmd += f" lstyle {self.style.line_style_dashed}"
@@ -4719,6 +4885,7 @@ class GLEWriter:
 
         # Add y2axis directive if using secondary y-axis
         line_cmd += self._dataset_axis_clause(xaxis, yaxis)
+        line_cmd += self._dataset_qualifier_clause(series, False)
 
         line_cmd += self._key_clause(label, has_header)
         # No preview-decimation clause here, deliberately: this dataset
@@ -4933,7 +5100,7 @@ class GLEWriter:
         line_cmd = f"    {d_draw}{self._line_token(smooth_mode, line_mode=line_mode)}"
         if nomiss:
             line_cmd += " nomiss"
-        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth)
+        line_cmd += self._color_clause(color) + self._lwidth_clause(linewidth, series)
         if linestyle == "--":
             line_cmd += f" lstyle {self.style.line_style_dashed}"
         elif linestyle == ":":
@@ -5721,7 +5888,7 @@ class GLEWriter:
         self,
         color: str,
         linestyle: Optional[str] = None,
-        linewidth: Optional[float] = None,
+        series: Optional[Series] = None,
         marker: Optional[str] = None,
         markersize: Optional[float] = None,
         fill: Optional[str] = None,
@@ -5735,7 +5902,8 @@ class GLEWriter:
         width and ``lstyle`` the dataset command would, which is what makes
         ``entry->lstyle`` non-empty so the key draws a stroke
         (``key.cpp``). A marker-only series is ``marker`` / ``msize`` /
-        ``color``, the same tokens as the dataset line.
+        ``color``, the same tokens as the dataset line. ``series`` is the
+        one whose ``linewidth`` the stroke restates (1 pt when it has none).
         """
         if fill is not None:
             return f"fill {fill}" + (f" pattern {pattern}" if pattern else "")
@@ -5743,8 +5911,9 @@ class GLEWriter:
         has_line = linestyle not in ("none", "None", "", " ", None)
         if has_line:
             parts.append(f"color {color}")
-            width = self._guide_lwidth_cm(
-                1.0 if linewidth is None else float(linewidth)
+            linewidth = None if series is None else series.get("linewidth")
+            width = self._lwidth_cm(
+                1.0 if linewidth is None else float(linewidth), series
             )
             parts.append(f"lwidth {self._format_number(width)}")
             style = self._lstyle_for(linestyle or "-")
@@ -6256,10 +6425,11 @@ class GLEWriter:
             sub = "gleplot_colorbar_v"
             size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
         lbl = self._escape_gle_string(cb.get("label") or "")
+        cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
         self.lines_gle.append(
             f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
             f"zstep {fmt(cb['zstep'])} "
-            f'palette "{_pal.palette_call_name(series["cmap"])}" {size} '
+            f'palette "{_pal.palette_call_name(cmap)}" {size} '
             f'format "{cb["format"]}" label "{lbl}"'
         )
 
@@ -6292,10 +6462,7 @@ class GLEWriter:
         the lines are the ``-cdata.dat`` file its contour block generates,
         drawn in ``color`` at ``linewidth`` and ``linestyle``.
         """
-        cdata = _grid_z_file(series)[:-2] + "-cdata.dat"
-        self.add_contour_line(
-            cdata, series["color"], series["linewidth"], series["linestyle"]
-        )
+        self.add_contour_line(series)
 
     def add_contour_labels(self, series: Series):
         """Emit the contour-label sub call after a contour's graph, if asked.
@@ -6346,24 +6513,22 @@ class GLEWriter:
             cmd += " interpolate nearest"
         self.lines_gle.append(cmd)
 
-    def add_contour_line(
-        self, cdata_file: str, color: str, linewidth: float, lstyle: Optional[int]
-    ):
+    def add_contour_line(self, series: Series):
         """Emit the ``data``/``dN line`` pair that draws a contour's polylines.
 
-        ``cdata_file`` is the ``-cdata.dat`` file GLE generates from the
-        contour block; it is plotted as a ``line`` dataset.
+        The ``-cdata.dat`` file GLE generates from the contour block is
+        plotted as a ``line`` dataset in the contour's ``color``,
+        ``linewidth`` and ``linestyle``.
         """
+        cdata_file = _grid_z_file(series)[:-2] + "-cdata.dat"
         d_name = self._new_dataset()
         self.lines_gle.append(f"    data {_quote_filename(cdata_file)} {d_name}=c1,c2")
-        if linewidth == 0 or linewidth == 1:
-            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
-        else:
-            gle_lwidth = linewidth_pt_to_cm(linewidth)
+        gle_lwidth = self._lwidth_cm(series["linewidth"], series)
         cmd = (
-            f"    {d_name} line color {color} "
+            f"    {d_name} line color {series['color']} "
             f"lwidth {self._format_number(gle_lwidth)}"
         )
+        lstyle = series["linestyle"]
         if lstyle is not None:
             cmd += f" lstyle {int(lstyle)}"
         self.lines_gle.append(cmd)
@@ -6385,19 +6550,15 @@ class GLEWriter:
         """
         return "" if color is None else f" color {color}"
 
-    def _lwidth_clause(self, linewidth: Optional[float]) -> str:
+    def _lwidth_clause(self, linewidth: Optional[float], series: Series) -> str:
         """`` lwidth <cm>`` for a width in points, or nothing for ``None``.
 
-        0 or 1 means the style's default width. ``None`` is a recovered
-        dataset line that set no width; GLE draws it at the current width.
+        ``None`` is a recovered dataset line that set no width; GLE draws it
+        at the current width. 0 and 1 are as :meth:`_lwidth_cm` reads them.
         """
         if linewidth is None:
             return ""
-        if linewidth == 0 or linewidth == 1:
-            gle_lwidth = linewidth_pt_to_cm(self.style.default_linewidth)
-        else:
-            gle_lwidth = linewidth_pt_to_cm(linewidth)
-        return f" lwidth {self._format_number(gle_lwidth)}"
+        return f" lwidth {self._format_number(self._lwidth_cm(linewidth, series))}"
 
     # -- guides drawn against GLE's own range (G17) ----------------------
 
@@ -6419,9 +6580,14 @@ class GLEWriter:
             "-.": self.style.line_style_dashdot,
         }.get(linestyle, 0)
 
-    def _guide_lwidth_cm(self, linewidth: float) -> float:
-        """A guide's ``lwidth`` in cm, with :meth:`add_line`'s defaulting."""
-        if linewidth == 0 or linewidth == 1:
+    def _lwidth_cm(self, linewidth: float, series: Optional[Series]) -> float:
+        """A width in points as GLE ``lwidth`` cm.
+
+        0 or 1 means the style's default width, unless ``series`` carries
+        ``_lwidth_verbatim``: a width read from a file is written as given.
+        """
+        verbatim = series is not None and series.get("_lwidth_verbatim", False)
+        if (linewidth == 0 or linewidth == 1) and not verbatim:
             return linewidth_pt_to_cm(self.style.default_linewidth)
         return linewidth_pt_to_cm(linewidth)
 
@@ -6439,21 +6605,40 @@ class GLEWriter:
     def add_refline(self, series: Series):
         """Draw a reference line as a layered ``draw`` call (G17).
 
-        ``series`` is the :class:`~gleplot.series.RefLine` declaration; its
-        ``orient``, ``value``, ``span_lo``/``span_hi``, ``color``,
-        ``linestyle``, ``linewidth`` and ``label`` go to
-        :meth:`add_refline_draw`, which says when this form is used.
+        ``series`` is the :class:`~gleplot.series.RefLine` declaration.
+
+        Used only when the axis the guide spans has an unresolved bound, so
+        the fraction ``span_lo``..``span_hi`` has to be taken against the
+        range GLE picks rather than one gleplot invents -- see
+        :meth:`gleplot.axes.Axes.guide_needs_engine_range`.
+
+        A labelled guide also gets a **data-free** ``dN`` display line
+        carrying the same style and the ``key`` text. A ``draw`` owns no
+        dataset and so cannot carry a key itself; an empty dataset can, and
+        (verified against GLE 4.3.10) draws no ink and takes no part in
+        autoscale, so the legend entry survives without the literal dataset
+        coming back.
         """
-        self.add_refline_draw(
-            series["orient"],
-            series["value"],
-            series["span_lo"],
-            series["span_hi"],
-            series["color"],
-            series["linestyle"],
-            series["linewidth"],
-            series["label"],
+        orient = series["orient"]
+        color = series["color"]
+        linestyle = series["linestyle"]
+        label = series["label"]
+        gle_lwidth = self._lwidth_cm(series["linewidth"], series)
+        self._add_guide_draw(
+            REFLINE_LAYER,
+            guide_sub_name("refline", orient),
+            [
+                self._format_number(series["value"]),
+                self._format_number(series["span_lo"]),
+                self._format_number(series["span_hi"]),
+                f'"{self._escape_gle_string(color)}"',
+                self._format_number(gle_lwidth),
+                str(self._lstyle_for(linestyle)),
+                f'"{self._escape_gle_string(label or "")}"',
+            ],
         )
+        if label:
+            self.add_guide_key(color, linestyle, gle_lwidth, label)
 
     def add_refline_dataset(self, series: Series, line: Series):
         """Draw a reference line as a marked two-point dataset.
@@ -6468,48 +6653,6 @@ class GLEWriter:
             series["orient"], series["value"], series["span_lo"], series["span_hi"]
         )
         self.add_line(line)
-
-    def add_refline_draw(
-        self,
-        orient: str,
-        value: float,
-        span_lo: float,
-        span_hi: float,
-        color: str,
-        linestyle: str,
-        linewidth: float,
-        label: Optional[str],
-    ):
-        """Emit an ``axvline``/``axhline`` as a layered ``draw`` call (G17).
-
-        Used only when the axis the guide spans has an unresolved bound, so
-        the fraction ``span_lo``..``span_hi`` has to be taken against the
-        range GLE picks rather than one gleplot invents -- see
-        :meth:`gleplot.axes.Axes.guide_needs_engine_range`.
-
-        A labelled guide also gets a **data-free** ``dN`` display line
-        carrying the same style and the ``key`` text. A ``draw`` owns no
-        dataset and so cannot carry a key itself; an empty dataset can, and
-        (verified against GLE 4.3.10) draws no ink and takes no part in
-        autoscale, so the legend entry survives without the literal dataset
-        coming back.
-        """
-        gle_lwidth = self._guide_lwidth_cm(linewidth)
-        self._add_guide_draw(
-            REFLINE_LAYER,
-            guide_sub_name("refline", orient),
-            [
-                self._format_number(value),
-                self._format_number(span_lo),
-                self._format_number(span_hi),
-                f'"{self._escape_gle_string(color)}"',
-                self._format_number(gle_lwidth),
-                str(self._lstyle_for(linestyle)),
-                f'"{self._escape_gle_string(label or "")}"',
-            ],
-        )
-        if label:
-            self.add_guide_key(color, linestyle, gle_lwidth, label)
 
     def add_span(self, series: Series):
         """Draw a span as a layered ``draw`` call (G17).

@@ -527,19 +527,28 @@ def subplots(
     return fig, axes_list
 
 
-def xlabel(label: str):
-    """Set x label on current axes."""
-    return gca().set_xlabel(label)
+def xlabel(label: str, fontdict=None, labelpad=None, *, loc=None, **kwargs):
+    """Set x label on current axes: :meth:`Axes.set_xlabel` on :func:`gca`."""
+    return gca().set_xlabel(
+        label, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs
+    )
 
 
-def ylabel(label: str):
-    """Set y label on current axes."""
-    return gca().set_ylabel(label)
+def ylabel(label: str, fontdict=None, labelpad=None, *, loc=None, **kwargs):
+    """Set y label on current axes: :meth:`Axes.set_ylabel` on :func:`gca`."""
+    return gca().set_ylabel(
+        label, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs
+    )
 
 
-def title(label: str):
-    """Set title on current axes."""
-    return gca().set_title(label)
+def title(label: str, fontdict=None, loc=None, pad=None, *, y=None, **kwargs):
+    """Set title on current axes: :meth:`Axes.set_title` on :func:`gca`.
+
+    ``y`` warns and is ignored, as on :meth:`Axes.set_title`.
+    """
+    if y is not None:
+        kwargs["y"] = y
+    return gca().set_title(label, fontdict, loc, pad, **kwargs)
 
 
 def legend(**kwargs):
