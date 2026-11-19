@@ -1778,6 +1778,24 @@ def _line_style(caller: str, linestyle):
     return "-"
 
 
+def _drawn_line_mode(mode, linestyle, linewidth):
+    """``mode``, or ``None`` when ``linestyle`` draws no line.
+
+    A GLE line mode is a qualifier of ``line``; with the line switched off
+    there is nothing for it to qualify. That warns, unless ``linewidth`` is
+    0: ``lw=0`` asked for no stroke, and the mode goes with it.
+    """
+    if mode and linestyle in _NO_LINE:
+        if linewidth != 0:
+            warn_external(
+                f"line mode {mode!r} needs a drawn line; "
+                f"linestyle={linestyle!r} omits it, so the series is drawn "
+                "without that mode.",
+            )
+        return None
+    return mode
+
+
 def _color_list(name: str, colors, default: list) -> list:
     """A ``colors`` argument as a list to cycle over layers or segments.
 
@@ -2870,17 +2888,7 @@ class Axes:
         # (not silently dropped). Only when there is *no* line is the series a
         # true scatter.
         is_scatter = marker is not None and linestyle in _NO_LINE
-        # A GLE line mode is a qualifier of ``line``. With the line switched
-        # off there is nothing for it to qualify, and storing it would not
-        # survive a round trip (the writer emits no ``line`` token).
-        if mode and linestyle in _NO_LINE:
-            if linewidth != 0:  # lw=0 asked for no stroke: the mode goes too
-                warn_external(
-                    f"line mode {mode!r} needs a drawn line; "
-                    f"linestyle={linestyle!r} omits it, so the series is drawn "
-                    "without that mode.",
-                )
-            mode = None
+        mode = _drawn_line_mode(mode, linestyle, linewidth)
 
         # Handle color. Which style default applies depends on what this
         # series turns out to be, which is why it is resolved after
@@ -4445,14 +4453,7 @@ class Axes:
         width = float(_line_width("line_from_file", linewidth))
         linestyle = _stroked(linestyle, width)
         mode = resolve_line_mode(drawstyle, line_mode)
-        if mode and linestyle in _NO_LINE:
-            if width != 0:  # lw=0 asked for no stroke: the mode goes too
-                warn_external(
-                    f"line mode {mode!r} needs a drawn line; "
-                    f"linestyle={linestyle!r} omits it, so the series is drawn "
-                    "without that mode.",
-                )
-            mode = None
+        mode = _drawn_line_mode(mode, linestyle, width)
 
         fields = dict(
             series_type="line",
