@@ -3,6 +3,7 @@
 import json
 import re
 
+import numpy as np
 import pytest
 
 import gleplot as glp
@@ -378,6 +379,36 @@ class TestSubplots:
         restored = Figure.from_dict(json.loads(json.dumps(payload)))
         assert restored.axes_list[0].position == (2, 2, (1, 2))
         assert restored.to_dict() == payload
+
+    @pytest.mark.parametrize("idx", [5, 0, -1, 1.0, "1", None])
+    def test_add_subplot_rejects_an_index_off_the_grid(self, idx):
+        """As matplotlib: an integer from 1 to rows*cols, at the call."""
+        fig = glp.figure()
+        with pytest.raises(ValueError, match=r"from 1 to 4"):
+            fig.add_subplot(2, 2, idx)
+        assert fig.axes_list == []
+
+    def test_add_subplot_accepts_a_numpy_integer_index(self):
+        ax = glp.figure().add_subplot(2, 2, np.int64(4))
+        assert ax.position == (2, 2, 4) and type(ax.position[2]) is int
+
+    @pytest.mark.parametrize(
+        "args", [(0, 2, 1), (-1, -2, 1), (2.5, 2, 1), (2, "2", 1), (2, 2)]
+    )
+    def test_add_subplot_rejects_a_bad_grid(self, args):
+        with pytest.raises(ValueError, match=r"add_subplot\("):
+            glp.figure().add_subplot(*args)
+
+    def test_add_subplot_numpy_grid_serializes(self):
+        fig = glp.figure()
+        fig.add_subplot(np.int64(2), np.int64(2), 1)
+        fig.add_subplot(np.int64(223))
+        json.dumps(fig.to_dict())
+        assert [ax.position for ax in fig.axes_list] == [(2, 2, 1), (2, 2, 3)]
+
+    def test_add_subplot_rejects_a_zero_three_digit_index(self):
+        with pytest.raises(ValueError, match=r"add_subplot\(2, 2, 0\)"):
+            glp.figure().add_subplot(220)
 
     def test_add_axes_places_the_frame_in_figure_fractions(self):
         fig = glp.figure(figsize=(10 / 2.54, 5 / 2.54))

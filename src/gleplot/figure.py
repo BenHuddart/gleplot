@@ -823,7 +823,8 @@ class Figure:
             figure's only subplot, ``(1, 1, 1)``. An index that is a
             ``(first, last)`` tuple spans every cell of the rectangle between
             those two, as in matplotlib: ``add_subplot(2, 2, (1, 2))`` takes
-            the whole top row.
+            the whole top row. Any other index, or one outside
+            ``1..rows*cols``, raises ``ValueError``, as in matplotlib.
         projection : {None, 'rectilinear', 'polar'}, optional
             ``'polar'`` makes a polar axes: :meth:`Axes.plot` and
             :meth:`Axes.scatter` take ``(theta, r)`` with theta in radians,
@@ -850,17 +851,36 @@ class Figure:
             )
         if not args:
             args = (1, 1, 1)
-        if len(args) == 1 and isinstance(args[0], int):
+        if len(args) == 1 and isinstance(args[0], (int, np.integer)):
             # Parse single int format (e.g., 221)
-            spec = str(args[0])
+            spec = str(int(args[0]))
             if len(spec) == 3:
                 rows, cols, idx = int(spec[0]), int(spec[1]), int(spec[2])
             else:
                 raise ValueError(f"Invalid subplot spec: {args[0]}")
-        else:
+        elif len(args) == 3:
             rows, cols, idx = args
+        else:
+            raise ValueError(
+                f"add_subplot{args!r}: expected (rows, cols, index) or a "
+                "three-digit integer such as 221."
+            )
+        for name, value in (("rows", rows), ("cols", cols)):
+            if not isinstance(value, (int, np.integer)) or value < 1:
+                raise ValueError(
+                    f"add_subplot({rows!r}, {cols!r}, {idx!r}): {name} must be a "
+                    f"positive integer, not {value!r}."
+                )
+        rows, cols = int(rows), int(cols)
         if isinstance(idx, (tuple, list)):
             idx = _subplot_span(rows, cols, idx)
+        elif isinstance(idx, (int, np.integer)) and 1 <= idx <= rows * cols:
+            idx = int(idx)
+        else:
+            raise ValueError(
+                f"add_subplot({rows}, {cols}, {idx!r}): the subplot index must be "
+                f"an integer from 1 to {rows * cols}, or a (first, last) tuple."
+            )
 
         ax = Axes(self, (rows, cols, idx))
 
