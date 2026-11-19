@@ -997,13 +997,39 @@ class TestSegmentLines:
         assert files[name].splitlines() == ["x y", "0 0", "* 1", "2 2"]
         assert f"data {name} d1=c1,c2" in text
 
-    def test_plot_still_writes_nan_without_gaps(self):
+    def test_plot_breaks_its_line_at_nan(self):
+        """matplotlib breaks a line at NaN; GLE at a missing value, ``*``."""
         self.ax.plot([0, float("nan"), 2], [0, float("nan"), 2])
+        self.ax.step([0, 1, 2], [0, float("nan"), 2])
         self.ax.set_xlim(0, 2)
         self.ax.set_ylim(0, 2)
         _text, files = self._generate()
-        assert "nan nan" in files["seg_0.dat"]
-        assert "*" not in files["seg_0.dat"]
+        assert files["seg_0.dat"].splitlines()[1:] == ["0 0", "* *", "2 2"]
+        assert "*" in files["seg_1.dat"] and "nan" not in files["seg_1.dat"]
+
+    def test_markers_alone_and_a_line_without_nan_keep_nan_rows(self):
+        self.ax.plot([0, float("nan"), 2], [0, 1, 2], linestyle="none", marker="o")
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        _text, files = self._generate()
+        assert "nan 1" in files["seg_0.dat"]
+        assert "*" not in files["seg_0.dat"] + files["seg_1.dat"]
+
+    def test_an_infinity_breaks_the_line_too(self):
+        self.ax.plot([0, 1, 2], [0, float("inf"), 2])
+        self.ax.set_xlim(0, 2)
+        self.ax.set_ylim(0, 2)
+        _text, files = self._generate()
+        assert files["seg_0.dat"].splitlines()[1:] == ["0 0", "1 *", "2 2"]
+
+    def test_a_gapped_line_warns_that_it_is_not_smoothed_or_thinned(self):
+        self.fig.graph.smooth_curves = True
+        with pytest.warns(UserWarning) as record:
+            self.ax.plot([0, 1, 2, 3], [0, float("nan"), 2, 3], deresolve=2)
+        messages = " ".join(str(w.message) for w in record)
+        assert "unsmoothed" in messages and "deresolve" in messages
+        assert "deresolve" not in self.ax.lines[0]
 
     def test_figure_and_module_wrappers(self):
         assert self.fig.vlines(1, 0, 1) is self.ax
@@ -3431,6 +3457,52 @@ def test_a_timestamp_heatmap_extent_keeps_its_width(tmp_path):
     header, marker = grid.splitlines()[:2]
     assert header.startswith("! nx 3 ny 2 xmin 1700000000 xmax 1700000090 ymin 0")
     assert marker.startswith("! gleplot: nodes xmin 1.7e+09 xmax 1.70000006e+09")
+
+
+def test_coordinates_on_a_timestamp_axis_keep_their_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1.7e9, 1.7e9 + 120], [1.0, 3.0])
+    ax.axvline(1.7e9 + 30)
+    ax.text(1.7e9 + 90, 2.0, "t")
+    ax.set_xticks([1.7e9 + 30])
+    files = _saved(fig, tmp_path)
+    script = files["fig.gle"]
+    assert "xplaces 1.70000003e+09" in script
+    assert "refline v value 1.70000003e+09" in script
+    assert "amove xg(1.70000009e+09) yg(2)" in script
+    assert "x y\n1.70000003e+09 1\n1.70000003e+09 3\n" in files.values()
+
+
+def test_a_one_sided_limit_is_held_to_the_data_it_bounds(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1.0, 2.0], [1.7e9, 1.7e9 + 120], yaxis="y2")
+    ax.set_ylim(1.7e9 + 30, None, axis="y2")
+    assert "y2axis min 1.70000003e+09" in _saved(fig, tmp_path)["fig.gle"]
+
+
+def test_coordinates_on_a_log_axis_keep_six_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([1e11, 1e13], [1.0, 2.0])
+    ax.set_xscale("log")
+    ax.axvline(3.1415926535e12)
+    ax.text(2.718281828e11, 1.5, "t")
+    script = _saved(fig, tmp_path)["fig.gle"]
+    assert "refline v value 3.142e+12" in script
+    assert "amove xg(2.718e+11) yg(1.5)" in script
+
+
+def test_coordinates_six_figures_keep_are_unchanged(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.plot([0.0, 1.0], [0.0, 1.0])
+    ax.axvline(1 / 3)
+    ax.text(2 / 3, 1 / 7, "t")
+    files = _saved(fig, tmp_path)
+    assert "amove xg(0.666667) yg(0.142857)" in files["fig.gle"]
+    assert "refline v value 0.333333" in files["fig.gle"]
 
 
 _MASKED = np.ma.masked_array([1.0, 77.0, 3.0], mask=[False, True, False])
