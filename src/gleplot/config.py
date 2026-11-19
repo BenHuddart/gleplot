@@ -242,7 +242,8 @@ class GLEGraphConfig:
         it must never be applied without being asked for. Applies to
         :meth:`~gleplot.Axes.plot`, :meth:`~gleplot.Axes.line_from_file` and
         the line drawn by :meth:`~gleplot.Axes.errorbar`. Fills, contour
-        lines, and step, stem and histogram lines are never smoothed.
+        lines, step, stem and histogram lines, and a ``plot`` line broken by
+        NaN (which warns) are never smoothed.
         Default: False
 
     show_grid : bool

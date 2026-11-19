@@ -3375,8 +3375,8 @@ class GLEWriter:
             # GLE drops a ``nan`` row and joins its neighbours; ``*`` breaks
             # the line there. A table column another series may read keeps
             # its values, so this series gets its own copy.
-            x_gaps = np.isnan(np.asarray(x_rows, dtype=float))
-            y_gaps = np.isnan(np.asarray(y_rows, dtype=float))
+            x_gaps = ~np.isfinite(np.asarray(x_rows, dtype=float))
+            y_gaps = ~np.isfinite(np.asarray(y_rows, dtype=float))
             x_rows = self._as_missing(x_rows, x_gaps)
             y_rows = self._as_missing(y_rows, y_gaps)
             if binding is not None:

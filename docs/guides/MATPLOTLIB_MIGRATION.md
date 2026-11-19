@@ -211,7 +211,7 @@ ax.stem(x, y)
 
 ## Segments
 
-`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. The arguments are listed in the API reference for `Axes.vlines`. GLE breaks a line at `*`. It drops a `nan` row and joins its neighbours, so a NaN in `ax.plot` is not a gap.
+`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. The arguments are listed in the API reference for `Axes.vlines`. GLE breaks a line at `*` and drops a `nan` row, joining its neighbours, so `ax.plot` and `ax.step` write a NaN in a drawn line as `*`: the line breaks there, as in matplotlib. Such a line is not smoothed by `GLEGraphConfig(smooth_curves=True)`, which would fit one curve through the pieces.
 
 | argument | gleplot |
 |---|---|
