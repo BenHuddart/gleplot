@@ -945,7 +945,7 @@ def heatmap_contourf_colorbar():
     cf = right.contourf(x, y, Z, [-0.6, 0.2, 0.5], cmap="plasma")
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", "colorbar.. of a contourf with unevenly")
-        fig.colorbar(cf, orientation="horizontal", label="z", format="fix 2")
+        fig.colorbar(cf, orientation="horizontal", format="fix 2")
     return fig
 
 
