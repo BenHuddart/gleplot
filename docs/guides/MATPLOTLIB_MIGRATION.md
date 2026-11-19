@@ -584,6 +584,12 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     Give the axes a limit with `set_xlim`/`set_ylim` to keep the guide
     under the data. See
     [Reference Lines and Shaded Spans](REFERENCE_LINES_AND_SPANS.md).
+14. A masked value (`numpy.ma`) is read as NaN wherever matplotlib leaves a
+    masked point out: the data of `plot`, `step`, `stem`, `scatter` (`x`,
+    `y` and `c`), the heights of `bar` and `barh`, `errorbar`,
+    `fill_between`, `fill_betweenx`, `hist`, `hlines` and `vlines`. It then
+    behaves as a NaN does there. As in matplotlib, `fill`, `stackplot` and
+    the `bar` positions and `bottom` use the values under the mask.
 
 ## Migration Strategy
 
