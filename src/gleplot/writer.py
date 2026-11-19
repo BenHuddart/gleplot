@@ -91,9 +91,6 @@ from .sources import (
     resolve_reference,
 )
 
-#: A dataset a raw ``data`` statement or ``let`` defines: ``d2=c1,c3``,
-#: ``let d2 = ...``. Group 1 is its number.
-_DATASET_TARGET_RE = re.compile(r"(?<![A-Za-z0-9_])d([0-9]+)\s*=(?!=)", re.I)
 #: A quoted string in a GLE line.
 _QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
 
@@ -1516,9 +1513,9 @@ class GLEWriter:
         self.dataset_index = (
             1  # Counter for unique dataset names (d1, d2, d3, ...) - GLE is 1-indexed
         )
-        # Dataset numbers the raw GLE kept in the current graph block uses;
-        # _new_dataset skips them. GLE clears its datasets at 'begin graph',
-        # so only names inside the same block can collide.
+        # Dataset numbers the raw GLE kept in the current graph block defines
+        # (reserve_datasets); _new_dataset skips them. GLE clears its datasets
+        # at 'begin graph', so end_graph clears these.
         self._reserved_datasets: Set[int] = set()
         # id of each series written as one dataset -> the raw (unshifted) name
         # it was given, for the ``let`` of a DerivedSeries that reads it.
@@ -1866,6 +1863,7 @@ class GLEWriter:
         if passthrough:
             self.lines_gle.extend(passthrough)
         self.lines_gle.append("end graph")
+        self._reserved_datasets = set()
         if self._external_legend:
             # Before the deferred ``xg()`` text. ``draw_key`` saves and
             # restores the current point and does not move the graph box,
@@ -3035,33 +3033,38 @@ class GLEWriter:
 
         Notes
         -----
-        Only the names raw GLE defines are reserved: the ``dN=`` targets of a
-        ``data`` statement and of a ``let``. A raw line that only reads a
-        dataset (a fit, a fill, a restyle) reads one a written series still
-        defines, under the name it had in the source.
+        Only the names raw GLE defines are reserved: those a ``data``
+        statement names and the target of a ``let``. A raw line that only
+        reads a dataset (a fit, a fill, a restyle) is left reading the name
+        the written series would have had anyway.
 
-        A ``data`` statement without ``dN=`` targets fills the lowest
-        undefined datasets (``freedataset`` in GLE's graph.cpp), and the raw
+        A ``data`` statement that names no datasets fills the lowest
+        undefined ones (``freedataset`` in GLE's graph.cpp), and the raw
         statement is written after the series' own. So when the block keeps
-        one, the names its raw ``dN`` lines use are reserved too, leaving
-        those slots free for it.
+        one, every name up to the highest a raw line uses is reserved,
+        leaving those slots free for it.
         """
         defined: Set[int] = set()
-        drawn: Set[int] = set()
+        used = 0
         bare_data = False
         for line in raw_lines:
             # Names inside a string or a comment are not datasets.
             code = _QUOTED_RE.sub("", line).split("!", 1)[0]
-            words = code.split()
-            targets = _DATASET_TARGET_RE.findall(code)
-            defined.update(int(n) for n in targets)
+            words = code.split(None, 1)
             if not words:
                 continue
-            if words[0].lower() == "data" and not targets:
-                bare_data = True
-            elif _DATASET_NAME_RE.fullmatch(words[0]):
-                drawn.update(int(m[1:]) for m in _DATASET_NAME_RE.findall(code))
-        self._reserved_datasets = defined | drawn if bare_data else defined
+            names = [int(m[1:]) for m in _DATASET_NAME_RE.findall(code)]
+            used = max([used, *names])
+            keyword = words[0].lower()
+            if keyword == "data":
+                defined.update(names)
+                bare_data = bare_data or not names
+            elif keyword == "let":
+                target = _DATASET_NAME_RE.findall(code.split("=", 1)[0])
+                defined.update(int(m[1:]) for m in target)
+        if bare_data:
+            defined.update(range(1, used + 1))
+        self._reserved_datasets = defined
 
     def _new_dataset(self) -> str:
         """Name a fresh dataset: the next ``dN`` that raw GLE does not use."""

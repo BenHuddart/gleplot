@@ -841,6 +841,14 @@ def test_raw_dataset_names_are_not_reused_by_written_series(tmp_path):
             "   d3 line color blue\n",
             ["    d3 line color blue"],
         ),
+        # ... and its slots are the lowest free ones, drawn or not.
+        (
+            '   data "a.dat"\n'
+            '   data "a.dat" d5=c1,c2\n'
+            "   d2 marker fcircle err 10%\n"
+            "   d5 line color blue\n",
+            ["    d3 line color blue"],
+        ),
         # A raw line that only reads the modelled datasets keeps them named.
         (
             '   data "a.dat" d1=c1,c2 d2=c1,c3\n'
@@ -863,6 +871,19 @@ def test_written_series_names_around_raw_datasets(tmp_path, body, written):
     out2 = tmp_path / "out2.gle"
     parse_gle_figure(out1).figure.savefig_gle(str(out2))
     assert out2.read_text(encoding="utf-8") == text1
+
+
+def test_raw_data_statement_naming_datasets_without_columns_reserves_them(
+    tmp_path,
+):
+    """#275: ``data "f" d1 d2`` defines both names, drawn or not."""
+    fig = glp.figure(data_prefix="named")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1], [1, 0])
+    ax.passthrough = ['   data "a.dat" d1 d2', "   d1 marker fcircle"]
+    out = tmp_path / "named.gle"
+    fig.savefig_gle(str(out))
+    assert "    d3 line" in out.read_text(encoding="utf-8")
 
 
 def test_constant_error_on_own_file_reference_restores_data_line(tmp_path):
