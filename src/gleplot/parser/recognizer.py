@@ -312,7 +312,7 @@ from ..guides import (
     REFLINE_LAYER,
     SPAN_LAYER,
 )
-from ..palettes import canonical_cmap, palette_call_name
+from ..palettes import canonical_cmap, colorbar_cmap, palette_call_name
 from ..series import (
     _DATASET_NAME_RE,
     SERIES_CLASSES,
@@ -8972,18 +8972,29 @@ class _Recognizer:
         zrange = (_as_float(args.get("zmin"), 0.0), _as_float(args.get("zmax"), 1.0))
         # A bar in a colour-mapped scatter's palette is that scatter's (the
         # last such one drawn, one with the bar's range first) unless the
-        # heatmap shares the palette. Any other bar is the heatmap's.
+        # heatmap shares the palette. An inverted heatmap's bar draws the
+        # reversed palette (older files: the forward one); in that palette
+        # a scatter keeps only a bar with its range. Any other bar is the
+        # heatmap's.
         mapped = [
             sc
             for sc in axes_info.get("scatters") or []
             if "cdata" in sc and palette_call_name(sc["cmap"]) == palette
         ]
+        in_range = [sc for sc in mapped if (sc["vmin"], sc["vmax"]) == zrange]
         if heatmaps and (
-            not mapped or palette_call_name(heatmaps[0]["cmap"]) == palette
+            not mapped
+            or palette_call_name(heatmaps[0]["cmap"]) == palette
+            or (
+                not in_range
+                and palette
+                == palette_call_name(
+                    colorbar_cmap(heatmaps[0]["cmap"], heatmaps[0].get("invert", False))
+                )
+            )
         ):
             holders = heatmaps[:1]
         else:
-            in_range = [sc for sc in mapped if (sc["vmin"], sc["vmax"]) == zrange]
             holders = (in_range or mapped)[-1:]
         if not holders:
             self._note(

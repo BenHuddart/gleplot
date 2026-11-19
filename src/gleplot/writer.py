@@ -6256,10 +6256,11 @@ class GLEWriter:
             sub = "gleplot_colorbar_v"
             size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
         lbl = self._escape_gle_string(cb.get("label") or "")
+        cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
         self.lines_gle.append(
             f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
             f"zstep {fmt(cb['zstep'])} "
-            f'palette "{_pal.palette_call_name(series["cmap"])}" {size} '
+            f'palette "{_pal.palette_call_name(cmap)}" {size} '
             f'format "{cb["format"]}" label "{lbl}"'
         )
 

@@ -1697,6 +1697,30 @@ def test_a_scatter_bar_beside_a_heatmap_stays_the_scatters(tmp_path, cmap):
         assert rec.figure.axes_list[0].scatters[0]["colorbar"]["zmin"] == 0.0
 
 
+@pytest.mark.parametrize("old_file", [False, True])
+def test_an_inverted_heatmaps_bar_stays_the_heatmaps(tmp_path, old_file):
+    """Its bar draws the reversed palette; older files wrote the forward one."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="viridis_r", vmin=5, vmax=9)
+    ax.scatter([0, 1, 2], [1, 2, 1], c=[4, 5, 6], cmap="viridis", vmin=5, vmax=9)
+    hm = ax.imshow(
+        [[0.0, 1.0], [2.0, 3.0]], cmap="viridis", extent=(0, 2, 0, 2), invert=True
+    )
+    fig.colorbar(hm, ax=ax)
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    assert 'palette "gleplot_viridis_r"' in text
+    if old_file:
+        text = text.replace('palette "gleplot_viridis_r"', 'palette "gleplot_viridis"')
+        path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path).figure.axes_list[0]
+    assert rec.heatmaps[0]["colorbar"]["zmax"] == 3.0
+    assert not any(sc.get("colorbar") for sc in rec.scatters)
+
+
 def test_a_scatter_bar_goes_to_the_scatter_with_its_range(tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
