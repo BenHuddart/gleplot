@@ -8369,10 +8369,14 @@ class Axes:
         gridsize : (nx, ny)
             Interpolation grid resolution.
         extent : tuple, optional
-            ``(xmin, xmax, ymin, ymax)``. Default: data bounds.
+            ``(xmin, xmax, ymin, ymax)``: the first and last grid nodes,
+            where :meth:`tricontour` places them. Default: data bounds.
 
         Notes
         -----
+        Axis limits beyond the extent show up to one node spacing of the
+        edge nodes' colours, as for :meth:`imshow`, and saving warns.
+
         The remaining keyword arguments are as for :meth:`imshow`; others
         warn and are ignored.
         """
@@ -9206,7 +9210,9 @@ class Axes:
         ticks : sequence of float, optional
             Explicit tick positions (GLE ``xplaces``). Passing ``None`` leaves
             the current setting alone; an empty sequence draws no ticks and
-            no tick labels (GLE ``xticks off`` and ``xlabels off``).
+            no tick labels (GLE ``xticks off`` and ``xlabels off``). On a log
+            axis the minor ticks stay, as in matplotlib, unless
+            :meth:`minorticks_off` was called.
         labels : sequence of str, optional
             Tick labels (GLE ``xnames``), one per entry of ``ticks``.
         dticks : float, optional

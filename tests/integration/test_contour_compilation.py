@@ -7,10 +7,13 @@ nonempty raster is produced. Skipped when GLE is not installed.
 
 from __future__ import annotations
 
+import subprocess
+
 import numpy as np
 import pytest
 
 import gleplot as glp
+from gleplot.compiler import find_gle
 from tests.integration.conftest import darwin_gle_contour_crash
 
 pytestmark = pytest.mark.gle
@@ -31,6 +34,35 @@ def test_tripcolor_only_compiles(tmp_path):
     out = fig.savefig(str(tmp_path / "tponly.png"))
     assert out.exists()
     assert out.stat().st_size > 0
+
+
+def test_tripcolor_grid_nodes_are_where_fitz_puts_them(tmp_path):
+    """GLE's fitz makes ``gridsize`` nodes, and colormap draws them there.
+
+    The grid's header must give colormap, which puts node ``k`` of ``nx`` at
+    ``xmin + k * (xmax - xmin) / nx``, the fitz's own spacing (#376). Over
+    (0, 1), a step of 1/49 written to six digits rounds up.
+    """
+    x = np.linspace(0.0, 1.0, 6)
+    fig = glp.figure(data_prefix="nodes")
+    ax = fig.add_subplot(111)
+    ax.tripcolor(x, x[::-1], x, gridsize=(50, 41), extent=(0.0, 1.0, -3.0, 7.0))
+    script, files = fig._generate_gle_with_files()
+    for name, content in files.items():
+        (tmp_path / name).write_text(content, encoding="utf-8")
+    (tmp_path / "f.gle").write_text(script, encoding="utf-8")
+    proc = subprocess.run(
+        [str(find_gle()), "-d", "eps", "f.gle"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    words = (tmp_path / "nodes_points1.z").read_text().split("\n", 1)[0].split()
+    head = dict(zip(words[1::2], (float(v) for v in words[2::2])))
+    assert (head["nx"], head["ny"]) == (50, 41)
+    assert (head["xmax"] - head["xmin"]) / 50 == pytest.approx(1 / 49, rel=1e-4)
+    assert (head["ymax"] - head["ymin"]) / 41 == pytest.approx(10 / 40, rel=1e-4)
 
 
 @darwin_gle_contour_crash
