@@ -98,10 +98,11 @@ from __future__ import annotations
 
 import csv
 import io
+import itertools
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional, Union
+from typing import Callable, Iterator, List, Optional, Union
 
 import numpy as np
 
@@ -1146,17 +1147,14 @@ class GLEDataLayout:
     Attributes
     ----------
     n_cols : int
-        Cells per row (GLE requires every row to have the same count).
-    has_header : bool
-        The first row is a header: none of its cells is a number or a
-        missing value.
+        Cells in the first row (GLE requires every row to have as many).
     labels_column : bool
         Every cell of the first column below the header is text, so GLE
-        reads it as x-axis labels and x is the point index.
+        reads it as x-axis labels and x is the point index. The header is
+        a first row none of whose cells is a number or a missing value.
     """
 
     n_cols: int
-    has_header: bool
     labels_column: bool
 
 
@@ -1201,8 +1199,11 @@ def _gle_float_or_missing(cell: str) -> bool:
 
 def _gle_rows(
     text: str, comment: str, delimiters: str, ignore: int, numrows: int
-) -> List[List[str]]:
-    """Split ``text`` into rows of cells as ``GLECSVData::parseBlock`` does.
+) -> Iterator[List[str]]:
+    """Rows of cells, as ``GLECSVData::parseBlock`` splits ``text``.
+
+    Each row is yielded once the next one starts, so a caller can stop
+    early.
 
     Raises
     ------
@@ -1315,23 +1316,22 @@ def _gle_rows(
         start = max(pos - 1, 0)
         count = cell_size = 0
         while True:
-            cell = data[start : start + cell_size]
             if ch == "":
                 if size_ok_at_eol(cell_size):
-                    create(cell)
+                    create(data[start : start + cell_size])
                 return False
             if is_eol(ch):
                 if size_ok_at_eol(cell_size):
-                    create(cell)
+                    create(data[start : start + cell_size])
                 return read_newline(ch)
             if is_delim(ch):
                 last_delim_space = is_space(ch)
                 if cell_size or not is_space(ch):
-                    create(cell)
+                    create(data[start : start + cell_size])
                 return skip_spaces_and_first_delim(ch)
             if is_comment(ch):
                 if size_ok_at_eol(cell_size):
-                    create(cell)
+                    create(data[start : start + cell_size])
                 return skip_till_eol()
             count += 1
             if not is_space(ch):
@@ -1341,11 +1341,15 @@ def _gle_rows(
     more = True
     for _ in range(ignore):
         more = skip_till_eol()
+    done = 0
     while more:
         more = read_cell()
         if next_line and numrows and len(rows) >= numrows:
             break
-    return rows
+        while done < len(rows) - 1:
+            yield rows[done]
+            done += 1
+    yield from rows[done:]
 
 
 def gle_data_layout(
@@ -1374,16 +1378,26 @@ def gle_data_layout(
     OSError
         If the file cannot be read.
     ValueError
-        Where GLE stops with an error: an unterminated string, or rows
-        with different numbers of cells.
+        For a string GLE leaves unterminated in the rows read.
+
+    Notes
+    -----
+    Rows are read only until the answer is known: the first body row with
+    a number in its first column settles it. GLE's check that every row
+    has as many cells is not repeated.
     """
     # Bytes as characters: GLE splits bytes, and a UTF-8 BOM is a cell's text.
     text = Path(path).read_bytes().decode("latin-1")
     rows = _gle_rows(text, comment, _GLE_DELIMITERS, ignore, numrows)
-    n_cols = len(rows[0]) if rows else 0
-    if any(len(row) != n_cols for row in rows):
-        raise ValueError(f"{path}: rows have different numbers of columns")
-    has_header = bool(rows) and not any(_gle_float_or_missing(c) for c in rows[0])
-    body = rows[1:] if has_header else rows
-    labels = bool(body) and not any(_gle_float_or_missing(row[0]) for row in body)
-    return GLEDataLayout(n_cols=n_cols, has_header=has_header, labels_column=labels)
+    first = next(rows, None)
+    if first is None:
+        return GLEDataLayout(n_cols=0, labels_column=False)
+    header = not any(_gle_float_or_missing(cell) for cell in first)
+    body = rows if header else itertools.chain([first], rows)
+    labels = False
+    for row in body:
+        if _gle_float_or_missing(row[0]):
+            labels = False
+            break
+        labels = True
+    return GLEDataLayout(n_cols=len(first), labels_column=labels)

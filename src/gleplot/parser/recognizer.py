@@ -2725,9 +2725,13 @@ class _Recognizer:
             for child in block.body
         ):
             return self._parse_graph_block_once(block, marker_cfg, smooth_flags, set())
-        # The table cache only memoizes file reads, so it is shared, not copied.
+        # The file caches only memoize reads, so they are shared, not copied.
         saved = copy.deepcopy(
-            {k: v for k, v in vars(self).items() if k != "_table_cache"}
+            {
+                k: v
+                for k, v in vars(self).items()
+                if k not in ("_table_cache", "_layout_cache")
+            }
         )
         saved_flags = list(smooth_flags)
         info = self._parse_graph_block_once(block, marker_cfg, smooth_flags, set())
@@ -6388,8 +6392,8 @@ class _Recognizer:
     def _gle_layout(self, data_file, read_options=None) -> Optional[GLEDataLayout]:
         """How GLE reads the file under ``read_options``, or None.
 
-        None when the file is missing, or when GLE would stop on it (rows
-        of different lengths, an unterminated string).
+        None when the file is missing or unreadable, or when GLE would stop
+        on it (an unterminated string), which is noted.
         """
         options = read_options or {}
         comment = options.get("comment", "!")
@@ -6407,23 +6411,23 @@ class _Recognizer:
                         ignore=ignore,
                         numrows=numrows,
                     )
-                except (OSError, ValueError):
+                except OSError:
+                    layout = None
+                except ValueError as exc:
+                    self._note(
+                        ImportCategory.DATA,
+                        f"GLE cannot read '{data_file}' ({exc}); its columns "
+                        "are not mapped from the file",
+                        None,
+                    )
                     layout = None
             self._layout_cache[key] = layout
         return self._layout_cache[key]
 
     def _file_column_count(self, data_file, read_options=None) -> Optional[int]:
-        """Columns GLE reads from the file, or None if it does not resolve.
-
-        Where GLE would stop on the file, the loader's count stands in.
-        """
+        """Columns GLE reads from the file, or None if it cannot read it."""
         layout = self._gle_layout(data_file, read_options)
-        if layout is not None:
-            return layout.n_cols
-        resolved = self._resolve_table(data_file)
-        if resolved.error is not None or resolved.table is None:
-            return None
-        return resolved.table.n_cols
+        return None if layout is None else layout.n_cols
 
     def _first_column_is_labels(self, data_file, read_options=None) -> bool:
         """Whether GLE reads the file's first column as x-axis labels.

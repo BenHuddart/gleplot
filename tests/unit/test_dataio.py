@@ -1225,25 +1225,25 @@ def test_gzip_files_are_not_transparently_decompressed(tmp_path):
 @pytest.mark.parametrize(
     "text, options, expected",
     [
-        ("1 2\n3 4\n", {}, (2, False, False)),
+        ("1 2\n3 4\n", {}, (2, False)),
         # A lone row of names is a header over no data.
-        ("a b\n", {}, (2, True, False)),
-        ("x y\na 2\nb 3\n", {}, (2, True, True)),
+        ("a b\n", {}, (2, False)),
+        ("x y\na 2\nb 3\n", {}, (2, True)),
         # inf and nan are text to GLE; a missing value is not.
-        ("inf 2\nnan 3\n", {}, (2, False, True)),
-        ("a 2\n* 3\n", {}, (2, False, False)),
+        ("inf 2\nnan 3\n", {}, (2, True)),
+        ("a 2\n* 3\n", {}, (2, False)),
         # ``!`` comments by default; ``#`` only when the statement says so.
-        ("! a b c\n1 2\n", {}, (2, False, False)),
-        ("# a b c\n1 2\n", {"comment": "#"}, (2, False, False)),
-        ("1 2 ! note\n", {}, (2, False, False)),
-        ("1 2 3\na 2\nb 3\n", {"ignore": 1}, (2, False, True)),
-        ("1 2\n2 3\n4 5 6\n", {"numrows": 2}, (2, False, False)),
+        ("! a b c\n1 2\n", {}, (2, False)),
+        ("# a b c\n1 2\n", {"comment": "#"}, (2, False)),
+        ("1 2 ! note\n", {}, (2, False)),
+        ("1 2 3\na 2\nb 3\n", {"ignore": 1}, (2, True)),
+        ("a 2\nb 3\n4 5 6\n", {"numrows": 2}, (2, True)),
         # Commas, semicolons and tabs are delimiters; a quoted cell is text.
-        ('"a b";2\n"c";3\n', {}, (2, False, True)),
-        ("1,,3\n", {}, (3, False, False)),
+        ('"a b";2\n"c";3\n', {}, (2, True)),
+        ("1,,3\n", {}, (3, False)),
         # GLE's is_float stops at an exponent's digits.
-        ("1e5x .5\n", {}, (2, False, False)),
-        ("", {}, (0, False, False)),
+        ("1e5x .5\n", {}, (2, False)),
+        ("", {}, (0, False)),
     ],
 )
 def test_gle_data_layout_reads_as_gle_does(tmp_path, text, options, expected):
@@ -1252,7 +1252,7 @@ def test_gle_data_layout_reads_as_gle_does(tmp_path, text, options, expected):
     assert gle_data_layout(path, **options) == GLEDataLayout(*expected)
 
 
-@pytest.mark.parametrize("text", ["1 2\n1 2 3\n", '"open 1\n'])
+@pytest.mark.parametrize("text", ['"open 1\n', 'a 1\n"open 2\n'])
 def test_gle_data_layout_raises_where_gle_stops(tmp_path, text):
     path = tmp_path / "f.dat"
     path.write_text(text, encoding="utf-8")
