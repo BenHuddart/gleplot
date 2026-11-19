@@ -81,9 +81,11 @@ for rendering, applied by the test-side ``normalize()`` helper)
    converts it to a concrete per-point error array on the model (constant:
    value at every point; percentage: ``value/100 * abs(y)`` for vertical error,
    ``* abs(x)`` for horizontal -- matching ``graph2.cpp`` ``getErrorBarData``),
-   which re-saves as a real ``.dat`` error column, and warns. If the referencing
-   series cannot be loaded (broken ref), the original ``dN`` line is kept in the
-   axes passthrough instead and a ``data:`` warning is emitted.
+   which re-saves as a real ``.dat`` error column, and warns. This applies to
+   a gleplot sidecar only. On a file read in place (any hand-written ``data``
+   reference) or one that cannot be loaded, the original ``dN`` line is kept
+   in the axes passthrough instead, its ``data`` statement is kept (see #14)
+   and a ``data:`` warning is emitted.
 9. **Axis-remainder passthrough (hand-written only).** Unrecognized ``xaxis``/
    ``yaxis``/``y2axis``/``x2axis`` sub-tokens (``off``/``grid``/``dticks``/
    ``dsubticks``/``nticks``/``format "..."``/...) are peeled off the recognized
@@ -162,9 +164,12 @@ for rendering, applied by the test-side ``normalize()`` helper)
     the bar would drop the columns it reads. When every dataset a ``data``
     statement declares ends up referenced only by such passthrough text,
     the original ``data`` statement is restored verbatim, ahead of the
-    passthrough content that depends on it. A ``data`` statement declaring
-    a mix of modeled and orphaned datasets is not reconstructed; a
-    ``data:`` warning flags it. A one-curve fill (``fill x1,dN``,
+    passthrough content that depends on it. When the statement declares a
+    mix of modeled and orphaned datasets and reads a file in place, a
+    ``data`` statement naming just the orphaned datasets (same file, same
+    columns) is added instead; on a gleplot sidecar, which the writer
+    rewrites, such a mix is not reconstructed and a ``data:`` warning flags
+    it. A one-curve fill (``fill x1,dN``,
     ``fill dN,x2``, ``fill dN``) whose ``data`` statement also declares
     other datasets is left verbatim for the same reason.
 
@@ -310,6 +315,7 @@ from ..guides import (
 from ..palettes import canonical_cmap, palette_call_name
 from ..series import (
     _DATASET_NAME_RE,
+    SERIES_CLASSES,
     BarSeries,
     Box,
     ContourSeries,
@@ -344,6 +350,7 @@ from ..writer import (
     RUG_EDGES,
     GLEWriter,
     KeyOptions,
+    _format_data_filename,
     image_sub_name,
     legend_column_breaks,
     legend_corner,
@@ -1123,8 +1130,9 @@ class _GraphDatasets:
     line(s) byte-for-byte instead of rejoining tokens with inserted spaces
     -- see _dn_passthrough_lines / the 'err 10%' -> 'err 10 %' corruption
     this guards against (GLE rejects the space). ``data_stmts`` pairs the
-    raw text of each ``data`` statement with the names it declares and its
-    source line, in body order, so one whose datasets all end up unmodeled
+    raw text of each ``data`` statement with the names it declares, its
+    source line, what it defines them as (file, x and y column) and its
+    read options, in body order, so one whose datasets end up unmodeled
     can be restored. ``emitted`` starts empty and is filled by pass 2: the
     dataset names whose ``dN`` statement has been handled.
     """
@@ -1132,7 +1140,9 @@ class _GraphDatasets:
     datasets: Dict[str, Tuple[str, int, int]] = field(default_factory=dict)
     merged_attr_toks: Dict[str, List[Token]] = field(default_factory=dict)
     merged_attr_raw: Dict[str, List[str]] = field(default_factory=dict)
-    data_stmts: List[Tuple[List[str], str, int]] = field(default_factory=list)
+    data_stmts: List[
+        Tuple[List[str], str, int, Dict[str, Tuple[str, int, int]], Dict[str, Any]]
+    ] = field(default_factory=list)
     emitted: Set[str] = field(default_factory=set)
 
 
@@ -2935,10 +2945,11 @@ class _Recognizer:
             # consumed indirectly through the alias -- see _parse_let_command
             # and the 'data'-statement reconciliation in _restore_orphaned_data_stmts.
             "_let_source_datasets": set(),
-            # Datasets whose ``dN`` line stays raw GLE because of an
-            # unmodelled ``mdata``, with the size dataset it names. Their
-            # ``data`` statement is kept too: nothing else writes it.
-            "_raw_mdata_datasets": set(),
+            # Datasets whose ``dN`` line stays raw GLE (an unmodelled
+            # ``mdata``, with the size dataset it names; a constant error
+            # that cannot become a column). Their ``data`` statement is kept
+            # too: nothing else writes it.
+            "_raw_datasets": set(),
             # ``let dK = (dJ-a)/(b-a)`` statements that map a per-point
             # colour's values (``_CDATA_LET_RE``), keyed by target, with the
             # source, the limits and the raw text. Consumed by the scatter
@@ -3016,7 +3027,13 @@ class _Recognizer:
                 )
                 if names:
                     pass1.data_stmts.append(
-                        (names, self._stmt_text(child), child.line_no)
+                        (
+                            names,
+                            self._stmt_text(child),
+                            child.line_no,
+                            {name: pass1.datasets[name] for name in names},
+                            dict(self._data_read_options.get(names[0], {})),
+                        )
                     )
                     # An axis or polygon fill uses one of these names.
                     # Modelling it while the statement still declares
@@ -3270,7 +3287,13 @@ class _Recognizer:
         info["_hist_let_pending"].clear()
 
     def _restore_orphaned_data_stmts(self, pass1: _GraphDatasets, info) -> None:
-        """Re-emit a ``data`` statement none of whose datasets became a series."""
+        """Keep the ``data`` statements that raw GLE still depends on.
+
+        A statement none of whose datasets became a series is re-emitted
+        verbatim. One that also defines datasets only raw ``dN`` lines draw
+        gets a statement of its own for those, when :meth:`_orphan_data_clause`
+        can write one.
+        """
         # A 'data' statement's own text is never itself modeled -- pass 1
         # only uses it to populate ``datasets`` for lookups, on the
         # assumption that whichever series ends up consuming each dataset
@@ -3284,12 +3307,12 @@ class _Recognizer:
         # regenerated GLE. Restore any 'data' statement whose datasets are
         # entirely unconsumed, ahead of the passthrough content that (being
         # later in body order) may depend on it.
-        raw_mdata = info["_raw_mdata_datasets"]
+        raw = info["_raw_datasets"]
         consumed = (
             set(info["_key_suppress_datasets"])
             | pass1.emitted
             | info["_let_source_datasets"]
-        ) - raw_mdata
+        ) - raw
         # A dataset may also be consumed indirectly, referenced by NAME from
         # another dataset's own attributes rather than having a 'dN ...'
         # line of its own -- e.g. errorbar's 'd1 ... err d2 ...' points at a
@@ -3297,30 +3320,43 @@ class _Recognizer:
         # resolved by the consuming series' own 'data_file'/columns, so it
         # is not orphaned even though it never appears in ``pass1.emitted``.
         for name, attr_toks in pass1.merged_attr_toks.items():
-            if name in raw_mdata:
+            if name in raw:
                 continue
             for t in attr_toks:
                 if _DATASET_RE.match(t.value):
                     consumed.add(t.value.lower())
+        # What the raw dN lines draw: their own datasets and any they name.
+        raw_refs = set(raw)
+        for name in raw:
+            for t in pass1.merged_attr_toks.get(name, ()):
+                if _DATASET_RE.match(t.value):
+                    raw_refs.add(t.value.lower())
         restored: List[str] = []
-        for names, raw, data_line_no in pass1.data_stmts:
+        for names, text, data_line_no, defs, read_options in pass1.data_stmts:
             if not any(n in consumed for n in names):
-                restored.append(raw)
+                restored.append(text)
             elif not all(n in consumed for n in names):
                 # Mixed: some of this statement's datasets became real
                 # series (the writer will regenerate a 'data' line for
                 # those), others are orphaned (raw text refers to them but
                 # nothing carries 'data_file' for them). Re-emitting the
                 # whole original line would duplicate the modeled portion;
-                # dropping it silently loses the rest. Surface it instead of
-                # guessing.
+                # dropping it silently loses the rest.
+                orphans = [n for n in names if n in raw_refs]
+                if orphans:
+                    clause = self._orphan_data_clause(
+                        [(n, defs[n]) for n in orphans], read_options, info
+                    )
+                    if clause is not None:
+                        restored.append(clause)
+                        continue
+                # Otherwise surface it instead of guessing.
                 #
                 # A bar that cannot be modeled (an unmodelled sub-command, or
                 # a dataset shared with a fill that stays raw) is held with
                 # every name on its data statement, so this branch is not
-                # how a stack is kept consistent. A genuinely mixed
-                # statement still reaching here has no
-                # narrower fix available: synthesizing a second 'data'
+                # how a stack is kept consistent. For an imported (owned)
+                # file there is no narrower fix: synthesizing a second 'data'
                 # clause for just the orphaned names would reference columns
                 # the modeled series' OWN regenerated sidecar no longer
                 # carries (GLEWriter always rewrites an owned series' data
@@ -3330,7 +3366,7 @@ class _Recognizer:
                 self._note(
                     ImportCategory.DATA,
                     "'"
-                    + raw.strip()
+                    + text.strip()
                     + "' mixes datasets that became series with datasets "
                     "only referenced by raw GLE; the raw reference(s) may "
                     "not resolve after save",
@@ -3338,6 +3374,34 @@ class _Recognizer:
                 )
         if restored:
             info["passthrough"][0:0] = restored
+
+    def _orphan_data_clause(self, defs, read_options, info) -> Optional[str]:
+        """A ``data`` statement defining just ``defs``, or ``None``.
+
+        ``defs`` pairs each dataset name with its (file, x column, y column).
+        Only for a file read in place that no recovered series writes: the
+        columns the original statement gave these datasets are then still
+        there on re-save. An index-x dataset (single-column file) has no
+        ``cX`` to name.
+        """
+        data_file = defs[0][1][0]
+        if self._is_import(data_file) or any(
+            series.get("data_file") == data_file
+            for attr in SERIES_CLASSES
+            if attr != FileSeries.ATTR
+            for series in info.get(attr, ())
+        ):
+            return None
+        clauses = []
+        for name, (_file, xcol, ycol) in defs:
+            if xcol < 1:
+                return None
+            clauses.append(f" {name}=c{xcol},c{ycol}")
+        return (
+            f"    data {_format_data_filename(data_file)}"
+            + "".join(clauses)
+            + GLEWriter._data_read_clause(FileSeries(**read_options))
+        )
 
     # -- guides drawn against GLE's own range (G17) -----------------------
 
@@ -6960,7 +7024,7 @@ class _Recognizer:
         if extra is None or len(extra) != len(loaded["x"]):
             info["passthrough"].extend(raw_before)
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
-            info["_raw_mdata_datasets"].update((d_name, attrs["mdata"]))
+            info["_raw_datasets"].update((d_name, attrs["mdata"]))
             # A file that could not be read already has its own note.
             why = (
                 "its data could not be read"
@@ -7260,12 +7324,18 @@ class _Recognizer:
         # concrete data column on save. This requires the y (and, for herr, x)
         # arrays, so it only works when the referencing series can be loaded.
         if err_consts and (not is_import):
-            # File reference we won't load -> keep the ORIGINAL dN line raw.
+            # A file reference stays a reference: its data is never pulled
+            # into a gleplot sidecar. Keep the ORIGINAL dN line raw, and its
+            # dataset defined (_restore_orphaned_data_stmts).
             self._passthrough_original_dn(info, orig_toks, raw_stmts)
+            if orig_toks:
+                info["_raw_datasets"].add(orig_toks[0].value.lower())
             self._note(
                 ImportCategory.DATA,
-                "constant error on an unresolved file reference; original "
-                "'dN ... err' line kept as raw GLE",
+                f"a constant error bar on a dataset read from '{data_file}' "
+                "is not modelled; its 'dN ... err' line was kept as raw GLE "
+                "and still draws, but is not editable. To edit it, load the "
+                "columns and plot them with Axes.errorbar(x, y, yerr=...)",
                 span,
             )
             return
