@@ -123,6 +123,12 @@ class TestParseMetadata:
         assert data == {"dpi": 100}
         assert len(warnings) == 3
 
+    def test_malformed_insets_skipped_with_a_warning(self):
+        lines = [md.BEGIN_MARKER, "! gleplot: insets = 2, b", md.END_MARKER]
+        data, warnings = md.parse_metadata(lines)
+        assert data == {}
+        assert len(warnings) == 1 and "insets" in warnings[0]
+
     def test_unknown_keys_preserved(self):
         lines = [
             md.BEGIN_MARKER,
@@ -264,6 +270,7 @@ class TestEmitParseRoundTrip:
                 "import-data": ["x.dat", "y.dat", "z.dat"],
             },
             {"dpi": 300, "import-data": ["only.dat"]},
+            {"dpi": 100, "import-data": [], "insets": [2, 3]},
         ],
     )
     def test_emit_then_parse_recovers_non_default_data(self, data):

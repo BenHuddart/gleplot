@@ -779,10 +779,11 @@ class Figure:
         >>> fig, ax = glp.subplots()
         >>> inset = fig.add_axes([0.55, 0.55, 0.3, 0.3])
         """
-        if isinstance(rect, Axes):
+        if isinstance(rect, (Axes, str, dict)):
             raise TypeError(
                 "add_axes() takes a rect [left, bottom, width, height] in "
-                "figure fractions; adding an existing axes is not supported."
+                f"figure fractions, got {rect!r}; adding an existing axes is "
+                "not supported."
             )
         try:
             values = [float(v) for v in rect]
@@ -803,6 +804,11 @@ class Figure:
                 f"add_axes(rect) needs a positive width and height, got {rect!r}."
             )
         if polar:
+            if projection not in (None, "polar"):
+                raise ValueError(
+                    f"add_axes(polar=True, projection={projection!r}): pass "
+                    "only one of them."
+                )
             projection = "polar"
         if projection not in (None, "rectilinear", "polar"):
             raise ValueError(
@@ -1157,8 +1163,9 @@ class Figure:
         """
         hei = fontsize_pt_to_cm(self.style.fontsize)
         titled = self._has_titles()
-        has_y2 = any(self._axes_has_y2(ax) for ax in self._grid_axes())
-        has_x2 = any(self._axes_has_x2(ax) for ax in self._grid_axes())
+        grid_axes = self._grid_axes()
+        has_y2 = any(self._axes_has_y2(ax) for ax in grid_axes)
+        has_x2 = any(self._axes_has_x2(ax) for ax in grid_axes)
         margin_left = self._AUTO_MARGIN_LEFT_HEI * hei
         margin_bottom = self._AUTO_MARGIN_BOTTOM_HEI * hei
         if has_x2:
@@ -1211,8 +1218,9 @@ class Figure:
 
     def _grid_shape(self) -> Tuple[int, int]:
         """``(rows, cols)`` of the subplot grid the layout fills."""
-        max_rows = max((_grid_cells(ax)[0] for ax in self._grid_axes()), default=1)
-        max_cols = max((_grid_cells(ax)[1] for ax in self._grid_axes()), default=1)
+        cells = [_grid_cells(ax) for ax in self._grid_axes()]
+        max_rows = max((c[0] for c in cells), default=1)
+        max_cols = max((c[1] for c in cells), default=1)
         return max_rows, max_cols
 
     def _colorbar_gaps_cm(
@@ -2577,6 +2585,10 @@ class Figure:
             # vouched for as such -- excluded from ``import-data``.
             "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
+        # Which graphs are add_axes insets, so open_gle need not guess.
+        insets = [i + 1 for i, ax in enumerate(self.axes_list) if ax.position is None]
+        if insets:
+            data["insets"] = insets
         data.update(self.metadata_extra)
         return data
 
@@ -2700,10 +2712,11 @@ class Figure:
                     # passthrough_header, so nothing is fabricated in front.
                     writer.begin_graph()
                     writer.add_graph_geometry_passthrough(ax.geometry_passthrough)
-                elif self.graph.scale_mode == "fullsize":
+                elif self.graph.scale_mode == "fullsize" and ax.position is not None:
                     # An explicit writer-level opt-out of gleplot's own layout:
                     # GLE fits the graph (labels included) to the whole page.
-                    # There is no rect to emit, so no amove either.
+                    # There is no rect to emit, so no amove either. An inset
+                    # keeps the rect it was given.
                     writer.begin_graph()
                     writer.add_graph_size()
                 else:

@@ -91,8 +91,9 @@ inset.plot(x[:40], np.exp(-x[:40] / 3) * np.cos(4 * x[:40]), color='red')
 The inset stands outside the grid: it does not move the other panels or
 their margins, and `sharex`/`sharey` do not apply to it. It is drawn on top
 of the axes added before it but, unlike matplotlib, has no background, so
-what is behind it shows through. `open_gle` recovers a graph that lies
-inside another graph's frame as an inset.
+what is behind it shows through. gleplot lists its insets in the file's
+metadata header, so `open_gle` reads them back as insets; in a hand-written
+file, a graph that lies inside another graph's frame is read as an inset.
 
 ## Shared axes
 

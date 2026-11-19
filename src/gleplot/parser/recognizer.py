@@ -1710,6 +1710,9 @@ class _Recognizer:
         # resolved-table cache per data_file name
         self._table_cache: Dict[str, object] = {}
         self._import_list: Optional[List[str]] = None
+        # 1-based numbers of the graphs the metadata names as insets; None
+        # when it names none, and they are recognized by their frames.
+        self._insets: Optional[Set[int]] = None
         self._used_prefix_indices: Dict[str, int] = {}  # prefix -> max index+1
         self._used_data_files: set = set()
         # Sticky text-cluster state (GLE 'set hei'/'set color'/'set just' are
@@ -1883,6 +1886,8 @@ class _Recognizer:
             self._note(ImportCategory.METADATA, meta_msg, meta_span)
         if "import-data" in meta:
             self._import_list = list(meta.get("import-data") or [])
+        if "insets" in meta:
+            self._insets = set(meta["insets"])
         return meta
 
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
@@ -1894,7 +1899,8 @@ class _Recognizer:
         metadata_extra = {
             k: v
             for k, v in meta.items()
-            if k not in ("dpi", "sharex", "sharey", "msize_scale", "import-data")
+            if k
+            not in ("dpi", "sharex", "sharey", "msize_scale", "import-data", "insets")
         }
 
         (
@@ -9242,11 +9248,26 @@ class _Recognizer:
     def _infer_positions(self, parsed_axes) -> List[Optional[tuple]]:
         """Infer (rows, cols, idx) per axes; ``None`` for an inset.
 
-        A graph whose frame rect lies inside another graph's is an inset
-        (:meth:`Figure.add_axes`); the grid is inferred from the others.
+        The insets (:meth:`Figure.add_axes`) are the graphs the metadata's
+        ``insets`` names, or, in a file without that key, each graph whose
+        frame rect lies inside another graph's. The grid is inferred from
+        the other graphs.
         """
+        if self._insets is not None:
+            inset = [k + 1 in self._insets for k in range(len(parsed_axes))]
+        else:
+            inset = self._nested_graphs(parsed_axes)
+        grid = iter(
+            self._infer_grid_positions(
+                [info for info, is_inset in zip(parsed_axes, inset) if not is_inset]
+            )
+        )
+        return [None if is_inset else next(grid) for is_inset in inset]
+
+    def _nested_graphs(self, parsed_axes) -> List[bool]:
+        """Per graph, whether its frame rect lies inside another graph's."""
         rects = [self._frame_rect(info) for info in parsed_axes]
-        inset = [
+        return [
             a is not None
             and any(
                 b is not None and _rect_inside(a, b) and not _rect_inside(b, a)
@@ -9254,12 +9275,6 @@ class _Recognizer:
             )
             for a in rects
         ]
-        grid = iter(
-            self._infer_grid_positions(
-                [info for info, is_inset in zip(parsed_axes, inset) if not is_inset]
-            )
-        )
-        return [None if is_inset else next(grid) for is_inset in inset]
 
     def _frame_rect(self, info) -> Optional[Tuple[float, float, float, float]]:
         """``(x0, y0, x1, y1)`` of a graph placed by ``amove`` + size + scale 1 1."""

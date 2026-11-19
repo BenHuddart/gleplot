@@ -401,6 +401,7 @@ class TestSubplots:
         [
             ([0.1, 0.1, 0.3], TypeError),
             ("abcd", TypeError),
+            ("1234", TypeError),
             ([0.1, 0.1, float("nan"), 0.3], ValueError),
             ([0.1, 0.1, 0.0, 0.3], ValueError),
             ([0.1, 0.1, 0.3, -0.3], ValueError),
@@ -418,6 +419,19 @@ class TestSubplots:
         inset = glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], polar=True)
         with pytest.raises(NotImplementedError):
             inset.set_xlim(0, 1)
+
+    def test_add_axes_polar_and_another_projection_raises(self):
+        with pytest.raises(ValueError, match="only one"):
+            glp.figure().add_axes(
+                [0.1, 0.1, 0.5, 0.5], projection="rectilinear", polar=True
+            )
+
+    def test_add_axes_lone_inset_keeps_its_rect_in_fullsize_mode(self):
+        fig = glp.figure(graph=glp.GLEGraphConfig(scale_mode="fullsize"))
+        fig.add_axes([0.25, 0.25, 0.5, 0.5]).plot([1, 2], [1, 2])
+        gle = fig._generate_gle()
+        assert "fullsize" not in gle
+        assert len(self._extract_amove_points(gle)) == 1
 
     def test_add_axes_round_trips_through_to_dict(self):
         fig, ax = glp.subplots()

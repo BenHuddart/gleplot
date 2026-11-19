@@ -485,6 +485,27 @@ def inset_axes():
     return fig
 
 
+def insets_off_panel():
+    """Insets the frames do not nest: one across a panel edge, one in the margin.
+
+    Only the ``insets`` metadata line tells ``open_gle`` they are not grid
+    panels, which with sharey would otherwise join the shared y range.
+    """
+    fig, (left, right) = glp.subplots(1, 2, sharey=True, data_prefix="golden")
+    left.plot([1, 2, 3], [1, 4, 9])
+    right.plot([1, 2, 3], [9, 4, 1])
+    fig.add_axes([0.45, 0.05, 0.2, 0.2]).plot([10, 20], [100, 200])
+    fig.add_axes([0.0, 0.0, 0.08, 0.1]).plot([0, 1], [5, 6])
+    return fig
+
+
+def inset_alone():
+    """A figure whose only axes is placed by add_axes."""
+    fig = glp.figure(data_prefix="golden")
+    fig.add_axes([0.3, 0.2, 0.5, 0.6]).plot([1, 2, 3], [3, 1, 2])
+    return fig
+
+
 def file_series():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1617,6 +1638,8 @@ BUILDERS = [
     subplots_grid_mixed,
     subplots_spanning,
     inset_axes,
+    insets_off_panel,
+    inset_alone,
     file_series,
     file_series_field_options,
     file_series_read_options,

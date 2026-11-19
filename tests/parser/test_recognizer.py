@@ -1053,11 +1053,27 @@ def test_spanning_subplots_are_recovered(tmp_path):
     assert not any(w.startswith("layout:") for w in rec.warnings)
 
 
-def test_inset_is_recovered_outside_the_grid(tmp_path):
-    """A graph inside another's frame comes back as an add_axes inset."""
+def test_insets_are_read_from_the_metadata(tmp_path):
+    """gleplot names its insets, so frames that do not nest still come back."""
+    _gleplot_axes._global_data_file_counter = 0
+    gle_path = tmp_path / "insets.gle"
+    golden.insets_off_panel().savefig_gle(str(gle_path))
+    assert "! gleplot: insets = 3, 4" in gle_path.read_text()
+    rec = parse_gle_figure(gle_path)
+    positions = [ax.position for ax in rec.figure.axes_list]
+    assert positions == [(1, 2, 1), (1, 2, 2), None, None]
+    assert rec.figure.metadata_extra == {}
+    assert not any(w.startswith("layout:") for w in rec.warnings)
+
+
+def test_inset_is_recovered_from_its_frame_without_metadata(tmp_path):
+    """In a file with no insets key, a graph inside another's frame is one."""
     _gleplot_axes._global_data_file_counter = 0
     gle_path = tmp_path / "inset.gle"
     golden.inset_axes().savefig_gle(str(gle_path))
+    text = gle_path.read_text()
+    gle_path.write_text(text.replace("! gleplot: insets = 3\n", ""))
+    assert "insets" not in gle_path.read_text()
     rec = parse_gle_figure(gle_path)
     positions = [ax.position for ax in rec.figure.axes_list]
     assert positions == [(1, 2, 1), (1, 2, 2), None]
