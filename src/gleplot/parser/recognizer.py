@@ -3068,7 +3068,11 @@ class _Recognizer:
                 let_toks = _words_and_values(child)
                 self._parse_let_command(let_toks, pass1.datasets, info)
                 self._record_hist_let(
-                    let_toks, pass1.datasets, info, self._stmt_text(child)
+                    let_toks,
+                    pass1.datasets,
+                    info,
+                    self._stmt_text(child),
+                    child.line_no,
                 )
                 self._record_function_let(let_toks, info)
                 self._record_fit_let(let_toks, pass1.datasets, info)
@@ -3083,6 +3087,7 @@ class _Recognizer:
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
         self._keep_plain_derived_lets(block, pass1, info)
         self._keep_plain_function_lets(block, pass1, info)
+        self._keep_owned_hist_lets(block, pass1, info)
         self._keep_colour_lets(pass1, info)
         return pass1
 
@@ -5395,7 +5400,7 @@ class _Recognizer:
         # _restore_orphaned_data_stmts.
         info["_let_source_datasets"].add(source)
 
-    def _record_hist_let(self, toks, datasets, info, raw: str) -> None:
+    def _record_hist_let(self, toks, datasets, info, raw: str, line_no) -> None:
         """Record ``let dK = hist dJ [from a] [to b] [bins n] [step w]``.
 
         Options may appear in any order, which is how GLE's
@@ -5445,6 +5450,7 @@ class _Recognizer:
             "hist_to": options.get("to"),
             "bins": options.get("bins"),
             "bin_step": options.get("step"),
+            "line_no": line_no,
         }
         info["_hist_let_pending"][target] = raw
 
@@ -5659,7 +5665,8 @@ class _Recognizer:
     def _non_dataset_texts(self, block, skip=()) -> List[str]:
         """The text of every statement in ``block`` but its ``dN`` lines.
 
-        The ``let`` of each target in ``skip`` is left out too.
+        The ``let`` of each target in ``skip`` is left out too, and so are
+        strings: a title or a file name never reads a dataset.
         """
         texts: List[str] = []
         for child in block.body:
@@ -5675,7 +5682,9 @@ class _Recognizer:
                     and toks[1].value.lower() in skip
                 ):
                     continue
-                texts.append(" ".join(t.value for t in toks))
+                texts.append(
+                    " ".join(t.value for t in toks if t.type is not TokenType.STRING)
+                )
         return texts
 
     def _record_derived_let(self, toks, info) -> None:
@@ -5864,16 +5873,9 @@ class _Recognizer:
         source = record.get("_fit_source")
         if source is None:
             return True
-        data_file, xcol, ycol = pass1.datasets[source]
-        if (
-            source in pass1.merged_attr_toks
-            or source in self._data_read_options
-            or info.get("_dataset_group", {}).get(source) != [source]
-            or _mention_count(texts, source) != 2
-            or [entry[0] for entry in pass1.datasets.values()].count(data_file) != 1
-            or not self._is_import(data_file)
-        ):
+        if not self._owns_sidecar(texts, pass1, info, source):
             return False
+        data_file, xcol, ycol = pass1.datasets[source]
         loaded = self._load_series(data_file, xcol, ycol)
         if loaded.get("error"):
             return False
@@ -5881,6 +5883,53 @@ class _Recognizer:
         record["y"] = np.asarray(loaded["y"], dtype=float)
         record["data_file"] = data_file
         return True
+
+    def _owns_sidecar(self, texts, pass1: _GraphDatasets, info, source) -> bool:
+        """True when ``source`` is read by its ``let`` alone, from a sidecar.
+
+        The writer rewrites a fit's or histogram's data file with just the
+        columns it reads, which would break any other reader of the file, and
+        a file of the caller's own is never rewritten. ``texts`` are the
+        statements that may read ``source`` (see :meth:`_non_dataset_texts`):
+        its ``data`` statement and the ``let`` must be the only two.
+        """
+        if source not in pass1.datasets:
+            return False
+        data_file = pass1.datasets[source][0]
+        return not (
+            source in pass1.merged_attr_toks
+            or source in self._data_read_options
+            or info.get("_dataset_group", {}).get(source) != [source]
+            or _mention_count(texts, source) != 2
+            or [entry[0] for entry in pass1.datasets.values()].count(data_file) != 1
+            or not self._is_import(data_file)
+        )
+
+    def _keep_owned_hist_lets(self, block, pass1: _GraphDatasets, info) -> None:
+        """Leave raw each histogram let whose samples it does not own.
+
+        Pass 2 then keeps the ``let`` and its display as written, and the
+        source dataset stays defined under its own name for the raw ``let``.
+        """
+        if not info["_hist_lets"]:
+            return
+        texts = self._non_dataset_texts(block)
+        for target, record in list(info["_hist_lets"].items()):
+            source = record["source"]
+            if self._owns_sidecar(texts, pass1, info, source):
+                continue
+            del info["_hist_lets"][target]
+            info["_hist_let_pending"].pop(target, None)
+            info["_raw_datasets"].add(source)
+            line_no = record["line_no"]
+            self._note(
+                ImportCategory.DATA,
+                f"histogram let {target} reads {source}, which is not in a "
+                "gleplot data file only the let reads, so it was kept as raw "
+                "GLE and its file is not rewritten. To edit it, load the "
+                "samples and call ax.hist()",
+                (line_no, line_no) if line_no is not None else None,
+            )
 
     def _build_function_series(self, name, attr_toks, info) -> None:
         """Append the ``FunctionSeries`` or ``FitSeries`` for a kept let."""
