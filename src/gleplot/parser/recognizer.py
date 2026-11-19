@@ -336,6 +336,7 @@ from ..series import (
     Wedge,
 )
 from ..writer import (
+    _WEDGE_SCALE,
     CDATA_SUB_PREFIX,
     CELLS_MARKER,
     CONTOURF_EXTENDS,
@@ -1736,8 +1737,9 @@ class _Recognizer:
         # datasets (with the 'data' statement's text) awaiting their group.
         self._post_graph_rugs: Dict[str, dict] = {}
         self._ready_rugs: Dict[str, Tuple[Rug, str]] = {}
-        self._held_rugs_includes: List[str] = []
-        self._held_piesub_includes: List[str] = []
+        # The rugs.gle / piesub.gle include lines, as (file, text) in file
+        # order, held back until the rugs and slices are read.
+        self._held_includes: List[Tuple[str, str]] = []
         # The figure legend (Figure.legend) recovered after the last graph,
         # as Figure._legend without its spacing, or None. Set before the
         # axes are assembled: it decides what their 'key off' meant.
@@ -1896,11 +1898,15 @@ class _Recognizer:
 
         # --- data-file naming state for byte-identical re-save. ---
         self._finalize_data_state(fig)
-        if not any(ax.rugs for ax in fig.axes_list):
-            # The writer writes rugs.gle's include only for a rug.
-            fig.passthrough_header.extend(self._held_rugs_includes)
-        if not any(ax.wedges for ax in fig.axes_list):
-            fig.passthrough_header.extend(self._held_piesub_includes)
+        # The writer includes rugs.gle only for a rug, piesub.gle only for a
+        # slice; an include nothing read back will regenerate stays.
+        regenerated = {
+            RUGS_INCLUDE: any(ax.rugs for ax in fig.axes_list),
+            PIESUB_INCLUDE: any(ax.wedges for ax in fig.axes_list),
+        }
+        fig.passthrough_header.extend(
+            text for name, text in self._held_includes if not regenerated[name]
+        )
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
 
@@ -1967,10 +1973,8 @@ class _Recognizer:
             name = self._first_string(_words_and_values(node))
             if name in names:
                 lines.add(node.line_no)
-            if name == RUGS_INCLUDE:
-                self._held_rugs_includes.append(self._stmt_text(node))
-            if name == PIESUB_INCLUDE:
-                self._held_piesub_includes.append(self._stmt_text(node))
+            if name in (RUGS_INCLUDE, PIESUB_INCLUDE):
+                self._held_includes.append((name, self._stmt_text(node)))
         return lines
 
     def _read_metadata(self) -> Dict[str, Any]:
@@ -9935,7 +9939,7 @@ class _Recognizer:
         )
 
     _PIE_TEXT_RE = re.compile(
-        r'^pie_text (\S+) (\S+) (\S+)\*min\(xg\(1\)-xg\(0\),yg\(1\)-yg\(0\)\) "(.*)" ""$'
+        r"^pie_text (\S+) (\S+) (\S+)\*" + re.escape(_WEDGE_SCALE) + r' "(.*)" ""$'
     )
     _WEDGE_CENTRE_RE = re.compile(r"^amove xg\((\S+)\) yg\((\S+)\)$")
     _WEDGE_TEXT_RE = re.compile(r"^amove xg\(\S+\)\+(\S+?)\*")
@@ -9949,6 +9953,9 @@ class _Recognizer:
         block's starting ``BLACK``; any other current colour is drawn but not
         modelled, and is noted. Returns ``(next_index, wedge)`` or ``None``.
         """
+        first = self._as_statement(nodes[i]) if i < len(nodes) else None
+        if first is None or (first.keyword or "").lower() != "gsave":
+            return None
         texts: List[Tuple[int, str]] = []
         j = i
         while j < len(nodes) and len(texts) < 11:
@@ -10007,7 +10014,7 @@ class _Recognizer:
                 ImportCategory.STRUCTURE,
                 f"pie wedge text is drawn in {self._text_color}, which the "
                 "model does not keep; it will be written in BLACK",
-                None,
+                (nodes[texts[0][0]].line_no, nodes[texts[k - 1][0]].line_no),
             )
         just = [line for line in lines[5:k] if line.startswith("set just ")]
         if just:

@@ -191,7 +191,7 @@ def mdata_sub_text(marker: str) -> str:
     subroutine (``g_marker2`` in ``core.cpp``); a built-in marker ignores it.
     This sub draws the built-in marker at ``msize`` times that value. Its text
     depends on nothing but its name, so the parser drops it and the writer
-    regenerates it, like the palette, guide and wedge subs.
+    regenerates it, like the palette subs.
     """
     name = MDATA_SUB_PREFIX + marker.lower()
     # The ``marker`` command's size is a multiple of ``hei`` (``run.cpp``),

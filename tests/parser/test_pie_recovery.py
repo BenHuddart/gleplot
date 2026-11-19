@@ -85,9 +85,8 @@ def test_a_wedge_not_in_the_writers_shape_stays_raw_gle(tmp_path, old, new):
     edited = _WEDGES.replace(old, new, 1)
     path.write_text(_graph("", edited))
     figure = parse_gle_figure(path).figure
-    assert figure.axes_list[0].wedges[:1] == [] or (
-        figure.axes_list[0].wedges[0]["color"] == "BLUE"
-    )
+    # The deferred block is then kept whole as raw GLE.
+    assert figure.axes_list[0].wedges == []
     text = figure._generate_gle_with_files()[0]
     assert new in text
     assert 'include "piesub.gle"' in text
@@ -136,3 +135,13 @@ def test_an_incomplete_frame_stays_raw_gle(tmp_path, body):
     path.write_text(_graph(body))
     ax = parse_gle_figure(path).figure.axes_list[0]
     assert "    xside off" in ax.passthrough
+
+
+def test_held_includes_keep_their_order(tmp_path):
+    path = tmp_path / "inc.gle"
+    path.write_text(
+        'size 10 10\ninclude "piesub.gle"\ninclude "rugs.gle"\n'
+        "begin graph\n    xaxis min 0 max 1\nend graph\n"
+    )
+    text = parse_gle_figure(path).figure._generate_gle_with_files()[0]
+    assert 'include "piesub.gle"\ninclude "rugs.gle"' in text
