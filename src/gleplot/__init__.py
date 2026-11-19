@@ -115,7 +115,9 @@ def open_gle(path, *, base_dir=None) -> Figure:
     Warns
     -----
     UserWarning
-        Once per recovery note.
+        One per recovery note. Python's default warning filter shows a
+        message it has already shown from the same line only once; use
+        ``parse_gle_figure`` for the full list and each note's line span.
     """
     from .parser.recognizer import parse_gle_figure
 

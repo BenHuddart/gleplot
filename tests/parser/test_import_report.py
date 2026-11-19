@@ -376,7 +376,8 @@ def test_open_gle_warns_once_per_note(tmp_path):
     )
     p = _write(tmp_path, "prog.gle", src, {"data_k.dat": "0 0\n1 1\n"})
     expected = parse_gle_figure(p).warnings
-    assert len(expected) > 1
+    assert any(w.startswith("programmatic: ") for w in expected)
+    assert any(w.startswith("layout: ") for w in expected)
     with pytest.warns(UserWarning) as record:
         gleplot.open_gle(p)
     assert [str(w.message) for w in record] == expected
