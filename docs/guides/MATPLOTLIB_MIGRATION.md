@@ -214,6 +214,20 @@ ax.stem(x, y)
 | return value | the axes. There is no `LineCollection`. |
 | `open_gle` | the segments come back as `plot` lines with NaN gap rows. |
 
+## Line keywords
+
+`plot` takes matplotlib's short names `lw`, `ls`, `c`, `ms`, `mfc` and `ds`
+for `linewidth`, `linestyle`, `color`, `markersize`, `markerfacecolor` and
+`drawstyle`. Where matplotlib raises for a name passed together with its
+alias, gleplot warns and the full name wins.
+
+A `Line2D` keyword GLE cannot draw, such as `alpha`, `markeredgecolor`
+(`mec`), `markeredgewidth` (`mew`), `dashes`, `transform` or `clip_on`, warns
+and is ignored, and so does a misspelt one:
+`UserWarning: plot() ignores unsupported keyword(s): alpha.` `scatter`,
+`step`, `stem`, `semilogx`, `semilogy` and `loglog` pass their remaining
+keywords on to `plot`, so they warn under its name.
+
 ## Marker spacing, thinning and clipping
 
 GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. Use `mdist` instead: it places the markers every `mdist` cm along the drawn curve, whatever the point spacing. That is closest to matplotlib's float form of `markevery`. These keywords are gleplot's names for GLE's dataset qualifiers, and `scatter` passes them on to `plot`:
