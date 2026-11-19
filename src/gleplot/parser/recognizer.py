@@ -367,6 +367,7 @@ from .syntax import (
     BlankOrComment,
     GraphBlock,
     OpaqueBlock,
+    SourceLine,
     Statement,
     parse_gle_source,
 )
@@ -8020,6 +8021,14 @@ class _Recognizer:
                 continue
             self._contour_blocks[zfile] = info
             self._mark_block_consumed(node)
+            for sl in info["dropped"]:
+                self._note(
+                    ImportCategory.DATA,
+                    f"{sl.text.strip()!r} in the begin contour block for "
+                    f"{zfile!r} is not modelled and is not written back on "
+                    "save; add it to the saved file by hand if you need it",
+                    (sl.line_no, sl.line_no),
+                )
 
         # A fitz block is ours iff its generated .z feeds a recognized colormap
         # or a recognized contour block, AND its scattered points are readable.
@@ -8165,36 +8174,42 @@ class _Recognizer:
         """Parse a ``begin contour`` block matching gleplot's shape, or ``None``.
 
         Recovers the ``.z`` file it reads and the explicit ``values`` list
-        (``None`` when a bare block using GLE's default 10 levels).
+        (``None`` when a bare block using GLE's default 10 levels), and lists
+        under ``dropped`` the other non-blank lines, which are not rewritten.
+        A ``data`` or ``values`` line it cannot read whole (``values from a
+        to b step s`` among them), or a repeated one, keeps the block as
+        written.
         """
         zfile = None
-        levels = None
+        levels: Optional[List[float]] = None
+        dropped: List[SourceLine] = []
+        seen: Set[str] = set()
         for sl in node.inner_lines:
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
+                if sl.text.strip():
+                    dropped.append(sl)
                 continue
             kw = toks[0].value.lower()
-            if kw == "data" and len(toks) >= 2:
+            if kw not in ("data", "values"):
+                dropped.append(sl)
+                continue
+            if kw in seen or len(toks) < 2:
+                return None
+            seen.add(kw)
+            if kw == "data":
                 zfile, _ = self._read_filename(toks, 1)
-            elif kw == "values":
-                # Only the explicit ``values v1 v2 ...`` form is modeled;
-                # ``values from a to b step s`` stays a foreign block.
-                if len(toks) >= 2 and toks[1].value.lower() == "from":
+                continue
+            levels = []
+            k = 1
+            while k < len(toks):
+                v, k = _collect_value(toks, k)
+                if v is None:
                     return None
-                vals: List[float] = []
-                k = 1
-                while k < len(toks):
-                    v, nxt = _collect_value(toks, k)
-                    if v is None:
-                        k += 1
-                        continue
-                    vals.append(v)
-                    k = nxt
-                if vals:
-                    levels = vals
+                levels.append(v)
         if zfile is None:
             return None
-        return {"zfile": zfile, "levels": levels}
+        return {"zfile": zfile, "levels": levels, "dropped": dropped}
 
     @staticmethod
     def _parse_from_to_step(toks) -> Optional[Tuple[float, float, float]]:
