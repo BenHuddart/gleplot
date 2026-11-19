@@ -243,7 +243,12 @@ def test_a_point_gle_would_drop_is_written_missing():
 
 
 @pytest.mark.parametrize("per_point", [{"s": [10, 20, 30]}, {"c": [1, 2, 3]}])
-def test_a_table_point_gle_would_drop_is_written_missing(per_point):
+@pytest.mark.parametrize(
+    "y, scale, dropped",
+    [([1, np.nan, 9], "linear", "nan"), ([1, -4, 9], "log", "-4")],
+    ids=["nan", "log-negative"],
+)
+def test_a_table_point_gle_would_drop_is_written_missing(per_point, y, scale, dropped):
     """A provider-backed scatter gets its own masked x and y columns (#201).
 
     The table's columns stay as they are, because the line reads them too.
@@ -253,11 +258,12 @@ def test_a_table_point_gle_would_drop_is_written_missing(per_point):
     ax = _ax()
     ax.scatter(X, Y, **per_point)
     ax.plot(X, Y)
-    ax.set_xlim(0, 4)
-    ax.set_ylim(0, 10)
+    ax.set_xlim(0.5, 4)
+    ax.set_ylim(0.5, 10)
+    ax.set_yscale(scale)
     for series in (ax.scatters[0], ax.lines[0]):
         series["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
-    table = TableData.from_mapping({"x": [1, 2, 3], "y": [1, np.nan, 9]})
+    table = TableData.from_mapping({"x": [1, 2, 3], "y": y})
     text, files = ax.figure._generate_gle_with_files(
         data_provider=DictDataProvider({"t": table})
     )
@@ -267,7 +273,7 @@ def test_a_table_point_gle_would_drop_is_written_missing(per_point):
     assert rows == [
         ["x", "y", "x_2", "y_2"],
         ["1", "1", "1", "1"],
-        ["2", "nan", "*", "*"],
+        ["2", dropped, "*", "*"],
         ["3", "9", "3", "9"],
     ]
     assert f"data {name} d1=c1,c2\n" in text

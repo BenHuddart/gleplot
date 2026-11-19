@@ -724,8 +724,10 @@ class _SharedSidecar:
         self.keys.append(key)
         self.names.append(name)
         values = np.asarray(values)
-        # An object column holds ``*`` missing values (see _as_missing).
-        self.columns.append(values if values.dtype == object else values.astype(float))
+        # Only the ``*`` missing values of _as_missing are kept as written.
+        if values.dtype != object or not (values == "*").any():
+            values = values.astype(float)
+        self.columns.append(values)
         return len(self.keys)
 
     def header(self) -> List[str]:
