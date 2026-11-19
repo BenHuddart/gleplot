@@ -2,6 +2,52 @@
 
 <!-- version list -->
 
+## v5.6.1 (2026-11-19)
+
+### Bug Fixes
+
+- Accept matplotlib grey-level strings as colours
+  ([#193](https://github.com/BenHuddart/gleplot/pull/193),
+  [`81ec0a7`](https://github.com/BenHuddart/gleplot/commit/81ec0a7163b61b5bb2f82f9d0cbe6c62edb56714))
+
+- Keep a raw constant-error dataset defined when its file is re-saved
+  ([`d76f89e`](https://github.com/BenHuddart/gleplot/commit/d76f89eeff635d26386655c6d418dc3859b72d14))
+
+- List grey-level strings in the colour fidelity contract
+  ([#193](https://github.com/BenHuddart/gleplot/pull/193),
+  [`ff3ce5e`](https://github.com/BenHuddart/gleplot/commit/ff3ce5e6ff248cfa11e2a427cd0557b50434a23d))
+
+- Plot() honours lw/ls/c/ms and warns on keywords it ignores
+  ([#166](https://github.com/BenHuddart/gleplot/pull/166),
+  [`025697b`](https://github.com/BenHuddart/gleplot/commit/025697bd026c59117a883446b24f4e79013cb9fd))
+
+- Read a numpy RGB(A) array as a colour ([#244](https://github.com/BenHuddart/gleplot/pull/244),
+  [`1127994`](https://github.com/BenHuddart/gleplot/commit/1127994d0a9b4a1476551036012b93b84a9c89cf))
+
+- Read a numpy RGB(A) array as one hist colour
+  ([#244](https://github.com/BenHuddart/gleplot/pull/244),
+  [`b4dc551`](https://github.com/BenHuddart/gleplot/commit/b4dc551e04b68acddd3e0124f2371cc2ce1b2dda))
+
+- Review fixes for plot keyword handling ([#166](https://github.com/BenHuddart/gleplot/pull/166),
+  [`24499cc`](https://github.com/BenHuddart/gleplot/commit/24499ccdf6e920c0e9ddb83bf70f3ce29f63b181))
+
+### Documentation
+
+- Address review of the README rewrite ([#103](https://github.com/BenHuddart/gleplot/pull/103),
+  [`4a48619`](https://github.com/BenHuddart/gleplot/commit/4a48619be5f88a7453d918b4952c5495e6acd2f8))
+
+- Record release policy in AGENTS.md ([#263](https://github.com/BenHuddart/gleplot/pull/263),
+  [`0945f13`](https://github.com/BenHuddart/gleplot/commit/0945f134a6a10b53e736a1b158b0f05352d22164))
+
+- Rewrite the README to show what gleplot is for
+  ([#103](https://github.com/BenHuddart/gleplot/pull/103),
+  [`6526832`](https://github.com/BenHuddart/gleplot/commit/652683241bfea1e4c13449344d410b4f1ed015d6))
+
+- Separate unknown keyword names from junk values in release policy
+  ([#263](https://github.com/BenHuddart/gleplot/pull/263),
+  [`bd75a92`](https://github.com/BenHuddart/gleplot/commit/bd75a9279bba7cfe703d26dc75796cfe335aa141))
+
+
 ## v5.6.0 (2026-11-19)
 
 
