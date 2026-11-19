@@ -535,7 +535,10 @@ def legend(**kwargs):
 
 
 def savefig(filepath: str, **kwargs):
-    """Save current figure."""
+    """Save current figure: :meth:`Figure.savefig` on :func:`gcf`.
+
+    A keyword ``Figure.savefig`` does not take warns and is ignored.
+    """
     return gcf().savefig(filepath, **kwargs)
 
 

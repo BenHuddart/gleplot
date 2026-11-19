@@ -942,17 +942,15 @@ def test_savefig_page_keyword_defaults_do_not_warn(tmp_path):
         )
 
 
-@pytest.mark.parametrize(
-    "save, name", [("savefig", "savefig"), ("savefig_gle", "savefig_gle")]
-)
-def test_savefig_warns_on_keywords_it_ignores(tmp_path, save, name):
+@pytest.mark.parametrize("save", ["savefig", "savefig_gle"])
+def test_savefig_warns_on_keywords_it_ignores(tmp_path, save):
     fig = _line_figure()
     with pytest.warns(UserWarning) as record:
         getattr(fig, save)(
             str(tmp_path / "a.gle"), metadata={"Title": "t"}, transparant=True
         )
     assert [str(w.message) for w in record] == [
-        f"{name}() ignores unsupported keyword(s): metadata, transparant."
+        f"{save}() ignores unsupported keyword(s): metadata, transparant."
     ]
     assert record[0].filename == __file__
     assert (tmp_path / "a.gle").exists()

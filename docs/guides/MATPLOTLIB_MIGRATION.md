@@ -468,7 +468,7 @@ or `.jpg` name, compiles it with GLE.
 | `transparent` | wired — a PNG gets an alpha channel instead of a white background (GLE `-transparent`). PDF, EPS and SVG have no background to begin with. A JPEG has no alpha channel, so `True` warns there; a grayscale PNG keeps its alpha channel only with `cairo=True`, and warns without it. |
 | `grayscale` | gleplot keyword, not a matplotlib one: the colours GLE draws become their grey level (GLE `-nocolor`). A heatmap's image is greyed only in PNG and JPEG; in PDF, EPS and SVG it stays in colour and `True` warns. |
 | `bbox_inches`, `pad_inches`, `facecolor`, `edgecolor` | warn. The page is always the figure's `figsize`, and its background is not settable. |
-| `metadata`, `orientation`, `papertype`, `backend`, `bbox_extra_artists`, `pil_kwargs` and any other keyword | warn and are ignored: `savefig() ignores unsupported keyword(s): metadata.` |
+| `metadata`, `orientation`, `papertype`, `backend`, `bbox_extra_artists`, `pil_kwargs` and any other keyword | warn and are ignored, whatever the value: `savefig() ignores unsupported keyword(s): metadata.` `savefig_gle` warns the same way for any keyword but `folder`. |
 
 `transparent` and `grayscale` act when GLE compiles, so they warn when only
 the `.gle` script is saved.
