@@ -284,6 +284,17 @@ A bad value raises `ValueError` at the call. A series with its own `deresolve` g
 | `origin`, `extent`, `locator`, `antialiased`, `zorder` and other keywords | warn and are ignored. |
 | `pixels` | gleplot's own: the bitmap resolution, as for `imshow`. |
 
+## Heatmaps and contour lines
+
+`imshow` and `tripcolor` take the arguments listed in their API entries.
+Every other keyword, such as `alpha`, `norm` or `aspect`, warns and is
+ignored: a GLE colormap is opaque and one per axes (see "One Heatmap Per
+Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
+`contour` and `tricontour` take matplotlib's `linewidth` (`lw`) and
+`linestyle` (`ls`) for `linewidths` and `linestyles`; their other keywords
+(`alpha`, `cmap`, `extend`, ...) warn and are ignored. A misspelt keyword
+warns the same way.
+
 ## Line caps and joins
 
 matplotlib caps and joins each line on its own; GLE sets them once for the

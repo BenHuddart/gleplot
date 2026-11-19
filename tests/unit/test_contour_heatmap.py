@@ -1245,3 +1245,48 @@ def test_sidecar_counters_round_trip_and_avoid_renumbering_collision():
         np.arange(12.0).reshape(3, 4) + 1, levels=[2, 4]
     )
     assert ct2["data_file"] == "t_contour2.z"
+
+
+# --------------------------------------------------------------------------- #
+# Keywords gleplot cannot honour
+# --------------------------------------------------------------------------- #
+
+_GRID = np.arange(16.0).reshape(4, 4)
+_PTS = (np.array([0.0, 1, 0, 1, 0.5]), np.array([0.0, 0, 1, 1, 0.5]), np.arange(5.0))
+
+
+@pytest.mark.parametrize(
+    "name, args",
+    [
+        ("imshow", (_GRID,)),
+        ("contour", (_GRID,)),
+        ("tripcolor", _PTS),
+        ("tricontour", _PTS),
+    ],
+)
+def test_unsupported_keywords_warn_and_are_ignored(name, args):
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning) as caught:
+        getattr(ax, name)(*args, alpha=0.5, smooth=3)
+    assert [str(w.message) for w in caught] == [
+        f"{name}() ignores unsupported keyword(s): alpha, smooth."
+    ]
+    assert caught[0].filename == __file__
+
+
+@pytest.mark.parametrize("name, args", [("contour", (_GRID,)), ("tricontour", _PTS)])
+def test_contour_takes_matplotlibs_singular_line_aliases(name, args, recwarn):
+    fig, ax = glp.subplots()
+    getattr(ax, name)(*args, lw=2.5, ls="--")
+    getattr(ax, name)(*args, linewidth=2.5, linestyle="--")
+    short, full = ax.contours
+    assert (short["linewidth"], short["linestyle"]) == (2.5, 3)
+    assert (full["linewidth"], full["linestyle"]) == (2.5, 3)
+    assert not recwarn.list
+
+
+def test_contour_plural_wins_over_its_alias():
+    fig, ax = glp.subplots()
+    with pytest.warns(UserWarning, match="both linewidths and lw; linewidths wins"):
+        ax.contour(_GRID, linewidths=3, lw=2)
+    assert ax.contours[0]["linewidth"] == 3
