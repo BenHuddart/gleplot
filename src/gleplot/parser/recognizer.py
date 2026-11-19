@@ -4399,10 +4399,21 @@ class _Recognizer:
             gridded = info[f"{prefix}grid"]
             if self._is_empty_places(prefix, ticks, subticks, info):
                 # 'xticks off' + 'xlabels off' is how GLEWriter writes an
-                # empty places list (GLE ignores an empty 'xplaces').
+                # empty places list (GLE ignores an empty 'xplaces'). On a
+                # log axis it adds 'xsubticks on' for matplotlib's minor
+                # ticks, so a log axis without it had them switched off.
                 info[f"{prefix}places"] = []
                 info[f"{prefix}labels_off"] = False
                 info[f"_{prefix}ticks"] = None
+                info[f"_{prefix}subticks"] = None
+                log = info[f"{prefix}log"]
+                if not gridded and log == (subticks is None):
+                    # A log axis without the line had its minor ticks
+                    # switched off; a linear one with it had them asked for.
+                    on = subticks is not None
+                    info[f"_{prefix}subtick_marks"] = dict(
+                        length=None, lwidth=None, color=None, on=on, off=not on
+                    )
                 continue
             if not gridded:
                 self._reconcile_tick_marks(prefix, ticks, subticks, info)
@@ -4954,14 +4965,25 @@ class _Recognizer:
 
         Only a bare ``xticks off`` with a bare ``xlabels off`` qualifies, on
         an axis with no places, names, no-tick positions or subtick line: the
-        writer would drop any of those beside an empty places list.
+        writer would drop any of those beside an empty places list. An axis
+        without a grid may add a bare ``xsubticks on``, which the writer
+        writes there for minor ticks.
         """
+        style = ("lstyle", "lwidth", "length", "color")
         return (
             ticks is not None
             and ticks["ok"]
             and ticks["off"]
-            and all(ticks[k] is None for k in ("lstyle", "lwidth", "length", "color"))
-            and subticks is None
+            and all(ticks[k] is None for k in style)
+            and (
+                subticks is None
+                or (
+                    not info[f"{prefix}grid"]
+                    and subticks["ok"]
+                    and subticks["on"]
+                    and all(subticks[k] is None for k in style)
+                )
+            )
             and info[f"{prefix}labels_off"]
             and info[f"{prefix}places"] is None
             and info[f"{prefix}names"] is None
