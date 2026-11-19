@@ -1360,9 +1360,9 @@ def function_curves():
 
 
 def function_curves_beside_modelled_lets():
-    """Function curves after a histogram's and a scatter colour's own ``let``.
+    """Function and derived curves after a histogram's and a colour's ``let``.
 
-    Each curve has a series after it, so a curve kept raw would move.
+    Each function curve has a series after it, so one kept raw would move.
     """
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1372,6 +1372,8 @@ def function_curves_beside_modelled_lets():
     ax.scatter([0.1, 0.4, 0.8], [0.2, 0.5, 0.7], c=[0.1, 0.5, 0.9])
     ax.function("x/2", xmin=0, xmax=1)
     ax.plot([0, 1], [1, 0])
+    ax.derived("d1*2", [ax.lines[0]])
+    ax.plot([0, 1], [0.5, 0.5])
     return fig
 
 

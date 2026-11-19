@@ -3085,8 +3085,8 @@ class _Recognizer:
                     pass1.merged_attr_raw[kw] = []
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
-        # Histogram and colour lets are settled first: the function lets
-        # read which of them stay modelled.
+        # Histogram and colour lets are filtered first: a function let stays
+        # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
         self._keep_colour_lets(pass1, info)
         self._keep_plain_derived_lets(block, pass1, info)
