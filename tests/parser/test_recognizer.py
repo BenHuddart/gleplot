@@ -1669,20 +1669,35 @@ def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
     assert "let d2 = (d1-1)/(3-1)\n" in out.read_text(encoding="utf-8")
 
 
-def test_a_non_finite_qualifier_keeps_the_line_raw(tmp_path):
-    """``deresolve 1e999`` has no integer count: kept as written (#165)."""
+@pytest.mark.parametrize(
+    "qualifiers",
+    [
+        "deresolve 1e999 xmin 1e999",
+        # #167: these raised out of open_gle instead.
+        "svg_smooth 1e999",
+        "svg_smooth (1e999-1e999)",
+        "lstyle 1e999",
+        "lstyle -1e999",
+    ],
+)
+def test_a_non_finite_qualifier_keeps_the_line_raw(tmp_path, qualifiers):
+    """A non-finite count or style is not read: the line is kept as written
+    (#165, #167)."""
+    line = f"   d1 line {qualifiers} color RED"
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
         "begin graph\n"
         '   data "v.dat" d1=c1,c2\n'
-        "   d1 line deresolve 1e999 xmin 1e999 color RED\n"
+        f"{line}\n"
         "end graph\n"
     )
     p = _write(tmp_path, "inf.gle", src, {"v.dat": "0 1\n1 2\n"})
-    ax = parse_gle_figure(p).figure.axes_list[0]
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
     assert ax.file_series == []
-    assert "   d1 line deresolve 1e999 xmin 1e999 color RED" in ax.passthrough
+    assert line in ax.passthrough
+    assert any(w.startswith("data:") for w in rec.warnings)
 
 
 @pytest.mark.parametrize(
