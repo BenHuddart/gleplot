@@ -1894,13 +1894,14 @@ def placed_images():
 
 def data_beyond_six_figures():
     """Columns that six significant figures would merge, zero or cut."""
-    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    fig, (left, right, grid) = glp.subplots(1, 3, data_prefix="golden")
     stamps = 1.7e9 + np.array([0.0, 60.0, 121.0])
     left.plot(stamps, [1.0, 2.0, 3.0])
     left.set_xlim(stamps[0], stamps[-1])
     left.plot(stamps, [1e-12, 2.5e-12, 4e-12])
     right.plot([1.23456789e12, 2.5e12], np.cos([0.0, np.pi / 2]))
-    right.imshow(1.0 + 1e-8 * np.arange(6.0).reshape(2, 3), extent=(0, 3, 0, 2))
+    # On its own axes: other data would reach past the grid's last node.
+    grid.imshow(1.0 + 1e-8 * np.arange(6.0).reshape(2, 3), extent=(0, 3, 0, 2))
     return fig
 
 
