@@ -613,6 +613,16 @@ def file_series_without_a_line():
     return fig
 
 
+def line_with_nan_gaps():
+    """A NaN breaks a plotted and a stepped line, written as GLE's ``*``."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    nan = float("nan")
+    ax.plot([0, 1, 2, 3, 4], [0, 1, nan, 3, 4], color="red", label="broken")
+    ax.step([0, 1, 2, 3], [1, nan, 2, 2], where="post")
+    return fig
+
+
 def file_series_field_options():
     """File-series fields the ``file_series`` builder leaves at their defaults.
 
@@ -2057,6 +2067,7 @@ BUILDERS = [
     file_series_data_range,
     errorbar_thinned_from_a_file,
     file_series_without_a_line,
+    line_with_nan_gaps,
     file_series_field_options,
     file_series_read_options,
     large_markersize_and_linewidth,

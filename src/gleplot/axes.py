@@ -826,6 +826,14 @@ def _warn_unstrokable_zero(caller: str, linewidth: float) -> None:
         )
 
 
+def _has_nan(values: Any) -> bool:
+    """Whether numeric ``values`` hold a NaN; non-numeric data holds none."""
+    try:
+        return bool(np.isnan(np.asarray(values, dtype=float)).any())
+    except (TypeError, ValueError):
+        return False
+
+
 def _count(value: Any, what: str) -> int:
     """``value`` as a positive whole number; ``what`` is ``"method(name"``."""
     number = _finite_float(value, f"{what}=...)")
@@ -2778,7 +2786,8 @@ class Axes:
         Parameters
         ----------
         x, y : array-like
-            Data coordinates
+            Data coordinates. A NaN breaks a drawn line there, as in
+            matplotlib.
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
@@ -2995,6 +3004,13 @@ class Axes:
             self.scatters.append(scatter_data)
         else:
             line_data = LineSeries(**plot_fields)
+            if linestyle not in _NO_LINE and (_has_nan(x) or _has_nan(y)):
+                # matplotlib breaks a line at NaN; GLE breaks it at a missing
+                # value, which a gaps series writes its NaN rows as. As for
+                # hlines, a figure-wide smooth would fit one curve through
+                # the pieces, so the line is pinned unsmoothed.
+                line_data["gaps"] = True
+                line_data["smooth_mode"] = "none"
             self._register_series_draw_meta(line_data, "line", zorder)
             self.lines.append(line_data)
 

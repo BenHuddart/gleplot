@@ -997,13 +997,21 @@ class TestSegmentLines:
         assert files[name].splitlines() == ["x y", "0 0", "* 1", "2 2"]
         assert f"data {name} d1=c1,c2" in text
 
-    def test_plot_still_writes_nan_without_gaps(self):
+    def test_plot_breaks_its_line_at_nan(self):
+        """matplotlib breaks a line at NaN; GLE at a missing value, ``*``."""
         self.ax.plot([0, float("nan"), 2], [0, float("nan"), 2])
+        self.ax.step([0, 1, 2], [0, float("nan"), 2])
         self.ax.set_xlim(0, 2)
         self.ax.set_ylim(0, 2)
         _text, files = self._generate()
-        assert "nan nan" in files["seg_0.dat"]
-        assert "*" not in files["seg_0.dat"]
+        assert files["seg_0.dat"].splitlines()[1:] == ["0 0", "* *", "2 2"]
+        assert "*" in files["seg_1.dat"] and "nan" not in files["seg_1.dat"]
+
+    def test_markers_alone_and_a_line_without_nan_keep_nan_rows(self):
+        self.ax.plot([0, float("nan"), 2], [0, 1, 2], linestyle="none", marker="o")
+        self.ax.plot([0, 1, 2], [0, 1, 2])
+        assert "gaps" not in self.ax.scatters[0]
+        assert "gaps" not in self.ax.lines[0]
 
     def test_figure_and_module_wrappers(self):
         assert self.fig.vlines(1, 0, 1) is self.ax
