@@ -1658,6 +1658,15 @@ def trailer_stray_amoves():
     return fig
 
 
+def trailer_amove_after_subplots():
+    """#216: an ``amove`` trailer after a subplot grid's last blank line."""
+    fig = glp.figure(data_prefix="golden")
+    fig.add_subplot(121).plot([0, 1], [0, 1])
+    fig.add_subplot(122).plot([0, 1], [1, 0])
+    fig.passthrough_trailer = ["amove 1 1", "circle 0.4"]
+    return fig
+
+
 def pie_chart():
     """A titled pie with labels and percentages, then a text drawn after it."""
     fig = glp.figure(data_prefix="golden")
@@ -2007,6 +2016,7 @@ BUILDERS = [
     axes_styling_grid_only,
     contour_in_second_subplot,
     trailer_stray_amoves,
+    trailer_amove_after_subplots,
     pie_chart,
     pie_field_options,
     line_cap_join_dashlen,

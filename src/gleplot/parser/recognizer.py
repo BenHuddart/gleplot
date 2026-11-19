@@ -2036,7 +2036,7 @@ class _Recognizer:
                 drawings, texts, after = self._consume_page_content(
                     nodes, start_at, parsed_axes
                 )
-                if after != start_at:
+                if after != i:
                     i = after
                     continue
 
@@ -10013,13 +10013,9 @@ class _Recognizer:
             i += 1
         return x, y
 
-    def _more_graphs_after(self, nodes, i) -> bool:
-        for k in range(i + 1, len(nodes)):
-            if isinstance(nodes[k], GraphBlock):
-                return True
-            if self._match_amove(nodes[k]) is not None:
-                return True
-        return False
+    @staticmethod
+    def _more_graphs_after(nodes, i) -> bool:
+        return any(isinstance(node, GraphBlock) for node in nodes[i + 1 :])
 
     # -- axes assembly ---------------------------------------------------
 
