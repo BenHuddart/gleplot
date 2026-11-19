@@ -66,7 +66,7 @@ glp.view()
 
 ## Returns
 
-- **In Jupyter**: Returns `None` after displaying inline via IPython.display. With `format='pdf'`, which cannot be displayed inline, it emits a `UserWarning` and returns the path instead.
+- **In Jupyter**: Returns `None` after displaying inline via IPython.display. Any other format, such as `format='pdf'`, cannot be displayed inline: it emits a `UserWarning` and returns the path instead.
 - **Outside Jupyter**: Returns a Path object pointing to the temporary file
 
 `glp.show()` is the same as `glp.view()` with its defaults.
@@ -143,7 +143,7 @@ Both functions require GLE to be installed for compilation.
 
 1. **Use PNG format**: Default PNG format works best for inline display in Jupyter
 2. **Adjust DPI**: Increase DPI (e.g., 200-300) for better quality with detailed plots
-3. **Temporary files**: Files created by `view()` are saved in the system temp directory
+3. **Temporary files**: `view()` compiles in a scratch directory that it removes afterwards, so the `.gle` script and data files are not kept. Only the returned image is left in the system temp directory; use `savefig()` to keep the script
 4. **Combined workflow**: Use `view()` for quick checks and `savefig()` for final output
 
 ## See Also
