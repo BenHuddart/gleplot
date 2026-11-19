@@ -216,17 +216,19 @@ ax.stem(x, y)
 
 ## Line keywords
 
-`plot` takes matplotlib's short names `lw`, `ls`, `c`, `ms`, `mfc` and `ds`
-for `linewidth`, `linestyle`, `color`, `markersize`, `markerfacecolor` and
-`drawstyle`. Where matplotlib raises for a name passed together with its
-alias, gleplot warns and the full name wins.
+`plot`, `step`, `semilogx`, `semilogy` and `loglog` take matplotlib's short
+names `lw`, `ls`, `c` and `ms` for `linewidth`, `linestyle`, `color` and
+`markersize`, and `None` for one of them means the default, as in
+matplotlib. matplotlib raises for a name passed with its short name; gleplot
+keeps the full name, with a warning, unless the full name is left at its
+default.
 
-A `Line2D` keyword GLE cannot draw, such as `alpha`, `markeredgecolor`
-(`mec`), `markeredgewidth` (`mew`), `dashes`, `transform` or `clip_on`, warns
-and is ignored, and so does a misspelt one:
-`UserWarning: plot() ignores unsupported keyword(s): alpha.` `scatter`,
-`step`, `stem`, `semilogx`, `semilogy` and `loglog` pass their remaining
-keywords on to `plot`, so they warn under its name.
+A keyword GLE cannot draw, such as `alpha`, `markeredgecolor` (`mec`),
+`markeredgewidth` (`mew`), `dashes`, `transform` or `clip_on`, warns and is
+ignored, and so does a misspelt one:
+`UserWarning: plot() ignores unsupported keyword(s): alpha.` `scatter` and
+`stem` warn the same way, under their own names, for keywords they do not
+take, `lw`, `ls` and `ms` included.
 
 ## Marker spacing, thinning and clipping
 

@@ -1321,18 +1321,21 @@ def _pop_marker_fill(kwargs: dict, fillstyle=None, markerfacecolor=None) -> str:
     return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
 
 
-def _pop_line_alias(kwargs: dict, alias: str, name: str, value, default):
+def _pop_line_alias(kwargs: dict, caller: str, alias: str, name: str, value, default):
     """``value``, or what ``kwargs`` gives matplotlib's short ``alias`` for it.
 
-    The alias is removed from ``kwargs``. A ``value`` other than its
+    The alias is removed from ``kwargs``. ``None`` is matplotlib's "the
+    default" and leaves ``value`` alone. A ``value`` other than its
     ``default`` was passed by name, and wins over the alias with a warning
     (matplotlib raises for the pair).
     """
     if alias not in kwargs:
         return value
     short = kwargs.pop(alias)
+    if short is None:
+        return value
     if (value is not None) if default is None else (value != default):
-        warn_external(f"plot() got both {name} and {alias}; {name} wins.")
+        warn_external(f"{caller}() got both {name} and {alias}; {name} wins.")
         return value
     return short
 
@@ -2587,8 +2590,10 @@ class Axes:
         **kwargs
             Additional matplotlib-compatible arguments. ``lw``, ``ls``,
             ``c`` and ``ms`` are matplotlib's short names for
-            ``linewidth``, ``linestyle``, ``color`` and ``markersize``; the
-            full name wins when both are passed. ``solid_capstyle``,
+            ``linewidth``, ``linestyle``, ``color`` and ``markersize``.
+            matplotlib raises for a name passed with its short name; here
+            the full name wins, with a warning, unless it is left at its
+            default. ``solid_capstyle``,
             ``dash_capstyle``, ``solid_joinstyle`` and ``dash_joinstyle``
             take matplotlib's values; GLE caps and joins every line in the
             figure alike, so one that differs from the figure's
@@ -2604,10 +2609,19 @@ class Axes:
         data_name = kwargs.pop("data_name", None)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
-        linestyle = _pop_line_alias(kwargs, "ls", "linestyle", linestyle, "-")
-        linewidth = _pop_line_alias(kwargs, "lw", "linewidth", linewidth, 1)
-        color = _pop_line_alias(kwargs, "c", "color", color, None)
-        markersize = _pop_line_alias(kwargs, "ms", "markersize", markersize, 6)
+        # Private: the public method this call came through, for its warnings.
+        caller = kwargs.pop("_caller", "plot")
+        # matplotlib's scatter and stem take no Line2D keywords, so these
+        # short names are no aliases there.
+        if caller not in ("scatter", "stem"):
+            linestyle = _pop_line_alias(
+                kwargs, caller, "ls", "linestyle", linestyle, "-"
+            )
+            linewidth = _pop_line_alias(kwargs, caller, "lw", "linewidth", linewidth, 1)
+            color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
+            markersize = _pop_line_alias(
+                kwargs, caller, "ms", "markersize", markersize, 6
+            )
         marker_fill = _pop_marker_fill(kwargs, fillstyle, markerfacecolor)
         _pop_line_ends(kwargs, linestyle, self._style())
         label = self._text(label)
@@ -2643,7 +2657,7 @@ class Axes:
                 "point. Pass mdist= (cm along the curve) to space the markers "
                 "out instead.",
             )
-        warn_unsupported_keywords("plot", kwargs)
+        warn_unsupported_keywords(caller, kwargs)
         if "mdist" in qualifiers and marker is None:
             warn_external(
                 "plot(mdist=...) spaces markers, and this series has no "
@@ -2767,7 +2781,7 @@ class Axes:
             kwargs.pop("drawstyle", None)
             kwargs.pop("ds", None)
         kwargs["drawstyle"] = "steps-" + where_key
-        return self.plot(x, y, **kwargs)
+        return self.plot(x, y, _caller="step", **kwargs)
 
     @_cartesian_only
     def stem(
@@ -2908,7 +2922,9 @@ class Axes:
             )
         else:
             kwargs["line_mode"] = "impulses"
-        return self.plot(x, y, linestyle=linestyle, marker=marker, **kwargs)
+        return self.plot(
+            x, y, linestyle=linestyle, marker=marker, _caller="stem", **kwargs
+        )
 
     @_cartesian_only
     def hist(
@@ -4441,6 +4457,7 @@ class Axes:
             fillstyle=fillstyle,
             markerfacecolor=markerfacecolor,
             zorder=zorder,
+            _caller="scatter",
             **kwargs,
         )
         # No marker draws nothing, so there is no size to give each point.
@@ -8452,7 +8469,7 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("semilogx", kwargs)
-        result = self.plot(*args, **kwargs)
+        result = self.plot(*args, _caller="semilogx", **kwargs)
         self.set_xscale("log")
         return result
 
@@ -8466,7 +8483,7 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("semilogy", kwargs)
-        result = self.plot(*args, **kwargs)
+        result = self.plot(*args, _caller="semilogy", **kwargs)
         self.set_yscale("log")
         return result
 
@@ -8480,7 +8497,7 @@ class Axes:
             What :meth:`plot` returns.
         """
         self._check_log_kwargs("loglog", kwargs)
-        result = self.plot(*args, **kwargs)
+        result = self.plot(*args, _caller="loglog", **kwargs)
         self.set_xscale("log")
         self.set_yscale("log")
         return result
