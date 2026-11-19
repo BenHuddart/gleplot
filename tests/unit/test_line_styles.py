@@ -370,6 +370,12 @@ def test_linestyle_none_is_the_default_solid_line(call, recwarn):
     assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
 
 
+def test_linestyle_none_takes_the_solid_line_keywords():
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match="solid_capstyle"):
+        ax.plot(X, Y, linestyle=None, solid_capstyle="round")
+
+
 @pytest.mark.parametrize("no_line", ["None", "none", "", " "])
 def test_the_no_line_strings_still_draw_no_line(no_line):
     ax = glp.figure(data_prefix="ls").add_subplot(111)

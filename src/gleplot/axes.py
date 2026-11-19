@@ -1416,9 +1416,9 @@ def _pop_line_ends(kwargs: dict, linestyle, style) -> None:
     ``solid_*`` keywords concern a solid line, the ``dash_*`` ones a dashed
     line, and neither a series drawn without a line.
     """
-    # The writer's own tests: no line for None or a _NO_LINE value, and a
-    # dash only where the linestyle maps to an lstyle.
-    drawn = linestyle is not None and linestyle not in _NO_LINE
+    # The writer's own tests: no line for a _NO_LINE value, and a dash only
+    # where the linestyle maps to an lstyle.
+    drawn = linestyle not in _NO_LINE
     solid = Axes._linestyle_to_lstyle(linestyle) is None
     for keyword, (for_solid, field, gle_default, words) in _LINE_END_KEYWORDS.items():
         value = kwargs.pop(keyword, None)
@@ -2615,8 +2615,9 @@ class Axes:
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
-            or ``'none'`` for no line. ``None`` is the default, solid. A
-            dash tuple or any other value warns and is drawn solid.
+            or ``'none'`` for no line. Passing ``None`` asks for
+            matplotlib's default, a solid line. A dash tuple or any other
+            value warns and is drawn solid.
         color : str, optional
             Color name or code ('b', 'red', etc.)
         marker : str, optional
@@ -3189,9 +3190,7 @@ class Axes:
             if one_label is not None:
                 fields["label"] = self._text(str(one_label))
             if style_name == "step":
-                fields["linestyle"] = (
-                    "-" if one_ls is None else _line_style("hist", one_ls)
-                )
+                fields["linestyle"] = _line_style("hist", one_ls)
                 fields["linewidth"] = float(1 if one_lw is None else one_lw)
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
