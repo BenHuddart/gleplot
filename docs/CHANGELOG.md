@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v5.5.0 (2026-11-19)
+
+### Features
+
+- Colorbar for a colour-mapped scatter ([#89](https://github.com/BenHuddart/gleplot/pull/89),
+  [`fc22c9f`](https://github.com/BenHuddart/gleplot/commit/fc22c9f5b177e822530b26ed607cc6871a4f9335))
+
+- Review fixes for the scatter colorbar ([#89](https://github.com/BenHuddart/gleplot/pull/89),
+  [`802f869`](https://github.com/BenHuddart/gleplot/commit/802f86905cf66be313cb647fffa95337495b11d7))
+
+
 ## v5.4.0 (2026-11-19)
 
 ### Features
