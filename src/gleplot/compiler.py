@@ -743,10 +743,14 @@ class GLECompiler:
         )
 
         try:
+            # GLE's output is in no fixed encoding (it echoes paths and script
+            # text), so a byte the locale codec cannot decode -- an undefined
+            # cp1252 byte on Windows -- is replaced rather than raised.
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:

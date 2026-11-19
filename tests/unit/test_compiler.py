@@ -2,6 +2,7 @@
 
 import logging
 import subprocess
+import sys
 import warnings
 from pathlib import Path
 from unittest import mock
@@ -1059,3 +1060,20 @@ def test_compile_output_goes_to_the_logger_only_when_verbose(verbose, capsys, ca
     logged = [r.getMessage() for r in caplog.records if r.name == "gleplot.compiler"]
     assert logged == (["gle stdout\ngle stderr"] if verbose else [])
     assert capsys.readouterr() == ("", "")
+
+
+def test_undecodable_gle_output_still_raises_gle_compile_error():
+    # 0x81 is undefined in cp1252 (Windows) and invalid UTF-8 (elsewhere).
+    real_run = subprocess.run
+    emit = "import sys; sys.stderr.buffer.write(b'bad \\x81 byte'); sys.exit(1)"
+
+    def fake_gle(cmd, **kwargs):
+        return real_run([sys.executable, "-c", emit], **kwargs)
+
+    compiler = GLECompiler(gle_path="/explicit/path/to/gle")
+    with mock.patch("gleplot.compiler.subprocess.run", side_effect=fake_gle):
+        with mock.patch("gleplot.compiler.Path.exists", return_value=True):
+            with pytest.raises(GLECompileError) as excinfo:
+                compiler.compile("in.gle")
+
+    assert "bad " in excinfo.value.raw_output
