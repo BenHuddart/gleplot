@@ -128,7 +128,8 @@ def _new_limits(
     ``names``/``values`` are ``(left, right, xmin, xmax)`` or the y names.
     A ``(lo, hi)`` pair as the first limit is both; ``xmin``/``xmax`` stand
     for ``left``/``right`` (a ``None`` on one side gives way to the other);
-    an omitted limit keeps ``current``.
+    an omitted limit keeps ``current``. A limit given must be ``None`` or
+    a finite number; a numpy scalar is stored as the Python number.
     """
     lo_name, hi_name, min_name, max_name = names
     lo, hi, lo_alias, hi_alias = values
@@ -147,13 +148,24 @@ def _new_limits(
     ):
         if alias is not _UNCHANGED:
             if value is _UNCHANGED or value is None:
-                value = alias
+                value, name = alias, alias_name
             elif alias is not None:
                 raise TypeError(
                     f"{method}() got both {name!r} ({value!r}) and {alias_name!r} "
                     f"({alias!r}); pass only {name!r}."
                 )
-        resolved.append(old if value is _UNCHANGED else value)
+        if value is _UNCHANGED:
+            value = old
+        elif value is not None:
+            if isinstance(value, (np.generic, np.ndarray)) and np.ndim(value) == 0:
+                value = value.item()
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(
+                    f"{method}({name}={value!r}): a limit is a number, or None "
+                    "for an automatic one."
+                )
+            _finite_float(value, f"{method}({name}={value!r}): the limit")
+        resolved.append(value)
     ignored = ["emit"] if emit is not True else []
     ignored += ["auto"] if auto else []
     warn_unsupported_keywords(method, ignored)
@@ -844,6 +856,14 @@ def _warn_unstrokable_zero(caller: str, linewidth: float) -> None:
             "zero-width stroke; linewidth=0 is drawn at the default width. "
             "Leave the call out to draw nothing."
         )
+
+
+def _has_nonfinite(values: Any) -> bool:
+    """Whether numeric ``values`` hold a NaN or an infinity."""
+    try:
+        return not bool(np.isfinite(np.asarray(values, dtype=float)).all())
+    except (TypeError, ValueError):
+        return False
 
 
 def _count(value: Any, what: str) -> int:
@@ -2799,7 +2819,8 @@ class Axes:
         Parameters
         ----------
         x, y : array-like
-            Data coordinates
+            Data coordinates. A NaN or infinity breaks a drawn line there,
+            as in matplotlib; such a line is not smoothed or thinned.
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
@@ -3016,10 +3037,37 @@ class Axes:
             self.scatters.append(scatter_data)
         else:
             line_data = LineSeries(**plot_fields)
+            if linestyle not in _NO_LINE and (_has_nonfinite(x) or _has_nonfinite(y)):
+                # matplotlib breaks a line at NaN or inf; GLE breaks it at a
+                # missing value, which a gaps series writes those rows as.
+                line_data["gaps"] = True
+                self._pin_gapped_line(line_data, caller)
             self._register_series_draw_meta(line_data, "line", zorder)
             self.lines.append(line_data)
 
         return self  # Return self for method chaining
+
+    def _pin_gapped_line(self, series, caller: str) -> None:
+        """Keep a line with gaps unsmoothed and unthinned.
+
+        A figure-wide smooth would fit one curve through the pieces, and
+        ``deresolve`` would keep rows on both sides of a gap and join them.
+        """
+        series["smooth_mode"] = "none"
+        if caller in ("hlines", "vlines"):
+            return
+        if self.figure.graph.smooth_curves:
+            warn_external(
+                f"{caller}() draws a line with NaN gaps unsmoothed: a smooth "
+                "curve would join its pieces. GLEGraphConfig(smooth_curves="
+                "True) does not apply to it."
+            )
+        if series.pop("deresolve", None) is not None:
+            series.pop("deresolve_average", None)
+            warn_external(
+                f"{caller}(deresolve=...) is ignored for a line with NaN gaps: "
+                "thinning would join its pieces."
+            )
 
     @_cartesian_only
     def step(self, x, y, *args, where: str = "pre", **kwargs):
@@ -5980,13 +6028,9 @@ class Axes:
                 zorder=zorder,
                 _caller=name,
             )
-            series = self.lines[-1]
-            # The NaN rows are gaps, written as GLE missing values. A lone
-            # segment has none, so it stays a plain two-point line. A
-            # figure-wide smooth would fit a curve through the segments.
-            if len(members) > 1:
-                series["gaps"] = True
-            series["smooth_mode"] = "none"
+            # plot() writes the NaN rows between segments as gaps; a lone
+            # segment is pinned unsmoothed the same way.
+            self.lines[-1]["smooth_mode"] = "none"
             text = None
         return self
 
@@ -8772,9 +8816,12 @@ class Axes:
         left, right : float or None, optional
             Axis limits; ``None`` = auto. An omitted limit keeps its current
             setting, as in matplotlib. ``left`` may also be a
-            ``(left, right)`` pair.
+            ``(left, right)`` pair. A NaN or infinite limit raises
+            ``ValueError``, as in matplotlib, and a limit that is not a
+            number ``TypeError``.
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top)
+            Which axis: 'x' (bottom, default) or 'x2' (top); another value
+            raises ``ValueError``.
         emit, auto : optional
             Accepted for matplotlib compatibility. gleplot has no limit
             callbacks or autoscaling state, so ``emit=False`` and ``auto=True``
@@ -8785,9 +8832,13 @@ class Axes:
 
         Returns
         -------
-        Axes
-            ``self``.
+        left, right : (float or None, float or None)
+            The new limits, as matplotlib; ``None`` is automatic.
         """
+        if axis not in ("x", "x2"):
+            raise ValueError(
+                f"set_xlim(axis={axis!r}): expected 'x' (bottom) or 'x2' (top)."
+            )
         x2 = axis == "x2"
         lo, hi = _new_limits(
             "set_xlim",
@@ -8803,7 +8854,7 @@ class Axes:
         else:
             self.xmin = lo
             self.xmax = hi
-        return self
+        return self.get_xlim(axis)
 
     @_cartesian_only
     def twiny(self, axes_class=None, *, delta_zorder=0.0, **kwargs) -> SecondaryXAxis:
@@ -9013,9 +9064,11 @@ class Axes:
         bottom, top : float or None, optional
             Axis limits; ``None`` = auto (see :meth:`set_xlim`). An omitted
             limit keeps its current setting, and ``bottom`` may be a
-            ``(bottom, top)`` pair.
+            ``(bottom, top)`` pair. A limit that is not a finite number
+            raises, as for :meth:`set_xlim`.
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right); another value
+            raises ``ValueError``.
         emit, auto : optional
             As for :meth:`set_xlim`.
         ymin, ymax : float or None, optional
@@ -9023,14 +9076,18 @@ class Axes:
 
         Returns
         -------
-        Axes
-            ``self``.
+        bottom, top : (float or None, float or None)
+            The new limits, as matplotlib; ``None`` is automatic.
 
         Notes
         -----
         On a polar axes these are the radial limits: ``bottom`` must be 0 or
         ``None``, and ``top``, the outer ring, positive or ``None``.
         """
+        if axis not in ("y", "y2"):
+            raise ValueError(
+                f"set_ylim(axis={axis!r}): expected 'y' (left) or 'y2' (right)."
+            )
         y2 = axis == "y2"
         lo, hi = _new_limits(
             "set_ylim",
@@ -9061,7 +9118,7 @@ class Axes:
         else:
             self.ymin = lo
             self.ymax = hi
-        return self
+        return self.get_ylim(axis)
 
     @_cartesian_only
     def set_xticks(

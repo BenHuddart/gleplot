@@ -371,6 +371,11 @@ def normalize(d: dict) -> dict:
                     for k in ("zmin", "zmax", "zstep", "width", "sep"):
                         if cb.get(k) is not None:
                             cb[k] = _snap_num(cb[k])
+                    # A step that divides the range is written as
+                    # (zmax-(zmin))/n from the printed range, so it comes
+                    # back as that quotient: compare one digit coarser.
+                    if cb.get("zstep") is not None:
+                        cb["zstep"] = float(f"{cb['zstep']:.5g}")
 
         # Text annotations: fontsize round-trips through cm (snap).
         # ``box_color`` and a non-zero ``rotation`` are emitted and recovered,
@@ -621,6 +626,14 @@ def test_a_file_read_with_options_is_not_loaded(tmp_path, body):
         ('data "t.dat"\n   bar d1', "a 2 3\nb 3 4\n", "data t.dat d1=c0,c2"),
         # 'nox' makes x the point index and y start at c1.
         ('data "n.dat" d1 d2 nox\n   d2 line', "1 2 3\n2 3 4\n", "data n.dat d1=c0,c2"),
+        # #323: GLE's rules, not the loader's: 'inf' is text to GLE ...
+        ('data "t.dat"\n   d1 line', "inf 2\ninf 3\n", "data t.dat d1=c0,c2"),
+        # ... and the statement's 'ignore' skips the row that is a number.
+        (
+            'data "t.dat" ignore 1\n   d1 line',
+            "1 2 3\na 2 3\nb 3 4\n",
+            "data t.dat d1=c0,c2 ignore 1",
+        ),
     ],
 )
 def test_positional_x_follows_gle(tmp_path, body, data, written):
@@ -1793,12 +1806,14 @@ def test_a_colorbar_call_with_nothing_to_show_is_noted(tmp_path):
     fig.savefig_gle(str(path))
     text = path.read_text(encoding="utf-8")
     path.write_text(
-        text.replace('palette "gleplot_viridis" wd', 'palette "gleplot_magma" wd'),
+        text.replace(
+            'palette "gleplot_viridis" width', 'palette "gleplot_magma" width'
+        ),
         encoding="utf-8",
     )
     rec = parse_gle_figure(path)
     assert "colorbar" not in rec.figure.axes_list[0].scatters[0]
-    assert any("gleplot_colorbar_v call was dropped" in w for w in rec.warnings)
+    assert any("color_range_vertical call was dropped" in w for w in rec.warnings)
 
 
 def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
@@ -1932,7 +1947,7 @@ def test_a_qualifier_on_a_contour_line_is_reported(tmp_path):
     )
     rec = parse_gle_figure(path)
     assert len(rec.figure.axes_list[0].contours) == 1
-    assert any("deresolve on a contour" in w for w in rec.warnings)
+    assert any("'deresolve' on a contour" in w for w in rec.warnings)
 
 
 def test_marker_config_mdist_comes_back_on_the_series(tmp_path):

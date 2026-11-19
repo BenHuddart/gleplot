@@ -11,7 +11,7 @@ gleplot can render 2-D scalar fields as heatmaps (matplotlib's `imshow`/`pcolorm
 - `Axes.tripcolor(x, y, z, gridsize=(50, 50), extent=None, **imshow_kwargs)` — heatmap of **scattered** `(x, y, z)` samples, gridded by GLE at compile time.
 - `Axes.function2d(expression, extent, cmap=None, vmin=0.0, vmax=1.0, pixels=None, invert=False, label=None)` — heatmap of an **expression** in `x` and `y` that GLE evaluates itself (see [Heatmap from an expression](#heatmap-from-an-expression)).
 - `Axes.tricontour(x, y, z, gridsize=(50, 50), extent=None, ncontour=3, **contour_kwargs)` — contour lines of **scattered** `(x, y, z)` samples.
-- `Figure.colorbar(mappable=None, cax=None, ax=None, use_gridspec=True, *, orientation=None, label=None, format='fix 1', nticks=None, width=0.5, sep=None)` — attaches a colorbar to a heatmap or a colour-mapped scatter, beside its axes (vertical) or below it (horizontal). See [Colorbars](#colorbars).
+- `Figure.colorbar(mappable=None, cax=None, ax=None, use_gridspec=True, *, orientation=None, label=None, format=None, nticks=None, width=0.5, sep=None)` — attaches a colorbar to a heatmap or a colour-mapped scatter, beside its axes (vertical) or below it (horizontal). See [Colorbars](#colorbars).
 
 Each except `function2d` has a module-level convenience wrapper too: `glp.imshow(...)`, `glp.pcolormesh(...)`, `glp.contour(...)`, `glp.contourf(...)`, `glp.tripcolor(...)`, `glp.tricontour(...)`, `glp.colorbar(...)` (they operate on `gca()`/`gcf()`, matching `glp.plot()` and friends).
 
@@ -200,7 +200,7 @@ fig.colorbar(hb, ax=b, orientation='horizontal', label='counts')
 fig.savefig('two_bars.pdf')
 ```
 
-A vertical bar sits `sep` cm to the right of its axes. A horizontal bar spans its axes' width, below the x tick labels and title; its `sep` is measured from the frame's bottom edge, and the default clears them at the figure's font size when `colorbar()` is called. `width` is the bar's thickness either way. The subplot grid makes room for every bar: a vertical bar widens the gap to the right of its column, a horizontal bar the gap below its row, and a bar on the last column or row widens the page margin instead.
+A vertical bar sits `sep` cm to the right of its axes. A horizontal bar spans its axes' width, below the x tick labels and title; its `sep` is measured from the frame's bottom edge, and the default clears them at the figure's font size when `colorbar()` is called. `width` is the bar's thickness either way. The bar is drawn by `color_range_vertical` or `color_range_horizontal` from GLE's include library (`color.gle`, see [GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library)), and its `label` is written beside it as plain text: rotated, to the right of a vertical bar's tick numbers, or centred under a horizontal one's. The tick labels default to fixed-point with as many decimals as the first value and the tick step need (`format=` overrides it). The subplot grid makes room for every bar: a vertical bar widens the gap to the right of its column, a horizontal bar the gap below its row, and a bar on the last column or row widens the page margin instead.
 
 `ax` must be the axes holding the heatmap: the bar is drawn beside its own heatmap's axes. `cax` is not supported. Passing it warns, and the bar is drawn beside the heatmap's axes.
 
@@ -229,7 +229,7 @@ GLE's colormap/contour grid has no missing-value support and requires ascending 
 - **Ascending `extent`.** `extent` must have `xmin < xmax` and `ymin < ymax`; a reversed or degenerate extent is rejected (gleplot cannot express an axis flipped purely via `extent`).
 - **In-range contour levels.** Explicit `contour` levels that all fall outside the grid's data range are rejected (no lines would be drawn, and GLE aborts on the resulting empty polyline file). A partially in-range level set is fine — the out-of-range ones are simply not drawn. (For `tricontour` the grid is interpolated at compile time, so its exact range isn't known in advance and this check isn't applied.)
 
-A colorbar over a **constant** field (`zmax == zmin`) is handled gracefully — the generated colorbar subroutine expands the degenerate range to a nominal unit span so the bar still renders instead of dividing by zero.
+A colorbar over a **constant** field (`zmax == zmin`) is drawn over one unit from that value, since GLE's colour range divides by its span.
 
 ## What Files gleplot Writes
 
