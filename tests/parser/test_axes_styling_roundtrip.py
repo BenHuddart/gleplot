@@ -541,17 +541,24 @@ def test_hand_written_tick_intervals_are_recovered(tmp_path):
     [
         # An expression would be rounded by writing it back as a number.
         ("   xaxis dticks pi/2\n", "xaxis dticks pi/2"),
+        ("   xaxis dsubticks pi\n", "xaxis dsubticks pi"),
+        ("   xaxis dticks 0.1234567\n", "xaxis dticks 0.1234567"),
+        ("   xaxis dticks 1e-11\n", "xaxis dticks 1e-11"),
+        # Not an interval GLE can draw.
+        ("   xaxis dticks 0\n", "xaxis dticks 0"),
         ("   xaxis dticks -1\n", "xaxis dticks -1"),
         # Tick intervals are modelled on x and y only.
         ("   y2axis dticks 1\n", "y2axis dticks 1"),
         # A repeat overrides the first, so it stays raw at the end.
         ("   xaxis dticks 1\n   xaxis dticks 2\n", "xaxis dticks 2"),
-        ("   xaxis dsubticks pi\n   xaxis dsubticks 1\n", "xaxis dsubticks 1"),
+        ("   xaxis dsubticks 0.5\n   xaxis dsubticks 1\n", "xaxis dsubticks 1"),
     ],
 )
 def test_tick_interval_forms_the_model_cannot_hold_stay_raw(tmp_path, body, raw):
     ax = parse_gle_figure(_write(tmp_path, "raw.gle", body)).figure.axes_list[0]
     assert ax.passthrough[-1].strip() == raw, ax.passthrough
+    if body.count("\n") == 1:
+        assert ax.xdticks is ax.xdsubticks is None
 
 
 def test_a_symmetric_tick_length_comes_back_as_the_whole_tick(tmp_path):

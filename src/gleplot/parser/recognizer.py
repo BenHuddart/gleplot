@@ -4910,12 +4910,12 @@ class _Recognizer:
                 info[f"{prefix}grid"] = True
                 i += 1
                 continue
-            # Unrecognized axis sub-token (off/grid/dticks/dsubticks/nticks/
-            # format/hei/...). GLE axis lines are cumulative, so we peel the
-            # recognized min/max/log/nofirst/nolast into the model and re-emit
+            # Unrecognized axis sub-token (hei, an expression dticks, any
+            # option on y2/x2, a repeat, ...). GLE axis lines are cumulative,
+            # so we peel the recognized options into the model and re-emit
             # the UNRECOGNIZED remainder as a supplementary axis line in
             # passthrough. e.g. 'xaxis min 0 max 2*pi dticks pi/2 grid' ->
-            # model gets min/max; passthrough gets 'xaxis dticks pi/2 grid'.
+            # model gets min/max/grid; passthrough gets 'xaxis dticks pi/2'.
             remainder.append(toks[i])
             info["_raw_axis_opts"].add((prefix, w))
             # A recognized keyword may take a value; unrecognized ones we cannot
@@ -4974,9 +4974,15 @@ class _Recognizer:
         value, nxt = _collect_value(toks, i + 1)
         if value is None:
             return None
-        if w in ("dticks", "dsubticks") and nxt != i + 2:
-            # An expression ('dticks pi/2') stays raw GLE: the model holds
-            # a number, and writing it back would round the interval.
+        if w in ("dticks", "dsubticks") and (
+            toks[i + 1].type is not TokenType.NUMBER
+            or nxt != i + 2
+            or value <= 0
+            or float(GLEWriter._format_number(value)) != value
+        ):
+            # Only a positive literal the writer writes back unchanged is
+            # modelled. An expression ('dticks pi/2', 'dticks pi') or a
+            # value it would round stays raw GLE, exactly as written.
             return None
         if w in ("nticks", "nsubticks"):
             if not float(value).is_integer() or value < 1:
