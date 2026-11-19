@@ -255,6 +255,26 @@ def fill_between():
     return fig
 
 
+def raw_lines_reading_modelled_datasets():
+    """Raw lines in a second panel that read its modelled datasets.
+
+    ``_gle_name`` is what ``open_gle`` sets when a kept raw line reads a
+    series' dataset: here the names the panel's series are written under.
+    The ``let`` target and the comment are not reads.
+    """
+    fig, (top, bottom) = glp.subplots(2, 1, data_prefix="golden")
+    top.plot([1, 2, 3], [1, 2, 1])
+    bottom.plot([1, 2, 3], [0, 1, 0], color="red")
+    bottom.plot([1, 2, 3], [2, 3, 2], color="blue")
+    bottom.lines[0]["_gle_name"] = "d2"
+    bottom.lines[1]["_gle_name"] = "d3"
+    bottom.passthrough = [
+        "   fill d2,d3 color gray foo",
+        '   let d9 = d3*2 ! "d2"',
+    ]
+    return fig
+
+
 def text_annotations():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -2031,6 +2051,7 @@ BUILDERS = [
     errorbar_field_options,
     errorbar_data_range,
     fill_between,
+    raw_lines_reading_modelled_datasets,
     text_annotations,
     axes_fraction_text,
     annotations_with_arrows,
