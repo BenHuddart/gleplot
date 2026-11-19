@@ -187,13 +187,17 @@ matplotlib's `markevery` has no GLE equivalent; see the
 Fills use GLE's `fill` command. Two curves are `fill dA,dB`. A curve can
 close on the axis instead (`baseline='x1'` or `'x2'`), a boolean `where`
 clips each run with `xmin` / `xmax`, and `ax.fill(x, y)` is a closed polygon
-(`fill dN`):
+(`fill dN`). `ax.fill_betweenx(y, x1, x2)` fills between two curves of y,
+drawn as a polygon, and `ax.stackplot(x, y1, y2, ...)` stacks one band per
+layer:
 
 ```python
 ax.fill_between(x, y, y2, alpha=0.3, color='blue')
 ax.fill_between(x, y, where=(x > 5))
 ax.fill_between(x, y, baseline='x1')
 ax.fill(x, y, alpha=0.4)
+ax.fill_betweenx(depth, lo, hi, alpha=0.3)
+ax.stackplot(x, y, y2, labels=['a', 'b'])
 ```
 
 ## Pie charts

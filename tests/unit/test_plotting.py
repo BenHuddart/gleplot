@@ -664,6 +664,131 @@ class TestFillBetween:
         assert "rgb255(0,0,255)" in self.ax.fills[0]["color"]
         assert len(self.ax.fills) == 1
 
+    def test_fill_betweenx_is_the_polygon_x1_forward_then_x2_back(self):
+        returned = self.ax.fill_betweenx([0, 1, 2], [1, 2, 3], label="side")
+        assert returned is self.ax
+        series = self.ax.fills[0]
+        assert series["target"] == "polygon"
+        assert list(series["x"]) == [1, 2, 3, 0, 0, 0]
+        assert list(series["y1"]) == [0, 1, 2, 2, 1, 0]
+        script = self._script()
+        assert "fill d1 color LIGHTBLUE" in script
+        assert 'key "side"' in script
+
+    def test_fill_betweenx_takes_matplotlib_positional_order(self):
+        """``(y, x1, x2, where, step, interpolate)``: step before interpolate."""
+        self.ax.fill_betweenx(
+            [0, 1, 2], [2, 0, 0], [0, 1, 1], [True, False, False], None, True
+        )
+        assert self.ax.fills[0]["ymax"] == pytest.approx(2.0 / 3.0, abs=5e-8)
+        assert "ymin" not in self.ax.fills[0]
+        assert "xmin" not in self.ax.fills[0]
+
+    def test_fill_betweenx_where_clips_each_run_in_y(self):
+        self.ax.fill_betweenx(
+            [0, 1, 2, 3, 4], 1.0, where=[True, True, False, True, True], color="red"
+        )
+        assert [(f.get("ymin"), f.get("ymax")) for f in self.ax.fills] == [
+            (None, 1.0),
+            (3.0, None),
+        ]
+        assert "fill d2 color RED ymin 3" in self._script()
+
+    def test_fill_betweenx_rejects_bad_arguments(self):
+        with pytest.raises(ValueError, match="to match y"):
+            self.ax.fill_betweenx([0, 1], [1, 1], where=[True])
+        with pytest.raises(ValueError, match="where= or a ymin/ymax clip"):
+            self.ax.fill_betweenx([0, 1], [1, 1], where=[True, True], ymin=0)
+        with pytest.raises(ValueError, match="x2 has length 3"):
+            self.ax.fill_betweenx([0, 1], [1, 1], [2, 3, 4])
+        with pytest.raises(ValueError, match="at least one y"):
+            self.ax.fill_betweenx([], [])
+        with pytest.raises(ValueError, match="1-dimensional"):
+            self.ax.fill_betweenx([[0, 1]], [1, 1])
+
+    def test_fill_betweenx_and_stackplot_warn_on_data(self):
+        with pytest.warns(UserWarning, match=r"fill_betweenx\(data=\.\.\.\)"):
+            self.ax.fill_betweenx([0, 1], [1, 1], data={})
+        with pytest.warns(UserWarning, match=r"stackplot\(data=\.\.\.\)"):
+            self.ax.stackplot([0, 1], [1, 1], data={})
+
+    def test_fill_betweenx_mask_on_unordered_y_warns(self):
+        with pytest.warns(UserWarning, match="strictly monotonic y"):
+            self.ax.fill_betweenx([0, 2, 1], [1, 1, 1], where=[True, False, True])
+        assert "ymin" not in self.ax.fills[0]
+
+    def test_stackplot_stacks_bands_and_returns_them(self):
+        bands = self.ax.stackplot(
+            [0, 1, 2], [1, 1, 1], [[1, 2, 1], [2, 2, 2]], labels=["a", "b"]
+        )
+        assert bands == self.ax.fills
+        assert [list(b["y1"]) for b in bands] == [[1, 1, 1], [2, 3, 2], [4, 5, 4]]
+        assert list(bands[0]["y2"]) == [0, 0, 0]
+        assert [list(b["y2"]) for b in bands[1:]] == [[1, 1, 1], [2, 3, 2]]
+        assert [b["label"] for b in bands] == ["a", "b", None]
+        assert [b["color"] for b in bands] == [
+            "rgb255(31,119,180)",
+            "rgb255(255,127,14)",
+            "rgb255(44,160,44)",
+        ]
+
+    @pytest.mark.parametrize(
+        "baseline, first",
+        [
+            ("zero", [0.0, 0.0]),
+            ("sym", [-1.5, -2.0]),
+            ("wiggle", [-1.25, -2.0]),
+            ("weighted_wiggle", [-1.5, -1.75]),
+        ],
+    )
+    def test_stackplot_baselines_follow_matplotlib(self, baseline, first):
+        """First lines checked against matplotlib 3.11's ``stackplot``."""
+        bands = self.ax.stackplot(
+            [0, 1], [1.0, 2.0], [2.0, 2.0], baseline=baseline, colors=["k"]
+        )
+        assert list(bands[0]["y2"]) == pytest.approx(first)
+        assert all(b["color"] == "BLACK" for b in bands)
+
+    def test_stackplot_facecolor_replaces_colors_and_hatch_warns(self):
+        with pytest.warns(UserWarning, match="hatch"):
+            bands = self.ax.stackplot([0, 1], [1, 1], [1, 1], fc="red", hatch="//")
+        assert [b["color"] for b in bands] == ["RED", "RED"]
+
+    @pytest.mark.parametrize(
+        "colors",
+        ["red", (1, 0, 0), np.array([1.0, 0.0, 0.0]), np.array([[1.0, 0, 0]] * 2)],
+    )
+    def test_stackplot_reads_a_single_colour_or_an_rgb_array(self, colors):
+        bands = self.ax.stackplot([0, 1], [1, 1], [1, 1], colors=colors)
+        assert {b["color"] for b in bands} <= {"RED", "rgb255(255,0,0)"}
+
+    def test_stackplot_color_wins_over_facecolor_with_a_warning(self):
+        with pytest.warns(UserWarning, match="color wins"):
+            bands = self.ax.stackplot([0, 1], [1, 1], color="red", facecolor="b")
+        assert bands[0]["color"] == "RED"
+
+    def test_stackplot_names_its_own_arguments(self):
+        with pytest.raises(ValueError, match=r"stackplot\(\) each layer"):
+            self.ax.stackplot([0, 1, 2], [1, 2])
+        with pytest.warns(UserWarning, match=r"stackplot\(\) ignores .*edgecolor"):
+            self.ax.stackplot([0, 1], [1, 1], edgecolor="k", alpha=0.5)
+        assert self.ax.fills[0]["alpha"] == 0.5
+
+    def test_figure_and_module_wrappers_reach_the_current_axes(self):
+        assert self.fig.fill_betweenx([0, 1], [1, 1], 2) is self.ax
+        assert len(self.fig.stackplot([0, 1], [1, 1])) == 1
+        assert glp.fill_betweenx([0, 1], [1, 1]) is self.ax
+        assert len(glp.stackplot([0, 1], [1, 1], [1, 1])) == 2
+        assert len(self.ax.fills) == 5
+
+    def test_stackplot_rejects_bad_arguments(self):
+        with pytest.raises(ValueError, match="baseline must be one of"):
+            self.ax.stackplot([0, 1], [1, 1], baseline="median")
+        with pytest.raises(ValueError, match="at least one layer"):
+            self.ax.stackplot([0, 1])
+        with pytest.raises(ValueError, match="colors must not be empty"):
+            self.ax.stackplot([0, 1], [1, 1], colors=[])
+
 
 class TestDataPrefixValidation:
     """Test that a figure-level data_prefix is validated, not sanitized.

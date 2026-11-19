@@ -13,6 +13,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.scatter(...)` | same |
 | `ax.errorbar(...)` | same |
 | `ax.fill_between(...)` | same |
+| `ax.fill_betweenx(...)` / `ax.stackplot(...)` | same, see [Fills](#fills) |
 | `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
 | `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
@@ -361,11 +362,15 @@ The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar a
 | `ax.fill_between(x, y, baseline="x2")` | `fill dN,x2`, closing on the top of the y axis. |
 | `ax.fill_between(..., where=mask)` | one `fill` per contiguous run of True samples, clipped with `xmin` / `xmax`. |
 | `ax.fill(x, y)` | `fill dN`. GLE closes the polygon. |
+| `ax.fill_betweenx(y, x1, x2)` | `fill dN`, the polygon `(x1, y)` forward and `(x2, y)` back, because GLE's two-curve fill is vertical. `where` selects y runs, clipped with `ymin` / `ymax`. A figure read back with `open_gle` has a `fill` polygon in its place. |
+| `ax.stackplot(x, y1, y2, ...)` | one `fill dA,dB` per layer, between running sums. Returns the list of fill series. |
 
 ```python
 ax.fill_between(x, y, where=(x > 0))
 ax.fill_between(x, y, baseline="x1")
 ax.fill(x, y, alpha=0.4)
+ax.fill_betweenx(y, x, alpha=0.4)
+ax.stackplot(x, y, y, labels=["a", "b"], baseline="sym")
 ```
 
 | argument | gleplot |
@@ -374,10 +379,12 @@ ax.fill(x, y, alpha=0.4)
 | `interpolate` | `True` moves a clip edge to where the two curves cross beside that run (matplotlib's intersection, not a midpoint of the mask). An axis fill has no second curve, so this warns and the edge stays on the sample. |
 | `xmin`, `xmax`, `ymin`, `ymax` | the same clip, in data coordinates. These are not `axvspan` fractions. On `baseline="x1"`, `ymin` is also the line the fill closes on: GLE uses that value as the baseline and clips below it. Do not pass `where` together with `xmin` or `xmax`. |
 | `step` | warns and is ignored. `fill` has no step mode. |
-| `fill_betweenx` | not available. These fill forms are vertical. |
+| `fill_betweenx` `where`, `interpolate` | as on `fill_between`, with y in place of x: `y` has to be finite and strictly monotonic, and the clip is `ymin` / `ymax`. Do not pass `where` together with `ymin` or `ymax`. |
+| `stackplot` `colors` | cycled over the layers. The default is `'C0'` to `'C9'`, starting again at `'C0'` on every call; matplotlib continues the axes' colour cycle. A `facecolor` (or `color`) keyword replaces `colors`. |
+| `stackplot` `baseline` | `'zero'`, `'sym'`, `'wiggle'` and `'weighted_wiggle'`, computed as matplotlib does. Other keywords (`alpha`, `where`, ...) go to every layer's `fill_between`. |
 | `fill` extra polygons | the first polygon is drawn. The rest warn and are ignored. |
 | `edgecolor`, `linewidth` on `fill` | warn and are ignored. GLE fills the interior and does not stroke it. |
-| `hatch` | warns and is ignored. A graph `fill` has no `pattern` keyword, and a pattern name given as its colour draws black lines on white, which would hide the face colour. |
+| `hatch` | warns and is ignored, on `stackplot` too. A graph `fill` has no `pattern` keyword, and a pattern name given as its colour draws black lines on white, which would hide the face colour. |
 | `alpha` | unchanged: below 1 the colour is `rgba255(...)`. |
 
 ## Saving

@@ -1460,6 +1460,13 @@ def _curve_crossing(x0, diff0, x1, diff1):
     return float(x0 + frac * (x1 - x0))
 
 
+#: The ``fill_between`` keywords ``stackplot`` passes on to every layer.
+_STACKPLOT_BAND_KEYWORDS = frozenset(
+    {"alpha", "where", "interpolate", "step", "offset", "data_name"}
+    | {"xmin", "xmax", "ymin", "ymax"}
+)
+
+
 def _where_windows(x, y1, y2, where, interpolate: bool):
     """GLE clip windows for a matplotlib ``where`` mask.
 
@@ -4599,34 +4606,9 @@ class Axes:
         def warn(message: str) -> None:
             warn_external(message)
 
-        data_name = kwargs.pop("data_name", None)
-        if "data" in kwargs:
-            kwargs.pop("data")
-            warn(
-                "fill_between(data=...) is not supported and was ignored. "
-                "Pass the arrays directly."
-            )
-        facecolor = kwargs.pop("facecolor", None)
-        if facecolor is None:
-            facecolor = kwargs.pop("fc", None)
-        if color is None and facecolor is not None:
-            color = facecolor
-        elif facecolor is not None:
-            warn("fill_between() got both color and facecolor; color wins.")
-        clip = {}
-        for key in ("xmin", "xmax", "ymin", "ymax"):
-            if key in kwargs and kwargs[key] is not None:
-                clip[key] = float(kwargs.pop(key))
-            else:
-                kwargs.pop(key, None)
-        if step is not None:
-            warn(
-                "fill_between(step=) is not a GLE fill mode; the band is "
-                "drawn through the samples."
-            )
-        if kwargs:
-            names = ", ".join(sorted(kwargs))
-            warn(f"fill_between() ignores unsupported keyword(s): {names}.")
+        color, clip, data_name = self._fill_keywords(
+            "fill_between", color, step, kwargs
+        )
 
         if baseline is not None:
             baseline = str(baseline).strip().lower()
@@ -4709,6 +4691,286 @@ class Axes:
             self._register_series_draw_meta(fill_data, "fill")
             self.fills.append(fill_data)
         return self
+
+    @staticmethod
+    def _fill_keywords(name: str, color, step, kwargs: dict):
+        """``(color, clip, data_name)`` from a band call's keywords.
+
+        Shared by :meth:`fill_between` and :meth:`fill_betweenx`. Consumes
+        ``kwargs``; what is left after the known keywords warns.
+        """
+        data_name = kwargs.pop("data_name", None)
+        if "data" in kwargs:
+            kwargs.pop("data")
+            warn_external(
+                f"{name}(data=...) is not supported and was ignored. "
+                "Pass the arrays directly."
+            )
+        facecolor = kwargs.pop("facecolor", None)
+        if facecolor is None:
+            facecolor = kwargs.pop("fc", None)
+        if color is None and facecolor is not None:
+            color = facecolor
+        elif facecolor is not None:
+            warn_external(f"{name}() got both color and facecolor; color wins.")
+        clip = {}
+        for key in ("xmin", "xmax", "ymin", "ymax"):
+            if key in kwargs and kwargs[key] is not None:
+                clip[key] = float(kwargs.pop(key))
+            else:
+                kwargs.pop(key, None)
+        if step is not None:
+            warn_external(
+                f"{name}(step=) is not a GLE fill mode; the band is "
+                "drawn through the samples."
+            )
+        if kwargs:
+            names = ", ".join(sorted(kwargs))
+            warn_external(f"{name}() ignores unsupported keyword(s): {names}.")
+        return color, clip, data_name
+
+    @_cartesian_only
+    def fill_betweenx(
+        self,
+        y,
+        x1,
+        x2=0,
+        where=None,
+        step=None,
+        interpolate: bool = False,
+        *,
+        color: Optional[str] = None,
+        alpha: float = 1.0,
+        label: Optional[str] = None,
+        **kwargs,
+    ):
+        """Fill between two curves ``x1(y)`` and ``x2(y)``.
+
+        The horizontal form of :meth:`fill_between`. GLE's two-curve fill is
+        vertical, so the band is the closed polygon ``fill dN`` that
+        :meth:`fill` draws: ``(x1, y)`` forward, then ``(x2, y)`` back. A
+        scalar ``x2`` (the default ``0``) is a constant curve. Curves that
+        cross fill on both sides of the crossing, as in matplotlib.
+
+        ``where`` selects y intervals, as it selects x intervals on
+        :meth:`fill_between`: each contiguous run of True samples becomes
+        its own polygon, clipped with ``ymin`` / ``ymax``. ``interpolate=True``
+        moves a clip edge to where the two curves cross beside that run.
+        ``y`` has to be finite and strictly monotonic for the mask; otherwise
+        it is ignored, with a warning. ``step`` is accepted and ignored.
+
+        ``xmin``, ``xmax``, ``ymin`` and ``ymax`` keywords clip the polygon in
+        data coordinates. Passing ``where`` together with ``ymin`` or ``ymax``
+        raises ``ValueError``. ``alpha`` below 1 composes an ``rgba255(...)``
+        colour, as on :meth:`fill_between`.
+
+        The model holds the polygon, so a figure read back with
+        :func:`gleplot.open_gle` has a :meth:`fill` series in its place.
+
+        Returns this axes. A mask that fills nothing adds no series.
+        """
+        color, clip, data_name = self._fill_keywords(
+            "fill_betweenx", color, step, kwargs
+        )
+        if where is not None and ("ymin" in clip or "ymax" in clip):
+            raise ValueError(
+                "fill_betweenx() takes where= or a ymin/ymax clip, not both"
+            )
+
+        y_arr = np.asarray(y, dtype=float)
+        if y_arr.ndim != 1:
+            raise ValueError("fill_betweenx() y must be 1-dimensional")
+        if y_arr.size == 0:
+            raise ValueError("fill_betweenx() needs at least one y value")
+        n = int(y_arr.size)
+        x1_arr = _as_curve("x1", x1, n)
+        x2_arr = _as_curve("x2", x2, n)
+
+        if where is None:
+            windows: List[dict] = [dict(clip)]
+        else:
+            size = np.asarray(where).size
+            if size != n:
+                raise ValueError(
+                    f"fill_betweenx() where has length {size}, expected {n} "
+                    "to match y"
+                )
+            found = _where_windows(y_arr, x1_arr, x2_arr, where, bool(interpolate))
+            if found is None:
+                warn_external(
+                    "fill_betweenx(where=) needs a finite, strictly monotonic y "
+                    "to become a GLE clip window; the mask was ignored."
+                )
+                windows = [dict(clip)]
+            else:
+                windows = []
+                for window in found:
+                    merged = dict(clip)
+                    for key, value in window.items():
+                        merged["y" + key[1:]] = value
+                    windows.append(merged)
+
+        vertex_x = np.concatenate([x1_arr, x2_arr[::-1]])
+        vertex_y = np.concatenate([y_arr, y_arr[::-1]])
+        for index, window in enumerate(windows):
+            self.fill(
+                vertex_x,
+                vertex_y,
+                color=color,
+                alpha=alpha,
+                label=label if index == 0 else None,
+                data_name=data_name,
+                **window,
+            )
+        return self
+
+    @_cartesian_only
+    def stackplot(
+        self,
+        x,
+        *args,
+        labels=(),
+        colors=None,
+        baseline: str = "zero",
+        **kwargs,
+    ) -> List[FillSeries]:
+        """Stack the curves in ``args`` as filled bands over ``x``.
+
+        Each layer is a :meth:`fill_between` band from the running sum below
+        it to the running sum including it, so the remaining keywords
+        (``alpha``, ``where``, ...) are passed to every band. An argument may
+        be a 2-D array, one row per layer.
+
+        Parameters
+        ----------
+        x : array-like
+            The shared x values.
+        *args : array-like
+            The layers, bottom first.
+        labels : sequence of str
+            One legend label per layer. Layers past the end have none.
+        colors : sequence of colors, optional
+            Cycled over the layers. Default: matplotlib's ``'C0'`` to
+            ``'C9'``, starting at ``'C0'`` on every call.
+        baseline : {'zero', 'sym', 'wiggle', 'weighted_wiggle'}
+            The lower edge of the stack, computed as matplotlib does.
+
+        Returns
+        -------
+        list of FillSeries
+            The bands added, bottom first.
+
+        Raises
+        ------
+        ValueError
+            If ``baseline`` is not an accepted value, no layer is given, or
+            ``colors`` is empty.
+
+        Notes
+        -----
+        ``hatch`` is accepted and ignored, with a warning: a graph ``fill``
+        has no pattern. The bands read back from a ``.gle`` file as separate
+        :meth:`fill_between` series.
+        """
+        if "data" in kwargs:
+            kwargs.pop("data")
+            warn_external(
+                "stackplot(data=...) is not supported and was ignored. "
+                "Pass the arrays directly."
+            )
+        if "hatch" in kwargs:
+            kwargs.pop("hatch")
+            warn_external("stackplot(hatch=) is ignored. A graph fill has no pattern.")
+        accepted = ("zero", "sym", "wiggle", "weighted_wiggle")
+        if baseline not in accepted:
+            raise ValueError(
+                f"stackplot() baseline must be one of {accepted!r}, "
+                f"got {baseline!r}"
+            )
+        if not args:
+            raise ValueError("stackplot() needs at least one layer after x")
+        y = np.vstack(args)
+
+        # matplotlib's baselines (lib/matplotlib/stackplot.py), dtypes
+        # included: integer layers give 'weighted_wiggle' an integer
+        # ``inv_total`` there too, and the same curves here.
+        stack = np.cumsum(y, axis=0, dtype=np.promote_types(y.dtype, np.float32))
+        first_line: Any = 0.0
+        if baseline == "sym":
+            first_line = -np.sum(y, 0) * 0.5
+            stack += first_line[None, :]
+        elif baseline == "wiggle":
+            m = y.shape[0]
+            first_line = (y * (m - 0.5 - np.arange(m)[:, None])).sum(0)
+            first_line /= -m
+            stack += first_line
+        elif baseline == "weighted_wiggle":
+            total = np.sum(y, 0)
+            inv_total = np.zeros_like(total)
+            mask = total > 0
+            inv_total[mask] = 1.0 / total[mask]
+            increase = np.hstack((y[:, 0:1], np.diff(y)))
+            below_size = total - stack
+            below_size += 0.5 * y
+            move_up = below_size * inv_total
+            move_up[:, 0] = 0.5
+            center = (move_up - 0.5) * increase
+            center = np.cumsum(center.sum(0))
+            first_line = center - 0.5 * total
+            stack += first_line
+
+        # As in matplotlib, a facecolor keyword replaces ``colors``. ``color``
+        # is an alias here, and wins over facecolor as on fill_between.
+        face = kwargs.pop("facecolor", None)
+        if face is None:
+            face = kwargs.pop("fc", None)
+        if "color" in kwargs:
+            if face is not None:
+                warn_external("stackplot() got both color and facecolor; color wins.")
+            face = kwargs.pop("color")
+        if face is not None:
+            colors = face
+        if colors is None:
+            colors = [f"C{i}" for i in range(10)]
+        elif isinstance(colors, str) or (
+            np.ndim(colors) == 1
+            and len(colors) > 0
+            and all(isinstance(v, (int, float, np.number)) for v in colors)
+        ):
+            colors = [tuple(colors) if np.ndim(colors) else colors]
+        else:
+            # Rows of an RGB(A) array (a colormap sample) are tuples, the
+            # colour form rgb_to_gle reads.
+            colors = [tuple(c) if np.ndim(c) == 1 else c for c in colors]
+            if not colors:
+                raise ValueError("stackplot() colors must not be empty, got []")
+        if y.ndim != 2 or y.shape[1] != np.size(x):
+            raise ValueError(
+                f"stackplot() each layer must have one value per x ({np.size(x)}), "
+                f"got layers of shape {y.shape}"
+            )
+        unknown = sorted(set(kwargs) - _STACKPLOT_BAND_KEYWORDS)
+        if unknown:
+            warn_external(
+                f"stackplot() ignores unsupported keyword(s): {', '.join(unknown)}."
+            )
+            for name in unknown:
+                kwargs.pop(name)
+        label_iter = iter(labels)
+        lower = [first_line] + [stack[i, :] for i in range(len(y) - 1)]
+        added: List[FillSeries] = []
+        for i, bottom in enumerate(lower):
+            before = len(self.fills)
+            self.fill_between(
+                x,
+                stack[i, :],
+                bottom,
+                color=colors[i % len(colors)],
+                label=next(label_iter, None),
+                **kwargs,
+            )
+            added.extend(cast(List[FillSeries], self.fills[before:]))
+        return added
 
     @_cartesian_only
     def fill(

@@ -1172,6 +1172,19 @@ def fill_field_options():
     return fig
 
 
+def fill_orientations():
+    """``fill_betweenx`` with a ``where`` mask, and a symmetric ``stackplot``."""
+    fig = glp.figure(data_prefix="golden")
+    left, right = fig.add_subplot(121), fig.add_subplot(122)
+    y = [0, 1, 2, 3]
+    left.fill_betweenx(y, [1, 2, 2, 1], [0, 0.5, 0.5, 0], color="green", label="x")
+    left.fill_betweenx(y, 3, where=[False, True, True, True], alpha=0.4)
+    left.legend()
+    right.stackplot([0, 1, 2], [1, 2, 1], [2, 1, 2], labels=["a", "b"], baseline="sym")
+    right.legend()
+    return fig
+
+
 def histogram():
     """One step outline and one filled histogram, both labelled."""
     fig = glp.figure(data_prefix="golden")
@@ -1677,6 +1690,7 @@ BUILDERS = [
     scatter_per_point_sizes,
     fill_forms,
     fill_field_options,
+    fill_orientations,
     histogram,
     function_curves,
     fit_curves,

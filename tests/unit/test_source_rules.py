@@ -116,6 +116,8 @@ _ENTRY_POINTS = {
     "bar": lambda m: m.bar(_X, _Y, align="edge"),
     "hist": lambda m: m.hist(_Y, density=True),
     "fill_between": lambda m: m.fill_between(_X, _Y, color="r", facecolor="b"),
+    "fill_betweenx": lambda m: m.fill_betweenx(_Y, _X, step="pre"),
+    "stackplot": lambda m: m.stackplot(_X, _Y, hatch="//"),
     "errorbar": lambda m: m.errorbar(_X, _Y, yerr=0.1, color="notacolor"),
     "step": lambda m: m.step(_X, _Y, "r-"),
     "stem": lambda m: m.stem(_X, _Y, orientation="horizontal"),
