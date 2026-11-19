@@ -1251,8 +1251,8 @@ class _GridSeries(Series):
 
 
 class HeatmapSeries(_GridSeries):
-    """A colormap image -- ``Axes.imshow`` / ``Axes.tripcolor`` /
-    ``Axes.function2d``."""
+    """A colormap image -- ``Axes.imshow`` / ``Axes.pcolormesh`` /
+    ``Axes.tripcolor`` / ``Axes.function2d``."""
 
     ATTR = "heatmaps"
 
@@ -1273,6 +1273,10 @@ class HeatmapSeries(_GridSeries):
     vmin: Optional[float]
     vmax: Optional[float]
     interpolation: str
+    #: ``True`` on a ``'grid'`` heatmap from ``Axes.pcolormesh``: ``extent``
+    #: holds the outer cell edges and each value colours one whole cell.
+    #: Absent means ``imshow``'s placement.
+    cells: bool
     pixels: Optional[List[int]]
     invert: bool
     gridsize: Optional[List[int]]

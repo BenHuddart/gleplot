@@ -123,3 +123,34 @@ def test_all_palettes_compile(tmp_path):
         fig.colorbar(label=cmap)
         out = fig.savefig(str(tmp_path / f"{cmap}.png"))
         assert out.exists() and out.stat().st_size > 0, cmap
+
+
+def test_pcolormesh_cells_are_drawn_the_same_size(tmp_path):
+    """Every cell of a uniform mesh covers the same number of pixels.
+
+    GLE's nearest sampling, fed the grid as imshow writes it, would draw the
+    first cell half as wide as the rest and the last one half as wide again.
+    Each cell gets its own grey, so counting a colour along a row (or
+    column) through the middle of the cells measures that cell's width.
+    """
+    from PIL import Image
+
+    fig = glp.figure(figsize=(6, 4), data_prefix="cells")
+    ax = fig.add_subplot(111)
+    C = np.arange(12.0).reshape(3, 4)
+    ax.pcolormesh(
+        np.linspace(1, 9, 5), np.linspace(-2, 4, 4), C, cmap="gray", vmin=-1, vmax=12
+    )
+    out = fig.savefig(str(tmp_path / "cells.png"), dpi=150)
+    im = np.asarray(Image.open(out).convert("L"))
+
+    def widths(line, n):
+        values, counts = np.unique(line, return_counts=True)
+        inside = (values > 0) & (values < 255)
+        return sorted(counts[inside])[-n:]
+
+    h, w = im.shape
+    for line, n in ((im[int(h * 0.42)], 4), (im[:, int(w * 0.43)], 3)):
+        cells = widths(line, n)
+        assert len(cells) == n
+        assert max(cells) - min(cells) <= 0.03 * max(cells), cells

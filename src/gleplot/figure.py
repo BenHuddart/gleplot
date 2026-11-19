@@ -1773,8 +1773,8 @@ class Figure:
         Parameters
         ----------
         mappable : HeatmapSeries, optional
-            The heatmap the bar shows, as returned by :meth:`Axes.imshow` or
-            :meth:`Axes.tripcolor`. Default: the heatmap on ``ax``, or the
+            The heatmap the bar shows, as returned by :meth:`Axes.imshow`,
+            :meth:`Axes.pcolormesh` or :meth:`Axes.tripcolor`. Default: the heatmap on ``ax``, or the
             figure's only heatmap when ``ax`` is not given either.
         cax : Axes, optional
             Not supported: GLE draws the bar beside its heatmap's axes, not
@@ -1930,14 +1930,14 @@ class Figure:
                 if not ax.heatmaps:
                     raise ValueError(
                         "colorbar() needs a heatmap on ax: draw one there with "
-                        "ax.imshow() or ax.tripcolor() first"
+                        "ax.imshow(), ax.pcolormesh() or ax.tripcolor() first"
                     )
                 return ax.heatmaps[0]
             bearing = [a for a in self.axes_list if a.heatmaps]
             if not bearing:
                 raise ValueError(
-                    "colorbar() requires a heatmap (imshow/tripcolor/function2d) on "
-                    "some axes"
+                    "colorbar() requires a heatmap (imshow/pcolormesh/tripcolor/"
+                    "function2d) on some axes"
                 )
             if len(bearing) > 1:
                 raise ValueError(
@@ -1948,8 +1948,8 @@ class Figure:
             return bearing[0].heatmaps[0]
         if not isinstance(mappable, HeatmapSeries):
             raise TypeError(
-                f"colorbar() mappable must be the heatmap imshow() or "
-                f"tripcolor() returned, got {type(mappable).__name__}. "
+                f"colorbar() mappable must be the heatmap imshow(), pcolormesh() "
+                f"or tripcolor() returned, got {type(mappable).__name__}. "
                 f"Pass a label as label=..."
             )
         owner = next(
@@ -3755,7 +3755,48 @@ class Figure:
     ) -> None:
         """Heatmap colormaps, drawn behind everything as the background."""
         for hm in resolution.visible(ax.heatmaps):
+            if hm.get("cells"):
+                self._warn_mesh_overhang(ax, hm)
             writer.add_heatmap(hm)
+
+    @staticmethod
+    def _warn_mesh_overhang(ax: Axes, mesh: Series) -> None:
+        """Warn where a ``pcolormesh`` bitmap's padding would show or vanish.
+
+        GLE draws the mesh's bitmap half a cell past each edge (see
+        :meth:`GLEWriter.add_cells_sidecar`), and only the graph window hides
+        that half cell. On a log axis, a bitmap starting at or below zero is
+        not drawn at all.
+        """
+        x0, x1, y0, y1 = mesh["extent"]
+        ny, nx = np.shape(mesh["z"])
+        for name, lo, hi, cells, scale, a, b in (
+            ("x", x0, x1, nx, ax.xscale, ax.xmin, ax.xmax),
+            ("y", y0, y1, ny, ax.yscale, ax.ymin, ax.ymax),
+        ):
+            half = (hi - lo) / cells / 2
+            if scale == "log" and lo - half <= 0:
+                warn_external(
+                    f"The pcolormesh mesh is not drawn: on a log {name} axis "
+                    "GLE draws nothing of a mesh whose bitmap starts at or "
+                    f"below zero, and this one starts half a cell before its "
+                    f"first edge, at {name} = {lo - half:g}. Start the mesh "
+                    f"more than half a cell above zero, or use a linear "
+                    f"{name} scale."
+                )
+            elif a is not None and b is not None:
+                a, b = min(a, b), max(a, b)
+                tol = 1e-9 * (hi - lo)
+                if a < lo - tol or b > hi + tol:
+                    warn_external(
+                        f"The {name} limits ({a:g} to {b:g}) reach beyond "
+                        "the pcolormesh mesh "
+                        f"({lo:g} to {hi:g}), where its edge cells are drawn "
+                        "up to half a cell too wide: GLE draws the mesh's "
+                        "bitmap half a cell past each edge. Keep the "
+                        f"{name} limits within the mesh to draw every cell "
+                        "exactly."
+                    )
 
     def _write_contours(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution
