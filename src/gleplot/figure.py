@@ -36,6 +36,7 @@ from .parser import metadata as _gle_metadata
 from .parser.tables import LEGEND_SPACING_TO_KEY
 from .parser.units import fontsize_pt_to_cm, inches_to_cm
 from .series import (
+    SERIES_ATTRS,
     HeatmapSeries,
     ScatterSeries,
     Series,
@@ -4408,7 +4409,7 @@ class Figure:
         # (which is always increasing and positive) rather than on the
         # collapsed one it started from.
         for which, (lo_auto, hi_auto) in was_auto.items():
-            self._defer_degenerate_range(ax, which, lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, which, lo_auto, hi_auto, resolution)
 
     @staticmethod
     def _polar_rmax(ax: Axes, resolution: Optional[SourceResolution]) -> float:
@@ -4447,11 +4448,23 @@ class Figure:
     # emitting: the axis' range is left out of the script and GLE scales it.
     # Reproducing that arithmetic in Python would be a second, drifting
     # implementation of a number gleplot never needs to know.
+    #
+    # GLE widens from the datasets it draws, though. An axis no dataset
+    # reaches (only box plots, rugs, text or images, drawn after ``end graph``
+    # or by ``draw``) gets 0..1 from it, which clips what is drawn. There
+    # gleplot writes its own margin, the value's magnitude either side (or 1
+    # at zero): GLE's x range for a lone point, though not its rounded y one.
 
     def _defer_degenerate_range(
-        self, ax: Axes, which: str, lo_auto: bool, hi_auto: bool
+        self,
+        ax: Axes,
+        which: str,
+        lo_auto: bool,
+        hi_auto: bool,
+        resolution: Optional[SourceResolution] = None,
     ) -> None:
-        """Hand ``which``'s range back to GLE if it collapsed to a point.
+        """Hand ``which``'s range back to GLE if it collapsed to a point,
+        or give it a margin where GLE has no dataset to widen it from.
 
         Parameters
         ----------
@@ -4467,6 +4480,11 @@ class Figure:
         When BOTH bounds were explicit the range is the caller's own empty
         one; there is no way to draw it, so it is dropped and said out loud,
         the way :meth:`_apply_log_limits` reports an impossible log range.
+
+        Where no dataset GLE draws reaches the axis (see
+        :meth:`_engine_can_scale`), the derived bounds are written as
+        ``v - |v|`` and ``v + |v|`` instead (-1 and 1 at zero), so a lone box
+        plot or rug is not clipped by GLE's 0..1.
         """
         lo, hi = self._axis_limits(ax, which)
         if lo is None or hi is None or lo != hi:
@@ -4479,13 +4497,28 @@ class Figure:
                 "y2": "set_ylim(axis='y2')",
                 "x2": "set_xlim(axis='x2')",
             }[which]
+            instead = (
+                "Leaving the range out of the script, so GLE autoscales around "
+                "the value instead."
+                if self._engine_can_scale(ax, which, resolution)
+                else "Widening it by the value's magnitude either side instead."
+            )
             warn_external(
                 f"{which}-axis limits are both {lo!r}, an empty range that GLE "
-                'refuses to draw ("illegal range"). Leaving the range out of '
-                "the script, so GLE autoscales around the value instead. Call "
+                f'refuses to draw ("illegal range"). {instead} Call '
                 f"{setter} with a non-empty range to choose your own.",
             )
             lo_auto = hi_auto = True
+
+        if not self._engine_can_scale(ax, which, resolution):
+            width = abs(lo) or 1.0
+            self._set_axis_limits(
+                ax,
+                which,
+                lo - width if lo_auto else lo,
+                hi + width if hi_auto else hi,
+            )
+            return
 
         self._set_axis_limits(
             ax,
@@ -4493,6 +4526,33 @@ class Figure:
             None if lo_auto else lo,
             None if hi_auto else hi,
         )
+
+    #: Series GLE does not scale an axis from: drawn after ``end graph`` or by
+    #: a ``draw`` call, with no dataset.
+    _ENGINE_BLIND = frozenset({"texts", "wedges", "boxes", "rugs", "images"})
+
+    def _engine_can_scale(
+        self, ax: Axes, which: str, resolution: Optional[SourceResolution]
+    ) -> bool:
+        """Whether ``ax`` draws a dataset GLE can widen ``which``'s range from.
+
+        One drawn against that axis (a ``y2`` series does not scale ``y``)
+        with at least one finite point on it; a series with no point arrays
+        (a function curve, a grid) counts.
+        """
+        resolution = resolution or SourceResolution()
+        field, axis = ("yaxis", which) if which[0] == "y" else ("xaxis", which)
+        primary = axis in ("x", "y")
+        for attr in SERIES_ATTRS:
+            if attr in self._ENGINE_BLIND:
+                continue
+            for series in resolution.visible(getattr(ax, attr)):
+                if (series.get(field, axis[0]) == axis[0]) != primary:
+                    continue
+                values = series.get(axis[0])
+                if values is None or np.isfinite(np.asarray(values, dtype=float)).any():
+                    return True
+        return False
 
     def _normalize_inverted_log_limits(self, ax: Axes):
         """Undo an axis inversion on a log axis, which GLE cannot draw.
@@ -4711,7 +4771,7 @@ class Figure:
                 ax.xmin, ax.xmax = hi_global, lo_global
             else:
                 ax.xmin, ax.xmax = lo_global, hi_global
-            self._defer_degenerate_range(ax, "x", lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, "x", lo_auto, hi_auto, resolution)
 
     def _synchronize_y_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize y-axis limits across all axes when sharey is enabled."""
@@ -4750,7 +4810,7 @@ class Figure:
                 ax.ymin, ax.ymax = hi_global, lo_global
             else:
                 ax.ymin, ax.ymax = lo_global, hi_global
-            self._defer_degenerate_range(ax, "y", lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, "y", lo_auto, hi_auto, resolution)
 
     def _get_data_xlim(
         self,
