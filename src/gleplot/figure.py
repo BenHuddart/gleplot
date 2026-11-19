@@ -36,6 +36,7 @@ from .parser import metadata as _gle_metadata
 from .parser.tables import LEGEND_SPACING_TO_KEY
 from .parser.units import fontsize_pt_to_cm, inches_to_cm
 from .series import (
+    SERIES_ATTRS,
     HeatmapSeries,
     ScatterSeries,
     Series,
@@ -4395,7 +4396,7 @@ class Figure:
         # (which is always increasing and positive) rather than on the
         # collapsed one it started from.
         for which, (lo_auto, hi_auto) in was_auto.items():
-            self._defer_degenerate_range(ax, which, lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, which, lo_auto, hi_auto, resolution)
 
     @staticmethod
     def _polar_rmax(ax: Axes, resolution: Optional[SourceResolution]) -> float:
@@ -4436,7 +4437,12 @@ class Figure:
     # implementation of a number gleplot never needs to know.
 
     def _defer_degenerate_range(
-        self, ax: Axes, which: str, lo_auto: bool, hi_auto: bool
+        self,
+        ax: Axes,
+        which: str,
+        lo_auto: bool,
+        hi_auto: bool,
+        resolution: Optional[SourceResolution] = None,
     ) -> None:
         """Hand ``which``'s range back to GLE if it collapsed to a point.
 
@@ -4454,6 +4460,13 @@ class Figure:
         When BOTH bounds were explicit the range is the caller's own empty
         one; there is no way to draw it, so it is dropped and said out loud,
         the way :meth:`_apply_log_limits` reports an impossible log range.
+
+        GLE widens a collapsed range from the datasets it draws. On an axes
+        drawing none (only box plots, rugs, text, images: subs and ``draw``
+        calls after ``end graph``) it has nothing to widen and draws 0..1,
+        so the range GLE's rule would give is written instead: ``v - |v|``
+        to ``v + |v|``, or -1 to 1 at zero (``axis.cpp``), without the
+        rounding GLE applies to its own.
         """
         lo, hi = self._axis_limits(ax, which)
         if lo is None or hi is None or lo != hi:
@@ -4474,11 +4487,36 @@ class Figure:
             )
             lo_auto = hi_auto = True
 
+        if not self._engine_can_scale(ax, resolution):
+            width = abs(lo) or 1.0
+            self._set_axis_limits(
+                ax,
+                which,
+                lo - width if lo_auto else lo,
+                hi + width if hi_auto else hi,
+            )
+            return
+
         self._set_axis_limits(
             ax,
             which,
             None if lo_auto else lo,
             None if hi_auto else hi,
+        )
+
+    #: Series GLE does not scale an axis from: drawn after ``end graph`` or by
+    #: a ``draw`` call, with no dataset.
+    _ENGINE_BLIND = frozenset({"texts", "wedges", "boxes", "rugs", "images"})
+
+    def _engine_can_scale(
+        self, ax: Axes, resolution: Optional[SourceResolution]
+    ) -> bool:
+        """Whether ``ax`` draws a series GLE can widen a collapsed range from."""
+        resolution = resolution or SourceResolution()
+        return any(
+            resolution.visible(getattr(ax, attr, []))
+            for attr in SERIES_ATTRS
+            if attr not in self._ENGINE_BLIND
         )
 
     def _normalize_inverted_log_limits(self, ax: Axes):
@@ -4698,7 +4736,7 @@ class Figure:
                 ax.xmin, ax.xmax = hi_global, lo_global
             else:
                 ax.xmin, ax.xmax = lo_global, hi_global
-            self._defer_degenerate_range(ax, "x", lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, "x", lo_auto, hi_auto, resolution)
 
     def _synchronize_y_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize y-axis limits across all axes when sharey is enabled."""

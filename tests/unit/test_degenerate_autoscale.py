@@ -288,6 +288,49 @@ def test_a_guide_spanning_a_deferred_axis_is_handed_to_the_engine():
 
 
 # --------------------------------------------------------------------------- #
+# No dataset for GLE to widen from: GLE's rule, written out (#219)
+# --------------------------------------------------------------------------- #
+
+
+def test_a_lone_box_plot_gets_a_range_around_its_value():
+    """GLE draws 0..1 for an axes with no dataset; the box at 2 was clipped."""
+    fig, ax = _axes()
+    ax.boxplot([2, 2, 2])
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "y") == "yaxis min 0 max 4"
+
+
+@pytest.mark.parametrize(
+    "ticks, xline", [([5], "xaxis min 0 max 10"), ([0, 0], "xaxis min -1 max 1")]
+)
+def test_a_lone_rug_gets_a_range_around_its_value(ticks, xline):
+    fig, ax = _axes()
+    ax.rug(ticks)
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "x") == xline
+
+
+def test_an_explicit_bound_beside_a_lone_rug_is_kept():
+    fig, ax = _axes()
+    ax.rug([-2])
+    ax.set_xlim(-2, None)
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "x") == "xaxis min -2 max 0"
+
+
+def test_a_box_beside_a_dataset_still_leaves_the_range_to_gle():
+    fig, ax = _axes()
+    ax.boxplot([2, 2, 2])
+    ax.plot([1.0], [2.0])
+
+    text, _files = _generate(fig)
+    assert _axis_line(text, "y") is None
+
+
+# --------------------------------------------------------------------------- #
 # Log axes: repaired first, so never seen as degenerate
 # --------------------------------------------------------------------------- #
 
