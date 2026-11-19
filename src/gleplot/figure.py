@@ -734,13 +734,14 @@ class Figure:
         A new list on each access, as in matplotlib: add axes with
         :meth:`add_subplot` or :meth:`add_axes`, not by changing the list.
         For a figure from :func:`gleplot.open_gle`, the order is that of the
-        graph blocks in the file.
+        graph blocks in the file. Each segment of a broken axis
+        (:meth:`add_broken_xaxes`, :meth:`add_broken_yaxes`) is an entry.
 
         Notes
         -----
-        The views :meth:`gleplot.Axes.twinx` and :meth:`gleplot.Axes.twiny`
-        return draw on their parent axes' graph, so unlike matplotlib they
-        are not entries of this list.
+        Unlike matplotlib, the secondary axes that :meth:`gleplot.Axes.twinx`
+        and :meth:`gleplot.Axes.twiny` return are not entries: they draw on
+        their parent axes' graph.
         """
         return list(self.axes_list)
 
