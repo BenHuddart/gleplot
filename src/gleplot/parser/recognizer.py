@@ -1973,8 +1973,9 @@ class _Recognizer:
         """Lines of the gleinc ``include``s the writer may write again.
 
         ``graphutil.gle`` when some graph is followed by a guide line that
-        will be read back. ``rugs.gle`` always, its text held in
-        ``_held_rugs_includes`` until the rugs are read.
+        will be read back. ``rugs.gle``, ``color.gle`` and ``contour.gle``
+        always, their text held in ``_held_includes`` until the rugs,
+        colorbars and contour labels are read.
         """
         names: Set[str] = set()
         for k, node in enumerate(nodes):
@@ -8207,8 +8208,8 @@ class _Recognizer:
     def _scan_gleplot_sub_lines(self) -> set:
         """1-based line numbers spanned by ``sub gleplot_<name>`` definitions.
 
-        gleplot emits self-contained palette / colorbar / contour-label subs
-        (see :mod:`gleplot.palettes`). Their bodies use ``sub``/``if``/``return``
+        gleplot emits self-contained palette subs (see
+        :mod:`gleplot.palettes`). Their bodies use ``sub``/``if``/``return``
         etc.; they are dropped wherever they appear (like the metadata block) and
         regenerated canonically from the model on re-save, so they never leak
         into passthrough nor trip the programmatic-construct guard.

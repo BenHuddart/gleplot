@@ -742,3 +742,21 @@ def test_structural_roundtrip_of_contour_file_unchanged(tmp_path):
     fig.colorbar(label="v")
     text = fig._generate_gle_with_files()[0]
     assert emit(parse_gle_source(text)) == text
+
+
+def test_a_gleplot_5_contour_label_sub_is_kept_as_raw_gle(tmp_path):
+    path = tmp_path / "old.gle"
+    path.write_text(
+        "size 10 10\n"
+        "sub gleplot_contour_labels file$ format$\n"
+        "   write format$\n"
+        "end sub\n"
+        "begin graph\n    xaxis min 0 max 3\nend graph\n"
+        "amove 0 0\n"
+        'gleplot_contour_labels file "g_contour1-clabels.dat" format "fix 2"\n'
+    )
+    rec = parse_gle_figure(path)
+    assert any("gleplot_contour_labels" in w for w in rec.warnings)
+    text = rec.figure._generate_gle_with_files()[0]
+    assert "sub gleplot_contour_labels file$ format$" in text
+    assert 'gleplot_contour_labels file "g_contour1-clabels.dat" format "fix 2"' in text

@@ -3428,8 +3428,8 @@ class Figure:
 
         Returns the deterministic ordered list of sub-definition texts: used
         palette subs (a heatmap's or a per-point colour's) sorted by name,
-        then the pie-wedge sub (if any wedge), then the box-plot subs (if any box), then the rug subs
-        (if any rug has a tick), then one per-point marker-size sub per marker
+        then the pie-wedge sub (if any wedge), then the box-plot subs (if any
+        box), then the rug subs (if any rug has a tick), then one per-point marker-size sub per marker
         that a scatter with ``mdata`` uses, sorted by name, then one per-point
         colour sub per marker and colormap that a scatter with ``cdata`` uses,
         sorted, then the polar subs
