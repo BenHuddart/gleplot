@@ -857,6 +857,14 @@ def test_raw_dataset_names_are_not_reused_by_written_series(tmp_path):
             "   fill d1,d2 color red xmin 0.5 pattern shade\n",
             ["    d1 line color blue", "    d2 line color red"],
         ),
+        # #171: a raw function 'let' defines its dataset too.
+        (
+            "   let d1 = x^2 from -2 to 2\n"
+            "   fill x1,d1 color blue\n"
+            '   data "a.dat" d2\n'
+            "   d2 line color red\n",
+            ["    d2 line color red"],
+        ),
     ],
 )
 def test_written_series_names_around_raw_datasets(tmp_path, body, written):
