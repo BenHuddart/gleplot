@@ -2730,13 +2730,15 @@ class Figure:
                     and getattr(ax, f"{name}_font")
                     and getattr(ax, f"{name}_text")
                 ]
+                why = (
+                    "figure requires Cairo for its semi-transparent colours"
+                    if cairo is None
+                    else "cairo=True was requested"
+                )
                 for font in dict.fromkeys([self.style.font, *title_fonts]):
                     warning = cairo_font_warning(font)
                     if warning:
-                        warn_external(
-                            f"{warning} (figure requires Cairo for its "
-                            "semi-transparent colours).",
-                        )
+                        warn_external(f"{warning} ({why}).")
 
             output_dpi = dpi or self.dpi
             self.compiler.compile(
