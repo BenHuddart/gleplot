@@ -867,6 +867,24 @@ def heatmap_contourf_smooth():
     return fig
 
 
+def heatmap_contourf_colorbar():
+    """contourf bars drawn through the band sub, vertical and horizontal.
+
+    Left: levels below zero and more than ten of them, so the ticks thin.
+    Right: a horizontal bar on uneven levels, ticked at even steps.
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    x = np.linspace(0, 4, 41)
+    y = np.linspace(-1, 2, 31)
+    Z = np.sin(1.5 * x)[None, :] * np.cos(y)[:, None]
+    fig.colorbar(left.contourf(x, y, Z, np.linspace(-1, 1, 13)))
+    cf = right.contourf(x, y, Z, [-0.6, 0.2, 0.5], cmap="plasma")
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "colorbar.. of a contourf with unevenly")
+        fig.colorbar(cf, orientation="horizontal", label="z", format="fix 2")
+    return fig
+
+
 def heatmap_function():
     """An expression heatmap with a colorbar."""
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
@@ -1839,6 +1857,7 @@ BUILDERS = [
     heatmap_pcolormesh,
     heatmap_contourf,
     heatmap_contourf_smooth,
+    heatmap_contourf_colorbar,
     heatmap_function,
     heatmap_function_field_options,
     contour_grid_levels_clabel,

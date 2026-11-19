@@ -1809,7 +1809,8 @@ class Figure:
         ----------
         mappable : HeatmapSeries, optional
             The heatmap the bar shows, as returned by :meth:`Axes.imshow`,
-            :meth:`Axes.pcolormesh` or :meth:`Axes.tripcolor`. Default: the
+            :meth:`Axes.pcolormesh`, :meth:`Axes.tripcolor` or
+            :meth:`Axes.contourf`. Default: the
             heatmap on ``ax``, or, on an axes with no heatmap, its
             colour-mapped scatter (``scatter(c=...)``) drawn last. With no
             ``ax`` either: the one axes with a heatmap, or, if no axes has
@@ -1835,7 +1836,9 @@ class Figure:
         format : str
             GLE ``format$`` string for the tick labels (e.g. ``'fix 1'``).
         nticks : int, optional
-            Approximate number of tick intervals. Default: 5.
+            Approximate number of tick intervals. Default: 5, or for a
+            ``contourf`` with evenly spaced levels, a tick at every
+            ``ceil(len(levels) / 10)``-th level (``nticks`` replacing the 10).
         width : float
             Bar thickness in cm: its width when vertical, its height when
             horizontal.
@@ -1870,7 +1873,10 @@ class Figure:
         -----
         A heatmap carries at most one bar, and each axes at most one
         heatmap, so a grid of heatmaps shows one bar per axes, each on its
-        own scale. A scatter's bar runs from its ``vmin`` to its ``vmax``;
+        own scale. A ``contourf``'s bar shows its bands, from its first level
+        to its last; with unevenly spaced levels it is ticked in equal steps,
+        and it draws no ``extend`` end caps (both warn). A scatter's bar runs
+        from its ``vmin`` to its ``vmax``;
         a scatter's bar gives way to the next bar called on its axes, so an
         axes shows one bar. The subplot grid makes room for every bar: a vertical bar
         widens the gap to the right of its column (or the right margin), and
@@ -1918,14 +1924,8 @@ class Figure:
             zmin = float(hm["vmin"]) if hm["vmin"] is not None else None
             zmax = float(hm["vmax"]) if hm["vmax"] is not None else None
             if "levels" in hm:
-                # A contourf colours on the scale of its outer levels.
-                warn_external(
-                    "colorbar() of a contourf draws the colormap as a continuous "
-                    "scale from vmin to vmax (the first and last level when "
-                    "unset), not its bands."
-                )
-                zmin = hm["levels"][0] if zmin is None else zmin
-                zmax = hm["levels"][-1] if zmax is None else zmax
+                # As in matplotlib, a contourf's bar spans its levels.
+                zmin, zmax = float(hm["levels"][0]), float(hm["levels"][-1])
             if have_values:
                 if zmin is None:
                     zmin = float(np.nanmin(values))
@@ -1957,7 +1957,9 @@ class Figure:
         if horizontal:
             # Absent means vertical, so a vertical bar's dict is unchanged.
             cb["orientation"] = "horizontal"
-        if zmin is not None and zmax is not None:
+        if "levels" in hm:
+            cb["zstep"] = self._contourf_colorbar_step(hm, nticks)
+        elif zmin is not None and zmax is not None:
             span = zmax - zmin
             cb["zstep"] = (span / divisions) if span > 0 else 1.0
         else:
@@ -1977,6 +1979,36 @@ class Figure:
             cb[COLORBAR_NTICKS] = divisions
         hm["colorbar"] = cb
         return cb
+
+    @staticmethod
+    def _contourf_colorbar_step(hm: Series, nticks: Optional[int]) -> float:
+        """The tick step of a ``contourf``'s bar, warning where it falls short.
+
+        The colorbar sub ticks from the first level in equal steps. Evenly
+        spaced levels are ticked as matplotlib's ``FixedLocator(levels,
+        nbins=10)`` ticks them (``nticks`` replacing the 10): every
+        ``ceil(len(levels) / nbins)``-th level. Uneven levels get ``nticks``
+        (default 5) equal intervals, since the sub has no list of positions.
+        """
+        levels = np.asarray(hm["levels"], dtype=float)
+        steps = np.diff(levels)
+        if hm["extend"] != "neither":
+            warn_external(
+                f"colorbar() of a contourf with extend={hm['extend']!r} draws "
+                "no triangular end caps: GLE's colorbar shows only the range "
+                "between the first and last level."
+            )
+        if np.allclose(steps, steps[0], rtol=1e-6, atol=0):
+            nbins = int(nticks) if nticks else 10
+            return float(steps[0] * math.ceil(len(levels) / nbins))
+        warn_external(
+            "colorbar() of a contourf with unevenly spaced levels draws its "
+            "bands at the levels but ticks the bar at even steps: GLE's "
+            "colorbar cannot place ticks at a list of values. Use evenly "
+            "spaced levels for ticks at the levels."
+        )
+        divisions = int(nticks) if nticks else DEFAULT_COLORBAR_NTICKS
+        return float((levels[-1] - levels[0]) / divisions)
 
     def _colorbar_holder(self, mappable, ax: Optional[Axes]) -> Tuple[Series, Axes]:
         """The heatmap or scatter :meth:`colorbar` attaches to, and its axes.

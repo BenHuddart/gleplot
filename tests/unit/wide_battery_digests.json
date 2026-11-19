@@ -50,6 +50,7 @@
  "golden:heatmap_pcolormesh": "31b27d488fc20a655b92187dbd5061f6f5583b8261bd65339bcc40c34af00659",
  "golden:heatmap_contourf": "cfb6f35fdb3ceac69b0630c2cdd439542f11435740228ff46bbd03dddede066e",
  "golden:heatmap_contourf_smooth": "151608df79e3b56f5dbb8ee31a9326bd1ef470726b349ad18075e0f264e73259",
+ "golden:heatmap_contourf_colorbar": "9d259aa1272670090da3499cdcaa4cca02a41622209a6a6fe8dc0d73f3b07195",
  "golden:heatmap_function": "2bd940693a5860ab4f669a294b52c45de0b48cf8fe999879eac20fb8e7a6b4d5",
  "golden:heatmap_function_field_options": "3f6a3cbdac23f116d0d76b1867c00cafd76b8071f27cf84062e439b7e7984725",
  "golden:heatmap_imshow_colorbar": "a84f035e4e782bcf93a0174d98057fbd2c83fd302bef89c63ee3db6fb83edb77",

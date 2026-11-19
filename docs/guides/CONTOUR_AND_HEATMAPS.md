@@ -100,7 +100,7 @@ fig.savefig('bands.pdf')
 
 GLE's colormap smooths the grid with a cubic B-spline before the palette sees it, so a band edge is drawn near its level, not exactly on it. `contourf` works out, when it is called, where GLE will draw every edge. If some edge would land more than one bitmap pixel from its level, which happens on a coarse grid, it warns and draws a smooth heatmap instead, coloured by value between the outer levels. A finer `Z`, or fewer `pixels`, brings the bands back. The check assumes the axis limits are the grid's extent.
 
-The `.z` sidecar is written with its header one node spacing past the last node, because GLE's `colormap` places the last node one spacing short of the header's `xmax`. A `! gleplot: nodes ...` line under the header holds the grid's own edges. The band palette is a `gleplot_contourf<k>` sub written just before the graph, and its first line records the levels, `extend`, colormap and `vmin`/`vmax`, which is what `open_gle` reads back. Axis limits beyond the last node show that extra spacing, so saving warns. `fig.colorbar` of a `contourf` draws the colormap's continuous scale, not the bands, and warns.
+The `.z` sidecar is written with its header one node spacing past the last node, because GLE's `colormap` places the last node one spacing short of the header's `xmax`. A `! gleplot: nodes ...` line under the header holds the grid's own edges. The band palette is a `gleplot_contourf<k>` sub written just before the graph, and its first line records the levels, `extend`, colormap and `vmin`/`vmax`, which is what `open_gle` reads back. Axis limits beyond the last node show that extra spacing, so saving warns. With a colorbar, the band sub is also the bar's palette: the colormap scales the grid onto the bar's range and the sub's first statement maps it back.
 
 ## Heatmap from an Expression
 
@@ -212,6 +212,8 @@ ax.scatter([1, 2, 3, 4], [1, 4, 9, 16], c=[0, 100, 200, 300], cmap='viridis')
 fig.colorbar(ax=ax, label='T (K)')
 fig.savefig('scatter_bar.pdf')
 ```
+
+The bar of a `contourf` shows its bands, from the first level to the last, as in matplotlib. With evenly spaced levels it is ticked at the levels, thinned as matplotlib thins them: every `ceil(len(levels) / 10)`-th level from the first, with `nticks` in place of the 10. GLE's colorbar ticks in equal steps, so with uneven levels the bands are still drawn at their levels but the ticks are `nticks` (default 5) equal steps, and `colorbar()` warns. It draws no triangular end caps for `extend`, and warns when `extend` is set.
 
 ## Contour Smoothing
 

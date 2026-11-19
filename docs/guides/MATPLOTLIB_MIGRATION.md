@@ -401,7 +401,7 @@ Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are dra
 
 ## Colorbars
 
-`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh` or `tripcolor` returned (a `contourf` gets the colormap's continuous scale, with a warning), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
+`fig.colorbar(im, ax=ax)` takes the heatmap `imshow`, `pcolormesh`, `tripcolor` or `contourf` returned (a `contourf`'s bar shows its bands, but has no `extend` end caps, and with uneven levels is ticked in equal steps rather than at the levels), so each axes of a grid can carry its own bar. On an axes with no heatmap, `fig.colorbar(ax=ax)` shows its colour-mapped scatter (`scatter(..., c=values)`); `scatter` returns the axes, so the scatter cannot be passed as `mappable`. The rest of the call differs from matplotlib. See "Colorbars" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md).
 
 | `colorbar()` argument | gleplot |
 |---|---|
