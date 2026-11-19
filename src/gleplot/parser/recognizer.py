@@ -414,6 +414,9 @@ _CDATA_LET_RE = re.compile(
 #: ``define marker gleplot_X gleplot_X`` (lower-cased): the line that makes a
 #: generated per-point-size sub a marker (``writer.mdata_sub_text``).
 _GLEPLOT_DEFINE_MARKER_RE = re.compile(r"^define\s+marker\s+(gleplot_\w+)\s+\1$")
+# The statement a contourf band sub starts with when it is also a colorbar's
+# palette (writer.GLEWriter.add_contourf_sub), lower-cased.
+_CONTOURF_RESCALE_RE = re.compile(r"^z = (\S+)\*\(1-z\)\+(\S+)\*z$")
 
 #: What :meth:`_Recognizer._try_one_text` returns for a polar axes' label
 #: call, which the axes regenerates; compared by identity.
@@ -1782,6 +1785,9 @@ class _Recognizer:
         # read while those subs are scanned.
         self._contourf_subs: Dict[str, str] = {}
         self._contourf_sub_spans: Dict[str, set] = {}
+        # gleplot_contourf<k> sub name -> the (zmin, zmax) its first statement
+        # maps the colormap's 0..1 back from, when it is a colorbar's palette.
+        self._contourf_rescales: Dict[str, Tuple[float, float]] = {}
         # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
         self._fitz_blocks: Dict[str, dict] = {}
         # contour ``.z`` file -> {levels}
@@ -8107,6 +8113,15 @@ class _Recognizer:
                 self._contourf_sub_spans[sub_name].add(idx)
                 if low.startswith(CONTOURF_MARKER + " "):
                     self._contourf_subs[sub_name] = line.strip()
+                rescale = _CONTOURF_RESCALE_RE.match(low)
+                if rescale:
+                    try:
+                        self._contourf_rescales[sub_name] = (
+                            float(rescale.group(1)),
+                            float(rescale.group(2)),
+                        )
+                    except ValueError:
+                        pass
             if low == "end sub" or low.startswith("end sub "):
                 in_sub = False
         return nums
@@ -8765,24 +8780,34 @@ class _Recognizer:
         """Whether a ``colormap`` is one a ``contourf`` heatmap can be read from.
 
         It must be the statement :meth:`GLEWriter.add_heatmap` writes for
-        one (a ``.z`` file, ``zmin 0 zmax 1`` and its band sub as palette,
+        one (a ``.z`` file, ``zmin``/``zmax`` and its band sub as palette,
         nothing else), the sub's comment line must parse, and the grid must
-        be readable. Checked before anything is dropped, so that a colormap
-        kept as raw GLE keeps its band sub too.
+        be readable. ``zmin 0 zmax 1`` passes values through; any other
+        range must be the one the sub maps back from, as with a colorbar.
+        Checked before anything is dropped, so that a colormap kept as raw
+        GLE keeps its band sub too.
         """
         if len(toks) < 4 or toks[1].type is not TokenType.STRING:
             return False
         zfile, idx = self._read_filename(toks, 1)
-        rest = [t.value.lower() for t in toks[idx:]]
         if (
-            len(rest) != 8
-            or rest[2:7] != ["zmin", "0", "zmax", "1", "palette"]
+            idx + 8 > len(toks)
             or _num(toks[idx]) is None
             or _num(toks[idx + 1]) is None
+            or toks[idx + 2].value.lower() != "zmin"
             or not zfile.lower().endswith((".z", ".gz"))
         ):
             return False
-        comment = self._contourf_subs.get(rest[7])
+        zmin, at = _collect_value(toks, idx + 3)
+        if at + 4 > len(toks) or toks[at].value.lower() != "zmax":
+            return False
+        zmax, at = _collect_value(toks, at + 1)
+        rest = [t.value.lower() for t in toks[at:]]
+        if len(rest) != 2 or rest[0] != "palette":
+            return False
+        if (zmin, zmax) != self._contourf_rescales.get(rest[1], (0.0, 1.0)):
+            return False
+        comment = self._contourf_subs.get(rest[1])
         return (
             comment is not None
             and self._contourf_fields(comment) is not None

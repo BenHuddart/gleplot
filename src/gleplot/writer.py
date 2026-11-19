@@ -937,6 +937,17 @@ def _band_of(values: np.ndarray, levels: List[float]) -> np.ndarray:
     return band
 
 
+def _contourf_bar_range(series: Mapping[str, Any]) -> Optional[Tuple[Any, Any]]:
+    """The ``(zmin, zmax)`` a ``contourf``'s colormap scales its values onto.
+
+    Its colorbar's range, which the band sub maps back from (see
+    :meth:`GLEWriter.add_contourf_sub`); ``None`` without a colorbar, when
+    the values pass through unscaled.
+    """
+    cb = series.get("colorbar")
+    return (cb["zmin"], cb["zmax"]) if cb else None
+
+
 def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     """Whether GLE draws a ``contourf`` heatmap's bands where its levels are.
 
@@ -5823,8 +5834,9 @@ class GLEWriter:
     def add_contourf_sub(self, series: Series):
         """Define the palette sub a ``contourf`` heatmap's colormap calls.
 
-        The colormap passes each pixel's value through unscaled (``zmin 0
-        zmax 1``), so the sub compares it with the levels themselves. A value
+        The sub compares each pixel's value with the levels themselves: the
+        colormap passes it through unscaled (``zmin 0 zmax 1``), or, with a
+        colorbar, the sub maps it back first (below). A value
         above one level and up to the next takes the colour ``cmap`` gives
         the middle of that band on the ``vmin``..``vmax`` scale (the outer levels when unset), as
         matplotlib colours a band. Below the first level and above the last
@@ -5832,6 +5844,12 @@ class GLEWriter:
         smoothing would not put the band edges on the levels
         (:func:`contourf_bands_fit`), the sub maps the value straight onto the
         colormap instead, inside the same limits.
+
+        With a colorbar the sub is also the bar's palette, which the colorbar
+        sub calls with a value from 0 to 1 along the bar. The colormap then
+        scales each pixel's value onto the bar's ``zmin``..``zmax`` too, and
+        the sub's first statement maps it back, so the image and the bar both
+        show the bands.
 
         The sub's first line, a comment GLE skips, holds the series' colouring
         as written, which is what the recognizer reads back. The sub goes
@@ -5855,9 +5873,11 @@ class GLEWriter:
         white = "rgb(1, 1, 1)"
         under = f"{call}(0)" if extend in ("min", "both") else white
         over = f"{call}(1)" if extend in ("max", "both") else white
-        lines = [
-            f"sub {name} z",
-            f"   {head}",
+        lines = [f"sub {name} z", f"   {head}"]
+        bar = _contourf_bar_range(series)
+        if bar:
+            lines.append(f"   z = {fmt(bar[0])}*(1-z)+{fmt(bar[1])}*z")
+        lines += [
             f"   if z < {levels[0]} then return {under}",
             f"   if z > {levels[-1]} then return {over}",
         ]
@@ -5899,8 +5919,15 @@ class GLEWriter:
             operand = _quote_filename(_grid_z_file(series))
         if "levels" in series:
             name = self._contourf_subs[series["data_file"]]
+            zmin, zmax = _contourf_bar_range(series) or (0, 1)
             self.add_colormap(
-                operand, series["pixels"], ("palette", name), 0, 1, False, "bicubic"
+                operand,
+                series["pixels"],
+                ("palette", name),
+                zmin,
+                zmax,
+                False,
+                "bicubic",
             )
             return
         self.add_colormap(
@@ -5918,7 +5945,8 @@ class GLEWriter:
 
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`, or
         a colour-mapped :class:`~gleplot.series.ScatterSeries`; its ``cmap``
-        names the palette and its ``colorbar`` dict (see
+        names the palette (a ``contourf``'s is its band sub, see
+        :meth:`add_contourf_sub`) and its ``colorbar`` dict (see
         :meth:`gleplot.Figure.colorbar`) holds the call's range, size, format
         and label. A series without one writes nothing.
 
@@ -5947,11 +5975,16 @@ class GLEWriter:
             sub = "gleplot_colorbar_v"
             size = f"wd {thickness} hi yg(ygmax)-yg(ygmin)"
         lbl = self._escape_gle_string(cb.get("label") or "")
-        cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
+        if "levels" in series:
+            # A contourf's bar draws its bands through the band sub.
+            palette = self._contourf_subs[series["data_file"]]
+        else:
+            cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
+            palette = _pal.palette_call_name(cmap)
         self.lines_gle.append(
             f"{sub} zmin {fmt(cb['zmin'])} zmax {fmt(cb['zmax'])} "
             f"zstep {fmt(cb['zstep'])} "
-            f'palette "{_pal.palette_call_name(cmap)}" {size} '
+            f'palette "{palette}" {size} '
             f'format "{cb["format"]}" label "{lbl}"'
         )
 
