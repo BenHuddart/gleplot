@@ -197,7 +197,8 @@ def test_cells_marker_on_another_grid_reads_as_imshow(tmp_path, header, rows, cl
     rec = parse_gle_figure(p)
     hm = rec.figure.axes_list[0].heatmaps[0]
     assert "cells" not in hm
-    assert hm["extent"][2:] == [-0.5, 1.5]
+    # Its last row where colormap draws it: one spacing short of ymax.
+    assert hm["extent"][2:] == [-0.5, 0.5]
     assert any("marked as a pcolormesh mesh" in w for w in rec.warnings)
 
 
@@ -276,9 +277,20 @@ def test_contourf_gleplot_cannot_read_keeps_its_band_sub(tmp_path, comment, opti
     assert "   return rgb(z, z, z)" in text.splitlines()
 
 
-def test_contourf_grid_under_another_palette_says_so(tmp_path):
+@pytest.mark.parametrize(
+    "header, extent, noted",
+    [
+        # One node spacing past the marker's edges: an imshow grid (#350).
+        ("xmin 0 xmax 2 ymin 0 ymax 2", [0.0, 1.0, 0.0, 1.0], False),
+        # Not: read where colormap draws its nodes, and said so.
+        ("xmin 0 xmax 3 ymin 0 ymax 3", [0.0, 1.5, 0.0, 1.5], True),
+    ],
+)
+def test_a_node_grid_under_a_plain_colormap_reads_its_own_edges(
+    tmp_path, header, extent, noted
+):
     (tmp_path / "grid.z").write_text(
-        "! nx 2 ny 2 xmin 0 xmax 2 ymin 0 ymax 2\n"
+        f"! nx 2 ny 2 {header}\n"
         "! gleplot: nodes xmin 0 xmax 1 ymin 0 ymax 1\n0 1\n1 2\n",
         encoding="utf-8",
     )
@@ -288,8 +300,33 @@ def test_contourf_grid_under_another_palette_says_so(tmp_path):
         encoding="utf-8",
     )
     rec = parse_gle_figure(p)
-    assert rec.figure.axes_list[0].heatmaps[0]["extent"] == [0.0, 2.0, 0.0, 2.0]
-    assert any("written for a contourf" in w for w in rec.warnings)
+    assert rec.figure.axes_list[0].heatmaps[0]["extent"] == extent
+    assert any("node-grid marker" in w for w in rec.warnings) == noted
+
+
+def test_a_grid_written_before_node_headers_still_loads(tmp_path):
+    """A ``.z`` with no marker line keeps its nodes where colormap drew them.
+
+    ``colormap`` puts the last of ``n`` nodes one ``(xmax - xmin) / n`` short
+    of ``xmax``, so re-saving, one node spacing past that, draws it again.
+    """
+    (tmp_path / "grid.z").write_text(
+        "! nx 2 ny 2 xmin 0 xmax 1 ymin 0 ymax 1\n0 1\n1 2\n", encoding="utf-8"
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(
+        'size 10 10\nbegin graph\n   colormap "grid.z" 100 100\nend graph\n',
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(p)
+    heatmap = rec.figure.axes_list[0].heatmaps[0]
+    assert heatmap["extent"] == [0.0, 0.5, 0.0, 0.5]
+    assert heatmap["z"].tolist() == [[0.0, 1.0], [1.0, 2.0]]
+    assert rec.warnings == []
+    (tmp_path / "again").mkdir()
+    rec.figure.savefig_gle(str(tmp_path / "again" / "f.gle"))
+    header = (tmp_path / "again" / "grid.z").read_text().splitlines()[0]
+    assert header == "! nx 2 ny 2 xmin 0 xmax 1 ymin 0 ymax 1"
 
 
 def test_foreign_palette_colormap_preserved(tmp_path):

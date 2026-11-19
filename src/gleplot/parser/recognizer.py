@@ -2845,6 +2845,7 @@ class _Recognizer:
             "yloglabels": None,
             # A bare 'math' ahead of everything but geometry (_prescan_math).
             "math_mode": None,
+            "facecolor": None,
             # (prefix, keyword) of every axis-line option (and tick-label
             # "loglabels") kept as raw GLE.
             # Raw lines are written at the end of the block, so a later
@@ -2887,6 +2888,7 @@ class _Recognizer:
             "_yplaces_raw": None,
             "_xnames_raw": None,
             "_ynames_raw": None,
+            "key_line": False,  # a modelled 'key' option line was read
             "key_pos": None,  # short-form position or None
             "key_off": False,
             "key_hei": None,  # 'hei' in cm, or None (= inherit 'set hei')
@@ -4557,6 +4559,20 @@ class _Recognizer:
         if kw == "title":
             self._parse_title_line(toks, info, stmt)
             return
+        # Read back only as the writer writes it: a word or colour expression
+        # with no comment after it, in a graph whose frame is drawn.
+        if (
+            kw == "background"
+            and len(toks) == len(stmt.tokens)
+            and len(toks) > 1
+            and toks[1].type is TokenType.WORD
+            and not info["frame_off"]
+        ):
+            color, nxt = _collect_color(toks, 1)
+            if color is not None and nxt == len(toks):
+                # GLE keeps the last one, wherever it stands in the block.
+                info["facecolor"] = color
+                return
         if kw in ("xtitle", "ytitle", "y2title", "x2title"):
             self._parse_axis_title_line(kw, toks, info, stmt)
             return
@@ -6855,7 +6871,16 @@ class _Recognizer:
         # a negative literal like the writer's own 'offset 1.5 -0.5' tokenizes
         # as an OP '-' followed by a NUMBER, not a single signed NUMBER token.
         parsed = self._scan_key_options(toks[1:])
+        if (
+            parsed is not None
+            and "offset" in parsed
+            and parsed.get("pos", info["key_pos"]) is None
+        ):
+            # Without 'pos', GLE measures 'offset' from the graph origin, not
+            # inward from a corner as the model's legend_offset does.
+            parsed = None
         if parsed is not None:
+            info["key_line"] = True
             info["key_pos"] = parsed.get("pos", info["key_pos"])
             info["key_hei"] = parsed.get("hei", info["key_hei"])
             info["key_nobox"] = parsed.get("nobox", info["key_nobox"])
@@ -7050,6 +7075,10 @@ class _Recognizer:
         is_import = self._is_import(data_file)
 
         if is_errorbar:
+            if not is_import and self._keep_file_errorbar_raw(
+                d_name, datasets, attrs, info, toks, line_no, raw_stmts
+            ):
+                return
             self._observe_unmodelled_smoothing("error-bar", attrs, line_no)
             self._build_errorbar(
                 info,
@@ -7601,6 +7630,66 @@ class _Recognizer:
             span,
         )
 
+    def _keep_file_errorbar_raw(
+        self, d_name, datasets, attrs, info, toks, line_no, raw_stmts
+    ) -> bool:
+        """Keep an error-bar line on a user's file raw if a reference loses part.
+
+        :meth:`gleplot.axes.Axes.errorbar_from_file` draws markers and one
+        symmetric vertical error read from the same file; a connecting line,
+        its ``lwidth``, ``nomiss``, horizontal or one-sided errors, or an
+        error from elsewhere have no field there. When the line sets one it
+        stays raw, with its datasets kept defined, unless the writer depends
+        on its series (see :meth:`_keep_unread_line_raw`); then the note says
+        what is dropped. Returns whether the line was kept raw.
+        """
+        data_file = datasets[d_name][0]
+        err_ref = attrs["err_refs"].get("err")
+        unwritable = [
+            word
+            for word, present in (
+                ("a connecting line", attrs["has_line"]),
+                ("lwidth", attrs["lwidth"] is not None),
+                ("nomiss", attrs["nomiss"]),
+                (
+                    f"err {err_ref} not read from that file",
+                    err_ref is not None
+                    and datasets.get(err_ref, (None,))[0] != data_file,
+                ),
+            )
+            if present
+        ]
+        unwritable += [kind for kind in attrs["err_refs"] if kind != "err"]
+        if not unwritable:
+            return False
+        what = ", ".join(unwritable)
+        span = (line_no, line_no) if line_no is not None else None
+        if (
+            d_name in info["_offset_let_datasets"]
+            or info["polar_rmax"] is not None
+            or attrs["y2axis"]
+            or attrs["x2axis"]
+        ):
+            self._note(
+                ImportCategory.DATA,
+                f"{what} on error-bar dataset {d_name} is not modelled and was "
+                "dropped on re-save",
+                span,
+            )
+            return False
+        self._passthrough_original_dn(info, toks, raw_stmts)
+        info["_raw_datasets"].add(d_name)
+        info["_raw_datasets"].update(attrs["err_refs"].values())
+        self._note(
+            ImportCategory.DATA,
+            f"{what} on an error-bar dataset read from '{data_file}' is not "
+            "modelled; its 'dN ... err' line was kept as raw GLE and still "
+            "draws, but is not editable. To edit it, load the columns and plot "
+            "them with Axes.errorbar()",
+            span,
+        )
+        return True
+
     def _build_errorbar(
         self,
         info,
@@ -7691,7 +7780,6 @@ class _Recognizer:
         if not is_import:
             # File-series errorbar reference.
             yerr_col = yerr_up_col if yerr_up_col is not None else None
-            self._note_dropped_line_mode(attrs, span)
             info["file_series"].append(
                 FileSeries(
                     series_type="errorbar",
@@ -8413,14 +8501,6 @@ class _Recognizer:
                 )
                 return
             z, extent, marker = grid
-            if marker is not None and marker.startswith(NODES_MARKER):
-                self._note(
-                    ImportCategory.DATA,
-                    f"grid {zfile!r} is written for a contourf but its colormap "
-                    "is not a contourf's; read as an imshow heatmap over the "
-                    "header's range, and its marker line is dropped on re-save",
-                    self._stmt_span(stmt),
-                )
             cells = marker is not None and marker.startswith(CELLS_MARKER)
             if cells:
                 mesh = self._mesh_from_cells_grid(z, extent, marker, interpolation)
@@ -8431,12 +8511,15 @@ class _Recognizer:
                         "not one gleplot wrote (it needs interpolate nearest, "
                         "a repeated first row and column, and a header half a "
                         "cell outside the edges the marker gives); read as an "
-                        "imshow heatmap, and the marker is dropped on re-save",
+                        "imshow heatmap where GLE draws its nodes, and the "
+                        "marker is dropped on re-save",
                         self._stmt_span(stmt),
                     )
                     cells = False
                 else:
                     z, extent = mesh
+            if not cells:
+                extent = self._imshow_node_extent(zfile, z, extent, marker, stmt)
             hm = HeatmapSeries(
                 type="heatmap",
                 source="grid",
@@ -8732,9 +8815,36 @@ class _Recognizer:
         fields["levels"] = levels
         return fields
 
+    def _imshow_node_extent(self, zfile, z, header, marker, stmt) -> List[float]:
+        """An imshow grid's extent: its first and last nodes, as GLE draws it.
+
+        A grid :meth:`GLEWriter.add_nodes_sidecar` wrote gives them on its
+        marker line. Any other grid of two or more nodes each way, such as a
+        hand-written one or one an earlier gleplot wrote, has its last node
+        where ``colormap`` draws it, one spacing short of the header's
+        ``xmax``/``ymax``, so re-saving draws it where it was. A grid one node
+        wide or tall is read over its header, as the writer writes it.
+        """
+        ny, nx = z.shape
+        nodes = self._nodes_extent(marker, header, nx, ny)
+        if nodes is not None:
+            return nodes
+        if marker is not None and marker.startswith(NODES_MARKER):
+            self._note(
+                ImportCategory.DATA,
+                f"grid {zfile!r} has a node-grid marker line that does not "
+                "match its header; read where GLE draws its nodes, and the "
+                "marker line is rewritten on re-save",
+                self._stmt_span(stmt),
+            )
+        if min(nx, ny) < 2:
+            return list(header)
+        x0, x1, y0, y1 = header
+        return [x0, x1 - (x1 - x0) / nx, y0, y1 - (y1 - y0) / ny]
+
     @staticmethod
     def _nodes_extent(marker, header, nx, ny) -> Optional[List[float]]:
-        """The edges a ``contourf`` grid's marker line gives, or ``None``.
+        """The edges a node grid's marker line gives, or ``None``.
 
         ``None`` without the line, or when the header is not one node
         spacing past them as :meth:`GLEWriter.add_nodes_sidecar` writes it.
@@ -10353,10 +10463,13 @@ class _Recognizer:
             )
         elif info["key_off"]:
             ax.legend_on = False
-        elif info["key_pos"] is not None:
+        elif info["key_line"]:
+            # A 'key' option line; without 'pos' GLE's key sits top right,
+            # the model's default position.
             pos_short = info["key_pos"]
-            ax.legend_pos = KEY_POSITIONS_SHORT_TO_LONG.get(pos_short, pos_short)
-            # 'key pos P' + labels -> auto (None); + no labels -> True.
+            if pos_short is not None:
+                ax.legend_pos = KEY_POSITIONS_SHORT_TO_LONG.get(pos_short, pos_short)
+            # A key line + labels -> auto (None); + no labels -> True.
             ax.legend_on = None if labels_present else True
             if info["key_hei"] is not None:
                 ax.legend_fontsize = fontsize_cm_to_pt(info["key_hei"])
@@ -10383,7 +10496,6 @@ class _Recognizer:
             ax.legend_on = None if ax.legend_on is False else True
 
         if info["key_spacing"] and not external:
-            # Also without 'key pos': the re-save adds GLE's default 'pos tr'.
             ax.legend_spacing = _legend_spacing(
                 info["key_spacing"], ax.legend_fontsize, ax.figure
             )
@@ -10430,6 +10542,7 @@ class _Recognizer:
             setattr(ax, f"{prefix}ticklabel_color", info[f"{prefix}labels_color"])
             setattr(ax, f"{prefix}ticklabel_angle", info[f"{prefix}angle"])
         ax.math_mode = info["math_mode"]
+        ax._facecolor = info["facecolor"]
         for prefix in ("x", "y"):
             for name in (
                 "nticks",

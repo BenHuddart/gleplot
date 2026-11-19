@@ -8,7 +8,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 |---|---|
 | `plt.figure()` | `glp.figure()` |
 | `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
-| `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background, and axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
+| `fig.add_axes(rect)` | same for a rect in figure fractions; the inset has no background unless given `facecolor`, and the other axes-property keywords warn, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `fig.axes` | same, but without the `twinx()`/`twiny()` views, which draw on their parent's graph |
 | `ax.plot(...)` | same |
 | `ax.scatter(...)` | same, including `c=` for per-point colours, see [Scatter colours](#scatter-colours) |
@@ -35,6 +35,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.semilogx(...)` / `semilogy` / `loglog` | same; `base` other than 10, `subs` and `nonpositive` warn |
 | `ax.set_xticklabels(labels)` / `set_yticklabels` | same, after `set_xticks(ticks)`; `minor=True` and text properties warn |
 | `ax.axis('off')` / `ax.set_axis_off()` | same, but the axis labels stay (with a warning); `'equal'`, `'scaled'`, `'image'`, `'square'` and `emit=False` warn, use `set_aspect` |
+| `ax.set_facecolor(color)` | same, as GLE's graph `background`; an axes has none until it is set, where matplotlib's is white. On a polar axes it warns and does nothing: GLE's background fills the rectangular window, not the circle |
 | `ax.set_aspect(...)` / `ax.get_aspect()` | same, resizing the box about its centre; `adjustable='datalim'`, an `anchor` other than `'C'` and `share=True` warn, see [Axes and Legends](AXES_AND_LEGENDS.md) |
 | `plt.savefig(...)` | `fig.savefig(...)` or `glp.savefig(...)` |
 
@@ -311,14 +312,15 @@ A bad value raises `ValueError` at the call. A range GLE cannot draw warns when 
 
 ## Heatmaps and contour lines
 
-`imshow` and `tripcolor` take the arguments listed in their API entries.
+`imshow` and `tripcolor` take the arguments listed in their API entries. `imshow`'s `extent` gives the first and last grid nodes, where `contour` puts them, not the box the image fills: matplotlib's pixels reach half a pixel past the outer centres, and gleplot's colormap stops at those nodes. To match a matplotlib figure, pass the outer pixel centres as `extent`.
 Every other keyword, such as `alpha`, `norm` or `aspect`, warns and is
 ignored: a GLE colormap is opaque and one per axes (see "One Heatmap Per
 Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
 `contour` and `tricontour` take matplotlib's `linewidth` (`lw`) and
 `linestyle` (`ls`) for `linewidths` and `linestyles`, one value each: GLE
 draws every level as one dataset, so a per-level list of differing values
-warns and its first entry is used. Their other keywords
+warns and its first entry is used. `None` for `colors`, `linewidths` or
+`linestyles` means the default. Their other keywords
 warn and are ignored, among them `extent` and `origin`: pass the grid's
 coordinates, `contour(x, y, Z)`, to place it. A misspelt keyword warns the
 same way.

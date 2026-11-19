@@ -1392,19 +1392,20 @@ def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
         ("linewidths", linewidths, 1.0, ("linewidth", "lw")),
         ("linestyles", linestyles, "-", ("linestyle", "ls")),
     ):
-        styles = plural == "linestyles"
-        value = _one_for_all_levels(name, plural, value, styles)
+        is_style = plural == "linestyles"
+        value = _one_for_all_levels(name, plural, value, is_style)
         winner = plural if value is not None and value != default else None
         for alias in aliases:
             short = kwargs.pop(alias, None)
             if short is None:
                 continue
             if winner is None:
-                value = _one_for_all_levels(name, alias, short, styles)
+                value = _one_for_all_levels(name, alias, short, is_style)
                 winner = alias
             else:
                 warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
-        resolved.append(value)
+        # None is matplotlib's "the default", for the plural and its aliases.
+        resolved.append(default if value is None else value)
     warn_unsupported_keywords(name, kwargs)
     widths, styles = resolved
     if styles is not None:
@@ -2573,6 +2574,9 @@ class Axes:
         # Resolved into the frame rect when the figure is written, so it is
         # not recovered from a .gle file: the rect it produced is.
         self._aspect: Optional[float] = None
+        # The GLE colour GLE's graph ``background`` fills the frame with
+        # (set_facecolor); None draws no background, so what is behind shows.
+        self._facecolor: Optional[str] = None
 
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
@@ -7294,7 +7298,8 @@ class Axes:
             Gridded scalar field.
         extent : tuple, optional
             ``(xmin, xmax, ymin, ymax)`` mapping the grid onto data
-            coordinates. Default ``(0, nx, 0, ny)``.
+            coordinates: the first and last grid nodes, where ``contour``
+            puts them. Default ``(0, nx, 0, ny)``.
         origin : {'lower', 'upper'}
             ``'lower'`` (default) puts row 0 of ``Z`` at ``ymin`` (the
             scientific convention; note this differs from matplotlib's
@@ -7912,7 +7917,7 @@ class Axes:
             ``values from zmin to zmax step (zmax-zmin)/n``. A sequence emits
             ``values v1 v2 ...``.
         colors : str
-            Contour line colour.
+            Contour line colour. ``None`` means the default, black.
         linewidths : float
             Line width (matplotlib points). GLE draws every level as one
             dataset, so a per-level sequence of differing widths warns and
@@ -7968,7 +7973,7 @@ class Axes:
             zpts=None,
             extent=ext,
             levels=levels_resolved,
-            color=rgb_to_gle(colors),
+            color=rgb_to_gle("black" if colors is None else colors),
             linewidth=float(linewidths),
             linestyle=self._linestyle_to_lstyle(linestyles),
             clabel=bool(clabel),
@@ -8195,7 +8200,7 @@ class Axes:
             zpts=za,
             extent=ext,
             levels=levels_resolved,
-            color=rgb_to_gle(colors),
+            color=rgb_to_gle("black" if colors is None else colors),
             linewidth=float(linewidths),
             linestyle=self._linestyle_to_lstyle(linestyles),
             clabel=bool(clabel),
@@ -9230,6 +9235,49 @@ class Axes:
             return 1.0
         return "auto" if self._aspect is None else self._aspect
 
+    def set_facecolor(self, color):
+        """Fill the area inside the axes frame with ``color``.
+
+        Parameters
+        ----------
+        color : color or None
+            Any colour gleplot accepts elsewhere; an RGBA colour's alpha makes
+            it see-through. ``None``, ``'none'`` or an alpha of 0 draws no
+            background, the default.
+
+        Notes
+        -----
+        Written as GLE's graph ``background``, which fills the frame before
+        anything in the graph is drawn. Unlike matplotlib, an axes has no
+        background until this is called, so an inset from
+        :meth:`Figure.add_axes` shows what is behind it unless it is given
+        one (``facecolor='white'``). As in matplotlib, an axes with its
+        frame off (:meth:`set_axis_off`, ``pie()``) draws no background. A
+        polar axes has none either: GLE's fills the rectangular graph
+        window, not the circle, so this warns there and does nothing.
+
+        Examples
+        --------
+        >>> import gleplot as glp
+        >>> fig, ax = glp.subplots()
+        >>> ax.set_facecolor("whitesmoke")
+        """
+        if self._polar:
+            warn_external(
+                "set_facecolor() has no effect on a polar axes: GLE's graph "
+                "background fills the rectangular window, not the circle."
+            )
+            return
+        rgb, alpha = _rgba_parts(color)
+        if (
+            color is None
+            or (isinstance(color, str) and color.strip().lower() == "none")
+            or (isinstance(alpha, (int, float)) and alpha <= 0)
+        ):
+            self._facecolor = None
+        else:
+            self._facecolor = apply_alpha(rgb_to_gle(rgb), alpha)
+
     @_cartesian_only
     def set_axis_off(self):
         """Hide the axis lines, ticks and tick labels.
@@ -10127,6 +10175,8 @@ class Axes:
         if self._aspect is not None:
             # Likewise only when set.
             payload["aspect"] = self._aspect
+        if self._facecolor is not None:
+            payload["facecolor"] = self._facecolor
         return payload
 
     @classmethod
@@ -10234,6 +10284,7 @@ class Axes:
         ax._frame_off = d.get("frame_off", False)
         ax._polar = d.get("polar", False)
         ax._aspect = d.get("aspect")
+        ax._facecolor = d.get("facecolor")
         # ``_break_owner`` is a back-reference rebound by Figure.from_dict
         # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
         ax._break_index = d.get("break_index")

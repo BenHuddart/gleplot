@@ -888,8 +888,11 @@ class Figure:
         polar : bool, default: False
             ``True`` is ``projection='polar'``.
         **kwargs
-            Axes properties in matplotlib. Not supported: they warn and are
-            ignored; call the setters on the returned axes instead.
+            Axes properties in matplotlib. ``facecolor`` (alias ``fc``) is
+            passed to
+            :meth:`Axes.set_facecolor`; the others are not supported: they
+            warn and are ignored, so call the setters on the returned axes
+            instead.
 
         Returns
         -------
@@ -901,7 +904,8 @@ class Figure:
         The axes stands outside the subplot grid: it does not move the grid,
         and ``sharex``/``sharey`` do not apply to it. It is written after the
         axes added before it, so it is drawn on top of them, but unlike
-        matplotlib it has no background, so what is behind it shows through.
+        matplotlib it has no background unless given a ``facecolor``, so
+        what is behind it shows through.
 
         The rect is turned into centimetres from the figure's ``figsize``
         when this is called, and is kept as :attr:`Axes.placement`.
@@ -942,6 +946,9 @@ class Figure:
                 f"add_axes(projection={projection!r}) is not supported; "
                 "use None, 'rectilinear' or 'polar'."
             )
+        if "facecolor" in kwargs and "fc" in kwargs:
+            raise TypeError("add_axes() got both facecolor and fc; pass one.")
+        facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
         if kwargs:
             warn_external(
                 f"add_axes() ignores {', '.join(sorted(kwargs))}: set them on "
@@ -959,6 +966,8 @@ class Figure:
         )
         if projection == "polar":
             _make_polar(ax)
+        if facecolor is not None:
+            ax.set_facecolor(facecolor)
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -3863,6 +3872,8 @@ class Figure:
             ),
             title_font=ax.title_font,
         )
+        if ax._facecolor is not None and not ax._frame_off:
+            writer.add_background(ax._facecolor)
         if rmax is not None:
             writer.add_polar_frame(rmax)
 
@@ -3873,8 +3884,8 @@ class Figure:
         for hm in resolution.visible(ax.heatmaps):
             if hm.get("cells"):
                 self._warn_mesh_overhang(ax, hm)
-            elif "levels" in hm:
-                self._warn_contourf_overhang(ax, hm)
+            elif GLEWriter.writes_node_grid(hm):
+                self._warn_node_grid_overhang(ax, hm)
             writer.add_heatmap(hm)
 
     @staticmethod
@@ -3927,14 +3938,15 @@ class Figure:
                 )
 
     @staticmethod
-    def _warn_contourf_overhang(ax: Axes, grid: Series) -> None:
-        """Warn where a ``contourf`` bitmap's extra spacing would show.
+    def _warn_node_grid_overhang(ax: Axes, grid: Series) -> None:
+        """Warn where a grid heatmap's extra spacing would show.
 
         GLE draws the bitmap one node spacing past the grid's last node (see
         :meth:`GLEWriter.add_nodes_sidecar`), and only the graph window hides
-        it. Below the first node there is no bitmap, as matplotlib draws
+        it. Before the first node there is no bitmap, as matplotlib draws
         nothing there.
         """
+        kind = "contourf" if "levels" in grid else "imshow"
         x0, x1, y0, y1 = grid["extent"]
         for name, lo, hi, a, b in (
             ("x", x0, x1, ax.xmin, ax.xmax),
@@ -3942,10 +3954,10 @@ class Figure:
         ):
             if a is not None and b is not None and max(a, b) > hi + 1e-9 * (hi - lo):
                 warn_external(
-                    f"The {name} limits reach {max(a, b):g}, beyond the "
-                    f"contourf grid's last {name} = {hi:g}, where GLE draws "
-                    "its last values on for up to one grid spacing. Keep the "
-                    f"upper {name} limit within the grid."
+                    f"The {name} limits reach {max(a, b):g}, beyond the {kind} "
+                    f"grid's last {name} = {hi:g}, where GLE draws its last "
+                    "values on for up to one grid spacing. Keep the upper "
+                    f"{name} limit within the grid."
                 )
 
     @staticmethod

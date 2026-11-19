@@ -439,8 +439,57 @@ class TestSubplots:
             fig._generate_gle()
 
     def test_add_axes_axes_properties_warn(self):
-        with pytest.warns(UserWarning, match="ignores facecolor"):
-            glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], facecolor="w")
+        with pytest.warns(UserWarning, match="ignores alpha"):
+            glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], alpha=0.5)
+
+    def test_add_axes_facecolor_fills_the_inset_frame(self, recwarn):
+        fig = glp.figure()
+        fig.add_subplot(111).plot([1, 2], [1, 2])
+        inset = fig.add_axes([0.5, 0.5, 0.3, 0.3], facecolor="w")
+        inset.plot([1, 2], [2, 1])
+        assert not recwarn.list
+        blocks = fig._generate_gle().split("begin graph")
+        assert "background" not in blocks[1]
+        assert "    background WHITE\n" in blocks[2]
+
+    @pytest.mark.parametrize(
+        "color, written", [("C0", "rgb255(31,119,180)"), (None, None), ("none", None)]
+    )
+    def test_set_facecolor(self, color, written):
+        fig = glp.figure()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor("red")
+        ax.set_facecolor(color)
+        ax.plot([1, 2], [1, 2])
+        lines = fig._generate_gle().splitlines()
+        backgrounds = [line for line in lines if line.startswith("    background")]
+        assert backgrounds == ([f"    background {written}"] if written else [])
+        assert ax.to_dict().get("facecolor") == written
+
+    @pytest.mark.parametrize(
+        "color, written",
+        [((1, 1, 1, 0), None), ((1, 0, 0, 0.5), "rgba255(255,0,0,128)")],
+    )
+    def test_set_facecolor_alpha(self, color, written, recwarn):
+        ax = glp.figure().add_subplot(111)
+        ax.set_facecolor(color)
+        assert ax._facecolor == written
+        assert not recwarn.list
+
+    def test_set_facecolor_draws_nothing_where_the_frame_is_off(self):
+        fig = glp.figure()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor("w")
+        ax.pie([1, 2, 3])
+        assert "background" not in fig._generate_gle()
+        with pytest.warns(UserWarning, match="no effect on a polar axes"):
+            fig.add_axes([0.1, 0.1, 0.3, 0.3], polar=True, fc="w")
+
+    def test_add_axes_takes_fc_or_facecolor_not_both(self):
+        inset = glp.figure().add_axes([0.1, 0.1, 0.3, 0.3], fc="w")
+        assert inset._facecolor == "WHITE"
+        with pytest.raises(TypeError, match="both facecolor and fc"):
+            glp.figure().add_axes([0.1, 0.1, 0.3, 0.3], fc="w", facecolor="w")
 
     def test_add_axes_polar(self):
         inset = glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], polar=True)

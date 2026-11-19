@@ -510,6 +510,16 @@ def inset_axes():
     return fig
 
 
+def inset_facecolor():
+    """A shaded panel under a white inset that hides the curve behind it."""
+    fig, ax = glp.subplots(data_prefix="golden")
+    ax.plot([0, 1], [0, 1])
+    ax.set_facecolor("whitesmoke")
+    inset = fig.add_axes([0.5, 0.2, 0.3, 0.3], facecolor="white")
+    inset.plot([0, 1], [1, 0], color="red")
+    return fig
+
+
 def insets_off_panel():
     """Insets the frames do not nest: one across a panel edge, one in the margin.
 
@@ -1914,13 +1924,14 @@ def placed_images():
 
 def data_beyond_six_figures():
     """Columns that six significant figures would merge, zero or cut."""
-    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    fig, (left, right, grid) = glp.subplots(1, 3, data_prefix="golden")
     stamps = 1.7e9 + np.array([0.0, 60.0, 121.0])
     left.plot(stamps, [1.0, 2.0, 3.0])
     left.set_xlim(stamps[0], stamps[-1])
     left.plot(stamps, [1e-12, 2.5e-12, 4e-12])
     right.plot([1.23456789e12, 2.5e12], np.cos([0.0, np.pi / 2]))
-    right.imshow(1.0 + 1e-8 * np.arange(6.0).reshape(2, 3), extent=(0, 3, 0, 2))
+    # On its own axes: other data would reach past the grid's last node.
+    grid.imshow(1.0 + 1e-8 * np.arange(6.0).reshape(2, 3), extent=(0, 3, 0, 2))
     return fig
 
 
@@ -1957,6 +1968,7 @@ BUILDERS = [
     subplots_grid_mixed,
     subplots_spanning,
     inset_axes,
+    inset_facecolor,
     insets_off_panel,
     inset_alone,
     aspect_ratios,
