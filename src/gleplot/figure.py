@@ -36,6 +36,7 @@ from .parser import metadata as _gle_metadata
 from .parser.tables import LEGEND_SPACING_TO_KEY
 from .parser.units import fontsize_pt_to_cm, inches_to_cm
 from .series import (
+    SERIES_ATTRS,
     HeatmapSeries,
     ScatterSeries,
     Series,
@@ -135,6 +136,15 @@ PROJECT_VERSION = 2
 #: series is :class:`~gleplot.sources.InlineData`", which needs no conversion
 #: at all -- the absence of ``data_source`` already means exactly that.
 SUPPORTED_PROJECT_VERSIONS = (1, 2)
+
+
+def _on_y2(series: Series) -> bool:
+    """Whether ``series`` is drawn against y2.
+
+    A stepfilled histogram is drawn on the primary axis whatever its
+    ``yaxis`` says (:meth:`Axes.hist` warns).
+    """
+    return series.get("yaxis") == "y2" and series.get("histtype") != "stepfilled"
 
 
 def _refline_axis_values(ax, orient: str):
@@ -4949,24 +4959,17 @@ class Figure:
 
         The series drawn against y2 do not count: GLE scales y2 from its own
         datasets, as matplotlib's ``twinx`` scales each axis from its own
-        artists. When nothing on the primary axis bounds the range, they do,
-        so the primary axis still has the range GLE would copy to y2.
+        artists. On an axes with no series on the primary axis at all, they
+        still bound it, as they always have.
         """
-        limits = self._y_data_extent(ax, resolution, positive_only, skip_y2=True)
-        if limits == (None, None):
-            limits = self._y_data_extent(ax, resolution, positive_only, skip_y2=False)
-        return limits
-
-    def _y_data_extent(
-        self,
-        ax: Axes,
-        resolution: Optional[SourceResolution],
-        positive_only: bool,
-        skip_y2: bool,
-    ) -> Tuple[Optional[float], Optional[float]]:
-        """The y range of the series on ``ax``, those on y2 left out if asked."""
         resolution = resolution or SourceResolution()
         ymin, ymax = None, None
+        skip_y2 = any(
+            not _on_y2(series)
+            for attr in SERIES_ATTRS
+            if attr != "texts"
+            for series in resolution.visible(getattr(ax, attr))
+        )
 
         # A series' ``offset`` shifts its trace vertically at plot time (the .dat
         # values stay raw), so autoscale must add it back when bounding the data
@@ -4978,7 +4981,7 @@ class Figure:
         )
         for data_list in offset_bearing:
             for data in data_list:
-                if skip_y2 and data.get("yaxis") == "y2":
+                if skip_y2 and _on_y2(data):
                     continue
                 y = _plottable(
                     np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
@@ -5008,13 +5011,7 @@ class Figure:
             )
 
         for hist in resolution.visible(ax.hists):
-            # A stepfilled histogram is drawn on the primary axis whatever
-            # its yaxis says (Axes.hist warns), as _get_data_y2lim assumes.
-            if (
-                skip_y2
-                and hist.get("yaxis") == "y2"
-                and hist.get("histtype") != "stepfilled"
-            ):
+            if skip_y2 and _on_y2(hist):
                 continue
             hy0, hy1 = self._histogram_y_extent(hist, positive_only)
             if hy0 is None:
@@ -5040,7 +5037,7 @@ class Figure:
                     ymax = float(all_y.max())
 
         for eb_data in resolution.visible(ax.errorbars):
-            if skip_y2 and eb_data.get("yaxis") == "y2":
+            if skip_y2 and _on_y2(eb_data):
                 continue
             y = np.asarray(eb_data["y"]) + eb_data.get("offset", 0.0)
             yerr_up = eb_data.get("yerr_up")
@@ -5145,7 +5142,7 @@ class Figure:
             resolution.visible(ax.errorbars),
         ):
             for data in data_list:
-                if data.get("yaxis") != "y2":
+                if not _on_y2(data):
                     continue
                 y = _plottable(
                     np.asarray(data["y"]) + data.get("offset", 0.0), positive_only
@@ -5157,7 +5154,7 @@ class Figure:
                         y2max = float(y.max())
 
         for hist in resolution.visible(ax.hists):
-            if hist.get("yaxis") != "y2" or hist.get("histtype") == "stepfilled":
+            if not _on_y2(hist):
                 continue
             hy0, hy1 = self._histogram_y_extent(hist, positive_only)
             if hy0 is None:

@@ -787,6 +787,23 @@ class TestSecondaryYAxis:
         lines = self.fig._generate_gle().splitlines()
         assert "    yaxis min 2 max 6" in lines
 
+    def test_primary_autoscale_counts_what_is_drawn_on_the_primary_axis(self):
+        """A stepfilled histogram is drawn on the left whatever yaxis says,
+        and a function curve, which GLE bounds itself, keeps y2 out too."""
+        with pytest.warns(UserWarning, match="stepfilled"):
+            self.ax.hist([1, 1, 2], histtype="stepfilled", yaxis="y2")
+        self.ax.plot([1, 2], [20, 40], yaxis="y2")
+        assert "    yaxis min 0 max 2" in self.fig._generate_gle().splitlines()
+
+        fig = glp.figure()
+        ax = fig.add_subplot(111)
+        ax.function("sin(x)", 1, 3)
+        ax.plot([1, 2, 3], [20, 30, 40], yaxis="y2")
+        assert not any(
+            line.strip().startswith("yaxis min")
+            for line in fig._generate_gle().splitlines()
+        )
+
     def test_primary_autoscale_with_only_y2_series_spans_them(self):
         """With nothing on the left, its range is still the one y2 would copy."""
         self.ax.plot([1, 2, 3], [20, 30, 40], yaxis="y2")
