@@ -166,3 +166,13 @@ def test_a_rug_saved_without_a_data_file_gets_one_on_load():
     rug = restored.axes_list[0].rugs[0]
     text, files = restored._generate_gle_with_files()
     assert files[rug["data_file"]] == "x y\n1 *\n2 *\n"
+
+
+def test_a_log_axis_writes_no_tick_it_cannot_place():
+    fig, ax = glp.subplots()
+    ax.set_xscale("log")
+    ax.plot([1, 10], [1, 2])
+    rug = ax.rug([-1, 0, 100])
+    with pytest.warns(UserWarning, match="log-scaled"):
+        _text, files = fig._generate_gle_with_files()
+    assert files[rug["data_file"]] == "x y\n100 *\n"

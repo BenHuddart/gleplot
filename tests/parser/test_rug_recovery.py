@@ -68,15 +68,30 @@ def test_a_rug_is_read_from_its_dataset_and_call(tmp_path):
         ('    data "r.dat" d1=c1,c2\n', _GROUP.replace('"top"', '"left"')),
         # A style the writer does not write.
         ('    data "r.dat" d1=c1,c2\n', _GROUP.replace(" cap butt", "")),
+        # The dataset is drawn as a series too.
+        ('    data "r.dat" d1=c1,c2\n    d1 marker circle\n', _GROUP),
+        # Its file is missing.
+        ('    data "gone.dat" d1=c1,c2\n', _GROUP),
+        # Two calls read the same dataset.
+        ('    data "r.dat" d1=c1,c2\n', _GROUP + _GROUP.replace("top", "bottom")),
     ],
-    ids=["shared-statement", "unknown-dataset", "wrong-edge", "other-style"],
+    ids=[
+        "shared-statement",
+        "unknown-dataset",
+        "wrong-edge",
+        "other-style",
+        "drawn-dataset",
+        "missing-file",
+        "two-calls",
+    ],
 )
 def test_rugs_not_in_the_writers_shape_stay_raw_gle(tmp_path, data, group):
     figure = _parse(tmp_path, data, "gsave\n" + group + "grestore\n").figure
     assert figure.axes_list[0].rugs == []
     text = figure._generate_gle_with_files()[0]
     assert group.splitlines()[2] in text
-    assert data.strip() in text
+    if "marker" not in data:  # a modelled series' 'data' line is rewritten
+        assert data.strip() in text
     assert 'include "rugs.gle"' in text
 
 

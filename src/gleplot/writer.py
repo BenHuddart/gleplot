@@ -5760,14 +5760,18 @@ class GLEWriter:
         use, under its own colour and width. ``rugs.gle`` takes a positive
         length out of the axes, gleplot into it, so the length is negated.
         """
-        if not series["ticks"]:
+        ticks = np.asarray(series["ticks"], dtype=float)
+        if self._log_axes.get(series["axis"]):
+            # GLE cannot place a value <= 0 on a log axis; autoscaling has
+            # already warned that it is not shown.
+            ticks = ticks[ticks > 0]
+        if not ticks.size:
             return
         num = self._format_number
         d_name = self._new_dataset()
         file = series["data_file"]
-        rows = [f"{num(float(v))} *" for v in series["ticks"]]
-        if series["axis"] == "y":
-            rows = [f"* {num(float(v))}" for v in series["ticks"]]
+        row = "* {}" if series["axis"] == "y" else "{} *"
+        rows = [row.format(v) for v in self._format_column(ticks)]
         self.data_files[file] = "\n".join(["x y", *rows]) + "\n"
         self.lines_gle.append(f"    data {_format_data_filename(file)} {d_name}=c1,c2")
         self._includes.add(RUGS_INCLUDE)

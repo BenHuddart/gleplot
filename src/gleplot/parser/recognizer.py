@@ -1734,6 +1734,7 @@ class _Recognizer:
         # datasets (with the 'data' statement's text) awaiting their group.
         self._post_graph_rugs: Dict[str, dict] = {}
         self._ready_rugs: Dict[str, Tuple[Rug, str]] = {}
+        self._held_rugs_includes: List[str] = []
         # The figure legend (Figure.legend) recovered after the last graph,
         # as Figure._legend without its spacing, or None. Set before the
         # axes are assembled: it decides what their 'key off' meant.
@@ -1892,6 +1893,9 @@ class _Recognizer:
 
         # --- data-file naming state for byte-identical re-save. ---
         self._finalize_data_state(fig)
+        if not any(ax.rugs for ax in fig.axes_list):
+            # The writer writes rugs.gle's include only for a rug.
+            fig.passthrough_header.extend(self._held_rugs_includes)
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
 
@@ -1929,11 +1933,11 @@ class _Recognizer:
         self._gleplot_sub_lines |= self._regenerated_include_lines(doc.nodes)
 
     def _regenerated_include_lines(self, nodes) -> Set[int]:
-        """Lines of the gleinc ``include``s the writer will write again.
+        """Lines of the gleinc ``include``s the writer may write again.
 
         ``graphutil.gle`` when some graph is followed by a guide line that
-        will be read back, ``rugs.gle`` when some graph is followed by a rug
-        whose dataset that graph loads; every line including one of them.
+        will be read back. ``rugs.gle`` always, its text held in
+        ``_held_rugs_includes`` until the rugs are read.
         """
         names: Set[str] = set()
         for k, node in enumerate(nodes):
@@ -1942,16 +1946,24 @@ class _Recognizer:
             guides, end = self._scan_post_graph_guides(nodes, k + 1, notes=False)
             if any(g["type"] == "refline" and g["linestyle"] != "none" for g in guides):
                 names.add(GRAPHUTIL_INCLUDE)
-            if self._loaded_rug_datasets(node, self._scan_post_graph_rugs(nodes, end)):
-                names.add(RUGS_INCLUDE)
-        return {
-            node.line_no
-            for node in nodes
-            if isinstance(node, Statement)
-            and (node.keyword or "").lower() == "include"
-            and self._first_string(_words_and_values(node)) in names
-            and len(_words_and_values(node)) == 2
-        }
+        # The writer writes rugs.gle's include exactly when the model has a
+        # rug, which is only known once the graphs are read: hold the lines
+        # back, and put them in the header again if no rug was read.
+        names.add(RUGS_INCLUDE)
+        lines = set()
+        for node in nodes:
+            if not (
+                isinstance(node, Statement)
+                and (node.keyword or "").lower() == "include"
+                and len(_words_and_values(node)) == 2
+            ):
+                continue
+            name = self._first_string(_words_and_values(node))
+            if name in names:
+                lines.add(node.line_no)
+            if name == RUGS_INCLUDE:
+                self._held_rugs_includes.append(self._stmt_text(node))
+        return lines
 
     def _read_metadata(self) -> Dict[str, Any]:
         """The metadata block, parsed from the whole file, tolerantly."""
@@ -9829,50 +9841,34 @@ class _Recognizer:
 
     def _scan_post_graph_rugs(self, nodes, start) -> Dict[str, dict]:
         """The rug groups after a graph, before the next one, by dataset."""
-        found: Dict[str, dict] = {}
+        found: Dict[str, Optional[dict]] = {}
         for k in range(start, len(nodes)):
             if isinstance(nodes[k], GraphBlock):
                 break
             group = self._rug_group(nodes, k)
             if group is not None:
-                found.setdefault(group[1]["dataset"], group[1])
-        return found
-
-    @staticmethod
-    def _loaded_rug_datasets(block: GraphBlock, rugs: Dict[str, dict]) -> bool:
-        """Whether ``block`` loads one of ``rugs`` as ``data "f" dN=c1,c2``.
-
-        The shape :meth:`_claim_rug_datasets` takes, so the include is
-        regenerated only when the rug will be.
-        """
-        for child in block.body:
-            if isinstance(child, Statement) and (child.keyword or "") == "data":
-                words = [t.value.lower() for t in _words_and_values(child)]
-                if (
-                    len(words) == 7
-                    and words[2] in rugs
-                    and words[3:]
-                    == [
-                        "=",
-                        "c1",
-                        ",",
-                        "c2",
-                    ]
-                ):
-                    return True
-        return False
+                name = group[1]["dataset"]
+                # Two calls on one dataset: neither is the writer's.
+                found[name] = None if name in found else group[1]
+        return {name: g for name, g in found.items() if g is not None}
 
     def _claim_rug_datasets(self, pass1: _GraphDatasets) -> None:
         """Turn each rug group after this graph into a ``Rug``, from its data.
 
         The group's dataset must be the only one its ``data`` statement
-        declares, as ``c1,c2``, with every tick finite. Its statement is then
+        declares, as ``c1,c2``, from a file no other statement reads, with no
+        ``dN`` line of its own and every tick finite. Its statement is then
         consumed; the rug and the statement's text wait in ``_ready_rugs``
         for the text cluster to take the group.
         """
         rugs, self._post_graph_rugs = self._post_graph_rugs, {}
+        files = [
+            d[0] for _n, _t, _l, defs, _o in pass1.data_stmts for d in defs.values()
+        ]
         for names, text, line_no, defs, _options in pass1.data_stmts:
             if len(names) != 1 or names[0] not in rugs:
+                continue
+            if names[0] in pass1.merged_attr_toks or files.count(defs[names[0]][0]) > 1:
                 continue
             fields = rugs[names[0]]
             data_file, xcol, ycol = defs[names[0]]
