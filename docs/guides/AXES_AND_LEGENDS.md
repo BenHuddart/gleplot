@@ -118,6 +118,12 @@ right.plot(x, humidity, label='Humidity')
 right.set_ylabel('Humidity (%)')
 ```
 
+Each y scale fits its own series, as with matplotlib's `twinx`: the left
+range gleplot writes leaves out the series on y2, and GLE scales y2 from
+them. An axes with nothing at all on the left axis is the exception: its
+left range spans the y2 series, where matplotlib's empty left axis runs
+from 0 to 1.
+
 The top scale is the same idea, and `ax.twiny()` is the matplotlib view that
 binds it. The y axis stays the one the view was opened on; limits, log and
 the label set on the view belong to the top scale:
