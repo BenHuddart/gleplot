@@ -239,6 +239,15 @@ The other line-drawing calls follow the same rule:
 | `axvline`, `axhline` | `lw`, `ls`, `c` | `alpha`, `zorder`, `transform` |
 | `axvspan`, `axhspan` | `facecolor` (`fc`) for `color` | `edgecolor`, `linewidth`, `hatch`, `zorder` |
 
+A `linestyle` is `'-'`, `'--'`, `':'` or `'-.'`, or matplotlib's name for
+one: `'solid'`, `'dashed'`, `'dotted'` or `'dashdot'`. `'none'` (or `''`,
+`' '`, `'None'`) draws no line. GLE has no custom dash patterns, so a dash
+tuple such as `(0, (5, 2))` warns and is drawn solid, and so does a value
+that is not a line style. This holds for `plot` and the calls above, for
+`line_from_file`, `hist(histtype='step')`, and the single `linestyles` of
+`contour` and `tricontour`. A `(offset, None)` tuple is matplotlib's solid
+line and is drawn solid without a warning.
+
 ## Marker spacing, thinning and clipping
 
 GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. Use `mdist` instead: it places the markers every `mdist` cm along the drawn curve, whatever the point spacing. That is closest to matplotlib's float form of `markevery`. These keywords are gleplot's names for GLE's dataset qualifiers, and `scatter` passes them on to `plot`:
