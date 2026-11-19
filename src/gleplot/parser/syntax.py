@@ -557,7 +557,10 @@ def _build_structure(
                 nodes.append(_wrap_single(stmt))
                 idx += 1
                 continue
-            if _is_end(stmt):
+            # 'end sub' and 'end if' close a 'sub' and an 'if ... then', not
+            # a 'begin' block.
+            words = [t.value.lower() for t in stmt.tokens if t.type is TokenType.WORD]
+            if _is_end(stmt) and words[1:2] not in (["sub"], ["if"]):
                 # A stray 'end' with no matching open block at this level.
                 warnings.append(
                     ParseWarning(
