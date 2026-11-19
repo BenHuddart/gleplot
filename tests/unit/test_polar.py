@@ -241,7 +241,8 @@ def test_a_scatter_keyword_is_named_as_passed():
 def test_drawstyle_default_is_accepted():
     _fig, ax = _polar()
     ax.plot([0, 1], [1, 2], drawstyle="default")
-    assert len(ax.lines) == 1
+    ax.plot([0, 1], [1, 2], ds="default")
+    assert len(ax.lines) == 2
 
 
 def test_grid_true_is_a_no_op_and_hiding_warns():

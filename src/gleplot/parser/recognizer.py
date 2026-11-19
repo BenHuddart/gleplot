@@ -1185,8 +1185,8 @@ def _dn_markersize(attrs: Dict[str, Any]) -> float:
     return attrs["msize"] if attrs["msize"] is not None else 0.15
 
 
-def _dn_linewidth(attrs: Dict[str, Any]) -> Optional[float]:
-    """A ``dN`` line's ``lwidth`` in matplotlib points.
+def _dn_width(attrs: Dict[str, Any]) -> Dict[str, Any]:
+    """A ``dN`` line's ``lwidth`` as series fields, in matplotlib points.
 
     The model stores points; the writer converts back to cm. ``None`` when
     the dataset draws a line but sets no ``lwidth``: GLE draws it at the
@@ -1194,17 +1194,28 @@ def _dn_linewidth(attrs: Dict[str, Any]) -> Optional[float]:
     it draws no line, since no width is written for it.
     """
     if attrs["lwidth"] is not None:
-        return linewidth_cm_to_pt(attrs["lwidth"])
-    return None if attrs["has_line"] else 1.0
+        return _width_fields(linewidth_cm_to_pt(attrs["lwidth"]))
+    return {"linewidth": None if attrs["has_line"] else 1.0}
+
+
+def _width_fields(linewidth: float) -> Dict[str, Any]:
+    """``linewidth`` read from a file, marked to be written as given.
+
+    The writer reads 0 and 1 pt as the style's default width; a file that
+    wrote one of them meant that width.
+    """
+    fields: Dict[str, Any] = {"linewidth": linewidth}
+    if linewidth in (0.0, 1.0):
+        fields["_lwidth_verbatim"] = True
+    return fields
 
 
 def _plain_function_line(toks: List[Token]) -> bool:
     """True when ``dK`` attribute tokens are what ``add_function`` writes.
 
     That is ``line`` with any of ``color``, ``lwidth``, a dashed ``lstyle``
-    and a non-empty ``key``. A solid or unknown ``lstyle`` number, a width
-    of 0 or 1 pt, a marker, smoothing or an axis switch would be lost or
-    changed on save.
+    and a non-empty ``key``. A solid or unknown ``lstyle`` number, a marker,
+    smoothing or an axis switch would be lost or changed on save.
     """
     has_line = False
     i = 0
@@ -1221,8 +1232,7 @@ def _plain_function_line(toks: List[Token]) -> bool:
             i = nxt
         elif word == "lwidth" and i + 1 < m:
             val, nxt = _collect_value(toks, i + 1)
-            # 0 and 1 pt are the writer's "style default" width.
-            if val is None or linewidth_cm_to_pt(val) in (0.0, 1.0):
+            if val is None:
                 return False
             i = nxt
         elif word == "lstyle" and i + 1 < m:
@@ -2856,6 +2866,10 @@ class _Recognizer:
             "_y2labels_on_line": None,
             "_x2labels_on_raw": None,
             "_x2labels_on_line": None,
+            # The raw text of a bare 'y2ticks on' / 'x2ticks on', judged once
+            # the block is read (see _reconcile_axis_styling).
+            "_y2ticks_on": None,
+            "_x2ticks_on": None,
             "nofirst_x": False,
             "nolast_x": False,
             "nofirst_y": False,
@@ -3085,10 +3099,12 @@ class _Recognizer:
                     pass1.merged_attr_raw[kw] = []
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
-        self._keep_plain_derived_lets(block, pass1, info)
-        self._keep_plain_function_lets(block, pass1, info)
+        # Histogram and colour lets are filtered first: a function let stays
+        # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
         self._keep_colour_lets(pass1, info)
+        self._keep_plain_derived_lets(block, pass1, info)
+        self._keep_plain_function_lets(block, pass1, info)
         return pass1
 
     def _record_colour_let(self, stmt, datasets, info) -> None:
@@ -3491,19 +3507,33 @@ class _Recognizer:
         ``xside off``, ``yside off``, ``xticks off`` and ``yticks off`` are
         recovered together as ``Axes._frame_off``, and only when each appears
         exactly once. Otherwise the set is empty and every one of them stays
-        raw GLE, as before.
+        raw GLE, as before. An ``xticks off`` directly followed by
+        ``xlabels off`` is an empty places list (see
+        :meth:`_is_empty_places`), not part of a hidden frame.
         """
         found: Dict[str, List[int]] = {kw: [] for kw in cls._FRAME_OFF_KEYWORDS}
-        for child in block.body:
-            if not isinstance(child, Statement):
-                continue
-            toks = _words_and_values(child)
+        statements = [c for c in block.body if isinstance(c, Statement)]
+        for child, following in zip(statements, statements[1:] + [None]):
             kw = (child.keyword or "").lower()
-            if kw in found and len(toks) == 2 and toks[1].value.lower() == "off":
-                found[kw].append(child.line_no)
+            if kw not in found or not cls._is_bare_off(child):
+                continue
+            if (
+                kw in ("xticks", "yticks")
+                and following is not None
+                and (following.keyword or "").lower() == f"{kw[0]}labels"
+                and cls._is_bare_off(following)
+            ):
+                continue
+            found[kw].append(child.line_no)
         if any(len(lines) != 1 for lines in found.values()):
             return set()
         return {lines[0] for lines in found.values()}
+
+    @staticmethod
+    def _is_bare_off(stmt: Statement) -> bool:
+        """``<keyword> off`` and nothing else."""
+        toks = _words_and_values(stmt)
+        return len(toks) == 2 and toks[1].value.lower() == "off"
 
     #: The statements whose ``on`` may switch the top or right axis on.
     _SWITCH_ON_KEYWORDS = {
@@ -3812,7 +3842,7 @@ class _Recognizer:
             linestyle=(
                 "none" if lstyle_i == 0 else LSTYLE_TO_MATPLOTLIB.get(lstyle_i, "-")
             ),
-            linewidth=linewidth_cm_to_pt(float(lwidth)),  # type: ignore[arg-type]
+            **_width_fields(linewidth_cm_to_pt(float(cast(float, lwidth)))),
             label=label or None,
             data_file=None,
         )
@@ -4108,7 +4138,7 @@ class _Recognizer:
             # marker carries only what they cannot state (gleplot.guides).
             color=entry["color"],
             linestyle=entry["linestyle"],
-            linewidth=entry["linewidth"],
+            **_width_fields(entry["linewidth"]),
             label=entry["label"],
             data_file=entry["data_file"],
         )
@@ -4273,6 +4303,13 @@ class _Recognizer:
             ticks = info[f"_{prefix}ticks"]
             subticks = info[f"_{prefix}subticks"]
             gridded = info[f"{prefix}grid"]
+            if self._is_empty_places(prefix, ticks, subticks, info):
+                # 'xticks off' + 'xlabels off' is how GLEWriter writes an
+                # empty places list (GLE ignores an empty 'xplaces').
+                info[f"{prefix}places"] = []
+                info[f"{prefix}labels_off"] = False
+                info[f"_{prefix}ticks"] = None
+                continue
             if not gridded:
                 self._reconcile_tick_marks(prefix, ticks, subticks, info)
                 continue
@@ -4317,6 +4354,17 @@ class _Recognizer:
                 )
                 info[f"_{prefix}subticks"] = None
         for prefix in ("y2", "x2"):
+            # The writer switches a twin scale back on with both lines.
+            reenabled = (
+                self._twin_reenabled(prefix, info)
+                and info[f"_{prefix}labels_on_raw"] is not None
+            )
+            ticks_on = info[f"_{prefix}ticks_on"]
+            if ticks_on is not None and reenabled:
+                passthrough = info["passthrough"]
+                del passthrough[
+                    next(i for i, x in enumerate(passthrough) if x is ticks_on)
+                ]
             raw = info[f"_{prefix}labels_on_raw"]
             if raw is None:
                 continue
@@ -4329,6 +4377,7 @@ class _Recognizer:
                 or info[f"{prefix}max"] is not None
                 or info[f"{prefix}log"]
                 or bool(info[f"{prefix}label"])
+                or (reenabled and ticks_on is not None)
             )
             if not implied:
                 info["passthrough"].append(raw)
@@ -4518,6 +4567,18 @@ class _Recognizer:
             return
         if kw in ("xticks", "yticks", "xsubticks", "ysubticks"):
             self._parse_ticks_line(kw, toks, info, stmt)
+            return
+        if (
+            kw in ("y2ticks", "x2ticks")
+            and len(toks) == 2
+            and toks[1].value.lower() == "on"
+            and info[f"_{kw[:2]}ticks_on"] is None
+        ):
+            # Kept in place as raw GLE unless it turns out to be the
+            # writer's (see _reconcile_axis_styling).
+            raw = self._stmt_text(stmt)
+            info["passthrough"].append(raw)
+            info[f"_{kw[:2]}ticks_on"] = raw
             return
         if kw in ("xplaces", "yplaces", "xnames", "ynames"):
             self._parse_places_or_names_line(kw, toks, info, stmt)
@@ -4758,6 +4819,49 @@ class _Recognizer:
             info[f"{prefix}labels_color"] = opts["color"]
         if loglabels is not None:
             info[f"{prefix}loglabels"] = loglabels
+
+    @staticmethod
+    def _twin_reenabled(prefix, info) -> bool:
+        """Whether the writer switches twin scale ``prefix`` back on.
+
+        It does after an empty places list on the primary axis, whose
+        ``ticks off``/``labels off`` GLE copies onto the twin, when the twin
+        is configured or carries a dataset (``Axes.has_y2_plots`` /
+        ``has_x2_plots``) and is not itself off.
+        """
+        primary = prefix[0]
+        if info[f"{primary}places"] != [] or info[f"{prefix}axis_off"]:
+            return False
+        if (
+            info[f"{prefix}min"] is not None
+            or info[f"{prefix}max"] is not None
+            or info[f"{prefix}log"]
+            or bool(info[f"{prefix}label"])
+        ):
+            return True
+        groups = ("lines", "scatters", "errorbars", "hists", "file_series")
+        axis = "yaxis" if primary == "y" else "xaxis"
+        return any(s.get(axis) == prefix for group in groups for s in info[group])
+
+    @staticmethod
+    def _is_empty_places(prefix, ticks, subticks, info) -> bool:
+        """Whether the axis says no ticks and no labels, and nothing more.
+
+        Only a bare ``xticks off`` with a bare ``xlabels off`` qualifies, on
+        an axis with no places, names, no-tick positions or subtick line: the
+        writer would drop any of those beside an empty places list.
+        """
+        return (
+            ticks is not None
+            and ticks["ok"]
+            and ticks["off"]
+            and all(ticks[k] is None for k in ("lstyle", "lwidth", "length", "color"))
+            and subticks is None
+            and info[f"{prefix}labels_off"]
+            and info[f"{prefix}places"] is None
+            and info[f"{prefix}names"] is None
+            and info[f"{prefix}noticks"] is None
+        )
 
     def _reconcile_tick_marks(self, prefix, ticks, subticks, info) -> None:
         """``xticks``/``xsubticks`` on an axis with no grid: tick marks.
@@ -5592,6 +5696,8 @@ class _Recognizer:
                     and target not in info["_offset_let_datasets"]
                     and target not in info["_derived_lets"]
                     and target not in info["_polar_aliases"]
+                    and target not in info["_hist_lets"]
+                    and target not in info["_colour_lets"]
                 ):
                     info["_function_lets"].clear()
                     info["_derived_lets"].clear()
@@ -5954,7 +6060,7 @@ class _Recognizer:
         style: Dict[str, Any] = {
             "color": attrs["color"],
             "linestyle": attrs["linestyle"] or "-",
-            "linewidth": _dn_linewidth(attrs),
+            **_dn_width(attrs),
         }
         if attrs["label"]:
             style["label"] = attrs["label"]
@@ -6002,7 +6108,7 @@ class _Recognizer:
             line_no,
             histtype="step",
             linestyle=attrs["linestyle"],
-            linewidth=_dn_linewidth(attrs),
+            **_dn_width(attrs),
             **_dn_fields(attrs),
         )
         if entry is None:
@@ -6993,7 +7099,7 @@ class _Recognizer:
             marker=attrs["marker"],
             markersize=_dn_markersize(attrs),
             linestyle=linestyle,
-            linewidth=_dn_linewidth(attrs),
+            **_dn_width(attrs),
             nomiss=attrs["nomiss"],
             **_dn_fields(attrs),
             offset=info["_dataset_offsets"].get(d_name, 0.0),
@@ -7211,7 +7317,7 @@ class _Recognizer:
             marker=marker,
             markersize=_dn_markersize(attrs),
             linestyle="none",
-            linewidth=_dn_linewidth(attrs),
+            **_dn_width(attrs),
             nomiss=attrs["nomiss"],
             **_dn_fields(attrs),
             offset=info["_dataset_offsets"].get(d_name, 0.0),
@@ -7702,7 +7808,7 @@ class _Recognizer:
             marker=marker,
             markersize=markersize,
             linestyle=linestyle,
-            linewidth=_dn_linewidth(attrs),
+            **_dn_width(attrs),
             capsize=stored_capsize,
             gle_capsize=gle_capsize,
             **_dn_fields(attrs),
@@ -7713,6 +7819,10 @@ class _Recognizer:
             ),
             data_file=data_file,
         )
+        qualifiers = dict(attrs["qualifiers"])
+        for name in ("xmin", "xmax", "ymin", "ymax"):
+            if name in qualifiers:
+                entry[name] = qualifiers.pop(name)
         if not err_consts:
             # Column indices in the SAME order the writer emits them (x, y,
             # then y-error column(s) collapsed to one when symmetric i.e.
@@ -7734,10 +7844,13 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
-        if attrs["qualifiers"]:
+        if qualifiers:
             # Axes.errorbar has no such fields: GLE thins the markers but
             # not the whiskers under deresolve (getErrorBarData).
-            names = ", ".join(attrs["qualifiers"])
+            # Name the GLE words the file used, not the field names.
+            names = ", ".join(
+                "average" if q == "deresolve_average" else q for q in qualifiers
+            )
             self._note(
                 ImportCategory.DATA,
                 f"{names} on an error-bar dataset is not modelled and was "
@@ -7792,7 +7905,7 @@ class _Recognizer:
                 x_col=xcol,
                 y_col=ycol,
                 linestyle=attrs["linestyle"],
-                linewidth=_dn_linewidth(attrs),
+                **_dn_width(attrs),
                 nomiss=attrs["nomiss"],
                 **_dn_fields(attrs),
             )
@@ -8369,8 +8482,10 @@ class _Recognizer:
                 span,
             )
         color = attrs["color"] or "BLACK"
-        linewidth = (
-            linewidth_cm_to_pt(attrs["lwidth"]) if attrs["lwidth"] is not None else 1.0
+        width = (
+            _width_fields(linewidth_cm_to_pt(attrs["lwidth"]))
+            if attrs["lwidth"] is not None
+            else {"linewidth": 1.0}
         )
         lstyle = attrs["lstyle"]  # int or None (None = solid)
 
@@ -8399,7 +8514,7 @@ class _Recognizer:
                 extent=list(fitz["extent"]),
                 levels=levels,
                 color=color,
-                linewidth=linewidth,
+                **width,
                 linestyle=lstyle,
                 clabel=False,
                 clabel_fmt="fix 1",
@@ -8430,7 +8545,7 @@ class _Recognizer:
                 extent=extent,
                 levels=levels,
                 color=color,
-                linewidth=linewidth,
+                **width,
                 linestyle=lstyle,
                 clabel=False,
                 clabel_fmt="fix 1",
@@ -10397,8 +10512,9 @@ class _Recognizer:
         """Reproduce the writer's emission conditions for tick visibility.
 
         The writer emits:
-          - ``xlabels off``          when ``show_xticks`` is False
-          - ``ylabels off``          when ``show_yticks`` is False
+          - ``xlabels off``          when ``show_xticks`` is False, or
+                                     with ``xticks off`` for empty ``xplaces``
+          - ``ylabels off``          when ``show_yticks`` is False (or as x)
           - ``xaxis ... nofirst``    when ``remove_first_xtick``
           - ``xaxis ... nolast``     when ``remove_last_xtick``
           - (same for y)

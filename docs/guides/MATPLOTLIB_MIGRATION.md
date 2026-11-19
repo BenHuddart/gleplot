@@ -219,8 +219,10 @@ ax.stem(x, y)
 ## Line keywords
 
 `plot`, `step`, `semilogx`, `semilogy` and `loglog` take matplotlib's short
-names `lw`, `ls`, `c` and `ms` for `linewidth`, `linestyle`, `color` and
-`markersize`, and `None` for one of them means the default, as in
+names `lw`, `ls`, `c`, `ms` and `mfc` for `linewidth`, `linestyle`,
+`color`, `markersize` and `markerfacecolor` (and, except `step`, which sets
+the draw style from `where`, `ds` for `drawstyle`), and `None` for one of
+them means the default, as in
 matplotlib. matplotlib raises for a name passed with its short name; gleplot
 keeps the full name, with a warning, unless the full name is left at its
 default.
@@ -236,8 +238,8 @@ The other line-drawing calls follow the same rule:
 
 | call | short names honoured | warns, for example |
 |---|---|---|
-| `errorbar` | `lw`, `c`, `ms`, and `linestyle` (`ls`), which overrides the line style `fmt` gives unless `fmt='none'` | `ecolor`, `elinewidth`, `capthick`, `barsabove`, `errorevery` |
-| `errorbar_from_file` | `c`, `ms` | `lw`, `ls`, `ecolor` |
+| `errorbar` | `lw`, `c`, `ms`, `mfc`, and `linestyle` (`ls`), which overrides the line style `fmt` gives unless `fmt='none'` | `ecolor`, `elinewidth`, `capthick`, `barsabove`, `errorevery` |
+| `errorbar_from_file` | `c`, `ms`, `mfc` | `lw`, `ls`, `ecolor` |
 | `axvline`, `axhline` | `lw`, `ls`, `c` | `alpha`, `zorder`, `transform` |
 | `axvspan`, `axhspan` | `facecolor` (`fc`) for `color` | `edgecolor`, `linewidth`, `hatch`, `zorder` |
 
@@ -263,7 +265,7 @@ GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. U
 | `deresolve=5, deresolve_average=True` | `deresolve 5 average`: each window of five points is drawn as its mean. |
 | `xmin`, `xmax`, `ymin`, `ymax` | the series' own data range: it is drawn as if its axes ran over that range, and nothing outside it is drawn. This rescales the series; it is not a clip window, and the tick labels keep the axis' own range. An omitted edge is the limit of the axis the series is drawn against. |
 
-A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` does not take them: GLE thins the markers but not the whiskers under `deresolve`.
+A bad value raises `ValueError` at the call. A series with its own `deresolve` gets no preview-only decimation. `errorbar` takes the data range, and draws its error bars against it too, but not `mdist` or `deresolve`: GLE thins the markers but not the whiskers under `deresolve`.
 
 ## Scatter colours
 
@@ -313,7 +315,9 @@ Every other keyword, such as `alpha`, `norm` or `aspect`, warns and is
 ignored: a GLE colormap is opaque and one per axes (see "One Heatmap Per
 Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
 `contour` and `tricontour` take matplotlib's `linewidth` (`lw`) and
-`linestyle` (`ls`) for `linewidths` and `linestyles`. Their other keywords
+`linestyle` (`ls`) for `linewidths` and `linestyles`, one value each: GLE
+draws every level as one dataset, so a per-level list of differing values
+warns and its first entry is used. Their other keywords
 warn and are ignored, among them `extent` and `origin`: pass the grid's
 coordinates, `contour(x, y, Z)`, to place it. A misspelt keyword warns the
 same way.
