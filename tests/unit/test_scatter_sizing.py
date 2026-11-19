@@ -242,6 +242,38 @@ def test_a_point_gle_would_drop_is_written_missing():
     assert rows == [["1", "1"], ["*", "*"], ["*", "*"], ["4", "4"]]
 
 
+@pytest.mark.parametrize("per_point", [{"s": [10, 20, 30]}, {"c": [1, 2, 3]}])
+def test_a_table_point_gle_would_drop_is_written_missing(per_point):
+    """A provider-backed scatter gets its own masked x and y columns (#201).
+
+    The table's columns stay as they are, because the line reads them too.
+    """
+    from gleplot.sources import ColumnRef, DictDataProvider, TableData
+
+    ax = _ax()
+    ax.scatter(X, Y, **per_point)
+    ax.plot(X, Y)
+    ax.set_xlim(0, 4)
+    ax.set_ylim(0, 10)
+    for series in (ax.scatters[0], ax.lines[0]):
+        series["data_source"] = ColumnRef("t", {"x": "x", "y": "y"})
+    table = TableData.from_mapping({"x": [1, 2, 3], "y": [1, np.nan, 9]})
+    text, files = ax.figure._generate_gle_with_files(
+        data_provider=DictDataProvider({"t": table})
+    )
+
+    (name,) = files
+    rows = [line.split()[:4] for line in files[name].splitlines()]
+    assert rows == [
+        ["x", "y", "x_2", "y_2"],
+        ["1", "1", "1", "1"],
+        ["2", "nan", "*", "*"],
+        ["3", "9", "3", "9"],
+    ]
+    assert f"data {name} d1=c1,c2\n" in text
+    assert f"data {name} d2=c3,c4 d3=c3,c5\n" in text
+
+
 def test_no_marker_means_no_sub():
     ax = _ax()
     ax.scatter(X, Y, s=[10, 20, 30], marker="None")
