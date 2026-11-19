@@ -7692,7 +7692,10 @@ class _Recognizer:
         if qualifiers:
             # Axes.errorbar has no such fields: GLE thins the markers but
             # not the whiskers under deresolve (getErrorBarData).
-            names = ", ".join(qualifiers)
+            # Name the GLE words the file used, not the field names.
+            names = ", ".join(
+                "average" if q == "deresolve_average" else q for q in qualifiers
+            )
             self._note(
                 ImportCategory.DATA,
                 f"{names} on an error-bar dataset is not modelled and was "

@@ -1893,7 +1893,7 @@ def test_dataset_qualifiers_on_an_errorbar_keep_the_data_range(tmp_path):
     path = tmp_path / "eb.gle"
     fig.savefig_gle(str(path))
     text = path.read_text(encoding="utf-8").replace(
-        " err ", " deresolve 2 xmin 0.5 err ", 1
+        " err ", " deresolve 2 average xmin 0.5 err ", 1
     )
     path.write_text(text, encoding="utf-8")
     rec = parse_gle_figure(path)
@@ -1901,7 +1901,7 @@ def test_dataset_qualifiers_on_an_errorbar_keep_the_data_range(tmp_path):
     assert "deresolve" not in errorbar
     assert errorbar["xmin"] == 0.5
     notes = [w for w in rec.warnings if "error-bar dataset" in w]
-    assert len(notes) == 1 and "deresolve on" in notes[0]
+    assert len(notes) == 1 and "deresolve, average on" in notes[0]
 
 
 def test_an_explicit_smooth_on_a_step_series_round_trips(tmp_path):
