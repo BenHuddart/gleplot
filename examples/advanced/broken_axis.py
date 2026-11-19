@@ -23,8 +23,12 @@ per-segment tick intervals -- necessary because GLE's automatic tick choice
 is made per graph block, and a narrow segment's ticks would otherwise collide
 with a wide neighbour's at the seam.
 
+A fourth figure, ``broken_axis_y``, breaks the y-axis instead: a bar chart
+with one outlier, the segments stacked bottom to top.
+
 Outputs (in the current directory): ``broken_axis_slash.gle``,
-``broken_axis_line.gle``, ``broken_axis_none.gle``, each with sidecars.
+``broken_axis_line.gle``, ``broken_axis_none.gle``, ``broken_axis_y.gle``,
+each with sidecars.
 """
 
 import sys
@@ -178,10 +182,42 @@ def example_broken_axis_none():
     return fig
 
 
+def example_broken_axis_y():
+    """A broken y-axis: a bar chart whose one outlier sits in a short top
+    segment, with double-slash break marks and per-segment tick intervals.
+    """
+    print("Creating example: broken y-axis with double-slash break marks...")
+
+    samples = [1, 2, 3, 4, 5]
+    counts = [0.42, 0.65, 11.3, 0.58, 0.31]
+
+    fig = glp.figure(figsize=(4.0, 3.2), data_prefix="brokeny")
+    fig.subplots_adjust(left=0.17, right=0.97, bottom=0.15, top=0.9)
+
+    bax = fig.add_broken_yaxes(
+        [(0.0, 0.9), (10.6, 11.6)],  # one (ymin, ymax) per segment, bottom up
+        height_ratios=[3, 1],
+        divider="slash",
+    )
+    bax.bar(samples, counts, color="C0", label="counts")
+    bax.set_xlim(0.5, 5.5)  # the x-axis is shared: one call sets every segment
+    bax.axhline(0.5, color="gray", linestyle=":")  # lands in the bottom segment
+    # One tick interval per segment, bottom to top.
+    bax.set_yticks(dticks=[0.2, 0.4])
+
+    bax.set_xlabel("Sample")
+    bax.set_ylabel("Counts (arb.)")
+    bax.set_title("One outlier")
+
+    _save(fig, "broken_axis_y")
+    return fig
+
+
 def main():
     example_broken_axis_slash()
     example_broken_axis_line()
     example_broken_axis_none()
+    example_broken_axis_y()
     print("\nAll broken-axis examples created successfully!")
 
 

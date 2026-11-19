@@ -32,6 +32,7 @@ from advanced import (
     example_broken_axis_line,
     example_broken_axis_none,
     example_broken_axis_slash,
+    example_broken_axis_y,
     example_combined_plot,
     example_comparison_with_without,
     example_data_prefix,
@@ -191,6 +192,7 @@ EXAMPLES = [
         example_broken_axis_none,
         ["broken_axis_none"],
     ),
+    ("Broken Y-Axis (outlier bar)", example_broken_axis_y, ["broken_axis_y"]),
     ("PRL Fig. 2(a)-style panel", example_prl_fig2a_style, ["prl_fig2a_style"]),
     ("Global Configuration", example_global_config, ["example_global_config"]),
     (

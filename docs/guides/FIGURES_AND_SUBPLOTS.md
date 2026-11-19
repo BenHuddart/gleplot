@@ -162,7 +162,7 @@ fig.subplots_adjust(
 The values are checked as in matplotlib: `left < right`, `bottom < top`,
 `wspace >= 0` and `hspace >= 0`.
 
-For a split x-axis inside one panel, see [Broken Axes](BROKEN_AXES.md).
+For a split x- or y-axis inside one panel, see [Broken Axes](BROKEN_AXES.md).
 
 ## Drawing on the page
 

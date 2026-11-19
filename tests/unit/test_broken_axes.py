@@ -1,4 +1,4 @@
-"""Unit tests for the broken (split) x-axis.
+"""Unit tests for the broken (split) x- and y-axis.
 
 Mirrors the ``tests/unit/test_plotting.py`` style -- assert the object model
 each API call produces AND substrings of the generated GLE. The behaviour
@@ -17,6 +17,7 @@ import pytest
 
 import gleplot as glp
 from gleplot.brokenaxes import BrokenAxes
+from gleplot.parser.units import fontsize_pt_to_cm
 from gleplot.writer import GLEWriter
 
 T = np.linspace(0.0, 3.0, 40)
@@ -595,3 +596,197 @@ def test_writer_does_not_reassert_an_x2_side_that_was_switched_off():
 
 def test_writer_stays_silent_about_x2_when_the_x_axis_is_drawn():
     assert "x2axis" not in _axes_block()
+
+
+# --------------------------------------------------------------------------- #
+# Broken y-axis: the same assembly, segments stacked bottom to top
+# --------------------------------------------------------------------------- #
+
+BARS_X = [1.0, 2.0, 3.0]
+BARS_H = [0.4, 0.8, 11.0]
+
+
+def _yfig(**kwargs):
+    fig = glp.figure(figsize=(4.0, 3.2), data_prefix="by")
+    bax = fig.add_broken_yaxes([(0.0, 1.0), (10.0, 12.0)], **kwargs)
+    return fig, bax
+
+
+def test_broken_y_segments_are_stacked_and_follow_height_ratios():
+    fig, bax = _yfig(height_ratios=[2, 1])
+    assert bax.axis == "y"
+    assert bax.ylims == [(0.0, 1.0), (10.0, 12.0)]
+    assert bax.xlims is None and bax.width_ratios is None
+    text, _files = _gle(fig)
+    (x0, y0, w0, h0), (x1, y1, w1, h1) = _blocks(text)
+    assert x0 == x1 and w0 == w1
+    assert h0 == pytest.approx(2 * h1, rel=1e-4)
+    assert y1 == pytest.approx(y0 + h0, abs=1e-4)  # gap 0: the boxes touch
+
+
+def test_broken_y_gap_separates_the_boxes():
+    fig, _bax = _yfig(divider="slash")
+    (x0, y0, w0, h0), (x1, y1, w1, h1) = _blocks(_gle(fig)[0])
+    assert y1 == pytest.approx(y0 + h0 + 0.15, abs=1e-4)
+
+
+def test_broken_y_switches_off_the_inner_frame_sides():
+    fig, bax = _yfig()
+    bax.bar(BARS_X, BARS_H)
+    bottom, top = (block for block in _gle(fig)[0].split("begin graph")[1:])
+    assert "x2axis off" in bottom and "xaxis min" in bottom
+    assert " off" not in bottom.split("xaxis min")[1].splitlines()[0]
+    assert re.search(r"xaxis min \S+ max \S+ off", top) or "xaxis off" in top
+    assert "x2axis on" in top
+    assert "xlabels off" in top
+    assert bax[0]._show_xticks and not bax[1]._show_xticks
+
+
+def test_broken_y_trims_the_shared_boundary_label():
+    fig = glp.figure()
+    bax = fig.add_broken_yaxes([(0, 1), (1, 5)])
+    assert bax[1]._remove_first_ytick is True
+    assert bax[0]._remove_first_ytick is False
+
+
+def test_broken_y_titles():
+    fig, bax = _yfig()
+    bax.set_xlabel("Sample")
+    bax.set_ylabel("Counts")
+    bax.set_title("Outliers")
+    text, _files = _gle(fig)
+    bottom = text.split("begin graph")[1]
+    assert 'xtitle "Sample"' in bottom
+    assert not re.search(r"^\s+(y?title) ", text, re.MULTILINE)
+    tail = text.split("end graph")[-1]
+    hei = fontsize_pt_to_cm(fig.style.fontsize)
+    assert f"amove xg(xgmin)-{GLEWriter._format_number(2.5 * hei)} " in tail
+    assert 'begin rotate 90\nwrite "Counts"\nend rotate' in tail
+    assert 'write "Outliers"' in tail and "yg(ygmax)+" in tail
+
+
+def test_broken_y_title_distances_are_overridable():
+    fig, bax = _yfig(ylabel_dist=1.7, title_dist=0.4)
+    bax.set_ylabel("Counts")
+    bax.set_title("T")
+    tail = _gle(fig)[0].split("end graph")[-1]
+    assert "amove xg(xgmin)-1.7 " in tail
+    assert "yg(ygmax)+0.4" in tail
+
+
+@pytest.mark.parametrize(
+    "divider, fragment",
+    [
+        ("line", "amove xg(xgmin) yg(ygmax)+0\naline xg(xgmax) yg(ygmax)+0"),
+        ("slash", "amove xg(xgmax)-0.2 yg(ygmax)+0.075+0.06-0.13"),
+    ],
+)
+def test_broken_y_seam_is_drawn_after_the_lower_segment(divider, fragment):
+    fig, _bax = _yfig(divider=divider)
+    text = _gle(fig)[0]
+    first_gap = text.split("end graph")[1].split("begin graph")[0]
+    assert fragment in first_gap
+
+
+def test_broken_y_fans_series_out_and_routes_horizontal_guides():
+    fig, bax = _yfig()
+    bax.bar(BARS_X, BARS_H, label="n")
+    assert len(bax[0].bars) == len(bax[1].bars) == 1
+    assert bax[0].bars[0]["data_file"] == bax[1].bars[0]["data_file"]
+    line = bax.axhline(0.3)
+    assert line is bax[0].reflines[0] and bax[1].reflines == []
+    with pytest.warns(UserWarning, match="falls in the break"):
+        assert bax.axhline(5.0) is None
+    bax.axvline(2.0)
+    assert len(bax[0].reflines) == 2 and len(bax[1].reflines) == 1
+
+
+def test_broken_y_axhspan_is_cut_to_each_segment():
+    _fig_, bax = _yfig()
+    entry = bax.axhspan(0.5, 11.0, color="gray")
+    assert entry is bax[0].spans[0]
+    assert (bax[0].spans[0]["start"], bax[0].spans[0]["end"]) == (0.5, 1.0)
+    assert (bax[1].spans[0]["start"], bax[1].spans[0]["end"]) == (10.0, 11.0)
+    with pytest.warns(UserWarning, match="falls in the break"):
+        assert bax.axhspan(2.0, 3.0) is None
+
+
+def test_broken_y_text_and_annotate_are_routed_by_y():
+    _fig_, bax = _yfig()
+    bax.text(2.0, 11.0, "high")
+    bax.annotate("low", (1.0, 0.4))
+    assert len(bax[1].texts) == 1 and len(bax[0].texts) == 1
+    assert bax.segment_for_y(1.0) == 0  # a boundary belongs to the lower one
+    assert bax.segment_for_y(10.5) == 1
+    with pytest.warns(UserWarning, match="y=5.0 falls in the break"):
+        bax.text(2.0, 5.0, "lost")
+
+
+def test_broken_y_limits_and_scales():
+    _fig_, bax = _yfig()
+    with pytest.raises(TypeError, match="ylims argument of add_broken_yaxes"):
+        bax.set_ylim(0, 1)
+    bax.set_xlim(0.5, 3.5)
+    assert all(seg.get_xlim() == (0.5, 3.5) for seg in bax)
+    assert bax.get_xlim() == (0.5, 3.5)
+    assert bax.get_ylim() == [(0.0, 1.0), (10.0, 12.0)]
+    bax.set_yscale(["linear", "log"])
+    assert [seg.yscale for seg in bax] == ["linear", "log"]
+    bax.set_yticks(dticks=[0.2, None])
+    assert bax[0].ydticks == 0.2 and bax[1].ydticks is None
+    with pytest.raises(TypeError, match="bax\\[i\\].set_yticks"):
+        bax.set_yticks([0, 1])
+    bax.set_xticks([1, 2, 3])
+    with pytest.raises(ValueError, match="takes no segment"):
+        bax.set_xticks(dticks=1, segment=0)
+    with pytest.raises(ValueError, match="one y title"):
+        bax.set_ylabel("y2", axis="y2")
+
+
+def test_broken_y_legend_defaults_to_the_tallest_segment():
+    _fig_, bax = _yfig(height_ratios=[1, 3])
+    bax.plot([0, 1], [0, 1], label="a")
+    bax.legend()
+    assert bax[1].legend_on is True and bax[0].legend_on is False
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        (dict(width_ratios=[1, 2]), "width_ratios does not apply"),
+        (dict(xlabel_dist=1.0), "xlabel_dist does not apply"),
+        (dict(height_ratios=[1]), "height_ratios has 1 entries"),
+    ],
+)
+def test_broken_y_rejects_the_other_orientation_keywords(kwargs, message):
+    fig = glp.figure()
+    with pytest.raises(ValueError, match=message):
+        fig.add_broken_yaxes([(0, 1), (2, 3)], **kwargs)
+
+
+def test_broken_axes_needs_exactly_one_orientation():
+    fig = glp.figure()
+    with pytest.raises(ValueError, match="exactly one of xlims and ylims"):
+        BrokenAxes(fig)
+    with pytest.raises(ValueError, match="ylabel_dist does not apply"):
+        fig.add_broken_xaxes([(0, 1), (2, 3)], ylabel_dist=1.0)
+
+
+def test_broken_y_round_trips_through_to_dict():
+    fig, bax = _yfig(divider="slash", height_ratios=[2, 1])
+    bax.bar(BARS_X, BARS_H)
+    bax.set_ylabel("Counts")
+    bax.set_title("T")
+    d = fig.to_dict()
+    assert d["figure"]["broken_axes"][0]["axis"] == "y"
+    restored = glp.Figure.from_dict(d)
+    rb = restored.broken_axes[0]
+    assert rb.axis == "y" and rb.ylims == bax.ylims
+    assert rb.height_ratios == [2.0, 1.0] and rb.ylabel_text == "Counts"
+    assert restored.to_dict() == d
+    assert restored._generate_gle_with_files()[0] == fig._generate_gle_with_files()[0]
+
+
+def test_broken_x_to_dict_has_no_axis_key():
+    fig, _bax = _fig()
+    assert "axis" not in fig.to_dict()["figure"]["broken_axes"][0]

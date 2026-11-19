@@ -1,10 +1,12 @@
-"""Broken (split) x-axis support.
+"""Broken (split) x- and y-axis support.
 
 A "broken axis" is one logical panel whose x-axis is cut into two or more
 adjacent linear segments covering very different ranges -- e.g. a muon
 asymmetry spectrum showing 0-0.02 us of fast relaxation on a narrow left
 segment and 0.02-3 us of slow relaxation on a wide right one, sharing a
-single y-axis. It is the layout of PRL 134, 046702 Fig. 2(a).
+single y-axis. It is the layout of PRL 134, 046702 Fig. 2(a). A broken
+*y*-axis is the same assembly turned on its side: segments stacked bottom to
+top, sharing one x-axis (``axis='y'``, from ``Figure.add_broken_yaxes``).
 
 Implementation
 --------------
@@ -19,10 +21,14 @@ sub-command, so what remains is a single continuous frame:
 - middle segments: ``yaxis off`` and ``y2axis off``;
 - rightmost segment: ``yaxis off``, y2axis kept (the panel's right edge).
 
+A broken y-axis does the same with ``xaxis`` (the bottom segment's) and
+``x2axis`` (the top segment's).
+
 The seam itself is then drawn explicitly -- nothing, a single rule, or the
 conventional double-slash break marks -- anchored to the left segment's
 ``xg(xgmax)``/``yg(ygmin)``/``yg(ygmax)`` so it lands exactly where GLE drew
-the box.
+the box. A broken y-axis anchors its seam to the lower segment's ``yg(ygmax)``
+and ``xg(xgmin)``/``xg(xgmax)``.
 
 Series are declared **once** on the :class:`BrokenAxes` and fanned out to
 every segment, sharing one generated ``.dat`` sidecar. GLE clips each dataset
@@ -36,7 +42,6 @@ Limitations
   generated file back yields the segments as independent subplots, with the
   seam decoration and shared titles preserved as passthrough content. Nothing
   is dropped, but the broken-axis structure is not recovered.
-- The y-axis is always shared across segments; there is no broken *y*-axis.
 """
 
 from __future__ import annotations
@@ -76,9 +81,10 @@ _SEGMENT_SPECIFIC_LISTS = frozenset({"reflines", "spans"})
 
 
 class BrokenAxes:
-    """One logical panel whose x-axis is split into adjacent segments.
+    """One logical panel whose x-axis (or y-axis) is split into segments.
 
-    Created by :meth:`gleplot.Figure.add_broken_xaxes`, not directly.
+    Created by :meth:`gleplot.Figure.add_broken_xaxes` or
+    :meth:`gleplot.Figure.add_broken_yaxes`, not directly.
 
     The object accepts the usual :class:`~gleplot.axes.Axes` plotting calls
     once and fans them out to every segment, so a series is never plotted
@@ -89,13 +95,14 @@ class BrokenAxes:
     ----------
     figure : Figure
         Parent figure.
-    xlims : sequence of (float, float)
-        One ``(xmin, xmax)`` per segment, left to right. At least two are
-        required -- an axis with one segment is not broken.
+    xlims : sequence of (float, float), optional
+        One ``(xmin, xmax)`` per segment, left to right, for a broken
+        x-axis. At least two are required -- an axis with one segment is not
+        broken. Give this or ``ylims``.
     width_ratios : sequence of float, optional
-        Relative width of each segment. Default: all equal. The segments of a
-        broken axis are usually *not* equal width (that is the point), so this
-        is normally given, e.g. ``[1, 3]``.
+        Relative width of each segment of a broken x-axis. Default: all
+        equal. The segments of a broken axis are usually *not* equal width
+        (that is the point), so this is normally given, e.g. ``[1, 3]``.
     position : tuple, optional
         ``(rows, cols, index)`` cell of the figure's subplot grid that the
         whole assembly occupies. Default ``(1, 1, 1)``.
@@ -104,9 +111,9 @@ class BrokenAxes:
         ``divider='none'``/``'line'`` (segments touch) and 0.15 cm for
         ``divider='slash'`` (the break marks need somewhere to sit).
     divider : {'none', 'line', 'slash'}
-        How the seam is marked: nothing at all, a single vertical rule, or the
-        conventional pair of double-slash break marks on the top and bottom
-        frame lines.
+        How the seam is marked: nothing at all, a single rule along it, or
+        the conventional pair of double-slash break marks on the two frame
+        lines that cross it.
     divider_color : str
         Colour of the seam decoration.
     divider_linewidth : float, optional
@@ -114,22 +121,42 @@ class BrokenAxes:
     divider_lstyle : int, optional
         GLE ``lstyle`` for a ``'line'`` divider (e.g. 3 for dashed).
     break_mark_size : float
-        Height (half-extent, cm) of each stroke of a ``'slash'`` break mark.
-        The stroke width and the separation between the pair scale with it.
+        Half-extent (cm) of each stroke of a ``'slash'`` break mark across
+        the frame line. The other extent and the separation between the pair
+        scale with it.
     trim_seam_labels : bool
         When a segment starts exactly where the previous one ends, drop the
         second segment's first tick label so the shared value is not printed
         twice on top of itself. Default: True.
-    xlabel_dist, title_dist : float, optional
-        Distance in cm from the frame to the shared x title / title. Defaults
-        are matched to GLE's own ``xtitle``/``title`` placement for the
-        figure's font size.
+    xlabel_dist : float, optional
+        Broken x-axis only. Distance in cm from the frame to the shared x
+        title. The default is matched to GLE's own ``xtitle`` placement for
+        the figure's font size.
+    title_dist : float, optional
+        Distance in cm from the frame to the shared title. The default is
+        matched to GLE's own ``title`` placement for the figure's font size.
+    ylims : sequence of (float, float), optional
+        One ``(ymin, ymax)`` per segment, bottom to top, for a broken
+        y-axis. Keyword-only.
+    height_ratios : sequence of float, optional
+        Broken y-axis only: relative height of each segment. Default: all
+        equal. Keyword-only.
+    ylabel_dist : float, optional
+        Broken y-axis only: distance in cm from the frame to the shared y
+        title. Default: 2.5 times the figure's font height, which clears
+        tick labels up to about four characters wide. Keyword-only.
+
+    Raises
+    ------
+    ValueError
+        If both or neither of ``xlims`` and ``ylims`` are given, a keyword
+        for the other orientation is given, or a range or ratio is invalid.
     """
 
     def __init__(
         self,
         figure,
-        xlims: Sequence[Tuple[float, float]],
+        xlims: Optional[Sequence[Tuple[float, float]]] = None,
         width_ratios: Optional[Sequence[float]] = None,
         position: Tuple[int, int, int] = (1, 1, 1),
         gap: Optional[float] = None,
@@ -141,31 +168,56 @@ class BrokenAxes:
         trim_seam_labels: bool = True,
         xlabel_dist: Optional[float] = None,
         title_dist: Optional[float] = None,
+        *,
+        ylims: Optional[Sequence[Tuple[float, float]]] = None,
+        height_ratios: Optional[Sequence[float]] = None,
+        ylabel_dist: Optional[float] = None,
     ):
-        xlims = [
-            cast(Tuple[float, float], tuple(float(v) for v in pair)) for pair in xlims
-        ]
-        if len(xlims) < 2:
+        if (xlims is None) == (ylims is None):
             raise ValueError(
-                "a broken x-axis needs at least 2 segments; got "
-                f"{len(xlims)}. Use add_subplot() for an unbroken axis."
+                "BrokenAxes needs exactly one of xlims and ylims; got "
+                f"xlims={xlims!r}, ylims={ylims!r}"
             )
-        for lo, hi in xlims:
+        axis = "x" if xlims is not None else "y"
+        other = {
+            "x": (("height_ratios", height_ratios), ("ylabel_dist", ylabel_dist)),
+            "y": (("width_ratios", width_ratios), ("xlabel_dist", xlabel_dist)),
+        }[axis]
+        for name, value in other:
+            if value is not None:
+                raise ValueError(
+                    f"{name} does not apply to a broken {axis}-axis; got "
+                    f"{value!r}. Leave it out."
+                )
+        given = xlims if axis == "x" else ylims
+        lims = [
+            cast(Tuple[float, float], tuple(float(v) for v in pair))
+            for pair in cast(Sequence[Tuple[float, float]], given)
+        ]
+        if len(lims) < 2:
+            raise ValueError(
+                f"a broken {axis}-axis needs at least 2 segments; got "
+                f"{len(lims)}. Use add_subplot() for an unbroken axis."
+            )
+        for lo, hi in lims:
             if not lo < hi:
                 raise ValueError(
-                    f"each xlims entry must have xmin < xmax; got ({lo}, {hi})"
+                    f"each {axis}lims entry must have {axis}min < {axis}max; "
+                    f"got ({lo}, {hi})"
                 )
 
-        if width_ratios is None:
-            width_ratios = [1.0] * len(xlims)
-        width_ratios = [float(w) for w in width_ratios]
-        if len(width_ratios) != len(xlims):
+        ratios_name = "width_ratios" if axis == "x" else "height_ratios"
+        ratios = width_ratios if axis == "x" else height_ratios
+        if ratios is None:
+            ratios = [1.0] * len(lims)
+        ratios = [float(w) for w in ratios]
+        if len(ratios) != len(lims):
             raise ValueError(
-                f"width_ratios has {len(width_ratios)} entries but there are "
-                f"{len(xlims)} segments"
+                f"{ratios_name} has {len(ratios)} entries but there are "
+                f"{len(lims)} segments"
             )
-        if any(w <= 0 for w in width_ratios):
-            raise ValueError(f"width_ratios must all be > 0; got {width_ratios}")
+        if any(w <= 0 for w in ratios):
+            raise ValueError(f"{ratios_name} must all be > 0; got {ratios}")
 
         if divider not in DIVIDER_STYLES:
             raise ValueError(
@@ -173,8 +225,16 @@ class BrokenAxes:
             )
 
         self.figure = figure
-        self.xlims = xlims
-        self.width_ratios = width_ratios
+        #: ``'x'`` or ``'y'``: which axis is broken.
+        self.axis = axis
+        self.xlims: Optional[List[Tuple[float, float]]] = None
+        self.width_ratios: Optional[List[float]] = None
+        self.ylims: Optional[List[Tuple[float, float]]] = None
+        self.height_ratios: Optional[List[float]] = None
+        if axis == "x":
+            self.xlims, self.width_ratios = lims, ratios
+        else:
+            self.ylims, self.height_ratios = lims, ratios
         self.position = tuple(position)
         self.gap = (
             float(gap) if gap is not None else (0.15 if divider == "slash" else 0.0)
@@ -187,16 +247,23 @@ class BrokenAxes:
         self.trim_seam_labels = bool(trim_seam_labels)
         self.xlabel_dist = xlabel_dist
         self.title_dist = title_dist
+        self.ylabel_dist = ylabel_dist
 
-        #: Shared x title / title, drawn centred on the whole assembly rather
-        #: than on any one segment (GLE's own xtitle centres on its graph box).
+        #: Shared titles, drawn centred on the whole assembly rather than on
+        #: any one segment (GLE's own titles centre on their graph box). A
+        #: broken x-axis shares its x title and title; a broken y-axis its
+        #: y title and title (its x title is the bottom segment's own).
         self.xlabel_text = ""
         self.title_text = ""
+        self.ylabel_text = ""
 
         self.segments: List[Axes] = []
-        for index, (xmin, xmax) in enumerate(xlims):
+        for index, (lo, hi) in enumerate(lims):
             seg = Axes(figure, self.position)
-            seg.set_xlim(xmin, xmax)
+            if axis == "x":
+                seg.set_xlim(lo, hi)
+            else:
+                seg.set_ylim(lo, hi)
             seg._break_owner = self
             seg._break_index = index
             # A fanned-out series carries its label in every segment, so the
@@ -208,28 +275,45 @@ class BrokenAxes:
 
         self._apply_segment_frame_flags()
 
+    @property
+    def _lims(self) -> List[Tuple[float, float]]:
+        """The per-segment ranges along the broken axis."""
+        return cast(
+            List[Tuple[float, float]], self.xlims if self.axis == "x" else self.ylims
+        )
+
+    @property
+    def _ratios(self) -> List[float]:
+        """The relative segment sizes along the broken axis."""
+        return cast(
+            List[float],
+            self.width_ratios if self.axis == "x" else self.height_ratios,
+        )
+
     # -- geometry -------------------------------------------------------
 
-    def segment_extent(self, index: int, cell_width_cm: float) -> Tuple[float, float]:
+    def segment_extent(self, index: int, cell_length_cm: float) -> Tuple[float, float]:
         """Where segment ``index`` sits inside the grid cell it shares.
 
-        Returns ``(x_offset_cm, width_cm)`` measured from the cell's left
-        edge. The gaps are taken out of the cell first, then the remainder is
-        divided in proportion to ``width_ratios`` -- so the ratios describe
-        the *plotted* widths, not the widths including the gaps.
+        Returns ``(offset_cm, length_cm)`` along the broken axis: from the
+        cell's left edge for a broken x-axis, from its bottom edge for a
+        broken y-axis. The gaps are taken out of the cell first, then the
+        remainder is divided in proportion to the ratios -- so the ratios
+        describe the *plotted* sizes, not the sizes including the gaps.
         """
         n = len(self.segments)
-        usable = cell_width_cm - self.gap * (n - 1)
+        usable = cell_length_cm - self.gap * (n - 1)
         if usable <= 0:
             raise ValueError(
                 f"the {self.gap} cm gaps between {n} broken-axis segments do "
-                f"not fit in the {cell_width_cm:.3g} cm cell available; "
+                f"not fit in the {cell_length_cm:.3g} cm cell available; "
                 "reduce gap or enlarge the figure"
             )
-        total = sum(self.width_ratios)
-        widths = [usable * w / total for w in self.width_ratios]
-        offset = sum(widths[:index]) + self.gap * index
-        return offset, widths[index]
+        ratios = self._ratios
+        total = sum(ratios)
+        sizes = [usable * w / total for w in ratios]
+        offset = sum(sizes[:index]) + self.gap * index
+        return offset, sizes[index]
 
     # -- frame / label bookkeeping --------------------------------------
 
@@ -241,25 +325,68 @@ class BrokenAxes:
         y-axis back on for a diagnostic render) are the caller's to keep.
         """
         last = len(self.segments) - 1
+        lims = self._lims
         for index, seg in enumerate(self.segments):
             first = index == 0
-            # Only the leftmost segment carries the y axis line, ticks, labels
-            # and title; the inner sides vanish so the assembly reads as one
-            # frame with a single y axis on its left edge.
-            seg._show_ylabel = first
-            seg._show_yticks = first
-            seg._yaxis_off = not first
-            seg._y2axis_off = index != last
-            # The x title is drawn once, centred on the whole assembly.
+            contiguous = (
+                self.trim_seam_labels
+                and index > 0
+                and lims[index][0] == lims[index - 1][1]
+            )
+            if self.axis == "x":
+                # Only the leftmost segment carries the y axis line, ticks,
+                # labels and title; the inner sides vanish so the assembly
+                # reads as one frame with a single y axis on its left edge.
+                seg._show_ylabel = first
+                seg._show_yticks = first
+                seg._yaxis_off = not first
+                seg._y2axis_off = index != last
+                # The x title is drawn once, centred on the whole assembly.
+                seg._show_xlabel = False
+                seg.xlabel_text = ""
+                seg.title_text = ""
+                # Contiguous segments would print the shared boundary value
+                # twice, once at the left segment's max and again at the
+                # right's min.
+                if self.trim_seam_labels and index > 0:
+                    seg._remove_first_xtick = contiguous
+            else:
+                # Only the bottom segment carries the x axis; only the top one
+                # keeps the top frame edge.
+                seg._show_xlabel = first
+                seg._show_xticks = first
+                seg._xaxis_off = not first
+                seg._x2axis_off = index != last
+                # The y title and the title are drawn once, centred on the
+                # whole assembly: GLE draws a graph's title with its x axis,
+                # which the upper segments switch off.
+                seg._show_ylabel = False
+                seg.ylabel_text = ""
+                seg.title_text = ""
+                if self.trim_seam_labels and index > 0:
+                    seg._remove_first_ytick = contiguous
+
+    def _reassert_frame_flags(self, seg: Axes, apply_shared) -> None:
+        """Apply the figure's sharex/sharey flags, then this assembly's rules.
+
+        ``apply_shared`` is ``Figure._apply_shared_axes_flags``. The grid
+        flags describe the cells around the assembly; where they disagree
+        with its internal geometry, the geometry stands.
+        """
+        if self.axis == "x":
+            show_ylabel, show_yticks = seg._show_ylabel, seg._show_yticks
+            remove_first_xtick = seg._remove_first_xtick
+            apply_shared(seg)
+            seg._show_ylabel, seg._show_yticks = show_ylabel, show_yticks
             seg._show_xlabel = False
-            seg.xlabel_text = ""
-            seg.title_text = ""
-            # Contiguous segments would print the shared boundary value twice,
-            # once at the left segment's max and again at the right's min.
-            if self.trim_seam_labels and index > 0:
-                seg._remove_first_xtick = (
-                    self.xlims[index][0] == self.xlims[index - 1][1]
-                )
+            seg._remove_first_xtick = remove_first_xtick
+        else:
+            show_xlabel, show_xticks = seg._show_xlabel, seg._show_xticks
+            remove_first_ytick = seg._remove_first_ytick
+            apply_shared(seg)
+            seg._show_xlabel, seg._show_xticks = show_xlabel, show_xticks
+            seg._show_ylabel = False
+            seg._remove_first_ytick = remove_first_ytick
 
     # -- container protocol ---------------------------------------------
 
@@ -386,12 +513,30 @@ class BrokenAxes:
         return self
 
     def axvline(self, *args, **kwargs):
-        """Vertical guide. GLE clips it to the segment whose range contains it."""
+        """Vertical guide.
+
+        On a broken x-axis GLE clips it to the segment whose range contains
+        it; on a broken y-axis it spans every segment.
+        """
         return self._fanout("axvline", *args, **kwargs)
 
-    def axhline(self, *args, **kwargs):
-        """Horizontal guide, spanning every segment."""
-        return self._fanout("axhline", *args, **kwargs)
+    def axhline(self, y: float = 0.0, *args, **kwargs):
+        """Horizontal guide.
+
+        On a broken x-axis it spans every segment. On a broken y-axis it goes
+        to the segment whose range contains ``y``; a guide in the break warns
+        and is not drawn (``None`` is returned).
+        """
+        if self.axis == "x":
+            return self._fanout("axhline", y, *args, **kwargs)
+        index = self._segment_for(float(y))
+        if index is None:
+            warn_external(
+                f"axhline() at y={y!r} falls in the break between segments "
+                f"{self.ylims!r} and was not drawn.",
+            )
+            return None
+        return self.segments[index].axhline(y, *args, **kwargs)
 
     def hlines(self, *args, **kwargs):
         """Horizontal segments, in every segment they reach."""
@@ -407,17 +552,39 @@ class BrokenAxes:
         """Vertical band, clipped to whichever segment(s) it overlaps."""
         return self._fanout("axvspan", *args, **kwargs)
 
-    def axhspan(self, *args, **kwargs):
-        """Horizontal band, spanning every segment."""
-        return self._fanout("axhspan", *args, **kwargs)
+    def axhspan(self, ymin: float, ymax: float, *args, **kwargs):
+        """Horizontal band.
+
+        On a broken x-axis it spans every segment. On a broken y-axis it is
+        drawn in each segment it overlaps, cut to that segment's range;
+        a band entirely in a break warns and is not drawn. Returns the first
+        segment's declaration, or ``None``.
+        """
+        if self.axis == "x":
+            return self._fanout("axhspan", ymin, ymax, *args, **kwargs)
+        lo, hi = sorted((float(ymin), float(ymax)))
+        first = None
+        for seg, (seg_lo, seg_hi) in zip(self.segments, self._lims):
+            if hi <= seg_lo or lo >= seg_hi:
+                continue
+            entry = seg.axhspan(max(lo, seg_lo), min(hi, seg_hi), *args, **kwargs)
+            first = entry if first is None else first
+        if first is None:
+            warn_external(
+                f"axhspan({ymin!r}, {ymax!r}) falls in the break between "
+                f"segments {self.ylims!r} and was not drawn.",
+            )
+        return first
 
     def text(self, x: float, y: float, s: str, **kwargs):
-        """Place text at data coordinates in the segment that contains ``x``.
+        """Place text at data coordinates in the segment that contains it.
 
-        Text is written at an absolute page position derived from its own
-        graph's coordinate mapping, so it cannot be fanned out: a segment
-        whose range excludes ``x`` would draw the label outside its box. If no
-        segment contains ``x`` the call warns and does nothing.
+        The segment is the one whose range contains ``x`` on a broken x-axis,
+        ``y`` on a broken y-axis. Text is written at an absolute page
+        position derived from its own graph's coordinate mapping, so it
+        cannot be fanned out: a segment whose range excludes it would draw
+        the label outside its box. If no segment contains it the call warns
+        and does nothing.
 
         With ``transform=seg.transAxes`` for one of the segments, ``x`` and
         ``y`` are fractions of that segment's frame and the text goes there.
@@ -427,11 +594,12 @@ class BrokenAxes:
             if transform == seg.transAxes:
                 seg.text(x, y, s, **kwargs)
                 return self
-        index = self.segment_for_x(x)
+        coord = x if self.axis == "x" else y
+        index = self._segment_for(coord)
         if index is None:
             warn_external(
-                f"text() at x={x!r} falls in the break between segments "
-                f"{self.xlims!r} and was not drawn.",
+                f"text() at {self.axis}={coord!r} falls in the break between "
+                f"segments {self._lims!r} and was not drawn.",
             )
             return self
         self.segments[index].text(x, y, s, **kwargs)
@@ -445,16 +613,17 @@ class BrokenAxes:
         segment maps only its own range), so it warns and is dropped.
         Returns the stored annotation, or ``None`` if nothing was drawn.
         """
+        k = 0 if self.axis == "x" else 1
         xytext = args[0] if args else kwargs.get("xytext")
-        anchor_x = float((xy if xytext is None else xytext)[0])
-        index = self.segment_for_x(anchor_x)
+        anchor = float((xy if xytext is None else xytext)[k])
+        index = self._segment_for(anchor)
         if index is None:
             warn_external(
-                f"annotate() at x={anchor_x!r} falls in the break between "
-                f"segments {self.xlims!r} and was not drawn.",
+                f"annotate() at {self.axis}={anchor!r} falls in the break "
+                f"between segments {self._lims!r} and was not drawn.",
             )
             return None
-        if self.segment_for_x(float(xy[0])) != index:
+        if self._segment_for(float(xy[k])) != index:
             arrowprops = kwargs.pop("arrowprops", None)
             if len(args) >= 4:
                 # positional (xytext, xycoords, textcoords, arrowprops, ...)
@@ -462,26 +631,59 @@ class BrokenAxes:
                 args = args[:3] + (None,) + args[4:]
             if arrowprops is not None:
                 warn_external(
-                    f"annotate() arrow to x={xy[0]!r} crosses into another "
-                    "segment and was not drawn.",
+                    f"annotate() arrow to {self.axis}={xy[k]!r} crosses into "
+                    "another segment and was not drawn.",
                 )
         return self.segments[index].annotate(text, xy, *args, **kwargs)
 
-    def segment_for_x(self, x: float) -> Optional[int]:
-        """Index of the segment whose range contains ``x``, or ``None``.
+    def _segment_for(self, value: float) -> Optional[int]:
+        """Index of the segment whose range contains ``value``, or ``None``.
 
-        Boundaries belong to the *left* segment, so a value shared by two
-        contiguous segments is not ambiguous.
+        Boundaries belong to the first (left or lower) segment, so a value
+        shared by two contiguous segments is not ambiguous.
         """
-        for index, (lo, hi) in enumerate(self.xlims):
-            if lo <= x <= hi:
+        for index, (lo, hi) in enumerate(self._lims):
+            if lo <= value <= hi:
                 return index
         return None
+
+    def segment_for_x(self, x: float) -> Optional[int]:
+        """Index of the segment whose x range contains ``x``, or ``None``.
+
+        Boundaries belong to the *left* segment, so a value shared by two
+        contiguous segments is not ambiguous. On a broken y-axis every
+        segment shares the x range, so this is 0 or ``None``.
+        """
+        if self.axis == "y":
+            lo, hi = self.segments[0].get_xlim()
+            inside = lo is None or hi is None or lo <= x <= hi
+            return 0 if inside else None
+        return self._segment_for(x)
+
+    def segment_for_y(self, y: float) -> Optional[int]:
+        """Index of the segment whose y range contains ``y``, or ``None``.
+
+        The broken-y counterpart of :meth:`segment_for_x`: boundaries belong
+        to the *lower* segment. On a broken x-axis every segment shares the
+        y range, so this is 0 or ``None``.
+        """
+        if self.axis == "x":
+            lo, hi = self.segments[0].get_ylim()
+            inside = lo is None or hi is None or lo <= y <= hi
+            return 0 if inside else None
+        return self._segment_for(y)
 
     # -- shared axis state ----------------------------------------------
 
     def set_xlabel(self, label: str):
-        """Set the x title, drawn centred under the whole assembly."""
+        """Set the x title.
+
+        A broken x-axis draws it centred under the whole assembly; a broken
+        y-axis gives it to the bottom segment.
+        """
+        if self.axis == "y":
+            self.segments[0].set_xlabel(label)
+            return self
         self.xlabel_text = self.segments[0]._text(label)
         return self
 
@@ -491,74 +693,167 @@ class BrokenAxes:
         return self
 
     def set_ylabel(self, label: str, axis: str = "y"):
-        """Set the shared y title (drawn on the leftmost segment only)."""
-        self.segments[0].set_ylabel(label, axis=axis)
+        """Set the shared y title.
+
+        A broken x-axis draws it on the leftmost segment. A broken y-axis
+        draws it centred beside the whole assembly, ``ylabel_dist`` from the
+        frame, and has no ``y2`` title.
+        """
+        if self.axis == "x":
+            self.segments[0].set_ylabel(label, axis=axis)
+            return self
+        if axis != "y":
+            raise ValueError(
+                f"a broken y-axis has one y title; axis must be 'y', got {axis!r}"
+            )
+        self.ylabel_text = self.segments[0]._text(label)
         return self
 
     def set_ylim(self, ymin: float, ymax: float, axis: str = "y"):
-        """Set the y limits on every segment (they always share one y-axis)."""
+        """Set the y limits on every segment of a broken x-axis.
+
+        A broken y-axis has one range per segment, so this raises
+        ``TypeError`` there.
+        """
+        if self.axis == "y":
+            raise TypeError(
+                "a broken y-axis has one range per segment; set them with the "
+                "ylims argument of add_broken_yaxes(), or on an individual "
+                "segment via bax[i].set_ylim()"
+            )
         for seg in self.segments:
             seg.set_ylim(ymin, ymax, axis=axis)
         return self
 
     def get_ylim(self, axis: str = "y"):
-        """Get the shared y limits."""
+        """The shared y limits, or the per-segment ranges of a broken y-axis."""
+        if self.axis == "y":
+            return list(cast(List[Tuple[float, float]], self.ylims))
         return self.segments[0].get_ylim(axis=axis)
 
     def get_xlim(self):
-        """The per-segment x ranges, left to right."""
-        return list(self.xlims)
+        """The per-segment x ranges, or the shared x limits of a broken y-axis."""
+        if self.axis == "y":
+            return self.segments[0].get_xlim()
+        return list(cast(List[Tuple[float, float]], self.xlims))
 
-    def set_yscale(self, scale: str, axis: str = "y"):
-        """Set the y scale on every segment."""
-        for seg in self.segments:
-            seg.set_yscale(scale, axis=axis)
+    def set_yscale(self, scale, axis: str = "y", segment: Optional[int] = None):
+        """Set the y scale.
+
+        On a broken x-axis it applies to every segment. On a broken y-axis
+        ``scale`` may be one value for every segment or one per segment, and
+        ``segment`` targets exactly one.
+        """
+        if self.axis == "x":
+            self._shared_only("set_yscale", segment)
+            for seg in self.segments:
+                seg.set_yscale(scale, axis=axis)
+            return self
+        for seg, value in self._per_segment(scale, segment):
+            seg.set_yscale(value, axis=axis)
         return self
 
     def set_xscale(self, scale, segment: Optional[int] = None):
-        """Set the x scale, per segment or for all of them.
+        """Set the x scale.
 
-        ``scale`` may be a single value applied to every segment, or one value
-        per segment. Pass ``segment`` to target exactly one.
+        On a broken x-axis ``scale`` may be one value for every segment or
+        one per segment, and ``segment`` targets exactly one. On a broken
+        y-axis it applies to every segment.
         """
+        if self.axis == "y":
+            self._shared_only("set_xscale", segment)
+            for seg in self.segments:
+                seg.set_xscale(scale)
+            return self
         for seg, value in self._per_segment(scale, segment):
             seg.set_xscale(value)
         return self
 
     def set_xticks(
         self,
+        ticks=None,
+        labels=None,
         *,
         dticks=None,
         dsubticks=None,
         segment: Optional[int] = None,
     ):
-        """Set the x tick interval, per segment or for all of them.
+        """Set the x ticks.
 
-        ``dticks``/``dsubticks`` may each be a single number applied to every
-        segment, or a sequence with one entry per segment (``None`` in a slot
-        leaves that segment alone). Explicit tick *positions* are per-segment
-        by nature -- use ``bax[i].set_xticks(ticks, labels)`` for those.
+        On a broken x-axis this is the tick interval, per segment or for all
+        of them: ``dticks``/``dsubticks`` may each be a single number applied
+        to every segment, or a sequence with one entry per segment (``None``
+        in a slot leaves that segment alone). Explicit tick *positions* are
+        per-segment by nature -- use ``bax[i].set_xticks(ticks, labels)``.
+
+        On a broken y-axis the x ticks are shared, and are set on every
+        segment as :meth:`set_yticks` sets a broken x-axis' y ticks.
         """
+        if self.axis == "y":
+            self._shared_only("set_xticks", segment)
+            for seg in self.segments:
+                seg.set_xticks(ticks, labels, dticks=dticks, dsubticks=dsubticks)
+            return self
+        if ticks is not None or labels is not None:
+            raise TypeError(
+                "explicit x tick positions on a broken x-axis are per segment; "
+                "use bax[i].set_xticks(ticks, labels)"
+            )
+        self._set_tick_intervals("x", dticks, dsubticks, segment)
+        return self
+
+    def set_yticks(
+        self,
+        ticks=None,
+        labels=None,
+        *,
+        dticks=None,
+        dsubticks=None,
+        segment: Optional[int] = None,
+    ):
+        """Set the y ticks.
+
+        On a broken x-axis the y ticks are shared: the tick *positions* are
+        set on every segment so the horizontal grid lines and sub-tick marks
+        stay consistent, even though only the leftmost one prints labels.
+
+        On a broken y-axis this is the tick interval per segment, as
+        :meth:`set_xticks` is on a broken x-axis.
+        """
+        if self.axis == "x":
+            self._shared_only("set_yticks", segment)
+            for seg in self.segments:
+                seg.set_yticks(ticks, labels, dticks=dticks, dsubticks=dsubticks)
+            return self
+        if ticks is not None or labels is not None:
+            raise TypeError(
+                "explicit y tick positions on a broken y-axis are per segment; "
+                "use bax[i].set_yticks(ticks, labels)"
+            )
+        self._set_tick_intervals("y", dticks, dsubticks, segment)
+        return self
+
+    def _shared_only(self, method: str, segment: Optional[int]) -> None:
+        """Refuse ``segment=`` on a setting every segment shares."""
+        if segment is not None:
+            shared = "y" if self.axis == "x" else "x"
+            raise ValueError(
+                f"{method}() sets the {shared} axis every segment of a broken "
+                f"{self.axis}-axis shares, so it takes no segment; got "
+                f"segment={segment!r}. Use bax[{segment}].{method}() for one "
+                "segment."
+            )
+
+    def _set_tick_intervals(self, name, dticks, dsubticks, segment) -> None:
+        """``dticks``/``dsubticks`` on the broken axis, per segment or for all."""
         if dticks is not None:
             for seg, value in self._per_segment(dticks, segment):
                 if value is not None:
-                    seg.xdticks = float(value)
+                    setattr(seg, f"{name}dticks", float(value))
         if dsubticks is not None:
             for seg, value in self._per_segment(dsubticks, segment):
                 if value is not None:
-                    seg.xdsubticks = float(value)
-        return self
-
-    def set_yticks(self, ticks=None, labels=None, *, dticks=None, dsubticks=None):
-        """Set the shared y ticks (they are drawn on the leftmost segment).
-
-        The tick *positions* are set on every segment so the horizontal grid
-        lines and sub-tick marks stay consistent, even though only the
-        leftmost one prints labels.
-        """
-        for seg in self.segments:
-            seg.set_yticks(ticks, labels, dticks=dticks, dsubticks=dsubticks)
-        return self
+                    setattr(seg, f"{name}dsubticks", float(value))
 
     def _per_segment(self, value, segment: Optional[int]):
         """Yield ``(axes, value)`` pairs for a scalar-or-per-segment argument."""
@@ -583,13 +878,13 @@ class BrokenAxes:
         A fanned-out series carries its label in *every* segment, so GLE would
         otherwise draw the same key in each of them. Every segment therefore
         starts with its legend explicitly suppressed and this method turns
-        exactly one back on. ``segment`` defaults to the widest one, which has
-        the most room for a key.
+        exactly one back on. ``segment`` defaults to the largest one (the
+        widest, or on a broken y-axis the tallest), which has the most room
+        for a key.
         """
         if segment is None:
-            segment = max(
-                range(len(self.width_ratios)), key=lambda i: self.width_ratios[i]
-            )
+            ratios = self._ratios
+            segment = max(range(len(ratios)), key=lambda i: ratios[i])
         for index, seg in enumerate(self.segments):
             if index == segment:
                 seg.legend(loc, **kwargs)
@@ -598,7 +893,15 @@ class BrokenAxes:
         return self
 
     def set_xlim(self, *args, **kwargs):
-        """Not available -- the per-segment ranges are fixed at construction."""
+        """Set the shared x limits of a broken y-axis.
+
+        A broken x-axis has one range per segment, so this raises
+        ``TypeError`` there.
+        """
+        if self.axis == "y":
+            for seg in self.segments:
+                seg.set_xlim(*args, **kwargs)
+            return self
         raise TypeError(
             "a broken x-axis has one range per segment; set them with the "
             "xlims argument of add_broken_xaxes(), or on an individual "
@@ -615,13 +918,12 @@ class BrokenAxes:
         """Serialize to a JSON-safe dict.
 
         Segments are identified by their index in ``figure.axes_list`` rather
-        than embedded, because they are already serialized there in full.
+        than embedded, because they are already serialized there in full. A
+        broken x-axis has no ``axis`` key, so its dict is the one it has
+        always been.
         """
         axes_list = self.figure.axes_list if self.figure is not None else []
-        return {
-            "segments": [axes_list.index(seg) for seg in self.segments],
-            "xlims": [list(pair) for pair in self.xlims],
-            "width_ratios": list(self.width_ratios),
+        common = {
             "position": list(self.position),
             "gap": self.gap,
             "divider": self.divider,
@@ -630,6 +932,25 @@ class BrokenAxes:
             "divider_lstyle": self.divider_lstyle,
             "break_mark_size": self.break_mark_size,
             "trim_seam_labels": self.trim_seam_labels,
+        }
+        segments = [axes_list.index(seg) for seg in self.segments]
+        if self.axis == "y":
+            return {
+                "axis": "y",
+                "segments": segments,
+                "ylims": [list(pair) for pair in self._lims],
+                "height_ratios": list(self._ratios),
+                **common,
+                "ylabel_dist": self.ylabel_dist,
+                "title_dist": self.title_dist,
+                "ylabel_text": self.ylabel_text,
+                "title_text": self.title_text,
+            }
+        return {
+            "segments": segments,
+            "xlims": [list(pair) for pair in self._lims],
+            "width_ratios": list(self._ratios),
+            **common,
             "xlabel_dist": self.xlabel_dist,
             "title_dist": self.title_dist,
             "xlabel_text": self.xlabel_text,
@@ -648,8 +969,14 @@ class BrokenAxes:
         """
         obj = cls.__new__(cls)
         obj.figure = figure
-        obj.xlims = [tuple(pair) for pair in d.get("xlims", [])]
-        obj.width_ratios = list(d.get("width_ratios", []))
+        obj.axis = d.get("axis", "x")
+        obj.xlims = obj.width_ratios = obj.ylims = obj.height_ratios = None
+        if obj.axis == "y":
+            obj.ylims = [tuple(pair) for pair in d.get("ylims", [])]
+            obj.height_ratios = list(d.get("height_ratios", []))
+        else:
+            obj.xlims = [tuple(pair) for pair in d.get("xlims", [])]
+            obj.width_ratios = list(d.get("width_ratios", []))
         obj.position = tuple(d.get("position", (1, 1, 1)))
         obj.gap = float(d.get("gap", 0.0))
         obj.divider = d.get("divider", "line")
@@ -660,8 +987,10 @@ class BrokenAxes:
         obj.trim_seam_labels = bool(d.get("trim_seam_labels", True))
         obj.xlabel_dist = d.get("xlabel_dist")
         obj.title_dist = d.get("title_dist")
+        obj.ylabel_dist = d.get("ylabel_dist")
         obj.xlabel_text = d.get("xlabel_text", "")
         obj.title_text = d.get("title_text", "")
+        obj.ylabel_text = d.get("ylabel_text", "")
 
         obj.segments = [figure.axes_list[i] for i in d.get("segments", [])]
         for seg in obj.segments:

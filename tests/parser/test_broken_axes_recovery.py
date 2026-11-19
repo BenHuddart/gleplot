@@ -1,4 +1,4 @@
-"""Parser behaviour on a generated broken-x-axis script.
+"""Parser behaviour on a generated broken-axis script (x or y).
 
 The recognizer has no notion of a :class:`~gleplot.brokenaxes.BrokenAxes` and
 is not expected to reconstruct one. What it *must* do is degrade to
@@ -95,4 +95,47 @@ def test_reemission_keeps_the_preserved_content(broken_script):
     reemitted = recognized.figure._generate_gle_with_files()[0]
 
     for fragment in ("dticks 0.01", "y2axis off", "xg(xgmax)", 't (us)"'):
+        assert fragment in reemitted
+
+
+# --------------------------------------------------------------------------- #
+# Broken y-axis: the same contract
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def broken_y_script(tmp_path):
+    """A saved broken-y-axis ``.gle`` (with its sidecars) on disk."""
+    fig = glp.figure(figsize=(4.0, 3.2), data_prefix="ry")
+    bax = fig.add_broken_yaxes([(0.0, 1.0), (10.0, 12.0)], divider="slash")
+    bax.bar([1, 2, 3], [0.4, 0.8, 11.0])
+    bax.set_ylabel("Counts")
+    bax.set_title("Outliers")
+    bax.set_yticks(dticks=[0.2, 1.0])
+    return fig.savefig_gle(str(tmp_path / "broken_y.gle"))
+
+
+def test_broken_y_parses_into_independent_subplots(broken_y_script):
+    recognized = parse_gle_figure(broken_y_script)
+    assert recognized.figure.broken_axes == []
+    assert [len(ax.bars) for ax in recognized.figure.axes_list] == [1, 1]
+
+
+def test_broken_y_axis_options_are_preserved_and_warned_about(broken_y_script):
+    recognized = parse_gle_figure(broken_y_script)
+    passthrough = "\n".join(
+        line for ax in recognized.figure.axes_list for line in ax.passthrough
+    )
+    assert "xaxis off" in passthrough and "x2axis on" in passthrough
+    joined = " ".join(recognized.warnings)
+    assert "xaxis" in joined and "off" in joined
+
+
+def test_broken_y_seam_and_shared_titles_survive_re_emission(broken_y_script):
+    recognized = parse_gle_figure(broken_y_script)
+    trailer = "\n".join(recognized.figure.passthrough_trailer)
+    assert "xg(xgmax)-0.2 yg(ygmax)" in trailer  # the break marks
+    assert 'write "Counts"' in trailer and 'write "Outliers"' in trailer
+    reemitted = recognized.figure._generate_gle_with_files()[0]
+    for fragment in ("x2axis on", "begin rotate 90", 'write "Outliers"'):
         assert fragment in reemitted
