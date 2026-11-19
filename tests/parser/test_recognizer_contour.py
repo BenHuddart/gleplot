@@ -61,6 +61,22 @@ def test_imshow_colorbar_recovered(tmp_path):
     assert cb["width"] == 0.4 and cb["sep"] == 0.6
 
 
+def test_a_colorbar_with_a_moved_label_stays_raw(tmp_path):
+    """A label placed other than where the writer puts it keeps its group raw."""
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2))
+    fig.colorbar(label="phi")
+    path = _save(fig, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert "(yg(ygmin)+yg(ygmax))/2\n" in text
+    path.write_text(text.replace("(yg(ygmin)+yg(ygmax))/2\n", "yg(ygmax)\n"))
+
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    out = rec.figure._generate_gle_with_files()[0]
+    assert 'write "phi"' in out and out.count("color_range_vertical") == 1
+
+
 def test_per_axes_and_horizontal_colorbars_recovered(tmp_path):
     fig, (a, b) = glp.subplots(1, 2, figsize=(10, 4), data_prefix="g")
     ha = a.imshow(np.arange(4.0).reshape(2, 2), cmap="viridis")
@@ -221,39 +237,6 @@ def test_contourf_recovered(tmp_path):
     )
     assert hm["extent"] == [0.0, 1.0, 0.0, 1.0]
     np.testing.assert_allclose(hm["z"], Z, rtol=1e-5)
-
-
-def test_contourf_colorbar_from_before_it_drew_bands_is_recovered(tmp_path):
-    """An older file's bar in the colormap's own palette stays the contourf's.
-
-    Saving it again draws the bands, through the band sub.
-    """
-    (tmp_path / "grid.z").write_text(
-        "! nx 2 ny 2 xmin 0 xmax 2 ymin 0 ymax 2\n"
-        "! gleplot: nodes xmin 0 xmax 1 ymin 0 ymax 1\n0 1\n1 2\n",
-        encoding="utf-8",
-    )
-    p = tmp_path / "f.gle"
-    p.write_text(
-        "size 10 10\n"
-        "sub gleplot_contourf1 z\n"
-        "   ! gleplot: contourf cmap viridis extend neither levels 0 1 2\n"
-        "   return gleplot_viridis(z/2)\n"
-        "end sub\n"
-        "begin graph\n"
-        '   colormap "grid.z" 100 100 zmin 0 zmax 1 palette gleplot_contourf1\n'
-        "end graph\n"
-        "amove xg(xgmax)+0.3 yg(ygmin)\n"
-        'gleplot_colorbar_v zmin 0 zmax 2 zstep 0.4 palette "gleplot_viridis" '
-        'wd 0.5 hi yg(ygmax)-yg(ygmin) format "fix 1" label ""\n',
-        encoding="utf-8",
-    )
-    rec = parse_gle_figure(p)
-    hm = rec.figure.axes_list[0].heatmaps[0]
-    assert (hm["colorbar"]["zmin"], hm["colorbar"]["zmax"]) == (0.0, 2.0)
-    lines = rec.figure._generate_gle_with_files()[0].splitlines()
-    assert "   z = 0*(1-z)+2*z" in lines
-    assert any('palette "gleplot_contourf1"' in line for line in lines)
 
 
 def test_contourf_colormap_off_its_bar_range_is_kept_raw(tmp_path):

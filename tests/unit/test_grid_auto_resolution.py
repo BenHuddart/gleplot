@@ -602,8 +602,8 @@ def test_a_provider_data_change_alters_the_emitted_colorbar_range():
     edited = {k: [v * 10 for v in col] for k, col in _GRID_TABLE.items()}
     after, _ = fig._generate_gle_with_files(data_provider=_provider(t1=edited))
 
-    assert "gleplot_colorbar_v zmin 1 zmax 6" in before
-    assert "gleplot_colorbar_v zmin 10 zmax 60" in after
+    assert "color_range_vertical zmin 1 zmax 6" in before
+    assert "color_range_vertical zmin 10 zmax 60" in after
 
 
 def test_an_auto_colorbar_on_an_all_nan_grid_skips_rather_than_raises():
@@ -620,8 +620,8 @@ def test_an_auto_colorbar_on_an_all_nan_grid_skips_rather_than_raises():
 
     assert [w.reason for w in fig.source_warnings] == ["unusable-data"]
     assert files == {}
-    assert "gleplot_colorbar_v" not in text
-    assert "sub gleplot_colorbar_v" not in text
+    assert "color_range_vertical" not in text
+    assert 'include "color.gle"' not in text
 
 
 def test_colorbar_without_data_and_without_a_reference_raises_a_clear_error():
