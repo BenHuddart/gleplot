@@ -620,7 +620,7 @@ def test_an_auto_colorbar_on_an_all_nan_grid_skips_rather_than_raises():
     assert [w.reason for w in fig.source_warnings] == ["unusable-data"]
     assert files == {}
     assert "color_range_vertical" not in text
-    assert "color_range_vertical" not in text
+    assert 'include "color.gle"' not in text
 
 
 def test_colorbar_without_data_and_without_a_reference_raises_a_clear_error():

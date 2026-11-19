@@ -726,7 +726,7 @@ def test_contourf_colorbar_draws_the_bands_ticked_at_the_levels(recwarn):
         in lines
     )
     assert any(
-        line.startswith("color_range_vertical zmin -1 zmax 5 zstep 1.5*")
+        line.startswith("color_range_vertical zmin -1 zmax 5 zstep (5-(-1))/4*")
         and 'palette "gleplot_contourf1"' in line
         for line in lines
     )
@@ -1005,7 +1005,7 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
     assert (
         "gsave\n"
         "amove xg(xgmax)+0.5 yg(ygmin)\n"
-        "color_range_vertical zmin 0 zmax 10 zstep 2*0.999999999 "
+        "color_range_vertical zmin 0 zmax 10 zstep (10-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width 0.4 height yg(ygmax)-yg(ygmin) '
         'format "fix 1" pixels 200\n'
         "grestore"
@@ -1103,7 +1103,7 @@ def test_horizontal_colorbar_is_drawn_below_and_reserves_the_bottom():
     assert (
         "amove xg(xgmin) yg(ygmin)-1.5\n"
         "rmove 0 -0.4\n"
-        "color_range_horizontal zmin 0 zmax 4 zstep 0.8*0.999999999 "
+        "color_range_horizontal zmin 0 zmax 4 zstep (4-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width xg(xgmax)-xg(xgmin) height 0.4 '
         'format "fix 1" pixels 200'
     ) in text
@@ -1253,7 +1253,7 @@ def test_a_collapsed_colorbar_range_is_widened_to_one_unit():
     fig = glp.figure(data_prefix="t")
     fig.add_subplot(111).imshow(np.full((2, 2), 3.0))
     fig.colorbar()
-    assert "color_range_vertical zmin 3 zmax 4 zstep 1*" in _gle(fig)[0]
+    assert "color_range_vertical zmin 3 zmax 4 zstep (4-(3))/1*" in _gle(fig)[0]
 
 
 @pytest.mark.parametrize(

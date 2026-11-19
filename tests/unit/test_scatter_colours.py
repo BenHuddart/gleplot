@@ -337,7 +337,7 @@ def test_colorbar_shows_the_scatter_range():
         "end graph\n"
         "gsave\n"
         "amove xg(xgmax)+0.3 yg(ygmin)\n"
-        "color_range_vertical zmin 0 zmax 300 zstep 60*0.999999999 "
+        "color_range_vertical zmin 0 zmax 300 zstep (300-(0))/5*0.999999999 "
         'palette "gleplot_viridis" width 0.5 height yg(ygmax)-yg(ygmin) '
         'format "fix 0" pixels 200'
     ) in text

@@ -361,6 +361,11 @@ def normalize(d: dict) -> dict:
                     for k in ("zmin", "zmax", "zstep", "width", "sep"):
                         if cb.get(k) is not None:
                             cb[k] = _snap_num(cb[k])
+                    # A step that divides the range is written as
+                    # (zmax-(zmin))/n from the printed range, so it comes
+                    # back as that quotient: compare one digit coarser.
+                    if cb.get("zstep") is not None:
+                        cb["zstep"] = float(f"{cb['zstep']:.5g}")
 
         # Text annotations: fontsize round-trips through cm (snap).
         # ``box_color`` and a non-zero ``rotation`` are emitted and recovered,

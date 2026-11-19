@@ -415,19 +415,23 @@ COLORBAR_STEP_SCALE = "0.999999999"
 
 
 def colorbar_format(zmin: float, zstep: float) -> str:
-    """The ``fix N`` format that writes every colorbar tick value exactly.
+    """The default ``fix N`` format of a colorbar's tick labels.
 
-    N is the fewest decimals (up to 6) in which both the first value and the
-    step are whole, so a step of 0.15 gets ``fix 2`` and a step of 2 gets
-    ``fix 0``.
+    N is the fewest decimals, up to 3 (or one past the step's first
+    significant digit, if that is more), in which the first value and the
+    step are both exact: a step of 0.15 gets ``fix 2`` and a step of 2 gets
+    ``fix 0``. With none, N is one past the step's first significant digit
+    (a step of 0.19168 from 0.0202184 gets ``fix 2``).
     """
-    for decimals in range(7):
+    step = abs(float(zstep))
+    cap = max(0, math.ceil(-math.log10(step)) + 1) if step > 0 else 1
+    for decimals in range(max(cap, 3) + 1):
         if all(
             abs(round(v, decimals) - v) <= 1e-9 * max(1.0, abs(v))
             for v in (zmin, zstep)
         ):
             return f"fix {decimals}"
-    return "fix 6"
+    return f"fix {cap}"
 
 
 #: The frame edges a rug can stand on, per axis; the first is the default.
@@ -5987,8 +5991,10 @@ class GLEWriter:
         -----
         The routine draws a tick at ``zmin``, ``zmin+zstep``, ... while the
         value is at most ``zmax``, adding the step in floating point, which
-        can step past ``zmax`` and drop the last tick. The step is written
-        scaled by :data:`COLORBAR_STEP_SCALE`, which keeps every tick (the
+        can step past ``zmax`` and drop the last tick. A step that divides
+        the range is therefore written as ``(zmax-(zmin))/n``, from the same
+        printed numbers GLE reads as ``zmin`` and ``zmax``, and every step is
+        scaled by :data:`COLORBAR_STEP_SCALE`, which keeps the last tick (the
         shift is far below a printed digit). A collapsed range is widened to
         one unit, as the routine divides by its span. 200 colour steps make
         the bar a smooth scale.
@@ -5996,6 +6002,11 @@ class GLEWriter:
         cb = series.get("colorbar")
         if not cb:
             return
+        if cb.get("label"):
+            warn_external(
+                f"colorbar label {cb['label']!r} is not drawn: GLE's colour "
+                "range (color.gle) has no label. Place the text with fig.text()."
+            )
         fmt = self._format_number
         sep = float(cb["sep"])
         thickness = fmt(cb["width"])
@@ -6024,13 +6035,25 @@ class GLEWriter:
             palette = _pal.palette_call_name(cmap)
         lines.append(
             f"{routine} zmin {fmt(zmin)} zmax {fmt(zmax)} "
-            f"zstep {fmt(zstep)}*{COLORBAR_STEP_SCALE} "
+            f"zstep {self._colorbar_step(zmin, zmax, zstep)} "
             f'palette "{palette}" {size} '
             f'format "{number_format}" pixels 200'
         )
         lines.append("grestore")
         self.lines_gle.extend(lines)
         self._includes.add(COLOR_INCLUDE)
+
+    @classmethod
+    def _colorbar_step(cls, zmin: float, zmax: float, zstep: float) -> str:
+        """A colorbar's ``zstep`` argument (see :meth:`add_colorbar`)."""
+        fmt = cls._format_number
+        span = zmax - zmin
+        count = round(span / zstep) if zstep > 0 else 0
+        if count >= 1 and abs(count * zstep - span) <= 1e-6 * abs(span):
+            step = f"({fmt(zmax)}-({fmt(zmin)}))/{count}"
+        else:
+            step = fmt(zstep)
+        return f"{step}*{COLORBAR_STEP_SCALE}"
 
     def add_contour_data(self, series: Series):
         """Write a contour's sidecar, ``fitz`` if scattered, and contour block.

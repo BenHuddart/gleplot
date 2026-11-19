@@ -488,6 +488,19 @@ _TICK_MARK_FIELDS = (
 )
 
 
+def _cbar_format(cb: dict) -> Optional[str]:
+    """The tick format a colorbar is written with, when it can be known.
+
+    Its own, or the default :func:`gleplot.writer.colorbar_format` gives
+    once its range is set (an auto-range bar's is set at write time).
+    """
+    if cb.get("format"):
+        return cb["format"]
+    if cb.get("zmin") is None or not cb.get("zstep"):
+        return None
+    return colorbar_format(float(cb["zmin"]), float(cb["zstep"]))
+
+
 class Figure:
     """Matplotlib-like figure for GLE plotting.
 
@@ -2052,8 +2065,7 @@ class Figure:
             cb["zstep"] = step
         elif zmin is not None and zmax is not None:
             span = zmax - zmin
-            zstep = (span / divisions) if span > 0 else 1.0
-            cb["zstep"] = zstep
+            cb["zstep"] = (span / divisions) if span > 0 else 1.0
         else:
             # No arrays and no explicit bound for at least one end. That is a
             # legal, resolvable state only for a reference-backed heatmap;
@@ -3344,7 +3356,7 @@ class Figure:
         sep = float(cb["sep"])
         hei = cls._CBAR_TEXT_HEI_CM
         charw = 0.6 * hei
-        nchars = cls._estimate_tick_chars(cb["zmin"], cb["zmax"], cb.get("format"))
+        nchars = cls._estimate_tick_chars(cb["zmin"], cb["zmax"], _cbar_format(cb))
         tick_extent = 2 * wd / 3.0 + nchars * charw
         return sep + wd + tick_extent + 0.3  # + safety pad
 
@@ -3361,7 +3373,7 @@ class Figure:
         wd = float(cb["width"])
         hei = max(self._CBAR_TEXT_HEI_CM, fontsize_pt_to_cm(self.style.fontsize))
         below = float(cb["sep"]) + wd + 2 * wd / 3.0 + hei
-        nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], cb.get("format"))
+        nchars = self._estimate_tick_chars(cb["zmin"], cb["zmax"], _cbar_format(cb))
         right = nchars * 0.6 * hei / 2.0 + 0.3
         return right, below + 0.3  # + safety pad
 

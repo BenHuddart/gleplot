@@ -9242,11 +9242,12 @@ class _Recognizer:
     # -- post-graph colorbar / contour-label calls ----------------------
 
     def _consume_post_graph_calls(self, nodes, start, axes_info) -> int:
-        """Consume ``gleplot_colorbar_v|h`` / ``gleplot_contour_labels`` calls.
+        """Consume the colorbar groups and ``gleplot_contour_labels`` calls.
 
-        Each call is preceded by its own ``amove`` (``xg(xgmax)+S yg(ygmin)`` for
-        a vertical colorbar, ``xg(xgmin) yg(ygmin)-S`` for a horizontal one,
-        ``0 0`` for the labels). Attaches the recovered colorbar
+        A colorbar is a ``gsave`` .. ``grestore`` group (:meth:`_colorbar_group`)
+        whose ``amove`` is ``xg(xgmax)+S yg(ygmin)`` for a vertical bar and
+        ``xg(xgmin) yg(ygmin)-S`` for a horizontal one; the labels' call is
+        preceded by ``amove 0 0``. Attaches the recovered colorbar
         to this axes' heatmap and sets ``clabel`` on the matching contour.
         Returns the index of the first node not consumed.
         """
@@ -9302,16 +9303,21 @@ class _Recognizer:
         words = [(st.keyword or "").lower() for st in stmts]
         if len(words) < 4 or words[0] != "gsave" or words[-1] != "grestore":
             return None
-        call = stmts[-2]
-        routine = words[-2]
-        middle = words[1:-2]
-        expected = ["amove", "rmove"] if routine == "color_range_horizontal" else []
-        if routine == "color_range_vertical":
-            expected = ["amove"]
-        if not expected or middle != expected:
+        expected = {
+            "color_range_vertical": ["amove"],
+            "color_range_horizontal": ["amove", "rmove"],
+        }.get(words[-2])
+        if expected is None or words[1:-2] != expected:
+            return None
+        toks = _words_and_values(stmts[-2])
+        # Only the call the writer writes: every argument, at 200 steps.
+        length = "width" if words[-2] == "color_range_horizontal" else "height"
+        args = self._named_args(toks[1:], expr_arg=length)
+        required = self._CALL_ARG_NAMES - {"file", length}
+        if not required <= set(args) or args["pixels"] != 200:
             return None
         sep = self._amove_colorbar_sep(_words_and_values(stmts[1]))
-        return j, _words_and_values(call), sep
+        return j, toks, sep
 
     @staticmethod
     def _amove_colorbar_sep(toks) -> Optional[float]:
