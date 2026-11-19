@@ -1750,8 +1750,10 @@ class _Recognizer:
         # metadata block, and regenerated canonically from the model on re-save.
         self._gleplot_sub_lines: set = set()
         # gleplot_contourf<k> sub name (lower case) -> its colouring comment
-        # line (writer.CONTOURF_MARKER), read while those subs are scanned.
+        # line (writer.CONTOURF_MARKER), and -> the line numbers it spans,
+        # read while those subs are scanned.
         self._contourf_subs: Dict[str, str] = {}
+        self._contourf_sub_spans: Dict[str, set] = {}
         # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
         self._fitz_blocks: Dict[str, dict] = {}
         # contour ``.z`` file -> {levels}
@@ -7580,16 +7582,18 @@ class _Recognizer:
                     in_sub = True
                     sub_name = low.split()[1]
                     nums.add(idx)
+                    if sub_name.startswith("gleplot_contourf"):
+                        self._contourf_sub_spans[sub_name] = {idx}
                 elif _GLEPLOT_DEFINE_MARKER_RE.match(low):
                     # The ``define marker`` naming a per-point-size sub
                     # (writer.mdata_sub_text) is part of that sub.
                     nums.add(idx)
                 continue
             nums.add(idx)
-            if sub_name.startswith("gleplot_contourf") and low.startswith(
-                CONTOURF_MARKER + " "
-            ):
-                self._contourf_subs[sub_name] = line.strip()
+            if sub_name.startswith("gleplot_contourf"):
+                self._contourf_sub_spans[sub_name].add(idx)
+                if low.startswith(CONTOURF_MARKER + " "):
+                    self._contourf_subs[sub_name] = line.strip()
             if low == "end sub" or low.startswith("end sub "):
                 in_sub = False
         return nums
@@ -7676,6 +7680,7 @@ class _Recognizer:
                 kw = child.keyword
                 toks = _words_and_values(child)
                 if kw == "colormap":
+                    self._keep_contourf_sub_unless_readable(toks)
                     zfile = self._colormap_recognizable_zfile(toks)
                     if zfile is not None:
                         colormap_files.add(zfile)
@@ -7898,13 +7903,6 @@ class _Recognizer:
             self._parse_contourf_colormap(
                 zfile,
                 [int(px), int(py)],
-                expression is None
-                and zfile.lower().endswith((".z", ".gz"))
-                and not invert
-                and not unknown
-                and exact
-                and (vmin, vmax) == (0.0, 1.0)
-                and interpolation == "bicubic",
                 self._contourf_subs[palette.lower()],
                 info,
                 stmt,
@@ -8039,6 +8037,14 @@ class _Recognizer:
                 )
                 return
             z, extent, marker = grid
+            if marker is not None and marker.startswith(NODES_MARKER):
+                self._note(
+                    ImportCategory.DATA,
+                    f"grid {zfile!r} is written for a contourf but its colormap "
+                    "is not a contourf's; read as an imshow heatmap over the "
+                    "header's range, and its marker line is dropped on re-save",
+                    self._stmt_span(stmt),
+                )
             cells = marker is not None and marker.startswith(CELLS_MARKER)
             if cells:
                 mesh = self._mesh_from_cells_grid(z, extent, marker, interpolation)
@@ -8214,25 +8220,64 @@ class _Recognizer:
         z = np.asarray(values, dtype=float).reshape(ny, nx)
         return z, [x0, x1, y0, y1], cells
 
-    def _parse_contourf_colormap(self, zfile, pixels, plain, comment, info, stmt):
+    def _contourf_colormap_ok(self, toks) -> bool:
+        """Whether a ``colormap`` is one a ``contourf`` heatmap can be read from.
+
+        It must be the statement :meth:`GLEWriter.add_heatmap` writes for
+        one (a ``.z`` file, ``zmin 0 zmax 1`` and its band sub as palette,
+        nothing else), the sub's comment line must parse, and the grid must
+        be readable. Checked before anything is dropped, so that a colormap
+        kept as raw GLE keeps its band sub too.
+        """
+        if len(toks) < 4 or toks[1].type is not TokenType.STRING:
+            return False
+        zfile, idx = self._read_filename(toks, 1)
+        rest = [t.value.lower() for t in toks[idx:]]
+        if (
+            len(rest) != 8
+            or rest[2:7] != ["zmin", "0", "zmax", "1", "palette"]
+            or _num(toks[idx]) is None
+            or _num(toks[idx + 1]) is None
+            or not zfile.lower().endswith((".z", ".gz"))
+        ):
+            return False
+        comment = self._contourf_subs.get(rest[7])
+        return (
+            comment is not None
+            and self._contourf_fields(comment) is not None
+            and self._read_z_grid(zfile) is not None
+        )
+
+    def _keep_contourf_sub_unless_readable(self, toks) -> None:
+        """Keep a ``contourf`` band sub as raw GLE if its colormap will be.
+
+        A ``colormap`` naming a ``gleplot_contourf<k>`` palette that
+        :meth:`_contourf_colormap_ok` rejects is kept as raw GLE (as an
+        unknown palette), so the sub it calls must be kept too.
+        """
+        words = [t.value.lower() for t in toks]
+        if "palette" not in words[:-1]:
+            return
+        name = words[words.index("palette") + 1]
+        if name in self._contourf_subs and not self._contourf_colormap_ok(toks):
+            del self._contourf_subs[name]
+            self._gleplot_sub_lines -= self._contourf_sub_spans.pop(name, set())
+
+    def _parse_contourf_colormap(self, zfile, pixels, comment, info, stmt):
         """Rebuild a ``contourf`` heatmap from its colormap and band sub.
 
-        ``plain`` is whether the ``colormap`` statement is the one
-        :meth:`GLEWriter.add_heatmap` writes for a ``contourf`` (a ``.z``
-        file, ``zmin 0 zmax 1``, the band sub as palette and nothing else);
-        ``comment`` is the colouring line of that sub. The grid's edges come
-        from the ``.z`` file's marker line. A statement or sub that is not
-        gleplot's is kept as raw GLE, with a note: the sub itself is not.
+        ``comment`` is the colouring line of the band sub; the colormap was
+        checked by :meth:`_contourf_colormap_ok` before the sub was dropped.
+        The grid's edges come from the ``.z`` file's marker line.
         """
         fields = self._contourf_fields(comment)
-        grid = self._read_z_grid(zfile) if plain and fields else None
-        if fields is None or grid is None:
+        grid = self._read_z_grid(zfile)
+        if fields is None or grid is None:  # checked in the prescan
             info["passthrough"].append(self._stmt_text(stmt))
             self._note(
                 ImportCategory.STRUCTURE,
                 "colormap with a gleplot contourf palette that gleplot cannot "
-                "read back (or its .z grid is unreadable); kept as raw GLE, but "
-                "its gleplot_contourf palette sub is not, so define it again",
+                "read back; kept as raw GLE",
                 self._stmt_span(stmt),
             )
             return

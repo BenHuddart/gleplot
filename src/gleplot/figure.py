@@ -1860,18 +1860,21 @@ class Figure:
                 "heatmap's axes, so cax is ignored. Pass ax= (or nothing) instead."
             )
         hm = self._colorbar_heatmap(mappable, ax)
-        if "levels" in hm:
-            warn_external(
-                "colorbar() of a contourf draws the colormap as a continuous "
-                "scale from vmin to vmax (the data's range when unset), not "
-                "its bands."
-            )
         owner = next(a for a in self.axes_list if any(h is hm for h in a.heatmaps))
 
         values = hm["z"] if hm["source"] == "grid" else hm["zpts"]
         have_values = values is not None and np.asarray(values).size > 0
         zmin = float(hm["vmin"]) if hm["vmin"] is not None else None
         zmax = float(hm["vmax"]) if hm["vmax"] is not None else None
+        if "levels" in hm:
+            # A contourf colours on the scale of its outer levels.
+            warn_external(
+                "colorbar() of a contourf draws the colormap as a continuous "
+                "scale from vmin to vmax (the first and last level when "
+                "unset), not its bands."
+            )
+            zmin = hm["levels"][0] if zmin is None else zmin
+            zmax = hm["levels"][-1] if zmax is None else zmax
         if have_values:
             if zmin is None:
                 zmin = float(np.nanmin(values))

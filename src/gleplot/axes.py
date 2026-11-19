@@ -7514,8 +7514,14 @@ class Axes:
             )
         _require_valid_extent(ext)
         levels = self._filled_levels(levels, z, extend)
-        lo = levels[0] if vmin is None else float(vmin)
-        hi = levels[-1] if vmax is None else float(vmax)
+        # Compared as written: the band sub divides by their difference.
+        lo, hi = (
+            float(GLEWriter._format_number(float(v)))
+            for v in (
+                levels[0] if vmin is None else vmin,
+                levels[-1] if vmax is None else vmax,
+            )
+        )
         if not lo < hi:
             raise ValueError(
                 f"contourf() needs vmin < vmax; got vmin={lo!r}, vmax={hi!r}"
@@ -7570,13 +7576,21 @@ class Axes:
     @staticmethod
     def _filled_levels(levels, z, extend):
         """``contourf``'s band edges: matplotlib's for a count, else as given."""
-        if levels is None or (
-            np.ndim(levels) == 0 and float(levels) == int(float(levels))
-        ):
-            n = 7 if levels is None else int(float(levels))
-            if n < 1:
-                raise ValueError(f"contourf() needs levels >= 1; got {levels!r}")
-            out = _nice_levels(float(np.min(z)), float(np.max(z)), n, extend)
+        if levels is None or np.ndim(levels) == 0:
+            n = 7 if levels is None else levels
+            try:
+                whole = float(n) == int(float(n))
+            except (TypeError, ValueError, OverflowError):
+                whole = False
+            if not whole or int(float(n)) < 1:
+                raise ValueError(
+                    f"contourf() got levels={levels!r}; expected a whole number "
+                    "of levels >= 1, or a sequence of at least two increasing "
+                    "values"
+                )
+            out = _nice_levels(
+                float(np.min(z)), float(np.max(z)), int(float(n)), extend
+            )
         else:
             out = [float(v) for v in np.ravel(levels)]
             if len(out) < 2 or not all(np.isfinite(out)):

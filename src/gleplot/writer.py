@@ -938,6 +938,18 @@ def _bspline_weights(u: np.ndarray, n: int) -> Tuple[np.ndarray, np.ndarray]:
     return idx, w / 6
 
 
+def _band_of(values: np.ndarray, levels: List[float]) -> np.ndarray:
+    """Each value's band as :meth:`GLEWriter.add_contourf_sub` colours it.
+
+    ``0`` below the first level, ``len(levels)`` above the last, else band
+    ``i`` for ``levels[i - 1] < value <= levels[i]``, the first band also
+    taking its lower level, as matplotlib's ``contourf`` bands do.
+    """
+    band = np.searchsorted(levels, values, side="left")
+    band[values == levels[0]] = 1
+    return band
+
+
 def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     """Whether GLE draws a ``contourf`` heatmap's bands where its levels are.
 
@@ -966,8 +978,7 @@ def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     lower = z[k][:, j] * (1 - a) + z[k][:, j + 1] * a
     upper = z[k + 1][:, j] * (1 - a) + z[k + 1][:, j + 1] * a
     true = lower * (1 - b) + upper * b
-    got = np.searchsorted(levels, drawn, side="right")
-    want = np.searchsorted(levels, true, side="right")
+    got, want = _band_of(drawn, levels), _band_of(true, levels)
     near = np.zeros(want.shape, bool)
     padded = np.pad(want, 1, mode="edge")
     for dy in range(3):
@@ -6100,8 +6111,8 @@ class GLEWriter:
 
         The colormap passes each pixel's value through unscaled (``zmin 0
         zmax 1``), so the sub compares it with the levels themselves. A value
-        between two levels takes the colour ``cmap`` gives the middle of that
-        band on the ``vmin``..``vmax`` scale (the outer levels when unset), as
+        above one level and up to the next takes the colour ``cmap`` gives
+        the middle of that band on the ``vmin``..``vmax`` scale (the outer levels when unset), as
         matplotlib colours a band. Below the first level and above the last
         it is white, or with ``extend`` the colormap's end colour. When GLE's
         smoothing would not put the band edges on the levels
@@ -6143,7 +6154,7 @@ class GLEWriter:
             ]
             lines.append(f"   local t = {tone[0]}")
             for level, t in zip(levels[1:-1], tone[1:]):
-                lines.append(f"   if z >= {level} then t = {t}")
+                lines.append(f"   if z > {level} then t = {t}")
             lines.append(f"   return {call}(t)")
         else:
             lines.append(f"   return {call}((z-({fmt(lo)}))/{fmt(hi - lo)})")

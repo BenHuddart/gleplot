@@ -527,8 +527,8 @@ def test_contourf_writes_bands_through_its_own_palette_sub():
         "   if z < 1 then return gleplot_gray(0)",
         "   if z > 4 then return rgb(1, 1, 1)",
         "   local t = 0.375",
-        "   if z >= 2 then t = 0.625",
-        "   if z >= 3 then t = 0.875",
+        "   if z > 2 then t = 0.625",
+        "   if z > 3 then t = 0.875",
         "   return gleplot_gray(t)",
         "end sub",
     ]
@@ -607,7 +607,14 @@ def test_contourf_on_a_fine_grid_does_not_warn(recwarn):
         ((np.zeros((3, 3)), 4), {"levels": 4}, "levels both as an argument"),
         ((np.zeros((3, 3)),), {"levels": [1.0]}, "at least two finite levels"),
         ((np.zeros((3, 3)),), {"levels": [2.0, 1.0]}, "levels must increase"),
-        ((np.zeros((3, 3)),), {"levels": 0}, "levels >= 1"),
+        ((np.zeros((3, 3)),), {"levels": 0}, "levels=0; expected a whole number"),
+        ((np.zeros((3, 3)),), {"levels": np.inf}, "levels=inf; expected"),
+        ((np.zeros((3, 3)),), {"levels": "auto"}, "levels='auto'; expected"),
+        (
+            (np.zeros((3, 3)),),
+            {"levels": [0, 1], "vmin": 0.10000001, "vmax": 0.10000002},
+            "vmin < vmax",
+        ),
         ((np.zeros((3, 3)),), {"extend": "up"}, "extend='up'"),
         ((np.zeros((3, 3)),), {"levels": [0, 1], "vmin": 2}, "vmin < vmax"),
         ((np.zeros((1, 3)),), {"levels": [0, 1]}, "two grid nodes"),
@@ -654,10 +661,12 @@ def test_contourf_warns_when_the_limits_reach_past_its_last_node():
 
 
 def test_contourf_colorbar_warns_it_shows_no_bands():
+    """The bar spans the outer levels, the scale the bands are coloured on."""
     fig = glp.figure()
-    _, hm = _ramp_contourf(fig, 4)
+    _, hm = _ramp_contourf(fig, [0.5, 2, 5.5])
     with pytest.warns(UserWarning, match="not its bands"):
         fig.colorbar(hm)
+    assert (hm["colorbar"]["zmin"], hm["colorbar"]["zmax"]) == (0.5, 5.5)
 
 
 def test_module_level_contourf():
