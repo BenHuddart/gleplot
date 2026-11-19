@@ -22,29 +22,43 @@ def _script(fig) -> str:
 
 
 def _rug_lines(text: str):
-    return [ln for ln in text.splitlines() if ln.startswith("gleplot_")]
+    """The ``set`` and call lines that draw each rug after the graph."""
+    lines = text.splitlines()
+    return [
+        line
+        for k, line in enumerate(lines)
+        if line.startswith(("xrug ", "yrug "))
+        or (line.startswith("set color") and lines[k + 1].startswith(("xrug", "yrug")))
+    ]
 
 
-def test_one_call_per_value_on_the_bottom_edge():
+def test_the_values_are_a_dataset_drawn_by_xrug():
     fig, ax = glp.subplots()
     rug = ax.rug([1, 2.5, 4])
     assert isinstance(rug, Rug)
     assert ax.rugs == [rug]
-    text = _script(fig)
-    assert "sub gleplot_xrug x len pos$ clr$ lw" in text
+    text, files = fig._generate_gle_with_files()
+    assert 'include "rugs.gle"' in text
+    assert f"    data {rug['data_file']} d1=c1,c2" in text
+    # The other column is missing, so the values stay out of GLE's autoscale.
+    assert files[rug["data_file"]] == "x y\n1 *\n2.5 *\n4 *\n"
+    # rugs.gle takes a positive length out of the axes; gleplot into them.
     assert _rug_lines(text) == [
-        'gleplot_xrug 1 0.3 "bottom" "BLACK" 0.03528',
-        'gleplot_xrug 2.5 0.3 "bottom" "BLACK" 0.03528',
-        'gleplot_xrug 4 0.3 "bottom" "BLACK" 0.03528',
+        "set color BLACK lwidth 0.03528 cap butt",
+        'xrug "d1" -0.3 "bottom"',
     ]
 
 
 def test_y_rug_with_its_own_edge_length_colour_and_width():
     fig, ax = glp.subplots()
-    ax.rug(np.array([[0.5], [2.0]]), axis="y", length=-0.2, color="C1", linewidth=2)
-    assert _rug_lines(_script(fig)) == [
-        'gleplot_yrug 0.5 -0.2 "left" "rgb255(255,127,14)" 0.07056',
-        'gleplot_yrug 2 -0.2 "left" "rgb255(255,127,14)" 0.07056',
+    rug = ax.rug(
+        np.array([[0.5], [2.0]]), axis="y", length=-0.2, color="C1", linewidth=2
+    )
+    text, files = fig._generate_gle_with_files()
+    assert files[rug["data_file"]] == "x y\n* 0.5\n* 2\n"
+    assert _rug_lines(text) == [
+        "set color rgb255(255,127,14) lwidth 0.07056 cap butt",
+        'yrug "d1" 0.2 "left"',
     ]
 
 
@@ -54,18 +68,18 @@ def test_y_rug_with_its_own_edge_length_colour_and_width():
 def test_every_edge_of_each_axis_is_accepted(axis, position):
     fig, ax = glp.subplots()
     ax.rug([1.0], axis=axis, position=position)
-    assert _rug_lines(_script(fig)) == [
-        f'gleplot_{axis}rug 1 0.3 "{position}" "BLACK" 0.03528'
-    ]
+    assert _rug_lines(_script(fig))[1] == f'{axis}rug "d1" -0.3 "{position}"'
 
 
 @pytest.mark.parametrize("values", [None, []])
-def test_no_tick_no_sub(values):
+def test_no_tick_no_include(values):
     fig, ax = glp.subplots()
     ax.plot([0, 1], [0, 1])
     if values is not None:
         ax.rug(values)
-    assert "gleplot_xrug" not in _script(fig)
+    text = _script(fig)
+    assert "xrug" not in text
+    assert "include" not in text
 
 
 def test_rugs_are_drawn_after_the_boxes_and_before_the_text():
@@ -75,8 +89,12 @@ def test_rugs_are_drawn_after_the_boxes_and_before_the_text():
     ax.boxplot([1, 2, 3])
     lines = _script(fig).splitlines()
     end = lines.index("end graph")
-    calls = [ln.split()[0] for ln in lines[end:] if ln.startswith(("gleplot", "amove"))]
-    assert calls == ["gleplot_box", "gleplot_xrug", "amove"]
+    calls = [
+        ln.split()[0]
+        for ln in lines[end:]
+        if ln.startswith(("gleplot", "amove", "xrug"))
+    ]
+    assert calls == ["gleplot_box", "xrug", "amove"]
 
 
 def test_the_values_widen_the_autoscaled_range_of_their_axis_only():
@@ -137,3 +155,14 @@ def test_a_length_or_width_that_is_not_a_number_is_a_type_error(kwargs):
     name = next(iter(kwargs))
     with pytest.raises(TypeError, match=f"rug\\({name}="):
         ax.rug([1.0], **kwargs)
+
+
+def test_a_rug_saved_without_a_data_file_gets_one_on_load():
+    fig, ax = glp.subplots()
+    ax.rug([1.0, 2.0])
+    payload = fig.to_dict()
+    del payload["figure"]["axes"][0]["rugs"][0]["data_file"]
+    restored = glp.Figure.from_dict(payload)
+    rug = restored.axes_list[0].rugs[0]
+    text, files = restored._generate_gle_with_files()
+    assert files[rug["data_file"]] == "x y\n1 *\n2 *\n"

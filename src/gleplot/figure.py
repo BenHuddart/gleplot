@@ -52,7 +52,6 @@ from .writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
-    RUG_SUB,
     WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
@@ -3352,10 +3351,6 @@ class Figure:
             subs.append(WEDGE_SUB)
         if any(resolution.visible(ax.boxes) for ax in self.axes_list):
             subs.append(BOX_SUB)
-        if any(
-            r["ticks"] for ax in self.axes_list for r in resolution.visible(ax.rugs)
-        ):
-            subs.append(RUG_SUB)
         sized_markers: Set[str] = set()
         for ax in self.axes_list:
             sized_markers.update(

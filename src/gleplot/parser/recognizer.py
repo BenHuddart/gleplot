@@ -346,6 +346,7 @@ from ..writer import (
     NODES_MARKER,
     POLAR_GRID_LAYER,
     RUG_EDGES,
+    RUGS_INCLUDE,
     GLEWriter,
     KeyOptions,
     _format_data_filename,
@@ -727,31 +728,23 @@ class RecognizedFigure:
 # --------------------------------------------------------------------------- #
 
 
-#: The rug subs (:data:`gleplot.writer.RUG_SUB`) and the axis each draws on.
-_RUG_CALLS = {f"gleplot_{axis}rug": axis for axis in RUG_EDGES}
-
-
-def _is_rug_call(keyword: str, args: List[object]) -> bool:
-    """Whether ``args`` are a well-formed ``value len pos$ clr$ lw`` rug call."""
-    if keyword not in _RUG_CALLS or len(args) != 5:
-        return False
-    value, length, position, color, lwidth = args
-    return (
-        all(isinstance(v, (int, float)) for v in (value, length, lwidth))
-        and isinstance(color, str)
-        and position in RUG_EDGES[_RUG_CALLS[keyword]]
-    )
-
-
 def _words_and_values(stmt: Statement) -> List[Token]:
     """Tokens of a statement, dropping comments."""
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
 
 
-#: The guide subs gleplot 5 wrote. No longer written or read: a file that
-#: defines them keeps them as raw GLE, with the draw calls that use them.
-_LEGACY_GUIDE_SUBS = frozenset(
-    {"gleplot_hline", "gleplot_hspan", "gleplot_vline", "gleplot_vspan"}
+#: Subs earlier gleplot versions wrote that GLE's include library replaced.
+#: No longer written or read: a file that defines them keeps them as raw GLE,
+#: with the calls that use them.
+_LEGACY_SUBS = frozenset(
+    {
+        "gleplot_hline",
+        "gleplot_hspan",
+        "gleplot_vline",
+        "gleplot_vspan",
+        "gleplot_xrug",
+        "gleplot_yrug",
+    }
 )
 
 
@@ -1737,6 +1730,10 @@ class _Recognizer:
         self._key_after_graph: List[str] = []
         # The guides drawn after the graph being parsed, read before it.
         self._post_graph_guides: List[Series] = []
+        # The rug groups after it, by dataset, and the rugs read from their
+        # datasets (with the 'data' statement's text) awaiting their group.
+        self._post_graph_rugs: Dict[str, dict] = {}
+        self._ready_rugs: Dict[str, Tuple[Rug, str]] = {}
         # The figure legend (Figure.legend) recovered after the last graph,
         # as Figure._legend without its spacing, or None. Set before the
         # axes are assembled: it decides what their 'key off' meant.
@@ -1927,32 +1924,32 @@ class _Recognizer:
         # Guard: files using GLE programming constructs are not safe to edit.
         self._check_programmatic_constructs(doc.nodes)
 
-        # The graphutil.gle include is regenerated when a guide line drawn
-        # after a graph is read back; otherwise it stays as written.
-        self._gleplot_sub_lines |= self._graphutil_include_lines(doc.nodes)
+        # A gleinc include is regenerated when what calls it after a graph
+        # is read back; otherwise it stays as written.
+        self._gleplot_sub_lines |= self._regenerated_include_lines(doc.nodes)
 
-    def _graphutil_include_lines(self, nodes) -> Set[int]:
-        """Lines of ``include "graphutil.gle"`` the writer will write again.
+    def _regenerated_include_lines(self, nodes) -> Set[int]:
+        """Lines of the gleinc ``include``s the writer will write again.
 
-        That is every such line, when some graph is followed by a guide line
-        that will be read back and calls ``graph_hline``/``graph_vline``;
-        none otherwise.
+        ``graphutil.gle`` when some graph is followed by a guide line that
+        will be read back, ``rugs.gle`` when some graph is followed by a rug
+        whose dataset that graph loads; every line including one of them.
         """
-        draws = False
+        names: Set[str] = set()
         for k, node in enumerate(nodes):
-            if isinstance(node, GraphBlock):
-                guides, _end = self._scan_post_graph_guides(nodes, k + 1, notes=False)
-                draws = draws or any(
-                    g["type"] == "refline" and g["linestyle"] != "none" for g in guides
-                )
-        if not draws:
-            return set()
+            if not isinstance(node, GraphBlock):
+                continue
+            guides, end = self._scan_post_graph_guides(nodes, k + 1, notes=False)
+            if any(g["type"] == "refline" and g["linestyle"] != "none" for g in guides):
+                names.add(GRAPHUTIL_INCLUDE)
+            if self._loaded_rug_datasets(node, self._scan_post_graph_rugs(nodes, end)):
+                names.add(RUGS_INCLUDE)
         return {
             node.line_no
             for node in nodes
             if isinstance(node, Statement)
             and (node.keyword or "").lower() == "include"
-            and self._first_string(_words_and_values(node)) == GRAPHUTIL_INCLUDE
+            and self._first_string(_words_and_values(node)) in names
             and len(_words_and_values(node)) == 2
         }
 
@@ -2318,6 +2315,7 @@ class _Recognizer:
         everything consumed with it.
         """
         self._post_graph_guides, guides_end = self._scan_post_graph_guides(nodes, i + 1)
+        self._post_graph_rugs = self._scan_post_graph_rugs(nodes, guides_end)
         after = nodes[guides_end] if guides_end < len(nodes) else None
         self._key_after_graph = (
             [sl.text for sl in after.inner_lines]
@@ -2350,6 +2348,10 @@ class _Recognizer:
                 None,
             )
         texts = [t for t in texts if t is not _POLAR_LABELS]
+        # A rug whose call stayed raw needs the 'data' statement it reads.
+        for rug, raw in self._ready_rugs.values():
+            axes_info["passthrough"].append(raw)
+        self._ready_rugs = {}
         axes_info["texts"] = [t for t in texts if not isinstance(t, (Wedge, Box, Rug))]
         axes_info["wedges"] = [t for t in texts if isinstance(t, Wedge)]
         axes_info["boxes"] = [t for t in texts if isinstance(t, Box)]
@@ -2735,6 +2737,7 @@ class _Recognizer:
 
         pass1 = self._collect_datasets(block, info)
         self._claim_guide_bridges(block, info, pass1)
+        self._claim_rug_datasets(pass1)
         self._mark_bars_that_stay_raw(block, pass1.datasets, info)
 
         for child in block.body:
@@ -8058,15 +8061,12 @@ class _Recognizer:
         for idx, line in enumerate(self.text.splitlines(), start=1):
             low = line.strip().lower()
             if not in_sub:
-                if low.startswith("sub gleplot_") and (
-                    low.split()[1] in _LEGACY_GUIDE_SUBS
-                ):
+                if low.startswith("sub gleplot_") and (low.split()[1] in _LEGACY_SUBS):
                     self._note(
                         ImportCategory.STRUCTURE,
-                        f"'{low.split()[1]}' is a guide sub from gleplot 5, "
-                        "which gleplot no longer reads; it and the calls "
-                        "that use it were kept as raw GLE, not read back as "
-                        "a reference line or span",
+                        f"'{low.split()[1]}' is a sub an earlier gleplot "
+                        "wrote, which gleplot no longer reads; it and the "
+                        "calls that use it were kept as raw GLE",
                         (idx, idx),
                     )
                 elif low.startswith("sub gleplot_"):
@@ -9611,6 +9611,14 @@ class _Recognizer:
         x = y = None
         text_str = None
 
+        rug_group = self._rug_group(nodes, i)
+        if rug_group is not None:
+            end, group = rug_group
+            ready = self._ready_rugs.pop(group["dataset"], None)
+            if ready is None:
+                return start, None
+            return end, ready[0]
+
         # Optional 'set hei H' / 'set color C' / 'set just J', in any order,
         # each independently optional. Every hit updates sticky state
         # immediately so a later cluster with no 'set just' inherits the
@@ -9664,8 +9672,6 @@ class _Recognizer:
             return i + 1, wedge
         if stmt is not None and (stmt.keyword or "").lower() == "gleplot_box":
             return self._box_calls(nodes, i, start)
-        if stmt is not None and (stmt.keyword or "").lower() in _RUG_CALLS:
-            return self._rug_calls(nodes, i, start)
 
         # 'amove xg(X) yg(Y)' -- mandatory: this is what makes the run of
         # 'set' statements above a text cluster rather than unrelated
@@ -9771,44 +9777,125 @@ class _Recognizer:
             mean=mean,
         )
 
-    def _rug_calls(self, nodes, i, start) -> Tuple[int, Optional[Rug]]:
-        """The run of ``gleplot_xrug``/``gleplot_yrug`` calls at ``i``.
+    def _rug_group(self, nodes, i) -> Optional[Tuple[int, dict]]:
+        """The ``gsave`` .. ``grestore`` group drawing one rug, at ``i``.
 
-        Returns ``(next_index, rug)``, or ``(start, None)`` when the first
-        call is malformed. The calls that follow with the same sub and the
-        same length, position, colour and width belong to the same rug, so
-        two such rugs written one after the other come back as one, with
-        the same ink.
+        ``set color C lwidth W cap butt`` then ``xrug "dN" L "pos"`` (or
+        ``yrug``), exactly as :meth:`gleplot.writer.GLEWriter.add_rug`
+        writes it. Returns ``(next_index, fields)`` or ``None``.
         """
-        n = len(nodes)
-        keyword: Optional[str] = None
-        style: List[object] = []
-        ticks: List[float] = []
-        while True:
-            j = self._skip_blanks(nodes, i)
-            stmt = self._as_statement(nodes[j]) if j < n else None
+        stmts = []
+        j = i
+        for _ in range(4):
+            j = self._skip_blanks(nodes, j)
+            stmt = self._as_statement(nodes[j]) if j < len(nodes) else None
             if stmt is None:
+                return None
+            stmts.append(_words_and_values(stmt))
+            j += 1
+        opening, style, call, closing = stmts
+        words = [[t.value.lower() for t in toks] for toks in stmts]
+        if words[0] != ["gsave"] or words[3] != ["grestore"]:
+            return None
+        if words[1][:2] != ["set", "color"]:
+            return None
+        color, k = _collect_color(style, 2)
+        if color is None or words[1][k : k + 1] != ["lwidth"]:
+            return None
+        lwidth, k = _collect_value(style, k + 1)
+        if lwidth is None or words[1][k:] != ["cap", "butt"]:
+            return None
+        axis = {"xrug": "x", "yrug": "y"}.get(words[2][0])
+        args = self._guide_call_args(call, 1)
+        if axis is None or len(args) != 3:
+            return None
+        dataset, length, position = args
+        if (
+            not isinstance(dataset, str)
+            or not _DATASET_RE.match(dataset)
+            or not isinstance(length, (int, float))
+            or position not in RUG_EDGES[axis]
+        ):
+            return None
+        fields = {
+            "axis": axis,
+            "dataset": dataset.lower(),
+            "length": -float(length),
+            "position": position,
+            "color": color,
+            "linewidth": linewidth_cm_to_pt(float(lwidth)),
+        }
+        return j, fields
+
+    def _scan_post_graph_rugs(self, nodes, start) -> Dict[str, dict]:
+        """The rug groups after a graph, before the next one, by dataset."""
+        found: Dict[str, dict] = {}
+        for k in range(start, len(nodes)):
+            if isinstance(nodes[k], GraphBlock):
                 break
-            kw = (stmt.keyword or "").lower()
-            args = self._guide_call_args(_words_and_values(stmt), 1)
-            if keyword is None:
-                if not _is_rug_call(kw, args):
-                    return start, None
-                keyword, style = kw, args[1:]
-            elif kw != keyword or args[1:] != style or not _is_rug_call(kw, args):
-                break
-            ticks.append(float(cast(float, args[0])))
-            i = j + 1
-        length, position, color, lwidth = style
-        return i, Rug(
-            type="rug",
-            axis=_RUG_CALLS[cast(str, keyword)],
-            ticks=ticks,
-            length=float(cast(float, length)),
-            position=cast(str, position),
-            color=cast(str, color),
-            linewidth=linewidth_cm_to_pt(float(cast(float, lwidth))),
-        )
+            group = self._rug_group(nodes, k)
+            if group is not None:
+                found.setdefault(group[1]["dataset"], group[1])
+        return found
+
+    @staticmethod
+    def _loaded_rug_datasets(block: GraphBlock, rugs: Dict[str, dict]) -> bool:
+        """Whether ``block`` loads one of ``rugs`` as ``data "f" dN=c1,c2``.
+
+        The shape :meth:`_claim_rug_datasets` takes, so the include is
+        regenerated only when the rug will be.
+        """
+        for child in block.body:
+            if isinstance(child, Statement) and (child.keyword or "") == "data":
+                words = [t.value.lower() for t in _words_and_values(child)]
+                if (
+                    len(words) == 7
+                    and words[2] in rugs
+                    and words[3:]
+                    == [
+                        "=",
+                        "c1",
+                        ",",
+                        "c2",
+                    ]
+                ):
+                    return True
+        return False
+
+    def _claim_rug_datasets(self, pass1: _GraphDatasets) -> None:
+        """Turn each rug group after this graph into a ``Rug``, from its data.
+
+        The group's dataset must be the only one its ``data`` statement
+        declares, as ``c1,c2``, with every tick finite. Its statement is then
+        consumed; the rug and the statement's text wait in ``_ready_rugs``
+        for the text cluster to take the group.
+        """
+        rugs, self._post_graph_rugs = self._post_graph_rugs, {}
+        for names, text, line_no, defs, _options in pass1.data_stmts:
+            if len(names) != 1 or names[0] not in rugs:
+                continue
+            fields = rugs[names[0]]
+            data_file, xcol, ycol = defs[names[0]]
+            if (xcol, ycol) != (1, 2):
+                continue
+            cols = self._load_series(data_file, xcol, ycol, line_no=line_no)
+            if "error" in cols:
+                continue
+            ticks = np.asarray(cols[fields["axis"]], dtype=float)
+            if not np.all(np.isfinite(ticks)) or ticks.size == 0:
+                continue
+            pass1.emitted.add(names[0])
+            rug = Rug(
+                type="rug",
+                axis=fields["axis"],
+                ticks=[float(v) for v in ticks],
+                length=fields["length"],
+                position=fields["position"],
+                color=fields["color"],
+                linewidth=fields["linewidth"],
+                data_file=data_file,
+            )
+            self._ready_rugs[names[0]] = (rug, text)
 
     def _is_polar_labels_call(self, stmt) -> bool:
         """Whether ``stmt`` is the label call of the polar axes just parsed.
