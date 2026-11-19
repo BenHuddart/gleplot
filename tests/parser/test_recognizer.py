@@ -1778,20 +1778,35 @@ def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
     assert "let d2 = (d1-1)/(3-1)\n" in out.read_text(encoding="utf-8")
 
 
-def test_a_non_finite_qualifier_keeps_the_line_raw(tmp_path):
-    """``deresolve 1e999`` has no integer count: kept as written (#165)."""
+@pytest.mark.parametrize(
+    "qualifiers",
+    [
+        "deresolve 1e999 xmin 1e999",
+        # #167: these raised out of open_gle instead.
+        "svg_smooth 1e999",
+        "svg_smooth (1e999-1e999)",
+        "lstyle 1e999",
+        "lstyle -1e999",
+    ],
+)
+def test_a_non_finite_qualifier_keeps_the_line_raw(tmp_path, qualifiers):
+    """A non-finite count or style is not read: the line is kept as written
+    (#165, #167)."""
+    line = f"   d1 line {qualifiers} color RED"
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
         "begin graph\n"
         '   data "v.dat" d1=c1,c2\n'
-        "   d1 line deresolve 1e999 xmin 1e999 color RED\n"
+        f"{line}\n"
         "end graph\n"
     )
     p = _write(tmp_path, "inf.gle", src, {"v.dat": "0 1\n1 2\n"})
-    ax = parse_gle_figure(p).figure.axes_list[0]
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
     assert ax.file_series == []
-    assert "   d1 line deresolve 1e999 xmin 1e999 color RED" in ax.passthrough
+    assert line in ax.passthrough
+    assert any(w.startswith("data:") for w in rec.warnings)
 
 
 @pytest.mark.parametrize(
@@ -1898,7 +1913,7 @@ def test_marker_config_mdist_comes_back_on_the_series(tmp_path):
     assert again.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
 
 
-def test_dataset_qualifiers_on_an_errorbar_warn_and_are_dropped(tmp_path):
+def test_dataset_qualifiers_on_an_errorbar_keep_the_data_range(tmp_path):
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -1924,11 +1939,16 @@ def test_dataset_qualifiers_on_an_errorbar_warn_and_are_dropped(tmp_path):
     fig.add_subplot(111).errorbar([0, 1], [1, 2], yerr=0.1)
     path = tmp_path / "eb.gle"
     fig.savefig_gle(str(path))
-    text = path.read_text(encoding="utf-8").replace(" err ", " deresolve 2 err ", 1)
+    text = path.read_text(encoding="utf-8").replace(
+        " err ", " deresolve 2 average xmin 0.5 err ", 1
+    )
     path.write_text(text, encoding="utf-8")
     rec = parse_gle_figure(path)
-    assert "deresolve" not in rec.figure.axes_list[0].errorbars[0]
-    assert any("deresolve on an error-bar dataset" in w for w in rec.warnings)
+    errorbar = rec.figure.axes_list[0].errorbars[0]
+    assert "deresolve" not in errorbar
+    assert errorbar["xmin"] == 0.5
+    notes = [w for w in rec.warnings if "error-bar dataset" in w]
+    assert len(notes) == 1 and "deresolve, average on" in notes[0]
 
 
 def test_an_explicit_smooth_on_a_step_series_round_trips(tmp_path):
