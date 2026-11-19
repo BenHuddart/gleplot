@@ -23,8 +23,9 @@ class GLEStyleConfig:
     Attributes
     ----------
     font : str or None
-        GLE font name (e.g., 'times8', 'psagb', 'plti').
-        If None or empty string, uses GLE's default font. Default: None
+        GLE font name (e.g., 'texcmr', 'ss', 'psh'), not a family name such
+        as 'helvetica', which GLE rejects. If None or empty string, uses
+        GLE's default font. Default: ''
 
     fontsize : float
         Font size in points. Default: 12 (optimized for GLE/PDF readability)
@@ -357,7 +358,7 @@ class GlobalConfig(metaclass=GlobalConfigMeta):
     --------
     >>> from gleplot.config import GlobalConfig
     >>> # Change default font globally
-    >>> GlobalConfig.style.font = 'helvetica'
+    >>> GlobalConfig.style.font = 'texcmss'  # TeX Computer Modern Sans Serif
     >>> # All new figures will use this font
 
     >>> # Or reset to defaults
