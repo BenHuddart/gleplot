@@ -319,7 +319,8 @@ Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
 `contour` and `tricontour` take matplotlib's `linewidth` (`lw`) and
 `linestyle` (`ls`) for `linewidths` and `linestyles`, one value each: GLE
 draws every level as one dataset, so a per-level list of differing values
-warns and its first entry is used. Their other keywords
+warns and its first entry is used. `None` for `colors`, `linewidths` or
+`linestyles` means the default. Their other keywords
 warn and are ignored, among them `extent` and `origin`: pass the grid's
 coordinates, `contour(x, y, Z)`, to place it. A misspelt keyword warns the
 same way.

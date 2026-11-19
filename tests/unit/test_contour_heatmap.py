@@ -1334,6 +1334,19 @@ def test_contour_takes_matplotlibs_singular_line_aliases(name, args, recwarn):
 
 
 @pytest.mark.parametrize("name, args", [("contour", (_GRID,)), ("tricontour", _PTS)])
+def test_contour_line_keywords_take_none_as_the_default(name, args, recwarn):
+    fig, ax = glp.subplots()
+    getattr(ax, name)(*args, colors=None, linewidths=None, linestyles=None)
+    getattr(ax, name)(*args)
+    getattr(ax, name)(*args, linewidths=None, lw=2.5)
+    given, default, aliased = ax.contours
+    for key in ("color", "linewidth", "linestyle"):
+        assert given[key] == default[key]
+    assert aliased["linewidth"] == 2.5
+    assert not recwarn.list
+
+
+@pytest.mark.parametrize("name, args", [("contour", (_GRID,)), ("tricontour", _PTS)])
 def test_contour_per_level_lists_warn_and_take_the_first(name, args):
     fig, ax = glp.subplots()
     with pytest.warns(UserWarning) as record:
