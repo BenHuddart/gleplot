@@ -3888,7 +3888,7 @@ class Figure:
         checked; ones left to GLE are not known here.
         """
         for series in resolution.visible(
-            ax.lines + ax.scatters + ax.errorbars + ax.file_series
+            [*ax.lines, *ax.scatters, *ax.errorbars, *ax.file_series]
         ):
             for dim in ("x", "y"):
                 lo, hi = series.get(f"{dim}min"), series.get(f"{dim}max")
@@ -3908,22 +3908,23 @@ class Figure:
                         )
                     continue
                 limits = (getattr(ax, f"{axis}min"), getattr(ax, f"{axis}max"))
-                if (lo is None) == (hi is None) or None in limits:
+                if None in limits:
                     continue
                 low, high = sorted(cast(Tuple[float, float], limits))
-                if hi is None:
-                    given, key, far, missing, empty = lo, "min", high, "max", lo >= high
+                if lo is not None and hi is None and lo >= high:
+                    given, key, far, missing = lo, "min", high, "max"
+                elif hi is not None and lo is None and hi <= low:
+                    given, key, far, missing = hi, "max", low, "min"
                 else:
-                    given, key, far, missing, empty = hi, "max", low, "min", hi <= low
-                if empty:
-                    warn_external(
-                        f"The data range of {name} gives only {dim}{key} = "
-                        f"{given:g}, and GLE takes the missing {dim}{missing} "
-                        f"from the {axis} axis limit {far:g}, so the range is "
-                        "empty and GLE stops with 'invalid range for dimension "
-                        f"{dim.upper()}'. Give {dim}{missing} too, or widen the "
-                        f"{axis} limits."
-                    )
+                    continue
+                warn_external(
+                    f"The data range of {name} gives only {dim}{key} = "
+                    f"{given:g}, and GLE takes the missing {dim}{missing} "
+                    f"from the {axis} axis limit {far:g}, so the range is "
+                    "empty and GLE stops with 'invalid range for dimension "
+                    f"{dim.upper()}'. Give {dim}{missing} too, or widen the "
+                    f"{axis} limits."
+                )
 
     @staticmethod
     def _warn_contourf_overhang(ax: Axes, grid: Series) -> None:
