@@ -89,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     env:
       # Pinned to a release tag: building an unpinned upstream master broke
       # CI when it grew a hard docbook-to-man requirement for man pages.
@@ -162,10 +162,20 @@ jobs:
             glib \
             extra-cmake-modules
 
-      # The built GLE is cached, keyed on its version and the runner image.
-      # Bump the trailing number to force a rebuild. A pull request can read
-      # the cache written on main; an entry unused for a week is evicted, and
-      # the next run rebuilds.
+      # GLE runs gswin64c.exe by bare name, and the Chocolatey package does
+      # not put it on PATH.
+      - name: Install GLE dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          choco install ghostscript --yes --no-progress
+          gs_bin="$(ls -d "/c/Program Files/gs/"gs*/bin | sort -V | tail -1)"
+          cygpath -w "$gs_bin" >> "$GITHUB_PATH"
+
+      # GLE is cached, keyed on its version and the runner image. Bump the
+      # trailing number to force a fresh install. A pull request can read the
+      # cache written on main; an entry unused for a week is evicted, and the
+      # next run builds (or, on Windows, downloads) GLE again.
       - name: Restore cached GLE
         id: gle-cache
         uses: actions/cache@v4
@@ -174,22 +184,24 @@ jobs:
           key: gle-${{ env.GLE_VERSION }}-${{ matrix.os }}-${{ runner.arch }}-1
 
       # A restored binary can stop loading if the runner image moves the
-      # libraries it was linked against. Rebuild then instead of failing.
+      # libraries it was linked against. Install it again then instead of
+      # failing.
       - name: Check restored GLE
         id: gle-check
         if: steps.gle-cache.outputs.cache-hit == 'true'
+        shell: bash
         run: |
           if "$HOME/gle/bin/gle" -info; then
             echo "usable=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::cached GLE does not run on this image; rebuilding"
+            echo "::warning::cached GLE does not run on this image; installing it again"
             rm -rf "$HOME/gle"
           fi
 
       # Man pages and the QGLE GUI are disabled - the tests only need the
       # gle CLI.
       - name: Build GLE
-        if: steps.gle-check.outputs.usable != 'true'
+        if: steps.gle-check.outputs.usable != 'true' && runner.os != 'Windows'
         run: |
           git clone --depth=1 --branch "$GLE_VERSION" https://github.com/vlabella/GLE.git "$RUNNER_TEMP/GLE"
           cmake -S "$RUNNER_TEMP/GLE/src" -B "$RUNNER_TEMP/GLE/build" \
@@ -204,8 +216,26 @@ jobs:
             --parallel "$(getconf _NPROCESSORS_ONLN)"
           cmake --install "$RUNNER_TEMP/GLE/build" --config Release
 
+      # Building GLE on Windows needs its dependencies compiled through
+      # vcpkg, so this leg uses upstream's prebuilt static build instead.
+      - name: Download GLE (Windows)
+        if: steps.gle-check.outputs.usable != 'true' && runner.os == 'Windows'
+        shell: bash
+        run: |
+          archive="gle-graphics-${GLE_VERSION#v}-win64s.zip"
+          curl -sSfL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/vlabella/GLE/releases/download/$GLE_VERSION/$archive"
+          unzip -q "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/${archive%.zip}" "$HOME/gle"
+
       - name: Put GLE on PATH
-        run: echo "$HOME/gle/bin" >> "$GITHUB_PATH"
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cygpath -w "$HOME/gle/bin" >> "$GITHUB_PATH"
+          else
+            echo "$HOME/gle/bin" >> "$GITHUB_PATH"
+          fi
 
       - name: Verify GLE installation
         run: |
@@ -223,6 +253,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run tests
+        shell: bash
         run: |
           if [ "$COVERAGE" = "true" ]; then
             pytest tests/ -v --tb=short --cov=gleplot --cov-report=xml
