@@ -1,5 +1,6 @@
 """Unit tests for plotting functionality."""
 
+import re
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -3104,6 +3105,21 @@ def test_other_line_calls_reject_a_bad_linewidth_by_their_own_name(name, draw):
     ax = glp.figure().add_subplot(111)
     with pytest.raises(ValueError, match=rf"{name}\(\) linewidth must be"):
         draw(ax)
+
+
+@pytest.mark.parametrize(
+    "draw, error, shown",
+    [
+        (lambda ax: ax.axhline(float("nan")), ValueError, "axhline(y=...) must be"),
+        (lambda ax: ax.axvline(float("inf")), ValueError, "axvline(x=...) must be"),
+        (lambda ax: ax.axvline("mid"), TypeError, "axvline(x=...) must be a number"),
+    ],
+)
+def test_a_reference_line_position_must_be_a_finite_number(draw, error, shown):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(error, match=re.escape(shown)):
+        draw(ax)
+    assert ax.reflines == []
 
 
 def _saved(fig, tmp_path):

@@ -5894,7 +5894,7 @@ class Axes:
         Parameters
         ----------
         x : float
-            Position of the line, in data coordinates.
+            Position of the line, in data coordinates; a finite number.
         ymin, ymax : float
             Vertical extent as a fraction of the axes height (matplotlib
             semantics): ``0`` is the bottom of the axes, ``1`` the top.
@@ -5959,6 +5959,8 @@ class Axes:
         caller = "axvline" if orient == "v" else "axhline"
         names = "ymin/ymax" if orient == "v" else "xmin/xmax"
         lo, hi = self._check_axes_fraction(lo, hi, names)
+        axis_name = "x" if orient == "v" else "y"
+        position = _finite_float(value, f"{caller}({axis_name}=...)")
         data_name = kwargs.pop("data_name", None)
         linestyle = _pop_line_alias(kwargs, caller, "ls", "linestyle", linestyle, "-")
         linestyle = _line_style(caller, linestyle)
@@ -5973,7 +5975,7 @@ class Axes:
         entry = RefLine(
             type="refline",
             orient=orient,
-            value=float(value),
+            value=position,
             span_lo=lo,
             span_hi=hi,
             color=gle_color,

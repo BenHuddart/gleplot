@@ -357,11 +357,6 @@ NAN = float("nan")
             "xaxis min 1 max 3",
             "yaxis min 0 max 3",
         ),
-        (
-            lambda ax: (ax.plot([0, 1], [0, 1]), ax.axhline(NAN), ax.axvline(np.inf)),
-            "xaxis min 0 max 1",
-            "yaxis min 0 max 1",
-        ),
     ],
     ids=[
         "plot",
@@ -371,7 +366,6 @@ NAN = float("nan")
         "fill_between",
         "fill_betweenx",
         "bar",
-        "guides",
     ],
 )
 def test_a_non_finite_value_does_not_reach_the_range(draw, xline, yline):
