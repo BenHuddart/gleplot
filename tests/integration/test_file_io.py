@@ -119,7 +119,9 @@ class TestFileIO:
     def test_savefig_auto_detects_svg(self):
         """savefig should auto-detect the 'svg' format from a .svg suffix."""
         output_file = self.tempdir / "test.svg"
-        result = self.fig.savefig(str(output_file))
+        # The default font is a PostScript one, which SVG's Cairo swaps.
+        with pytest.warns(UserWarning, match="SVG output is drawn"):
+            result = self.fig.savefig(str(output_file))
 
         assert result.suffix == ".svg"
         assert result.exists()
