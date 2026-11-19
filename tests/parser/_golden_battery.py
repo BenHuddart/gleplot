@@ -2015,7 +2015,28 @@ def data_beyond_six_figures():
     return fig
 
 
+def coordinates_beyond_six_figures():
+    """Lone coordinates on a timestamp axis: guides, text, ticks, a limit."""
+    fig, (left, right, ticks, narrow) = glp.subplots(1, 4, data_prefix="golden")
+    ticks.plot([1.7e9, 1.7e9 + 120], [1.0, 3.0])
+    ticks.set_xticks(dticks=30, ftick=1.7e9 + 30)
+    ticks.rug([1.7e9 + 30, 1.7e9 + 60])
+    ticks.axhspan(1.5, 2.5)
+    # A band narrower than its axis: marker and fill must write it alike.
+    narrow.plot([4.156750504153, 4.156755839588], [1.0, 2.0])
+    narrow.axvspan(4.156746290208, 4.156748511543)
+    left.plot([1.7e9, 1.7e9 + 120], [1.0, 3.0])
+    left.axvline(1.7e9 + 30)
+    left.axvspan(1.7e9 + 40, 1.7e9 + 40.5)
+    left.text(1.7e9 + 90, 2.0, "t")
+    left.set_xticks([1.7e9 + 30])
+    right.plot([1.0, 2.0], [1.7e9, 1.7e9 + 120], yaxis="y2")
+    right.set_ylim(1.7e9 + 30, None, axis="y2")
+    return fig
+
+
 BUILDERS = [
+    coordinates_beyond_six_figures,
     single_line,
     multi_series_styles,
     scatter,

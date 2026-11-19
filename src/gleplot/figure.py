@@ -3831,7 +3831,7 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         writer.reserve_datasets(ax.passthrough)
-        self._write_axis_setup(writer, ax, frame)
+        self._write_axis_setup(writer, ax, frame, resolution)
         self._warn_data_range_edges(ax, resolution)
         self._write_heatmaps(writer, ax, resolution)
         self._write_contours(writer, ax, resolution)
@@ -3855,12 +3855,18 @@ class Figure:
         self._write_legend(writer, ax, legend, resolution)
 
     def _write_axis_setup(
-        self, writer: GLEWriter, ax: Axes, frame: Optional[Tuple[float, float]]
+        self,
+        writer: GLEWriter,
+        ax: Axes,
+        frame: Optional[Tuple[float, float]],
+        resolution: SourceResolution,
     ) -> None:
         """Titles, scales, ranges, ticks and grid of the graph block.
 
         A polar axes' ranges are the window :func:`~gleplot.writer.polar_window`
-        fits to ``frame``, and its grid is the polar one.
+        fits to ``frame``, and its grid is the polar one. A linear axis
+        missing a limit hands the writer its data extent, which sets how
+        precisely the coordinates on it are written.
         """
         xmin, xmax, ymin, ymax = ax.xmin, ax.xmax, ax.ymin, ax.ymax
         # Set by _resolve_axis_limits on every polar axes. Rounded as the
@@ -3870,9 +3876,30 @@ class Figure:
             if ax._polar and ax.ymax is not None
             else None
         )
+        data_extents = {}
         if rmax is not None:
             xr, yr = polar_window(rmax, frame, fontsize_pt_to_cm(self.style.fontsize))
             xmin, xmax, ymin, ymax = -xr, xr, -yr, yr
+        else:
+            scans = {
+                "x": self._get_data_xlim,
+                "y": self._get_data_ylim,
+                "y2": self._get_data_y2lim,
+                "x2": self._get_data_x2lim,
+            }
+            has_data = {
+                "x": True,
+                "y": True,
+                "y2": ax.has_y2_plots(),
+                "x2": ax.has_x2_plots(),
+            }
+            data_extents = {
+                which: scan(ax, resolution)
+                for which, scan in scans.items()
+                if has_data[which]
+                and None in self._axis_limits(ax, which)
+                and getattr(ax, f"{which}scale") != "log"
+            }
         if ax.math_mode:
             for name, other, scale, lo, hi in (
                 ("x", "y", ax.xscale, ax.xmin, ax.xmax),
@@ -3981,6 +4008,7 @@ class Figure:
                 else self.graph.title_distance
             ),
             title_font=ax.title_font,
+            data_extents=data_extents,
         )
         if ax._facecolor is not None and not ax._frame_off:
             writer.add_background(ax._facecolor)
