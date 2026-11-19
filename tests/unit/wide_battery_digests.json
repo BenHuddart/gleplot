@@ -29,6 +29,7 @@
  "golden:dataset_qualifiers": "e3cb80951cfb6405a8ae05c2784fd128043c5418d3c45bc2237a672df9da77ee",
  "golden:derived_curves": "6f97972a6eff94c8c5a7d88ca7eecca425669c52ea72cea8de349a8c0f6df7f7",
  "golden:errorbar_asymmetric_xy": "711e693f19d2523b0e63ae284a87610d74f1bb0eae586c034b458f7fbf7067b7",
+ "golden:errorbar_data_range": "1e5dc2706566a64bdb22b86af718cb79c7af53ccfa30a9800e3210bf91459070",
  "golden:errorbar_field_options": "2df9bc7514207eec1030233ce010c13632c413956998778b8f1348059db70acd",
  "golden:errorbar_symmetric": "c2dbf2769ad70f893eb4418a924060c3a0177ebfbb1272ba713ab5008aa11641",
  "golden:exact_rgb_colors": "b3a5fd09f16f3cf3433031d00e43fe6c261442ba338c7f9223ea6d2d33abc7b9",

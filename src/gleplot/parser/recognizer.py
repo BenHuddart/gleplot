@@ -7664,6 +7664,10 @@ class _Recognizer:
             ),
             data_file=data_file,
         )
+        qualifiers = dict(attrs["qualifiers"])
+        for name in ("xmin", "xmax", "ymin", "ymax"):
+            if name in qualifiers:
+                entry[name] = qualifiers.pop(name)
         if not err_consts:
             # Column indices in the SAME order the writer emits them (x, y,
             # then y-error column(s) collapsed to one when symmetric i.e.
@@ -7685,10 +7689,10 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
-        if attrs["qualifiers"]:
+        if qualifiers:
             # Axes.errorbar has no such fields: GLE thins the markers but
             # not the whiskers under deresolve (getErrorBarData).
-            names = ", ".join(attrs["qualifiers"])
+            names = ", ".join(qualifiers)
             self._note(
                 ImportCategory.DATA,
                 f"{names} on an error-bar dataset is not modelled and was "

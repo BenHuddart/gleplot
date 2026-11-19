@@ -4480,6 +4480,9 @@ class GLEWriter:
         - ``linewidth``: points; 0 or 1 means the style's default width.
         - ``gle_capsize``: the cap width in cm. A series without it (one saved
           before it existed) falls back to ``capsize``.
+        - ``xmin`` / ``xmax`` / ``ymin`` / ``ymax``: GLE's dataset range,
+          see :meth:`_dataset_qualifier_clause`. GLE draws the error bars
+          against it as well as the line and markers.
         - ``column_names``: the sidecar header row (e.g. ``['x', 'signal',
           'err']``). Only the MAIN dataset's ``key`` clause needs suppressing
           when unlabeled (see :meth:`_key_clause`) -- error sub-datasets
@@ -4714,6 +4717,7 @@ class GLEWriter:
 
         # Add y2axis directive if using secondary y-axis
         line_cmd += self._dataset_axis_clause(xaxis, yaxis)
+        line_cmd += self._dataset_qualifier_clause(series, False)
 
         line_cmd += self._key_clause(label, has_header)
         # No preview-decimation clause here, deliberately: this dataset

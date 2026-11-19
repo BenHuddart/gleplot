@@ -1916,6 +1916,19 @@ class TestDatasetQualifiers:
         with pytest.raises(TypeError):
             self.ax.plot([0, 1], [0, 1], marker="o", **kwargs)
 
+    def test_errorbar_takes_the_data_range(self):
+        self.ax.errorbar([0, 1, 2], [1, 2, 1], yerr=0.1, xmin=0.5, ymax=1.5)
+        (line,) = self._dn_lines()
+        assert line.endswith(' err d2 xmin 0.5 ymax 1.5 key ""')
+        with pytest.raises(ValueError, match="xmin must be less than xmax"):
+            self.ax.errorbar([0, 1], [0, 1], yerr=0.1, xmin=2, xmax=1)
+        with pytest.raises(TypeError, match="ymin"):
+            self.ax.errorbar([0, 1], [0, 1], yerr=0.1, ymin="a")
+        with pytest.warns(UserWarning, match="deresolve"):
+            self.ax.errorbar([0, 1], [0, 1], yerr=0.1, deresolve=2)
+        assert len(self.ax.errorbars) == 2
+        assert "deresolve" not in self.ax.errorbars[1]
+
 
 class TestHistogram:
     """Counts via ``let dK = hist``, drawn as a step or adjoining bars."""

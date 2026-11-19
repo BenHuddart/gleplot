@@ -1104,6 +1104,12 @@ class ErrorbarSeries(Series):
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
+    #: GLE's per-dataset range, as on ``_XYSeries``; the error bars are
+    #: drawn against it too. Absent: that edge is the axis limit.
+    xmin: float
+    xmax: float
+    ymin: float
+    ymax: float
 
     def default_column_names(self) -> Optional[List[str]]:
         return _build_errorbar_column_names(

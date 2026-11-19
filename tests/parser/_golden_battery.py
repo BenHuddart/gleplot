@@ -223,6 +223,29 @@ def errorbar_field_options():
     return fig
 
 
+def errorbar_data_range():
+    """An errorbar data range: all four edges, and one edge with an offset."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0.0, 5.0, 11)
+    ax.errorbar(
+        x,
+        np.sin(x),
+        yerr=0.2,
+        xerr=0.1,
+        marker="o",
+        color="blue",
+        xmin=0.5,
+        xmax=4.5,
+        ymin=-0.8,
+        ymax=0.8,
+        label="window",
+    )
+    ax.errorbar(x, 0.2 * x, yerr=0.1, fmt="none", offset=1.0, color="red", ymax=1.5)
+    ax.legend()
+    return fig
+
+
 def fill_between():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1789,6 +1812,7 @@ BUILDERS = [
     errorbar_symmetric,
     errorbar_asymmetric_xy,
     errorbar_field_options,
+    errorbar_data_range,
     fill_between,
     text_annotations,
     axes_fraction_text,

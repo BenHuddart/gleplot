@@ -1866,7 +1866,7 @@ def test_marker_config_mdist_comes_back_on_the_series(tmp_path):
     assert again.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
 
 
-def test_dataset_qualifiers_on_an_errorbar_warn_and_are_dropped(tmp_path):
+def test_dataset_qualifiers_on_an_errorbar_keep_the_data_range(tmp_path):
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -1892,11 +1892,16 @@ def test_dataset_qualifiers_on_an_errorbar_warn_and_are_dropped(tmp_path):
     fig.add_subplot(111).errorbar([0, 1], [1, 2], yerr=0.1)
     path = tmp_path / "eb.gle"
     fig.savefig_gle(str(path))
-    text = path.read_text(encoding="utf-8").replace(" err ", " deresolve 2 err ", 1)
+    text = path.read_text(encoding="utf-8").replace(
+        " err ", " deresolve 2 xmin 0.5 err ", 1
+    )
     path.write_text(text, encoding="utf-8")
     rec = parse_gle_figure(path)
-    assert "deresolve" not in rec.figure.axes_list[0].errorbars[0]
-    assert any("deresolve on an error-bar dataset" in w for w in rec.warnings)
+    errorbar = rec.figure.axes_list[0].errorbars[0]
+    assert "deresolve" not in errorbar
+    assert errorbar["xmin"] == 0.5
+    notes = [w for w in rec.warnings if "error-bar dataset" in w]
+    assert len(notes) == 1 and "deresolve on" in notes[0]
 
 
 def test_an_explicit_smooth_on_a_step_series_round_trips(tmp_path):
