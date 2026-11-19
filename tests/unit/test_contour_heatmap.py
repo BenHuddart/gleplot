@@ -1093,6 +1093,9 @@ def test_colorbar_rejects_bad_arguments():
     fig, a, b, ha, hb = _two_heatmaps()
     with pytest.raises(ValueError, match="orientation must be"):
         fig.colorbar(ha, orientation="diagonal")
+    for nticks in (0, -3, 2.5, True):
+        with pytest.raises(ValueError, match=f"nticks must be .* got {nticks!r}"):
+            fig.colorbar(ha, nticks=nticks)
     with pytest.raises(TypeError, match="mappable must be"):
         fig.colorbar("a label")
     with pytest.raises(TypeError, match="ax must be one Axes"):

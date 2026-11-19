@@ -213,7 +213,7 @@ fig.colorbar(ax=ax, label='T (K)')
 fig.savefig('scatter_bar.pdf')
 ```
 
-The bar of a `contourf` shows its bands, from the first level to the last, as in matplotlib. With evenly spaced levels it is ticked at the levels, thinned as matplotlib thins them: every `ceil(len(levels) / 10)`-th level from the first, with `nticks` in place of the 10. GLE's colorbar ticks in equal steps, so with uneven levels the bands are still drawn at their levels but the ticks are `nticks` (default 5) equal steps, and `colorbar()` warns. It draws no triangular end caps for `extend`, and warns when `extend` is set.
+The bar of a `contourf` shows its bands, from the first level to the last. With evenly spaced levels it is ticked at the levels: every `ceil(len(levels) / 10)`-th level from the first, with `nticks` in place of the 10. GLE's colorbar ticks in equal steps along a linear scale, so with uneven levels each band takes room in proportion to its range and the ticks are `nticks` (default 5) equal steps; `colorbar()` warns. It draws no triangular end caps for `extend`, and warns when `extend` is set.
 
 ## Contour Smoothing
 

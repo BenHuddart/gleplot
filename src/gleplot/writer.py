@@ -964,6 +964,17 @@ def _band_of(values: np.ndarray, levels: List[float]) -> np.ndarray:
     return band
 
 
+def _contourf_bar_range(series: Mapping[str, Any]) -> Optional[Tuple[Any, Any]]:
+    """The ``(zmin, zmax)`` a ``contourf``'s colormap scales its values onto.
+
+    Its colorbar's range, which the band sub maps back from (see
+    :meth:`GLEWriter.add_contourf_sub`); ``None`` without a colorbar, when
+    the values pass through unscaled.
+    """
+    cb = series.get("colorbar")
+    return (cb["zmin"], cb["zmax"]) if cb else None
+
+
 def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     """Whether GLE draws a ``contourf`` heatmap's bands where its levels are.
 
@@ -6132,8 +6143,9 @@ class GLEWriter:
     def add_contourf_sub(self, series: Series):
         """Define the palette sub a ``contourf`` heatmap's colormap calls.
 
-        The colormap passes each pixel's value through unscaled (``zmin 0
-        zmax 1``), so the sub compares it with the levels themselves. A value
+        The sub compares each pixel's value with the levels themselves: the
+        colormap passes it through unscaled (``zmin 0 zmax 1``), or, with a
+        colorbar, the sub maps it back first (below). A value
         above one level and up to the next takes the colour ``cmap`` gives
         the middle of that band on the ``vmin``..``vmax`` scale (the outer levels when unset), as
         matplotlib colours a band. Below the first level and above the last
@@ -6171,9 +6183,9 @@ class GLEWriter:
         under = f"{call}(0)" if extend in ("min", "both") else white
         over = f"{call}(1)" if extend in ("max", "both") else white
         lines = [f"sub {name} z", f"   {head}"]
-        cb = series.get("colorbar")
-        if cb:
-            lines.append(f"   z = {fmt(cb['zmin'])}*(1-z)+{fmt(cb['zmax'])}*z")
+        bar = _contourf_bar_range(series)
+        if bar:
+            lines.append(f"   z = {fmt(bar[0])}*(1-z)+{fmt(bar[1])}*z")
         lines += [
             f"   if z < {levels[0]} then return {under}",
             f"   if z > {levels[-1]} then return {over}",
@@ -6216,8 +6228,7 @@ class GLEWriter:
             operand = _quote_filename(_grid_z_file(series))
         if "levels" in series:
             name = self._contourf_subs[series["data_file"]]
-            cb = series.get("colorbar")
-            zmin, zmax = (cb["zmin"], cb["zmax"]) if cb else (0, 1)
+            zmin, zmax = _contourf_bar_range(series) or (0, 1)
             self.add_colormap(
                 operand,
                 series["pixels"],
@@ -6243,7 +6254,8 @@ class GLEWriter:
 
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`, or
         a colour-mapped :class:`~gleplot.series.ScatterSeries`; its ``cmap``
-        names the palette and its ``colorbar`` dict (see
+        names the palette (a ``contourf``'s is its band sub, see
+        :meth:`add_contourf_sub`) and its ``colorbar`` dict (see
         :meth:`gleplot.Figure.colorbar`) holds the call's range, size, format
         and label. A series without one writes nothing.
 
