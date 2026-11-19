@@ -182,9 +182,9 @@ class GLEGraphConfig:
     scale_mode : str
         Who sizes the graph. 'auto' (the default): gleplot places each axes
         frame from its subplot cell or ``add_axes`` rect, with margins for
-        labels. 'fullsize': a figure whose only axes comes from
-        ``add_subplot`` or ``subplots`` is written with GLE's ``fullsize``,
-        filling the page with no margins; other figures keep gleplot's
+        labels. 'fullsize': a figure with a single axes, other than one made
+        with ``add_axes``, is written with GLE's ``fullsize``, filling the
+        page with no margins; figures with several axes keep gleplot's
         layout. 'fixed': no effect; the figure is written as under 'auto'.
 
     title_distance : float or None
@@ -253,7 +253,7 @@ class GLEGraphConfig:
         when ``imshow(pixels=...)`` is not given. Default: 200
     """
 
-    scale_mode: str = "auto"  # 'auto', 'fixed', 'fullsize'
+    scale_mode: str = "auto"  # 'auto' or 'fullsize' ('fixed' has no effect)
     # None = emit no 'dist' option (GLE's atitledist/titlescale spacing).
     # See the class docstring for why these are no longer 0.1.
     title_distance: Optional[float] = None

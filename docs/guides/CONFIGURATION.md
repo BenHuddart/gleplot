@@ -124,7 +124,7 @@ delete.
 Controls graph layout and rendering:
 
     graph = glp.GLEGraphConfig(
-        scale_mode='auto',           # 'auto' or 'fullsize'; see Scale Modes
+        scale_mode='auto',           # 'auto' (default), 'fullsize' or 'fixed'; see Scale Modes
         title_distance=None,         # Default Axes.title_dist (cm)
         xlabel_distance=None,        # Default Axes.xlabel_dist (cm)
         ylabel_distance=None,        # Default Axes.ylabel_dist (cm)
@@ -260,11 +260,12 @@ points.
   labels and titles. Change the layout with `figsize`, `subplots_adjust` or
   `add_axes`.
 
-- **`'fullsize'`** - A figure whose only axes comes from `add_subplot` or
-  `subplots` leaves the graph size to GLE's `fullsize` keyword: the graph fills
-  the page with no margins, so labels and titles may overlap the axes, and
-  `set_aspect` cannot apply (it warns). A figure with several axes, or an axes
-  made with `add_axes`, keeps gleplot's layout as under `'auto'`.
+- **`'fullsize'`** - A figure with a single axes, other than one made with
+  `add_axes`, leaves the graph size to GLE's `fullsize` keyword: the graph
+  fills the page with no margins, so labels and titles may overlap the axes,
+  and `set_aspect` cannot apply (it warns). This replaces the placement of a
+  single-graph file opened with `open_gle` too. A figure with several axes, or
+  an axes made with `add_axes`, keeps gleplot's layout as under `'auto'`.
 
 - **`'fixed'`** - Has no effect: the figure is written exactly as under
   `'auto'`.
