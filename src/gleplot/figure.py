@@ -3852,6 +3852,7 @@ class Figure:
             y2style=self._axis_style(ax, "y2"),
             x2style=self._axis_style(ax, "x2"),
             x2_series=ax.has_x2_plots(),
+            y2_series=ax.has_y2_plots(),
             title_size=ax.title_size,
             title_color=ax.title_color,
             title_dist=(

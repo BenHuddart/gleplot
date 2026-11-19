@@ -8838,8 +8838,8 @@ class Axes:
         ----------
         ticks : sequence of float, optional
             Explicit tick positions (GLE ``xplaces``). Passing ``None`` leaves
-            the current setting alone; pass an empty sequence to draw no
-            labelled ticks at all.
+            the current setting alone; an empty sequence draws no ticks and
+            no tick labels (GLE ``xticks off`` and ``xlabels off``).
         labels : sequence of str, optional
             Tick labels (GLE ``xnames``), one per entry of ``ticks``.
         dticks : float, optional
@@ -9972,6 +9972,7 @@ class Axes:
             self.scatters,
             self.errorbars,
             self.hists,
+            self.file_series,
         )
         for plot_list in y2_capable:
             for plot_data in plot_list:
