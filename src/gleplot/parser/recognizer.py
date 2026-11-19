@@ -367,6 +367,7 @@ from .syntax import (
     BlankOrComment,
     GraphBlock,
     OpaqueBlock,
+    SourceLine,
     Statement,
     parse_gle_source,
 )
@@ -2866,6 +2867,10 @@ class _Recognizer:
             "_y2labels_on_line": None,
             "_x2labels_on_raw": None,
             "_x2labels_on_line": None,
+            # The raw text of a bare 'y2ticks on' / 'x2ticks on', judged once
+            # the block is read (see _reconcile_axis_styling).
+            "_y2ticks_on": None,
+            "_x2ticks_on": None,
             "nofirst_x": False,
             "nolast_x": False,
             "nofirst_y": False,
@@ -3095,10 +3100,12 @@ class _Recognizer:
                     pass1.merged_attr_raw[kw] = []
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
-        self._keep_plain_derived_lets(block, pass1, info)
-        self._keep_plain_function_lets(block, pass1, info)
+        # Histogram and colour lets are filtered first: a function let stays
+        # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
         self._keep_colour_lets(pass1, info)
+        self._keep_plain_derived_lets(block, pass1, info)
+        self._keep_plain_function_lets(block, pass1, info)
         return pass1
 
     def _record_colour_let(self, stmt, datasets, info) -> None:
@@ -3501,19 +3508,33 @@ class _Recognizer:
         ``xside off``, ``yside off``, ``xticks off`` and ``yticks off`` are
         recovered together as ``Axes._frame_off``, and only when each appears
         exactly once. Otherwise the set is empty and every one of them stays
-        raw GLE, as before.
+        raw GLE, as before. An ``xticks off`` directly followed by
+        ``xlabels off`` is an empty places list (see
+        :meth:`_is_empty_places`), not part of a hidden frame.
         """
         found: Dict[str, List[int]] = {kw: [] for kw in cls._FRAME_OFF_KEYWORDS}
-        for child in block.body:
-            if not isinstance(child, Statement):
-                continue
-            toks = _words_and_values(child)
+        statements = [c for c in block.body if isinstance(c, Statement)]
+        for child, following in zip(statements, statements[1:] + [None]):
             kw = (child.keyword or "").lower()
-            if kw in found and len(toks) == 2 and toks[1].value.lower() == "off":
-                found[kw].append(child.line_no)
+            if kw not in found or not cls._is_bare_off(child):
+                continue
+            if (
+                kw in ("xticks", "yticks")
+                and following is not None
+                and (following.keyword or "").lower() == f"{kw[0]}labels"
+                and cls._is_bare_off(following)
+            ):
+                continue
+            found[kw].append(child.line_no)
         if any(len(lines) != 1 for lines in found.values()):
             return set()
         return {lines[0] for lines in found.values()}
+
+    @staticmethod
+    def _is_bare_off(stmt: Statement) -> bool:
+        """``<keyword> off`` and nothing else."""
+        toks = _words_and_values(stmt)
+        return len(toks) == 2 and toks[1].value.lower() == "off"
 
     #: The statements whose ``on`` may switch the top or right axis on.
     _SWITCH_ON_KEYWORDS = {
@@ -4283,6 +4304,13 @@ class _Recognizer:
             ticks = info[f"_{prefix}ticks"]
             subticks = info[f"_{prefix}subticks"]
             gridded = info[f"{prefix}grid"]
+            if self._is_empty_places(prefix, ticks, subticks, info):
+                # 'xticks off' + 'xlabels off' is how GLEWriter writes an
+                # empty places list (GLE ignores an empty 'xplaces').
+                info[f"{prefix}places"] = []
+                info[f"{prefix}labels_off"] = False
+                info[f"_{prefix}ticks"] = None
+                continue
             if not gridded:
                 self._reconcile_tick_marks(prefix, ticks, subticks, info)
                 continue
@@ -4327,6 +4355,17 @@ class _Recognizer:
                 )
                 info[f"_{prefix}subticks"] = None
         for prefix in ("y2", "x2"):
+            # The writer switches a twin scale back on with both lines.
+            reenabled = (
+                self._twin_reenabled(prefix, info)
+                and info[f"_{prefix}labels_on_raw"] is not None
+            )
+            ticks_on = info[f"_{prefix}ticks_on"]
+            if ticks_on is not None and reenabled:
+                passthrough = info["passthrough"]
+                del passthrough[
+                    next(i for i, x in enumerate(passthrough) if x is ticks_on)
+                ]
             raw = info[f"_{prefix}labels_on_raw"]
             if raw is None:
                 continue
@@ -4339,6 +4378,7 @@ class _Recognizer:
                 or info[f"{prefix}max"] is not None
                 or info[f"{prefix}log"]
                 or bool(info[f"{prefix}label"])
+                or (reenabled and ticks_on is not None)
             )
             if not implied:
                 info["passthrough"].append(raw)
@@ -4528,6 +4568,18 @@ class _Recognizer:
             return
         if kw in ("xticks", "yticks", "xsubticks", "ysubticks"):
             self._parse_ticks_line(kw, toks, info, stmt)
+            return
+        if (
+            kw in ("y2ticks", "x2ticks")
+            and len(toks) == 2
+            and toks[1].value.lower() == "on"
+            and info[f"_{kw[:2]}ticks_on"] is None
+        ):
+            # Kept in place as raw GLE unless it turns out to be the
+            # writer's (see _reconcile_axis_styling).
+            raw = self._stmt_text(stmt)
+            info["passthrough"].append(raw)
+            info[f"_{kw[:2]}ticks_on"] = raw
             return
         if kw in ("xplaces", "yplaces", "xnames", "ynames"):
             self._parse_places_or_names_line(kw, toks, info, stmt)
@@ -4768,6 +4820,49 @@ class _Recognizer:
             info[f"{prefix}labels_color"] = opts["color"]
         if loglabels is not None:
             info[f"{prefix}loglabels"] = loglabels
+
+    @staticmethod
+    def _twin_reenabled(prefix, info) -> bool:
+        """Whether the writer switches twin scale ``prefix`` back on.
+
+        It does after an empty places list on the primary axis, whose
+        ``ticks off``/``labels off`` GLE copies onto the twin, when the twin
+        is configured or carries a dataset (``Axes.has_y2_plots`` /
+        ``has_x2_plots``) and is not itself off.
+        """
+        primary = prefix[0]
+        if info[f"{primary}places"] != [] or info[f"{prefix}axis_off"]:
+            return False
+        if (
+            info[f"{prefix}min"] is not None
+            or info[f"{prefix}max"] is not None
+            or info[f"{prefix}log"]
+            or bool(info[f"{prefix}label"])
+        ):
+            return True
+        groups = ("lines", "scatters", "errorbars", "hists", "file_series")
+        axis = "yaxis" if primary == "y" else "xaxis"
+        return any(s.get(axis) == prefix for group in groups for s in info[group])
+
+    @staticmethod
+    def _is_empty_places(prefix, ticks, subticks, info) -> bool:
+        """Whether the axis says no ticks and no labels, and nothing more.
+
+        Only a bare ``xticks off`` with a bare ``xlabels off`` qualifies, on
+        an axis with no places, names, no-tick positions or subtick line: the
+        writer would drop any of those beside an empty places list.
+        """
+        return (
+            ticks is not None
+            and ticks["ok"]
+            and ticks["off"]
+            and all(ticks[k] is None for k in ("lstyle", "lwidth", "length", "color"))
+            and subticks is None
+            and info[f"{prefix}labels_off"]
+            and info[f"{prefix}places"] is None
+            and info[f"{prefix}names"] is None
+            and info[f"{prefix}noticks"] is None
+        )
 
     def _reconcile_tick_marks(self, prefix, ticks, subticks, info) -> None:
         """``xticks``/``xsubticks`` on an axis with no grid: tick marks.
@@ -5602,6 +5697,8 @@ class _Recognizer:
                     and target not in info["_offset_let_datasets"]
                     and target not in info["_derived_lets"]
                     and target not in info["_polar_aliases"]
+                    and target not in info["_hist_lets"]
+                    and target not in info["_colour_lets"]
                 ):
                     info["_function_lets"].clear()
                     info["_derived_lets"].clear()
@@ -7924,6 +8021,14 @@ class _Recognizer:
                 continue
             self._contour_blocks[zfile] = info
             self._mark_block_consumed(node)
+            for sl in info["dropped"]:
+                self._note(
+                    ImportCategory.DATA,
+                    f"{sl.text.strip()!r} in the begin contour block for "
+                    f"{zfile!r} is not modelled and is not written back on "
+                    "save; add it to the saved file by hand if you need it",
+                    (sl.line_no, sl.line_no),
+                )
 
         # A fitz block is ours iff its generated .z feeds a recognized colormap
         # or a recognized contour block, AND its scattered points are readable.
@@ -8069,36 +8174,42 @@ class _Recognizer:
         """Parse a ``begin contour`` block matching gleplot's shape, or ``None``.
 
         Recovers the ``.z`` file it reads and the explicit ``values`` list
-        (``None`` when a bare block using GLE's default 10 levels).
+        (``None`` when a bare block using GLE's default 10 levels), and lists
+        under ``dropped`` the other non-blank lines, which are not rewritten.
+        A ``data`` or ``values`` line it cannot read whole (``values from a
+        to b step s`` among them), or a repeated one, keeps the block as
+        written.
         """
         zfile = None
-        levels = None
+        levels: Optional[List[float]] = None
+        dropped: List[SourceLine] = []
+        seen: Set[str] = set()
         for sl in node.inner_lines:
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
+                if sl.text.strip():
+                    dropped.append(sl)
                 continue
             kw = toks[0].value.lower()
-            if kw == "data" and len(toks) >= 2:
+            if kw not in ("data", "values"):
+                dropped.append(sl)
+                continue
+            if kw in seen or len(toks) < 2:
+                return None
+            seen.add(kw)
+            if kw == "data":
                 zfile, _ = self._read_filename(toks, 1)
-            elif kw == "values":
-                # Only the explicit ``values v1 v2 ...`` form is modeled;
-                # ``values from a to b step s`` stays a foreign block.
-                if len(toks) >= 2 and toks[1].value.lower() == "from":
+                continue
+            levels = []
+            k = 1
+            while k < len(toks):
+                v, k = _collect_value(toks, k)
+                if v is None:
                     return None
-                vals: List[float] = []
-                k = 1
-                while k < len(toks):
-                    v, nxt = _collect_value(toks, k)
-                    if v is None:
-                        k += 1
-                        continue
-                    vals.append(v)
-                    k = nxt
-                if vals:
-                    levels = vals
+                levels.append(v)
         if zfile is None:
             return None
-        return {"zfile": zfile, "levels": levels}
+        return {"zfile": zfile, "levels": levels, "dropped": dropped}
 
     @staticmethod
     def _parse_from_to_step(toks) -> Optional[Tuple[float, float, float]]:
@@ -10416,8 +10527,9 @@ class _Recognizer:
         """Reproduce the writer's emission conditions for tick visibility.
 
         The writer emits:
-          - ``xlabels off``          when ``show_xticks`` is False
-          - ``ylabels off``          when ``show_yticks`` is False
+          - ``xlabels off``          when ``show_xticks`` is False, or
+                                     with ``xticks off`` for empty ``xplaces``
+          - ``ylabels off``          when ``show_yticks`` is False (or as x)
           - ``xaxis ... nofirst``    when ``remove_first_xtick``
           - ``xaxis ... nolast``     when ``remove_last_xtick``
           - (same for y)
