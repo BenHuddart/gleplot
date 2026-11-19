@@ -219,9 +219,10 @@ ax.stem(x, y)
 ## Line keywords
 
 `plot`, `step`, `semilogx`, `semilogy` and `loglog` take matplotlib's short
-names `lw`, `ls`, `c`, `ms`, `mfc` and `ds` for `linewidth`, `linestyle`,
-`color`, `markersize`, `markerfacecolor` and `drawstyle`, and `None` for one
-of them means the default, as in
+names `lw`, `ls`, `c`, `ms` and `mfc` for `linewidth`, `linestyle`,
+`color`, `markersize` and `markerfacecolor` (and, except `step`, which sets
+the draw style from `where`, `ds` for `drawstyle`), and `None` for one of
+them means the default, as in
 matplotlib. matplotlib raises for a name passed with its short name; gleplot
 keeps the full name, with a warning, unless the full name is left at its
 default.

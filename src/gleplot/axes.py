@@ -2706,7 +2706,7 @@ class Axes:
                 ("ymax", ymax, None),
             ):
                 if value != default and not (
-                    name == "drawstyle" and value == "default"
+                    name in ("drawstyle", "ds") and value == "default"
                 ):
                     raise ValueError(
                         f"{name}={value!r} is not supported on a polar axes, "
@@ -4005,10 +4005,11 @@ class Axes:
             above lines and scatters (the historical gleplot default).
         **kwargs
             ``linestyle`` (alias ``ls``) overrides the line style ``fmt``
-            gives, as in matplotlib, except under ``fmt='none'``. ``lw``, ``c``, ``ms`` and
-            ``mfc`` are matplotlib's short names for ``linewidth``,
-            ``color``, ``markersize`` and ``markerfacecolor``; the full name wins, with a warning, unless it is
-            left at its default. Any other keyword (``ecolor``,
+            gives, as in matplotlib, except under ``fmt='none'``. ``lw``,
+            ``c``, ``ms`` and ``mfc`` are matplotlib's short names for
+            ``linewidth``, ``color``, ``markersize`` and
+            ``markerfacecolor``; the full name wins, with a warning, unless
+            it is left at its default. Any other keyword (``ecolor``,
             ``elinewidth``, ``capthick``, ...) warns and is ignored.
 
         Returns
