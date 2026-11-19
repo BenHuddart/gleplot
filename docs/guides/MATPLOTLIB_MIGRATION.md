@@ -229,7 +229,8 @@ keeps the full name, with a warning, unless the full name is left at its
 default. A `linewidth` that is NaN, infinite or negative raises
 `ValueError` at the call, on these and the other line-drawing calls below,
 `line_from_file`, `function` and `hist(histtype='step')`, where
-matplotlib does not check it.
+matplotlib does not check it. So does a NaN or infinite position or edge on
+`axhline`, `axvline`, `axhspan` or `axvspan`, which matplotlib draws as nothing.
 
 A keyword GLE cannot draw, such as `alpha`, `markeredgecolor` (`mec`),
 `markeredgewidth` (`mew`), `dashes`, `transform` or `clip_on`, warns and is

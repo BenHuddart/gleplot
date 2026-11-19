@@ -3113,13 +3113,29 @@ def test_other_line_calls_reject_a_bad_linewidth_by_their_own_name(name, draw):
         (lambda ax: ax.axhline(float("nan")), ValueError, "axhline(y=...) must be"),
         (lambda ax: ax.axvline(float("inf")), ValueError, "axvline(x=...) must be"),
         (lambda ax: ax.axvline("mid"), TypeError, "axvline(x=...) must be a number"),
+        (lambda ax: ax.axvspan(float("nan"), 1), ValueError, "axvspan(xmin=...)"),
+        (lambda ax: ax.axhspan(0, float("inf")), ValueError, "axhspan(ymax=...)"),
     ],
 )
 def test_a_reference_line_position_must_be_a_finite_number(draw, error, shown):
     ax = glp.figure().add_subplot(111)
     with pytest.raises(error, match=re.escape(shown)):
         draw(ax)
-    assert ax.reflines == []
+    assert ax.reflines == [] and ax.spans == []
+
+
+@pytest.mark.parametrize(
+    "draw, shown",
+    [
+        (lambda bax: bax.axhline(float("nan")), "axhline(y=...)"),
+        (lambda bax: bax.axhspan(0, float("nan")), "axhspan(ymax=...)"),
+    ],
+)
+def test_a_broken_y_axis_guide_position_must_be_a_finite_number(draw, shown):
+    fig = glp.figure()
+    bax = fig.add_broken_yaxes(ylims=[(0, 1), (2, 3)])
+    with pytest.raises(ValueError, match=re.escape(shown)):
+        draw(bax)
 
 
 def _saved(fig, tmp_path):
