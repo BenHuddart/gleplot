@@ -797,10 +797,14 @@ class TestBuildCompileArgs:
             args = build_compile_args(fmt, "out", "in.gle", cairo=True)
             assert "-cairo" in args
 
-    def test_cairo_false_absent_for_every_supported_device(self):
-        for fmt in sorted(SUPPORTED_COMPILE_FORMATS):
+    def test_cairo_false_absent_for_every_device_but_svg(self):
+        for fmt in sorted(SUPPORTED_COMPILE_FORMATS - {"svg"}):
             args = build_compile_args(fmt, "out", "in.gle", cairo=False)
             assert "-cairo" not in args
+
+    def test_svg_always_gets_cairo(self):
+        """Without it GLE drops text in a PostScript font from an SVG (#280)."""
+        assert "-cairo" in build_compile_args("svg", "out", "in.gle", cairo=False)
 
     def test_cairo_omitted_defaults_to_false_for_every_supported_device(self):
         # The default (caller passes nothing) must match cairo=False exactly

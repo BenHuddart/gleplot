@@ -1399,8 +1399,8 @@ class RefLine(Series):
     column_names: Optional[List[str]]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
-    #: Call order, for the legend. Reference lines are emitted in their own
-    #: layer, so this does not change ink.
+    #: Call order, for the legend. Reference lines are written after the
+    #: fills, so this does not change ink.
     _draw_seq: int
 
     def default_column_names(self) -> Optional[List[str]]:

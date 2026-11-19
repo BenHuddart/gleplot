@@ -898,8 +898,11 @@ class Figure:
         polar : bool, default: False
             ``True`` is ``projection='polar'``.
         **kwargs
-            Axes properties in matplotlib. Not supported: they warn and are
-            ignored; call the setters on the returned axes instead.
+            Axes properties in matplotlib. ``facecolor`` (alias ``fc``) is
+            passed to
+            :meth:`Axes.set_facecolor`; the others are not supported: they
+            warn and are ignored, so call the setters on the returned axes
+            instead.
 
         Returns
         -------
@@ -911,7 +914,8 @@ class Figure:
         The axes stands outside the subplot grid: it does not move the grid,
         and ``sharex``/``sharey`` do not apply to it. It is written after the
         axes added before it, so it is drawn on top of them, but unlike
-        matplotlib it has no background, so what is behind it shows through.
+        matplotlib it has no background unless given a ``facecolor``, so
+        what is behind it shows through.
 
         The rect is turned into centimetres from the figure's ``figsize``
         when this is called, and is kept as :attr:`Axes.placement`.
@@ -952,6 +956,9 @@ class Figure:
                 f"add_axes(projection={projection!r}) is not supported; "
                 "use None, 'rectilinear' or 'polar'."
             )
+        if "facecolor" in kwargs and "fc" in kwargs:
+            raise TypeError("add_axes() got both facecolor and fc; pass one.")
+        facecolor = kwargs.pop("facecolor", kwargs.pop("fc", None))
         if kwargs:
             warn_external(
                 f"add_axes() ignores {', '.join(sorted(kwargs))}: set them on "
@@ -969,6 +976,8 @@ class Figure:
         )
         if projection == "polar":
             _make_polar(ax)
+        if facecolor is not None:
+            ax.set_facecolor(facecolor)
 
         self.axes_list.append(ax)
         self._current_axes = ax
@@ -2067,7 +2076,8 @@ class Figure:
         label : str
             Axis label text
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right), as for
+            :meth:`Axes.set_ylabel`.
         **kwargs
             As for :meth:`Axes.set_ylabel`.
         """
@@ -2562,16 +2572,19 @@ class Figure:
             compile behaviour (and its written ``.gle`` text -- the flag is
             compile-time only, never script-time) is completely unchanged.
             Pass ``True``/``False`` to force the flag either way. Ignored
-            when ``format`` is ``'gle'`` (no compile happens).
+            when ``format`` is ``'gle'`` (no compile happens). An ``'svg'``
+            is always compiled with the flag, and ``False`` warns: GLE draws
+            SVG through Cairo anyway, and without the flag it leaves out text
+            in a PostScript font.
 
-            When Cairo ends up active (auto or forced) and this figure's
+            When Cairo ends up active (auto, forced or SVG) and this figure's
             configured font (:attr:`style`'s ``font``) is not one of GLE's
             Cairo-safe fonts, a :class:`UserWarning` naming why Cairo is on
-            (the figure's semi-transparent colours, or ``cairo=True``) is
-            raised: GLE itself substitutes a Cairo-safe font in that case (see
-            :mod:`gleplot.cairo_support`), and SPEC's "no silent drops" rule
-            means that substitution must never happen without gleplot saying
-            so.
+            (the figure's semi-transparent colours, ``cairo=True`` or SVG
+            output) is raised: GLE itself substitutes a Cairo-safe font in
+            that case (see :mod:`gleplot.cairo_support`), and SPEC's "no
+            silent drops" rule means that substitution must never happen
+            without gleplot saying so.
         data_provider : DataProvider, optional
             Supplies the tables that ``ColumnRef``/``GridRef`` series
             reference (:mod:`gleplot.sources`). Injected **here**, at write
@@ -2739,25 +2752,30 @@ class Figure:
                     "Install GLE or use savefig_gle() to save script only."
                 )
 
-            effective_cairo = self.requires_cairo() if cairo is None else cairo
-            why = (
-                "figure requires Cairo for its semi-transparent colours"
-                if cairo is None
-                else "cairo=True was requested"
-            )
-            # GLE's Cairo device, which SVG always uses, draws nothing for
-            # the 'postscript' command.
-            if (effective_cairo or format.lower() == "svg") and any(
+            # SVG is always compiled with -cairo (build_compile_args).
+            svg = format.lower() == "svg"
+            if svg and cairo is False:
+                warn_external(
+                    "cairo=False has no effect on an SVG: GLE draws SVG with "
+                    "its Cairo device, and gleplot passes -cairo so text in a "
+                    "PostScript font is drawn. Save as PDF or EPS to compile "
+                    "without Cairo."
+                )
+            effective_cairo = svg or (self.requires_cairo() if cairo is None else cairo)
+            if svg:
+                why = "SVG output is drawn by GLE's Cairo device"
+            elif cairo is None:
+                why = "figure requires Cairo for its semi-transparent colours"
+            else:
+                why = "cairo=True was requested"
+            # GLE's Cairo device draws nothing for the 'postscript' command.
+            if effective_cairo and any(
                 image_sub_name(image["file"]) == "gleplot_postscript"
                 for ax in self.axes_list
                 for image in ax.images
                 if is_visible(image)
             ):
-                reason = (
-                    "in SVG output"
-                    if format.lower() == "svg"
-                    else f"with GLE's Cairo device ({why})"
-                )
+                reason = "in SVG output" if svg else f"with GLE's Cairo device ({why})"
                 warn_external(
                     f"image(...) EPS files are not drawn {reason}; convert the "
                     "image to PNG, or save as PDF, EPS or PNG without Cairo."
@@ -3100,11 +3118,11 @@ class Figure:
         writer.finalize_shared_sidecars()
         resolution.emit_warnings()
 
-        # Guide subs, likewise: which guides were drawn against GLE's own
-        # range is only settled once every graph block has been written
-        # (G17). Spliced before the metadata block so the metadata's fixed
-        # index-2 insertion point is unaffected.
-        writer.finalize_guide_subs()
+        # The graphutil.gle include, likewise: which guides were drawn
+        # against GLE's own range is only settled once every graph block has
+        # been written. Spliced before the metadata block so the metadata's
+        # fixed index-2 insertion point is unaffected.
+        writer.finalize_includes()
 
         # Splice the metadata block in after the two header comment lines
         # ('! GLE graphics file' / '! Generated by gleplot') and before the
@@ -3292,11 +3310,12 @@ class Figure:
         Skipped (dangling) series contribute nothing, so a write that drops
         the only heatmap does not leave an unused palette sub behind.
 
-        The guide subs (:mod:`gleplot.guides`) are NOT collected here: which
-        guides take the draw form depends on limits that are still unresolved
-        at this point in the write. They are recorded by the writer as the
-        calls are emitted and spliced in beside these ones afterwards -- see
-        :meth:`gleplot.writer.GLEWriter.finalize_guide_subs`.
+        The ``graphutil.gle`` include for guides (:mod:`gleplot.guides`) is
+        NOT decided here: which guides are drawn after ``end graph`` depends
+        on limits that are still unresolved at this point in the write. The
+        writer records it as the calls are emitted and splices it in beside
+        these subs afterwards -- see
+        :meth:`gleplot.writer.GLEWriter.finalize_includes`.
         """
         resolution = resolution or SourceResolution()
         used_cmaps = set()
@@ -3872,6 +3891,8 @@ class Figure:
             ),
             title_font=ax.title_font,
         )
+        if ax._facecolor is not None and not ax._frame_off:
+            writer.add_background(ax._facecolor)
         if rmax is not None:
             writer.add_polar_frame(rmax)
 
@@ -3882,19 +3903,20 @@ class Figure:
         for hm in resolution.visible(ax.heatmaps):
             if hm.get("cells"):
                 self._warn_mesh_overhang(ax, hm)
-            elif "levels" in hm:
-                self._warn_contourf_overhang(ax, hm)
+            elif GLEWriter.writes_node_grid(hm):
+                self._warn_node_grid_overhang(ax, hm)
             writer.add_heatmap(hm)
 
     @staticmethod
-    def _warn_contourf_overhang(ax: Axes, grid: Series) -> None:
-        """Warn where a ``contourf`` bitmap's extra spacing would show.
+    def _warn_node_grid_overhang(ax: Axes, grid: Series) -> None:
+        """Warn where a grid heatmap's extra spacing would show.
 
         GLE draws the bitmap one node spacing past the grid's last node (see
         :meth:`GLEWriter.add_nodes_sidecar`), and only the graph window hides
-        it. Below the first node there is no bitmap, as matplotlib draws
+        it. Before the first node there is no bitmap, as matplotlib draws
         nothing there.
         """
+        kind = "contourf" if "levels" in grid else "imshow"
         x0, x1, y0, y1 = grid["extent"]
         for name, lo, hi, a, b in (
             ("x", x0, x1, ax.xmin, ax.xmax),
@@ -3902,10 +3924,10 @@ class Figure:
         ):
             if a is not None and b is not None and max(a, b) > hi + 1e-9 * (hi - lo):
                 warn_external(
-                    f"The {name} limits reach {max(a, b):g}, beyond the "
-                    f"contourf grid's last {name} = {hi:g}, where GLE draws "
-                    "its last values on for up to one grid spacing. Keep the "
-                    f"upper {name} limit within the grid."
+                    f"The {name} limits reach {max(a, b):g}, beyond the {kind} "
+                    f"grid's last {name} = {hi:g}, where GLE draws its last "
+                    "values on for up to one grid spacing. Keep the upper "
+                    f"{name} limit within the grid."
                 )
 
     @staticmethod
@@ -3997,9 +4019,10 @@ class Figure:
     def _write_spans(writer: GLEWriter, ax: Axes, limits) -> None:
         """axvspan/axhspan bands across an axis GLE has yet to scale.
 
-        Drawn against the engine's own range instead of a literal fill over
-        a range gleplot would have to invent (G17; see gleplot.guides). The
-        other bands are fills, written by :meth:`_write_fills`.
+        Drawn after ``end graph`` against the engine's own range instead of
+        a literal fill over a range gleplot would have to invent (see
+        gleplot.guides). The other bands are fills, written by
+        :meth:`_write_fills`.
         """
         for span in ax.engine_range_guides(ax.spans, limits):
             writer.add_span(span)
@@ -4036,7 +4059,7 @@ class Figure:
 
         Drawn above the shaded bands but still below every data series.
         Same split as the bands: a guide whose spanned axis is GLE's to
-        scale goes out as a draw call, the rest as marked datasets.
+        scale is drawn after ``end graph``, the rest are marked datasets.
         """
         for ref in ax.engine_range_guides(ax.reflines, limits):
             writer.add_refline(ref)
@@ -4405,7 +4428,7 @@ class Figure:
         # (which is always increasing and positive) rather than on the
         # collapsed one it started from.
         for which, (lo_auto, hi_auto) in was_auto.items():
-            self._defer_degenerate_range(ax, which, lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, which, lo_auto, hi_auto, resolution)
 
     @staticmethod
     def _polar_rmax(ax: Axes, resolution: Optional[SourceResolution]) -> float:
@@ -4444,11 +4467,23 @@ class Figure:
     # emitting: the axis' range is left out of the script and GLE scales it.
     # Reproducing that arithmetic in Python would be a second, drifting
     # implementation of a number gleplot never needs to know.
+    #
+    # GLE widens from the datasets it draws, though. An axis no dataset
+    # reaches (only box plots, rugs, text or images, drawn after ``end graph``
+    # or by ``draw``) gets 0..1 from it, which clips what is drawn. There
+    # gleplot writes its own margin, the value's magnitude either side (or 1
+    # at zero): GLE's x range for a lone point, though not its rounded y one.
 
     def _defer_degenerate_range(
-        self, ax: Axes, which: str, lo_auto: bool, hi_auto: bool
+        self,
+        ax: Axes,
+        which: str,
+        lo_auto: bool,
+        hi_auto: bool,
+        resolution: Optional[SourceResolution] = None,
     ) -> None:
-        """Hand ``which``'s range back to GLE if it collapsed to a point.
+        """Hand ``which``'s range back to GLE if it collapsed to a point,
+        or give it a margin where GLE has no dataset to widen it from.
 
         Parameters
         ----------
@@ -4464,6 +4499,11 @@ class Figure:
         When BOTH bounds were explicit the range is the caller's own empty
         one; there is no way to draw it, so it is dropped and said out loud,
         the way :meth:`_apply_log_limits` reports an impossible log range.
+
+        Where no dataset GLE draws reaches the axis (see
+        :meth:`_engine_can_scale`), the derived bounds are written as
+        ``v - |v|`` and ``v + |v|`` instead (-1 and 1 at zero), so a lone box
+        plot or rug is not clipped by GLE's 0..1.
         """
         lo, hi = self._axis_limits(ax, which)
         if lo is None or hi is None or lo != hi:
@@ -4476,13 +4516,28 @@ class Figure:
                 "y2": "set_ylim(axis='y2')",
                 "x2": "set_xlim(axis='x2')",
             }[which]
+            instead = (
+                "Leaving the range out of the script, so GLE autoscales around "
+                "the value instead."
+                if self._engine_can_scale(ax, which, resolution)
+                else "Widening it by the value's magnitude either side instead."
+            )
             warn_external(
                 f"{which}-axis limits are both {lo!r}, an empty range that GLE "
-                'refuses to draw ("illegal range"). Leaving the range out of '
-                "the script, so GLE autoscales around the value instead. Call "
+                f'refuses to draw ("illegal range"). {instead} Call '
                 f"{setter} with a non-empty range to choose your own.",
             )
             lo_auto = hi_auto = True
+
+        if not self._engine_can_scale(ax, which, resolution):
+            width = abs(lo) or 1.0
+            self._set_axis_limits(
+                ax,
+                which,
+                lo - width if lo_auto else lo,
+                hi + width if hi_auto else hi,
+            )
+            return
 
         self._set_axis_limits(
             ax,
@@ -4490,6 +4545,33 @@ class Figure:
             None if lo_auto else lo,
             None if hi_auto else hi,
         )
+
+    #: Series GLE does not scale an axis from: drawn after ``end graph`` or by
+    #: a ``draw`` call, with no dataset.
+    _ENGINE_BLIND = frozenset({"texts", "wedges", "boxes", "rugs", "images"})
+
+    def _engine_can_scale(
+        self, ax: Axes, which: str, resolution: Optional[SourceResolution]
+    ) -> bool:
+        """Whether ``ax`` draws a dataset GLE can widen ``which``'s range from.
+
+        One drawn against that axis (a ``y2`` series does not scale ``y``)
+        with at least one finite point on it; a series with no point arrays
+        (a function curve, a grid) counts.
+        """
+        resolution = resolution or SourceResolution()
+        field, axis = ("yaxis", which) if which[0] == "y" else ("xaxis", which)
+        primary = axis in ("x", "y")
+        for attr in SERIES_ATTRS:
+            if attr in self._ENGINE_BLIND:
+                continue
+            for series in resolution.visible(getattr(ax, attr)):
+                if (series.get(field, axis[0]) == axis[0]) != primary:
+                    continue
+                values = series.get(axis[0])
+                if values is None or np.isfinite(np.asarray(values, dtype=float)).any():
+                    return True
+        return False
 
     def _normalize_inverted_log_limits(self, ax: Axes):
         """Undo an axis inversion on a log axis, which GLE cannot draw.
@@ -4708,7 +4790,7 @@ class Figure:
                 ax.xmin, ax.xmax = hi_global, lo_global
             else:
                 ax.xmin, ax.xmax = lo_global, hi_global
-            self._defer_degenerate_range(ax, "x", lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, "x", lo_auto, hi_auto, resolution)
 
     def _synchronize_y_limits(self, resolution: Optional[SourceResolution] = None):
         """Synchronize y-axis limits across all axes when sharey is enabled."""
@@ -4747,7 +4829,7 @@ class Figure:
                 ax.ymin, ax.ymax = hi_global, lo_global
             else:
                 ax.ymin, ax.ymax = lo_global, hi_global
-            self._defer_degenerate_range(ax, "y", lo_auto, hi_auto)
+            self._defer_degenerate_range(ax, "y", lo_auto, hi_auto, resolution)
 
     def _get_data_xlim(
         self,

@@ -331,7 +331,7 @@ def normalize(d: dict) -> dict:
         # ``_parse_fill_command``), so it is not representable as a *number*
         # post round-trip, only baked into 'color'. Its data arrays already
         # snapped above.
-        for s in ax.get("fills", []):
+        for s in ax.get("fills", []) + ax.get("spans", []):
             if "color" in s:
                 s["color"] = _apply_alpha(s["color"], s.get("alpha"))
             s.pop("alpha", None)
@@ -458,6 +458,16 @@ def test_to_dict_equivalence(name, tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     recognized = parse_gle_figure(gle_path).figure
     recovered = recognized.to_dict()
+
+    # A guide drawn after the graph writes no sidecar, so the name it is
+    # given on load is a fresh reservation, not the one it was built with.
+    written = {p.name for p in tmp_path.iterdir()}
+    for ax_o, ax_r in zip(original["figure"]["axes"], recovered["figure"]["axes"]):
+        for group in ("reflines", "spans"):
+            for g_o, g_r in zip(ax_o.get(group, []), ax_r.get(group, [])):
+                if g_o.get("data_file") not in written:
+                    g_o.pop("data_file", None)
+                    g_r.pop("data_file", None)
 
     assert normalize(recovered) == normalize(original)
 
@@ -1310,7 +1320,7 @@ def test_line_mode_round_trip_and_implied_line(tmp_path):
     assert "d2 fsteps " not in text
 
 
-def test_line_mode_on_an_errorbar_warns_and_is_dropped(tmp_path):
+def test_line_mode_on_a_file_errorbar_keeps_it_raw(tmp_path):
     src = (
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
@@ -1328,9 +1338,11 @@ def test_line_mode_on_an_errorbar_warns_and_is_dropped(tmp_path):
     )
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
-    assert ax.lines == []
-    assert "line_mode" not in ax.file_series[0]
-    assert any("line mode 'steps'" in w for w in rec.warnings)
+    assert ax.lines == [] and ax.file_series == []
+    assert "   d1 line steps err d2 color BLUE" in ax.passthrough
+    assert any(
+        w.startswith("data: a connecting line, err d2 not read") for w in rec.warnings
+    )
 
 
 def test_dataset_qualifiers_are_recovered_and_round_trip(tmp_path):
@@ -1918,17 +1930,11 @@ def test_dataset_qualifiers_on_an_errorbar_keep_the_data_range(tmp_path):
         "size 20.32 15.24\n"
         "set hei 0.42328\n"
         "begin graph\n"
-        '   data "pts.dat" d1=c1,c2\n'
-        '   data "err.dat" d2=c1,c2\n'
+        '   data "pts.dat" d1=c1,c2 d2=c1,c3\n'
         "   d1 marker circle err d2 color BLUE deresolve 2 xmin 0.5\n"
         "end graph\n"
     )
-    p = _write(
-        tmp_path,
-        "errqual.gle",
-        src,
-        {"pts.dat": "0 1\n1 2\n", "err.dat": "0 0.1\n1 0.2\n"},
-    )
+    p = _write(tmp_path, "errqual.gle", src, {"pts.dat": "0 1 0.1\n1 2 0.2\n"})
     rec = parse_gle_figure(p)
     # No metadata block: the reference is kept, with its qualifiers.
     assert rec.figure.axes_list[0].file_series[0]["deresolve"] == 2
@@ -2721,3 +2727,58 @@ def test_texlabels_that_cannot_be_modelled_stays_raw(tmp_path, preamble):
     rec = parse_gle_figure(_write(tmp_path, "s.gle", src))
     assert rec.figure.style.usetex is False
     assert rec.figure.passthrough_header == preamble.splitlines()
+
+
+@pytest.mark.parametrize("kind", ["function", "derived", "hist"])
+def test_external_key_listing_a_curve_comes_back_as_the_legend(tmp_path, kind):
+    """#208: a ``begin key`` naming a function, derived or histogram curve.
+
+    The legend lists the curve in a different place from its draw order, so
+    the writer puts it in a ``begin key`` block after the graph; it comes back
+    as the axes' legend, and the text after it as a text annotation.
+    """
+    fig = gleplot.figure()
+    ax = fig.add_subplot()
+    ax.plot([0, 1, 2], [1, 2, 3], label="data")
+    # Each curve is drawn in a different place from where it was added.
+    if kind == "derived":
+        ax.derived("d1*2", ax.lines[0], label="f")
+    ax.scatter([0.5, 1.5], [1, 2], label="pts")
+    if kind == "function":
+        ax.function("x", label="f")
+    elif kind == "hist":
+        ax.hist([0.1, 0.5, 0.6, 1.2], histtype="step", label="f")
+    ax.legend()
+    ax.text(0.5, 0.5, "note")
+    path = tmp_path / "a.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text()
+    assert "begin key" in text
+
+    got = parse_gle_figure(path).figure
+    assert got.passthrough_trailer == []
+    assert [t["text"] for t in got.axes_list[0].texts] == ["note"]
+    out = tmp_path / "b.gle"
+    got.savefig_gle(str(out))
+    assert out.read_text() == text
+
+
+def test_external_key_naming_a_label_twice_is_kept_as_written(tmp_path):
+    """A key entry carries only its label, so two same-label series could be
+    stamped in either order; the block stays raw rather than swap them."""
+    fig = gleplot.figure()
+    ax = fig.add_subplot()
+    ax.scatter([0, 1], [0, 1], label="s", zorder=10)
+    ax.plot([0, 1], [1, 0], label="f", color="red")
+    ax.bar([0, 1], [1, 2], label="f", color="green")
+    ax.legend()
+    path = tmp_path / "a.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text()
+    assert "begin key" in text
+
+    got = parse_gle_figure(path).figure
+    assert "begin key" in got.passthrough_trailer
+    out = tmp_path / "b.gle"
+    got.savefig_gle(str(out))
+    assert out.read_text() == text

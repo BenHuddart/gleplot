@@ -101,3 +101,11 @@ def test_drawings_before_other_content_in_a_file_without_graphs_stay_raw(tmp_pat
     recognized = parse_gle_figure(text)
     assert _drawings(recognized.figure) == []
     assert _resave(recognized, tmp_path).endswith(_CIRCLE + "amove 1 1")
+
+
+def test_a_blank_line_after_the_last_graph_is_kept(tmp_path):
+    """#216: a later ``amove`` with no graph after it is not a subplot gap."""
+    after = "\namove 1 1\ncircle 0.4\n"
+    recognized = parse_gle_figure(_GRAPH + after)
+    assert recognized.figure.passthrough_trailer == ["", "amove 1 1", "circle 0.4"]
+    assert _resave(recognized, tmp_path).endswith("end graph\n" + after.rstrip("\n"))
