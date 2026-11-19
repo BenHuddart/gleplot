@@ -69,6 +69,13 @@ class TestAxisProperties:
         self.ax.set_ylim(4, ymin=None)
         assert self.ax.ymin == 4
 
+    def test_axis_limits_return_the_new_limits(self):
+        """As matplotlib: (low, high), with None for an automatic limit."""
+        assert self.ax.set_xlim(1, 2) == (1, 2)
+        assert self.ax.set_xlim(right=None) == (1, None)
+        assert self.ax.set_ylim(top=5, axis="y2") == (None, 5)
+        assert self.ax.twiny().set_xlim(3, 4) == (3, 4)
+
     def test_axis_limits_reject_a_limit_and_its_alias(self):
         with pytest.raises(TypeError, match=r"'left' \(0\) and 'xmin' \(1\)"):
             self.ax.set_xlim(0, xmin=1)

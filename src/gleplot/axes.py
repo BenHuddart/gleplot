@@ -8763,8 +8763,8 @@ class Axes:
 
         Returns
         -------
-        Axes
-            ``self``.
+        left, right : (float or None, float or None)
+            The new limits, as matplotlib; ``None`` is automatic.
         """
         if axis not in ("x", "x2"):
             raise ValueError(
@@ -8785,7 +8785,7 @@ class Axes:
         else:
             self.xmin = lo
             self.xmax = hi
-        return self
+        return self.get_xlim(axis)
 
     @_cartesian_only
     def twiny(self, axes_class=None, *, delta_zorder=0.0, **kwargs) -> SecondaryXAxis:
@@ -9006,8 +9006,8 @@ class Axes:
 
         Returns
         -------
-        Axes
-            ``self``.
+        bottom, top : (float or None, float or None)
+            The new limits, as matplotlib; ``None`` is automatic.
 
         Notes
         -----
@@ -9048,7 +9048,7 @@ class Axes:
         else:
             self.ymin = lo
             self.ymax = hi
-        return self
+        return self.get_ylim(axis)
 
     @_cartesian_only
     def set_xticks(
