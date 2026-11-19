@@ -123,7 +123,8 @@ def test_named_colors_pass_through_as_names(requested, expected):
         ("#1f77b4", "rgb255(31,119,180)"),
         # numpy arrays, as matplotlib accepts: 1-D, RGBA, or a single row.
         (np.array([1.0, 0.0, 0.0]), "rgb255(255,0,0)"),
-        (np.array([0.0, 1.0, 0.0, 0.5]), "rgb255(0,255,0)"),
+        (np.array([0.0, 1.0, 0.0, 1.0]), "rgb255(0,255,0)"),
+        ((0.0, 1.0, 0.0, 1.0), "rgb255(0,255,0)"),
         (np.array([[0.55, 0.4, 0.74]]), "rgb255(140,102,189)"),
         # matplotlib grey levels: a number string in [0, 1].
         ("0.3", "rgb255(76,76,76)"),
@@ -162,10 +163,84 @@ def test_numpy_color_reaches_the_script(tmp_path):
 def test_numpy_rgba_is_one_hist_colour(tmp_path):
     """hist reads an RGBA array as one colour with alpha, not four channels."""
     fig = glp.figure()
-    fig.add_subplot(111).hist([1, 2, 3], color=np.array([1.0, 0.0, 0.0, 0.5]))
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*alpha")
+        fig.add_subplot(111).hist([1, 2, 3], color=np.array([1.0, 0.0, 0.0, 0.5]))
     out = tmp_path / "hist.gle"
     fig.savefig(str(out))
     assert "hist color rgba255(255,0,0,128)" in out.read_text()
+
+
+@pytest.mark.parametrize(
+    "requested",
+    [
+        0.3,
+        (1, 0),
+        b"0.3",
+        None,
+        np.array([1.0, 0.0]),
+        np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+        np.array(0.3),
+    ],
+    ids=["float", "short-tuple", "bytes", "none", "short-array", "two-rows", "0-d"],
+)
+def test_unrecognized_non_string_colour_warns_while_falling_back(requested):
+    with pytest.warns(UserWarning, match="Unrecognized colour"):
+        assert rgb_to_gle(requested) == "BLACK"
+
+
+@pytest.mark.parametrize(
+    "requested",
+    [
+        (1.0, 0.0, 0.0, 0.5),
+        np.array([1, 0, 0, 0.5]),
+        np.array([1, 0, 0, np.nan]),
+        (1.0, 0.0, 0.0, None),
+    ],
+)
+def test_rgba_alpha_that_is_not_applied_warns(requested):
+    with pytest.warns(UserWarning, match="alpha"):
+        assert rgb_to_gle(requested) == "rgb255(255,0,0)"
+
+
+def test_too_long_colour_sequence_warns_and_keeps_rgb():
+    with pytest.warns(UserWarning, match="has 5 values"):
+        assert rgb_to_gle((1, 0, 0, 1, 9)) == "rgb255(255,0,0)"
+
+
+def test_rgba_alpha_dropped_by_plot_and_fill_between_warns():
+    ax = glp.figure().gca()
+    with pytest.warns(UserWarning, match="alpha"):
+        ax.plot([0, 1], [0, 1], color=(1.0, 0.0, 0.0, 0.5))
+    with pytest.warns(UserWarning, match="alpha"):
+        ax.fill_between([0, 1], [0, 1], color=(1.0, 0.0, 0.0, 0.3))
+
+
+def test_alpha_keyword_overrides_rgba_alpha_without_warning(tmp_path):
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*alpha")
+        ax.fill_between([0, 1], [0, 1], color=(1.0, 0.0, 0.0, 0.3), alpha=0.5)
+        ax.fill([0, 1, 1], [0, 0, 1], color=(1.0, 0.0, 0.0, 0.3), alpha=0.5)
+        ax.axhspan(0.2, 0.4, color=(1.0, 0.0, 0.0, 0.3), alpha=0.5)
+    out = tmp_path / "fills.gle"
+    fig.savefig(str(out))
+    assert out.read_text().count("rgba255(255,0,0,128)") == 3
+
+
+def test_rgba_arrays_in_a_hist_colour_list_keep_their_alpha(tmp_path):
+    fig = glp.figure()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*alpha")
+        fig.add_subplot(111).hist(
+            [[1, 2], [3, 4]],
+            color=[np.array([1.0, 0, 0, 0.5]), np.array([0, 1.0, 0, 0.5])],
+        )
+    out = tmp_path / "hists.gle"
+    fig.savefig(str(out))
+    text = out.read_text()
+    assert "rgba255(255,0,0,128)" in text and "rgba255(0,255,0,128)" in text
 
 
 def test_unresolvable_color_still_falls_back_to_black():
