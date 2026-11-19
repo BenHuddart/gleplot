@@ -1577,6 +1577,74 @@ def test_a_colour_marker_with_an_unknown_colormap_is_kept_raw(tmp_path):
     ) in text
 
 
+def test_a_scatter_colorbar_is_recovered_onto_its_scatter(tmp_path):
+    """The bar goes to the colour-mapped scatter drawn in its palette."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="plasma")
+    ax.scatter([0, 1, 2], [1, 2, 1], c=[4, 5, 6])
+    fig.colorbar(ax=ax, label="v")
+    # Move the bar onto the first scatter, which ax= alone does not pick.
+    ax.scatters[0]["colorbar"] = ax.scatters[1].pop("colorbar")
+    ax.scatters[0]["colorbar"].update(zmin=1.0, zmax=3.0, zstep=0.4)
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path)
+    first, second = rec.figure.axes_list[0].scatters
+    assert first["colorbar"]["zmax"] == 3.0 and first["colorbar"]["label"] == "v"
+    assert "colorbar" not in second
+    assert rec.warnings == []
+
+
+@pytest.mark.parametrize("cmap", ["plasma", "viridis"])
+def test_a_scatter_bar_beside_a_heatmap_stays_the_scatters(tmp_path, cmap):
+    """A heatmap added after the scatter's bar draws no bar of its own."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], vmin=0)
+    fig.colorbar(ax=ax)
+    ax.imshow([[0.0, 1.0], [2.0, 3.0]], cmap=cmap, extent=(0, 2, 0, 2))
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path)
+    assert rec.figure._generate_gle_with_files() == fig._generate_gle_with_files()
+    if cmap == "plasma":
+        assert rec.figure.axes_list[0].scatters[0]["colorbar"]["zmin"] == 0.0
+
+
+def test_a_scatter_bar_goes_to_the_scatter_with_its_range(tmp_path):
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3])
+    fig.colorbar(ax=ax)
+    ax.scatter([0, 1, 2], [1, 2, 1], c=[4, 5, 6])
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    first, second = parse_gle_figure(path).figure.axes_list[0].scatters
+    assert first["colorbar"]["zmax"] == 3.0 and "colorbar" not in second
+
+
+def test_a_colorbar_call_with_nothing_to_show_is_noted(tmp_path):
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3])
+    fig.colorbar()
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    path.write_text(
+        text.replace('palette "gleplot_viridis" wd', 'palette "gleplot_magma" wd'),
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(path)
+    assert "colorbar" not in rec.figure.axes_list[0].scatters[0]
+    assert any("gleplot_colorbar_v call was dropped" in w for w in rec.warnings)
+
+
 def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
     """``let dK = (dJ-a)/(b-a)`` with a line of its own is an ordinary curve."""
     src = (

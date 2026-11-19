@@ -307,7 +307,7 @@ from ..guides import (
     REFLINE_LAYER,
     SPAN_LAYER,
 )
-from ..palettes import canonical_cmap
+from ..palettes import canonical_cmap, palette_call_name
 from ..series import (
     _DATASET_NAME_RE,
     BarSeries,
@@ -8505,9 +8505,33 @@ class _Recognizer:
         thickness, length = ("hi", "wd") if horizontal else ("wd", "hi")
         args = self._named_args(toks[1:], expr_arg=length)
         heatmaps = axes_info.get("heatmaps") or []
-        if not heatmaps:
+        palette = args.get("palette")
+        zrange = (_as_float(args.get("zmin"), 0.0), _as_float(args.get("zmax"), 1.0))
+        # A bar in a colour-mapped scatter's palette is that scatter's (the
+        # last such one drawn, one with the bar's range first) unless the
+        # heatmap shares the palette. Any other bar is the heatmap's.
+        mapped = [
+            sc
+            for sc in axes_info.get("scatters") or []
+            if "cdata" in sc and palette_call_name(sc["cmap"]) == palette
+        ]
+        if heatmaps and (
+            not mapped or palette_call_name(heatmaps[0]["cmap"]) == palette
+        ):
+            holders = heatmaps[:1]
+        else:
+            in_range = [sc for sc in mapped if (sc["vmin"], sc["vmax"]) == zrange]
+            holders = (in_range or mapped)[-1:]
+        if not holders:
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"a {toks[0].value} call was dropped: its axes has no heatmap or "
+                f"colour-mapped scatter in palette {args.get('palette')!r} to "
+                "attach it to",
+                None,
+            )
             return
-        hm = heatmaps[0]
+        hm = holders[0]
         cb = {
             "label": args.get("label") or None,
             "format": args.get("format") or "fix 1",

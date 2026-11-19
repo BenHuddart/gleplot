@@ -867,7 +867,9 @@ def test_colorbar_rejects_bad_arguments():
     with pytest.raises(ValueError, match="not an axes of this figure"):
         other.colorbar(ax=a)
     oax.plot([0, 1], [0, 1])
-    with pytest.raises(ValueError, match="needs a heatmap on ax"):
+    with pytest.raises(
+        ValueError, match="needs a heatmap or a colour-mapped scatter on ax"
+    ):
         other.colorbar(ax=oax)
 
 

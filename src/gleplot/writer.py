@@ -6021,13 +6021,14 @@ class GLEWriter:
             series["interpolation"],
         )
 
-    def add_heatmap_colorbar(self, series: Series):
-        """Emit the colorbar sub call after a heatmap's graph, if it has one.
+    def add_colorbar(self, series: Series):
+        """Emit the colorbar sub call after a series' graph, if it has one.
 
-        ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`;
-        its ``colorbar`` dict (see :meth:`gleplot.Figure.colorbar`) holds the
-        call's range, size, format and label. A heatmap without one writes
-        nothing.
+        ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`, or
+        a colour-mapped :class:`~gleplot.series.ScatterSeries`; its ``cmap``
+        names the palette and its ``colorbar`` dict (see
+        :meth:`gleplot.Figure.colorbar`) holds the call's range, size, format
+        and label. A series without one writes nothing.
 
         A vertical bar starts at ``xg(xgmax)+sep yg(ygmin)`` and spans the
         graph's height; a horizontal one hangs from ``xg(xgmin) yg(ygmin)-sep``

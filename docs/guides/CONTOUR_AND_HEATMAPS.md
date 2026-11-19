@@ -10,7 +10,7 @@ gleplot can render 2-D scalar fields as heatmaps (matplotlib's `imshow`/`pcolorm
 - `Axes.tripcolor(x, y, z, gridsize=(50, 50), extent=None, **imshow_kwargs)` — heatmap of **scattered** `(x, y, z)` samples, gridded by GLE at compile time.
 - `Axes.function2d(expression, extent, cmap=None, vmin=0.0, vmax=1.0, pixels=None, invert=False, label=None)` — heatmap of an **expression** in `x` and `y` that GLE evaluates itself (see [Heatmap from an expression](#heatmap-from-an-expression)).
 - `Axes.tricontour(x, y, z, gridsize=(50, 50), extent=None, ncontour=3, **contour_kwargs)` — contour lines of **scattered** `(x, y, z)` samples.
-- `Figure.colorbar(mappable=None, cax=None, ax=None, use_gridspec=True, *, orientation=None, label=None, format='fix 1', nticks=None, width=0.5, sep=None)` — attaches a colorbar to a heatmap, beside its axes (vertical) or below it (horizontal). See [Colorbars](#colorbars).
+- `Figure.colorbar(mappable=None, cax=None, ax=None, use_gridspec=True, *, orientation=None, label=None, format='fix 1', nticks=None, width=0.5, sep=None)` — attaches a colorbar to a heatmap or a colour-mapped scatter, beside its axes (vertical) or below it (horizontal). See [Colorbars](#colorbars).
 
 Each except `function2d` has a module-level convenience wrapper too: `glp.imshow(...)`, `glp.pcolormesh(...)`, `glp.contour(...)`, `glp.tripcolor(...)`, `glp.tricontour(...)`, `glp.colorbar(...)` (they operate on `gca()`/`gcf()`, matching `glp.plot()` and friends).
 
@@ -174,6 +174,17 @@ fig.savefig('two_bars.pdf')
 A vertical bar sits `sep` cm to the right of its axes. A horizontal bar spans its axes' width, below the x tick labels and title; its `sep` is measured from the frame's bottom edge, and the default clears them at the figure's font size when `colorbar()` is called. `width` is the bar's thickness either way. The subplot grid makes room for every bar: a vertical bar widens the gap to the right of its column, a horizontal bar the gap below its row, and a bar on the last column or row widens the page margin instead.
 
 `ax` must be the axes holding the heatmap: the bar is drawn beside its own heatmap's axes. `cax` is not supported. Passing it warns, and the bar is drawn beside the heatmap's axes.
+
+A scatter coloured by value (`scatter(x, y, c=values, cmap=...)`) gets a bar the same way. `scatter` returns the axes, not a mappable, so pick the scatter by its axes; on an axes with no heatmap, the bar shows the colour-mapped scatter drawn last, from its `vmin` to its `vmax`:
+
+```python
+import gleplot as glp
+
+fig, ax = glp.subplots()
+ax.scatter([1, 2, 3, 4], [1, 4, 9, 16], c=[0, 100, 200, 300], cmap='viridis')
+fig.colorbar(ax=ax, label='T (K)')
+fig.savefig('scatter_bar.pdf')
+```
 
 ## Contour Smoothing
 

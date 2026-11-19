@@ -230,7 +230,8 @@ the writer emits.
   sub, the values go into the data file, and a `let` maps them onto the
   colormap. `c` may also be one colour, or one colour per point, which draws
   one series per colour. Per-point colours cannot be combined with per-point
-  sizes. See "Scatter colours" in the
+  sizes. `fig.colorbar(ax=ax)` shows the colour scale; see "Colorbars" in
+  [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md). See "Scatter colours" in the
   [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md) for how they differ
   from matplotlib.
 - If a color or marker cannot be resolved, gleplot falls back to defaults (`BLACK` for color, `FCIRCLE` for marker).

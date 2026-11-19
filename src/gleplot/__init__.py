@@ -379,7 +379,7 @@ def tricontour(*args, **kwargs):
 
 
 def colorbar(mappable=None, cax=None, ax=None, **kwargs):
-    """Attach a colorbar to a heatmap on the current figure.
+    """Attach a colorbar to a heatmap or colour-mapped scatter on the current figure.
 
     See :meth:`Figure.colorbar`.
     """
