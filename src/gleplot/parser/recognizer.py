@@ -8081,7 +8081,8 @@ class _Recognizer:
 
         Mirrors the accept criteria of :meth:`_parse_colormap` (palette known
         or ``color``/grayscale, a ``.z``/``.gz`` file rather than a function
-        expression, and no unrecognized options) but WITHOUT touching disk --
+        expression, no unrecognized options, and ``zmin``/``zmax``/
+        ``interpolate`` values written back as they read) but WITHOUT touching disk --
         data readability is handled separately. Returns ``None`` for any
         colormap that :meth:`_parse_colormap` would send to passthrough, so the
         prescan never drops the fitz block feeding a foreign colormap.
@@ -8106,12 +8107,15 @@ class _Recognizer:
             elif w == "invert":
                 i += 1
             elif w in ("zmin", "zmax") and i + 1 < m:
-                _, nxt = _collect_value(toks, i + 1)
-                i = nxt if nxt > i + 1 else i + 2
+                v, nxt = _collect_value(toks, i + 1)
+                unknown = unknown or not _is_number_literal(toks[i + 1 : nxt])
+                i = nxt if v is not None else i + 2
             elif w == "palette" and i + 1 < m:
                 palette = toks[i + 1].value
                 i += 2
             elif w == "interpolate" and i + 1 < m:
+                mode = toks[i + 1].value.lower()
+                unknown = unknown or mode not in ("bicubic", "nearest")
                 i += 2
             else:
                 unknown = True
@@ -8382,6 +8386,16 @@ class _Recognizer:
                 colorbar=None,
             )
             info["heatmaps"].append(hm)
+            return
+
+        if not exact:
+            info["passthrough"].append(self._stmt_text(stmt))
+            self._note(
+                ImportCategory.STRUCTURE,
+                "colormap of a .z file with a zmin, zmax or interpolate value "
+                "gleplot cannot write back as it reads; kept as raw GLE",
+                self._stmt_span(stmt),
+            )
             return
 
         fitz = self._fitz_blocks.get(zfile)
