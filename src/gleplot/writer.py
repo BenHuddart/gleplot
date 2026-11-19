@@ -3200,7 +3200,7 @@ class GLEWriter:
           ``'impulses'``): GLE's ``dn line`` mode, emitted immediately after
           ``line``. Absent leaves the bare ``line`` token.
         - ``mdist``, ``deresolve``, ``deresolve_average`` and the ``xmin`` /
-          ``xmax`` / ``ymin`` / ``ymax`` clip window: GLE's dataset
+          ``xmax`` / ``ymin`` / ``ymax`` data range: GLE's dataset
           qualifiers, see :meth:`_dataset_qualifier_clause`. A series with
           its own ``deresolve`` gets no preview-only one.
         - ``gaps``: NaN rows are written ``*`` (GLE's missing value), so the
