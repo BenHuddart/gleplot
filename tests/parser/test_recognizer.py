@@ -1326,7 +1326,7 @@ def test_line_mode_on_an_errorbar_warns_and_is_dropped(tmp_path):
 
 
 def test_dataset_qualifiers_are_recovered_and_round_trip(tmp_path):
-    """``mdist``, ``deresolve [average]`` and the clip window survive a re-save.
+    """``mdist``, ``deresolve [average]`` and the data range survive a re-save.
 
     They used to be skipped by the attribute scan and silently lost. GLE
     reads ``average`` only straight after the ``deresolve`` count, and a
@@ -1420,7 +1420,7 @@ def test_dataset_qualifiers_on_a_loaded_line_and_scatter(tmp_path):
 
 
 def test_a_reference_line_with_a_qualifier_stays_a_line(tmp_path):
-    """No guide emission writes a clip window; an edited guide is kept as a line."""
+    """No guide emission writes a data range; an edited guide is kept as a line."""
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
     ax = fig.add_subplot(111)
