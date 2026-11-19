@@ -15,6 +15,12 @@ Requirements
 Install gleplot
 ~~~~~~~~~~~~~~~
 
+gleplot is not on PyPI yet. Install it from GitHub:
+
+.. code-block:: bash
+
+   pip install git+https://github.com/BenHuddart/gleplot.git
+
 From source (recommended for development):
 
 .. code-block:: bash
