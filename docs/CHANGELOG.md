@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v5.0.0 (2026-11-19)
+
+### Features
+
+- Figure-level suptitle, text and legend ([#84](https://github.com/BenHuddart/gleplot/pull/84),
+  [`9fba7cd`](https://github.com/BenHuddart/gleplot/commit/9fba7cd1c0c4779130ed93933ca0158bbc3b7b6c))
+
+- Review fixes for figure-level text and legend
+  ([#84](https://github.com/BenHuddart/gleplot/pull/84),
+  [`8263642`](https://github.com/BenHuddart/gleplot/commit/826364270fd519fc8839e739304c60b828f4f1ea))
+
+
 ## v4.10.0 (2026-11-18)
 
 ### Features
