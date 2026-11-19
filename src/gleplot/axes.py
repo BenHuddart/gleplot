@@ -1385,7 +1385,8 @@ def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
                 value, winner = short, alias
             else:
                 warn_external(f"{name}() got both {winner} and {alias}; {winner} wins.")
-        resolved.append(value)
+        # None is matplotlib's "the default", for the plural and its aliases.
+        resolved.append(default if value is None else value)
     warn_unsupported_keywords(name, kwargs)
     styles = resolved[1]
     if isinstance(styles, str) or _is_dash_pattern(styles):

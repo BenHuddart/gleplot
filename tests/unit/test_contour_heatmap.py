@@ -1285,6 +1285,19 @@ def test_contour_takes_matplotlibs_singular_line_aliases(name, args, recwarn):
     assert not recwarn.list
 
 
+@pytest.mark.parametrize("name, args", [("contour", (_GRID,)), ("tricontour", _PTS)])
+def test_contour_line_keywords_take_none_as_the_default(name, args, recwarn):
+    fig, ax = glp.subplots()
+    getattr(ax, name)(*args, linewidths=None, linestyles=None)
+    getattr(ax, name)(*args)
+    given, default = ax.contours
+    assert (given["linewidth"], given["linestyle"]) == (
+        default["linewidth"],
+        default["linestyle"],
+    )
+    assert not recwarn.list
+
+
 def test_contour_plural_wins_over_its_alias():
     fig, ax = glp.subplots()
     with pytest.warns(UserWarning, match="both linewidths and lw; linewidths wins"):
