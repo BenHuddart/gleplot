@@ -161,6 +161,25 @@ class TestSubplots:
         _, grid = glp.subplots(1, 3, squeeze=False)
         assert grid.shape == (1, 3)
 
+    def test_subplots_takes_only_the_grid_positionally(self):
+        """matplotlib's order: everything after ncols is keyword-only."""
+        with pytest.raises(TypeError):
+            glp.subplots(2, 2, (8, 6))
+        fig, axes = glp.subplots(
+            2,
+            3,
+            sharex=True,
+            sharey=True,
+            squeeze=False,
+            width_ratios=[1, 2, 3],
+            height_ratios=[4, 5],
+            figsize=(8, 6),
+        )
+        assert fig.figsize == (8, 6) and axes.shape == (2, 3)
+        assert fig.sharex and fig.sharey
+        assert list(fig.width_ratios) == [1, 2, 3]
+        assert list(fig.height_ratios) == [4, 5]
+
     def test_subplots_array_is_row_major(self):
         """axes[row, col] is the panel add_subplot numbers row by row."""
         fig, axes = glp.subplots(3, 2)
