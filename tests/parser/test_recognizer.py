@@ -313,6 +313,16 @@ def normalize(d: dict) -> dict:
                 s["markersize"] = _snap_msize(s["markersize"])
             _snap_width(s)
 
+        # A bar with no top is written missing in its baseline too, because
+        # GLE refuses a stack missing on one side only (#317). That baseline
+        # comes back missing.
+        for s in ax.get("bars", []):
+            if isinstance(s.get("bottom"), list) and isinstance(s.get("top"), list):
+                s["bottom"] = [
+                    "nan" if top == "nan" else bottom
+                    for bottom, top in zip(s["bottom"], s["top"])
+                ]
+
         # Data arrays snap to emitted precision.
         for group, keys in _ARRAY_KEYS.items():
             for s in ax.get(group, []):

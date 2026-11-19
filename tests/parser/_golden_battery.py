@@ -99,6 +99,15 @@ def bar_stack():
     return fig
 
 
+def bar_missing():
+    """A NaN height is a missing row, plain and on a baseline (#317)."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, np.nan, 1], color="gray")
+    ax.bar([1, 2, 3], [1, np.nan, 2], bottom=[2, 3, 1], color="white")
+    return fig
+
+
 def bar_recovered_fields():
     """Bar fields only a recovered script sets, set here on the series.
 
@@ -2014,6 +2023,7 @@ BUILDERS = [
     bar_edge,
     bar_per_color,
     bar_stack,
+    bar_missing,
     bar_recovered_fields,
     bar_hatch,
     barh,
