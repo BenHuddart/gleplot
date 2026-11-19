@@ -1666,9 +1666,8 @@ def _line_style(caller: str, linestyle):
 def _drawn_line_mode(mode, linestyle):
     """``mode``, or ``None`` with a warning when ``linestyle`` draws no line.
 
-    A GLE line mode is a qualifier of ``line``. With the line switched off
-    there is nothing for it to qualify, and storing it would not survive a
-    round trip (the writer emits no ``line`` token).
+    A GLE line mode is a qualifier of ``line``; with the line switched off
+    there is nothing for it to qualify.
     """
     if mode and linestyle in _NO_LINE:
         warn_external(
