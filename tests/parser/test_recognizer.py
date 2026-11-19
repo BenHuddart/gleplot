@@ -17,6 +17,7 @@ Covers, beyond the byte-identical fixed-point guard in ``test_fixed_point.py``:
 
 from __future__ import annotations
 
+import re
 import warnings
 from pathlib import Path
 
@@ -56,7 +57,9 @@ def normalize(d: dict) -> dict:
     Encoded cases:
       * fontsize: snapped through the 6-sig-fig ``set hei`` cm round-trip.
       * markersize / linewidth: snapped through the emitted GLE value
-        (msize verbatim; linewidth via pt<->cm; API default 1 -> 1.5).
+        (msize verbatim; linewidth via pt<->cm; API default 0 or 1 -> the
+        style's ``default_linewidth``, which the file does not record, unless
+        the series is ``_lwidth_verbatim``; that marker is dropped).
       * legend_on: explicit True with labels present -> None (auto).
       * legend_spacing: equal to 5 significant figures (emitted in cm).
       * suptitle: one off its default place reads back as the first figure
@@ -145,11 +148,18 @@ def normalize(d: dict) -> dict:
         emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
         style["fontsize"] = fontsize_cm_to_pt(float(emitted))
 
-    def _snap_linewidth(v):
-        # Writer substitutes default_linewidth (1.5) for API defaults 0/1.
-        pt = 1.5 if v in (0, 1) else v
+    default_linewidth = style.pop("default_linewidth", 1.5)
+
+    def _snap_linewidth(v, verbatim=False):
+        # Writer substitutes default_linewidth for API defaults 0/1.
+        pt = default_linewidth if v in (0, 1) and not verbatim else v
         emitted = GLEWriter._format_number(linewidth_pt_to_cm(float(pt)))
         return linewidth_cm_to_pt(float(emitted))
+
+    def _snap_width(s):
+        verbatim = s.pop("_lwidth_verbatim", False)
+        if s.get("linewidth") is not None:
+            s["linewidth"] = _snap_linewidth(s["linewidth"], verbatim)
 
     def _snap_msize(v):
         if v is None:
@@ -273,12 +283,12 @@ def normalize(d: dict) -> dict:
             "functions",
             "fits",
             "derived_series",
+            "reflines",
         ):
             for s in ax.get(group, []):
                 if "markersize" in s:
                     s["markersize"] = _snap_msize(s["markersize"])
-                if "linewidth" in s:
-                    s["linewidth"] = _snap_linewidth(s["linewidth"])
+                _snap_width(s)
                 for key in (
                     "hist_from",
                     "hist_to",
@@ -301,8 +311,7 @@ def normalize(d: dict) -> dict:
                     s["data_error"] = head + sep + Path(path).name
             if "markersize" in s:
                 s["markersize"] = _snap_msize(s["markersize"])
-            if "linewidth" in s:
-                s["linewidth"] = _snap_linewidth(s["linewidth"])
+            _snap_width(s)
 
         # Data arrays snap to emitted precision.
         for group, keys in _ARRAY_KEYS.items():
@@ -346,8 +355,7 @@ def normalize(d: dict) -> dict:
                 for k in ("vmin", "vmax"):
                     if s.get(k) is not None:
                         s[k] = _snap_num(s[k])
-                if "linewidth" in s:
-                    s["linewidth"] = _snap_linewidth(s["linewidth"])
+                _snap_width(s)
                 cb = s.get("colorbar")
                 if cb:
                     for k in ("zmin", "zmax", "zstep", "width", "sep"):
@@ -1697,6 +1705,30 @@ def test_a_scatter_bar_beside_a_heatmap_stays_the_scatters(tmp_path, cmap):
         assert rec.figure.axes_list[0].scatters[0]["colorbar"]["zmin"] == 0.0
 
 
+@pytest.mark.parametrize("old_file", [False, True])
+def test_an_inverted_heatmaps_bar_stays_the_heatmaps(tmp_path, old_file):
+    """Its bar draws the reversed palette; older files wrote the forward one."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="viridis_r", vmin=5, vmax=9)
+    ax.scatter([0, 1, 2], [1, 2, 1], c=[4, 5, 6], cmap="viridis", vmin=5, vmax=9)
+    hm = ax.imshow(
+        [[0.0, 1.0], [2.0, 3.0]], cmap="viridis", extent=(0, 2, 0, 2), invert=True
+    )
+    fig.colorbar(hm, ax=ax)
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    assert 'palette "gleplot_viridis_r"' in text
+    if old_file:
+        text = text.replace('palette "gleplot_viridis_r"', 'palette "gleplot_viridis"')
+        path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path).figure.axes_list[0]
+    assert rec.heatmaps[0]["colorbar"]["zmax"] == 3.0
+    assert not any(sc.get("colorbar") for sc in rec.scatters)
+
+
 def test_a_scatter_bar_goes_to_the_scatter_with_its_range(tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
@@ -2106,7 +2138,6 @@ def test_a_hand_written_function_let_becomes_a_function_series(tmp_path):
         ("let d1 = x from 0 to 1", "d1 line smooth"),
         ("let d1 = x from 0 to 1", "d1 line lstyle 1"),
         ("let d1 = x from 0 to 1", 'd1 line key ""'),
-        ("let d1 = x from 0 to 1", "d1 line lwidth 0"),
         ("let d1 = x from 0 to 1", "d1 marker circle"),
         # No display, and another command reading the dataset.
         ("let d1 = x from 0 to 1",),
@@ -2122,6 +2153,32 @@ def test_a_function_let_gleplot_cannot_model_stays_raw_in_place(tmp_path, body):
     rec.figure.savefig_gle(str(out))
     written = out.read_text(encoding="utf-8")
     assert "".join(f"    {line}\n" for line in body) in written
+
+
+@pytest.mark.parametrize(
+    "body, kind",
+    [
+        (("data a.dat d1", "d1 line lwidth 0"), "file_series"),
+        (("data a.dat d1=c1,c2", "d1 line color red lwidth 0"), "file_series"),
+        (("data a.dat d1=c1,c2", "d1 line lwidth 0 y2axis"), "file_series"),
+        (("let d1 = x from 0 to 1", "d1 line lwidth 0"), "functions"),
+        (("data a.dat d1=c1,c2", "d1 line lwidth 0.03528"), "file_series"),
+    ],
+)
+def test_a_default_sentinel_width_from_a_file_is_written_as_given(tmp_path, body, kind):
+    """#172: 0 and 1 pt read from a file are not the style's default width."""
+    (tmp_path / "a.dat").write_text("0 1\n1 2\n2 1\n", encoding="utf-8")
+    src = _graph_file(tmp_path, *body)
+    figure = parse_gle_figure(src).figure
+    assert len(getattr(figure.axes_list[0], kind)) == 1
+    out = tmp_path / "out.gle"
+    figure.savefig_gle(str(out))
+    width = body[1].split("lwidth ")[1].split()[0]
+    written = out.read_text(encoding="utf-8")
+    assert re.findall(r" lwidth (\S+)", written) == [width]
+    again = tmp_path / "again.gle"
+    parse_gle_figure(out).figure.savefig_gle(str(again))
+    assert again.read_text(encoding="utf-8") == written
 
 
 def test_a_raw_let_keeps_every_function_let_raw(tmp_path):

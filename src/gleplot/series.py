@@ -624,6 +624,9 @@ class _XYSeries(Series):
     #: ``None`` is a recovered ``dN`` line that drew a line but set no
     #: ``lwidth``: the writer writes none (GLE's current line width).
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     #: GLE's ``nomiss qualifier: draw the line through a missing value
     #: instead of leaving a gap (GLE default: gap). Only meaningful when a
     #: line is drawn, but preserved verbatim on scatter-only series too so a
@@ -868,6 +871,9 @@ class HistSeries(Series):
     #: ``None`` is a recovered ``dN`` line that drew a line but set no
     #: ``lwidth``: the writer writes none (GLE's current line width).
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     yaxis: str
     #: ``'x2'`` binds the histogram to the top scale. Absent means the
@@ -915,6 +921,9 @@ class FunctionSeries(Series):
     linestyle: str
     #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     _draw_seq: int
     zorder: float
@@ -960,6 +969,9 @@ class FitSeries(Series):
     linestyle: str
     #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     data_file: Optional[str]
     _draw_seq: int
@@ -1007,6 +1019,9 @@ class DerivedSeries(Series):
     linestyle: str
     #: ``None`` is a recovered ``dN`` line that set no ``lwidth``.
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     _draw_seq: int
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
@@ -1086,6 +1101,9 @@ class ErrorbarSeries(Series):
     #: ``None`` is a recovered ``dN`` line that drew a line but set no
     #: ``lwidth``: the writer writes none (GLE's current line width).
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     #: Cap size as the caller gave it (matplotlib points, or cm when set
     #: through ``capsize_cm``); ``gle_capsize`` is the emitted cm value.
@@ -1147,6 +1165,9 @@ class FileSeries(Series):
     #: ``None`` (``'line'`` variant) is a recovered ``dN`` line that set no
     #: ``lwidth``: the writer writes none.
     linewidth: Optional[float]
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     #: ``'line'`` variant only: GLE's ``nomiss`` qualifier (see
     #: ``_XYSeries.nomiss``).
     nomiss: bool
@@ -1327,6 +1348,9 @@ class ContourSeries(_GridSeries):
     levels: Optional[List[float]]
     color: str
     linewidth: float
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     linestyle: Optional[int]
     clabel: bool
     clabel_fmt: str
@@ -1361,6 +1385,9 @@ class RefLine(Series):
     color: str
     linestyle: str
     linewidth: float
+    #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
+    #: is then written as given. Absent, 0 and 1 mean the style's default.
+    _lwidth_verbatim: bool
     label: Optional[str]
     data_file: Optional[str]
     column_names: Optional[List[str]]
