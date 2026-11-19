@@ -3857,7 +3857,8 @@ class Axes:
 
         A string broadcasts to every set when ``broadcast_str`` is set (a
         single colour) and otherwise labels only the first set. A sequence
-        cycles. An RGB(A) tuple is one colour, not one channel per set.
+        cycles. An RGB(A) tuple or 1-D array is one colour, not one channel
+        per set.
         """
         if value is None:
             return [None] * n
@@ -3867,6 +3868,13 @@ class Axes:
             out: List[Optional[str]] = [None] * n
             out[0] = value
             return out
+        if (
+            isinstance(value, np.ndarray)
+            and value.ndim == 1
+            and value.size in (3, 4)
+            and np.issubdtype(value.dtype, np.number)
+        ):
+            value = tuple(value.tolist())
         if (
             isinstance(value, tuple)
             and len(value) in (3, 4)
