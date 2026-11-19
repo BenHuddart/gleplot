@@ -589,8 +589,8 @@ def file_series_field_options():
 
     A wide stepped line on the y2 axis with a marker and ``nomiss``, a
     marker-less errorbar reference with no error column on the x2 axis, and
-    the bar and fill references the recognizer keeps for a file it cannot
-    read: a labelled bar with a swatch colour, a clipped two-curve fill, a
+    the bar and fill references the recognizer keeps for a file gleplot
+    did not write: a labelled bar with a swatch colour, a clipped two-curve fill, a
     fill to ``x1`` and a labelled polygon fill. ``marker``, ``markersize``
     and ``nomiss`` on a line reference, and every bar and fill reference,
     come only from a recovered script, so they are set on the series here.
@@ -619,7 +619,6 @@ def file_series_field_options():
                 color="ORANGE",
                 label="bars",
                 swatch_color="RED",
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -630,7 +629,6 @@ def file_series_field_options():
                 color="GRAY10",
                 xmin=0.5,
                 ymax=2.0,
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -639,7 +637,6 @@ def file_series_field_options():
                 y1_col=2,
                 color="GRAY20",
                 target="x1",
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -650,7 +647,6 @@ def file_series_field_options():
                 target="polygon",
                 label="polygon",
                 swatch_color="CYAN",
-                data_error="Data file not found: external.dat",
             ),
         ]
     )
@@ -663,7 +659,7 @@ def file_series_read_options():
 
     A line reference with all three and the row number as x (``c0``), an
     errorbar reference with two, and the bar and fill references the
-    recognizer keeps for a file it cannot read, which carry the options of
+    recognizer keeps for a file gleplot did not write, which carry the options of
     the ``data`` statement they came from. ``!`` and ``;`` are comment
     markers that only survive quoted.
     """
@@ -685,7 +681,6 @@ def file_series_read_options():
                 color="ORANGE",
                 skiprows=1,
                 comment="!",
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -695,7 +690,6 @@ def file_series_read_options():
                 y2_col=3,
                 color="GRAY10",
                 skiprows=2,
-                data_error="Data file not found: external.dat",
             ),
             FileSeries(
                 series_type="fill",
@@ -705,7 +699,6 @@ def file_series_read_options():
                 color="GRAY20",
                 target="x1",
                 max_rows=7,
-                data_error="Data file not found: external.dat",
             ),
         ]
     )

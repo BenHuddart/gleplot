@@ -48,6 +48,13 @@ GLE that gleplot does not model is kept as it was and written back in place
 when you save, so it still reaches GLE, but you cannot edit it through the
 Python API.
 
+A data file that gleplot did not write is never rewritten. Lines, error
+bars, fills and plain `bar dN fill COLOR` bars drawn from it become
+[file-based series](FILE_BASED_SERIES.md) that read the file in place. A
+`bar` command that a file reference cannot express (a `width`, a group such
+as `bar d1,d2`, a stack with `from`, a pattern, ...) is kept as raw GLE with
+a `structure` note.
+
 Each place where gleplot had to keep something as raw GLE, or had to guess,
 is recorded as a recovery note. The notes are grouped by category:
 

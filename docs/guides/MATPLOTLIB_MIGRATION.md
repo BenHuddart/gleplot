@@ -359,7 +359,7 @@ caps and round joins.
 
 An autoscaled x axis now includes `xerr`, the way the y axis already included `yerr`. A horizontal whisker is not clipped by the `xaxis` gleplot writes. This applies to `errorbar` as well as to bars.
 
-Two matplotlib calls with shifted x are two commands. A hand-written `bar d1,d2 fill c1,c2` is GLE's side-by-side group and round-trips as one command, `dist` included, and so do `pattern` and `background` when they give each dataset at most one pattern, a `fill`, and a background only under a pattern. `3d`, `style`, `side`, `top` and `notop` have no series field; the whole command stays raw GLE.
+Two matplotlib calls with shifted x are two commands. GLE's side-by-side group `bar d1,d2 fill c1,c2`, read from a script whose data file gleplot wrote, round-trips as one command (on a data file of your own the whole command stays raw GLE, see [Opening GLE Files](OPENING_GLE_FILES.md)), `dist` included, and so do `pattern` and `background` when they give each dataset at most one pattern, a `fill`, and a background only under a pattern. `3d`, `style`, `side`, `top` and `notop` have no series field; the whole command stays raw GLE.
 
 | call | GLE |
 |---|---|

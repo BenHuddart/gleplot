@@ -153,7 +153,13 @@ for rendering, applied by the test-side ``normalize()`` helper)
     per-axes rather than as the config field (the config is a writer default,
     not per-axes state); the emitted GLE is identical either way.
 
-14. **Bar groups and stacks are series; a fill that shares their file is not.**
+14. **Bar groups and stacks on gleplot's own file are series; a fill that
+    shares their file is not.** A bar or fill on a file gleplot did not
+    write (one the metadata's import list does not name) is never loaded,
+    so the file is never rewritten: a fill and a plain ``bar dN fill C``
+    become :class:`~gleplot.series.FileSeries` references, and any other
+    ``bar`` command on it (a ``width``, group, stack, pattern, ...) stays
+    raw with every bar on its ``data`` statement. On gleplot's own file,
     ``bar d1,d2 fill c1,c2`` is several :class:`~gleplot.series.BarSeries`
     that share a ``group`` id and are written back as one command.
     ``bar d2 from d1`` is one series whose baseline is ``d1``. A command
@@ -6424,7 +6430,17 @@ class _Recognizer:
                 and all(name in info["_hist_lets"] for name in scanned["datasets"])
             ):
                 continue
-            if _bar_scan_is_plain(scanned):
+            plain = _bar_scan_is_plain(scanned)
+            if any(
+                name in datasets and not self._is_import(datasets[name][0])
+                for name in names
+            ):
+                # A bar on a file of the caller's own is a FileSeries
+                # reference, which carries only a plain bar with no width.
+                if not plain or scanned["width"] is not None:
+                    seed.update(names)
+                continue
+            if plain:
                 continue
             loaded = []
             failed = False
@@ -6488,8 +6504,12 @@ class _Recognizer:
         path = Path(name)
         return str(path.with_name(f"{path.stem}_{count + 1}{path.suffix}"))
 
-    def _keep_bar_raw(self, scanned, info, stmt, toks) -> None:
-        """Passthrough for a ``bar`` command, with the note that says why."""
+    def _keep_bar_raw(self, scanned, info, stmt, toks, user_file=None) -> None:
+        """Passthrough for a ``bar`` command, with the note that says why.
+
+        ``user_file`` is the data file, not one gleplot wrote, that the bar
+        reads when that is why it stays raw.
+        """
         for name in scanned["datasets"]:
             raw = info["_hist_let_pending"].pop(name, None)
             if raw:
@@ -6507,6 +6527,13 @@ class _Recognizer:
                 "bar pattern/background lists that are not one pattern per "
                 "dataset, each under a fill, have no model; the whole 'bar' "
                 "command is kept as raw GLE, not editable"
+            )
+        elif user_file is not None:
+            message = (
+                f"bar on '{user_file}', a data file gleplot did not write, is "
+                "kept as raw GLE, not editable, so the file is not rewritten; "
+                "only a plain 'bar dN fill COLOR' on such a file loads, as a "
+                "file reference"
             )
         elif len(scanned["datasets"]) > 1 or scanned["from_names"]:
             shown = list(scanned["datasets"])
@@ -6548,17 +6575,25 @@ class _Recognizer:
             or mismatched_from
             or not scanned["patterns_fit"]
         ):
-            self._keep_bar_raw(scanned, info, stmt, toks)
+            user_files = [
+                datasets[name][0]
+                for name in involved
+                if name in datasets and not self._is_import(datasets[name][0])
+            ]
+            self._keep_bar_raw(
+                scanned, info, stmt, toks, user_files[0] if user_files else None
+            )
             return
         if not names or any(name not in datasets for name in involved):
             info["passthrough"].append(self._bar_fill_passthrough_line(toks, stmt))
             return
 
-        loaded_to = []
-        loaded_from = []
-        failed = False
-        fail_error = "unresolved"
-        for name in names:
+        # A file of the caller's own is referenced, never rewritten: a bar
+        # on it is not loaded, so no sidecar is written over it.
+        failed = not all(self._is_import(datasets[name][0]) for name in involved)
+        fail_error: Optional[str] = None
+        loaded = []
+        for name in involved if not failed else ():
             data_file, xcol, ycol = datasets[name]
             row = self._load_series(
                 data_file, xcol, ycol, line_no=self._opt_line_no(stmt)
@@ -6567,18 +6602,8 @@ class _Recognizer:
                 failed = True
                 fail_error = (row or {}).get("error", "unresolved")
                 break
-            loaded_to.append(row)
-        if not failed:
-            for name in from_names:
-                data_file, xcol, ycol = datasets[name]
-                row = self._load_series(
-                    data_file, xcol, ycol, line_no=self._opt_line_no(stmt)
-                )
-                if row is None or row.get("error"):
-                    failed = True
-                    fail_error = (row or {}).get("error", "unresolved")
-                    break
-                loaded_from.append(row)
+            loaded.append(row)
+        loaded_to, loaded_from = loaded[: len(names)], loaded[len(names) :]
         if failed:
             if _bar_scan_is_plain(scanned) and len(names) == 1:
                 if scanned["width"] is not None:
@@ -6604,9 +6629,10 @@ class _Recognizer:
                     x_col=xcol,
                     y_col=ycol,
                     color=(fills[0] if fills else "RED"),
-                    data_error=fail_error,
                     **self._data_read_options.get(names[0], {}),
                 )
+                if fail_error is not None:
+                    fs["data_error"] = fail_error
                 info["file_series"].append(fs)
                 info["_key_suppress_datasets"].add(names[0])
                 info["_key_label_owners"][names[0]] = fs
@@ -6799,22 +6825,27 @@ class _Recognizer:
         yc2 = None
         if target is None:
             _f2, _xc2, yc2 = datasets[d_names[1]]
-        loaded = self._load_series(
-            f1,
-            xc1,
-            yc1,
-            extra_cols=[yc2] if yc2 is not None else None,
-            line_no=self._opt_line_no(stmt),
-        )
-        if loaded is None or loaded.get("error"):
+        # A file of the caller's own is referenced, never rewritten: a fill
+        # on it is not loaded, so no sidecar is written over it.
+        loaded: Dict[str, Any] = {}
+        if self._is_import(f1):
+            loaded = self._load_series(
+                f1,
+                xc1,
+                yc1,
+                extra_cols=[yc2] if yc2 is not None else None,
+                line_no=self._opt_line_no(stmt),
+            )
+        if not loaded or loaded.get("error"):
             fs_fields = dict(
                 series_type="fill",
                 data_file=f1,
                 x_col=xc1,
                 y1_col=yc1,
                 color=color,
-                data_error=(loaded or {}).get("error", "unresolved"),
             )
+            if loaded.get("error"):
+                fs_fields["data_error"] = loaded["error"]
             if target is None:
                 fs_fields["y2_col"] = yc2
             else:

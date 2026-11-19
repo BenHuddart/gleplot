@@ -562,6 +562,13 @@ def test_broken_sidecar_keeps_its_reading_options(tmp_path):
     assert all("data_error" in fs for fs in refs)
 
 
+#: Names ``f.dat`` gleplot's own file, which the recognizer loads; a bar or
+#: fill on a file of the user's own is a reference without loading it.
+_F_DAT_IMPORTED = (
+    "! gleplot-meta-begin v2\n! gleplot: import-data = f.dat\n! gleplot-meta-end\n"
+)
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -571,7 +578,12 @@ def test_broken_sidecar_keeps_its_reading_options(tmp_path):
 )
 def test_a_file_read_with_options_is_not_loaded(tmp_path, body):
     """#169: the loader would read rows GLE skips; keep a reference instead."""
-    src = "size 12 9\nbegin graph\n   size 10 7\n" + body + "end graph\n"
+    src = (
+        _F_DAT_IMPORTED
+        + "size 12 9\nbegin graph\n   size 10 7\n"
+        + body
+        + "end graph\n"
+    )
     p = _write(tmp_path, "o.gle", src, {"f.dat": "99 99 99\n1 2 3\n2 3 4\n3 5 6\n"})
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
@@ -609,7 +621,8 @@ def test_positional_x_follows_gle(tmp_path, body, data, written):
 def test_options_on_one_graph_do_not_stop_another_loading_the_file(tmp_path):
     """#169: GLE reads the file afresh in each graph."""
     src = (
-        "begin graph\n   data f.dat d1=c1,c2 ignore 1\n   bar d1\nend graph\n"
+        _F_DAT_IMPORTED
+        + "begin graph\n   data f.dat d1=c1,c2 ignore 1\n   bar d1\nend graph\n"
         "begin graph\n   data f.dat d2=c1,c3\n   bar d2\nend graph\n"
     )
     p = _write(tmp_path, "two.gle", src, {"f.dat": "1 2 3\n2 3 4\n"})
