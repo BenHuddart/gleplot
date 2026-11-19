@@ -1,10 +1,12 @@
 """Unit tests for axis properties."""
 
+import json
 import re
 
 import pytest
 
 import gleplot as glp
+from gleplot import Figure
 
 
 class TestAxisProperties:
@@ -293,6 +295,71 @@ class TestSubplots:
         assert "marker" in gle
         assert "bar" in gle
         assert "err" in gle
+
+    def test_add_subplot_span_covers_its_cells_and_the_gap(self):
+        """A (first, last) index spans the rectangle of cells, as matplotlib's."""
+        fig = glp.figure()
+        top = fig.add_subplot(2, 2, (1, 2))
+        left = fig.add_subplot(2, 2, 3)
+        right = fig.add_subplot(2, 2, 4)
+        assert top.position == (2, 2, (1, 2))
+        for ax in (top, left, right):
+            ax.plot([1, 2], [1, 2])
+
+        gle = fig._generate_gle()
+        (tx, ty), (lx, ly), (rx, _ry) = self._extract_amove_points(gle)
+        (tw, th), (_lw, lh), (rw, _rh) = self._extract_sizes(gle)[1:]
+        assert tx == pytest.approx(lx)
+        assert tx + tw == pytest.approx(rx + rw, abs=1e-4)
+        assert th == pytest.approx(lh)
+        assert ty > ly
+
+    def test_add_subplot_span_corners_in_either_column_order(self):
+        """(2, 3) names the rectangle from the top right to the bottom left."""
+        fig = glp.figure()
+        ax = fig.add_subplot(2, 2, (2, 3))
+        ax.plot([1, 2], [1, 2])
+        fig.add_subplot(2, 2, (1, 4)).plot([1, 2], [1, 2])
+        sizes = self._extract_sizes(fig._generate_gle())[1:]
+        assert sizes[0] == sizes[1]
+
+    def test_add_subplot_one_cell_span_is_a_plain_index(self):
+        assert glp.figure().add_subplot(2, 2, (2, 2)).position == (2, 2, 2)
+
+    @pytest.mark.parametrize(
+        "index, match",
+        [
+            ((1, 5), "between 1 and 4"),
+            ((0, 2), "between 1 and 4"),
+            ((3, 2), "between 1 and 4"),
+            ((1, 2, 3), "two integers"),
+            ((1.0, 2), "two integers"),
+            ([1, 2], "tuple"),
+        ],
+    )
+    def test_add_subplot_bad_span_raises(self, index, match):
+        fig = glp.figure()
+        with pytest.raises(ValueError, match=match):
+            fig.add_subplot(2, 2, index)
+
+    def test_add_subplot_span_shared_x_labels_its_bottom_row(self):
+        """With sharex, a span reaching the bottom row keeps its x labels."""
+        fig = glp.Figure(sharex=True)
+        fig.add_subplot(2, 2, (1, 3)).plot([1, 2], [1, 2])
+        fig.add_subplot(2, 2, 2).plot([1, 2], [1, 2])
+        fig.add_subplot(2, 2, 4).plot([1, 2], [1, 2])
+        tall, upper, lower = fig._generate_gle().split("begin graph")[1:]
+        assert "xlabels off" not in tall
+        assert "xlabels off" in upper
+        assert "xlabels off" not in lower
+
+    def test_add_subplot_span_round_trips_through_to_dict(self):
+        fig = glp.figure()
+        fig.add_subplot(2, 2, (1, 2)).plot([1, 2], [1, 2])
+        payload = fig.to_dict()
+        restored = Figure.from_dict(json.loads(json.dumps(payload)))
+        assert restored.axes_list[0].position == (2, 2, (1, 2))
+        assert restored.to_dict() == payload
 
     def test_subplot_savefig(self, tmp_path):
         """Test saving multi-subplot figure."""

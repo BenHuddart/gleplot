@@ -7,7 +7,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | matplotlib | gleplot |
 |---|---|
 | `plt.figure()` | `glp.figure()` |
-| `fig.add_subplot(...)` | same |
+| `fig.add_subplot(...)` | same, including a `(first, last)` index that spans cells, see [Figures and Subplots](FIGURES_AND_SUBPLOTS.md) |
 | `ax.plot(...)` | same |
 | `ax.scatter(...)` | same |
 | `ax.errorbar(...)` | same |

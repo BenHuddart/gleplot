@@ -1037,6 +1037,48 @@ def test_missing_grid_multigraph_falls_back(tmp_path):
     assert any(w.startswith("layout:") for w in rec.warnings)
 
 
+def test_spanning_subplots_are_recovered(tmp_path):
+    """gleplot's own spanning grid reloads with its spans and no layout note."""
+    _gleplot_axes._global_data_file_counter = 0
+    gle_path = tmp_path / "span.gle"
+    golden.subplots_spanning().savefig_gle(str(gle_path))
+    rec = parse_gle_figure(gle_path)
+    assert [ax.position for ax in rec.figure.axes_list] == [
+        (3, 3, (1, 2)),
+        (3, 3, (3, 6)),
+        (3, 3, 4),
+        (3, 3, 5),
+        (3, 3, (7, 9)),
+    ]
+    assert not any(w.startswith("layout:") for w in rec.warnings)
+
+
+def test_graphs_that_do_not_tile_a_grid_fall_back(tmp_path):
+    """Overlapping frames are no grid with spans: n x 1 fallback + warning."""
+    graph = (
+        "amove {x} {y}\n"
+        "begin graph\n"
+        "   size {w} {h}\n"
+        "   scale 1 1\n"
+        "   data g_1.dat d1=c1,c2\n"
+        "end graph\n"
+    )
+    src = (
+        "size 20 15\n"
+        + graph.format(x=2, y=2, w=16, h=11)
+        + graph.format(x=10, y=8, w=6, h=4)
+        + graph.format(x=2, y=13, w=4, h=1)
+    )
+    p = _write(tmp_path, "overlap.gle", src, {"g_1.dat": "1 1\n2 2\n"})
+    rec = parse_gle_figure(p)
+    assert [ax.position for ax in rec.figure.axes_list] == [
+        (3, 1, 1),
+        (3, 1, 2),
+        (3, 1, 3),
+    ]
+    assert any("clean grid" in w for w in rec.warnings)
+
+
 # --------------------------------------------------------------------------- #
 # open_gle smoke
 # --------------------------------------------------------------------------- #
