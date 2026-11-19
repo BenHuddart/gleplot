@@ -154,3 +154,28 @@ def test_pcolormesh_cells_are_drawn_the_same_size(tmp_path):
         cells = widths(line, n)
         assert len(cells) == n
         assert max(cells) - min(cells) <= 0.03 * max(cells), cells
+
+
+def test_contourf_bands_fall_on_their_levels(tmp_path):
+    """Bands of z = x with levels a quarter apart are drawn the same width.
+
+    GLE's colormap places the grid's nodes one spacing short of the .z
+    header's xmax, so a grid written as imshow writes it would draw every
+    band edge left of its level, by more the further right it is. Each band
+    gets its own grey, so counting a grey along a row measures the band.
+    """
+    from PIL import Image
+
+    fig = glp.figure(figsize=(6, 4), data_prefix="bands")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 10, 11)
+    y = np.linspace(0, 1, 4)
+    ax.contourf(x, y, np.tile(x, (4, 1)), [0, 2.5, 5, 7.5, 10], cmap="gray")
+    out = fig.savefig(str(tmp_path / "bands.png"), dpi=150)
+    im = np.asarray(Image.open(out).convert("L"))
+
+    row = im[im.shape[0] // 2]
+    values, counts = np.unique(row, return_counts=True)
+    bands = sorted(counts[(values > 0) & (values < 255)])[-4:]
+    assert len(bands) == 4
+    assert max(bands) - min(bands) <= 0.03 * max(bands), bands

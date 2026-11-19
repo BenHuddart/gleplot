@@ -9,6 +9,8 @@ builder before and after the units/tables refactor and asserts byte-for-byte
 identity, guarding the "zero behavior change" requirement for Track A2.
 """
 
+import warnings
+
 import numpy as np
 
 import gleplot as glp
@@ -811,6 +813,41 @@ def heatmap_pcolormesh():
         vmin=0,
         pixels=(80, 60),
     )
+    return fig
+
+
+def heatmap_contourf():
+    """contourf bands, with the fields the defaults leave out.
+
+    Left: matplotlib's default levels over a meshgrid. Right: explicit
+    levels, a reversed palette, vmin and extend='max', at a pixel count.
+    """
+    fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
+    x = np.linspace(0, 4, 41)
+    y = np.linspace(-1, 2, 31)
+    X, Y = np.meshgrid(x, y)
+    Z = np.sin(1.5 * X) * np.cos(Y)
+    left.contourf(X, Y, Z)
+    right.contourf(
+        x,
+        y,
+        Z,
+        [-0.6, -0.2, 0.3, 0.7],
+        cmap="RdBu_r",
+        vmin=-1,
+        extend="max",
+        pixels=(120, 90),
+    )
+    return fig
+
+
+def heatmap_contourf_smooth():
+    """A contourf on a grid too coarse for its bands, drawn smooth instead."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", r"contourf\(\) is drawn as a smooth")
+        ax.contourf(np.add.outer(np.arange(4.0), np.arange(5.0)) ** 2, 5, extend="both")
     return fig
 
 
@@ -1760,6 +1797,8 @@ BUILDERS = [
     heatmap_brewer_palettes,
     heatmap_reversed_palettes,
     heatmap_pcolormesh,
+    heatmap_contourf,
+    heatmap_contourf_smooth,
     heatmap_function,
     heatmap_function_field_options,
     contour_grid_levels_clabel,

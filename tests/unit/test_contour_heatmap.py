@@ -2,9 +2,9 @@
 
 Mirrors the ``tests/unit/test_plotting.py`` style -- assert the object-model
 dicts each API call stores AND substrings of the generated GLE. Covers
-``imshow``, ``pcolormesh``, ``contour``, ``tripcolor``, ``tricontour``,
-``Figure.colorbar``, palette emission, the ``.z``/points sidecars, and the
-one-heatmap-per-axes rule.
+``imshow``, ``pcolormesh``, ``contourf``, ``contour``, ``tripcolor``,
+``tricontour``, ``Figure.colorbar``, palette emission, the ``.z``/points
+sidecars, and the one-heatmap-per-axes rule.
 """
 
 from __future__ import annotations
@@ -493,6 +493,187 @@ def test_module_level_pcolormesh():
     glp.figure()
     glp.pcolormesh(np.zeros((2, 2)))
     assert glp.gca().heatmaps[0]["cells"] is True
+
+
+# --------------------------------------------------------------------------- #
+# contourf (bands)
+# --------------------------------------------------------------------------- #
+
+
+def _ramp_contourf(fig, *levels, **kwargs):
+    """A plane z = x + y over a fine grid: every band edge fits."""
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 4, 41)
+    y = np.linspace(0, 2, 21)
+    return ax, ax.contourf(x, y, np.add.outer(y, x), *levels, **kwargs)
+
+
+def test_contourf_writes_bands_through_its_own_palette_sub():
+    fig = glp.figure(data_prefix="t")
+    ax, hm = _ramp_contourf(
+        fig, [1, 2, 3, 4], cmap="gray", vmin=0, extend="min", pixels=(80, 40)
+    )
+    text, files = _gle(fig)
+
+    assert hm is ax.heatmaps[0]
+    assert hm["levels"] == [1.0, 2.0, 3.0, 4.0]
+    assert hm["extend"] == "min"
+    assert hm["extent"] == [0.0, 4.0, 0.0, 2.0]
+    lines = text.splitlines()
+    start = lines.index("sub gleplot_contourf1 z")
+    assert lines[start : start + 9] == [
+        "sub gleplot_contourf1 z",
+        "   ! gleplot: contourf cmap gray extend min vmin 0 levels 1 2 3 4",
+        "   if z < 1 then return gleplot_gray(0)",
+        "   if z > 4 then return rgb(1, 1, 1)",
+        "   local t = 0.375",
+        "   if z > 2 then t = 0.625",
+        "   if z > 3 then t = 0.875",
+        "   return gleplot_gray(t)",
+        "end sub",
+    ]
+    assert "sub gleplot_gray z" in lines  # the band sub calls it
+    assert (
+        '    colormap "t_heatmap1.z" 80 40 zmin 0 zmax 1 palette gleplot_contourf1'
+        in lines
+    )
+    # One node spacing past the last node: GLE's colormap places node k of n
+    # at xmin + k (xmax - xmin) / n.
+    assert files["t_heatmap1.z"].splitlines()[:2] == [
+        "! nx 41 ny 21 xmin 0 xmax 4.1 ymin 0 ymax 2.1",
+        "! gleplot: nodes xmin 0 xmax 4 ymin 0 ymax 2",
+    ]
+
+
+@pytest.mark.parametrize(
+    "extend, under, over",
+    [
+        ("neither", "rgb(1, 1, 1)", "rgb(1, 1, 1)"),
+        ("max", "rgb(1, 1, 1)", "gleplot_viridis(1)"),
+        ("both", "gleplot_viridis(0)", "gleplot_viridis(1)"),
+    ],
+)
+def test_contourf_extend_fills_beyond_the_levels(extend, under, over):
+    fig = glp.figure()
+    _ramp_contourf(fig, [1, 2, 3], extend=extend)
+    text, _ = _gle(fig)
+    assert f"   if z < 1 then return {under}" in text
+    assert f"   if z > 3 then return {over}" in text
+
+
+@pytest.mark.parametrize(
+    "zmin, zmax, levels, extend, want",
+    [
+        # matplotlib 3.11's contourf(...).levels for the same range.
+        (-1, 1, None, "neither", [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1]),
+        (0.13, 0.87, 5, "neither", [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9]),
+        (-3.2, 17.9, 7, "both", [-3, 0, 3, 6, 9, 12, 15]),
+        (0, 9.5, 3, "max", [0, 2.5, 5, 7.5]),
+    ],
+)
+def test_contourf_picks_levels_as_matplotlib_does(zmin, zmax, levels, extend, want):
+    ax = glp.figure().add_subplot(111)
+    Z = np.array([[zmin, zmax], [zmin, zmax]], dtype=float)
+    with pytest.warns(UserWarning, match="smooth heatmap"):
+        hm = ax.contourf(Z, levels=levels, extend=extend)
+    np.testing.assert_allclose(hm["levels"], want, rtol=1e-12)
+
+
+def test_contourf_on_z_alone_puts_the_nodes_on_the_indices():
+    ax = glp.figure().add_subplot(111)
+    hm = ax.contourf(np.zeros((3, 5)) + np.arange(5.0), 2)
+    assert hm["extent"] == [0.0, 4.0, 0.0, 2.0]
+    assert len(hm["levels"]) >= 2
+
+
+def test_contourf_draws_a_coarse_grid_smooth_and_says_so():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    with pytest.warns(UserWarning, match=r"smooth heatmap, not bands.*fewer pixels="):
+        ax.contourf(np.add.outer(np.arange(4.0), np.arange(5.0)) ** 2, [0, 10, 20, 49])
+    text, _ = _gle(fig)
+    assert "   return gleplot_viridis((z-(0))/49)" in text
+    assert "local t" not in text
+
+
+def test_contourf_on_a_fine_grid_does_not_warn(recwarn):
+    _ramp_contourf(glp.figure(), 5)
+    assert not recwarn.list
+
+
+@pytest.mark.parametrize(
+    "args, kwargs, match",
+    [
+        ((np.zeros((3, 3)), 4), {"levels": 4}, "levels both as an argument"),
+        ((np.zeros((3, 3)),), {"levels": [1.0]}, "at least two finite levels"),
+        ((np.zeros((3, 3)),), {"levels": [2.0, 1.0]}, "levels must increase"),
+        ((np.zeros((3, 3)),), {"levels": 0}, "levels=0; expected a whole number"),
+        ((np.zeros((3, 3)),), {"levels": np.inf}, "levels=inf; expected"),
+        ((np.zeros((3, 3)),), {"levels": "auto"}, "levels='auto'; expected"),
+        (
+            (np.zeros((3, 3)),),
+            {"levels": [0, 1], "vmin": 0.10000001, "vmax": 0.10000002},
+            "vmin < vmax",
+        ),
+        ((np.zeros((3, 3)),), {"extend": "up"}, "extend='up'"),
+        ((np.zeros((3, 3)),), {"levels": [0, 1], "vmin": 2}, "vmin < vmax"),
+        ((np.zeros((1, 3)),), {"levels": [0, 1]}, "two grid nodes"),
+        ((np.full((2, 2), 3.0),), {}, "closer together than the 6"),
+        ((np.array([[0.0, np.nan], [1, 2]]),), {}, "NaN"),
+        ((np.ma.masked_array(np.eye(2), mask=np.eye(2)),), {}, "NaN"),
+        (
+            ([0.0, 1.0, 3.0], [0.0, 1.0], np.zeros((2, 3))),
+            {},
+            r"contourf requires uniformly spaced x.*tripcolor\(x, y, z\)",
+        ),
+    ],
+)
+def test_contourf_rejects_input_it_cannot_draw(args, kwargs, match):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=match):
+        ax.contourf(*args, **kwargs)
+
+
+def test_contourf_warns_for_what_gle_cannot_draw():
+    fig = glp.figure()
+    with pytest.warns(UserWarning) as record:
+        _ramp_contourf(fig, 4, colors="k", alpha=0.5, hatches=["/"], zorder=2)
+    messages = " | ".join(str(w.message) for w in record)
+    assert "contourf(colors=...) is ignored" in messages
+    assert "contourf(alpha=...) is ignored" in messages
+    assert "contourf(hatches=...) is ignored" in messages
+    assert "unsupported keyword(s): zorder" in messages
+
+
+def test_contourf_counts_as_the_axes_heatmap():
+    ax = glp.figure().add_subplot(111)
+    ax.imshow(np.zeros((2, 2)))
+    with pytest.raises(ValueError, match="at most one heatmap"):
+        ax.contourf(np.add.outer(np.arange(3.0), np.arange(3.0)), [0, 1, 4])
+
+
+def test_contourf_warns_when_the_limits_reach_past_its_last_node():
+    fig = glp.figure()
+    ax, _ = _ramp_contourf(fig, 4)
+    ax.set_xlim(-1, 5)
+    with pytest.warns(UserWarning, match=r"x limits reach 5, beyond the contourf"):
+        _gle(fig)
+
+
+def test_contourf_colorbar_warns_it_shows_no_bands():
+    """The bar spans the outer levels, the scale the bands are coloured on."""
+    fig = glp.figure()
+    _, hm = _ramp_contourf(fig, [0.5, 2, 5.5])
+    with pytest.warns(UserWarning, match="not its bands"):
+        fig.colorbar(hm)
+    assert (hm["colorbar"]["zmin"], hm["colorbar"]["zmax"]) == (0.5, 5.5)
+
+
+def test_module_level_contourf():
+    glp.figure()
+    x = np.linspace(0, 1, 30)
+    glp.contourf(x, x, np.add.outer(x, x), 3)
+    assert "levels" in glp.gca().heatmaps[0]
 
 
 # --------------------------------------------------------------------------- #

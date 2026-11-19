@@ -881,6 +881,17 @@ DEFAULT_COLORBAR_NTICKS = 5
 #: :meth:`GLEWriter.add_cells_sidecar`).
 CELLS_MARKER = "! gleplot: cells"
 
+#: How the comment line under a ``.z`` header that marks a ``contourf`` grid
+#: begins; the grid's edges follow (see :meth:`GLEWriter.add_nodes_sidecar`).
+NODES_MARKER = "! gleplot: nodes"
+
+#: How the comment line in a ``gleplot_contourf<k>`` palette sub that holds
+#: the series' colouring begins (see :meth:`GLEWriter.add_contourf_sub`).
+CONTOURF_MARKER = "! gleplot: contourf"
+
+#: The ``extend`` values a ``contourf`` takes, as in matplotlib.
+CONTOURF_EXTENDS = ("neither", "min", "max", "both")
+
 #: The ``plot`` series fields :meth:`GLEWriter._dataset_qualifier_clause`
 #: writes.
 _DATASET_QUALIFIERS = (
@@ -907,6 +918,73 @@ def _grid_values(series: Mapping[str, Any]) -> Optional[np.ndarray]:
         return None
     values = np.asarray(raw, dtype=float)
     return values if values.size else None
+
+
+def _bspline_weights(u: np.ndarray, n: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Node indices and weights GLE's bicubic colormap reads at node coord ``u``.
+
+    ``BicubicIpol::ipol`` (GLE ``src/gle/bitmap/img2ps.cpp``, main 949e21e)
+    sums the four nodes ``floor(u) - 1 .. floor(u) + 2``, clamped to the
+    grid, weighted by the cubic B-spline ``R``: an approximating spline, not
+    an interpolating one, so it does not pass through the node values.
+    """
+    i = np.floor(u).astype(int)
+    d = u - i
+    idx = np.stack([np.clip(i + m, 0, n - 1) for m in (-1, 0, 1, 2)])
+    x = np.stack([m - d for m in (-1.0, 0.0, 1.0, 2.0)])
+    w = sum(
+        c * np.clip(x + k, 0, None) ** 3 for c, k in ((1, 2), (-4, 1), (6, 0), (-4, -1))
+    )
+    return idx, w / 6
+
+
+def _band_of(values: np.ndarray, levels: List[float]) -> np.ndarray:
+    """Each value's band as :meth:`GLEWriter.add_contourf_sub` colours it.
+
+    ``0`` below the first level, ``len(levels)`` above the last, else band
+    ``i`` for ``levels[i - 1] < value <= levels[i]``, the first band also
+    taking its lower level, as matplotlib's ``contourf`` bands do.
+    """
+    band = np.searchsorted(levels, values, side="left")
+    band[values == levels[0]] = 1
+    return band
+
+
+def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
+    """Whether GLE draws a ``contourf`` heatmap's bands where its levels are.
+
+    Emulates the bitmap GLE's ``colormap`` makes of the series' grid (its
+    ``pixels``, over its ``extent``, from the node-placed sidecar
+    :meth:`GLEWriter.add_nodes_sidecar` writes) and compares each pixel's
+    band with the band the grid's bilinear surface puts there. The bands fit
+    when every pixel GLE colours differently lies within one pixel of where
+    the true band is. Computed from the numbers as written, so a figure read
+    back from its file decides the same way.
+    """
+    fmt = GLEWriter._format_number
+    z = np.vectorize(lambda v: float(fmt(float(v))))(np.asarray(series["z"], float))
+    levels = [float(fmt(v)) for v in series["levels"]]
+    ny, nx = z.shape
+    px, py = series["pixels"]
+    u = (np.arange(px) + 0.5) / px * (nx - 1)
+    v = (np.arange(py) + 0.5) / py * (ny - 1)
+    xi, xw = _bspline_weights(u, nx)
+    yi, yw = _bspline_weights(v, ny)
+    rows = sum(z[:, xi[m]] * xw[m] for m in range(4))
+    drawn = sum(rows[yi[m], :] * yw[m][:, None] for m in range(4))
+    j = np.minimum(np.floor(u).astype(int), nx - 2)
+    k = np.minimum(np.floor(v).astype(int), ny - 2)
+    a, b = u - j, (v - k)[:, None]
+    lower = z[k][:, j] * (1 - a) + z[k][:, j + 1] * a
+    upper = z[k + 1][:, j] * (1 - a) + z[k + 1][:, j + 1] * a
+    true = lower * (1 - b) + upper * b
+    got, want = _band_of(drawn, levels), _band_of(true, levels)
+    near = np.zeros(want.shape, bool)
+    padded = np.pad(want, 1, mode="edge")
+    for dy in range(3):
+        for dx in range(3):
+            near |= padded[dy : dy + py, dx : dx + px] == got
+    return bool(np.all(near))
 
 
 def auto_extent(series: Mapping[str, Any]) -> Optional[List[float]]:
@@ -1467,6 +1545,9 @@ class GLEWriter:
         # take the draw form is not known until each axes' limits are.
         self.used_guide_subs: Set[str] = set()
         self._sub_defs_mark: int = 0
+        # The palette sub each contourf heatmap written so far colours with,
+        # by its data file: gleplot_contourf1, 2, ... in writing order.
+        self._contourf_subs: Dict[str, str] = {}
         # Which axes of the graph being written are logarithmic, as the last
         # add_axes call set them (see _add_sized_scatter).
         self._log_axes: Dict[str, bool] = {}
@@ -5948,6 +6029,9 @@ class GLEWriter:
             self.add_fitz_block(data_file, series["extent"], series["gridsize"], None)
         elif series.get("cells"):
             self.add_cells_sidecar(series)
+        elif "levels" in series:
+            self.add_nodes_sidecar(series)
+            self.add_contourf_sub(series)
         else:
             self.add_z_sidecar(
                 data_file, series["z"], series["extent"], series["origin"]
@@ -5990,6 +6074,94 @@ class GLEWriter:
         self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
         self.raw_sidecars.add(series["data_file"])
 
+    def add_nodes_sidecar(self, series: Series):
+        """Write a ``contourf`` heatmap's ``.z`` with its nodes where they are.
+
+        GLE's ``colormap`` puts node ``k`` of ``n`` at ``xmin + k * (xmax -
+        xmin) / n``, one spacing short of ``xmax``, while ``begin contour``
+        puts the last node on ``xmax``. Writing ``xmax`` (and ``ymax``) one
+        node spacing past the last node makes the colormap's nodes the grid's
+        own, so the bands sit where the levels cross the grid; the graph
+        window, which the grid's extent sets, clips the extra spacing.
+
+        The line under the header, which GLE skips, holds the grid's edges
+        as every extent is written, and the header is computed from those
+        written edges with more digits, as for
+        :meth:`add_cells_sidecar`.
+        """
+        fmt = self._format_number
+        edges = [fmt(v) for v in series["extent"]]
+        x0, x1, y0, y1 = (float(v) for v in edges)
+        z = np.asarray(series["z"], dtype=float)
+        ny, nx = z.shape
+        bounds = (
+            fmt(v, 12)
+            for v in (x0, x1 + (x1 - x0) / (nx - 1), y0, y1 + (y1 - y0) / (ny - 1))
+        )
+        lines = [
+            "! nx {} ny {} xmin {} xmax {} ymin {} ymax {}".format(nx, ny, *bounds),
+            "{} xmin {} xmax {} ymin {} ymax {}".format(NODES_MARKER, *edges),
+        ]
+        lines.extend(" ".join(fmt(v) for v in row) for row in z)
+        self.data_files[series["data_file"]] = "\n".join(lines) + "\n"
+        self.raw_sidecars.add(series["data_file"])
+
+    def add_contourf_sub(self, series: Series):
+        """Define the palette sub a ``contourf`` heatmap's colormap calls.
+
+        The colormap passes each pixel's value through unscaled (``zmin 0
+        zmax 1``), so the sub compares it with the levels themselves. A value
+        above one level and up to the next takes the colour ``cmap`` gives
+        the middle of that band on the ``vmin``..``vmax`` scale (the outer levels when unset), as
+        matplotlib colours a band. Below the first level and above the last
+        it is white, or with ``extend`` the colormap's end colour. When GLE's
+        smoothing would not put the band edges on the levels
+        (:func:`contourf_bands_fit`), the sub maps the value straight onto the
+        colormap instead, inside the same limits.
+
+        The sub's first line, a comment GLE skips, holds the series' colouring
+        as written, which is what the recognizer reads back. The sub goes
+        before the graph that calls it: GLE finds a sub wherever it is.
+        """
+        fmt = self._format_number
+        name = f"gleplot_contourf{len(self._contourf_subs) + 1}"
+        self._contourf_subs[series["data_file"]] = name
+        cmap = series["cmap"]
+        extend = series["extend"]
+        levels = [fmt(v) for v in series["levels"]]
+        head = f"{CONTOURF_MARKER} cmap {cmap} extend {extend}"
+        for key in ("vmin", "vmax"):
+            if series[key] is not None:
+                head += f" {key} {fmt(series[key])}"
+        head += " levels " + " ".join(levels)
+        lv = [float(v) for v in levels]
+        lo = lv[0] if series["vmin"] is None else float(fmt(series["vmin"]))
+        hi = lv[-1] if series["vmax"] is None else float(fmt(series["vmax"]))
+        call = f"gleplot_{cmap}"
+        white = "rgb(1, 1, 1)"
+        under = f"{call}(0)" if extend in ("min", "both") else white
+        over = f"{call}(1)" if extend in ("max", "both") else white
+        lines = [
+            f"sub {name} z",
+            f"   {head}",
+            f"   if z < {levels[0]} then return {under}",
+            f"   if z > {levels[-1]} then return {over}",
+        ]
+        if contourf_bands_fit(series):
+            tone = [
+                fmt(min(max(((a + b) / 2 - lo) / (hi - lo), 0.0), 1.0))
+                for a, b in zip(lv, lv[1:])
+            ]
+            lines.append(f"   local t = {tone[0]}")
+            for level, t in zip(levels[1:-1], tone[1:]):
+                lines.append(f"   if z > {level} then t = {t}")
+            lines.append(f"   return {call}(t)")
+        else:
+            lines.append(f"   return {call}((z-({fmt(lo)}))/{fmt(hi - lo)})")
+        lines.append("end sub")
+        self.lines_gle.extend(lines)
+        self.lines_gle.append("")
+
     def add_heatmap(self, series: Series):
         """Emit a heatmap's ``colormap`` statement inside its graph block.
 
@@ -6011,6 +6183,12 @@ class GLEWriter:
             operand = series["expression"]
         else:
             operand = _quote_filename(_grid_z_file(series))
+        if "levels" in series:
+            name = self._contourf_subs[series["data_file"]]
+            self.add_colormap(
+                operand, series["pixels"], ("palette", name), 0, 1, False, "bicubic"
+            )
+            return
         self.add_colormap(
             operand,
             series["pixels"],

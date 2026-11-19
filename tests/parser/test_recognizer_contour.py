@@ -201,6 +201,97 @@ def test_cells_marker_on_another_grid_reads_as_imshow(tmp_path, header, rows, cl
     assert any("marked as a pcolormesh mesh" in w for w in rec.warnings)
 
 
+def test_contourf_recovered(tmp_path):
+    """Levels and colouring come from the band sub, edges from the marker."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 1, 31)
+    Z = np.add.outer(x, x)
+    ax.contourf(x, x, Z, [0.2, 0.7, 1.3], cmap="magma_r", vmax=2, extend="both")
+    rec = parse_gle_figure(_save(fig, tmp_path))
+    assert rec.warnings == []
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert hm["levels"] == [0.2, 0.7, 1.3]
+    assert (hm["extend"], hm["cmap"], hm["vmin"], hm["vmax"]) == (
+        "both",
+        "magma_r",
+        None,
+        2.0,
+    )
+    assert hm["extent"] == [0.0, 1.0, 0.0, 1.0]
+    np.testing.assert_allclose(hm["z"], Z, rtol=1e-5)
+
+
+def _contourf_file(tmp_path, comment, marker, options=""):
+    (tmp_path / "grid.z").write_text(
+        "! nx 2 ny 2 xmin 0 xmax 2 ymin 0 ymax 2\n" + marker + "0 1\n1 2\n",
+        encoding="utf-8",
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(
+        "size 10 10\n"
+        "sub gleplot_contourf1 z\n"
+        f"   {comment}\n"
+        "   return rgb(z, z, z)\n"
+        "end sub\n"
+        "begin graph\n"
+        '   colormap "grid.z" 100 100 zmin 0 zmax 1 palette gleplot_contourf1'
+        f"{options}\n"
+        "end graph\n",
+        encoding="utf-8",
+    )
+    return parse_gle_figure(p)
+
+
+def test_contourf_without_its_marker_takes_its_edges_from_the_header(tmp_path):
+    rec = _contourf_file(
+        tmp_path, "! gleplot: contourf cmap viridis extend neither levels 0 1 2", ""
+    )
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert hm["extent"] == [0.0, 1.0, 0.0, 1.0]
+    assert any("no marker line giving its edges" in w for w in rec.warnings)
+
+
+@pytest.mark.parametrize(
+    "comment, options",
+    [
+        ("! gleplot: contourf cmap viridis extend sideways levels 0 1 2", ""),
+        ("! gleplot: contourf cmap viridis extend neither levels 0 1 2", " invert"),
+    ],
+)
+def test_contourf_gleplot_cannot_read_keeps_its_band_sub(tmp_path, comment, options):
+    """A contourf colormap kept as raw GLE keeps the sub it calls."""
+    rec = _contourf_file(
+        tmp_path,
+        comment,
+        "! gleplot: nodes xmin 0 xmax 1 ymin 0 ymax 1\n",
+        options,
+    )
+    ax = rec.figure.axes_list[0]
+    assert not ax.heatmaps
+    assert any("palette gleplot_contourf1" in line for line in ax.passthrough)
+    assert any("unknown palette 'gleplot_contourf1'" in w for w in rec.warnings)
+    text, _ = rec.figure._generate_gle_with_files()
+    assert "sub gleplot_contourf1 z" in text.splitlines()
+    assert "   return rgb(z, z, z)" in text.splitlines()
+
+
+def test_contourf_grid_under_another_palette_says_so(tmp_path):
+    (tmp_path / "grid.z").write_text(
+        "! nx 2 ny 2 xmin 0 xmax 2 ymin 0 ymax 2\n"
+        "! gleplot: nodes xmin 0 xmax 1 ymin 0 ymax 1\n0 1\n1 2\n",
+        encoding="utf-8",
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(
+        'size 10 10\nbegin graph\n   colormap "grid.z" 100 100\nend graph\n',
+        encoding="utf-8",
+    )
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].heatmaps[0]["extent"] == [0.0, 2.0, 0.0, 2.0]
+    assert any("written for a contourf" in w for w in rec.warnings)
+
+
 def test_foreign_palette_colormap_preserved(tmp_path):
     """A colormap naming a NON-gleplot palette sub is kept verbatim + warned."""
     (tmp_path / "grid.z").write_text(

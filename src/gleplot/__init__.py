@@ -368,6 +368,11 @@ def contour(*args, **kwargs):
     return gca().contour(*args, **kwargs)
 
 
+def contourf(*args, **kwargs):
+    """Fill the bands between contour levels on current axes."""
+    return gca().contourf(*args, **kwargs)
+
+
 def tripcolor(*args, **kwargs):
     """Scattered-data heatmap on current axes."""
     return gca().tripcolor(*args, **kwargs)
@@ -631,6 +636,7 @@ __all__ = [
     "imshow",
     "pcolormesh",
     "contour",
+    "contourf",
     "tripcolor",
     "tricontour",
     "colorbar",

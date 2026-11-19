@@ -1256,7 +1256,7 @@ class _GridSeries(Series):
 
 class HeatmapSeries(_GridSeries):
     """A colormap image -- ``Axes.imshow`` / ``Axes.pcolormesh`` /
-    ``Axes.tripcolor`` / ``Axes.function2d``."""
+    ``Axes.contourf`` / ``Axes.tripcolor`` / ``Axes.function2d``."""
 
     ATTR = "heatmaps"
 
@@ -1281,6 +1281,13 @@ class HeatmapSeries(_GridSeries):
     #: holds the outer cell edges and each value colours one whole cell.
     #: Absent means ``imshow``'s placement.
     cells: bool
+    #: The band edges of a ``'grid'`` heatmap from ``Axes.contourf``, which
+    #: colours each value by its band; ``extent`` then holds the grid's first
+    #: and last nodes. Absent on every other heatmap.
+    levels: List[float]
+    #: Which side of a ``contourf``'s levels is filled: ``'neither'``,
+    #: ``'min'``, ``'max'`` or ``'both'``. Present exactly when ``levels`` is.
+    extend: str
     pixels: Optional[List[int]]
     invert: bool
     gridsize: Optional[List[int]]
