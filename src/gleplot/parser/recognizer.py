@@ -3167,10 +3167,16 @@ class _Recognizer:
         self._data_read_options.clear()
         self._held_datasets.clear()
         self._noted_unloaded.clear()
+        redefined = self._let_targets_redefined(block)
         for child in block.body:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
             kw = child.keyword
+            if kw == "let" and self._let_target(child) in redefined:
+                # A later let redefines what the first one made: each is
+                # kept raw, with whatever reads their target.
+                self._hold_dataset(self._let_target(child), pass1.datasets)
+                continue
             if kw == "data":
                 names = self._parse_data_command(
                     _words_and_values(child), pass1.datasets, line_no=child.line_no
@@ -3236,6 +3242,39 @@ class _Recognizer:
         self._keep_plain_derived_lets(block, pass1, info)
         self._keep_plain_function_lets(block, pass1, info)
         return pass1
+
+    @staticmethod
+    def _let_target(stmt) -> Optional[str]:
+        """The ``dK`` a ``let`` statement defines, lowercased, or None."""
+        toks = _words_and_values(stmt)
+        if len(toks) < 2 or not _DATASET_RE.match(toks[1].value):
+            return None
+        return toks[1].value.lower()
+
+    def _let_targets_redefined(self, block: GraphBlock) -> Set[str]:
+        """The datasets more than one ``let`` in ``block`` defines.
+
+        Each is noted: gleplot models a dataset one ``let`` defines.
+        """
+        seen: Set[str] = set()
+        redefined: Dict[str, int] = {}
+        for child in block.body:
+            if not isinstance(child, Statement) or child.keyword != "let":
+                continue
+            target = self._let_target(child)
+            if target is None:
+                continue
+            if target in seen and target not in redefined:
+                redefined[target] = child.line_no
+            seen.add(target)
+        for target, line_no in redefined.items():
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"{target} is defined by more than one let; they and the "
+                "lines that draw it were kept as raw GLE",
+                (line_no, line_no),
+            )
+        return set(redefined)
 
     def _record_colour_let(self, stmt, datasets, info) -> None:
         """Record a per-point colour's ``let`` (see ``_CDATA_LET_RE``)."""

@@ -2155,6 +2155,33 @@ def test_a_hist_let_on_an_offset_let_stays_raw(tmp_path):
     assert "   let d3 = hist d2" in ax.passthrough
 
 
+@pytest.mark.parametrize(
+    "first",
+    ["let d2 = hist d1", "let d2 = d1+1", "let d2 = sin(x) from 0 to 1"],
+)
+@pytest.mark.parametrize("redefine_last", [False, True])
+def test_a_let_redefined_by_a_later_let_stays_raw(tmp_path, first, redefine_last):
+    """#379: the second ``let`` is kept, with the first and its readers."""
+    lines = ["   let d2 = d2*2", "   d2 line"]
+    body = ['   data "d.dat" d1=c1,c2', f"   {first}"]
+    body += lines[::-1] if redefine_last else lines
+    meta = (
+        "! gleplot-meta-begin v2\n! gleplot: dpi = 100\n"
+        "! gleplot: import-data = d.dat\n! gleplot-meta-end\n"
+    )
+    src = meta + "size 10 8\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "r.gle", src, {"d.dat": "0 1\n1 2\n2 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.passthrough == body
+    assert any(
+        w.startswith("structure: d2 is defined by more than one let")
+        for w in rec.warnings
+    )
+    rec.figure.savefig_gle(str(p))
+    assert "\n".join(body) in p.read_text(encoding="utf-8")
+
+
 def test_a_string_naming_a_hist_source_does_not_keep_it_raw(tmp_path):
     """#174: only statements, not a title, can read a histogram's samples."""
     fig = gleplot.figure(data_prefix="hist")
