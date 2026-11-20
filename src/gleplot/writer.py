@@ -44,6 +44,7 @@ from .guides import (
     GUIDE_MARKER_PREFIX,
     fraction_expr,
 )
+from .palettes import COLOR_INCLUDE
 from .parser.tables import (
     ARROW_JOIN_SEPS,
     ARROW_TIP_STYLES,
@@ -149,7 +150,7 @@ def cdata_sub_text(marker: str, cmap: str) -> str:
         f"sub {name} size data\n"
         "   gsave\n"
         "   set hei size\n"
-        f"   set color gleplot_{_pal.canonical_cmap(cmap)}(data)\n"
+        f"   set color {_pal.palette_sub_name(cmap)}(data)\n"
         f"   marker {marker.upper()}\n"
         "   grestore\n"
         "end sub\n"
@@ -301,10 +302,6 @@ def image_sub_name(path: str) -> Optional[str]:
     """
     return _IMAGE_SUB_BY_SUFFIX.get(Path(path).suffix.lower())
 
-
-#: The gleinc file whose ``color_range_vertical``/``_horizontal`` draw a
-#: colorbar (:meth:`GLEWriter.add_colorbar`).
-COLOR_INCLUDE = "color.gle"
 
 #: The gleinc file whose ``contour_labels`` writes a contour's labels
 #: (:meth:`GLEWriter.add_contour_labels`).
@@ -1493,6 +1490,9 @@ class GLEWriter:
         self._pending_guide_lines: List[str] = []
         self._includes: Set[str] = set()
         self._sub_defs_mark: int = 0
+        # The raw header lines a loaded file kept: an include already there
+        # is not written again.
+        self._header_lines: List[str] = []
         # The palette sub each contourf heatmap written so far colours with,
         # by its data file: gleplot_contourf1, 2, ... in writing order.
         self._contourf_subs: Dict[str, str] = {}
@@ -1761,6 +1761,7 @@ class GLEWriter:
             ]
         )
         if passthrough_header:
+            self._header_lines = list(passthrough_header)
             self.lines_gle.extend(passthrough_header)
         if include_graph_begin:
             self.lines_gle.append("begin graph")
@@ -5728,21 +5729,23 @@ class GLEWriter:
         self.data_files[filename] = content
         self.raw_sidecars.add(filename)
 
-    def add_sub_defs(self, sub_texts: List[str]):
-        """Append self-contained subroutine definitions to the script.
+    def add_sub_defs(self, sub_texts: List[str], includes: Iterable[str] = ()):
+        """Append subroutine definitions, and the gleinc files they call.
 
         Each entry is a full multi-line ``sub ... end sub`` block. A blank
         line separates consecutive subs (and follows the last), matching the
         script's readable block spacing.
 
-        Also marks where an include belongs, so ``graphutil.gle`` -- whose
-        need is only known once the graph blocks have been written -- can be
-        spliced in here later (:meth:`finalize_includes`).
+        Also marks where the includes belong, before the subs: GLE looks up a
+        routine a sub calls when it reads the sub. ``graphutil.gle`` -- whose
+        need is only known once the graph blocks have been written -- is
+        spliced in there later with the others (:meth:`finalize_includes`).
         """
+        self._includes.update(includes)
+        self._sub_defs_mark = len(self.lines_gle)
         for text in sub_texts:
             self.lines_gle.extend(text.split("\n"))
             self.lines_gle.append("")
-        self._sub_defs_mark = len(self.lines_gle)
 
     def finalize_includes(self) -> None:
         """Splice in an ``include`` for each gleinc file the write called.
@@ -5752,9 +5755,11 @@ class GLEWriter:
         unresolved when :meth:`add_sub_defs` runs, so the includes go in at
         that method's mark, in name order.
         """
-        if self._includes:
+        kept = {line.strip().lower() for line in self._header_lines}
+        lines = [f'include "{name}"' for name in sorted(self._includes)]
+        lines = [line for line in lines if line.lower() not in kept]
+        if lines:
             at = self._sub_defs_mark
-            lines = [f'include "{name}"' for name in sorted(self._includes)]
             self.lines_gle[at:at] = lines + [""]
 
     def add_fitz_block(self, series: Series):
@@ -5978,7 +5983,7 @@ class GLEWriter:
         lv = [float(v) for v in levels]
         lo = lv[0] if series["vmin"] is None else float(fmt(series["vmin"]))
         hi = lv[-1] if series["vmax"] is None else float(fmt(series["vmax"]))
-        call = f"gleplot_{cmap}"
+        call = _pal.palette_sub_name(cmap)
         white = "rgb(1, 1, 1)"
         under = f"{call}(0)" if extend in ("min", "both") else white
         over = f"{call}(1)" if extend in ("max", "both") else white
@@ -6011,7 +6016,7 @@ class GLEWriter:
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`.
         ``cmap`` picks the colour mode: ``'gray'`` writes no colour clause,
         ``'rainbow'`` is GLE's built-in ``color``, and any other name is the
-        ``gleplot_<cmap>`` palette sub. A ``'function'`` heatmap maps its
+        ``cmap_<cmap>`` palette sub. A ``'function'`` heatmap maps its
         ``expression``, written bare: GLE reads a quoted one as a file name.
         """
         cmap = series["cmap"]
@@ -6021,7 +6026,7 @@ class GLEWriter:
         elif cmap == "rainbow":
             cmap_mode = ("color", None)
         else:
-            cmap_mode = ("palette", f"gleplot_{cmap}")
+            cmap_mode = ("palette", _pal.palette_sub_name(cmap))
         if series["source"] == "function":
             operand = series["expression"]
         else:

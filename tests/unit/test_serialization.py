@@ -1302,3 +1302,18 @@ def test_the_auto_states_do_not_change_the_serialized_shape_of_anything_else():
 
     assert after["figure"]["axes"][:3] == before["figure"]["axes"][:3]
     assert len(after["figure"]["axes"]) == len(before["figure"]["axes"]) + 1
+
+
+def test_a_gleplot_5_project_cmap_gle_lacks_is_drawn_with_the_closest():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    ax.imshow(np.zeros((2, 2)), cmap="viridis")
+    ax.scatter([0, 1], [0, 1], c=[0, 1], cmap="viridis")
+    d = fig.to_dict()
+    d["figure"]["axes"][0]["heatmaps"][0]["cmap"] = "rdbu_r"
+    d["figure"]["axes"][0]["scatters"][0]["cmap"] = "rainbow"
+    with pytest.warns(UserWarning, match="closest map GLE has") as record:
+        back = Figure.from_dict(d).axes_list[0]
+    assert len(record) == 2
+    assert back.heatmaps[0]["cmap"] == "coolwarm"
+    assert back.scatters[0]["cmap"] == "viridis"

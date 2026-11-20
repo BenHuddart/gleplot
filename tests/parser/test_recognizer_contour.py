@@ -775,7 +775,7 @@ def test_contour_levels_gleplot_cannot_read_keep_the_block(tmp_path, levels):
 
 
 def test_handwritten_gleplot_authored_style_recovers(tmp_path):
-    """A hand-authored file using the gleplot idiom (quoted files, gleplot_
+    """A hand-authored file using the gleplot idiom (quoted files, cmap_
     palette) recovers as a heatmap even without a metadata block."""
     (tmp_path / "grid.z").write_text(
         "! nx 2 ny 2 xmin 0 xmax 1 ymin 0 ymax 1\n0 1\n1 2\n", encoding="utf-8"
@@ -784,7 +784,7 @@ def test_handwritten_gleplot_authored_style_recovers(tmp_path):
 
     src = (
         "size 10 10\n" + palettes.palette_sub_text("viridis") + "\n" + "begin graph\n"
-        '   colormap "grid.z" 100 100 palette gleplot_viridis\n'
+        '   colormap "grid.z" 100 100 palette cmap_viridis\n'
         "end graph\n"
     )
     p = tmp_path / "f.gle"
@@ -794,7 +794,7 @@ def test_handwritten_gleplot_authored_style_recovers(tmp_path):
     ax = rec.figure.axes_list[0]
     assert len(ax.heatmaps) == 1
     assert ax.heatmaps[0]["cmap"] == "viridis"
-    # gleplot_ sub not flagged as a programmatic file.
+    # The wrapper sub is not flagged as a programmatic file.
     assert not any(w.startswith("programmatic:") for w in rec.warnings)
 
 
@@ -832,3 +832,121 @@ def test_a_gleplot_5_contour_label_sub_is_kept_as_raw_gle(tmp_path):
     text = rec.figure._generate_gle_with_files()[0]
     assert "sub gleplot_contour_labels file$ format$" in text
     assert 'gleplot_contour_labels file "g_contour1-clabels.dat" format "fix 2"' in text
+
+
+def _as_gleplot_5(path: Path, cmap: str, old: str) -> None:
+    """Rewrite a saved file the way gleplot 5 named ``cmap``'s palette sub."""
+    text = path.read_text("utf-8").replace('include "palettes.gle"\n', "")
+    text = text.replace(f"cmap_{cmap}", f"gleplot_{old}")
+    path.write_text(text.replace(f"_cdata_fcircle_{cmap}", f"_cdata_fcircle_{old}"))
+
+
+def test_a_gleplot_5_palette_sub_and_its_colormap_are_kept_as_raw_gle(tmp_path):
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2), cmap="viridis")
+    path = _save(fig, tmp_path)
+    _as_gleplot_5(path, "viridis", "viridis")
+    rec = parse_gle_figure(path)
+    assert not rec.figure.axes_list[0].heatmaps
+    assert any("'gleplot_viridis' is a sub an earlier" in w for w in rec.warnings)
+    text = rec.figure._generate_gle_with_files()[0]
+    assert "sub gleplot_viridis z" in text
+    assert "palette gleplot_viridis" in text
+    assert "cmap_viridis" not in text
+
+
+def test_a_gleplot_5_coloured_scatter_takes_the_new_palette(tmp_path):
+    """Its marker sub is gleplot's own; only the palette sub it called is old."""
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).scatter([0, 1], [0, 1], c=[0, 1], cmap="viridis")
+    path = _save(fig, tmp_path)
+    _as_gleplot_5(path, "viridis", "viridis")
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].scatters[0]["cmap"] == "viridis"
+    text = rec.figure._generate_gle_with_files()[0]
+    assert "sub gleplot_viridis z" in text
+    assert "set color cmap_viridis(data)" in text
+
+
+def test_a_gleplot_5_coloured_scatter_in_a_map_gle_lacks_stays_raw(tmp_path):
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).scatter([0, 1], [0, 1], c=[0, 1], cmap="plasma")
+    path = _save(fig, tmp_path)
+    _as_gleplot_5(path, "plasma", "rdbu")
+    rec = parse_gle_figure(path)
+    assert not rec.figure.axes_list[0].scatters
+    text = rec.figure._generate_gle_with_files()[0]
+    for kept in (
+        "sub gleplot_rdbu z",
+        "sub gleplot_cdata_fcircle_rdbu size data",
+        "set color gleplot_rdbu(data)",
+        "define marker gleplot_cdata_fcircle_rdbu gleplot_cdata_fcircle_rdbu",
+        "marker gleplot_cdata_fcircle_rdbu msize",
+    ):
+        assert kept in text
+    assert "cmap_" not in text
+
+
+def test_a_palette_sub_of_ones_own_keeps_its_colormap_raw(tmp_path):
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2), cmap="magma")
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace("return magma(", "return viridis(")
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path)
+    assert not rec.figure.axes_list[0].heatmaps
+    again = rec.figure._generate_gle_with_files()[0]
+    assert again.count("sub cmap_magma z") == 1
+    assert "   return viridis(max(0,min(1,z)))" in again
+    # GLE looks the routine up when it reads the sub.
+    assert again.index('include "palettes.gle"') < again.index("sub cmap_magma z")
+    assert "palette cmap_magma" in again
+
+
+def test_a_colormap_kept_raw_keeps_the_palette_sub_it_calls(tmp_path):
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2), cmap="magma")
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace(
+        "palette cmap_magma", "palette cmap_magma interpolate bilinear"
+    )
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path)
+    assert not rec.figure.axes_list[0].heatmaps
+    again = rec.figure._generate_gle_with_files()[0]
+    assert again == text
+
+
+def test_a_palette_sub_of_ones_own_is_kept_for_what_calls_it(tmp_path):
+    """Nothing gleplot reads calls it, and its include stays ahead of it."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.arange(4.0).reshape(2, 2), cmap="magma")
+    ax.scatter([0, 1], [0, 1], c=[0, 1], cmap="viridis")
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace(
+        "return viridis(max(0,min(1,z)))", "return viridis(1-z)"
+    )
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps
+    assert not rec.figure.axes_list[0].scatters
+    again = rec.figure._generate_gle_with_files()[0]
+    assert again.count("sub cmap_viridis z") == 1
+    assert again.count('include "palettes.gle"') == 1
+    assert again.index('include "palettes.gle"') < again.index("sub cmap_viridis z")
+    assert "sub cmap_magma z" in again
+    assert _resave(tmp_path, again) == again
+
+
+def _resave(tmp_path: Path, text: str) -> str:
+    path = tmp_path / "again.gle"
+    path.write_text(text, encoding="utf-8")
+    return parse_gle_figure(path).figure._generate_gle_with_files()[0]
+
+
+def test_a_cut_short_palette_sub_is_kept_as_raw_gle(tmp_path):
+    path = tmp_path / "short.gle"
+    path.write_text("size 10 10\nsub cmap_viridis z\n", encoding="utf-8")
+    text = parse_gle_figure(path).figure._generate_gle_with_files()[0]
+    assert "sub cmap_viridis z" in text

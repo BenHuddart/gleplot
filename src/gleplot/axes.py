@@ -27,7 +27,7 @@ from .colors import _rgba_parts, apply_alpha, hatch_to_gle, rgb_to_gle
 from .config import LINE_CAPS, LINE_JOINS, GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
-from .palettes import canonical_cmap
+from .palettes import NATIVE_CMAPS, canonical_cmap, native_cmap
 from .parser.tables import (
     FIT_MODEL_TO_ROUTINE,
     FIT_PLACEHOLDER_RE,
@@ -4787,8 +4787,9 @@ class Axes:
             Draw order relative to other data series on the same axes.
             Higher values are drawn on top.
         cmap : str, optional
-            Colormap for numeric ``c``. Default: the figure graph config's
-            ``default_cmap``.
+            Colormap for numeric ``c``, as for :meth:`imshow`; ``rainbow`` is
+            drawn as ``viridis``, with a warning. Default: the figure graph
+            config's ``default_cmap``.
         vmin, vmax : float, optional
             The values given the colormap's first and last colour. Default:
             the smallest and largest finite value of ``c``. A value outside
@@ -5017,7 +5018,7 @@ class Axes:
             )
         return {
             "cdata": values,
-            "cmap": self._resolve_cmap(cmap),
+            "cmap": self._resolve_cmap(cmap, "scatter", sub=True),
             "vmin": lo,
             "vmax": hi,
         }
@@ -7080,11 +7081,26 @@ class Axes:
 
     # -- heatmaps & contours --------------------------------------------
 
-    def _resolve_cmap(self, cmap: Optional[str]) -> str:
-        """Return the canonical cmap name, falling back to the graph default."""
+    def _resolve_cmap(self, cmap: Optional[str], caller: str, sub: bool = False) -> str:
+        """The native map ``caller`` draws ``cmap`` (or the default) with.
+
+        ``sub`` is as for :func:`gleplot.palettes.native_cmap`. A map GLE
+        does not have warns and is drawn with the closest one.
+        """
+        given = f"{caller}(cmap={cmap!r})"
         if cmap is None:
             cmap = self.figure.graph.default_cmap
-        return canonical_cmap(cmap)
+            given = f"{caller}() with GLEGraphConfig(default_cmap={cmap!r})"
+        native = native_cmap(cmap, sub)
+        if native != canonical_cmap(cmap):
+            names = [c for c in NATIVE_CMAPS if not (sub and c == "rainbow")]
+            warn_external(
+                f"{given} is drawn with cmap={native!r}, the closest map GLE "
+                f"has{' for it' if sub else ''}. Pass one of {', '.join(names)} "
+                f"(each also with '_r'{'' if sub else ', except rainbow'}) to "
+                "choose the map."
+            )
+        return native
 
     def _resolve_pixels(self, pixels) -> List[int]:
         """Normalize the ``pixels`` argument to a stored ``[px, py]`` int pair."""
@@ -7137,6 +7153,8 @@ class Axes:
         cmap : str, optional
             Palette name (see :data:`gleplot.palettes.SUPPORTED_CMAPS`), or
             one with ``_r`` appended for its reversed form, as in matplotlib.
+            A name GLE has no palette for warns and is drawn with the closest
+            one (see the Palette Gallery in the contour and heatmap guide).
             When ``None``, uses the figure graph config's ``default_cmap``.
         vmin, vmax : float, optional
             Colour normalization range (GLE ``zmin``/``zmax``). ``None`` uses
@@ -7207,7 +7225,7 @@ class Axes:
             zpts=None,
             extent=ext,
             origin=origin,
-            cmap=self._resolve_cmap(cmap),
+            cmap=self._resolve_cmap(cmap, "imshow"),
             vmin=None if vmin is None else float(vmin),
             vmax=None if vmax is None else float(vmax),
             interpolation="nearest" if interpolation == "nearest" else "bicubic",
@@ -7307,7 +7325,7 @@ class Axes:
             zpts=None,
             extent=ext,
             origin="lower",
-            cmap=self._resolve_cmap(cmap),
+            cmap=self._resolve_cmap(cmap, "function2d"),
             vmin=None if vmin is None else float(vmin),
             vmax=None if vmax is None else float(vmax),
             interpolation="bicubic",
@@ -7444,7 +7462,7 @@ class Axes:
             zpts=None,
             extent=ext,
             origin="lower",
-            cmap=self._resolve_cmap(cmap),
+            cmap=self._resolve_cmap(cmap, "pcolormesh"),
             vmin=None if vmin is None else float(vmin),
             vmax=None if vmax is None else float(vmax),
             interpolation="nearest",
@@ -7562,7 +7580,8 @@ class Axes:
             does; ``None`` is ``7``. A sequence is used as given, and must
             increase.
         cmap : str, optional
-            Palette name, as for :meth:`imshow`.
+            Palette name, as for :meth:`imshow`; ``rainbow`` is drawn as
+            ``viridis``, with a warning.
         vmin, vmax : float, optional
             The values given the colormap's first and last colour; each band
             takes the colour of its middle value. Default: the first and
@@ -7663,7 +7682,7 @@ class Axes:
             zpts=None,
             extent=ext,
             origin="lower",
-            cmap=self._resolve_cmap(cmap),
+            cmap=self._resolve_cmap(cmap, "contourf", sub=True),
             vmin=None if vmin is None else float(vmin),
             vmax=None if vmax is None else float(vmax),
             interpolation="bicubic",
@@ -7979,7 +7998,7 @@ class Axes:
             zpts=za,
             extent=ext,
             origin="lower",
-            cmap=self._resolve_cmap(cmap),
+            cmap=self._resolve_cmap(cmap, "tripcolor"),
             vmin=None if vmin is None else float(vmin),
             vmax=None if vmax is None else float(vmax),
             interpolation="nearest" if interpolation == "nearest" else "bicubic",
@@ -10288,6 +10307,18 @@ class Axes:
         for rug in ax.rugs:
             if "data_file" not in rug:
                 rug["data_file"] = _resolve_data_file(figure, None)
+        # A project gleplot 5 saved may name a map GLE has no palette for.
+        mapped: List[Tuple[Series, bool]]
+        mapped = [(hm, "levels" in hm) for hm in ax.heatmaps]
+        mapped += [(sc, True) for sc in ax.scatters if "cdata" in sc]
+        for series, sub in mapped:
+            native = native_cmap(series["cmap"], sub)
+            if native != series["cmap"]:
+                warn_external(
+                    f"The project's cmap {series['cmap']!r} is drawn with "
+                    f"cmap={native!r}, the closest map GLE has."
+                )
+                series["cmap"] = native
 
         ax.passthrough = list(d.get("passthrough", []))
 
