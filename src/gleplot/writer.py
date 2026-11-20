@@ -1094,7 +1094,9 @@ def resolve_figure(
     document keeps its auto state. Arrays that cannot produce them (an empty
     grid, scattered samples constant in x or y, an all-NaN grid under an auto
     colorbar) skip the series with reason ``'unusable-data'`` rather than
-    raising -- see :func:`apply_grid_write_time_autos`.
+    raising -- see :func:`apply_grid_write_time_autos`. A resolved line
+    whose arrays hold NaN breaks there, as ``plot`` does (see
+    :func:`break_line_at_gaps`).
     """
     resolution = SourceResolution()
     table_files: Dict[str, str] = {}
@@ -1139,6 +1141,12 @@ def resolve_figure(
                 data = series.copy()
                 for role, values in resolved.values.items():
                     data[role] = values
+                if series_cls is LineSeries:
+                    break_line_at_gaps(
+                        data,
+                        "A line read from a data provider",
+                        figure.graph.smooth_curves,
+                    )
 
                 if isinstance(raw, GridRef):
                     # A reference-backed grid series may carry an absent
@@ -1182,6 +1190,45 @@ def resolve_figure(
                 resolution._record(series, data, binding)
 
     return resolution
+
+
+def break_line_at_gaps(series: LineSeries, who: str, smooth_curves: bool) -> None:
+    """Break a drawn line at its non-finite x or y rows, as matplotlib does.
+
+    GLE breaks a line at a missing value, which a ``gaps`` series writes
+    those rows as. The line is pinned unsmoothed and unthinned: a figure-wide
+    smooth would fit one curve through the pieces, and ``deresolve`` would
+    keep rows on both sides of a gap and join them. ``who`` names the series'
+    origin in the warnings, or is empty for none (hlines and vlines draw
+    their gaps on purpose).
+    """
+    if series.get("linestyle") in _NO_LINE:
+        return
+    try:
+        finite = all(
+            np.isfinite(np.asarray(series[role], dtype=float)).all()
+            for role in ("x", "y")
+        )
+    except (TypeError, ValueError):
+        return
+    if finite:
+        return
+    series["gaps"] = True
+    series["smooth_mode"] = "none"
+    if not who:
+        return
+    if smooth_curves:
+        warn_external(
+            f"{who} draws a line with NaN gaps unsmoothed: a smooth curve "
+            "would join its pieces. GLEGraphConfig(smooth_curves=True) does "
+            "not apply to it."
+        )
+    if series.pop("deresolve", None) is not None:
+        series.pop("deresolve_average", None)
+        warn_external(
+            f"{who} ignores deresolve=... for a line with NaN gaps: thinning "
+            "would join its pieces."
+        )
 
 
 # -- preview-only deresolve decimation (G7; SPEC 6.1/10.7) --------------------

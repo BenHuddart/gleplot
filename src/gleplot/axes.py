@@ -80,6 +80,7 @@ from .writer import (
     CONTOURF_EXTENDS,
     RUG_EDGES,
     GLEWriter,
+    break_line_at_gaps,
     contourf_bands_fit,
     image_sub_name,
 )
@@ -949,14 +950,6 @@ def _warn_unstrokable_zero(caller: str, linewidth: float) -> None:
             "zero-width stroke; linewidth=0 is drawn at the default width. "
             "Leave the call out to draw nothing."
         )
-
-
-def _has_nonfinite(values: Any) -> bool:
-    """Whether numeric ``values`` hold a NaN or an infinity."""
-    try:
-        return not bool(np.isfinite(np.asarray(values, dtype=float)).all())
-    except (TypeError, ValueError):
-        return False
 
 
 def _count(value: Any, what: str) -> int:
@@ -3229,37 +3222,15 @@ class Axes:
             self.scatters.append(scatter_data)
         else:
             line_data = LineSeries(**plot_fields)
-            if linestyle not in _NO_LINE and (_has_nonfinite(x) or _has_nonfinite(y)):
-                # matplotlib breaks a line at NaN or inf; GLE breaks it at a
-                # missing value, which a gaps series writes those rows as.
-                line_data["gaps"] = True
-                self._pin_gapped_line(line_data, caller)
+            break_line_at_gaps(
+                line_data,
+                "" if caller in ("hlines", "vlines") else f"{caller}()",
+                self.figure.graph.smooth_curves,
+            )
             self._register_series_draw_meta(line_data, "line", zorder)
             self.lines.append(line_data)
 
         return self  # Return self for method chaining
-
-    def _pin_gapped_line(self, series, caller: str) -> None:
-        """Keep a line with gaps unsmoothed and unthinned.
-
-        A figure-wide smooth would fit one curve through the pieces, and
-        ``deresolve`` would keep rows on both sides of a gap and join them.
-        """
-        series["smooth_mode"] = "none"
-        if caller in ("hlines", "vlines"):
-            return
-        if self.figure.graph.smooth_curves:
-            warn_external(
-                f"{caller}() draws a line with NaN gaps unsmoothed: a smooth "
-                "curve would join its pieces. GLEGraphConfig(smooth_curves="
-                "True) does not apply to it."
-            )
-        if series.pop("deresolve", None) is not None:
-            series.pop("deresolve_average", None)
-            warn_external(
-                f"{caller}(deresolve=...) is ignored for a line with NaN gaps: "
-                "thinning would join its pieces."
-            )
 
     @_cartesian_only
     def step(self, x, y, *args, where: str = "pre", **kwargs):
