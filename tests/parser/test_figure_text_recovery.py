@@ -102,6 +102,13 @@ def _labelled_graph(tmp_path) -> str:
         # A distance from the edge the writer would not choose.
         "begin key\n    justify tr\n    absolute pagewidth()*1-0.5 "
         'pageheight()*1-0.21164\n    text "a"\nend key',
+        # No swatch, which the writer would add (#412).
+        "begin key\n    justify tr\n    absolute pagewidth()*1-0.21164 "
+        'pageheight()*1-0.21164\n    text "a"\nend key',
+        # A swatch edited by hand (#412).
+        "begin key\n    justify tr\n    absolute pagewidth()*1-0.21164 "
+        'pageheight()*1-0.21164\n    text "a" color MAGENTA lwidth 0.05292 '
+        "lstyle 1\nend key",
     ],
 )
 def test_a_key_block_the_writer_would_not_write_stays_raw(block, tmp_path):
@@ -119,7 +126,7 @@ def test_a_hand_written_figure_key_is_recovered(tmp_path):
     block = (
         "begin key\n    justify tr\n"
         "    absolute pagewidth()*1-0.21164 pageheight()*1-0.21164\n"
-        '    text "a"\nend key'
+        '    text "a" color blue lwidth 0.05292 lstyle 1\nend key'
     )
     path = tmp_path / "hand.gle"
     path.write_text(_labelled_graph(tmp_path) + block + "\n")

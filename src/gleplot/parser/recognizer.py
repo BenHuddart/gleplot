@@ -287,6 +287,7 @@ import collections
 import copy
 import math
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
@@ -1618,6 +1619,27 @@ def _collect_color(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
 _KEY_SPACING_WORDS = frozenset(LEGEND_SPACING_TO_KEY.values())
 
 
+def _key_entries(block: OpaqueBlock) -> Tuple[Tuple[str, ...], ...]:
+    """The ``text`` lines of a ``begin key`` block, label and swatch tokens.
+
+    GLE words are case-insensitive, so all but the quoted label are
+    compared lower-cased.
+    """
+    entries = []
+    for sl in block.inner_lines:
+        toks = [
+            t for t in tokenize_line(sl.text.strip()) if t.type is not TokenType.COMMENT
+        ]
+        if toks and toks[0].type is TokenType.WORD and toks[0].value.lower() == "text":
+            entries.append(
+                tuple(
+                    t.value if t.type is TokenType.STRING else t.value.lower()
+                    for t in toks
+                )
+            )
+    return tuple(entries)
+
+
 def _key_entry_textcolor(toks: List[Token]) -> Optional[str]:
     """The ``textcolor`` of a ``begin key`` entry; None if absent, "" if odd."""
     found: Optional[str] = None
@@ -1857,6 +1879,13 @@ class _Recognizer:
         # reading the files kept as written.
         self._shared_imports: Set[str] = set()
         self._kept_imports: Set[str] = set()
+        # The 'begin key' blocks read into a legend, as (span, entries),
+        # and the spans of those kept as written because the next save would
+        # not write their entries back (_stale_key_blocks).
+        self._consumed_keys: List[
+            Tuple[Tuple[int, int], Tuple[Tuple[str, ...], ...]]
+        ] = []
+        self._raw_keys: Set[Tuple[int, int]] = set()
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
         # by their frames.
@@ -1952,6 +1981,15 @@ class _Recognizer:
     def run(self) -> RecognizedFigure:
         doc = parse_gle_source(self.text)
         self._scan_document(doc)
+        for span in sorted(self._raw_keys):
+            self._note(
+                ImportCategory.LEGEND,
+                "saving would not write this 'begin key' block's entries back "
+                "as they are (a swatch edited by hand, or none), so the block "
+                "is kept as written and is not read as the legend: calling "
+                "legend() would draw a second key",
+                span,
+            )
         meta = self._read_metadata()
 
         # Walk the top-level nodes, splitting into preamble / graph blocks /
@@ -2429,6 +2467,9 @@ class _Recognizer:
             legend = self._figure_legend_block(nodes[i], parsed_axes)
             if legend is not None:
                 self._figure_legend = legend
+                self._consumed_keys.append(
+                    (self._key_span(nodes[i]), _key_entries(nodes[i]))
+                )
                 i += 1
         return drawings, texts, i
 
@@ -2506,6 +2547,8 @@ class _Recognizer:
         ``Figure._legend`` with the spacing still in cm by GLE word.
         """
         if not isinstance(node, OpaqueBlock) or node.block_type != "key":
+            return None
+        if self._key_span(node) in self._raw_keys:
             return None
         fit_labels: Dict[str, str] = {}
         for info in parsed_axes:
@@ -9897,13 +9940,49 @@ class _Recognizer:
         block = nodes[start]
         if block.block_type != "key":
             return start
+        if self._key_span(block) in self._raw_keys:
+            return start
         parsed = self._parse_external_key(block, info["_fit_key_labels"])
         if parsed is None:
             return start
         if not self._assign_legend_seq(info, parsed["labels"]):
             return start
         info["external_key"] = parsed
+        self._consumed_keys.append((self._key_span(block), _key_entries(block)))
         return start + 1
+
+    @staticmethod
+    def _key_span(block: OpaqueBlock) -> Tuple[int, int]:
+        """The first and last line of a ``begin key`` block."""
+        end = block.end if block.end is not None else block.begin
+        return block.begin.line_no, end.line_no
+
+    def _stale_key_blocks(self, fig: Figure) -> Set[Tuple[int, int]]:
+        """The legend ``begin key`` blocks the next save would not write back.
+
+        A legend's options and labels are read into the model, but its
+        swatches are rebuilt from the series on save; a swatch edited by
+        hand would be lost. Each block read into a legend is looked for
+        among the ones ``fig`` writes, entry for entry.
+        """
+        if not self._consumed_keys:
+            return set()
+        state = (fig._source_warnings, fig._preview_decimation_report)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            written = collections.Counter(
+                _key_entries(node)
+                for node in parse_gle_source(fig._generate_gle()).nodes
+                if isinstance(node, OpaqueBlock) and node.block_type == "key"
+            )
+        fig._source_warnings, fig._preview_decimation_report = state
+        stale = set()
+        for span, entries in self._consumed_keys:
+            if written[entries]:
+                written[entries] -= 1
+            else:
+                stale.add(span)
+        return stale
 
     def _parse_external_key(
         self, block, fit_labels, anchor_of=_key_anchor
@@ -9917,8 +9996,10 @@ class _Recognizer:
         ``background``) have to come before the entries, which is how
         :meth:`gleplot.writer.GLEWriter.queue_external_legend` writes them.
         A ``separator`` counts as one column break; ``breaks`` holds the
-        entry count before each. Swatch tokens after ``text`` are ignored:
-        the next save rebuilds them from the series. ``anchor_of`` reads the
+        entry count before each. Swatch tokens after ``text`` are not read:
+        the next save rebuilds them from the series, and
+        :func:`parse_gle_figure` keeps the block as written when that would
+        change them (:meth:`_stale_key_blocks`). ``anchor_of`` reads the
         ``absolute`` line: axes fractions by default, figure fractions for
         a ``Figure.legend``.
         """
@@ -12082,14 +12163,19 @@ def parse_gle_figure(
     text, gle_path = _resolve_input(path_or_text, base_dir)
     rec = _Recognizer(text, gle_path)
     result = rec.run()
-    while rec._shared_imports:
-        # Read as references, those files are kept as written. That changes
-        # how every reader of them loads, in every graph, so start again.
+    while True:
+        # Read as references, imported files are kept as written. That
+        # changes how every reader of them loads, in every graph, so start
+        # again; then likewise for a legend whose swatches would be lost.
+        stale = set() if rec._shared_imports else rec._stale_key_blocks(result.figure)
+        if not (rec._shared_imports or stale):
+            return result
         kept = rec._kept_imports | rec._shared_imports
+        raw_keys = rec._raw_keys | stale
         rec = _Recognizer(text, gle_path)
         rec._kept_imports = kept
+        rec._raw_keys = raw_keys
         result = rec.run()
-    return result
 
 
 def _resolve_input(path_or_text, base_dir) -> Tuple[str, Path]:

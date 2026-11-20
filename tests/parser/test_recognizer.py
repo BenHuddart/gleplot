@@ -3103,6 +3103,39 @@ def test_external_key_naming_a_label_twice_is_kept_as_written(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "swatch, edited",
+    [
+        ('text "l" color RED', 'text "l" color MAGENTA'),
+        ('text "s" marker FCIRCLE', 'text "s" marker FSQUARE'),
+        ('text "b" fill GREEN', 'text "b" fill CYAN'),
+    ],
+)
+def test_external_key_with_a_swatch_edited_by_hand_is_kept_as_written(
+    tmp_path, swatch, edited
+):
+    """#412: the save would rebuild the swatch from the series and lose it."""
+    fig = gleplot.figure()
+    ax = fig.add_subplot()
+    ax.plot([0, 1], [1, 0], label="l", color="red")
+    ax.scatter([0, 1], [0, 1], label="s")
+    ax.bar([0, 1], [1, 2], label="b", color="green")
+    ax.legend(loc="center", bbox_to_anchor=(0.5, 0.4))
+    path = tmp_path / "a.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text()
+    assert swatch in text
+    text = text.replace(swatch, edited)
+    path.write_text(text)
+
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].legend_bbox_to_anchor is None
+    assert [n.category.value for n in rec.notes] == ["legend"]
+    out = tmp_path / "b.gle"
+    rec.figure.savefig_gle(str(out))
+    assert out.read_text() == text
+
+
+@pytest.mark.parametrize(
     "sub, call",
     [
         (
