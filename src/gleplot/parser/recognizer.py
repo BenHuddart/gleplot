@@ -8574,7 +8574,7 @@ class _Recognizer:
                 else f"{kind} {ref} is read from '{datasets[ref][0]}'"
             )
             for kind, ref in err.items()
-            if ref not in datasets or datasets[ref][0] != data_file
+            if ref not in datasets or not self._same_file(datasets[ref][0], data_file)
         ]
         if unheld and orig_toks:
             what = (
@@ -8601,7 +8601,7 @@ class _Recognizer:
 
         def col_of(ref_name):
             ref = ref_name.lower()
-            if ref in datasets and datasets[ref][0] == data_file:
+            if ref in datasets and self._same_file(datasets[ref][0], data_file):
                 return datasets[ref][2]
             return None
 

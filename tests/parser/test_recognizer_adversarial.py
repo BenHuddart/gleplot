@@ -1275,6 +1275,21 @@ def test_an_error_dataset_from_another_file_stays_raw(tmp_path, draw):
     assert {f: (tmp_path / f).read_text(encoding="utf-8") for f in dats} == dats
 
 
+def test_an_error_dataset_from_the_same_file_spelled_otherwise_loads(tmp_path):
+    """#512: './a.dat' is the series' own file, so its errors load."""
+    body = [
+        '   data "a.dat" d1=c1,c2',
+        '   data "./a.dat" d3=c1,c3',
+        "   d1 marker circle err d3",
+    ]
+    src = _meta("a.dat") + (
+        "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    )
+    p = _write(tmp_path, "err.gle", src, {"a.dat": "0 1 0.1\n1 2 0.2\n2 3 0.3\n"})
+    (bar,) = parse_gle_figure(p).figure.axes_list[0].errorbars
+    assert list(bar["yerr_up"]) == pytest.approx([0.1, 0.2, 0.3])
+
+
 def test_an_error_from_another_file_on_a_y2_series_is_dropped_with_a_note(tmp_path):
     """#528: the y2 axis needs the series modelled; b.dat's errors are not
     read from a.dat's columns."""
