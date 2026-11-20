@@ -6317,15 +6317,16 @@ class GLEWriter:
 
         The ``-cdata.dat`` file GLE generates from the contour block is
         plotted as a ``line`` dataset in the contour's ``color``,
-        ``linewidth`` and ``linestyle``.
+        ``linewidth`` and ``linestyle``; a ``None`` colour or width writes
+        no keyword, so GLE uses the current one.
         """
         cdata_file = _grid_z_file(series)[:-2] + "-cdata.dat"
         d_name = self._new_dataset()
         self.lines_gle.append(f"    data {_quote_filename(cdata_file)} {d_name}=c1,c2")
-        gle_lwidth = self._lwidth_cm(series["linewidth"], series)
         cmd = (
-            f"    {d_name} line color {series['color']} "
-            f"lwidth {self._format_number(gle_lwidth)}"
+            f"    {d_name} line"
+            + self._color_clause(series["color"])
+            + self._lwidth_clause(series["linewidth"], series)
         )
         lstyle = series["linestyle"]
         if lstyle is not None:
@@ -6797,15 +6798,36 @@ class GLEWriter:
         linear span says nothing about how far a decade-wide limit may move.
         A lone limit is a coordinate on the axis (:meth:`_format_coordinate`).
         """
-        if log:
-            lo_text, hi_text = self._format_column([lo]) + self._format_column([hi])
-        else:
-            lo_text, hi_text = self._format_column(
-                [lo, hi], self._axis_tolerances.get(axis)
-            )
+        lo_text, hi_text = self._range_texts(
+            lo, hi, log, self._axis_tolerances.get(axis)
+        )
         return (f" min {lo_text}" if lo is not None else "") + (
             f" max {hi_text}" if hi is not None else ""
         )
+
+    @classmethod
+    def _range_texts(
+        cls,
+        lo: Optional[float],
+        hi: Optional[float],
+        log: bool = False,
+        axis_tolerance: Optional[float] = None,
+    ) -> List[str]:
+        """An axis range's ``lo`` and ``hi`` as text (see :meth:`_axis_range`).
+
+        Two different limits whose span is float noise beside them (below
+        :meth:`_column_tolerance`'s floor) would be written alike, and
+        ``min X max X`` is no range for GLE or a reload. They are written
+        exactly instead, as the shortest text each float reads back as.
+        """
+        if log:
+            texts = cls._format_column([lo]) + cls._format_column([hi])
+        else:
+            texts = cls._format_column([lo, hi], axis_tolerance)
+        if lo is not None and hi is not None and lo != hi:
+            if float(texts[0]) == float(texts[1]):
+                texts = [repr(float(lo)), repr(float(hi))]
+        return texts
 
     @classmethod
     def _format_extent(cls, extent: Sequence[float]) -> List[str]:
@@ -6937,7 +6959,7 @@ class GLEWriter:
             hi = extent[1] if hi is None else hi
         if log or lo is None or hi is None:
             return None
-        lo_text, hi_text = cls._format_column([lo, hi])
+        lo_text, hi_text = cls._range_texts(lo, hi)
         span = abs(float(hi_text) - float(lo_text))
         return 1e-6 * span if span > 0 else None
 
