@@ -1545,6 +1545,8 @@ class GLEWriter:
         # The raw header lines a loaded file kept: an include already there
         # is not written again.
         self._header_lines: List[str] = []
+        # Where those raw header lines start in lines_gle.
+        self._header_at = 0
         # The palette sub each contourf heatmap written so far colours with,
         # by its data file: glp_contourf1, 2, ... in writing order.
         self._contourf_subs: Dict[str, str] = {}
@@ -1814,6 +1816,7 @@ class GLEWriter:
         )
         if passthrough_header:
             self._header_lines = list(passthrough_header)
+            self._header_at = len(self.lines_gle)
             self.lines_gle.extend(passthrough_header)
         if include_graph_begin:
             self.lines_gle.append("begin graph")
@@ -5748,12 +5751,25 @@ class GLEWriter:
         routine a sub calls when it reads the sub. ``graphutil.gle`` -- whose
         need is only known once the graph blocks have been written -- is
         spliced in there later with the others (:meth:`finalize_includes`).
+        A sub in the raw header a loaded file kept may call these subs and
+        the includes' routines, so they go in ahead of the first one, unless
+        they call it themselves (a palette sub of the file's own).
         """
         self._includes.update(includes)
-        self._sub_defs_mark = len(self.lines_gle)
+        at = len(self.lines_gle)
+        called = "\n".join(sub_texts).lower()
+        for k, line in enumerate(self._header_lines):
+            words = line.lower().split()
+            if words[:1] == ["sub"] and len(words) > 1:
+                if not re.search(rf"\b{re.escape(words[1])}\b", called):
+                    at = self._header_at + k
+                    break
+        self._sub_defs_mark = at
+        block: List[str] = []
         for text in sub_texts:
-            self.lines_gle.extend(text.split("\n"))
-            self.lines_gle.append("")
+            block.extend(text.split("\n"))
+            block.append("")
+        self.lines_gle[at:at] = block
 
     def finalize_includes(self) -> None:
         """Splice in an ``include`` for each gleinc file the write called.
