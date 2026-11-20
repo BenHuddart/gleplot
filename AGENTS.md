@@ -141,6 +141,7 @@ Docs describe what the code does now. A change in behaviour updates every place 
 - Docstrings are rendered by Sphinx (numpydoc sections via napoleon) and CI builds the site with `-W`: free text after a `Parameters` list goes under a `Notes` heading, not flush against the list.
 - Reference material is generated from docstrings. Do not hand-write an option table in a guide.
 - Code shown in docs and docstrings must run against the current API. Do not describe behaviour you have not exercised.
+- A new plot type or significant user-facing feature is shown in the gallery in the same change: extend a registered example, or add one.
 - An example added under `examples/` is added to the registry in `examples/run_and_compile.py`; CI runs and compiles every registered example and fails on one that is not registered. The gallery is generated from the registry, and an example's docstring is its caption there.
 - Examples write only to `examples/outputs/`, which is ignored. No generated figure or sidecar is committed.
 - State facts once. Link to a guide instead of repeating it, and do not put counts or version numbers in prose that nothing will keep current.
