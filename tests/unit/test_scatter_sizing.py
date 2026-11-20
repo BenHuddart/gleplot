@@ -277,6 +277,35 @@ def test_a_point_gle_would_drop_is_written_missing():
 
 
 @pytest.mark.parametrize("per_point", [{"s": [10, 20, 30]}, {"c": [1, 2, 3]}])
+def test_a_log_axis_drop_is_judged_after_the_offset(per_point):
+    """The drawn dataset holds y + offset: -1 + 2 is drawn, 1 - 2 is not."""
+    ax = _ax()
+    ax.scatter([1, 2, 3], [-1, 1, 3], offset=2, **per_point)
+    ax.scatter([1, 2, 3], [1, 3, 5], offset=-2, **per_point)
+    ax.set_yscale("log")
+    ax.set_ylim(0.5, 5)
+    _text, files = ax.figure._generate_gle_with_files()
+    up, down = (
+        [line.split()[:2] for line in files[name].splitlines()[1:]]
+        for name in ("t_0.dat", "t_1.dat")
+    )
+    assert up == [["1", "-1"], ["2", "1"], ["3", "3"]]
+    assert down == [["*", "*"], ["2", "3"], ["3", "5"]]
+
+
+def test_a_log_axis_drop_uses_the_offset_the_script_writes():
+    """``offset=1.0000003`` is written ``+1``, so y = -1.0000001 is dropped."""
+    ax = _ax()
+    ax.scatter([1, 2], [-1.0000001, 1], offset=1.0000003, s=[10, 20])
+    ax.set_yscale("log")
+    ax.set_ylim(0.5, 5)
+    text, files = ax.figure._generate_gle_with_files()
+    assert "d1+1\n" in text
+    rows = [line.split()[:2] for line in files["t_0.dat"].splitlines()[1:]]
+    assert rows == [["*", "*"], ["2", "1"]]
+
+
+@pytest.mark.parametrize("per_point", [{"s": [10, 20, 30]}, {"c": [1, 2, 3]}])
 @pytest.mark.parametrize(
     "y, scale, dropped",
     [([1, np.nan, 9], "linear", "nan"), ([1, -4, 9], "log", "-4")],
