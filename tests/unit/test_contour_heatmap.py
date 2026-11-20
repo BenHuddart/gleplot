@@ -188,14 +188,6 @@ def test_coolwarm_calls_color_gles_blue_white_red():
 @pytest.mark.parametrize(
     "cmap, native",
     [
-        ("YlOrRd", "viridis_r"),
-        ("Blues_r", "viridis"),
-        ("Greys", "gray_r"),
-        ("RdBu", "coolwarm_r"),
-        ("RdBu_r", "coolwarm"),
-        ("PRGn", "coolwarm"),
-        ("Set1", "rainbow"),
-        ("Set1_r", "rainbow"),
         ("jet_r", "rainbow"),
         ("rainbow_r", "rainbow"),
     ],
@@ -208,7 +200,7 @@ def test_a_map_gle_lacks_warns_at_the_call_and_draws_the_closest(cmap, native):
     assert hm["cmap"] == native
 
 
-@pytest.mark.parametrize("cmap", ["rainbow", "jet", "Set1"])
+@pytest.mark.parametrize("cmap", ["rainbow", "jet"])
 def test_a_rainbow_band_or_point_colour_falls_back_to_viridis(cmap):
     """GLE has rainbow only as colormap's color switch, not as a routine."""
     fig = glp.figure(data_prefix="t")
@@ -218,6 +210,48 @@ def test_a_rainbow_band_or_point_colour_falls_back_to_viridis(cmap):
     with pytest.warns(UserWarning, match="is drawn with cmap='viridis'"):
         hm = glp.figure().gca().contourf(np.eye(3), cmap=cmap)
     assert ax.scatters[0]["cmap"] == hm["cmap"] == "viridis"
+
+
+@pytest.mark.parametrize(
+    "cmap, wrapper",
+    [
+        (
+            "Set1",
+            "sub cmap_set1 z\n"
+            "   return cvtcolor(Set1Qual9(min(8,int(max(0,min(1,z))*9))+1))\n"
+            "end sub",
+        ),
+        (
+            "RdBu_r",
+            "sub cmap_rdbu_r z\n"
+            "   return cvtcolor(RdBuDiv11(11-int(max(0,min(1,z))*10+0.5)))\n"
+            "end sub",
+        ),
+        (
+            "Blues",
+            "sub cmap_blues z\n"
+            "   return cvtcolor(BluesSeq9(int(max(0,min(1,z))*8+0.5)+1))\n"
+            "end sub",
+        ),
+        (
+            "Paired_r",
+            "sub cmap_paired_r z\n"
+            "   return cvtcolor(PairedQual12(12-min(11,int(max(0,min(1,z))*12))))\n"
+            "end sub",
+        ),
+    ],
+)
+def test_a_colorbrewer_map_is_drawn_by_brewer_gle(cmap, wrapper):
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ax.imshow(np.zeros((2, 2)), cmap=cmap)
+        ax.scatter([1, 2], [1, 2], c=[0, 1], cmap=cmap)
+    text = fig._generate_gle_with_files()[0]
+    assert text.count('include "brewer.gle"\n') == 1
+    assert text.count(wrapper + "\n") == 1
+    assert f"palette {wrapper.split()[1]}" in text
 
 
 def test_native_maps_do_not_warn():
@@ -1560,6 +1594,6 @@ def test_contour_second_alias_of_a_pair_warns_and_loses():
 
 def test_a_default_cmap_gle_lacks_is_named_as_the_config_in_the_warning():
     fig = glp.figure(data_prefix="t")
-    fig.graph.default_cmap = "RdBu"
-    with pytest.warns(UserWarning, match=r"GLEGraphConfig\(default_cmap='RdBu'\)"):
+    fig.graph.default_cmap = "jet_r"
+    with pytest.warns(UserWarning, match=r"GLEGraphConfig\(default_cmap='jet_r'\)"):
         fig.add_subplot(111).imshow(np.zeros((2, 2)))

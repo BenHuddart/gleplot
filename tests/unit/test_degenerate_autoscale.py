@@ -741,7 +741,8 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     too (#345). ``axis_range_of_float_noise`` was added when an axis range
     whose span is float noise beside its offset kept its ends apart (#468).
     ``fill_curve_offsets`` was added when each curve of a fill kept its own
-    offset (#491).
+    offset (#491). ``bar_no_edge`` was added when a bar with no edge started
+    stroking in the colour under it (#515).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
