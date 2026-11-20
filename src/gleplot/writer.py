@@ -1503,8 +1503,8 @@ class GLEWriter:
         # (reserve_datasets); _new_dataset skips them. GLE clears its datasets
         # at 'begin graph', so end_graph clears these.
         self._reserved_datasets: Set[int] = set()
-        # In the current graph block, the ``_gle_name`` of each written
-        # series that carries one -> the name it was written under, for the
+        # In the current graph block, each name in a written series'
+        # ``_gle_names`` -> the name that dataset was written under, for the
         # raw lines that read it (see _bind_raw_reads).
         self._raw_reads: Dict[str, str] = {}
         # id of each series written as one dataset -> the raw (unshifted) name
@@ -3271,20 +3271,29 @@ class GLEWriter:
     def _name_dataset(self, series: Series, name: str) -> None:
         """Record that *series* was written as dataset *name*."""
         self._dataset_names[id(series)] = name
-        if "_gle_name" in series:
-            self._raw_reads[series["_gle_name"].lower()] = name
+        self._bind_raw_name(series, "data", name)
+
+    def _bind_raw_name(self, series: Mapping[str, Any], role: str, name: str) -> None:
+        """Bind raw reads of *series*' ``role`` dataset to *name*.
+
+        ``role`` is a key of ``_XYSeries._gle_names``: which of the series'
+        datasets *name* is.
+        """
+        old = series.get("_gle_names", {}).get(role)
+        if old is not None:
+            self._raw_reads[old.lower()] = name
 
     def _bind_raw_reads(self, raw_lines: Sequence[str]) -> List[str]:
         """*raw_lines* reading each written series under the name it was given.
 
-        A series loaded from a file carries ``_gle_name``, its dataset name
+        A series loaded from a file carries ``_gle_names``, its dataset names
         there, when a raw line kept in its block reads it (a ``fill``, a
         ``bar``, a fit ``let``). The writer numbers datasets afresh, so each
         such reference is renamed to the name the series was written under.
 
         Notes
         -----
-        ``open_gle`` never sets ``_gle_name`` to a name a raw ``data`` or
+        ``open_gle`` never puts in ``_gle_names`` a name a raw ``data`` or
         ``let`` in the block defines, and no series is written under one
         (:meth:`reserve_datasets`), so a raw dataset keeps its name. Names
         inside a string or a comment are not datasets.
@@ -3314,10 +3323,25 @@ class GLEWriter:
         self.dataset_index += 1
         return name
 
-    def _apply_offset(self, source_name: str, offset: float) -> str:
-        """Emit a ``let`` command that shifts *source_name* vertically by *offset*.
+    def _bind_error_datasets(self, series: Series, err_datasets: Dict[str, str]):
+        """Bind raw reads of an error bar's error datasets.
 
-        Returns the name of a fresh dataset holding ``source_name + offset`` so
+        A symmetric error is written as one dataset; raw reads of either
+        half's dataset in the file are bound to it.
+        """
+        halves = {"yerr": ("yerr_up", "yerr_down"), "xerr": ("xerr_left", "xerr_right")}
+        for role, name in err_datasets.items():
+            for bound in (role,) + halves.get(role, ()):
+                self._bind_raw_name(series, bound, name)
+
+    def _apply_offset(
+        self, series: Series, source_name: str, role: str = "offset"
+    ) -> str:
+        """Emit a ``let`` that shifts *source_name* by *series*' ``offset``.
+
+        With no offset this is *source_name*. Otherwise it is the name of a
+        fresh dataset holding ``source_name + offset``, bound as the
+        series' ``role`` dataset (``_XYSeries._gle_names``), so
         the caller can display the shifted trace while the on-disk ``.dat`` file
         keeps its raw values. The offset therefore lives entirely in the GLE
         script (a waterfall/overlay stack applied at plot time), never baked
@@ -3330,7 +3354,11 @@ class GLEWriter:
         ``let d2 = d1+5`` works, so the operator is glued to its operands. A
         negative offset is emitted as ``d1-5`` (not ``d1+-5``).
         """
+        offset = series.get("offset", 0.0)
+        if not offset:
+            return source_name
         shifted = self._new_dataset()
+        self._bind_raw_name(series, role, shifted)
         mag = self._format_number(abs(offset))
         sign = "-" if offset < 0 else "+"
         self.lines_gle.append(f"    let {shifted} = {source_name}{sign}{mag}")
@@ -3438,7 +3466,6 @@ class GLEWriter:
         nomiss = series.get("nomiss", False)
         yaxis = series.get("yaxis", "y")
         xaxis = series.get("xaxis", "x")
-        offset = series.get("offset", 0.0)
         column_names = series.get("column_names")
         # Passed on raw: the writer normalizes and resolves the figure-wide
         # fallback in one place (_effective_smooth_mode).
@@ -3490,7 +3517,7 @@ class GLEWriter:
 
         # A non-zero offset shifts the trace vertically at plot time via a
         # ``let`` on a fresh dataset, leaving the .dat file's values raw.
-        display_name = self._apply_offset(d_name, offset) if offset else d_name
+        display_name = self._apply_offset(series, d_name)
         if self._polar_graph:
             display_name = self._polar_dataset(display_name)
 
@@ -3609,7 +3636,7 @@ class GLEWriter:
             offset=series.get("offset", 0.0),
             column_names=series.get("column_names"),
         )
-        for name in _DATASET_QUALIFIERS:
+        for name in _DATASET_QUALIFIERS + ("_gle_names",):
             if name in series:
                 line[name] = series[name]
         self.add_line(line, binding=binding)
@@ -3723,8 +3750,7 @@ class GLEWriter:
     ) -> None:
         """Draw ``d_name`` with the marker sub ``marker``, fed by ``d_mdata``."""
         label = series["label"]
-        offset = series.get("offset", 0.0)
-        display_name = self._apply_offset(d_name, offset) if offset else d_name
+        display_name = self._apply_offset(series, d_name)
         if self._polar_graph:
             display_name = self._polar_dataset(display_name)
         msize = self._format_number(series["markersize"])
@@ -3961,6 +3987,7 @@ class GLEWriter:
         )
         source = self._new_dataset()
         target = self._new_dataset()
+        self._bind_raw_name(series, "hist", target)
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{source}=c{cols[0]},c{cols[1]}"
@@ -4288,6 +4315,8 @@ class GLEWriter:
             )
             d_from = self._new_dataset()
             d_name = self._new_dataset()
+            self._bind_raw_name(series, "from", d_from)
+            self._bind_raw_name(series, "data", d_name)
             self.lines_gle.append(
                 f"    data {_format_data_filename(file_name)} "
                 f"{d_from}=c{cols[0]},c{cols[1]} {d_name}=c{cols[0]},c{cols[2]}"
@@ -4307,6 +4336,7 @@ class GLEWriter:
                 self._bar_axes(horiz),
             )
             d_name = self._new_dataset()
+            self._bind_raw_name(series, "data", d_name)
             self.lines_gle.append(
                 f"    data {_format_data_filename(file_name)} "
                 f"{d_name}=c{cols[0]},c{cols[1]}"
@@ -4389,13 +4419,15 @@ class GLEWriter:
         from_names: List[str] = []
         to_names: List[str] = []
         clause = []
-        for slot, origin in zip(to_slots, from_slots):
+        for member, slot, origin in zip(members, to_slots, from_slots):
             if origin is not None:
                 from_name = self._new_dataset()
                 from_names.append(from_name)
+                self._bind_raw_name(member, "from", from_name)
                 clause.append(f"{from_name}=c{cols[0]},c{cols[origin]}")
             to_name = self._new_dataset()
             to_names.append(to_name)
+            self._bind_raw_name(member, "data", to_name)
             clause.append(f"{to_name}=c{cols[0]},c{cols[slot]}")
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} " + " ".join(clause)
@@ -4630,7 +4662,6 @@ class GLEWriter:
         capsize = series.get("gle_capsize", series.get("capsize"))
         yaxis = series.get("yaxis", "y")
         xaxis = series.get("xaxis", "x")
-        offset = series.get("offset", 0.0)
         column_names = series.get("column_names")
 
         has_line = linestyle not in ("", "none", " ", "None")
@@ -4722,6 +4753,7 @@ class GLEWriter:
 
         # Generate dataset name for main data
         d_main = self._new_dataset()
+        self._bind_raw_name(series, "data", d_main)
 
         # Build data command with all dataset references
         data_cmd = (
@@ -4763,12 +4795,13 @@ class GLEWriter:
                     err_datasets["xerr_right"] = d_xerr_right
 
         self.lines_gle.append(data_cmd)
+        self._bind_error_datasets(series, err_datasets)
 
         # A non-zero offset shifts the plotted centre vertically at plot time
         # via a ``let`` on a fresh dataset; the raw .dat values are untouched
         # and the error datasets (magnitudes) stay bound to the raw columns, so
         # the bars ride along with the shifted centre.
-        display_name = self._apply_offset(d_main, offset) if offset else d_main
+        display_name = self._apply_offset(series, d_main)
 
         # Build the main dataset display command
         line_cmd = f"    {display_name}"
@@ -4912,6 +4945,7 @@ class GLEWriter:
         d_yerr = None
         if yerr_col is not None:
             d_yerr = self._new_dataset()
+            self._bind_error_datasets(series, {"yerr": d_yerr})
             data_cmd += f" {d_yerr}=c{x_col},c{yerr_col}"
         self.lines_gle.append(data_cmd + self._data_read_clause(series))
 
@@ -5022,6 +5056,7 @@ class GLEWriter:
         label = series.get("label")
         swatch_color = series.get("swatch_color")
         d_name = self._new_dataset()
+        self._bind_raw_name(series, "data", d_name)
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} {d_name}=c{x_col},c{y_col}"
             + self._data_read_clause(series)
@@ -5093,6 +5128,7 @@ class GLEWriter:
             )
         clip = {name: series.get(name) for name in ("xmin", "xmax", "ymin", "ymax")}
         d1_name = self._new_dataset()
+        self._bind_raw_name(series, "data", d1_name)
         if target in ("x1", "x2", "polygon"):
             self.lines_gle.append(
                 f"    data {_format_data_filename(data_file)} "
@@ -5108,6 +5144,7 @@ class GLEWriter:
             self._fill_key(d1_name, color, label, swatch_color, False)
             return
         d2_name = self._new_dataset()
+        self._bind_raw_name(series, "second", d2_name)
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{d1_name}=c{x_col},c{y1_col} {d2_name}=c{x_col},c{y2_col}"
@@ -5180,7 +5217,6 @@ class GLEWriter:
         data_file = series["data_file"]
         color = series["color"]
         alpha = series["alpha"]
-        offset = series.get("offset", 0.0)
         column_names = series.get("column_names")
         label = series.get("label")
         swatch_color = series.get("swatch_color")
@@ -5203,6 +5239,7 @@ class GLEWriter:
         clip = {"xmin": xmin, "xmax": xmax, "ymin": ymin, "ymax": ymax}
 
         d1_name = self._new_dataset()
+        self._bind_raw_name(series, "data", d1_name)
         data_cmd = (
             f"    data {_format_data_filename(file_name)} "
             f"{d1_name}=c{cols[0]},c{cols[1]}"
@@ -5210,12 +5247,13 @@ class GLEWriter:
         d2_name: Optional[str] = None
         if not single:
             d2_name = self._new_dataset()
+            self._bind_raw_name(series, "second", d2_name)
             data_cmd += f" {d2_name}=c{cols[0]},c{cols[2]}"
         self.lines_gle.append(data_cmd)
 
         # A non-zero offset shifts the curve (both edges of a band) at plot
         # time, leaving the .dat file raw. The keyed dataset is the shifted one.
-        fill_a = self._apply_offset(d1_name, offset) if offset else d1_name
+        fill_a = self._apply_offset(series, d1_name)
         if single:
             if target == "x1":
                 head = f"x1,{fill_a}"
@@ -5226,7 +5264,7 @@ class GLEWriter:
             fill_b = None
         else:
             assert d2_name is not None  # assigned above whenever not single
-            fill_b = self._apply_offset(d2_name, offset) if offset else d2_name
+            fill_b = self._apply_offset(series, d2_name, "second_offset")
             head = f"{fill_a},{fill_b}"
 
         # The keyfill token is that same colour text, so a round trip does

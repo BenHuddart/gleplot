@@ -88,6 +88,7 @@
  "golden:polar_plot": "6e9072f6e560ade3dbfdf09e9de86166ba4fe3e2f886b5da02403bdfcccbee56",
  "golden:placed_images": "0c1c87b66883b33e66cf9172a0d3dcc612d5cb4cf5fdd15eb8d57997fea1381c",
  "golden:raw_lines_reading_modelled_datasets": "082a73c8f8f1d698537feeb19c36dd132ceebbaaac91e98f6dc2e8491b448335",
+ "golden:raw_lines_reading_every_kind_of_dataset": "38c87ba9a22654eea6504cd4b5b7c46ddcdaa5a358c0a62ecb7c7cb8a4f9e38b",
  "golden:rug_field_options": "f3d534204955918f85a0a5526260b696e96b49bd4658e4f0fe66a9525d9d66d8",
  "golden:scatter": "eac6080651dd529475617bb752b5d741dc2fc6796bbea3d51b176a0fa37791a0",
  "golden:scatter_field_options": "0c01c7fb49ba9a97e7cd1f06dbd285b5537b6a7404a77c8153c5db39dea49fbe",
@@ -139,5 +140,6 @@
  "golden:quoted_text": "5b4537dabc577a70fa13df20c38f2753e2d82bd4795f0f7e68ae98a1969ebe21",
  "golden:guides_after_graph_beyond_six_figures": "836f2e0011a533843fe21e61eee56eca1077b5cd0bd86ca7a5f11f9bdbfa6b5a",
  "golden:subplots_share_col_row": "77ef525c2ee6b7a516b79cb07aa85c8bc947d10ae9a4c142a540ec4a305a8630",
- "golden:axis_range_of_float_noise": "c34e1ed5744bb97193ca374a315bf83af69cb1f2b19c313637cc209d0b40797e"
+ "golden:axis_range_of_float_noise": "c34e1ed5744bb97193ca374a315bf83af69cb1f2b19c313637cc209d0b40797e",
+ "golden:subplots_raw_between_graphs": "b29c4219a27f12d7e6f926a49acac1a704cc2a95aa80a56557c848a1a6c98a9a"
 }
