@@ -731,6 +731,27 @@ def test_an_owned_file_a_raw_data_statement_reads_is_not_rewritten(tmp_path, bod
     assert (tmp_path / "f.dat").read_text(encoding="utf-8") == data
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "data f.dat d1=c1,c2 ignore 2\n   d1 line\n"
+        "   data ./f.dat d2=c1,c3\n   d2 line\n",
+        "data f.dat d1=c1,c2\n   let d3 = d1 + 1\n   d3 line\n"
+        "   data ./f.dat d2=c1,c3 ignore 2\n   d2 line\n",
+    ],
+    ids=["ignore", "offset-let"],
+)
+def test_a_file_read_with_ignore_is_not_loaded_under_another_spelling(
+    tmp_path, body
+):
+    """#512: loading './f.dat' would rewrite the file 'ignore 2' reads."""
+    data = "x a b\n1 4 7\n2 5 8\n3 6 9\n"
+    src = _imported("f.dat") + f"begin graph\n   {body}end graph\n"
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, {"f.dat": data}))
+    rec.figure.savefig_gle(str(tmp_path / "s.gle"))
+    assert (tmp_path / "f.dat").read_text(encoding="utf-8") == data
+
+
 def test_an_owned_file_saved_back_unchanged_stays_owned(tmp_path):
     """#493: the raw statement still reads what it read."""
     src = _imported("f.dat") + (

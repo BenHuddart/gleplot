@@ -3373,6 +3373,24 @@ def test_raw_reader_keeps_its_data_beside_a_modelled_sibling(tmp_path, reader):
     assert out2.read_text(encoding="utf-8") == text1
 
 
+def test_a_file_kept_for_raw_readers_is_kept_under_every_spelling(tmp_path):
+    """#512: './a.dat' is the file kept for the raw bar's 'a.dat'."""
+    src = _meta("a.dat") + (
+        "size 10 8\n"
+        "begin graph\n"
+        '   data "a.dat" d3=c1,c2 d6=c1,c4\n'
+        "   bar d3 fill red\n"
+        "   d6 line color green\n"
+        "   fill d3,d6 color gray foo\n"
+        "   data ./a.dat d1=c1,c3\n"
+        "   d1 line color blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "in.gle", src, {"a.dat": _FOUR_COL_DAT})
+    parse_gle_figure(p).figure.savefig_gle(str(tmp_path / "out.gle"))
+    assert (tmp_path / "a.dat").read_text(encoding="utf-8") == _FOUR_COL_DAT
+
+
 # --------------------------------------------------------------------------- #
 # Finding 21 -- a marker-less, line-less series re-emitted as literal
 # ``marker None`` (gate-review MAJOR/rendered-fidelity finding, GLEstudio S8

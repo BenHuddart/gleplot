@@ -6494,7 +6494,7 @@ class _Recognizer:
             if not all(
                 self._loads(*entry)
                 for entry in pass1.datasets.values()
-                if entry[0] == data_file
+                if data_file is not None and self._same_file(entry[0], data_file)
             ):
                 self._unregister_offset_let(target, pass1, info)
 
@@ -10566,7 +10566,8 @@ class _Recognizer:
     def _not_loaded_reason(self, data_file) -> Optional[str]:
         """Why a resolved ``data_file`` is not loaded into arrays, or None."""
         if any(
-            self._datasets[name][0] == data_file for name in self._data_read_options
+            self._same_file(self._datasets[name][0], data_file)
+            for name in self._data_read_options
         ):
             # The loader reads the whole file, so arrays loaded from it would
             # hold rows GLE does not draw.
@@ -10601,6 +10602,10 @@ class _Recognizer:
     def _is_kept(self, data_file: str) -> bool:
         """Whether ``data_file`` is gleplot's own but read in place."""
         return str(self._data_path(data_file)) in self._kept_files
+
+    def _same_file(self, a: str, b: str) -> bool:
+        """Whether ``a`` and ``b`` name one file, such as ``f.dat``, ``./f.dat``."""
+        return self._data_path(a) == self._data_path(b)
 
     def _data_path(self, data_file: str) -> Path:
         """Where ``data_file`` is, read from the ``.gle`` file's folder."""
