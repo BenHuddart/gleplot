@@ -17,6 +17,7 @@ import pytest
 import gleplot as glp
 from gleplot import axes as _axes_module
 from gleplot import palettes
+from gleplot.writer import colorbar_format
 
 
 def _gle(fig):
@@ -725,7 +726,7 @@ def test_contourf_colorbar_draws_the_bands_ticked_at_the_levels(recwarn):
         in lines
     )
     assert any(
-        line.startswith("gleplot_colorbar_v zmin -1 zmax 5 zstep 1.5 ")
+        line.startswith("color_range_vertical zmin -1 zmax 5 zstep (5-(-1))/4*")
         and 'palette "gleplot_contourf1"' in line
         for line in lines
     )
@@ -947,8 +948,11 @@ def test_tripcolor_stores_points_and_fitz():
     text, files = _gle(fig)
     assert "begin fitz" in text
     assert '   data "t_points1.dat"' in text
-    assert "   x from 0 to 4 step 1" in text
-    assert "   y from 0 to 4 step 1" in text
+    # The range ends just short of one spacing past the last node, where
+    # colormap puts the end of a grid whose last node is at 4 (#376).
+    assert "   ! gleplot: nodes xmin 0 xmax 4 ymin 0 ymax 4" in text
+    assert "   x from 0 to 4.999 step 1" in text
+    assert "   y from 0 to 4.999 step 1" in text
     # points sidecar: raw triples, no header.
     pts = files["t_points1.dat"]
     assert pts.splitlines()[0] == "0 0 1"
@@ -977,6 +981,71 @@ def test_tricontour_stores_ncontour_and_emits_contour_on_fitz_z():
     assert 'data "t_points1-cdata.dat"' in text
 
 
+def _fitz_ranges(text):
+    """Each fitz block's x range as ``(from, to, step)``, in order."""
+    return [
+        tuple(float(v) for v in line.split()[2::2])
+        for line in text.splitlines()
+        if line.startswith("   x from ")
+    ]
+
+
+@pytest.mark.parametrize("extent, n", [((0, 1), 50), ((0, 0.3), 4), ((-3, 7), 41)])
+def test_scattered_grids_have_gridsize_nodes_on_the_extent(extent, n):
+    """GLE's fitz makes ``floor((to - from) / step + 1)`` nodes (#376).
+
+    A step rounded up to six digits (1/49), or one dividing the range to just
+    under a whole number (0.1 into 0.3), would lose the last node. The
+    tripcolor's colormap and the tricontour's contour place the nodes where
+    the fitz puts them.
+    """
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    x = np.linspace(extent[0], extent[1], 5)
+    pts = (x, x[::-1], x)
+    ax.tripcolor(*pts, gridsize=(n, n), extent=(*extent, *extent))
+    ax.tricontour(*pts, gridsize=(n, n), extent=(*extent, *extent))
+    (lo, hi, step), (clo, chi, cstep) = _fitz_ranges(_gle(fig)[0])
+    assert np.floor((hi - lo) / step + 1) == n
+    assert np.floor((chi - clo) / cstep + 1) == n
+    # contour puts the last node on the header's xmax, colormap one header
+    # spacing short of it; both at the fitz's last node.
+    assert chi == pytest.approx(clo + (n - 1) * cstep, abs=(n - 1) * 1e-5 * cstep)
+    assert lo + (n - 1) * (hi - lo) / n == pytest.approx(
+        lo + (n - 1) * step, abs=1e-2 * step
+    )
+
+
+def test_tricontour_keeps_a_step_that_gives_its_nodes():
+    """A step that already gives ``gridsize`` nodes is written as before."""
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 4, 6)
+    ax.tricontour(x, x, x, gridsize=(5, 5), extent=(0, 4, 0, 4))
+    assert "   x from 0 to 4 step 1" in _gle(fig)[0]
+
+
+@pytest.mark.parametrize("kind", ["tripcolor", "tricontour"])
+def test_a_narrow_scattered_grid_far_from_zero_is_written(kind):
+    """The extent is written to the digits that keep its edges apart."""
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    x = [1e6 + 0.1, 1e6 + 0.2, 1e6 + 0.3]
+    getattr(ax, kind)(x, [0, 1, 0], [1, 2, 3], gridsize=(5, 5))
+    (lo, hi, step), *_ = _fitz_ranges(_gle(fig)[0])
+    assert lo < hi and step > 0
+
+
+def test_tripcolor_warns_when_the_limits_reach_past_its_last_node():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 4, 6)
+    ax.tripcolor(x, x[::-1], x, gridsize=(5, 5), extent=(0, 4, 0, 4))
+    ax.set_xlim(-1, 5)
+    with pytest.warns(UserWarning, match=r"x limits reach 5, beyond the tripcolor"):
+        _gle(fig)
+
+
 # --------------------------------------------------------------------------- #
 # colorbar
 # --------------------------------------------------------------------------- #
@@ -1000,11 +1069,20 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
     assert cb["width"] == 0.4 and cb["sep"] == 0.5
 
     text, _ = _gle(fig)
-    assert "sub gleplot_colorbar_v" in text
-    assert "amove xg(xgmax)+0.5 yg(ygmin)" in text
+    assert 'include "color.gle"' in text
     assert (
-        'gleplot_colorbar_v zmin 0 zmax 10 zstep 2 palette "gleplot_viridis" '
-        'wd 0.4 hi yg(ygmax)-yg(ygmin) format "fix 1" label "χ"'
+        "gsave\n"
+        "amove xg(xgmax)+0.5 yg(ygmin)\n"
+        "color_range_vertical zmin 0 zmax 10 zstep (10-(0))/5*0.999999999 "
+        'palette "gleplot_viridis" width 0.4 height yg(ygmax)-yg(ygmin) '
+        'format "fix 1" pixels 200\n'
+        'amove xg(xgmax)+(0.5+0.4*5/3+0.2)+max(twidth(format$(0,"fix 1")),'
+        'twidth(format$(10,"fix 1"))) (yg(ygmin)+yg(ygmax))/2\n'
+        "set just tc\n"
+        "begin rotate 90\n"
+        'write "χ"\n'
+        "end rotate\n"
+        "grestore"
     ) in text
 
 
@@ -1060,9 +1138,9 @@ def test_colorbar_per_axes_gives_each_heatmap_its_own_bar():
     assert (ca["zmin"], ca["zmax"]) == (0.0, 3.0)
     assert (cb["zmin"], cb["zmax"]) == (10.0, 50.0)
     text, _ = _gle(fig)
-    assert text.count("sub gleplot_colorbar_v") == 1
-    assert 'palette "gleplot_viridis" wd 0.5' in text
-    assert 'palette "gleplot_magma" wd 0.5' in text
+    assert text.count('include "color.gle"') == 1
+    assert 'palette "gleplot_viridis" width 0.5' in text
+    assert 'palette "gleplot_magma" width 0.5' in text
 
 
 def test_colorbar_ax_alone_picks_that_axes_heatmap():
@@ -1094,12 +1172,18 @@ def test_horizontal_colorbar_is_drawn_below_and_reserves_the_bottom():
     ((_, y1, _, h1),) = _placements(text)
 
     assert cb["orientation"] == "horizontal"
-    assert "sub gleplot_colorbar_h" in text
-    assert "sub gleplot_colorbar_v" not in text
-    assert "amove xg(xgmin) yg(ygmin)-1.5\n" in text
+    assert "color_range_horizontal" in text
+    assert "color_range_vertical" not in text
     assert (
-        'gleplot_colorbar_h zmin 0 zmax 4 zstep 0.8 palette "gleplot_viridis" '
-        'wd xg(xgmax)-xg(xgmin) hi 0.4 format "fix 1" label "z"'
+        "amove xg(xgmin) yg(ygmin)-1.5\n"
+        "rmove 0 -0.4\n"
+        "color_range_horizontal zmin 0 zmax 4 zstep (4-(0))/5*0.999999999 "
+        'palette "gleplot_viridis" width xg(xgmax)-xg(xgmin) height 0.4 '
+        'format "fix 1" pixels 200\n'
+        'amove (xg(xgmin)+xg(xgmax))/2 yg(ygmin)-(1.5+0.4*5/3+0.2)-theight("0")\n'
+        "set just tc\n"
+        'write "z"\n'
+        "grestore"
     ) in text
     _right, below = fig._axes_colorbar_reserved_cm(ax)
     assert y1 >= below - 1e-4
@@ -1242,11 +1326,39 @@ def test_contour_levels_partially_in_range_ok():
     assert ct["levels"] == [5.0, 200.0]
 
 
-def test_colorbar_sub_guards_degenerate_range():
-    """The colorbar sub must guard zmax == zmin (constant field) so it does not
-    divide by zero and abort the render."""
-    text = palettes.colorbar_sub_text()
-    assert "if zmax = zmin then" in text
+def test_a_collapsed_colorbar_range_is_widened_to_one_unit():
+    """color.gle divides by zmax - zmin, so a constant field's bar spans one unit."""
+    fig = glp.figure(data_prefix="t")
+    fig.add_subplot(111).imshow(np.full((2, 2), 3.0))
+    fig.colorbar()
+    assert "color_range_vertical zmin 3 zmax 4 zstep (4-(3))/1*" in _gle(fig)[0]
+
+
+@pytest.mark.parametrize(
+    "zmin, zstep, expected",
+    [
+        (0, 2, "fix 0"),
+        (0, 0.2, "fix 1"),
+        (0, 0.15, "fix 2"),
+        (0.05, 1, "fix 2"),
+        (3e-10, 1e-10, "fix 10"),
+    ],
+)
+def test_the_default_tick_format_writes_every_tick_exactly(zmin, zstep, expected):
+    assert colorbar_format(zmin, zstep) == expected
+
+
+@pytest.mark.parametrize("orientation", ["vertical", "horizontal"])
+def test_a_colorbar_label_makes_room_beside_the_bar(orientation):
+    def frame(label):
+        fig = glp.figure(data_prefix="t")
+        fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2))
+        fig.colorbar(label=label, orientation=orientation)
+        ((_, _, w, h),) = _placements(_gle(fig)[0])
+        return w, h
+
+    (w0, h0), (w1, h1) = frame(None), frame("z")
+    assert (w1 < w0) if orientation == "vertical" else (h1 < h0)
 
 
 # --------------------------------------------------------------------------- #

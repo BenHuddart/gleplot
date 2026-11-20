@@ -139,6 +139,7 @@ def figure(
     data_prefix=None,
     height_ratios=None,
     width_ratios=None,
+    **kwargs,
 ) -> Figure:
     """
     Create a new figure.
@@ -170,6 +171,9 @@ def figure(
     width_ratios : sequence of float, optional
         Relative width of each subplot COLUMN. Same semantics as
         ``height_ratios``, for columns.
+    **kwargs
+        Any other matplotlib keyword (``num``, ``facecolor``, ...) warns and
+        is ignored.
 
     Returns
     -------
@@ -197,6 +201,7 @@ def figure(
     >>> fig = glp.figure(figsize=(3.4, 5.2), height_ratios=[3, 3, 3, 1, 4])
     >>> axes = [fig.add_subplot(5, 1, i) for i in range(1, 6)]
     """
+    _warn.warn_unsupported_keywords("figure", kwargs)
     global _current_figure
     _current_figure = Figure(
         figsize=figsize,

@@ -185,7 +185,6 @@ def test_no_marker_means_no_sub():
         ({"c": [1, 2, 3], "vmin": np.nan}, "finite number"),
         ({"c": [1, 2, 3], "vmax": "high"}, "finite number"),
         ({"c": [1, 2, 3], "cmap": "nope"}, "Unknown cmap"),
-        ({"c": [1, 2, 3], "s": [1, 2, 3]}, "both its own colour"),
         ({"c": [1, 2, 3], "mdist": 1.0}, r"mdist=1\.0"),
         ({"c": [1, 2, 3], "deresolve": 2}, "deresolve=2"),
     ],
@@ -195,6 +194,14 @@ def test_bad_colours_are_rejected_at_the_call(kwargs, match):
     with pytest.raises(ValueError, match=match):
         ax.scatter(X, Y, **kwargs)
     assert ax.scatters == []
+
+
+def test_per_point_sizes_with_per_point_colours_warn_and_draw_the_colours():
+    ax = _ax()
+    with pytest.warns(UserWarning, match=r"per-point colours \(c=\) at one size"):
+        ax.scatter(X, Y, c=[1, 2, 3], s=[4, 16, 36])
+    series = ax.scatters[0]
+    assert "cdata" in series and "mdata" not in series
 
 
 # --------------------------------------------------------------------------- #
@@ -332,12 +339,21 @@ def test_colorbar_shows_the_scatter_range():
     assert ax.scatters[0]["colorbar"] is cb
     assert (cb["zmin"], cb["zmax"], cb["zstep"]) == (0.0, 300.0, 60.0)
     text, _files = _script(ax)
-    assert "sub gleplot_colorbar_v" in text
+    assert 'include "color.gle"' in text
     assert (
         "end graph\n"
+        "gsave\n"
         "amove xg(xgmax)+0.3 yg(ygmin)\n"
-        'gleplot_colorbar_v zmin 0 zmax 300 zstep 60 palette "gleplot_viridis" '
-        'wd 0.5 hi yg(ygmax)-yg(ygmin) format "fix 1" label "T (K)"'
+        "color_range_vertical zmin 0 zmax 300 zstep (300-(0))/5*0.999999999 "
+        'palette "gleplot_viridis" width 0.5 height yg(ygmax)-yg(ygmin) '
+        'format "fix 0" pixels 200\n'
+        'amove xg(xgmax)+(0.3+0.5*5/3+0.2)+max(twidth(format$(0,"fix 0")),'
+        'twidth(format$(300,"fix 0"))) (yg(ygmin)+yg(ygmax))/2\n'
+        "set just tc\n"
+        "begin rotate 90\n"
+        'write "T (K)"\n'
+        "end rotate\n"
+        "grestore"
     ) in text
 
 
@@ -363,8 +379,8 @@ def test_colorbar_on_ax_takes_the_last_mapped_scatter_and_moves():
     assert [("colorbar" in s) for s in ax.scatters] == [False, False, True]
     fig.colorbar(ax=ax, orientation="horizontal")
     text, _files = _script(ax)
-    assert text.count("gleplot_colorbar_h zmin 4 zmax 6") == 1
-    assert "gleplot_colorbar_v zmin" not in text
+    assert text.count("color_range_horizontal zmin 4 zmax 6") == 1
+    assert "color_range_vertical zmin" not in text
 
 
 def test_a_heatmap_keeps_the_bar_on_its_axes():
@@ -413,7 +429,7 @@ def test_a_heatmap_bar_replaces_the_scatter_bar_on_its_axes():
     im = ax.imshow(np.arange(4.0).reshape(2, 2), extent=(0, 10, 0, 10), cmap="plasma")
     fig.colorbar(im)
     assert "colorbar" not in ax.scatters[0]
-    assert _script(ax)[0].count("\ngleplot_colorbar_v zmin") == 1
+    assert _script(ax)[0].count("\ncolor_range_vertical zmin") == 1
 
 
 def test_a_lone_heatmap_still_takes_the_figure_bar():

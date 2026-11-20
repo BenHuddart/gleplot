@@ -265,13 +265,27 @@ def test_grid_accepts_a_raw_gle_lstyle_number():
         ({"axis": "y2"}, "must be 'both', 'x' or 'y'"),
         ({"linestyle": "wiggly"}, "is not a matplotlib line style"),
         ({"linewidth": 0}, "must be positive"),
-        ({"alpha": 0.5}, "unsupported keyword argument"),
     ],
 )
 def test_grid_rejects_nonsense(kwargs, match):
     _, ax = _fig()
     with pytest.raises(ValueError, match=match):
         ax.grid(True, **kwargs)
+
+
+def test_grid_takes_matplotlibs_line_aliases_and_warns_on_other_keywords():
+    _, ax = _fig()
+    with pytest.warns(
+        UserWarning, match=r"grid\(\) ignores unsupported keyword\(s\): alpha"
+    ):
+        ax.grid(True, c="red", ls="--", lw=2, alpha=0.5)
+    _, styled = _fig()
+    styled.grid(True, color="red", linestyle="--", linewidth=2)
+    assert (ax.xgrid_color, ax.xgrid_lstyle, ax.xgrid_lwidth) == (
+        styled.xgrid_color,
+        styled.xgrid_lstyle,
+        styled.xgrid_lwidth,
+    )
 
 
 def test_grid_linestyle_follows_a_custom_style_config():
@@ -496,13 +510,19 @@ def test_the_wrappers_pass_the_label_keywords_through(via):
 
 def test_the_module_wrappers_take_matplotlibs_positional_order():
     fig, ax = _fig()
-    with pytest.warns(UserWarning, match=r"set_xlabel\(\): fontdict not"):
+    with pytest.warns(
+        UserWarning, match=r"set_xlabel\(\) ignores unsupported keyword\(s\): fontdict"
+    ):
         glp.xlabel("X", {"fontsize": 9}, 4)
     with pytest.warns(UserWarning, match=r"set_title\(loc='left'\) is drawn"):
         glp.title("T", None, "left", 6)
-    with pytest.warns(UserWarning, match=r"set_ylabel\(\): fontdict not"):
+    with pytest.warns(
+        UserWarning, match=r"set_ylabel\(\) ignores unsupported keyword\(s\): fontdict"
+    ):
         glp.ylabel("Y", {"fontsize": 9}, 2)
-    with pytest.warns(UserWarning, match=r"set_title\(\): y not"):
+    with pytest.warns(
+        UserWarning, match=r"set_title\(\) ignores unsupported keyword\(s\): y"
+    ):
         glp.title("T", y=1.1)
     dist4, dist6 = f"{fontsize_pt_to_cm(4):.6g}", f"{fontsize_pt_to_cm(6):.6g}"
     assert _line_starting(fig, "xtitle") == f'xtitle "X" dist {dist4}'
@@ -521,7 +541,10 @@ def test_relabelling_keeps_the_style_and_none_resets_it():
 
 def test_other_text_keywords_warn_and_centre_is_silent():
     fig, ax = _fig()
-    with pytest.warns(UserWarning, match=r"set_title\(\): fontdict, fontweight not"):
+    with pytest.warns(
+        UserWarning,
+        match=r"set_title\(\) ignores unsupported keyword\(s\): fontdict, fontweight",
+    ):
         ax.set_title("T", {"fontsize": 9}, fontweight="bold")
     with pytest.warns(UserWarning, match=r"set_ylabel\(loc='top'\) is drawn centred"):
         ax.set_ylabel("Y", loc="top")
@@ -715,6 +738,33 @@ def test_an_empty_tick_list_switches_the_ticks_and_labels_off():
         "xticks off",
         "yticks off",
     ]
+
+
+def test_an_empty_tick_list_on_a_log_axis_keeps_the_minor_ticks():
+    """matplotlib keeps a log axis' minor ticks (#378); minorticks_off wins."""
+    fig, ax = _fig()
+    ax.set_xscale("log")
+    ax.set_xticks([])
+    lines = _graph_lines(fig)
+    assert lines[lines.index("xticks off") :][:3] == [
+        "xticks off",
+        "xsubticks on",
+        "xlabels off",
+    ]
+    ax.minorticks_off()
+    assert "xsubticks on" not in _graph_lines(fig)
+
+
+def test_an_empty_tick_list_keeps_minor_ticks_asked_for_but_not_on_a_grid():
+    fig, ax = _fig()
+    ax.set_xticks([])
+    ax.minorticks_on()
+    assert "xsubticks on" in _graph_lines(fig)
+    _, gridded = _fig()
+    gridded.set_xscale("log")
+    gridded.set_xticks([])
+    gridded.grid(True)
+    assert not any("subticks" in line for line in _graph_lines(gridded.figure))
 
 
 def test_an_empty_tick_list_on_a_hidden_frame_adds_no_second_ticks_off():
@@ -1233,3 +1283,17 @@ def test_a_positional_fontdict_is_matplotlibs_and_labels_the_primary_axis():
     with pytest.warns(UserWarning, match="fontdict"):
         ax.twiny().set_xlabel("T", {"fontsize": 9})
     assert (ax.y2label_text, ax.x2label_text) == ("R", "T")
+
+
+def test_grid_with_only_an_unknown_keyword_turns_the_grid_on():
+    _, ax = _fig()
+    ax.grid(True)
+    with pytest.warns(UserWarning, match="alpha"):
+        ax.grid(alpha=0.3)
+    assert ax.xgrid
+
+
+def test_title_aliases_c_and_size():
+    _, ax = _fig()
+    ax.set_title("T", c="red", size=12)
+    assert (ax.title_color, ax.title_size) == ("RED", 12.0)

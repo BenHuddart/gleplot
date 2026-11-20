@@ -736,7 +736,11 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``yaxis`` range when the series on y2 stopped counting toward it (#142).
     ``one_point_default_width`` moved, and ``guides_after_graph`` was added,
     when a guide gleplot cannot range started being drawn after the graph;
-    ``rug_field_options`` moved when ``rugs.gle`` started drawing rugs.
+    ``rug_field_options`` moved when ``rugs.gle`` started drawing rugs. The
+    colorbar builders (``heatmap_*``, ``tripcolor_tricontour_combo``,
+    ``scatter_colorbars``) moved when ``color.gle`` started drawing colorbars;
+    ``tripcolor_tricontour_combo`` moved again when a tripcolor's fitz range
+    started reaching past its last node, as colormap places nodes (#376).
     ``subplots_share_col_row`` was added with matplotlib's string sharing.
     Every other entry is still the script captured before that.
     """
