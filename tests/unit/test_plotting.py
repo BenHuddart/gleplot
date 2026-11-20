@@ -35,22 +35,29 @@ class TestBasicPlotting:
         glp.close()
 
     @pytest.mark.parametrize(
-        "x, y, shapes",
+        "x, y, match",
         [
-            ([1, 2, 3], [1, 2], r"\(3,\) and \(2,\)"),
-            ([1, 2, 3], [[1, 2], [3, 4], [5, 6]], r"\(3,\) and \(3, 2\)"),
-            (1, 2, r"\(\) and \(\)"),
+            ([1, 2, 3], [1, 2], r"same length, got shapes \(3,\) and \(2,\)"),
+            ([1, 2, 3], [[1, 2], [3, 4], [5, 6]], r"one column of y, got shape"),
         ],
-        ids=["lengths", "2d-y", "scalars"],
+        ids=["lengths", "2d-y"],
     )
     @pytest.mark.parametrize("method", ["plot", "step"])
     def test_x_and_y_that_do_not_pair_up_are_rejected_at_the_call(
-        self, method, x, y, shapes
+        self, method, x, y, match
     ):
         """Not a numpy error at save (#458)."""
-        with pytest.raises(ValueError, match=rf"{method}\(\) x and y .*{shapes}"):
+        with pytest.raises(ValueError, match=rf"{method}\(\) .*{match}"):
             getattr(self.ax, method)(x, y)
         assert not self.ax.lines
+
+    def test_a_scalar_is_one_point_and_a_column_one_line(self):
+        """As in matplotlib."""
+        self.ax.plot(1, 2, "o")
+        self.ax.plot(np.ones((3, 1)), [1, 2, 3])
+        _text, files = self.fig._generate_gle_with_files()
+        assert (len(self.ax.scatters), len(self.ax.lines)) == (1, 1)
+        assert sorted(len(data.splitlines()) for data in files.values()) == [2, 4]
 
     def test_simple_line_plot(self):
         """Test basic line plotting."""
@@ -1269,17 +1276,17 @@ class TestErrorBars:
         "args, kwargs, match",
         [
             (([1, 2, 3], [1, 2]), {}, r"shapes \(3,\) and \(2,\)"),
-            (([1, 2], [[1, 2], [3, 4]]), {}, r"1-D and the same length"),
+            (([1, 2], [[1, 2], [3, 4]]), {}, r"one column of y"),
             (([1, 2, 3], [1, 2, 3]), {"yerr": [0.1, 0.2, 0.3, 0.4]}, r"yerr has"),
             (
                 ([1, 2, 3], [1, 2, 3]),
                 {"yerr": ([0.1, 0.2], [0.1, 0.2, 0.3])},
-                r"yerr has shape \(2,\) for 3 points",
+                r"yerr has a side of shape \(2,\) for 3 points",
             ),
             (
                 ([1, 2, 3], [1, 2, 3]),
-                {"xerr": np.ones((2, 3))},
-                r"xerr has shape \(2, 3\) for 3 points",
+                {"xerr": np.ones((3, 2))},
+                r"xerr has a side of shape \(3, 2\) for 3 points",
             ),
         ],
         ids=["xy", "2d-y", "yerr-length", "yerr-pair", "xerr-2d-array"],
@@ -1290,9 +1297,16 @@ class TestErrorBars:
             self.ax.errorbar(*args, **kwargs)
         assert not self.ax.errorbars
 
-    def test_a_numpy_scalar_error_is_one_error_per_point(self):
+    def test_error_forms_matplotlib_takes(self):
+        """A numpy scalar, matplotlib's (2, N) rows, and a column (#458)."""
         self.ax.errorbar([1, 2, 3], [1, 2, 3], yerr=np.int64(1))
-        np.testing.assert_array_equal(self.ax.errorbars[0]["yerr_up"], [1, 1, 1])
+        self.ax.errorbar([1, 2, 3], [1, 2, 3], yerr=np.array([[1, 2, 3], [4, 5, 6]]))
+        self.ax.errorbar([1, 2, 3], [1, 2, 3], xerr=np.ones((3, 1)))
+        first, rows, column = self.ax.errorbars
+        np.testing.assert_array_equal(first["yerr_up"], [1, 1, 1])
+        np.testing.assert_array_equal(rows["yerr_down"], [1, 2, 3])
+        np.testing.assert_array_equal(rows["yerr_up"], [4, 5, 6])
+        np.testing.assert_array_equal(column["xerr_left"], [1, 1, 1])
 
     def test_linestyle_overrides_fmt_but_not_fmt_none(self):
         with pytest.warns(UserWarning, match="the keyword wins"):
