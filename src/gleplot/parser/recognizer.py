@@ -10220,16 +10220,37 @@ class _Recognizer:
             if consumed is None:
                 break
             i = consumed
+        self._note_unread_post_calls(nodes, i)
         return i
 
     def _try_one_post_call(self, nodes, i, axes_info) -> Optional[int]:
         colorbar = self._colorbar_group(nodes, i)
         if colorbar is not None:
-            end, toks, amove_sep, label = colorbar
-            if self._apply_colorbar_call(toks, amove_sep, label, axes_info):
+            end, call, amove_sep, label = colorbar
+            if amove_sep is None:
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"a {call.keyword} call was kept as raw GLE: its 'amove' "
+                    "is not the form gleplot writes (xg(xgmax)+S yg(ygmin) "
+                    "for a vertical bar, xg(xgmin) yg(ygmin)-S for a "
+                    "horizontal one), so the bar's gap could not be read",
+                    self._stmt_span(call),
+                )
+                return None
+            if self._apply_colorbar_call(call, amove_sep, label, axes_info):
                 return end
             return None
-        # gsave, contour_labels file F format "..." , grestore.
+        clabel = self._clabel_group(nodes, i)
+        if clabel is None:
+            return None
+        toks = _words_and_values(clabel)
+        return i + 3 if self._apply_clabel_call(toks, axes_info) else None
+
+    def _clabel_group(self, nodes, i) -> Optional[Statement]:
+        """The ``contour_labels`` call of a contour-label group at ``i``.
+
+        ``gsave``, ``contour_labels file F format "..."``, ``grestore``.
+        """
         stmts = [
             st for st in map(self._as_statement, nodes[i : i + 3]) if st is not None
         ]
@@ -10240,18 +10261,45 @@ class _Recognizer:
         args = self._named_args(toks[1:])
         if set(args) != {"file", "format"} or len(toks) != 5:
             return None
-        return i + 3 if self._apply_clabel_call(toks, axes_info) else None
+        return stmts[1]
+
+    def _note_unread_post_calls(self, nodes, i: int) -> None:
+        """Note each colorbar or contour-label group after the one at ``i``.
+
+        They are read only in an unbroken run after ``end graph``, so a
+        group after raw GLE (such as a colorbar kept raw) stays raw too. The
+        group at ``i`` itself was noted when it was read, if it is one.
+        """
+        start = i
+        while i < len(nodes) and not isinstance(nodes[i], GraphBlock):
+            colorbar = self._colorbar_group(nodes, i)
+            call = colorbar[1] if colorbar else self._clabel_group(nodes, i)
+            if colorbar is not None:
+                end = colorbar[0]
+            else:
+                end = i + 3 if call is not None else i + 1
+            if call is not None and i > start:
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"a {call.keyword} call was kept as raw GLE: it follows "
+                    "GLE after 'end graph' that is not read back, and "
+                    "colorbar and contour-label calls are read only in an "
+                    "unbroken run after the graph's text",
+                    self._stmt_span(call),
+                )
+            i = end
 
     def _colorbar_group(
         self, nodes, i
-    ) -> Optional[Tuple[int, List[Token], object, Optional[str]]]:
+    ) -> Optional[Tuple[int, Statement, Optional[float], Optional[str]]]:
         """The ``gsave`` .. ``grestore`` group drawing one colorbar, at ``i``.
 
         ``gsave``, the ``amove`` to the bar (and, for a horizontal one, the
         ``rmove`` down by its thickness), the ``color_range_vertical`` or
         ``color_range_horizontal`` call, the label's lines if it has one,
         ``grestore``: what :meth:`gleplot.writer.GLEWriter.add_colorbar`
-        writes. Returns ``(next_index, call tokens, sep, label)`` or ``None``.
+        writes. Returns ``(next_index, call, sep, label)`` or ``None``;
+        ``sep`` is ``None`` when the ``amove`` is not one gleplot writes.
         """
         stmts: List[Statement] = []
         j = i
@@ -10292,11 +10340,11 @@ class _Recognizer:
         if j == len(nodes) or self._as_statement(nodes[j]) is None:
             return None
         label = None
-        if body:
+        if body and sep is not None:
             label = self._colorbar_label(body, args, sep, horizontal)
             if label is None:
                 return None
-        return j + 1, toks, sep, label
+        return j + 1, stmts[-1], sep, label
 
     def _colorbar_label(self, body, args, sep, horizontal) -> Optional[str]:
         """The label a colorbar group's ``body`` writes, or ``None``.
@@ -10351,8 +10399,9 @@ class _Recognizer:
         value = float(m.group(2))
         return -value if negative else value
 
-    def _apply_colorbar_call(self, toks, sep, label, axes_info) -> bool:
+    def _apply_colorbar_call(self, call, sep, label, axes_info) -> bool:
         """Attach the bar to the series it shows; whether one was found."""
+        toks = _words_and_values(call)
         # A vertical bar's thickness is its ``width`` and its length the
         # ``height`` expression; a horizontal bar's are the other way round.
         horizontal = toks[0].value.lower() == "color_range_horizontal"
@@ -10390,15 +10439,24 @@ class _Recognizer:
                 f"a {toks[0].value} call was kept as raw GLE: its axes has no "
                 f"heatmap or colour-mapped scatter whose colorbar draws palette "
                 f"{args.get('palette')!r} to attach it to",
-                None,
+                self._stmt_span(call),
             )
             return False
         hm = holders[0]
+        if hm.get("colorbar"):
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"a {toks[0].value} call was kept as raw GLE: an earlier "
+                "colorbar after this graph shows the same series, and "
+                "gleplot models one colorbar per heatmap or scatter",
+                self._stmt_span(call),
+            )
+            return False
         cb = {
             "label": label,
             "format": args.get("format") or "fix 1",
             "width": _as_float(args.get(thickness), 0.5),
-            "sep": sep if sep is not None else 0.3,
+            "sep": sep,
             "zmin": _as_float(args.get("zmin"), 0.0),
             "zmax": _as_float(args.get("zmax"), 1.0),
             # Written scaled by COLORBAR_STEP_SCALE (see add_colorbar).
