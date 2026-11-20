@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional
 
 from ._warn import warn_external
-from .colors import _rgba_parts, _stored_color, rgb_to_gle
+from .colors import _gle_color, _rgba_parts, _stored_color
 
 #: GLE's ``set cap`` and ``set join`` words, in GLE's own numbering order, so
 #: the first is GLE's default.
@@ -175,7 +175,7 @@ class GLEStyleConfig:
                 )
         if name in ("default_color", "default_marker_color"):
             value = _stored_color(value)
-            rgb_to_gle(_rgba_parts(value)[0])  # raises for an unknown colour
+            _gle_color(_rgba_parts(value)[0], name)  # raises for an unknown colour
         if name == "usetex" and not isinstance(value, bool):
             raise TypeError(
                 f"usetex must be True or False; got {value!r} of type "
