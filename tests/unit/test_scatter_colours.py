@@ -47,20 +47,20 @@ def test_values_are_coloured_through_a_marker_sub():
     text, files = _script(ax)
 
     assert (
-        "sub gleplot_cdata_fcircle_viridis size data\n"
+        "sub glp_cdata_fcircle_viridis size data\n"
         "   gsave\n"
         "   set hei size\n"
         "   set color cmap_viridis(data)\n"
         "   marker FCIRCLE\n"
         "   grestore\n"
         "end sub\n"
-        "define marker gleplot_cdata_fcircle_viridis gleplot_cdata_fcircle_viridis\n"
+        "define marker glp_cdata_fcircle_viridis glp_cdata_fcircle_viridis\n"
     ) in text
     assert "sub cmap_viridis z\n" in text
     assert (
         "    data t_0.dat d1=c1,c2 d2=c1,c3\n"
         "    let d3 = (d2-0)/(300-0)\n"
-        "    d1 marker gleplot_cdata_fcircle_viridis msize 0.134164 mdata d3 "
+        "    d1 marker glp_cdata_fcircle_viridis msize 0.134164 mdata d3 "
         'key "temp"\n'
     ) in text
     # The values are written as given; the let maps them.
@@ -88,7 +88,7 @@ def test_explicit_limits_and_a_reversed_cmap():
     ax.scatter(X, Y, c=[1, 2, 3], cmap="plasma_r", vmin=-4, vmax=-2, marker="s")
     text, _files = _script(ax)
     assert "    let d3 = (d2+4)/(-2+4)\n" in text
-    assert "marker gleplot_cdata_fsquare_plasma_r msize" in text
+    assert "marker glp_cdata_fsquare_plasma_r msize" in text
     assert "set color cmap_plasma_r(data)\n" in text
 
 
@@ -115,8 +115,8 @@ def test_one_sub_per_marker_and_cmap():
     ax.scatter(X, Y, c=[4, 5, 6])
     ax.scatter(X, Y, c=[4, 5, 6], cmap="magma")
     text, _files = _script(ax)
-    assert text.count("sub gleplot_cdata_fcircle_viridis ") == 1
-    assert text.count("sub gleplot_cdata_fcircle_magma ") == 1
+    assert text.count("sub glp_cdata_fcircle_viridis ") == 1
+    assert text.count("sub glp_cdata_fcircle_magma ") == 1
     assert text.count("sub cmap_viridis z") == 1
 
 
@@ -146,7 +146,7 @@ def test_figure_legend_draws_the_colour_marker():
     ax.scatter(X, Y, c=[1, 2, 3], label="pts")
     ax.figure.legend()
     text, _files = _script(ax)
-    assert 'text "pts" marker gleplot_cdata_fcircle_viridis msize' in text
+    assert 'text "pts" marker glp_cdata_fcircle_viridis msize' in text
 
 
 def test_three_numbers_for_three_points_are_values():
@@ -170,7 +170,7 @@ def test_no_marker_means_no_sub():
     ax = _ax()
     ax.scatter(X, Y, c=[1, 2, 3], marker="None")
     text, _files = _script(ax)
-    assert "gleplot_cdata" not in text
+    assert "glp_cdata" not in text
 
 
 @pytest.mark.parametrize(
@@ -280,7 +280,7 @@ def test_polar_points_are_coloured_through_the_polar_let():
     assert (
         "    let d3 = (d2-1)/(3-1)\n"
         "    let d4 = d1*cos(x),d1*sin(x)\n"
-        "    d4 marker gleplot_cdata_fcircle_viridis msize 0.134164 mdata d3"
+        "    d4 marker glp_cdata_fcircle_viridis msize 0.134164 mdata d3"
     ) in text
 
 
@@ -323,7 +323,7 @@ def test_plain_scatter_is_untouched():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         ax.scatter(X, Y, color="red")
-    assert "gleplot_cdata" not in _script(ax)[0]
+    assert "glp_cdata" not in _script(ax)[0]
 
 
 # --------------------------------------------------------------------------- #

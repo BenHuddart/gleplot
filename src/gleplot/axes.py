@@ -3453,10 +3453,12 @@ class Axes:
         stacks belong to the bar grammar, so they ignore ``edgecolor`` with a
         warning. ``edgecolor`` is the line colour of a ``'step'`` histogram,
         as in matplotlib, and the bar stroke of a ``'stepfilled'`` one;
-        ``'face'`` is ``color``. Bins are equal width. The window is always
-        written into the ``let`` (data min/max when ``range`` is omitted,
-        widened by half a unit when every sample is the same value), so GLE
-        does not re-bin over the axis.
+        ``'face'`` is ``color``, and so is a ``'stepfilled'`` ``'none'``,
+        since GLE strokes every bar. ``alpha=`` reaches an explicit edge
+        colour; an RGBA ``color``'s own alpha does not. Bins are equal width.
+        The window is always written into the ``let`` (data min/max when
+        ``range`` is omitted, widened by half a unit when every sample is the
+        same value), so GLE does not re-bin over the axis.
 
         Returns this axes. matplotlib's ``(counts, edges, patches)`` is not
         available: the counts are computed by GLE at draw time.
@@ -3598,26 +3600,28 @@ class Axes:
             if series_alpha is not None:
                 ink = apply_alpha(ink, series_alpha)
             # The stroke is the fill unless the caller named an edge, so
-            # the shared boundary of two bins is not a second ink.
+            # the shared boundary of two bins is not a second ink. 'face' is
+            # the fill, and so is a stepfilled 'none': GLE strokes every bar
+            # (lwidth 0 and CLEAR still draw a black hairline), and the
+            # fill's ink is the stroke that shows least.
             stroke = ink
-            if isinstance(one_edge, str) and one_edge.strip().lower() == "face":
-                one_edge = None
-            if (
-                style_name == "step"
-                and isinstance(one_edge, str)
-                and one_edge.strip().lower() == "none"
-            ):
-                if not as_bars:
-                    warn(
-                        "hist(histtype='step', edgecolor='none') would draw "
-                        "nothing; the line is drawn in color. Leave the "
-                        "histogram out to draw nothing."
-                    )
+            edge_name = one_edge.strip().lower() if isinstance(one_edge, str) else None
+            if edge_name == "none" and style_name == "step" and not as_bars:
+                warn(
+                    "hist(histtype='step', edgecolor='none') would draw "
+                    "nothing; the line is drawn in color. Leave the "
+                    "histogram out to draw nothing."
+                )
+            if edge_name in ("face", "none"):
                 one_edge = None
             if one_edge is not None:
-                stroke = self._resolve_color(one_edge, arg="edgecolor")
-                if series_alpha is not None:
-                    stroke = apply_alpha(stroke, series_alpha)
+                edge_rgb, edge_alpha = _rgba_parts(one_edge)
+                stroke = self._resolve_color(edge_rgb, arg="edgecolor")
+                # As in matplotlib, alpha= reaches the edge; an RGBA face
+                # colour's own alpha does not.
+                if one_alpha is not None:
+                    edge_alpha = one_alpha
+                stroke = apply_alpha(stroke, edge_alpha)
             fields = dict(
                 samples=np.asarray(samples, dtype=float),
                 bins=n_bins,
@@ -4870,13 +4874,13 @@ class Axes:
         negative or infinite; a one-element array is a single size. A NaN or
         masked size leaves that point out, as in matplotlib. GLE's ``mdata``
         scales only a marker drawn by a subroutine, so the script gets a
-        ``gleplot_mdata_<marker>`` sub that draws the built-in marker at each
+        ``glp_mdata_<marker>`` sub that draws the built-in marker at each
         point's size. The legend marker's area is halfway between the largest
         and smallest point's, as in matplotlib's legend. Per-point sizes
         cannot be combined with ``mdist`` or ``deresolve``.
 
         Per-point colours (numeric ``c``) work the same way: the script gets
-        a ``gleplot_cdata_<marker>_<cmap>`` sub that draws the built-in
+        a ``glp_cdata_<marker>_<cmap>`` sub that draws the built-in
         marker in each point's colour. The values are written to the data
         file as given, and a ``let`` maps them onto the colormap. A point
         whose value is not finite is left out, as matplotlib leaves it out
@@ -7677,7 +7681,7 @@ class Axes:
         Notes
         -----
         GLE has no filled contour. A ``contourf`` is a heatmap whose palette
-        sub (``gleplot_contourf<k>``) colours each value by the band it falls
+        sub (``glp_contourf<k>``) colours each value by the band it falls
         in. GLE's colormap smooths the grid with a cubic B-spline first, so a
         band edge is drawn near its level, not on it. When some edge would
         land more than one bitmap pixel away (a coarse grid for the number

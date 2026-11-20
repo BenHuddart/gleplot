@@ -95,8 +95,8 @@ _NOT_CODE_RE = re.compile(r"(\"[^\"]*\"|'[^']*'|!.*)")
 _NO_LINE = ("none", "None", "", " ", None)
 
 #: Name prefix of the subs behind per-point marker sizes
-#: (:meth:`GLEWriter.add_scatter`): ``gleplot_mdata_<marker>``, lower case.
-MDATA_SUB_PREFIX = "gleplot_mdata_"
+#: (:meth:`GLEWriter.add_scatter`): ``glp_mdata_<marker>``, lower case.
+MDATA_SUB_PREFIX = "glp_mdata_"
 
 
 def mdata_sub_text(marker: str) -> str:
@@ -126,9 +126,9 @@ def mdata_sub_text(marker: str) -> str:
 
 
 #: Name prefix of the subs behind per-point colours
-#: (:meth:`GLEWriter.add_scatter`): ``gleplot_cdata_<marker>_<cmap>``, lower
+#: (:meth:`GLEWriter.add_scatter`): ``glp_cdata_<marker>_<cmap>``, lower
 #: case. No marker name has an underscore, so the first one ends the marker.
-CDATA_SUB_PREFIX = "gleplot_cdata_"
+CDATA_SUB_PREFIX = "glp_cdata_"
 
 
 def cdata_sub_name(marker: str, cmap: str) -> str:
@@ -165,7 +165,7 @@ def cdata_sub_text(marker: str, cmap: str) -> str:
 #: Adapted from ``polar_grid`` in GLE's ``polarplot.gle``. The style is
 #: matplotlib's default: 0.8 pt grey grid lines, a black outer ring, labels
 #: every 45 degrees and one per ring along 22.5 degrees.
-POLAR_SUB = """sub gleplot_polar_grid rmax step
+POLAR_SUB = """sub glp_polar_grid rmax step
    ! Polar grid about (0, 0): a ring every step inside rmax, a spoke every
    ! 45 degrees, and the outer ring at rmax.
    gsave
@@ -184,7 +184,7 @@ POLAR_SUB = """sub gleplot_polar_grid rmax step
    grestore
 end sub
 
-sub gleplot_polar_labels rmax step dp deg$
+sub glp_polar_labels rmax step dp deg$
    ! Polar tick labels: the angle every 45 degrees outside the rmax ring,
    ! followed by deg$, and each ring's radius with dp decimals along 22.5
    ! degrees. Text uses the current hei and colour.
@@ -266,12 +266,12 @@ def polar_window(
 #: and only GLE's PostScript route draws it (with ``-cairo`` it draws
 #: nothing).
 IMAGE_SUBS: Dict[str, str] = {
-    "gleplot_bitmap": """sub gleplot_bitmap f$ x0 x1 y0 y1
+    "glp_bitmap": """sub glp_bitmap f$ x0 x1 y0 y1
    ! Image file f$ stretched from (x0, y0) to (x1, y1) in data coordinates.
    amove xg(x0) yg(y0)
    bitmap f$ xg(x1)-xg(x0) yg(y1)-yg(y0)
 end sub""",
-    "gleplot_postscript": """sub gleplot_postscript f$ x0 x1 y0 y1
+    "glp_postscript": """sub glp_postscript f$ x0 x1 y0 y1
    ! EPS file f$ stretched from (x0, y0) to (x1, y1) in data coordinates.
    amove xg(x0) yg(y0)
    postscript f$ xg(x1)-xg(x0) yg(y1)-yg(y0)
@@ -285,13 +285,13 @@ IMAGE_LAYER = 150
 
 #: Image file extension (lower case) -> the :data:`IMAGE_SUBS` sub drawing it.
 _IMAGE_SUB_BY_SUFFIX = {
-    ".png": "gleplot_bitmap",
-    ".jpg": "gleplot_bitmap",
-    ".jpeg": "gleplot_bitmap",
-    ".gif": "gleplot_bitmap",
-    ".tif": "gleplot_bitmap",
-    ".tiff": "gleplot_bitmap",
-    ".eps": "gleplot_postscript",
+    ".png": "glp_bitmap",
+    ".jpg": "glp_bitmap",
+    ".jpeg": "glp_bitmap",
+    ".gif": "glp_bitmap",
+    ".tif": "glp_bitmap",
+    ".tiff": "glp_bitmap",
+    ".eps": "glp_postscript",
 }
 
 
@@ -817,7 +817,7 @@ CELLS_MARKER = "! gleplot: cells"
 #: :meth:`GLEWriter.add_nodes_sidecar`).
 NODES_MARKER = "! gleplot: nodes"
 
-#: How the comment line in a ``gleplot_contourf<k>`` palette sub that holds
+#: How the comment line in a ``glp_contourf<k>`` palette sub that holds
 #: the series' colouring begins (see :meth:`GLEWriter.add_contourf_sub`).
 CONTOURF_MARKER = "! gleplot: contourf"
 
@@ -1546,7 +1546,7 @@ class GLEWriter:
         # is not written again.
         self._header_lines: List[str] = []
         # The palette sub each contourf heatmap written so far colours with,
-        # by its data file: gleplot_contourf1, 2, ... in writing order.
+        # by its data file: glp_contourf1, 2, ... in writing order.
         self._contourf_subs: Dict[str, str] = {}
         # Which axes of the graph being written are logarithmic, as the last
         # add_axes call set them (see _add_sized_scatter).
@@ -3658,7 +3658,7 @@ class GLEWriter:
     def _add_sized_scatter(self, series: Series, binding: Optional[ColumnBinding]):
         """A scatter whose points each have their own size (GLE ``mdata``).
 
-        Writes ``dN marker gleplot_mdata_<marker> msize <base> mdata dK``:
+        Writes ``dN marker glp_mdata_<marker> msize <base> mdata dK``:
         ``dK`` holds each point's size as a multiple of ``msize`` and has no
         display line of its own, so GLE neither draws it nor autoscales to it.
         The marker is the sub :func:`mdata_sub_text` defines. No preview
@@ -3698,7 +3698,7 @@ class GLEWriter:
         Writes the values as a hidden dataset ``dC``, maps them onto
         ``[0, 1]`` with ``let dK = (dC-vmin)/(vmax-vmin)`` (``(dC-v)*0`` when
         the two limits are equal, which gives every point the colormap's first
-        colour), and draws ``dN marker gleplot_cdata_<marker>_<cmap> msize
+        colour), and draws ``dN marker glp_cdata_<marker>_<cmap> msize
         <size> mdata dK``: the sub :func:`cdata_sub_text` defines colours each
         point from its ``dK`` value. Neither ``dC`` nor ``dK`` has a display
         line, so GLE neither draws nor autoscales to them.
@@ -5504,12 +5504,10 @@ class GLEWriter:
         num = self._format_number
         step = polar_ring_step(rmax)
         self.lines_gle.append(f"    begin layer {POLAR_GRID_LAYER}")
-        self.lines_gle.append(
-            f"        draw gleplot_polar_grid {num(rmax)} {num(step)}"
-        )
+        self.lines_gle.append(f"        draw glp_polar_grid {num(rmax)} {num(step)}")
         self.lines_gle.append("    end layer")
         self._pending_graph_text_lines.append(
-            f"gleplot_polar_labels {num(rmax)} {num(step)} "
+            f"glp_polar_labels {num(rmax)} {num(step)} "
             f'{polar_label_decimals(step)} "{polar_degree_mark(self.style.usetex)}"'
         )
         self._polar_graph = True
@@ -6157,7 +6155,7 @@ class GLEWriter:
         before the graph that calls it: GLE finds a sub wherever it is.
         """
         fmt = self._format_number
-        name = f"gleplot_contourf{len(self._contourf_subs) + 1}"
+        name = f"glp_contourf{len(self._contourf_subs) + 1}"
         self._contourf_subs[series["data_file"]] = name
         cmap = series["cmap"]
         extend = series["extend"]
@@ -6430,7 +6428,7 @@ class GLEWriter:
         file name or a bare expression. Clause order (fixed): operand, px,
         py, [color], [invert], [zmin v],
         [zmax v], [palette name], [interpolate mode]. ``cmap_mode`` is
-        ``('color', None)`` for rainbow, ``('palette', 'gleplot_x')`` for a
+        ``('color', None)`` for rainbow, ``('palette', 'cmap_x')`` for a
         named palette, or ``('gray', None)`` for grayscale (no clause).
         """
         px, py = pixels

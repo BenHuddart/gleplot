@@ -31,38 +31,24 @@ nothing wires it into ``GLEWriter`` yet (that is a later phase). It only
 defines the ``emit_metadata`` / ``parse_metadata`` pair plus the shared
 default/type knowledge they both use so the two can never drift apart.
 
-Versions and the geometry migration
------------------------------------
-The version marker does **not** describe the ``key = value`` lines (those have
-never changed and are parsed identically for every known version). It describes
-the *page geometry* of the file the block sits in:
+Versions
+--------
+The version marker does **not** describe the ``key = value`` lines. It
+records the *page geometry* of the file the block sits in: since ``v2`` every
+graph block carries an explicit frame rectangle (``amove x y``, ``size w h``
+and ``scale 1 1``, SPEC 3.3), which the recognizer reads back into
+:attr:`gleplot.Axes.placement`.
 
-``v1``
-    Graph geometry is implicit. A single-plot figure was written as a bare
-    ``scale auto`` (GLE auto-fits the graph to the page) and a subplot grid's
-    ``amove``/``size`` cells were only reproducible by re-deriving them from
-    the recovered grid + ``figsize``, so a ``subplots_adjust`` override could
-    not survive a round trip.
-``v2``
-    Every graph block carries an explicit frame rectangle -- ``amove x y`` +
-    ``size w h`` + ``scale 1 1`` (SPEC 3.3) -- which the recognizer reads back
-    into :attr:`gleplot.Axes.placement`.
-
-:func:`parse_metadata` accepts every version in :data:`SUPPORTED_VERSIONS`
-without complaint; :func:`emit_metadata` always writes :data:`VERSION`.
-
-**Migration policy.** A v1 file loads fine: its implicit geometry becomes
-"auto" placement (``placement = None``) exactly as before. The first time it is
-saved, the writer emits the v2 explicit placement it computes for the figure,
-so the file changes geometry once -- a deliberate, one-time byte diff, with a
-``metadata:`` warning on load saying so. There is no v2 -> v1 downgrade path
-and none is planned: older gleplot builds parse a v2 file's marker with a
-warning and still read every key, and the ``amove``/``size``/``scale 1 1``
-triple they do not model is preserved verbatim rather than dropped.
+:func:`emit_metadata` always writes :data:`VERSION`. :func:`parse_metadata`
+reads a ``v2`` block, or one with no version. A block of an older version is
+not read: the file loads as hand-written GLE, and saving it writes a ``v2``
+block. A newer or unparseable marker is reported and its lines are read
+anyway.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Tuple
 
 __all__ = [
@@ -72,22 +58,15 @@ __all__ = [
     "DEFAULTS",
     "ALWAYS_EMIT",
     "VERSION",
-    "SUPPORTED_VERSIONS",
     "emit_metadata",
     "parse_metadata",
 ]
 
 # -- Format constants ---------------------------------------------------
 
-#: Version written by :func:`emit_metadata`. See the module docstring for what
-#: each version means and for the v1 -> v2 geometry migration policy.
+#: Version written by :func:`emit_metadata`, and the only one
+#: :func:`parse_metadata` reads (see the module docstring).
 VERSION = 2
-
-#: Versions :func:`parse_metadata` reads without complaint. Every one of them
-#: uses the same ``! gleplot: key = value`` line format, so the parse itself is
-#: version-independent; the marker only records how the file's page geometry
-#: was written.
-SUPPORTED_VERSIONS = (1, 2)
 
 BEGIN_MARKER = f"! gleplot-meta-begin v{VERSION}"
 END_MARKER = "! gleplot-meta-end"
@@ -261,31 +240,27 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _older_version(marker: str) -> bool:
+    """True if ``marker`` (after ``! gleplot-meta-begin``) is ``vN``, N < VERSION."""
+    match = re.fullmatch(r"v([0-9]+)", marker)
+    return match is not None and int(match.group(1)) < VERSION
+
+
 def _version_warnings(marker: str) -> List[str]:
     """Warnings for a ``! gleplot-meta-begin`` marker's version suffix.
 
-    ``marker`` is everything after ``! gleplot-meta-begin`` (e.g. ``"v1"``),
+    ``marker`` is everything after ``! gleplot-meta-begin`` (e.g. ``"v2"``),
     already stripped; an empty string means the marker carried no version.
-
-    Three cases:
-
-    * the current :data:`VERSION`, or no suffix at all -- silent;
-    * an older but supported version -- one ``metadata:``-free informational
-      line naming the geometry migration that the next save performs (see the
-      module docstring). Recovery is unaffected: the keys parse identically;
-    * anything else (a newer or unparseable marker) -- the historical
-      "unrecognized version" warning. Parsing still proceeds line by line.
+    The current :data:`VERSION`, or no suffix at all, is silent.
     """
     if not marker or marker == f"v{VERSION}":
         return []
-    for known in SUPPORTED_VERSIONS:
-        if marker == f"v{known}" and known < VERSION:
-            return [
-                f"file uses gleplot metadata v{known}, in which graph geometry "
-                f"is implicit; saving rewrites it as v{VERSION} with an "
-                f"explicit placement rectangle per axes (a one-time geometry "
-                f"change)."
-            ]
+    if _older_version(marker):
+        return [
+            f"file uses gleplot metadata {marker}, which gleplot no longer "
+            f"reads; it loads as hand-written GLE, and saving writes a "
+            f"v{VERSION} block."
+        ]
     return [
         f"Unrecognized gleplot metadata version marker {marker!r}; "
         f"expected 'v{VERSION}'. Parsing line contents anyway."
@@ -346,12 +321,10 @@ def parse_metadata(lines: List[str]) -> Tuple[Dict[str, Any], List[str]]:
 
     Notes
     -----
-    Tolerant by design: the begin marker's version never affects how the block
-    is read, because the ``! gleplot: key = value`` line format is identical in
-    every version. A version in :data:`SUPPORTED_VERSIONS` that is older than
-    :data:`VERSION` yields one informational warning about the geometry
-    migration the next save performs; an unknown version yields the historical
-    "unrecognized version" warning. Neither raises. See the module docstring.
+    A block of a version older than :data:`VERSION` is not read: it yields
+    no data and one warning saying the file loads as hand-written GLE. A
+    newer or unparseable version yields the "unrecognized version" warning
+    and its lines are read anyway. Neither raises. See the module docstring.
     """
     data: Dict[str, Any] = {}
     warnings: List[str] = []
@@ -367,6 +340,8 @@ def parse_metadata(lines: List[str]) -> Tuple[Dict[str, Any], List[str]]:
                 found_block = True
                 rest = stripped[len("! gleplot-meta-begin") :].strip()
                 warnings.extend(_version_warnings(rest))
+                if _older_version(rest):
+                    return {}, warnings
             continue
 
         if stripped == END_MARKER:
