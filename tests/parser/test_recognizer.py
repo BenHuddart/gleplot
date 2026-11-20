@@ -712,6 +712,42 @@ def test_a_raw_data_statement_redefining_a_dataset_is_reported(tmp_path):
     ]
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "data f.dat d1=c1,c2\n   d1 line\n   data f.dat d2=c1,c3 bogus\n   d2 line\n",
+        "data f.dat d2=c1,c3 bogus\n   d2 line\n   data ./f.dat d1=c1,c2\n   d1 line\n",
+        # A graph read before the raw statement is found.
+        "data f.dat d1=c1,c2\n   d1 line\nend graph\nbegin graph\n"
+        "   data f.dat d2=c1,c3 bogus\n   d2 line\n",
+        # A statement restored with the bar that reads it.
+        "data f.dat d2=c1,c2 d3=c1,c3\n   bar d2,d3 bogus 3\n"
+        "   data f.dat d1=c1,c2\n   d1 line\n",
+    ],
+)
+def test_an_owned_file_a_raw_data_statement_reads_is_not_rewritten(tmp_path, body):
+    """#493: rewriting it with d1's columns would leave c3 missing."""
+    data = "x a b\n1 4 7\n2 5 8\n"
+    src = _imported("f.dat") + f"begin graph\n   {body}end graph\n"
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, {"f.dat": data}))
+    (series,) = [s for ax in rec.figure.axes_list for s in ax.file_series]
+    assert Path(series["data_file"]).name == "f.dat"
+    assert any("reads 'f.dat', a data file gleplot wrote" in w for w in rec.warnings)
+    rec.figure.savefig_gle(str(tmp_path / "s.gle"))
+    assert (tmp_path / "f.dat").read_text(encoding="utf-8") == data
+
+
+def test_an_owned_file_saved_back_unchanged_stays_owned(tmp_path):
+    """#493: the raw statement still reads what it read."""
+    src = _imported("f.dat") + (
+        "begin graph\n   data f.dat d1=c1,c2\n   d1 line\n"
+        "   data f.dat d2=c1,c2 bogus\n   d2 line\nend graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, {"f.dat": "x y\n1 4\n2 5\n"}))
+    assert len(rec.figure.axes_list[0].lines) == 1
+    assert not any("a data file gleplot wrote" in w for w in rec.warnings)
+
+
 def test_broken_bar_becomes_file_series_with_error(tmp_path):
     """``bar dN fill COLOR`` against a missing data file -> FileSeries('bar')."""
     _gleplot_axes._global_data_file_counter = 0

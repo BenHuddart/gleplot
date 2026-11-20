@@ -60,6 +60,7 @@ from .writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
+    POLAR_SUB_NAMES,
     AxisStyle,
     DecimationPolicy,
     GLEWriter,
@@ -95,13 +96,18 @@ _PALETTE_REF_RE = re.compile(r"\bcmap_(\w+)", re.IGNORECASE)
 _PALETTE_DEF_RE = re.compile(r"^\s*sub\s+cmap_(\w+)", re.IGNORECASE | re.MULTILINE)
 
 
-def _raw_palettes(fig: "Figure") -> Tuple[Set[str], Set[str]]:
-    """The palette wrappers raw GLE kept from a loaded file calls, and defines.
+#: A call of a polar or image sub (:data:`POLAR_SUB`, :data:`IMAGE_SUBS`)
+#: in raw GLE, a statement of its own or after ``draw``; group 1 is the
+#: sub's name. A name in a comment or a string is not a call.
+_FIXED_SUB_CALL_RE = re.compile(
+    r"^\s*(?:draw\s+)?(" + "|".join((*POLAR_SUB_NAMES, *IMAGE_SUBS)) + r")\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 
-    The parser dropped gleplot's wrapper subs, so the ones called are written
-    again; one the raw text defines itself is the file's own and is not.
-    """
-    raw = "\n".join(
+
+def _raw_gle(fig: "Figure") -> str:
+    """The raw GLE kept from a loaded file, one line per source line."""
+    return "\n".join(
         [
             *fig.passthrough_header,
             *fig.passthrough_trailer,
@@ -109,6 +115,15 @@ def _raw_palettes(fig: "Figure") -> Tuple[Set[str], Set[str]]:
             *(line for ax in fig.axes_list for line in ax.trailing_passthrough),
         ]
     )
+
+
+def _raw_palettes(fig: "Figure") -> Tuple[Set[str], Set[str]]:
+    """The palette wrappers raw GLE kept from a loaded file calls, and defines.
+
+    The parser dropped gleplot's wrapper subs, so the ones called are written
+    again; one the raw text defines itself is the file's own and is not.
+    """
+    raw = _raw_gle(fig)
     called = {name.lower() for name in _PALETTE_REF_RE.findall(raw)}
     own = {name.lower() for name in _PALETTE_DEF_RE.findall(raw)}
     return {c for c in called if _pal.is_native(c, sub=True)}, own
@@ -3440,7 +3455,8 @@ class Figure:
         that a scatter with ``mdata`` uses, sorted by name, then one per-point
         colour sub per marker and colormap that a scatter with ``cdata`` uses,
         sorted, then the polar subs
-        (if any polar axes), then the image subs (if any placed image).
+        (if any polar axes), then the image subs (if any placed image),
+        each also when raw GLE kept from a loaded file calls it.
         Skipped (dangling) series contribute nothing, so a write that drops
         the only heatmap does not leave an unused palette sub behind.
 
@@ -3478,9 +3494,15 @@ class Figure:
                 )
         subs.extend(mdata_sub_text(marker) for marker in sorted(sized_markers))
         subs.extend(cdata_sub_text(*pair) for pair in sorted(coloured))
-        if any(ax._polar for ax in self.axes_list):
+        # Raw GLE kept from a loaded file (an edited grid or image draw) may
+        # call a polar or image sub; the parser dropped it, so it is written
+        # again.
+        raw_calls = {
+            name.lower() for name in _FIXED_SUB_CALL_RE.findall(_raw_gle(self))
+        }
+        if any(ax._polar for ax in self.axes_list) or raw_calls & set(POLAR_SUB_NAMES):
             subs.append(POLAR_SUB)
-        used_images = {
+        used_images = (raw_calls & set(IMAGE_SUBS)) | {
             image_sub_name(image["file"])
             for ax in self.axes_list
             for image in resolution.visible(ax.images)
