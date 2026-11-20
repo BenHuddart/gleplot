@@ -4361,6 +4361,7 @@ class GLEWriter:
 
         bar_cmd += self._bar_pattern_clause([series])
         bar_cmd += self._bar_qualifiers(
+            self._bar_hidden_strokes(fill_tokens, [series]),
             edgecolor,
             edge_list,
             linestyle,
@@ -4464,6 +4465,7 @@ class GLEWriter:
             bar_cmd += " fill " + ",".join(fills)
         bar_cmd += self._bar_pattern_clause(members)
         bar_cmd += self._bar_qualifiers(
+            self._bar_hidden_strokes(fills, members),
             first.get("edgecolor"),
             first.get("edge_list"),
             first.get("linestyle"),
@@ -4540,8 +4542,33 @@ class GLEWriter:
             clause += " background " + ",".join(backgrounds)
         return clause
 
+    @staticmethod
+    def _bar_hidden_strokes(
+        fills: Sequence[str], members: Sequence[Mapping[str, Any]]
+    ) -> List[str]:
+        """The stroke, per dataset, that hides a bar's outline.
+
+        GLE strokes every bar: ``lwidth 0`` and ``CLEAR`` both still draw a
+        black hairline, and a hairline in the colour beneath it does not
+        show.
+        That is the fill, or the ``background`` of a hatched bar, whose fill
+        is the hatch ink. A ``CLEAR`` background has no colour to match, so
+        the stroke stays the hatch ink. Backgrounds are read as
+        :meth:`_bar_pattern_clause` writes them: a run from the first
+        member that stops at the first member without one.
+        """
+        strokes = list(fills)
+        for index, member in enumerate(members[: len(strokes)]):
+            background = member.get("background")
+            if not member.get("pattern") or not background:
+                break
+            if str(background).upper() != "CLEAR":
+                strokes[index] = background
+        return strokes
+
     def _bar_qualifiers(
         self,
+        hidden_strokes: Sequence[str],
         edgecolor: Optional[str],
         edge_list: Optional[Sequence[str]],
         linestyle: Optional[str],
@@ -4556,12 +4583,18 @@ class GLEWriter:
         Empty for a historical ``bar dN fill COLOR`` (and ``width`` is
         appended in its old place when that is the only extra). ``color``
         is the stroke. ``lstyle`` / ``lwidth`` are the edge. ``horiz`` and
-        ``dist`` are the orientation and the group spacing.
+        ``dist`` are the orientation and the group spacing. With no edge
+        (``edgecolor`` or ``linestyle`` ``'none'``) the stroke is a
+        hairline in ``hidden_strokes``.
         """
         parts: List[str] = []
         bare_edge = str(edgecolor).lower() == "none" if edgecolor is not None else False
         no_stroke = bare_edge or linestyle == "none"
         if no_stroke:
+            # ``lwidth 0`` keeps a width set earlier in the script from
+            # widening the hidden stroke past the bar.
+            if hidden_strokes:
+                parts.append("color " + ",".join(hidden_strokes))
             parts.append("lwidth 0")
         else:
             edges = list(edge_list) if edge_list else []

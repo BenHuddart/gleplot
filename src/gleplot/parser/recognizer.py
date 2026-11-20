@@ -7307,6 +7307,25 @@ class _Recognizer:
             style["lstyle"] = scanned["lstyle"]
         if scanned["linewidth_cm"] is not None:
             style["linewidth"] = linewidth_cm_to_pt(scanned["linewidth_cm"])
+        # A hairline in the colour under the edge is how the writer leaves
+        # the edge out (GLE strokes every bar), so it reads back as 'none'.
+        layers = [
+            {
+                "pattern": patterns[i] if i < len(patterns) else None,
+                "background": backgrounds[i] if i < len(backgrounds) else None,
+            }
+            for i in range(len(names))
+        ]
+        if (
+            fills
+            and edges
+            and not style.keys() & {"linestyle", "lstyle"}
+            and style.get("linewidth") == 0
+            and edges == GLEWriter._bar_hidden_strokes(fills, layers)
+        ):
+            edges = None
+            del style["linewidth"]
+            style["edgecolor"] = "none"
 
         for index, name in enumerate(names):
             row = loaded_to[index]

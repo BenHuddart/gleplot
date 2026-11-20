@@ -336,10 +336,34 @@ class TestBarCharts:
         assert "fill BLACK pattern GRID background CLEAR\n" in script
 
     def test_bar_hatch_under_a_none_edge_is_black(self):
-        """matplotlib falls back to black when the edge it would use is 'none'."""
+        """matplotlib falls back to black when the edge it would use is 'none'.
+
+        The stroke is the face under the hatch, so the outline does not show.
+        A CLEAR face has no colour to match; the stroke is the hatch ink.
+        """
         self.ax.bar([1, 2], [3, 4], color="yellow", hatch="/", edgecolor="none")
+        self.ax.bar([1, 2], [3, 4], color="none", hatch="/", edgecolor="none")
         script = self.fig._generate_gle()
-        assert "fill BLACK pattern SHADE background YELLOW lwidth 0" in script
+        assert (
+            "fill BLACK pattern SHADE background YELLOW color YELLOW lwidth 0\n"
+            in script
+        )
+        assert (
+            "fill BLACK pattern SHADE background CLEAR color BLACK lwidth 0\n" in script
+        )
+
+    @pytest.mark.parametrize(
+        "kwargs", [dict(edgecolor="none"), dict(edgecolor="k", linestyle="none")]
+    )
+    def test_bar_with_no_edge_strokes_in_its_fill(self, kwargs):
+        """GLE strokes every bar; a hairline in the fill does not show."""
+        self.ax.bar([1, 2], [3, 4], color="yellow", linewidth=2, **kwargs)
+        self.ax.bar([1, 2], [3, 4], bottom=1, color=["g", "b"], **kwargs)
+        script = self.fig._generate_gle()
+        assert "bar d1 fill YELLOW color YELLOW lwidth 0\n" in script
+        assert "bar d3 from d2 fill GREEN color GREEN lwidth 0 width 0.5\n" in script
+        assert "bar d5 from d4 fill BLUE color BLUE lwidth 0 width 0.5\n" in script
+        assert script.count("lwidth") == 3
 
     def test_bar_hatch_sequence_splits_per_bar(self):
         self.ax.bar([1, 2, 3], [3, 4, 5], hatch=["/", "", "x"], label="mix")

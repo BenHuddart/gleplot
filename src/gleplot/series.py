@@ -776,14 +776,16 @@ class BarSeries(Series):
     fill_list: Optional[List[str]]
     #: Stroke colour (GLE ``color``). Absent: the writer emits no ``color``
     #: keyword, and GLE strokes in black. ``"none"`` is matplotlib's missing
-    #: edge; GLE has no such edge, so the writer emits ``lwidth 0``.
+    #: edge. GLE strokes every bar, so the writer emits a hairline in the
+    #: colour under the edge: ``color <fill> lwidth 0``, or the
+    #: :attr:`background` of a hatched bar.
     edgecolor: Optional[str]
     #: Authored ``color`` list when a command names more than one edge.
     #: Emitted verbatim. Absent when :attr:`edgecolor` is the whole story.
     edge_list: Optional[List[str]]
     #: Edge width in points. Absent: nothing is written, and GLE keeps the
-    #: line width already in force. ``0`` is written (it is how a missing
-    #: edge is spelled).
+    #: line width already in force. ``0`` is written, and GLE draws it as
+    #: its thinnest line.
     linewidth: Optional[float]
     #: Edge linestyle. Absent: GLE's solid default, and no ``lstyle`` token.
     #: ``'-'`` is stored only when a script or a caller named the style, so
