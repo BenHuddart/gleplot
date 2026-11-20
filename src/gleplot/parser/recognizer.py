@@ -1774,6 +1774,17 @@ def _page_drawing(lines: List[str]) -> Optional[Dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
+# GLE's error-bar keyword -> the ``_gle_names`` role of its dataset.
+_ERROR_ROLES = {
+    "err": "yerr",
+    "errup": "yerr_up",
+    "errdown": "yerr_down",
+    "herr": "xerr",
+    "herrleft": "xerr_left",
+    "herrright": "xerr_right",
+}
+
+
 class _Recognizer:
     """Stateful recognizer for one document. See :func:`parse_gle_figure`."""
 
@@ -3296,9 +3307,10 @@ class _Recognizer:
             # Raw dataset name -> the line, scatter, file line, function or
             # fit series built from it: what a derived let's ``dN`` reads.
             "_dataset_series": {},
-            # Raw dataset name -> an error-bar file series built from it,
-            # which only a raw line (not a derived let) can read.
-            "_errorbar_file_series": {},
+            # Raw dataset name -> (series, role): the series a raw line that
+            # reads the name is bound to, and which of its datasets
+            # (``_XYSeries._gle_names``). See ``_note_raw_name``.
+            "_raw_names": {},
             # Offset alias target -> its source (``let dK = dJ+off``).
             "_offset_let_sources": {},
             # A polar axes (GLEWriter.add_polar_frame): the radial limit from
@@ -4947,7 +4959,10 @@ class _Recognizer:
             )
             return
         if kw is not None and _DATASET_RE.match(kw):
-            before = {attr: len(info[attr]) for attr in Axes._DERIVED_SOURCE_ATTRS}
+            before = {
+                attr: len(info[attr])
+                for attr in Axes._DERIVED_SOURCE_ATTRS + ("errorbars",)
+            }
             self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
             self._note_dataset_series(kw, before, info)
             return
@@ -6368,11 +6383,31 @@ class _Recognizer:
         entry = info[grown[0]][-1]
         name = info["_polar_aliases"].get(name.lower(), name.lower())
         raw = info["_offset_let_sources"].get(name, name)
-        kind = entry.get("series_type") if grown[0] == "file_series" else "line"
+        if grown[0] == "errorbars":
+            kind = "errorbar"
+        elif grown[0] == "file_series":
+            kind = entry.get("series_type")
+        else:
+            kind = "line"
         if kind == "line":
             info["_dataset_series"][raw] = entry
-        elif kind == "errorbar":
-            info["_errorbar_file_series"][raw] = entry
+        if kind in ("line", "errorbar"):
+            # A drawn dataset is its series' own: it outranks a fill or bar
+            # that also reads it.
+            info["_raw_names"][raw] = (entry, "data")
+            if raw != name:
+                info["_raw_names"][name] = (entry, "offset")
+
+    @staticmethod
+    def _note_raw_name(info, name, entry, role) -> None:
+        """Remember that ``entry`` writes dataset ``name`` as its ``role``.
+
+        A raw line that reads ``name`` is bound to it (see
+        :meth:`_bind_raw_readers`). The first series to claim a name keeps
+        it, except that a drawn line or error bar outranks any other
+        (:meth:`_note_dataset_series`).
+        """
+        info["_raw_names"].setdefault(name.lower(), (entry, role))
 
     def _note_raw_lets(self, info) -> None:
         """Note each ``let`` kept as raw GLE whose target raw GLE uses.
@@ -6401,16 +6436,15 @@ class _Recognizer:
     def _bind_raw_readers(info) -> None:
         """Mark each series whose dataset a raw line in the block reads.
 
-        The series keeps its name here as ``_gle_name``, and the writer
+        The series keeps its name here in ``_gle_names``, and the writer
         renames the raw references to the name it writes the series under
         (:meth:`gleplot.writer.GLEWriter._bind_raw_reads`). A name a raw
         ``data`` or ``let`` defines is that raw dataset's, not the series'.
         """
         defined, read, _bare = GLEWriter.raw_dataset_use(info["passthrough"])
-        for series in (info["_dataset_series"], info["_errorbar_file_series"]):
-            for name, entry in series.items():
-                if name in read - defined:
-                    entry["_gle_name"] = name
+        for name, (entry, role) in info["_raw_names"].items():
+            if name in read - defined:
+                entry.setdefault("_gle_names", {})[role] = name
 
     def _commit_derived_lets(self, info) -> None:
         """Turn the recorded derived lets into series, if every one can be.
@@ -6783,6 +6817,7 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         info["hists"].append(entry)
+        self._note_raw_name(info, target, entry, "hist")
         info["_let_source_datasets"].add(source)
         info["_hist_let_pending"].pop(target, None)
         return entry
@@ -7148,6 +7183,7 @@ class _Recognizer:
                 if fail_error is not None:
                     fs["data_error"] = fail_error
                 info["file_series"].append(fs)
+                self._note_raw_name(info, names[0], fs, "data")
                 info["_key_suppress_datasets"].add(names[0])
                 info["_key_label_owners"][names[0]] = fs
                 return
@@ -7235,6 +7271,9 @@ class _Recognizer:
             entry["_draw_seq"] = info["_draw_seq_counter"]
             info["_draw_seq_counter"] += 1
             info["bars"].append(entry)
+            self._note_raw_name(info, name, entry, "data")
+            if from_names:
+                self._note_raw_name(info, from_names[index], entry, "from")
             info["_key_suppress_datasets"].add(name)
             info["_key_label_owners"][name] = entry
         for name in from_names:
@@ -7380,6 +7419,7 @@ class _Recognizer:
             fs_fields.update(self._data_read_options.get(d_names[0], {}))
             fs = FileSeries(**fs_fields)
             info["file_series"].append(fs)
+            self._note_fill_names(info, d_names, fs)
             info["_key_label_owners"][d_names[0]] = fs
             return
         y2 = loaded.get(f"c{yc2}") if yc2 is not None else None
@@ -7421,7 +7461,31 @@ class _Recognizer:
                     info["_key_label_owners"][d_names[0]] = span_entry
                     return
         info["fills"].append(fill_entry)
+        self._note_fill_names(info, d_names, fill_entry)
         info["_key_label_owners"][d_names[0]] = fill_entry
+
+    @classmethod
+    def _note_error_names(cls, info, err_refs, entry) -> None:
+        """Note an error bar's error datasets for :meth:`_bind_raw_readers`.
+
+        ``err_refs`` maps GLE's ``err``, ``errup``, ... to the dataset each
+        names; the role is the writer's name for that error.
+        """
+        for kind, name in err_refs.items():
+            cls._note_raw_name(info, name, entry, _ERROR_ROLES[kind])
+
+    def _note_fill_names(self, info, d_names, entry) -> None:
+        """Note a fill's curves for :meth:`_bind_raw_readers`.
+
+        A curve read through an offset alias (``let dK = dJ+off``) is
+        written as the source and its alias, as for a line.
+        """
+        roles = (("data", "offset"), ("second", "second_offset"))
+        for name, (role, alias_role) in zip(d_names, roles):
+            source = info["_offset_let_sources"].get(name, name)
+            self._note_raw_name(info, source, entry, role)
+            if source != name:
+                self._note_raw_name(info, name, entry, alias_role)
 
     # -- key -------------------------------------------------------------
 
@@ -8371,6 +8435,7 @@ class _Recognizer:
                     **read_options,
                 )
             )
+            self._note_error_names(info, err, info["file_series"][-1])
             return
 
         extra = [
@@ -8410,6 +8475,7 @@ class _Recognizer:
                     data_error=(loaded or {}).get("error", "unresolved"),
                 )
             )
+            self._note_error_names(info, err, info["file_series"][-1])
             return
 
         def col_arr(c):
@@ -8510,6 +8576,7 @@ class _Recognizer:
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
         info["errorbars"].append(entry)
+        self._note_error_names(info, err, entry)
 
     def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
         """Keep a dataset display line as raw GLE in axes passthrough.

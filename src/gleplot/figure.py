@@ -22,7 +22,7 @@ from .axes import (
     histogram_counts,
 )
 from .cairo_support import cairo_font_warning, figure_requires_cairo
-from .colors import _rgba_parts, apply_alpha, rgb_to_gle
+from .colors import _gle_color, _rgba_parts, apply_alpha, rgb_to_gle
 from .compiler import (
     RASTER_COMPILE_FORMATS,
     SUFFIX_TO_COMPILE_FORMAT,
@@ -2253,7 +2253,9 @@ class Figure:
                 None if fontsize is None else _resolve_fontsize(self.style, fontsize)
             ),
             "frameon": True if frameon is None else bool(frameon),
-            "facecolor": None if facecolor is None else rgb_to_gle(facecolor),
+            "facecolor": (
+                None if facecolor is None else _gle_color(facecolor, "facecolor")
+            ),
             "labelcolor": labelcolor,
             "spacing": spacing,
         }
@@ -2264,7 +2266,7 @@ class Figure:
 
     def _add_drawing(self, drawing: dict, fill=None, color=None, linewidth=None):
         if fill is not None and not _is_none_color(fill):
-            drawing["fill"] = rgb_to_gle(fill)
+            drawing["fill"] = _gle_color(fill, "fill")
         if _is_none_color(color):
             if drawing["kind"] not in ("circle", "ellipse", "polygon"):
                 raise ValueError(
@@ -2273,7 +2275,7 @@ class Figure:
                 )
             drawing["color"] = "none"
         elif color is not None:
-            drawing["color"] = rgb_to_gle(color)
+            drawing["color"] = _gle_color(color, "color")
         if linewidth is not None:
             drawing["linewidth"] = _page_positive("linewidth", linewidth)
         self._drawings.append(drawing)

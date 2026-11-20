@@ -23,7 +23,7 @@ from typing import (
 import numpy as np
 
 from ._warn import warn_external, warn_unsupported_keywords
-from .colors import _rgba_parts, apply_alpha, hatch_to_gle, rgb_to_gle
+from .colors import _gle_color, _rgba_parts, apply_alpha, hatch_to_gle
 from .config import LINE_CAPS, LINE_JOINS, GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
@@ -258,7 +258,7 @@ def _text_fields(
     if color is None:
         gle_color = "BLACK"
     else:
-        gle_color = rgb_to_gle(color)
+        gle_color = _gle_color(color, "color")
 
     ha_norm = str(ha).strip().lower()
     if ha_norm not in TEXT_HA_VALUES:
@@ -307,12 +307,8 @@ def _text_fields(
             "Pass bbox={'facecolor': ...} to draw a filled background.",
         )
     elif isinstance(bbox, dict):
-        if "facecolor" in bbox:
-            facecolor = bbox.get("facecolor")
-        elif "fill" in bbox:
-            facecolor = bbox.get("fill")
-        else:
-            facecolor = None
+        key = "facecolor" if "facecolor" in bbox else "fill"
+        facecolor = bbox.get(key)
         unsupported = sorted(key for key in bbox if key not in ("facecolor", "fill"))
         if unsupported:
             warn_external(
@@ -326,7 +322,7 @@ def _text_fields(
                 f"{caller}(bbox=...) has no facecolor; no background box " "was drawn.",
             )
         else:
-            box_color = rgb_to_gle(facecolor)
+            box_color = _gle_color(facecolor, f"bbox[{key!r}]")
 
     warn_unsupported_keywords(caller, kwargs, f"It takes {supported}.")
 
@@ -544,15 +540,17 @@ def _is_one_color(color) -> bool:
     return False
 
 
-def _gle_bar_color(color) -> str:
+def _gle_bar_color(color, arg: str) -> str:
     """A bar colour as a GLE token. ``'none'`` stays ``none``."""
     if isinstance(color, str) and color.strip().lower() == "none":
         return "none"
-    return rgb_to_gle(color)
+    return _gle_color(color, arg)
 
 
-def _bar_color_list(color, n: int, default: Optional[str]) -> List[Optional[str]]:
-    """One face or edge colour per bar.
+def _bar_color_list(
+    color, n: int, default: Optional[str], arg: str
+) -> List[Optional[str]]:
+    """One face or edge colour per bar, from the argument named ``arg``.
 
     ``None`` repeats ``default`` (itself ``None`` when the caller omitted
     the edge). A sequence of one broadcasts. Any other length must match
@@ -561,15 +559,15 @@ def _bar_color_list(color, n: int, default: Optional[str]) -> List[Optional[str]
     if color is None:
         return [default] * n
     if _is_one_color(color):
-        return [_gle_bar_color(color)] * n
+        return [_gle_bar_color(color, arg)] * n
     seq = list(color)
     if len(seq) == 1:
-        return [_gle_bar_color(seq[0])] * n
+        return [_gle_bar_color(seq[0], arg)] * n
     if len(seq) != n:
         raise ValueError(
-            f"color sequence length {len(seq)} does not match the {n} bars"
+            f"{arg} sequence length {len(seq)} does not match the {n} bars"
         )
-    return [_gle_bar_color(item) for item in seq]
+    return [_gle_bar_color(item, arg) for item in seq]
 
 
 def _bar_patterns(hatch, n: int) -> List[Optional[str]]:
@@ -1695,7 +1693,7 @@ def _contour_color(name: str, colors) -> str:
         return "BLACK"
     if not _is_one_color(colors):
         colors = _one_for_all_levels(name, "colors", colors, False)
-    return rgb_to_gle(colors)
+    return _gle_color(colors, "colors")
 
 
 def _one_for_all_levels(name: str, keyword: str, value, styles: bool):
@@ -2927,20 +2925,23 @@ class Axes:
         """
         return s if self._style().usetex else mathtext_to_gle(s)
 
-    def _resolve_color(self, color, marker_only: bool = False) -> str:
+    def _resolve_color(
+        self, color, marker_only: bool = False, arg: str = "color"
+    ) -> str:
         """Resolve a series colour argument to a GLE colour.
 
         ``None`` means "use the figure style's default"
         (``default_marker_color`` for a marker-only series,
         ``default_color`` otherwise -- both ``'BLUE'`` out of the box, the
         colour these call sites used to hard-code). Anything else goes
-        through :func:`gleplot.colors.rgb_to_gle` as usual; so does the
+        through the :func:`gleplot.colors.rgb_to_gle` conversion as usual,
+        with an error naming ``arg``, the caller's argument; so does the
         configured default, so it may be spelled the matplotlib way.
         """
         style = self._style()
         if color is None:
             color = style.default_marker_color if marker_only else style.default_color
-        return rgb_to_gle(color)
+        return _gle_color(color, arg)
 
     def _register_series_draw_meta(
         self, entry: dict, kind: str, zorder: Optional[float] = None
@@ -3628,7 +3629,7 @@ class Axes:
                 # the shared boundary of two bins is not a second ink.
                 stroke = ink
                 if one_edge is not None:
-                    stroke = self._resolve_color(one_edge)
+                    stroke = self._resolve_color(one_edge, arg="edgecolor")
                     if series_alpha is not None:
                         stroke = apply_alpha(stroke, series_alpha)
                 fields["edgecolor"] = stroke
@@ -4899,7 +4900,9 @@ class Axes:
                 )
             kind, found = _scatter_c(c, int(np.size(x)))
             if kind == "color":
-                color = found
+                # Converted here so an error names c=; plot() passes the
+                # GLE colour through unchanged.
+                color = _gle_color(found, "c")
             elif kind == "colors":
                 colors = found
             else:
@@ -5090,7 +5093,7 @@ class Axes:
         groups: Dict[str, List[int]] = {}
         for point, item in enumerate(colors):
             if item is not np.ma.masked:
-                groups.setdefault(rgb_to_gle(item), []).append(point)
+                groups.setdefault(_gle_color(item, "c"), []).append(point)
         x = np.asarray(x)
         y = np.asarray(y)
 
@@ -5275,8 +5278,8 @@ class Axes:
         if n == 0:
             raise ValueError("bar() needs at least one bar")
 
-        faces = _bar_color_list(color, n, default="RED")
-        edges = _bar_color_list(edgecolor, n, default=None)
+        faces = _bar_color_list(color, n, "RED", "color")
+        edges = _bar_color_list(edgecolor, n, None, "edgecolor")
         # GLE's ``fill`` is the hatch ink and ``background`` the face, so a
         # hatched bar fills with its edge colour: matplotlib's hatch colour,
         # which falls back to black when the edge is missing or 'none'.
@@ -5300,7 +5303,7 @@ class Axes:
         err_colors = None
         if yerr is not None or xerr is not None:
             err_colors = _bar_color_list(
-                "black" if ecolor is None else ecolor, n, default="BLACK"
+                "black" if ecolor is None else ecolor, n, "BLACK", "ecolor"
             )
 
         # One dataset, one face and one edge. Differing colours are separate
@@ -5604,7 +5607,8 @@ class Axes:
             gle_color = "LIGHTBLUE"
         else:
             # alpha= overrides an RGBA colour's own alpha, as in matplotlib.
-            gle_color = rgb_to_gle(color if alpha == 1.0 else _rgba_parts(color)[0])
+            rgb = color if alpha == 1.0 else _rgba_parts(color)[0]
+            gle_color = _gle_color(rgb, "color")
 
         if where is None:
             windows: List[dict] = [dict(clip)]
@@ -5991,7 +5995,8 @@ class Axes:
             gle_color = "LIGHTBLUE"
         else:
             # alpha= overrides an RGBA colour's own alpha, as in matplotlib.
-            gle_color = rgb_to_gle(color if alpha == 1.0 else _rgba_parts(color)[0])
+            rgb = color if alpha == 1.0 else _rgba_parts(color)[0]
+            gle_color = _gle_color(rgb, "color")
         fill_data = FillSeries(
             x=x_arr,
             y1=y_arr,
@@ -6147,7 +6152,7 @@ class Axes:
             _segment_linestyle(name, s)
             for s in ([linestyles] if one_style else linestyles)
         ]
-        palette = [rgb_to_gle(c) for c in _color_list(name, colors, ["C0"])]
+        palette = [_gle_color(c, "colors") for c in _color_list(name, colors, ["C0"])]
         try:
             if widths is None:
                 width_list: List[Optional[float]] = [None]
@@ -6342,7 +6347,7 @@ class Axes:
         color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
-        gle_color = "BLACK" if color is None else rgb_to_gle(color)
+        gle_color = "BLACK" if color is None else _gle_color(color, "color")
 
         entry = RefLine(
             type="refline",
@@ -6450,7 +6455,7 @@ class Axes:
         if alpha != 1.0:
             # alpha= overrides an RGBA colour's own alpha, as in matplotlib.
             color = _rgba_parts(color)[0]
-        gle_color = "LIGHTGRAY" if color is None else rgb_to_gle(color)
+        gle_color = "LIGHTGRAY" if color is None else _gle_color(color, "color")
 
         entry = Span(
             type="span",
@@ -6933,10 +6938,11 @@ class Axes:
             sep, tip = MPL_ARROWSTYLE_TO_GLE["-|>"]
 
         color = None
+        color_key = None
         for key in ("color", "edgecolor", "ec", "facecolor", "fc"):
             value = props.pop(key, None)
             if color is None and value is not None:
-                color = value
+                color, color_key = value, key
 
         linewidth = None
         for key in ("linewidth", "lw"):
@@ -6959,7 +6965,11 @@ class Axes:
         fields: Dict[str, Any] = dict(xy=[x, y], arrow=sep)
         if tip is not None:
             fields["arrowstyle"] = tip
-        fields["arrow_color"] = "BLACK" if color is None else rgb_to_gle(color)
+        fields["arrow_color"] = (
+            "BLACK"
+            if color is None
+            else _gle_color(color, f"arrowprops[{color_key!r}]")
+        )
         if linewidth is not None:
             fields["arrow_linewidth"] = linewidth
         return fields
@@ -7125,7 +7135,7 @@ class Axes:
             ticks=[float(v) for v in values],
             length=float(length),
             position=position,
-            color=rgb_to_gle(color),
+            color=_gle_color(color, "color"),
             linewidth=float(linewidth),
             data_file=_resolve_data_file(self.figure, None),
         )
@@ -8310,7 +8320,9 @@ class Axes:
         if "color" in kwargs:
             color = kwargs.pop("color")
             setattr(
-                self, f"{prefix}_color", None if color is None else rgb_to_gle(color)
+                self,
+                f"{prefix}_color",
+                None if color is None else _gle_color(color, "color"),
             )
         if pad is not None:
             points = _finite_float(pad, f"{caller}({pad_name}=...)")
@@ -8407,7 +8419,7 @@ class Axes:
                 )
         for name in ("x", "y") if axis == "both" else (axis,):
             if color is not None:
-                setattr(self, f"{name}side_color", rgb_to_gle(color))
+                setattr(self, f"{name}side_color", _gle_color(color, "color"))
             if width is not None:
                 setattr(self, f"{name}side_lwidth", width)
             if visible is None:
@@ -9266,7 +9278,7 @@ class Axes:
         ):
             self._facecolor = None
         else:
-            self._facecolor = apply_alpha(rgb_to_gle(rgb), alpha)
+            self._facecolor = apply_alpha(_gle_color(rgb, "color"), alpha)
 
     @_cartesian_only
     def set_axis_off(self):
@@ -9449,7 +9461,7 @@ class Axes:
                 values[name] = size
         color = kwargs.pop("color", None)
         if color is not None:
-            values["color"] = rgb_to_gle(color)
+            values["color"] = _gle_color(color, "color")
         if direction in ("in", "out"):
             values["direction"] = direction
         warn_unsupported_keywords(
@@ -9605,7 +9617,9 @@ class Axes:
 
         if "facecolor" in kwargs:
             facecolor = kwargs.pop("facecolor")
-            self.legend_facecolor = None if facecolor is None else rgb_to_gle(facecolor)
+            self.legend_facecolor = (
+                None if facecolor is None else _gle_color(facecolor, "facecolor")
+            )
 
         for name in LEGEND_SPACING_TO_KEY:
             if name in kwargs:
@@ -9719,7 +9733,7 @@ class Axes:
                 "e.g. labelcolor='gray'.",
             )
             return current
-        return rgb_to_gle(labelcolor)
+        return _gle_color(labelcolor, "labelcolor")
 
     @staticmethod
     def _resolve_legend_loc(loc) -> str:
@@ -9868,6 +9882,7 @@ class Axes:
         lstyle = self._resolve_grid_lstyle(linestyle)
         if linewidth is not None and float(linewidth) <= 0:
             raise ValueError(f"grid(linewidth={linewidth!r}) must be positive")
+        gle_color = None if color is None else _gle_color(color, "color")
 
         for name in targets:
             current = getattr(self, f"{name}grid")
@@ -9883,8 +9898,8 @@ class Axes:
                 pass  # enabling the major layer must not drop the subticks
             else:
                 setattr(self, f"{name}grid", mode)
-            if color is not None:
-                setattr(self, f"{name}grid_color", rgb_to_gle(color))
+            if gle_color is not None:
+                setattr(self, f"{name}grid_color", gle_color)
             if lstyle is not None:
                 setattr(self, f"{name}grid_lstyle", lstyle)
             if linewidth is not None:

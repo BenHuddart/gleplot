@@ -654,3 +654,52 @@ def test_contour_colours_per_level_use_the_first(method):
     with pytest.warns(UserWarning, match="one colour"):
         ct = getattr(ax, method)(*args, levels=[1.5, 2.5], colors=["r", "g"])
     assert ct["color"] == "RED"
+
+
+_BAD = "notacolour"
+
+
+@pytest.mark.parametrize(
+    "call, arg",
+    [
+        (lambda ax: ax.plot([0, 1], [0, 1], color=_BAD), "color"),
+        (lambda ax: ax.scatter([0, 1], [0, 1], c=_BAD), "c"),
+        (lambda ax: ax.scatter([0, 1], [0, 1], c=[_BAD, "r"]), "c"),
+        (lambda ax: ax.bar([0, 1], [1, 2], color=_BAD), "color"),
+        (lambda ax: ax.bar([0, 1], [1, 2], edgecolor=_BAD), "edgecolor"),
+        (lambda ax: ax.bar([0, 1], [1, 2], yerr=1, ecolor=_BAD), "ecolor"),
+        (lambda ax: ax.bar([0, 1], [1, 2], color=["r", "#zz"]), "color"),
+        (
+            lambda ax: ax.hist([1, 2], histtype="stepfilled", edgecolor=_BAD),
+            "edgecolor",
+        ),
+        (lambda ax: ax.fill_between([0, 1], [0, 1], color="2"), "color"),
+        (lambda ax: ax.hlines([1], 0, 1, colors=_BAD), "colors"),
+        (
+            lambda ax: ax.text(0, 0, "a", bbox={"fill": _BAD}),
+            re.escape("bbox['fill']"),
+        ),
+        (
+            lambda ax: ax.annotate("a", (0, 0), (1, 1), arrowprops={"color": _BAD}),
+            re.escape("arrowprops['color']"),
+        ),
+        (lambda ax: ax.legend(facecolor=_BAD), "facecolor"),
+        (lambda ax: ax.legend(labelcolor=_BAD), "labelcolor"),
+        (lambda ax: ax.grid(True, color=_BAD), "color"),
+        (lambda ax: ax.set_facecolor(0.3), "color"),
+        (lambda ax: ax.figure.circle(1, 1, 0.5, fill=_BAD), "fill"),
+        (lambda ax: ax.figure.legend(facecolor=_BAD), "facecolor"),
+        (lambda ax: glp.GLEStyleConfig(default_color=_BAD), "default_color"),
+    ],
+)
+def test_a_colour_error_names_the_argument(call, arg):
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises((TypeError, ValueError), match=rf" for {arg}: "):
+        call(ax)
+
+
+def test_a_bad_grid_colour_leaves_the_grid_as_it_was():
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=" for color: "):
+        ax.grid(True, color=_BAD)
+    assert ax.xgrid is None and ax.ygrid is None
