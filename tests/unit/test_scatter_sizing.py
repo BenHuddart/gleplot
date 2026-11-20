@@ -97,7 +97,7 @@ def test_a_colour_in_the_old_third_position_names_the_new_order():
         ax.scatter(X, Y, "red")
 
 
-@pytest.mark.parametrize("size", [-4, float("nan")])
+@pytest.mark.parametrize("size", [-4, float("inf")])
 def test_a_scalar_size_must_be_finite_and_not_negative(size):
     with pytest.raises(ValueError, match="finite and not negative"):
         _ax().scatter(X, Y, size)
@@ -236,7 +236,7 @@ def test_a_one_element_array_is_one_size(kwargs):
         ({"s": [10, 20]}, "2 sizes for 3 points"),
         ({"markersize": [1, 2, 3, 4]}, "4 sizes for 3 points"),
         ({"s": [10, -1, 20]}, "finite and not negative"),
-        ({"s": [10, np.nan, 20]}, "finite and not negative"),
+        ({"s": [10, np.inf, 20]}, "finite and not negative"),
         ({"s": [-4]}, "finite and not negative"),
         ({"s": ["a", "b", "c"]}, "number or a sequence of numbers"),
         ({"s": [10, 20, 30], "mdist": 1.0}, r"mdist=1\.0"),
