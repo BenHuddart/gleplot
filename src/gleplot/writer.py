@@ -4908,6 +4908,7 @@ class GLEWriter:
         yaxis = series.get("yaxis", "y")
         xaxis = series.get("xaxis", "x")
         d_main = self._new_dataset()
+        self._name_dataset(series, d_main)
 
         data_cmd = (
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"

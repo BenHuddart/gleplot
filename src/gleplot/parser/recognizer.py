@@ -6071,7 +6071,11 @@ class _Recognizer:
         if len(grown) != 1 or len(info[grown[0]]) != before[grown[0]] + 1:
             return
         entry = info[grown[0]][-1]
-        if grown[0] == "file_series" and entry.get("series_type") != "line":
+        # The file series the writer names (a raw line can read them).
+        if grown[0] == "file_series" and entry.get("series_type") not in (
+            "line",
+            "errorbar",
+        ):
             return
         name = info["_polar_aliases"].get(name.lower(), name.lower())
         raw = info["_offset_let_sources"].get(name, name)
@@ -6172,6 +6176,9 @@ class _Recognizer:
                 None,
             )
             if ref is None or ref in refs:
+                return None
+            # A derived curve reads a file series only as a line.
+            if ref[0] == "file_series" and entry.get("series_type") != "line":
                 return None
             refs.append(ref)
         return refs
@@ -7298,8 +7305,10 @@ class _Recognizer:
         # File-vs-import classification decided later per data_file. First
         # figure out the data_file for the main dataset.
         if d_name not in datasets:
-            # Unknown dataset ref -> passthrough (defensive).
+            # A dataset raw GLE defines (a 'let' kept raw) -> passthrough. The
+            # datasets the line names stay defined.
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
+            info["_raw_datasets"].add(d_name)
             return
         data_file, xcol, ycol = datasets[d_name]
 
