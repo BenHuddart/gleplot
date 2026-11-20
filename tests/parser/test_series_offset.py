@@ -88,6 +88,35 @@ def test_fill_offset_round_trips(tmp_path):
     np.testing.assert_allclose(fill["y2"], [1.0, 1.0])
 
 
+@pytest.mark.parametrize(
+    "lets, fill",
+    [
+        ("let d8 = d6+2\n", "fill d5,d8 color gray"),
+        ("let d7 = d5+2\n", "fill d7,d6 color gray"),
+        ("let d7 = d5+1\nlet d8 = d6+2\n", "fill d7,d8 color gray"),
+    ],
+)
+def test_fill_with_different_curve_offsets_stays_raw(tmp_path, lets, fill):
+    """A fill has one offset, so curves shifted differently stay raw (#491)."""
+    (tmp_path / "f.dat").write_text("1 2 3\n2 3 5\n", encoding="utf-8")
+    body = (
+        "! gleplot-meta-begin v2\n! gleplot: import-data = f.dat\n"
+        "! gleplot-meta-end\n"
+        "begin graph\n"
+        'data "f.dat" d5=c1,c2 d6=c1,c3\n' + lets + fill + "\nend graph\n"
+    )
+    src = tmp_path / "in.gle"
+    src.write_text(body, encoding="utf-8")
+    rec = parse_gle_figure(src)
+    ax = rec.figure.axes_list[0]
+    assert ax.fills == []
+    assert [w for w in rec.warnings if "different offsets" in w]
+    assert not [w for w in rec.warnings if "let defining" in w]
+    out = _save(rec.figure, tmp_path, "out.gle").read_text(encoding="utf-8")
+    for line in lets.splitlines() + [fill]:
+        assert line in out
+
+
 def test_zero_offset_absent_let_recovers_zero(tmp_path):
     fig = glp.figure(figsize=(8, 6))
     ax = fig.add_subplot(111)
