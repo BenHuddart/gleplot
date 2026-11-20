@@ -1928,12 +1928,13 @@ def test_a_renamed_colour_sub_is_written_after_what_it_calls(tmp_path):
     ax.scatter([0, 1, 2], [1, 2, 3], c=[1, 2, 3])
     path = tmp_path / "c.gle"
     fig.savefig_gle(str(path))
-    path.write_text(path.read_text().replace("glp_cdata_fcircle_viridis", "mine"))
+    text = path.read_text().replace("glp_cdata_fcircle_viridis", "mine")
+    path.write_text(text.replace("sub mine", "! my marker\nsub mine"))
     again = parse_gle_figure(path).figure._generate_gle_with_files()[0]
     order = [
         again.index('include "palettes.gle"'),
         again.index("sub cmap_viridis z"),
-        again.index("sub mine size data"),
+        again.index("! my marker\nsub mine size data"),
     ]
     assert order == sorted(order)
 
@@ -1944,6 +1945,9 @@ def test_a_palette_sub_of_the_files_own_stays_ahead_of_the_subs_calling_it(
     src = (
         "size 10 10\n"
         'include "palettes.gle"\n'
+        "sub helper x\n"
+        "   return x\n"
+        "end sub\n"
         "sub cmap_viridis z\n"
         "   return rgb(z,0,0)\n"
         "end sub\n"
@@ -1955,9 +1959,13 @@ def test_a_palette_sub_of_the_files_own_stays_ahead_of_the_subs_calling_it(
     )
     p = _write(tmp_path, "m.gle", src, {"m.dat": "1 1 1\n2 2 2\n3 3 3\n"})
     again = parse_gle_figure(p).figure._generate_gle_with_files()[0]
-    assert again.index("sub cmap_viridis z") < again.index(
-        "sub glp_cdata_fcircle_viridis"
-    )
+    # No raw sub calls gleplot's, so the header keeps its place ahead.
+    order = [
+        again.index("sub helper x"),
+        again.index("sub cmap_viridis z"),
+        again.index("sub glp_cdata_fcircle_viridis"),
+    ]
+    assert order == sorted(order)
 
 
 def test_a_scatter_colorbar_is_recovered_onto_its_scatter(tmp_path):
