@@ -100,7 +100,7 @@ def test_errorbar_offset_keeps_error_dataset_on_raw_column(tmp_path):
         [0, 1, 2],
         [1, 2, 3],
         yerr=[0.1, 0.1, 0.1],
-        fmt="none",
+        linestyle="none",
         marker="o",
         offset=5.0,
         data_name="eb",

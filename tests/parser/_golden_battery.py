@@ -517,6 +517,16 @@ def subplots_grid_mixed():
     return fig
 
 
+def subplots_share_col_row():
+    """matplotlib's sharex='col' and sharey='row': a range per column and row."""
+    fig, axes = glp.subplots(2, 2, sharex="col", sharey="row", data_prefix="golden")
+    axes[0, 0].plot([0, 1], [0, 1])
+    axes[0, 1].plot([10, 20], [0, 5])
+    axes[1, 0].plot([0, 3], [100, 200])
+    axes[1, 1].plot([10, 15], [150, 300])
+    return fig
+
+
 def subplots_spanning():
     """Cells spanning columns, rows, and a whole row, with shared x."""
     fig = glp.Figure(data_prefix="golden", sharex=True)
@@ -2114,6 +2124,7 @@ BUILDERS = [
     subplots_sharex,
     subplots_sharex_with_colored_text,
     subplots_grid_mixed,
+    subplots_share_col_row,
     subplots_spanning,
     inset_axes,
     inset_facecolor,
