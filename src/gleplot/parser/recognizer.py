@@ -316,6 +316,7 @@ from ..guides import (
     GUIDE_MARKER_PREFIX,
 )
 from ..palettes import (
+    BREWER_INCLUDE,
     PALETTES_INCLUDE,
     colorbar_cmap,
     is_native,
@@ -1589,7 +1590,34 @@ def _collect_color(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
     return head.value, start + 1
 
 
+#: The ``dN`` options that name a dataset of error-bar magnitudes.
+_ERR_WORDS = frozenset({"err", "errup", "errdown", "herr", "herrleft", "herrright"})
+
 _KEY_SPACING_WORDS = frozenset(LEGEND_SPACING_TO_KEY.values())
+
+
+def _key_entries(block: OpaqueBlock) -> Tuple[Tuple[Any, ...], ...]:
+    """The ``text`` lines of a ``begin key`` block, label and swatch tokens.
+
+    As GLE reads them: words in any case, a label in either quote, a
+    number in any spelling.
+    """
+    entries = []
+    for sl in block.inner_lines:
+        toks = [
+            t for t in tokenize_line(sl.text.strip()) if t.type is not TokenType.COMMENT
+        ]
+        if toks and toks[0].type is TokenType.WORD and toks[0].value.lower() == "text":
+            entries.append(tuple(map(_key_token_value, toks)))
+    return tuple(entries)
+
+
+def _key_token_value(tok: Token) -> Any:
+    if tok.type is TokenType.STRING:
+        return _string_value(tok)
+    if tok.type is TokenType.NUMBER:
+        return float(tok.value)
+    return tok.value.lower()
 
 
 def _key_entry_textcolor(toks: List[Token]) -> Optional[str]:
@@ -1789,14 +1817,20 @@ class _Recognizer:
     """Stateful recognizer for one document. See :func:`parse_gle_figure`."""
 
     def __init__(
-        self, text: str, gle_path: Path, disowned: Optional[Dict[str, str]] = None
+        self,
+        text: str,
+        gle_path: Path,
+        kept: Optional[Dict[str, Optional[str]]] = None,
+        raw_keys: Optional[Set[Tuple[int, int]]] = None,
     ):
         self.text = text
         self.gle_path = gle_path
-        # The paths of files the metadata names as gleplot's own that a 'data'
-        # statement kept raw also reads, each with that statement (see
-        # owned_files_read_raw): read in place, never rewritten.
-        self._disowned = dict(disowned or {})
+        # The resolved paths of files the metadata names as gleplot's own
+        # that are read in place, never rewritten, because raw GLE reads them
+        # too (see parse_gle_figure). Each maps to the raw 'data' statement
+        # that reads it (owned_files_read_raw), or None when raw datasets
+        # share its 'data' statement with series (_shared_imports).
+        self._kept_files: Dict[str, Optional[str]] = dict(kept or {})
         # The lines of a ``begin key`` right after the graph being parsed:
         # a fit's result variables may be named only by its let, its key,
         # and that block restating the key.
@@ -1832,11 +1866,16 @@ class _Recognizer:
         self._table_cache: Dict[str, object] = {}
         self._layout_cache: Dict[Tuple[Any, ...], Optional[GLEDataLayout]] = {}
         self._import_list: Optional[List[str]] = None
-        # Imported files whose raw datasets lose their 'data' statement when
-        # a series rewrites the file; parse_gle_figure recognizes again,
-        # reading the files kept as written.
+        # The resolved paths of imported files whose raw datasets lose their
+        # 'data' statement when a series rewrites the file; parse_gle_figure
+        # recognizes again, reading the files kept as written.
         self._shared_imports: Set[str] = set()
-        self._kept_imports: Set[str] = set()
+        # The 'begin key' blocks read into a legend, as (span, number of
+        # graphs before it, entries),
+        # and the spans of those kept as written because the next save would
+        # not write their entries back (_stale_key_blocks).
+        self._consumed_keys: List[Tuple[Tuple[int, int], int, Tuple[Any, ...]]] = []
+        self._raw_keys: Set[Tuple[int, int]] = set(raw_keys or ())
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
         # by their frames.
@@ -1932,6 +1971,15 @@ class _Recognizer:
     def run(self) -> RecognizedFigure:
         doc = parse_gle_source(self.text)
         self._scan_document(doc)
+        for span in sorted(self._raw_keys):
+            self._note(
+                ImportCategory.LEGEND,
+                "saving would not write this 'begin key' block's entries back "
+                "as they are (such as a swatch edited by hand), so the block "
+                "is kept as written and is not read as the legend: calling "
+                "legend() would draw a second key",
+                span,
+            )
         meta = self._read_metadata()
         self._note_disowned()
 
@@ -1986,8 +2034,8 @@ class _Recognizer:
         self._finalize_data_state(fig)
         # The writer includes rugs.gle only for a rug, color.gle only for a
         # colorbar or a coolwarm palette, contour.gle only for contour labels,
-        # palettes.gle only for its palettes; an include nothing read back
-        # will regenerate stays.
+        # palettes.gle and brewer.gle only for their palettes; an include
+        # nothing read back will regenerate stays.
         palette_files = set(map(palette_include, fig._palette_cmaps()))
         regenerated = {
             RUGS_INCLUDE: any(ax.rugs for ax in fig.axes_list),
@@ -2001,11 +2049,16 @@ class _Recognizer:
                 for s in list(ax.heatmaps) + list(ax.scatters)
             ),
             PALETTES_INCLUDE: PALETTES_INCLUDE in palette_files,
+            BREWER_INCLUDE: BREWER_INCLUDE in palette_files,
         }
         # First in the header: a sub kept there may call the routines. A
         # palette sub of the file's own keeps its file's include there even
         # when the writer writes one too (it then writes none).
-        own = (PALETTES_INCLUDE, COLOR_INCLUDE) if self._own_palette_subs else ()
+        own = (
+            (PALETTES_INCLUDE, COLOR_INCLUDE, BREWER_INCLUDE)
+            if self._own_palette_subs
+            else ()
+        )
         fig.passthrough_header[:0] = [
             text
             for name, text in self._held_includes
@@ -2088,9 +2141,10 @@ class _Recognizer:
         """Lines of the gleinc ``include``s the writer may write again.
 
         ``graphutil.gle`` when some graph is followed by a guide line that
-        will be read back. ``rugs.gle``, ``color.gle``, ``contour.gle`` and
-        ``palettes.gle`` always, their text held in ``_held_includes`` until
-        the rugs, colorbars, contour labels and palettes are read.
+        will be read back. ``rugs.gle``, ``color.gle``, ``contour.gle``,
+        ``palettes.gle`` and ``brewer.gle`` always, their text held in
+        ``_held_includes`` until the rugs, colorbars, contour labels and
+        palettes are read.
         """
         names: Set[str] = set()
         for k, node in enumerate(nodes):
@@ -2106,6 +2160,7 @@ class _Recognizer:
         names.add(COLOR_INCLUDE)
         names.add(CONTOUR_INCLUDE)
         names.add(PALETTES_INCLUDE)
+        names.add(BREWER_INCLUDE)
         lines = set()
         for node in nodes:
             if not (
@@ -2117,7 +2172,13 @@ class _Recognizer:
             name = self._first_string(_words_and_values(node))
             if name in names:
                 lines.add(node.line_no)
-            if name in (RUGS_INCLUDE, COLOR_INCLUDE, CONTOUR_INCLUDE, PALETTES_INCLUDE):
+            if name in (
+                RUGS_INCLUDE,
+                COLOR_INCLUDE,
+                CONTOUR_INCLUDE,
+                PALETTES_INCLUDE,
+                BREWER_INCLUDE,
+            ):
                 self._held_includes.append((name, self._stmt_text(node)))
         return lines
 
@@ -2139,7 +2200,9 @@ class _Recognizer:
     def _note_disowned(self) -> None:
         """Note each of gleplot's data files read in place for raw GLE."""
         lines = [line.strip() for line in self.text.splitlines()]
-        for path, stmt in sorted(self._disowned.items()):
+        for path, stmt in sorted(self._kept_files.items()):
+            if stmt is None:
+                continue
             line_no = lines.index(stmt) + 1 if stmt in lines else None
             self._note(
                 ImportCategory.DATA,
@@ -2424,6 +2487,7 @@ class _Recognizer:
             legend = self._figure_legend_block(nodes[i], parsed_axes)
             if legend is not None:
                 self._figure_legend = legend
+                self._record_key(nodes, i)
                 i += 1
         return drawings, texts, i
 
@@ -2501,6 +2565,8 @@ class _Recognizer:
         ``Figure._legend`` with the spacing still in cm by GLE word.
         """
         if not isinstance(node, OpaqueBlock) or node.block_type != "key":
+            return None
+        if self._key_span(node) in self._raw_keys:
             return None
         fit_labels: Dict[str, str] = {}
         for info in parsed_axes:
@@ -3315,6 +3381,9 @@ class _Recognizer:
             # that cannot become a column). Their ``data`` statement is kept
             # too: nothing else writes it.
             "_raw_datasets": set(),
+            # The band sub a contourf heatmap's colormap calls, which is the
+            # palette its colorbar draws.
+            "_contourf_palette": None,
             # Target of each ``let`` in the block -> the line of its first.
             "_let_lines": {},
             # Let targets kept raw that another note already explains.
@@ -3466,6 +3535,7 @@ class _Recognizer:
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
         self._keep_unloaded_offset_lets(pass1, info)
+        self._keep_error_offset_lets(pass1, info)
         # Histogram and colour lets are filtered first: a function let stays
         # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
@@ -3812,7 +3882,7 @@ class _Recognizer:
                 data_file = defs[orphans[0]][0]
                 if clause is not None:
                     restored.append(clause)
-                    if data_file in self._kept_imports:
+                    if self._is_kept(data_file):
                         self._note(
                             ImportCategory.DATA,
                             f"'{data_file}' is read by raw GLE beside series "
@@ -3826,7 +3896,7 @@ class _Recognizer:
                     # The writer rewrites an imported file with just the
                     # columns its series read, so no clause can define the
                     # orphans until the file is read as a reference.
-                    self._shared_imports.add(data_file)
+                    self._shared_imports.add(str(self._data_path(data_file)))
                     continue
                 # Otherwise surface it instead of guessing.
                 self._note(
@@ -6428,6 +6498,24 @@ class _Recognizer:
             ):
                 self._unregister_offset_let(target, pass1, info)
 
+    def _keep_error_offset_lets(self, pass1: _GraphDatasets, info) -> None:
+        """Leave raw the offset lets of an error bar whose errors stay raw.
+
+        An error dataset holds magnitudes, and an error bar has no offset
+        for them, so an error read through an offset let is no column the
+        series can hold; nor is one a let defines. That error bar is kept as
+        written (:meth:`_build_errorbar`), and with it the lets that offset
+        its errors and its own dataset.
+        """
+        offsets = info["_offset_let_datasets"]
+        for name, toks in pass1.merged_attr_toks.items():
+            refs = list(self._scan_series_attrs(toks)["err_refs"].values())
+            if not any(ref in offsets or ref not in pass1.datasets for ref in refs):
+                continue
+            for target in refs + [name]:
+                if target in offsets:
+                    self._unregister_offset_let(target, pass1, info)
+
     @staticmethod
     def _unregister_offset_let(target, pass1: _GraphDatasets, info) -> None:
         """Undo :meth:`_parse_let_command` for ``target``."""
@@ -7211,7 +7299,7 @@ class _Recognizer:
                 datasets[name][0]
                 for name in involved
                 if name in datasets
-                and datasets[name][0] not in self._kept_imports
+                and not self._is_kept(datasets[name][0])
                 and not self._is_import(datasets[name][0])
             ]
             self._keep_bar_raw(
@@ -7302,6 +7390,25 @@ class _Recognizer:
             style["lstyle"] = scanned["lstyle"]
         if scanned["linewidth_cm"] is not None:
             style["linewidth"] = linewidth_cm_to_pt(scanned["linewidth_cm"])
+        # A hairline in the colour under the edge is how the writer leaves
+        # the edge out (GLE strokes every bar), so it reads back as 'none'.
+        layers = [
+            {
+                "pattern": patterns[i] if i < len(patterns) else None,
+                "background": backgrounds[i] if i < len(backgrounds) else None,
+            }
+            for i in range(len(names))
+        ]
+        if (
+            fills
+            and edges
+            and not style.keys() & {"linestyle", "lstyle"}
+            and style.get("linewidth") == 0
+            and edges == GLEWriter._bar_hidden_strokes(fills, layers)
+        ):
+            edges = None
+            del style["linewidth"]
+            style["edgecolor"] = "none"
 
         for index, name in enumerate(names):
             row = loaded_to[index]
@@ -8276,10 +8383,7 @@ class _Recognizer:
                 a["unread"].append(t.value)
                 i += 1
                 continue
-            if (
-                w in ("err", "errup", "errdown", "herr", "herrleft", "herrright")
-                and i + 1 < m
-            ):
+            if w in _ERR_WORDS and i + 1 < m:
                 nxt_tok = toks[i + 1]
                 nxt_val = nxt_tok.value.lower()
                 if nxt_tok.type is TokenType.WORD and _DATASET_RE.match(nxt_val):
@@ -8458,6 +8562,34 @@ class _Recognizer:
                 span,
             )
             return
+
+        # Errors a let computes (_keep_error_offset_lets) are no column.
+        computed = [f"{kind} {ref}" for kind, ref in err.items() if ref not in datasets]
+        if computed and orig_toks:
+            what = ", ".join(computed)
+            if info["polar_rmax"] is not None or attrs["y2axis"] or attrs["x2axis"]:
+                # The graph's layout depends on this series being modelled.
+                self._note(
+                    ImportCategory.DATA,
+                    f"{what} on error-bar dataset {orig_toks[0].value} is "
+                    "computed by a let, which an error bar cannot hold, and "
+                    "was dropped on re-save",
+                    span,
+                )
+            else:
+                self._passthrough_original_dn(info, orig_toks, raw_stmts)
+                info["_raw_datasets"].add(orig_toks[0].value.lower())
+                info["_raw_datasets"].update(err.values())
+                self._note(
+                    ImportCategory.DATA,
+                    f"{what} on error-bar dataset {orig_toks[0].value} is "
+                    "computed by a let, which an error bar cannot hold; its "
+                    "'dN ... err' line was kept as raw GLE and still draws, "
+                    "but is not editable. To edit it, compute the errors with "
+                    "numpy and plot them with Axes.errorbar()",
+                    span,
+                )
+                return
 
         def col_of(ref_name):
             ref = ref_name.lower()
@@ -9221,6 +9353,7 @@ class _Recognizer:
         if color:
             cmap = "rainbow"
         elif palette is not None and palette.lower() in self._contourf_subs:
+            built = len(info["heatmaps"])
             self._parse_contourf_colormap(
                 zfile,
                 [int(px), int(py)],
@@ -9228,6 +9361,8 @@ class _Recognizer:
                 info,
                 stmt,
             )
+            if built == 0 and info["heatmaps"]:
+                info["_contourf_palette"] = palette.lower()
             return
         elif palette is not None:
             cmap = self._palette_cmap(palette)
@@ -9890,13 +10025,62 @@ class _Recognizer:
         block = nodes[start]
         if block.block_type != "key":
             return start
+        if self._key_span(block) in self._raw_keys:
+            return start
         parsed = self._parse_external_key(block, info["_fit_key_labels"])
         if parsed is None:
             return start
         if not self._assign_legend_seq(info, parsed["labels"]):
             return start
         info["external_key"] = parsed
+        self._record_key(nodes, start)
         return start + 1
+
+    def _record_key(self, nodes, i: int) -> None:
+        """Note that the ``begin key`` at ``nodes[i]`` was read as a legend."""
+        graphs = sum(isinstance(node, GraphBlock) for node in nodes[:i])
+        self._consumed_keys.append(
+            (self._key_span(nodes[i]), graphs, _key_entries(nodes[i]))
+        )
+
+    @staticmethod
+    def _key_span(block: OpaqueBlock) -> Tuple[int, int]:
+        """The first and last line of a ``begin key`` block."""
+        end = block.end if block.end is not None else block.begin
+        return block.begin.line_no, end.line_no
+
+    def _stale_key_blocks(self, fig: Figure) -> Set[Tuple[int, int]]:
+        """The legend ``begin key`` blocks the next save would not write back.
+
+        A legend's options and labels are read into the model, but its
+        swatches are rebuilt from the series on save; a swatch edited by
+        hand would be lost. Each block read into a legend is looked for
+        among the ones a copy of ``fig`` writes after the same graph.
+        """
+        if not self._consumed_keys:
+            return set()
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                nodes = parse_gle_source(copy.deepcopy(fig)._generate_gle()).nodes
+        except Exception:
+            # A figure the writer rejects fails at savefig, with its own
+            # error; that is no reason to refuse to open the file.
+            return set()
+        written: collections.Counter = collections.Counter()
+        graphs = 0
+        for node in nodes:
+            if isinstance(node, GraphBlock):
+                graphs += 1
+            elif isinstance(node, OpaqueBlock) and node.block_type == "key":
+                written[graphs, _key_entries(node)] += 1
+        stale = set()
+        for span, graphs, entries in self._consumed_keys:
+            if written[graphs, entries]:
+                written[graphs, entries] -= 1
+            else:
+                stale.add(span)
+        return stale
 
     def _parse_external_key(
         self, block, fit_labels, anchor_of=_key_anchor
@@ -9910,8 +10094,10 @@ class _Recognizer:
         ``background``) have to come before the entries, which is how
         :meth:`gleplot.writer.GLEWriter.queue_external_legend` writes them.
         A ``separator`` counts as one column break; ``breaks`` holds the
-        entry count before each. Swatch tokens after ``text`` are ignored:
-        the next save rebuilds them from the series. ``anchor_of`` reads the
+        entry count before each. Swatch tokens after ``text`` are not read:
+        the next save rebuilds them from the series, and
+        :func:`parse_gle_figure` keeps the block as written when that would
+        change them (:meth:`_stale_key_blocks`). ``anchor_of`` reads the
         ``absolute`` line: axes fractions by default, figure fractions for
         a ``Figure.legend``.
         """
@@ -10122,7 +10308,7 @@ class _Recognizer:
         required = self._CALL_ARG_NAMES - {"file", length}
         if not required <= set(args) or args["pixels"] != 200:
             return None
-        sep = self._amove_colorbar_sep(_words_and_values(stmts[1]))
+        sep = self._amove_colorbar_sep(_words_and_values(stmts[1]), horizontal)
         # The label's lines, up to the closing grestore.
         body: List[object] = []
         while j < len(nodes) and len(body) < 5:
@@ -10172,24 +10358,26 @@ class _Recognizer:
         return label if read == written else None
 
     @staticmethod
-    def _amove_colorbar_sep(toks) -> Optional[float]:
+    def _amove_colorbar_sep(toks, horizontal: bool) -> Optional[float]:
         """Recover ``S`` from a colorbar's ``amove`` (else None).
 
-        ``xg(xgmax)+S yg(ygmin)`` places a vertical bar and
-        ``xg(xgmin) yg(ygmin)-S`` a horizontal one (``+|S|`` when ``S < 0``).
+        ``xg(xgmax)+S yg(ygmin)`` places a vertical bar (``+-|S|`` when
+        ``S < 0``) and ``xg(xgmin) yg(ygmin)-S`` a horizontal one (``+|S|``
+        when ``S < 0``).
         """
         text = " ".join(t.value for t in toks)
-        m = re.search(r"xgmax\s*\)\s*\+\s*([0-9.eE+-]+)", text)
-        sign = 1.0
+        number = r"((?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"
+        if horizontal:
+            pattern = r"xgmin\s*\)\s*yg\s*\(\s*ygmin\s*\)\s*([+-])\s*"
+            m = re.search(pattern + number + r"\s*$", text)
+            negative = m is not None and m.group(1) == "+"
+        else:
+            m = re.search(r"xgmax\s*\)\s*\+\s*(-?)\s*" + number + r"\s*yg\b", text)
+            negative = m is not None and m.group(1) == "-"
         if m is None:
-            m = re.search(r"ygmin\s*\)\s*([+-])\s*([0-9.eE+-]+)", text)
-            if m is None:
-                return None
-            sign = -1.0 if m.group(1) == "+" else 1.0
-        try:
-            return sign * float(m.group(m.lastindex or 1))
-        except ValueError:
             return None
+        value = float(m.group(2))
+        return -value if negative else value
 
     def _apply_colorbar_call(self, toks, sep, label, axes_info) -> bool:
         """Attach the bar to the series it shows; whether one was found."""
@@ -10201,37 +10389,34 @@ class _Recognizer:
         heatmaps = axes_info.get("heatmaps") or []
         palette = args.get("palette")
         zrange = (_as_float(args.get("zmin"), 0.0), _as_float(args.get("zmax"), 1.0))
-        # A bar in a colour-mapped scatter's palette is that scatter's (the
-        # last such one drawn, one with the bar's range first) unless the
-        # heatmap shares the palette. An inverted heatmap's bar draws the
-        # reversed palette (older files: the forward one); in that palette
-        # a scatter keeps only a bar with its range. Any other bar is the
-        # heatmap's.
+        # A bar is the heatmap's when it draws the palette the writer gives
+        # the heatmap's bar: the band sub for a contourf, else the image's
+        # palette, reversed for an inverted image. A colour-mapped scatter
+        # in that palette whose range is the bar's takes it from an inverted
+        # image. Any other bar is the last such scatter's (one with the
+        # bar's range first), or stays raw GLE.
+        palette = str(palette or "").lower()
         mapped = [
             sc
             for sc in axes_info.get("scatters") or []
             if "cdata" in sc and palette_call_name(sc["cmap"]) == palette
         ]
         in_range = [sc for sc in mapped if (sc["vmin"], sc["vmax"]) == zrange]
-        if heatmaps and (
-            not mapped
-            or palette_call_name(heatmaps[0]["cmap"]) == palette
-            or (
-                not in_range
-                and palette
-                == palette_call_name(
-                    colorbar_cmap(heatmaps[0]["cmap"], heatmaps[0].get("invert", False))
-                )
-            )
-        ):
-            holders = heatmaps[:1]
-        else:
-            holders = (in_range or mapped)[-1:]
+        holders = (in_range or mapped)[-1:]
+        if heatmaps:
+            hm = heatmaps[0]
+            invert = hm.get("invert", False)
+            if "levels" in hm:
+                own = axes_info.get("_contourf_palette")
+            else:
+                own = palette_call_name(colorbar_cmap(hm["cmap"], invert))
+            if palette == own and not (invert and in_range):
+                holders = [hm]
         if not holders:
             self._note(
                 ImportCategory.STRUCTURE,
                 f"a {toks[0].value} call was kept as raw GLE: its axes has no "
-                f"heatmap or colour-mapped scatter in palette "
+                f"heatmap or colour-mapped scatter whose colorbar draws palette "
                 f"{args.get('palette')!r} to attach it to",
                 None,
             )
@@ -10408,12 +10593,14 @@ class _Recognizer:
         return True
 
     def _is_import(self, data_file) -> bool:
-        if data_file in self._kept_imports:
-            return False
-        if str(self._data_path(data_file)) in self._disowned:
+        if self._is_kept(data_file):
             return False
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
+
+    def _is_kept(self, data_file: str) -> bool:
+        """Whether ``data_file`` is gleplot's own but read in place."""
+        return str(self._data_path(data_file)) in self._kept_files
 
     def _data_path(self, data_file: str) -> Path:
         """Where ``data_file`` is, read from the ``.gle`` file's folder."""
@@ -10599,7 +10786,7 @@ class _Recognizer:
         matches, or the run isn't closed by a ``grestore``, nothing is
         consumed here at all (not even the ``gsave``) and it falls through to
         ordinary passthrough handling, same as any other content this
-        recognizer does not model (e.g. the broken-axis seam decoration).
+        recognizer does not model.
 
         Returns (texts, next_index).
         """
@@ -12081,21 +12268,23 @@ def parse_gle_figure(
         notes.
     """
     text, gle_path = _resolve_input(path_or_text, base_dir)
-    disowned: Dict[str, str] = {}
-    kept: Set[str] = set()
+    kept: Dict[str, Optional[str]] = {}
+    raw_keys: Set[Tuple[int, int]] = set()
     while True:
-        rec = _Recognizer(text, gle_path, disowned)
-        rec._kept_imports = set(kept)
+        rec = _Recognizer(text, gle_path, kept, raw_keys)
         result = rec.run()
         # Which statements stay raw is known only once the whole file is
         # read. Read as references, the files raw GLE shares are kept as
         # written, which changes how every reader of them loads, in every
-        # graph, so recognition repeats until no new file is found.
-        raw_read = rec.owned_files_read_raw(result.figure)
-        if not raw_read and not rec._shared_imports:
+        # graph, so start again; then likewise for a legend whose swatches
+        # the next save would lose.
+        files = dict.fromkeys(rec._shared_imports)
+        files.update(rec.owned_files_read_raw(result.figure))
+        stale = set() if files else rec._stale_key_blocks(result.figure)
+        if not (files or stale):
             return result
-        disowned.update(raw_read)
-        kept |= rec._shared_imports
+        kept.update(files)
+        raw_keys |= stale
 
 
 def _resolve_input(path_or_text, base_dir) -> Tuple[str, Path]:

@@ -27,7 +27,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
 | `ax.set_xlim(...)` / `ax.set_ylim(...)` | same, including `left`/`right`, `bottom`/`top`, a `(low, high)` pair and the `xmin`/`xmax`, `ymin`/`ymax` aliases; an omitted limit keeps its setting. A limit passed as `None` is automatic, chosen from the data when the figure is saved, where matplotlib keeps the current value. `emit=False` and `auto=True` warn, and a NaN, infinite or non-numeric limit raises. The third positional argument is gleplot's `axis` (`'x2'`, `'y2'`) |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
-| `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
+| `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. |
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
 | `ax.spines[...].set_visible(False)` | `ax.set_axis_line(axis, visible=False)`, with `'x'`, `'y'`, `'x2'`, `'y2'` for bottom, left, top, right |
 | `ax.spines['left'].set_position('zero')` and `ax.spines['bottom'].set_position('zero')` | `ax.set_math_mode()` |
@@ -361,10 +361,11 @@ drawn by `contour_labels` from GLE's `contour.gle`, which writes them in blue,
 in the line's colour.
 
 The colormaps are GLE's own: `viridis`, `magma`, `inferno`, `plasma`,
-`cividis`, `coolwarm`, `gray` and `rainbow` (`jet`), and their `_r` forms but
-`rainbow_r`. The ColorBrewer names, `rainbow_r` and `jet_r` warn and draw the
-closest of these, and per-point scatter colours and `contourf` bands draw
-`rainbow` as `viridis`; "Palette Gallery" in
+`cividis`, `coolwarm`, `gray`, `rainbow` (`jet`) and the ColorBrewer maps, and
+their `_r` forms but `rainbow_r`. GLE draws the sequential and diverging
+ColorBrewer maps in 9 or 11 steps where matplotlib blends them. `rainbow_r` and
+`jet_r` warn and draw `rainbow`, and per-point scatter colours and `contourf`
+bands draw `rainbow` as `viridis`; "Palette Gallery" in
 [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md) lists each one.
 
 ## Line caps and joins
@@ -384,7 +385,7 @@ caps and round joins.
 
 `ax.bar(x, height)` emits `bar dN fill RED`. One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. A single colour, including the same colour repeated, stays one command.
 
-`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. `edgecolor='none'` emits `lwidth 0` (GLE has no missing edge). `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered.
+`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. GLE strokes every bar, and `lwidth 0` alone is a black hairline, so `edgecolor='none'` and `linestyle='none'` draw that hairline in the colour under the edge (`color C lwidth 0`): the fill, or the face of a hatched bar. A hatched bar with `color='none'` has no face to match, and its outline is drawn in the hatch ink. `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered.
 
 `hatch` is GLE's `pattern`. Every GLE pattern is diagonal, so only these hatches have one: `'/'` is `SHADE`, `'\\'` is `RSHADE` and `'x'` (or `'X'`) is `GRID`. Repeated (`'//'`, `'xx'`, ...) they are the `2` variants, at half the spacing; a longer run is no denser. `'|'`, `'-'`, `'+'`, `'o'`, `'O'`, `'.'`, `'*'` and any mix such as `'/\\'` warn, and those bars are drawn solid. A sequence gives one hatch per bar, like a colour sequence, and splits the call the same way. GLE's `fill` is the hatch ink and `background` the colour under it, so `ax.bar(x, h, color='yellow', hatch='//')` emits `fill BLACK pattern SHADE2 background YELLOW`. As in matplotlib, the ink is `edgecolor`, or black when there is no edge or it is `'none'`, and `color='none'` is a `CLEAR` background. The legend swatch is hatched too. In a legend gleplot writes as a `begin key` block, the swatch hatches on white: there, `background` would colour the whole key. GLE's hatch lines are thinner than matplotlib's, and their spacing is fixed in centimetres.
 
@@ -415,6 +416,14 @@ of subroutines, so `pie` and `boxplot` are not provided: calling them raises
 versions drew them with gleplot's own `gleplot_wedge` and `gleplot_box`
 subroutines. A `.gle` file written with them still opens and compiles: the
 subroutines and their calls are kept as raw GLE, with a note.
+
+GLE has no broken axis either, so `Figure.add_broken_xaxes`,
+`add_broken_yaxes` and `BrokenAxes` are gone. A logarithmic axis shows two
+scales in one panel, and two subplots show two ranges. A `.gle` file an
+earlier version wrote with a broken axis opens as its separate graphs, with
+the seam marks and shared titles kept as raw GLE. A project saved with one
+loads its segments as separate axes drawn over each other in its place, with
+a warning.
 
 ## Colorbars
 

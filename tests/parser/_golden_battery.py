@@ -143,6 +143,18 @@ def bar_hatch():
     return fig
 
 
+def bar_no_edge():
+    """``edgecolor='none'``: the stroke is the colour under the edge (the
+    fill, a hatched bar's face, or its ink over a ``'none'`` face) on a
+    plain, a stacked and a per-bar split bar."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, 3, 1], color="yellow", edgecolor="none")
+    ax.bar([1, 2, 3], [1, 1, 2], bottom=[2, 3, 1], hatch="/", edgecolor="none")
+    ax.bar([5, 6], [1, 2], color=["teal", "none"], hatch="x", edgecolor="none")
+    return fig
+
+
 def barh():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -920,6 +932,16 @@ def heatmap_grid_colorbars():
             orientation=("vertical", "horizontal")[k % 2],
             width=0.4,
         )
+    return fig
+
+
+def heatmap_colorbars_inside_frame():
+    """Labelled bars with negative gaps, drawn inside their graphs' frames."""
+    fig, axs = glp.subplots(1, 2, figsize=(10, 4), data_prefix="golden")
+    y, x = np.mgrid[0:6, 0:8]
+    for ax, orientation in zip(axs, ("vertical", "horizontal")):
+        hm = ax.imshow(x * y, cmap="viridis")
+        fig.colorbar(hm, ax=ax, label=orientation, orientation=orientation, sep=-1.5)
     return fig
 
 
@@ -2151,6 +2173,7 @@ BUILDERS = [
     bar_missing,
     bar_recovered_fields,
     bar_hatch,
+    bar_no_edge,
     barh,
     bar_yerr,
     barh_xerr,
@@ -2196,6 +2219,7 @@ BUILDERS = [
     custom_figsize_and_dpi,
     heatmap_imshow_colorbar,
     heatmap_grid_colorbars,
+    heatmap_colorbars_inside_frame,
     heatmap_field_options,
     heatmap_inverted_colorbars,
     heatmap_gle_palettes,

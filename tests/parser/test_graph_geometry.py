@@ -167,7 +167,7 @@ def test_the_default_rect_is_the_one_by_one_grid_cell(tmp_path):
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter(fig.figsize, fig.dpi, style=fig.style, graph=fig.graph)
-    rects, _cells = fig._layout_rects(writer, None)
+    rects = fig._layout_rects(writer, None)
     assert len(rects) == 1
 
     text = (tmp_path / "one.gle").read_text(encoding="utf-8")
@@ -535,7 +535,7 @@ def test_height_and_width_ratios_survive_save_parse_save(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Interactions: shared axes, colorbars, broken axes
+# Interactions: shared axes, colorbars
 # --------------------------------------------------------------------------- #
 
 
@@ -590,44 +590,6 @@ def test_a_colorbar_figure_round_trips_byte_identically(tmp_path):
     src = _resave(golden.heatmap_imshow_colorbar(), tmp_path, "cbar.gle")
     rec = parse_gle_figure(tmp_path / "cbar.gle")
     assert _resave(rec.figure, tmp_path, "cbar2.gle") == src
-
-
-def test_broken_axes_still_emit_their_own_placement(tmp_path):
-    """Broken axes already emitted amove/size; that must keep working.
-
-    Each segment occupies a slice of its grid cell, so the segments share a
-    row but have different widths and x offsets -- and every one of them is
-    emitted as a placed graph block.
-    """
-    fig = glp.figure(figsize=(8, 6), data_prefix="geom")
-    bax = fig.add_broken_xaxes(xlims=[(0.0, 1.0), (8.0, 9.0)])
-    bax.plot(np.array([0.0, 0.5, 8.5, 9.0]), np.array([1.0, 2.0, 3.0, 4.0]))
-
-    text = _resave(fig, tmp_path, "broken.gle")
-    rects = _rects_of(text)
-    assert len(rects) == 2
-    xs = [r[0] for r in rects]
-    assert xs[0] < xs[1]
-    assert rects[0][1] == rects[1][1]  # same row
-    assert sum(r[2] for r in rects) < 2.54 * 8  # slices, not full cells
-
-
-def test_broken_axes_recovery_is_no_worse_than_before(tmp_path):
-    """Known limitation: segments come back as independent subplots.
-
-    They keep their recovered rects, so the re-save reproduces the same
-    geometry; only the *grouping* (and its seam decoration, which lands in
-    passthrough) is not reconstructed.
-    """
-    fig = glp.figure(figsize=(8, 6), data_prefix="geom")
-    bax = fig.add_broken_xaxes(xlims=[(0.0, 1.0), (8.0, 9.0)])
-    bax.plot(np.array([0.0, 0.5, 8.5, 9.0]), np.array([1.0, 2.0, 3.0, 4.0]))
-    src = _resave(fig, tmp_path, "broken.gle")
-
-    rec = parse_gle_figure(tmp_path / "broken.gle")
-    assert rec.figure.broken_axes == []  # the documented limitation
-    assert len(rec.figure.axes_list) == 2
-    assert [ax.placement for ax in rec.figure.axes_list] == _rects_of(src)
 
 
 # --------------------------------------------------------------------------- #

@@ -21,7 +21,6 @@ from .axes import (
     _validate_data_prefix,
     histogram_counts,
 )
-from .brokenaxes import BrokenAxes
 from .cairo_support import cairo_font_warning, figure_requires_cairo
 from .colors import _gle_color, _rgba_parts, apply_alpha, rgb_to_gle
 from .compiler import (
@@ -766,11 +765,6 @@ class Figure:
 
         self.axes_list: List[Axes] = []  # List of Axes objects
         self._current_axes: Optional[Axes] = None  # Current working axes
-        # BrokenAxes assemblies. Their segments are ordinary Axes and live in
-        # axes_list like any other subplot (so limits, series and emission all
-        # work unchanged); this list only records the grouping, the seam
-        # decoration and the shared titles.
-        self.broken_axes: list = []
 
         # Raw GLE lines recovered from a parsed .gle file that the recognizer
         # could not map onto the object model, split into buckets by where
@@ -855,8 +849,7 @@ class Figure:
         A new list on each access, as in matplotlib: add axes with
         :meth:`add_subplot` or :meth:`add_axes`, not by changing the list.
         For a figure from :func:`gleplot.open_gle`, the order is that of the
-        graph blocks in the file. Each segment of a broken axis
-        (:meth:`add_broken_xaxes`, :meth:`add_broken_yaxes`) is an entry.
+        graph blocks in the file.
 
         Notes
         -----
@@ -1102,106 +1095,6 @@ class Figure:
         self.axes_list.append(ax)
         self._current_axes = ax
         return ax
-
-    def add_broken_xaxes(self, xlims, **kwargs) -> BrokenAxes:
-        """Add a panel whose x-axis is broken into adjacent segments.
-
-        The segments share one y-axis: tick labels and the y title appear only
-        on the leftmost one, the sides that face each other are switched off,
-        and the seam is marked with a rule or double-slash break marks. Series
-        are declared once on the returned object and fanned out to every
-        segment, sharing a single data sidecar; GLE clips each dataset to its
-        own segment's range.
-
-        Parameters
-        ----------
-        xlims : sequence of (float, float)
-            One ``(xmin, xmax)`` per segment, left to right; at least two.
-        **kwargs
-            Passed to :class:`gleplot.brokenaxes.BrokenAxes` --
-            ``width_ratios``, ``position``, ``gap``, ``divider``,
-            ``divider_color``, ``divider_linewidth``, ``divider_lstyle``,
-            ``break_mark_size``, ``trim_seam_labels``, ``xlabel_dist``,
-            ``title_dist``.
-
-        Returns
-        -------
-        BrokenAxes
-
-        Notes
-        -----
-        Plot through the returned object, not through the figure: this sets
-        the figure's current axes to the *leftmost segment*, so a subsequent
-        ``fig.plot(...)`` / :meth:`gca` would reach only that one segment.
-
-        Examples
-        --------
-        >>> fig = glp.figure(figsize=(3.4, 2.6))
-        >>> bax = fig.add_broken_xaxes([(0, 0.02), (0.02, 3)],
-        ...                            width_ratios=[1, 3], divider='slash')
-        >>> bax.errorbar(t, a, yerr=e, marker='o', linestyle='none')
-        >>> bax.set_xlabel('t (us)')
-        >>> bax.set_ylabel('Asymmetry (%)')
-        """
-        return self._add_broken(BrokenAxes(self, xlims, **kwargs))
-
-    def add_broken_yaxes(self, ylims, **kwargs) -> BrokenAxes:
-        """Add a panel whose y-axis is broken into stacked segments.
-
-        The broken-y counterpart of :meth:`add_broken_xaxes`. The segments
-        share one x-axis: its tick labels and title appear only on the bottom
-        segment, the sides that face each other are switched off, and the
-        seam is marked with a rule or double-slash break marks on the left
-        and right frame lines. The y title and the title are written once,
-        centred on the whole assembly.
-
-        Parameters
-        ----------
-        ylims : sequence of (float, float)
-            One ``(ymin, ymax)`` per segment, bottom to top; at least two.
-        **kwargs
-            Passed to :class:`gleplot.brokenaxes.BrokenAxes` --
-            ``height_ratios``, ``position``, ``gap``, ``divider``,
-            ``divider_color``, ``divider_linewidth``, ``divider_lstyle``,
-            ``break_mark_size``, ``trim_seam_labels``, ``ylabel_dist``,
-            ``title_dist``.
-
-        Returns
-        -------
-        BrokenAxes
-
-        Notes
-        -----
-        Plot through the returned object, not through the figure: this sets
-        the figure's current axes to the *bottom segment*.
-
-        The y title's default distance from the frame, 2.5 times the font
-        height, clears tick labels up to about four characters wide. GLE
-        does not report the width of the labels it draws, so for wider ones
-        pass ``ylabel_dist`` (cm).
-
-        Examples
-        --------
-        >>> fig = glp.figure()
-        >>> bax = fig.add_broken_yaxes([(0, 1), (10, 12)], divider='slash')
-        >>> bax.bar([1, 2, 3], [0.4, 0.8, 11.0])
-        >>> bax.set_ylabel('counts')
-        """
-        return self._add_broken(BrokenAxes(self, ylims=ylims, **kwargs))
-
-    def _add_broken(self, bax: BrokenAxes) -> BrokenAxes:
-        """Put a broken-axis assembly's segments into the figure."""
-        for seg in bax.segments:
-            # Derive the grid-level sharing flags first, then let the
-            # broken-axis rules (already applied by the constructor) stand
-            # where they disagree: the assembly's internal geometry is not
-            # negotiable, whereas sharex/sharey describe the grid around it.
-            bax._reassert_frame_flags(seg, self._apply_shared_axes_flags)
-            self.axes_list.append(seg)
-
-        self.broken_axes.append(bax)
-        self._current_axes = bax.segments[0]
-        return bax
 
     @property
     def sharex(self) -> Union[bool, str]:
@@ -1591,10 +1484,8 @@ class Figure:
         return col_extra, row_extra
 
     def _has_titles(self) -> bool:
-        """True if any grid axes has a title (a broken axis titles the assembly)."""
-        return any(ax.title_text for ax in self._grid_axes()) or any(
-            bax.title_text for bax in self.broken_axes
-        )
+        """True if any grid axes has a title."""
+        return any(ax.title_text for ax in self._grid_axes())
 
     def _grid_axes(self) -> List[Axes]:
         """The axes the subplot grid lays out: all but :meth:`add_axes` insets."""
@@ -1616,20 +1507,18 @@ class Figure:
             groups.setdefault(row_span if mode == "row" else col_span, []).append(ax)
         return list(groups.values())
 
-    def _layout_rects(self, writer, resolution) -> Tuple[List[tuple], List[tuple]]:
-        """Default frame rect + grid cell for every axes, in ``axes_list`` order.
+    def _layout_rects(self, writer, resolution) -> List[tuple]:
+        """Default frame rect for every axes, in ``axes_list`` order.
 
         Returns
         -------
         rects : list of (x, y, w, h)
             The frame rectangle in page cm the grid arrangement computes for
             each axes -- what the writer emits when the axes carries no
-            explicit :attr:`Axes.placement` of its own. A broken-axis segment
-            gets its slice of the cell rather than the whole cell.
-        cells : list of (cell_x, cell_w, cell_y, cell_h)
-            The un-sliced grid cell each axes sits in, which the broken-axis
-            seam decoration needs in order to span the whole cell.
+            explicit :attr:`Axes.placement` of its own.
 
+        Notes
+        -----
         The grid dimensions come from the axes' ``position`` tuples; sizes
         come from ``height_ratios``/``width_ratios`` (equal when unset) and
         the gaps from ``subplots_adjust``'s ``wspace``/``hspace`` (fixed
@@ -1713,25 +1602,15 @@ class Figure:
             consumed_h += h + vspace + (row_gaps[r] if r < len(row_gaps) else 0.0)
 
         rects: List[tuple] = []
-        cells: List[tuple] = []
         for ax in self.axes_list:
             if ax.position is None:
                 # An inset is not in the grid: its rect is its placement.
-                # (Its cell is never read: only a broken-axis seam uses one.)
                 if ax.placement is None:
                     raise ValueError(
                         "an axes from add_axes has no placement to draw it at; "
                         "set Axes.placement to its (x, y, width, height) in cm."
                     )
                 rects.append(ax.placement)
-                cells.append(
-                    (
-                        ax.placement[0],
-                        ax.placement[2],
-                        ax.placement[1],
-                        ax.placement[3],
-                    )
-                )
                 continue
             _rows, _cols, (top_row, bottom_row), (left_col, right_col) = _grid_cells(ax)
             cell_x = col_x_offsets[left_col]
@@ -1747,24 +1626,9 @@ class Figure:
                 cell_h = row_y_bottoms[top_row] + row_heights[top_row] - y_pos
             else:
                 cell_h = row_heights[top_row]
+            rects.append((cell_x, y_pos, cell_w, cell_h))
 
-            # A broken-axis segment occupies a slice of its grid cell rather
-            # than the whole thing; everything else about the emission is
-            # identical to an ordinary subplot.
-            owner = ax._break_owner
-            x_pos, graph_w = cell_x, cell_w
-            seg_y, graph_h = y_pos, cell_h
-            if owner is not None and owner.axis == "y":
-                dy, graph_h = owner.segment_extent(ax._break_index, cell_h)
-                seg_y = y_pos + dy
-            elif owner is not None:
-                dx, graph_w = owner.segment_extent(ax._break_index, cell_w)
-                x_pos = cell_x + dx
-
-            rects.append((x_pos, seg_y, graph_w, graph_h))
-            cells.append((cell_x, cell_w, y_pos, cell_h))
-
-        return rects, cells
+        return rects
 
     def gca(self) -> Axes:
         """Get current axes (or create if needed)."""
@@ -3237,7 +3101,7 @@ class Figure:
                 page_box=self.page_box,
             )
             writer.add_sub_defs(*sub_texts)
-            rects, _cells = self._layout_rects(writer, resolution)
+            rects = self._layout_rects(writer, resolution)
 
             if self.axes_list:
                 ax = self.axes_list[0]
@@ -3317,9 +3181,9 @@ class Figure:
             # (see _layout_rects). Default margins/spacing are heuristic but
             # can be overridden via subplots_adjust(left=..., right=...,
             # top=..., bottom=..., wspace=..., hspace=...).
-            rects, cells = self._layout_rects(writer, resolution)
+            rects = self._layout_rects(writer, resolution)
 
-            for ax, rect, cell in zip(self.axes_list, rects, cells):
+            for ax, rect in zip(self.axes_list, rects):
                 # An explicit placement rect (SPEC 3.3) overrides the computed
                 # grid cell: the rect IS the model, the grid is only a helper
                 # that computes rects. Figures built through the scripting API
@@ -3347,8 +3211,6 @@ class Figure:
 
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
-                if ax._break_owner is not None:
-                    self._emit_break_decoration(writer, ax._break_owner, ax, cell)
                 writer.lines_gle.append("")  # Blank line between subplots
                 if ax is not self.axes_list[-1]:
                     writer.lines_gle.extend(ax.trailing_passthrough)
@@ -3656,25 +3518,13 @@ class Figure:
         """The ``Figure.legend`` key: every axes' entries in addition order.
 
         Each axes' entries are those its own key would list, so they are
-        computed against the limits its graph was written with. A broken
-        axis lists its series once, from its first segment. A broken y-axis
-        routes ``axhline`` / ``axhspan`` to the segments they reach, so its
-        other segments add the guides not already listed.
+        computed against the limits its graph was written with.
         """
         legend = cast(dict, self._legend)
         entries: List[tuple] = []
         for ax in self.axes_list:
-            guides_only = False
-            if ax._break_owner is not None and ax._break_index:
-                if ax._break_owner.axis == "x":
-                    continue
-                guides_only = True
             limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
             found = self._legend_entries(writer, ax, resolution, limits)
-            if guides_only:
-                guides = {id(g) for g in (*ax.reflines, *ax.spans)}
-                listed = {label for _series, label, _swatch in entries}
-                found = [f for f in found if id(f[0]) in guides and f[1] not in listed]
             entries.extend(
                 (resolution.data(series) or series, label, swatch)
                 for series, label, swatch in (
@@ -4062,7 +3912,7 @@ class Figure:
                     )
             writer.add_math_mode()
         for name, side in (("x2", "top"), ("y2", "right")):
-            if not getattr(ax, f"_{name}axis_off") or ax._break_owner is not None:
+            if not getattr(ax, f"_{name}axis_off"):
                 continue
             in_use = (
                 any(
@@ -4547,132 +4397,6 @@ class Figure:
             # GLE draws an implicit key from per-dataset key "label" tokens;
             # it must be switched off explicitly.
             writer.add_key_off()
-
-    def _emit_break_decoration(
-        self,
-        writer: GLEWriter,
-        bax: BrokenAxes,
-        seg: Axes,
-        cell: Tuple[float, float, float, float],
-    ):
-        """Emit the seam marker, or the shared titles, after a segment's graph.
-
-        Called right after each broken-axis segment's ``end graph``, which is
-        the only point where GLE's ``xg()``/``yg()`` refer to that segment's
-        box. Every segment but the last gets the seam decoration on its right
-        edge; the last one carries the titles, which are centred on the whole
-        assembly (``cell_x + cell_w/2``) rather than on any single graph.
-        ``cell`` is ``(cell_x, cell_w, cell_y, cell_h)``. A broken y-axis is
-        :meth:`_emit_ybreak_decoration`.
-        """
-        if bax.axis == "y":
-            self._emit_ybreak_decoration(writer, bax, seg, cell)
-            return
-        cell_x, cell_w = cell[0], cell[1]
-        index = seg._break_index
-        is_last = index == len(bax.segments) - 1
-
-        if not is_last:
-            if bax.divider == "line":
-                writer.add_break_divider(
-                    bax.gap,
-                    color=rgb_to_gle(bax.divider_color),
-                    linewidth=bax.divider_linewidth,
-                    lstyle=bax.divider_lstyle,
-                )
-            elif bax.divider == "slash":
-                size = bax.break_mark_size
-                writer.add_break_marks(
-                    bax.gap,
-                    color=rgb_to_gle(bax.divider_color),
-                    linewidth=bax.divider_linewidth,
-                    width_cm=0.65 * size,
-                    height_cm=size,
-                    separation_cm=0.3 * size,
-                )
-            return
-
-        # Titles. GLE places its own xtitle one tick-label row below the frame;
-        # 1.57 * the font height reproduces that offset (measured against a
-        # native `xtitle` render, matching to ~0.02 cm), and the title sits
-        # 0.55 * the font height above the frame.
-        hei_cm = fontsize_pt_to_cm(self.style.fontsize)
-        centre_x = cell_x + cell_w / 2.0
-        if bax.xlabel_text:
-            dist = bax.xlabel_dist if bax.xlabel_dist is not None else 1.57 * hei_cm
-            writer.add_page_text(
-                centre_x,
-                f"yg(ygmin)-{writer._format_number(dist)}",
-                bax.xlabel_text,
-                just="tc",
-            )
-        self._emit_break_title(writer, bax, centre_x)
-
-    def _emit_break_title(
-        self, writer: GLEWriter, bax: BrokenAxes, centre_x: float
-    ) -> None:
-        """A broken axis' shared title, above the graph that just ended.
-
-        GLE draws a graph's own ``title`` with its x axis, which the upper
-        segments of a broken y-axis switch off, so either orientation writes
-        it as page text centred on the assembly.
-        """
-        if bax.title_text:
-            hei_cm = fontsize_pt_to_cm(self.style.fontsize)
-            dist = bax.title_dist if bax.title_dist is not None else 0.55 * hei_cm
-            writer.add_page_text(
-                centre_x,
-                f"yg(ygmax)+{writer._format_number(dist)}",
-                bax.title_text,
-                just="bc",
-            )
-
-    def _emit_ybreak_decoration(
-        self,
-        writer: GLEWriter,
-        bax: BrokenAxes,
-        seg: Axes,
-        cell: Tuple[float, float, float, float],
-    ):
-        """The seam marker, or the shared titles, after a broken-y segment.
-
-        Every segment but the top one gets the seam decoration on its top
-        edge. The top one carries the title, as on a broken x-axis, and the
-        y title, centred on the whole assembly (``cell_y + cell_h/2``) and
-        ``ylabel_dist`` left of the frame. The x title is the bottom
-        segment's own.
-        """
-        index = seg._break_index
-        if index != len(bax.segments) - 1:
-            if bax.divider == "line":
-                writer.add_ybreak_divider(
-                    bax.gap,
-                    color=rgb_to_gle(bax.divider_color),
-                    linewidth=bax.divider_linewidth,
-                    lstyle=bax.divider_lstyle,
-                )
-            elif bax.divider == "slash":
-                size = bax.break_mark_size
-                writer.add_ybreak_marks(
-                    bax.gap,
-                    color=rgb_to_gle(bax.divider_color),
-                    linewidth=bax.divider_linewidth,
-                    width_cm=size,
-                    height_cm=0.65 * size,
-                    separation_cm=0.3 * size,
-                )
-            return
-        self._emit_break_title(writer, bax, cell[0] + cell[1] / 2.0)
-        if bax.ylabel_text:
-            # GLE does not report its tick labels' width, so the distance is
-            # a fixed multiple of the font height (see add_broken_yaxes).
-            hei_cm = fontsize_pt_to_cm(self.style.fontsize)
-            dist = bax.ylabel_dist if bax.ylabel_dist is not None else 2.5 * hei_cm
-            writer.add_page_ytitle(
-                f"xg(xgmin)-{writer._format_number(dist)}",
-                cell[2] + cell[3] / 2.0,
-                bax.ylabel_text,
-            )
 
     # -- axis limits -----------------------------------------------------
     #
@@ -5780,9 +5504,6 @@ class Figure:
                 "marker": self.marker_config.to_dict(),
             },
             "axes": [ax.to_dict() for ax in self.axes_list],
-            # Broken-axis assemblies reference their segments by index into
-            # "axes" (the segments themselves are serialized there in full).
-            "broken_axes": [bax.to_dict() for bax in self.broken_axes],
         }
         # Figure-level text and legend, only when set: a figure without them
         # keeps the snapshot it always had.
@@ -5968,12 +5689,14 @@ class Figure:
         fig.axes_list = [
             Axes.from_dict(fig, ax_d) for ax_d in fig_block.get("axes", [])
         ]
-        # Rebind the broken-axis groupings once every segment exists; this also
-        # restores each segment's ``_break_owner`` back-reference (the one
-        # piece of segment state Axes.from_dict cannot recover on its own).
-        fig.broken_axes = [
-            BrokenAxes.from_dict(fig, b_d) for b_d in fig_block.get("broken_axes", [])
-        ]
+        if fig_block.get("broken_axes"):
+            warn_external(
+                "This project has a broken axis, which gleplot no longer "
+                "draws: its segments load as separate axes in the broken "
+                "axis' place, drawn over each other, without the seam marks "
+                "and the shared titles. Plot the ranges on subplots of their "
+                "own to show them side by side."
+            )
         fig._current_axes = fig.axes_list[-1] if fig.axes_list else None
 
         return fig
@@ -5981,7 +5704,6 @@ class Figure:
     def close(self):
         """Close figure."""
         self.axes_list.clear()
-        self.broken_axes.clear()
         self._drawings.clear()
         self._suptitle = None
         self.texts.clear()

@@ -150,7 +150,7 @@ def test_a_warning_is_attributed_to_the_calling_script(name: str, via: str):
 
 
 # Entry points with no module-level function: reached as methods only, some
-# through a wrapper (the twin axes, the broken axes) that adds a frame.
+# through a wrapper (the twin axes) that adds a frame.
 _METHOD_ENTRY_POINTS = {
     "grid": lambda fig, ax: ax.grid(True, which="minor"),
     "line_from_file": lambda fig, ax: ax.line_from_file(
@@ -158,21 +158,6 @@ _METHOD_ENTRY_POINTS = {
     ),
     "twiny line_from_file": lambda fig, ax: ax.twiny().line_from_file(
         "d.dat", 1, 2, linestyle="none", drawstyle="steps-mid"
-    ),
-    "broken text": lambda fig, ax: fig.add_broken_xaxes([(0, 1), (2, 3)]).text(
-        1.5, 1.0, "t"
-    ),
-    "broken text alignment": lambda fig, ax: fig.add_broken_xaxes(
-        [(0, 1), (2, 3)]
-    ).text(0.5, 1.0, "t", ha="justify"),
-    "broken y axhline": lambda fig, ax: fig.add_broken_yaxes([(0, 1), (2, 3)]).axhline(
-        1.5
-    ),
-    "broken y axhspan": lambda fig, ax: fig.add_broken_yaxes([(0, 1), (2, 3)]).axhspan(
-        1.2, 1.8
-    ),
-    "broken annotate": lambda fig, ax: fig.add_broken_xaxes([(0, 1), (2, 3)]).annotate(
-        "a", (2.5, 1.0), xytext=(0.5, 1.0), arrowprops={}
     ),
 }
 

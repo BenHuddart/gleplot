@@ -35,7 +35,6 @@ https://benhuddart.github.io/gleplot/
    guides/TEXT_ANNOTATIONS
    guides/REFERENCE_LINES_AND_SPANS
    guides/CONTOUR_AND_HEATMAPS
-   guides/BROKEN_AXES
    guides/FILE_BASED_SERIES
    guides/VIEW_FUNCTION
    guides/CONFIGURATION
