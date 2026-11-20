@@ -300,7 +300,7 @@ A bad value raises `ValueError` at the call. A range GLE cannot draw warns when 
 
 ## Scatter colours
 
-`ax.scatter(x, y, c=values, cmap='viridis', vmin=0, vmax=300)` colours each point, as in matplotlib. A GLE dataset has one colour, so the script gets a `gleplot_cdata_<marker>_<cmap>` sub that draws each point in its own colour. Each point's value comes from GLE's `mdata` and is mapped onto the colormap by a `let`. The values go into the series' data file as given. Where gleplot differs:
+`ax.scatter(x, y, c=values, cmap='viridis', vmin=0, vmax=300)` colours each point, as in matplotlib. A GLE dataset has one colour, so the script gets a `glp_cdata_<marker>_<cmap>` sub that draws each point in its own colour. Each point's value comes from GLE's `mdata` and is mapped onto the colormap by a `let`. The values go into the series' data file as given. Where gleplot differs:
 
 | `scatter()` argument | gleplot |
 |---|---|
@@ -431,7 +431,7 @@ subroutines and their calls are kept as raw GLE, with a note.
 
 ## Polar axes
 
-GLE has no polar axis. `fig.add_subplot(projection='polar')` hides the graph's axes and draws a grid of rings and spokes with a `gleplot_polar_grid` call in layer 200, below the curves. The angle and radius labels are written by a `gleplot_polar_labels` call after the graph block. Both subroutines are defined once at the top of the script. Each curve's data file keeps theta and r, and a `let dK = dJ*cos(x),dJ*sin(x)` turns them into the x and y GLE draws, so markers, line styles and legend entries work as on any axes. The x and y ranges are chosen so both axes have the same scale and the angle labels fit inside the frame; the rings stay round in a subplot that is not square.
+GLE has no polar axis. `fig.add_subplot(projection='polar')` hides the graph's axes and draws a grid of rings and spokes with a `glp_polar_grid` call in layer 200, below the curves. The angle and radius labels are written by a `glp_polar_labels` call after the graph block. Both subroutines are defined once at the top of the script. Each curve's data file keeps theta and r, and a `let dK = dJ*cos(x),dJ*sin(x)` turns them into the x and y GLE draws, so markers, line styles and legend entries work as on any axes. The x and y ranges are chosen so both axes have the same scale and the angle labels fit inside the frame; the rings stay round in a subplot that is not square.
 
 ```python
 ax = fig.add_subplot(projection="polar")

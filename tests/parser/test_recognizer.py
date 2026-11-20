@@ -1802,9 +1802,9 @@ def test_an_edited_sized_scatter_kept_raw_keeps_its_marker_sub(tmp_path):
     out = tmp_path / "edited-again.gle"
     rec.figure.savefig_gle(str(out))
     again = out.read_text(encoding="utf-8")
-    assert again.count("sub gleplot_mdata_fcircle size data\n") == 1
-    assert "define marker gleplot_mdata_fcircle gleplot_mdata_fcircle\n" in again
-    assert "marker gleplot_mdata_fcircle msize" in again
+    assert again.count("sub glp_mdata_fcircle size data\n") == 1
+    assert "define marker glp_mdata_fcircle glp_mdata_fcircle\n" in again
+    assert "marker glp_mdata_fcircle msize" in again
 
 
 _USER_MDATA = (
@@ -1900,12 +1900,12 @@ def test_an_edited_coloured_scatter_kept_raw_keeps_its_let_and_subs(tmp_path):
     out = tmp_path / "edited-again.gle"
     rec.figure.savefig_gle(str(out))
     again = out.read_text(encoding="utf-8")
-    assert again.count("sub gleplot_cdata_fcircle_magma size data\n") == 1
+    assert again.count("sub glp_cdata_fcircle_magma size data\n") == 1
     assert again.count("sub cmap_magma z\n") == 1
     assert (
         "    data data_0.dat d1=c1,c2 d2=c1,c3\n"
         "    let d3 = (d2-1)/(3-1)\n"
-        "    d1 marker gleplot_cdata_fcircle_magma msize 0.134164 mdata d3 line"
+        "    d1 marker glp_cdata_fcircle_magma msize 0.134164 mdata d3 line"
     ) in again
 
 
@@ -1925,7 +1925,7 @@ def test_a_colour_marker_whose_mdata_is_not_a_colour_let_is_kept_raw(tmp_path):
     p = _write(
         tmp_path,
         "m.gle",
-        _USER_MDATA.format(marker="gleplot_cdata_fcircle_viridis"),
+        _USER_MDATA.format(marker="glp_cdata_fcircle_viridis"),
         {"m.dat": "1 1 0.5\n2 2 1\n3 3 2\n"},
     )
     rec = parse_gle_figure(p)
@@ -1935,11 +1935,11 @@ def test_a_colour_marker_whose_mdata_is_not_a_colour_let_is_kept_raw(tmp_path):
     rec.figure.savefig_gle(str(out))
     text = out.read_text(encoding="utf-8")
     assert '   data "m.dat" d1=c1,c2 d2=c1,c3\n' in text
-    assert "sub gleplot_cdata_fcircle_viridis size data\n" in text
+    assert "sub glp_cdata_fcircle_viridis size data\n" in text
 
 
 def test_a_colour_marker_with_an_unknown_colormap_is_kept_raw(tmp_path):
-    src = _USER_MDATA.format(marker="gleplot_cdata_fcircle_nope")
+    src = _USER_MDATA.format(marker="glp_cdata_fcircle_nope")
     src = src.replace("mdata d2", "mdata d3").replace(
         "d2=c1,c3\n", "d2=c1,c3\n   let d3 = (d2-0)/(2-0)\n"
     )
@@ -1952,7 +1952,7 @@ def test_a_colour_marker_with_an_unknown_colormap_is_kept_raw(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert (
         "   let d3 = (d2-0)/(2-0)\n"
-        "   d1 marker gleplot_cdata_fcircle_nope msize 0.4 mdata d3 color RED\n"
+        "   d1 marker glp_cdata_fcircle_nope msize 0.4 mdata d3 color RED\n"
     ) in text
 
 
@@ -2151,7 +2151,7 @@ def test_an_unmodelled_qualifier_the_line_cannot_keep_is_reported(
 
 
 def test_a_colour_mapped_scatter_kept_raw_keeps_its_let(tmp_path):
-    """#165: a raw ``gleplot_cdata_`` line keeps the colour let it reads."""
+    """#165: a raw ``glp_cdata_`` line keeps the colour let it reads."""
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
     fig.add_subplot(111).scatter([0, 1, 2], [2, 1, 2], c=[1, 2, 3], cmap="viridis")
@@ -2159,7 +2159,7 @@ def test_a_colour_mapped_scatter_kept_raw_keeps_its_let(tmp_path):
     fig.savefig_gle(str(path))
     text = path.read_text(encoding="utf-8")
     line = next(
-        ln for ln in text.splitlines() if "gleplot_cdata_" in ln and " mdata " in ln
+        ln for ln in text.splitlines() if "glp_cdata_" in ln and " mdata " in ln
     )
     path.write_text(text.replace(line, line + " mscale 2"), encoding="utf-8")
     ax = parse_gle_figure(path).figure.axes_list[0]
@@ -3251,3 +3251,51 @@ def test_a_comment_after_a_modelled_statement_is_reported(tmp_path):
     rec.figure.savefig_gle(str(p))
     text = p.read_text(encoding="utf-8")
     assert "mystery 1 ! ab" in text and "mystery 2 ! main" in text
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        golden.heatmap_contourf,
+        golden.scatter_per_point_sizes,
+        golden.scatter_per_point_colours,
+        golden.polar_plot,
+        golden.placed_images,
+    ],
+    ids=lambda b: b.__name__,
+)
+def test_a_gleplot_5_sub_stays_raw_with_its_calls(tmp_path, builder):
+    """gleplot 5 named its generated subs ``gleplot_<name>``: none is read."""
+    path = tmp_path / "v5.gle"
+    builder().savefig_gle(str(path))
+    text = path.read_text("utf-8").replace('include "palettes.gle"\n', "")
+    text = text.replace("glp_", "gleplot_").replace("cmap_", "gleplot_")
+    path.write_text(text, encoding="utf-8")
+    subs = re.findall(r"^sub (gleplot_\w+)", text, re.MULTILINE)
+    assert subs
+
+    rec = parse_gle_figure(path)
+    for name in subs:
+        assert any(f"'{name}' is a sub gleplot 5 wrote" in w for w in rec.warnings)
+    again = rec.figure._generate_gle_with_files()[0]
+    gleplot_lines = [ln for ln in text.splitlines() if "gleplot_" in ln]
+    assert [ln for ln in again.splitlines() if "gleplot_" in ln] == gleplot_lines
+    assert "glp_" not in again
+
+
+def test_a_sub_of_ones_own_named_glp_stays_raw(tmp_path):
+    src = (
+        "size 10 10\n"
+        "sub glp_mine x\n"
+        "   amove x x\n"
+        "end sub\n"
+        "begin graph\n"
+        "   xaxis min 0 max 1\n"
+        "end graph\n"
+        "glp_mine 1\n"
+    )
+    path = tmp_path / "own.gle"
+    path.write_text(src, encoding="utf-8")
+    text = parse_gle_figure(path).figure._generate_gle_with_files()[0]
+    assert "sub glp_mine x\n   amove x x\nend sub\n" in text
+    assert "glp_mine 1" in text

@@ -1480,8 +1480,8 @@ class Span(Series):
 class PlacedImage(Series):
     """An external image file stretched over a data extent -- ``Axes.image``.
 
-    Drawn inside the graph block by the ``gleplot_bitmap`` sub (PNG, JPEG,
-    GIF, TIFF) or the ``gleplot_postscript`` sub (EPS), in a layer below the
+    Drawn inside the graph block by the ``glp_bitmap`` sub (PNG, JPEG,
+    GIF, TIFF) or the ``glp_postscript`` sub (EPS), in a layer below the
     grid and the data.
     """
 
