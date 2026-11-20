@@ -287,9 +287,10 @@ import collections
 import copy
 import math
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import numpy as np
 
@@ -1778,13 +1779,14 @@ class _Recognizer:
     """Stateful recognizer for one document. See :func:`parse_gle_figure`."""
 
     def __init__(
-        self, text: str, gle_path: Path, disowned: FrozenSet[str] = frozenset()
+        self, text: str, gle_path: Path, disowned: Optional[Dict[str, str]] = None
     ):
         self.text = text
         self.gle_path = gle_path
-        # Files the metadata names as gleplot's own that raw GLE also reads
-        # (see owned_files_read_raw): read in place, never rewritten.
-        self._disowned = disowned
+        # The paths of files the metadata names as gleplot's own that a 'data'
+        # statement kept raw also reads, each with that statement (see
+        # owned_files_read_raw): read in place, never rewritten.
+        self._disowned = dict(disowned or {})
         # The lines of a ``begin key`` right after the graph being parsed:
         # a fit's result variables may be named only by its let, its key,
         # and that block restating the key.
@@ -1913,6 +1915,7 @@ class _Recognizer:
         doc = parse_gle_source(self.text)
         self._scan_document(doc)
         meta = self._read_metadata()
+        self._note_disowned()
 
         # Walk the top-level nodes, splitting into preamble / graph blocks /
         # deferred-text clusters / trailer.
@@ -2099,19 +2102,24 @@ class _Recognizer:
             self._note(ImportCategory.METADATA, meta_msg, meta_span)
         if "import-data" in meta:
             self._import_list = list(meta.get("import-data") or [])
-        for data_file in sorted(self._disowned):
-            self._note(
-                ImportCategory.DATA,
-                f"'{data_file}' is gleplot's own data file, but a 'data' "
-                "statement kept as raw GLE also reads it, so it is read in "
-                "place and not rewritten on save; the series drawn from it "
-                "are not editable as data",
-                None,
-            )
         if meta:
             # A gleplot file names its insets; one without the key has none.
             self._insets = set(meta.get("insets") or [])
         return meta
+
+    def _note_disowned(self) -> None:
+        """Note each of gleplot's data files read in place for raw GLE."""
+        lines = [line.strip() for line in self.text.splitlines()]
+        for path, stmt in sorted(self._disowned.items()):
+            line_no = lines.index(stmt) + 1 if stmt in lines else None
+            self._note(
+                ImportCategory.DATA,
+                f"'{stmt}' is kept as raw GLE and reads '{Path(path).name}', "
+                "a data file gleplot wrote; saving would rewrite it with only "
+                "the columns gleplot's series use, so it is read in place "
+                "instead and the series drawn from it are not editable as data",
+                (line_no, line_no) if line_no is not None else None,
+            )
 
     def _meta_number(self, meta: Dict[str, Any], key: str) -> Union[int, float]:
         """The metadata's number ``key``, or its default when it is absent.
@@ -10168,50 +10176,55 @@ class _Recognizer:
         return True
 
     def _is_import(self, data_file) -> bool:
-        # The import list's own matching (by name or bare file name) also
-        # decides which references a disowned file covers.
-        if classify_data_file(self.gle_path, data_file, sorted(self._disowned)) == (
-            "import"
-        ):
+        if str(self._data_path(data_file)) in self._disowned:
             return False
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
 
-    def owned_files_read_raw(self, fig: Figure) -> Set[str]:
+    def _data_path(self, data_file: str) -> Path:
+        """Where ``data_file`` is, read from the ``.gle`` file's folder."""
+        return (Path(self.gle_path).parent / data_file).resolve()
+
+    def owned_files_read_raw(self, fig: Figure) -> Dict[str, str]:
         """gleplot's own data files that saving would change under raw GLE.
 
         The writer rewrites such a file with only the columns its series use,
-        so a ``data`` statement kept raw that reads it would read the wrong
-        ones after save. A file saved back unchanged is left owned.
+        so a ``data`` statement kept raw that reads it could read the wrong
+        ones after save. Maps each file's path to that statement; a file
+        written back unchanged stays gleplot's own.
         """
         raw: List[str] = list(fig.passthrough_before_hei)
         raw += fig.passthrough_header + fig.passthrough_trailer
         for ax in fig.axes_list:
             raw += ax.passthrough + ax.geometry_passthrough
-        read: Set[str] = set()
+        read: Dict[str, str] = {}
         for line in (line for text in raw for line in str(text).splitlines()):
             toks = [t for t in tokenize_line(line) if t.type is not TokenType.COMMENT]
             if len(toks) > 1 and toks[0].value.lower() == "data":
                 data_file = self._read_filename(toks, 1)[0]
                 if self._is_import(data_file):
-                    read.add(data_file)
+                    read.setdefault(str(self._data_path(data_file)), line.strip())
         if not read:
             return read
-        warnings_before = fig._source_warnings
-        written = fig._generate_gle_with_files()[1]
-        fig._source_warnings = warnings_before
-        changed: Set[str] = set()
-        for data_file in read:
-            path = resolve_data_reference(self.gle_path, data_file).resolved_path
-            for name, content in written.items():
-                if classify_data_file(self.gle_path, name, [data_file]) != "import":
-                    continue
-                try:
-                    unchanged = path is not None and path.read_text("utf-8") == content
-                except (OSError, UnicodeDecodeError):
-                    unchanged = False
-                if not unchanged:
-                    changed.add(data_file)
+        # A trial save, on a copy so the figure keeps no write-time state; its
+        # warnings are the save's to give.
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                written = copy.deepcopy(fig)._generate_gle_with_files()[1]
+        except (TypeError, ValueError):
+            return read
+        changed: Dict[str, str] = {}
+        for name, content in written.items():
+            path = self._data_path(name)
+            if str(path) not in read:
+                continue
+            try:
+                unchanged = path.read_text(encoding="utf-8") == content
+            except (OSError, UnicodeDecodeError):
+                unchanged = False
+            if not unchanged:
+                changed[str(path)] = read[str(path)]
         return changed
 
     def _has_gle_missing(self, data_file, cols_1based) -> bool:
@@ -11873,9 +11886,9 @@ def parse_gle_figure(
         notes.
     """
     text, gle_path = _resolve_input(path_or_text, base_dir)
-    disowned: Set[str] = set()
+    disowned: Dict[str, str] = {}
     while True:
-        rec = _Recognizer(text, gle_path, frozenset(disowned))
+        rec = _Recognizer(text, gle_path, disowned)
         result = rec.run()
         # Which statements stay raw is known only once the whole file is
         # read, and treating a file as not gleplot's own can keep more of
@@ -11883,7 +11896,7 @@ def parse_gle_figure(
         raw_read = rec.owned_files_read_raw(result.figure)
         if not raw_read:
             return result
-        disowned |= raw_read
+        disowned.update(raw_read)
 
 
 def _resolve_input(path_or_text, base_dir) -> Tuple[str, Path]:
