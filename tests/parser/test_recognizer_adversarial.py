@@ -1230,6 +1230,8 @@ def test_a_percentage_error_on_an_offset_is_of_the_shifted_value(tmp_path):
         ("let d2 = d1*2", "d2 line"),
         ("let d2 = d1+1", "d2 line color red"),
         ("let d2 = sin(x) from 0 to 1", "d2 line err d1"),
+        ("let d2 = d1*2", "bar d2"),
+        ("let d2 = d1*2", "fill d1,d2 color red"),
     ],
 )
 def test_a_raw_let_drawn_by_a_raw_line_is_noted(tmp_path, let, draw):
@@ -1244,13 +1246,17 @@ def test_a_raw_let_drawn_by_a_raw_line_is_noted(tmp_path, let, draw):
     assert note.source_span == (4, 4)
 
 
-def test_a_raw_let_another_note_explains_is_noted_once(tmp_path):
-    """#429: a histogram on a user's file keeps its own note only."""
-    body = ['   data "u.dat" d1=c1,c2', "   let d2 = hist d1", "   d2 line steps"]
+@pytest.mark.parametrize(
+    "data, let", [("", "let d2 = hist d1"), (' delimiters ";"', "let d2 = d1*2")]
+)
+def test_a_raw_let_another_note_explains_is_noted_once(tmp_path, data, let):
+    """#429: a histogram on a user's file, or a let reading a held data
+    statement, keeps the note that says why."""
+    body = [f'   data "u.dat" d1=c1,c2{data}', f"   {let}", "   d2 line"]
     src = "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
     p = _write(tmp_path, "let.gle", src, {"u.dat": "1 2\n2 3\n"})
     (note,) = parse_gle_figure(p).notes
-    assert note.message.startswith("histogram let d2")
+    assert not note.message.startswith("the let defining")
 
 
 def test_a_fill_between_two_files_stays_raw(tmp_path):

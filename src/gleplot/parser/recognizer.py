@@ -2938,6 +2938,7 @@ class _Recognizer:
         self._flush_hist_lets(info)
         self._restore_orphaned_data_stmts(pass1, info)
         self._bind_raw_readers(info)
+        self._note_raw_lets(info)
         self._discard_guide_markers(info)
         self._reconcile_places_names(info)
         self._reconcile_axis_styling(info)
@@ -3186,6 +3187,8 @@ class _Recognizer:
             "_raw_datasets": set(),
             # Target of each ``let`` in the block -> the line of its first.
             "_let_lines": {},
+            # Let targets kept raw that another note already explains.
+            "_explained_lets": set(),
             # ``let dK = (dJ-a)/(b-a)`` statements that map a per-point
             # colour's values (``_CDATA_LET_RE``), keyed by target, with the
             # source, the limits and the raw text. Consumed by the scatter
@@ -3261,10 +3264,11 @@ class _Recognizer:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
             kw = child.keyword
-            if kw == "let" and self._let_target(child) is not None:
-                info["_let_lines"].setdefault(self._let_target(child), child.line_no)
-            if kw == "let" and self._let_target(child) in redefined:
-                self._hold_dataset(self._let_target(child), pass1.datasets)
+            target = self._let_target(child) if kw == "let" else None
+            if target is not None:
+                info["_let_lines"].setdefault(target, child.line_no)
+            if target is not None and target in redefined:
+                self._hold_dataset(target, pass1.datasets)
                 continue
             if kw == "data":
                 names = self._parse_data_command(
@@ -6291,6 +6295,29 @@ class _Recognizer:
         elif kind == "errorbar":
             info["_errorbar_file_series"][raw] = entry
 
+    def _note_raw_lets(self, info) -> None:
+        """Note each ``let`` kept as raw GLE whose target raw GLE uses.
+
+        A let a held statement or a histogram note already explains gets no
+        second note.
+        """
+        defined, read, _bare = GLEWriter.raw_dataset_use(info["passthrough"])
+        for target, line_no in info["_let_lines"].items():
+            if (
+                target not in defined & read
+                or target in self._held_datasets
+                or target in info["_explained_lets"]
+            ):
+                continue
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"the let defining {target} is not modelled; it and the lines "
+                "that use it were kept as raw GLE and still draw, but are not "
+                "editable. To edit the curve, compute its values with numpy "
+                "and plot them with Axes.plot()",
+                (line_no, line_no),
+            )
+
     @staticmethod
     def _bind_raw_readers(info) -> None:
         """Mark each series whose dataset a raw line in the block reads.
@@ -6452,6 +6479,7 @@ class _Recognizer:
             del info["_hist_lets"][target]
             info["_hist_let_pending"].pop(target, None)
             info["_raw_datasets"].add(source)
+            info["_explained_lets"].add(target)
             line_no = record["line_no"]
             self._note(
                 ImportCategory.DATA,
@@ -7501,7 +7529,6 @@ class _Recognizer:
             # names are kept (_restore_orphaned_data_stmts).
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
             info["_raw_datasets"].add(d_name)
-            self._note_raw_let(d_name, info)
             return
         data_file, xcol, ycol = datasets[d_name]
 
@@ -7675,26 +7702,6 @@ class _Recognizer:
             span,
         )
         return True
-
-    def _note_raw_let(self, d_name, info) -> None:
-        """Note a ``let`` kept raw with the line drawing its target, once.
-
-        A let another note already explains (a held statement, a histogram
-        on a user's file) gets no second one.
-        """
-        line_no = info["_let_lines"].get(d_name)
-        if line_no is None or any(
-            note.source_span is not None and note.source_span[0] == line_no
-            for note in self.notes
-        ):
-            return
-        self._note(
-            ImportCategory.STRUCTURE,
-            f"the let defining {d_name} is not modelled; it and the lines "
-            "that draw it were kept as raw GLE and still draw, but are not "
-            "editable",
-            (line_no, line_no),
-        )
 
     def _build_coloured_scatter(
         self, info, d_name, datasets, attrs, toks, line_no, raw_stmts
