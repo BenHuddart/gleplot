@@ -3232,6 +3232,7 @@ def _resave(path: Path) -> str:
 @pytest.mark.parametrize(
     "raw",
     [
+        "! a hand-written comment\n",
         "! the first graph's centre\namove xg(0.5) yg(0.5)\ncircle 0.4\n",
         "gsave\n\nset color RED\namove xg(0.5) yg(0.5)\ncircle 0.4\ngrestore\n",
         'begin key\n    position tr\n    text "up" line\nend key\n',
