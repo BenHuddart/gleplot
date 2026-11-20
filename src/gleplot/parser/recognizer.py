@@ -362,6 +362,7 @@ from ..writer import (
     NAME_QUOTE,
     NODES_MARKER,
     POLAR_GRID_LAYER,
+    POLAR_SUB_NAMES,
     RUG_EDGES,
     RUGS_INCLUDE,
     GLEWriter,
@@ -755,7 +756,7 @@ def _words_and_values(stmt: Statement) -> List[Token]:
 #: The subs gleplot writes whose names do not depend on the figure.
 #: gleplot 5 named its subs ``gleplot_<name>``; those are no longer read, so a
 #: file that defines one keeps it as raw GLE, with the calls that use it.
-_FIXED_SUBS = frozenset(("glp_polar_grid", "glp_polar_labels", *IMAGE_SUBS))
+_FIXED_SUBS = frozenset((*POLAR_SUB_NAMES, *IMAGE_SUBS))
 _CONTOURF_SUB_RE = re.compile(r"glp_contourf\d+")
 
 
@@ -8564,18 +8565,26 @@ class _Recognizer:
             )
             return
 
-        # Errors a let computes (_keep_error_offset_lets) are no column.
-        computed = [f"{kind} {ref}" for kind, ref in err.items() if ref not in datasets]
-        if computed and orig_toks:
-            what = ", ".join(computed)
+        # Errors a let computes (_keep_error_offset_lets) are no column, and
+        # an error bar reads its errors from its own file.
+        unheld = [
+            (
+                f"{kind} {ref} is computed by a let"
+                if ref not in datasets
+                else f"{kind} {ref} is read from '{datasets[ref][0]}'"
+            )
+            for kind, ref in err.items()
+            if ref not in datasets or datasets[ref][0] != data_file
+        ]
+        if unheld and orig_toks:
+            what = (
+                f"{', '.join(unheld)}, on error-bar dataset {orig_toks[0].value} "
+                f"read from '{data_file}', which an error bar cannot hold"
+            )
             if info["polar_rmax"] is not None or attrs["y2axis"] or attrs["x2axis"]:
                 # The graph's layout depends on this series being modelled.
                 self._note(
-                    ImportCategory.DATA,
-                    f"{what} on error-bar dataset {orig_toks[0].value} is "
-                    "computed by a let, which an error bar cannot hold, and "
-                    "was dropped on re-save",
-                    span,
+                    ImportCategory.DATA, f"{what}, and was dropped on re-save", span
                 )
             else:
                 self._passthrough_original_dn(info, orig_toks, raw_stmts)
@@ -8583,20 +8592,17 @@ class _Recognizer:
                 info["_raw_datasets"].update(err.values())
                 self._note(
                     ImportCategory.DATA,
-                    f"{what} on error-bar dataset {orig_toks[0].value} is "
-                    "computed by a let, which an error bar cannot hold; its "
-                    "'dN ... err' line was kept as raw GLE and still draws, "
-                    "but is not editable. To edit it, compute the errors with "
-                    "numpy and plot them with Axes.errorbar()",
+                    f"{what}; its 'dN ... err' line was kept as raw GLE and "
+                    "still draws, but is not editable. To edit it, load the "
+                    "errors with numpy and plot them with Axes.errorbar()",
                     span,
                 )
                 return
 
         def col_of(ref_name):
             ref = ref_name.lower()
-            if ref in datasets:
-                _f, _xc, yc = datasets[ref]
-                return yc
+            if ref in datasets and datasets[ref][0] == data_file:
+                return datasets[ref][2]
             return None
 
         yerr_up_col = None
