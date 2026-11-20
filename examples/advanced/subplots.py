@@ -53,7 +53,13 @@ def example_stacked():
     # Top: linear data with error bars
     y1 = 2 * x + 3 + np.random.default_rng(42).normal(0, 1, len(x))
     axes[0].errorbar(
-        x, y1, yerr=1.0, marker="o", linestyle="none", color="blue", label="Measurements"
+        x,
+        y1,
+        yerr=1.0,
+        marker="o",
+        linestyle="none",
+        color="blue",
+        label="Measurements",
     )
     axes[0].plot(x, 2 * x + 3, color="red", linestyle="--", label="Fit")
     axes[0].set_xlabel("x")
