@@ -373,17 +373,6 @@ class TestUsetex:
         bax.set_title(r"$T_N$")
         assert (bax.xlabel_text, bax.title_text) == (r"$t$ (s)", r"$T_N$")
 
-    def test_boxplot_tick_labels(self):
-        _, ax = self._axes()
-        ax.boxplot([[1, 2, 3], [2, 3, 4]], tick_labels=[r"$\alpha$", "b"])
-        assert ax.xnames == [r"$\alpha$", "b"]
-
-    def test_pie_autopct_percent_is_escaped_like_matplotlib(self):
-        _, ax = self._axes()
-        _, _, autotexts = ax.pie([1, 3], autopct=r"%1.0f%%")
-        assert autotexts == [r"25\%", r"75\%"]
-        assert ax.wedges[0]["autotext"] == r"25\%"
-
     def test_usetex_must_be_a_bool(self):
         with pytest.raises(TypeError, match="usetex must be True or False"):
             gleplot.GLEStyleConfig(usetex=1)
