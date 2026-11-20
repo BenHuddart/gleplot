@@ -3288,6 +3288,39 @@ class GLEWriter:
         self.lines_gle.append(f"    let {shifted} = {source_name}{sign}{mag}")
         return shifted
 
+    def warn_negative_log_line(self, series: Series):
+        """Warn when a plotted line has a negative value on a log axis.
+
+        GLE leaves such a point out of the line and joins its neighbours (a
+        zero dives to the axis edge); matplotlib's default draws the line
+        off the axis there. ``series`` is a resolved
+        :class:`~gleplot.series.LineSeries`. Nothing is warned for a line
+        that is not drawn, or one that does not join its points (``nomiss``
+        already joins across missing ones; ``impulses`` and ``bar`` modes
+        join none).
+        """
+        if (
+            series["linestyle"] in ("none", "None", "", " ", None)
+            or series.get("nomiss")
+            or series.get("line_mode") in ("impulses", "bar")
+        ):
+            return
+        for axis, values, shift in (
+            (series.get("xaxis", "x"), series["x"], 0.0),
+            (series.get("yaxis", "y"), series["y"], series.get("offset", 0.0)),
+        ):
+            if (
+                self._log_axes.get(axis)
+                and (np.asarray(values, dtype=float) + shift < 0).any()
+            ):
+                named = f" {series['label']!r}" if series["label"] else ""
+                warn_external(
+                    f"The line{named} has negative values on the log "
+                    f"{axis}-axis: GLE leaves those points out and joins the "
+                    "line across them, where matplotlib draws it off the axis. "
+                    "Set them to NaN to break the line there instead."
+                )
+
     def add_line(self, series: Series, binding: Optional[ColumnBinding] = None):
         """
         Add a line series to the graph.

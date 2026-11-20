@@ -96,6 +96,12 @@ replaced by the smallest positive value plotted. Either repair emits a
 `UserWarning` saying what range was used instead; pass a positive range to
 choose your own.
 
+GLE leaves a negative value on a log axis out of a line and joins the points
+either side of it, where matplotlib draws the line off the axis; a zero takes
+the line down to the axis edge. Saving warns when a `plot` or `step` line has
+a negative value on a log axis. Set those values to NaN to break the line
+there instead.
+
 ## Secondary axes
 
 The right-hand scale is `yaxis="y2"` on a series, with `set_ylim`,
