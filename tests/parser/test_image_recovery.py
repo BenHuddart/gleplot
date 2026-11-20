@@ -73,6 +73,11 @@ def test_an_edited_image_block_stays_raw_with_a_note(tmp_path, block):
     (warning,) = recognized.warnings
     assert warning.startswith("structure: 'draw glp_")
     assert "read back as an image" in warning
+    resaved = tmp_path / "resaved.gle"
+    recognized.figure.savefig(str(resaved))
+    # The sub the raw draw calls is written again.
+    call = block.split()[4]
+    assert resaved.read_text().count(IMAGE_SUBS[call]) == 1
 
 
 def test_a_hand_written_bitmap_draw_stays_raw_and_silent(tmp_path):
