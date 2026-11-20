@@ -1224,6 +1224,35 @@ def test_a_percentage_error_on_an_offset_is_of_the_shifted_value(tmp_path):
     assert list(bar["yerr_up"]) == pytest.approx([0.2, 0.3, 0.4])
 
 
+@pytest.mark.parametrize(
+    "let, draw",
+    [
+        ("let d2 = d1*2", "d2 line"),
+        ("let d2 = d1+1", "d2 line color red"),
+        ("let d2 = sin(x) from 0 to 1", "d2 line err d1"),
+    ],
+)
+def test_a_raw_let_drawn_by_a_raw_line_is_noted(tmp_path, let, draw):
+    """#429: the let and its line still draw, and the note says they are raw."""
+    body = ['   data "u.dat" d1=c1,c2', f"   {let}", f"   {draw}"]
+    src = "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "let.gle", src, {"u.dat": "1 2\n2 3\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].passthrough == body
+    (note,) = rec.notes
+    assert note.message.startswith("the let defining d2 is not modelled")
+    assert note.source_span == (4, 4)
+
+
+def test_a_raw_let_another_note_explains_is_noted_once(tmp_path):
+    """#429: a histogram on a user's file keeps its own note only."""
+    body = ['   data "u.dat" d1=c1,c2', "   let d2 = hist d1", "   d2 line steps"]
+    src = "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "let.gle", src, {"u.dat": "1 2\n2 3\n"})
+    (note,) = parse_gle_figure(p).notes
+    assert note.message.startswith("histogram let d2")
+
+
 def test_a_fill_between_two_files_stays_raw(tmp_path):
     """The fill's series reads one file, so it cannot hold the pair."""
     body = [

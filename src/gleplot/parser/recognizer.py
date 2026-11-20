@@ -3184,6 +3184,8 @@ class _Recognizer:
             # that cannot become a column). Their ``data`` statement is kept
             # too: nothing else writes it.
             "_raw_datasets": set(),
+            # Target of each ``let`` in the block -> the line of its first.
+            "_let_lines": {},
             # ``let dK = (dJ-a)/(b-a)`` statements that map a per-point
             # colour's values (``_CDATA_LET_RE``), keyed by target, with the
             # source, the limits and the raw text. Consumed by the scatter
@@ -3259,6 +3261,8 @@ class _Recognizer:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
             kw = child.keyword
+            if kw == "let" and self._let_target(child) is not None:
+                info["_let_lines"].setdefault(self._let_target(child), child.line_no)
             if kw == "let" and self._let_target(child) in redefined:
                 self._hold_dataset(self._let_target(child), pass1.datasets)
                 continue
@@ -7497,6 +7501,7 @@ class _Recognizer:
             # names are kept (_restore_orphaned_data_stmts).
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
             info["_raw_datasets"].add(d_name)
+            self._note_raw_let(d_name, info)
             return
         data_file, xcol, ycol = datasets[d_name]
 
@@ -7670,6 +7675,26 @@ class _Recognizer:
             span,
         )
         return True
+
+    def _note_raw_let(self, d_name, info) -> None:
+        """Note a ``let`` kept raw with the line drawing its target, once.
+
+        A let another note already explains (a held statement, a histogram
+        on a user's file) gets no second one.
+        """
+        line_no = info["_let_lines"].get(d_name)
+        if line_no is None or any(
+            note.source_span is not None and note.source_span[0] == line_no
+            for note in self.notes
+        ):
+            return
+        self._note(
+            ImportCategory.STRUCTURE,
+            f"the let defining {d_name} is not modelled; it and the lines "
+            "that draw it were kept as raw GLE and still draw, but are not "
+            "editable",
+            (line_no, line_no),
+        )
 
     def _build_coloured_scatter(
         self, info, d_name, datasets, attrs, toks, line_no, raw_stmts
