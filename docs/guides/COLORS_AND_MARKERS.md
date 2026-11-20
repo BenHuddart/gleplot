@@ -51,22 +51,33 @@ These are emitted verbatim as names. The authoritative list is
 
 All of these emit as an exact `rgb255(r,g,b)` expression:
 
-- Hex format: `#RRGGBB` (for example `#1f77b4`) or the `#RGB` shorthand (`#bbb`)
+- Hex format: `#RRGGBB` (for example `#1f77b4`) or the `#RGB` shorthand
+  (`#bbb`). An alpha, `#RRGGBBAA` or `#RGBA`, is not applied, and below
+  opaque warns, as for an RGB tuple.
 - RGB tuple, list or 1-D numpy array in [0, 1]: `(0.1, 0.2, 0.8)` (components
   outside [0, 1] are clamped). A fourth, alpha component is applied only by
   `hist`; elsewhere an alpha below 1 warns, see the
   [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md).
 - A grey level as a number string in [0, 1]: `'0.3'`, as matplotlib accepts.
-  A number string outside [0, 1] warns and falls back to `BLACK`.
+  A number string outside [0, 1] raises `ValueError`.
 - matplotlib's default property cycle, by cycle reference or `tab:` name:
   `C0`..`C9`, `tab:blue`, `tab:orange`, ..., `tab:cyan`. All ten are distinct
   colors, so a ten-series figure using the default cycle stays readable.
+  `C10` and beyond wrap round the ten, as in matplotlib.
 - An already-formed GLE color expression, e.g. `rgb255(140,140,140)` or
   `rgb(0.55,0.4,0.74)`, which is passed through (whitespace normalized). This
   is what makes colors survive an `open_gle()` round trip unchanged.
 
-Anything else (a float, bytes, fewer than three values) warns and falls back to
-`BLACK`. A sequence of more than four values warns and uses the first three.
+Two matplotlib colours have no counterpart here and warn, drawing in
+`BLACK`: `'none'`, where the element has no way to be left undrawn, and the
+`xkcd:` names, which gleplot has no table for (pass the hex value instead).
+
+Anything else raises when the call is made: an unknown name, a malformed hex
+string or a sequence of fewer than three numbers raises `ValueError`, and a
+value of another type, such as a float or bytes, raises `TypeError`. A
+sequence of more than four values warns and uses the first three.
+`open_gle()` keeps a colour it cannot read, such as a variable the script
+defines, as it is.
 
 ### GLE version
 
@@ -243,7 +254,6 @@ the writer emits.
   [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md). See "Scatter colours" in the
   [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md) for how they differ
   from matplotlib.
-- If a color or marker cannot be resolved, gleplot falls back to defaults (`BLACK` for color, `FCIRCLE` for marker).
 - Error bars take the series `color`, and so do their caps -- including bars-only
   series (`fmt='none'`, no marker and no line) and `capsize=0`. GLE draws error
   bars in the dataset's colour and an unstyled dataset renders black, so gleplot

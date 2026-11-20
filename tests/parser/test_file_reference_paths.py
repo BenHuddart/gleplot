@@ -56,6 +56,20 @@ class TestFilenameQuoting:
         assert fs[0]["data_file"] == abs_posix
         assert "data_error" not in fs[0]
 
+    def test_a_read_quoted_name_is_written_back_doubled(self, tmp_path):
+        """GLE cannot load it, but a hand-written one still saves unchanged."""
+        out = tmp_path / "fig.gle"
+        out.write_text(
+            "size 10 8\nbegin graph\n"
+            '    data "my ""run"".dat" d1=c1,c2\n'
+            "    d1 line color BLUE\nend graph\n"
+        )
+        fig = parse_gle_figure(out).figure
+        assert fig.axes_list[0].file_series[0]["data_file"] == 'my "run".dat'
+        again = tmp_path / "again.gle"
+        fig.savefig_gle(str(again))
+        assert 'data "my ""run"".dat"' in again.read_text()
+
 
 class TestAbsolutize:
     def test_relative_becomes_absolute_posix(self, tmp_path):

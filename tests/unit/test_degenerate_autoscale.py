@@ -738,7 +738,8 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``one_point_default_width`` moved again when the metadata started
     recording a ``default_linewidth`` that is not 1.5, and
     ``default_series_colors`` was added for the default colours it records
-    too (#345).
+    too (#345). ``axis_range_of_float_noise`` was added when an axis range
+    whose span is float noise beside its offset kept its ends apart (#468).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
