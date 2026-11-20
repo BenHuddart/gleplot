@@ -3173,8 +3173,9 @@ _FOUR_COL_DAT = "1 2 3 4\n2 3 4 5\n3 4 5 6\n"
     [
         "   bar d3 fill red\n",
         "   let d4 = hist d3 bins 3\n   bar d4 fill red\n",
+        "",
     ],
-    ids=["bar", "hist-let"],
+    ids=["bar", "hist-let", "fill"],
 )
 def test_raw_reader_keeps_its_data_beside_a_modelled_sibling(tmp_path, reader):
     """A raw reader of d3 keeps its definition when d6 on the same statement
@@ -3192,7 +3193,7 @@ def test_raw_reader_keeps_its_data_beside_a_modelled_sibling(tmp_path, reader):
     )
     p = _write(tmp_path, "in.gle", src, {"a.dat": _FOUR_COL_DAT})
     rec = parse_gle_figure(p)
-    assert any("'a.dat' is also read by raw GLE" in w for w in rec.warnings)
+    assert any("'a.dat' is read by raw GLE" in w for w in rec.warnings)
     assert not any("mixes datasets" in w for w in rec.warnings)
 
     out1 = tmp_path / "out1.gle"
@@ -3205,6 +3206,29 @@ def test_raw_reader_keeps_its_data_beside_a_modelled_sibling(tmp_path, reader):
     out2 = tmp_path / "out2.gle"
     parse_gle_figure(out1).figure.savefig_gle(str(out2))
     assert out2.read_text(encoding="utf-8") == text1
+
+
+def test_raw_reader_keeps_its_data_beside_a_series_in_another_graph(tmp_path):
+    """An earlier graph's series does not rewrite a file a later graph's raw
+    bar reads (#490)."""
+    src = _meta("a.dat") + (
+        "size 10 8\n"
+        "begin graph\n"
+        '   data "a.dat" d2=c1,c4\n'
+        "   d2 line\n"
+        "end graph\n"
+        "amove 0 4\n"
+        "begin graph\n"
+        '   data "a.dat" d3=c1,c2\n'
+        "   bar d3 fill red\n"
+        "   fill d3 color gray foo\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "in.gle", src, {"a.dat": _FOUR_COL_DAT})
+    out = tmp_path / "out.gle"
+    parse_gle_figure(p).figure.savefig_gle(str(out))
+    assert 'data "a.dat" d3=c1,c2' in out.read_text(encoding="utf-8")
+    assert (tmp_path / "a.dat").read_text(encoding="utf-8") == _FOUR_COL_DAT
 
 
 # --------------------------------------------------------------------------- #
