@@ -1956,6 +1956,54 @@ def test_a_colour_marker_with_an_unknown_colormap_is_kept_raw(tmp_path):
     ) in text
 
 
+def test_a_renamed_colour_sub_is_written_after_what_it_calls(tmp_path):
+    """The raw sub calls cmap_viridis, which calls palettes.gle's routine."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [1, 2, 3], c=[1, 2, 3])
+    path = tmp_path / "c.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text().replace("glp_cdata_fcircle_viridis", "mine")
+    path.write_text(text.replace("sub mine", "! my marker\nsub mine"))
+    again = parse_gle_figure(path).figure._generate_gle_with_files()[0]
+    order = [
+        again.index('include "palettes.gle"'),
+        again.index("sub cmap_viridis z"),
+        again.index("! my marker\nsub mine size data"),
+    ]
+    assert order == sorted(order)
+
+
+def test_a_palette_sub_of_the_files_own_stays_ahead_of_the_subs_calling_it(
+    tmp_path,
+):
+    src = (
+        "size 10 10\n"
+        'include "palettes.gle"\n'
+        "sub helper x\n"
+        "   return x\n"
+        "end sub\n"
+        "sub cmap_viridis z\n"
+        "   return rgb(z,0,0)\n"
+        "end sub\n"
+        "begin graph\n"
+        '   data "m.dat" d1=c1,c2 d2=c1,c3\n'
+        "   let d3 = (d2-1)/(3-1)\n"
+        "   d1 marker glp_cdata_fcircle_viridis msize 0.4 mdata d3\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "m.gle", src, {"m.dat": "1 1 1\n2 2 2\n3 3 3\n"})
+    again = parse_gle_figure(p).figure._generate_gle_with_files()[0]
+    # No raw sub calls gleplot's, so the header keeps its place ahead.
+    order = [
+        again.index("sub helper x"),
+        again.index("sub cmap_viridis z"),
+        again.index("sub glp_cdata_fcircle_viridis"),
+    ]
+    assert order == sorted(order)
+
+
 def test_a_scatter_colorbar_is_recovered_onto_its_scatter(tmp_path):
     """The bar goes to the colour-mapped scatter drawn in its palette."""
     _gleplot_axes._global_data_file_counter = 0
