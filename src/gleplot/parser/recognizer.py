@@ -4563,7 +4563,7 @@ class _Recognizer:
         :mod:`gleplot.guides` for why the marker deliberately does not carry
         it.
         """
-        if entry.get("offset"):
+        if entry.get("offset") or entry.get("_offset2"):
             return None
         x = np.asarray(entry["x"], dtype=float)
         upper = np.asarray(entry["y1"], dtype=float)

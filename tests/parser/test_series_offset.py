@@ -114,6 +114,10 @@ def test_fill_keeps_each_curve_offset(tmp_path, lets, fill, offsets):
     assert fill_series.get("_offset2", offsets[0]) == offsets[1]
 
     out = _save(rec.figure, tmp_path, "out.gle").read_text(encoding="utf-8")
+    shifts = [f"+{offset:g}" for offset in offsets if offset]
+    lets_out = [line for line in out.splitlines() if "let " in line]
+    assert [line[-len(s) :] for line, s in zip(lets_out, shifts)] == shifts
+    assert len(lets_out) == len(shifts)
     again = parse_gle_figure(tmp_path / "out.gle").figure
     assert _save(again, tmp_path, "again.gle").read_text(encoding="utf-8") == out
 
