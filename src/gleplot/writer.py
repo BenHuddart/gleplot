@@ -3386,10 +3386,7 @@ class GLEWriter:
             (series.get("xaxis", "x"), series["x"], 0.0),
             (series.get("yaxis", "y"), series["y"], series.get("offset", 0.0)),
         ):
-            if (
-                self._log_axes.get(axis)
-                and (np.asarray(values, dtype=float) + shift < 0).any()
-            ):
+            if self._left_out_on_log(axis, values, shift).any():
                 named = f" {series['label']!r}" if series["label"] else ""
                 warn_external(
                     f"The line{named} has negative values on the log "
@@ -3397,6 +3394,19 @@ class GLEWriter:
                     "line across them, where matplotlib draws it off the axis. "
                     "Set them to NaN to break the line there instead."
                 )
+
+    def _left_out_on_log(self, axis: str, values: Any, offset: float) -> np.ndarray:
+        """Where GLE leaves a point out because ``axis`` is log.
+
+        That is where the drawn value is negative: ``values`` plus ``offset``
+        as the script writes it, rounded (see :meth:`_apply_offset`).
+        """
+        drawn = np.asarray(values, dtype=float)
+        if not self._log_axes.get(axis):
+            return np.zeros(drawn.shape, dtype=bool)
+        if offset:
+            drawn = drawn + float(self._format_number(offset))
+        return drawn < 0
 
     def add_line(self, series: Series, binding: Optional[ColumnBinding] = None):
         """
@@ -3653,8 +3663,8 @@ class GLEWriter:
         ``deresolve`` is added: GLE requires ``dK`` to have exactly as many
         points as ``dN`` draws.
 
-        GLE drops a point whose x or y is NaN, or negative on a log axis,
-        from ``dN`` but not from ``dK`` (``transform_data`` in
+        GLE drops a point whose x or y is NaN, or negative on a log axis
+        once the offset is added, from the drawn dataset but not from ``dK`` (``transform_data`` in
         ``graph2.cpp``), and then refuses the mismatch. Such a point is
         written as a missing value (``*``) instead, which GLE keeps and does
         not draw.
@@ -3775,6 +3785,9 @@ class GLEWriter:
     ) -> Tuple[np.ndarray, np.ndarray, Optional[ColumnBinding]]:
         """``series``' x and y with ``*`` where GLE would drop the point.
 
+        On a log axis that is judged on the drawn values, which hold the
+        offset (see :meth:`_left_out_on_log`).
+
         ``also`` marks more points to write as missing. When a point is
         missing, a provider-backed series gets its own x and y columns in the
         shared sidecar: another series may read the table's columns, and
@@ -3787,10 +3800,10 @@ class GLEWriter:
         drop = np.isnan(xf) | np.isnan(yf)
         if also is not None:
             drop |= also
-        if self._log_axes.get(series.get("xaxis", "x")):
-            drop |= xf < 0
-        if self._log_axes.get(series.get("yaxis", "y")):
-            drop |= yf < 0
+        drop |= self._left_out_on_log(series.get("xaxis", "x"), xf, 0.0)
+        drop |= self._left_out_on_log(
+            series.get("yaxis", "y"), yf, series.get("offset", 0.0)
+        )
         if not drop.any():
             return x, y, binding
         if binding is not None:
