@@ -2924,8 +2924,8 @@ _MULTI_DAT = "1 3 5\n2 4 6\n3 2 4\n"
 def test_finding20_stacked_bar_sibling_kept_raw_alongside_its_stack(tmp_path):
     """A base bar and ``bar d2 from d1`` are two series, and the top is exact.
 
-    They share a source file, so the stack is written to its own sidecar.
-    The base stays a bar from zero; the second stores d1's y as the
+    They share a source file, and both write back into it (#428). The base
+    stays a bar from zero; the second stores d1's y as the
     baseline and d2's y as the top.
     """
     src = _meta("multi.dat") + (
@@ -2946,7 +2946,7 @@ def test_finding20_stacked_bar_sibling_kept_raw_alongside_its_stack(tmp_path):
     assert "bottom" not in base
     assert list(stacked["bottom"]) == [3, 4, 2]
     assert list(stacked["top"]) == [5, 6, 4]
-    assert base["data_file"] != stacked["data_file"]
+    assert base["data_file"] == stacked["data_file"] == "multi.dat"
     assert not any(
         "mixes datasets" in w or "may not resolve" in w for w in rec.warnings
     )
