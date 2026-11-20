@@ -527,6 +527,17 @@ def subplots_share_col_row():
     return fig
 
 
+def subplots_raw_between_graphs():
+    """Raw GLE kept after each graph block, a blank line inside it."""
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
+    left.plot([0, 1], [0, 1])
+    right.plot([0, 1], [1, 0])
+    left.trailing_passthrough = ["gsave", "", "amove xg(0.5) yg(0.5)", "circle 0.2"]
+    left.trailing_passthrough.append("grestore")
+    fig.suptitle("Both")
+    return fig
+
+
 def subplots_spanning():
     """Cells spanning columns, rows, and a whole row, with shared x."""
     fig = glp.Figure(data_prefix="golden", sharex=True)
@@ -2108,6 +2119,7 @@ BUILDERS = [
     subplots_sharex_with_colored_text,
     subplots_grid_mixed,
     subplots_share_col_row,
+    subplots_raw_between_graphs,
     subplots_spanning,
     inset_axes,
     inset_facecolor,

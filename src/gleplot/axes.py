@@ -2865,6 +2865,10 @@ class Axes:
         # re-emits byte-for-byte rather than being normalized to 'scale auto'.
         self.placement: Optional[Tuple[float, float, float, float]] = None
         self.geometry_passthrough: list = []
+        # Raw GLE a loaded file has between this axes' graph block (and the
+        # calls after it) and the next one, written back in the same place:
+        # an xg()/yg() in it addresses this graph.
+        self.trailing_passthrough: list = []
         # A y unit's length over an x unit's (set_aspect); None is 'auto'.
         # Resolved into the frame rect when the figure is written, so it is
         # not recovered from a .gle file: the rect it produced is.
@@ -10134,6 +10138,9 @@ class Axes:
             ),
             "geometry_passthrough": list(self.geometry_passthrough),
         }
+        # Only when set: an axes without it keeps the snapshot it always had.
+        if self.trailing_passthrough:
+            payload["trailing_passthrough"] = list(self.trailing_passthrough)
         # Axes styling (see __init__ and _STYLING_KEYS). Every one of these
         # is None on a figure that never asked for it, and the writer emits
         # nothing for a None -- so adding them left existing output untouched.
@@ -10279,6 +10286,7 @@ class Axes:
             )
         )
         ax.geometry_passthrough = list(d.get("geometry_passthrough") or [])
+        ax.trailing_passthrough = list(d.get("trailing_passthrough") or [])
 
         for attr, series_cls in SERIES_CLASSES.items():
             restored = []
