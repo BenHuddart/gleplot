@@ -196,7 +196,7 @@ def test_scatter_white_markers():
 def test_errorbar_open_markers():
     fig = glp.figure(data_prefix="om")
     ax = fig.add_subplot(111)
-    ax.errorbar(X, Y, yerr=0.1, fmt="none", marker="^", fillstyle="none")
+    ax.errorbar(X, Y, yerr=0.1, marker="^", fillstyle="none")
     assert ax.errorbars[0]["marker"] == "TRIANGLE"
     assert "marker TRIANGLE" in _gle(fig)
 
