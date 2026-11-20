@@ -68,8 +68,8 @@ def test_a_grid_in_another_layer_stays_raw_and_is_noted(tmp_path):
     recognized = _recognize(path, text)
     ax = recognized.figure.axes_list[0]
     assert not ax._polar
-    assert "        draw gleplot_polar_grid 2.5 0.5" in ax.passthrough
-    assert any("gleplot_polar_grid" in w for w in recognized.warnings)
+    assert "        draw glp_polar_grid 2.5 0.5" in ax.passthrough
+    assert any("glp_polar_grid" in w for w in recognized.warnings)
     # Not a polar graph, so the curves' lets stay as written.
     assert "    let d2 = d1*cos(x),d1*sin(x)" in ax.passthrough
 
@@ -77,19 +77,19 @@ def test_a_grid_in_another_layer_stays_raw_and_is_noted(tmp_path):
 def test_a_grid_with_another_ring_step_stays_raw(tmp_path):
     path = _written(tmp_path)
     text = path.read_text().replace(
-        "draw gleplot_polar_grid 2.5 0.5", "draw gleplot_polar_grid 2.5 0.25"
+        "draw glp_polar_grid 2.5 0.5", "draw glp_polar_grid 2.5 0.25"
     )
     recognized = _recognize(path, text)
     assert not recognized.figure.axes_list[0]._polar
-    assert any("gleplot_polar_grid" in w for w in recognized.warnings)
+    assert any("glp_polar_grid" in w for w in recognized.warnings)
 
 
 def test_a_missing_label_call_is_noted(tmp_path):
     path = _written(tmp_path)
-    text = re.sub(r"gleplot_polar_labels .*\n", "", path.read_text())
+    text = re.sub(r"glp_polar_labels .*\n", "", path.read_text())
     recognized = _recognize(path, text)
     assert recognized.figure.axes_list[0]._polar
-    assert any("gleplot_polar_labels" in w for w in recognized.warnings)
+    assert any("glp_polar_labels" in w for w in recognized.warnings)
 
 
 def test_an_edited_window_is_noted(tmp_path):
@@ -189,12 +189,12 @@ def test_a_polar_curve_whose_data_is_missing_keeps_its_polar_let(tmp_path):
 def test_a_blank_line_before_the_label_call_is_tolerated(tmp_path):
     path = _written(tmp_path)
     text = path.read_text().replace(
-        "gsave\ngleplot_polar_labels", "gsave\n\ngleplot_polar_labels"
+        "gsave\nglp_polar_labels", "gsave\n\nglp_polar_labels"
     )
     recognized = _recognize(path, text)
     again = tmp_path / "again.gle"
     recognized.figure.savefig(str(again))
-    assert again.read_text().count("gleplot_polar_labels 2.5") == 1
+    assert again.read_text().count("glp_polar_labels 2.5") == 1
     assert recognized.warnings == []
 
 

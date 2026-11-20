@@ -37,8 +37,8 @@ def _block(call: str, layer: int = 150) -> str:
 def test_image_blocks_come_back_as_placed_images(tmp_path):
     recognized = _parse(
         tmp_path,
-        _block('draw gleplot_bitmap "my scans/a.png" 0 10 -1 5')
-        + _block('draw gleplot_postscript "logo.eps" 1 2.5 3 4'),
+        _block('draw glp_bitmap "my scans/a.png" 0 10 -1 5')
+        + _block('draw glp_postscript "logo.eps" 1 2.5 3 4'),
     )
     ax = recognized.figure.axes_list[0]
     assert [dict(image) for image in ax.images] == [
@@ -53,13 +53,13 @@ def test_image_blocks_come_back_as_placed_images(tmp_path):
     "block",
     [
         # The layer was edited to change the stacking.
-        _block('draw gleplot_bitmap "a.png" 0 1 0 1', layer=600),
+        _block('draw glp_bitmap "a.png" 0 1 0 1', layer=600),
         # The call does not fit the file type.
-        _block('draw gleplot_postscript "a.png" 0 1 0 1'),
+        _block('draw glp_postscript "a.png" 0 1 0 1'),
         # A reversed extent.
-        _block('draw gleplot_bitmap "a.png" 1 0 0 1'),
+        _block('draw glp_bitmap "a.png" 1 0 0 1'),
         # An argument missing.
-        _block('draw gleplot_bitmap "a.png" 0 1 0'),
+        _block('draw glp_bitmap "a.png" 0 1 0'),
     ],
     ids=["layer", "type", "reversed", "arity"],
 )
@@ -71,7 +71,7 @@ def test_an_edited_image_block_stays_raw_with_a_note(tmp_path, block):
         line.strip() for line in block.splitlines()
     ]
     (warning,) = recognized.warnings
-    assert warning.startswith("structure: 'draw gleplot_")
+    assert warning.startswith("structure: 'draw glp_")
     assert "read back as an image" in warning
 
 

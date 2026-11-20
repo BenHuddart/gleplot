@@ -78,12 +78,12 @@ from .writer import (
     resolve_figure,
 )
 
-#: A ``marker gleplot_mdata_<name>`` reference in raw GLE; group 1 is the name.
+#: A ``marker glp_mdata_<name>`` reference in raw GLE; group 1 is the name.
 _MDATA_MARKER_RE = re.compile(
     r"\bmarker\s+" + re.escape(MDATA_SUB_PREFIX) + r"(\w+)", re.IGNORECASE
 )
 
-#: A ``marker gleplot_cdata_<marker>_<cmap>`` reference in raw GLE; groups 1
+#: A ``marker glp_cdata_<marker>_<cmap>`` reference in raw GLE; groups 1
 #: and 2 are the marker and the colormap.
 _CDATA_MARKER_RE = re.compile(
     r"\bmarker\s+" + re.escape(CDATA_SUB_PREFIX) + r"([a-z0-9]+)_(\w+)",
@@ -3004,7 +3004,7 @@ class Figure:
                 why = "cairo=True was requested"
             # GLE's Cairo device draws nothing for the 'postscript' command.
             if effective_cairo and any(
-                image_sub_name(image["file"]) == "gleplot_postscript"
+                image_sub_name(image["file"]) == "glp_postscript"
                 for ax in self.axes_list
                 for image in ax.images
                 if is_visible(image)

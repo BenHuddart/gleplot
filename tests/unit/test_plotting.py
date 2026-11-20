@@ -227,8 +227,8 @@ class TestScatterPlots:
         "extra, drawn",
         [
             ({}, "marker FCIRCLE"),
-            ({"s": [10, 40]}, "marker gleplot_mdata_fcircle "),
-            ({"c": [1, 2]}, "marker gleplot_cdata_fcircle_"),
+            ({"s": [10, 40]}, "marker glp_mdata_fcircle "),
+            ({"c": [1, 2]}, "marker glp_cdata_fcircle_"),
         ],
     )
     def test_scatter_marker_none_is_the_default_circle(self, extra, drawn):
