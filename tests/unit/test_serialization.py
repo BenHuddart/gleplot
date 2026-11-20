@@ -463,6 +463,8 @@ _AXES_RUNTIME_ONLY_ATTRS = {
     "figure",
     # Rebuilt in from_dict from the max ``_draw_seq`` on loaded series.
     "_draw_seq_counter",
+    # Rebuilt in from_dict from the colours of the loaded series.
+    "_color_cycles",
 }
 
 # Axes attributes that ARE serialized, mapped to the to_dict()/from_dict()

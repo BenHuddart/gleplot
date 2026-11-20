@@ -2206,25 +2206,26 @@ class _Recognizer:
         )
         return default
 
-    def _meta_color(self, meta: Dict[str, Any], key: str) -> str:
-        """The metadata's GLE colour ``key``, or its default when it is absent.
+    def _meta_color(self, meta: Dict[str, Any], key: str) -> Optional[str]:
+        """The metadata's GLE colour ``key``, or None (the colour cycle).
 
         A value that is not a colour token the writer records (a GLE colour
         name or an expression such as ``rgb255(...)``) is reported and
         ignored.
         """
-        default = str(_metadata.DEFAULTS[key])
-        value = meta.get(key, default)
+        value = meta.get(key)
+        if value is None:
+            return None
         if isinstance(value, str) and (
             value in _gle_color_names() or _COLOR_EXPR_RE.match(value)
         ):
             return value
         self._note(
             ImportCategory.METADATA,
-            f"{key} = {value!r} is not a GLE colour; using {default}",
+            f"{key} = {value!r} is not a GLE colour; using the colour cycle",
             None,
         )
-        return default
+        return None
 
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
         """The ``Figure`` described by the metadata and the preamble."""
@@ -11173,6 +11174,7 @@ class _Recognizer:
         for idx, info in enumerate(parsed_axes):
             ax = Axes(fig, positions[idx])
             self._populate_axes(ax, info)
+            ax._sync_color_cycles()
             fig._apply_shared_axes_flags(ax)
             # Restore explicit visibility flags recovered from GLE (override
             # the derived ones where the GLE said something different).

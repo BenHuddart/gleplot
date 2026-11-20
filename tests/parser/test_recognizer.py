@@ -153,7 +153,7 @@ def normalize(d: dict) -> dict:
 
     default_linewidth = style.get("default_linewidth", 1.5)
     for key in ("default_color", "default_marker_color"):
-        if key in style:
+        if style.get(key) is not None:
             style[key] = rgb_to_gle(style[key])
 
     def _snap_linewidth(v, verbatim=False):
@@ -842,7 +842,7 @@ def test_axis_clip_and_polygon_fills_round_trip(tmp_path):
     out = tmp_path / "again.gle"
     recognized.figure.savefig_gle(str(out))
     assert out.read_text(encoding="utf-8") == gle_path.read_text(encoding="utf-8")
-    assert "fill d5,x2 color LIGHTBLUE" in out.read_text(encoding="utf-8")
+    assert "fill d5,x2 color rgb255(255,127,14)" in out.read_text(encoding="utf-8")
 
 
 def test_unresolved_single_curve_fills_keep_their_form(tmp_path):
@@ -868,9 +868,9 @@ def test_unresolved_single_curve_fills_keep_their_form(tmp_path):
     out = tmp_path / "again.gle"
     recognized.figure.savefig_gle(str(out))
     text = out.read_text(encoding="utf-8")
-    assert "fill x1,d1 color LIGHTBLUE xmin 0.5" in text
-    assert "fill d2 color LIGHTBLUE" in text
-    assert "fill d3,x2 color LIGHTBLUE ymax 4" in text
+    assert "fill x1,d1 color rgb255(31,119,180) xmin 0.5" in text
+    assert "fill d2 color rgb255(255,127,14)" in text
+    assert "fill d3,x2 color rgb255(44,160,44) ymax 4" in text
     assert "d1,d2" not in text
 
 
@@ -1379,9 +1379,9 @@ def test_default_style_values_are_not_recorded(tmp_path):
         ("default_linewidth", "thick", 1.5),
         ("default_linewidth", "true", 1.5),
         ("default_linewidth", "inf", 1.5),
-        ("default_color", "notacolor", "BLUE"),
-        ("default_color", "0.3", "BLUE"),
-        ("default_marker_color", "true", "BLUE"),
+        ("default_color", "notacolor", None),
+        ("default_color", "0.3", None),
+        ("default_marker_color", "true", None),
         ("msize_scale", "big", 1.0),
         ("msize_scale", "nan", 1.0),
     ],
