@@ -708,7 +708,8 @@ class LineSeries(_XYSeries):
     #: values (``*``), which break the line, so each run of points is its
     #: own polyline (``Axes.plot`` / ``step`` with NaN, ``Axes.hlines`` /
     #: ``Axes.vlines``). Absent: NaN is written ``nan``, which GLE drops,
-    #: joining the neighbours.
+    #: joining the neighbours. A line read from a data provider gets it at
+    #: write time, on the resolved copy only.
     gaps: bool
 
 
@@ -1066,6 +1067,9 @@ class FillSeries(Series):
     alpha: float
     label: Optional[str]
     offset: float
+    #: Set by ``open_gle`` when a ``let`` shifts the second curve by another
+    #: amount than the first. Absent: ``offset`` shifts both.
+    _offset2: float
     data_file: Optional[str]
     column_names: Optional[List[str]]
     #: Where the numbers come from; absent means InlineData (this

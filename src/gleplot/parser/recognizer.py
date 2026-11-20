@@ -320,7 +320,17 @@ from ..guides import (
     GUIDE_MARKER_ORIENTS,
     GUIDE_MARKER_PREFIX,
 )
-from ..palettes import canonical_cmap, colorbar_cmap, palette_call_name
+from ..palettes import (
+    PALETTES_INCLUDE,
+    SUPPORTED_CMAPS,
+    canonical_cmap,
+    colorbar_cmap,
+    is_native,
+    palette_call_name,
+    palette_include,
+    palette_sub_name,
+    palette_sub_text,
+)
 from ..series import (
     _DATASET_NAME_RE,
     SERIES_CLASSES,
@@ -768,7 +778,23 @@ _LEGACY_SUBS = frozenset(
         "gleplot_box_flier",
         "gleplot_box_mean",
     }
-)
+) | {
+    # gleplot 5's palette subs; colormaps now call GLE's (gleplot.palettes).
+    f"gleplot_{c}"
+    for base in {canonical_cmap(name) for name in SUPPORTED_CMAPS}
+    for c in (base, base + "_r")
+}
+
+
+def _is_legacy_sub(name: str) -> bool:
+    """True if ``sub <name>`` is one gleplot no longer writes or reads.
+
+    A per-point colour sub is one when its colormap is not one GLE draws:
+    gleplot 5 wrote those for every map it had.
+    """
+    if name.startswith(CDATA_SUB_PREFIX):
+        return not is_native(name[len(CDATA_SUB_PREFIX) :].partition("_")[2], True)
+    return name in _LEGACY_SUBS
 
 
 def _guide_marker_text(node) -> Optional[str]:
@@ -1833,6 +1859,11 @@ class _Recognizer:
         self._table_cache: Dict[str, object] = {}
         self._layout_cache: Dict[Tuple[Any, ...], Optional[GLEDataLayout]] = {}
         self._import_list: Optional[List[str]] = None
+        # Imported files whose raw datasets lose their 'data' statement when
+        # a series rewrites the file; parse_gle_figure recognizes again,
+        # reading the files kept as written.
+        self._shared_imports: Set[str] = set()
+        self._kept_imports: Set[str] = set()
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
         # by their frames.
@@ -1857,6 +1888,9 @@ class _Recognizer:
         # (palette / colorbar / contour-labels). Dropped everywhere, like the
         # metadata block, and regenerated canonically from the model on re-save.
         self._gleplot_sub_lines: set = set()
+        # The ``cmap_<name>`` subs defined with a body other than gleplot's
+        # wrapper: kept as raw GLE, and a colormap calling one with them.
+        self._own_palette_subs: Set[str] = set()
         # gleplot_contourf<k> sub name (lower case) -> its colouring comment
         # line (writer.CONTOURF_MARKER), and -> the line numbers it spans,
         # read while those subs are scanned.
@@ -1978,22 +2012,32 @@ class _Recognizer:
         # --- data-file naming state for byte-identical re-save. ---
         self._finalize_data_state(fig)
         # The writer includes rugs.gle only for a rug, color.gle only for a
-        # colorbar, contour.gle only for contour labels; an include nothing
-        # read back will regenerate stays.
+        # colorbar or a coolwarm palette, contour.gle only for contour labels,
+        # palettes.gle only for its palettes; an include nothing read back
+        # will regenerate stays.
+        palette_files = set(map(palette_include, fig._palette_cmaps()))
         regenerated = {
             RUGS_INCLUDE: any(ax.rugs for ax in fig.axes_list),
             CONTOUR_INCLUDE: any(
                 ct.get("clabel") for ax in fig.axes_list for ct in ax.contours
             ),
-            COLOR_INCLUDE: any(
+            COLOR_INCLUDE: COLOR_INCLUDE in palette_files
+            or any(
                 s.get("colorbar")
                 for ax in fig.axes_list
                 for s in list(ax.heatmaps) + list(ax.scatters)
             ),
+            PALETTES_INCLUDE: PALETTES_INCLUDE in palette_files,
         }
-        fig.passthrough_header.extend(
-            text for name, text in self._held_includes if not regenerated[name]
-        )
+        # First in the header: a sub kept there may call the routines. A
+        # palette sub of the file's own keeps its file's include there even
+        # when the writer writes one too (it then writes none).
+        own = (PALETTES_INCLUDE, COLOR_INCLUDE) if self._own_palette_subs else ()
+        fig.passthrough_header[:0] = [
+            text
+            for name, text in self._held_includes
+            if not regenerated[name] or name in own
+        ]
         self._note_dropped_comments(doc, fig)
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
@@ -2071,9 +2115,9 @@ class _Recognizer:
         """Lines of the gleinc ``include``s the writer may write again.
 
         ``graphutil.gle`` when some graph is followed by a guide line that
-        will be read back. ``rugs.gle``, ``color.gle`` and ``contour.gle``
-        always, their text held in ``_held_includes`` until the rugs,
-        colorbars and contour labels are read.
+        will be read back. ``rugs.gle``, ``color.gle``, ``contour.gle`` and
+        ``palettes.gle`` always, their text held in ``_held_includes`` until
+        the rugs, colorbars, contour labels and palettes are read.
         """
         names: Set[str] = set()
         for k, node in enumerate(nodes):
@@ -2088,6 +2132,7 @@ class _Recognizer:
         names.add(RUGS_INCLUDE)
         names.add(COLOR_INCLUDE)
         names.add(CONTOUR_INCLUDE)
+        names.add(PALETTES_INCLUDE)
         lines = set()
         for node in nodes:
             if not (
@@ -2099,7 +2144,7 @@ class _Recognizer:
             name = self._first_string(_words_and_values(node))
             if name in names:
                 lines.add(node.line_no)
-            if name in (RUGS_INCLUDE, COLOR_INCLUDE, CONTOUR_INCLUDE):
+            if name in (RUGS_INCLUDE, COLOR_INCLUDE, CONTOUR_INCLUDE, PALETTES_INCLUDE):
                 self._held_includes.append((name, self._stmt_text(node)))
         return lines
 
@@ -3791,22 +3836,26 @@ class _Recognizer:
                 clause = self._orphan_data_clause(
                     [(n, defs[n]) for n in orphans], read_options, info
                 )
+                data_file = defs[orphans[0]][0]
                 if clause is not None:
                     restored.append(clause)
+                    if data_file in self._kept_imports:
+                        self._note(
+                            ImportCategory.DATA,
+                            f"'{data_file}' is read by raw GLE beside series "
+                            "gleplot models, so it is kept as written and "
+                            "read in place. To edit that data, load the file "
+                            "and plot it with ax.plot()",
+                            (data_line_no, data_line_no),
+                        )
+                    continue
+                if self._is_import(data_file):
+                    # The writer rewrites an imported file with just the
+                    # columns its series read, so no clause can define the
+                    # orphans until the file is read as a reference.
+                    self._shared_imports.add(data_file)
                     continue
                 # Otherwise surface it instead of guessing.
-                #
-                # A bar that cannot be modeled (an unmodelled sub-command, or
-                # a dataset shared with a fill that stays raw) is held with
-                # every name on its data statement, so this branch is not
-                # how a stack is kept consistent. For an imported (owned)
-                # file there is no narrower fix: synthesizing a second 'data'
-                # clause for just the orphaned names would reference columns
-                # the modeled series' OWN regenerated sidecar no longer
-                # carries (GLEWriter always rewrites an owned series' data
-                # file with exactly the columns it uses -- see
-                # GLEWriter.add_bar/_write_columns), which would
-                # silently corrupt the file instead of fixing the reference.
                 self._note(
                     ImportCategory.DATA,
                     "'"
@@ -4502,6 +4551,42 @@ class _Recognizer:
         return marker
 
     @staticmethod
+    def _guide_extent_matches(
+        marker, info, start: float, end: float, joined: bool = True
+    ) -> bool:
+        """Whether re-saving a guide writes back the spanned ends it has.
+
+        The writer resolves the marker's extent against the spanned axis'
+        limits (:meth:`Axes.materialize_reflines`) and writes the ends as
+        one column, or as a band's two (``joined=False``). Re-saving does so
+        against the limits as read, so the text must come out the same:
+        otherwise someone edited one side, and re-saving would move the
+        guide. Without both limits stated before the guide there is nothing
+        to resolve against.
+        """
+        limits = [
+            bound
+            for axis in ("x", "y")
+            for bound in _oriented(
+                info[f"{axis}min"], info[f"{axis}max"], info[f"{axis}negate"]
+            )
+        ]
+        lo, hi = Axes.guide_spanned_bounds(marker, limits)
+        if lo is None or hi is None:
+            return False
+        frac_lo, frac_hi = marker["fields"]["extent"]
+        expected = Axes._fraction_to_data(frac_lo, frac_hi, lo, hi)
+        axis = "y" if marker["orient"] == "v" else "x"
+        tol = GLEWriter._axis_tolerance(lo, hi, info[f"{axis}log"], None)
+
+        def written(ends):
+            if joined:
+                return GLEWriter._format_column(ends, tol)
+            return [GLEWriter._format_column([v, v], tol)[0] for v in ends]
+
+        return written(list(expected)) == written([start, end])
+
+    @staticmethod
     def _guide_coord_matches(value: float, *found: float) -> bool:
         """Whether an emitted coordinate is the one the marker claims.
 
@@ -4524,7 +4609,8 @@ class _Recognizer:
 
         * the dataset is not the two rows a guide materializes into, or its
           constant coordinate is not the one the marker claims (someone moved
-          the guide by editing the ``.dat``);
+          the guide by editing the ``.dat``), or its ends are not the
+          marker's extent across the axis range (:meth:`_guide_extent_matches`);
         * the display command carries something no guide emission has: a
           marker, a ``y2axis`` binding, an offset ``let``, smoothing, a
           dataset qualifier (``mdist``, ``deresolve``, a data range);
@@ -4551,8 +4637,10 @@ class _Recognizer:
         if x.size != 2 or y.size != 2:
             return None
         (value,) = marker["fields"]["value"]
-        along = x if marker["orient"] == "v" else y
+        along, across = (x, y) if marker["orient"] == "v" else (y, x)
         if not self._guide_coord_matches(value, *along.tolist()):
+            return None
+        if not self._guide_extent_matches(marker, info, *across.tolist()):
             return None
         lo, hi = marker["fields"]["extent"]
         ref = RefLine(
@@ -4585,7 +4673,7 @@ class _Recognizer:
         :mod:`gleplot.guides` for why the marker deliberately does not carry
         it.
         """
-        if entry.get("offset"):
+        if entry.get("offset") or entry.get("_offset2"):
             return None
         x = np.asarray(entry["x"], dtype=float)
         upper = np.asarray(entry["y1"], dtype=float)
@@ -4599,14 +4687,14 @@ class _Recognizer:
                 and self._guide_coord_matches(end, x[1])
                 and self._guide_coord_matches(upper[0], upper[1])
                 and self._guide_coord_matches(lower[0], lower[1])
+                and self._guide_extent_matches(marker, info, lower[0], upper[0], False)
             )
         else:
-            # The x column is this band's fractional extent, already resolved
-            # against the axis range -- unrecoverable, and the marker's own
-            # business (gleplot.guides). Only the edges are cross-checkable.
-            ok = self._guide_coord_matches(
-                end, *upper.tolist()
-            ) and self._guide_coord_matches(start, *lower.tolist())
+            ok = (
+                self._guide_coord_matches(end, *upper.tolist())
+                and self._guide_coord_matches(start, *lower.tolist())
+                and self._guide_extent_matches(marker, info, x[0], x[1])
+            )
         if not ok:
             return None
         lo, hi = marker["fields"]["extent"]
@@ -7149,7 +7237,9 @@ class _Recognizer:
             user_files = [
                 datasets[name][0]
                 for name in involved
-                if name in datasets and not self._is_import(datasets[name][0])
+                if name in datasets
+                and datasets[name][0] not in self._kept_imports
+                and not self._is_import(datasets[name][0])
             ]
             self._keep_bar_raw(
                 scanned, info, stmt, toks, user_files[0] if user_files else None
@@ -7460,7 +7550,11 @@ class _Recognizer:
             offset=info["_dataset_offsets"].get(d_names[0], 0.0),
             data_file=f1,
         )
-        if target is not None:
+        if target is None:
+            offset2 = info["_dataset_offsets"].get(d_names[1], 0.0)
+            if offset2 != fill_fields["offset"]:
+                fill_fields["_offset2"] = offset2
+        else:
             fill_fields["target"] = target
         fill_fields.update(clips)
         column_names = self._recovered_column_names(
@@ -7881,10 +7975,10 @@ class _Recognizer:
         """
         name = str(attrs["marker"]).lower()
         builtin, _, cmap = name[len(CDATA_SUB_PREFIX) :].partition("_")
-        try:
-            known_cmap = canonical_cmap(cmap) == cmap
-        except ValueError:
-            known_cmap = False
+        known_cmap = (
+            is_native(cmap, True)
+            and palette_sub_name(cmap) not in self._own_palette_subs
+        )
         let = info["_colour_lets"].get(attrs["mdata"])
         modelled = self._build_mdata_scatter(
             info,
@@ -8683,35 +8777,51 @@ class _Recognizer:
     # -- contour / heatmap recognition ----------------------------------
 
     def _scan_gleplot_sub_lines(self) -> set:
-        """1-based line numbers spanned by ``sub gleplot_<name>`` definitions.
+        """1-based line numbers spanned by the subs gleplot writes.
 
-        gleplot emits self-contained palette subs (see
-        :mod:`gleplot.palettes`). Their bodies use ``sub``/``if``/``return``
-        etc.; they are dropped wherever they appear (like the metadata block) and
-        regenerated canonically from the model on re-save, so they never leak
-        into passthrough nor trip the programmatic-construct guard.
+        Those are the ``sub gleplot_<name>`` definitions other than the ones
+        it no longer writes (:func:`_is_legacy_sub`), and the ``cmap_<name>``
+        palette wrappers written exactly as :mod:`gleplot.palettes` writes
+        them; a wrapper with another body is the file's own. Their bodies use
+        ``sub``/``if``/``return`` etc.; they are dropped wherever they appear
+        (like the metadata block) and regenerated canonically from the model
+        on re-save, so they never leak into passthrough nor trip the
+        programmatic-construct guard.
         """
         nums: set = set()
         in_sub = False
         sub_name = ""
-        for idx, line in enumerate(self.text.splitlines(), start=1):
+        lines = self.text.splitlines()
+        for idx, line in enumerate(lines, start=1):
             low = line.strip().lower()
             if not in_sub:
-                if low.startswith("sub gleplot_") and (low.split()[1] in _LEGACY_SUBS):
+                words = low.split()
+                if low.startswith("sub gleplot_") and _is_legacy_sub(words[1]):
                     self._note(
                         ImportCategory.STRUCTURE,
-                        f"'{low.split()[1]}' is a sub an earlier gleplot "
-                        "wrote, which gleplot no longer reads; it and the "
-                        "calls that use it were kept as raw GLE",
+                        f"'{words[1]}' is a sub an earlier gleplot "
+                        "wrote, which gleplot no longer reads; it was kept as "
+                        "raw GLE, with the calls that need it",
                         (idx, idx),
                     )
                 elif low.startswith("sub gleplot_"):
                     in_sub = True
-                    sub_name = low.split()[1]
+                    sub_name = words[1]
                     nums.add(idx)
                     if sub_name.startswith("gleplot_contourf"):
                         self._contourf_sub_spans[sub_name] = {idx}
-                elif _GLEPLOT_DEFINE_MARKER_RE.match(low):
+                elif low.startswith("sub cmap_"):
+                    name = words[1][len("cmap_") :]
+                    text = palette_sub_text(name) if is_native(name, True) else ""
+                    span = range(idx, idx + text.count("\n") + 1)
+                    body = lines[idx - 1 : span.stop - 1]
+                    if text and "\n".join(ln.rstrip() for ln in body) == text:
+                        nums.update(span)
+                    else:
+                        self._own_palette_subs.add(words[1])
+                elif _GLEPLOT_DEFINE_MARKER_RE.match(low) and not _is_legacy_sub(
+                    low.split()[2]
+                ):
                     # The ``define marker`` naming a per-point-size sub
                     # (writer.mdata_sub_text) is part of that sub.
                     nums.add(idx)
@@ -8843,6 +8953,13 @@ class _Recognizer:
                         cdata_bases.add(fname[: -len("-cdata.dat")])
         return colormap_files, cdata_bases
 
+    def _palette_cmap(self, palette: str) -> Optional[str]:
+        """The cmap whose wrapper sub ``palette`` names, unless the file's own."""
+        name = palette.lower()
+        if name in self._own_palette_subs:
+            return None
+        return PALETTE_SUB_TO_CMAP.get(name)
+
     def _colormap_recognizable_zfile(self, toks) -> Optional[str]:
         """Return the grid ``.z`` file iff this ``colormap`` is reconstructable.
 
@@ -8890,7 +9007,7 @@ class _Recognizer:
         if unknown:
             return None
         if not color and palette is not None:
-            if PALETTE_SUB_TO_CMAP.get(palette.lower()) is None:
+            if self._palette_cmap(palette) is None:
                 return None
         if not zfile.lower().endswith((".z", ".gz")):
             return None
@@ -9142,7 +9259,7 @@ class _Recognizer:
             )
             return
         elif palette is not None:
-            cmap = PALETTE_SUB_TO_CMAP.get(palette.lower())
+            cmap = self._palette_cmap(palette)
             if cmap is None:
                 # Foreign / unknown palette sub -> keep the whole colormap raw.
                 info["passthrough"].append(self._stmt_text(stmt))
@@ -9532,9 +9649,10 @@ class _Recognizer:
         if (zmin, zmax) != self._contourf_rescales.get(rest[1], (0.0, 1.0)):
             return False
         comment = self._contourf_subs.get(rest[1])
+        fields = None if comment is None else self._contourf_fields(comment)
         return (
-            comment is not None
-            and self._contourf_fields(comment) is not None
+            fields is not None
+            and palette_sub_name(fields["cmap"]) not in self._own_palette_subs
             and self._read_z_grid(zfile) is not None
         )
 
@@ -9619,9 +9737,8 @@ class _Recognizer:
         words = comment[len(CONTOURF_MARKER) :].split()
         if len(words) < 4 or words[0] != "cmap" or words[2] != "extend":
             return None
-        try:
-            cmap = canonical_cmap(words[1])
-        except ValueError:
+        cmap = words[1]
+        if not is_native(cmap, True):
             return None
         if words[3] not in CONTOURF_EXTENDS or "levels" not in words:
             return None
@@ -9980,8 +10097,9 @@ class _Recognizer:
         colorbar = self._colorbar_group(nodes, i)
         if colorbar is not None:
             end, toks, amove_sep, label = colorbar
-            self._apply_colorbar_call(toks, amove_sep, label, axes_info)
-            return end
+            if self._apply_colorbar_call(toks, amove_sep, label, axes_info):
+                return end
+            return None
         # gsave, contour_labels file F format "..." , grestore.
         stmts = [
             st for st in map(self._as_statement, nodes[i : i + 3]) if st is not None
@@ -10102,7 +10220,8 @@ class _Recognizer:
         except ValueError:
             return None
 
-    def _apply_colorbar_call(self, toks, sep, label, axes_info) -> None:
+    def _apply_colorbar_call(self, toks, sep, label, axes_info) -> bool:
+        """Attach the bar to the series it shows; whether one was found."""
         # A vertical bar's thickness is its ``width`` and its length the
         # ``height`` expression; a horizontal bar's are the other way round.
         horizontal = toks[0].value.lower() == "color_range_horizontal"
@@ -10140,12 +10259,12 @@ class _Recognizer:
         if not holders:
             self._note(
                 ImportCategory.STRUCTURE,
-                f"a {toks[0].value} call was dropped: its axes has no heatmap or "
-                f"colour-mapped scatter in palette {args.get('palette')!r} to "
-                "attach it to",
+                f"a {toks[0].value} call was kept as raw GLE: its axes has no "
+                f"heatmap or colour-mapped scatter in palette "
+                f"{args.get('palette')!r} to attach it to",
                 None,
             )
-            return
+            return False
         hm = holders[0]
         cb = {
             "label": label,
@@ -10160,6 +10279,7 @@ class _Recognizer:
         if horizontal:
             cb["orientation"] = "horizontal"
         hm["colorbar"] = cb
+        return True
 
     def _apply_clabel_call(self, toks, axes_info) -> bool:
         """Set ``clabel`` on the contour whose labels file the call reads.
@@ -10317,6 +10437,8 @@ class _Recognizer:
         return True
 
     def _is_import(self, data_file) -> bool:
+        if data_file in self._kept_imports:
+            return False
         if str(self._data_path(data_file)) in self._disowned:
             return False
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
@@ -12029,16 +12151,20 @@ def parse_gle_figure(
     """
     text, gle_path = _resolve_input(path_or_text, base_dir)
     disowned: Dict[str, str] = {}
+    kept: Set[str] = set()
     while True:
         rec = _Recognizer(text, gle_path, disowned)
+        rec._kept_imports = set(kept)
         result = rec.run()
         # Which statements stay raw is known only once the whole file is
-        # read, and treating a file as not gleplot's own can keep more of
-        # them raw, so recognition repeats until no new file is found.
+        # read. Read as references, the files raw GLE shares are kept as
+        # written, which changes how every reader of them loads, in every
+        # graph, so recognition repeats until no new file is found.
         raw_read = rec.owned_files_read_raw(result.figure)
-        if not raw_read:
+        if not raw_read and not rec._shared_imports:
             return result
         disowned.update(raw_read)
+        kept |= rec._shared_imports
 
 
 def _resolve_input(path_or_text, base_dir) -> Tuple[str, Path]:

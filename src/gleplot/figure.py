@@ -90,6 +90,30 @@ _CDATA_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: A palette wrapper sub (``cmap_<name>``) named in raw GLE, and one defined
+#: there; group 1 is the name.
+_PALETTE_REF_RE = re.compile(r"\bcmap_(\w+)", re.IGNORECASE)
+_PALETTE_DEF_RE = re.compile(r"^\s*sub\s+cmap_(\w+)", re.IGNORECASE | re.MULTILINE)
+
+
+def _raw_palettes(fig: "Figure") -> Tuple[Set[str], Set[str]]:
+    """The palette wrappers raw GLE kept from a loaded file calls, and defines.
+
+    The parser dropped gleplot's wrapper subs, so the ones called are written
+    again; one the raw text defines itself is the file's own and is not.
+    """
+    raw = "\n".join(
+        [
+            *fig.passthrough_header,
+            *fig.passthrough_trailer,
+            *(line for ax in fig.axes_list for line in ax.passthrough),
+            *(line for ax in fig.axes_list for line in ax.trailing_passthrough),
+        ]
+    )
+    called = {name.lower() for name in _PALETTE_REF_RE.findall(raw)}
+    own = {name.lower() for name in _PALETTE_DEF_RE.findall(raw)}
+    return {c for c in called if _pal.is_native(c, sub=True)}, own
+
 
 def _coloured_markers(ax: Axes, resolution: SourceResolution) -> Set[Tuple[str, str]]:
     """The ``(marker, cmap)`` of each per-point colour sub ``ax`` draws with.
@@ -104,12 +128,8 @@ def _coloured_markers(ax: Axes, resolution: SourceResolution) -> Set[Tuple[str, 
     }
     for line in ax.passthrough:
         for marker, cmap in _CDATA_MARKER_RE.findall(line):
-            try:
-                canonical = _pal.canonical_cmap(cmap)
-            except ValueError:
-                continue
-            if marker.upper() in MARKERS and canonical == cmap.lower():
-                found.add((marker.lower(), canonical))
+            if marker.upper() in MARKERS and _pal.is_native(cmap.lower(), sub=True):
+                found.add((marker.lower(), cmap.lower()))
     return found
 
 
@@ -2117,6 +2137,12 @@ class Figure:
                     "the range between the first and last level."
                 )
         else:
+            if hm["cmap"] == "rainbow" and hm.get("invert"):
+                warn_external(
+                    "colorbar() of an inverted rainbow image draws the bar "
+                    "the right way up: GLE has no reversed rainbow. Pass "
+                    "another cmap to imshow() to get a bar that matches."
+                )
             values = hm["z"] if hm["source"] == "grid" else hm["zpts"]
             have_values = values is not None and np.asarray(values).size > 0
             zmin = float(hm["vmin"]) if hm["vmin"] is not None else None
@@ -3210,7 +3236,7 @@ class Figure:
                 passthrough_before_hei=self.passthrough_before_hei,
                 page_box=self.page_box,
             )
-            writer.add_sub_defs(sub_texts)
+            writer.add_sub_defs(*sub_texts)
             rects, _cells = self._layout_rects(writer, resolution)
 
             if self.axes_list:
@@ -3271,7 +3297,7 @@ class Figure:
                 passthrough_before_hei=self.passthrough_before_hei,
                 page_box=self.page_box,
             )
-            writer.add_sub_defs(sub_texts)
+            writer.add_sub_defs(*sub_texts)
 
             # Resolve each panel's limits from its own data first, then let
             # sharing unify them. Doing it in this order means a shared LOG
@@ -3513,11 +3539,37 @@ class Figure:
                 right = max(right, self._colorbar_reserved_cm(cb))
         return right, below
 
-    def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/rug/polar/image subs.
+    def _palette_cmaps(self, resolution: Optional[SourceResolution] = None):
+        """The maps whose ``cmap_<name>`` wrapper sub the script defines.
 
-        Returns the deterministic ordered list of sub-definition texts: used
-        palette subs (a heatmap's or a per-point colour's) sorted by name,
+        A heatmap's, its inverted colorbar's, a per-point colour's (gray
+        included) and a contourf's band sub's, and one raw GLE kept from a
+        loaded file calls, but not one that raw GLE defines itself.
+        :func:`gleplot.palettes.palette_include` names the file each calls.
+        """
+        resolution = resolution or SourceResolution()
+        used_cmaps = set()
+        for ax in self.axes_list:
+            for hm in resolution.visible(ax.heatmaps):
+                if _pal.cmap_needs_sub(hm["cmap"]) or "levels" in hm:
+                    used_cmaps.add(hm["cmap"])
+            for hm in _colorbar_holders(ax, resolution):
+                cb = hm.get("colorbar")
+                if cb and hm.get("invert"):
+                    # The reversed palette add_colorbar draws (colorbar_cmap).
+                    bar_cmap = _pal.colorbar_cmap(hm["cmap"], True)
+                    if _pal.cmap_needs_sub(bar_cmap):
+                        used_cmaps.add(bar_cmap)
+            used_cmaps |= {cmap for _marker, cmap in _coloured_markers(ax, resolution)}
+        called, own = _raw_palettes(self)
+        return (used_cmaps | called) - own
+
+    def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
+        """Gather the palette/rug/polar/image subs, and the files they call.
+
+        Returns the deterministic ordered list of sub-definition texts, and
+        the gleinc files the palette subs call routines from. The subs are:
+        the palette subs (:meth:`_palette_cmaps`) sorted by name,
         then the rug subs (if any rug has a tick), then one per-point
         marker-size sub per marker
         that a scatter with ``mdata`` uses, sorted by name, then one per-point
@@ -3530,44 +3582,20 @@ class Figure:
         The ``graphutil.gle`` include for guides (:mod:`gleplot.guides`) is
         NOT decided here: which guides are drawn after ``end graph`` depends
         on limits that are still unresolved at this point in the write. The
-        writer records it as the calls are emitted and splices it in beside
+        writer records it as the calls are emitted and splices it in before
         these subs afterwards -- see
         :meth:`gleplot.writer.GLEWriter.finalize_includes`.
         """
         resolution = resolution or SourceResolution()
-        used_cmaps = set()
-        for ax in self.axes_list:
-            for hm in resolution.visible(ax.heatmaps):
-                if _pal.cmap_needs_sub(hm["cmap"]) and "levels" not in hm:
-                    used_cmaps.add(hm["cmap"])
-            for hm in _colorbar_holders(ax, resolution):
-                cb = hm.get("colorbar")
-                if cb and hm.get("invert"):
-                    # The reversed palette add_colorbar draws (colorbar_cmap).
-                    bar_cmap = _pal.colorbar_cmap(hm["cmap"], True)
-                    if _pal.cmap_needs_sub(bar_cmap):
-                        used_cmaps.add(bar_cmap)
-
+        used_cmaps = self._palette_cmaps(resolution)
         coloured: Set[Tuple[str, str]] = set()
         for ax in self.axes_list:
             coloured |= _coloured_markers(ax, resolution)
-        # A per-point colour and a contourf's band sub call their palette
-        # sub, gray and rainbow included.
-        point_cmaps = {cmap for _marker, cmap in coloured} | {
-            hm["cmap"]
-            for ax in self.axes_list
-            for hm in resolution.visible(ax.heatmaps)
-            if "levels" in hm
-        }
 
-        subs = []
-        for cmap in sorted(used_cmaps | point_cmaps):
-            if cmap in point_cmaps:
-                subs.append(_pal.point_palette_sub_text(cmap))
-                continue
-            text = _pal.palette_sub_text(cmap)
-            if text:
-                subs.append(text)
+        subs = [_pal.palette_sub_text(cmap) for cmap in sorted(used_cmaps)]
+        includes = {
+            name for name in map(_pal.palette_include, used_cmaps) if name is not None
+        }
         sized_markers: Set[str] = set()
         for ax in self.axes_list:
             sized_markers.update(
@@ -3593,7 +3621,7 @@ class Figure:
             for image in resolution.visible(ax.images)
         }
         subs.extend(text for name, text in IMAGE_SUBS.items() if name in used_images)
-        return subs
+        return subs, includes
 
     def _trailer_lines(self) -> List[str]:
         """The raw GLE written after the page content.
@@ -5374,7 +5402,7 @@ class Figure:
             parts = [np.asarray(fill_data["y1"]) + off]
             y2 = fill_data.get("y2")
             if y2 is not None:
-                parts.append(np.asarray(y2) + off)
+                parts.append(np.asarray(y2) + fill_data.get("_offset2", off))
             all_y = _plottable(np.concatenate(parts), positive_only)
             if len(all_y) > 0:
                 if ymin is None or all_y.min() < ymin:

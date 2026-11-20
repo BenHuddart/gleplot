@@ -210,7 +210,7 @@ ax.stem(x, y)
 
 ## Segments
 
-`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. The arguments are listed in the API reference for `Axes.vlines`. GLE breaks a line at `*` and drops a `nan` row, joining its neighbours, so `ax.plot` and `ax.step` write a NaN in a drawn line as `*`: the line breaks there, as in matplotlib. Such a line is not smoothed by `GLEGraphConfig(smooth_curves=True)`, which would fit one curve through the pieces.
+`ax.vlines(x, ymin, ymax)` and `ax.hlines(y, xmin, xmax)` are line datasets: one per distinct colour, line style and width, with a missing value (`*`) between segments. The arguments are listed in the API reference for `Axes.vlines`. GLE breaks a line at `*` and drops a `nan` row, joining its neighbours, so `ax.plot` and `ax.step` write a NaN in a drawn line as `*`: the line breaks there, as in matplotlib. So does a line whose data comes from a `data_provider` at `savefig`. Such a line is not smoothed by `GLEGraphConfig(smooth_curves=True)`, which would fit one curve through the pieces.
 
 | argument | gleplot |
 |---|---|
@@ -360,6 +360,13 @@ drawn by `contour_labels` from GLE's `contour.gle`, which writes them in blue,
 0.25 cm high, in a white box, whatever the line colour; matplotlib draws them
 in the line's colour.
 
+The colormaps are GLE's own: `viridis`, `magma`, `inferno`, `plasma`,
+`cividis`, `coolwarm`, `gray` and `rainbow` (`jet`), and their `_r` forms but
+`rainbow_r`. The ColorBrewer names, `rainbow_r` and `jet_r` warn and draw the
+closest of these, and per-point scatter colours and `contourf` bands draw
+`rainbow` as `viridis`; "Palette Gallery" in
+[Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md) lists each one.
+
 ## Line caps and joins
 
 matplotlib caps and joins each line on its own; GLE sets them once for the
@@ -449,9 +456,9 @@ The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar a
 
 | `histtype` | GLE |
 |---|---|
-| `"step"` | `dK line hist`, with smoothing pinned off |
-| `"stepfilled"` | `bar dK fill C color C width W`, one bin wide, from zero. `fill x1,dK` would chord the centres and fill to the axis minimum. The stroke matches the fill so the shared edge of two bins is not a second ink. |
-| `"bar"`, `"barstacked"` | warn, and draw the step outline. Per-bar faces, edges, groups and stacks are `Axes.bar`. |
+| `"step"` | `dK line hist`, with smoothing pinned off. The line is drawn in `edgecolor` when one is given, else in `color`, as in matplotlib. |
+| `"stepfilled"` | `bar dK fill C color C width W`, one bin wide, from zero. `fill x1,dK` would chord the centres and fill to the axis minimum. The stroke matches the fill so the shared edge of two bins is not a second ink, unless `edgecolor` is given. |
+| `"bar"`, `"barstacked"` | warn, and draw the step outline in `color`; an `edgecolor` warns and is ignored. Per-bar faces, edges, groups and stacks are `Axes.bar`. |
 
 | argument | gleplot |
 |---|---|

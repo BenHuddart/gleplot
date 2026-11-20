@@ -51,6 +51,8 @@ docs = [
     "sphinx>=4.0",
     "sphinx-rtd-theme>=1.0",
     "myst-parser>=0.18",
+    # docs/prepare_gallery.py converts the gallery images; conf.py sizes them.
+    "Pillow>=9.1",
 ]
 gle = [
     # GLE must be installed separately from system package manager

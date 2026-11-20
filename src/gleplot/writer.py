@@ -44,6 +44,7 @@ from .guides import (
     GUIDE_MARKER_PREFIX,
     fraction_expr,
 )
+from .palettes import COLOR_INCLUDE
 from .parser.tables import (
     ARROW_JOIN_SEPS,
     ARROW_TIP_STYLES,
@@ -149,7 +150,7 @@ def cdata_sub_text(marker: str, cmap: str) -> str:
         f"sub {name} size data\n"
         "   gsave\n"
         "   set hei size\n"
-        f"   set color gleplot_{_pal.canonical_cmap(cmap)}(data)\n"
+        f"   set color {_pal.palette_sub_name(cmap)}(data)\n"
         f"   marker {marker.upper()}\n"
         "   grestore\n"
         "end sub\n"
@@ -301,10 +302,6 @@ def image_sub_name(path: str) -> Optional[str]:
     """
     return _IMAGE_SUB_BY_SUFFIX.get(Path(path).suffix.lower())
 
-
-#: The gleinc file whose ``color_range_vertical``/``_horizontal`` draw a
-#: colorbar (:meth:`GLEWriter.add_colorbar`).
-COLOR_INCLUDE = "color.gle"
 
 #: The gleinc file whose ``contour_labels`` writes a contour's labels
 #: (:meth:`GLEWriter.add_contour_labels`).
@@ -1097,7 +1094,9 @@ def resolve_figure(
     document keeps its auto state. Arrays that cannot produce them (an empty
     grid, scattered samples constant in x or y, an all-NaN grid under an auto
     colorbar) skip the series with reason ``'unusable-data'`` rather than
-    raising -- see :func:`apply_grid_write_time_autos`.
+    raising -- see :func:`apply_grid_write_time_autos`. A resolved line
+    whose arrays hold NaN breaks there, as ``plot`` does (see
+    :func:`break_line_at_gaps`).
     """
     resolution = SourceResolution()
     table_files: Dict[str, str] = {}
@@ -1142,6 +1141,12 @@ def resolve_figure(
                 data = series.copy()
                 for role, values in resolved.values.items():
                     data[role] = values
+                if series_cls is LineSeries:
+                    break_line_at_gaps(
+                        data,
+                        "A line read from a data provider",
+                        figure.graph.smooth_curves,
+                    )
 
                 if isinstance(raw, GridRef):
                     # A reference-backed grid series may carry an absent
@@ -1185,6 +1190,45 @@ def resolve_figure(
                 resolution._record(series, data, binding)
 
     return resolution
+
+
+def break_line_at_gaps(series: LineSeries, who: str, smooth_curves: bool) -> None:
+    """Break a drawn line at its non-finite x or y rows, as matplotlib does.
+
+    GLE breaks a line at a missing value, which a ``gaps`` series writes
+    those rows as. The line is pinned unsmoothed and unthinned: a figure-wide
+    smooth would fit one curve through the pieces, and ``deresolve`` would
+    keep rows on both sides of a gap and join them. ``who`` names the series'
+    origin in the warnings, or is empty for none (hlines and vlines draw
+    their gaps on purpose).
+    """
+    if series.get("linestyle") in _NO_LINE:
+        return
+    try:
+        finite = all(
+            np.isfinite(np.asarray(series[role], dtype=float)).all()
+            for role in ("x", "y")
+        )
+    except (TypeError, ValueError):
+        return
+    if finite:
+        return
+    series["gaps"] = True
+    series["smooth_mode"] = "none"
+    if not who:
+        return
+    if smooth_curves:
+        warn_external(
+            f"{who} draws a line with NaN gaps unsmoothed: a smooth curve "
+            "would join its pieces. GLEGraphConfig(smooth_curves=True) does "
+            "not apply to it."
+        )
+    if series.pop("deresolve", None) is not None:
+        series.pop("deresolve_average", None)
+        warn_external(
+            f"{who} ignores deresolve=... for a line with NaN gaps: thinning "
+            "would join its pieces."
+        )
 
 
 # -- preview-only deresolve decimation (G7; SPEC 6.1/10.7) --------------------
@@ -1498,6 +1542,9 @@ class GLEWriter:
         self._pending_guide_lines: List[str] = []
         self._includes: Set[str] = set()
         self._sub_defs_mark: int = 0
+        # The raw header lines a loaded file kept: an include already there
+        # is not written again.
+        self._header_lines: List[str] = []
         # The palette sub each contourf heatmap written so far colours with,
         # by its data file: gleplot_contourf1, 2, ... in writing order.
         self._contourf_subs: Dict[str, str] = {}
@@ -1766,6 +1813,7 @@ class GLEWriter:
             ]
         )
         if passthrough_header:
+            self._header_lines = list(passthrough_header)
             self.lines_gle.extend(passthrough_header)
         if include_graph_begin:
             self.lines_gle.append("begin graph")
@@ -3308,6 +3356,8 @@ class GLEWriter:
         negative offset is emitted as ``d1-5`` (not ``d1+-5``).
         """
         offset = series.get("offset", 0.0)
+        if role == "second_offset":
+            offset = series.get("_offset2", offset)
         if not offset:
             return source_name
         shifted = self._new_dataset()
@@ -3338,10 +3388,7 @@ class GLEWriter:
             (series.get("xaxis", "x"), series["x"], 0.0),
             (series.get("yaxis", "y"), series["y"], series.get("offset", 0.0)),
         ):
-            if (
-                self._log_axes.get(axis)
-                and (np.asarray(values, dtype=float) + shift < 0).any()
-            ):
+            if self._left_out_on_log(axis, values, shift).any():
                 named = f" {series['label']!r}" if series["label"] else ""
                 warn_external(
                     f"The line{named} has negative values on the log "
@@ -3349,6 +3396,19 @@ class GLEWriter:
                     "line across them, where matplotlib draws it off the axis. "
                     "Set them to NaN to break the line there instead."
                 )
+
+    def _left_out_on_log(self, axis: str, values: Any, offset: float) -> np.ndarray:
+        """Where GLE leaves a point out because ``axis`` is log.
+
+        That is where the drawn value is negative: ``values`` plus ``offset``
+        as the script writes it, rounded (see :meth:`_apply_offset`).
+        """
+        drawn = np.asarray(values, dtype=float)
+        if not self._log_axes.get(axis):
+            return np.zeros(drawn.shape, dtype=bool)
+        if offset:
+            drawn = drawn + float(self._format_number(offset))
+        return drawn < 0
 
     def add_line(self, series: Series, binding: Optional[ColumnBinding] = None):
         """
@@ -3605,8 +3665,8 @@ class GLEWriter:
         ``deresolve`` is added: GLE requires ``dK`` to have exactly as many
         points as ``dN`` draws.
 
-        GLE drops a point whose x or y is NaN, or negative on a log axis,
-        from ``dN`` but not from ``dK`` (``transform_data`` in
+        GLE drops a point whose x or y is NaN, or negative on a log axis
+        once the offset is added, from the drawn dataset but not from ``dK`` (``transform_data`` in
         ``graph2.cpp``), and then refuses the mismatch. Such a point is
         written as a missing value (``*``) instead, which GLE keeps and does
         not draw.
@@ -3727,6 +3787,9 @@ class GLEWriter:
     ) -> Tuple[np.ndarray, np.ndarray, Optional[ColumnBinding]]:
         """``series``' x and y with ``*`` where GLE would drop the point.
 
+        On a log axis that is judged on the drawn values, which hold the
+        offset (see :meth:`_left_out_on_log`).
+
         ``also`` marks more points to write as missing. When a point is
         missing, a provider-backed series gets its own x and y columns in the
         shared sidecar: another series may read the table's columns, and
@@ -3739,10 +3802,10 @@ class GLEWriter:
         drop = np.isnan(xf) | np.isnan(yf)
         if also is not None:
             drop |= also
-        if self._log_axes.get(series.get("xaxis", "x")):
-            drop |= xf < 0
-        if self._log_axes.get(series.get("yaxis", "y")):
-            drop |= yf < 0
+        drop |= self._left_out_on_log(series.get("xaxis", "x"), xf, 0.0)
+        drop |= self._left_out_on_log(
+            series.get("yaxis", "y"), yf, series.get("offset", 0.0)
+        )
         if not drop.any():
             return x, y, binding
         if binding is not None:
@@ -5820,21 +5883,23 @@ class GLEWriter:
         self.data_files[filename] = content
         self.raw_sidecars.add(filename)
 
-    def add_sub_defs(self, sub_texts: List[str]):
-        """Append self-contained subroutine definitions to the script.
+    def add_sub_defs(self, sub_texts: List[str], includes: Iterable[str] = ()):
+        """Append subroutine definitions, and the gleinc files they call.
 
         Each entry is a full multi-line ``sub ... end sub`` block. A blank
         line separates consecutive subs (and follows the last), matching the
         script's readable block spacing.
 
-        Also marks where an include belongs, so ``graphutil.gle`` -- whose
-        need is only known once the graph blocks have been written -- can be
-        spliced in here later (:meth:`finalize_includes`).
+        Also marks where the includes belong, before the subs: GLE looks up a
+        routine a sub calls when it reads the sub. ``graphutil.gle`` -- whose
+        need is only known once the graph blocks have been written -- is
+        spliced in there later with the others (:meth:`finalize_includes`).
         """
+        self._includes.update(includes)
+        self._sub_defs_mark = len(self.lines_gle)
         for text in sub_texts:
             self.lines_gle.extend(text.split("\n"))
             self.lines_gle.append("")
-        self._sub_defs_mark = len(self.lines_gle)
 
     def finalize_includes(self) -> None:
         """Splice in an ``include`` for each gleinc file the write called.
@@ -5844,9 +5909,11 @@ class GLEWriter:
         unresolved when :meth:`add_sub_defs` runs, so the includes go in at
         that method's mark, in name order.
         """
-        if self._includes:
+        kept = {line.strip().lower() for line in self._header_lines}
+        lines = [f'include "{name}"' for name in sorted(self._includes)]
+        lines = [line for line in lines if line.lower() not in kept]
+        if lines:
             at = self._sub_defs_mark
-            lines = [f'include "{name}"' for name in sorted(self._includes)]
             self.lines_gle[at:at] = lines + [""]
 
     def add_fitz_block(self, series: Series):
@@ -6070,7 +6137,7 @@ class GLEWriter:
         lv = [float(v) for v in levels]
         lo = lv[0] if series["vmin"] is None else float(fmt(series["vmin"]))
         hi = lv[-1] if series["vmax"] is None else float(fmt(series["vmax"]))
-        call = f"gleplot_{cmap}"
+        call = _pal.palette_sub_name(cmap)
         white = "rgb(1, 1, 1)"
         under = f"{call}(0)" if extend in ("min", "both") else white
         over = f"{call}(1)" if extend in ("max", "both") else white
@@ -6103,7 +6170,7 @@ class GLEWriter:
         ``series`` is the resolved :class:`~gleplot.series.HeatmapSeries`.
         ``cmap`` picks the colour mode: ``'gray'`` writes no colour clause,
         ``'rainbow'`` is GLE's built-in ``color``, and any other name is the
-        ``gleplot_<cmap>`` palette sub. A ``'function'`` heatmap maps its
+        ``cmap_<cmap>`` palette sub. A ``'function'`` heatmap maps its
         ``expression``, written bare: GLE reads a quoted one as a file name.
         """
         cmap = series["cmap"]
@@ -6113,7 +6180,7 @@ class GLEWriter:
         elif cmap == "rainbow":
             cmap_mode = ("color", None)
         else:
-            cmap_mode = ("palette", f"gleplot_{cmap}")
+            cmap_mode = ("palette", _pal.palette_sub_name(cmap))
         if series["source"] == "function":
             operand = series["expression"]
         else:
