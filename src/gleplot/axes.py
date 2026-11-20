@@ -2187,6 +2187,20 @@ def _file_read_options(skiprows, comment, max_rows) -> Dict[str, Any]:
     return fields
 
 
+def _check_data_file(caller: str, data_file) -> None:
+    """Reject a ``data_file`` name GLE cannot load.
+
+    GLE's ``data`` command reads no filename holding a double quote: neither
+    an escaped nor a doubled quote, nor single quotes once the name also
+    holds a space.
+    """
+    if '"' in str(data_file):
+        raise ValueError(
+            f"{caller}(data_file={data_file!r}) contains a double quote, which "
+            "GLE cannot load in a data filename; rename the file."
+        )
+
+
 def _check_file_columns(x_col, **y_cols) -> None:
     """Reject a column index GLE cannot read: ``x_col`` 0 is the row index."""
     if x_col < 0:
@@ -4601,12 +4615,14 @@ class Axes:
         white-filled one.
 
         ``skiprows``, ``comment`` and ``max_rows`` control how GLE reads
-        the file, as for :meth:`line_from_file`. ``xmin``, ``xmax``,
-        ``ymin`` and ``ymax`` are the series' own data range, as for
+        the file, as for :meth:`line_from_file`. A ``data_file`` holding a
+        double quote raises ``ValueError``: GLE cannot load it. ``xmin``,
+        ``xmax``, ``ymin`` and ``ymax`` are the series' own data range, as for
         :meth:`errorbar`. ``c`` and ``ms`` are accepted for ``color`` and
         ``markersize``, as by :meth:`errorbar`; any other keyword warns and
         is ignored.
         """
+        _check_data_file("errorbar_from_file", data_file)
         _check_file_columns(x_col, y_col=y_col, yerr_col=yerr_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
         data_range = _dataset_qualifiers(None, None, False, xmin, xmax, ymin, ymax)
@@ -4682,8 +4698,11 @@ class Axes:
         replaces GLE's comment marker ``!``, and ``max_rows`` stops after
         that many data rows (comment and blank lines do not count). They
         are GLE's ``ignore``, ``comment`` and ``numrows`` options. GLE
-        itself reads a ``.gz`` file, so ``data_file`` may name one.
+        itself reads a ``.gz`` file, so ``data_file`` may name one. A
+        ``data_file`` holding a double quote raises ``ValueError``: GLE
+        cannot load it.
         """
+        _check_data_file("line_from_file", data_file)
         _check_file_columns(x_col, y_col=y_col)
         read_options = _file_read_options(skiprows, comment, max_rows)
 
