@@ -1814,14 +1814,16 @@ def test_per_point_colours_are_recovered(tmp_path):
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
     ax = fig.add_subplot(111)
-    ax.scatter([0, 1, 2], [2, 1, 2], c=[3, -1, 8], cmap="Blues", vmin=-2.5, marker="D")
+    ax.scatter(
+        [0, 1, 2], [2, 1, 2], c=[3, -1, 8], cmap="cividis_r", vmin=-2.5, marker="D"
+    )
     path = tmp_path / "coloured.gle"
     fig.savefig_gle(str(path))
     rec = parse_gle_figure(path)
     (series,) = rec.figure.axes_list[0].scatters
     assert series["marker"] == "FDIAMOND"
     assert list(series["cdata"]) == [3, -1, 8]
-    assert (series["cmap"], series["vmin"], series["vmax"]) == ("blues", -2.5, 8.0)
+    assert (series["cmap"], series["vmin"], series["vmax"]) == ("cividis_r", -2.5, 8.0)
     assert series["color"] is None
     assert rec.warnings == []
 
@@ -1863,7 +1865,7 @@ def test_an_edited_coloured_scatter_kept_raw_keeps_its_let_and_subs(tmp_path):
     rec.figure.savefig_gle(str(out))
     again = out.read_text(encoding="utf-8")
     assert again.count("sub gleplot_cdata_fcircle_magma size data\n") == 1
-    assert again.count("sub gleplot_magma z\n") == 1
+    assert again.count("sub cmap_magma z\n") == 1
     assert (
         "    data data_0.dat d1=c1,c2 d2=c1,c3\n"
         "    let d3 = (d2-1)/(3-1)\n"
@@ -1970,9 +1972,9 @@ def test_an_inverted_heatmaps_bar_stays_the_heatmaps(tmp_path, old_file):
     path = tmp_path / "bar.gle"
     fig.savefig_gle(str(path))
     text = path.read_text(encoding="utf-8")
-    assert 'palette "gleplot_viridis_r"' in text
+    assert 'palette "cmap_viridis_r"' in text
     if old_file:
-        text = text.replace('palette "gleplot_viridis_r"', 'palette "gleplot_viridis"')
+        text = text.replace('palette "cmap_viridis_r"', 'palette "cmap_viridis"')
         path.write_text(text, encoding="utf-8")
     rec = parse_gle_figure(path).figure.axes_list[0]
     assert rec.heatmaps[0]["colorbar"]["zmax"] == 3.0
@@ -2002,14 +2004,16 @@ def test_a_colorbar_call_with_nothing_to_show_is_noted(tmp_path):
     fig.savefig_gle(str(path))
     text = path.read_text(encoding="utf-8")
     path.write_text(
-        text.replace(
-            'palette "gleplot_viridis" width', 'palette "gleplot_magma" width'
-        ),
+        text.replace('palette "cmap_viridis" width', 'palette "cmap_magma" width'),
         encoding="utf-8",
     )
     rec = parse_gle_figure(path)
     assert "colorbar" not in rec.figure.axes_list[0].scatters[0]
-    assert any("color_range_vertical call was dropped" in w for w in rec.warnings)
+    notes = [w for w in rec.warnings if "color_range_vertical call was kept" in w]
+    assert len(notes) == 1
+    again = rec.figure._generate_gle_with_files()[0]
+    assert 'palette "cmap_magma" width' in again
+    assert 'include "color.gle"' in again
 
 
 def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
@@ -3149,6 +3153,7 @@ def _resave(path: Path) -> str:
 @pytest.mark.parametrize(
     "raw",
     [
+        "! a hand-written comment\n",
         "! the first graph's centre\namove xg(0.5) yg(0.5)\ncircle 0.4\n",
         "gsave\n\nset color RED\namove xg(0.5) yg(0.5)\ncircle 0.4\ngrestore\n",
         'begin key\n    position tr\n    text "up" line\nend key\n',

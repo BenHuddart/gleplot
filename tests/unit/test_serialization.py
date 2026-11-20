@@ -1309,3 +1309,18 @@ def test_a_project_with_a_broken_axis_loads_its_segments_as_axes():
     with pytest.warns(UserWarning, match="drawn over each other"):
         back = Figure.from_dict(d)
     assert [len(ax.lines) for ax in back.axes_list] == [1, 1]
+
+
+def test_a_gleplot_5_project_cmap_gle_lacks_is_drawn_with_the_closest():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    ax.imshow(np.zeros((2, 2)), cmap="viridis")
+    ax.scatter([0, 1], [0, 1], c=[0, 1], cmap="viridis")
+    d = fig.to_dict()
+    d["figure"]["axes"][0]["heatmaps"][0]["cmap"] = "rdbu_r"
+    d["figure"]["axes"][0]["scatters"][0]["cmap"] = "rainbow"
+    with pytest.warns(UserWarning, match="closest map GLE has") as record:
+        back = Figure.from_dict(d).axes_list[0]
+    assert len(record) == 2
+    assert back.heatmaps[0]["cmap"] == "coolwarm"
+    assert back.scatters[0]["cmap"] == "viridis"
