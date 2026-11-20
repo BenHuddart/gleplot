@@ -23,7 +23,7 @@ from .axes import (
 )
 from .brokenaxes import BrokenAxes
 from .cairo_support import cairo_font_warning, figure_requires_cairo
-from .colors import _rgba_parts, apply_alpha, rgb_to_gle
+from .colors import _gle_color, _rgba_parts, apply_alpha, rgb_to_gle
 from .compiler import (
     RASTER_COMPILE_FORMATS,
     SUFFIX_TO_COMPILE_FORMAT,
@@ -2389,7 +2389,9 @@ class Figure:
                 None if fontsize is None else _resolve_fontsize(self.style, fontsize)
             ),
             "frameon": True if frameon is None else bool(frameon),
-            "facecolor": None if facecolor is None else rgb_to_gle(facecolor),
+            "facecolor": (
+                None if facecolor is None else _gle_color(facecolor, "facecolor")
+            ),
             "labelcolor": labelcolor,
             "spacing": spacing,
         }
@@ -2400,7 +2402,7 @@ class Figure:
 
     def _add_drawing(self, drawing: dict, fill=None, color=None, linewidth=None):
         if fill is not None and not _is_none_color(fill):
-            drawing["fill"] = rgb_to_gle(fill)
+            drawing["fill"] = _gle_color(fill, "fill")
         if _is_none_color(color):
             if drawing["kind"] not in ("circle", "ellipse", "polygon"):
                 raise ValueError(
@@ -2409,7 +2411,7 @@ class Figure:
                 )
             drawing["color"] = "none"
         elif color is not None:
-            drawing["color"] = rgb_to_gle(color)
+            drawing["color"] = _gle_color(color, "color")
         if linewidth is not None:
             drawing["linewidth"] = _page_positive("linewidth", linewidth)
         self._drawings.append(drawing)
@@ -3260,8 +3262,7 @@ class Figure:
                 writer.end_graph()
 
             self._write_page_content(writer, resolution)
-            if self.passthrough_trailer:
-                writer.lines_gle.extend(self.passthrough_trailer)
+            writer.lines_gle.extend(self._trailer_lines())
         else:
             # Multi-subplot layout
             writer.add_preamble(
@@ -3323,10 +3324,12 @@ class Figure:
                 if ax._break_owner is not None:
                     self._emit_break_decoration(writer, ax._break_owner, ax, cell)
                 writer.lines_gle.append("")  # Blank line between subplots
+                if ax is not self.axes_list[-1]:
+                    writer.lines_gle.extend(ax.trailing_passthrough)
 
             self._write_page_content(writer, resolution)
             writer.finalize(
-                include_graph_end=False, passthrough_trailer=self.passthrough_trailer
+                include_graph_end=False, passthrough_trailer=self._trailer_lines()
             )
 
         # Provider-table sidecars are only complete once every series that
@@ -3591,6 +3594,16 @@ class Figure:
         }
         subs.extend(text for name, text in IMAGE_SUBS.items() if name in used_images)
         return subs
+
+    def _trailer_lines(self) -> List[str]:
+        """The raw GLE written after the page content.
+
+        The last axes' ``trailing_passthrough`` goes here, ahead of the
+        figure's trailer: after the last graph block, the page content comes
+        first, and a file is read back that way.
+        """
+        last = self.axes_list[-1].trailing_passthrough if self.axes_list else []
+        return [*last, *self.passthrough_trailer]
 
     def _write_page_content(
         self, writer: GLEWriter, resolution: SourceResolution

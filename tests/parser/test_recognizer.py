@@ -3160,6 +3160,71 @@ def test_an_old_pie_or_box_sub_is_kept_as_raw_gle(tmp_path, sub, call):
     assert call in text
 
 
+def _two_graphs_with(tmp_path: Path, between: str, before_amove: bool = True) -> Path:
+    """A saved two-graph file with ``between`` inserted after the first graph."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig, (a, b) = gleplot.subplots(1, 2, data_prefix="g")
+    a.plot([0, 1], [0, 1])
+    b.plot([0, 1], [1, 0])
+    path = tmp_path / "two.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    cut = text.index("amove", text.index("end graph"))
+    if not before_amove:
+        cut = text.index("begin graph", cut)
+    path.write_text(text[:cut] + between + text[cut:], encoding="utf-8")
+    return path
+
+
+def _resave(path: Path) -> str:
+    text = parse_gle_figure(path).figure._generate_gle_with_files()[0]
+    path.write_text(text, encoding="utf-8")
+    return text
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "! the first graph's centre\namove xg(0.5) yg(0.5)\ncircle 0.4\n",
+        "gsave\n\nset color RED\namove xg(0.5) yg(0.5)\ncircle 0.4\ngrestore\n",
+        'begin key\n    position tr\n    text "up" line\nend key\n',
+    ],
+)
+def test_raw_gle_between_graphs_stays_after_its_graph(tmp_path, raw):
+    """An xg()/yg() in it addresses the graph before it, as in the file."""
+    path = _two_graphs_with(tmp_path, raw + "\n")
+    rec = parse_gle_figure(path).figure
+    assert rec.axes_list[0].trailing_passthrough == raw.splitlines()
+    assert rec.passthrough_trailer == []
+    again = _resave(path)
+    assert again.split("end graph\n")[1].startswith("\n" + raw)
+    # It stays there on the next load, and in a to_dict snapshot.
+    assert _resave(path) == again
+    copy = Figure.from_dict(rec.to_dict())
+    assert copy.axes_list[0].trailing_passthrough == raw.splitlines()
+
+
+def test_a_comment_between_amove_and_graph_leaves_the_placement(tmp_path):
+    path = _two_graphs_with(tmp_path, "! the second panel\n", before_amove=False)
+    rec = parse_gle_figure(path).figure
+    assert rec.axes_list[1].placement is not None
+    assert rec.axes_list[0].trailing_passthrough == ["! the second panel"]
+
+
+def test_the_last_axes_trailing_gle_follows_the_page_content(tmp_path):
+    """After the last graph a file is read as page content, then raw GLE."""
+    fig, (a, b) = gleplot.subplots(1, 2, data_prefix="g")
+    a.plot([0, 1], [0, 1])
+    b.plot([0, 1], [1, 0])
+    b.trailing_passthrough = ["! after the last graph"]
+    fig.suptitle("Both")
+    path = tmp_path / "last.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path).figure
+    assert rec._suptitle is not None
+    assert rec.passthrough_trailer == ["! after the last graph"]
+
+
 def test_a_comment_after_a_modelled_statement_is_reported(tmp_path):
     """#382: the comment is named; one after a raw statement is kept.
 

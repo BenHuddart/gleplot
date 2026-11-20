@@ -86,11 +86,13 @@ def test_segment_tick_intervals_come_back_per_axes(broken_script):
     assert not any("dticks" in w for w in recognized.warnings)
 
 
-def test_seam_decoration_and_shared_title_survive_as_trailer_passthrough(
+def test_seam_decoration_and_shared_title_survive_as_passthrough(
     broken_script,
 ):
     recognized = parse_gle_figure(broken_script)
-    trailer = "\n".join(recognized.figure.passthrough_trailer)
+    figure = recognized.figure
+    kept = [*figure.axes_list[0].trailing_passthrough, *figure.passthrough_trailer]
+    trailer = "\n".join(kept)
     assert "xg(xgmax)" in trailer  # the double-slash break marks
     assert 't (us)"' in trailer  # the centred x title
 
@@ -138,7 +140,9 @@ def test_broken_y_axis_options_are_preserved_and_warned_about(broken_y_script):
 
 def test_broken_y_seam_and_shared_titles_survive_re_emission(broken_y_script):
     recognized = parse_gle_figure(broken_y_script)
-    trailer = "\n".join(recognized.figure.passthrough_trailer)
+    figure = recognized.figure
+    kept = [*figure.axes_list[0].trailing_passthrough, *figure.passthrough_trailer]
+    trailer = "\n".join(kept)
     assert "xg(xgmax)-0.2 yg(ygmax)" in trailer  # the break marks
     assert 'write "Counts"' in trailer and 'write "Outliers"' in trailer
     reemitted = recognized.figure._generate_gle_with_files()[0]
