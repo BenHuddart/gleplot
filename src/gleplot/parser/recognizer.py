@@ -1590,6 +1590,9 @@ def _collect_color(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
     return head.value, start + 1
 
 
+#: The ``dN`` options that name a dataset of error-bar magnitudes.
+_ERR_WORDS = frozenset({"err", "errup", "errdown", "herr", "herrleft", "herrright"})
+
 _KEY_SPACING_WORDS = frozenset(LEGEND_SPACING_TO_KEY.values())
 
 
@@ -3504,6 +3507,7 @@ class _Recognizer:
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
         self._keep_unloaded_offset_lets(pass1, info)
+        self._keep_error_offset_lets(pass1, info)
         # Histogram and colour lets are filtered first: a function let stays
         # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
@@ -6466,6 +6470,24 @@ class _Recognizer:
             ):
                 self._unregister_offset_let(target, pass1, info)
 
+    def _keep_error_offset_lets(self, pass1: _GraphDatasets, info) -> None:
+        """Leave raw the offset lets of an error bar whose errors stay raw.
+
+        An error dataset holds magnitudes, and an error bar has no offset
+        for them, so an error read through an offset let is no column the
+        series can hold; nor is one a let defines. That error bar is kept as
+        written (:meth:`_build_errorbar`), and with it the lets that offset
+        its errors and its own dataset.
+        """
+        offsets = info["_offset_let_datasets"]
+        for name, toks in pass1.merged_attr_toks.items():
+            refs = list(self._scan_series_attrs(toks)["err_refs"].values())
+            if not any(ref in offsets or ref not in pass1.datasets for ref in refs):
+                continue
+            for target in refs + [name]:
+                if target in offsets:
+                    self._unregister_offset_let(target, pass1, info)
+
     @staticmethod
     def _unregister_offset_let(target, pass1: _GraphDatasets, info) -> None:
         """Undo :meth:`_parse_let_command` for ``target``."""
@@ -8333,10 +8355,7 @@ class _Recognizer:
                 a["unread"].append(t.value)
                 i += 1
                 continue
-            if (
-                w in ("err", "errup", "errdown", "herr", "herrleft", "herrright")
-                and i + 1 < m
-            ):
+            if w in _ERR_WORDS and i + 1 < m:
                 nxt_tok = toks[i + 1]
                 nxt_val = nxt_tok.value.lower()
                 if nxt_tok.type is TokenType.WORD and _DATASET_RE.match(nxt_val):
@@ -8515,6 +8534,34 @@ class _Recognizer:
                 span,
             )
             return
+
+        # Errors a let computes (_keep_error_offset_lets) are no column.
+        computed = [f"{kind} {ref}" for kind, ref in err.items() if ref not in datasets]
+        if computed and orig_toks:
+            what = ", ".join(computed)
+            if info["polar_rmax"] is not None or attrs["y2axis"] or attrs["x2axis"]:
+                # The graph's layout depends on this series being modelled.
+                self._note(
+                    ImportCategory.DATA,
+                    f"{what} on error-bar dataset {orig_toks[0].value} is "
+                    "computed by a let, which an error bar cannot hold, and "
+                    "was dropped on re-save",
+                    span,
+                )
+            else:
+                self._passthrough_original_dn(info, orig_toks, raw_stmts)
+                info["_raw_datasets"].add(orig_toks[0].value.lower())
+                info["_raw_datasets"].update(err.values())
+                self._note(
+                    ImportCategory.DATA,
+                    f"{what} on error-bar dataset {orig_toks[0].value} is "
+                    "computed by a let, which an error bar cannot hold; its "
+                    "'dN ... err' line was kept as raw GLE and still draws, "
+                    "but is not editable. To edit it, compute the errors with "
+                    "numpy and plot them with Axes.errorbar()",
+                    span,
+                )
+                return
 
         def col_of(ref_name):
             ref = ref_name.lower()
