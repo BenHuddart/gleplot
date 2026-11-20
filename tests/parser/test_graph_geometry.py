@@ -595,6 +595,25 @@ def test_shared_axes_label_suppression_survives_the_round_trip(tmp_path):
     assert _resave(rec.figure, tmp_path, "shared2.gle") == src
 
 
+@pytest.mark.parametrize(
+    "written, read, noted",
+    [("col", "col", False), ("none", False, False), ("yes", True, True)],
+)
+def test_a_string_sharex_in_the_metadata_is_read_as_matplotlib(
+    tmp_path, written, read, noted
+):
+    fig, axes = glp.subplots(2, 2, sharex="col", data_prefix="geom")
+    for ax in axes.flat:
+        ax.plot([0, 1], [0, 1])
+    src = _resave(fig, tmp_path, "share.gle").replace(
+        "sharex = col", f"sharex = {written}"
+    )
+    (tmp_path / "share.gle").write_text(src, encoding="utf-8")
+    rec = parse_gle_figure(tmp_path / "share.gle")
+    assert rec.figure.sharex == read
+    assert any("sharex = 'yes'" in w for w in rec.warnings) == noted
+
+
 def test_a_colorbar_figure_round_trips_byte_identically(tmp_path):
     from tests.parser import _golden_battery as golden
 

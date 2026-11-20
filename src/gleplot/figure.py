@@ -353,6 +353,28 @@ def _page_text(kind: str, s) -> str:
     return "\n".join(lines)
 
 
+_SHARE_MODES: Dict[str, Union[bool, str]] = {
+    "all": True,
+    "none": False,
+    "row": "row",
+    "col": "col",
+}
+
+
+def _share_mode(name: str, value: Any) -> Union[bool, str]:
+    """A ``sharex``/``sharey`` value as stored: ``True``, ``False``, 'row' or 'col'.
+
+    matplotlib's 'all' and 'none' are stored as the bools they mean.
+    """
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, str) and value in _SHARE_MODES:
+        return _SHARE_MODES[value]
+    raise ValueError(
+        f"{name}={value!r}: expected True, False, 'all', 'none', 'row' or 'col'."
+    )
+
+
 def _grid_cells(ax: Axes) -> Tuple[int, int, Tuple[int, int], Tuple[int, int]]:
     """``(rows, cols, (first_row, last_row), (first_col, last_col))`` of an axes.
 
@@ -595,8 +617,8 @@ class Figure:
         style: Optional[GLEStyleConfig] = None,
         graph: Optional[GLEGraphConfig] = None,
         marker: Optional[GLEMarkerConfig] = None,
-        sharex: bool = False,
-        sharey: bool = False,
+        sharex: Union[bool, str] = False,
+        sharey: Union[bool, str] = False,
         data_prefix: Optional[str] = None,
         height_ratios: Optional[Sequence[float]] = None,
         width_ratios: Optional[Sequence[float]] = None,
@@ -694,7 +716,7 @@ class Figure:
             marker if marker is not None else replace(GlobalConfig.get_marker())
         )
 
-        # Shared axes configuration
+        # Shared axes: True (every panel), 'row', 'col' or False.
         self.sharex = sharex
         self.sharey = sharey
 
@@ -1163,11 +1185,39 @@ class Figure:
         self._current_axes = bax.segments[0]
         return bax
 
+    @property
+    def sharex(self) -> Union[bool, str]:
+        """``True``, ``False``, 'row' or 'col'; set it as for :func:`subplots`."""
+        return self._sharex
+
+    @sharex.setter
+    def sharex(self, value: Any) -> None:
+        self._sharex = _share_mode("sharex", value)
+
+    @property
+    def sharey(self) -> Union[bool, str]:
+        """``True``, ``False``, 'row' or 'col'; set it as for :func:`subplots`."""
+        return self._sharey
+
+    @sharey.setter
+    def sharey(self, value: Any) -> None:
+        self._sharey = _share_mode("sharey", value)
+
+    def _hides_inner_labels(self, axis: str) -> bool:
+        """Whether sharing ``axis`` hides the inner panels' tick labels.
+
+        As matplotlib: x for ``True`` and 'col', y for ``True`` and 'row'.
+        """
+        mode, own = (self.sharex, "col") if axis == "x" else (self.sharey, "row")
+        return mode is True or mode == own
+
     def _apply_shared_axes_flags(self, ax: Axes) -> None:
         """Set ``ax``'s shared-axes tick/label visibility flags.
 
         Reads ``ax.position`` (a ``(rows, cols, idx)`` tuple) together with this
-        figure's ``sharex``/``sharey`` flags and writes the ``_show_xlabel`` /
+        figure's ``sharex``/``sharey`` flags (as matplotlib, ``'col'`` hides
+        inner x labels like ``True`` and ``'row'`` does not; ``sharey`` the
+        other way round) and writes the ``_show_xlabel`` /
         ``_show_xticks`` / ``_remove_*`` visibility flags on ``ax`` accordingly.
 
         This is the single source of truth for that derivation: ``add_subplot``
@@ -1182,7 +1232,15 @@ class Figure:
             _grid_cells(ax) if ax.position is not None else (1, 1, (0, 0), (0, 0))
         )
 
-        if self.sharex:
+        # A panel spanning columns (rows) has a 'col' ('row') range of its
+        # own, so it keeps its labels.
+        hide_x = self._hides_inner_labels("x") and (
+            self.sharex is True or left_col == right_col
+        )
+        hide_y = self._hides_inner_labels("y") and (
+            self.sharey is True or top_row == bottom_row
+        )
+        if hide_x:
             # Only show x-axis labels/ticks on bottom row
             ax._show_xlabel = bottom_row == rows - 1
             ax._show_xticks = bottom_row == rows - 1
@@ -1201,7 +1259,7 @@ class Figure:
             ax._remove_last_ytick = False
             ax._remove_first_ytick = False
 
-        if self.sharey:
+        if hide_y:
             # Only show y-axis labels/ticks on leftmost column
             ax._show_ylabel = left_col == 0
             ax._show_yticks = left_col == 0
@@ -1210,16 +1268,16 @@ class Figure:
             ax._remove_first_xtick = False
             # Y-axis labels don't overlap in horizontal arrangement (only shown on leftmost)
             # No need to remove first/last y-labels when plots are side-by-side
-            if not self.sharex:  # Only set if not already set by sharex logic
+            if not hide_x:  # Only set if not already set by sharex logic
                 ax._remove_last_ytick = False
                 ax._remove_first_ytick = False
         else:
             ax._show_ylabel = True
             ax._show_yticks = True
-            if not self.sharex:  # Only set if not already set by sharex logic
+            if not hide_x:  # Only set if not already set by sharex logic
                 ax._remove_last_ytick = False
                 ax._remove_first_ytick = False
-            if not self.sharex:
+            if not hide_x:
                 ax._remove_last_xtick = False
                 ax._remove_first_xtick = False
                 ax._remove_first_xtick = False
@@ -1524,6 +1582,22 @@ class Figure:
         """The axes the subplot grid lays out: all but :meth:`add_axes` insets."""
         return [ax for ax in self.axes_list if ax.position is not None]
 
+    def _share_groups(self, mode: Union[bool, str]) -> List[List[Axes]]:
+        """The grid's cartesian axes in groups that share one range.
+
+        ``True`` is one group; 'row' and 'col' group the panels by the rows
+        or columns they span. A polar axes' limits are its own (see
+        _resolve_axis_limits), and so are an inset's.
+        """
+        shared = [ax for ax in self._grid_axes() if not ax._polar]
+        if mode not in ("row", "col"):
+            return [shared]
+        groups: Dict[Tuple[int, int], List[Axes]] = {}
+        for ax in shared:
+            _, _, row_span, col_span = _grid_cells(ax)
+            groups.setdefault(row_span if mode == "row" else col_span, []).append(ax)
+        return list(groups.values())
+
     def _layout_rects(self, writer, resolution) -> Tuple[List[tuple], List[tuple]]:
         """Default frame rect + grid cell for every axes, in ``axes_list`` order.
 
@@ -1578,8 +1652,8 @@ class Figure:
         # title and tick labels live in the gap to its left). 1.5 cm clears
         # the measured 3.11 hei at the default 12 pt but not at, say, 18 pt,
         # where inner panels need ``subplots_adjust(wspace=...)``.
-        default_hspace_cm = 0.0 if self.sharey else 1.5
-        default_vspace_cm = 0.0 if self.sharex else 2.0
+        default_hspace_cm = 0.0 if self._hides_inner_labels("y") else 1.5
+        default_vspace_cm = 0.0 if self._hides_inner_labels("x") else 2.0
         wspace_frac = self._subplot_adjust.get("wspace")
         hspace_frac = self._subplot_adjust.get("hspace")
 
@@ -4947,89 +5021,84 @@ class Figure:
             ax.y2min, ax.y2max = lo, hi
 
     def _synchronize_x_limits(self, resolution: Optional[SourceResolution] = None):
-        """Synchronize x-axis limits across all axes when sharex is enabled."""
-        # Find global x-axis limits
-        lo_global = None
-        hi_global = None
-        inverted = False
+        """Give each group of panels that share the x axis one x range."""
 
         # Read before the fill loop overwrites it: a bound nobody set on ANY
         # panel is one the shared range may hand back to GLE if it collapses
         # (see _defer_degenerate_range). The union of several panels is rarely
         # a point, but it is whenever they all sit on the same single value.
-        # A polar axes' limits are its own (see _resolve_axis_limits), and so
-        # are an inset's.
-        shared = [ax for ax in self._grid_axes() if not ax._polar]
-        lo_auto = all(ax.xmin is None for ax in shared)
-        hi_auto = all(ax.xmax is None for ax in shared)
+        for shared in self._share_groups(self.sharex):
+            # Each group of panels sharing the axis gets its own range.
+            lo_global = None
+            hi_global = None
+            inverted = False
+            lo_auto = all(ax.xmin is None for ax in shared)
+            hi_auto = all(ax.xmax is None for ax in shared)
 
-        for ax in shared:
-            # Calculate data limits if not explicitly set
-            if ax.xmin is None or ax.xmax is None:
-                data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
-                if ax.xmin is None:
-                    ax.xmin = data_xmin
-                if ax.xmax is None:
-                    ax.xmax = data_xmax
+            for ax in shared:
+                # Calculate data limits if not explicitly set
+                if ax.xmin is None or ax.xmax is None:
+                    data_xmin, data_xmax = self._get_data_xlim(ax, resolution)
+                    if ax.xmin is None:
+                        ax.xmin = data_xmin
+                    if ax.xmax is None:
+                        ax.xmax = data_xmax
 
-            # Track the global SPAN. A descending pair is an inverted axis
-            # (see GLEWriter._axis_direction), so read its extent through
-            # min/max rather than trusting the order, and carry the inversion
-            # over to the shared result -- sharing an axis must not silently
-            # flip a panel back the right way up.
-            lo, hi = self._axis_span(ax, "x")
-            inverted = inverted or self._axis_is_inverted(ax, "x")
-            if lo is not None and (lo_global is None or lo < lo_global):
-                lo_global = lo
-            if hi is not None and (hi_global is None or hi > hi_global):
-                hi_global = hi
+                # Track the global SPAN. A descending pair is an inverted axis
+                # (see GLEWriter._axis_direction), so read its extent through
+                # min/max rather than trusting the order, and carry the inversion
+                # over to the shared result -- sharing an axis must not silently
+                # flip a panel back the right way up.
+                lo, hi = self._axis_span(ax, "x")
+                inverted = inverted or self._axis_is_inverted(ax, "x")
+                if lo is not None and (lo_global is None or lo < lo_global):
+                    lo_global = lo
+                if hi is not None and (hi_global is None or hi > hi_global):
+                    hi_global = hi
 
-        # Apply global limits to all axes
-        for ax in shared:
-            if inverted and lo_global is not None and hi_global is not None:
-                ax.xmin, ax.xmax = hi_global, lo_global
-            else:
-                ax.xmin, ax.xmax = lo_global, hi_global
-            self._defer_degenerate_range(ax, "x", lo_auto, hi_auto, resolution)
+            # Apply global limits to all axes
+            for ax in shared:
+                if inverted and lo_global is not None and hi_global is not None:
+                    ax.xmin, ax.xmax = hi_global, lo_global
+                else:
+                    ax.xmin, ax.xmax = lo_global, hi_global
+                self._defer_degenerate_range(ax, "x", lo_auto, hi_auto, resolution)
 
     def _synchronize_y_limits(self, resolution: Optional[SourceResolution] = None):
-        """Synchronize y-axis limits across all axes when sharey is enabled."""
-        # Find global y-axis limits
-        lo_global = None
-        hi_global = None
-        inverted = False
-
+        """Give each group of panels that share the y axis one y range."""
         # See _synchronize_x_limits.
-        # A polar axes' limits are its own (see _resolve_axis_limits), and so
-        # are an inset's.
-        shared = [ax for ax in self._grid_axes() if not ax._polar]
-        lo_auto = all(ax.ymin is None for ax in shared)
-        hi_auto = all(ax.ymax is None for ax in shared)
+        for shared in self._share_groups(self.sharey):
+            # Each group of panels sharing the axis gets its own range.
+            lo_global = None
+            hi_global = None
+            inverted = False
+            lo_auto = all(ax.ymin is None for ax in shared)
+            hi_auto = all(ax.ymax is None for ax in shared)
 
-        for ax in shared:
-            # Calculate data limits if not explicitly set
-            if ax.ymin is None or ax.ymax is None:
-                data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
-                if ax.ymin is None:
-                    ax.ymin = data_ymin
-                if ax.ymax is None:
-                    ax.ymax = data_ymax
+            for ax in shared:
+                # Calculate data limits if not explicitly set
+                if ax.ymin is None or ax.ymax is None:
+                    data_ymin, data_ymax = self._get_data_ylim(ax, resolution)
+                    if ax.ymin is None:
+                        ax.ymin = data_ymin
+                    if ax.ymax is None:
+                        ax.ymax = data_ymax
 
-            # See _synchronize_x_limits on descending (inverted) pairs.
-            lo, hi = self._axis_span(ax, "y")
-            inverted = inverted or self._axis_is_inverted(ax, "y")
-            if lo is not None and (lo_global is None or lo < lo_global):
-                lo_global = lo
-            if hi is not None and (hi_global is None or hi > hi_global):
-                hi_global = hi
+                # See _synchronize_x_limits on descending (inverted) pairs.
+                lo, hi = self._axis_span(ax, "y")
+                inverted = inverted or self._axis_is_inverted(ax, "y")
+                if lo is not None and (lo_global is None or lo < lo_global):
+                    lo_global = lo
+                if hi is not None and (hi_global is None or hi > hi_global):
+                    hi_global = hi
 
-        # Apply global limits to all axes
-        for ax in shared:
-            if inverted and lo_global is not None and hi_global is not None:
-                ax.ymin, ax.ymax = hi_global, lo_global
-            else:
-                ax.ymin, ax.ymax = lo_global, hi_global
-            self._defer_degenerate_range(ax, "y", lo_auto, hi_auto, resolution)
+            # Apply global limits to all axes
+            for ax in shared:
+                if inverted and lo_global is not None and hi_global is not None:
+                    ax.ymin, ax.ymax = hi_global, lo_global
+                else:
+                    ax.ymin, ax.ymax = lo_global, hi_global
+                self._defer_degenerate_range(ax, "y", lo_auto, hi_auto, resolution)
 
     def _get_data_xlim(
         self,

@@ -54,6 +54,8 @@ figure(figsize=(8, 6), dpi=100)
 __version__ = "5.6.3"
 __author__ = "gleplot contributors"
 
+from typing import Union
+
 import numpy as np
 
 from . import _warn
@@ -414,8 +416,8 @@ def subplots(
     nrows: int = 1,
     ncols: int = 1,
     *,
-    sharex: bool = False,
-    sharey: bool = False,
+    sharex: Union[bool, str] = False,
+    sharey: Union[bool, str] = False,
     squeeze: bool = True,
     width_ratios=None,
     height_ratios=None,
@@ -440,12 +442,16 @@ def subplots(
         Number of rows of subplots. Default: 1
     ncols : int, optional
         Number of columns of subplots. Default: 1
-    sharex : bool, optional
-        If True, all subplots share the same x-axis. Only the bottom row
-        will show x-axis labels and ticks. Default: False
-    sharey : bool, optional
-        If True, all subplots share the same y-axis. Only the leftmost column
-        will show y-axis labels and ticks. Default: False
+    sharex : bool or {'all', 'none', 'row', 'col'}, default: False
+        As in matplotlib: ``True`` or ``'all'`` gives every subplot one x
+        range, ``'col'`` one per column and ``'row'`` one per row. With
+        ``True`` and ``'col'`` only the bottom row shows x tick labels and
+        the x-axis label. ``False`` or ``'none'`` shares nothing; another
+        value raises ``ValueError``.
+    sharey : bool or {'all', 'none', 'row', 'col'}, default: False
+        The same for the y axis: ``'row'`` gives one y range per row and,
+        like ``True``, shows y tick labels only in the leftmost column;
+        ``'col'`` gives one per column.
     squeeze : bool, default: True
         As in matplotlib: if True, drop the extra dimensions of the returned
         array, so a single subplot comes back as an :class:`Axes` and a

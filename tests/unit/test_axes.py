@@ -254,6 +254,51 @@ class TestSubplots:
         assert list(fig.width_ratios) == [1, 2, 3]
         assert list(fig.height_ratios) == [4, 5]
 
+    @pytest.mark.parametrize(
+        "value, stored",
+        [
+            (True, True),
+            (False, False),
+            ("all", True),
+            ("none", False),
+            ("row", "row"),
+            ("col", "col"),
+        ],
+    )
+    def test_subplots_share_takes_matplotlib_strings(self, value, stored):
+        fig, _ = glp.subplots(2, 2, sharex=value, sharey=value)
+        assert (fig.sharex, fig.sharey) == (stored, stored)
+        assert Figure.from_dict(fig.to_dict()).sharex == stored
+
+    @pytest.mark.parametrize("value", [1, "yes", None])
+    def test_subplots_share_rejects_other_values(self, value):
+        with pytest.raises(ValueError, match="sharex="):
+            glp.subplots(2, 2, sharex=value)
+        fig = glp.figure()
+        fig.sharex = "all"
+        assert fig.sharex is True
+        with pytest.raises(ValueError, match="sharex="):
+            fig.sharex = value
+
+    def test_a_panel_spanning_columns_keeps_its_x_labels_with_sharex_col(self):
+        fig = Figure(sharex="col")
+        top = fig.add_subplot(2, 2, (1, 2))
+        left = fig.add_subplot(2, 2, 3)
+        fig.add_subplot(2, 2, 4)
+        assert top._show_xticks and left._show_xticks
+        assert not Figure(sharex="col").add_subplot(2, 2, 1)._show_xticks
+
+    def test_subplots_sharex_row_keeps_labels_and_shares_each_row(self):
+        fig, axes = glp.subplots(2, 2, sharex="row")
+        axes[0, 0].plot([0, 1], [0, 1])
+        axes[0, 1].plot([5, 9], [0, 1])
+        axes[1, 0].plot([20, 30], [0, 1])
+        axes[1, 1].plot([20, 21], [0, 1])
+        gle = fig._generate_gle()
+        assert "xlabels off" not in gle
+        assert gle.count("xaxis min 0 max 9") == 2
+        assert gle.count("xaxis min 20 max 30") == 2
+
     def test_subplots_passes_matplotlib_subplot_and_gridspec_keywords(self):
         fig, axes = glp.subplots(
             1,
