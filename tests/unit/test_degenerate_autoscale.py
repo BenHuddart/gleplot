@@ -735,6 +735,10 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``subplots_share_col_row`` was added with matplotlib's string sharing.
     ``coordinates_beyond_six_figures`` gained a band narrower than float
     noise beside its offset (#416).
+    ``one_point_default_width`` moved again when the metadata started
+    recording a ``default_linewidth`` that is not 1.5, and
+    ``default_series_colors`` was added for the default colours it records
+    too (#345).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():

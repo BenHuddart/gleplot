@@ -27,6 +27,7 @@ import pytest
 import gleplot
 from gleplot import Figure
 from gleplot import axes as _gleplot_axes
+from gleplot.colors import rgb_to_gle
 from gleplot.parser.recognizer import RecognizedFigure, parse_gle_figure
 from tests.parser import _golden_battery as golden
 
@@ -58,8 +59,10 @@ def normalize(d: dict) -> dict:
       * fontsize: snapped through the 6-sig-fig ``set hei`` cm round-trip.
       * markersize / linewidth: snapped through the emitted GLE value
         (msize verbatim; linewidth via pt<->cm; API default 0 or 1 -> the
-        style's ``default_linewidth``, which the file does not record, unless
-        the series is ``_lwidth_verbatim``; that marker is dropped).
+        style's ``default_linewidth``, unless the series is
+        ``_lwidth_verbatim``; that marker is dropped).
+      * default_color / default_marker_color: recorded as the GLE colour
+        they draw.
       * legend_on: explicit True with labels present -> None (auto).
       * legend_spacing: equal to 5 significant figures (emitted in cm).
       * suptitle: one off its default place reads back as the first figure
@@ -148,7 +151,10 @@ def normalize(d: dict) -> dict:
         emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
         style["fontsize"] = fontsize_cm_to_pt(float(emitted))
 
-    default_linewidth = style.pop("default_linewidth", 1.5)
+    default_linewidth = style.get("default_linewidth", 1.5)
+    for key in ("default_color", "default_marker_color"):
+        if key in style:
+            style[key] = rgb_to_gle(style[key])
 
     def _snap_linewidth(v, verbatim=False):
         # Writer substitutes default_linewidth for API defaults 0/1.
@@ -1226,6 +1232,122 @@ def test_spanning_subplots_are_recovered(tmp_path):
         (3, 3, (7, 9)),
     ]
     assert not any(w.startswith("layout:") for w in rec.warnings)
+
+
+def test_default_linewidth_is_read_from_the_metadata(tmp_path):
+    """#345: a line plotted after loading gets the width the file used."""
+    fig = gleplot.figure(style=gleplot.GLEStyleConfig(default_linewidth=1.0))
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    path = tmp_path / "w.gle"
+    fig.savefig_gle(str(path))
+
+    loaded = parse_gle_figure(path).figure
+    assert loaded.style.default_linewidth == 1.0
+    loaded.axes_list[0].plot([0, 1], [1, 0])
+    again = tmp_path / "again.gle"
+    loaded.savefig_gle(str(again))
+    widths = [
+        line.split("lwidth ")[1].split()[0]
+        for line in again.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("d") and " line " in line
+    ]
+    assert widths == ["0.03528", "0.03528"]
+
+
+def test_default_colors_are_read_from_the_metadata(tmp_path):
+    """#345: a series plotted after loading gets the colour the file used."""
+    style = gleplot.GLEStyleConfig(default_color="C1", default_marker_color="red")
+    fig = gleplot.figure(style=style)
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    path = tmp_path / "c.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    assert "! gleplot: default_color = rgb255(255,127,14)" in text
+    assert "! gleplot: default_marker_color = RED" in text
+
+    loaded = parse_gle_figure(path).figure
+    ax = loaded.axes_list[0]
+    ax.plot([0, 1], [1, 0])
+    ax.scatter([0, 1], [1, 0])
+    again = tmp_path / "again.gle"
+    loaded.savefig_gle(str(again))
+    lines = again.read_text(encoding="utf-8").splitlines()
+    assert sum("color rgb255(255,127,14)" in line for line in lines) == 2
+    assert any(" marker " in line and "color RED" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        {"default_linewidth": 0},
+        {"msize_scale": 2},
+        {"default_linewidth": -1.0},
+        {"default_color": "rgba255(255,0,0,128)"},
+        {"default_marker_color": "rgb(0.2,0.4,0.6)"},
+    ],
+)
+def test_a_recorded_style_value_reloads_without_a_note(tmp_path, style):
+    """Whatever the writer records, open_gle reads back as it was."""
+    marker = gleplot.GLEMarkerConfig(msize_scale=style.pop("msize_scale", 1.0))
+    fig = gleplot.figure(style=gleplot.GLEStyleConfig(**style), marker=marker)
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    path = tmp_path / "s.gle"
+    fig.savefig_gle(str(path))
+
+    rec = parse_gle_figure(path)
+    assert not [w for w in rec.warnings if w.startswith("metadata:")]
+    again = tmp_path / "again.gle"
+    rec.figure.savefig_gle(str(again))
+    assert again.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
+
+
+def test_a_non_finite_default_linewidth_still_saves(tmp_path):
+    fig = gleplot.figure(style=gleplot.GLEStyleConfig(default_linewidth=float("nan")))
+    path = tmp_path / "n.gle"
+    fig.savefig_gle(str(path))
+    assert "! gleplot: default_linewidth = nan" in path.read_text(encoding="utf-8")
+
+
+def test_default_style_values_are_not_recorded(tmp_path):
+    fig = gleplot.figure()
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    path = tmp_path / "d.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    for key in ("default_linewidth", "default_color", "default_marker_color"):
+        assert key not in text
+
+
+@pytest.mark.parametrize(
+    "key, value, default",
+    [
+        ("default_linewidth", "thick", 1.5),
+        ("default_linewidth", "true", 1.5),
+        ("default_linewidth", "inf", 1.5),
+        ("default_color", "notacolor", "BLUE"),
+        ("default_color", "0.3", "BLUE"),
+        ("default_marker_color", "true", "BLUE"),
+        ("msize_scale", "big", 1.0),
+        ("msize_scale", "nan", 1.0),
+    ],
+)
+def test_a_malformed_style_value_in_the_metadata_is_reported(
+    tmp_path, key, value, default
+):
+    """open_gle reports a recorded value it cannot use and keeps the default."""
+    fig = gleplot.figure()
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    path = tmp_path / "w.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8").replace(
+        "! gleplot-meta-end", f"! gleplot: {key} = {value}\n! gleplot-meta-end"
+    )
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    config = rec.figure.marker_config if key == "msize_scale" else rec.figure.style
+    assert getattr(config, key) == default
+    assert any(w.startswith(f"metadata: {key} = ") for w in rec.warnings)
 
 
 def test_insets_are_read_from_the_metadata(tmp_path):

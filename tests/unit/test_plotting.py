@@ -3715,6 +3715,50 @@ def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
     assert "1700000031 2" in "".join(files.values())
 
 
+def test_guides_drawn_after_the_graph_keep_their_figures(tmp_path):
+    """A guide whose spanned axis GLE ranges is held to its own axis (#417)."""
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.set_xlim(1.7e9, 1.7e9 + 30)
+    ax.axvline(1.7e9 + 2.8)
+    ax.axvspan(1.7e9 + 2.8, 1.7e9 + 5.8)
+    script = _saved(fig, tmp_path)["fig.gle"]
+    assert "graph_vline 1700000002.8" in script
+    assert "amove xg(1700000002.8) yg(" in script
+    assert "box xg(1700000005.8)-xg(1700000002.8) " in script
+    loaded = glp.open_gle(str(tmp_path / "fig.gle")).axes_list[0]
+    assert loaded.reflines[0]["value"] == 1.7e9 + 2.8
+    assert (loaded.spans[0]["start"], loaded.spans[0]["end"]) == (
+        1.7e9 + 2.8,
+        1.7e9 + 5.8,
+    )
+
+
+@pytest.mark.parametrize("horizontal", [False, True])
+def test_a_lone_bar_on_a_timestamp_axis_keeps_its_figures(tmp_path, horizontal):
+    """A bar's position is held to the axis it lies on (#417)."""
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    if horizontal:
+        ax.barh([1.7e9 + 30], [2.0])
+        ax.set_ylim(1.7e9, 1.7e9 + 60)
+    else:
+        ax.bar([1.7e9 + 30], [2.0])
+        ax.set_xlim(1.7e9, 1.7e9 + 60)
+    files = _saved(fig, tmp_path)
+    assert "1.70000003e+09 2\n" in "".join(files.values())
+
+
+def test_a_histogram_of_one_timestamp_keeps_its_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.hist([1.7e9 + 30] * 3, range=(1.7e9 + 20, 1.7e9 + 40), histtype="step")
+    ax.set_xlim(1.7e9, 1.7e9 + 60)
+    files = _saved(fig, tmp_path)
+    assert "0 1.70000003e+09\n" in "".join(files.values())
+    assert "hist d1 from 1.70000002e+09 to 1.70000004e+09 " in files["fig.gle"]
+
+
 @pytest.mark.parametrize("orient", ["v", "h"])
 def test_a_band_narrower_than_float_noise_is_written_where_it_is(tmp_path, orient):
     """A band whose width is float noise beside its offset keeps its place.

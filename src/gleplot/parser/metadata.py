@@ -2,7 +2,7 @@
 
 ``.gle`` has no native concept of a few gleplot-specific, non-GLE-semantic
 settings (canvas DPI, whether subplots share axes, the marker-size scale
-factor, and which series were plotted from an *imported* copy of an external
+factor, the style's default line width and colours, and which series were plotted from an *imported* copy of an external
 data file vs. a live *reference* to it). These are persisted as a small,
 versioned block of GLE comment lines so a ``.gle`` file round-trips through
 gleplot without losing them, while remaining perfectly valid (and harmless)
@@ -15,6 +15,9 @@ Format (fixed, versioned)::
     ! gleplot: sharex = false
     ! gleplot: sharey = false
     ! gleplot: msize_scale = 1.0
+    ! gleplot: default_linewidth = 1.5
+    ! gleplot: default_color = BLUE
+    ! gleplot: default_marker_color = BLUE
     ! gleplot: import-data = data_0.dat, data_1.dat
     ! gleplot: insets = 3
     ! gleplot-meta-end
@@ -98,6 +101,9 @@ DEFAULTS: Dict[str, Any] = {
     "sharex": False,
     "sharey": False,
     "msize_scale": 1.0,
+    "default_linewidth": 1.5,
+    "default_color": "BLUE",
+    "default_marker_color": "BLUE",
 }
 
 #: Keys that are always emitted regardless of whether they equal their
@@ -113,7 +119,7 @@ def _format_scalar(value: Any) -> str:
     if isinstance(value, float):
         # Keep an explicit decimal point (e.g. "1.0" not "1") so re-parsing
         # infers float, not int, matching the documented example.
-        if value == int(value):
+        if value.is_integer():
             return f"{value:.1f}"
         return repr(value)
     if isinstance(value, int):
@@ -187,7 +193,9 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
     ----------
     data : dict
         Metadata values to persist. Recognized keys: ``dpi`` (int),
-        ``sharex`` / ``sharey`` (bool, or 'row'/'col'), ``msize_scale`` (float),
+        ``sharex`` / ``sharey`` (bool, or 'row'/'col'), ``msize_scale`` and
+        ``default_linewidth`` (float), ``default_color`` and
+        ``default_marker_color`` (GLE colour tokens),
         ``import-data`` (list of str filenames), ``insets`` (list of int
         graph numbers, emitted only when present). Unknown keys are emitted
         verbatim (as strings) so callers can round-trip forward-compatible
@@ -217,7 +225,15 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
     lines = [BEGIN_MARKER]
 
     # Emit known keys in the documented, stable order first.
-    known_order = ("dpi", "sharex", "sharey", "msize_scale")
+    known_order = (
+        "dpi",
+        "sharex",
+        "sharey",
+        "msize_scale",
+        "default_linewidth",
+        "default_color",
+        "default_marker_color",
+    )
     seen = set()
     for key in known_order:
         seen.add(key)
