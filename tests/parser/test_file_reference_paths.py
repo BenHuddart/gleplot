@@ -57,7 +57,6 @@ class TestFilenameQuoting:
         assert "data_error" not in fs[0]
 
     def test_a_quote_in_a_name_is_doubled_and_round_trips(self, tmp_path):
-        _write_data(tmp_path / 'my "run".dat')
         fig = _reference_figure('my "run".dat')
         out = tmp_path / "fig.gle"
         fig.savefig_gle(str(out))
