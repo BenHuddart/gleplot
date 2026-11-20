@@ -730,6 +730,41 @@ def test_a_line_gleplot_does_not_write_in_a_fitz_block_is_reported(tmp_path, ext
     assert note.source_span == (line_no, line_no)
 
 
+@pytest.mark.parametrize("extra", ["   ncontour 5", "   ! my note"])
+def test_a_line_a_tripcolor_fitz_block_does_not_write_is_reported(tmp_path, extra):
+    """#380: a colormap's fitz block writes no ``ncontour`` either."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.tripcolor([0.0, 1.0, 0.0, 1.0, 0.5], [0.0, 0.0, 1.0, 1.0, 0.5], [0, 1, 1, 2, 1])
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace("end fitz", f"{extra}\nend fitz")
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    assert len(rec.figure.axes_list[0].heatmaps) == 1
+    line_no = text.splitlines().index(extra) + 1
+    (note,) = rec.notes
+    assert extra.strip() in note.message and "begin fitz" in note.message
+    assert note.source_span == (line_no, line_no)
+
+
+@pytest.mark.parametrize(
+    "extra", ["   ncontour nlev", "   ncontour 5.5", "   x from 0 to 2 step 0.5"]
+)
+def test_a_fitz_block_line_open_gle_cannot_read_keeps_the_block(tmp_path, extra):
+    """#380: an unreadable or repeated line keeps the block as written."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.tricontour([0.0, 1.0, 0.0, 1.0, 0.5], [0.0, 0.0, 1.0, 1.0, 0.5], [0, 1, 1, 2, 1])
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace("end fitz", f"{extra}\nend fitz")
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    out, _ = rec.figure._generate_gle_with_files()
+    assert extra in out
+
+
 @pytest.mark.parametrize(
     "extra, named",
     [
