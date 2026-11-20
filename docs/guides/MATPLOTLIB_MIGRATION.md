@@ -77,6 +77,12 @@ ax.legend()
 fig.savefig('plot.pdf')
 ```
 
+## Default colours
+
+A series given no colour takes the next of matplotlib's `'C0'` to `'C9'`, per axes, where matplotlib would: lines (`plot`, `step`, `errorbar`, `hist`, `stackplot`) and patches (`scatter`, `bar`, `barh`, `fill`, `fill_between`, `fill_betweenx`) have separate cycles, `stem`, `hlines` and `vlines` draw in `'C0'`, and a `twinx()`/`twiny()` view has cycles of its own. A colour that is given takes nothing from the cycle. The rules are in the [`GLEStyleConfig`](https://benhuddart.github.io/gleplot/api_configuration.html#gleplot.GLEStyleConfig) reference. A figure opened with `open_gle` continues each cycle after the series whose colours follow it.
+
+To draw every uncoloured line, histogram and function curve in one colour, and every uncoloured marker in another, set `GLEStyleConfig(default_color=..., default_marker_color=...)`. Bars, fills and `stackplot` layers always take the cycle.
+
 ## Legends
 
 `ax.legend()` becomes GLE's graph-block `key` command. The kwargs that map
@@ -383,9 +389,9 @@ caps and round joins.
 
 ## Bars
 
-`ax.bar(x, height)` emits `bar dN fill RED`. One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. A single colour, including the same colour repeated, stays one command.
+`ax.bar(x, height)` emits `bar dN fill rgb255(31,119,180)`, the first colour of the axes' patch cycle (see [Default colours](#default-colours)). One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. A single colour, including the same colour repeated, stays one command.
 
-`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. GLE strokes every bar, and `lwidth 0` alone is a black hairline, so `edgecolor='none'` and `linestyle='none'` draw that hairline in the colour under the edge (`color C lwidth 0`): the fill, or the face of a hatched bar. A hatched bar with `color='none'` has no face to match, and its outline is drawn in the hatch ink. `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered.
+`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. GLE strokes every bar, and `lwidth 0` alone is a black hairline, so `edgecolor='none'` and `linestyle='none'` draw that hairline in the colour under the edge (`color C lwidth 0`): the fill, or the face of a hatched bar. A hatched bar with `color='none'` has no face to match, and its outline is drawn in the hatch ink. `color='none'` is GLE's `CLEAR` fill. With no edge it is drawn as a black outline, since GLE strokes every bar, and that warns. `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered.
 
 `hatch` is GLE's `pattern`. Every GLE pattern is diagonal, so only these hatches have one: `'/'` is `SHADE`, `'\\'` is `RSHADE` and `'x'` (or `'X'`) is `GRID`. Repeated (`'//'`, `'xx'`, ...) they are the `2` variants, at half the spacing; a longer run is no denser. `'|'`, `'-'`, `'+'`, `'o'`, `'O'`, `'.'`, `'*'` and any mix such as `'/\\'` warn, and those bars are drawn solid. A sequence gives one hatch per bar, like a colour sequence, and splits the call the same way. GLE's `fill` is the hatch ink and `background` the colour under it, so `ax.bar(x, h, color='yellow', hatch='//')` emits `fill BLACK pattern SHADE2 background YELLOW`. As in matplotlib, the ink is `edgecolor`, or black when there is no edge or it is `'none'`, and `color='none'` is a `CLEAR` background. The legend swatch is hatched too. In a legend gleplot writes as a `begin key` block, the swatch hatches on white: there, `background` would colour the whole key. GLE's hatch lines are thinner than matplotlib's, and their spacing is fixed in centimetres.
 
@@ -509,7 +515,7 @@ ax.stackplot(x, y, y, labels=["a", "b"], baseline="sym")
 | `xmin`, `xmax`, `ymin`, `ymax` | the same clip, in data coordinates. These are not `axvspan` fractions. On `baseline="x1"`, `ymin` is also the line the fill closes on: GLE uses that value as the baseline and clips below it. Do not pass `where` together with `xmin` or `xmax`. |
 | `step` | warns and is ignored. `fill` has no step mode. |
 | `fill_betweenx` `where`, `interpolate` | as on `fill_between`, with y in place of x: `y` has to be finite and strictly monotonic, and the clip is `ymin` / `ymax`. Do not pass `where` together with `ymin` or `ymax`. |
-| `stackplot` `colors` | cycled over the layers. The default is `'C0'` to `'C9'`, starting again at `'C0'` on every call; matplotlib continues the axes' colour cycle. A `facecolor` (or `color`) keyword replaces `colors`. |
+| `stackplot` `colors` | cycled over the layers. Omitted, each layer takes the next colour of the axes' line cycle, as in matplotlib (see [Default colours](#default-colours)). A `facecolor` (or `color`) keyword replaces `colors`. |
 | `stackplot` `baseline` | `'zero'`, `'sym'`, `'wiggle'` and `'weighted_wiggle'`, computed as matplotlib does. Other keywords (`alpha`, `where`, ...) go to every layer's `fill_between`. |
 | `fill` extra polygons | the first polygon is drawn. The rest warn and are ignored. |
 | `edgecolor`, `linewidth` on `fill` | warn and are ignored. GLE fills the interior and does not stroke it. |

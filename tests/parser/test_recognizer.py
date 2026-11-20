@@ -76,6 +76,8 @@ def normalize(d: dict) -> dict:
         decided on.
       * aspect: dropped. ``set_aspect`` is resolved into that rect and is
         not recovered.
+      * color_cycles: dropped. Derived from the series colours, which do
+        not say whether a colour came from the cycle.
       * _draw_seq: dropped. The writer emits all line series before all
         marker series (ASYMMETRY docs / writer emission order), so the
         caller's interleave across kinds is not representable in the .gle;
@@ -153,7 +155,7 @@ def normalize(d: dict) -> dict:
 
     default_linewidth = style.get("default_linewidth", 1.5)
     for key in ("default_color", "default_marker_color"):
-        if key in style:
+        if style.get(key) is not None:
             style[key] = rgb_to_gle(style[key])
 
     def _snap_linewidth(v, verbatim=False):
@@ -252,6 +254,10 @@ def normalize(d: dict) -> dict:
         # set_aspect is resolved into that rect too, and is not recovered
         # (agreed for #85): the rect is its surviving form.
         ax.pop("aspect", None)
+        # The colour cycles are not in the file. The recognizer derives them
+        # from the series colours, which cannot tell a stem's or an hlines'
+        # C0, or a stackplot layer, from a series that took the cycle.
+        ax.pop("color_cycles", None)
 
         # axis limits snap to emitted precision.
         for lim in ("xmin", "xmax", "ymin", "ymax", "y2min", "y2max", "x2min", "x2max"):
@@ -911,7 +917,7 @@ def test_axis_clip_and_polygon_fills_round_trip(tmp_path):
     out = tmp_path / "again.gle"
     recognized.figure.savefig_gle(str(out))
     assert out.read_text(encoding="utf-8") == gle_path.read_text(encoding="utf-8")
-    assert "fill d5,x2 color LIGHTBLUE" in out.read_text(encoding="utf-8")
+    assert "fill d5,x2 color rgb255(255,127,14)" in out.read_text(encoding="utf-8")
 
 
 def test_unresolved_single_curve_fills_keep_their_form(tmp_path):
@@ -937,9 +943,9 @@ def test_unresolved_single_curve_fills_keep_their_form(tmp_path):
     out = tmp_path / "again.gle"
     recognized.figure.savefig_gle(str(out))
     text = out.read_text(encoding="utf-8")
-    assert "fill x1,d1 color LIGHTBLUE xmin 0.5" in text
-    assert "fill d2 color LIGHTBLUE" in text
-    assert "fill d3,x2 color LIGHTBLUE ymax 4" in text
+    assert "fill x1,d1 color rgb255(31,119,180) xmin 0.5" in text
+    assert "fill d2 color rgb255(255,127,14)" in text
+    assert "fill d3,x2 color rgb255(44,160,44) ymax 4" in text
     assert "d1,d2" not in text
 
 
@@ -1448,9 +1454,9 @@ def test_default_style_values_are_not_recorded(tmp_path):
         ("default_linewidth", "thick", 1.5),
         ("default_linewidth", "true", 1.5),
         ("default_linewidth", "inf", 1.5),
-        ("default_color", "notacolor", "BLUE"),
-        ("default_color", "0.3", "BLUE"),
-        ("default_marker_color", "true", "BLUE"),
+        ("default_color", "notacolor", None),
+        ("default_color", "0.3", None),
+        ("default_marker_color", "true", None),
         ("msize_scale", "big", 1.0),
         ("msize_scale", "nan", 1.0),
     ],
@@ -2155,6 +2161,63 @@ def test_a_colorbar_call_with_nothing_to_show_is_noted(tmp_path):
     again = rec.figure._generate_gle_with_files()[0]
     assert 'palette "cmap_magma" width' in again
     assert 'include "color.gle"' in again
+
+
+def _heatmap_bar(tmp_path):
+    """A heatmap with a labelled colorbar, its file's text, and the bar group."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    hm = ax.imshow([[0.0, 1.0], [2.0, 3.0]])
+    fig.colorbar(hm, ax=ax, label="z")
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8") + "\n"
+    return path, text, text[text.index("gsave\n") :]
+
+
+def test_a_colorbar_gap_that_cannot_be_read_stays_raw_and_is_noted(tmp_path):
+    path, text, _bar = _heatmap_bar(tmp_path)
+    edited = "amove xg(xgmax)-0.5 yg(ygmin)"
+    path.write_text(text.replace("amove xg(xgmax)+0.3 yg(ygmin)", edited))
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    (note,) = rec.warnings
+    assert "the 'amove' to the bar is not" in note
+    assert edited in rec.figure._generate_gle_with_files()[0]
+
+
+def test_a_colorbar_with_an_edited_label_stays_raw_and_is_noted(tmp_path):
+    path, text, _bar = _heatmap_bar(tmp_path)
+    path.write_text(text.replace("set just tc", "set just bc"))
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    (note,) = rec.warnings
+    assert "the label's lines are not" in note
+    assert "set just bc" in rec.figure._generate_gle_with_files()[0]
+
+
+def test_a_second_colorbar_for_one_heatmap_stays_raw_and_is_noted(tmp_path):
+    path, text, bar = _heatmap_bar(tmp_path)
+    second = bar.replace('"fix 1"', '"fix 2"')
+    path.write_text(text + second)
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"]["format"] == "fix 1"
+    (note,) = rec.warnings
+    assert "one colorbar per heatmap or scatter" in note
+    again = rec.figure._generate_gle_with_files()[0]
+    assert again.count("color_range_vertical") == 2 and 'format "fix 2"' in again
+
+
+def test_a_colorbar_after_one_kept_raw_is_noted(tmp_path):
+    path, text, bar = _heatmap_bar(tmp_path)
+    raw = bar.replace('palette "cmap_viridis"', 'palette "cmap_magma"')
+    path.write_text(text.replace(bar, raw + bar))
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    first, second = rec.warnings
+    assert "'cmap_magma' to attach it to" in first
+    assert "raw GLE after 'end graph' comes before it" in second
 
 
 def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):

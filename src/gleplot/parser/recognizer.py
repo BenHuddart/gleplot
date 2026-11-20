@@ -2253,25 +2253,26 @@ class _Recognizer:
         )
         return default
 
-    def _meta_color(self, meta: Dict[str, Any], key: str) -> str:
-        """The metadata's GLE colour ``key``, or its default when it is absent.
+    def _meta_color(self, meta: Dict[str, Any], key: str) -> Optional[str]:
+        """The metadata's GLE colour ``key``, or None (the colour cycle).
 
         A value that is not a colour token the writer records (a GLE colour
         name or an expression such as ``rgb255(...)``) is reported and
         ignored.
         """
-        default = str(_metadata.DEFAULTS[key])
-        value = meta.get(key, default)
+        value = meta.get(key)
+        if value is None:
+            return None
         if isinstance(value, str) and (
             value in _gle_color_names() or _COLOR_EXPR_RE.match(value)
         ):
             return value
         self._note(
             ImportCategory.METADATA,
-            f"{key} = {value!r} is not a GLE colour; using {default}",
+            f"{key} = {value!r} is not a GLE colour; using the colour cycle",
             None,
         )
-        return default
+        return None
 
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
         """The ``Figure`` described by the metadata and the preamble."""
@@ -10294,16 +10295,75 @@ class _Recognizer:
             if consumed is None:
                 break
             i = consumed
+        self._note_unread_post_calls(nodes, i)
         return i
 
     def _try_one_post_call(self, nodes, i, axes_info) -> Optional[int]:
         colorbar = self._colorbar_group(nodes, i)
         if colorbar is not None:
-            end, toks, amove_sep, label = colorbar
-            if self._apply_colorbar_call(toks, amove_sep, label, axes_info):
+            end, call, amove_sep, label, problem, labelled = colorbar
+            span = self._stmt_span(call)
+            if (
+                problem == "gap"
+                and not labelled
+                and self._draws_contourf(call, axes_info)
+            ):
+                # Kept raw, the bar would lose the band sub's rescale it
+                # draws through, so it is read with the default gap.
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"the gap of the colorbar drawn by this {call.keyword} "
+                    "call could not be read; it is written back at the "
+                    "default gap: pass sep= to fig.colorbar() to set it",
+                    span,
+                )
+                amove_sep = 0.3
+            elif problem is not None:
+                what = (
+                    "the 'amove' to the bar is"
+                    if problem == "gap"
+                    else "the label's lines are"
+                )
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"a {call.keyword} call was kept as raw GLE: {what} not "
+                    "what fig.colorbar() writes, so it is not read "
+                    "as a colorbar; to edit it, delete its gsave .. grestore "
+                    "group and call fig.colorbar()",
+                    span,
+                )
+                return None
+            if self._apply_colorbar_call(call, amove_sep, label, axes_info):
                 return end
             return None
-        # gsave, contour_labels file F format "..." , grestore.
+        clabel = self._clabel_group(nodes, i)
+        if clabel is None:
+            return None
+        if self._apply_clabel_call(_words_and_values(clabel), axes_info):
+            return i + 3
+        self._note(
+            ImportCategory.STRUCTURE,
+            "a contour_labels call was kept as raw GLE: it does not read "
+            "the labels file of an unlabelled contour of its graph; to edit "
+            "it, delete its gsave .. grestore group and pass clabel=True to "
+            "contour()",
+            self._stmt_span(clabel),
+        )
+        return None
+
+    def _draws_contourf(self, call: Statement, axes_info) -> bool:
+        """Whether a colorbar call draws its axes' contourf band palette."""
+        own = axes_info.get("_contourf_palette")
+        toks = _words_and_values(call)
+        horizontal = toks[0].value.lower() == "color_range_horizontal"
+        args = self._named_args(toks[1:], expr_arg="width" if horizontal else "height")
+        return own is not None and str(args.get("palette") or "").lower() == own
+
+    def _clabel_group(self, nodes, i) -> Optional[Statement]:
+        """The ``contour_labels`` call of a contour-label group at ``i``.
+
+        ``gsave``, ``contour_labels file F format "..."``, ``grestore``.
+        """
         stmts = [
             st for st in map(self._as_statement, nodes[i : i + 3]) if st is not None
         ]
@@ -10314,18 +10374,49 @@ class _Recognizer:
         args = self._named_args(toks[1:])
         if set(args) != {"file", "format"} or len(toks) != 5:
             return None
-        return i + 3 if self._apply_clabel_call(toks, axes_info) else None
+        return stmts[1]
+
+    def _note_unread_post_calls(self, nodes, i: int) -> None:
+        """Note each colorbar or contour-label group after the one at ``i``.
+
+        They are read only in an unbroken run after ``end graph``, so a
+        group after raw GLE (such as a colorbar kept raw) stays raw too. The
+        group at ``i`` itself was noted when it was read, if it is one.
+        """
+        colorbar = self._colorbar_group(nodes, i)
+        i = colorbar[0] if colorbar else i + (3 if self._clabel_group(nodes, i) else 1)
+        while i < len(nodes) and not isinstance(nodes[i], GraphBlock):
+            colorbar = self._colorbar_group(nodes, i)
+            call = colorbar[1] if colorbar else self._clabel_group(nodes, i)
+            if call is None:
+                i += 1
+                continue
+            end = colorbar[0] if colorbar else i + 3
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"a {call.keyword} call was kept as raw GLE: raw GLE after "
+                "'end graph' comes before it, and gleplot reads colorbars and "
+                "contour labels only straight after the graph's text; to "
+                "edit it, move it ahead of that raw GLE",
+                self._stmt_span(call),
+            )
+            i = end
 
     def _colorbar_group(
         self, nodes, i
-    ) -> Optional[Tuple[int, List[Token], object, Optional[str]]]:
+    ) -> Optional[
+        Tuple[int, Statement, Optional[float], Optional[str], Optional[str], bool]
+    ]:
         """The ``gsave`` .. ``grestore`` group drawing one colorbar, at ``i``.
 
         ``gsave``, the ``amove`` to the bar (and, for a horizontal one, the
         ``rmove`` down by its thickness), the ``color_range_vertical`` or
         ``color_range_horizontal`` call, the label's lines if it has one,
         ``grestore``: what :meth:`gleplot.writer.GLEWriter.add_colorbar`
-        writes. Returns ``(next_index, call tokens, sep, label)`` or ``None``.
+        writes. Returns ``(next_index, call, sep, label, problem,
+        labelled)`` or ``None``. ``problem`` is ``"gap"`` when the
+        ``amove`` is not one gleplot writes (``sep`` is then ``None``),
+        ``"label"`` when the label's lines are not, else ``None``.
         """
         stmts: List[Statement] = []
         j = i
@@ -10363,14 +10454,18 @@ class _Recognizer:
                 break
             body.append(nodes[j])
             j += 1
-        if j == len(nodes) or self._as_statement(nodes[j]) is None:
+        closing = self._as_statement(nodes[j]) if j < len(nodes) else None
+        if closing is None or (closing.keyword or "").lower() != "grestore":
             return None
         label = None
-        if body:
+        problem = None
+        if sep is None:
+            problem = "gap"
+        elif body:
             label = self._colorbar_label(body, args, sep, horizontal)
             if label is None:
-                return None
-        return j + 1, toks, sep, label
+                problem = "label"
+        return j + 1, stmts[-1], sep, label, problem, bool(body)
 
     def _colorbar_label(self, body, args, sep, horizontal) -> Optional[str]:
         """The label a colorbar group's ``body`` writes, or ``None``.
@@ -10425,8 +10520,9 @@ class _Recognizer:
         value = float(m.group(2))
         return -value if negative else value
 
-    def _apply_colorbar_call(self, toks, sep, label, axes_info) -> bool:
+    def _apply_colorbar_call(self, call, sep, label, axes_info) -> bool:
         """Attach the bar to the series it shows; whether one was found."""
+        toks = _words_and_values(call)
         # A vertical bar's thickness is its ``width`` and its length the
         # ``height`` expression; a horizontal bar's are the other way round.
         horizontal = toks[0].value.lower() == "color_range_horizontal"
@@ -10464,15 +10560,25 @@ class _Recognizer:
                 f"a {toks[0].value} call was kept as raw GLE: its axes has no "
                 f"heatmap or colour-mapped scatter whose colorbar draws palette "
                 f"{args.get('palette')!r} to attach it to",
-                None,
+                self._stmt_span(call),
             )
             return False
         hm = holders[0]
+        if hm.get("colorbar"):
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"a {toks[0].value} call was kept as raw GLE: an earlier "
+                "colorbar after this graph shows the same series, and "
+                "gleplot models one colorbar per heatmap or scatter; it still "
+                "draws, but fig.colorbar() does not change it",
+                self._stmt_span(call),
+            )
+            return False
         cb = {
             "label": label,
             "format": args.get("format") or "fix 1",
             "width": _as_float(args.get(thickness), 0.5),
-            "sep": sep if sep is not None else 0.3,
+            "sep": sep,
             "zmin": _as_float(args.get("zmin"), 0.0),
             "zmax": _as_float(args.get("zmax"), 1.0),
             # Written scaled by COLORBAR_STEP_SCALE (see add_colorbar).
@@ -11306,6 +11412,7 @@ class _Recognizer:
         for idx, info in enumerate(parsed_axes):
             ax = Axes(fig, positions[idx])
             self._populate_axes(ax, info)
+            ax._sync_color_cycles()
             fig._apply_shared_axes_flags(ax)
             # Restore explicit visibility flags recovered from GLE (override
             # the derived ones where the GLE said something different).
