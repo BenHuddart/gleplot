@@ -56,6 +56,15 @@ class TestFilenameQuoting:
         assert fs[0]["data_file"] == abs_posix
         assert "data_error" not in fs[0]
 
+    def test_a_quote_in_a_name_is_doubled_and_round_trips(self, tmp_path):
+        _write_data(tmp_path / 'my "run".dat')
+        fig = _reference_figure('my "run".dat')
+        out = tmp_path / "fig.gle"
+        fig.savefig_gle(str(out))
+        assert 'data "my ""run"".dat"' in out.read_text()
+        rec = parse_gle_figure(out)
+        assert rec.figure.axes_list[0].file_series[0]["data_file"] == 'my "run".dat'
+
 
 class TestAbsolutize:
     def test_relative_becomes_absolute_posix(self, tmp_path):

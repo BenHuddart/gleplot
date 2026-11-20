@@ -1005,6 +1005,25 @@ def test_hand_written_quotes_keep_what_gle_draws(tmp_path):
     assert 'write "Total: "+"x"' in fig.passthrough_trailer
 
 
+def test_a_string_ending_in_a_backslash_is_whole(tmp_path):
+    """GLE's tokenizer has no escapes, so ``"a\\"`` ends at its second quote."""
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        '   title "a\\"\n'
+        "   xaxis min 0 max 2\n"
+        "   xplaces 0 1\n"
+        '   xnames "x\\" "b"\n'
+        "   yaxis min 0 max 1\n"
+        "end graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "b.gle", src))
+    ax = rec.figure.axes_list[0]
+    assert ax.title_text == "a\\"
+    assert ax.xnames == ["x\\", "b"]
+    assert not ax.passthrough
+
+
 def test_xplaces_xnames_length_mismatch_falls_back_to_passthrough(tmp_path):
     # xnames has fewer entries than xplaces -- not representable on the model
     # (GLEWriter.add_axis_config would raise), so both lines must be kept as

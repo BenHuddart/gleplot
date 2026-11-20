@@ -478,11 +478,12 @@ def _format_data_filename(name: str) -> str:
     GLE requires quoting for paths containing whitespace (e.g. absolute
     OneDrive paths). Names without whitespace or quote characters are
     emitted bare, preserving byte-identical output for all previously
-    generated scripts.
+    generated scripts. An embedded quote is doubled, as GLE's tokenizer
+    embeds one.
     """
     name = str(name)
     if any(ch in name for ch in ' \t"'):
-        return '"' + name.replace('"', '\\"') + '"'
+        return GLEWriter._quote_gle_text(name)
     return name
 
 

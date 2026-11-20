@@ -30,6 +30,11 @@ def test_split_respects_string_quotes():
     assert [s for s, _ in segs] == ['write "a ; b"', " amove 1 1"]
 
 
+def test_split_after_a_string_ending_in_a_backslash():
+    segs = split_statements('write "a\\"; amove 1 1')
+    assert [s for s, _ in segs] == ['write "a\\"', " amove 1 1"]
+
+
 def test_split_respects_comment():
     segs = split_statements("amove 1 1 ! a ; b")
     assert [s for s, _ in segs] == ["amove 1 1 ! a ; b"]

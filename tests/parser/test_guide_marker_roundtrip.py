@@ -139,7 +139,7 @@ def test_a_reflines_label_is_not_duplicated_into_its_marker():
     assert all("label" not in line for line in _marker_lines(text))
 
 
-def test_a_marker_carries_a_negative_coordinate_and_an_escaped_quote(tmp_path):
+def test_a_marker_carries_a_negative_coordinate_and_a_quote(tmp_path):
     fig = glp.figure(data_prefix="gm")
     ax = fig.add_subplot(111)
     ax.plot([-5.0, 5.0], [-5.0, 5.0])
@@ -152,6 +152,17 @@ def test_a_marker_carries_a_negative_coordinate_and_an_escaped_quote(tmp_path):
     assert ax2.reflines[0]["value"] == pytest.approx(-2.5)
     assert (ax2.spans[0]["start"], ax2.spans[0]["end"]) == (-4.0, -3.0)
     assert ax2.spans[0]["label"] == 'a "quoted" band'
+
+
+@pytest.mark.parametrize("label", ['say "hi"', '5"', "C:\\dir\\"])
+def test_a_marker_label_ending_in_a_quote_or_backslash_comes_back(label, tmp_path):
+    """The marker's backslash escape is read apart from GLE's string rules."""
+    fig = glp.figure(data_prefix="gm")
+    fig.add_subplot(111).axvspan(1.0, 2.0, label=label)
+    text, parsed, notes = _roundtrip(fig, tmp_path)
+    assert notes == []
+    assert parsed.axes_list[0].spans[0]["label"] == label
+    assert parsed._generate_gle_with_files()[0] == text
 
 
 # --------------------------------------------------------------------------- #
