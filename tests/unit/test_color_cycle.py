@@ -82,6 +82,13 @@ def _colors(ax):
     return [color for _seq, color in sorted(found)]
 
 
+def _next_line_and_patch(ax):
+    """The colours the next plot and the next scatter draw in."""
+    ax.plot(X, Y)
+    ax.scatter(X, Y)
+    return ax.lines[-1]["color"], ax.scatters[-1]["color"]
+
+
 @pytest.mark.parametrize("name", sorted(CALLS))
 def test_each_call_takes_the_next_colour_of_its_own_cycle(name):
     """After a plot and a scatter, each call draws C1, or C0 if it takes none."""
@@ -90,10 +97,10 @@ def test_each_call_takes_the_next_colour_of_its_own_cycle(name):
     ax.scatter(X, Y)
     CALLS[name](ax)
     assert set(_colors(ax)[2:]) == {C[1] if CYCLE[name] else C[0]}
-    expected = {"lines": 1, "patches": 1}
+    expected = [C[1], C[1]]
     if CYCLE[name]:
-        expected[CYCLE[name]] = 2
-    assert ax._color_cycles == expected
+        expected[["lines", "patches"].index(CYCLE[name])] = C[2]
+    assert list(_next_line_and_patch(ax)) == expected
 
 
 def test_successive_plots_cycle_and_wrap_after_ten():
@@ -164,20 +171,39 @@ def test_an_opened_file_continues_each_cycle(tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         loaded = parse_gle_figure(path).figure.axes_list[0]
-    assert loaded._color_cycles == ax._color_cycles
-    loaded.plot(X, Y)
-    loaded.scatter(X, Y)
-    assert loaded.lines[-1]["color"] == C[2]
-    assert loaded.scatters[-1]["color"] == C[1]
+    assert _next_line_and_patch(loaded) == (C[2], C[1])
+    loaded.twinx().plot(X, Y)
+    assert loaded.lines[-1]["color"] == C[1]
+
+
+def test_an_opened_file_counts_a_hatched_bar_and_one_fill_per_call(tmp_path):
+    fig, ax = _ax()
+    ax.bar(X, Y, hatch="/")
+    ax.fill_between(
+        [1, 2, 3, 4, 5], [1, 2, 1, 2, 1], where=[True, True, False, True, True]
+    )
+    assert len(ax.fills) == 2
+    path = tmp_path / "h.gle"
+    fig.savefig_gle(str(path))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        loaded = parse_gle_figure(path).figure.axes_list[0]
+    assert _next_line_and_patch(loaded) == (C[0], C[2])
 
 
 def test_a_restored_snapshot_continues_each_cycle():
     fig, ax = _ax()
     ax.plot(X, Y)
     ax.fill_between(X, Y)
+    ax.stackplot(X, Y)
+    ax.hlines(Y, 0, 1)
     restored = glp.Figure.from_dict(json.loads(json.dumps(fig.to_dict())))
-    again = restored.axes_list[0]
-    again.plot(X, Y)
-    again.fill(X, Y)
-    assert again.lines[-1]["color"] == C[1]
-    assert again.fills[-1]["color"] == C[1]
+    assert _next_line_and_patch(restored.axes_list[0]) == (C[2], C[1])
+
+
+def test_a_call_that_raises_takes_no_colour():
+    fig, ax = _ax()
+    with pytest.raises(ValueError):
+        ax.bar(X, Y, yerr=[1.0, 2.0])
+    ax.bar(X, Y)
+    assert ax.bars[0]["colors"][0] == C[0]

@@ -81,7 +81,7 @@ fig.savefig('plot.pdf')
 
 A series given no colour takes the next of matplotlib's `'C0'` to `'C9'`, per axes, where matplotlib would: lines (`plot`, `step`, `errorbar`, `hist`, `stackplot`) and patches (`scatter`, `bar`, `barh`, `fill`, `fill_between`, `fill_betweenx`) have separate cycles, `stem`, `hlines` and `vlines` draw in `'C0'`, and a `twinx()`/`twiny()` view has cycles of its own. A colour that is given takes nothing from the cycle. The rules are in the [`GLEStyleConfig`](https://benhuddart.github.io/gleplot/api_configuration.html#gleplot.GLEStyleConfig) reference. A figure opened with `open_gle` continues each cycle after the series whose colours follow it.
 
-Before 6.0, every such series was `BLUE`, except bars (`RED`) and fills (`LIGHTBLUE`), and `stackplot` started again at `'C0'` on every call. `GLEStyleConfig(default_color='BLUE', default_marker_color='BLUE')` brings back the single blue for lines, markers, histograms and function curves; bars and fills always take the cycle.
+To draw every uncoloured line, histogram and function curve in one colour, and every uncoloured marker in another, set `GLEStyleConfig(default_color=..., default_marker_color=...)`. Bars, fills and `stackplot` layers always take the cycle.
 
 ## Legends
 

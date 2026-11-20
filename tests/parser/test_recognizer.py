@@ -76,6 +76,8 @@ def normalize(d: dict) -> dict:
         decided on.
       * aspect: dropped. ``set_aspect`` is resolved into that rect and is
         not recovered.
+      * color_cycles: dropped. Derived from the series colours, which do
+        not say whether a colour came from the cycle.
       * _draw_seq: dropped. The writer emits all line series before all
         marker series (ASYMMETRY docs / writer emission order), so the
         caller's interleave across kinds is not representable in the .gle;
@@ -252,6 +254,10 @@ def normalize(d: dict) -> dict:
         # set_aspect is resolved into that rect too, and is not recovered
         # (agreed for #85): the rect is its surviving form.
         ax.pop("aspect", None)
+        # The colour cycles are not in the file. The recognizer derives them
+        # from the series colours, which cannot tell a stem's or an hlines'
+        # C0, or a stackplot layer, from a series that took the cycle.
+        ax.pop("color_cycles", None)
 
         # axis limits snap to emitted precision.
         for lim in ("xmin", "xmax", "ymin", "ymax", "y2min", "y2max", "x2min", "x2max"):

@@ -2900,8 +2900,8 @@ class Axes:
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
         # How many colours each of matplotlib's cycles has handed out here,
-        # keyed by _cycle_key. Derived again from the series on a load
-        # (_sync_color_cycles), so it is not part of to_dict.
+        # keyed by _cycle_key. A file does not record it: the recognizer
+        # derives it from the series (_sync_color_cycles).
         self._color_cycles: Dict[str, int] = {}
 
     @staticmethod
@@ -2969,76 +2969,75 @@ class Axes:
         return cycle
 
     def _next_color(
-        self, cycle: Optional[str], yaxis: str = "y", xaxis: str = "x"
+        self,
+        cycle: Optional[str],
+        yaxis: str = "y",
+        xaxis: str = "x",
+        advance: bool = True,
     ) -> str:
         """The next of ``'C0'``..``'C9'`` in ``cycle``, which it advances.
 
         matplotlib keeps two cycles per axes: ``'lines'`` (plot, errorbar,
         hist, stackplot) and ``'patches'`` (scatter, bar, fill). None is a
         call that draws in ``'C0'`` and advances neither (stem, hlines).
+        ``advance=False`` looks without taking, for a call that may still
+        raise.
         """
         if cycle is None:
             return "C0"
         key = self._cycle_key(cycle, yaxis, xaxis)
         n = self._color_cycles.get(key, 0)
-        self._color_cycles[key] = n + 1
+        if advance:
+            self._color_cycles[key] = n + 1
         return f"C{n % 10}"
 
-    #: The cycles a series of each kind may have taken its colour from, the
-    #: likelier first: a marker-only plot is a scatter, and a stackplot
-    #: layer a fill, that took the line cycle. Read by _sync_color_cycles.
-    _CYCLES_BY_ATTR = {
-        "lines": ("lines",),
-        "errorbars": ("lines",),
-        "hists": ("lines",),
-        "functions": ("lines",),
-        "fits": ("lines",),
-        "derived_series": ("lines",),
-        "file_series": ("lines",),
-        "scatters": ("patches", "lines"),
-        "bars": ("patches",),
-        "fills": ("patches", "lines"),
+    #: The cycle a series of each kind takes its colour from, for
+    #: _sync_color_cycles. A marker-only plot is a scatter, and a stackplot
+    #: layer a fill, that took the line cycle; a file cannot tell them apart.
+    _CYCLE_BY_ATTR = {
+        "lines": "lines",
+        "errorbars": "lines",
+        "hists": "lines",
+        "functions": "lines",
+        "fits": "lines",
+        "derived_series": "lines",
+        "file_series": "lines",
+        "scatters": "patches",
+        "bars": "patches",
+        "fills": "patches",
     }
 
     def _sync_color_cycles(self) -> None:
-        """Set the colour cycles from the series already on this axes.
+        """Set the colour cycles from the series of an axes read from a file.
 
-        For an axes loaded from a file or a :meth:`to_dict` snapshot, so the
-        next series plotted continues each cycle. A file holds its series in
-        draw order, not call order, so each cycle simply takes, while one is
-        left, a series in the next colour of that cycle that could have taken
-        it.
+        A file holds its series in draw order, not call order, and not
+        whether a colour came from the cycle. So each cycle takes, while
+        one is left, a series of its kind in its next colour.
         """
         palette = [_gle_color(f"C{n}", "color") for n in range(10)]
-        pending = []
-        for attr, cycles in self._CYCLES_BY_ATTR.items():
+        pending: Dict[str, List[str]] = {}
+        for attr, cycle in self._CYCLE_BY_ATTR.items():
             for series in getattr(self, attr):
-                color = (
-                    (series.get("colors") or [None])[0]
-                    if attr == "bars"
-                    else series.get("color")
-                )
+                if attr == "bars":
+                    # A hatched bar's face is its background.
+                    color = (
+                        series.get("background") or (series.get("colors") or [None])[0]
+                    )
+                else:
+                    color = series.get("color")
                 if color in palette:
-                    keys = [
-                        self._cycle_key(
-                            cycle, series.get("yaxis", "y"), series.get("xaxis", "x")
-                        )
-                        for cycle in cycles
-                    ]
-                    pending.append((color, keys))
-        counts: Dict[str, int] = {}
-        claimed = True
-        while claimed:
-            claimed = False
-            for entry in list(pending):
-                color, keys = entry
-                for key in keys:
-                    if color == palette[counts.get(key, 0) % 10]:
-                        counts[key] = counts.get(key, 0) + 1
-                        pending.remove(entry)
-                        claimed = True
-                        break
-        self._color_cycles = counts
+                    key = self._cycle_key(
+                        cycle, series.get("yaxis", "y"), series.get("xaxis", "x")
+                    )
+                    pending.setdefault(key, []).append(color)
+        self._color_cycles = {}
+        for key, colors in pending.items():
+            n = 0
+            while palette[n % 10] in colors:
+                colors.remove(palette[n % 10])
+                n += 1
+            if n:
+                self._color_cycles[key] = n
 
     def _register_series_draw_meta(
         self, entry: dict, kind: str, zorder: Optional[float] = None
@@ -3698,7 +3697,7 @@ class Axes:
         ):
             one_color, color_alpha = _rgba_parts(one_color)
             series_alpha = color_alpha if one_alpha is None else one_alpha
-            ink = self._resolve_color(one_color, yaxis=yaxis, xaxis=xaxis)
+            ink = self._resolve_color(one_color, yaxis=draw_yaxis, xaxis=draw_xaxis)
             if series_alpha is not None:
                 ink = apply_alpha(ink, series_alpha)
             # The stroke is the fill unless the caller named an edge, so
@@ -5405,9 +5404,12 @@ class Axes:
         if n == 0:
             raise ValueError("bar() needs at least one bar")
 
-        default_face = (
-            _gle_color(self._next_color("patches"), "color") if color is None else None
-        )
+        default_face = None
+        if color is None:
+            # Taken from the cycle below, once nothing can raise.
+            default_face = _gle_color(
+                self._next_color("patches", advance=False), "color"
+            )
         faces = _bar_color_list(color, n, default_face, "color")
         edges = _bar_color_list(edgecolor, n, None, "edgecolor")
         # GLE's ``fill`` is the hatch ink and ``background`` the face, so a
@@ -5435,6 +5437,9 @@ class Axes:
             err_colors = _bar_color_list(
                 "black" if ecolor is None else ecolor, n, "BLACK", "ecolor"
             )
+
+        if color is None:
+            self._next_color("patches")
 
         # One dataset, one face and one edge. Differing colours are separate
         # series so each bar is a ``bar dN`` at its own x. Uniform colours
@@ -10354,6 +10359,8 @@ class Axes:
             payload["aspect"] = self._aspect
         if self._facecolor is not None:
             payload["facecolor"] = self._facecolor
+        if self._color_cycles:
+            payload["color_cycles"] = dict(self._color_cycles)
         return payload
 
     @classmethod
@@ -10545,6 +10552,8 @@ class Axes:
                 if seq is not None:
                     max_seq = max(max_seq, int(seq))
         ax._draw_seq_counter = max_seq + 1 if max_seq >= 0 else 0
-        ax._sync_color_cycles()
+        ax._color_cycles = {
+            str(k): int(v) for k, v in (d.get("color_cycles") or {}).items()
+        }
 
         return ax

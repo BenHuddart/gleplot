@@ -48,7 +48,6 @@ class GLEStyleConfig:
         instead when the call passes no ``color``. Any spelling
         :func:`gleplot.colors.rgb_to_gle` accepts. Default: None, which
         uses each axes' colour cycle, as matplotlib does (see the Notes).
-        ``'BLUE'`` gives the single default colour of gleplot before 6.0.
 
     default_marker_color : str or None
         Same, for a marker-only series -- what :meth:`gleplot.Axes.scatter`
