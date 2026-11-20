@@ -278,8 +278,8 @@ no markers even when `marker=` is given.
 
 `errorbar`'s `yerr` and `xerr` take matplotlib's shapes: a scalar, `N` values
 (one symmetric error per point), or shape `(2, N)` (a lower row and an upper
-row, such as a `(lower, upper)` tuple). Before 6.0 a two-element sequence was
-always read as `(lower, upper)`: `yerr=[0.1, 0.2]` on two points drew 0.1
+row, such as a `(lower, upper)` tuple). gleplot used to read every
+two-element sequence as `(lower, upper)`: `yerr=[0.1, 0.2]` on two points drew 0.1
 below and 0.2 above both, and on any other number of points it was spread
 over every point. It is now one error per point on two points, as in
 matplotlib, and raises `ValueError` on any other number of points; pass

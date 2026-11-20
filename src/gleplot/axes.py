@@ -832,9 +832,10 @@ def _errorbar_sides(err: Any, name: str, n: int) -> Tuple[Any, Any]:
 
     matplotlib's shapes, broadcast to ``(2, n)``: a scalar, ``n`` values
     (symmetric), or ``(2, n)`` rows of minus and plus errors. A column of
-    ``n`` (``n != 2``) is ``n`` values, as gleplot has always read it.
-    Raises ``ValueError`` for any other shape, a length-2 sequence for
-    other than 2 points included.
+    ``n`` (``n != 2``; for two points ``(2, 1)`` is matplotlib's rows) is
+    ``n`` values, and a ``(lower, upper)`` pair of a scalar and ``n`` values
+    is taken, as gleplot has always read them. Raises ``ValueError`` for any
+    other shape, a pair of scalars for other than 2 points included.
     """
     if err is None:
         return None, None
@@ -845,7 +846,18 @@ def _errorbar_sides(err: Any, name: str, n: int) -> Tuple[Any, Any]:
     try:
         arr = np.asarray(err, dtype=float)
     except (TypeError, ValueError):
-        raise ValueError(f"{message}; got {type(err).__name__} {err!r}.") from None
+        arr = None
+    if arr is None and isinstance(err, (list, tuple)) and len(err) == 2:
+        # A (lower, upper) pair of a scalar and n values, which gleplot has
+        # always taken; each side broadcasts on its own.
+        try:
+            sides = [np.broadcast_to(np.asarray(side, float), (n,)) for side in err]
+        except (TypeError, ValueError):
+            pass
+        else:
+            return np.array(sides[0]), np.array(sides[1])
+    if arr is None:
+        raise ValueError(f"{message}; got a {type(err).__name__} that is not.")
     if arr.shape == (n, 1) and n != 2:
         arr = arr.ravel()
     try:

@@ -1317,7 +1317,10 @@ class TestErrorBars:
         """matplotlib reads a length-N sequence as per-point errors (#469)."""
         self.ax.errorbar([1, 2], [1, 2], yerr=[0.1, 0.2])
         self.ax.errorbar([1, 2], [1, 2], yerr=([0.1, 0.2], [0.3, 0.4]))
-        symmetric, rows = self.ax.errorbars
+        self.ax.errorbar([1, 2, 3], [1, 2, 3], yerr=(0.1, [0.2, 0.3, 0.4]))
+        symmetric, rows, mixed = self.ax.errorbars
+        np.testing.assert_array_equal(mixed["yerr_down"], [0.1, 0.1, 0.1])
+        np.testing.assert_array_equal(mixed["yerr_up"], [0.2, 0.3, 0.4])
         np.testing.assert_array_equal(symmetric["yerr_down"], [0.1, 0.2])
         np.testing.assert_array_equal(symmetric["yerr_up"], [0.1, 0.2])
         np.testing.assert_array_equal(rows["yerr_down"], [0.1, 0.2])
