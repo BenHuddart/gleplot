@@ -299,7 +299,7 @@ from ..axes import (
     _let_expression_problem,
     _resolve_data_file,
 )
-from ..colors import GLE_PATTERNS
+from ..colors import _COLOR_EXPR_RE, GLE_PATTERNS, _gle_color_names
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..dataio import (
     ColumnExtractionError,
@@ -2026,6 +2026,47 @@ class _Recognizer:
             self._insets = set(meta.get("insets") or [])
         return meta
 
+    def _meta_number(self, meta: Dict[str, Any], key: str) -> Union[int, float]:
+        """The metadata's number ``key``, or its default when it is absent.
+
+        A value that is not a finite number is reported and ignored.
+        """
+        default = float(_metadata.DEFAULTS[key])
+        value = meta.get(key, default)
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+        ):
+            # An int stays an int, so the next save writes it the same way.
+            return value
+        self._note(
+            ImportCategory.METADATA,
+            f"{key} = {value!r} is not a number; using {default}",
+            None,
+        )
+        return default
+
+    def _meta_color(self, meta: Dict[str, Any], key: str) -> str:
+        """The metadata's GLE colour ``key``, or its default when it is absent.
+
+        A value that is not a colour token the writer records (a GLE colour
+        name or an expression such as ``rgb255(...)``) is reported and
+        ignored.
+        """
+        default = str(_metadata.DEFAULTS[key])
+        value = meta.get(key, default)
+        if isinstance(value, str) and (
+            value in _gle_color_names() or _COLOR_EXPR_RE.match(value)
+        ):
+            return value
+        self._note(
+            ImportCategory.METADATA,
+            f"{key} = {value!r} is not a GLE colour; using {default}",
+            None,
+        )
+        return default
+
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
         """The ``Figure`` described by the metadata and the preamble."""
         dpi = int(meta.get("dpi", 100))
@@ -2042,13 +2083,19 @@ class _Recognizer:
                     f"'none', 'row' or 'col'; read as {shares[-1]}.",
                 )
         sharex, sharey = shares
-        msize_scale = float(meta.get("msize_scale", 1.0))
-        metadata_extra = {
-            k: v
-            for k, v in meta.items()
-            if k
-            not in ("dpi", "sharex", "sharey", "msize_scale", "import-data", "insets")
-        }
+        msize_scale = self._meta_number(meta, "msize_scale")
+        known = (
+            "dpi",
+            "sharex",
+            "sharey",
+            "msize_scale",
+            "default_linewidth",
+            "default_color",
+            "default_marker_color",
+            "import-data",
+            "insets",
+        )
+        metadata_extra = {k: v for k, v in meta.items() if k not in known}
 
         (
             figsize,
@@ -2061,7 +2108,12 @@ class _Recognizer:
         ) = self._parse_preamble(pre_nodes)
 
         # Build style/graph/marker configs.
-        style = GLEStyleConfig(**page_state)
+        style = GLEStyleConfig(
+            **page_state,
+            default_linewidth=self._meta_number(meta, "default_linewidth"),
+            default_color=self._meta_color(meta, "default_color"),
+            default_marker_color=self._meta_color(meta, "default_marker_color"),
+        )
         self._polar_degree = polar_degree_mark(bool(style.usetex))
         style.font = font
         style.fontsize = fontsize

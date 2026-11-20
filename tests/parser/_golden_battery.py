@@ -1585,7 +1585,8 @@ def one_point_default_width():
     """A 1 pt default width: each kind's ``lwidth 0.03528`` comes back as 1 pt.
 
     The writer reads 1 pt as "the style default", so a recovered 1 pt width
-    is kept as given rather than widened to the default it was loaded with.
+    is kept as given (``_lwidth_verbatim``) whatever default the figure is
+    loaded with; the metadata records ``default_linewidth = 1.0``.
     """
     fig = glp.figure(
         style=glp.GLEStyleConfig(default_linewidth=1.0), data_prefix="golden"
@@ -1604,6 +1605,18 @@ def one_point_default_width():
     guides.axvline(1.0, label="drawn")
     guides.set_xlim(0, 2)
     guides.legend()
+    return fig
+
+
+def default_series_colors():
+    """Non-default style colours, which the metadata records (#345)."""
+    fig = glp.figure(
+        style=glp.GLEStyleConfig(default_color="C1", default_marker_color="red"),
+        data_prefix="golden",
+    )
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [1, 2, 1])
+    ax.scatter([0, 1, 2], [2, 1, 2])
     return fig
 
 
@@ -2126,6 +2139,7 @@ BUILDERS = [
     function_curves,
     function_curves_beside_modelled_lets,
     one_point_default_width,
+    default_series_colors,
     guides_after_graph,
     guides_after_graph_beyond_six_figures,
     fit_curves,
