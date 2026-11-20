@@ -1975,8 +1975,45 @@ class _Recognizer:
         fig.passthrough_header.extend(
             text for name, text in self._held_includes if not regenerated[name]
         )
+        self._note_dropped_comments(doc, fig)
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
+
+    def _note_dropped_comments(self, doc, fig: Figure) -> None:
+        """Note each comment after a statement that the figure does not keep.
+
+        gleplot writes a statement it models (or regenerates) from the
+        figure, so a ``! comment`` at the end of its line is not written
+        back. A statement kept as raw GLE is stored with its comment: a line
+        whose last statement is one of the figure's stored lines is kept.
+        """
+        kept: Optional[Set[str]] = None
+
+        def strings(value: Any) -> List[str]:
+            if isinstance(value, str):
+                return value.splitlines()
+            if isinstance(value, dict):
+                return [s for v in value.values() for s in strings(v)]
+            if isinstance(value, (list, tuple)):
+                return [s for v in value for s in strings(v)]
+            return []
+
+        for sl in doc.lines:
+            toks = tokenize_line(sl.text)
+            if len(toks) < 2 or toks[-1].type is not TokenType.COMMENT:
+                continue
+            if kept is None:
+                kept = {line.strip() for line in strings(fig.to_dict())}
+            last = sl.text.rsplit(";", 1)[-1].strip()
+            if sl.text.strip() in kept or last in kept:
+                continue
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"the comment {toks[-1].value!r} on this line is not written "
+                "back on save: gleplot writes the statement it follows from "
+                "the figure",
+                (sl.line_no, sl.line_no),
+            )
 
     def _scan_document(self, doc) -> None:
         """Whole-file scans the per-node passes depend on, and their notes."""
