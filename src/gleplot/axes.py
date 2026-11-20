@@ -810,7 +810,7 @@ def _require_finite(arr: np.ndarray, what: str) -> None:
     if not np.all(np.isfinite(arr)):
         raise ValueError(
             f"{what} contains NaN or infinite values, which GLE's colormap/"
-            "contour grid cannot represent; mask or fill them before plotting"
+            "contour grid cannot represent; fill them before plotting"
         )
 
 
@@ -7655,11 +7655,22 @@ class Axes:
         Other matplotlib keywords (``alpha``, ``norm``, ``aspect``, ...)
         warn and are ignored: a GLE colormap is opaque and maps colours
         linearly from ``vmin`` to ``vmax``.
+
+        ``Z`` must be finite and unmasked: GLE's colormap cannot leave a cell
+        blank, so a NaN, an infinity or a masked cell raises ``ValueError``
+        where matplotlib leaves the cell transparent. Fill them first, e.g.
+        with ``np.ma.filled(Z, value)``.
         """
         warn_unsupported_keywords("imshow", kwargs)
         label = self._text(label)
         if origin not in ("lower", "upper"):
             raise ValueError("origin must be 'lower' or 'upper'")
+        if np.ma.is_masked(Z):
+            # np.asarray would draw the value under the mask.
+            raise ValueError(
+                "imshow() Z has masked cells, and GLE's colormap cannot leave "
+                "a cell blank. Choose their value with np.ma.filled(Z, value)."
+            )
         z = np.asarray(Z, dtype=float)
         if z.ndim != 2:
             raise ValueError("imshow requires a 2-D array Z")

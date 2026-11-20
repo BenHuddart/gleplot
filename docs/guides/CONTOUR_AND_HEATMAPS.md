@@ -225,7 +225,7 @@ GLE's `begin contour` block accepts a `smooth <integer>` line, but GLE reads the
 
 GLE's colormap/contour grid has no missing-value support and requires ascending axis ranges, so gleplot validates these at call time and raises a clear `ValueError` rather than emitting a `.gle` that breaks at compile:
 
-- **Finite values only.** A `NaN` or infinity anywhere in `Z` (or in scattered `x`/`y`/`z`) is rejected — GLE's `.z` reader has no transparent/masked pixel (unlike matplotlib's `imshow`, which renders `NaN` transparent). Mask or fill missing cells before plotting.
+- **Finite values only.** A `NaN` or infinity anywhere in `Z` (or in scattered `x`/`y`/`z`) is rejected — GLE's `.z` reader has no transparent/masked pixel (unlike matplotlib's `imshow`, which renders `NaN` and masked cells transparent). A masked cell in `imshow`'s `Z` is rejected too. Fill missing cells before plotting, e.g. with `np.ma.filled(Z, value)`.
 - **Ascending `extent`.** `extent` must have `xmin < xmax` and `ymin < ymax`; a reversed or degenerate extent is rejected (gleplot cannot express an axis flipped purely via `extent`).
 - **In-range contour levels.** Explicit `contour` levels that all fall outside the grid's data range are rejected (no lines would be drawn, and GLE aborts on the resulting empty polyline file). A partially in-range level set is fine — the out-of-range ones are simply not drawn. (For `tricontour` the grid is interpolated at compile time, so its exact range isn't known in advance and this check isn't applied.)
 
