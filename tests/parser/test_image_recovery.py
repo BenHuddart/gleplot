@@ -82,8 +82,12 @@ def test_an_edited_image_block_stays_raw_with_a_note(tmp_path, block):
 
 def test_a_hand_written_bitmap_draw_stays_raw_and_silent(tmp_path):
     block = _block('draw mypicture "a.png" 0 1 0 1')
-    recognized = _parse(tmp_path, block)
+    recognized = _parse(tmp_path, block + "    ! was: draw glp_bitmap a.png\n")
     ax = recognized.figure.axes_list[0]
     assert ax.images == []
-    assert len(ax.passthrough) == 3
+    assert len(ax.passthrough) == 4
     assert recognized.warnings == []
+    # Nothing calls an image sub, so none is written.
+    resaved = tmp_path / "resaved.gle"
+    recognized.figure.savefig(str(resaved))
+    assert "sub glp_" not in resaved.read_text()

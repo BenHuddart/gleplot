@@ -60,6 +60,7 @@ from .writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
+    POLAR_SUB_NAMES,
     AxisStyle,
     DecimationPolicy,
     GLEWriter,
@@ -96,10 +97,11 @@ _PALETTE_DEF_RE = re.compile(r"^\s*sub\s+cmap_(\w+)", re.IGNORECASE | re.MULTILI
 
 
 #: A call of a polar or image sub (:data:`POLAR_SUB`, :data:`IMAGE_SUBS`)
-#: in raw GLE; group 1 is the sub's name.
+#: in raw GLE, a statement of its own or after ``draw``; group 1 is the
+#: sub's name. A name in a comment or a string is not a call.
 _FIXED_SUB_CALL_RE = re.compile(
-    r"\b(glp_polar_grid|glp_polar_labels|" + "|".join(IMAGE_SUBS) + r")\b",
-    re.IGNORECASE,
+    r"^\s*(?:draw\s+)?(" + "|".join((*POLAR_SUB_NAMES, *IMAGE_SUBS)) + r")\b",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -3495,9 +3497,9 @@ class Figure:
         raw_calls = {
             name.lower() for name in _FIXED_SUB_CALL_RE.findall(_raw_gle(self))
         }
-        if any(ax._polar for ax in self.axes_list) or raw_calls - set(IMAGE_SUBS):
+        if any(ax._polar for ax in self.axes_list) or raw_calls & set(POLAR_SUB_NAMES):
             subs.append(POLAR_SUB)
-        used_images = raw_calls | {
+        used_images = (raw_calls & set(IMAGE_SUBS)) | {
             image_sub_name(image["file"])
             for ax in self.axes_list
             for image in resolution.visible(ax.images)
