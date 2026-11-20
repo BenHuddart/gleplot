@@ -457,7 +457,7 @@ The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar a
 | `histtype` | GLE |
 |---|---|
 | `"step"` | `dK line hist`, with smoothing pinned off. The line is drawn in `edgecolor` when one is given, else in `color`, as in matplotlib. |
-| `"stepfilled"` | `bar dK fill C color C width W`, one bin wide, from zero. `fill x1,dK` would chord the centres and fill to the axis minimum. The stroke matches the fill so the shared edge of two bins is not a second ink, unless `edgecolor` is given. |
+| `"stepfilled"` | `bar dK fill C color C width W`, one bin wide, from zero. `fill x1,dK` would chord the centres and fill to the axis minimum. The stroke matches the fill so the shared edge of two bins is not a second ink, unless `edgecolor` is given. GLE strokes every bar, so `edgecolor='none'` also strokes in the fill. As in matplotlib, `alpha=` reaches an explicit `edgecolor` and the alpha of an RGBA `color` does not. |
 | `"bar"`, `"barstacked"` | warn, and draw the step outline in `color`; an `edgecolor` warns and is ignored. Per-bar faces, edges, groups and stacks are `Axes.bar`. |
 
 | argument | gleplot |
