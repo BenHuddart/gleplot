@@ -29,13 +29,17 @@ def warn_external(
     warnings.warn(message, category, stacklevel=stacklevel)
 
 
-def warn_unsupported_keywords(caller: str, names: Iterable[Any]) -> None:
+def warn_unsupported_keywords(
+    caller: str, names: Iterable[Any], hint: str = ""
+) -> None:
     """One warning listing the keyword ``names`` that ``caller()`` ignores.
 
     The shared message for keywords a public call accepts but cannot honour.
     The caller first takes out what it handles, matplotlib's short aliases
-    included; nothing is said when ``names`` is empty.
+    included; nothing is said when ``names`` is empty. ``hint``, a sentence
+    saying what the call does take, follows the list.
     """
     listed = ", ".join(sorted(str(name) for name in names))
     if listed:
-        warn_external(f"{caller}() ignores unsupported keyword(s): {listed}.")
+        message = f"{caller}() ignores unsupported keyword(s): {listed}."
+        warn_external(f"{message} {hint}" if hint else message)

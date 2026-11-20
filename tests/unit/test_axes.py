@@ -282,7 +282,10 @@ class TestSubplots:
         (message,) = [str(w.message) for w in record]
         for name in ("num", "layout", "gridspec_kw['figure']"):
             assert name in message
-        with pytest.warns(UserWarning, match=r"add_subplot\(\) ignores alpha"):
+        with pytest.warns(
+            UserWarning,
+            match=r"add_subplot\(\) ignores unsupported keyword\(s\): alpha",
+        ):
             glp.subplots(subplot_kw={"alpha": 0.5, "facecolor": "red"})
 
     def test_subplots_checks_its_keywords_before_replacing_the_figure(self):
@@ -641,7 +644,9 @@ class TestSubplots:
             fig._generate_gle()
 
     def test_add_axes_axes_properties_warn(self):
-        with pytest.warns(UserWarning, match="ignores alpha"):
+        with pytest.warns(
+            UserWarning, match=r"ignores unsupported keyword\(s\): alpha"
+        ):
             glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], alpha=0.5)
 
     def test_add_axes_facecolor_fills_the_inset_frame(self, recwarn):
