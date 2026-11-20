@@ -12,7 +12,8 @@ import gleplot as glp
 
 
 def example_basic_line_plot():
-    """Sine and cosine as two line series with their own colours and line styles."""
+    """Sine and cosine as two line series. Given no colour, they take C0 and C1 from
+    the axes' colour cycle, as in matplotlib."""
     print("Creating example: Basic line plot...")
 
     fig = glp.figure(figsize=(8, 6))
@@ -23,9 +24,9 @@ def example_basic_line_plot():
     y_sin = np.sin(x)
     y_cos = np.cos(x)
 
-    # Plot
-    ax.plot(x, y_sin, color="blue", label="sin(x)", linestyle="-")
-    ax.plot(x, y_cos, color="red", label="cos(x)", linestyle="--")
+    # Plot: no color given, so each line takes the next colour of the cycle
+    ax.plot(x, y_sin, label="sin(x)", linestyle="-")
+    ax.plot(x, y_cos, label="cos(x)", linestyle="--")
 
     # Labels and title
     ax.set_xlabel("x (radians)")

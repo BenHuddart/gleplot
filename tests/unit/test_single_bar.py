@@ -164,7 +164,7 @@ def test_a_single_bar_writes_its_width_and_its_range():
     ax.bar([1], [5])
 
     text, _files = _generate(fig)
-    assert _bar_lines(text) == ["bar d1 fill RED width 0.5"]
+    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width 0.5"]
     assert _axis_line(text, "x") == "xaxis min 0.5 max 1.5"
 
 
@@ -206,7 +206,7 @@ def test_the_other_two_unmeasurable_shapes_are_fixed_the_same_way(
     ax.bar(x, heights)
 
     text, _files = _generate(fig)
-    assert _bar_lines(text) == ["bar d1 fill RED width 0.5"]
+    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width 0.5"]
     assert _axis_line(text, "x") == expected_axis
 
 
@@ -217,7 +217,7 @@ def test_a_lone_bar_beside_other_data_takes_the_width_and_leaves_the_range():
     ax.plot([0.0, 10.0], [1.0, 9.0])
 
     text, _files = _generate(fig)
-    assert _bar_lines(text) == ["bar d1 fill RED width 0.5"]
+    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width 0.5"]
     assert _axis_line(text, "x") == "xaxis min 0 max 10"
 
 
@@ -228,7 +228,7 @@ def test_an_explicit_range_around_a_lone_bar_is_still_the_callers():
 
     text, _files = _generate(fig)
     assert _axis_line(text, "x") == "xaxis min -2 max 4"
-    assert _bar_lines(text) == ["bar d1 fill RED width 0.5"]
+    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width 0.5"]
 
 
 def test_a_lone_bar_on_a_log_x_axis_keeps_the_log_repairs_range():
@@ -267,7 +267,7 @@ def test_a_measurable_bar_whose_log_range_collapses_is_not_widened():
         warnings.simplefilter("ignore", UserWarning)
         text, _files = fig._generate_gle_with_files()
 
-    assert _bar_lines(text) == ["bar d1 fill RED"]
+    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180)"]
     assert _axis_line(text, "x") == "xaxis min 5 max 50 log"
 
 
@@ -278,8 +278,8 @@ def test_a_lone_bar_in_a_shared_grid_widens_both_panels():
 
     text, _files = _generate(fig)
     assert _bar_lines(text) == [
-        "bar d1 fill RED width 0.5",
-        "bar d2 fill RED width 0.5",
+        "bar d1 fill rgb255(31,119,180) width 0.5",
+        "bar d2 fill rgb255(31,119,180) width 0.5",
     ]
     assert text.count("xaxis min 1.5 max 2.5") == 2
 

@@ -332,7 +332,10 @@ class TestBarCharts:
         self.ax.bar([1, 2], [2, 2], hatch="x", color="none")
         script = self.fig._generate_gle()
         assert "bar d1 fill BLACK pattern SHADE2 background YELLOW\n" in script
-        assert "fill BLUE pattern RSHADE background RED color BLUE" in script
+        assert (
+            "fill BLUE pattern RSHADE background rgb255(31,119,180) color BLUE"
+            in script
+        )
         assert "fill BLACK pattern GRID background CLEAR\n" in script
 
     def test_a_none_face_is_clear(self):
@@ -387,7 +390,9 @@ class TestBarCharts:
         self.ax.bar([1, 2, 3], [3, 4, 5], hatch=["/", "", "x"], label="mix")
         bars = self.ax.bars
         assert [bar.get("pattern") for bar in bars] == ["SHADE", None, "GRID"]
-        assert bars[1]["colors"] == ["RED"] and "background" not in bars[1]
+        assert (
+            bars[1]["colors"] == ["rgb255(31,119,180)"] and "background" not in bars[1]
+        )
 
     def test_bar_hatch_sequence_length_and_type_are_checked(self):
         with pytest.raises(ValueError, match="hatch sequence length 2"):
@@ -628,16 +633,16 @@ class TestFillBetween:
         assert series.get("target") is None
         assert list(series["y2"]) == [0.0, 0.0, 0.0]
         script = self._script()
-        assert "fill d1,d2 color LIGHTBLUE" in script
+        assert "fill d1,d2 color rgb255(31,119,180)" in script
         assert "fill x1" not in script
 
     def test_baseline_emits_an_axis_fill(self):
         self.ax.fill_between([0, 1, 2], [1, 2, 1], baseline="x1", label="down")
         self.ax.fill_between([0, 1, 2], [1, 2, 1], baseline="x2", ymin=3)
         script = self._script()
-        assert "fill x1,d1 color LIGHTBLUE" in script
-        assert 'd1 keyfill LIGHTBLUE key "down"' in script
-        assert "fill d2,x2 color LIGHTBLUE ymin 3" in script
+        assert "fill x1,d1 color rgb255(31,119,180)" in script
+        assert 'd1 keyfill rgb255(31,119,180) key "down"' in script
+        assert "fill d2,x2 color rgb255(255,127,14) ymin 3" in script
         assert self.ax.fills[0]["y2"] is None
         assert self.ax.fills[1]["target"] == "x2"
         assert self.ax.fills[1]["ymin"] == 3.0
@@ -649,7 +654,7 @@ class TestFillBetween:
         assert len(self.ax.fills) == 1
         assert list(self.ax.fills[0]["y2"]) == [0.0, 0.0, 0.0, 0.0]
         assert self.ax.fills[0]["xmin"] == 1.0
-        assert "fill d1,d2 color LIGHTBLUE xmin 1" in self._script()
+        assert "fill d1,d2 color rgb255(31,119,180) xmin 1" in self._script()
 
     def test_where_on_a_decreasing_x_uses_data_edges(self):
         self.ax.fill_between(
@@ -677,8 +682,8 @@ class TestFillBetween:
         assert self.ax.fills[0]["label"] == "band"
         assert self.ax.fills[1]["label"] is None
         script = self._script()
-        assert "fill d1,d2 color LIGHTBLUE xmax 1" in script
-        assert "fill d3,d4 color LIGHTBLUE xmin 3" in script
+        assert "fill d1,d2 color rgb255(31,119,180) xmax 1" in script
+        assert "fill d3,d4 color rgb255(31,119,180) xmin 3" in script
 
     def test_isolated_true_draws_nothing(self):
         self.ax.fill_between([0, 1, 2], [1, 1, 1], where=[False, True, False])
@@ -853,7 +858,7 @@ class TestFillBetween:
         assert list(series["x"]) == [1, 2, 3, 0, 0, 0]
         assert list(series["y1"]) == [0, 1, 2, 2, 1, 0]
         script = self._script()
-        assert "fill d1 color LIGHTBLUE" in script
+        assert "fill d1 color rgb255(31,119,180)" in script
         assert 'key "side"' in script
 
     def test_fill_betweenx_takes_matplotlib_positional_order(self):
@@ -2111,7 +2116,7 @@ class TestDatasetQualifiers:
         for name in ("mdist", "deresolve", "deresolve_average", "xmin", "ymax"):
             assert name not in self.ax.lines[0]
         assert self._dn_lines() == [
-            'd1 line color BLUE lwidth 0.05292 marker FCIRCLE msize 0.15 key ""'
+            'd1 line color rgb255(31,119,180) lwidth 0.05292 marker FCIRCLE msize 0.15 key ""'
         ]
 
     def test_each_qualifier_is_written_on_the_dataset_line(self):
@@ -2137,7 +2142,7 @@ class TestDatasetQualifiers:
         self.ax.scatter([0, 1, 2], [1, 2, 1], deresolve=2, ymin=1.5)
         assert self.ax.scatters[0]["deresolve"] == 2
         (line,) = self._dn_lines()
-        assert " color BLUE deresolve 2 ymin 1.5 " in line
+        assert " color rgb255(31,119,180) deresolve 2 ymin 1.5 " in line
 
     def test_marker_config_mdist_is_the_default_for_marked_lines(self):
         fig = glp.figure(data_prefix="qual", marker=glp.GLEMarkerConfig(mdist=0.7))
@@ -2267,7 +2272,7 @@ class TestHistogram:
         )
         script = self._script()
         assert "let d2 = hist d1 from 0 to 1 bins 20" in script
-        assert "d2 line hist color BLUE" in script
+        assert "d2 line hist color rgb255(31,119,180)" in script
         assert 'key "n"' in script
         assert "bar d2" not in script
         assert len(self.ax.hists) == 1
@@ -2337,7 +2342,7 @@ class TestHistogram:
         self.ax.hist([0, 1], histtype="stepfilled", edgecolor="k", alpha=0.5)
         script = self._script()
         assert "line hist color rgba255(255,0,0,128)" in script
-        assert "bar d4 fill rgba255(0,0,255,128) color rgba255(0,0,0,128)" in script
+        assert "bar d4 fill rgba255(255,127,14,128) color rgba255(0,0,0,128)" in script
 
     @pytest.mark.parametrize("histtype", ["bar", "step", "stepfilled"])
     def test_a_bad_edgecolor_is_rejected_for_every_histtype(self, histtype):
@@ -2512,7 +2517,7 @@ class TestFunction:
         self.ax.function("sin(x)", xmin=0, xmax=6.28, step=0.05, label="sine")
         text, files = self.fig._generate_gle_with_files()
         assert "let d1 = sin(x) from 0 to 6.28 step 0.05" in text
-        assert 'd1 line color BLUE lwidth 0.05292 key "sine"' in text
+        assert 'd1 line color rgb255(31,119,180) lwidth 0.05292 key "sine"' in text
         assert "    data " not in text
         assert files == {}
         assert self.ax.functions[0]["expression"] == "sin(x)"
@@ -2625,7 +2630,7 @@ class TestFit:
         assert (
             "    data ft_0.dat d1=c1,c2\n"
             "    let d2 = fit d1 with a*exp(-x*k) from 0 to 3 step 0.1\n"
-            '    d2 line color BLUE lwidth 0.05292 key "fit"\n'
+            '    d2 line color rgb255(31,119,180) lwidth 0.05292 key "fit"\n'
         ) in text
         # No header row: GLE would key the data dataset the let reads.
         assert files["ft_0.dat"].splitlines()[0].split() == ["0", "1"]
@@ -2685,7 +2690,7 @@ class TestFit:
         assert (
             "    data ft_0.dat d1=c1,c2\n"
             f"    let d2 = {routine} d1 from 0.5\n"
-            "    d2 line color BLUE lwidth 0.05292\n"
+            "    d2 line color rgb255(31,119,180) lwidth 0.05292\n"
         ) in self._script()
         assert "expression" not in self.ax.fits[0]
 
@@ -2739,12 +2744,12 @@ class TestFit:
         )
         assert (
             "    let d2 = linfit d1 fit1_slope fit1_offset fit1_rsq\n"
-            f"    d2 line color BLUE lwidth 0.05292 key {expression}\n"
+            f"    d2 line color rgb255(31,119,180) lwidth 0.05292 key {expression}\n"
             "    key off\n"
             "end graph\n"
             "begin key\n"
             "    position tr\n"
-            f"    text {expression} color BLUE lwidth 0.05292 lstyle 1\n"
+            f"    text {expression} color rgb255(31,119,180) lwidth 0.05292 lstyle 1\n"
             "end key"
         ) in self._script()
 
@@ -2844,11 +2849,11 @@ class TestDerived:
         ax.derived("d1-d2", [ax.lines[0], ax.file_series[0]], label="diff")
         assert (
             "    data dv_0.dat d1=c1,c2\n"
-            '    d1 line color BLUE lwidth 0.05292 key ""\n'
+            '    d1 line color rgb255(255,127,14) lwidth 0.05292 key ""\n'
             "    data run1.dat d2=c1,c2\n"
-            "    d2 line color BLUE lwidth 0.05292\n"
+            "    d2 line color rgb255(31,119,180) lwidth 0.05292\n"
             "    let d3 = d1-d2\n"
-            '    d3 line color BLUE lwidth 0.05292 key "diff"\n'
+            '    d3 line color rgb255(44,160,44) lwidth 0.05292 key "diff"\n'
         ) in self._script()
 
     def test_writes_every_option_and_reads_an_offset_source_raw(self):

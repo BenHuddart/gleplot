@@ -56,7 +56,7 @@ def test_scatter_and_function_take_the_polar_let_too():
     # The function is drawn first, below the scatter.
     assert lines[lines.index("let d1 = cos(2*x) from 0 to 6.28319") + 1 :][:2] == [
         "let d2 = d1*cos(x),d1*sin(x)",
-        "d2 line color BLUE lwidth 0.05292",
+        "d2 line color rgb255(31,119,180) lwidth 0.05292",
     ]
     i = lines.index("data pl_0.dat d3=c1,c2")
     assert lines[i + 1] == "let d4 = d3*cos(x),d3*sin(x)"

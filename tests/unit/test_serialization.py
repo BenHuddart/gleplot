@@ -534,6 +534,7 @@ _AXES_SERIALIZED_ATTRS = {
     # set_aspect and set_facecolor; written only when set.
     "_aspect",
     "_facecolor",
+    "_color_cycles",
     "xdticks",
     "ydticks",
     "xdsubticks",

@@ -52,6 +52,7 @@ from .series import (
 )
 from .sources import DataSource, source_of
 from .writer import (
+    _NOT_CODE_RE,
     CDATA_SUB_PREFIX,
     COLORBAR_AUTO_RANGE,
     COLORBAR_LABEL_PAD,
@@ -1370,7 +1371,8 @@ class Figure:
         Tick-label styling emits ``x2labels on`` with no dataset to hang
         those numbers on, so the top margin has to make room for them. A
         series alone still numbers the top axis: GLE turns those labels on
-        for any dataset that uses it.
+        for any dataset that uses it, a ``dN ... x2axis`` line kept as raw
+        GLE included.
         """
         return bool(
             ax.x2label_text
@@ -1382,6 +1384,10 @@ class Figure:
             or ax.x2ticklabel_color is not None
             or ax.x2ticklabel_angle is not None
             or ax.has_x2_plots()
+            or any(
+                re.match(r"\s*d\d+\s", code) and "x2axis" in code.lower().split()
+                for code in (_NOT_CODE_RE.sub("", line) for line in ax.passthrough)
+            )
         )
 
     def _auto_margins_cm(self, writer, resolution) -> Tuple[float, float, float, float]:
@@ -3002,13 +3008,16 @@ class Figure:
             # vouched for as such -- excluded from ``import-data``.
             "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
-        # A default colour is recorded as the GLE colour it draws. Its
-        # warnings (extra values, 'none') were given when a series used it;
-        # a save does not repeat them.
+        # A default colour is recorded as the GLE colour it draws; None, the
+        # colour cycle, is the default and is not recorded. Its warnings
+        # (extra values, 'none') were given when a series used it; a save
+        # does not repeat them.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             for key in ("default_color", "default_marker_color"):
-                data[key] = rgb_to_gle(_rgba_parts(getattr(self.style, key))[0])
+                value = getattr(self.style, key)
+                if value is not None:
+                    data[key] = rgb_to_gle(_rgba_parts(value)[0])
         # Which graphs are add_axes insets, so open_gle need not guess.
         insets = [i + 1 for i, ax in enumerate(self.axes_list) if ax.position is None]
         if insets:

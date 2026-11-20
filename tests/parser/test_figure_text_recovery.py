@@ -85,7 +85,7 @@ def test_figure_legend_options_come_back(tmp_path):
 def _labelled_graph(tmp_path) -> str:
     """A one-axes script with one labelled line and its auto key off."""
     fig = glp.figure()
-    fig.add_subplot(111).plot([0, 1], [0, 1], label="a")
+    fig.add_subplot(111).plot([0, 1], [0, 1], color="blue", label="a")
     fig.legend()
     path = tmp_path / "figure.gle"
     fig.savefig_gle(str(path))
