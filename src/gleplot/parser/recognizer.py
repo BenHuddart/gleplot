@@ -281,6 +281,7 @@ from __future__ import annotations
 import collections
 import copy
 import math
+import os
 import re
 import warnings
 from dataclasses import dataclass, field
@@ -10603,8 +10604,12 @@ class _Recognizer:
         return str(self._data_path(data_file)) in self._kept_files
 
     def _data_path(self, data_file: str) -> Path:
-        """Where ``data_file`` is, read from the ``.gle`` file's folder."""
-        return (Path(self.gle_path).parent / data_file).resolve()
+        """Where ``data_file`` is, read from the ``.gle`` file's folder.
+
+        Normalised as text: ``resolve`` raises on Windows for a name holding
+        a character the file system rejects, such as a quote.
+        """
+        return Path(os.path.abspath(Path(self.gle_path).parent / data_file))
 
     def owned_files_read_raw(self, fig: Figure) -> Dict[str, str]:
         """gleplot's own data files that saving would change under raw GLE.
