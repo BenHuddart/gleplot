@@ -115,9 +115,8 @@ does, so a figure for a LaTeX document can share its fonts and math:
 The script gets GLE's `set texlabels 1`. Titles, axis labels, tick labels,
 legend entries, `text` and `annotate` strings reach LaTeX as written: `$...$`
 is LaTeX math rather than gleplot's mathtext translation, and text outside it
-must be valid LaTeX, so an underscore is `\_` and a percent sign `\%` (pie
-`autopct` percent signs are escaped for you, as in matplotlib). Set it when
-creating the figure: a label set before `usetex` was turned on keeps its GLE
+must be valid LaTeX, so an underscore is `\_` and a percent sign `\%`. Set
+it when creating the figure: a label set before `usetex` was turned on keeps its GLE
 markup. The `font` setting does not reach LaTeX labels, and their size is the
 standard LaTeX size nearest `fontsize`.
 
@@ -489,8 +488,8 @@ single axis limit. Numbers whose spread is too small to count beside their
 size, such as the edges of a band `0.001` wide at `1.7e9`, are held the same
 way. On the axis above, `ax.axvline(1.7e9 + 30)` is written
 `1.70000003e+09` rather than `1.7e+09`. On a log axis these numbers keep 6
-figures. So do the coordinates of bars, histograms, fits, box plots, placed
-images and pie wedges, and a guide drawn after the graph (see
+figures. So do the coordinates of bars, histograms, fits and placed images,
+and a guide drawn after the graph (see
 "Axes gleplot cannot range" in
 [Reference lines and spans](REFERENCE_LINES_AND_SPANS.md)).
 

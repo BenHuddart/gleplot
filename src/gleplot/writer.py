@@ -93,110 +93,6 @@ _NOT_CODE_RE = re.compile(r"(\"[^\"]*\"|'[^']*'|!.*)")
 #: The linestyles a guide draws no line for.
 _NO_LINE = ("none", "None", "", " ", None)
 
-#: The sub behind every pie slice (:meth:`GLEWriter.add_wedge`). Called after
-#: ``end graph``, where ``xg()``/``yg()`` still address the graph just closed.
-#: Like the palette subs, its text depends on nothing but its name,
-#: so the parser drops the body and the writer regenerates it.
-WEDGE_SUB = """sub gleplot_wedge cx cy r a1 a2 clr$ lbl$ ld pct$ pd
-   ! Pie slice: centre (cx, cy) and radius r in data units, from a1 to a2
-   ! degrees counter-clockwise from +x. The scale is the smaller of the two
-   ! axes' cm per unit, so the slice stays circular in any graph shape.
-   ! lbl$ goes ld radii out, left-justified right of x = 0 and right-
-   ! justified left of it; pct$ goes pd radii out, centred. An empty string
-   ! writes nothing. Text uses the current hei and colour.
-   local s = xg(cx+1)-xg(cx)
-   if yg(cy+1)-yg(cy) < s then s = yg(cy+1)-yg(cy)
-   local m = torad((a1+a2)/2)
-   amove xg(cx) yg(cy)
-   begin path fill (cvtcolor(clr$))
-      ! Without a move inside the path, it starts at the arc, not the centre.
-      rmove 0 0
-      arc r*s a1 a2
-      closepath
-   end path
-   if lbl$ <> "" then
-      amove xg(cx)+ld*r*s*cos(m) yg(cy)+ld*r*s*sin(m)
-      if cx+ld*r*cos(m) > 0 then
-         set just left
-      else
-         set just right
-      end if
-      write lbl$
-   end if
-   if pct$ <> "" then
-      amove xg(cx)+pd*r*s*cos(m) yg(cy)+pd*r*s*sin(m)
-      set just center
-      write pct$
-   end if
-end sub"""
-
-
-#: The subs behind every box of a box plot (:meth:`GLEWriter.add_box`),
-#: called after ``end graph`` like :data:`WEDGE_SUB`. The style is
-#: matplotlib's default: 1 pt black lines, a ``'C1'`` median, black open
-#: circle fliers and a ``'C2'`` triangle mean, both of markersize 6. Each sub
-#: saves and restores the graphics state, so it changes no ``set`` state.
-#: Being outside the graph block, nothing clips them: the box is clipped to
-#: the graph's frame (widened by half its line width), and a flier or mean outside the axis ranges is skipped,
-#: as GLE skips a dataset's out-of-range markers.
-BOX_SUB = """sub gleplot_box x w cw lo q1 med q3 hi
-   ! Box plot box: from q1 to q3, w data units wide, centred on x, with a
-   ! median line at med and whiskers out to lo and hi, capped cw data units
-   ! wide (0 draws no caps).
-   gsave
-   set lwidth 0.03528 color black cap butt
-   ! The clip reaches half a line width past the frame, so a cap or whisker
-   ! lying on the frame is drawn whole.
-   local h = 0.03528/2
-   local x0 = min(xg(xgmin),xg(xgmax))-h
-   local y0 = min(yg(ygmin),yg(ygmax))-h
-   begin clip
-   begin path clip
-      amove x0 y0
-      box max(xg(xgmin),xg(xgmax))+h-x0 max(yg(ygmin),yg(ygmax))+h-y0
-   end path
-   amove xg(x-w/2) yg(q1)
-   box xg(x+w/2)-xg(x-w/2) yg(q3)-yg(q1)
-   amove xg(x) yg(q1)
-   aline xg(x) yg(lo)
-   amove xg(x) yg(q3)
-   aline xg(x) yg(hi)
-   if cw > 0 then
-      amove xg(x-cw/2) yg(lo)
-      aline xg(x+cw/2) yg(lo)
-      amove xg(x-cw/2) yg(hi)
-      aline xg(x+cw/2) yg(hi)
-   end if
-   set color rgb255(255,127,14)
-   amove xg(x-w/2) yg(med)
-   aline xg(x+w/2) yg(med)
-   end clip
-   grestore
-end sub
-
-sub gleplot_box_flier x y
-   ! One point beyond a box plot whisker, if inside the axis ranges.
-   if (x >= xgmin) and (x <= xgmax) and (y >= ygmin) and (y <= ygmax) then
-      gsave
-      set lwidth 0.03528 color black
-      amove xg(x) yg(y)
-      marker circle 0.15
-      grestore
-   end if
-end sub
-
-sub gleplot_box_mean x y
-   ! A box plot mean, if inside the axis ranges.
-   if (x >= xgmin) and (x <= xgmax) and (y >= ygmin) and (y <= ygmax) then
-      gsave
-      set color rgb255(44,160,44)
-      amove xg(x) yg(y)
-      marker ftriangle 0.15
-      grestore
-   end if
-end sub"""
-
-
 #: Name prefix of the subs behind per-point marker sizes
 #: (:meth:`GLEWriter.add_scatter`): ``gleplot_mdata_<marker>``, lower case.
 MDATA_SUB_PREFIX = "gleplot_mdata_"
@@ -209,7 +105,7 @@ def mdata_sub_text(marker: str) -> str:
     subroutine (``g_marker2`` in ``core.cpp``); a built-in marker ignores it.
     This sub draws the built-in marker at ``msize`` times that value. Its text
     depends on nothing but its name, so the parser drops it and the writer
-    regenerates it, like the palette, guide and wedge subs.
+    regenerates it, like the palette and guide subs.
     """
     name = MDATA_SUB_PREFIX + marker.lower()
     # The ``marker`` command's size is a multiple of ``hei`` (``run.cpp``),
@@ -263,9 +159,9 @@ def cdata_sub_text(marker: str, cmap: str) -> str:
 
 #: The subs behind a polar axes (:meth:`GLEWriter.add_polar_frame`). The grid
 #: is drawn inside the graph block, in layer 200 with GLE's own grid, so the
-#: curves go over it; the tick labels are written after ``end graph``, like
-#: the pie text, because text written inside a graph-block ``draw`` loses its
-#: font. Adapted from ``polar_grid`` in GLE's ``polarplot.gle``. The style is
+#: curves go over it; the tick labels are written after ``end graph``,
+#: because text written inside a graph-block ``draw`` loses its font.
+#: Adapted from ``polar_grid`` in GLE's ``polarplot.gle``. The style is
 #: matplotlib's default: 0.8 pt grey grid lines, a black outer ring, labels
 #: every 45 degrees and one per ring along 22.5 degrees.
 POLAR_SUB = """sub gleplot_polar_grid rmax step
@@ -5414,41 +5310,6 @@ class GLEWriter:
             lines.append("grestore")
             self._pending_graph_text_lines.extend(lines)
 
-    def add_wedge(self, series: Series) -> None:
-        """Queue one pie slice for after ``end graph``.
-
-        ``series`` is a :class:`~gleplot.series.Wedge`. It goes out as a
-        ``gleplot_wedge`` call (:data:`WEDGE_SUB`) in the same deferred block
-        as the text annotations: GLE 4.3.10's PostScript driver loses the
-        font of text written inside a graph-block ``draw`` after the first
-        one, because it caches the font across the ``gsave``/``grestore``
-        GLE wraps each ``draw`` in.
-
-        The sub writes its text in the current height and colour. The height
-        is set here through the same sticky tracker the annotations use. The
-        colour is the block's starting ``BLACK``, because the figure writes
-        an axes' wedges before its annotations. The sub leaves ``set just``
-        changed, so that tracker is cleared and the next annotation states
-        its own.
-        """
-        fontsize = series.get("fontsize")
-        if fontsize is not None:
-            hei_cm = self._format_number(fontsize_pt_to_cm(float(fontsize)))
-            if hei_cm != self._text_state_hei_cm:
-                self._pending_graph_text_lines.append(f"set hei {hei_cm}")
-                self._text_state_hei_cm = hei_cm
-        label = self._gle_string_expr(series.get("label") or "")
-        autotext = self._gle_string_expr(series.get("autotext") or "")
-        num = self._format_number
-        self._pending_graph_text_lines.append(
-            f"gleplot_wedge {num(series['x'])} {num(series['y'])} "
-            f"{num(series['r'])} {num(series['theta1'])} {num(series['theta2'])} "
-            f'{self._gle_string_expr(series["color"])} {label} '
-            f'{num(series["labeldistance"])} {autotext} '
-            f'{num(series["pctdistance"])}'
-        )
-        self._text_state_just = None
-
     def add_polar_frame(self, rmax: float) -> None:
         """Make the open graph block a polar axes out to radius ``rmax``.
 
@@ -5483,31 +5344,6 @@ class GLEWriter:
         self.lines_gle.append(f"    let {target} = {source}*cos(x),{source}*sin(x)")
         return target
 
-    def add_box(self, series: Series) -> None:
-        """Queue one box of a box plot for after ``end graph``.
-
-        ``series`` is a :class:`~gleplot.series.Box`. It goes out as a
-        ``gleplot_box`` call (:data:`BOX_SUB`), then a ``gleplot_box_flier``
-        call per flier and a ``gleplot_box_mean`` call when it has a mean,
-        in the deferred block the text annotations use, so the boxes are
-        drawn over the graph unclipped, like the pie wedges.
-        """
-        num = self._format_number
-        x = num(float(series["x"]))
-        values = " ".join(
-            num(float(series[key]))
-            for key in ("width", "capwidth", "whislo", "q1", "med", "q3", "whishi")
-        )
-        self._pending_graph_text_lines.append(f"gleplot_box {x} {values}")
-        for flier in series["fliers"]:
-            self._pending_graph_text_lines.append(
-                f"gleplot_box_flier {x} {num(float(flier))}"
-            )
-        if series.get("mean") is not None:
-            self._pending_graph_text_lines.append(
-                f"gleplot_box_mean {x} {num(float(series['mean']))}"
-            )
-
     def add_image(self, series: Series) -> None:
         """Draw a placed image as a layered ``draw`` call in the graph block.
 
@@ -5531,8 +5367,8 @@ class GLEWriter:
         read their values from a dataset, so the ticks go to the rug's
         ``data_file`` with the other column missing (``*``), which keeps
         them out of GLE's autoscale, and a ``data`` statement inside the
-        graph loads it. The call goes in the deferred block the box plots
-        use, under its own colour and width. ``rugs.gle`` takes a positive
+        graph loads it. The call goes in the deferred block the text
+        annotations use, under its own colour and width. ``rugs.gle`` takes a positive
         length out of the axes, gleplot into it, so the length is negated.
         """
         ticks = np.asarray(series["ticks"], dtype=float)

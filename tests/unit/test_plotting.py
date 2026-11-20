@@ -423,10 +423,10 @@ class TestBarCharts:
         with pytest.raises(ValueError):
             self.ax.bar([1, 2, 3], [4, 5, 6], yerr=[0.1, 0.2])
         assert len(self.ax.bars) == before
-        with pytest.raises(ValueError):
-            self.ax.bar([1, 2, 3], [4, 5, 6], yerr=float("nan"))
-        with pytest.raises(ValueError):
-            self.ax.bar([1, 2], [3, 4], xerr=[0.1, float("nan")])
+        with pytest.raises(ValueError, match="yerr must not be infinite"):
+            self.ax.bar([1, 2, 3], [4, 5, 6], yerr=float("inf"))
+        with pytest.raises(ValueError, match="xerr must not be infinite"):
+            self.ax.bar([1, 2], [3, 4], xerr=[0.1, float("-inf")])
         with pytest.raises(TypeError):
             self.ax.bar([1, 2], [3, 4], yerr=0.1, error_kw="nope")
 
@@ -3519,8 +3519,12 @@ _ONES = [1.0, 2.0, 3.0]
         lambda ax, v: ax.stem(_ONES, v),
         lambda ax, v: ax.scatter(_ONES, v),
         lambda ax, v: ax.scatter(_ONES, _ONES, c=v),
+        lambda ax, v: ax.scatter(_ONES, _ONES, s=v),
+        lambda ax, v: ax.scatter(_ONES, _ONES, s=v, c=["r", "g", "b"]),
         lambda ax, v: ax.bar(_ONES, v),
         lambda ax, v: ax.barh(_ONES, v),
+        lambda ax, v: ax.bar(_ONES, _ONES, yerr=v),
+        lambda ax, v: ax.bar(_ONES, _ONES, xerr=[v, v]),
         lambda ax, v: ax.errorbar(_ONES, v, yerr=0.1),
         lambda ax, v: ax.errorbar(_ONES, _ONES, xerr=v, yerr=v),
         lambda ax, v: ax.errorbar(_ONES, _ONES, yerr=[v, v]),
@@ -3538,8 +3542,12 @@ _ONES = [1.0, 2.0, 3.0]
         "stem",
         "scatter",
         "scatter-c",
+        "scatter-s",
+        "scatter-s-colours",
         "bar",
         "barh",
+        "bar-yerr",
+        "bar-xerr-asymmetric",
         "errorbar",
         "errorbar-err",
         "errorbar-asymmetric",
@@ -3564,6 +3572,37 @@ def test_a_masked_value_is_a_nan(draw):
     text, files = emitted[0]
     assert "max 77" not in text
     assert not any("77" in sidecar for sidecar in files.values())
+
+
+def test_a_point_with_a_masked_size_is_left_out():
+    """The point is missing in the data file; the others keep their sizes."""
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.scatter(_ONES, _ONES, s=np.ma.masked_array([4.0, 9.0, 16.0], [0, 1, 0]))
+    _text, files = fig._generate_gle_with_files()
+    glp.close()
+    rows = [line.split() for line in files["p_0.dat"].splitlines()[1:]]
+    assert [row[:2] for row in rows] == [["1", "1"], ["*", "*"], ["3", "3"]]
+    assert float(rows[0][2]) < float(rows[2][2])
+
+
+@pytest.mark.parametrize(
+    "samples, wording",
+    [
+        (_MASKED, "dropped masked samples"),
+        (_NAN, "dropped non-finite samples"),
+        (
+            np.ma.masked_array([1.0, 2.0, np.nan, 3.0], [0, 1, 0, 0]),
+            "dropped masked and non-finite samples",
+        ),
+    ],
+    ids=["masked", "nan", "both"],
+)
+def test_hist_names_the_samples_it_leaves_out(samples, wording):
+    ax = glp.figure().add_subplot(111)
+    with pytest.warns(UserWarning, match=wording):
+        ax.hist(samples, histtype="step")
+    glp.close()
 
 
 def test_fill_draws_the_value_under_the_mask_as_matplotlib_does():
