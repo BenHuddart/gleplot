@@ -590,8 +590,8 @@ _FIGURE_RUNTIME_ONLY_ATTRS = {
 _FIGURE_SERIALIZED_ATTRS = {
     "figsize",
     "dpi",
-    "sharex",
-    "sharey",
+    "_sharex",  # through the sharex property
+    "_sharey",  # through the sharey property
     "data_prefix",
     "_local_data_counter",
     "_used_data_files",

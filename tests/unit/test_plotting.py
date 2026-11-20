@@ -1248,7 +1248,8 @@ class TestErrorBars:
         assert not recwarn.list
 
     def test_linestyle_overrides_fmt_but_not_fmt_none(self):
-        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="--", linestyle=":")
+        with pytest.warns(UserWarning, match="the keyword wins"):
+            self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="--", linestyle=":")
         self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="none", ls="--")
         assert [s["linestyle"] for s in self.ax.errorbars] == [":", "none"]
 
@@ -1361,7 +1362,7 @@ class TestErrorBars:
         x = np.array([1, 2, 3])
         y = np.array([10, 20, 30])
         self.ax.errorbar(
-            x, y, yerr=([1, 2, 3], [3, 2, 1]), marker="s", fmt="none", color="red"
+            x, y, yerr=([1, 2, 3], [3, 2, 1]), marker="s", linestyle="none", color="red"
         )
 
         gle = self.fig._generate_gle()
@@ -1372,7 +1373,7 @@ class TestErrorBars:
         """Test GLE generation for horizontal error bars."""
         x = np.array([1, 2, 3])
         y = np.array([10, 20, 30])
-        self.ax.errorbar(x, y, xerr=0.3, marker="o", fmt="none")
+        self.ax.errorbar(x, y, xerr=0.3, marker="o", linestyle="none")
 
         gle = self.fig._generate_gle()
         assert "herr" in gle
@@ -1806,11 +1807,13 @@ class TestLineModes:
         with pytest.raises(ValueError):
             self.ax.plot([0, 1], [0, 1], drawstyle="steps-post", line_mode="hist")
 
-    def test_step_format_string_warns_and_is_not_applied(self):
-        with pytest.warns(UserWarning):
-            self.ax.step([0, 1], [0, 1], "r--")
+    def test_step_reads_a_format_string_as_plot_does(self):
+        self.ax.step([0, 1], [0, 1], "r--")
         assert self.ax.lines[0]["line_mode"] == "fsteps"
-        assert self.ax.lines[0]["color"] == "BLUE"
+        assert self.ax.lines[0]["color"] == "RED"
+        assert self.ax.lines[0]["linestyle"] == "--"
+        with pytest.warns(UserWarning, match="one format string"):
+            self.ax.step([0, 1], [0, 1], "r--", "b")
 
     def test_line_mode_with_no_line_warns_and_is_dropped(self):
         with pytest.warns(UserWarning):

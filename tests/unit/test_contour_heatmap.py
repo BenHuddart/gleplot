@@ -797,9 +797,14 @@ def test_contour_stores_dict_and_emits_blocks():
     assert "   values 2 4 6" in text
     assert 'data "t_contour1-cdata.dat" d1=c1,c2' in text
     assert "d1 line color RED" in text
-    # clabel: sub + call
-    assert "sub gleplot_contour_labels" in text
-    assert 'gleplot_contour_labels file "t_contour1-clabels.dat" format "fix 2"' in text
+    # clabel: contour.gle's contour_labels, in its own graphics state
+    assert 'include "contour.gle"' in text
+    assert "sub gleplot_contour_labels" not in text
+    assert (
+        "gsave\n"
+        'contour_labels file "t_contour1-clabels.dat" format "fix 2"\n'
+        "grestore"
+    ) in text
     assert "t_contour1.z" in files
 
 

@@ -198,7 +198,7 @@ ax.stem(x, y)
 |---|---|
 | `where` | `'pre'`, `'post'`, `'mid'`. Anything else raises `ValueError`. |
 | `drawstyle` / `ds` | the five matplotlib names above. `'default'` is an ordinary line. An unknown value raises `ValueError`. |
-| `step` format string | warns and is ignored. Pass `color`, `linestyle` and `marker` as keywords. |
+| `step` format string | read as `plot` reads it. |
 | `linestyle="none"` together with a step style | warns. There is no line for the mode to qualify. `line_from_file` drops the mode the same way and still writes the line reference. |
 | `GLEGraphConfig(smooth_curves=True)` | a step, stem, hist, bar or impulse series stays unsmoothed. GLE would spline the points first and then draw the mode through the spline. A script that writes both keywords keeps the smooth it asked for. |
 | `stem` `linefmt` / `markerfmt` | color, linestyle and marker are applied. Stems and heads are one dataset, so two different colors warn and the line color wins. |
@@ -266,6 +266,15 @@ that is not a line style. This holds for `plot` and the calls above, for
 line and is drawn solid without a warning. Passing `None` asks for
 matplotlib's default: a solid line from `plot`, `axhline`, `axvline` and
 `line_from_file`, and the style `fmt` gives from `errorbar`.
+
+`plot(x, y, fmt)`, `step(x, y, fmt)` and `errorbar(..., fmt=...)` read
+matplotlib's format strings in the form GLE draws directly: a colour letter
+(or `'C0'` to `'C9'`), a marker character and a line style, such as `'ro'`,
+`'k--'` or `'--s'`. A marker with no line style draws no line. A `color`,
+`marker` or `linestyle` keyword wins over the format, with a warning, as in
+matplotlib. A format outside that subset, such as a colour name `'red'`,
+warns and is ignored. `errorbar(fmt='none')` draws only the error bars, with
+no markers even when `marker=` is given.
 
 ## Marker spacing, thinning and data ranges
 
@@ -335,6 +344,12 @@ warns and its first entry is used. `None` for `colors`, `linewidths` or
 warn and are ignored, among them `extent` and `origin`: pass the grid's
 coordinates, `contour(x, y, Z)`, to place it. A misspelt keyword warns the
 same way.
+
+matplotlib labels contours with a separate `ax.clabel(cs)` call; gleplot takes
+`clabel=True` (and `clabel_fmt`) on `contour` and `tricontour`. The labels are
+drawn by `contour_labels` from GLE's `contour.gle`, which writes them in blue,
+0.25 cm high, in a white box, whatever the line colour; matplotlib draws them
+in the line's colour.
 
 ## Line caps and joins
 

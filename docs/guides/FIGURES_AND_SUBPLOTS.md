@@ -132,6 +132,10 @@ axes[0].set_ylabel('Response')
 - `sharex=True`: only the bottom row shows x tick labels and the x-axis label.
 - `sharey=True`: only the leftmost column shows y tick labels and the y-axis label.
 - Axis limits are synchronized across the shared dimension.
+- As in matplotlib, `'all'` and `'none'` mean `True` and `False`, and `'col'`
+  or `'row'` share the range within each column or row only. `sharex='col'`
+  hides the inner x labels like `True`, and `sharey='row'` the inner y
+  labels; `sharex='row'` and `sharey='col'` keep every panel's labels.
 
 ## Adjusting the layout
 

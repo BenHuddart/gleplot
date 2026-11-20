@@ -113,6 +113,24 @@ class _Unchanged:
 _UNCHANGED: Any = _Unchanged()
 
 
+def _checked_limit(method: str, name: str, value: Any) -> Any:
+    """``value`` as an axis limit: ``None``, or a finite int or float.
+
+    A 0-d numpy number becomes the Python number.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (np.generic, np.ndarray)) and np.ndim(value) == 0:
+        value = value.item()
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(
+            f"{method}({name}={value!r}): a limit is a number, or None "
+            "for an automatic one."
+        )
+    _finite_float(value, f"{method}({name}={value!r}): the limit")
+    return value
+
+
 def _new_limits(
     method: str,
     names: Tuple[str, str, str, str],
@@ -152,18 +170,9 @@ def _new_limits(
                     f"{method}() got both {name!r} ({value!r}) and {alias_name!r} "
                     f"({alias!r}); pass only {name!r}."
                 )
-        if value is _UNCHANGED:
-            value = old
-        elif value is not None:
-            if isinstance(value, (np.generic, np.ndarray)) and np.ndim(value) == 0:
-                value = value.item()
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise TypeError(
-                    f"{method}({name}={value!r}): a limit is a number, or None "
-                    "for an automatic one."
-                )
-            _finite_float(value, f"{method}({name}={value!r}): the limit")
-        resolved.append(value)
+        resolved.append(
+            old if value is _UNCHANGED else _checked_limit(method, name, value)
+        )
     ignored = ["emit"] if emit is not True else []
     ignored += ["auto"] if auto else []
     warn_unsupported_keywords(method, ignored)
@@ -1459,6 +1468,49 @@ _FMT_COLOR_CHARS = frozenset("bgrcmykw")
 
 #: Single-character markers legal inside a matplotlib format string.
 _FMT_MARKERS = frozenset(MATPLOTLIB_TO_GLE_MARKERS)
+
+
+def _apply_plot_format(caller, argument, fmt, linestyle, marker, color):
+    """``(linestyle, marker, color)`` after a ``plot``/``errorbar`` format.
+
+    ``fmt`` is matplotlib's format string, read in the simple subset GLE
+    draws directly: a colour letter (or ``'C0'`` to ``'C9'``), a marker
+    character and a line style. A marker with no line style means no line;
+    ``''`` is the default line. A ``linestyle``, ``marker`` or ``color``
+    keyword (``None`` when not given) wins over the format, with a warning
+    when they differ, as in matplotlib. A format outside the subset warns
+    and is ignored; ``argument`` names it in that warning.
+    """
+    parts = (None, None, None)
+    if fmt != "":
+        try:
+            parts = _split_plot_format(str(fmt).strip())
+        except ValueError:
+            what = "a line style or " if argument == "linestyle" else ""
+            warn_external(
+                f"{caller}() {argument} {fmt!r} is not {what}a format string "
+                "gleplot can draw, and was ignored. Use a colour letter, a "
+                "marker character and a line style, such as 'ro' or 'k--', or "
+                "pass color=, marker= and linestyle= instead."
+            )
+    fmt_linestyle, fmt_marker, fmt_color = parts
+    if fmt_marker == "none":
+        fmt_marker = None
+    if fmt_linestyle is None and fmt_marker is not None:
+        fmt_linestyle = "none"
+    resolved = []
+    for name, keyword, from_fmt in (
+        ("linestyle", linestyle, fmt_linestyle),
+        ("marker", marker, fmt_marker),
+        ("color", color, fmt_color),
+    ):
+        if keyword is not None and from_fmt is not None and keyword != from_fmt:
+            warn_external(
+                f"{caller}() {name} is set by both {name}= and the format "
+                f"string {fmt!r}; the keyword wins, as in matplotlib."
+            )
+        resolved.append(from_fmt if keyword is None else keyword)
+    return tuple(resolved)
 
 
 def _split_plot_format(fmt):
@@ -2810,7 +2862,7 @@ class Axes:
         self,
         x,
         y,
-        linestyle: str = "-",
+        linestyle: Optional[str] = "-",
         color: Optional[str] = None,
         marker: Optional[str] = None,
         markersize: float = 6,
@@ -2844,7 +2896,10 @@ class Axes:
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
             names ``'solid'``, ``'dashed'``, ``'dotted'``, ``'dashdot'``,
-            or ``'none'`` for no line. Passing ``None`` asks for
+            or ``'none'`` for no line. Any other string is read as
+            matplotlib's format string, ``plot(x, y, 'ro')``: a colour
+            letter, a marker character and a line style; a ``color`` or
+            ``marker`` keyword wins over it, with a warning. Passing ``None`` asks for
             matplotlib's default, a solid line. A dash tuple or any other
             value warns and is drawn solid.
         color : str, optional
@@ -2937,6 +2992,17 @@ class Axes:
             zorder = kwargs.pop("zorder")
         # Private: the public method this call came through, for its warnings.
         caller = kwargs.pop("_caller", "plot")
+        # Private: step's format string, which leaves linestyle free.
+        fmt = kwargs.pop("_fmt", None)
+        argument = "format string"
+        if fmt is None and (
+            isinstance(linestyle, str)
+            and linestyle not in ("-", "--", ":", "-.")
+            and linestyle not in _NO_LINE
+            and linestyle not in _NAMED_LINESTYLES
+        ):
+            # matplotlib's plot(x, y, fmt) lands here as the third argument.
+            fmt, linestyle, argument = linestyle, None, "linestyle"
         # matplotlib's scatter and stem take no Line2D keywords, so these
         # short names are no aliases there.
         if caller not in ("scatter", "stem"):
@@ -2947,6 +3013,10 @@ class Axes:
             color = _pop_line_alias(kwargs, caller, "c", "color", color, None)
             markersize = _pop_line_alias(
                 kwargs, caller, "ms", "markersize", markersize, 6
+            )
+        if fmt is not None:
+            linestyle, marker, color = _apply_plot_format(
+                caller, argument, fmt, linestyle, marker, color
             )
         linestyle = _line_style(caller, linestyle)
         # 1 is the writer's "style default" (see GLEWriter.add_line).
@@ -3103,9 +3173,9 @@ class Axes:
         - ``'mid'``: the step is halfway between the x positions, and each
           point is a bin center. GLE ``line hist``.
 
-        A positional format string is accepted and ignored, with a warning:
-        pass ``color``, ``linestyle`` and ``marker`` as keywords. ``where``
-        wins over an explicit ``drawstyle``.
+        A positional format string such as ``'r--'`` is read as by
+        :meth:`plot`; more positional arguments warn and are ignored.
+        ``where`` wins over an explicit ``drawstyle``.
 
         Returns
         -------
@@ -3114,10 +3184,13 @@ class Axes:
         where_key = str(where).strip().lower()
         if where_key not in ("pre", "post", "mid"):
             raise ValueError(f"where must be 'pre', 'post', or 'mid', got {where!r}")
-        if args:
+        if len(args) == 1 and isinstance(args[0], str):
+            kwargs["_fmt"] = args[0]  # plot reads it as a format string
+            kwargs.setdefault("linestyle", None)  # so the format's style applies
+        elif args:
             warn_external(
-                "step() format strings are not applied; pass color, "
-                "linestyle and marker as keywords.",
+                f"step() takes one format string after x and y; {args!r} was "
+                "ignored. Pass color, linestyle and marker as keywords.",
             )
         if "drawstyle" in kwargs or "ds" in kwargs:
             warn_external(
@@ -4214,7 +4287,7 @@ class Axes:
         y,
         yerr=None,
         xerr=None,
-        fmt: str = "-",
+        fmt: str = "",
         color: Optional[str] = None,
         marker: Optional[str] = None,
         markersize: float = 6,
@@ -4249,7 +4322,12 @@ class Axes:
         xerr : scalar, array-like, or tuple of (left, right), optional
             Horizontal error bar sizes. Same format as yerr.
         fmt : str
-            Format string for the line/marker (e.g., '-o', '--s', 'none')
+            matplotlib's format string: a colour letter, a marker character
+            and a line style, such as ``'ko'`` or ``'r--'``; see :meth:`plot`.
+            ``''`` (the default) is a solid line; ``'none'`` draws only the
+            error bars, with no line and no markers, whatever ``marker``
+            says. ``color``, ``marker`` and ``linestyle`` keywords win over
+            the format.
         color : str, optional
             Color name or code
         marker : str, optional
@@ -4339,30 +4417,26 @@ class Axes:
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
 
+        if fmt is None:
+            fmt = ""
+        # As in matplotlib, fmt='none' draws only the error bars: no data
+        # line and no markers, whatever the keywords say.
+        if fmt != "" and fmt in _NO_LINE:
+            if marker is not None:
+                warn_external(
+                    f"errorbar(fmt={fmt!r}) draws only the error bars, so "
+                    f"marker={marker!r} is not drawn. Pass linestyle='none' "
+                    "instead of fmt='none' for markers with no line."
+                )
+            parsed_linestyle, parsed_marker = "none", None
+        else:
+            parsed_linestyle, parsed_marker, color = _apply_plot_format(
+                "errorbar", "fmt", fmt, linestyle, marker, color
+            )
+            parsed_linestyle = _line_style("errorbar", parsed_linestyle)
+
         # Handle color (see _resolve_color: None = the style default).
         color = self._resolve_color(color)
-
-        # Parse fmt string for marker/linestyle
-        # Simple parsing: check for marker chars and line styles
-        parsed_marker = marker
-        parsed_linestyle = fmt
-        if fmt in ("", "none", " ", "None"):
-            parsed_linestyle = "none"
-        elif fmt == "-o" or fmt == "o-":
-            parsed_marker = parsed_marker or "o"
-            parsed_linestyle = "-"
-        elif fmt == "-s" or fmt == "s-":
-            parsed_marker = parsed_marker or "s"
-            parsed_linestyle = "-"
-        elif fmt in ("-", "--", ":", "-."):
-            parsed_linestyle = fmt
-        elif len(fmt) == 1 and fmt in "os^vD+x":
-            parsed_marker = parsed_marker or fmt
-            parsed_linestyle = "none"
-        # As in matplotlib, a linestyle keyword overrides fmt's, except that
-        # fmt='none' draws no data line whatever the keywords say.
-        if linestyle is not None and fmt.lower() != "none":
-            parsed_linestyle = linestyle
 
         # Determine GLE marker
         gle_marker = None
@@ -7660,7 +7734,9 @@ class Axes:
             value warns and is drawn solid. A per-level sequence warns and
             its first entry is used, as for ``linewidths``.
         clabel : bool
-            Draw inline contour labels from the generated ``-clabels.dat``.
+            Draw inline contour labels from the generated ``-clabels.dat``,
+            with ``contour_labels`` from GLE's ``contour.gle`` (blue text
+            in a white box).
         clabel_fmt : str
             GLE ``format$`` string for the labels.
 
@@ -8874,11 +8950,16 @@ class Axes:
         Raises
         ------
         ValueError
-            On an unknown string option.
+            On an unknown string option, or a NaN or infinite limit.
         TypeError
             If ``arg`` is a sequence of the wrong length, or limit keywords
-            are passed together with ``arg``. Any other keyword warns and is
-            ignored.
+            are passed together with ``arg``, or a limit is not a number.
+            Any other keyword warns and is ignored.
+
+        Notes
+        -----
+        Every limit is checked before any is set, so a call that raises
+        leaves the limits as they were.
         """
         unknown = set(kwargs) - {"xmin", "xmax", "ymin", "ymax"}
         warn_unsupported_keywords(
@@ -8927,15 +9008,21 @@ class Axes:
                     f"argument; got {arg!r}."
                 )
             kwargs = dict(zip(("xmin", "xmax", "ymin", "ymax"), arg))
-        for name in ("x", "y"):
-            lo = kwargs.get(f"{name}min")
-            hi = kwargs.get(f"{name}max")
-            # matplotlib leaves a limit passed as None where it was.
-            if lo is not None or hi is not None:
-                old_lo, old_hi = getattr(self, f"get_{name}lim")()
-                getattr(self, f"set_{name}lim")(
-                    old_lo if lo is None else lo, old_hi if hi is None else hi
-                )
+        # Check every limit before setting any. matplotlib leaves a limit
+        # passed as None where it was.
+        limits = {
+            key: _checked_limit("axis", key, kwargs[key])
+            for key in ("xmin", "xmax", "ymin", "ymax")
+            if kwargs.get(key) is not None
+        }
+        if "xmin" in limits or "xmax" in limits:
+            self.set_xlim(
+                limits.get("xmin", _UNCHANGED), limits.get("xmax", _UNCHANGED)
+            )
+        if "ymin" in limits or "ymax" in limits:
+            self.set_ylim(
+                limits.get("ymin", _UNCHANGED), limits.get("ymax", _UNCHANGED)
+            )
         return (*self.get_xlim(), *self.get_ylim())
 
     @_cartesian_only
@@ -9816,8 +9903,13 @@ class Axes:
         Parameters
         ----------
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top)
+            Which axis: 'x' (bottom, default) or 'x2' (top); another value
+            raises ``ValueError``.
         """
+        if axis not in ("x", "x2"):
+            raise ValueError(
+                f"get_xlim(axis={axis!r}): expected 'x' (bottom) or 'x2' (top)."
+            )
         if axis == "x2":
             return self.x2min, self.x2max
         return self.xmin, self.xmax
@@ -9828,8 +9920,13 @@ class Axes:
         Parameters
         ----------
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right); another value
+            raises ``ValueError``.
         """
+        if axis not in ("y", "y2"):
+            raise ValueError(
+                f"get_ylim(axis={axis!r}): expected 'y' (left) or 'y2' (right)."
+            )
         if axis == "y2":
             return self.y2min, self.y2max
         else:
