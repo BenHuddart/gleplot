@@ -3264,10 +3264,6 @@ class _Recognizer:
             # line, or a group whose x columns do not match. Filled at the
             # end of pass 1. See ``_mark_bars_that_stay_raw``.
             "_bar_hold_raw": set(),
-            # How many bar commands have already claimed each source file.
-            # The first keeps the name; a later independent series gets
-            # ``stem_2.dat`` so the two writes do not clobber one file.
-            "_claimed_bar_files": {},
             "_bar_group_next": 1,
         }
         # This graph block's own (begin, end) line span -- the fallback
@@ -6927,22 +6923,6 @@ class _Recognizer:
                 return False
         return True
 
-    @staticmethod
-    def _claim_bar_file(info, name: str) -> str:
-        """The sidecar name for this bar command.
-
-        The first command to use a source file keeps that name. A later
-        independent command gets ``stem_2.dat``, because the writer
-        rewrites a series' file in place and two series must not share one.
-        """
-        claimed = info["_claimed_bar_files"]
-        count = claimed.get(name, 0)
-        claimed[name] = count + 1
-        if count == 0:
-            return name
-        path = Path(name)
-        return str(path.with_name(f"{path.stem}_{count + 1}{path.suffix}"))
-
     def _keep_bar_raw(self, scanned, info, stmt, toks, user_file=None) -> None:
         """Passthrough for a ``bar`` command, with the note that says why.
 
@@ -7084,8 +7064,7 @@ class _Recognizer:
             self._keep_bar_raw(scanned, info, stmt, toks)
             return
 
-        source_file = datasets[names[0]][0]
-        data_file = self._claim_bar_file(info, source_file)
+        data_file = datasets[names[0]][0]
         group_id = None
         if len(names) > 1:
             group_id = info["_bar_group_next"]
