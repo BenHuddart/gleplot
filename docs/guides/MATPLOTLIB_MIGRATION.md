@@ -576,6 +576,12 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     warns that it dropped the masked samples. As in matplotlib, `fill`,
     `stackplot` and the `bar` positions and `bottom` use the values under
     the mask.
+15. A line on a log axis leaves a negative point out and joins its
+    neighbours, where matplotlib draws the line off the axis there; a zero
+    goes down to the axis edge, as in matplotlib. Saving warns when a
+    `plot` or `step` line has a negative value on a log axis. Set those
+    values to NaN to break
+    the line there, see [Axes and Legends](AXES_AND_LEGENDS.md).
 
 ## Migration Strategy
 
