@@ -2506,7 +2506,7 @@ def test_finding16_blank_line_then_unrelated_content_stays_passthrough(tmp_path)
     assert ax.texts[0]["text"] == "first"
     # The blank line + the dangling 'set color blue' (no following amove)
     # are preserved verbatim in the trailer, not silently dropped.
-    assert rec.figure.passthrough_trailer == ["", "set color blue"]
+    assert rec.figure.passthrough_trailer == ["", "set color blue", ""]
 
 
 @pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "gsave"])
@@ -2916,7 +2916,7 @@ def test_finding19_trailing_amove_after_last_graph_preserved(tmp_path):
     src = _amove_graph_src("amove 1 1\ncircle 0.3\n")
     p = _write(tmp_path, "trailing_amove.gle", src, {"d.dat": _AMOVE_DAT})
     rec = parse_gle_figure(p)
-    assert rec.figure.passthrough_trailer == ["amove 1 1", "circle 0.3"]
+    assert rec.figure.passthrough_trailer == ["amove 1 1", "circle 0.3", ""]
 
 
 def test_finding19_amove_before_non_graph_statement_flushed(tmp_path):
@@ -2927,7 +2927,7 @@ def test_finding19_amove_before_non_graph_statement_flushed(tmp_path):
     src = _amove_graph_src("amove 1 1\nbox 2 2\ncircle 0.3\n")
     p = _write(tmp_path, "amove_then_box.gle", src, {"d.dat": _AMOVE_DAT})
     rec = parse_gle_figure(p)
-    assert rec.figure.passthrough_trailer == ["amove 1 1", "box 2 2", "circle 0.3"]
+    assert rec.figure.passthrough_trailer == ["amove 1 1", "box 2 2", "circle 0.3", ""]
 
 
 def test_finding19_consecutive_amoves_without_graph_both_preserved(tmp_path):
@@ -2943,6 +2943,7 @@ def test_finding19_consecutive_amoves_without_graph_both_preserved(tmp_path):
         "amove 1 1",
         "amove 2 2",
         "circle 0.3",
+        "",
     ]
 
 
@@ -2967,6 +2968,7 @@ def test_finding19_double_amove_after_graph_both_preserved(tmp_path):
         "amove 3 3",
         "circle 1",
         "end sub",
+        "",
     ]
     assert any(w.startswith("programmatic:") for w in rec.warnings)
 
@@ -2983,7 +2985,7 @@ def test_finding19_bare_sub_double_amove_was_never_broken(tmp_path):
     src = "size 10 8\nsub s\namove 1 1\nrline 2 2\namove 3 3\ncircle 1\nend sub\n"
     p = _write(tmp_path, "bare_sub_double_amove.gle", src)
     rec = parse_gle_figure(p)
-    assert rec.figure.passthrough_trailer == []
+    assert rec.figure.passthrough_trailer == [""]
     assert rec.figure.passthrough_header == [
         "sub s",
         "amove 1 1",
@@ -3044,7 +3046,7 @@ def test_finding19_trailing_amove_resave_is_byte_exact_fixed_point(tmp_path):
     assert text1.index("amove 1 1") < text1.index("circle 0.3")
 
     rec2 = parse_gle_figure(out1)
-    assert rec2.figure.passthrough_trailer == ["amove 1 1", "circle 0.3"]
+    assert rec2.figure.passthrough_trailer == ["amove 1 1", "circle 0.3", ""]
     out2 = tmp_path / "out2.gle"
     rec2.figure.savefig_gle(str(out2))
     text2 = out2.read_text(encoding="utf-8")
@@ -3108,7 +3110,7 @@ def test_finding19_trailing_amove_reproduction_renders_with_parity(tmp_path):
     rt_dir.mkdir()
     (rt_dir / "d.dat").write_text(_AMOVE_DAT, encoding="utf-8")
     rec = parse_gle_figure(orig)
-    assert rec.figure.passthrough_trailer == ["amove 1 1", "circle 0.3"]
+    assert rec.figure.passthrough_trailer == ["amove 1 1", "circle 0.3", ""]
     rt_gle = rt_dir / "rt.gle"
     rec.figure.savefig_gle(str(rt_gle))
 

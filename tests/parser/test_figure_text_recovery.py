@@ -116,10 +116,10 @@ def test_a_key_block_the_writer_would_not_write_stays_raw(block, tmp_path):
     path.write_text(_labelled_graph(tmp_path) + block + "\n")
     got = parse_gle_figure(path).figure
     assert got._legend is None
-    assert got.passthrough_trailer == block.split("\n")
+    assert got.passthrough_trailer == block.split("\n") + [""]
     out = tmp_path / "again.gle"
     got.savefig_gle(str(out))
-    assert out.read_text().endswith(block)
+    assert out.read_text().endswith(block + "\n")
 
 
 def test_a_hand_written_figure_key_is_recovered(tmp_path):

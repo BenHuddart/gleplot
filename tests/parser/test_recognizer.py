@@ -3450,14 +3450,54 @@ def test_raw_gle_between_graphs_stays_after_its_graph(tmp_path, raw):
     """An xg()/yg() in it addresses the graph before it, as in the file."""
     path = _two_graphs_with(tmp_path, raw + "\n")
     rec = parse_gle_figure(path).figure
-    assert rec.axes_list[0].trailing_passthrough == raw.splitlines()
+    assert rec.axes_list[0].trailing_passthrough == ["", *raw.splitlines(), ""]
     assert rec.passthrough_trailer == []
     again = _resave(path)
     assert again.split("end graph\n")[1].startswith("\n" + raw)
     # It stays there on the next load, and in a to_dict snapshot.
     assert _resave(path) == again
     copy = Figure.from_dict(rec.to_dict())
-    assert copy.axes_list[0].trailing_passthrough == raw.splitlines()
+    assert copy.axes_list[0].trailing_passthrough == ["", *raw.splitlines(), ""]
+
+
+def test_raw_gle_right_after_a_graph_keeps_the_blank_line_after_it(tmp_path):
+    path = _two_graphs_with(tmp_path, "")
+    text = path.read_text(encoding="utf-8")
+    raw = 'begin key\n    position tr\n    text "up" line\nend key\n'
+    edited = text.replace("end graph\n\n", "end graph\n" + raw + "\n", 1)
+    path.write_text(edited, encoding="utf-8")
+    assert _resave(path) == edited
+
+
+def test_raw_gle_before_a_regenerated_sub_between_graphs_resaves_unchanged(
+    tmp_path,
+):
+    """The blank line after the band sub is the writer's, not the raw GLE's."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig, (a, b) = gleplot.subplots(1, 2, data_prefix="g")
+    a.plot([0, 1], [0, 1])
+    x = np.linspace(0, 1, 5)
+    b.contourf(x, x, np.add.outer(x, x), [0, 1, 2])
+    path = tmp_path / "two.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("end graph\n", "end graph\nset color red\n", 1))
+    first = _resave(path)
+    assert _resave(path) == first
+
+
+def test_a_held_include_keeps_its_place_in_the_header(tmp_path):
+    p = _write(
+        tmp_path,
+        "h.gle",
+        'size 10 10\n! notes\ninclude "color.gle"\nset texlabels 1\n'
+        "begin graph\n   xaxis min 0 max 1\nend graph\n",
+        {},
+    )
+    rec = parse_gle_figure(p)
+    assert rec.figure.passthrough_header == ["! notes", 'include "color.gle"']
+    # The page style after it is still read.
+    assert rec.figure.style.usetex
 
 
 def test_a_comment_between_amove_and_graph_leaves_the_placement(tmp_path):

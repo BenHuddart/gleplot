@@ -1843,9 +1843,11 @@ class _Recognizer:
         # datasets (with the 'data' statement's text) awaiting their group.
         self._post_graph_rugs: Dict[str, dict] = {}
         self._ready_rugs: Dict[str, Tuple[Rug, str]] = {}
-        # The rugs.gle / color.gle include lines, as (file, text) in file
-        # order, held back until the rugs and colorbars are read.
-        self._held_includes: List[Tuple[str, str]] = []
+        # The rugs.gle / color.gle include lines, as (file, text, line) in
+        # file order, held back until the rugs and colorbars are read; and
+        # the lines of those the header keeps in place meanwhile.
+        self._held_includes: List[Tuple[str, str, int]] = []
+        self._header_includes: Set[int] = set()
         # The figure legend (Figure.legend) recovered after the last graph,
         # as Figure._legend without its spacing, or None. Set before the
         # axes are assembled: it decides what their 'key off' meant.
@@ -2053,19 +2055,34 @@ class _Recognizer:
             PALETTES_INCLUDE: PALETTES_INCLUDE in palette_files,
             BREWER_INCLUDE: BREWER_INCLUDE in palette_files,
         }
-        # First in the header: a sub kept there may call the routines. A
-        # palette sub of the file's own keeps its file's include there even
-        # when the writer writes one too (it then writes none).
+        # A palette sub of the file's own keeps its file's include even when
+        # the writer writes one too (it then writes none). One in the header
+        # stays where it is; one from elsewhere goes first in the header, as
+        # a sub kept there may call the routines.
         own = (
             (PALETTES_INCLUDE, COLOR_INCLUDE, BREWER_INCLUDE)
             if self._own_palette_subs
             else ()
         )
-        fig.passthrough_header[:0] = [
-            text
-            for name, text in self._held_includes
-            if not regenerated[name] or name in own
-        ]
+        moved = []
+        for name, text, line in self._held_includes:
+            kept = not regenerated[name] or name in own
+            if line not in self._header_includes:
+                if kept:
+                    moved.append(text)
+            elif not kept:
+                for bucket in (fig.passthrough_before_hei, fig.passthrough_header):
+                    if text in bucket:
+                        bucket.remove(text)
+                        break
+        fig.passthrough_header[:0] = moved
+        # The writer ends the script without a newline; raw GLE it ends
+        # with keeps the file's own, as a closing empty line.
+        ends_raw = fig._trailer_lines() or (
+            not fig.axes_list and fig.passthrough_header
+        )
+        if ends_raw and self.text.endswith("\n"):
+            fig.passthrough_trailer.append("")
         self._note_dropped_comments(doc, fig)
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
@@ -2181,7 +2198,7 @@ class _Recognizer:
                 PALETTES_INCLUDE,
                 BREWER_INCLUDE,
             ):
-                self._held_includes.append((name, self._stmt_text(node)))
+                self._held_includes.append((name, self._stmt_text(node), node.line_no))
         return lines
 
     def _read_metadata(self) -> Dict[str, Any]:
@@ -2372,10 +2389,13 @@ class _Recognizer:
             node = nodes[i]
             if isinstance(node, GraphBlock):
                 if parsed_axes:
-                    # The writer separates the graphs with its own blank line.
+                    # The writer writes a blank line after a graph unless
+                    # the raw GLE after it ends in one (Figure.savefig).
                     kept = parsed_axes[-1]["trailing_passthrough"]
-                    while kept and not kept[-1].strip():
-                        kept.pop()
+                    if not any(line.strip() for line in kept):
+                        kept.clear()
+                    elif kept[-1].strip() and not kept[0].strip():
+                        kept.pop(0)
                 axes_info, i = self._parse_placed_graph(
                     nodes, i, pending, marker_cfg, smooth_flags
                 )
@@ -2421,8 +2441,8 @@ class _Recognizer:
             if isinstance(node, BlankOrComment):
                 blank = not self._stmt_text(node.statement).strip()
                 # A comment between an amove and its graph leaves the amove
-                # placing the graph; a blank line inside raw GLE between
-                # graphs stays in it.
+                # placing the graph; a blank line between graphs is kept
+                # with the raw GLE there (see the GraphBlock branch).
                 out = raw_out()
                 if not blank and pending is not None and i < last_graph:
                     if out is trailer:
@@ -2436,7 +2456,19 @@ class _Recognizer:
                         out.extend(self._raw_lines(node))
                     i += 1
                     continue
-                if blank and pending is None and out is not trailer and out:
+                # The blank line the writer writes after a sub or block it
+                # regenerates is regenerated with it.
+                after_regenerated = (
+                    i > 0
+                    and not isinstance(nodes[i - 1], BlankOrComment)
+                    and self._is_regenerated_page_node(nodes, i - 1)
+                )
+                if (
+                    blank
+                    and pending is None
+                    and out is not trailer
+                    and not after_regenerated
+                ):
                     out.extend(self._raw_lines(node))
                     i += 1
                     continue
@@ -2912,6 +2944,7 @@ class _Recognizer:
         # Track which lines belong to the metadata block, or to a glp_<name>
         # sub definition, so we drop them (both are regenerated canonically).
         meta_line_nos = self._meta_lines | self._gleplot_sub_lines
+        held_lines = {line for *_, line in self._held_includes}
 
         def _passthrough(text: str, statement: bool = True) -> None:
             nonlocal statement_passed
@@ -2948,6 +2981,12 @@ class _Recognizer:
 
             if isinstance(node, Statement):
                 if node.source_line and node.line_no in meta_line_nos:
+                    if node.line_no in held_lines:
+                        # Kept in place until run() knows whether the
+                        # writer writes it again. It draws nothing, so the
+                        # page style after it is still read.
+                        _passthrough(self._stmt_text(node), statement=False)
+                        self._header_includes.add(node.line_no)
                     continue
                 kw = node.keyword
                 toks = _words_and_values(node)
