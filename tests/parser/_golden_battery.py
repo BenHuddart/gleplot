@@ -285,7 +285,7 @@ def raw_lines_reading_modelled_datasets():
 
 
 def raw_lines_reading_every_kind_of_dataset():
-    """Raw lines that read a bar's, a fill's and an error bar's datasets.
+    """Raw lines that read the datasets of a bar, a fill and an error bar.
 
     The fill and the line are offset, so their ``let`` aliases are read too.
     Each ``_gle_names`` is the name the writer gives that dataset.
@@ -304,10 +304,10 @@ def raw_lines_reading_every_kind_of_dataset():
     }
     ax.bars[0]["_gle_names"] = {"from": "d5", "data": "d6"}
     ax.lines[0]["_gle_names"] = {"data": "d7", "offset": "d8"}
-    ax.errorbars[0]["_gle_names"] = {"data": "d9"}
+    ax.errorbars[0]["_gle_names"] = {"data": "d9", "yerr": "d10"}
     ax.passthrough = [
         "   let d20 = d1+d2+d3+d4",
-        "   let d21 = d5+d6+d7+d8+d9",
+        "   let d21 = d5+d6+d7+d8+d9+d10",
     ]
     return fig
 

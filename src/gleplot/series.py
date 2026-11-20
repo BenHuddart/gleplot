@@ -647,10 +647,12 @@ class _XYSeries(Series):
     #: Set by ``open_gle`` when a raw line kept in the block reads one of
     #: this series' datasets: role -> its name in the file, which the writer
     #: renames in those lines to the name it writes that dataset under. The
-    #: roles are ``data`` (the series' own dataset; a histogram's samples),
-    #: ``offset`` (its ``let dK = dJ+off`` alias), ``hist`` (a histogram's
-    #: binned dataset), ``from`` (a stacked bar's baseline), ``second`` and
-    #: ``second_offset`` (a fill's second curve and its alias).
+    #: roles are ``data`` (the series' own dataset), ``offset`` (its
+    #: ``let dK = dJ+off`` alias), ``hist`` (a histogram's binned dataset),
+    #: ``from`` (a stacked bar's baseline), ``second`` and ``second_offset``
+    #: (a fill's second curve and its alias), and ``yerr``, ``yerr_up``,
+    #: ``yerr_down``, ``xerr``, ``xerr_left``, ``xerr_right`` (an error
+    #: bar's error datasets).
     _gle_names: Dict[str, str]
     #: Only present when the caller asked for an explicit draw order.
     zorder: float

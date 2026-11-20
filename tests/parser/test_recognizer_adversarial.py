@@ -1327,7 +1327,16 @@ def _shift_datasets(text, by):
 @pytest.mark.parametrize(
     "build, reads",
     [
-        (lambda ax: ax.errorbar([1, 2, 3], [1, 2, 3], yerr=[0.1, 0.2, 0.1]), "d1"),
+        (
+            lambda ax: ax.errorbar([1, 2, 3], [1, 2, 3], yerr=[0.1, 0.2, 0.1]),
+            "d1+d2",
+        ),
+        (
+            lambda ax: ax.errorbar(
+                [1, 2, 3], [1, 2, 3], yerr=([0.1, 0.2, 0.1], [0.2, 0.1, 0.3])
+            ),
+            "d1+d2+d3",
+        ),
         (lambda ax: ax.bar([1, 2, 3], [1, 2, 3]), "d1"),
         (lambda ax: ax.bar([1, 2, 3], [1, 1, 1], bottom=[1, 2, 3]), "d1+d2"),
         (_grouped_bars, "d1+d2"),
@@ -1343,6 +1352,7 @@ def _shift_datasets(text, by):
     ],
     ids=[
         "errorbar",
+        "asymmetric-errorbar",
         "bar",
         "stacked-bar",
         "bar-group",
@@ -1372,11 +1382,15 @@ def test_raw_reads_of_every_modelled_dataset_follow_it(tmp_path, build, reads):
 
 @pytest.mark.parametrize(
     "command, reads",
-    [("bar d5 fill red", "d5"), ("fill d5,d6 color red", "d5+d6")],
-    ids=["bar", "fill"],
+    [
+        ("bar d5 fill red", "d5"),
+        ("fill d5,d6 color red", "d5+d6"),
+        ("d5 marker circle err d6", "d5+d6"),
+    ],
+    ids=["bar", "fill", "errorbar"],
 )
 def test_raw_reads_of_a_file_reference_follow_it(tmp_path, command, reads):
-    """#455: a bar or fill on the caller's own file is bound too."""
+    """#455: a bar, fill or error bar on the caller's own file is bound too."""
     src = (
         "size 12 9\nbegin graph\n"
         '   data "a.dat" d5=c1,c2 d6=c1,c3\n'

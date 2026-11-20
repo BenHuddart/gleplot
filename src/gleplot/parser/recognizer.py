@@ -1773,6 +1773,17 @@ def _page_drawing(lines: List[str]) -> Optional[Dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
+# GLE's error-bar keyword -> the ``_gle_names`` role of its dataset.
+_ERROR_ROLES = {
+    "err": "yerr",
+    "errup": "yerr_up",
+    "errdown": "yerr_down",
+    "herr": "xerr",
+    "herrleft": "xerr_left",
+    "herrright": "xerr_right",
+}
+
+
 class _Recognizer:
     """Stateful recognizer for one document. See :func:`parse_gle_figure`."""
 
@@ -6679,7 +6690,6 @@ class _Recognizer:
         info["_draw_seq_counter"] += 1
         info["hists"].append(entry)
         self._note_raw_name(info, target, entry, "hist")
-        self._note_raw_name(info, source, entry, "data")
         info["_let_source_datasets"].add(source)
         info["_hist_let_pending"].pop(target, None)
         return entry
@@ -7342,6 +7352,16 @@ class _Recognizer:
         info["fills"].append(fill_entry)
         self._note_fill_names(info, d_names, fill_entry)
         info["_key_label_owners"][d_names[0]] = fill_entry
+
+    @classmethod
+    def _note_error_names(cls, info, err_refs, entry) -> None:
+        """Note an error bar's error datasets for :meth:`_bind_raw_readers`.
+
+        ``err_refs`` maps GLE's ``err``, ``errup``, ... to the dataset each
+        names; the role is the writer's name for that error.
+        """
+        for kind, name in err_refs.items():
+            cls._note_raw_name(info, name, entry, _ERROR_ROLES[kind])
 
     def _note_fill_names(self, info, d_names, entry) -> None:
         """Note a fill's curves for :meth:`_bind_raw_readers`.
@@ -8304,6 +8324,7 @@ class _Recognizer:
                     **read_options,
                 )
             )
+            self._note_error_names(info, err, info["file_series"][-1])
             return
 
         extra = [
@@ -8343,6 +8364,7 @@ class _Recognizer:
                     data_error=(loaded or {}).get("error", "unresolved"),
                 )
             )
+            self._note_error_names(info, err, info["file_series"][-1])
             return
 
         def col_arr(c):
@@ -8440,6 +8462,7 @@ class _Recognizer:
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
         info["errorbars"].append(entry)
+        self._note_error_names(info, err, entry)
 
     def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
         """Keep a dataset display line as raw GLE in axes passthrough.
