@@ -1815,14 +1815,11 @@ class _Recognizer:
         self._table_cache: Dict[str, object] = {}
         self._layout_cache: Dict[Tuple[Any, ...], Optional[GLEDataLayout]] = {}
         self._import_list: Optional[List[str]] = None
-        # Imported files raw GLE reads beside a modelled series: the next
-        # pass loads them as references (see parse_gle_figure).
+        # Imported files whose raw datasets lose their 'data' statement when
+        # a series rewrites the file; parse_gle_figure recognizes again,
+        # reading the files kept as written.
+        self._shared_imports: Set[str] = set()
         self._kept_imports: Set[str] = set()
-        self._noted_kept: Set[str] = set()
-        # The (x, y) columns of imported files that raw GLE (None: a dataset
-        # left undefined) and modelled series read (see _record_raw_reads).
-        self._raw_columns: Dict[str, Set[Optional[Tuple[int, int]]]] = {}
-        self._series_columns: Dict[str, Set[Optional[Tuple[int, int]]]] = {}
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
         # by their frames.
@@ -3699,40 +3696,49 @@ class _Recognizer:
                     raw_refs.add(t.value.lower())
         # Raw lines that may read a dataset; a comment or a string never does.
         raw_code = [re.sub(r'"[^"]*"|!.*', "", line) for line in info["passthrough"]]
-        for name in consumed:
-            if name in pass1.datasets:
-                data_file, xcol, ycol = pass1.datasets[name]
-                if self._is_import(data_file):
-                    self._series_columns.setdefault(data_file, set()).add((xcol, ycol))
         restored: List[str] = []
         for names, text, data_line_no, defs, read_options in pass1.data_stmts:
-            raw_read = [
-                n
-                for n in names
-                if n not in consumed and (n in raw_refs or _mention_count(raw_code, n))
-            ]
             if not any(n in consumed for n in names):
                 restored.append(text)
-                self._record_raw_reads(raw_read, defs, data_line_no, True)
-                continue
-            if not raw_read:
-                # The rest are read by nothing: dropping them loses nothing.
-                continue
-            # Mixed: some of this statement's datasets became real series
-            # (the writer will regenerate a 'data' line for those), others
-            # are orphaned (raw text refers to them but nothing carries
-            # 'data_file' for them). Re-emitting the whole original line
-            # would duplicate the modeled portion; dropping it silently
-            # loses the orphans.
-            clause = self._orphan_data_clause(
-                [(n, defs[n]) for n in raw_read], read_options, info
-            )
-            if clause is not None:
-                restored.append(clause)
-                self._record_raw_reads(raw_read, defs, data_line_no, True)
-            elif self._is_import(defs[raw_read[0]][0]):
-                self._record_raw_reads(raw_read, defs, data_line_no, False)
-            else:
+            elif not all(n in consumed for n in names):
+                # Mixed: some of this statement's datasets became real
+                # series (the writer will regenerate a 'data' line for
+                # those), others are orphaned (raw text refers to them but
+                # nothing carries 'data_file' for them), and any others are
+                # read by nothing. Re-emitting the whole original line would
+                # duplicate the modeled portion; dropping it silently loses
+                # the orphans.
+                orphans = [
+                    n
+                    for n in names
+                    if n not in consumed
+                    and (n in raw_refs or _mention_count(raw_code, n))
+                ]
+                if not orphans:
+                    # The rest are read by nothing: dropping them loses nothing.
+                    continue
+                clause = self._orphan_data_clause(
+                    [(n, defs[n]) for n in orphans], read_options, info
+                )
+                data_file = defs[orphans[0]][0]
+                if clause is not None:
+                    restored.append(clause)
+                    if data_file in self._kept_imports:
+                        self._note(
+                            ImportCategory.DATA,
+                            f"'{data_file}' is read by raw GLE beside series "
+                            "gleplot models, so it is kept as written and "
+                            "read in place. To edit that data, load the file "
+                            "and plot it with ax.plot()",
+                            (data_line_no, data_line_no),
+                        )
+                    continue
+                if self._is_import(data_file):
+                    # The writer rewrites an imported file with just the
+                    # columns its series read, so no clause can define the
+                    # orphans until the file is read as a reference.
+                    self._shared_imports.add(data_file)
+                    continue
                 # Otherwise surface it instead of guessing.
                 self._note(
                     ImportCategory.DATA,
@@ -3745,31 +3751,6 @@ class _Recognizer:
                 )
         if restored:
             info["passthrough"][0:0] = restored
-
-    def _record_raw_reads(self, names, defs, line_no, defined) -> None:
-        """Record the columns of imported files the raw GLE reads.
-
-        The writer rewrites an imported file with just the columns its
-        series read, so raw GLE reading another column, or whose datasets
-        no restored ``data`` statement ``defined``, needs the file read as a
-        reference instead (see :func:`parse_gle_figure`).
-        """
-        for name in names:
-            data_file, xcol, ycol = defs[name]
-            if self._is_import(data_file):
-                self._raw_columns.setdefault(data_file, set()).add(
-                    (xcol, ycol) if defined else None
-                )
-            elif data_file in self._kept_imports - self._noted_kept:
-                self._noted_kept.add(data_file)
-                self._note(
-                    ImportCategory.DATA,
-                    f"'{data_file}' is read by raw GLE that rewriting it for "
-                    "a series would break, so it is kept as written and read "
-                    "in place. To edit that data, load the file and plot it "
-                    "with ax.plot()",
-                    (line_no, line_no),
-                )
 
     def _orphan_data_clause(self, defs, read_options, info) -> Optional[str]:
         """A ``data`` statement defining just ``defs``, or ``None``.
@@ -10215,15 +10196,6 @@ class _Recognizer:
             return False
         return True
 
-    def _shared_imports(self) -> Set[str]:
-        """Imported files a series rewrites and raw GLE reads otherwise."""
-        return {
-            data_file
-            for data_file, columns in self._raw_columns.items()
-            if data_file in self._series_columns
-            and columns - self._series_columns[data_file]
-        }
-
     def _is_import(self, data_file) -> bool:
         if data_file in self._kept_imports:
             return False
@@ -11891,10 +11863,10 @@ def parse_gle_figure(
     text, gle_path = _resolve_input(path_or_text, base_dir)
     rec = _Recognizer(text, gle_path)
     result = rec.run()
-    while rec._shared_imports():
-        # An imported file both raw GLE and a series read is only known once
-        # every graph is recognized, and it changes how every reader loads.
-        kept = rec._kept_imports | rec._shared_imports()
+    while rec._shared_imports:
+        # Read as references, those files are kept as written. That changes
+        # how every reader of them loads, in every graph, so start again.
+        kept = rec._kept_imports | rec._shared_imports
         rec = _Recognizer(text, gle_path)
         rec._kept_imports = kept
         result = rec.run()

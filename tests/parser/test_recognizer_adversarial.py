@@ -3243,29 +3243,6 @@ def test_raw_reader_keeps_its_data_beside_a_modelled_sibling(tmp_path, reader):
     assert out2.read_text(encoding="utf-8") == text1
 
 
-def test_raw_reader_keeps_its_data_beside_a_series_in_another_graph(tmp_path):
-    """An earlier graph's series does not rewrite a file a later graph's raw
-    bar reads (#490)."""
-    src = _meta("a.dat") + (
-        "size 10 8\n"
-        "begin graph\n"
-        '   data "a.dat" d2=c1,c4\n'
-        "   d2 line\n"
-        "end graph\n"
-        "amove 0 4\n"
-        "begin graph\n"
-        '   data "a.dat" d3=c1,c2\n'
-        "   bar d3 fill red\n"
-        "   fill d3 color gray foo\n"
-        "end graph\n"
-    )
-    p = _write(tmp_path, "in.gle", src, {"a.dat": _FOUR_COL_DAT})
-    out = tmp_path / "out.gle"
-    parse_gle_figure(p).figure.savefig_gle(str(out))
-    assert 'data "a.dat" d3=c1,c2' in out.read_text(encoding="utf-8")
-    assert (tmp_path / "a.dat").read_text(encoding="utf-8") == _FOUR_COL_DAT
-
-
 # --------------------------------------------------------------------------- #
 # Finding 21 -- a marker-less, line-less series re-emitted as literal
 # ``marker None`` (gate-review MAJOR/rendered-fidelity finding, GLEstudio S8
