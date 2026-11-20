@@ -58,7 +58,6 @@ class TestFilenameQuoting:
 
     def test_a_read_quoted_name_is_written_back_doubled(self, tmp_path):
         """GLE cannot load it, but a hand-written one still saves unchanged."""
-        _write_data(tmp_path / 'my "run".dat')
         out = tmp_path / "fig.gle"
         out.write_text(
             "size 10 8\nbegin graph\n"
