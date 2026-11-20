@@ -3795,3 +3795,25 @@ def test_a_band_narrower_than_float_noise_is_written_where_it_is(tmp_path, orien
     assert "1700000002.801" in "".join(files.values())
     (span,) = glp.open_gle(str(tmp_path / "fig.gle")).axes_list[0].spans
     assert (span["start"], span["end"]) == edges
+
+
+@pytest.mark.parametrize("log", [False, True])
+def test_an_axis_range_of_float_noise_keeps_its_ends_apart(tmp_path, log):
+    """A range a millionth of whose span is float noise is still a range.
+
+    Written as six figures it would be ``min 1e+06 max 1e+06``, which GLE
+    refuses and a reload drops. The data on the axis is written inside it
+    (#468).
+    """
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    limits = (1e6, 1e6 + 1e-7)
+    ax.plot([1.0, 2.0], limits)
+    if log:
+        ax.set_yscale("log")
+    ax.set_ylim(*limits)
+    files = _saved(fig, tmp_path)
+    assert "yaxis min 1000000.0 max 1000000.0000001" in files["fig.gle"]
+    rows = files["p_0.dat"].splitlines()[1:]
+    assert all(limits[0] <= float(row.split()[1]) <= limits[1] for row in rows)
+    assert glp.open_gle(str(tmp_path / "fig.gle")).axes_list[0].get_ylim() == limits

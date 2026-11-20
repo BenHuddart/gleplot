@@ -2073,8 +2073,24 @@ def coordinates_beyond_six_figures():
     return fig
 
 
+def axis_range_of_float_noise():
+    """Axis ranges a millionth of whose span is float noise beside 1.7e9."""
+    fig, (auto, fixed, log) = glp.subplots(1, 3, data_prefix="golden")
+    auto.plot([0.0, 1.0, 2.0], 1.7e9 + np.array([0.0, 8e-6, 1.6e-5]))
+    fixed.plot([1.386307256128e6, 1.386307256128e6 + 3.9e-7], [1.0, 2.0])
+    fixed.set_xlim(1.386307256128e6, 1.386307256128e6 + 3.9e-7)
+    # Coordinates on it are written inside the range, not at six figures.
+    fixed.axvline(1.386307256128e6)
+    fixed.text(1.386307256128e6, 1.5, "t")
+    log.plot([1.0, 2.0], [1e6, 1e6 + 1e-3])
+    log.set_yscale("log")
+    log.set_ylim(1e6, 1e6 + 1e-3)
+    return fig
+
+
 BUILDERS = [
     coordinates_beyond_six_figures,
+    axis_range_of_float_noise,
     single_line,
     multi_series_styles,
     scatter,
