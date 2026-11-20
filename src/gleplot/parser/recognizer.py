@@ -283,6 +283,7 @@ Category                Span coverage
 
 from __future__ import annotations
 
+import collections
 import copy
 import math
 import re
@@ -3256,14 +3257,24 @@ class _Recognizer:
         self._data_read_options.clear()
         self._held_datasets.clear()
         self._noted_unloaded.clear()
+        redefined = self._redefined_let_datasets(block)
         for child in block.body:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
             kw = child.keyword
+            if kw == "let" and self._let_target(child) in redefined:
+                self._hold_dataset(self._let_target(child), pass1.datasets)
+                continue
             if kw == "data":
                 names = self._parse_data_command(
                     _words_and_values(child), pass1.datasets, line_no=child.line_no
                 )
+                if redefined.intersection(names):
+                    # Read by a redefined let: the statement stays as
+                    # written, with every line reading its datasets.
+                    for name in names:
+                        self._hold_dataset(name, pass1.datasets)
+                    names = []
                 # One defining no dataset (an unresolved file, a lone text
                 # column GLE reads as x labels, or an option gleplot cannot
                 # write back) is restored as written.
@@ -3325,6 +3336,54 @@ class _Recognizer:
         self._keep_plain_derived_lets(block, pass1, info)
         self._keep_plain_function_lets(block, pass1, info)
         return pass1
+
+    @staticmethod
+    def _let_target(stmt) -> Optional[str]:
+        """The ``dK`` a ``let`` statement defines, lowercased, or None."""
+        toks = _words_and_values(stmt)
+        if len(toks) < 2 or not _DATASET_RE.match(toks[1].value):
+            return None
+        return toks[1].value.lower()
+
+    def _redefined_let_datasets(self, block: GraphBlock) -> Set[str]:
+        """The datasets a ``let`` redefined by a later ``let`` reads or makes.
+
+        gleplot models a dataset that one ``let`` defines. When a later
+        ``let`` in ``block`` redefines it, both stay raw GLE, and so does
+        each dataset they read and each ``let`` that reads one of those
+        (each target is noted once).
+        """
+        lets = []
+        for child in block.body:
+            if isinstance(child, Statement) and child.keyword == "let":
+                target = self._let_target(child)
+                if target is not None:
+                    toks = _words_and_values(child)
+                    reads = " ".join(tok.value for tok in toks[2:])
+                    names = {m.lower() for m in _DATASET_NAME_RE.findall(reads)}
+                    lets.append((target, names, child.line_no))
+        counts = collections.Counter(target for target, _names, _line in lets)
+        held: Set[str] = set()
+        for target, _names, line_no in lets:
+            if counts[target] > 1 and target not in held:
+                held.add(target)
+                self._note(
+                    ImportCategory.DATA,
+                    f"{target} is defined by more than one let; those lets, "
+                    "the data they read and the lines that draw them were "
+                    "kept as raw GLE",
+                    (line_no, line_no),
+                )
+        grown = True
+        while grown:
+            size = len(held)
+            for target, names, _line_no in lets:
+                if target in held:
+                    held |= names
+                elif names & held:
+                    held.add(target)
+            grown = len(held) != size
+        return held
 
     def _record_colour_let(self, stmt, datasets, info) -> None:
         """Record a per-point colour's ``let`` (see ``_CDATA_LET_RE``)."""
