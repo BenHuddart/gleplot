@@ -279,13 +279,14 @@ def test_a_point_gle_would_drop_is_written_missing():
 @pytest.mark.parametrize("per_point", [{"s": [10, 20, 30]}, {"c": [1, 2, 3]}])
 @pytest.mark.parametrize(
     "y, scale, dropped",
-    [([1, np.nan, 9], "linear", "nan"), ([1, -4, 9], "log", "-4")],
+    [([1, np.nan, 9], "linear", "*"), ([1, -4, 9], "log", "-4")],
     ids=["nan", "log-negative"],
 )
 def test_a_table_point_gle_would_drop_is_written_missing(per_point, y, scale, dropped):
     """A provider-backed scatter gets its own masked x and y columns (#201).
 
-    The table's columns stay as they are, because the line reads them too.
+    The table's columns stay as they are where the line reads them; a line
+    breaks at NaN, so it writes NaN as ``*`` too.
     """
     from gleplot.sources import ColumnRef, DictDataProvider, TableData
 
