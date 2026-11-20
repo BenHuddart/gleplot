@@ -317,6 +317,17 @@ def test_axis_rejects_what_matplotlib_rejects():
         ax.axis(zmin=0)
 
 
+def test_axis_checks_every_limit_before_setting_any():
+    _fig, ax = _axes()
+    with pytest.raises(ValueError, match=r"axis\(ymin=nan\)"):
+        ax.axis([0, 1, float("nan"), 2])
+    with pytest.raises(TypeError, match=r"axis\(ymax='2'\)"):
+        ax.axis(xmin=0, ymax="2")
+    with pytest.raises(TypeError, match=r"axis\(xmin=\(0, 1\)\)"):
+        ax.axis(xmin=(0, 1))
+    assert ax.axis() == (None, None, None, None)
+
+
 def test_axis_emit_false_warns():
     _fig, ax = _axes()
     with pytest.warns(UserWarning, match="emit=False"):
