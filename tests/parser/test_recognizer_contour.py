@@ -832,3 +832,21 @@ def test_a_gleplot_5_contour_label_sub_is_kept_as_raw_gle(tmp_path):
     text = rec.figure._generate_gle_with_files()[0]
     assert "sub gleplot_contour_labels file$ format$" in text
     assert 'gleplot_contour_labels file "g_contour1-clabels.dat" format "fix 2"' in text
+
+
+def test_a_contour_line_with_no_color_or_width_stays_unset(tmp_path):
+    """#454: GLE draws it in the current colour and width; so does the save."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.contour(np.arange(9.0).reshape(3, 3), levels=[4.0])
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8")
+    line = next(s for s in text.splitlines() if s.strip().startswith("d1 line"))
+    path.write_text(text.replace(line, "    d1 line"), encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    (contour,) = rec.figure.axes_list[0].contours
+    assert contour["color"] is None and contour["linewidth"] is None
+    again = tmp_path / "again.gle"
+    rec.figure.savefig_gle(str(again))
+    assert "    d1 line\n" in again.read_text("utf-8")

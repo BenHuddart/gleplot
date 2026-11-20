@@ -6312,10 +6312,10 @@ class GLEWriter:
         cdata_file = _grid_z_file(series)[:-2] + "-cdata.dat"
         d_name = self._new_dataset()
         self.lines_gle.append(f"    data {_quote_filename(cdata_file)} {d_name}=c1,c2")
-        gle_lwidth = self._lwidth_cm(series["linewidth"], series)
         cmd = (
-            f"    {d_name} line color {series['color']} "
-            f"lwidth {self._format_number(gle_lwidth)}"
+            f"    {d_name} line"
+            + self._color_clause(series["color"])
+            + self._lwidth_clause(series["linewidth"], series)
         )
         lstyle = series["linestyle"]
         if lstyle is not None:

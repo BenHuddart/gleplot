@@ -9065,11 +9065,11 @@ class _Recognizer:
                 "it to the saved file by hand if you need it",
                 span,
             )
-        color = attrs["color"] or "BLACK"
+        color = attrs["color"]
         width = (
             _width_fields(linewidth_cm_to_pt(attrs["lwidth"]))
             if attrs["lwidth"] is not None
-            else {"linewidth": 1.0}
+            else {"linewidth": None}
         )
         lstyle = attrs["lstyle"]  # int or None (None = solid)
 
