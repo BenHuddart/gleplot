@@ -209,6 +209,9 @@ sub glp_polar_labels rmax step dp deg$
    grestore
 end sub"""
 
+#: The names of the subs :data:`POLAR_SUB` defines.
+POLAR_SUB_NAMES = ("glp_polar_grid", "glp_polar_labels")
+
 #: Layer of the polar grid draw: GLE's own grid layer, below the curves.
 POLAR_GRID_LAYER = 200
 

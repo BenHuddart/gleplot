@@ -361,6 +361,7 @@ from ..writer import (
     NAME_QUOTE,
     NODES_MARKER,
     POLAR_GRID_LAYER,
+    POLAR_SUB_NAMES,
     RUG_EDGES,
     RUGS_INCLUDE,
     GLEWriter,
@@ -754,7 +755,7 @@ def _words_and_values(stmt: Statement) -> List[Token]:
 #: The subs gleplot writes whose names do not depend on the figure.
 #: gleplot 5 named its subs ``gleplot_<name>``; those are no longer read, so a
 #: file that defines one keeps it as raw GLE, with the calls that use it.
-_FIXED_SUBS = frozenset(("glp_polar_grid", "glp_polar_labels", *IMAGE_SUBS))
+_FIXED_SUBS = frozenset((*POLAR_SUB_NAMES, *IMAGE_SUBS))
 _CONTOURF_SUB_RE = re.compile(r"glp_contourf\d+")
 
 

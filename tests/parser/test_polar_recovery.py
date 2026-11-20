@@ -84,6 +84,19 @@ def test_a_grid_with_another_ring_step_stays_raw(tmp_path):
     assert any("glp_polar_grid" in w for w in recognized.warnings)
 
 
+def test_a_raw_grid_draw_is_saved_with_the_polar_subs(tmp_path):
+    path = _written(tmp_path)
+    text = path.read_text().replace(
+        "draw glp_polar_grid 2.5 0.5", "draw glp_polar_grid 2.5 0.25"
+    )
+    resaved = tmp_path / "resaved.gle"
+    _recognize(path, text).figure.savefig(str(resaved))
+    out = resaved.read_text()
+    assert "        draw glp_polar_grid 2.5 0.25" in out
+    assert out.count("sub glp_polar_grid rmax step") == 1
+    assert out.count("sub glp_polar_labels rmax step dp deg$") == 1
+
+
 def test_a_missing_label_call_is_noted(tmp_path):
     path = _written(tmp_path)
     text = re.sub(r"glp_polar_labels .*\n", "", path.read_text())
