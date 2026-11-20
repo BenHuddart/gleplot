@@ -49,7 +49,7 @@ fig.savefig('gaussian.pdf')
 - An `int` `n` — resolved **at call time** into `n` explicit level values evenly spaced strictly between the data's min and max, and emitted as an explicit `values v1 v2 ...` list (not GLE's `values from a to b step s` form). This keeps the stored model self-contained and round-trip-safe, but means the levels are fixed to the data range at the moment you call `contour`/`tricontour`, not re-derived later.
 - An explicit sequence, e.g. `levels=[0.2, 0.5, 0.8]` — stored verbatim.
 
-Add `clabel=True` to draw inline value labels at each contour crossing (formatted with `clabel_fmt`, a GLE `format$` string such as `'fix 1'` or `'fix 2'`):
+Add `clabel=True` to draw inline value labels at each contour crossing (formatted with `clabel_fmt`, a GLE `format$` string such as `'fix 1'` or `'fix 2'`). They are written by `contour_labels` from GLE's include library (`contour.gle`), in blue in a white box:
 
 ```python
 ax.contour(x, y, Z, levels=[0.2, 0.5, 0.8], colors='black', clabel=True, clabel_fmt='fix 2')

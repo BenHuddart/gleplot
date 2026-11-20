@@ -8236,7 +8236,9 @@ class Axes:
             value warns and is drawn solid. A per-level sequence warns and
             its first entry is used, as for ``linewidths``.
         clabel : bool
-            Draw inline contour labels from the generated ``-clabels.dat``.
+            Draw inline contour labels from the generated ``-clabels.dat``,
+            with ``contour_labels`` from GLE's ``contour.gle`` (blue text
+            in a white box).
         clabel_fmt : str
             GLE ``format$`` string for the labels.
 
