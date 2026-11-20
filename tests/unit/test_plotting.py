@@ -2274,6 +2274,29 @@ class TestHistogram:
             self.ax.hist([0, 1], histtype="step", color="g", edgecolor="none")
         assert "d2 line hist color GREEN" in self._script()
 
+    def test_stepfilled_edgecolor_none_strokes_in_the_fill(self):
+        """GLE strokes every bar; the fill's ink is the stroke nobody sees."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.hist([0, 1], histtype="stepfilled", color="y", edgecolor="none")
+        assert "bar d2 fill YELLOW color YELLOW" in self._script()
+
+    @pytest.mark.parametrize("histtype", ["step", "stepfilled"])
+    def test_an_rgba_colours_alpha_does_not_reach_the_edge(self, histtype):
+        self.ax.hist([0, 1], histtype=histtype, color=(0, 0, 1, 0.3), edgecolor="k")
+        expected = {
+            "step": "d2 line hist color BLACK ",
+            "stepfilled": "bar d2 fill rgba255(0,0,255,76) color BLACK ",
+        }[histtype]
+        assert expected in self._script()
+
+    def test_alpha_and_an_rgba_edge_reach_the_edge(self):
+        self.ax.hist([0, 1], histtype="step", edgecolor=(1, 0, 0, 0.5))
+        self.ax.hist([0, 1], histtype="stepfilled", edgecolor="k", alpha=0.5)
+        script = self._script()
+        assert "line hist color rgba255(255,0,0,128)" in script
+        assert "bar d4 fill rgba255(0,0,255,128) color rgba255(0,0,0,128)" in script
+
     @pytest.mark.parametrize("histtype", ["bar", "step", "stepfilled"])
     def test_a_bad_edgecolor_is_rejected_for_every_histtype(self, histtype):
         with warnings.catch_warnings():
