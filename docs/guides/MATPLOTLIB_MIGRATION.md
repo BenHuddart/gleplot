@@ -332,7 +332,7 @@ A bad value raises `ValueError` at the call. A range GLE cannot draw warns when 
 
 ## Heatmaps and contour lines
 
-`imshow` and `tripcolor` take the arguments listed in their API entries. `imshow`'s `extent` gives the first and last grid nodes, where `contour` puts them, not the box the image fills: matplotlib's pixels reach half a pixel past the outer centres, and gleplot's colormap stops at those nodes. To match a matplotlib figure, pass the outer pixel centres as `extent`.
+`imshow` and `tripcolor` take the arguments listed in their API entries. A NaN or masked cell in `imshow`'s `Z` raises `ValueError` rather than leaving the cell blank, as for `pcolormesh`: choose its value with `np.ma.filled(Z, value)`. `imshow`'s `extent` gives the first and last grid nodes, where `contour` puts them, not the box the image fills: matplotlib's pixels reach half a pixel past the outer centres, and gleplot's colormap stops at those nodes. To match a matplotlib figure, pass the outer pixel centres as `extent`.
 Every other keyword, such as `alpha`, `norm` or `aspect`, warns and is
 ignored: a GLE colormap is opaque and one per axes (see "One Heatmap Per
 Axes" in [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md)).
@@ -436,7 +436,7 @@ The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar a
 
 ## Histograms
 
-`ax.hist(samples, bins=20, range=(0, 1), histtype="step")` keeps the samples in the data file. GLE bins them with `let dK = hist dJ from 0 to 1 bins 20` and draws the counts. The heights are counts. The window is the data min and max when `range` is omitted, widened by half a unit when every finite sample is the same value, and it is always written into the `let` so GLE does not re-bin over the axis. A sample on the right edge falls in the last bin; samples outside the window are not counted. Non-finite samples are dropped, with a warning.
+`ax.hist(samples, bins=20, range=(0, 1), histtype="step")` keeps the samples in the data file. GLE bins them with `let dK = hist dJ from 0 to 1 bins 20` and draws the counts. The heights are counts. The window is the data min and max when `range` is omitted, widened by half a unit when every finite sample is the same value, and it is always written into the `let` so GLE does not re-bin over the axis. A sample on the right edge falls in the last bin; samples outside the window are not counted. Non-finite and masked samples are dropped, with a warning that names them.
 
 | `histtype` | GLE |
 |---|---|
@@ -569,10 +569,13 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     [Reference Lines and Shaded Spans](REFERENCE_LINES_AND_SPANS.md).
 14. A masked value (`numpy.ma`) is read as NaN wherever matplotlib leaves a
     masked point out: the data of `plot`, `step`, `stem`, `scatter` (`x`,
-    `y` and `c`), the heights of `bar` and `barh`, `errorbar`,
-    `fill_between`, `fill_betweenx`, `hist`, `hlines` and `vlines`. It then
-    behaves as a NaN does there. As in matplotlib, `fill`, `stackplot` and
-    the `bar` positions and `bottom` use the values under the mask.
+    `y`, `c` and `s`), the heights and `yerr`/`xerr` of `bar` and `barh`,
+    `errorbar`, `fill_between`, `fill_betweenx`, `hist`, `hlines` and
+    `vlines`. It then behaves as a NaN does there: a `scatter` point with a
+    NaN size and a `bar` whisker with a NaN error are left out, and `hist`
+    warns that it dropped the masked samples. As in matplotlib, `fill`,
+    `stackplot` and the `bar` positions and `bottom` use the values under
+    the mask.
 
 ## Migration Strategy
 

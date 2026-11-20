@@ -750,18 +750,19 @@ def _bar_error_limits(err, n: int, name: str):
 
     Matplotlib's shapes: a scalar, shape ``(n,)`` (symmetric), or shape
     ``(2, n)`` (first row minus, second row plus). A length-1 sequence and
-    a shape ``(2, 1)`` broadcast across the bars.
+    a shape ``(2, 1)`` broadcast across the bars. A NaN or masked error is
+    kept: GLE leaves that whisker out, as matplotlib does.
     """
     if err is None:
         return None, None
     try:
-        arr = np.asarray(err, dtype=float)
+        arr = np.asarray(_unmasked(err), dtype=float)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"bar() {name} must be numeric") from exc
     if arr.ndim == 0 or (arr.ndim == 1 and arr.size == 1):
         value = float(np.ravel(arr)[0])
-        if not np.isfinite(value):
-            raise ValueError(f"bar() {name} must be finite")
+        if np.isinf(value):
+            raise ValueError(f"bar() {name} must not be infinite, got {err!r}")
         filled = np.full(n, value)
         return filled, filled.copy()
     if arr.ndim == 1:
@@ -769,12 +770,12 @@ def _bar_error_limits(err, n: int, name: str):
             raise ValueError(
                 f"bar() {name} length {arr.size} does not match the {n} bars"
             )
-        if not np.all(np.isfinite(arr)):
-            raise ValueError(f"bar() {name} must be finite")
+        if np.any(np.isinf(arr)):
+            raise ValueError(f"bar() {name} must not be infinite, got {err!r}")
         return arr.copy(), arr.copy()
     if arr.ndim == 2 and arr.shape[0] == 2 and arr.shape[1] in (1, n):
-        if not np.all(np.isfinite(arr)):
-            raise ValueError(f"bar() {name} must be finite")
+        if np.any(np.isinf(arr)):
+            raise ValueError(f"bar() {name} must not be infinite, got {err!r}")
         if arr.shape[1] == n:
             return arr[0].copy(), arr[1].copy()
         lower = np.full(n, float(arr[0, 0]))
@@ -816,7 +817,7 @@ def _require_finite(arr: np.ndarray, what: str) -> None:
     if not np.all(np.isfinite(arr)):
         raise ValueError(
             f"{what} contains NaN or infinite values, which GLE's colormap/"
-            "contour grid cannot represent; mask or fill them before plotting"
+            "contour grid cannot represent; fill them before plotting"
         )
 
 
@@ -1775,18 +1776,18 @@ def _split_histogram_samples(x):
 
     A 1d array is one sample set. A 2d array is one set per column. Any
     other sequence of sequences is one set per element, lengths free to
-    differ; a sequence of numbers is one set.
+    differ; a sequence of numbers is one set. A masked array's sets keep
+    their mask.
     """
-    x = _unmasked(x)
     if isinstance(x, np.ndarray):
         if x.ndim == 0:
             raise ValueError("hist() x must be one or more 1d sample arrays")
         if x.ndim == 1:
-            return [np.asarray(x, dtype=float)]
+            return [np.ma.asarray(x, dtype=float)]
         if x.ndim == 2:
             if x.shape[1] < 1:
                 raise ValueError("hist() x has no columns")
-            return [np.asarray(x[:, i], dtype=float) for i in range(x.shape[1])]
+            return [np.ma.asarray(x[:, i], dtype=float) for i in range(x.shape[1])]
         raise ValueError(f"hist() x must be 1d or 2d, got {x.ndim} dimensions")
     if isinstance(x, (str, bytes)):
         raise ValueError("hist() x must be one or more 1d sample arrays")
@@ -1803,7 +1804,7 @@ def _split_histogram_samples(x):
         return [np.asarray(items, dtype=float)]
     sets = []
     for item in items:
-        arr = np.asarray(_unmasked(item), dtype=float)
+        arr = np.ma.asarray(item, dtype=float)
         if arr.ndim != 1:
             raise ValueError("each hist() dataset must be 1-dimensional")
         sets.append(arr)
@@ -2354,8 +2355,9 @@ class SecondaryYAxis:
 def _point_sizes(name: str, values: Any, n_points: int) -> np.ndarray:
     """``scatter``'s per-point ``s`` or ``markersize`` as a float array.
 
-    Raises ``ValueError`` unless the sizes are finite and not negative, and
-    there is one, or one per point (matplotlib's rule).
+    Raises ``ValueError`` if a size is negative or infinite, or unless
+    there is one, or one per point (matplotlib's rule). A NaN size is kept:
+    ``scatter`` leaves that point out.
     """
     try:
         sizes = np.asarray(values, dtype=float).ravel()
@@ -2369,10 +2371,10 @@ def _point_sizes(name: str, values: Any, n_points: int) -> np.ndarray:
             f"scatter({name}=...) has {sizes.size} sizes for {n_points} points; "
             "pass one size, or one per point."
         )
-    if not np.all(np.isfinite(sizes)) or np.any(sizes < 0):
+    if np.any(np.isinf(sizes)) or np.any(sizes < 0):
         raise ValueError(
-            f"scatter({name}=...) sizes must be finite and not negative, got "
-            f"{values!r}."
+            f"scatter({name}=...) sizes must not be negative or infinite, got "
+            f"{values!r}. A NaN or masked size leaves that point out."
         )
     return sizes
 
@@ -3472,17 +3474,23 @@ class Axes:
 
         sets = _split_histogram_samples(x)
         finite_sets = []
-        dropped = False
+        dropped = set()
         for samples in sets:
-            keep = np.isfinite(samples)
-            if not np.all(keep):
-                dropped = True
-            kept = samples[keep]
+            data = np.ma.getdata(samples)
+            masked = np.ma.getmaskarray(samples)
+            finite = np.isfinite(data)
+            if masked.any():
+                dropped.add("masked")
+            if not np.all(finite | masked):
+                dropped.add("non-finite")
+            kept = data[finite & ~masked]
             if len(kept) == 0:
-                raise ValueError("hist() has no finite samples to bin")
-            finite_sets.append(np.asarray(kept, dtype=float))
+                raise ValueError(
+                    f"hist() has no finite, unmasked samples to bin in {samples!r}."
+                )
+            finite_sets.append(kept)
         if dropped:
-            warn("hist() dropped non-finite samples.")
+            warn(f"hist() dropped {' and '.join(sorted(dropped))} samples.")
 
         window, n_bins = self._histogram_window(finite_sets, bins, range, warn)
         colors = self._per_histogram(color, len(finite_sets), broadcast_str=True)
@@ -4799,8 +4807,9 @@ class Axes:
 
         Notes
         -----
-        Per-point sizes (a bubble chart) take one finite, non-negative value
-        per point; a one-element array is a single size. GLE's ``mdata``
+        Per-point sizes (a bubble chart) take one value per point, not
+        negative or infinite; a one-element array is a single size. A NaN or
+        masked size leaves that point out, as in matplotlib. GLE's ``mdata``
         scales only a marker drawn by a subroutine, so the script gets a
         ``gleplot_mdata_<marker>`` sub that draws the built-in marker at each
         point's size. The legend marker's area is halfway between the largest
@@ -4822,6 +4831,7 @@ class Axes:
         each first appears; only the first carries ``label``.
         """
         x, y, c = _unmasked(x), _unmasked(y), _unmasked(c)
+        s, markersize = _unmasked(s), _unmasked(markersize)
         if marker is None:
             marker = "o"  # matplotlib's rcParams['scatter.marker']
         values = None
@@ -4891,6 +4901,18 @@ class Axes:
             diameters = np.sqrt(_point_sizes("s", s, np.size(x))) * 1.2
         else:
             diameters = _point_sizes("markersize", markersize, np.size(x))
+        missing = np.isnan(diameters)
+        if missing.any():
+            # matplotlib leaves a point with no size out. A missing y leaves
+            # it out of the GLE dataset; its row takes another point's size
+            # so the legend size and mdata stay finite.
+            if np.size(y) == np.size(x):
+                y = np.where(missing, np.nan, np.ravel(np.asarray(y, dtype=float)))
+            diameters = np.where(
+                missing,
+                default_size if missing.all() else np.nanmax(diameters),
+                diameters,
+            )
         mdata = None
         if diameters is not None and diameters.size == 1:
             size = float(diameters[0])
@@ -5111,7 +5133,8 @@ class Axes:
             length-``n`` sequence is symmetric. Shape ``(2, n)`` is
             asymmetric: the first row is the minus side, the second the
             plus side. Shape ``(2, 1)`` broadcasts. On a horizontal bar the
-            tip is ``left + width``; ``xerr`` runs along the length.
+            tip is ``left + width``; ``xerr`` runs along the length. A NaN
+            or masked error leaves that whisker out, as in matplotlib.
         ecolor : color or sequence, optional
             Whisker colour. Default black. One colour is one error-bar
             series; a sequence of different colours is one series per bar.
@@ -7139,11 +7162,22 @@ class Axes:
         Other matplotlib keywords (``alpha``, ``norm``, ``aspect``, ...)
         warn and are ignored: a GLE colormap is opaque and maps colours
         linearly from ``vmin`` to ``vmax``.
+
+        ``Z`` must be finite and unmasked: GLE's colormap cannot leave a cell
+        blank, so a NaN, an infinity or a masked cell raises ``ValueError``
+        where matplotlib leaves the cell transparent. Fill them first, e.g.
+        with ``np.ma.filled(Z, value)``.
         """
         warn_unsupported_keywords("imshow", kwargs)
         label = self._text(label)
         if origin not in ("lower", "upper"):
             raise ValueError("origin must be 'lower' or 'upper'")
+        if np.ma.is_masked(Z):
+            # np.asarray would draw the value under the mask.
+            raise ValueError(
+                "imshow() Z has masked cells, and GLE's colormap cannot leave "
+                "a cell blank. Choose their value with np.ma.filled(Z, value)."
+            )
         z = np.asarray(Z, dtype=float)
         if z.ndim != 2:
             raise ValueError("imshow requires a 2-D array Z")
