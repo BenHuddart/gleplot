@@ -360,6 +360,13 @@ drawn by `contour_labels` from GLE's `contour.gle`, which writes them in blue,
 0.25 cm high, in a white box, whatever the line colour; matplotlib draws them
 in the line's colour.
 
+The colormaps are GLE's own: `viridis`, `magma`, `inferno`, `plasma`,
+`cividis`, `coolwarm`, `gray` and `rainbow` (`jet`), and their `_r` forms but
+`rainbow_r`. The ColorBrewer names, `rainbow_r` and `jet_r` warn and draw the
+closest of these, and per-point scatter colours and `contourf` bands draw
+`rainbow` as `viridis`; "Palette Gallery" in
+[Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md) lists each one.
+
 ## Line caps and joins
 
 matplotlib caps and joins each line on its own; GLE sets them once for the
