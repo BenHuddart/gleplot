@@ -292,15 +292,6 @@ def test_a_guide_spanning_a_deferred_axis_is_handed_to_the_engine():
 # --------------------------------------------------------------------------- #
 
 
-def test_a_lone_box_plot_gets_a_range_around_its_value():
-    """GLE draws 0..1 for an axes with no dataset; the box at 2 was clipped."""
-    fig, ax = _axes()
-    ax.boxplot([2, 2, 2])
-
-    text, _files = _generate(fig)
-    assert _axis_line(text, "y") == "yaxis min 0 max 4"
-
-
 @pytest.mark.parametrize(
     "ticks, xline", [([5], "xaxis min 0 max 10"), ([0, 0], "xaxis min -1 max 1")]
 )
@@ -331,7 +322,7 @@ def test_an_explicit_bound_beside_a_lone_rug_is_kept():
 )
 def test_a_dataset_that_cannot_reach_the_axis_does_not_count(other):
     fig, ax = _axes()
-    ax.boxplot([2, 2, 2])
+    ax.rug([2], axis="y")
     other(ax)
 
     with warnings.catch_warnings():
@@ -340,9 +331,9 @@ def test_a_dataset_that_cannot_reach_the_axis_does_not_count(other):
     assert _axis_line(text, "y") == "yaxis min 0 max 4"
 
 
-def test_a_box_beside_a_dataset_still_leaves_the_range_to_gle():
+def test_a_rug_beside_a_dataset_still_leaves_the_range_to_gle():
     fig, ax = _axes()
-    ax.boxplot([2, 2, 2])
+    ax.rug([2], axis="y")
     ax.plot([1.0], [2.0])
 
     text, _files = _generate(fig)

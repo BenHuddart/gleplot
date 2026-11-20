@@ -681,7 +681,7 @@ class TestSubplots:
         fig = glp.figure()
         ax = fig.add_subplot(111)
         ax.set_facecolor("w")
-        ax.pie([1, 2, 3])
+        ax.set_axis_off()
         assert "background" not in fig._generate_gle()
         with pytest.warns(UserWarning, match="no effect on a polar axes"):
             fig.add_axes([0.1, 0.1, 0.3, 0.3], polar=True, fc="w")

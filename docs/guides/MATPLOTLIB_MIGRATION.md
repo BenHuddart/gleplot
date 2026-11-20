@@ -18,8 +18,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.fill_between(...)` | same |
 | `ax.fill_betweenx(...)` / `ax.stackplot(...)` | same, see [Fills](#fills) |
 | `ax.hlines(...)` / `ax.vlines(...)` | same, see [Segments](#segments) |
-| `ax.pie(...)` | same, see [Pie charts](#pie-charts) |
-| `ax.boxplot(...)` | same, vertical only, see [Box plots](#box-plots) |
+| `ax.pie(...)` / `ax.boxplot(...)` | not provided, see [Not provided](#not-provided) |
 | `ax.pcolormesh(...)` | same on a uniform grid, see [Cells](#cells) |
 | `ax.contourf(...)` | same on a uniform grid, see [Filled contours](#filled-contours) |
 | `fig.colorbar(im, ax=ax)` | same, see [Colorbars](#colorbars) |
@@ -377,48 +376,14 @@ Two matplotlib calls with shifted x are two commands. GLE's side-by-side group `
 
 `width` stays a keyword. The third positional argument is `color`, as it has always been.
 
-## Pie charts
+## Not provided
 
-GLE has no pie command. `ax.pie(x)` stores one `Wedge` per value and writes each as a `gleplot_wedge` call after the graph block. The subroutine is defined once at the top of the script, so the output does not depend on GLE's include path. Each wedge is filled with no outline. Its label sits `labeldistance` radii out, and its `autopct` text sits `pctdistance` radii out, as in matplotlib. The radius is measured on the axis with fewer centimetres per unit, so the pie stays round in a subplot that is not square. Both limits are set to `center` ± 1.25. The axis lines, ticks and tick labels are hidden, and the title stays.
-
-```python
-ax.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=90)
-```
-
-| `pie()` argument | gleplot |
-|---|---|
-| `labels`, `colors`, `autopct`, `pctdistance`, `labeldistance`, `startangle`, `radius`, `counterclock`, `center`, `normalize` | wired. Without `colors`, the wedges cycle `'C0'` to `'C9'`. |
-| `textprops` | `fontsize` (alias `size`) sets the text height, in points or as a size name such as `'large'`. Other keys warn. The text is black. |
-| `explode` | warns when an offset is not zero; the wedges are drawn in place. |
-| `wedgeprops` | warns. A donut hole (`width`) and wedge outlines are not drawn. |
-| `shadow`, `hatch`, `rotatelabels` | warn and are ignored. |
-| `frame=True` | keeps the axes, but the limits are still `center` ± 1.25 rather than autoscaled. Warns. |
-| return value | `(wedges, texts)`, or `(wedges, texts, autotexts)` with `autopct`. The texts are the strings drawn, one per wedge, not `Text` objects. |
-
-Labels are drawn beside the wedges; they are not legend entries. The wedges are drawn above anything else plotted on the same axes. A wedge's text height, like an `ax.text` height, stays in force for the text drawn after it on that axes.
-
-## Box plots
-
-GLE has no box plot command. `ax.boxplot(x)` computes each box's quartiles, whiskers and fliers in Python, as matplotlib does, stores one `Box` per sample set and writes each as a `gleplot_box` call after the graph block, followed by a `gleplot_box_flier` call per flier and a `gleplot_box_mean` call with `showmeans=True`. The subroutines are defined once at the top of the script. The style is matplotlib's default: black 1 pt lines, an orange median, black open circle fliers and a green triangle mean.
-
-```python
-ax.boxplot(samples, widths=0.4, tick_labels=["a", "b", "c"])
-```
-
-| `boxplot()` argument | gleplot |
-|---|---|
-| `whis`, `positions`, `widths`, `capwidths`, `usermedians`, `showmeans`, `showcaps`, `showfliers`, `autorange`, `tick_labels`, `manage_ticks` | wired, with matplotlib's defaults. `widths` and `capwidths` are in data units. |
-| `orientation='horizontal'`, `vert=False` | raise `ValueError`: only vertical box plots are drawn. |
-| `sym` | `''` hides the fliers. Any other value warns; fliers are black open circles. |
-| `notch`, `bootstrap`, `conf_intervals` | warn; boxes are not notched. |
-| `patch_artist` | warns; boxes are not filled. |
-| `meanline` | warns; the mean is a marker. |
-| `showbox=False` | warns; the box is drawn. |
-| `boxprops`, `flierprops`, `medianprops`, `meanprops`, `capprops`, `whiskerprops` | warn; the style is matplotlib's default. |
-| `zorder`, `label`, `data` | warn and are ignored. Boxes have no legend entry. |
-| return value | a dict with matplotlib's keys (`'boxes'`, `'medians'`, `'whiskers'`, `'caps'`, `'fliers'`, `'means'`), each holding the list of `Box` entries. One entry holds every part of its box; there are no `Line2D` objects. |
-
-Samples must be finite: `NaN` or infinity raises `ValueError`. The boxes are drawn above anything else plotted on the same axes, clipped to the frame (a whisker or cap lying on the frame is drawn whole); a flier or mean outside the axis ranges is not drawn. The x range covers each box and half a unit either side of its position, whatever `manage_ticks` is, and the y range covers the whiskers, the median and the drawn fliers and means, with no margin.
+GLE has no pie chart or box plot command, and gleplot does not build one out
+of subroutines, so `pie` and `boxplot` are not provided: calling them raises
+`AttributeError`, as for any other matplotlib name gleplot lacks. Earlier
+versions drew them with gleplot's own `gleplot_wedge` and `gleplot_box`
+subroutines. A `.gle` file written with them still opens and compiles: the
+subroutines and their calls are kept as raw GLE, with a note.
 
 ## Colorbars
 

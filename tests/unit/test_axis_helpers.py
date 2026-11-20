@@ -3,7 +3,7 @@
 ``twinx`` is the view of the right-hand scale (``yaxis='y2'``), ``invert_*``
 stores descending limits (GLE ``negate``), ``semilogx``/``semilogy``/
 ``loglog`` set the scale and plot, ``set_*ticklabels`` writes ``xnames``,
-and ``axis('off')`` is the hidden frame ``pie(frame=False)`` already writes.
+and ``axis('off')`` hides the frame.
 """
 
 import re
@@ -353,8 +353,6 @@ def test_axis_equal_warns():
 @pytest.mark.parametrize(
     "call, name",
     [
-        (lambda fig, ax: ax.pie([1, 2], wedgeprops2=1), "pie"),
-        (lambda fig, ax: ax.boxplot([[1, 2, 3]], showcaps2=True), "boxplot"),
         (lambda fig, ax: glp.figure(num=3), "figure"),
         (lambda fig, ax: glp.subplots(num=3), "subplots"),
         (lambda fig, ax: fig.add_subplot(212, title="t"), "add_subplot"),

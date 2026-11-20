@@ -53,7 +53,6 @@ from .series import (
 )
 from .sources import DataSource, source_of
 from .writer import (
-    BOX_SUB,
     CDATA_SUB_PREFIX,
     COLORBAR_AUTO_RANGE,
     COLORBAR_LABEL_PAD,
@@ -62,7 +61,6 @@ from .writer import (
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     POLAR_SUB,
-    WEDGE_SUB,
     AxisStyle,
     DecimationPolicy,
     GLEWriter,
@@ -3428,12 +3426,11 @@ class Figure:
         return right, below
 
     def _collect_sub_texts(self, resolution: Optional[SourceResolution] = None):
-        """Gather the palette/colorbar/clabel/wedge/box/rug/polar/image subs.
+        """Gather the palette/colorbar/clabel/rug/polar/image subs.
 
         Returns the deterministic ordered list of sub-definition texts: used
-        palette subs (a heatmap's or a per-point colour's) sorted by name, then
-        then the contour-labels sub (if any clabel), then the pie-wedge sub
-        (if any wedge), then the box-plot subs (if any box), then the rug subs
+        palette subs (a heatmap's or a per-point colour's) sorted by name,
+        then the contour-labels sub (if any clabel), then the rug subs
         (if any rug has a tick), then one per-point marker-size sub per marker
         that a scatter with ``mdata`` uses, sorted by name, then one per-point
         colour sub per marker and colormap that a scatter with ``cdata`` uses,
@@ -3489,10 +3486,6 @@ class Figure:
                 subs.append(text)
         if any_clabel:
             subs.append(_pal.contour_labels_sub_text())
-        if any(resolution.visible(ax.wedges) for ax in self.axes_list):
-            subs.append(WEDGE_SUB)
-        if any(resolution.visible(ax.boxes) for ax in self.axes_list):
-            subs.append(BOX_SUB)
         sized_markers: Set[str] = set()
         for ax in self.axes_list:
             sized_markers.update(
@@ -3852,10 +3845,10 @@ class Figure:
         The axis setup comes first. The content phases then run in drawing
         order, back to front: heatmaps, contours and placed images, then the
         background guides and fills, then the z-ordered data series, file
-        series, derived curves, box plots, rugs, pie wedges and texts, and the key
-        last. :meth:`_prepare_legend` runs before any series is written,
-        because the key's column breaks must be set on the writer before the
-        datasets they fall between.
+        series, derived curves, rugs and texts, and the key last.
+        :meth:`_prepare_legend` runs before any series is written, because
+        the key's column breaks must be set on the writer before the datasets
+        they fall between.
         """
         resolution = resolution or SourceResolution()
         writer.reserve_datasets(ax.passthrough)
@@ -3873,12 +3866,8 @@ class Figure:
         self._write_drawables(writer, ax, resolution)
         self._write_file_series(writer, ax, resolution)
         self._write_derived(writer, ax, resolution)
-        for box in resolution.visible(ax.boxes):
-            writer.add_box(box)
         for rug in resolution.visible(ax.rugs):
             writer.add_rug(rug)
-        for wedge in resolution.visible(ax.wedges):
-            writer.add_wedge(wedge)
         self._write_texts(writer, ax)
         self._write_legend(writer, ax, legend, resolution)
 
@@ -4669,7 +4658,7 @@ class Figure:
     # implementation of a number gleplot never needs to know.
     #
     # GLE widens from the datasets it draws, though. An axis no dataset
-    # reaches (only box plots, rugs, text or images, drawn after ``end graph``
+    # reaches (only rugs, text or images, drawn after ``end graph``
     # or by ``draw``) gets 0..1 from it, which clips what is drawn. There
     # gleplot writes its own margin, the value's magnitude either side (or 1
     # at zero): GLE's x range for a lone point, though not its rounded y one.
@@ -4748,7 +4737,7 @@ class Figure:
 
     #: Series GLE does not scale an axis from: drawn after ``end graph`` or by
     #: a ``draw`` call, with no dataset.
-    _ENGINE_BLIND = frozenset({"texts", "wedges", "boxes", "rugs", "images"})
+    _ENGINE_BLIND = frozenset({"texts", "rugs", "images"})
 
     def _engine_can_scale(
         self, ax: Axes, which: str, resolution: Optional[SourceResolution]
@@ -5191,19 +5180,6 @@ class Figure:
                 if xmax is None or x1 > xmax:
                     xmax = float(x1)
 
-        # A box spans its width, and at least half a unit either side of its
-        # position: matplotlib's boxplot widens the x range to that. On a log
-        # axis a padded end at or below zero drops out, the position stays.
-        for box in resolution.visible(ax.boxes):
-            pos = float(box["x"])
-            half = max(0.5, float(box["width"]) / 2)
-            ends = _plottable(np.array([pos - half, pos, pos + half]), positive_only)
-            if len(ends) > 0:
-                if xmin is None or ends.min() < xmin:
-                    xmin = float(ends.min())
-                if xmax is None or ends.max() > xmax:
-                    xmax = float(ends.max())
-
         xs = [
             v
             for r in resolution.visible(ax.rugs)
@@ -5363,18 +5339,6 @@ class Figure:
             if not positive_only or y1 > 0:
                 if ymax is None or y1 > ymax:
                     ymax = float(y1)
-
-        for box in resolution.visible(ax.boxes):
-            parts = [box["whislo"], box["q1"], box["med"], box["q3"], box["whishi"]]
-            parts.extend(box["fliers"])
-            if box.get("mean") is not None:
-                parts.append(box["mean"])
-            all_y = _plottable(np.asarray(parts, dtype=float), positive_only)
-            if len(all_y) > 0:
-                if ymin is None or all_y.min() < ymin:
-                    ymin = float(all_y.min())
-                if ymax is None or all_y.max() > ymax:
-                    ymax = float(all_y.max())
 
         ys = [
             v
