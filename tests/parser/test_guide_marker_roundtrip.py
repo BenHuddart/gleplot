@@ -418,6 +418,27 @@ def test_a_band_moved_in_its_sidecar_degrades_to_a_plain_fill(tmp_path):
     assert len(_guide_notes(recognized)) == 1
 
 
+@pytest.mark.parametrize(
+    "marker, attr",
+    [
+        ("refline v value 1.5", "reflines"),
+        ("refline h value 2", "reflines"),
+        ("span v range 0.5,1", "spans"),
+        ("span h range 3,5", "spans"),
+    ],
+)
+def test_a_guide_whose_marker_extent_was_edited_degrades(tmp_path, marker, attr):
+    """#494: re-saving would draw the guide over the edited extent."""
+
+    def edit_the_extent(text):
+        return text.replace(f"{marker} extent 0,1", f"{marker} extent 0,0.5")
+
+    recognized = _tampered(tmp_path, mutate_text=edit_the_extent)
+    assert len(getattr(recognized.figure.axes_list[0], attr)) == 1
+    (note,) = _guide_notes(recognized)
+    assert f"{marker} extent 0,0.5" in note
+
+
 def test_a_restyled_guide_line_that_no_guide_could_have_emitted_degrades(tmp_path):
     """A marker on a marker-carrying series: nothing gleplot ever wrote."""
 
