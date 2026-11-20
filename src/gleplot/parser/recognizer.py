@@ -742,6 +742,17 @@ class RecognizedFigure:
 # --------------------------------------------------------------------------- #
 
 
+def _strings(value: Any) -> List[str]:
+    """Every string in a ``to_dict`` snapshot, depth first."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in _strings(v)]
+    if isinstance(value, (list, tuple)):
+        return [s for v in value for s in _strings(v)]
+    return []
+
+
 def _words_and_values(stmt: Statement) -> List[Token]:
     """Tokens of a statement, dropping comments."""
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
@@ -1974,8 +1985,32 @@ class _Recognizer:
         fig.passthrough_header.extend(
             text for name, text in self._held_includes if not regenerated[name]
         )
+        self._note_dropped_comments(doc, fig)
 
         return RecognizedFigure(figure=fig, notes=tuple(self.notes))
+
+    def _note_dropped_comments(self, doc, fig: Figure) -> None:
+        """Note each comment after a statement that the figure does not keep.
+
+        A statement gleplot models is rewritten from the model, so a
+        ``! comment`` after it on its line is not written back; one kept as
+        raw GLE keeps it. Whole-line comments are not checked here.
+        """
+        kept: Optional[str] = None
+        for sl in doc.lines:
+            toks = tokenize_line(sl.text)
+            if not toks or toks[-1].type is not TokenType.COMMENT or len(toks) < 2:
+                continue
+            comment = toks[-1].value
+            if kept is None:
+                kept = "\n".join(_strings(fig.to_dict()))
+            if comment not in kept:
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"the comment {comment!r} after a statement gleplot models "
+                    "is not written back on save",
+                    (sl.line_no, sl.line_no),
+                )
 
     def _scan_document(self, doc) -> None:
         """Whole-file scans the per-node passes depend on, and their notes."""

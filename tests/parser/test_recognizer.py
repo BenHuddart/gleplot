@@ -3103,3 +3103,23 @@ def test_an_old_pie_or_box_sub_is_kept_as_raw_gle(tmp_path, sub, call):
     text = recognized.figure._generate_gle_with_files()[0]
     assert sub in text
     assert call in text
+
+
+def test_a_comment_after_a_modelled_statement_is_reported(tmp_path):
+    """#382: the comment is named; one after a raw statement is kept."""
+    body = [
+        '   xtitle "x" ! the x',
+        '   data "d.dat" d1=c1,c2',
+        "   d1 line color red ! main",
+        "   mystery 1 ! kept raw",
+    ]
+    src = "size 10 8\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "c.gle", src, {"d.dat": "0 1\n1 2\n"})
+    rec = parse_gle_figure(p)
+    notes = [n for n in rec.notes if "the comment" in n.message]
+    assert [(n.message.split("'")[1], n.source_span) for n in notes] == [
+        ("! the x", (3, 3)),
+        ("! main", (5, 5)),
+    ]
+    rec.figure.savefig_gle(str(p))
+    assert "mystery 1 ! kept raw" in p.read_text(encoding="utf-8")
