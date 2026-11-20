@@ -3284,6 +3284,7 @@ class _Recognizer:
                     pass1.merged_attr_raw[kw] = []
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
+        self._keep_unloaded_offset_lets(pass1, info)
         # Histogram and colour lets are filtered first: a function let stays
         # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
@@ -5772,10 +5773,6 @@ class _Recognizer:
         # reference, which has no offset to carry the shift.
         if source not in datasets or not self._is_import(datasets[source][0]):
             return
-        # Unloaded, the series is a reference to the file, which has no
-        # offset either.
-        if not self._loads(*datasets[source]):
-            return
         magnitude = eval_gle_number(toks[5:])
         if magnitude is None:
             return
@@ -6128,6 +6125,23 @@ class _Recognizer:
                 or not _plain_function_line(attr_toks)
             ):
                 del info["_derived_lets"][target]
+
+    def _keep_unloaded_offset_lets(self, pass1: _GraphDatasets, info) -> None:
+        """Leave raw each offset let on a file whose datasets do not all load.
+
+        Unloaded, a series is a reference to the file, which has no offset:
+        the let stays as written, with the lines that draw its target. Every
+        ``data`` statement of the block is known here, with its options.
+        """
+        for target in list(info["_offset_let_datasets"]):
+            source = info["_offset_let_sources"][target]
+            data_file = pass1.datasets.get(source, (None,))[0]
+            if not all(
+                self._loads(*entry)
+                for entry in pass1.datasets.values()
+                if entry[0] == data_file
+            ):
+                self._unregister_offset_let(target, pass1, info)
 
     @staticmethod
     def _unregister_offset_let(target, pass1: _GraphDatasets, info) -> None:
@@ -9975,7 +9989,11 @@ class _Recognizer:
     def _loads(self, data_file, xcol, ycol) -> bool:
         """Whether :meth:`_load_series` would load these columns, unnoted."""
         resolved = self._resolve_table(data_file)
-        if resolved.table is None or self._not_loaded_reason(data_file):
+        if (
+            resolved.error is not None
+            or resolved.table is None
+            or self._not_loaded_reason(data_file)
+        ):
             return False
         try:
             extract_columns(resolved.table, xcol, ycol, [])

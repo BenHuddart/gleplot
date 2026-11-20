@@ -1179,19 +1179,33 @@ def test_a_raw_line_on_an_offset_let_keeps_the_data_it_reads(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "draw", ["d2 line color red", "d2 marker circle err 0.5", "d2 marker circle err d3"]
+    "body, dats",
+    [
+        (["d2 line color red"], {}),
+        (["d2 marker circle err 0.5"], {}),
+        (["d2 marker circle err d3"], {}),
+        (["d2 marker circle err d3"], {"gone.dat": "0 1\n1 2\n"}),
+        (["fill d2,d3 color red"], {"gone.dat": "0 1\n1 2\n"}),
+        (
+            ["d2 line color red", 'data "gone.dat" ignore 1 d4=c1,c2', "d4 line"],
+            {"gone.dat": "x y z\n0 1 2\n1 2 3\n"},
+        ),
+    ],
+    ids=["missing", "missing-err", "missing-err-ref", "short", "fill", "ignore"],
 )
-def test_an_offset_let_on_a_sidecar_that_does_not_load_stays_raw(tmp_path, draw):
+def test_an_offset_let_on_a_sidecar_that_does_not_load_stays_raw(tmp_path, body, dats):
     """#381, #453: a series that cannot load is a file reference, with no
-    offset, so the shift and the dataset line are kept as written."""
-    body = ['   data "gone.dat" d1=c1,c2 d3=c1,c3', "   let d2 = d1+5", f"   {draw}"]
+    offset, so the shift and the lines drawing it are kept as written."""
+    body = ['   data "gone.dat" d1=c1,c2 d3=c1,c3', "   let d2 = d1+5"] + [
+        f"   {line}" for line in body
+    ]
     src = _meta("gone.dat") + (
         "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
     )
-    p = _write(tmp_path, "let.gle", src)
+    p = _write(tmp_path, "let.gle", src, dats)
     rec = parse_gle_figure(p)
     rec.figure.savefig_gle(str(p))
-    assert "\n".join(body) in p.read_text(encoding="utf-8")
+    assert "\n".join(body[:3]) in p.read_text(encoding="utf-8")
 
 
 def test_a_percentage_error_on_an_offset_is_of_the_shifted_value(tmp_path):
