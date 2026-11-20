@@ -361,10 +361,11 @@ drawn by `contour_labels` from GLE's `contour.gle`, which writes them in blue,
 in the line's colour.
 
 The colormaps are GLE's own: `viridis`, `magma`, `inferno`, `plasma`,
-`cividis`, `coolwarm`, `gray` and `rainbow` (`jet`), and their `_r` forms but
-`rainbow_r`. The ColorBrewer names, `rainbow_r` and `jet_r` warn and draw the
-closest of these, and per-point scatter colours and `contourf` bands draw
-`rainbow` as `viridis`; "Palette Gallery" in
+`cividis`, `coolwarm`, `gray`, `rainbow` (`jet`) and the ColorBrewer maps, and
+their `_r` forms but `rainbow_r`. GLE draws the sequential and diverging
+ColorBrewer maps in 9 or 11 steps where matplotlib blends them. `rainbow_r` and
+`jet_r` warn and draw `rainbow`, and per-point scatter colours and `contourf`
+bands draw `rainbow` as `viridis`; "Palette Gallery" in
 [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md) lists each one.
 
 ## Line caps and joins

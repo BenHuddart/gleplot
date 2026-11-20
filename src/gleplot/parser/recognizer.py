@@ -316,6 +316,7 @@ from ..guides import (
     GUIDE_MARKER_PREFIX,
 )
 from ..palettes import (
+    BREWER_INCLUDE,
     PALETTES_INCLUDE,
     colorbar_cmap,
     is_native,
@@ -2018,8 +2019,8 @@ class _Recognizer:
         self._finalize_data_state(fig)
         # The writer includes rugs.gle only for a rug, color.gle only for a
         # colorbar or a coolwarm palette, contour.gle only for contour labels,
-        # palettes.gle only for its palettes; an include nothing read back
-        # will regenerate stays.
+        # palettes.gle and brewer.gle only for their palettes; an include
+        # nothing read back will regenerate stays.
         palette_files = set(map(palette_include, fig._palette_cmaps()))
         regenerated = {
             RUGS_INCLUDE: any(ax.rugs for ax in fig.axes_list),
@@ -2033,11 +2034,16 @@ class _Recognizer:
                 for s in list(ax.heatmaps) + list(ax.scatters)
             ),
             PALETTES_INCLUDE: PALETTES_INCLUDE in palette_files,
+            BREWER_INCLUDE: BREWER_INCLUDE in palette_files,
         }
         # First in the header: a sub kept there may call the routines. A
         # palette sub of the file's own keeps its file's include there even
         # when the writer writes one too (it then writes none).
-        own = (PALETTES_INCLUDE, COLOR_INCLUDE) if self._own_palette_subs else ()
+        own = (
+            (PALETTES_INCLUDE, COLOR_INCLUDE, BREWER_INCLUDE)
+            if self._own_palette_subs
+            else ()
+        )
         fig.passthrough_header[:0] = [
             text
             for name, text in self._held_includes
@@ -2120,9 +2126,10 @@ class _Recognizer:
         """Lines of the gleinc ``include``s the writer may write again.
 
         ``graphutil.gle`` when some graph is followed by a guide line that
-        will be read back. ``rugs.gle``, ``color.gle``, ``contour.gle`` and
-        ``palettes.gle`` always, their text held in ``_held_includes`` until
-        the rugs, colorbars, contour labels and palettes are read.
+        will be read back. ``rugs.gle``, ``color.gle``, ``contour.gle``,
+        ``palettes.gle`` and ``brewer.gle`` always, their text held in
+        ``_held_includes`` until the rugs, colorbars, contour labels and
+        palettes are read.
         """
         names: Set[str] = set()
         for k, node in enumerate(nodes):
@@ -2138,6 +2145,7 @@ class _Recognizer:
         names.add(COLOR_INCLUDE)
         names.add(CONTOUR_INCLUDE)
         names.add(PALETTES_INCLUDE)
+        names.add(BREWER_INCLUDE)
         lines = set()
         for node in nodes:
             if not (
@@ -2149,7 +2157,13 @@ class _Recognizer:
             name = self._first_string(_words_and_values(node))
             if name in names:
                 lines.add(node.line_no)
-            if name in (RUGS_INCLUDE, COLOR_INCLUDE, CONTOUR_INCLUDE, PALETTES_INCLUDE):
+            if name in (
+                RUGS_INCLUDE,
+                COLOR_INCLUDE,
+                CONTOUR_INCLUDE,
+                PALETTES_INCLUDE,
+                BREWER_INCLUDE,
+            ):
                 self._held_includes.append((name, self._stmt_text(node)))
         return lines
 
