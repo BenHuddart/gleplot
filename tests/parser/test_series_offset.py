@@ -89,32 +89,33 @@ def test_fill_offset_round_trips(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "lets, fill",
+    "lets, fill, offsets",
     [
-        ("let d8 = d6+2\n", "fill d5,d8 color gray"),
-        ("let d7 = d5+2\n", "fill d7,d6 color gray"),
-        ("let d7 = d5+1\nlet d8 = d6+2\n", "fill d7,d8 color gray"),
+        ("let d8 = d6+2\n", "fill d5,d8", (0.0, 2.0)),
+        ("let d7 = d5+2\n", "fill d7,d6", (2.0, 0.0)),
+        ("let d7 = d5+1\nlet d8 = d6+2\n", "fill d7,d8", (1.0, 2.0)),
     ],
 )
-def test_fill_with_different_curve_offsets_stays_raw(tmp_path, lets, fill):
-    """A fill has one offset, so curves shifted differently stay raw (#491)."""
+def test_fill_keeps_each_curve_offset(tmp_path, lets, fill, offsets):
+    """Each curve of a fill keeps its own shift (#491)."""
     (tmp_path / "f.dat").write_text("1 2 3\n2 3 5\n", encoding="utf-8")
     body = (
         "! gleplot-meta-begin v2\n! gleplot: import-data = f.dat\n"
         "! gleplot-meta-end\n"
         "begin graph\n"
-        'data "f.dat" d5=c1,c2 d6=c1,c3\n' + lets + fill + "\nend graph\n"
+        'data "f.dat" d5=c1,c2 d6=c1,c3\n' + lets + fill + " color gray\nend graph\n"
     )
     src = tmp_path / "in.gle"
     src.write_text(body, encoding="utf-8")
     rec = parse_gle_figure(src)
-    ax = rec.figure.axes_list[0]
-    assert ax.fills == []
-    assert [w for w in rec.warnings if "different offsets" in w]
-    assert not [w for w in rec.warnings if "let defining" in w]
+    assert rec.warnings == []
+    fill_series = _only(rec.figure.axes_list[0].fills)
+    assert fill_series["offset"] == offsets[0]
+    assert fill_series.get("_offset2", offsets[0]) == offsets[1]
+
     out = _save(rec.figure, tmp_path, "out.gle").read_text(encoding="utf-8")
-    for line in lets.splitlines() + [fill]:
-        assert line in out
+    again = parse_gle_figure(tmp_path / "out.gle").figure
+    assert _save(again, tmp_path, "again.gle").read_text(encoding="utf-8") == out
 
 
 def test_zero_offset_absent_let_recovers_zero(tmp_path):

@@ -42,6 +42,7 @@
  "golden:file_series_without_a_line": "0ba14ab630ba952984cfef6dfb56c8cf2a388f051a619db51225472eb4359ec3",
  "golden:file_series_read_options": "9896b1b62480c9e9ae4ad6a547d5100b73164f719ed98d1946936f611d4afe0f",
  "golden:fill_between": "5f747ec8565514b6ffcaf352aedcf843362be5a4e167af4d5bd40f65918fc327",
+ "golden:fill_curve_offsets": "7f68c039e933311e1622b6b2850cd169961153ec7d25bb564dd1218d926b943e",
  "golden:fill_field_options": "c666a084ac9c9dc69ecc88fede39ba7ee0ac241b21263d0ee270e5127ee9ced3",
  "golden:fill_orientations": "395c6d9e81f8b36e17207ad0a37f63b94a4021d8fd575c91faaca272690bcf8b",
  "golden:segment_lines": "402a55fbc1ab43033958ff47c2a38d5b93c0f70aba9511af44e9b35753b5cbb3",

@@ -3308,6 +3308,8 @@ class GLEWriter:
         negative offset is emitted as ``d1-5`` (not ``d1+-5``).
         """
         offset = series.get("offset", 0.0)
+        if role == "second_offset":
+            offset = series.get("_offset2", offset)
         if not offset:
             return source_name
         shifted = self._new_dataset()

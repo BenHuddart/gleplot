@@ -3426,7 +3426,6 @@ class _Recognizer:
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
         self._keep_unloaded_offset_lets(pass1, info)
-        self._keep_split_offset_fills(block, pass1, info)
         # Histogram and colour lets are filtered first: a function let stays
         # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
@@ -6346,35 +6345,6 @@ class _Recognizer:
             ):
                 self._unregister_offset_let(target, pass1, info)
 
-    def _keep_split_offset_fills(self, block, pass1: _GraphDatasets, info) -> None:
-        """Leave raw a two-curve fill whose curves have different offsets.
-
-        A fill has one ``offset``, which the writer applies to both curves,
-        so the offset lets it reads stay as written, and so does the fill.
-        """
-        for child in block.body:
-            if not isinstance(child, Statement) or child.keyword != "fill":
-                continue
-            names = [
-                tok.value.lower()
-                for tok in _words_and_values(child)[1:]
-                if _DATASET_RE.match(tok.value)
-            ]
-            offsets = {info["_dataset_offsets"].get(name, 0.0) for name in names}
-            if len(names) != 2 or len(offsets) == 1:
-                continue
-            for name in names:
-                if name in info["_offset_let_datasets"]:
-                    self._unregister_offset_let(name, pass1, info)
-                    info["_explained_lets"].add(name)
-            self._note(
-                ImportCategory.STRUCTURE,
-                f"fill {names[0]},{names[1]} shifts its two curves by different "
-                "offsets, which fill_between has no model for; the fill and its "
-                "lets were kept as raw GLE, not editable",
-                self._stmt_span(child),
-            )
-
     @staticmethod
     def _unregister_offset_let(target, pass1: _GraphDatasets, info) -> None:
         """Undo :meth:`_parse_let_command` for ``target``."""
@@ -7468,7 +7438,11 @@ class _Recognizer:
             offset=info["_dataset_offsets"].get(d_names[0], 0.0),
             data_file=f1,
         )
-        if target is not None:
+        if target is None:
+            offset2 = info["_dataset_offsets"].get(d_names[1], 0.0)
+            if offset2 != fill_fields["offset"]:
+                fill_fields["_offset2"] = offset2
+        else:
             fill_fields["target"] = target
         fill_fields.update(clips)
         column_names = self._recovered_column_names(

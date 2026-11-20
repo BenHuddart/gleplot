@@ -5374,7 +5374,7 @@ class Figure:
             parts = [np.asarray(fill_data["y1"]) + off]
             y2 = fill_data.get("y2")
             if y2 is not None:
-                parts.append(np.asarray(y2) + off)
+                parts.append(np.asarray(y2) + fill_data.get("_offset2", off))
             all_y = _plottable(np.concatenate(parts), positive_only)
             if len(all_y) > 0:
                 if ymin is None or all_y.min() < ymin:

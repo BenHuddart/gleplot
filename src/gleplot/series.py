@@ -1066,6 +1066,9 @@ class FillSeries(Series):
     alpha: float
     label: Optional[str]
     offset: float
+    #: Set by ``open_gle`` when a ``let`` shifts the second curve by another
+    #: amount than the first. Absent: ``offset`` shifts both.
+    _offset2: float
     data_file: Optional[str]
     column_names: Optional[List[str]]
     #: Where the numbers come from; absent means InlineData (this
