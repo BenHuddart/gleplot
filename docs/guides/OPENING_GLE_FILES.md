@@ -60,7 +60,11 @@ a `structure` note, and so is every bar that shares its `data` statement.
 A `data` statement with an option gleplot does not read, such as
 `delimiters` or an `ignore` or `numrows` count that is not a plain number,
 is kept as raw GLE with a `data` note, together with every line that reads
-its datasets, including a `let` and whatever draws its result.
+its datasets, including a `let` and whatever draws its result. When a
+`data` statement kept as raw GLE reads a data file gleplot wrote, and saving
+would rewrite that file with different contents, the file is treated as one
+gleplot did not write, with a `data` note, so the statement still reads the
+columns it named.
 
 Each place where gleplot had to keep something as raw GLE, or had to guess,
 is recorded as a recovery note. The notes are grouped by category:
