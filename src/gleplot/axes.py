@@ -179,20 +179,48 @@ def _warn_twin_keywords(
 
     GLE draws the second scale on the same graph, so there is no new axes
     for ``axes_class``, ``delta_zorder`` or the other keywords to configure.
+    A named parameter left at matplotlib's default asks for nothing, so it
+    is not listed; any other keyword is, whatever its value.
     """
-    ignored = [
+    named = [
         name
         for name, given in (
             ("axes_class", axes_class is not None),
             ("delta_zorder", delta_zorder != 0.0),
         )
         if given
-    ] + sorted(kwargs)
-    if ignored:
-        warn_external(
-            f"{caller}() ignores {', '.join(ignored)}: the {edge} scale is "
-            "drawn on this graph, not on a new axes."
-        )
+    ]
+    warn_unsupported_keywords(
+        caller,
+        named + list(kwargs),
+        f"The {edge} scale is drawn on this graph, not on a new axes.",
+    )
+
+
+#: matplotlib's Text aliases as ``(alias, name)``; ``name`` is what
+#: gleplot's text calls read.
+_TEXT_ALIASES = (
+    ("c", "color"),
+    ("size", "fontsize"),
+    ("horizontalalignment", "ha"),
+    ("verticalalignment", "va"),
+)
+
+
+def _rename_text_aliases(caller: str, kwargs: Dict[str, Any], aliases=_TEXT_ALIASES):
+    """Rename matplotlib's Text aliases in ``kwargs`` to gleplot's names.
+
+    matplotlib raises for an alias passed with its name; here the name
+    gleplot reads wins, with a warning.
+    """
+    for alias, name in aliases:
+        if alias not in kwargs:
+            continue
+        if name in kwargs:
+            kwargs.pop(alias)
+            warn_external(f"{caller}() got both {name} and {alias}; {name} wins.")
+        else:
+            kwargs[name] = kwargs.pop(alias)
 
 
 def _text_fields(
@@ -293,11 +321,7 @@ def _text_fields(
         else:
             box_color = rgb_to_gle(facecolor)
 
-    for name in sorted(kwargs):
-        warn_external(
-            f"{caller}({name}=...) is not supported and was ignored. "
-            f"Supported arguments: {supported}.",
-        )
+    warn_unsupported_keywords(caller, kwargs, f"It takes {supported}.")
 
     fields = dict(
         x=float(x),
@@ -4720,7 +4744,9 @@ class Axes:
         whose value is not finite is left out, as matplotlib leaves it out
         of the plot and its limits. The legend marker takes the
         colormap's last colour. Per-point colours cannot be combined with
-        per-point sizes, ``mdist`` or ``deresolve``.
+        ``mdist`` or ``deresolve``. With per-point sizes as well, the colours
+        are drawn and the sizes are not: every point takes the legend
+        marker's middle size, with a warning.
 
         A colour sequence draws one series per distinct colour, in the order
         each first appears; only the first carries ``label``.
@@ -4799,12 +4825,6 @@ class Axes:
         if diameters is not None and diameters.size == 1:
             size = float(diameters[0])
         elif diameters is not None and diameters.size > 1:
-            if mapping is not None:
-                raise ValueError(
-                    "scatter() cannot give each point both its own colour (c=) "
-                    "and its own size (s= or markersize=) yet: GLE carries one "
-                    "per-point value on a dataset. Pass one size, or one colour."
-                )
             # The legend marker's area is halfway between the largest and
             # smallest point's, as in matplotlib's scatter legend.
             size = float(np.sqrt((diameters.max() ** 2 + diameters.min() ** 2) / 2))
@@ -4812,7 +4832,15 @@ class Axes:
                 # GLE reads msize 0 as "the font height": keep the default
                 # size and scale every point down to nothing.
                 size = default_size
-            mdata = diameters / size
+            if mapping is not None:
+                warn_external(
+                    "scatter() draws per-point colours (c=) at one size: GLE "
+                    "carries one per-point value on a dataset, so the per-point "
+                    "sizes (s= or markersize=) are drawn at their middle size. "
+                    "Pass one size to silence this."
+                )
+            else:
+                mdata = diameters / size
         per_point = (
             "colour" if mapping is not None else "size" if mdata is not None else None
         )
@@ -6566,6 +6594,10 @@ class Axes:
         >>> _ = ax.text(0.05, 0.95, "(b)", transform=ax.transAxes, va="top")
         """
         transform = self._text_transform(kwargs.pop("transform", None))
+        color = _pop_line_alias(kwargs, "text", "c", "color", color, None)
+        fontsize = _pop_line_alias(kwargs, "text", "size", "fontsize", fontsize, None)
+        ha = _pop_line_alias(kwargs, "text", "horizontalalignment", "ha", ha, "left")
+        va = _pop_line_alias(kwargs, "text", "verticalalignment", "va", va, "center")
         fields = _text_fields(
             self._style(),
             "text",
@@ -6692,6 +6724,7 @@ class Axes:
 
         x, y = (float(v) for v in xy)
         tx, ty = (x, y) if xytext is None else (float(v) for v in xytext)
+        _rename_text_aliases("annotate", kwargs)
         text_kwargs = {
             key: kwargs.pop(key, default)
             for key, default in (
@@ -6806,6 +6839,7 @@ class Axes:
         *,
         normalize: bool = True,
         hatch=None,
+        **kwargs,
     ):
         """Draw a pie chart: one wedge per value of ``x``.
 
@@ -6871,8 +6905,10 @@ class Axes:
         radius is measured on the axis with fewer centimetres per unit, so
         the pie stays circular in a cell that is not square, as with
         matplotlib's equal aspect. The wedges are drawn after the graph
-        block, above the axes' other series.
+        block, above the axes' other series. Any other keyword warns and is
+        ignored.
         """
+        warn_unsupported_keywords("pie", kwargs)
         sizes = np.asarray(x, dtype=float)
         if sizes.ndim != 1:
             raise ValueError(
@@ -7045,6 +7081,7 @@ class Axes:
         capwidths=None,
         label=None,
         data=None,
+        **kwargs,
     ):
         """Draw a vertical box plot: one box per sample set in ``x``.
 
@@ -7135,8 +7172,9 @@ class Axes:
         ranges is not drawn. The x range covers each box and half a unit
         either side of its position, as matplotlib's does with
         ``manage_ticks``; the y range covers the whiskers, the median and
-        the drawn fliers and means.
+        the drawn fliers and means. Any other keyword warns and is ignored.
         """
+        warn_unsupported_keywords("boxplot", kwargs)
         if vert is not None:
             orientation = "vertical" if vert else "horizontal"
         if orientation != "vertical":
@@ -8304,10 +8342,14 @@ class Axes:
         gridsize : (nx, ny)
             Interpolation grid resolution.
         extent : tuple, optional
-            ``(xmin, xmax, ymin, ymax)``. Default: data bounds.
+            ``(xmin, xmax, ymin, ymax)``: the first and last grid nodes,
+            where :meth:`tricontour` places them. Default: data bounds.
 
         Notes
         -----
+        Axis limits beyond the extent show up to one node spacing of the
+        edge nodes' colours, as for :meth:`imshow`, and saving warns.
+
         The remaining keyword arguments are as for :meth:`imshow`; others
         warn and are ignored.
         """
@@ -8587,6 +8629,7 @@ class Axes:
                     f"{caller}(loc={loc!r}) is drawn centred: GLE centres "
                     "every title.",
                 )
+        _rename_text_aliases(caller, kwargs, _TEXT_ALIASES[:2])
         if "fontsize" in kwargs:
             fontsize = kwargs.pop("fontsize")
             setattr(
@@ -8613,13 +8656,9 @@ class Axes:
             setattr(self, f"{prefix}_dist", float(cm))
         if fontname is not None:
             setattr(self, f"{prefix}_font", _gle_font_name(fontname, caller))
-        if kwargs:
-            warn_external(
-                f"{caller}(): "
-                + ", ".join(sorted(kwargs))
-                + f" not supported in gleplot and ignored. {caller}() takes "
-                f"fontsize, color, {pad_name} and fontname.",
-            )
+        warn_unsupported_keywords(
+            caller, kwargs, f"It takes fontsize, color, {pad_name} and fontname."
+        )
 
     def set_axis_line(
         self,
@@ -9141,7 +9180,9 @@ class Axes:
         ticks : sequence of float, optional
             Explicit tick positions (GLE ``xplaces``). Passing ``None`` leaves
             the current setting alone; an empty sequence draws no ticks and
-            no tick labels (GLE ``xticks off`` and ``xlabels off``).
+            no tick labels (GLE ``xticks off`` and ``xlabels off``). On a log
+            axis the minor ticks stay, as in matplotlib, unless
+            :meth:`minorticks_off` was called.
         labels : sequence of str, optional
             Tick labels (GLE ``xnames``), one per entry of ``ticks``.
         dticks : float, optional
@@ -9299,12 +9340,11 @@ class Axes:
                 f"label per tick position. Call set_{prefix}ticks(ticks, labels) "
                 "to set both."
             )
-        ignored = (["fontdict"] if fontdict is not None else []) + sorted(kwargs)
-        if ignored:
-            warn_external(
-                f"{method}() ignores {', '.join(ignored)}; style tick labels "
-                "with tick_params() or set_tick_format()."
-            )
+        warn_unsupported_keywords(
+            method,
+            (["fontdict"] if fontdict is not None else []) + list(kwargs),
+            "Style tick labels with tick_params() or set_tick_format().",
+        )
         setter = self.set_xticks if prefix == "x" else self.set_yticks
         return setter(labels=labels)
 
@@ -9338,15 +9378,21 @@ class Axes:
         ValueError
             On an unknown string option.
         TypeError
-            If ``arg`` is a sequence of the wrong length, or on any other
-            keyword, or limit keywords passed together with ``arg``.
+            If ``arg`` is a sequence of the wrong length, or limit keywords
+            are passed together with ``arg``. Any other keyword warns and is
+            ignored.
         """
-        unknown = sorted(set(kwargs) - {"xmin", "xmax", "ymin", "ymax"})
-        if unknown or (kwargs and arg is not None):
+        unknown = set(kwargs) - {"xmin", "xmax", "ymin", "ymax"}
+        warn_unsupported_keywords(
+            "axis", unknown, "It takes xmin, xmax, ymin and ymax."
+        )
+        for name in unknown:
+            del kwargs[name]
+        if kwargs and arg is not None:
             raise TypeError(
-                f"axis() got an unexpected keyword argument "
-                f"{(unknown or sorted(kwargs))[0]!r}; it takes xmin, xmax, ymin "
-                "and ymax, and only when no positional argument is given."
+                f"axis() got limit keyword(s) {sorted(kwargs)} together with "
+                f"{arg!r}; pass xmin, xmax, ymin and ymax only when no "
+                "positional argument is given."
             )
         if not emit:
             warn_external(
@@ -9738,15 +9784,13 @@ class Axes:
             values["color"] = rgb_to_gle(color)
         if direction in ("in", "out"):
             values["direction"] = direction
-        if kwargs:
-            warn_external(
-                "tick_params(): "
-                + ", ".join(sorted(kwargs))
-                + " not supported in gleplot and ignored. Tick marks take "
-                "direction, length, width and color; tick labels are styled "
-                "through set_tick_format() and the Axes xticklabel_* / "
-                "yticklabel_* attributes.",
-            )
+        warn_unsupported_keywords(
+            "tick_params",
+            kwargs,
+            "Tick marks take direction, length, width and color; tick labels "
+            "are styled through set_tick_format() and the Axes xticklabel_* / "
+            "yticklabel_* attributes.",
+        )
         for prefix in ("x", "y") if axis == "both" else (axis,):
             for kind in _TICK_KINDS[which]:
                 if reset:
@@ -9934,13 +9978,13 @@ class Axes:
                 "gleplot takes from legend(facecolor=...).",
             )
 
-        for name in sorted(kwargs):
-            warn_external(
-                f"legend({name}=...) is not supported and was ignored: GLE's "
-                "key command understands loc, bbox_to_anchor, fontsize, "
-                "frameon, offset, ncol, compact, facecolor, labelcolor, "
-                "borderpad, handlelength, handletextpad and columnspacing.",
-            )
+        warn_unsupported_keywords(
+            "legend",
+            kwargs,
+            "GLE's key command understands loc, bbox_to_anchor, fontsize, "
+            "frameon, offset, ncol, compact, facecolor, labelcolor, "
+            "borderpad, handlelength, handletextpad and columnspacing.",
+        )
 
         return self
 
@@ -10102,8 +10146,9 @@ class Axes:
         Raises
         ------
         ValueError
-            On an unknown ``which``/``axis``/``linestyle`` value, a
-            non-positive ``linewidth``, or an unsupported keyword argument.
+            On an unknown ``which``/``axis``/``linestyle`` value or a
+            non-positive ``linewidth``. Any other keyword warns and is
+            ignored, but turns the grid on, as in matplotlib.
 
         Notes
         -----
@@ -10114,20 +10159,23 @@ class Axes:
         --------
         >>> ax.grid(True, which='both', linestyle=':', color='grey40')
         """
+        color = _pop_line_alias(kwargs, "grid", "c", "color", color, None)
+        linestyle = _pop_line_alias(kwargs, "grid", "ls", "linestyle", linestyle, None)
+        linewidth = _pop_line_alias(kwargs, "grid", "lw", "linewidth", linewidth, None)
+        warn_unsupported_keywords(
+            "grid", kwargs, "It takes color, linestyle and linewidth."
+        )
+        # matplotlib's grid() toggles only when it gets no keyword at all.
+        keyworded = bool(kwargs)
         if self._polar:
             styled = not (color is None and linestyle is None and linewidth is None)
             # Without True, matplotlib's grid() toggles, which here would hide.
-            if visible is not True or styled or kwargs:
+            if visible is not True or styled or keyworded:
                 warn_external(
                     "grid() cannot hide or restyle the grid of a polar axes; "
                     "it is always drawn, in grey. This call was ignored."
                 )
             return self
-        for key in kwargs:
-            raise ValueError(
-                f"grid() got an unsupported keyword argument {key!r}; "
-                "supported style arguments are color, linestyle and linewidth"
-            )
         if which not in ("major", "minor", "both"):
             raise ValueError(
                 f"grid(which={which!r}) must be 'major', 'minor' or 'both'"
@@ -10137,6 +10185,8 @@ class Axes:
 
         targets = ("x", "y") if axis == "both" else (axis,)
         styled = color is not None or linestyle is not None or linewidth is not None
+        if visible is None and keyworded:
+            visible = True
 
         mode = which
         if which == "minor":

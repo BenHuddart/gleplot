@@ -1765,6 +1765,9 @@ class _Recognizer:
         # dataset name (lower) -> the FileSeries reading fields (skiprows,
         # comment, max_rows) its 'data' statement set; absent when none.
         self._data_read_options: Dict[str, Dict[str, Any]] = {}
+        # Datasets of this graph left undefined so that whatever reads them
+        # stays raw GLE (see _hold_dataset).
+        self._held_datasets: Set[str] = set()
         # Files a note has already said gleplot does not load, this graph.
         self._noted_unloaded: Set[str] = set()
         # resolved-table cache per data_file name
@@ -3169,6 +3172,7 @@ class _Recognizer:
         pass1 = _GraphDatasets()
         # GLE clears its datasets at 'begin graph'; so do the options.
         self._data_read_options.clear()
+        self._held_datasets.clear()
         self._noted_unloaded.clear()
         for child in block.body:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
@@ -3178,8 +3182,9 @@ class _Recognizer:
                 names = self._parse_data_command(
                     _words_and_values(child), pass1.datasets, line_no=child.line_no
                 )
-                # One defining no dataset (an unresolved file, or a lone text
-                # column GLE reads as x labels) is restored as written.
+                # One defining no dataset (an unresolved file, a lone text
+                # column GLE reads as x labels, or an option gleplot cannot
+                # write back) is restored as written.
                 pass1.data_stmts.append(
                     (
                         names,
@@ -3210,6 +3215,8 @@ class _Recognizer:
                 # recorded separately: the display command that follows
                 # decides whether it becomes a histogram.
                 let_toks = _words_and_values(child)
+                if self._hold_let_target(let_toks, pass1.datasets):
+                    continue
                 self._parse_let_command(let_toks, pass1.datasets, info)
                 self._record_hist_let(
                     let_toks,
@@ -3473,7 +3480,8 @@ class _Recognizer:
         # regenerated GLE. Restore any 'data' statement whose datasets are
         # entirely unconsumed, ahead of the passthrough content that (being
         # later in body order) may depend on it.
-        raw = info["_raw_datasets"]
+        # A held dataset is drawn by raw lines too (see _hold_dataset).
+        raw = info["_raw_datasets"] | self._held_datasets
         consumed = (
             set(info["_key_suppress_datasets"])
             | pass1.emitted
@@ -4426,10 +4434,21 @@ class _Recognizer:
             gridded = info[f"{prefix}grid"]
             if self._is_empty_places(prefix, ticks, subticks, info):
                 # 'xticks off' + 'xlabels off' is how GLEWriter writes an
-                # empty places list (GLE ignores an empty 'xplaces').
+                # empty places list (GLE ignores an empty 'xplaces'). On a
+                # log axis it adds 'xsubticks on' for matplotlib's minor
+                # ticks, so a log axis without it had them switched off.
                 info[f"{prefix}places"] = []
                 info[f"{prefix}labels_off"] = False
                 info[f"_{prefix}ticks"] = None
+                info[f"_{prefix}subticks"] = None
+                log = info[f"{prefix}log"]
+                if not gridded and log == (subticks is None):
+                    # A log axis without the line had its minor ticks
+                    # switched off; a linear one with it had them asked for.
+                    on = subticks is not None
+                    info[f"_{prefix}subtick_marks"] = dict(
+                        length=None, lwidth=None, color=None, on=on, off=not on
+                    )
                 continue
             if not gridded:
                 self._reconcile_tick_marks(prefix, ticks, subticks, info)
@@ -4981,14 +5000,25 @@ class _Recognizer:
 
         Only a bare ``xticks off`` with a bare ``xlabels off`` qualifies, on
         an axis with no places, names, no-tick positions or subtick line: the
-        writer would drop any of those beside an empty places list.
+        writer would drop any of those beside an empty places list. An axis
+        without a grid may add a bare ``xsubticks on``, which the writer
+        writes there for minor ticks.
         """
+        style = ("lstyle", "lwidth", "length", "color")
         return (
             ticks is not None
             and ticks["ok"]
             and ticks["off"]
-            and all(ticks[k] is None for k in ("lstyle", "lwidth", "length", "color"))
-            and subticks is None
+            and all(ticks[k] is None for k in style)
+            and (
+                subticks is None
+                or (
+                    not info[f"{prefix}grid"]
+                    and subticks["ok"]
+                    and subticks["on"]
+                    and all(subticks[k] is None for k in style)
+                )
+            )
             and info[f"{prefix}labels_off"]
             and info[f"{prefix}places"] is None
             and info[f"{prefix}names"] is None
@@ -5449,7 +5479,10 @@ class _Recognizer:
 
         The reading options ``ignore n``, ``comment c`` and ``numrows n``
         may appear anywhere after the file name; each named dataset records
-        them (see :attr:`_data_read_options`). Any other word is reported.
+        them (see :attr:`_data_read_options`). Any other word (``delimiters``,
+        a count that is not a plain number) cannot be written back: the
+        statement is reported and returns no names, so it is kept as written,
+        and the datasets it names are held undefined (:meth:`_hold_dataset`).
 
         The filename token is *unwrapped* (STRING tokens have their quotes
         stripped) so ``data "wave.dat"`` registers ``wave.dat`` rather than the
@@ -5528,13 +5561,17 @@ class _Recognizer:
                 )
 
         if unread:
+            for name, _cols in given:
+                self._hold_dataset(name, datasets)
             self._note(
                 ImportCategory.DATA,
                 f"'{' '.join(unread)}' on the 'data' statement for "
-                f"'{data_file}' is not modelled; a 'data' line gleplot writes "
-                "for this file leaves it out",
+                f"'{data_file}' is not modelled; the statement and every "
+                "line that reads its datasets were kept as raw GLE, which "
+                "still draws but is not editable",
                 (line_no, line_no) if line_no is not None else None,
             )
+            return []
 
         need_auto = not given or any(c is None for _n, c in given)
         ncols = self._file_column_count(data_file, read_options) if need_auto else None
@@ -5582,11 +5619,40 @@ class _Recognizer:
                 )
         return [name for name, _cols in given]
 
+    def _hold_dataset(self, name, datasets) -> None:
+        """Leave dataset ``name`` undefined, so whatever reads it stays raw.
+
+        A line reading a dataset no ``data`` statement defines is kept as
+        written; that is how a statement gleplot cannot write back keeps
+        every reader of its datasets with it.
+        """
+        datasets.pop(name, None)
+        self._datasets.pop(name, None)
+        self._data_read_options.pop(name, None)
+        self._held_datasets.add(name)
+
+    def _hold_let_target(self, toks, datasets) -> bool:
+        """Hold a ``let``'s target when it reads a held dataset.
+
+        The ``let`` stays raw and redefines its target, so a ``dK`` line
+        drawing the target reads the ``let``, not an earlier ``data``.
+        """
+        if len(toks) < 2 or not self._held_datasets:
+            return False
+        read = " ".join(tok.value for tok in toks[2:])
+        if not {m.lower() for m in _DATASET_NAME_RE.findall(read)} & (
+            self._held_datasets
+        ):
+            return False
+        self._hold_dataset(toks[1].value.lower(), datasets)
+        return True
+
     def _register_dataset(
         self, name, data_file, xcol, ycol, datasets, read_options=None
     ):
         datasets[name] = (data_file, xcol, ycol)
         self._datasets[name] = (data_file, xcol, ycol)
+        self._held_datasets.discard(name)
         if read_options:
             self._data_read_options[name] = read_options
         else:
@@ -8433,13 +8499,20 @@ class _Recognizer:
         """Parse a ``begin fitz`` block matching gleplot's shape, or ``None``.
 
         Recovers ``points_file``, ``extent`` (x0,x1,y0,y1), ``gridsize``
-        (nx,ny from the ``from..to..step`` ranges) and optional ``ncontour``.
+        (nx,ny from the ``from..to..step`` ranges) and optional ``ncontour``,
+        as a contour reads the grid; ``ranges`` keeps the ranges and
+        ``marker`` the node-grid comment line a heatmap's block holds, from
+        which :meth:`_fitz_heatmap_grid` reads a colormap's grid instead.
         ``zfile`` is the generated grid name (points base + ``.z``).
         """
         data_file = None
         xr = yr = None
         ncontour = None
+        marker = None
         for sl in node.inner_lines:
+            if sl.text.strip().startswith(NODES_MARKER + " "):
+                marker = sl
+                continue
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
                 continue
@@ -8472,7 +8545,47 @@ class _Recognizer:
             "extent": [x0, x1, y0, y1],
             "gridsize": [nx, ny],
             "ncontour": ncontour,
+            "ranges": (xr, yr),
+            "marker": marker,
         }
+
+    def _fitz_heatmap_grid(self, fitz: dict) -> Tuple[List[float], List[int]]:
+        """A ``colormap``'s ``(extent, gridsize)`` over a fitz block's grid.
+
+        A block :meth:`GLEWriter.add_fitz_block` wrote for a heatmap gives
+        the extent on its marker line and has GLE's node count,
+        ``floor((to - from) / step + 1)``. Any other block, such as a
+        hand-written one or one an earlier gleplot wrote, has its last node
+        where ``colormap`` draws it, one spacing short of ``to``, so
+        re-saving draws it where it was.
+        """
+        (x0, x1, xs), (y0, y1, ys) = fitz["ranges"]
+        if min(xs, ys) <= 0 or x1 <= x0 or y1 <= y0:
+            return list(fitz["extent"]), list(fitz["gridsize"])
+        counts = [math.floor((x1 - x0) / xs + 1), math.floor((y1 - y0) / ys + 1)]
+        sl = fitz["marker"]
+        if sl is not None:
+            edges = self._marker_edges(sl.text.strip())
+            if (
+                edges is not None
+                and min(counts) >= 2
+                and edges[0] == x0
+                and edges[2] == y0
+                and abs(x0 + (counts[0] - 1) * xs - edges[1]) <= 0.01 * xs
+                and abs(y0 + (counts[1] - 1) * ys - edges[3]) <= 0.01 * ys
+            ):
+                return edges, counts
+            self._note(
+                ImportCategory.DATA,
+                f"the begin fitz block for {fitz['zfile']!r} has a node-grid "
+                "marker line that does not match its ranges; read where GLE "
+                "draws its nodes, and the marker line is rewritten on re-save",
+                (sl.line_no, sl.line_no),
+            )
+        if min(counts) < 2:
+            return list(fitz["extent"]), list(fitz["gridsize"])
+        extent = [x0, x1 - (x1 - x0) / counts[0], y0, y1 - (y1 - y0) / counts[1]]
+        return extent, counts
 
     def _parse_contour_block(self, node: OpaqueBlock) -> Optional[dict]:
         """Parse a ``begin contour`` block matching gleplot's shape, or ``None``.
@@ -8710,6 +8823,7 @@ class _Recognizer:
                     self._stmt_span(stmt),
                 )
                 return
+            extent, gridsize = self._fitz_heatmap_grid(fitz)
             hm = HeatmapSeries(
                 type="heatmap",
                 source="points",
@@ -8717,7 +8831,7 @@ class _Recognizer:
                 x=pts[0],
                 y=pts[1],
                 zpts=pts[2],
-                extent=list(fitz["extent"]),
+                extent=extent,
                 origin="lower",
                 cmap=cmap,
                 vmin=vmin,
@@ -8725,7 +8839,7 @@ class _Recognizer:
                 interpolation="nearest" if interpolation == "nearest" else "bicubic",
                 pixels=[int(px), int(py)],
                 invert=invert,
-                gridsize=list(fitz["gridsize"]),
+                gridsize=gridsize,
                 ncontour=None,
                 label=None,
                 data_file=fitz["points_file"],
@@ -9131,21 +9245,29 @@ class _Recognizer:
         return [x0, x1 - (x1 - x0) / nx, y0, y1 - (y1 - y0) / ny]
 
     @staticmethod
+    def _marker_edges(marker: Optional[str]) -> Optional[List[float]]:
+        """The ``xmin xmax ymin ymax`` a node-grid marker line gives, or ``None``."""
+        if marker is None or not marker.startswith(NODES_MARKER):
+            return None
+        words = marker[len(NODES_MARKER) :].split()
+        if words[0::2] != ["xmin", "xmax", "ymin", "ymax"] or len(words) != 8:
+            return None
+        try:
+            return [float(v) for v in words[1::2]]
+        except ValueError:
+            return None
+
+    @staticmethod
     def _nodes_extent(marker, header, nx, ny) -> Optional[List[float]]:
         """The edges a node grid's marker line gives, or ``None``.
 
         ``None`` without the line, or when the header is not one node
         spacing past them as :meth:`GLEWriter.add_nodes_sidecar` writes it.
         """
-        if marker is None or not marker.startswith(NODES_MARKER) or min(nx, ny) < 2:
+        edges = _Recognizer._marker_edges(marker)
+        if edges is None or min(nx, ny) < 2:
             return None
-        words = marker[len(NODES_MARKER) :].split()
-        if words[0::2] != ["xmin", "xmax", "ymin", "ymax"]:
-            return None
-        try:
-            x0, x1, y0, y1 = (float(v) for v in words[1::2])
-        except ValueError:
-            return None
+        x0, x1, y0, y1 = edges
         want = [x0, x1 + (x1 - x0) / (nx - 1), y0, y1 + (y1 - y0) / (ny - 1)]
         span = max(abs(v) for v in want + [x1 - x0, y1 - y0])
         if not np.allclose(header, want, rtol=0, atol=1e-9 * span):

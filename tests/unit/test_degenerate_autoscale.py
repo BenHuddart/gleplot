@@ -738,7 +738,9 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     when a guide gleplot cannot range started being drawn after the graph;
     ``rug_field_options`` moved when ``rugs.gle`` started drawing rugs. The
     colorbar builders (``heatmap_*``, ``tripcolor_tricontour_combo``,
-    ``scatter_colorbars``) moved when ``color.gle`` started drawing colorbars.
+    ``scatter_colorbars``) moved when ``color.gle`` started drawing colorbars;
+    ``tripcolor_tricontour_combo`` moved again when a tripcolor's fitz range
+    started reaching past its last node, as colormap places nodes (#376).
     ``one_point_default_width`` moved again when the metadata started
     recording a ``default_linewidth`` that is not 1.5 (#345).
     Every other entry is still the script captured before that.

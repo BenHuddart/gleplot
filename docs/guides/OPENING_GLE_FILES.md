@@ -55,6 +55,10 @@ bars, fills and plain `bar dN fill COLOR` bars drawn from it become
 `bar` command that a file reference cannot express (a `width`, a group such
 as `bar d1,d2`, a stack with `from`, a pattern, ...) is kept as raw GLE with
 a `structure` note, and so is every bar that shares its `data` statement.
+A `data` statement with an option gleplot does not read, such as
+`delimiters` or an `ignore` or `numrows` count that is not a plain number,
+is kept as raw GLE with a `data` note, together with every line that reads
+its datasets, including a `let` and whatever draws its result.
 
 Each place where gleplot had to keep something as raw GLE, or had to guess,
 is recorded as a recovery note. The notes are grouped by category:
