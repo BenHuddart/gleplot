@@ -23,7 +23,7 @@
  "golden:closed_form_fits": "df219ec451410fae6d98e7a21386d64458abc9bb45c0d4f9e95fa39b1492d8c3",
  "golden:fit_result_legends": "4b7a2bdb5eb36c0c6773bfa6340fb2685d2014f88041c0d70b4ae72e44c6ba81",
  "golden:contour_field_options": "323f70e76f69569ad117e8c2e8e151d3178e69d782ca629bf183f7c038698de4",
- "golden:contour_grid_levels_clabel": "3619365019b33ce1fb5e0ca470c85041cadbf21b2d1417ef20d38604f018ebf1",
+ "golden:contour_grid_levels_clabel": "95adb9a7c9fb2ab1cf1edf42f8e30f992d243bfbc8083edc4dc05b37edf112d0",
  "golden:contour_in_second_subplot": "aee6d34f2494a5071e6a0ad3f94e9f11ba71a8afa0e548eb96fb9b4fac0509b3",
  "golden:coordinates_beyond_six_figures": "9900fda8b2f299853bc8cd6eed93c7d4da01bd697bd3a4785da03d4fe267cf10",
  "golden:custom_figsize_and_dpi": "e5364509a7705cc2a736e8edd77c357f113fe7d0d45327d0873e9689dccb106f",
@@ -114,7 +114,7 @@
  "golden:tick_label_nofirst_nolast": "d64c44f52af2d3fb21d7b38c6b87953713806143d5cd9e7dab8c8b24c088d3ba",
  "golden:trailer_stray_amoves": "17defe5e9a82a0aadfbf2208e7c57fb10c309235e247f886a635369443cd3f1e",
  "golden:trailer_amove_after_subplots": "5af8903eeff7a31ed27e2d1bee075e2379c5c5973fcbcf8e6f90dd089fd61190",
- "golden:tripcolor_tricontour_combo": "e7020275d2b2bfb15a0b9efd75c48e4af7e8ea11df982144bb36abc9d47705d4",
+ "golden:tripcolor_tricontour_combo": "3af1eff6367230a2599e50a91b46d7d54ac55eda9d5b830d0faaf629a6947764",
  "golden:usetex_labels": "49acc57761d5e7c47e7cfb676a4b138cc7f5c6a8d47843912c3f5a58065b25bd",
  "project:bar": "01e8328c45fe3ed62bec5c9b9d543a368d764dc55e5cd70741515deb8745979a",
  "project:data_prefix_multi": "08f4eca58f07412d310b1f4aee384c8e8cd1b6442042ab2f0786e3e19c2032df",
@@ -139,5 +139,6 @@
  "golden:no_ticks": "03a33149516bf5ae44a6b9a54c8e70a41f74c8457cf1eb0d39012a27432784ef",
  "golden:no_ticks_styled": "b7a6f5c7dbc00f1a7cf6bc7ad352cebcc58a1dfb60ded9769ca5d179db786f18",
  "golden:no_ticks_twins": "dc0066f05741983fc454b5abc493ab6fe528fbd88eecc4f88627c9ba5a1f87b9",
- "golden:guides_after_graph": "c6012e0c7eb2a8e63458420570870f9c1c3a3c593b33f115f6b2bc475002159a"
+ "golden:guides_after_graph": "c6012e0c7eb2a8e63458420570870f9c1c3a3c593b33f115f6b2bc475002159a",
+ "golden:subplots_share_col_row": "77ef525c2ee6b7a516b79cb07aa85c8bc947d10ae9a4c142a540ec4a305a8630"
 }

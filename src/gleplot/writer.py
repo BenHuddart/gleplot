@@ -410,6 +410,10 @@ def image_sub_name(path: str) -> Optional[str]:
 #: colorbar (:meth:`GLEWriter.add_colorbar`).
 COLOR_INCLUDE = "color.gle"
 
+#: The gleinc file whose ``contour_labels`` writes a contour's labels
+#: (:meth:`GLEWriter.add_contour_labels`).
+CONTOUR_INCLUDE = "contour.gle"
+
 #: What a colorbar's tick step is written scaled by, so that ``color.gle``'s
 #: floating-point stepping does not pass ``zmax`` before its last tick.
 COLORBAR_STEP_SCALE = "0.999999999"
@@ -6362,17 +6366,25 @@ class GLEWriter:
         self.add_contour_line(series)
 
     def add_contour_labels(self, series: Series):
-        """Emit the contour-label sub call after a contour's graph, if asked.
+        """Write a contour's labels after its graph, if asked.
 
         ``series`` is the resolved :class:`~gleplot.series.ContourSeries`.
-        With ``clabel`` set, the labels come from the ``-clabels.dat`` file
-        its contour block generates, formatted with ``clabel_fmt``; without
-        it nothing is written.
+        With ``clabel`` set, ``contour_labels`` from GLE's ``contour.gle``
+        writes them from the ``-clabels.dat`` file its contour block
+        generates, formatted with ``clabel_fmt``; without it nothing is
+        written. The routine sets its own height, justification and colour
+        (blue), so the call sits in ``gsave``/``grestore``.
         """
         if not series.get("clabel"):
             return
         clabels = _grid_z_file(series)[:-2] + "-clabels.dat"
-        self.add_clabel_call(clabels, series["clabel_fmt"])
+        self.lines_gle += [
+            "gsave",
+            f"contour_labels file {_quote_filename(clabels)} "
+            f'format "{series["clabel_fmt"]}"',
+            "grestore",
+        ]
+        self._includes.add(CONTOUR_INCLUDE)
 
     def add_colormap(
         self,
@@ -6429,14 +6441,6 @@ class GLEWriter:
         if lstyle is not None:
             cmd += f" lstyle {int(lstyle)}"
         self.lines_gle.append(cmd)
-
-    def add_clabel_call(self, clabels_file: str, fmt: str):
-        """Emit the post-graph contour-label sub call."""
-        self.lines_gle.append("amove 0 0")
-        self.lines_gle.append(
-            f"gleplot_contour_labels file {_quote_filename(clabels_file)} "
-            f'format "{fmt}"'
-        )
 
     @staticmethod
     def _color_clause(color: Optional[str]) -> str:

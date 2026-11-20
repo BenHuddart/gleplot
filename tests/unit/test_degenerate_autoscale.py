@@ -741,6 +741,7 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``scatter_colorbars``) moved when ``color.gle`` started drawing colorbars;
     ``tripcolor_tricontour_combo`` moved again when a tripcolor's fitz range
     started reaching past its last node, as colormap places nodes (#376).
+    ``subplots_share_col_row`` was added with matplotlib's string sharing.
     ``one_point_default_width`` moved again when the metadata started
     recording a ``default_linewidth`` that is not 1.5, and
     ``default_series_colors`` was added for the default colours it records

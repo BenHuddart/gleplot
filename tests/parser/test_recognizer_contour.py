@@ -137,6 +137,24 @@ def test_tricontour_recovered_with_clabel(tmp_path):
     assert ct["clabel_fmt"] == "fix 0"
 
 
+def test_contour_labels_on_another_file_stay_raw(tmp_path):
+    """Only the labels of a contour read back are taken; others stay as written."""
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).contour(
+        np.arange(9.0).reshape(3, 3), levels=[4.0], clabel=True
+    )
+    path = _save(fig, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert "-clabels.dat" in text
+    path.write_text(text.replace('-clabels.dat"', '-other.dat"'), encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    assert not rec.figure.axes_list[0].contours[0]["clabel"]
+    out = rec.figure._generate_gle_with_files()[0]
+    assert '-other.dat" format "fix 1"' in out
+    assert out.count('include "contour.gle"') == 1
+
+
 def test_generated_files_absent_are_tolerated(tmp_path):
     """The GLE-generated ``-cdata.dat``/``.z`` (fitz) files never exist at save
     time; recovery must not treat their references as broken series."""
@@ -796,3 +814,21 @@ def test_structural_roundtrip_of_contour_file_unchanged(tmp_path):
     fig.colorbar(label="v")
     text = fig._generate_gle_with_files()[0]
     assert emit(parse_gle_source(text)) == text
+
+
+def test_a_gleplot_5_contour_label_sub_is_kept_as_raw_gle(tmp_path):
+    path = tmp_path / "old.gle"
+    path.write_text(
+        "size 10 10\n"
+        "sub gleplot_contour_labels file$ format$\n"
+        "   write format$\n"
+        "end sub\n"
+        "begin graph\n    xaxis min 0 max 3\nend graph\n"
+        "amove 0 0\n"
+        'gleplot_contour_labels file "g_contour1-clabels.dat" format "fix 2"\n'
+    )
+    rec = parse_gle_figure(path)
+    assert any("gleplot_contour_labels" in w for w in rec.warnings)
+    text = rec.figure._generate_gle_with_files()[0]
+    assert "sub gleplot_contour_labels file$ format$" in text
+    assert 'gleplot_contour_labels file "g_contour1-clabels.dat" format "fix 2"' in text

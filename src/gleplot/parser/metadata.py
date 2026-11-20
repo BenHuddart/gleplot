@@ -193,7 +193,7 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
     ----------
     data : dict
         Metadata values to persist. Recognized keys: ``dpi`` (int),
-        ``sharex`` / ``sharey`` (bool), ``msize_scale`` and
+        ``sharex`` / ``sharey`` (bool, or 'row'/'col'), ``msize_scale`` and
         ``default_linewidth`` (float), ``default_color`` and
         ``default_marker_color`` (GLE colour tokens),
         ``import-data`` (list of str filenames), ``insets`` (list of int
