@@ -3894,24 +3894,21 @@ class GLEWriter:
         label = series.get("label")
         yaxis = series.get("yaxis", "y")
         xaxis = series.get("xaxis", "x")
-        hist_from = series.get("hist_from")
-        hist_to = series.get("hist_to")
-        bins = series.get("bins")
-        bin_step = series.get("bin_step")
         edgecolor = series.get("edgecolor")
         bar_width = series.get("bar_width")
         values = np.asarray(samples, dtype=float).ravel()
         index = np.arange(len(values), dtype=float)
-        cols = self._write_columns(data_file, [("x", index), ("y", values)], None)
+        # The samples are binned along x: held to that axis, as its data.
+        cols = self._write_columns(
+            data_file, [("x", index), ("y", values)], None, axes={"y": xaxis}
+        )
         source = self._new_dataset()
         target = self._new_dataset()
         self.lines_gle.append(
             f"    data {_format_data_filename(data_file)} "
             f"{source}=c{cols[0]},c{cols[1]}"
         )
-        self.lines_gle.append(
-            self._histogram_let(source, target, hist_from, hist_to, bins, bin_step)
-        )
+        self.lines_gle.append(self._histogram_let(source, target, series))
 
         if histtype == "stepfilled":
             # ``color`` on a bar is the stroke. Matching it to the fill keeps
@@ -3949,26 +3946,22 @@ class GLEWriter:
         if label:
             self._finish_legend_entry(label)
 
-    def _histogram_let(
-        self,
-        source: str,
-        target: str,
-        hist_from: Optional[float],
-        hist_to: Optional[float],
-        bins: Optional[float],
-        bin_step: Optional[float],
-    ) -> str:
-        """``let dK = hist dJ`` with only the options the series carries.
+    def _histogram_let(self, source: str, target: str, series: Series) -> str:
+        """``let dK = hist dJ`` with only the options ``series`` carries.
 
         Order is ``from``, ``to``, ``bins``, ``step``. GLE uses ``bins`` when
         both are present; both are still written so a hand-written pair is
         not dropped. Omitting ``bins`` does not invent GLE's default of 10.
+        The bin window is held to the x axis it lies on, as the samples are.
         """
+        bins = series.get("bins")
+        bin_step = series.get("bin_step")
+        window = [series.get("hist_from"), series.get("hist_to")]
+        given = [v for v in window if v is not None]
+        tol = self._axis_tolerances.get(series.get("xaxis", "x"))
+        words = [w for w, v in zip(("from", "to"), window) if v is not None]
         parts = [f"let {target} = hist {source}"]
-        if hist_from is not None:
-            parts.append(f"from {self._format_number(hist_from)}")
-        if hist_to is not None:
-            parts.append(f"to {self._format_number(hist_to)}")
+        parts += [f"{w} {t}" for w, t in zip(words, self._format_column(given, tol))]
         if bins is not None:
             parts.append(f"bins {self._format_number(bins)}")
         if bin_step is not None:
@@ -3996,7 +3989,10 @@ class GLEWriter:
         :meth:`add_function`.
         """
         cols = self._write_columns(
-            series["data_file"], [("x", series["x"]), ("y", series["y"])], None
+            series["data_file"],
+            [("x", series["x"]), ("y", series["y"])],
+            None,
+            axes=self._series_axes(series),
         )
         source = self._new_dataset()
         self.lines_gle.append(
@@ -4231,6 +4227,7 @@ class GLEWriter:
                 [("x", x), ("bottom", base), ("top", tops)],
                 names,
                 binding,
+                self._bar_axes(horiz),
             )
             d_from = self._new_dataset()
             d_name = self._new_dataset()
@@ -4246,7 +4243,11 @@ class GLEWriter:
                 if binding is not None:
                     binding = binding.with_private(("height",))
             cols = self._write_columns(
-                data_file, [("x", x), ("height", heights)], column_names, binding
+                data_file,
+                [("x", x), ("height", heights)],
+                column_names,
+                binding,
+                self._bar_axes(horiz),
             )
             d_name = self._new_dataset()
             self.lines_gle.append(
@@ -4272,6 +4273,13 @@ class GLEWriter:
         if d_from is not None and has_header:
             self.lines_gle.append(f'    {d_from} key ""')
         self._bar_key(d_name, label, swatch_color, has_header)
+
+    @staticmethod
+    def _bar_axes(horiz: bool) -> Dict[str, str]:
+        """The axes a bar's columns lie on: its ``x`` along the bars' base,
+        the y axis for ``horiz`` bars, and its heights across it."""
+        base, across = ("y", "x") if horiz else ("x", "y")
+        return {"x": base, "height": across, "bottom": across, "top": across}
 
     def add_bar_group(self, members: Sequence[Mapping[str, Any]]) -> None:
         """One ``bar d1,d2,...`` command for series that share a group id.
@@ -4318,7 +4326,9 @@ class GLEWriter:
 
         header = _group_bar_header(members, len(columns))
         data_file = first["data_file"]
-        cols = self._write_columns(data_file, columns, header, None)
+        cols = self._write_columns(
+            data_file, columns, header, None, self._bar_axes(bool(first.get("horiz")))
+        )
         from_names: List[str] = []
         to_names: List[str] = []
         clause = []
@@ -4837,6 +4847,7 @@ class GLEWriter:
         yaxis = series.get("yaxis", "y")
         xaxis = series.get("xaxis", "x")
         d_main = self._new_dataset()
+        self._name_dataset(series, d_main)
 
         data_cmd = (
             f"    data {_format_data_filename(data_file)} {d_main}=c{x_col},c{y_col}"
@@ -6374,31 +6385,40 @@ class GLEWriter:
         lstyle = self._lstyle_for(linestyle) if linestyle in ("--", ":", "-.") else None
         if linestyle not in _NO_LINE:
             self._includes.add(GRAPHUTIL_INCLUDE)
+        value = self._format_coordinate(
+            series["value"], self._guide_axis(series["orient"])
+        )
         self._pending_guide_lines.extend(
-            self.refline_draw_lines(series, lwidth_cm, lstyle)
+            self.refline_draw_lines(series, lwidth_cm, lstyle, value)
         )
         if series["label"]:
             self.add_guide_key(series["color"], linestyle, lwidth_cm, series["label"])
 
     @classmethod
     def refline_draw_lines(
-        cls, series: Series, lwidth_cm: float, lstyle: Optional[int]
+        cls,
+        series: Series,
+        lwidth_cm: float,
+        lstyle: Optional[int],
+        value: Optional[str] = None,
     ) -> List[str]:
         """The after-graph lines that draw ``series``, marker first.
 
         ``lstyle`` is the ``set`` line's style number, ``None`` for none
         (solid). A guide with linestyle ``'none'`` keeps its marker and
-        ``set`` line but has no call.
+        ``set`` line but has no call. ``value`` is the position as written
+        (see :meth:`guide_marker`), by default :meth:`_format_number`'s.
         """
         fmt = cls._format_number
+        value = value or fmt(series["value"])
         set_line = f"set color {series['color']} lwidth {fmt(lwidth_cm)}"
         if lstyle is not None:
             set_line += f" lstyle {lstyle}"
-        lines = [cls.guide_marker(series, label=True), "gsave", set_line]
+        lines = [cls.guide_marker(series, True, value), "gsave", set_line]
         if series["linestyle"] not in _NO_LINE:
             # A horizontal line spans x, a vertical one y.
             axis = "x" if series["orient"] == "h" else "y"
-            call = f"graph_{series['orient']}line {fmt(series['value'])}"
+            call = f"graph_{series['orient']}line {value}"
             lo, hi = fmt(series["span_lo"]), fmt(series["span_hi"])
             if (lo, hi) != ("0", "1"):
                 call += f" {fraction_expr(axis, lo)} {fraction_expr(axis, hi)}"
@@ -6433,15 +6453,22 @@ class GLEWriter:
         series carries a ``swatch_color``.
         """
         color = apply_alpha(series["color"], series["alpha"])
-        self._pending_guide_lines.extend(self.span_draw_lines(series, color))
+        edges = self._span_range(series["orient"], series["start"], series["end"])
+        self._pending_guide_lines.extend(self.span_draw_lines(series, color, edges))
         if series["label"]:
             self.add_fill_key(series.get("swatch_color") or color, series["label"])
 
     @classmethod
-    def span_draw_lines(cls, series: Series, color: str) -> List[str]:
-        """The after-graph lines that draw ``series`` in ``color``, marker first."""
+    def span_draw_lines(
+        cls, series: Series, color: str, edges: Optional[Sequence[str]] = None
+    ) -> List[str]:
+        """The after-graph lines that draw ``series`` in ``color``, marker first.
+
+        ``edges`` are the band's ``start`` and ``end`` as written (see
+        :meth:`_span_range`), by default :meth:`_format_number`'s.
+        """
         fmt = cls._format_number
-        a, b = fmt(series["start"]), fmt(series["end"])
+        a, b = edges or (fmt(series["start"]), fmt(series["end"]))
         lo, hi = fmt(series["span_lo"]), fmt(series["span_hi"])
         if series["orient"] == "v":
             y0, y1 = fraction_expr("y", lo), fraction_expr("y", hi)
@@ -6452,7 +6479,7 @@ class GLEWriter:
             corner = f"amove xg({x0}) yg({a})"
             size = f"xg({x1})-xg({x0}) yg({b})-yg({a})"
         return [
-            cls.guide_marker(series, label=True),
+            cls.guide_marker(series, True, f"{a},{b}"),
             "gsave",
             corner,
             f"box {size} fill {color} nobox",
