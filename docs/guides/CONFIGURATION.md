@@ -485,7 +485,9 @@ as it is, as matplotlib plots it.
 A lone number in data units is held to a millionth of its axis's range instead.
 This covers a text position, a reference line or span, a tick position from
 `set_xticks` (including `ftick`), a rug tick, a column holding one value, and a
-single axis limit. On the axis above, `ax.axvline(1.7e9 + 30)` is written
+single axis limit. Numbers whose spread is too small to count beside their
+size, such as the edges of a band `0.001` wide at `1.7e9`, are held the same
+way. On the axis above, `ax.axvline(1.7e9 + 30)` is written
 `1.70000003e+09` rather than `1.7e+09`. On a log axis these numbers keep 6
 figures. So do the coordinates of bars, histograms, fits, box plots, placed
 images and pie wedges, and a guide drawn after the graph (see

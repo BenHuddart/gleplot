@@ -2083,6 +2083,8 @@ def coordinates_beyond_six_figures():
     left.plot([1.7e9, 1.7e9 + 120], [1.0, 3.0])
     left.axvline(1.7e9 + 30)
     left.axvspan(1.7e9 + 40, 1.7e9 + 40.5)
+    # A band whose width is float noise beside 1.7e9: held to the axis.
+    left.axvspan(1.7e9 + 50, 1.7e9 + 50.001)
     left.text(1.7e9 + 90, 2.0, "t")
     left.set_xticks([1.7e9 + 30])
     right.plot([1.0, 2.0], [1.7e9, 1.7e9 + 120], yaxis="y2")
