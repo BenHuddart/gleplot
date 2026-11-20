@@ -804,6 +804,69 @@ def _unmasked(value):
     return np.ma.filled(value.astype(float), np.nan)
 
 
+def _paired(caller: str, x: Any, y: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """``x`` and ``y`` as arrays of one value per point, checked to pair up.
+
+    A scalar is one point and a single column is one line, as in matplotlib.
+    Raises ``ValueError`` when the lengths differ (matplotlib's rule) or
+    ``y`` has several columns, which would otherwise fail at save.
+    """
+    x = np.atleast_1d(np.asarray(_unmasked(x)))
+    y = np.atleast_1d(np.asarray(_unmasked(y)))
+    if x.shape[:1] != y.shape[:1]:
+        raise ValueError(
+            f"{caller}() x and y must have the same length, got shapes "
+            f"{x.shape} and {y.shape}. Pass one y per x."
+        )
+    for name, value in (("x", x), ("y", y)):
+        if value.size != len(value):
+            raise ValueError(
+                f"{caller}() takes one column of {name}, got shape "
+                f"{value.shape}. Draw each column with its own call."
+            )
+    return x, y
+
+
+def _errorbar_sides(err: Any, name: str, n: int) -> Tuple[Any, Any]:
+    """``errorbar``'s ``xerr``/``yerr`` as ``(minus, plus)`` arrays of ``n``.
+
+    matplotlib's shapes, broadcast to ``(2, n)``: a scalar, ``n`` values
+    (symmetric), or ``(2, n)`` rows of minus and plus errors. A column of
+    ``n`` (``n != 2``; for two points ``(2, 1)`` is matplotlib's rows) is
+    ``n`` values, and a ``(lower, upper)`` pair of a scalar and ``n`` values
+    is taken, as gleplot has always read them. Raises ``ValueError`` for any
+    other shape, a pair of scalars for other than 2 points included.
+    """
+    if err is None:
+        return None, None
+    message = (
+        f"errorbar() {name} must be a scalar, {n} values, or a (2, {n}) array "
+        f"of lower and upper rows, as in matplotlib"
+    )
+    try:
+        arr = np.asarray(err, dtype=float)
+    except (TypeError, ValueError):
+        arr = None
+    if arr is None and isinstance(err, (list, tuple)) and len(err) == 2:
+        # A (lower, upper) pair of a scalar and n values, which gleplot has
+        # always taken; each side broadcasts on its own.
+        try:
+            sides = [np.broadcast_to(np.asarray(side, float), (n,)) for side in err]
+        except (TypeError, ValueError):
+            pass
+        else:
+            return np.array(sides[0]), np.array(sides[1])
+    if arr is None:
+        raise ValueError(f"{message}; got a {type(err).__name__} that is not.")
+    if arr.shape == (n, 1) and n != 2:
+        arr = arr.ravel()
+    try:
+        minus, plus = np.broadcast_to(arr, (2, n))
+    except ValueError:
+        raise ValueError(f"{message}; got shape {arr.shape}.") from None
+    return np.array(minus), np.array(plus)
+
+
 def _require_finite(arr: np.ndarray, what: str) -> None:
     """Raise ``ValueError`` if ``arr`` holds any NaN or infinity.
 
@@ -2893,7 +2956,9 @@ class Axes:
         Parameters
         ----------
         x, y : array-like
-            Data coordinates. A NaN or infinity breaks a drawn line there,
+            Data coordinates of the same length, as in matplotlib: a
+            scalar is one point and a single column one line. Other shapes
+            raise ``ValueError``. A NaN or infinity breaks a drawn line there,
             as in matplotlib; such a line is not smoothed or thinned.
         linestyle : str
             Line style: ``'-'``, ``'--'``, ``':'``, ``'-.'``, matplotlib's
@@ -2994,6 +3059,7 @@ class Axes:
             zorder = kwargs.pop("zorder")
         # Private: the public method this call came through, for its warnings.
         caller = kwargs.pop("_caller", "plot")
+        x, y = _paired(caller, x, y)
         # Private: step's format string, which leaves linestyle free.
         fmt = kwargs.pop("_fmt", None)
         argument = "format string"
@@ -3068,9 +3134,6 @@ class Axes:
                 "marker; mdist is ignored. Pass marker= to draw markers.",
             )
             del qualifiers["mdist"]
-
-        x = np.asarray(_unmasked(x))
-        y = np.asarray(_unmasked(y))
 
         # Handle marker. GLE supports markers on line datasets natively, so a
         # marker requested alongside a solid/dashed line must be preserved
@@ -4321,13 +4384,15 @@ class Axes:
         Parameters
         ----------
         x, y : array-like
-            Data coordinates
-        yerr : scalar, array-like, or tuple of (lower, upper), optional
-            Vertical error bar sizes. Can be:
-            - scalar: constant symmetric error for all points
-            - 1D array: per-point symmetric error
-            - tuple (lower, upper): per-point asymmetric error bars
-        xerr : scalar, array-like, or tuple of (left, right), optional
+            Data coordinates of the same length, as for :meth:`plot`.
+        yerr : scalar, array-like of shape (N,) or (2, N), optional
+            Vertical error bar sizes, as in matplotlib: a scalar is the same
+            error for every point, ``N`` values one symmetric error per
+            point, and shape ``(2, N)`` (such as a ``(lower, upper)`` tuple of
+            ``N`` values each) the lower row and the upper row. Any other
+            shape raises ``ValueError``, a pair of scalars for other than two
+            points included.
+        xerr : scalar, array-like of shape (N,) or (2, N), optional
             Horizontal error bar sizes. Same format as yerr.
         fmt : str
             matplotlib's format string: a colour letter, a marker character
@@ -4403,7 +4468,8 @@ class Axes:
 
         >>> ax.errorbar(x, y, yerr=0.5, xerr=0.3)
         """
-        x, y = _unmasked(x), _unmasked(y)
+        x, y = _paired("errorbar", x, y)
+        x, y = x.astype(float), y.astype(float)
         xerr, yerr = _unmasked(xerr), _unmasked(yerr)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
@@ -4422,8 +4488,6 @@ class Axes:
         data_range = _dataset_qualifiers(None, None, False, xmin, xmax, ymin, ymax)
         warn_unsupported_keywords("errorbar", kwargs)
         label = self._text(label)
-        x = np.asarray(x, dtype=float)
-        y = np.asarray(y, dtype=float)
 
         if fmt is None:
             fmt = ""
@@ -4469,55 +4533,8 @@ class Axes:
             gle_capsize = capsize_pt_to_cm(capsize)
             stored_capsize = capsize  # Store original matplotlib value
 
-        # Process yerr
-        yerr_up = None
-        yerr_down = None
-        if yerr is not None:
-            if isinstance(yerr, (int, float)):
-                # Scalar: constant symmetric error
-                yerr_up = np.full(len(x), float(yerr))
-                yerr_down = np.full(len(x), float(yerr))
-            elif isinstance(yerr, (list, tuple)) and len(yerr) == 2:
-                lower, upper = yerr
-                lower = np.asarray(lower, dtype=float)
-                upper = np.asarray(upper, dtype=float)
-                if lower.ndim == 0:
-                    yerr_down = np.full(len(x), float(lower))
-                else:
-                    yerr_down = lower
-                if upper.ndim == 0:
-                    yerr_up = np.full(len(x), float(upper))
-                else:
-                    yerr_up = upper
-            else:
-                # 1D array: symmetric error
-                err_arr = np.asarray(yerr, dtype=float)
-                yerr_up = err_arr
-                yerr_down = err_arr
-
-        # Process xerr
-        xerr_left = None
-        xerr_right = None
-        if xerr is not None:
-            if isinstance(xerr, (int, float)):
-                xerr_left = np.full(len(x), float(xerr))
-                xerr_right = np.full(len(x), float(xerr))
-            elif isinstance(xerr, (list, tuple)) and len(xerr) == 2:
-                left, right = xerr
-                left = np.asarray(left, dtype=float)
-                right = np.asarray(right, dtype=float)
-                if left.ndim == 0:
-                    xerr_left = np.full(len(x), float(left))
-                else:
-                    xerr_left = left
-                if right.ndim == 0:
-                    xerr_right = np.full(len(x), float(right))
-                else:
-                    xerr_right = right
-            else:
-                err_arr = np.asarray(xerr, dtype=float)
-                xerr_left = err_arr
-                xerr_right = err_arr
+        yerr_down, yerr_up = _errorbar_sides(yerr, "yerr", len(x))
+        xerr_left, xerr_right = _errorbar_sides(xerr, "xerr", len(x))
 
         # 1 is the writer's "style default" (see GLEWriter.add_errorbar_series).
         linewidth = _line_width("errorbar", linewidth)
@@ -4753,7 +4770,8 @@ class Axes:
         Parameters
         ----------
         x, y : array-like
-            Data coordinates
+            Data coordinates, the same number of each; otherwise
+            ``ValueError``, as in matplotlib.
         s : float or array-like, optional
             Marker area in points**2 (matplotlib ``scatter`` convention).
             Default 20 when neither ``s`` nor ``markersize`` is given. An
@@ -4832,6 +4850,11 @@ class Axes:
         each first appears; only the first carries ``label``.
         """
         x, y, c = _unmasked(x), _unmasked(y), _unmasked(c)
+        if np.size(x) != np.size(y):
+            raise ValueError(
+                f"scatter() x and y must be the same size, got {np.size(x)} "
+                f"x values and {np.size(y)} y values. Pass one y per x."
+            )
         s, markersize = _unmasked(s), _unmasked(markersize)
         if marker is None:
             marker = "o"  # matplotlib's rcParams['scatter.marker']

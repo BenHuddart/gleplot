@@ -1585,7 +1585,8 @@ def one_point_default_width():
     """A 1 pt default width: each kind's ``lwidth 0.03528`` comes back as 1 pt.
 
     The writer reads 1 pt as "the style default", so a recovered 1 pt width
-    is kept as given rather than widened to the default it was loaded with.
+    is kept as given (``_lwidth_verbatim``) whatever default the figure is
+    loaded with; the metadata records ``default_linewidth = 1.0``.
     """
     fig = glp.figure(
         style=glp.GLEStyleConfig(default_linewidth=1.0), data_prefix="golden"
@@ -1604,6 +1605,18 @@ def one_point_default_width():
     guides.axvline(1.0, label="drawn")
     guides.set_xlim(0, 2)
     guides.legend()
+    return fig
+
+
+def default_series_colors():
+    """Non-default style colours, which the metadata records (#345)."""
+    fig = glp.figure(
+        style=glp.GLEStyleConfig(default_color="C1", default_marker_color="red"),
+        data_prefix="golden",
+    )
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [1, 2, 1])
+    ax.scatter([0, 1, 2], [2, 1, 2])
     return fig
 
 
@@ -1629,6 +1642,18 @@ def guides_after_graph():
     point.axhline(7.0, xmin=0.1, xmax=0.9, label="level")
     point.axhspan(6.0, 8.0, xmin=0.5)
     point.legend()
+    return fig
+
+
+def guides_after_graph_beyond_six_figures():
+    """After-graph guides on a timestamp axis, and a lone bar and histogram."""
+    fig, (left, bars) = glp.subplots(1, 2, data_prefix="golden")
+    left.set_xlim(1.7e9, 1.7e9 + 30)
+    left.axvline(1.7e9 + 2.8)
+    left.axvspan(1.7e9 + 12.8, 1.7e9 + 15.8, ymin=0.25)
+    bars.bar([1.7e9 + 30], [2.0], width=0.5)
+    bars.hist([1.7e9 + 20] * 2, range=(1.7e9 + 10, 1.7e9 + 50), histtype="step")
+    bars.set_xlim(1.7e9, 1.7e9 + 60)
     return fig
 
 
@@ -1796,6 +1821,28 @@ def trailer_amove_after_subplots():
     fig.add_subplot(121).plot([0, 1], [0, 1])
     fig.add_subplot(122).plot([0, 1], [1, 0])
     fig.passthrough_trailer = ["amove 1 1", "circle 0.4"]
+    return fig
+
+
+def quoted_text():
+    """Text holding double quotes, alone and with an apostrophe, everywhere.
+
+    Each place GLE reads text one of its three ways: a graph command
+    (title, axis title, legend), ``xnames``, and an expression (``write``).
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], label='the "fit"')
+    ax.set_title('a "quoted" title')
+    ax.set_xlabel('it\'s "x"')
+    ax.set_xticks([0, 1, 2])
+    ax.set_xticklabels(['"0"', "one", 'it\'s "2"'])
+    ax.text(0.5, 2, 'say "hi"')
+    ax.text(1, 3, 'it\'s "both"', rotation=30)
+    ax.imshow(np.arange(4.0).reshape(2, 2), extent=(0, 2, 0, 4))
+    fig.colorbar(label='z "units"')
+    ax.legend()
+    fig.text(0.1, 0.95, '"figure" text')
     return fig
 
 
@@ -2114,7 +2161,9 @@ BUILDERS = [
     function_curves,
     function_curves_beside_modelled_lets,
     one_point_default_width,
+    default_series_colors,
     guides_after_graph,
+    guides_after_graph_beyond_six_figures,
     fit_curves,
     closed_form_fits,
     fit_result_legends,
@@ -2145,6 +2194,7 @@ BUILDERS = [
     polar_field_options,
     placed_images,
     data_beyond_six_figures,
+    quoted_text,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

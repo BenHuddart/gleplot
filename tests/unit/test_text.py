@@ -70,10 +70,18 @@ class TestTextAnnotations:
         assert self.fig.texts[0]["text"] == "Figure API"
         assert "amove pagewidth()*0.2 pageheight()*0.8" in self.fig._generate_gle()
 
-    def test_text_escapes_quotes_for_gle(self):
+    def test_text_quotes_double_quotes_as_gle_expressions_accept(self):
+        # GLE's expression parser rejects \" and "" inside a string.
         self.ax.text(1.0, 1.0, 'He said "hello"')
+        self.ax.text(1.0, 2.0, 'it\'s "x"')
+        self.ax.set_title('a "b"')
+        self.ax.set_xticks([0, 1])
+        self.ax.set_xticklabels(['"0"', "1"])
         gle = self.fig._generate_gle()
-        assert 'write "He said \\"hello\\""' in gle
+        assert "write 'He said \"hello\"'" in gle
+        assert 'write "it\'s "+chr$(34)+"x"+chr$(34)' in gle
+        assert 'title "a ""b"""' in gle
+        assert 'xnames "\\char{34}0\\char{34}" "1"' in gle
 
     def test_text_accepts_bbox_facecolor(self):
         self.ax.text(0.1, 0.2, "boxed", bbox={"facecolor": "yellow"})

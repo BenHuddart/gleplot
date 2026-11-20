@@ -283,6 +283,7 @@ Category                Span coverage
 
 from __future__ import annotations
 
+import collections
 import copy
 import math
 import re
@@ -299,7 +300,7 @@ from ..axes import (
     _let_expression_problem,
     _resolve_data_file,
 )
-from ..colors import GLE_PATTERNS
+from ..colors import _COLOR_EXPR_RE, GLE_PATTERNS, _gle_color_names
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..dataio import (
     ColumnExtractionError,
@@ -362,6 +363,7 @@ from ..writer import (
     IMAGE_LAYER,
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
+    NAME_QUOTE,
     NODES_MARKER,
     POLAR_GRID_LAYER,
     RUG_EDGES,
@@ -840,13 +842,8 @@ def _plain_write_string(stmt: Optional[Statement]) -> Optional[str]:
     if stmt is None:
         return None
     toks = _words_and_values(stmt)
-    if (
-        len(toks) == 2
-        and toks[0].type is TokenType.WORD
-        and toks[0].value.lower() == "write"
-        and toks[1].type is TokenType.STRING
-    ):
-        return _string_value(toks[1])
+    if toks and toks[0].type is TokenType.WORD and toks[0].value.lower() == "write":
+        return _string_expr_value(toks[1:])
     return None
 
 
@@ -1008,6 +1005,44 @@ def _string_value(tok: Token) -> str:
     elif q == "'":
         inner = inner.replace("''", "'")
     return inner
+
+
+def _string_expr_value(toks: List[Token]) -> Optional[str]:
+    """The text of a GLE string expression, or ``None`` if it is not one.
+
+    Reads one quoted string, or the ``"a"+chr$(34)+"b"`` form the writer
+    gives text holding both kinds of quote, since GLE's expression parser
+    rejects an escaped or doubled quote. Any other expression, including a
+    hand-written concatenation, is ``None``, so it stays as written.
+    """
+    if len(toks) == 1 and toks[0].type is TokenType.STRING:
+        return _string_value(toks[0])
+    if any(b.start != a.end for a, b in zip(toks, toks[1:])):
+        return None
+    parts: List[str] = []
+    i, n = 0, len(toks)
+    while True:
+        if i < n and toks[i].type is TokenType.STRING:
+            parts.append(_string_value(toks[i]))
+            i += 1
+        elif (
+            i + 3 < n
+            and toks[i].value.lower() == "chr$"
+            and toks[i + 1].value == "("
+            and toks[i + 2].value == "34"
+            and toks[i + 3].value == ")"
+        ):
+            parts.append('"')
+            i += 4
+        else:
+            return None
+        if i == n:
+            text = "".join(parts)
+            source = "".join(t.value for t in toks)
+            return text if GLEWriter._gle_string_expr(text) == source else None
+        if toks[i].type is not TokenType.OP or toks[i].value != "+":
+            return None
+        i += 1
 
 
 def _num(tok: Token) -> Optional[float]:
@@ -2066,6 +2101,47 @@ class _Recognizer:
             self._insets = set(meta.get("insets") or [])
         return meta
 
+    def _meta_number(self, meta: Dict[str, Any], key: str) -> Union[int, float]:
+        """The metadata's number ``key``, or its default when it is absent.
+
+        A value that is not a finite number is reported and ignored.
+        """
+        default = float(_metadata.DEFAULTS[key])
+        value = meta.get(key, default)
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+        ):
+            # An int stays an int, so the next save writes it the same way.
+            return value
+        self._note(
+            ImportCategory.METADATA,
+            f"{key} = {value!r} is not a number; using {default}",
+            None,
+        )
+        return default
+
+    def _meta_color(self, meta: Dict[str, Any], key: str) -> str:
+        """The metadata's GLE colour ``key``, or its default when it is absent.
+
+        A value that is not a colour token the writer records (a GLE colour
+        name or an expression such as ``rgb255(...)``) is reported and
+        ignored.
+        """
+        default = str(_metadata.DEFAULTS[key])
+        value = meta.get(key, default)
+        if isinstance(value, str) and (
+            value in _gle_color_names() or _COLOR_EXPR_RE.match(value)
+        ):
+            return value
+        self._note(
+            ImportCategory.METADATA,
+            f"{key} = {value!r} is not a GLE colour; using {default}",
+            None,
+        )
+        return default
+
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
         """The ``Figure`` described by the metadata and the preamble."""
         dpi = int(meta.get("dpi", 100))
@@ -2082,13 +2158,19 @@ class _Recognizer:
                     f"'none', 'row' or 'col'; read as {shares[-1]}.",
                 )
         sharex, sharey = shares
-        msize_scale = float(meta.get("msize_scale", 1.0))
-        metadata_extra = {
-            k: v
-            for k, v in meta.items()
-            if k
-            not in ("dpi", "sharex", "sharey", "msize_scale", "import-data", "insets")
-        }
+        msize_scale = self._meta_number(meta, "msize_scale")
+        known = (
+            "dpi",
+            "sharex",
+            "sharey",
+            "msize_scale",
+            "default_linewidth",
+            "default_color",
+            "default_marker_color",
+            "import-data",
+            "insets",
+        )
+        metadata_extra = {k: v for k, v in meta.items() if k not in known}
 
         (
             figsize,
@@ -2101,7 +2183,12 @@ class _Recognizer:
         ) = self._parse_preamble(pre_nodes)
 
         # Build style/graph/marker configs.
-        style = GLEStyleConfig(**page_state)
+        style = GLEStyleConfig(
+            **page_state,
+            default_linewidth=self._meta_number(meta, "default_linewidth"),
+            default_color=self._meta_color(meta, "default_color"),
+            default_marker_color=self._meta_color(meta, "default_marker_color"),
+        )
         self._polar_degree = polar_degree_mark(bool(style.usetex))
         style.font = font
         style.fontsize = fontsize
@@ -3164,6 +3251,9 @@ class _Recognizer:
             # Raw dataset name -> the line, scatter, file line, function or
             # fit series built from it: what a derived let's ``dN`` reads.
             "_dataset_series": {},
+            # Raw dataset name -> an error-bar file series built from it,
+            # which only a raw line (not a derived let) can read.
+            "_errorbar_file_series": {},
             # Offset alias target -> its source (``let dK = dJ+off``).
             "_offset_let_sources": {},
             # A polar axes (GLEWriter.add_polar_frame): the radial limit from
@@ -3177,10 +3267,6 @@ class _Recognizer:
             # line, or a group whose x columns do not match. Filled at the
             # end of pass 1. See ``_mark_bars_that_stay_raw``.
             "_bar_hold_raw": set(),
-            # How many bar commands have already claimed each source file.
-            # The first keeps the name; a later independent series gets
-            # ``stem_2.dat`` so the two writes do not clobber one file.
-            "_claimed_bar_files": {},
             "_bar_group_next": 1,
         }
         # This graph block's own (begin, end) line span -- the fallback
@@ -3207,14 +3293,24 @@ class _Recognizer:
         self._data_read_options.clear()
         self._held_datasets.clear()
         self._noted_unloaded.clear()
+        redefined = self._redefined_let_datasets(block)
         for child in block.body:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
             kw = child.keyword
+            if kw == "let" and self._let_target(child) in redefined:
+                self._hold_dataset(self._let_target(child), pass1.datasets)
+                continue
             if kw == "data":
                 names = self._parse_data_command(
                     _words_and_values(child), pass1.datasets, line_no=child.line_no
                 )
+                if redefined.intersection(names):
+                    # Read by a redefined let: the statement stays as
+                    # written, with every line reading its datasets.
+                    for name in names:
+                        self._hold_dataset(name, pass1.datasets)
+                    names = []
                 # One defining no dataset (an unresolved file, a lone text
                 # column GLE reads as x labels, or an option gleplot cannot
                 # write back) is restored as written.
@@ -3276,6 +3372,54 @@ class _Recognizer:
         self._keep_plain_derived_lets(block, pass1, info)
         self._keep_plain_function_lets(block, pass1, info)
         return pass1
+
+    @staticmethod
+    def _let_target(stmt) -> Optional[str]:
+        """The ``dK`` a ``let`` statement defines, lowercased, or None."""
+        toks = _words_and_values(stmt)
+        if len(toks) < 2 or not _DATASET_RE.match(toks[1].value):
+            return None
+        return toks[1].value.lower()
+
+    def _redefined_let_datasets(self, block: GraphBlock) -> Set[str]:
+        """The datasets a ``let`` redefined by a later ``let`` reads or makes.
+
+        gleplot models a dataset that one ``let`` defines. When a later
+        ``let`` in ``block`` redefines it, both stay raw GLE, and so does
+        each dataset they read and each ``let`` that reads one of those
+        (each target is noted once).
+        """
+        lets = []
+        for child in block.body:
+            if isinstance(child, Statement) and child.keyword == "let":
+                target = self._let_target(child)
+                if target is not None:
+                    toks = _words_and_values(child)
+                    reads = " ".join(tok.value for tok in toks[2:])
+                    names = {m.lower() for m in _DATASET_NAME_RE.findall(reads)}
+                    lets.append((target, names, child.line_no))
+        counts = collections.Counter(target for target, _names, _line in lets)
+        held: Set[str] = set()
+        for target, _names, line_no in lets:
+            if counts[target] > 1 and target not in held:
+                held.add(target)
+                self._note(
+                    ImportCategory.DATA,
+                    f"{target} is defined by more than one let; those lets, "
+                    "the data they read and the lines that draw them were "
+                    "kept as raw GLE",
+                    (line_no, line_no),
+                )
+        grown = True
+        while grown:
+            size = len(held)
+            for target, names, _line_no in lets:
+                if target in held:
+                    held |= names
+                elif names & held:
+                    held.add(target)
+            grown = len(held) != size
+        return held
 
     def _record_colour_let(self, stmt, datasets, info) -> None:
         """Record a per-point colour's ``let`` (see ``_CDATA_LET_RE``)."""
@@ -3850,7 +3994,10 @@ class _Recognizer:
                 label=marker["label"],
                 data_file=None,
             )
-            expected = GLEWriter.span_draw_lines(span, color)
+            edges = self._written_position(marker, "range")
+            if edges is None:
+                return None
+            expected = GLEWriter.span_draw_lines(span, color, edges)
             return span if expected == group else None
         toks = [t for t in tokenize_line(group[2]) if t.type is not TokenType.COMMENT]
         if [t.value.lower() for t in toks[:2]] != ["set", "color"]:
@@ -3883,8 +4030,28 @@ class _Recognizer:
             label=marker["label"],
             data_file=None,
         )
-        expected = GLEWriter.refline_draw_lines(ref, lwidth, lstyle)
+        value = self._written_position(marker, "value")
+        if value is None:
+            return None
+        expected = GLEWriter.refline_draw_lines(ref, lwidth, lstyle, value[0])
         return ref if expected == group else None
+
+    @staticmethod
+    def _written_position(marker: dict, key: str) -> Optional[List[str]]:
+        """A guide marker's ``key`` numbers as written, if gleplot's own.
+
+        The writer writes them at the precision of the axis they lie on,
+        which is not known here, and draws the guide with the same text: a
+        number as six or more significant figures write it. ``None`` for
+        any other spelling (``2.50``), which is then kept as raw GLE.
+        """
+        texts = marker["texts"][key]
+        for text, value in zip(texts, marker["fields"][key]):
+            if text != GLEWriter._format_number(value) and not any(
+                text == f"{value:.{p}g}" for p in range(6, 18)
+            ):
+                return None
+        return texts
 
     def _seed_post_graph_guides(self, block: GraphBlock, info) -> None:
         """Put the guides read after this graph on its axes, first."""
@@ -4014,17 +4181,18 @@ class _Recognizer:
 
         Split positionally on whitespace (:meth:`_split_call_words`), not by
         :func:`_collect_value`'s maximal-expression scan -- see that method's
-        docstring for why (G17.1). Each resulting word is either a single
-        quoted string (unwrapped the same way a real statement's string
-        arguments are, so an escaped quote survives) or a numeric expression
+        docstring for why (G17.1). Each resulting word is either a string
+        (read by :func:`_string_expr_value`, so an embedded quote survives)
+        or a numeric expression
         evaluated whole by :func:`eval_gle_number`. A word that is neither
         ends the scan, which makes the caller reject the call rather than
         half-read it.
         """
         out: List[object] = []
         for word in cls._split_call_words(toks, start):
-            if len(word) == 1 and word[0].type is TokenType.STRING:
-                out.append(_string_value(word[0]))
+            text = _string_expr_value(word)
+            if text is not None:
+                out.append(text)
                 continue
             value = eval_gle_number(word)
             if value is None:
@@ -4163,6 +4331,7 @@ class _Recognizer:
             return None
         required = dict(GUIDE_MARKER_FIELDS[kind])
         fields: Dict[str, List[float]] = {}
+        texts: Dict[str, List[str]] = {}
         label: Optional[str] = None
         i = 2
         m = len(toks)
@@ -4180,6 +4349,7 @@ class _Recognizer:
             if arity is None or word in fields:
                 return None
             values: List[float] = []
+            written: List[str] = []
             j = i + 1
             for position in range(arity):
                 if position:
@@ -4189,15 +4359,24 @@ class _Recognizer:
                     if j >= m or toks[j].value != ",":
                         return None
                     j += 1
+                start = j
                 value, j = _collect_value(toks, j)
                 if value is None:
                     return None
                 values.append(value)
+                written.append("".join(t.value for t in toks[start:j]))
             fields[word] = values
+            texts[word] = written
             i = j
         if set(fields) != set(required):
             return None
-        return {"kind": kind, "orient": orient, "fields": fields, "label": label}
+        return {
+            "kind": kind,
+            "orient": orient,
+            "fields": fields,
+            "texts": texts,
+            "label": label,
+        }
 
     @staticmethod
     def _marked_dataset_name(body, start: int, kind: str) -> Optional[str]:
@@ -5452,7 +5631,14 @@ class _Recognizer:
         m = len(toks)
         if is_names:
             while i < m and toks[i].type is TokenType.STRING:
-                values.append(_string_value(toks[i]))
+                # GLE strips a name's outer double quotes and nothing else
+                # (do_names in graph.cpp), so a doubled quote is two quotes.
+                raw = toks[i].value
+                if toks[i].quote == '"' and len(raw) >= 2 and raw.endswith('"'):
+                    name = raw[1:-1]
+                else:
+                    name = _string_value(toks[i])
+                values.append(name.replace(NAME_QUOTE, '"'))
                 i += 1
         else:
             while i < m:
@@ -6112,11 +6298,13 @@ class _Recognizer:
         if len(grown) != 1 or len(info[grown[0]]) != before[grown[0]] + 1:
             return
         entry = info[grown[0]][-1]
-        if grown[0] == "file_series" and entry.get("series_type") != "line":
-            return
         name = info["_polar_aliases"].get(name.lower(), name.lower())
         raw = info["_offset_let_sources"].get(name, name)
-        info["_dataset_series"][raw] = entry
+        kind = entry.get("series_type") if grown[0] == "file_series" else "line"
+        if kind == "line":
+            info["_dataset_series"][raw] = entry
+        elif kind == "errorbar":
+            info["_errorbar_file_series"][raw] = entry
 
     @staticmethod
     def _bind_raw_readers(info) -> None:
@@ -6128,9 +6316,10 @@ class _Recognizer:
         ``data`` or ``let`` defines is that raw dataset's, not the series'.
         """
         defined, read, _bare = GLEWriter.raw_dataset_use(info["passthrough"])
-        for name, entry in info["_dataset_series"].items():
-            if name in read - defined:
-                entry["_gle_name"] = name
+        for series in (info["_dataset_series"], info["_errorbar_file_series"]):
+            for name, entry in series.items():
+                if name in read - defined:
+                    entry["_gle_name"] = name
 
     def _commit_derived_lets(self, info) -> None:
         """Turn the recorded derived lets into series, if every one can be.
@@ -6737,22 +6926,6 @@ class _Recognizer:
                 return False
         return True
 
-    @staticmethod
-    def _claim_bar_file(info, name: str) -> str:
-        """The sidecar name for this bar command.
-
-        The first command to use a source file keeps that name. A later
-        independent command gets ``stem_2.dat``, because the writer
-        rewrites a series' file in place and two series must not share one.
-        """
-        claimed = info["_claimed_bar_files"]
-        count = claimed.get(name, 0)
-        claimed[name] = count + 1
-        if count == 0:
-            return name
-        path = Path(name)
-        return str(path.with_name(f"{path.stem}_{count + 1}{path.suffix}"))
-
     def _keep_bar_raw(self, scanned, info, stmt, toks, user_file=None) -> None:
         """Passthrough for a ``bar`` command, with the note that says why.
 
@@ -6894,8 +7067,7 @@ class _Recognizer:
             self._keep_bar_raw(scanned, info, stmt, toks)
             return
 
-        source_file = datasets[names[0]][0]
-        data_file = self._claim_bar_file(info, source_file)
+        data_file = datasets[names[0]][0]
         group_id = None
         if len(names) > 1:
             group_id = info["_bar_group_next"]
@@ -7339,8 +7511,11 @@ class _Recognizer:
         # File-vs-import classification decided later per data_file. First
         # figure out the data_file for the main dataset.
         if d_name not in datasets:
-            # Unknown dataset ref -> passthrough (defensive).
+            # A dataset raw GLE defines (a 'let' kept raw) -> passthrough,
+            # and a raw line, so the 'data' statements of the datasets it
+            # names are kept (_restore_orphaned_data_stmts).
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
+            info["_raw_datasets"].add(d_name)
             return
         data_file, xcol, ycol = datasets[d_name]
 
@@ -8436,14 +8611,7 @@ class _Recognizer:
                 continue
             self._contour_blocks[zfile] = info
             self._mark_block_consumed(node)
-            for sl in info["dropped"]:
-                self._note(
-                    ImportCategory.DATA,
-                    f"{sl.text.strip()!r} in the begin contour block for "
-                    f"{zfile!r} is not modelled and is not written back on "
-                    "save; add it to the saved file by hand if you need it",
-                    (sl.line_no, sl.line_no),
-                )
+            self._note_dropped_block_lines(info["dropped"], "contour", zfile)
 
         # A fitz block is ours iff its generated .z feeds a recognized colormap
         # or a recognized contour block, AND its scattered points are readable.
@@ -8454,6 +8622,22 @@ class _Recognizer:
                 continue
             self._fitz_blocks[zfile] = info
             self._mark_block_consumed(node)
+            dropped = list(info["dropped"])
+            if zfile not in self._contour_blocks and info["ncontour_line"]:
+                # A colormap's grid: the writer writes no ncontour for it.
+                dropped.append(info["ncontour_line"])
+            self._note_dropped_block_lines(dropped, "fitz", zfile)
+
+    def _note_dropped_block_lines(self, lines, kind: str, zfile: str) -> None:
+        """Note each line of a recovered ``begin <kind>`` block not written back."""
+        for sl in sorted(lines, key=lambda sl: sl.line_no):
+            self._note(
+                ImportCategory.DATA,
+                f"{sl.text.strip()!r} in the begin {kind} block for "
+                f"{zfile!r} is not modelled and is not written back on "
+                "save; add it to the saved file by hand if you need it",
+                (sl.line_no, sl.line_no),
+            )
 
     def _mark_block_consumed(self, node: OpaqueBlock) -> None:
         if node.begin.source_line is not None:
@@ -8560,32 +8744,53 @@ class _Recognizer:
         ``marker`` the node-grid comment line a heatmap's block holds, from
         which :meth:`_fitz_heatmap_grid` reads a colormap's grid instead.
         ``zfile`` is the generated grid name (points base + ``.z``).
+        ``dropped`` lists the other non-blank lines, which are not rewritten,
+        and ``ncontour_line`` the ``ncontour`` line, which only a contour
+        writes back. A ``data``, ``x``, ``y`` or ``ncontour`` line it cannot
+        read whole, or a repeated one (a marker line too), keeps the block as
+        written.
         """
         data_file = None
         xr = yr = None
         ncontour = None
+        ncontour_line = None
         marker = None
+        dropped: List[SourceLine] = []
+        seen: Set[str] = set()
         for sl in node.inner_lines:
             if sl.text.strip().startswith(NODES_MARKER + " "):
+                if marker is not None:
+                    return None
                 marker = sl
                 continue
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
+                if sl.text.strip():
+                    dropped.append(sl)
                 continue
             kw = toks[0].value.lower()
-            if kw == "data" and len(toks) >= 2:
+            if kw not in ("data", "x", "y", "ncontour"):
+                dropped.append(sl)
+                continue
+            if kw in seen or len(toks) < 2:
+                return None
+            seen.add(kw)
+            if kw == "data":
                 data_file, _ = self._read_filename(toks, 1)
-            elif kw in ("x", "y") and len(toks) >= 6:
+            elif kw in ("x", "y"):
                 rng = self._parse_from_to_step(toks)
-                if rng is not None:
-                    if kw == "x":
-                        xr = rng
-                    else:
-                        yr = rng
-            elif kw == "ncontour" and len(toks) >= 2:
+                if rng is None:
+                    return None
+                if kw == "x":
+                    xr = rng
+                else:
+                    yr = rng
+            else:
                 n = _num(toks[1])
-                if n is not None:
-                    ncontour = int(n)
+                if len(toks) != 2 or n is None or n != int(n):
+                    return None
+                ncontour = int(n)
+                ncontour_line = sl
         if data_file is None or xr is None or yr is None:
             return None
         x0, x1, xstep = xr
@@ -8603,6 +8808,8 @@ class _Recognizer:
             "ncontour": ncontour,
             "ranges": (xr, yr),
             "marker": marker,
+            "dropped": dropped,
+            "ncontour_line": ncontour_line,
         }
 
     def _fitz_heatmap_grid(self, fitz: dict) -> Tuple[List[float], List[int]]:

@@ -480,3 +480,31 @@ def test_a_dropped_marker_never_survives_as_raw_text(tmp_path):
     assert GUIDE_MARKER_PREFIX not in "\n".join(figure.passthrough_trailer)
     # The demoted series is still there, and still draws the same picture.
     assert len(figure.axes_list[0].lines) == 2
+
+
+@pytest.mark.parametrize(
+    "marker, call",
+    [
+        ("refline v value 2.50 extent 0,1", "graph_vline 2.50"),
+        (
+            "span v range 2 ,3 extent 0,1",
+            "amove xg(2) yg(ygmin)\nbox xg(3)-xg(2) yg(ygmax)-yg(ygmin) fill RED nobox",
+        ),
+    ],
+)
+def test_an_after_graph_guide_spelled_another_way_is_kept_as_written(
+    tmp_path, marker, call
+):
+    """A position gleplot would not write (#417) is kept as raw GLE."""
+    set_line = "set color BLACK lwidth 0.05\n" if "refline" in marker else ""
+    text = (
+        "size 10 8\nbegin graph\n   xaxis min 0 max 5\nend graph\n"
+        f"! gleplot:guide {marker}\ngsave\n{set_line}{call}\ngrestore\n"
+    )
+    p = tmp_path / "f.gle"
+    p.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert not ax.reflines and not ax.spans
+    out = rec.figure._generate_gle_with_files()[0]
+    assert call.splitlines()[-1] in out

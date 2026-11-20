@@ -397,6 +397,33 @@ def test_a_grouped_bar_shares_one_command(tmp_path, monkeypatch):
     assert Path("again.gle").read_text(encoding="utf-8") == text
 
 
+def test_a_second_bar_on_one_sidecar_never_takes_a_users_file(tmp_path, monkeypatch):
+    """Both bars write back into the one file; no ``s_2.dat`` is made (#428)."""
+    monkeypatch.chdir(tmp_path)
+    body = (
+        "size 8 6\n"
+        "begin graph\n"
+        '   data "s.dat" d1=c1,c2\n'
+        '   data "s.dat" d2=c1,c3\n'
+        "   bar d1 fill red\n"
+        "   bar d2 fill blue\n"
+        "end graph\n"
+    )
+    _write(tmp_path, "s.gle", body, {"s.dat": "1 5 6\n2 3 4\n"})
+    (tmp_path / "s_2.dat").write_text("the user's own\n", encoding="utf-8")
+    rec = parse_gle_figure("s.gle")
+    rec.figure.savefig_gle("out.gle")
+    assert Path("s_2.dat").read_text(encoding="utf-8") == "the user's own\n"
+    text = Path("out.gle").read_text(encoding="utf-8")
+    assert "data s.dat d1=c1,c2" in text
+    assert "data s.dat d2=c1,c3" in text
+    assert "s_2.dat" not in text
+    assert Path("s.dat").read_text(encoding="utf-8").splitlines()[1:] == [
+        "1 5 6",
+        "2 3 4",
+    ]
+
+
 def test_a_missing_grouped_bar_stays_missing(tmp_path, monkeypatch):
     """A ``*`` row comes back as ``*``, never as a ``nan`` GLE draws (#317)."""
     monkeypatch.chdir(tmp_path)

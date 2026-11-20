@@ -276,6 +276,15 @@ matplotlib. A format outside that subset, such as a colour name `'red'`,
 warns and is ignored. `errorbar(fmt='none')` draws only the error bars, with
 no markers even when `marker=` is given.
 
+`errorbar`'s `yerr` and `xerr` take matplotlib's shapes: a scalar, `N` values
+(one symmetric error per point), or shape `(2, N)` (a lower row and an upper
+row, such as a `(lower, upper)` tuple). gleplot used to read every
+two-element sequence as `(lower, upper)`: `yerr=[0.1, 0.2]` on two points drew 0.1
+below and 0.2 above both, and on any other number of points it was spread
+over every point. It is now one error per point on two points, as in
+matplotlib, and raises `ValueError` on any other number of points; pass
+`yerr=([0.1] * N, [0.2] * N)` for the old drawing.
+
 ## Marker spacing, thinning and data ranges
 
 GLE has no "mark every Nth point". `plot(markevery=...)` warns and is ignored. Use `mdist` instead: it places the markers every `mdist` cm along the drawn curve, whatever the point spacing. That is closest to matplotlib's float form of `markevery`. These keywords are gleplot's names for GLE's dataset qualifiers, and `scatter` passes them on to `plot`:
@@ -583,6 +592,12 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     warns that it dropped the masked samples. As in matplotlib, `fill`,
     `stackplot` and the `bar` positions and `bottom` use the values under
     the mask.
+15. A line on a log axis leaves a negative point out and joins its
+    neighbours, where matplotlib draws the line off the axis there; a zero
+    goes down to the axis edge, as in matplotlib. Saving warns when a
+    `plot` or `step` line has a negative value on a log axis. Set those
+    values to NaN to break
+    the line there, see [Axes and Legends](AXES_AND_LEGENDS.md).
 
 ## Migration Strategy
 
