@@ -3124,8 +3124,7 @@ class Figure:
                 writer.end_graph()
 
             self._write_page_content(writer, resolution)
-            if self.passthrough_trailer:
-                writer.lines_gle.extend(self.passthrough_trailer)
+            writer.lines_gle.extend(self._trailer_lines())
         else:
             # Multi-subplot layout
             writer.add_preamble(
@@ -3185,10 +3184,12 @@ class Figure:
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
                 writer.lines_gle.append("")  # Blank line between subplots
+                if ax is not self.axes_list[-1]:
+                    writer.lines_gle.extend(ax.trailing_passthrough)
 
             self._write_page_content(writer, resolution)
             writer.finalize(
-                include_graph_end=False, passthrough_trailer=self.passthrough_trailer
+                include_graph_end=False, passthrough_trailer=self._trailer_lines()
             )
 
         # Provider-table sidecars are only complete once every series that
@@ -3453,6 +3454,16 @@ class Figure:
         }
         subs.extend(text for name, text in IMAGE_SUBS.items() if name in used_images)
         return subs
+
+    def _trailer_lines(self) -> List[str]:
+        """The raw GLE written after the page content.
+
+        The last axes' ``trailing_passthrough`` goes here, ahead of the
+        figure's trailer: after the last graph block, the page content comes
+        first, and a file is read back that way.
+        """
+        last = self.axes_list[-1].trailing_passthrough if self.axes_list else []
+        return [*last, *self.passthrough_trailer]
 
     def _write_page_content(
         self, writer: GLEWriter, resolution: SourceResolution
