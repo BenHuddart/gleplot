@@ -227,8 +227,8 @@ class TestScatterPlots:
         "extra, drawn",
         [
             ({}, "marker FCIRCLE"),
-            ({"s": [10, 40]}, "marker gleplot_mdata_fcircle "),
-            ({"c": [1, 2]}, "marker gleplot_cdata_fcircle_"),
+            ({"s": [10, 40]}, "marker glp_mdata_fcircle "),
+            ({"c": [1, 2]}, "marker glp_cdata_fcircle_"),
         ],
     )
     def test_scatter_marker_none_is_the_default_circle(self, extra, drawn):
@@ -2274,6 +2274,29 @@ class TestHistogram:
             self.ax.hist([0, 1], histtype="step", color="g", edgecolor="none")
         assert "d2 line hist color GREEN" in self._script()
 
+    def test_stepfilled_edgecolor_none_strokes_in_the_fill(self):
+        """GLE strokes every bar; the fill's ink is the stroke nobody sees."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.hist([0, 1], histtype="stepfilled", color="y", edgecolor="none")
+        assert "bar d2 fill YELLOW color YELLOW" in self._script()
+
+    @pytest.mark.parametrize("histtype", ["step", "stepfilled"])
+    def test_an_rgba_colours_alpha_does_not_reach_the_edge(self, histtype):
+        self.ax.hist([0, 1], histtype=histtype, color=(0, 0, 1, 0.3), edgecolor="k")
+        expected = {
+            "step": "d2 line hist color BLACK ",
+            "stepfilled": "bar d2 fill rgba255(0,0,255,76) color BLACK ",
+        }[histtype]
+        assert expected in self._script()
+
+    def test_alpha_and_an_rgba_edge_reach_the_edge(self):
+        self.ax.hist([0, 1], histtype="step", edgecolor=(1, 0, 0, 0.5))
+        self.ax.hist([0, 1], histtype="stepfilled", edgecolor="k", alpha=0.5)
+        script = self._script()
+        assert "line hist color rgba255(255,0,0,128)" in script
+        assert "bar d4 fill rgba255(0,0,255,128) color rgba255(0,0,0,128)" in script
+
     @pytest.mark.parametrize("histtype", ["bar", "step", "stepfilled"])
     def test_a_bad_edgecolor_is_rejected_for_every_histtype(self, histtype):
         with warnings.catch_warnings():
@@ -3404,20 +3427,6 @@ def test_a_reference_line_position_must_be_a_finite_number(draw, error, shown):
     with pytest.raises(error, match=re.escape(shown)):
         draw(ax)
     assert ax.reflines == [] and ax.spans == []
-
-
-@pytest.mark.parametrize(
-    "draw, shown",
-    [
-        (lambda bax: bax.axhline(float("nan")), "axhline(y=...)"),
-        (lambda bax: bax.axhspan(0, float("nan")), "axhspan(ymax=...)"),
-    ],
-)
-def test_a_broken_y_axis_guide_position_must_be_a_finite_number(draw, shown):
-    fig = glp.figure()
-    bax = fig.add_broken_yaxes(ylims=[(0, 1), (2, 3)])
-    with pytest.raises(ValueError, match=re.escape(shown)):
-        draw(bax)
 
 
 @pytest.mark.parametrize("no_line", ["none", "None", "", " "])

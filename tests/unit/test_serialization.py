@@ -459,13 +459,8 @@ def test_global_data_counter_takes_max_with_in_process_value(monkeypatch):
 # format: `figure` is a back-reference to the parent Figure (set by the
 # constructor from the caller, not user/plot state), reconstructed by
 # Figure.from_dict passing itself into Axes.from_dict.
-# `_break_owner` is the same kind of thing for a broken-axis segment: a
-# back-reference to the BrokenAxes that owns it, rebound by Figure.from_dict
-# once every axes exists (the grouping itself IS persisted, as
-# figure["broken_axes"], by index into figure["axes"]).
 _AXES_RUNTIME_ONLY_ATTRS = {
     "figure",
-    "_break_owner",
     # Rebuilt in from_dict from the max ``_draw_seq`` on loaded series.
     "_draw_seq_counter",
 }
@@ -553,7 +548,6 @@ _AXES_SERIALIZED_ATTRS = {
     "_y2axis_off",
     "_frame_off",
     "_polar",
-    "_break_index",
     # Axes styling (tick-label formats, grids, axis-title / tick-label /
     # graph-title size-colour-distance-angle). Enumerated by
     # ``gleplot.axes._STYLING_KEYS``, which is also what to_dict/from_dict
@@ -605,7 +599,6 @@ _FIGURE_SERIALIZED_ATTRS = {
     "graph",
     "marker_config",
     "axes_list",
-    "broken_axes",
     "passthrough_before_hei",
     "passthrough_header",
     "passthrough_trailer",
@@ -1304,6 +1297,18 @@ def test_the_auto_states_do_not_change_the_serialized_shape_of_anything_else():
 
     assert after["figure"]["axes"][:3] == before["figure"]["axes"][:3]
     assert len(after["figure"]["axes"]) == len(before["figure"]["axes"]) + 1
+
+
+def test_a_project_with_a_broken_axis_loads_its_segments_as_axes():
+    """An older project's segments, which share one place, all load."""
+    fig = glp.figure()
+    for x in ([0, 1], [5, 6]):
+        fig.add_subplot(111).plot(x, [0, 1])
+    d = fig.to_dict()
+    d["figure"]["broken_axes"] = [{"segments": [0, 1], "axis": "x"}]
+    with pytest.warns(UserWarning, match="drawn over each other"):
+        back = Figure.from_dict(d)
+    assert [len(ax.lines) for ax in back.axes_list] == [1, 1]
 
 
 def test_a_gleplot_5_project_cmap_gle_lacks_is_drawn_with_the_closest():

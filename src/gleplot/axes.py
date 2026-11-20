@@ -2626,7 +2626,7 @@ class Axes:
         self._show_yticks = True
         # Edge tick-label suppression for touching subplots. Normally written
         # by Figure._apply_shared_axes_flags, but initialized here so a
-        # directly-constructed Axes (e.g. a broken-axis segment) has them too.
+        # directly-constructed Axes has them too.
         self._remove_last_xtick = False
         self._remove_last_ytick = False
         self._remove_first_xtick = False
@@ -2820,8 +2820,6 @@ class Axes:
         self.math_mode: Optional[bool] = None
 
         # Frame sides switched off entirely -- axis line, ticks and labels.
-        # Used for the inner edges of a broken-axis assembly, where several
-        # graph blocks butt together and must read as one panel.
         self._xaxis_off = False
         self._yaxis_off = False
         self._x2axis_off = False
@@ -2831,13 +2829,6 @@ class Axes:
         # A polar axes (Figure.add_subplot(projection='polar')): x is theta
         # in radians, y is r, and ylim is (0, rmax).
         self._polar = False
-
-        # Broken-axis membership (see :mod:`gleplot.brokenaxes`). Both stay
-        # None on an ordinary axes; on a segment, ``_break_owner`` is the
-        # BrokenAxes back-reference and ``_break_index`` its 0-based position
-        # left-to-right.
-        self._break_owner: Any = None
-        self._break_index: Optional[int] = None
 
         # Plot data storage. One list per series kind, each holding the
         # matching :mod:`gleplot.series` class (which owns that kind's field
@@ -3459,10 +3450,12 @@ class Axes:
         stacks belong to the bar grammar, so they ignore ``edgecolor`` with a
         warning. ``edgecolor`` is the line colour of a ``'step'`` histogram,
         as in matplotlib, and the bar stroke of a ``'stepfilled'`` one;
-        ``'face'`` is ``color``. Bins are equal width. The window is always
-        written into the ``let`` (data min/max when ``range`` is omitted,
-        widened by half a unit when every sample is the same value), so GLE
-        does not re-bin over the axis.
+        ``'face'`` is ``color``, and so is a ``'stepfilled'`` ``'none'``,
+        since GLE strokes every bar. ``alpha=`` reaches an explicit edge
+        colour; an RGBA ``color``'s own alpha does not. Bins are equal width.
+        The window is always written into the ``let`` (data min/max when
+        ``range`` is omitted, widened by half a unit when every sample is the
+        same value), so GLE does not re-bin over the axis.
 
         Returns this axes. matplotlib's ``(counts, edges, patches)`` is not
         available: the counts are computed by GLE at draw time.
@@ -3604,26 +3597,28 @@ class Axes:
             if series_alpha is not None:
                 ink = apply_alpha(ink, series_alpha)
             # The stroke is the fill unless the caller named an edge, so
-            # the shared boundary of two bins is not a second ink.
+            # the shared boundary of two bins is not a second ink. 'face' is
+            # the fill, and so is a stepfilled 'none': GLE strokes every bar
+            # (lwidth 0 and CLEAR still draw a black hairline), and the
+            # fill's ink is the stroke that shows least.
             stroke = ink
-            if isinstance(one_edge, str) and one_edge.strip().lower() == "face":
-                one_edge = None
-            if (
-                style_name == "step"
-                and isinstance(one_edge, str)
-                and one_edge.strip().lower() == "none"
-            ):
-                if not as_bars:
-                    warn(
-                        "hist(histtype='step', edgecolor='none') would draw "
-                        "nothing; the line is drawn in color. Leave the "
-                        "histogram out to draw nothing."
-                    )
+            edge_name = one_edge.strip().lower() if isinstance(one_edge, str) else None
+            if edge_name == "none" and style_name == "step" and not as_bars:
+                warn(
+                    "hist(histtype='step', edgecolor='none') would draw "
+                    "nothing; the line is drawn in color. Leave the "
+                    "histogram out to draw nothing."
+                )
+            if edge_name in ("face", "none"):
                 one_edge = None
             if one_edge is not None:
-                stroke = self._resolve_color(one_edge, arg="edgecolor")
-                if series_alpha is not None:
-                    stroke = apply_alpha(stroke, series_alpha)
+                edge_rgb, edge_alpha = _rgba_parts(one_edge)
+                stroke = self._resolve_color(edge_rgb, arg="edgecolor")
+                # As in matplotlib, alpha= reaches the edge; an RGBA face
+                # colour's own alpha does not.
+                if one_alpha is not None:
+                    edge_alpha = one_alpha
+                stroke = apply_alpha(stroke, edge_alpha)
             fields = dict(
                 samples=np.asarray(samples, dtype=float),
                 bins=n_bins,
@@ -4876,13 +4871,13 @@ class Axes:
         negative or infinite; a one-element array is a single size. A NaN or
         masked size leaves that point out, as in matplotlib. GLE's ``mdata``
         scales only a marker drawn by a subroutine, so the script gets a
-        ``gleplot_mdata_<marker>`` sub that draws the built-in marker at each
+        ``glp_mdata_<marker>`` sub that draws the built-in marker at each
         point's size. The legend marker's area is halfway between the largest
         and smallest point's, as in matplotlib's legend. Per-point sizes
         cannot be combined with ``mdist`` or ``deresolve``.
 
         Per-point colours (numeric ``c``) work the same way: the script gets
-        a ``gleplot_cdata_<marker>_<cmap>`` sub that draws the built-in
+        a ``glp_cdata_<marker>_<cmap>`` sub that draws the built-in
         marker in each point's colour. The values are written to the data
         file as given, and a ``let`` maps them onto the colormap. A point
         whose value is not finite is left out, as matplotlib leaves it out
@@ -6253,9 +6248,7 @@ class Axes:
     #    than lines for the same reason.)
     #
     # GLE clips datasets to the graph's axis range, so a guide whose value
-    # falls outside the visible range simply does not appear -- which is what
-    # makes these compose correctly with broken axes, where each segment shows
-    # only the guides that land inside it.
+    # falls outside the visible range simply does not appear.
 
     @staticmethod
     def _check_axes_fraction(lo: float, hi: float, names: str) -> Tuple[float, float]:
@@ -7685,7 +7678,7 @@ class Axes:
         Notes
         -----
         GLE has no filled contour. A ``contourf`` is a heatmap whose palette
-        sub (``gleplot_contourf<k>``) colours each value by the band it falls
+        sub (``glp_contourf<k>``) colours each value by the band it falls
         in. GLE's colormap smooths the grid with a cubic B-spline first, so a
         band edge is drawn near its level, not on it. When some edge would
         land more than one bitmap pixel away (a coarse grid for the number
@@ -8900,8 +8893,7 @@ class Axes:
         labels : sequence of str, optional
             Tick labels (GLE ``xnames``), one per entry of ``ticks``.
         dticks : float, optional
-            Major tick interval (GLE ``dticks``) -- the usual way to keep two
-            segments of a broken axis from colliding at the seam.
+            Major tick interval (GLE ``dticks``).
         dsubticks : float, optional
             Minor tick interval (GLE ``dsubticks``).
         nticks : int, optional
@@ -9197,7 +9189,7 @@ class Axes:
         TypeError
             If ``aspect`` is neither a string nor a number.
         NotImplementedError
-            On a polar axes or a broken-axis segment.
+            On a polar axes.
 
         Notes
         -----
@@ -9217,12 +9209,6 @@ class Axes:
         >>> fig, ax = glp.subplots()
         >>> ax.set_aspect("equal")
         """
-        if self._break_owner is not None:
-            raise NotImplementedError(
-                "set_aspect() is not supported on a broken-axis segment: the "
-                "segments share one height. Choose figsize and the limits "
-                "instead."
-            )
         if isinstance(aspect, str) and aspect in ("auto", "equal"):
             value: Optional[float] = None if aspect == "auto" else 1.0
         else:
@@ -10209,7 +10195,6 @@ class Axes:
             "x2axis_off": self._x2axis_off,
             "y2axis_off": self._y2axis_off,
             "frame_off": self._frame_off,
-            "break_index": self._break_index,
             # Explicit page geometry (see __init__): the frame rect, or the
             # verbatim geometry statements when no rect is invertible. Both
             # unset = auto placement.
@@ -10350,9 +10335,6 @@ class Axes:
         ax._polar = d.get("polar", False)
         ax._aspect = d.get("aspect")
         ax._facecolor = d.get("facecolor")
-        # ``_break_owner`` is a back-reference rebound by Figure.from_dict
-        # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
-        ax._break_index = d.get("break_index")
 
         # Explicit page geometry. Missing keys = a pre-geometry payload, i.e.
         # auto placement -- exactly what those figures rendered as.

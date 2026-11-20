@@ -65,7 +65,7 @@ pip install -e ".[dev]"
 - [Error bars](https://benhuddart.github.io/gleplot/gallery.html#combined-x-y-error-bars), symmetric or asymmetric, in x and y
 - [Fills between curves](https://benhuddart.github.io/gleplot/gallery.html#fill-between)
 - [Heatmaps](https://benhuddart.github.io/gleplot/gallery.html#heatmap-imshow) and [contours](https://benhuddart.github.io/gleplot/gallery.html#phase-diagram-tripcolor-tricontour) with colour bars
-- [Subplots](https://benhuddart.github.io/gleplot/gallery.html#x2-subplot-grid), [shared axes](https://benhuddart.github.io/gleplot/gallery.html#shared-x-axis-stacked) and [broken axes](https://benhuddart.github.io/gleplot/gallery.html#broken-x-axis-double-slash-break)
+- [Subplots](https://benhuddart.github.io/gleplot/gallery.html#x2-subplot-grid) and [shared axes](https://benhuddart.github.io/gleplot/gallery.html#shared-x-axis-stacked)
 - [Log scales](https://benhuddart.github.io/gleplot/gallery.html#log-scale), [secondary axes](https://benhuddart.github.io/gleplot/gallery.html#secondary-y-axis) and [polar plots](https://benhuddart.github.io/gleplot/gallery.html#polar-plot)
 - [Reference lines and shaded spans](https://benhuddart.github.io/gleplot/guides/REFERENCE_LINES_AND_SPANS.html), [text and arrows](https://benhuddart.github.io/gleplot/gallery.html#text-annotations)
 - [Series read from existing data files](https://benhuddart.github.io/gleplot/guides/FILE_BASED_SERIES.html)

@@ -109,12 +109,10 @@ def test_the_prl_demo_fit_curves_are_dashed(tmp_path):
 
     t = np.linspace(0.0, 3.0, 40)
     fig = glp.figure(figsize=(3.4, 2.7), data_prefix="lsprl")
-    bax = fig.add_broken_xaxes(
-        [(0.0, 0.02), (0.02, 3.0)], width_ratios=[1, 3], divider="slash"
-    )
-    bax.set_ylim(0.0, 28.0)
-    bax.plot(t, 10.0 * np.exp(-t) + 2.4, color="blue", linestyle="--")
-    bax.axhline(2.4, color="gray", linestyle=":")
+    ax = fig.add_subplot(111)
+    ax.set_ylim(0.0, 28.0)
+    ax.plot(t, 10.0 * np.exp(-t) + 2.4, color="blue", linestyle="--")
+    ax.axhline(2.4, color="gray", linestyle=":")
 
     out = fig.savefig(str(tmp_path / "prl.eps"))
     patterns = _dash_patterns(out)

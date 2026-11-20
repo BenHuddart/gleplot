@@ -585,9 +585,9 @@ def test_contourf_writes_bands_through_its_own_palette_sub():
     assert hm["extend"] == "min"
     assert hm["extent"] == [0.0, 4.0, 0.0, 2.0]
     lines = text.splitlines()
-    start = lines.index("sub gleplot_contourf1 z")
+    start = lines.index("sub glp_contourf1 z")
     assert lines[start : start + 9] == [
-        "sub gleplot_contourf1 z",
+        "sub glp_contourf1 z",
         "   ! gleplot: contourf cmap gray extend min vmin 0 levels 1 2 3 4",
         "   if z < 1 then return cmap_gray(0)",
         "   if z > 4 then return rgb(1, 1, 1)",
@@ -599,8 +599,7 @@ def test_contourf_writes_bands_through_its_own_palette_sub():
     ]
     assert "sub cmap_gray z" in lines  # the band sub calls it
     assert (
-        '    colormap "t_heatmap1.z" 80 40 zmin 0 zmax 1 palette gleplot_contourf1'
-        in lines
+        '    colormap "t_heatmap1.z" 80 40 zmin 0 zmax 1 palette glp_contourf1' in lines
     )
     # One node spacing past the last node: GLE's colormap places node k of n
     # at xmin + k (xmax - xmin) / n.
@@ -753,16 +752,16 @@ def test_contourf_colorbar_draws_the_bands_ticked_at_the_levels(recwarn):
     assert (hm["colorbar"]["zmin"], hm["colorbar"]["zmax"]) == (-1.0, 5.0)
     assert hm["colorbar"]["zstep"] == 1.5
     lines = _gle(fig)[0].splitlines()
-    start = lines.index("sub gleplot_contourf1 z")
+    start = lines.index("sub glp_contourf1 z")
     # The colormap scales onto the bar's range; the sub maps it back first.
     assert lines[start + 2] == "   z = -1*(1-z)+5*z"
     assert (
-        '    colormap "t_heatmap1.z" 200 200 zmin -1 zmax 5 palette gleplot_contourf1'
+        '    colormap "t_heatmap1.z" 200 200 zmin -1 zmax 5 palette glp_contourf1'
         in lines
     )
     assert any(
         line.startswith("color_range_vertical zmin -1 zmax 5 zstep (5-(-1))/4*")
-        and 'palette "gleplot_contourf1"' in line
+        and 'palette "glp_contourf1"' in line
         for line in lines
     )
 

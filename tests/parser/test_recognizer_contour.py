@@ -266,7 +266,7 @@ def test_contourf_colormap_off_its_bar_range_is_kept_raw(tmp_path):
         "! gleplot: nodes xmin 0 xmax 1 ymin 0 ymax 1\n",
     )
     assert not rec.figure.axes_list[0].heatmaps
-    assert any("unknown palette 'gleplot_contourf1'" in w for w in rec.warnings)
+    assert any("unknown palette 'glp_contourf1'" in w for w in rec.warnings)
 
 
 def _contourf_file(tmp_path, comment, marker, options=""):
@@ -277,12 +277,12 @@ def _contourf_file(tmp_path, comment, marker, options=""):
     p = tmp_path / "f.gle"
     p.write_text(
         "size 10 10\n"
-        "sub gleplot_contourf1 z\n"
+        "sub glp_contourf1 z\n"
         f"   {comment}\n"
         "   return rgb(z, z, z)\n"
         "end sub\n"
         "begin graph\n"
-        '   colormap "grid.z" 100 100 zmin 0 zmax 1 palette gleplot_contourf1'
+        '   colormap "grid.z" 100 100 zmin 0 zmax 1 palette glp_contourf1'
         f"{options}\n"
         "end graph\n",
         encoding="utf-8",
@@ -316,10 +316,10 @@ def test_contourf_gleplot_cannot_read_keeps_its_band_sub(tmp_path, comment, opti
     )
     ax = rec.figure.axes_list[0]
     assert not ax.heatmaps
-    assert any("palette gleplot_contourf1" in line for line in ax.passthrough)
-    assert any("unknown palette 'gleplot_contourf1'" in w for w in rec.warnings)
+    assert any("palette glp_contourf1" in line for line in ax.passthrough)
+    assert any("unknown palette 'glp_contourf1'" in w for w in rec.warnings)
     text, _ = rec.figure._generate_gle_with_files()
-    assert "sub gleplot_contourf1 z" in text.splitlines()
+    assert "sub glp_contourf1 z" in text.splitlines()
     assert "   return rgb(z, z, z)" in text.splitlines()
 
 
@@ -890,6 +890,7 @@ def test_a_gleplot_5_contour_label_sub_is_kept_as_raw_gle(tmp_path):
 def _as_gleplot_5(path: Path, cmap: str, old: str) -> None:
     """Rewrite a saved file the way gleplot 5 named ``cmap``'s palette sub."""
     text = path.read_text("utf-8").replace('include "palettes.gle"\n', "")
+    text = text.replace("glp_", "gleplot_")
     text = text.replace(f"cmap_{cmap}", f"gleplot_{old}")
     path.write_text(text.replace(f"_cdata_fcircle_{cmap}", f"_cdata_fcircle_{old}"))
 
@@ -901,40 +902,28 @@ def test_a_gleplot_5_palette_sub_and_its_colormap_are_kept_as_raw_gle(tmp_path):
     _as_gleplot_5(path, "viridis", "viridis")
     rec = parse_gle_figure(path)
     assert not rec.figure.axes_list[0].heatmaps
-    assert any("'gleplot_viridis' is a sub an earlier" in w for w in rec.warnings)
+    assert any("'gleplot_viridis' is a sub gleplot 5 wrote" in w for w in rec.warnings)
     text = rec.figure._generate_gle_with_files()[0]
     assert "sub gleplot_viridis z" in text
     assert "palette gleplot_viridis" in text
     assert "cmap_viridis" not in text
 
 
-def test_a_gleplot_5_coloured_scatter_takes_the_new_palette(tmp_path):
-    """Its marker sub is gleplot's own; only the palette sub it called is old."""
+@pytest.mark.parametrize("cmap, old", [("viridis", "viridis"), ("plasma", "rdbu")])
+def test_a_gleplot_5_coloured_scatter_stays_raw(tmp_path, cmap, old):
     fig = glp.figure(data_prefix="g")
-    fig.add_subplot(111).scatter([0, 1], [0, 1], c=[0, 1], cmap="viridis")
+    fig.add_subplot(111).scatter([0, 1], [0, 1], c=[0, 1], cmap=cmap)
     path = _save(fig, tmp_path)
-    _as_gleplot_5(path, "viridis", "viridis")
-    rec = parse_gle_figure(path)
-    assert rec.figure.axes_list[0].scatters[0]["cmap"] == "viridis"
-    text = rec.figure._generate_gle_with_files()[0]
-    assert "sub gleplot_viridis z" in text
-    assert "set color cmap_viridis(data)" in text
-
-
-def test_a_gleplot_5_coloured_scatter_in_a_map_gle_lacks_stays_raw(tmp_path):
-    fig = glp.figure(data_prefix="g")
-    fig.add_subplot(111).scatter([0, 1], [0, 1], c=[0, 1], cmap="plasma")
-    path = _save(fig, tmp_path)
-    _as_gleplot_5(path, "plasma", "rainbow")
+    _as_gleplot_5(path, cmap, old)
     rec = parse_gle_figure(path)
     assert not rec.figure.axes_list[0].scatters
     text = rec.figure._generate_gle_with_files()[0]
     for kept in (
-        "sub gleplot_rainbow z",
-        "sub gleplot_cdata_fcircle_rainbow size data",
-        "set color gleplot_rainbow(data)",
-        "define marker gleplot_cdata_fcircle_rainbow gleplot_cdata_fcircle_rainbow",
-        "marker gleplot_cdata_fcircle_rainbow msize",
+        f"sub gleplot_{old} z",
+        f"sub gleplot_cdata_fcircle_{old} size data",
+        f"set color gleplot_{old}(data)",
+        f"define marker gleplot_cdata_fcircle_{old} gleplot_cdata_fcircle_{old}",
+        f"marker gleplot_cdata_fcircle_{old} msize",
     ):
         assert kept in text
     assert "cmap_" not in text

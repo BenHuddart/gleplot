@@ -169,7 +169,8 @@ fig.subplots_adjust(
 The values are checked as in matplotlib: `left < right`, `bottom < top`,
 `wspace >= 0` and `hspace >= 0`.
 
-For a split x- or y-axis inside one panel, see [Broken Axes](BROKEN_AXES.md).
+GLE has no broken axis. To show two ranges, use two subplots, or a log scale
+(see [Axes and Legends](AXES_AND_LEGENDS.md)).
 
 ## Drawing on the page
 

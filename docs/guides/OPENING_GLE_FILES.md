@@ -34,11 +34,16 @@ automatic legend at that position.
 gleplot marks its own files with a metadata header (the
 `! gleplot-meta-begin` comment block), which also records settings GLE has
 no command for, such as shared axes, the style's default line width and
-colours, and which graphs are `add_axes` insets. Files from older releases carry
-version `v1` of that header and still open. Their graph geometry was
-implicit, so the first save writes each axes' position explicitly and
-updates the header to `v2`, a one-time change in layout. A header version
-gleplot does not know is read anyway, with a note.
+colours, and which graphs are `add_axes` insets. A header version gleplot
+does not know is read anyway, with a note.
+
+Files written by gleplot 5 or earlier open as hand-written GLE. The
+subroutines those releases generated (named `gleplot_<name>`; gleplot 6
+names its own `glp_<name>`) are kept as raw GLE with the commands that call
+them, and noted, so the file still draws the same but those parts are not
+editable. The oldest files carry version `v1` of the metadata header, which
+gleplot no longer reads: saving writes a `v2` header and an explicit position
+for each axes, a one-time change in layout.
 
 ## Hand-written files
 
@@ -50,7 +55,10 @@ when you save, so it still reaches GLE, but you cannot edit it through the
 Python API. Raw GLE between two graph blocks stays after the first of them,
 so an `xg()` or `yg()` in it still addresses that graph. A command gleplot
 models is rewritten from the figure, so a `! comment` at the end of its line
-is not written back; each such comment gets a `structure` note.
+is not written back; each such comment gets a `structure` note. A
+`begin key` block is read as the legend only when saving would write its
+entries back as they are, swatches included: a swatch edited by hand keeps
+the block as raw GLE, with a `legend` note.
 
 A data file that gleplot did not write is never rewritten. Lines, error
 bars, fills and plain `bar dN fill COLOR` bars drawn from it become
@@ -71,7 +79,7 @@ is recorded as a recovery note. The notes are grouped by category:
 | `metadata` | the metadata header is old or unknown (see above) |
 | `structure` | a command or option gleplot reads but cannot model, kept as raw GLE, or a comment after a modelled command, which is not kept |
 | `data` | a data file or column could not be loaded, or a dataset was converted |
-| `legend` | a legend was assumed, or a `key` option could not be modelled |
+| `legend` | a legend was assumed, a `key` option could not be modelled, or a `begin key` block was kept as raw GLE |
 | `layout` | the subplot grid or shared axes were guessed, or graph geometry was kept as raw GLE |
 | `smooth` | smoothing differs between series in a way the figure cannot express |
 | `programmatic` | the file uses GLE programming (`sub`, `if`, `for`, `while`, ...); saving may restructure it |

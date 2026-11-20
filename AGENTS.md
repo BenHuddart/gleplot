@@ -15,7 +15,7 @@ gleplot is a **Python way to write standard GLE (Graphics Layout Engine)** scrip
 
 When two rules pull in different directions, the earlier one wins:
 
-1. **A user's figure keeps working.** The same script produces the same output, and a `.gle` file gleplot or a person wrote still loads and saves without loss.
+1. **A user's figure keeps working.** The same script produces the same output, and a `.gle` file written by gleplot 6.0 or later, or by hand, loads and saves without loss.
 2. **A matplotlib name keeps matplotlib's names and signature,** and behaves like matplotlib wherever GLE does that natively.
 3. **The smallest change that does the job.** Less code, fewer names, fewer files.
 
@@ -51,7 +51,6 @@ If you touched a docstring, a page under `docs/`, or an example, also run the do
 - `colors.py`, `markers.py` — matplotlib→GLE mappings.
 - `dataio.py` — delimited file loading, and `gle_data_layout`: the columns GLE's own `data` command reads from a file.
 - `guides.py` — the guide provenance marker and the after-graph form (`graph_hline`/`graph_vline` from `graphutil.gle`, a `box` for a band) used when gleplot cannot range the spanned axis (`Axes.guide_needs_engine_range`); no extra model field for engine-range guides.
-- `brokenaxes.py` — `BrokenAxes`: a split x- or y-axis built from adjacent graph blocks.
 - `mathtext.py` — matplotlib `$...$` mathtext → GLE text markup.
 - `palettes.py` — colormap stop tables and the self-contained palette subs emitted for heatmaps/contours.
 - `cairo_support.py` — decides when a figure needs GLE's `-cairo` device and warns about fonts it rejects.
@@ -75,7 +74,7 @@ Do not violate these without an explicit design change and tests.
 - **Series** — stay `dict` subclasses; `SERIES_CLASSES` order is emission order.
 - **Layers** — nothing under `src/gleplot` imports a GUI toolkit, and IPython is imported only inside `Figure.view`. The parser syntax layer is stdlib-only. Module-level imports are acyclic: `series`/`sources` and the leaf modules (`_warn`, `colors`, `markers`, `config`) sit below `writer`, then `axes`, then `figure`, then `parser.recognizer`. Do not hide a cycle inside a function: `tests/unit/test_layering.py` checks the graph, holds function-level imports to an explicit list, and holds third-party imports to the declared runtime dependencies.
 - **Preservation** — unrecognized GLE is preserved; recovery warnings are surfaced, not dropped silently.
-- **Metadata** — v1 files load (implicit placement); first save rewrites to v2 with a `metadata:` warning. No downgrade. Unknown meta versions warn.
+- **Metadata** — only a v2 block is read. A file with a v1 block, or a gleplot 5 `gleplot_*` sub, loads as hand-written GLE: the v1 block is reported and not read, and each `gleplot_*` sub stays raw with its calls and a note. Subs gleplot writes are named `glp_*`. Unknown newer meta versions warn and are read.
 - **GLE optional** — saving `.gle` always works without GLE. Discovery: `GLE_PATH` → `PATH` → well-known paths (`compiler.find_gle`).
 
 A check that guards an invariant (the empty exemption set, the allowed deferred imports, a `-W` docs build, a lint rule) is part of the invariant. If your change trips one, fix the change. Widening the check, adding an exemption, an `xfail`, a `skip`, a `# noqa` or a `# type: ignore` is a design decision for the maintainer: stop and ask.

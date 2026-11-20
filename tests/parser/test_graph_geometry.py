@@ -13,9 +13,9 @@ ever read: a hand-written ``fullsize`` figure silently re-saved as
   kept verbatim in :attr:`Axes.geometry_passthrough`, re-emitted in the
   geometry slot, and reported with a ``layout:`` warning;
 * ``scale auto`` / absent geometry still means auto ("GLE decides") on the way
-  IN -- that is how metadata-v1 files and hand-written ones are read -- and
-  such a figure re-saves with the explicit rect the layout computes for it:
-  the documented one-time geometry migration.
+  IN -- that is how hand-written files are read, a file with a metadata-v1
+  block among them -- and such a figure re-saves with the explicit rect the
+  layout computes for it.
 """
 
 from __future__ import annotations
@@ -81,10 +81,11 @@ def _with_geometry(text: str, geometry: str) -> str:
 
 
 def _legacy_v1(tmp_path: Path) -> str:
-    """The same figure as gleplot <= metadata v1 would have written it.
+    """The same figure as an early gleplot (metadata v1) wrote it.
 
     v1 output carried no page geometry at all on the single-plot path: a bare
     ``scale auto``, no ``amove``, and a ``v1`` marker on the metadata block.
+    gleplot no longer reads that block, so the file loads as hand-written GLE.
     """
     text = _canonical(tmp_path)
     text = text.replace(_metadata.BEGIN_MARKER, "! gleplot-meta-begin v1")
@@ -166,7 +167,7 @@ def test_the_default_rect_is_the_one_by_one_grid_cell(tmp_path):
     from gleplot.writer import GLEWriter
 
     writer = GLEWriter(fig.figsize, fig.dpi, style=fig.style, graph=fig.graph)
-    rects, _cells = fig._layout_rects(writer, None)
+    rects = fig._layout_rects(writer, None)
     assert len(rects) == 1
 
     text = (tmp_path / "one.gle").read_text(encoding="utf-8")
@@ -291,39 +292,8 @@ def test_a_colorbar_reserves_its_width_in_the_placement_rect(tmp_path):
     assert [w for w in rec.warnings if w.startswith("layout:")] == []
 
 
-def test_a_legacy_colorbar_size_line_migrates_instead_of_freezing(tmp_path):
-    """A v1 colorbar file's bare ``size`` is recognized, not kept verbatim.
-
-    v1 pinned the graph BOX for colorbar figures (a bare ``size W H``, no
-    ``scale``, no ``amove``). That line is a pure function of the recovered
-    colorbar, so it loads as auto placement and re-saves as a v2 rect that
-    reserves the same width -- rather than freezing a legacy line forever in
-    ``geometry_passthrough``.
-    """
-    from gleplot.writer import GLEWriter
-    from tests.parser import _golden_battery as golden
-
-    fig = golden.heatmap_imshow_colorbar()
-    src = _resave(fig, tmp_path, "cbar.gle")
-    reserved, _below = fig._axes_colorbar_reserved_cm(fig.axes_list[0])
-    page_w, page_h = 2.54 * fig.figsize[0], 2.54 * fig.figsize[1]
-    graph_w = max(page_w - reserved, page_w * 0.3)
-    fmt = GLEWriter._format_number
-    legacy_size = f"    size {fmt(graph_w)} {fmt(page_h)}"
-    legacy = _with_geometry(src, f"begin graph\n{legacy_size}\n")
-
-    rec = parse_gle_figure(_write(tmp_path, legacy, "cbar_v1.gle"))
-    ax = rec.figure.axes_list[0]
-    assert ax.geometry_passthrough == []
-    assert ax.placement is None
-    assert [w for w in rec.warnings if w.startswith("layout:")] == []
-    # Re-save migrates it to the explicit rect (which still reserves the bar).
-    again = _resave(rec.figure, tmp_path, "cbar_v2.gle")
-    assert _PLACED_RE.search(again) is not None
-
-
 def test_a_hand_written_size_on_a_colorbar_figure_is_kept(tmp_path):
-    """... but a bare size that is NOT the derived one is preserved."""
+    """A bare ``size`` on a colorbar figure is preserved verbatim."""
     from tests.parser import _golden_battery as golden
 
     fig = golden.heatmap_imshow_colorbar()
@@ -357,7 +327,7 @@ def test_an_amove_that_is_not_a_placement_is_preserved_and_warned(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Auto on the way in, explicit on the way out: the v1 -> v2 migration
+# Auto on the way in, explicit on the way out
 # --------------------------------------------------------------------------- #
 
 
@@ -372,15 +342,15 @@ def test_a_legacy_v1_file_loads_as_auto_placement(tmp_path):
     assert [w for w in rec.warnings if w.startswith("layout:")] == []
 
 
-def test_a_legacy_v1_file_reports_the_migration_once(tmp_path):
+def test_a_legacy_v1_file_is_reported_once_as_hand_written(tmp_path):
     src = _legacy_v1(tmp_path)
     rec = parse_gle_figure(_write(tmp_path, src))
-    migration = [w for w in rec.warnings if "v1" in w and "geometry" in w]
-    assert len(migration) == 1
+    notes = [w for w in rec.warnings if "v1" in w and "hand-written GLE" in w]
+    assert len(notes) == 1
 
 
 def test_a_legacy_v1_file_re_saves_with_explicit_geometry(tmp_path):
-    """The documented one-time byte diff: v1 in, v2 + a placement rect out."""
+    """A one-time byte diff: v1 in, v2 + a placement rect out."""
     src = _legacy_v1(tmp_path)
     rec = parse_gle_figure(_write(tmp_path, src))
 
@@ -565,7 +535,7 @@ def test_height_and_width_ratios_survive_save_parse_save(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Interactions: shared axes, colorbars, broken axes
+# Interactions: shared axes, colorbars
 # --------------------------------------------------------------------------- #
 
 
@@ -620,44 +590,6 @@ def test_a_colorbar_figure_round_trips_byte_identically(tmp_path):
     src = _resave(golden.heatmap_imshow_colorbar(), tmp_path, "cbar.gle")
     rec = parse_gle_figure(tmp_path / "cbar.gle")
     assert _resave(rec.figure, tmp_path, "cbar2.gle") == src
-
-
-def test_broken_axes_still_emit_their_own_placement(tmp_path):
-    """Broken axes already emitted amove/size; that must keep working.
-
-    Each segment occupies a slice of its grid cell, so the segments share a
-    row but have different widths and x offsets -- and every one of them is
-    emitted as a placed graph block.
-    """
-    fig = glp.figure(figsize=(8, 6), data_prefix="geom")
-    bax = fig.add_broken_xaxes(xlims=[(0.0, 1.0), (8.0, 9.0)])
-    bax.plot(np.array([0.0, 0.5, 8.5, 9.0]), np.array([1.0, 2.0, 3.0, 4.0]))
-
-    text = _resave(fig, tmp_path, "broken.gle")
-    rects = _rects_of(text)
-    assert len(rects) == 2
-    xs = [r[0] for r in rects]
-    assert xs[0] < xs[1]
-    assert rects[0][1] == rects[1][1]  # same row
-    assert sum(r[2] for r in rects) < 2.54 * 8  # slices, not full cells
-
-
-def test_broken_axes_recovery_is_no_worse_than_before(tmp_path):
-    """Known limitation: segments come back as independent subplots.
-
-    They keep their recovered rects, so the re-save reproduces the same
-    geometry; only the *grouping* (and its seam decoration, which lands in
-    passthrough) is not reconstructed.
-    """
-    fig = glp.figure(figsize=(8, 6), data_prefix="geom")
-    bax = fig.add_broken_xaxes(xlims=[(0.0, 1.0), (8.0, 9.0)])
-    bax.plot(np.array([0.0, 0.5, 8.5, 9.0]), np.array([1.0, 2.0, 3.0, 4.0]))
-    src = _resave(fig, tmp_path, "broken.gle")
-
-    rec = parse_gle_figure(tmp_path / "broken.gle")
-    assert rec.figure.broken_axes == []  # the documented limitation
-    assert len(rec.figure.axes_list) == 2
-    assert [ax.placement for ax in rec.figure.axes_list] == _rects_of(src)
 
 
 # --------------------------------------------------------------------------- #

@@ -39,7 +39,7 @@ def test_a_png_is_drawn_by_the_bitmap_sub_in_its_own_layer():
     assert isinstance(entry, PlacedImage)
     assert ax.images == [entry]
     lines = _graph_lines(_script(fig))
-    i = lines.index('draw gleplot_bitmap "micrograph.png" 0 10 0 5')
+    i = lines.index('draw glp_bitmap "micrograph.png" 0 10 0 5')
     assert lines[i - 1] == "begin layer 150"
     assert lines[i + 1] == "end layer"
 
@@ -47,12 +47,12 @@ def test_a_png_is_drawn_by_the_bitmap_sub_in_its_own_layer():
 @pytest.mark.parametrize(
     "name,sub",
     [
-        ("a.jpg", "gleplot_bitmap"),
-        ("a.JPEG", "gleplot_bitmap"),
-        ("a.gif", "gleplot_bitmap"),
-        ("a.tif", "gleplot_bitmap"),
-        ("a.tiff", "gleplot_bitmap"),
-        ("a.eps", "gleplot_postscript"),
+        ("a.jpg", "glp_bitmap"),
+        ("a.JPEG", "glp_bitmap"),
+        ("a.gif", "glp_bitmap"),
+        ("a.tif", "glp_bitmap"),
+        ("a.tiff", "glp_bitmap"),
+        ("a.eps", "glp_postscript"),
     ],
 )
 def test_the_extension_picks_the_sub(name, sub):
@@ -70,17 +70,17 @@ def test_a_path_object_is_stored_as_its_string():
 def test_each_sub_is_defined_once_and_only_when_an_image_uses_it():
     fig, ax = glp.subplots()
     ax.plot([0, 1], [0, 1])
-    assert "sub gleplot_bitmap" not in _script(fig)
+    assert "sub glp_bitmap" not in _script(fig)
 
     ax.image("a.png", extent=(0, 1, 0, 1))
     ax.image("c.png", extent=(0, 1, 0, 1))
-    assert "sub gleplot_postscript" not in _script(fig)
+    assert "sub glp_postscript" not in _script(fig)
 
     ax.image("b.eps", extent=(0, 1, 0, 1))
     text = _script(fig)
-    assert text.count("sub gleplot_bitmap ") == 1
-    assert text.count("sub gleplot_postscript ") == 1
-    assert text.index("sub gleplot_bitmap") < text.index("begin graph")
+    assert text.count("sub glp_bitmap ") == 1
+    assert text.count("sub glp_postscript ") == 1
+    assert text.index("sub glp_bitmap") < text.index("begin graph")
 
 
 def test_a_hidden_image_draws_nothing():
@@ -88,7 +88,7 @@ def test_a_hidden_image_draws_nothing():
     ax.plot([0, 1], [0, 1])
     ax.image("a.png", extent=(0, 1, 0, 1))["visible"] = False
     text = _script(fig)
-    assert "gleplot_bitmap" not in text
+    assert "glp_bitmap" not in text
     assert "begin layer" not in text
 
 

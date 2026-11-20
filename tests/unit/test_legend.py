@@ -257,15 +257,6 @@ def test_legend_style_survives_gle_round_trip(tmp_path):
     assert f"key pos bl hei {_hei(7.0)} nobox" in out.read_text()
 
 
-def test_broken_axes_legend_forwards_kwargs(tmp_path):
-    fig = glp.figure(data_prefix="legtest")
-    bax = fig.add_broken_xaxes([(0, 1), (5, 6)])
-    bax.plot([0, 0.5, 5.5], [1, 2, 3], label="series")
-    bax.legend(loc="upper left", fontsize=6.0, segment=0)
-    assert bax[0].legend_fontsize == 6.0
-    assert bax[0].legend_pos == "top left"
-
-
 def test_column_breaks_match_matplotlib_split():
     from gleplot.writer import legend_column_breaks
 

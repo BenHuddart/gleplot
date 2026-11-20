@@ -83,22 +83,3 @@ def test_zorder_round_trips_through_to_dict(tmp_path):
     assert rax.errorbars[0]["zorder"] == 1.0
     assert rax.lines[0]["zorder"] == 3.0
     assert _script(fig, tmp_path) == _script(restored, tmp_path)
-
-
-def test_broken_axes_forwards_zorder(tmp_path):
-    fig = glp.figure()
-    bax = fig.add_broken_xaxes([(0.0, 1.0), (2.0, 3.0)], width_ratios=[1, 1])
-    bax.errorbar([0.5, 2.5], [1, 1], yerr=0.1, fmt="o", zorder=1)
-    bax.plot([0.5, 2.5], [1, 1], linestyle="--", zorder=2)
-
-    script = _script(fig, tmp_path)
-    graph_blocks = script.split("end graph")
-    drawable_blocks = [b for b in graph_blocks if re.search(r"\bd\d+\s", b)]
-    assert len(drawable_blocks) == 2
-    for block in drawable_blocks:
-        cmds = [
-            ln.strip() for ln in block.splitlines() if re.match(r"\s+d\d+\s+\S", ln)
-        ]
-        assert len(cmds) == 2
-        assert "err" in cmds[0]
-        assert _command_index(cmds[1]) > _command_index(cmds[0])
