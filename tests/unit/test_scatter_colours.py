@@ -50,13 +50,13 @@ def test_values_are_coloured_through_a_marker_sub():
         "sub gleplot_cdata_fcircle_viridis size data\n"
         "   gsave\n"
         "   set hei size\n"
-        "   set color gleplot_viridis(data)\n"
+        "   set color cmap_viridis(data)\n"
         "   marker FCIRCLE\n"
         "   grestore\n"
         "end sub\n"
         "define marker gleplot_cdata_fcircle_viridis gleplot_cdata_fcircle_viridis\n"
     ) in text
-    assert "sub gleplot_viridis z\n" in text
+    assert "sub cmap_viridis z\n" in text
     assert (
         "    data t_0.dat d1=c1,c2 d2=c1,c3\n"
         "    let d3 = (d2-0)/(300-0)\n"
@@ -85,11 +85,11 @@ def test_default_cmap_and_limits_follow_the_data():
 
 def test_explicit_limits_and_a_reversed_cmap():
     ax = _ax()
-    ax.scatter(X, Y, c=[1, 2, 3], cmap="RdBu_r", vmin=-4, vmax=-2, marker="s")
+    ax.scatter(X, Y, c=[1, 2, 3], cmap="plasma_r", vmin=-4, vmax=-2, marker="s")
     text, _files = _script(ax)
     assert "    let d3 = (d2+4)/(-2+4)\n" in text
-    assert "marker gleplot_cdata_fsquare_rdbu_r msize" in text
-    assert "set color gleplot_rdbu_r(data)\n" in text
+    assert "marker gleplot_cdata_fsquare_plasma_r msize" in text
+    assert "set color cmap_plasma_r(data)\n" in text
 
 
 def test_equal_limits_give_the_first_colour():
@@ -100,14 +100,13 @@ def test_equal_limits_give_the_first_colour():
     assert "    let d3 = (d2-5)*0\n" in text
 
 
-@pytest.mark.parametrize("cmap", ["gray", "rainbow"])
-def test_a_builtin_palette_still_gets_a_sub(cmap):
-    """A heatmap uses GLE's own gray and rainbow; a marker needs a function."""
+def test_gray_still_gets_a_sub():
+    """A heatmap uses GLE's own gray; a marker needs a function."""
     ax = _ax()
-    ax.scatter(X, Y, c=[1, 2, 3], cmap=cmap)
+    ax.scatter(X, Y, c=[1, 2, 3], cmap="gray")
     text, _files = _script(ax)
-    assert f"sub gleplot_{cmap} z\n" in text
-    assert f"set color gleplot_{cmap}(data)\n" in text
+    assert "sub cmap_gray z\n" in text
+    assert "set color cmap_gray(data)\n" in text
 
 
 def test_one_sub_per_marker_and_cmap():
@@ -118,7 +117,7 @@ def test_one_sub_per_marker_and_cmap():
     text, _files = _script(ax)
     assert text.count("sub gleplot_cdata_fcircle_viridis ") == 1
     assert text.count("sub gleplot_cdata_fcircle_magma ") == 1
-    assert text.count("sub gleplot_viridis z") == 1
+    assert text.count("sub cmap_viridis z") == 1
 
 
 def test_a_heatmap_and_a_scatter_share_one_palette_sub():
@@ -126,7 +125,7 @@ def test_a_heatmap_and_a_scatter_share_one_palette_sub():
     ax.imshow(np.arange(4.0).reshape(2, 2), extent=(0, 10, 0, 10), cmap="viridis")
     ax.scatter(X, Y, c=[1, 2, 3])
     text, _files = _script(ax)
-    assert text.count("sub gleplot_viridis z") == 1
+    assert text.count("sub cmap_viridis z") == 1
 
 
 def test_points_without_a_colour_are_left_out():
@@ -345,7 +344,7 @@ def test_colorbar_shows_the_scatter_range():
         "gsave\n"
         "amove xg(xgmax)+0.3 yg(ygmin)\n"
         "color_range_vertical zmin 0 zmax 300 zstep (300-(0))/5*0.999999999 "
-        'palette "gleplot_viridis" width 0.5 height yg(ygmax)-yg(ygmin) '
+        'palette "cmap_viridis" width 0.5 height yg(ygmax)-yg(ygmin) '
         'format "fix 0" pixels 200\n'
         'amove xg(xgmax)+(0.3+0.5*5/3+0.2)+max(twidth(format$(0,"fix 0")),'
         'twidth(format$(300,"fix 0"))) (yg(ygmin)+yg(ygmax))/2\n'

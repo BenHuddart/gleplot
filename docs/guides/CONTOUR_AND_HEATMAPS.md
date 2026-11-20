@@ -1,6 +1,6 @@
 # Contour Plots and Heatmaps
 
-gleplot can render 2-D scalar fields as heatmaps (matplotlib's `imshow`/`pcolormesh`/`tripcolor`) filled contours (`contourf`) and contour lines (`contour`/`tricontour`), with an optional colorbar. Under the hood these compile to GLE `colormap` / `begin contour` / `begin fitz` constructs, with self-contained colour-palette subroutines written directly into the `.gle` script — no `gle-library` include is required to compile the output.
+gleplot can render 2-D scalar fields as heatmaps (matplotlib's `imshow`/`pcolormesh`/`tripcolor`) filled contours (`contourf`) and contour lines (`contour`/`tricontour`), with an optional colorbar. Under the hood these compile to GLE `colormap` / `begin contour` / `begin fitz` constructs, coloured by the palettes of GLE's include library (see "Palette Gallery" below).
 
 ## Supported Methods
 
@@ -93,7 +93,7 @@ Z = np.exp(-(X**2 + Y**2) / 2) * np.cos(2 * X)
 
 fig = glp.figure(figsize=(8, 6))
 ax = fig.add_subplot(111)
-cf = ax.contourf(X, Y, Z, levels=8, cmap='RdBu_r')
+cf = ax.contourf(X, Y, Z, levels=8, cmap='coolwarm')
 ax.contour(x, y, Z, levels=cf['levels'], colors='black', linewidths=0.5)
 fig.savefig('bands.pdf')
 ```
@@ -118,7 +118,7 @@ fig.colorbar(label='z')
 fig.savefig('waves.pdf')
 ```
 
-This writes `colormap sin(x)*cos(y) 200 200 zmin -1 zmax 1 palette gleplot_viridis` inside the graph. The expression is GLE syntax (`^` for powers, `exp`, `atan2(y,x)`, …) and must not contain spaces.
+This writes `colormap sin(x)*cos(y) 200 200 zmin -1 zmax 1 palette cmap_viridis` inside the graph. The expression is GLE syntax (`^` for powers, `exp`, `atan2(y,x)`, …) and must not contain spaces.
 
 It differs from `imshow` in two ways:
 
@@ -150,27 +150,35 @@ ax.imshow(Z, cmap='magma', vmin=-1, vmax=1)
 
 **For scattered data (`tripcolor`), prefer setting `vmin`/`vmax` explicitly** rather than leaving them `None`. GLE's `fitz` step performs Akima network interpolation from your scattered samples, which can overshoot beyond your data's actual value range in sparsely-sampled regions — and if `vmax` is left `None`, GLE auto-scales the colormap from the **gridded** `.z` file's own range, so a single wild overshoot node can compress your entire real data range into a sliver at one end of the colour scale. Pinning `vmin`/`vmax` to the range you care about keeps the colour mapping stable and readable.
 
-gleplot's generated palette subroutines **clamp** the normalized value into `[0, 1]`, so a grid node that overshoots above `vmax` (or dips below `vmin`) saturates at the palette's brightest (or darkest) end colour — the same "over"/"under" → end-colour behaviour matplotlib's default colormaps use — rather than producing stray speckles. A tight `vmax` set just above your physical peak is therefore safe. See `examples/advanced/phase_diagram.py` for a worked example.
+The palette subs **clamp** the normalized value into `[0, 1]`, so a grid node that overshoots above `vmax` (or dips below `vmin`) saturates at the palette's brightest (or darkest) end colour — the same "over"/"under" → end-colour behaviour matplotlib's default colormaps use — rather than producing stray speckles. A tight `vmax` set just above your physical peak is therefore safe. See `examples/advanced/phase_diagram.py` for a worked example.
 
 ## Palette Gallery
 
-| `cmap` name | Notes |
+GLE draws every colormap. These names are drawn as they are:
+
+| `cmap` name | Drawn by |
 |---|---|
-| `viridis` | Default (`GLEGraphConfig.default_cmap`). Perceptually uniform. |
-| `magma` | Perceptually uniform, dark-to-light. |
-| `inferno` | Perceptually uniform, dark-to-light. |
-| `plasma` | Perceptually uniform, dark-to-light. |
-| `cividis` | Perceptually uniform, colourblind-safe. |
-| `coolwarm` | Diverging blue -> white -> red. |
-| `Blues`, `BuGn`, `BuPu`, `GnBu`, `Greens`, `Greys`, `Oranges`, `OrRd`, `PuBu`, `PuBuGn`, `PuRd`, `Purples`, `RdPu`, `Reds`, `YlGn`, `YlGnBu`, `YlOrBr`, `YlOrRd` | ColorBrewer sequential; smooth between the ColorBrewer colours, as in matplotlib. |
-| `BrBG`, `PiYG`, `PRGn`, `PuOr`, `RdBu`, `RdGy`, `RdYlBu`, `RdYlGn`, `Spectral` | ColorBrewer diverging; smooth between the ColorBrewer colours, as in matplotlib. |
-| `Accent`, `Dark2`, `Paired`, `Pastel1`, `Pastel2`, `Set1`, `Set2`, `Set3` | ColorBrewer qualitative; one flat band per colour, as in matplotlib. |
+| `viridis` | `viridis` in GLE's `palettes.gle`. The default (`GLEGraphConfig.default_cmap`). |
+| `magma`, `inferno`, `plasma`, `cividis` | The routines of the same names in `palettes.gle`. |
+| `coolwarm` | `palette_blue_white_red` in GLE's `color.gle`: blue -> white -> red. |
 | `gray` | GLE's built-in grayscale; emits no palette clause. |
 | `rainbow` (alias `jet`) | GLE's built-in rainbow; emits `colormap ... color` instead of a `palette` clause. |
 
-Every name also has a reversed form with `_r` appended, as in matplotlib: `cmap='RdBu_r'` runs blue to red from `vmin` to `vmax`, and `jet_r` is `rainbow_r`. A reversed map is written as its own `gleplot_<name>_r` palette subroutine, so a colorbar shows it reversed too; this is also how `gray_r` and `rainbow_r` are written, since only their forward forms are GLE built-ins. `invert=True` flips the image the same way, and a colorbar for an inverted image draws the reversed palette to match.
+Each of these except `rainbow` also has a reversed form with `_r` appended, as in matplotlib: `cmap='coolwarm_r'` runs red to blue from `vmin` to `vmax`. The script includes the file a routine is in and calls it through a short sub, `cmap_<name>`, that clamps the value and, for a reversed map, reads it from 1 down to 0. A colorbar calls the same sub, so it shows a reversed map reversed too. `invert=True` flips the image the same way, and a colorbar for an inverted image draws the reversed palette to match; an inverted `rainbow` image's bar is not reversed, and `colorbar()` warns.
 
-Names are matched case-insensitively. Unknown names raise `ValueError` listing the supported set. `viridis`/`magma`/`inferno`/`plasma`/`cividis` are transcribed from `gle-library`'s `include/palettes.gle` RGB stop tables; `coolwarm` from `include/color.gle`'s `palette_blue_white_red`; the ColorBrewer maps from the colours in `include/brewer.gle`. All are emitted as self-contained `sub gleplot_<name> z ... end sub` subroutines directly in the `.gle` script (deduplicated — only palettes actually used are written), so the output compiles without the `gle-library` on the include path.
+Per-point scatter colours and `contourf` bands call a palette sub for each value, which GLE's built-in rainbow is not: there, `rainbow` and `jet` are drawn as `viridis`, with a warning.
+
+matplotlib's ColorBrewer names are accepted too, but GLE has no routine that draws them, so the call warns and draws the closest map above:
+
+| `cmap` name | Drawn as |
+|---|---|
+| `Blues`, `BuGn`, `BuPu`, `GnBu`, `Greens`, `Oranges`, `OrRd`, `PuBu`, `PuBuGn`, `PuRd`, `Purples`, `RdPu`, `Reds`, `YlGn`, `YlGnBu`, `YlOrBr`, `YlOrRd` | `viridis_r`, light to dark as they are. |
+| `Greys` | `gray_r`. |
+| `BrBG`, `PiYG`, `PuOr`, `RdBu`, `RdGy`, `RdYlBu`, `RdYlGn`, `Spectral` | `coolwarm_r`, warm end first as they are. |
+| `PRGn` | `coolwarm`. |
+| `Accent`, `Dark2`, `Paired`, `Pastel1`, `Pastel2`, `Set1`, `Set2`, `Set3` | `rainbow`. |
+
+Their `_r` forms take the reversed map (`RdBu_r` is `coolwarm`), and `rainbow_r` and `jet_r` are drawn as `rainbow`. Names are matched case-insensitively. Unknown names raise `ValueError` listing the supported set.
 
 ## One Heatmap Per Axes
 

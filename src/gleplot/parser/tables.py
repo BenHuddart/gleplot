@@ -42,7 +42,7 @@ from .. import markers as _markers
 from ..colors import COLORS, gle_color_rgb, nearest_gle_color
 from ..config import GLEStyleConfig
 from ..markers import MARKERS
-from ..palettes import SUPPORTED_CMAPS, canonical_cmap, cmap_needs_sub
+from ..palettes import NATIVE_CMAPS, cmap_needs_sub, is_native, palette_sub_name
 
 __all__ = [
     "COLORS",
@@ -65,7 +65,6 @@ __all__ = [
     "text_box_pad_token",
     "text_just_to_align",
     "PALETTE_SUB_TO_CMAP",
-    "CMAP_TO_PALETTE_SUB",
     "FIT_MODEL_TO_ROUTINE",
     "FIT_ROUTINE_TO_MODEL",
     "FIT_RESULT_PLACEHOLDERS",
@@ -313,23 +312,18 @@ KEY_ANCHOR_Y = "min(yg(ygmin),yg(ygmax))+{}*abs(yg(ygmax)-yg(ygmin))"
 # Palette subroutine names (contour/heatmap support)
 # ---------------------------------------------------------------------------
 #
-# gleplot emits self-contained palette subroutines named ``gleplot_<name>``
-# (see :mod:`gleplot.palettes`). The recognizer maps a ``colormap ... palette
-# gleplot_<name>`` clause back to the canonical cmap name via this table (and
-# treats any OTHER palette sub name as an unknown/foreign palette -> passthrough
-# with a warning). It is built from ``gleplot.palettes.SUPPORTED_CMAPS``: every
-# palette, forward or reversed (``_r``), that requires an emitted sub.
-# ``gray``/``rainbow`` need no sub and never appear as a ``palette`` clause
-# (grayscale = no clause; rainbow = the ``color`` switch); their reversed forms
-# do.
+# A ``colormap`` calls a native map's wrapper sub, ``cmap_<name>`` (see
+# :mod:`gleplot.palettes`). The recognizer maps a ``colormap ... palette
+# cmap_<name>`` clause back to the cmap name via this table, and treats any
+# other palette sub name as an unknown/foreign palette (passthrough with a
+# warning). ``gray`` and ``rainbow`` are no ``palette`` clause (grayscale = no
+# clause; rainbow = the ``color`` switch), and rainbow has no reversed form.
 PALETTE_SUB_TO_CMAP: Dict[str, str] = {
-    f"gleplot_{c}": c
-    for base in map(canonical_cmap, SUPPORTED_CMAPS)
+    palette_sub_name(c): c
+    for base in NATIVE_CMAPS
     for c in (base, base + "_r")
-    if cmap_needs_sub(c)
+    if is_native(c) and cmap_needs_sub(c)
 }
-
-CMAP_TO_PALETTE_SUB: Dict[str, str] = {v: k for k, v in PALETTE_SUB_TO_CMAP.items()}
 
 
 KEY_POSITIONS_SHORT_TO_LONG: Dict[str, str] = {
