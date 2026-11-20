@@ -1689,12 +1689,22 @@ def _contour_line_keywords(name: str, linewidths, linestyles, kwargs: dict):
     return widths, styles
 
 
+def _contour_color(name: str, colors) -> str:
+    """The one GLE colour ``contour``/``tricontour`` draw every level in."""
+    if colors is None:
+        return "BLACK"
+    if not _is_one_color(colors):
+        colors = _one_for_all_levels(name, "colors", colors, False)
+    return rgb_to_gle(colors)
+
+
 def _one_for_all_levels(name: str, keyword: str, value, styles: bool):
     """``value``, or the one value a per-level sequence gives every level.
 
     GLE draws every traced contour level as one dataset (the generated
-    ``-cdata.dat``), so it takes one width and one line style for them all.
-    A sequence of differing values warns and its first entry is used.
+    ``-cdata.dat``), so it takes one width, one line style and one colour
+    for them all. A sequence of differing values warns and its first entry
+    is used.
     """
     if isinstance(value, np.ndarray) and value.ndim == 0:
         return value.item()
@@ -1709,10 +1719,11 @@ def _one_for_all_levels(name: str, keyword: str, value, styles: bool):
             f"{keyword}={repr('--') if styles else '1.0'}."
         )
     if any(entry != entries[0] for entry in entries[1:]):
+        noun = "style" if styles else "colour" if keyword == "colors" else "width"
         warn_external(
-            f"{name}() draws every level with one {'style' if styles else 'width'}"
-            f": GLE traces the levels as one dataset. {keyword}={entries!r} "
-            f"uses the first, {entries[0]!r}."
+            f"{name}() draws every level with one {noun}: GLE traces the "
+            f"levels as one dataset. {keyword}={entries!r} uses the first, "
+            f"{entries[0]!r}."
         )
     return entries[0]
 
@@ -2456,6 +2467,13 @@ def _scatter_c(c: Any, n_points: int) -> Tuple[str, Any]:
     if isinstance(c, np.ndarray):
         if c.dtype.kind in "OSU":
             items = c.ravel().tolist()
+            # A masked colour is np.ma.masked, which leaves its point out.
+            if np.ma.isMaskedArray(c):
+                masked = np.ma.getmaskarray(c).ravel()
+                items = [
+                    np.ma.masked if hidden else item
+                    for item, hidden in zip(c.data.ravel().tolist(), masked)
+                ]
     else:
         try:
             items = list(c)
@@ -5057,7 +5075,8 @@ class Axes:
                 _point_sizes(name, sizes, n_points)
         groups: Dict[str, List[int]] = {}
         for point, item in enumerate(colors):
-            groups.setdefault(rgb_to_gle(item), []).append(point)
+            if item is not np.ma.masked:
+                groups.setdefault(rgb_to_gle(item), []).append(point)
         x = np.asarray(x)
         y = np.asarray(y)
 
@@ -7779,8 +7798,10 @@ class Axes:
             ``None`` uses GLE's default 10 levels. An int ``n`` emits
             ``values from zmin to zmax step (zmax-zmin)/n``. A sequence emits
             ``values v1 v2 ...``.
-        colors : str
-            Contour line colour. ``None`` means the default, black.
+        colors : color or sequence of colors
+            Contour line colour. ``None`` means the default, black. A
+            per-level sequence of differing colours warns and its first entry
+            is used, as for ``linewidths``.
         linewidths : float
             Line width (matplotlib points). GLE draws every level as one
             dataset, so a per-level sequence of differing widths warns and
@@ -7838,7 +7859,7 @@ class Axes:
             zpts=None,
             extent=ext,
             levels=levels_resolved,
-            color=rgb_to_gle("black" if colors is None else colors),
+            color=_contour_color("contour", colors),
             linewidth=float(linewidths),
             linestyle=self._linestyle_to_lstyle(linestyles),
             clabel=bool(clabel),
@@ -8069,7 +8090,7 @@ class Axes:
             zpts=za,
             extent=ext,
             levels=levels_resolved,
-            color=rgb_to_gle("black" if colors is None else colors),
+            color=_contour_color("tricontour", colors),
             linewidth=float(linewidths),
             linestyle=self._linestyle_to_lstyle(linestyles),
             clabel=bool(clabel),
