@@ -1036,3 +1036,20 @@ def test_a_bar_kept_raw_between_graphs_keeps_the_palette_sub_it_calls(tmp_path):
     again = rec._generate_gle_with_files()[0]
     assert "sub cmap_plasma z" in again
     assert _resave(tmp_path, again) == again
+
+
+def test_a_contourf_bar_whose_gap_cannot_be_read_keeps_its_colours(tmp_path):
+    """Kept raw, the bar would lose the band sub's rescale it draws through."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 1, 5)
+    cf = ax.contourf(x, x, np.add.outer(x, x), [0, 0.5, 1, 1.5, 2])
+    fig.colorbar(cf)
+    path = _save(fig, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("xg(xgmax)+0.3 ", "xg(xgmax)-0.3 "), encoding="utf-8")
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"]["sep"] == 0.3
+    (note,) = rec.warnings
+    assert "written back at the default gap" in note
+    assert rec.figure._generate_gle_with_files()[0] == text

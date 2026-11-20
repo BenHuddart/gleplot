@@ -2163,6 +2163,63 @@ def test_a_colorbar_call_with_nothing_to_show_is_noted(tmp_path):
     assert 'include "color.gle"' in again
 
 
+def _heatmap_bar(tmp_path):
+    """A heatmap with a labelled colorbar, its file's text, and the bar group."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    hm = ax.imshow([[0.0, 1.0], [2.0, 3.0]])
+    fig.colorbar(hm, ax=ax, label="z")
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8") + "\n"
+    return path, text, text[text.index("gsave\n") :]
+
+
+def test_a_colorbar_gap_that_cannot_be_read_stays_raw_and_is_noted(tmp_path):
+    path, text, _bar = _heatmap_bar(tmp_path)
+    edited = "amove xg(xgmax)-0.5 yg(ygmin)"
+    path.write_text(text.replace("amove xg(xgmax)+0.3 yg(ygmin)", edited))
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    (note,) = rec.warnings
+    assert "the 'amove' to the bar is not" in note
+    assert edited in rec.figure._generate_gle_with_files()[0]
+
+
+def test_a_colorbar_with_an_edited_label_stays_raw_and_is_noted(tmp_path):
+    path, text, _bar = _heatmap_bar(tmp_path)
+    path.write_text(text.replace("set just tc", "set just bc"))
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    (note,) = rec.warnings
+    assert "the label's lines are not" in note
+    assert "set just bc" in rec.figure._generate_gle_with_files()[0]
+
+
+def test_a_second_colorbar_for_one_heatmap_stays_raw_and_is_noted(tmp_path):
+    path, text, bar = _heatmap_bar(tmp_path)
+    second = bar.replace('"fix 1"', '"fix 2"')
+    path.write_text(text + second)
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"]["format"] == "fix 1"
+    (note,) = rec.warnings
+    assert "one colorbar per heatmap or scatter" in note
+    again = rec.figure._generate_gle_with_files()[0]
+    assert again.count("color_range_vertical") == 2 and 'format "fix 2"' in again
+
+
+def test_a_colorbar_after_one_kept_raw_is_noted(tmp_path):
+    path, text, bar = _heatmap_bar(tmp_path)
+    raw = bar.replace('palette "cmap_viridis"', 'palette "cmap_magma"')
+    path.write_text(text.replace(bar, raw + bar))
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    first, second = rec.warnings
+    assert "'cmap_magma' to attach it to" in first
+    assert "raw GLE after 'end graph' comes before it" in second
+
+
 def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
     """``let dK = (dJ-a)/(b-a)`` with a line of its own is an ordinary curve."""
     src = (
