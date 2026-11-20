@@ -6307,7 +6307,8 @@ class GLEWriter:
 
         The ``-cdata.dat`` file GLE generates from the contour block is
         plotted as a ``line`` dataset in the contour's ``color``,
-        ``linewidth`` and ``linestyle``.
+        ``linewidth`` and ``linestyle``; a ``None`` colour or width writes
+        no keyword, so GLE uses the current one.
         """
         cdata_file = _grid_z_file(series)[:-2] + "-cdata.dat"
         d_name = self._new_dataset()
