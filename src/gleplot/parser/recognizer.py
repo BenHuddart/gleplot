@@ -3124,6 +3124,9 @@ class _Recognizer:
             # Raw dataset name -> the line, scatter, file line, function or
             # fit series built from it: what a derived let's ``dN`` reads.
             "_dataset_series": {},
+            # Raw dataset name -> an error-bar file series built from it,
+            # which only a raw line (not a derived let) can read.
+            "_errorbar_file_series": {},
             # Offset alias target -> its source (``let dK = dJ+off``).
             "_offset_let_sources": {},
             # A polar axes (GLEWriter.add_polar_frame): the radial limit from
@@ -6106,11 +6109,13 @@ class _Recognizer:
         if len(grown) != 1 or len(info[grown[0]]) != before[grown[0]] + 1:
             return
         entry = info[grown[0]][-1]
-        if grown[0] == "file_series" and entry.get("series_type") != "line":
-            return
         name = info["_polar_aliases"].get(name.lower(), name.lower())
         raw = info["_offset_let_sources"].get(name, name)
-        info["_dataset_series"][raw] = entry
+        kind = entry.get("series_type") if grown[0] == "file_series" else "line"
+        if kind == "line":
+            info["_dataset_series"][raw] = entry
+        elif kind == "errorbar":
+            info["_errorbar_file_series"][raw] = entry
 
     @staticmethod
     def _bind_raw_readers(info) -> None:
@@ -6122,9 +6127,10 @@ class _Recognizer:
         ``data`` or ``let`` defines is that raw dataset's, not the series'.
         """
         defined, read, _bare = GLEWriter.raw_dataset_use(info["passthrough"])
-        for name, entry in info["_dataset_series"].items():
-            if name in read - defined:
-                entry["_gle_name"] = name
+        for series in (info["_dataset_series"], info["_errorbar_file_series"]):
+            for name, entry in series.items():
+                if name in read - defined:
+                    entry["_gle_name"] = name
 
     def _commit_derived_lets(self, info) -> None:
         """Turn the recorded derived lets into series, if every one can be.
@@ -7333,8 +7339,11 @@ class _Recognizer:
         # File-vs-import classification decided later per data_file. First
         # figure out the data_file for the main dataset.
         if d_name not in datasets:
-            # Unknown dataset ref -> passthrough (defensive).
+            # A dataset raw GLE defines (a 'let' kept raw) -> passthrough,
+            # and a raw line, so the 'data' statements of the datasets it
+            # names are kept (_restore_orphaned_data_stmts).
             info["passthrough"].extend(self._dn_passthrough_lines(toks, raw_stmts))
+            info["_raw_datasets"].add(d_name)
             return
         data_file, xcol, ycol = datasets[d_name]
 
