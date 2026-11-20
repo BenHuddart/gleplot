@@ -3479,10 +3479,13 @@ class Axes:
         ``weights``, ``cumulative``, ``bottom``, ``stacked`` and ``rwidth``
         are accepted and ignored, with a warning. ``histtype='bar'`` and
         ``'barstacked'`` warn and are drawn as a step outline; bar gaps and
-        stacks belong to the bar grammar. Bins are equal width. The window
-        is always written into the ``let`` (data min/max when ``range`` is
-        omitted, widened by half a unit when every sample is the same
-        value), so GLE does not re-bin over the axis.
+        stacks belong to the bar grammar, so they ignore ``edgecolor`` with a
+        warning. ``edgecolor`` is the line colour of a ``'step'`` histogram,
+        as in matplotlib, and the bar stroke of a ``'stepfilled'`` one;
+        ``'face'`` is ``color``. Bins are equal width. The window is always
+        written into the ``let`` (data min/max when ``range`` is omitted,
+        widened by half a unit when every sample is the same value), so GLE
+        does not re-bin over the axis.
 
         Returns this axes. matplotlib's ``(counts, edges, patches)`` is not
         available: the counts are computed by GLE at draw time.
@@ -3511,7 +3514,8 @@ class Axes:
             )
 
         style_name = str(histtype).strip().lower()
-        if style_name in ("bar", "barstacked"):
+        as_bars = style_name in ("bar", "barstacked")
+        if as_bars:
             warn(
                 f"hist(histtype={histtype!r}) is drawn as a step outline. "
                 "Bar gaps, edges and stacks wait for the bar grammar."
@@ -3552,6 +3556,12 @@ class Axes:
         edgecolor = kwargs.pop("edgecolor", None)
         alpha = kwargs.pop("alpha", None)
         warn_unsupported_keywords("hist", kwargs)
+        if as_bars and edgecolor is not None:
+            warn(
+                f"hist(histtype={histtype!r}) ignores edgecolor: the step "
+                "outline it is drawn as takes color. Pass histtype='step' to "
+                "draw the outline in edgecolor."
+            )
 
         if yaxis not in ("y", "y2"):
             raise ValueError(f"yaxis must be 'y' or 'y2', got {yaxis!r}")
@@ -3616,6 +3626,27 @@ class Axes:
             ink = self._resolve_color(one_color)
             if series_alpha is not None:
                 ink = apply_alpha(ink, series_alpha)
+            # The stroke is the fill unless the caller named an edge, so
+            # the shared boundary of two bins is not a second ink.
+            stroke = ink
+            if isinstance(one_edge, str) and one_edge.strip().lower() == "face":
+                one_edge = None
+            if (
+                style_name == "step"
+                and isinstance(one_edge, str)
+                and one_edge.strip().lower() == "none"
+            ):
+                if not as_bars:
+                    warn(
+                        "hist(histtype='step', edgecolor='none') would draw "
+                        "nothing; the line is drawn in color. Leave the "
+                        "histogram out to draw nothing."
+                    )
+                one_edge = None
+            if one_edge is not None:
+                stroke = self._resolve_color(one_edge, arg="edgecolor")
+                if series_alpha is not None:
+                    stroke = apply_alpha(stroke, series_alpha)
             fields = dict(
                 samples=np.asarray(samples, dtype=float),
                 bins=n_bins,
@@ -3628,19 +3659,15 @@ class Axes:
             if one_label is not None:
                 fields["label"] = self._text(str(one_label))
             if style_name == "step":
+                if not as_bars:
+                    # matplotlib draws a step histogram in its edge colour.
+                    fields["color"] = stroke
                 fields["linestyle"] = _line_style("hist", one_ls)
                 fields["linewidth"] = float(_line_width("hist", one_lw))
                 _warn_unstrokable_zero("hist", fields["linewidth"])
                 fields["yaxis"] = draw_yaxis
                 _apply_xaxis(fields, draw_xaxis)
             else:
-                # The stroke is the fill unless the caller named an edge, so
-                # the shared boundary of two bins is not a second ink.
-                stroke = ink
-                if one_edge is not None:
-                    stroke = self._resolve_color(one_edge, arg="edgecolor")
-                    if series_alpha is not None:
-                        stroke = apply_alpha(stroke, series_alpha)
                 fields["edgecolor"] = stroke
                 fields["bar_width"] = float(bar_width)
                 if one_ls not in (None, "-", "solid"):
