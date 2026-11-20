@@ -6,7 +6,7 @@
 
 **gleplot** lets you write plotting code the way you would for matplotlib and get a [GLE](https://glx.sourceforge.io/) (Graphics Layout Engine) script out, which GLE compiles to publication-quality PDF, EPS, SVG, PNG or JPG.
 
-<img src="https://benhuddart.github.io/gleplot/_static/gallery/example_combined_errorbars.png" alt="Measured points with horizontal and vertical error bars, and a dashed y = x² curve through them" width="560">
+<img src="https://benhuddart.github.io/gleplot/_static/gallery/example_combined_errorbars.webp" alt="Measured points with horizontal and vertical error bars, and a dashed y = x² curve through them" width="560">
 
 The code that draws it (the gallery's [Combined X+Y Error Bars](https://benhuddart.github.io/gleplot/gallery.html#combined-x-y-error-bars) example):
 

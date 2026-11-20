@@ -63,7 +63,7 @@ jobs:
           echo "=== Generating example outputs for gallery ==="
           python examples/run_and_compile.py
 
-      - name: Copy gallery images into the docs
+      - name: Convert gallery images for the docs
         run: python docs/prepare_gallery.py --strict
 
       - name: Build documentation
