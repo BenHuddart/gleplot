@@ -418,6 +418,66 @@ def test_a_band_moved_in_its_sidecar_degrades_to_a_plain_fill(tmp_path):
     assert len(_guide_notes(recognized)) == 1
 
 
+@pytest.mark.parametrize(
+    "marker, attr",
+    [
+        ("refline v value 1.5", "reflines"),
+        ("refline h value 2", "reflines"),
+        ("span v range 0.5,1", "spans"),
+        ("span h range 3,5", "spans"),
+    ],
+)
+def test_a_guide_whose_marker_extent_was_edited_degrades(tmp_path, marker, attr):
+    """#494: re-saving would draw the guide over the edited extent."""
+
+    def edit_the_extent(text):
+        return text.replace(f"{marker} extent 0,1", f"{marker} extent 0,0.5")
+
+    recognized = _tampered(tmp_path, mutate_text=edit_the_extent)
+    assert len(getattr(recognized.figure.axes_list[0], attr)) == 1
+    (note,) = _guide_notes(recognized)
+    assert f"{marker} extent 0,0.5" in note
+
+
+def test_a_guide_whose_spanned_rows_were_edited_degrades(tmp_path):
+    """#494: the vline's rows no longer span the y range its marker states."""
+
+    def shorten_the_rows(files):
+        for name, content in list(files.items()):
+            if content.startswith("x y\n1.5"):
+                files[name] = content.replace("1.5 9", "1.5 5")
+        return files
+
+    recognized = _tampered(tmp_path, mutate_files=shorten_the_rows)
+    assert [g["orient"] for g in recognized.figure.axes_list[0].reflines] == ["h"]
+    assert len(_guide_notes(recognized)) == 1
+
+
+@pytest.mark.parametrize(
+    "x, ylim",
+    [
+        # Timestamps: a narrow range far from zero.
+        ([1.7e9, 1.7e9 + 120], (1.7e9, 1.7e9 + 120)),
+        ([0.0, 1.0], (3.0, 1.0)),
+        ([0.0, 1.0], (1.0e-7, 3.3333333e-7)),
+    ],
+)
+def test_a_guide_extent_is_checked_on_any_axis_range(tmp_path, x, ylim):
+    """#494: an edit shows on every range, and rounding never looks like one."""
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(x, ylim)
+    ax.set_ylim(*ylim)
+    ax.axvline(x[0], 0.123457, 0.777777)
+    text, files = fig._generate_gle_with_files()
+    ax = parse_gle_figure(str(_write(tmp_path, text, files))).figure.axes_list[0]
+    assert len(ax.reflines) == 1
+    edited = text.replace("extent 0.123457,0.777777", "extent 0.123457,0.7")
+    recognized = parse_gle_figure(str(_write(tmp_path, edited, files)))
+    assert recognized.figure.axes_list[0].reflines == []
+    assert len(_guide_notes(recognized)) == 1
+
+
 def test_a_restyled_guide_line_that_no_guide_could_have_emitted_degrades(tmp_path):
     """A marker on a marker-carrying series: nothing gleplot ever wrote."""
 
