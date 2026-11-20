@@ -200,6 +200,12 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
     >>> rgb_to_gle('rgb255(140, 140, 140)')
     'rgb255(140,140,140)'
     """
+    return _gle_color(color, "color")
+
+
+def _gle_color(color: Any, arg: str) -> str:
+    """:func:`rgb_to_gle`, whose errors name ``arg``, the argument that held
+    ``color``, as a public function's caller wrote it."""
     # Handle tuple (R, G, B) with values in [0, 1]; matplotlib also takes a
     # 1-D array, or a single-row 2-D one such as ``cmap(x)[None]``.
     if isinstance(color, np.ndarray) and color.ndim == 2 and color.shape[0] == 1:
@@ -265,11 +271,11 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
         if cycle:
             color_lower = f"c{int(cycle.group(1)) % 10}"
         if color_lower in MATPLOTLIB_CYCLE_HEX:
-            return _hex_to_gle(MATPLOTLIB_CYCLE_HEX[color_lower])
+            return _hex_to_gle(MATPLOTLIB_CYCLE_HEX[color_lower], arg)
 
         # Try hex color
         if color_lower.startswith("#"):
-            return _hex_to_gle(color_lower)
+            return _hex_to_gle(color_lower, arg)
 
         # matplotlib grey level: a string holding a number in [0, 1].
         try:
@@ -280,8 +286,8 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
             if 0 <= level <= 1:
                 return _rgb01_to_gle(level, level, level)
             raise ValueError(
-                f"Invalid grey level {color!r}: a colour given as a number "
-                f"string must be within 0-1 (e.g. '0.3')."
+                f"Invalid grey level {color!r} for {arg}: a colour given as a "
+                f"number string must be within 0-1 (e.g. '0.3')."
             )
         # matplotlib colours with no GLE counterpart here.
         if color_lower == "none" or color_lower.startswith("xkcd:"):
@@ -296,12 +302,16 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
                 )
             )
             return "BLACK"
-        raise ValueError(f"Unrecognized colour {color!r}: {_ACCEPTED_COLOURS}")
+        raise ValueError(
+            f"Unrecognized colour {color!r} for {arg}: {_ACCEPTED_COLOURS}"
+        )
     if isinstance(color, (tuple, list, np.ndarray)):
-        raise ValueError(f"Unrecognized colour {color!r}: {_ACCEPTED_COLOURS}")
+        raise ValueError(
+            f"Unrecognized colour {color!r} for {arg}: {_ACCEPTED_COLOURS}"
+        )
     raise TypeError(
-        f"Unrecognized colour {color!r} of type {type(color).__name__}: "
-        f"{_ACCEPTED_COLOURS}"
+        f"Unrecognized colour {color!r} of type {type(color).__name__} for "
+        f"{arg}: {_ACCEPTED_COLOURS}"
     )
 
 
@@ -424,7 +434,7 @@ def _rgb01_to_gle(r: float, g: float, b: float) -> str:
     )
 
 
-def _hex_to_gle(hex_color: str) -> str:
+def _hex_to_gle(hex_color: str, arg: str) -> str:
     """Convert a ``#RRGGBB`` or ``#RGB`` hex string to ``rgb255(...)``.
 
     An alpha (``#RRGGBBAA`` or ``#RGBA``) below opaque warns that it is not
@@ -446,8 +456,8 @@ def _hex_to_gle(hex_color: str) -> str:
                 warn_external(_ALPHA_NOT_APPLIED)
             return rgb255_expr(r, g, b)
     raise ValueError(
-        f"Unrecognized colour {hex_color!r}: not a valid hex string "
-        f"(expected #RGB, #RGBA, #RRGGBB or #RRGGBBAA)."
+        f"Unrecognized colour {hex_color!r} for {arg}: not a valid hex "
+        f"string (expected #RGB, #RGBA, #RRGGBB or #RRGGBBAA)."
     )
 
 

@@ -149,6 +149,32 @@ def test_column_ref_resolves_to_sidecar_and_gle_reference():
     assert 'key "from table"' in text
 
 
+def test_column_ref_line_breaks_at_nan_as_plot_does():
+    fig = glp.figure(data_prefix="u")
+    ax = fig.add_subplot(111)
+    line = _add_line_ref(ax, "t1", "t", "v", "u_0.dat")
+
+    provider = _provider(t1=_table(t=[0.0, 1.0, 2.0], v=[5.0, np.nan, 7.0]))
+    _text, files = _generate(fig, provider)
+
+    # The gapped column is this series' own copy, so the table's stays as is.
+    assert files["u_0.dat"] == "t y\n0 5\n1 *\n2 7\n"
+    assert "gaps" not in line  # the stored series keeps no write-time field
+
+
+def test_column_ref_line_with_nan_gaps_is_not_smoothed():
+    fig = glp.figure(graph=glp.GLEGraphConfig(smooth_curves=True))
+    ax = fig.add_subplot(111)
+    _add_line_ref(ax, "t1", "t", "v", "u_0.dat")
+
+    provider = _provider(t1=_table(t=[0.0, 1.0, 2.0], v=[5.0, np.nan, 7.0]))
+    with pytest.warns(
+        UserWarning, match="data provider draws a line with NaN gaps unsmoothed"
+    ):
+        text, _files = _generate(fig, provider)
+    assert "smooth" not in text
+
+
 def test_column_ref_uses_display_names_not_keys_for_the_header():
     fig = glp.figure(data_prefix="u")
     ax = fig.add_subplot(111)

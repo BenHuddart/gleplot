@@ -1773,6 +1773,17 @@ def _page_drawing(lines: List[str]) -> Optional[Dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
+# GLE's error-bar keyword -> the ``_gle_names`` role of its dataset.
+_ERROR_ROLES = {
+    "err": "yerr",
+    "errup": "yerr_up",
+    "errdown": "yerr_down",
+    "herr": "xerr",
+    "herrleft": "xerr_left",
+    "herrright": "xerr_right",
+}
+
+
 class _Recognizer:
     """Stateful recognizer for one document. See :func:`parse_gle_figure`."""
 
@@ -1814,6 +1825,11 @@ class _Recognizer:
         self._table_cache: Dict[str, object] = {}
         self._layout_cache: Dict[Tuple[Any, ...], Optional[GLEDataLayout]] = {}
         self._import_list: Optional[List[str]] = None
+        # Imported files whose raw datasets lose their 'data' statement when
+        # a series rewrites the file; parse_gle_figure recognizes again,
+        # reading the files kept as written.
+        self._shared_imports: Set[str] = set()
+        self._kept_imports: Set[str] = set()
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
         # by their frames.
@@ -3309,9 +3325,10 @@ class _Recognizer:
             # Raw dataset name -> the line, scatter, file line, function or
             # fit series built from it: what a derived let's ``dN`` reads.
             "_dataset_series": {},
-            # Raw dataset name -> an error-bar file series built from it,
-            # which only a raw line (not a derived let) can read.
-            "_errorbar_file_series": {},
+            # Raw dataset name -> (series, role): the series a raw line that
+            # reads the name is bound to, and which of its datasets
+            # (``_XYSeries._gle_names``). See ``_note_raw_name``.
+            "_raw_names": {},
             # Offset alias target -> its source (``let dK = dJ+off``).
             "_offset_let_sources": {},
             # A polar axes (GLEWriter.add_polar_frame): the radial limit from
@@ -3770,22 +3787,26 @@ class _Recognizer:
                 clause = self._orphan_data_clause(
                     [(n, defs[n]) for n in orphans], read_options, info
                 )
+                data_file = defs[orphans[0]][0]
                 if clause is not None:
                     restored.append(clause)
+                    if data_file in self._kept_imports:
+                        self._note(
+                            ImportCategory.DATA,
+                            f"'{data_file}' is read by raw GLE beside series "
+                            "gleplot models, so it is kept as written and "
+                            "read in place. To edit that data, load the file "
+                            "and plot it with ax.plot()",
+                            (data_line_no, data_line_no),
+                        )
+                    continue
+                if self._is_import(data_file):
+                    # The writer rewrites an imported file with just the
+                    # columns its series read, so no clause can define the
+                    # orphans until the file is read as a reference.
+                    self._shared_imports.add(data_file)
                     continue
                 # Otherwise surface it instead of guessing.
-                #
-                # A bar that cannot be modeled (an unmodelled sub-command, or
-                # a dataset shared with a fill that stays raw) is held with
-                # every name on its data statement, so this branch is not
-                # how a stack is kept consistent. For an imported (owned)
-                # file there is no narrower fix: synthesizing a second 'data'
-                # clause for just the orphaned names would reference columns
-                # the modeled series' OWN regenerated sidecar no longer
-                # carries (GLEWriter always rewrites an owned series' data
-                # file with exactly the columns it uses -- see
-                # GLEWriter.add_bar/_write_columns), which would
-                # silently corrupt the file instead of fixing the reference.
                 self._note(
                     ImportCategory.DATA,
                     "'"
@@ -4481,6 +4502,42 @@ class _Recognizer:
         return marker
 
     @staticmethod
+    def _guide_extent_matches(
+        marker, info, start: float, end: float, joined: bool = True
+    ) -> bool:
+        """Whether re-saving a guide writes back the spanned ends it has.
+
+        The writer resolves the marker's extent against the spanned axis'
+        limits (:meth:`Axes.materialize_reflines`) and writes the ends as
+        one column, or as a band's two (``joined=False``). Re-saving does so
+        against the limits as read, so the text must come out the same:
+        otherwise someone edited one side, and re-saving would move the
+        guide. Without both limits stated before the guide there is nothing
+        to resolve against.
+        """
+        limits = [
+            bound
+            for axis in ("x", "y")
+            for bound in _oriented(
+                info[f"{axis}min"], info[f"{axis}max"], info[f"{axis}negate"]
+            )
+        ]
+        lo, hi = Axes.guide_spanned_bounds(marker, limits)
+        if lo is None or hi is None:
+            return False
+        frac_lo, frac_hi = marker["fields"]["extent"]
+        expected = Axes._fraction_to_data(frac_lo, frac_hi, lo, hi)
+        axis = "y" if marker["orient"] == "v" else "x"
+        tol = GLEWriter._axis_tolerance(lo, hi, info[f"{axis}log"], None)
+
+        def written(ends):
+            if joined:
+                return GLEWriter._format_column(ends, tol)
+            return [GLEWriter._format_column([v, v], tol)[0] for v in ends]
+
+        return written(list(expected)) == written([start, end])
+
+    @staticmethod
     def _guide_coord_matches(value: float, *found: float) -> bool:
         """Whether an emitted coordinate is the one the marker claims.
 
@@ -4503,7 +4560,8 @@ class _Recognizer:
 
         * the dataset is not the two rows a guide materializes into, or its
           constant coordinate is not the one the marker claims (someone moved
-          the guide by editing the ``.dat``);
+          the guide by editing the ``.dat``), or its ends are not the
+          marker's extent across the axis range (:meth:`_guide_extent_matches`);
         * the display command carries something no guide emission has: a
           marker, a ``y2axis`` binding, an offset ``let``, smoothing, a
           dataset qualifier (``mdist``, ``deresolve``, a data range);
@@ -4530,8 +4588,10 @@ class _Recognizer:
         if x.size != 2 or y.size != 2:
             return None
         (value,) = marker["fields"]["value"]
-        along = x if marker["orient"] == "v" else y
+        along, across = (x, y) if marker["orient"] == "v" else (y, x)
         if not self._guide_coord_matches(value, *along.tolist()):
+            return None
+        if not self._guide_extent_matches(marker, info, *across.tolist()):
             return None
         lo, hi = marker["fields"]["extent"]
         ref = RefLine(
@@ -4564,7 +4624,7 @@ class _Recognizer:
         :mod:`gleplot.guides` for why the marker deliberately does not carry
         it.
         """
-        if entry.get("offset"):
+        if entry.get("offset") or entry.get("_offset2"):
             return None
         x = np.asarray(entry["x"], dtype=float)
         upper = np.asarray(entry["y1"], dtype=float)
@@ -4578,14 +4638,14 @@ class _Recognizer:
                 and self._guide_coord_matches(end, x[1])
                 and self._guide_coord_matches(upper[0], upper[1])
                 and self._guide_coord_matches(lower[0], lower[1])
+                and self._guide_extent_matches(marker, info, lower[0], upper[0], False)
             )
         else:
-            # The x column is this band's fractional extent, already resolved
-            # against the axis range -- unrecoverable, and the marker's own
-            # business (gleplot.guides). Only the edges are cross-checkable.
-            ok = self._guide_coord_matches(
-                end, *upper.tolist()
-            ) and self._guide_coord_matches(start, *lower.tolist())
+            ok = (
+                self._guide_coord_matches(end, *upper.tolist())
+                and self._guide_coord_matches(start, *lower.tolist())
+                and self._guide_extent_matches(marker, info, x[0], x[1])
+            )
         if not ok:
             return None
         lo, hi = marker["fields"]["extent"]
@@ -4960,7 +5020,10 @@ class _Recognizer:
             )
             return
         if kw is not None and _DATASET_RE.match(kw):
-            before = {attr: len(info[attr]) for attr in Axes._DERIVED_SOURCE_ATTRS}
+            before = {
+                attr: len(info[attr])
+                for attr in Axes._DERIVED_SOURCE_ATTRS + ("errorbars",)
+            }
             self._parse_dataset_line(stmt, pass1, info, marker_cfg, smooth_flags)
             self._note_dataset_series(kw, before, info)
             return
@@ -6381,11 +6444,31 @@ class _Recognizer:
         entry = info[grown[0]][-1]
         name = info["_polar_aliases"].get(name.lower(), name.lower())
         raw = info["_offset_let_sources"].get(name, name)
-        kind = entry.get("series_type") if grown[0] == "file_series" else "line"
+        if grown[0] == "errorbars":
+            kind = "errorbar"
+        elif grown[0] == "file_series":
+            kind = entry.get("series_type")
+        else:
+            kind = "line"
         if kind == "line":
             info["_dataset_series"][raw] = entry
-        elif kind == "errorbar":
-            info["_errorbar_file_series"][raw] = entry
+        if kind in ("line", "errorbar"):
+            # A drawn dataset is its series' own: it outranks a fill or bar
+            # that also reads it.
+            info["_raw_names"][raw] = (entry, "data")
+            if raw != name:
+                info["_raw_names"][name] = (entry, "offset")
+
+    @staticmethod
+    def _note_raw_name(info, name, entry, role) -> None:
+        """Remember that ``entry`` writes dataset ``name`` as its ``role``.
+
+        A raw line that reads ``name`` is bound to it (see
+        :meth:`_bind_raw_readers`). The first series to claim a name keeps
+        it, except that a drawn line or error bar outranks any other
+        (:meth:`_note_dataset_series`).
+        """
+        info["_raw_names"].setdefault(name.lower(), (entry, role))
 
     def _note_raw_lets(self, info) -> None:
         """Note each ``let`` kept as raw GLE whose target raw GLE uses.
@@ -6414,16 +6497,15 @@ class _Recognizer:
     def _bind_raw_readers(info) -> None:
         """Mark each series whose dataset a raw line in the block reads.
 
-        The series keeps its name here as ``_gle_name``, and the writer
+        The series keeps its name here in ``_gle_names``, and the writer
         renames the raw references to the name it writes the series under
         (:meth:`gleplot.writer.GLEWriter._bind_raw_reads`). A name a raw
         ``data`` or ``let`` defines is that raw dataset's, not the series'.
         """
         defined, read, _bare = GLEWriter.raw_dataset_use(info["passthrough"])
-        for series in (info["_dataset_series"], info["_errorbar_file_series"]):
-            for name, entry in series.items():
-                if name in read - defined:
-                    entry["_gle_name"] = name
+        for name, (entry, role) in info["_raw_names"].items():
+            if name in read - defined:
+                entry.setdefault("_gle_names", {})[role] = name
 
     def _commit_derived_lets(self, info) -> None:
         """Turn the recorded derived lets into series, if every one can be.
@@ -6796,6 +6878,7 @@ class _Recognizer:
         entry["_draw_seq"] = info["_draw_seq_counter"]
         info["_draw_seq_counter"] += 1
         info["hists"].append(entry)
+        self._note_raw_name(info, target, entry, "hist")
         info["_let_source_datasets"].add(source)
         info["_hist_let_pending"].pop(target, None)
         return entry
@@ -7105,7 +7188,9 @@ class _Recognizer:
             user_files = [
                 datasets[name][0]
                 for name in involved
-                if name in datasets and not self._is_import(datasets[name][0])
+                if name in datasets
+                and datasets[name][0] not in self._kept_imports
+                and not self._is_import(datasets[name][0])
             ]
             self._keep_bar_raw(
                 scanned, info, stmt, toks, user_files[0] if user_files else None
@@ -7161,6 +7246,7 @@ class _Recognizer:
                 if fail_error is not None:
                     fs["data_error"] = fail_error
                 info["file_series"].append(fs)
+                self._note_raw_name(info, names[0], fs, "data")
                 info["_key_suppress_datasets"].add(names[0])
                 info["_key_label_owners"][names[0]] = fs
                 return
@@ -7248,6 +7334,9 @@ class _Recognizer:
             entry["_draw_seq"] = info["_draw_seq_counter"]
             info["_draw_seq_counter"] += 1
             info["bars"].append(entry)
+            self._note_raw_name(info, name, entry, "data")
+            if from_names:
+                self._note_raw_name(info, from_names[index], entry, "from")
             info["_key_suppress_datasets"].add(name)
             info["_key_label_owners"][name] = entry
         for name in from_names:
@@ -7393,6 +7482,7 @@ class _Recognizer:
             fs_fields.update(self._data_read_options.get(d_names[0], {}))
             fs = FileSeries(**fs_fields)
             info["file_series"].append(fs)
+            self._note_fill_names(info, d_names, fs)
             info["_key_label_owners"][d_names[0]] = fs
             return
         y2 = loaded.get(f"c{yc2}") if yc2 is not None else None
@@ -7411,7 +7501,11 @@ class _Recognizer:
             offset=info["_dataset_offsets"].get(d_names[0], 0.0),
             data_file=f1,
         )
-        if target is not None:
+        if target is None:
+            offset2 = info["_dataset_offsets"].get(d_names[1], 0.0)
+            if offset2 != fill_fields["offset"]:
+                fill_fields["_offset2"] = offset2
+        else:
             fill_fields["target"] = target
         fill_fields.update(clips)
         column_names = self._recovered_column_names(
@@ -7434,7 +7528,31 @@ class _Recognizer:
                     info["_key_label_owners"][d_names[0]] = span_entry
                     return
         info["fills"].append(fill_entry)
+        self._note_fill_names(info, d_names, fill_entry)
         info["_key_label_owners"][d_names[0]] = fill_entry
+
+    @classmethod
+    def _note_error_names(cls, info, err_refs, entry) -> None:
+        """Note an error bar's error datasets for :meth:`_bind_raw_readers`.
+
+        ``err_refs`` maps GLE's ``err``, ``errup``, ... to the dataset each
+        names; the role is the writer's name for that error.
+        """
+        for kind, name in err_refs.items():
+            cls._note_raw_name(info, name, entry, _ERROR_ROLES[kind])
+
+    def _note_fill_names(self, info, d_names, entry) -> None:
+        """Note a fill's curves for :meth:`_bind_raw_readers`.
+
+        A curve read through an offset alias (``let dK = dJ+off``) is
+        written as the source and its alias, as for a line.
+        """
+        roles = (("data", "offset"), ("second", "second_offset"))
+        for name, (role, alias_role) in zip(d_names, roles):
+            source = info["_offset_let_sources"].get(name, name)
+            self._note_raw_name(info, source, entry, role)
+            if source != name:
+                self._note_raw_name(info, name, entry, alias_role)
 
     # -- key -------------------------------------------------------------
 
@@ -8384,6 +8502,7 @@ class _Recognizer:
                     **read_options,
                 )
             )
+            self._note_error_names(info, err, info["file_series"][-1])
             return
 
         extra = [
@@ -8423,6 +8542,7 @@ class _Recognizer:
                     data_error=(loaded or {}).get("error", "unresolved"),
                 )
             )
+            self._note_error_names(info, err, info["file_series"][-1])
             return
 
         def col_arr(c):
@@ -8523,6 +8643,7 @@ class _Recognizer:
         info["_draw_seq_counter"] += 1
         self._note_dropped_line_mode(attrs, span)
         info["errorbars"].append(entry)
+        self._note_error_names(info, err, entry)
 
     def _passthrough_original_dn(self, info, orig_toks, raw_stmts=None):
         """Keep a dataset display line as raw GLE in axes passthrough.
@@ -10265,6 +10386,8 @@ class _Recognizer:
         return True
 
     def _is_import(self, data_file) -> bool:
+        if data_file in self._kept_imports:
+            return False
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
 
@@ -11889,7 +12012,15 @@ def parse_gle_figure(
     """
     text, gle_path = _resolve_input(path_or_text, base_dir)
     rec = _Recognizer(text, gle_path)
-    return rec.run()
+    result = rec.run()
+    while rec._shared_imports:
+        # Read as references, those files are kept as written. That changes
+        # how every reader of them loads, in every graph, so start again.
+        kept = rec._kept_imports | rec._shared_imports
+        rec = _Recognizer(text, gle_path)
+        rec._kept_imports = kept
+        result = rec.run()
+    return result
 
 
 def _resolve_input(path_or_text, base_dir) -> Tuple[str, Path]:
