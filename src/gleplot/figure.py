@@ -52,6 +52,7 @@ from .series import (
 )
 from .sources import DataSource, source_of
 from .writer import (
+    _NOT_CODE_RE,
     CDATA_SUB_PREFIX,
     COLORBAR_AUTO_RANGE,
     COLORBAR_LABEL_PAD,
@@ -1370,7 +1371,8 @@ class Figure:
         Tick-label styling emits ``x2labels on`` with no dataset to hang
         those numbers on, so the top margin has to make room for them. A
         series alone still numbers the top axis: GLE turns those labels on
-        for any dataset that uses it.
+        for any dataset that uses it, a ``dN ... x2axis`` line kept as raw
+        GLE included.
         """
         return bool(
             ax.x2label_text
@@ -1382,6 +1384,10 @@ class Figure:
             or ax.x2ticklabel_color is not None
             or ax.x2ticklabel_angle is not None
             or ax.has_x2_plots()
+            or any(
+                re.match(r"\s*d\d+\s", code) and "x2axis" in code.lower().split()
+                for code in (_NOT_CODE_RE.sub("", line) for line in ax.passthrough)
+            )
         )
 
     def _auto_margins_cm(self, writer, resolution) -> Tuple[float, float, float, float]:
