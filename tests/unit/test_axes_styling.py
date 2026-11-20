@@ -969,11 +969,6 @@ def test_array_default_colors_compare_and_serialise(tmp_path):
     assert "marker FCIRCLE msize 0.134164 color rgb255(255,0,0)" in text
 
 
-def test_default_colors_out_of_the_box_are_the_historical_blue():
-    fig, _ = _fig()
-    assert "color BLUE" in fig._generate_gle()
-
-
 def test_legend_offset_config_is_the_figure_wide_default():
     fig = glp.figure(
         data_prefix="style",

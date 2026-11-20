@@ -3008,13 +3008,16 @@ class Figure:
             # vouched for as such -- excluded from ``import-data``.
             "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
-        # A default colour is recorded as the GLE colour it draws. Its
-        # warnings (extra values, 'none') were given when a series used it;
-        # a save does not repeat them.
+        # A default colour is recorded as the GLE colour it draws; None, the
+        # colour cycle, is the default and is not recorded. Its warnings
+        # (extra values, 'none') were given when a series used it; a save
+        # does not repeat them.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             for key in ("default_color", "default_marker_color"):
-                data[key] = rgb_to_gle(_rgba_parts(getattr(self.style, key))[0])
+                value = getattr(self.style, key)
+                if value is not None:
+                    data[key] = rgb_to_gle(_rgba_parts(value)[0])
         # Which graphs are add_axes insets, so open_gle need not guess.
         insets = [i + 1 for i, ax in enumerate(self.axes_list) if ax.position is None]
         if insets:

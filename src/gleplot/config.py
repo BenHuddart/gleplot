@@ -40,20 +40,19 @@ class GLEStyleConfig:
         Default line width in points (unit: 1/72 inch).
         Default: 1.5 points ≈ 0.053 cm (increased for visibility in PDFs)
 
-    default_color : str
-        Colour used by :meth:`gleplot.Axes.plot`, :meth:`~gleplot.Axes.errorbar`,
-        :meth:`~gleplot.Axes.errorbar_from_file` and
-        :meth:`~gleplot.Axes.line_from_file` when the call passes no
-        ``color``. Any spelling :func:`gleplot.colors.rgb_to_gle` accepts.
-        Default: 'BLUE' -- the colour those methods hard-coded before this
-        field was wired up, so the default changes nothing.
-        (:meth:`~gleplot.Axes.bar` and :meth:`~gleplot.Axes.fill_between`
-        keep their own distinct defaults, RED and LIGHTBLUE.)
+    default_color : str or None
+        Colour every series that takes its colour from the line cycle
+        (:meth:`gleplot.Axes.plot`, :meth:`~gleplot.Axes.step`,
+        :meth:`~gleplot.Axes.stem`, :meth:`~gleplot.Axes.errorbar`,
+        :meth:`~gleplot.Axes.hist`, the function and file series) takes
+        instead when the call passes no ``color``. Any spelling
+        :func:`gleplot.colors.rgb_to_gle` accepts. Default: None, which
+        uses each axes' colour cycle, as matplotlib does (see the Notes).
 
-    default_marker_color : str
+    default_marker_color : str or None
         Same, for a marker-only series -- what :meth:`gleplot.Axes.scatter`
         produces, and :meth:`~gleplot.Axes.plot` with a marker and no line.
-        Default: 'BLUE'
+        Default: None, the colour cycle.
 
     line_style_solid : int
         GLE line style for solid lines. Default: 1
@@ -97,10 +96,25 @@ class GLEStyleConfig:
 
     Notes
     -----
+    With ``default_color`` and ``default_marker_color`` left at None, a series given
+    no colour takes the next of matplotlib's ``'C0'`` to ``'C9'``, per axes, exactly
+    where matplotlib would: :meth:`~gleplot.Axes.plot`, :meth:`~gleplot.Axes.step`,
+    :meth:`~gleplot.Axes.errorbar`, :meth:`~gleplot.Axes.hist` (one colour per data
+    set) and :meth:`~gleplot.Axes.stackplot` (one per layer) advance the line cycle;
+    :meth:`~gleplot.Axes.scatter`, :meth:`~gleplot.Axes.bar`,
+    :meth:`~gleplot.Axes.barh`, :meth:`~gleplot.Axes.fill`,
+    :meth:`~gleplot.Axes.fill_between` and :meth:`~gleplot.Axes.fill_betweenx`
+    advance a separate patch cycle; :meth:`~gleplot.Axes.stem`,
+    :meth:`~gleplot.Axes.hlines` and :meth:`~gleplot.Axes.vlines` draw in ``'C0'``
+    without advancing either. An axes made by ``twinx``/``twiny`` has cycles of its
+    own.
+
     A ``default_linewidth``, ``default_color`` or ``default_marker_color``
     other than its default is recorded in a saved file's metadata, so a
     figure opened with :func:`gleplot.open_gle` gives new series the same
-    defaults. A colour is recorded as the GLE colour it draws.
+    defaults. A colour is recorded as the GLE colour it draws. A figure
+    opened that way continues each cycle after the series whose colours
+    follow it.
 
     The ``line_style_*`` defaults are the GLE ``lstyle`` numbers that actually
     render as their names say, measured by compiling a ruler of ``set lstyle
@@ -134,8 +148,8 @@ class GLEStyleConfig:
     font: str = ""  # Empty string = GLE default font
     fontsize: float = 12  # Increased from 10 for better readability in GLE/PDF output
     default_linewidth: float = 1.5  # Increased from 1.0 for visibility
-    default_color: str = "BLUE"
-    default_marker_color: str = "BLUE"
+    default_color: Optional[str] = None
+    default_marker_color: Optional[str] = None
     # See the "Notes" section above: these are GLE's real style numbers, not
     # a sequential 1/2/3/4 guess.
     line_style_solid: int = 1
@@ -173,7 +187,7 @@ class GLEStyleConfig:
                     f"dashlen must be a positive length in cm or None; got "
                     f"{value!r}. None keeps GLE's own 0.04 cm."
                 )
-        if name in ("default_color", "default_marker_color"):
+        if value is not None and name in ("default_color", "default_marker_color"):
             value = _stored_color(value)
             _gle_color(_rgba_parts(value)[0], name)  # raises for an unknown colour
         if name == "usetex" and not isinstance(value, bool):

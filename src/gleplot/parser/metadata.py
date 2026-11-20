@@ -81,8 +81,9 @@ DEFAULTS: Dict[str, Any] = {
     "sharey": False,
     "msize_scale": 1.0,
     "default_linewidth": 1.5,
-    "default_color": "BLUE",
-    "default_marker_color": "BLUE",
+    # None: the colour cycle (see GLEStyleConfig).
+    "default_color": None,
+    "default_marker_color": None,
 }
 
 #: Keys that are always emitted regardless of whether they equal their
