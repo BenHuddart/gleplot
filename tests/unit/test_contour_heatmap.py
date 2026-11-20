@@ -16,7 +16,6 @@ import pytest
 
 import gleplot as glp
 from gleplot import axes as _axes_module
-from gleplot import palettes
 from gleplot.writer import colorbar_format
 
 
@@ -71,10 +70,8 @@ def test_imshow_emits_colormap_and_z_sidecar():
     )
     text, files = _gle(fig)
 
-    assert (
-        'colormap "t_heatmap1.z" 200 200 zmin 0 zmax 5 palette gleplot_viridis' in text
-    )
-    assert "sub gleplot_viridis z" in text
+    assert 'colormap "t_heatmap1.z" 200 200 zmin 0 zmax 5 palette cmap_viridis' in text
+    assert "sub cmap_viridis z" in text
     # .z sidecar: header + ny rows of nx values, y increasing. The header
     # is one node spacing past the extent, where colormap puts the last
     # node one spacing short of xmax; the line under it, which GLE skips,
@@ -129,10 +126,9 @@ def test_imshow_nearest_and_invert():
 @pytest.mark.parametrize(
     "cmap, bar_palette, bar_sub",
     [
-        ("viridis", "gleplot_viridis_r", "sub gleplot_viridis_r z"),
-        ("viridis_r", "gleplot_viridis", "sub gleplot_viridis z"),
-        ("gray", "gleplot_gray_r", "sub gleplot_gray_r z"),
-        ("rainbow_r", "color", None),
+        ("viridis", "cmap_viridis_r", "sub cmap_viridis_r z"),
+        ("viridis_r", "cmap_viridis", "sub cmap_viridis z"),
+        ("gray", "cmap_gray_r", "sub cmap_gray_r z"),
     ],
 )
 def test_colorbar_of_an_inverted_image_draws_the_reversed_palette(
@@ -145,8 +141,16 @@ def test_colorbar_of_an_inverted_image_draws_the_reversed_palette(
     fig.colorbar(hm)
     text, _ = _gle(fig)
     assert f'palette "{bar_palette}"' in text
-    if bar_sub is not None:
-        assert bar_sub in text
+    assert bar_sub in text
+
+
+def test_colorbar_of_an_inverted_rainbow_image_warns_it_is_not_reversed():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    hm = ax.imshow(np.zeros((2, 2)), cmap="rainbow", invert=True)
+    with pytest.warns(UserWarning, match="no reversed rainbow"):
+        fig.colorbar(hm)
+    assert 'palette "color"' in _gle(fig)[0]
 
 
 def test_only_one_heatmap_per_axes():
@@ -157,76 +161,73 @@ def test_only_one_heatmap_per_axes():
         ax.imshow(np.zeros((2, 2)))
 
 
-def test_imshow_brewer_ramp_interpolates_its_colours():
+def test_a_palette_calls_gles_routine_through_a_clamping_wrapper():
     fig = glp.figure(data_prefix="t")
     ax = fig.add_subplot(111)
-    ax.imshow(np.zeros((2, 2)), cmap="YlOrRd")
+    ax.imshow(np.zeros((2, 2)), cmap="magma_r")
     text, _ = _gle(fig)
-    assert ax.heatmaps[0]["cmap"] == "ylorrd"
-    assert "palette gleplot_ylorrd" in text
-    sub = text.split("sub gleplot_ylorrd z", 1)[1].split("end sub", 1)[0]
-    # ColorBrewer YlOrRd runs #ffffcc -> #800026 over nine colours.
-    assert "local b = 0.800000" in sub
-    assert "then r = 0.741176+(0.501961-0.741176)*(z-7/8)*8" in sub
+    assert "palette cmap_magma_r" in text
+    assert (
+        'include "palettes.gle"\n\n'
+        "sub cmap_magma_r z\n"
+        "   return magma(1-max(0,min(1,z)))\n"
+        "end sub\n"
+    ) in text
 
 
-def test_imshow_brewer_qualitative_is_stepped():
+def test_coolwarm_calls_color_gles_blue_white_red():
     fig = glp.figure(data_prefix="t")
     ax = fig.add_subplot(111)
-    ax.imshow(np.zeros((2, 2)), cmap="Set1")
+    ax.imshow(np.zeros((2, 2)), cmap="coolwarm")
     text, _ = _gle(fig)
-    assert "palette gleplot_set1" in text
-    sub = text.split("sub gleplot_set1 z", 1)[1].split("end sub", 1)[0]
-    # Nine ColorBrewer Set1 colours, one equal band each: #e41a1c ... #999999.
-    lines = sub.strip().splitlines()
-    assert len(lines) == 9
-    assert lines[0].strip() == "if z < 1/9 then return rgb(0.894118,0.101961,0.109804)"
-    assert lines[-1].strip() == "return rgb(0.600000,0.600000,0.600000)"
-
-
-def test_imshow_reversed_cmap_flips_z_in_its_own_sub():
-    fig = glp.figure(data_prefix="t")
-    ax = fig.add_subplot(111)
-    hm = ax.imshow(np.zeros((2, 2)), cmap="RdBu_r")
-    fig.colorbar(hm)
-    text, _ = _gle(fig)
-    assert hm["cmap"] == "rdbu_r"
-    assert "palette gleplot_rdbu_r" in text
-    # The colorbar draws the same reversed palette.
-    assert 'palette "gleplot_rdbu_r"' in text
-    assert "sub gleplot_rdbu z" not in text
-    sub = text.split("sub gleplot_rdbu_r z\n", 1)[1]
-    assert sub.startswith("   z = 1-z\n")
-    forward = palettes.palette_sub_text("RdBu").split("\n", 1)[1]
-    assert sub.split("end sub", 1)[0] + "end sub" == "   z = 1-z\n" + forward
+    assert 'include "color.gle"' in text
+    assert 'include "palettes.gle"' not in text
+    assert "   return palette_blue_white_red(max(0,min(1,z)))\n" in text
 
 
 @pytest.mark.parametrize(
-    "cmap, canonical", [("gray_r", "gray_r"), ("jet_r", "rainbow_r")]
+    "cmap, native",
+    [
+        ("YlOrRd", "viridis_r"),
+        ("Blues_r", "viridis"),
+        ("Greys", "gray_r"),
+        ("RdBu", "coolwarm_r"),
+        ("RdBu_r", "coolwarm"),
+        ("PRGn", "coolwarm"),
+        ("Set1", "rainbow"),
+        ("Set1_r", "rainbow"),
+        ("jet_r", "rainbow"),
+        ("rainbow_r", "rainbow"),
+    ],
 )
-def test_imshow_reversed_builtin_cmap_emits_a_sub(cmap, canonical):
+def test_a_map_gle_lacks_warns_at_the_call_and_draws_the_closest(cmap, native):
     fig = glp.figure(data_prefix="t")
     ax = fig.add_subplot(111)
-    ax.imshow(np.zeros((2, 2)), cmap=cmap)
-    text, _ = _gle(fig)
-    assert ax.heatmaps[0]["cmap"] == canonical
-    line = [ln for ln in text.splitlines() if ln.lstrip().startswith("colormap")][0]
-    assert line.endswith(f"palette gleplot_{canonical}")
-    assert "color" not in line.split()
-    assert f"sub gleplot_{canonical} z\n   z = 1-z\n" in text
+    with pytest.warns(UserWarning, match=rf"is drawn with cmap='{native}'"):
+        hm = ax.imshow(np.zeros((2, 2)), cmap=cmap)
+    assert hm["cmap"] == native
 
 
-def test_imshow_reversed_qualitative_lists_its_colours_backwards():
+@pytest.mark.parametrize("cmap", ["rainbow", "jet", "Set1"])
+def test_a_rainbow_band_or_point_colour_falls_back_to_viridis(cmap):
+    """GLE has rainbow only as colormap's color switch, not as a routine."""
     fig = glp.figure(data_prefix="t")
     ax = fig.add_subplot(111)
-    ax.imshow(np.zeros((2, 2)), cmap="Set1_r")
-    text, _ = _gle(fig)
-    sub = text.split("sub gleplot_set1_r z\n", 1)[1].split("end sub", 1)[0]
-    # matplotlib's Set1_r: the nine bands in reverse, a boundary k/9 in the
-    # band above it, as for the forward map.
-    lines = sub.strip().splitlines()
-    assert lines[0].strip() == "if z < 1/9 then return rgb(0.600000,0.600000,0.600000)"
-    assert lines[-1].strip() == "return rgb(0.894118,0.101961,0.109804)"
+    with pytest.warns(UserWarning, match="is drawn with cmap='viridis'"):
+        ax.scatter([1, 2], [1, 2], c=[0, 1], cmap=cmap)
+    with pytest.warns(UserWarning, match="is drawn with cmap='viridis'"):
+        hm = glp.figure().gca().contourf(np.eye(3), cmap=cmap)
+    assert ax.scatters[0]["cmap"] == hm["cmap"] == "viridis"
+
+
+def test_native_maps_do_not_warn():
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ax.imshow(np.zeros((2, 2)), cmap="Gray_R")
+        ax.scatter([1, 2], [1, 2], c=[0, 1], cmap="gray")
+    assert ax.heatmaps[0]["cmap"] == "gray_r"
 
 
 def test_unknown_cmap_raises():
@@ -255,7 +256,7 @@ def test_function2d_emits_bare_expression_and_no_sidecar():
     assert hm is ax.heatmaps[0]
     assert "data_file" not in hm
     assert (
-        "    colormap sin(x)*cos(y) 200 200 zmin -1 zmax 1 palette gleplot_viridis"
+        "    colormap sin(x)*cos(y) 200 200 zmin -1 zmax 1 palette cmap_viridis"
         in text.splitlines()
     )
     assert "xaxis min 0 max 6.28" in text
@@ -280,7 +281,7 @@ def test_function2d_none_range_omits_the_clauses():
     ax = fig.add_subplot(111)
     ax.function2d("x+y", extent=(0, 1, 0, 1), vmin=None, vmax=None, invert=True)
     line = [ln for ln in _gle(fig)[0].splitlines() if "colormap" in ln][0]
-    assert line == "    colormap x+y 200 200 invert palette gleplot_viridis"
+    assert line == "    colormap x+y 200 200 invert palette cmap_viridis"
     # The colorbar shows the 0..1 GLE draws.
     cb = fig.colorbar()
     assert (cb["zmin"], cb["zmax"]) == (0.0, 1.0)
@@ -343,7 +344,7 @@ def test_pcolormesh_writes_a_cell_grid():
     assert hm["extent"] == [0.0, 4.0, 0.0, 3.0]
     assert hm["interpolation"] == "nearest"
     assert (
-        'colormap "t_heatmap1.z" 200 200 palette gleplot_viridis interpolate nearest'
+        'colormap "t_heatmap1.z" 200 200 palette cmap_viridis interpolate nearest'
         in text
     )
     assert "    xaxis min 0 max 4" in text
@@ -516,7 +517,7 @@ def test_pcolormesh_mesh_takes_a_colorbar():
     hm = ax.pcolormesh(np.arange(4.0).reshape(2, 2), cmap="magma")
     fig.colorbar(hm, ax=ax)
     text, _ = _gle(fig)
-    assert 'palette "gleplot_magma"' in text
+    assert 'palette "cmap_magma"' in text
 
 
 def test_module_level_pcolormesh():
@@ -554,15 +555,15 @@ def test_contourf_writes_bands_through_its_own_palette_sub():
     assert lines[start : start + 9] == [
         "sub gleplot_contourf1 z",
         "   ! gleplot: contourf cmap gray extend min vmin 0 levels 1 2 3 4",
-        "   if z < 1 then return gleplot_gray(0)",
+        "   if z < 1 then return cmap_gray(0)",
         "   if z > 4 then return rgb(1, 1, 1)",
         "   local t = 0.375",
         "   if z > 2 then t = 0.625",
         "   if z > 3 then t = 0.875",
-        "   return gleplot_gray(t)",
+        "   return cmap_gray(t)",
         "end sub",
     ]
-    assert "sub gleplot_gray z" in lines  # the band sub calls it
+    assert "sub cmap_gray z" in lines  # the band sub calls it
     assert (
         '    colormap "t_heatmap1.z" 80 40 zmin 0 zmax 1 palette gleplot_contourf1'
         in lines
@@ -579,8 +580,8 @@ def test_contourf_writes_bands_through_its_own_palette_sub():
     "extend, under, over",
     [
         ("neither", "rgb(1, 1, 1)", "rgb(1, 1, 1)"),
-        ("max", "rgb(1, 1, 1)", "gleplot_viridis(1)"),
-        ("both", "gleplot_viridis(0)", "gleplot_viridis(1)"),
+        ("max", "rgb(1, 1, 1)", "cmap_viridis(1)"),
+        ("both", "cmap_viridis(0)", "cmap_viridis(1)"),
     ],
 )
 def test_contourf_extend_fills_beyond_the_levels(extend, under, over):
@@ -622,7 +623,7 @@ def test_contourf_draws_a_coarse_grid_smooth_and_says_so():
     with pytest.warns(UserWarning, match=r"smooth heatmap, not bands.*fewer pixels="):
         ax.contourf(np.add.outer(np.arange(4.0), np.arange(5.0)) ** 2, [0, 10, 20, 49])
     text, _ = _gle(fig)
-    assert "   return gleplot_viridis((z-(0))/49)" in text
+    assert "   return cmap_viridis((z-(0))/49)" in text
     assert "local t" not in text
 
 
@@ -1079,7 +1080,7 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
         "gsave\n"
         "amove xg(xgmax)+0.5 yg(ygmin)\n"
         "color_range_vertical zmin 0 zmax 10 zstep (10-(0))/5*0.999999999 "
-        'palette "gleplot_viridis" width 0.4 height yg(ygmax)-yg(ygmin) '
+        'palette "cmap_viridis" width 0.4 height yg(ygmax)-yg(ygmin) '
         'format "fix 1" pixels 200\n'
         'amove xg(xgmax)+(0.5+0.4*5/3+0.2)+max(twidth(format$(0,"fix 1")),'
         'twidth(format$(10,"fix 1"))) (yg(ygmin)+yg(ygmax))/2\n'
@@ -1144,8 +1145,8 @@ def test_colorbar_per_axes_gives_each_heatmap_its_own_bar():
     assert (cb["zmin"], cb["zmax"]) == (10.0, 50.0)
     text, _ = _gle(fig)
     assert text.count('include "color.gle"') == 1
-    assert 'palette "gleplot_viridis" width 0.5' in text
-    assert 'palette "gleplot_magma" width 0.5' in text
+    assert 'palette "cmap_viridis" width 0.5' in text
+    assert 'palette "cmap_magma" width 0.5' in text
 
 
 def test_colorbar_ax_alone_picks_that_axes_heatmap():
@@ -1183,7 +1184,7 @@ def test_horizontal_colorbar_is_drawn_below_and_reserves_the_bottom():
         "amove xg(xgmin) yg(ygmin)-1.5\n"
         "rmove 0 -0.4\n"
         "color_range_horizontal zmin 0 zmax 4 zstep (4-(0))/5*0.999999999 "
-        'palette "gleplot_viridis" width xg(xgmax)-xg(xgmin) height 0.4 '
+        'palette "cmap_viridis" width xg(xgmax)-xg(xgmin) height 0.4 '
         'format "fix 1" pixels 200\n'
         'amove (xg(xgmin)+xg(xgmax))/2 yg(ygmin)-(1.5+0.4*5/3+0.2)-theight("0")\n'
         "set just tc\n"
@@ -1255,16 +1256,6 @@ def test_module_level_wrappers():
     glp.colorbar(label="v")
     ax = glp.gca()
     assert ax.heatmaps and ax.heatmaps[0]["colorbar"] is not None
-
-
-def test_palette_sub_text_is_deterministic():
-    a = palettes.palette_sub_text("viridis")
-    b = palettes.palette_sub_text("viridis")
-    assert a == b
-    assert a.startswith("sub gleplot_viridis z")
-    assert a.rstrip().endswith("end sub")
-    assert palettes.palette_sub_text("gray") is None
-    assert palettes.palette_sub_text("rainbow") is None
 
 
 # --------------------------------------------------------------------------- #
@@ -1566,3 +1557,10 @@ def test_contour_second_alias_of_a_pair_warns_and_loses():
     with pytest.warns(UserWarning, match="both linewidth and lw; linewidth wins"):
         ax.contour(_GRID, linewidth=2, lw=3)
     assert ax.contours[0]["linewidth"] == 2
+
+
+def test_a_default_cmap_gle_lacks_is_named_as_the_config_in_the_warning():
+    fig = glp.figure(data_prefix="t")
+    fig.graph.default_cmap = "RdBu"
+    with pytest.warns(UserWarning, match=r"GLEGraphConfig\(default_cmap='RdBu'\)"):
+        fig.add_subplot(111).imshow(np.zeros((2, 2)))

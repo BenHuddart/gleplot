@@ -949,7 +949,7 @@ def heatmap_inverted_colorbars():
 
     A vertical bar for an inverted ``viridis_r`` image (forward ``viridis``
     bar) and a horizontal one for an inverted ``gray`` image (a
-    ``gleplot_gray_r`` sub).
+    ``cmap_gray_r`` sub).
     """
     fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
     Z = np.arange(12, dtype=float).reshape(3, 4)
@@ -960,26 +960,26 @@ def heatmap_inverted_colorbars():
     return fig
 
 
-def heatmap_brewer_palettes():
-    """ColorBrewer cmaps: an interpolated diverging ramp and a stepped set."""
+def heatmap_gle_palettes():
+    """Palettes from GLE's color.gle and palettes.gle: coolwarm and cividis."""
     fig, (left, right) = glp.subplots(1, 2, figsize=(9, 4), data_prefix="golden")
     Z = np.arange(12, dtype=float).reshape(3, 4)
-    left.imshow(Z, extent=(0, 4, 0, 3), cmap="RdBu")
-    right.imshow(Z, extent=(0, 4, 0, 3), cmap="Set1")
+    left.imshow(Z, extent=(0, 4, 0, 3), cmap="coolwarm")
+    right.imshow(Z, extent=(0, 4, 0, 3), cmap="cividis")
     return fig
 
 
 def heatmap_reversed_palettes():
-    """Reversed cmaps: a ramp with its colorbar, a stepped set, both built-ins."""
-    fig, ((ramp, stepped), (gray, rainbow)) = glp.subplots(
+    """Reversed cmaps: two routines', one with its colorbar, gray_r, and jet."""
+    fig, ((ramp, other), (gray, rainbow)) = glp.subplots(
         2, 2, figsize=(9, 8), data_prefix="golden"
     )
     Z = np.arange(12, dtype=float).reshape(3, 4)
-    hm = ramp.imshow(Z, extent=(0, 4, 0, 3), cmap="RdBu_r")
+    hm = ramp.imshow(Z, extent=(0, 4, 0, 3), cmap="coolwarm_r")
     fig.colorbar(hm, ax=ramp)
-    stepped.imshow(Z, extent=(0, 4, 0, 3), cmap="Set1_r")
+    other.imshow(Z, extent=(0, 4, 0, 3), cmap="inferno_r")
     gray.imshow(Z, extent=(0, 4, 0, 3), cmap="gray_r")
-    rainbow.imshow(Z, extent=(0, 4, 0, 3), cmap="jet_r")
+    rainbow.imshow(Z, extent=(0, 4, 0, 3), cmap="jet")
     return fig
 
 
@@ -2198,7 +2198,7 @@ BUILDERS = [
     heatmap_grid_colorbars,
     heatmap_field_options,
     heatmap_inverted_colorbars,
-    heatmap_brewer_palettes,
+    heatmap_gle_palettes,
     heatmap_reversed_palettes,
     heatmap_pcolormesh,
     heatmap_contourf,
