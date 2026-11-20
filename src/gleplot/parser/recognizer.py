@@ -2077,8 +2077,11 @@ class _Recognizer:
                         break
         fig.passthrough_header[:0] = moved
         # The writer ends the script without a newline; raw GLE it ends
-        # with keeps the file's own.
-        if fig._trailer_lines() and self.text.endswith("\n"):
+        # with keeps the file's own, as a closing empty line.
+        ends_raw = fig._trailer_lines() or (
+            not fig.axes_list and fig.passthrough_header
+        )
+        if ends_raw and self.text.endswith("\n"):
             fig.passthrough_trailer.append("")
         self._note_dropped_comments(doc, fig)
 
@@ -2452,7 +2455,19 @@ class _Recognizer:
                         out.extend(self._raw_lines(node))
                     i += 1
                     continue
-                if blank and pending is None and out is not trailer:
+                # The blank line the writer writes after a sub or block it
+                # regenerates is regenerated with it.
+                after_regenerated = (
+                    i > 0
+                    and not isinstance(nodes[i - 1], BlankOrComment)
+                    and self._is_regenerated_page_node(nodes, i - 1)
+                )
+                if (
+                    blank
+                    and pending is None
+                    and out is not trailer
+                    and not after_regenerated
+                ):
                     out.extend(self._raw_lines(node))
                     i += 1
                     continue
@@ -2928,6 +2943,7 @@ class _Recognizer:
         # Track which lines belong to the metadata block, or to a glp_<name>
         # sub definition, so we drop them (both are regenerated canonically).
         meta_line_nos = self._meta_lines | self._gleplot_sub_lines
+        held_lines = {line for *_, line in self._held_includes}
 
         def _passthrough(text: str, statement: bool = True) -> None:
             nonlocal statement_passed
@@ -2964,10 +2980,11 @@ class _Recognizer:
 
             if isinstance(node, Statement):
                 if node.source_line and node.line_no in meta_line_nos:
-                    if any(line == node.line_no for *_, line in self._held_includes):
+                    if node.line_no in held_lines:
                         # Kept in place until run() knows whether the
-                        # writer writes it again.
-                        _passthrough(self._stmt_text(node))
+                        # writer writes it again. It draws nothing, so the
+                        # page style after it is still read.
+                        _passthrough(self._stmt_text(node), statement=False)
                         self._header_includes.add(node.line_no)
                     continue
                 kw = node.keyword

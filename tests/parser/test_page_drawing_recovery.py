@@ -100,7 +100,7 @@ def test_drawings_before_other_content_in_a_file_without_graphs_stay_raw(tmp_pat
     text = "size 10 10\n\n" + _CIRCLE + "amove 1 1\n"
     recognized = parse_gle_figure(text)
     assert _drawings(recognized.figure) == []
-    assert _resave(recognized, tmp_path).endswith(_CIRCLE + "amove 1 1")
+    assert _resave(recognized, tmp_path).endswith(_CIRCLE + "amove 1 1\n")
 
 
 def test_a_blank_line_after_the_last_graph_is_kept(tmp_path):

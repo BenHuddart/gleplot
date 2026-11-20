@@ -800,6 +800,8 @@ class Figure:
         #   passthrough_trailer: emitted at the very end of the script, after
         #     all graph blocks and deferred text annotations.
         # One entry per source line, no trailing newline. Default: empty.
+        # The script ends without a newline, so a loaded file's final one
+        # is a closing empty entry of passthrough_trailer.
         self.passthrough_before_hei: list = []
         self.passthrough_header: list = []
         self.passthrough_trailer: list = []

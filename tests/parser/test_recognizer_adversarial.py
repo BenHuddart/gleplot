@@ -2985,7 +2985,7 @@ def test_finding19_bare_sub_double_amove_was_never_broken(tmp_path):
     src = "size 10 8\nsub s\namove 1 1\nrline 2 2\namove 3 3\ncircle 1\nend sub\n"
     p = _write(tmp_path, "bare_sub_double_amove.gle", src)
     rec = parse_gle_figure(p)
-    assert rec.figure.passthrough_trailer == []
+    assert rec.figure.passthrough_trailer == [""]
     assert rec.figure.passthrough_header == [
         "sub s",
         "amove 1 1",
