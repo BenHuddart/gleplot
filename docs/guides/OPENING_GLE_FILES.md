@@ -47,7 +47,9 @@ gleplot can model it. Datasets, axes settings, titles, legends and the other
 commands gleplot itself writes become the corresponding parts of the figure.
 GLE that gleplot does not model is kept as it was and written back in place
 when you save, so it still reaches GLE, but you cannot edit it through the
-Python API.
+Python API. A command gleplot models is rewritten from the figure, so a
+`! comment` at the end of its line is not written back; each such comment
+gets a `structure` note.
 
 A data file that gleplot did not write is never rewritten. Lines, error
 bars, fills and plain `bar dN fill COLOR` bars drawn from it become
@@ -66,7 +68,7 @@ is recorded as a recovery note. The notes are grouped by category:
 | category | what it means |
 |---|---|
 | `metadata` | the metadata header is old or unknown (see above) |
-| `structure` | a command or option gleplot reads but cannot model, kept as raw GLE |
+| `structure` | a command or option gleplot reads but cannot model, kept as raw GLE, or a comment after a modelled command, which is not kept |
 | `data` | a data file or column could not be loaded, or a dataset was converted |
 | `legend` | a legend was assumed, or a `key` option could not be modelled |
 | `layout` | the subplot grid or shared axes were guessed, or graph geometry was kept as raw GLE |

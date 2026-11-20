@@ -1367,8 +1367,12 @@ class ContourSeries(_GridSeries):
     zpts: Optional[np.ndarray]
     extent: Optional[List[float]]
     levels: Optional[List[float]]
-    color: str
-    linewidth: float
+    #: ``None`` is a recovered contour line that set no colour: the writer
+    #: writes none, and GLE draws in the current colour.
+    color: Optional[str]
+    #: ``None`` is a recovered contour line that set no ``lwidth``: the
+    #: writer writes none (GLE's current line width).
+    linewidth: Optional[float]
     #: Set by ``open_gle`` on a width of 0 or 1 pt read from a file, which
     #: is then written as given. Absent, 0 and 1 mean the style's default.
     _lwidth_verbatim: bool
