@@ -975,6 +975,42 @@ def test_xplaces_xnames_yplaces_ynames_recognized(tmp_path):
     assert not ax.passthrough
 
 
+def test_text_holding_double_quotes_comes_back_unchanged(tmp_path):
+    """Each GLE quoting form the writer uses reads back to the same text."""
+    fig = golden.quoted_text()
+    path = tmp_path / "quoted.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path)
+    assert rec.warnings == []
+    want, got = fig.axes_list, rec.figure.axes_list
+    assert got[0].title_text == 'a "quoted" title'
+    assert got[0].xlabel_text == 'it\'s "x"'
+    assert got[0].xnames == ['"0"', "one", 'it\'s "2"']
+    assert [t["text"] for t in got[0].texts] == [t["text"] for t in want[0].texts]
+    assert got[0].heatmaps[0]["colorbar"]["label"] == 'z "units"'
+    assert [s["label"] for s in got[0].lines] == ['the "fit"']
+    assert [t["text"] for t in rec.figure.texts] == ['"figure" text']
+
+
+def test_hand_written_quotes_keep_what_gle_draws(tmp_path):
+    """GLE prints a doubled quote in ``xnames`` twice; a concatenation stays."""
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        "   xaxis min 0 max 2\n"
+        "   xplaces 0 1\n"
+        '   xnames "5""" "b"\n'
+        "   yaxis min 0 max 1\n"
+        "end graph\n"
+        "amove 1 1\n"
+        'write "Total: "+"x"\n'
+    )
+    fig = parse_gle_figure(_write(tmp_path, "q.gle", src)).figure
+    assert fig.axes_list[0].xnames == ['5""', "b"]
+    assert fig.texts == []
+    assert 'write "Total: "+"x"' in fig.passthrough_trailer
+
+
 def test_xplaces_xnames_length_mismatch_falls_back_to_passthrough(tmp_path):
     # xnames has fewer entries than xplaces -- not representable on the model
     # (GLEWriter.add_axis_config would raise), so both lines must be kept as
@@ -2275,6 +2311,71 @@ def test_a_hist_let_on_an_offset_let_stays_raw(tmp_path):
     ax = parse_gle_figure(p).figure.axes_list[0]
     assert ax.hists == []
     assert "   let d3 = hist d2" in ax.passthrough
+
+
+@pytest.mark.parametrize(
+    "first",
+    ["let d2 = hist d1", "let d2 = d1+1", "let d2 = sin(x) from 0 to 1"],
+)
+@pytest.mark.parametrize("redefine_last", [False, True])
+def test_a_let_redefined_by_a_later_let_stays_raw(tmp_path, first, redefine_last):
+    """#379: the second ``let`` is kept, with the first and its readers."""
+    lines = ["   let d2 = d2*2", "   d2 line"]
+    body = ['   data "d.dat" d1=c1,c2', f"   {first}"]
+    body += lines[::-1] if redefine_last else lines
+    meta = (
+        "! gleplot-meta-begin v2\n! gleplot: dpi = 100\n"
+        "! gleplot: import-data = d.dat\n! gleplot-meta-end\n"
+    )
+    src = meta + "size 10 8\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "r.gle", src, {"d.dat": "0 1\n1 2\n2 2\n"})
+    rec = parse_gle_figure(p)
+    ax = rec.figure.axes_list[0]
+    assert ax.passthrough == body
+    assert any(
+        w.startswith("data: d2 is defined by more than one let") for w in rec.warnings
+    )
+    rec.figure.savefig_gle(str(p))
+    assert "\n".join(body) in p.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        [
+            '   data "d.dat" d1=c1,c2 d3=c1,c3',
+            "   let d4 = d3+1",
+            "   d4 line",
+            "   let d2 = d1+1",
+            "   let d2 = d2*2",
+            "   d2 line",
+        ],
+        [
+            '   data "d.dat" d1=c1,c2 d2=c1,c3',
+            "   let d2 = d2+1",
+            "   let d2 = d2*2",
+            "   d1 line",
+            "   d2 line",
+        ],
+    ],
+    ids=["shared-statement", "data-defined-target"],
+)
+def test_a_redefined_let_keeps_the_data_it_reads(tmp_path, body):
+    """#379: the statement the lets read stays as written, with its readers.
+
+    Modelling another dataset of it would rewrite the file the raw lets read.
+    """
+    meta = (
+        "! gleplot-meta-begin v2\n! gleplot: dpi = 100\n"
+        "! gleplot: import-data = d.dat\n! gleplot-meta-end\n"
+    )
+    src = meta + "size 10 8\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "r.gle", src, {"d.dat": "0 1 5\n1 2 6\n2 2 7\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].passthrough == body
+    rec.figure.savefig_gle(str(p))
+    assert "\n".join(body) in p.read_text(encoding="utf-8")
+    assert (tmp_path / "d.dat").read_text(encoding="utf-8") == "0 1 5\n1 2 6\n2 2 7\n"
 
 
 def test_a_string_naming_a_hist_source_does_not_keep_it_raw(tmp_path):

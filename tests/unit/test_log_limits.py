@@ -225,3 +225,59 @@ def test_a_shared_log_axis_stays_shared_after_the_repair():
     assert limits[0] == limits[1]
     # ... and the union is the positive union, not a per-panel guess.
     assert limits[0] == (2.0, 50.0)
+
+
+# -- a line with a negative value on a log axis (#377) ----------------------
+
+
+def log_line_warnings(build):
+    """The negative-on-a-log-axis warnings raised saving what ``build`` drew."""
+    fig = glp.figure()
+    build(fig.add_subplot(111))
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        fig._generate_gle()
+    return [str(w.message) for w in record if "on the log" in str(w.message)]
+
+
+@pytest.mark.parametrize(
+    "build, axis",
+    [
+        (lambda ax: (ax.plot([1, 2, 3], [1, -5, 100]), ax.set_yscale("log")), "y"),
+        (lambda ax: (ax.plot([-1, 2, 3], [1, 5, 9]), ax.set_xscale("log")), "x"),
+        (
+            lambda ax: (
+                ax.plot([1, 2, 3], [1, -5, 100], yaxis="y2"),
+                ax.set_yscale("log", axis="y2"),
+            ),
+            "y2",
+        ),
+        (lambda ax: ax.semilogy([1, 2, 3], [1, 10, 100], offset=-5), "y"),
+        (lambda ax: (ax.step([1, 2, 3], [1, -5, 100]), ax.set_yscale("log")), "y"),
+    ],
+)
+def test_a_line_with_a_negative_value_on_a_log_axis_warns(build, axis):
+    """GLE joins the line across the point; matplotlib draws it off the axis."""
+    (message,) = log_line_warnings(build)
+    assert f"log {axis}-axis" in message
+    assert "NaN" in message
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda ax: (ax.plot([1, 2, 3], [1, 0, 100]), ax.set_yscale("log")),
+        lambda ax: (ax.plot([1, 2, 3], [1, np.nan, 100]), ax.set_yscale("log")),
+        lambda ax: (ax.plot([1, 2, 3], [1, -5, 100], "o"), ax.set_yscale("log")),
+        lambda ax: (ax.stem([1, 2, 3], [1, -5, 100]), ax.set_yscale("log")),
+        lambda ax: ax.plot([1, 2, 3], [1, -5, 100]),
+        lambda ax: (
+            ax.plot([1, 2, 3], [1, 10, 100]),
+            ax.axhline(-3),
+            ax.set_yscale("log"),
+        ),
+    ],
+    ids=["zero", "nan", "markers", "stem", "linear", "axhline"],
+)
+def test_no_negative_log_line_warning(build):
+    assert log_line_warnings(build) == []

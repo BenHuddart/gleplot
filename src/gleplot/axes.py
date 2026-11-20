@@ -830,34 +830,41 @@ def _paired(caller: str, x: Any, y: Any) -> Tuple[np.ndarray, np.ndarray]:
 def _errorbar_sides(err: Any, name: str, n: int) -> Tuple[Any, Any]:
     """``errorbar``'s ``xerr``/``yerr`` as ``(minus, plus)`` arrays of ``n``.
 
-    A scalar is one error for every point; a list or tuple of two is
-    ``(minus, plus)``, each a scalar or one value per point; an array of
-    shape ``(2, n)`` is matplotlib's minus row and plus row; any other array
-    is symmetric. Raises ``ValueError`` for a side that is not one value per
-    point.
+    matplotlib's shapes, broadcast to ``(2, n)``: a scalar, ``n`` values
+    (symmetric), or ``(2, n)`` rows of minus and plus errors. A column of
+    ``n`` (``n != 2``; for two points ``(2, 1)`` is matplotlib's rows) is
+    ``n`` values, and a ``(lower, upper)`` pair of a scalar and ``n`` values
+    is taken, as gleplot has always read them. Raises ``ValueError`` for any
+    other shape, a pair of scalars for other than 2 points included.
     """
     if err is None:
         return None, None
-    if isinstance(err, (list, tuple)) and len(err) == 2:
-        sides = list(err)
-    else:
+    message = (
+        f"errorbar() {name} must be a scalar, {n} values, or a (2, {n}) array "
+        f"of lower and upper rows, as in matplotlib"
+    )
+    try:
         arr = np.asarray(err, dtype=float)
-        sides = list(arr) if arr.ndim == 2 and arr.shape[0] == 2 else [arr, arr]
-    result = []
-    for side in sides:
-        side = np.asarray(side, dtype=float)
-        if side.ndim == 0:
-            side = np.full(n, float(side))
-        elif side.shape == (n, 1):
-            side = side.ravel()
-        if side.shape != (n,):
-            raise ValueError(
-                f"errorbar() {name} has a side of shape {side.shape} for {n} "
-                f"points. Pass a scalar, {n} values, or a (lower, upper) pair "
-                "of those."
-            )
-        result.append(side)
-    return result[0], result[1]
+    except (TypeError, ValueError):
+        arr = None
+    if arr is None and isinstance(err, (list, tuple)) and len(err) == 2:
+        # A (lower, upper) pair of a scalar and n values, which gleplot has
+        # always taken; each side broadcasts on its own.
+        try:
+            sides = [np.broadcast_to(np.asarray(side, float), (n,)) for side in err]
+        except (TypeError, ValueError):
+            pass
+        else:
+            return np.array(sides[0]), np.array(sides[1])
+    if arr is None:
+        raise ValueError(f"{message}; got a {type(err).__name__} that is not.")
+    if arr.shape == (n, 1) and n != 2:
+        arr = arr.ravel()
+    try:
+        minus, plus = np.broadcast_to(arr, (2, n))
+    except ValueError:
+        raise ValueError(f"{message}; got shape {arr.shape}.") from None
+    return np.array(minus), np.array(plus)
 
 
 def _require_finite(arr: np.ndarray, what: str) -> None:
@@ -4396,16 +4403,14 @@ class Axes:
         ----------
         x, y : array-like
             Data coordinates of the same length, as for :meth:`plot`.
-        yerr : scalar, array-like, or tuple of (lower, upper), optional
-            Vertical error bar sizes. Can be:
-            - scalar: constant symmetric error for all points
-            - 1D array: per-point symmetric error
-            - tuple (lower, upper): per-point asymmetric error bars
-            - array of shape (2, N): matplotlib's lower row and upper row
-
-            Each side has one value per point; any other length raises
-            ``ValueError``.
-        xerr : scalar, array-like, or tuple of (left, right), optional
+        yerr : scalar, array-like of shape (N,) or (2, N), optional
+            Vertical error bar sizes, as in matplotlib: a scalar is the same
+            error for every point, ``N`` values one symmetric error per
+            point, and shape ``(2, N)`` (such as a ``(lower, upper)`` tuple of
+            ``N`` values each) the lower row and the upper row. Any other
+            shape raises ``ValueError``, a pair of scalars for other than two
+            points included.
+        xerr : scalar, array-like of shape (N,) or (2, N), optional
             Horizontal error bar sizes. Same format as yerr.
         fmt : str
             matplotlib's format string: a colour letter, a marker character
@@ -4783,7 +4788,8 @@ class Axes:
         Parameters
         ----------
         x, y : array-like
-            Data coordinates
+            Data coordinates, the same number of each; otherwise
+            ``ValueError``, as in matplotlib.
         s : float or array-like, optional
             Marker area in points**2 (matplotlib ``scatter`` convention).
             Default 20 when neither ``s`` nor ``markersize`` is given. An
@@ -4861,6 +4867,11 @@ class Axes:
         each first appears; only the first carries ``label``.
         """
         x, y, c = _unmasked(x), _unmasked(y), _unmasked(c)
+        if np.size(x) != np.size(y):
+            raise ValueError(
+                f"scatter() x and y must be the same size, got {np.size(x)} "
+                f"x values and {np.size(y)} y values. Pass one y per x."
+            )
         s, markersize = _unmasked(s), _unmasked(markersize)
         if marker is None:
             marker = "o"  # matplotlib's rcParams['scatter.marker']

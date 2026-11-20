@@ -4385,6 +4385,7 @@ class Figure:
 
     @staticmethod
     def _write_line(writer: GLEWriter, series_data, binding) -> None:
+        writer.warn_negative_log_line(series_data)
         writer.add_line(series_data, binding=binding)
 
     @staticmethod
