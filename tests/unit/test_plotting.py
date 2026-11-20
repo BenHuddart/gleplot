@@ -34,6 +34,31 @@ class TestBasicPlotting:
         yield
         glp.close()
 
+    @pytest.mark.parametrize(
+        "x, y, match",
+        [
+            ([1, 2, 3], [1, 2], r"same length, got shapes \(3,\) and \(2,\)"),
+            ([1, 2, 3], [[1, 2], [3, 4], [5, 6]], r"one column of y, got shape"),
+        ],
+        ids=["lengths", "2d-y"],
+    )
+    @pytest.mark.parametrize("method", ["plot", "step"])
+    def test_x_and_y_that_do_not_pair_up_are_rejected_at_the_call(
+        self, method, x, y, match
+    ):
+        """Not a numpy error at save (#458)."""
+        with pytest.raises(ValueError, match=rf"{method}\(\) .*{match}"):
+            getattr(self.ax, method)(x, y)
+        assert not self.ax.lines
+
+    def test_a_scalar_is_one_point_and_a_column_one_line(self):
+        """As in matplotlib."""
+        self.ax.plot(1, 2, "o")
+        self.ax.plot(np.ones((3, 1)), [1, 2, 3])
+        _text, files = self.fig._generate_gle_with_files()
+        assert (len(self.ax.scatters), len(self.ax.lines)) == (1, 1)
+        assert sorted(len(data.splitlines()) for data in files.values()) == [2, 4]
+
     def test_simple_line_plot(self):
         """Test basic line plotting."""
         x = [1, 2, 3, 4, 5]
@@ -1246,6 +1271,42 @@ class TestErrorBars:
         )
         assert series["markersize"] == pytest.approx(0.25)
         assert not recwarn.list
+
+    @pytest.mark.parametrize(
+        "args, kwargs, match",
+        [
+            (([1, 2, 3], [1, 2]), {}, r"shapes \(3,\) and \(2,\)"),
+            (([1, 2], [[1, 2], [3, 4]]), {}, r"one column of y"),
+            (([1, 2, 3], [1, 2, 3]), {"yerr": [0.1, 0.2, 0.3, 0.4]}, r"yerr has"),
+            (
+                ([1, 2, 3], [1, 2, 3]),
+                {"yerr": ([0.1, 0.2], [0.1, 0.2, 0.3])},
+                r"yerr has a side of shape \(2,\) for 3 points",
+            ),
+            (
+                ([1, 2, 3], [1, 2, 3]),
+                {"xerr": np.ones((3, 2))},
+                r"xerr has a side of shape \(3, 2\) for 3 points",
+            ),
+        ],
+        ids=["xy", "2d-y", "yerr-length", "yerr-pair", "xerr-2d-array"],
+    )
+    def test_mismatched_lengths_are_rejected_at_the_call(self, args, kwargs, match):
+        """Not a numpy error at save (#458)."""
+        with pytest.raises(ValueError, match=match):
+            self.ax.errorbar(*args, **kwargs)
+        assert not self.ax.errorbars
+
+    def test_error_forms_matplotlib_takes(self):
+        """A numpy scalar, matplotlib's (2, N) rows, and a column (#458)."""
+        self.ax.errorbar([1, 2, 3], [1, 2, 3], yerr=np.int64(1))
+        self.ax.errorbar([1, 2, 3], [1, 2, 3], yerr=np.array([[1, 2, 3], [4, 5, 6]]))
+        self.ax.errorbar([1, 2, 3], [1, 2, 3], xerr=np.ones((3, 1)))
+        first, rows, column = self.ax.errorbars
+        np.testing.assert_array_equal(first["yerr_up"], [1, 1, 1])
+        np.testing.assert_array_equal(rows["yerr_down"], [1, 2, 3])
+        np.testing.assert_array_equal(rows["yerr_up"], [4, 5, 6])
+        np.testing.assert_array_equal(column["xerr_left"], [1, 1, 1])
 
     def test_linestyle_overrides_fmt_but_not_fmt_none(self):
         with pytest.warns(UserWarning, match="the keyword wins"):
@@ -3637,6 +3698,50 @@ def test_scatter_x_and_y_of_different_sizes_are_rejected_at_the_call(kwargs):
         ax.scatter([1, 2, 3], [1, 2], **kwargs)
     assert not ax.scatters
     glp.close()
+
+
+def test_guides_drawn_after_the_graph_keep_their_figures(tmp_path):
+    """A guide whose spanned axis GLE ranges is held to its own axis (#417)."""
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.set_xlim(1.7e9, 1.7e9 + 30)
+    ax.axvline(1.7e9 + 2.8)
+    ax.axvspan(1.7e9 + 2.8, 1.7e9 + 5.8)
+    script = _saved(fig, tmp_path)["fig.gle"]
+    assert "graph_vline 1700000002.8" in script
+    assert "amove xg(1700000002.8) yg(" in script
+    assert "box xg(1700000005.8)-xg(1700000002.8) " in script
+    loaded = glp.open_gle(str(tmp_path / "fig.gle")).axes_list[0]
+    assert loaded.reflines[0]["value"] == 1.7e9 + 2.8
+    assert (loaded.spans[0]["start"], loaded.spans[0]["end"]) == (
+        1.7e9 + 2.8,
+        1.7e9 + 5.8,
+    )
+
+
+@pytest.mark.parametrize("horizontal", [False, True])
+def test_a_lone_bar_on_a_timestamp_axis_keeps_its_figures(tmp_path, horizontal):
+    """A bar's position is held to the axis it lies on (#417)."""
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    if horizontal:
+        ax.barh([1.7e9 + 30], [2.0])
+        ax.set_ylim(1.7e9, 1.7e9 + 60)
+    else:
+        ax.bar([1.7e9 + 30], [2.0])
+        ax.set_xlim(1.7e9, 1.7e9 + 60)
+    files = _saved(fig, tmp_path)
+    assert "1.70000003e+09 2\n" in "".join(files.values())
+
+
+def test_a_histogram_of_one_timestamp_keeps_its_figures(tmp_path):
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    ax.hist([1.7e9 + 30] * 3, range=(1.7e9 + 20, 1.7e9 + 40), histtype="step")
+    ax.set_xlim(1.7e9, 1.7e9 + 60)
+    files = _saved(fig, tmp_path)
+    assert "0 1.70000003e+09\n" in "".join(files.values())
+    assert "hist d1 from 1.70000002e+09 to 1.70000004e+09 " in files["fig.gle"]
 
 
 @pytest.mark.parametrize("orient", ["v", "h"])

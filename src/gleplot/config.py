@@ -97,6 +97,11 @@ class GLEStyleConfig:
 
     Notes
     -----
+    A ``default_linewidth``, ``default_color`` or ``default_marker_color``
+    other than its default is recorded in a saved file's metadata, so a
+    figure opened with :func:`gleplot.open_gle` gives new series the same
+    defaults. A colour is recorded as the GLE colour it draws.
+
     The ``line_style_*`` defaults are the GLE ``lstyle`` numbers that actually
     render as their names say, measured by compiling a ruler of ``set lstyle
     1..9`` strokes with GLE 4.3.10 and looking at the result:
