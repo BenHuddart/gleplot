@@ -423,9 +423,9 @@ class TestBarCharts:
         with pytest.raises(ValueError):
             self.ax.bar([1, 2, 3], [4, 5, 6], yerr=[0.1, 0.2])
         assert len(self.ax.bars) == before
-        with pytest.raises(ValueError, match="yerr must be finite"):
+        with pytest.raises(ValueError, match="yerr must not be infinite"):
             self.ax.bar([1, 2, 3], [4, 5, 6], yerr=float("inf"))
-        with pytest.raises(ValueError, match="xerr must be finite"):
+        with pytest.raises(ValueError, match="xerr must not be infinite"):
             self.ax.bar([1, 2], [3, 4], xerr=[0.1, float("-inf")])
         with pytest.raises(TypeError):
             self.ax.bar([1, 2], [3, 4], yerr=0.1, error_kw="nope")

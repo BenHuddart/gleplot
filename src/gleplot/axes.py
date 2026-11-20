@@ -755,7 +755,7 @@ def _bar_error_limits(err, n: int, name: str):
     if arr.ndim == 0 or (arr.ndim == 1 and arr.size == 1):
         value = float(np.ravel(arr)[0])
         if np.isinf(value):
-            raise ValueError(f"bar() {name} must be finite, got {err!r}")
+            raise ValueError(f"bar() {name} must not be infinite, got {err!r}")
         filled = np.full(n, value)
         return filled, filled.copy()
     if arr.ndim == 1:
@@ -764,11 +764,11 @@ def _bar_error_limits(err, n: int, name: str):
                 f"bar() {name} length {arr.size} does not match the {n} bars"
             )
         if np.any(np.isinf(arr)):
-            raise ValueError(f"bar() {name} must be finite, got {err!r}")
+            raise ValueError(f"bar() {name} must not be infinite, got {err!r}")
         return arr.copy(), arr.copy()
     if arr.ndim == 2 and arr.shape[0] == 2 and arr.shape[1] in (1, n):
         if np.any(np.isinf(arr)):
-            raise ValueError(f"bar() {name} must be finite, got {err!r}")
+            raise ValueError(f"bar() {name} must not be infinite, got {err!r}")
         if arr.shape[1] == n:
             return arr[0].copy(), arr[1].copy()
         lower = np.full(n, float(arr[0, 0]))
@@ -2305,7 +2305,7 @@ class SecondaryYAxis:
 def _point_sizes(name: str, values: Any, n_points: int) -> np.ndarray:
     """``scatter``'s per-point ``s`` or ``markersize`` as a float array.
 
-    Raises ``ValueError`` unless the sizes are not negative or infinite, and
+    Raises ``ValueError`` if a size is negative or infinite, or unless
     there is one, or one per point (matplotlib's rule). A NaN size is kept:
     ``scatter`` leaves that point out.
     """
@@ -2323,7 +2323,7 @@ def _point_sizes(name: str, values: Any, n_points: int) -> np.ndarray:
         )
     if np.any(np.isinf(sizes)) or np.any(sizes < 0):
         raise ValueError(
-            f"scatter({name}=...) sizes must be finite and not negative, got "
+            f"scatter({name}=...) sizes must not be negative or infinite, got "
             f"{values!r}. A NaN or masked size leaves that point out."
         )
     return sizes
@@ -3407,16 +3407,19 @@ class Axes:
         finite_sets = []
         dropped = set()
         for samples in sets:
+            data = np.ma.getdata(samples)
             masked = np.ma.getmaskarray(samples)
-            finite = np.isfinite(np.ma.getdata(samples))
+            finite = np.isfinite(data)
             if masked.any():
                 dropped.add("masked")
             if not np.all(finite | masked):
                 dropped.add("non-finite")
-            kept = np.ma.getdata(samples)[finite & ~masked]
+            kept = data[finite & ~masked]
             if len(kept) == 0:
-                raise ValueError("hist() has no finite samples to bin")
-            finite_sets.append(np.asarray(kept, dtype=float))
+                raise ValueError(
+                    f"hist() has no finite, unmasked samples to bin in {samples!r}."
+                )
+            finite_sets.append(kept)
         if dropped:
             warn(f"hist() dropped {' and '.join(sorted(dropped))} samples.")
 
@@ -4734,9 +4737,9 @@ class Axes:
 
         Notes
         -----
-        Per-point sizes (a bubble chart) take one finite, non-negative value
-        per point; a one-element array is a single size. A NaN or masked
-        size leaves that point out, as in matplotlib. GLE's ``mdata``
+        Per-point sizes (a bubble chart) take one value per point, not
+        negative or infinite; a one-element array is a single size. A NaN or
+        masked size leaves that point out, as in matplotlib. GLE's ``mdata``
         scales only a marker drawn by a subroutine, so the script gets a
         ``gleplot_mdata_<marker>`` sub that draws the built-in marker at each
         point's size. The legend marker's area is halfway between the largest
@@ -4833,7 +4836,8 @@ class Axes:
             # matplotlib leaves a point with no size out. A missing y leaves
             # it out of the GLE dataset; its row takes another point's size
             # so the legend size and mdata stay finite.
-            y = np.where(missing, np.nan, np.ravel(np.asarray(y, dtype=float)))
+            if np.size(y) == np.size(x):
+                y = np.where(missing, np.nan, np.ravel(np.asarray(y, dtype=float)))
             diameters = np.where(
                 missing,
                 default_size if missing.all() else np.nanmax(diameters),

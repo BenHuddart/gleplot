@@ -97,9 +97,18 @@ def test_a_colour_in_the_old_third_position_names_the_new_order():
         ax.scatter(X, Y, "red")
 
 
+def test_a_nan_scalar_size_leaves_every_point_out():
+    """As in matplotlib, a scatter with no size draws no point."""
+    ax = _ax()
+    ax.scatter(X, Y, float("nan"))
+    _text, files = ax.figure._generate_gle_with_files()
+    rows = [line.split() for line in files["t_0.dat"].splitlines()[1:]]
+    assert [y for _x, y in rows] == ["nan"] * len(X)  # GLE skips a nan row
+
+
 @pytest.mark.parametrize("size", [-4, float("inf")])
-def test_a_scalar_size_must_be_finite_and_not_negative(size):
-    with pytest.raises(ValueError, match="finite and not negative"):
+def test_a_scalar_size_must_be_not_negative_or_infinite(size):
+    with pytest.raises(ValueError, match="not be negative or infinite"):
         _ax().scatter(X, Y, size)
 
 
@@ -235,9 +244,9 @@ def test_a_one_element_array_is_one_size(kwargs):
     [
         ({"s": [10, 20]}, "2 sizes for 3 points"),
         ({"markersize": [1, 2, 3, 4]}, "4 sizes for 3 points"),
-        ({"s": [10, -1, 20]}, "finite and not negative"),
-        ({"s": [10, np.inf, 20]}, "finite and not negative"),
-        ({"s": [-4]}, "finite and not negative"),
+        ({"s": [10, -1, 20]}, "not be negative or infinite"),
+        ({"s": [10, np.inf, 20]}, "not be negative or infinite"),
+        ({"s": [-4]}, "not be negative or infinite"),
         ({"s": ["a", "b", "c"]}, "number or a sequence of numbers"),
         ({"s": [10, 20, 30], "mdist": 1.0}, r"mdist=1\.0"),
         ({"s": [10, 20, 30], "deresolve": 2}, "deresolve=2"),
