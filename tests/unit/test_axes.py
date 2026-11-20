@@ -110,6 +110,12 @@ class TestAxisProperties:
         assert self.ax.get_xlim() == (None, None)
         assert self.ax.get_ylim() == (None, None)
 
+    def test_get_limits_reject_a_bad_axis(self):
+        with pytest.raises(ValueError, match=r"get_xlim\(axis='y'\)"):
+            self.ax.get_xlim("y")
+        with pytest.raises(ValueError, match=r"get_ylim\(axis='x2'\)"):
+            self.ax.get_ylim("x2")
+
     def test_axis_limits_warn_on_emit_and_auto(self):
         with pytest.warns(UserWarning, match="ignores unsupported keyword.*auto"):
             self.ax.set_xlim(0, 1, auto=True)

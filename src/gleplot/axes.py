@@ -115,6 +115,24 @@ class _Unchanged:
 _UNCHANGED: Any = _Unchanged()
 
 
+def _checked_limit(method: str, name: str, value: Any) -> Any:
+    """``value`` as an axis limit: ``None``, or a finite int or float.
+
+    A 0-d numpy number becomes the Python number.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (np.generic, np.ndarray)) and np.ndim(value) == 0:
+        value = value.item()
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(
+            f"{method}({name}={value!r}): a limit is a number, or None "
+            "for an automatic one."
+        )
+    _finite_float(value, f"{method}({name}={value!r}): the limit")
+    return value
+
+
 def _new_limits(
     method: str,
     names: Tuple[str, str, str, str],
@@ -154,18 +172,9 @@ def _new_limits(
                     f"{method}() got both {name!r} ({value!r}) and {alias_name!r} "
                     f"({alias!r}); pass only {name!r}."
                 )
-        if value is _UNCHANGED:
-            value = old
-        elif value is not None:
-            if isinstance(value, (np.generic, np.ndarray)) and np.ndim(value) == 0:
-                value = value.item()
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise TypeError(
-                    f"{method}({name}={value!r}): a limit is a number, or None "
-                    "for an automatic one."
-                )
-            _finite_float(value, f"{method}({name}={value!r}): the limit")
-        resolved.append(value)
+        resolved.append(
+            old if value is _UNCHANGED else _checked_limit(method, name, value)
+        )
     ignored = ["emit"] if emit is not True else []
     ignored += ["auto"] if auto else []
     warn_unsupported_keywords(method, ignored)
@@ -9441,11 +9450,16 @@ class Axes:
         Raises
         ------
         ValueError
-            On an unknown string option.
+            On an unknown string option, or a NaN or infinite limit.
         TypeError
             If ``arg`` is a sequence of the wrong length, or limit keywords
-            are passed together with ``arg``. Any other keyword warns and is
-            ignored.
+            are passed together with ``arg``, or a limit is not a number.
+            Any other keyword warns and is ignored.
+
+        Notes
+        -----
+        Every limit is checked before any is set, so a call that raises
+        leaves the limits as they were.
         """
         unknown = set(kwargs) - {"xmin", "xmax", "ymin", "ymax"}
         warn_unsupported_keywords(
@@ -9494,15 +9508,21 @@ class Axes:
                     f"argument; got {arg!r}."
                 )
             kwargs = dict(zip(("xmin", "xmax", "ymin", "ymax"), arg))
-        for name in ("x", "y"):
-            lo = kwargs.get(f"{name}min")
-            hi = kwargs.get(f"{name}max")
-            # matplotlib leaves a limit passed as None where it was.
-            if lo is not None or hi is not None:
-                old_lo, old_hi = getattr(self, f"get_{name}lim")()
-                getattr(self, f"set_{name}lim")(
-                    old_lo if lo is None else lo, old_hi if hi is None else hi
-                )
+        # Check every limit before setting any. matplotlib leaves a limit
+        # passed as None where it was.
+        limits = {
+            key: _checked_limit("axis", key, kwargs[key])
+            for key in ("xmin", "xmax", "ymin", "ymax")
+            if kwargs.get(key) is not None
+        }
+        if "xmin" in limits or "xmax" in limits:
+            self.set_xlim(
+                limits.get("xmin", _UNCHANGED), limits.get("xmax", _UNCHANGED)
+            )
+        if "ymin" in limits or "ymax" in limits:
+            self.set_ylim(
+                limits.get("ymin", _UNCHANGED), limits.get("ymax", _UNCHANGED)
+            )
         return (*self.get_xlim(), *self.get_ylim())
 
     @_cartesian_only
@@ -10383,8 +10403,13 @@ class Axes:
         Parameters
         ----------
         axis : str, optional
-            Which axis: 'x' (bottom, default) or 'x2' (top)
+            Which axis: 'x' (bottom, default) or 'x2' (top); another value
+            raises ``ValueError``.
         """
+        if axis not in ("x", "x2"):
+            raise ValueError(
+                f"get_xlim(axis={axis!r}): expected 'x' (bottom) or 'x2' (top)."
+            )
         if axis == "x2":
             return self.x2min, self.x2max
         return self.xmin, self.xmax
@@ -10395,8 +10420,13 @@ class Axes:
         Parameters
         ----------
         axis : str, optional
-            Which axis: 'y' (left, default) or 'y2' (right)
+            Which axis: 'y' (left, default) or 'y2' (right); another value
+            raises ``ValueError``.
         """
+        if axis not in ("y", "y2"):
+            raise ValueError(
+                f"get_ylim(axis={axis!r}): expected 'y' (left) or 'y2' (right)."
+            )
         if axis == "y2":
             return self.y2min, self.y2max
         else:
