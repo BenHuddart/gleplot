@@ -2999,7 +2999,8 @@ class Figure:
         dict
             Suitable for :func:`gleplot.parser.metadata.emit_metadata`. Always
             includes ``dpi`` and ``import-data`` (per that function's
-            ALWAYS_EMIT contract); ``sharex``/``sharey``/``msize_scale`` are
+            ALWAYS_EMIT contract); ``sharex``/``sharey``/``msize_scale``/
+            ``default_linewidth`` are
             included too but only rendered by ``emit_metadata`` when they
             differ from the documented defaults. Any ``metadata_extra`` keys
             recovered from a parsed file are passed through verbatim.
@@ -3010,6 +3011,9 @@ class Figure:
             "sharex": self.sharex,
             "sharey": self.sharey,
             "msize_scale": self.marker_config.msize_scale,
+            # The width a line drawn at matplotlib's default gets, which a
+            # line plotted after open_gle should get too.
+            "default_linewidth": self.style.default_linewidth,
             # Raw-content sidecars (heatmap/contour ``.z`` grids, scattered
             # ``points.dat`` triples) are not columnar imports and must not be
             # vouched for as such -- excluded from ``import-data``.

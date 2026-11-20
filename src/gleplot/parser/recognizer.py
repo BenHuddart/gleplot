@@ -2012,18 +2012,43 @@ class _Recognizer:
             self._insets = set(meta.get("insets") or [])
         return meta
 
+    def _meta_default_linewidth(self, meta: Dict[str, Any]) -> float:
+        """The metadata's ``default_linewidth``, or the style default.
+
+        A value that is not a positive number is reported and ignored.
+        """
+        default = float(GLEStyleConfig.default_linewidth)
+        value = meta.get("default_linewidth", default)
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and value > 0
+        ):
+            return float(value)
+        self._note(
+            ImportCategory.METADATA,
+            f"default_linewidth = {value!r} is not a positive width in points; "
+            f"using {default}",
+            None,
+        )
+        return default
+
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
         """The ``Figure`` described by the metadata and the preamble."""
         dpi = int(meta.get("dpi", 100))
         sharex = bool(meta.get("sharex", False))
         sharey = bool(meta.get("sharey", False))
         msize_scale = float(meta.get("msize_scale", 1.0))
-        metadata_extra = {
-            k: v
-            for k, v in meta.items()
-            if k
-            not in ("dpi", "sharex", "sharey", "msize_scale", "import-data", "insets")
-        }
+        known = (
+            "dpi",
+            "sharex",
+            "sharey",
+            "msize_scale",
+            "default_linewidth",
+            "import-data",
+            "insets",
+        )
+        metadata_extra = {k: v for k, v in meta.items() if k not in known}
 
         (
             figsize,
@@ -2036,7 +2061,9 @@ class _Recognizer:
         ) = self._parse_preamble(pre_nodes)
 
         # Build style/graph/marker configs.
-        style = GLEStyleConfig(**page_state)
+        style = GLEStyleConfig(
+            **page_state, default_linewidth=self._meta_default_linewidth(meta)
+        )
         self._polar_degree = polar_degree_mark(bool(style.usetex))
         style.font = font
         style.fontsize = fontsize

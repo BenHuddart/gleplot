@@ -58,8 +58,8 @@ def normalize(d: dict) -> dict:
       * fontsize: snapped through the 6-sig-fig ``set hei`` cm round-trip.
       * markersize / linewidth: snapped through the emitted GLE value
         (msize verbatim; linewidth via pt<->cm; API default 0 or 1 -> the
-        style's ``default_linewidth``, which the file does not record, unless
-        the series is ``_lwidth_verbatim``; that marker is dropped).
+        style's ``default_linewidth``, unless the series is
+        ``_lwidth_verbatim``; that marker is dropped).
       * legend_on: explicit True with labels present -> None (auto).
       * legend_spacing: equal to 5 significant figures (emitted in cm).
       * suptitle: one off its default place reads back as the first figure
@@ -148,7 +148,7 @@ def normalize(d: dict) -> dict:
         emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
         style["fontsize"] = fontsize_cm_to_pt(float(emitted))
 
-    default_linewidth = style.pop("default_linewidth", 1.5)
+    default_linewidth = style.get("default_linewidth", 1.5)
 
     def _snap_linewidth(v, verbatim=False):
         # Writer substitutes default_linewidth for API defaults 0/1.
@@ -1207,6 +1207,42 @@ def test_spanning_subplots_are_recovered(tmp_path):
         (3, 3, (7, 9)),
     ]
     assert not any(w.startswith("layout:") for w in rec.warnings)
+
+
+def test_default_linewidth_is_read_from_the_metadata(tmp_path):
+    """#345: a line plotted after loading gets the width the file used."""
+    fig = gleplot.figure(style=gleplot.GLEStyleConfig(default_linewidth=1.0))
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    path = tmp_path / "w.gle"
+    fig.savefig_gle(str(path))
+
+    loaded = parse_gle_figure(path).figure
+    assert loaded.style.default_linewidth == 1.0
+    loaded.axes_list[0].plot([0, 1], [1, 0])
+    again = tmp_path / "again.gle"
+    loaded.savefig_gle(str(again))
+    widths = [
+        line.split("lwidth ")[1].split()[0]
+        for line in again.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("d") and " line " in line
+    ]
+    assert widths == ["0.03528", "0.03528"]
+
+
+@pytest.mark.parametrize("value", ["thick", "true", "-2"])
+def test_a_default_linewidth_that_is_not_a_width_is_reported(tmp_path, value):
+    fig = gleplot.figure(style=gleplot.GLEStyleConfig(default_linewidth=1.0))
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    path = tmp_path / "w.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text(encoding="utf-8").replace(
+        "default_linewidth = 1.0", f"default_linewidth = {value}"
+    )
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    assert rec.figure.style.default_linewidth == 1.5
+    assert any(w.startswith("metadata: default_linewidth") for w in rec.warnings)
 
 
 def test_insets_are_read_from_the_metadata(tmp_path):

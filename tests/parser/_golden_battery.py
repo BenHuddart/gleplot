@@ -1560,7 +1560,8 @@ def one_point_default_width():
     """A 1 pt default width: each kind's ``lwidth 0.03528`` comes back as 1 pt.
 
     The writer reads 1 pt as "the style default", so a recovered 1 pt width
-    is kept as given rather than widened to the default it was loaded with.
+    is kept as given (``_lwidth_verbatim``) whatever default the figure is
+    loaded with; the metadata records ``default_linewidth = 1.0``.
     """
     fig = glp.figure(
         style=glp.GLEStyleConfig(default_linewidth=1.0), data_prefix="golden"

@@ -46,12 +46,23 @@ class TestEmitMetadata:
         ]
 
     def test_non_default_values_emitted(self):
-        data = {"dpi": 150, "sharex": True, "sharey": True, "msize_scale": 2.5}
+        data = {
+            "dpi": 150,
+            "sharex": True,
+            "sharey": True,
+            "msize_scale": 2.5,
+            "default_linewidth": 1.0,
+        }
         lines = md.emit_metadata(data)
         assert "! gleplot: dpi = 150" in lines
         assert "! gleplot: sharex = true" in lines
         assert "! gleplot: sharey = true" in lines
         assert "! gleplot: msize_scale = 2.5" in lines
+        assert "! gleplot: default_linewidth = 1.0" in lines
+
+    def test_default_linewidth_at_its_default_is_omitted(self):
+        lines = md.emit_metadata({"dpi": 100, "default_linewidth": 1.5})
+        assert not any("default_linewidth" in line for line in lines)
 
     def test_float_with_integral_value_keeps_decimal_point(self):
         lines = md.emit_metadata({"dpi": 100, "msize_scale": 2.0})
