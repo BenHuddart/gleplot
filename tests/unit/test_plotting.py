@@ -509,7 +509,7 @@ class TestBarCharts:
         assert stacked == ["1 1 2", "2 * *", "3 3 4"]
 
     def test_a_nan_table_bar_gets_its_own_missing_column(self):
-        """The table's column stays as it is: another series may read it."""
+        """The bar gets its own ``*`` column; the line breaks at NaN too."""
         from gleplot.sources import ColumnRef, DictDataProvider, TableData
 
         self.ax.bar([1, 2, 3], [1, 2, 3])
@@ -525,7 +525,7 @@ class TestBarCharts:
         assert rows == [
             ["x", "height", "y"],
             ["1", "1", "1"],
-            ["2", "*", "nan"],
+            ["2", "*", "*"],
             ["3", "3", "3"],
         ]
         assert f"data {name} d1=c1,c2\n" in text
@@ -987,7 +987,7 @@ class TestSegmentLines:
         assert "yaxis min -1 max 3" in text
 
     def test_a_table_backed_gap_series_breaks_at_its_gaps(self):
-        """It gets its own ``*`` column; the table's stays for the other line."""
+        """It gets its own ``*`` column, and so does the other drawn line."""
         from gleplot.sources import ColumnRef, DictDataProvider, TableData
 
         self.ax.plot([0, 1, 2], [0, 1, 2])
@@ -1002,7 +1002,7 @@ class TestSegmentLines:
             data_provider=DictDataProvider({"t": table})
         )
         (name,) = files
-        assert files[name].splitlines() == ["x y y_2", "0 0 0", "1 * nan", "2 2 2"]
+        assert files[name].splitlines() == ["x y y_2", "0 0 0", "1 * *", "2 2 2"]
         assert f"data {name} d1=c1,c2" in text
         assert f"data {name} d2=c1,c3" in text
 
