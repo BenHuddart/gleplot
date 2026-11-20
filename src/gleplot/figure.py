@@ -23,7 +23,7 @@ from .axes import (
 )
 from .brokenaxes import BrokenAxes
 from .cairo_support import cairo_font_warning, figure_requires_cairo
-from .colors import apply_alpha, rgb_to_gle
+from .colors import _rgba_parts, apply_alpha, rgb_to_gle
 from .compiler import (
     RASTER_COMPILE_FORMATS,
     SUFFIX_TO_COMPILE_FORMAT,
@@ -3075,9 +3075,10 @@ class Figure:
         dict
             Suitable for :func:`gleplot.parser.metadata.emit_metadata`. Always
             includes ``dpi`` and ``import-data`` (per that function's
-            ALWAYS_EMIT contract); ``sharex``/``sharey``/``msize_scale`` are
-            included too but only rendered by ``emit_metadata`` when they
-            differ from the documented defaults. Any ``metadata_extra`` keys
+            ALWAYS_EMIT contract); ``sharex``/``sharey``/``msize_scale`` and
+            the style's ``default_linewidth``/``default_color``/
+            ``default_marker_color`` are included too but only rendered by
+            ``emit_metadata`` when they differ from the documented defaults. Any ``metadata_extra`` keys
             recovered from a parsed file are passed through verbatim.
         """
         raw = set(raw_sidecars or ())
@@ -3086,11 +3087,20 @@ class Figure:
             "sharex": self.sharex,
             "sharey": self.sharey,
             "msize_scale": self.marker_config.msize_scale,
+            # What a series plotted after open_gle with no width or colour
+            # gets, as it would have before the save.
+            "default_linewidth": self.style.default_linewidth,
             # Raw-content sidecars (heatmap/contour ``.z`` grids, scattered
             # ``points.dat`` triples) are not columnar imports and must not be
             # vouched for as such -- excluded from ``import-data``.
             "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
+        # A default colour is recorded as the GLE colour it draws. One that
+        # does not resolve warned when a series used it; a save does not.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            for key in ("default_color", "default_marker_color"):
+                data[key] = rgb_to_gle(_rgba_parts(getattr(self.style, key))[0])
         # Which graphs are add_axes insets, so open_gle need not guess.
         insets = [i + 1 for i, ax in enumerate(self.axes_list) if ax.position is None]
         if insets:
