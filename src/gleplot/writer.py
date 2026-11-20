@@ -1796,12 +1796,10 @@ class GLEWriter:
         here, AFTER 'end graph' -- that is deliberate (GLE's ``xg()``/``yg()`` need the graph that just
         closed) but it means any 'set color'/'set hei'/'set just' the text
         needed is emitted at the PAGE level, where it is sticky interpreter
-        state exactly like the broken-axis seam decoration (see the comment
-        above :meth:`add_break_divider`). Left unguarded, a coloured text
-        element ending one panel would leak its colour into the axes/ticks
-        of the NEXT 'begin graph' block, which draws them with whatever
-        colour is currently ambient. The flush is therefore wrapped in
-        gsave/grestore, same idiom as the seam decoration, so the colour
+        state. Left unguarded, a coloured text element ending one panel would
+        leak its colour into the axes/ticks of the NEXT 'begin graph' block,
+        which draws them with whatever colour is currently ambient. The flush
+        is therefore wrapped in gsave/grestore, so the colour
         (and height/justification) reverts to ambient the moment this
         panel's text is done -- and the writer's own sticky-state trackers
         are reset alongside it (see ``_text_state_*`` below), since grestore
@@ -2026,9 +2024,7 @@ class GLEWriter:
             Whether to remove the first tick label using GLE's nofirst command
             (used when subplots touch to avoid overlapping labels)
         xdticks, ydticks : float, optional
-            Major tick interval (GLE ``dticks``). Needed per-segment on a
-            broken axis, where the two segments cover wildly different ranges
-            and GLE's automatic choice would collide at the seam.
+            Major tick interval (GLE ``dticks``).
         xdsubticks, ydsubticks : float, optional
             Minor tick interval (GLE ``dsubticks``).
         xplaces, yplaces : list of float, optional
@@ -2045,9 +2041,7 @@ class GLEWriter:
         xaxis_off, yaxis_off, x2axis_off, y2axis_off : bool
             Disable a single side of the graph frame entirely -- axis line,
             ticks and labels (GLE's ``off`` sub-command; ``x2``/``y2`` are the
-            top/right sides GLE draws by default). This is what lets several
-            graph blocks butt up against each other and read as one panel:
-            the inner sides are switched off and the seam is drawn separately.
+            top/right sides GLE draws by default).
         frame_off : bool
             Hide every axis line and tick mark (``xside off``, ``yside off``,
             ``xticks off``, ``yticks off``; GLE copies them onto x2/y2) but
@@ -2322,12 +2316,9 @@ class GLEWriter:
         that mirroring is what draws the closing edge of the box. Switching
         the primary axis off takes the mirror with it: ``yaxis ... off``
         silently removes the RIGHT-hand frame line too, even though nothing
-        asked for it. That is a real bug for a broken-axis assembly, whose
-        rightmost segment always has ``yaxis off`` (the y axis belongs to
-        the leftmost segment) and always wants its outer edge drawn -- the
-        panel otherwise renders open on the right and reads as clipped.
-        Re-assert the mirror explicitly whenever the primary side is off
-        and the mirror was not itself turned off.
+        asked for it, and the panel renders open on the right. Re-assert the
+        mirror explicitly whenever the primary side is off and the mirror
+        was not itself turned off.
         """
         lo, hi, negate = self._axis_direction(lo, hi)
         y2_on = yaxis_off and not off
@@ -2390,9 +2381,9 @@ class GLEWriter:
     ) -> None:
         """The top scale: the ``x2axis`` line and ``x2labels on``.
 
-        With nothing configured it stays exactly the broken-axis frame
-        switch: ``x2axis off``, or ``x2axis on`` when the bottom axis is off
-        and the top one is not. A data scale (limits, log,
+        With nothing configured it stays exactly the frame switch:
+        ``x2axis off``, or ``x2axis on`` when the bottom axis is off and the
+        top one is not. A data scale (limits, log,
         linear-vs-copied-log, styling) joins that same line, after the
         ``xaxis`` line, because GLE copies an ``xaxis`` command onto x2
         (manual: put the x2 settings after the x ones). ``log`` is copied
@@ -2665,173 +2656,6 @@ class GLEWriter:
         if style.grid == "both":
             self.lines_gle.append(f"    {prefix}subticks on{opts}")
 
-    # -- broken-axis seam decoration ------------------------------------
-    #
-    # These are emitted between two adjacent graph blocks, immediately after
-    # the LEFT one's ``end graph``. GLE's ``xg()``/``yg()`` map data
-    # coordinates to page cm for the graph that most recently ended, and
-    # ``xgmin``/``xgmax``/``ygmin``/``ygmax`` hold that graph's data range --
-    # the same mechanism the colorbar placement already relies on. Using them
-    # (rather than the cm geometry gleplot computed) keeps the decoration
-    # pinned to what GLE actually drew.
-    #
-    # Everything is wrapped in gsave/grestore: ``set lwidth``/``set color``
-    # are sticky interpreter state in GLE and would otherwise leak into the
-    # following graph block.
-
-    def _seam_style(
-        self, color: str, linewidth: Optional[float], lstyle: Optional[int]
-    ) -> None:
-        """``gsave`` and the colour, width and style of a broken-axis seam."""
-        self.lines_gle.append("gsave")
-        self.lines_gle.append(f"set color {color}")
-        if linewidth is not None:
-            self.lines_gle.append(
-                f"set lwidth {self._format_number(linewidth_pt_to_cm(linewidth))}"
-            )
-        if lstyle is not None:
-            self.lines_gle.append(f"set lstyle {int(lstyle)}")
-
-    def add_break_divider(
-        self,
-        gap_cm: float,
-        color: str = "BLACK",
-        linewidth: Optional[float] = None,
-        lstyle: Optional[int] = None,
-    ):
-        """Draw a single vertical rule down the seam between two segments.
-
-        The rule sits at the centre of the gap, so it lands exactly on the
-        join when ``gap_cm`` is 0.
-        """
-        offset = self._format_number(gap_cm / 2.0)
-        self._seam_style(color, linewidth, lstyle)
-        self.lines_gle.append(f"amove xg(xgmax)+{offset} yg(ygmin)")
-        self.lines_gle.append(f"aline xg(xgmax)+{offset} yg(ygmax)")
-        self.lines_gle.append("grestore")
-
-    def add_break_marks(
-        self,
-        gap_cm: float,
-        color: str = "BLACK",
-        linewidth: Optional[float] = None,
-        width_cm: float = 0.13,
-        height_cm: float = 0.20,
-        separation_cm: float = 0.06,
-    ):
-        """Draw the conventional double-slash break marks at the seam.
-
-        Two short parallel strokes, leaning right, are drawn on the bottom
-        axis line and two more on the top one, centred on the gap between the
-        two segments. ``separation_cm`` is the half-distance between the pair
-        of strokes; ``width_cm``/``height_cm`` are the half-extents of each
-        stroke.
-        """
-        centre = f"xg(xgmax)+{self._format_number(gap_cm / 2.0)}"
-        w = self._format_number(width_cm)
-        h = self._format_number(height_cm)
-        sep = self._format_number(separation_cm)
-
-        self._seam_style(color, linewidth, 1)
-        for side in ("ygmin", "ygmax"):
-            for sign in ("-", "+"):
-                self.lines_gle.append(f"amove {centre}{sign}{sep}-{w} yg({side})-{h}")
-                self.lines_gle.append(f"aline {centre}{sign}{sep}+{w} yg({side})+{h}")
-        self.lines_gle.append("grestore")
-
-    def add_ybreak_divider(
-        self,
-        gap_cm: float,
-        color: str = "BLACK",
-        linewidth: Optional[float] = None,
-        lstyle: Optional[int] = None,
-    ):
-        """Draw a single horizontal rule across the seam of a broken y-axis.
-
-        The broken-y counterpart of :meth:`add_break_divider`, emitted after
-        the LOWER segment's ``end graph``: the rule sits at the centre of the
-        gap above its top edge.
-        """
-        offset = self._format_number(gap_cm / 2.0)
-        self._seam_style(color, linewidth, lstyle)
-        self.lines_gle.append(f"amove xg(xgmin) yg(ygmax)+{offset}")
-        self.lines_gle.append(f"aline xg(xgmax) yg(ygmax)+{offset}")
-        self.lines_gle.append("grestore")
-
-    def add_ybreak_marks(
-        self,
-        gap_cm: float,
-        color: str = "BLACK",
-        linewidth: Optional[float] = None,
-        width_cm: float = 0.20,
-        height_cm: float = 0.13,
-        separation_cm: float = 0.06,
-    ):
-        """Draw double-slash break marks across the seam of a broken y-axis.
-
-        The broken-y counterpart of :meth:`add_break_marks`: two short
-        parallel strokes on the left frame line and two on the right one,
-        centred on the gap above the LOWER segment. ``width_cm`` and
-        ``height_cm`` are the half-extents of each stroke, and
-        ``separation_cm`` is the half-distance between the pair.
-        """
-        centre = f"yg(ygmax)+{self._format_number(gap_cm / 2.0)}"
-        w = self._format_number(width_cm)
-        h = self._format_number(height_cm)
-        sep = self._format_number(separation_cm)
-
-        self._seam_style(color, linewidth, 1)
-        for side in ("xgmin", "xgmax"):
-            for sign in ("-", "+"):
-                self.lines_gle.append(f"amove xg({side})-{w} {centre}{sign}{sep}-{h}")
-                self.lines_gle.append(f"aline xg({side})+{w} {centre}{sign}{sep}+{h}")
-        self.lines_gle.append("grestore")
-
-    def add_page_ytitle(self, x_expr: str, y_cm: float, text: str):
-        """Write a y title at an absolute page position, outside any graph.
-
-        Used for a broken y-axis' shared y title, which must be centred on
-        the WHOLE assembly rather than on one segment. The text reads bottom
-        to top, centred on ``y_cm``, with its baseline side ending at
-        ``x_expr``, a raw GLE expression such as ``'xg(xgmin)-1.06'``.
-        """
-        self.lines_gle.append("gsave")
-        self.lines_gle.append("set just bc")
-        self.lines_gle.append("set color BLACK")
-        self.lines_gle.append(f"amove {x_expr} {self._format_number(y_cm)}")
-        self.lines_gle.append("begin rotate 90")
-        self.lines_gle.append(f"write {self._gle_string_expr(text)}")
-        self.lines_gle.append("end rotate")
-        self.lines_gle.append("grestore")
-
-    def add_page_text(
-        self,
-        x_cm: float,
-        y_expr: str,
-        text: str,
-        just: str = "tc",
-        color: str = "BLACK",
-        fontsize: Optional[float] = None,
-    ):
-        """Write text at an absolute page position, outside any graph block.
-
-        Used for a broken axis' shared x title / title, which must be centred
-        on the WHOLE assembly rather than on any one segment (GLE's own
-        ``xtitle`` centres on its own graph box). ``y_expr`` is a raw GLE
-        expression so the caller can anchor it to the graph that just ended,
-        e.g. ``'yg(ygmin)-0.55'``.
-        """
-        self.lines_gle.append("gsave")
-        self.lines_gle.append(f"set just {just}")
-        self.lines_gle.append(f"set color {color}")
-        if fontsize is not None:
-            self.lines_gle.append(
-                f"set hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
-            )
-        self.lines_gle.append(f"amove {self._format_number(x_cm)} {y_expr}")
-        self.lines_gle.append(f"write {self._gle_string_expr(text)}")
-        self.lines_gle.append("grestore")
-
     # -- free page drawing (Figure.circle ... Figure.tex) ---------------
     #
     # Each drawing is its own gsave/grestore group: 'set color'/'set lwidth'
@@ -3064,9 +2888,8 @@ class GLEWriter:
         """An inline series' columns, in a file of its own unless one is named.
 
         Several series can name one file: a figure read back from a sidecar a
-        data provider shared, or a broken axis whose segments all write the
-        same data. A file already holding every column (same name, same
-        written text) is read as it is; otherwise the columns join a shared
+        data provider shared. A file already holding every column (same name,
+        same written text) is read as it is; otherwise the columns join a shared
         sidecar, each such column stored once, the first series' own columns
         kept in place so its ``data`` line still reads them.
         """

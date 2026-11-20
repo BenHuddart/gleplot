@@ -362,16 +362,12 @@ class TestUsetex:
         fig.add_subplot(111).set_xlabel(r"$\mu$")
         assert "texlabels" not in fig._generate_gle()
 
-    def test_colorbar_and_broken_axes_labels(self):
+    def test_colorbar_label(self):
         import numpy as np
 
         fig, ax = self._axes()
         ax.imshow(np.arange(9).reshape(3, 3))
         assert fig.colorbar(label=r"$\rho$")["label"] == r"$\rho$"
-        bax = gleplot.BrokenAxes(fig, [(0, 1), (2, 3)])
-        bax.set_xlabel(r"$t$ (s)")
-        bax.set_title(r"$T_N$")
-        assert (bax.xlabel_text, bax.title_text) == (r"$t$ (s)", r"$T_N$")
 
     def test_usetex_must_be_a_bool(self):
         with pytest.raises(TypeError, match="usetex must be True or False"):

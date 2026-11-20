@@ -3381,20 +3381,6 @@ def test_a_reference_line_position_must_be_a_finite_number(draw, error, shown):
     assert ax.reflines == [] and ax.spans == []
 
 
-@pytest.mark.parametrize(
-    "draw, shown",
-    [
-        (lambda bax: bax.axhline(float("nan")), "axhline(y=...)"),
-        (lambda bax: bax.axhspan(0, float("nan")), "axhspan(ymax=...)"),
-    ],
-)
-def test_a_broken_y_axis_guide_position_must_be_a_finite_number(draw, shown):
-    fig = glp.figure()
-    bax = fig.add_broken_yaxes(ylims=[(0, 1), (2, 3)])
-    with pytest.raises(ValueError, match=re.escape(shown)):
-        draw(bax)
-
-
 @pytest.mark.parametrize("no_line", ["none", "None", "", " "])
 def test_line_from_file_without_a_line_writes_no_line_token(no_line, tmp_path):
     fig = glp.figure(data_prefix="lf")

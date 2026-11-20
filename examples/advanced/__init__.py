@@ -1,12 +1,6 @@
 """Advanced gleplot examples demonstrating complex plotting features."""
 
 from .batch_figures import example_batch_figures
-from .broken_axis import (
-    example_broken_axis_line,
-    example_broken_axis_none,
-    example_broken_axis_slash,
-    example_broken_axis_y,
-)
 from .combined_plots import example_combined_plot
 from .configuration import (
     example_global_config,
@@ -68,10 +62,6 @@ __all__ = [
     "example_line_from_file",
     "example_data_prefix",
     "example_phase_diagram",
-    "example_broken_axis_slash",
-    "example_broken_axis_line",
-    "example_broken_axis_none",
-    "example_broken_axis_y",
     "example_prl_fig2a_style",
     "example_secondary_yaxis",
     "example_global_config",

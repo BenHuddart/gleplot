@@ -190,10 +190,6 @@ class TestSubplots:
             fig.axes = []
         assert glp.figure().axes == []
 
-        broken = glp.figure()
-        bax = broken.add_broken_xaxes([(0, 1), (5, 6)])
-        assert broken.axes == list(bax.segments)
-
     def test_add_subplot_shorthand(self):
         """Test add_subplot with single int shorthand (e.g., 221)."""
         fig = glp.figure()

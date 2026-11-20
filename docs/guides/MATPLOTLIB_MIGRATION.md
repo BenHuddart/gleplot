@@ -27,7 +27,7 @@ gleplot intentionally mirrors the matplotlib style for core plotting tasks.
 | `ax.set_ylabel(...)` | same as `set_xlabel` |
 | `ax.set_xlim(...)` / `ax.set_ylim(...)` | same, including `left`/`right`, `bottom`/`top`, a `(low, high)` pair and the `xmin`/`xmax`, `ymin`/`ymax` aliases; an omitted limit keeps its setting. A limit passed as `None` is automatic, chosen from the data when the figure is saved, where matplotlib keeps the current value. `emit=False` and `auto=True` warn, and a NaN, infinite or non-numeric limit raises. The third positional argument is gleplot's `axis` (`'x2'`, `'y2'`) |
 | `ax.set_title(...)` | same; `fontsize`, `color` and `pad` are honoured, `fontdict`, `y` and other text keywords warn |
-| `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. On a broken axis, `bax.set_xlabel`, `set_ylabel` and `set_title` take them too, but a title shared by the whole assembly ignores them with a warning, see [Broken Axes](BROKEN_AXES.md) |
+| `plt.xlabel(...)` / `plt.ylabel(...)` / `plt.title(...)` | `glp.xlabel(...)` / `glp.ylabel(...)` / `glp.title(...)`, with matplotlib's positional order and the same keywords as the `ax.set_*` calls; `fig.xlabel`, `fig.ylabel` and `fig.title` take those keywords too. |
 | `ax.spines[...].set_color(c)` / `.set_linewidth(w)` | `ax.set_axis_line(axis, color=c, linewidth=w)` |
 | `ax.spines[...].set_visible(False)` | `ax.set_axis_line(axis, visible=False)`, with `'x'`, `'y'`, `'x2'`, `'y2'` for bottom, left, top, right |
 | `ax.spines['left'].set_position('zero')` and `ax.spines['bottom'].set_position('zero')` | `ax.set_math_mode()` |
@@ -408,6 +408,14 @@ of subroutines, so `pie` and `boxplot` are not provided: calling them raises
 versions drew them with gleplot's own `gleplot_wedge` and `gleplot_box`
 subroutines. A `.gle` file written with them still opens and compiles: the
 subroutines and their calls are kept as raw GLE, with a note.
+
+GLE has no broken axis either, so `Figure.add_broken_xaxes`,
+`add_broken_yaxes` and `BrokenAxes` are gone. A logarithmic axis shows two
+scales in one panel, and two subplots show two ranges. A `.gle` file an
+earlier version wrote with a broken axis opens as its separate graphs, with
+the seam marks and shared titles kept as raw GLE. A project saved with one
+loads its segments as separate axes drawn over each other in its place, with
+a warning.
 
 ## Colorbars
 

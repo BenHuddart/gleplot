@@ -51,7 +51,6 @@ If you touched a docstring, a page under `docs/`, or an example, also run the do
 - `colors.py`, `markers.py` — matplotlib→GLE mappings.
 - `dataio.py` — delimited file loading, and `gle_data_layout`: the columns GLE's own `data` command reads from a file.
 - `guides.py` — the guide provenance marker and the after-graph form (`graph_hline`/`graph_vline` from `graphutil.gle`, a `box` for a band) used when gleplot cannot range the spanned axis (`Axes.guide_needs_engine_range`); no extra model field for engine-range guides.
-- `brokenaxes.py` — `BrokenAxes`: a split x- or y-axis built from adjacent graph blocks.
 - `mathtext.py` — matplotlib `$...$` mathtext → GLE text markup.
 - `palettes.py` — colormap stop tables and the self-contained palette subs emitted for heatmaps/contours.
 - `cairo_support.py` — decides when a figure needs GLE's `-cairo` device and warns about fonts it rejects.

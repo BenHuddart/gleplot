@@ -466,11 +466,8 @@ class TestColorStateDoesNotLeakAcrossPanels:
     every graph block in the script (not scoped to the panel that requested
     it). Left unguarded, the ambient colour a coloured label leaves behind
     is whatever colour the NEXT 'begin graph' block's axes/ticks render in.
-    The fix wraps that flush in gsave/grestore (the same idiom already used
-    for the broken-axis seam decoration -- see
-    ``test_broken_axes.test_seam_decoration_is_wrapped_so_state_does_not_leak``
-    in this test suite) so the colour reverts to ambient before the next
-    panel's 'begin graph'.
+    The fix wraps that flush in gsave/grestore so the colour reverts to
+    ambient before the next panel's 'begin graph'.
     """
 
     @pytest.fixture(autouse=True)

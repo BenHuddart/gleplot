@@ -60,7 +60,6 @@ import numpy as np
 
 from . import _warn
 from .axes import Axes, validate_tick_format
-from .brokenaxes import BrokenAxes
 from .colors import get_color_palette, rgb_to_gle
 from .compiler import GLECompiler
 from .config import (
@@ -706,7 +705,6 @@ __all__ = [
     # Light validation of a GLE tick-label number format string ("fix 1",
     # "sci 2 10", ...), for callers building one interactively.
     "validate_tick_format",
-    "BrokenAxes",
     "figure",
     "gca",
     "gcf",
