@@ -493,29 +493,54 @@ def test_a_dropped_marker_never_survives_as_raw_text(tmp_path):
     assert len(figure.axes_list[0].lines) == 2
 
 
+_VLINE = "refline v value 2.5 extent 0,1"
+
+
 @pytest.mark.parametrize(
-    "marker, call",
+    "marker, drawing",
     [
-        ("refline v value 2.50 extent 0,1", "graph_vline 2.50"),
+        (
+            "refline v value 2.50 extent 0,1",
+            "gsave\nset color BLACK lwidth 0.05\ngraph_vline 2.50\ngrestore",
+        ),
         (
             "span v range 2 ,3 extent 0,1",
-            "amove xg(2) yg(ygmin)\nbox xg(3)-xg(2) yg(ygmax)-yg(ygmin) fill RED nobox",
+            "gsave\namove xg(2) yg(ygmin)\n"
+            "box xg(3)-xg(2) yg(ygmax)-yg(ygmin) fill RED nobox\ngrestore",
         ),
+        (_VLINE, "set color BLACK lwidth 0.05\ngraph_vline 2.5"),
+        (_VLINE, "gsave\nset color BLACK lwidth 0.05\ngraph_vline 2.5\namove 0 0"),
+        (_VLINE, "gsave\nset color BLACK lwidth 0.05\ngraph_hline 2.5\ngrestore"),
+        (_VLINE, "! hi\ngsave\nset color BLACK lwidth 0.05\ngraph_vline 2.5"),
+        (_VLINE, ""),
+    ],
+    ids=[
+        "position-spelling",
+        "band-spelling",
+        "no-gsave",
+        "no-grestore",
+        "other-call",
+        "comment-between",
+        "no-drawing",
     ],
 )
-def test_an_after_graph_guide_spelled_another_way_is_kept_as_written(
-    tmp_path, marker, call
+def test_an_after_graph_guide_near_miss_is_kept_as_written_with_a_note(
+    tmp_path, marker, drawing
 ):
-    """A position gleplot would not write (#417) is kept as raw GLE."""
-    set_line = "set color BLACK lwidth 0.05\n" if "refline" in marker else ""
+    """A drawing gleplot would not write (#417) is kept as raw GLE, and the
+    note says the marker was not read."""
     text = (
         "size 10 8\nbegin graph\n   xaxis min 0 max 5\nend graph\n"
-        f"! gleplot:guide {marker}\ngsave\n{set_line}{call}\ngrestore\n"
+        f"! gleplot:guide {marker}\n{drawing}\n"
     )
     p = tmp_path / "f.gle"
     p.write_text(text, encoding="utf-8")
     rec = parse_gle_figure(p)
     ax = rec.figure.axes_list[0]
     assert not ax.reflines and not ax.spans
+    (note,) = rec.notes
+    assert note.category.value == "structure"
+    assert f"! gleplot:guide {marker}" in note.message
     out = rec.figure._generate_gle_with_files()[0]
-    assert call.splitlines()[-1] in out
+    for line in drawing.splitlines():
+        assert line in out
