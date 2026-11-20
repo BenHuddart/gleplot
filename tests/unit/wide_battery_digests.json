@@ -139,5 +139,6 @@
  "golden:no_ticks_styled": "b7a6f5c7dbc00f1a7cf6bc7ad352cebcc58a1dfb60ded9769ca5d179db786f18",
  "golden:no_ticks_twins": "dc0066f05741983fc454b5abc493ab6fe528fbd88eecc4f88627c9ba5a1f87b9",
  "golden:guides_after_graph": "c6012e0c7eb2a8e63458420570870f9c1c3a3c593b33f115f6b2bc475002159a",
+ "golden:guides_after_graph_beyond_six_figures": "836f2e0011a533843fe21e61eee56eca1077b5cd0bd86ca7a5f11f9bdbfa6b5a",
  "golden:subplots_share_col_row": "77ef525c2ee6b7a516b79cb07aa85c8bc947d10ae9a4c142a540ec4a305a8630"
 }

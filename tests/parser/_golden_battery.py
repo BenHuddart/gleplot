@@ -1632,6 +1632,18 @@ def guides_after_graph():
     return fig
 
 
+def guides_after_graph_beyond_six_figures():
+    """After-graph guides on a timestamp axis, and a lone bar and histogram."""
+    fig, (left, bars) = glp.subplots(1, 2, data_prefix="golden")
+    left.set_xlim(1.7e9, 1.7e9 + 30)
+    left.axvline(1.7e9 + 2.8)
+    left.axvspan(1.7e9 + 12.8, 1.7e9 + 15.8, ymin=0.25)
+    bars.bar([1.7e9 + 30], [2.0], width=0.5)
+    bars.hist([1.7e9 + 20] * 2, range=(1.7e9 + 10, 1.7e9 + 50), histtype="step")
+    bars.set_xlim(1.7e9, 1.7e9 + 60)
+    return fig
+
+
 def fit_curves():
     """Two GLE-fitted curves: one with a range, step, style and label, one bare."""
     fig = glp.figure(data_prefix="golden")
@@ -2179,6 +2191,7 @@ BUILDERS = [
     function_curves_beside_modelled_lets,
     one_point_default_width,
     guides_after_graph,
+    guides_after_graph_beyond_six_figures,
     fit_curves,
     closed_form_fits,
     fit_result_legends,

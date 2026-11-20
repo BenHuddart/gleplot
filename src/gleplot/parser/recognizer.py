@@ -3809,7 +3809,10 @@ class _Recognizer:
                 label=marker["label"],
                 data_file=None,
             )
-            expected = GLEWriter.span_draw_lines(span, color)
+            edges = self._written_position(marker, "range")
+            if edges is None:
+                return None
+            expected = GLEWriter.span_draw_lines(span, color, edges)
             return span if expected == group else None
         toks = [t for t in tokenize_line(group[2]) if t.type is not TokenType.COMMENT]
         if [t.value.lower() for t in toks[:2]] != ["set", "color"]:
@@ -3842,8 +3845,28 @@ class _Recognizer:
             label=marker["label"],
             data_file=None,
         )
-        expected = GLEWriter.refline_draw_lines(ref, lwidth, lstyle)
+        value = self._written_position(marker, "value")
+        if value is None:
+            return None
+        expected = GLEWriter.refline_draw_lines(ref, lwidth, lstyle, value[0])
         return ref if expected == group else None
+
+    @staticmethod
+    def _written_position(marker: dict, key: str) -> Optional[List[str]]:
+        """A guide marker's ``key`` numbers as written, if gleplot's own.
+
+        The writer writes them at the precision of the axis they lie on,
+        which is not known here, and draws the guide with the same text: a
+        number as six or more significant figures write it. ``None`` for
+        any other spelling (``2.50``), which is then kept as raw GLE.
+        """
+        texts = marker["texts"][key]
+        for text, value in zip(texts, marker["fields"][key]):
+            if text != GLEWriter._format_number(value) and not any(
+                text == f"{value:.{p}g}" for p in range(6, 18)
+            ):
+                return None
+        return texts
 
     def _seed_post_graph_guides(self, block: GraphBlock, info) -> None:
         """Put the guides read after this graph on its axes, first."""
@@ -4122,6 +4145,7 @@ class _Recognizer:
             return None
         required = dict(GUIDE_MARKER_FIELDS[kind])
         fields: Dict[str, List[float]] = {}
+        texts: Dict[str, List[str]] = {}
         label: Optional[str] = None
         i = 2
         m = len(toks)
@@ -4139,6 +4163,7 @@ class _Recognizer:
             if arity is None or word in fields:
                 return None
             values: List[float] = []
+            written: List[str] = []
             j = i + 1
             for position in range(arity):
                 if position:
@@ -4148,15 +4173,24 @@ class _Recognizer:
                     if j >= m or toks[j].value != ",":
                         return None
                     j += 1
+                start = j
                 value, j = _collect_value(toks, j)
                 if value is None:
                     return None
                 values.append(value)
+                written.append("".join(t.value for t in toks[start:j]))
             fields[word] = values
+            texts[word] = written
             i = j
         if set(fields) != set(required):
             return None
-        return {"kind": kind, "orient": orient, "fields": fields, "label": label}
+        return {
+            "kind": kind,
+            "orient": orient,
+            "fields": fields,
+            "texts": texts,
+            "label": label,
+        }
 
     @staticmethod
     def _marked_dataset_name(body, start: int, kind: str) -> Optional[str]:
