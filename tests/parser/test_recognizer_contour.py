@@ -94,12 +94,19 @@ def test_per_axes_and_horizontal_colorbars_recovered(tmp_path):
     assert (rb["zmin"], rb["zmax"]) == (0.0, 30.0)
 
 
-def test_a_horizontal_bar_inside_the_frame_keeps_its_negative_sep(tmp_path):
+@pytest.mark.parametrize(
+    "orientation, amove",
+    [
+        ("horizontal", "amove xg(xgmin) yg(ygmin)+0.5\n"),
+        ("vertical", "amove xg(xgmax)+-0.5 yg(ygmin)\n"),
+    ],
+)
+def test_a_bar_inside_the_frame_keeps_its_negative_sep(tmp_path, orientation, amove):
     fig = glp.figure(data_prefix="g")
     fig.add_subplot(111).imshow(np.arange(4.0).reshape(2, 2))
-    fig.colorbar(orientation="horizontal", sep=-0.5)
+    fig.colorbar(orientation=orientation, sep=-0.5)
     path = _save(fig, tmp_path)
-    assert "amove xg(xgmin) yg(ygmin)+0.5\n" in path.read_text()
+    assert amove in path.read_text()
 
     rec = parse_gle_figure(path)
     assert rec.figure.axes_list[0].heatmaps[0]["colorbar"]["sep"] == -0.5

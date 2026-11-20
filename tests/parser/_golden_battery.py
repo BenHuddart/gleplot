@@ -935,6 +935,16 @@ def heatmap_grid_colorbars():
     return fig
 
 
+def heatmap_colorbars_inside_frame():
+    """Labelled bars with negative gaps, drawn inside their graphs' frames."""
+    fig, axs = glp.subplots(1, 2, figsize=(10, 4), data_prefix="golden")
+    y, x = np.mgrid[0:6, 0:8]
+    for ax, orientation in zip(axs, ("vertical", "horizontal")):
+        hm = ax.imshow(x * y, cmap="viridis")
+        fig.colorbar(hm, ax=ax, label=orientation, orientation=orientation, sep=-1.5)
+    return fig
+
+
 def heatmap_field_options():
     """Heatmap fields the other builders leave at their defaults.
 
@@ -2209,6 +2219,7 @@ BUILDERS = [
     custom_figsize_and_dpi,
     heatmap_imshow_colorbar,
     heatmap_grid_colorbars,
+    heatmap_colorbars_inside_frame,
     heatmap_field_options,
     heatmap_inverted_colorbars,
     heatmap_gle_palettes,
