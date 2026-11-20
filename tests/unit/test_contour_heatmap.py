@@ -1283,6 +1283,18 @@ def test_imshow_nonfinite_z_raises(bad):
         ax.imshow(Z)
 
 
+@pytest.mark.parametrize("under", [5.0, np.nan], ids=["value", "nan"])
+def test_imshow_masked_z_raises(under):
+    """GLE cannot leave a cell blank; the value under the mask is not drawn."""
+    Z = np.ma.masked_array(np.arange(4.0).reshape(2, 2), [[0, 1], [0, 0]])
+    Z.data[0, 1] = under
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=r"masked cells.*np\.ma\.filled"):
+        ax.imshow(Z)
+    assert not ax.heatmaps
+    ax.imshow(np.ma.filled(Z, 0.0))
+
+
 def test_contour_nonfinite_z_raises():
     fig = glp.figure()
     ax = fig.add_subplot(111)

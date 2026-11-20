@@ -248,7 +248,7 @@ def test_a_y2_format_is_actually_applied(tmp_path):
 def test_a_hidden_axis_line_leaves_the_other_three_drawn(tmp_path, hidden, gone):
     """GLE copies ``xside off`` onto the top edge, so the writer switches the
     top back on; only a compile shows that one edge, and only one, is gone."""
-    from tests.integration.test_boxplot_compiles import _png_rows
+    from tests.integration.test_rug_compiles import _png_rows
 
     fig, ax = glp.subplots(figsize=(2, 1.5))
     ax.plot([0, 1], [0, 1], color="blue")

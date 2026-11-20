@@ -394,34 +394,7 @@ def normalize(d: dict) -> dict:
         # the style default (the preamble's unconditional 'set hei'), matching
         # the value real GLE would use when rendering each text in sequence.
         #
-        # Pie wedges are written ahead of the texts and take part in the same
-        # sticky height; their numbers come back at the emitted precision.
         sticky_fs = style.get("fontsize")
-        for s in ax.get("wedges", []):
-            for k in (
-                "x",
-                "y",
-                "r",
-                "theta1",
-                "theta2",
-                "labeldistance",
-                "pctdistance",
-            ):
-                s[k] = _snap_num(s[k])
-            fs = s.get("fontsize")
-            if fs is None:
-                fs = sticky_fs
-            emitted = GLEWriter._format_number(fontsize_pt_to_cm(float(fs)))
-            s["fontsize"] = fontsize_cm_to_pt(float(emitted))
-            sticky_fs = s["fontsize"]
-        # Box plot numbers come back at the emitted precision.
-        for s in ax.get("boxes", []):
-            for k in ("x", "width", "capwidth", "whislo", "q1", "med", "q3"):
-                s[k] = _snap_num(s[k])
-            s["whishi"] = _snap_num(s["whishi"])
-            s["fliers"] = [_snap_num(v) for v in s["fliers"]]
-            if s["mean"] is not None:
-                s["mean"] = _snap_num(s["mean"])
         for s in ax.get("rugs", []):
             s["ticks"] = [_snap_num(v) for v in s["ticks"]]
             s["length"] = _snap_num(s["length"])
@@ -2881,3 +2854,29 @@ def test_external_key_naming_a_label_twice_is_kept_as_written(tmp_path):
     out = tmp_path / "b.gle"
     got.savefig_gle(str(out))
     assert out.read_text() == text
+
+
+@pytest.mark.parametrize(
+    "sub, call",
+    [
+        (
+            "sub gleplot_wedge cx cy r a1 a2 clr$ lbl$ ld pct$ pd",
+            'gleplot_wedge 0 0 1 0 90 "RED" "a" 1.1 "" 0.6',
+        ),
+        ("sub gleplot_box x w cw lo q1 med q3 hi", "gleplot_box 1 0.5 0.25 0 1 2 3 4"),
+    ],
+    ids=["pie", "boxplot"],
+)
+def test_an_old_pie_or_box_sub_is_kept_as_raw_gle(tmp_path, sub, call):
+    """gleplot has no pie or box plot: an old sub and its call stay raw."""
+    path = tmp_path / "old.gle"
+    path.write_text(
+        f"size 10 10\n{sub}\n   amove xg(0) yg(0)\nend sub\n"
+        "begin graph\n    xaxis min 0 max 3\nend graph\n"
+        f"{call}\n"
+    )
+    recognized = parse_gle_figure(path)
+    assert any(sub.split()[1] in w for w in recognized.warnings)
+    text = recognized.figure._generate_gle_with_files()[0]
+    assert sub in text
+    assert call in text

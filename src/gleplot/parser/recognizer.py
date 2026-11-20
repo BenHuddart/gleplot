@@ -323,7 +323,6 @@ from ..series import (
     _DATASET_NAME_RE,
     SERIES_CLASSES,
     BarSeries,
-    Box,
     ContourSeries,
     DerivedSeries,
     ErrorbarSeries,
@@ -341,7 +340,6 @@ from ..series import (
     Series,
     Span,
     TextAnnotation,
-    Wedge,
 )
 from ..writer import (
     CDATA_SUB_PREFIX,
@@ -747,8 +745,9 @@ def _words_and_values(stmt: Statement) -> List[Token]:
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
 
 
-#: Subs earlier gleplot versions wrote that GLE's include library replaced.
-#: No longer written or read: a file that defines them keeps them as raw GLE,
+#: Subs earlier gleplot versions wrote, for parts GLE's include library now
+#: draws or that gleplot no longer provides (pie, box plot). No longer
+#: written or read: a file that defines them keeps them as raw GLE,
 #: with the calls that use them.
 _LEGACY_SUBS = frozenset(
     {
@@ -761,6 +760,10 @@ _LEGACY_SUBS = frozenset(
         "gleplot_colorbar_v",
         "gleplot_colorbar_h",
         "gleplot_contour_labels",
+        "gleplot_wedge",
+        "gleplot_box",
+        "gleplot_box_flier",
+        "gleplot_box_mean",
     }
 )
 
@@ -2414,7 +2417,7 @@ class _Recognizer:
             ):
                 self._note(
                     ImportCategory.STRUCTURE,
-                    "comment among the text, pie, box or rug commands after "
+                    "comment among the text or rug commands after "
                     "'end graph' is not written back on save",
                     self._stmt_span(node.statement),
                 )
@@ -2433,9 +2436,7 @@ class _Recognizer:
         for rug, raw in self._ready_rugs.values():
             axes_info["passthrough"].append(raw)
         self._ready_rugs = {}
-        axes_info["texts"] = [t for t in texts if not isinstance(t, (Wedge, Box, Rug))]
-        axes_info["wedges"] = [t for t in texts if isinstance(t, Wedge)]
-        axes_info["boxes"] = [t for t in texts if isinstance(t, Box)]
+        axes_info["texts"] = [t for t in texts if not isinstance(t, Rug)]
         axes_info["rugs"] = [t for t in texts if isinstance(t, Rug)]
         # Then consume any post-graph colorbar / contour-label sub
         # calls belonging to this axes.
@@ -10108,7 +10109,7 @@ class _Recognizer:
                 continue
             break
 
-        # A pie slice (Axes.pie): the 'set' lines above gave its text height.
+        # The polar tick labels, written as the cluster's first statement.
         i = self._skip_blanks(nodes, i)
         stmt = self._as_statement(nodes[i]) if i < n else None
         if (
@@ -10119,13 +10120,6 @@ class _Recognizer:
         ):
             self._polar_labels_rmax = None
             return i + 1, _POLAR_LABELS
-        if stmt is not None and (stmt.keyword or "").lower() == "gleplot_wedge":
-            wedge = self._wedge_call(stmt)
-            if wedge is None:
-                return start, None
-            return i + 1, wedge
-        if stmt is not None and (stmt.keyword or "").lower() == "gleplot_box":
-            return self._box_calls(nodes, i, start)
 
         # 'amove xg(X) yg(Y)' -- mandatory: this is what makes the run of
         # 'set' statements above a text cluster rather than unrelated
@@ -10180,56 +10174,6 @@ class _Recognizer:
             fields["transform"] = "axes"
         fields.update(arrow_fields)
         return i, TextAnnotation(**fields)
-
-    def _box_calls(self, nodes, i, start) -> Tuple[int, Optional[Box]]:
-        """A ``gleplot_box`` call at ``i`` and its flier and mean calls.
-
-        Returns ``(next_index, box)``, or ``(start, None)`` when the box call
-        is malformed. The ``gleplot_box_flier`` calls and then at most one
-        ``gleplot_box_mean`` call that follow it at the same x belong to it;
-        anything else ends the box and is left to the caller.
-        """
-        args = self._guide_call_args(_words_and_values(nodes[i]), 1)
-        if len(args) != 8 or not all(isinstance(v, (int, float)) for v in args):
-            return start, None
-        x, w, cw, lo, q1, med, q3, hi = (float(cast(float, v)) for v in args)
-        fliers: List[float] = []
-        mean: Optional[float] = None
-        n = len(nodes)
-        i += 1
-        while mean is None:
-            j = self._skip_blanks(nodes, i)
-            stmt = self._as_statement(nodes[j]) if j < n else None
-            if stmt is None:
-                break
-            kw = (stmt.keyword or "").lower()
-            if kw not in ("gleplot_box_flier", "gleplot_box_mean"):
-                break
-            point = self._guide_call_args(_words_and_values(stmt), 1)
-            if (
-                len(point) != 2
-                or not all(isinstance(v, (int, float)) for v in point)
-                or float(cast(float, point[0])) != x
-            ):
-                break
-            if kw == "gleplot_box_mean":
-                mean = float(cast(float, point[1]))
-            else:
-                fliers.append(float(cast(float, point[1])))
-            i = j + 1
-        return i, Box(
-            type="box",
-            x=x,
-            width=w,
-            capwidth=cw,
-            whislo=lo,
-            q1=q1,
-            med=med,
-            q3=q3,
-            whishi=hi,
-            fliers=fliers,
-            mean=mean,
-        )
 
     def _rug_group(self, nodes, i) -> Optional[Tuple[int, dict]]:
         """The ``gsave`` .. ``grestore`` group drawing one rug, at ``i``.
@@ -10355,51 +10299,6 @@ class _Recognizer:
                 isinstance(v, (int, float)) and float(v) == e
                 for v, e in zip(args[:3], expected)
             )
-        )
-
-    def _wedge_call(self, stmt) -> Optional[Wedge]:
-        """A ``gleplot_wedge`` call -> a :class:`Wedge`, or ``None``.
-
-        The writer emits every call while the text colour is still the
-        block's starting ``BLACK``; any other current colour is drawn but not
-        modelled, and is noted. The
-        sub leaves ``set just`` changed, which the sticky state follows.
-        """
-        args = self._guide_call_args(_words_and_values(stmt), 1)
-        if len(args) != 10:
-            return None
-        color, label, pct = args[5], args[6], args[8]
-        raw_numbers = args[0:5] + [args[7], args[9]]
-        if not all(isinstance(v, str) for v in (color, label, pct)) or not all(
-            isinstance(v, (int, float)) for v in raw_numbers
-        ):
-            return None
-        x, y, r, a1, a2, ld, pd = (float(cast(float, v)) for v in raw_numbers)
-        if self._text_color != "BLACK":
-            self._note(
-                ImportCategory.STRUCTURE,
-                f"pie wedge text is drawn in {self._text_color}, which the "
-                "model does not keep; it will be written in BLACK",
-                self._stmt_span(stmt),
-            )
-        if pct:
-            self._text_just = "center"
-        elif label:
-            outward = x + ld * r * math.cos(math.radians((a1 + a2) / 2))
-            self._text_just = "left" if outward > 0 else "right"
-        return Wedge(
-            type="wedge",
-            x=x,
-            y=y,
-            r=r,
-            theta1=a1,
-            theta2=a2,
-            color=color,
-            label=label or None,
-            labeldistance=ld,
-            autotext=pct or None,
-            pctdistance=pd,
-            fontsize=self._text_fontsize,
         )
 
     def _match_text_draw(self, nodes, i):
@@ -10965,8 +10864,6 @@ class _Recognizer:
         ax.file_series = info["file_series"]
         ax.derived_series = info["derived_series"]
         ax.texts = info["texts"]
-        ax.wedges = info["wedges"]
-        ax.boxes = info["boxes"]
         ax.images = info["images"]
         ax.rugs = info["rugs"]
         ax.heatmaps = info["heatmaps"]
