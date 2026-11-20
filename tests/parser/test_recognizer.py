@@ -752,6 +752,20 @@ def test_a_file_read_with_ignore_is_not_loaded_under_another_spelling(
     assert (tmp_path / "f.dat").read_text(encoding="utf-8") == data
 
 
+def test_two_series_on_one_file_under_two_spellings_keep_their_data(tmp_path):
+    """#537: 'f.dat' and './f.dat' are one sidecar, written once."""
+    src = _imported("f.dat") + (
+        "begin graph\n   data f.dat d1=c1,c2\n   d1 line\n"
+        "   data ./f.dat d2=c1,c3\n   d2 line\nend graph\n"
+    )
+    data = {"f.dat": "x a b\n1 4 7\n2 5 8\n"}
+    parse_gle_figure(_write(tmp_path, "s.gle", src, data)).figure.savefig_gle(
+        str(tmp_path / "s.gle")
+    )
+    lines = parse_gle_figure(tmp_path / "s.gle").figure.axes_list[0].lines
+    assert [list(s["y"]) for s in lines] == [[4, 5], [7, 8]]
+
+
 def test_an_owned_file_saved_back_unchanged_stays_owned(tmp_path):
     """#493: the raw statement still reads what it read."""
     src = _imported("f.dat") + (

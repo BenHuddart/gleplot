@@ -13,6 +13,7 @@ identical to what it produced before sources existed.
 import decimal
 import hashlib
 import math
+import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -1488,6 +1489,9 @@ class GLEWriter:
         # column keys), so a second series naming the same file is merged
         # into it rather than overwriting it (see _write_inline_columns).
         self._inline_sidecars: Dict[str, _InlineSidecar] = {}
+        # The first spelling of each inline sidecar's name, by its normalised
+        # name: 'a.dat' and './a.dat' are one file, written once.
+        self._sidecar_names: Dict[str, str] = {}
         # Raw-content sidecars (heatmap/contour ``.z`` grids and scattered
         # ``points.dat`` triples). They are written like any data file but are
         # NOT columnar imports, so they are excluded from the ``import-data``
@@ -2946,6 +2950,9 @@ class GLEWriter:
                 f"column_names has {len(column_names)} entries but there are "
                 f"{len(named_columns)} columns for {data_file!r}"
             )
+        data_file = self._sidecar_names.setdefault(
+            os.path.normpath(data_file), data_file
+        )
         names = [
             column_names[i] if column_names else role
             for i, (role, _array) in enumerate(named_columns)
