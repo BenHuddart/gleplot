@@ -143,6 +143,18 @@ def bar_hatch():
     return fig
 
 
+def bar_no_edge():
+    """``edgecolor='none'``: the stroke is the colour under the edge (the
+    fill, a hatched bar's face, or its ink over a ``'none'`` face) on a
+    plain, a stacked and a per-bar split bar."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, 3, 1], color="yellow", edgecolor="none")
+    ax.bar([1, 2, 3], [1, 1, 2], bottom=[2, 3, 1], hatch="/", edgecolor="none")
+    ax.bar([5, 6], [1, 2], color=["teal", "none"], hatch="x", edgecolor="none")
+    return fig
+
+
 def barh():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -2151,6 +2163,7 @@ BUILDERS = [
     bar_missing,
     bar_recovered_fields,
     bar_hatch,
+    bar_no_edge,
     barh,
     bar_yerr,
     barh_xerr,

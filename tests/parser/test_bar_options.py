@@ -374,6 +374,43 @@ def test_horiz_color_and_lstyle_round_trip(tmp_path, monkeypatch):
     assert Path("again.gle").read_text(encoding="utf-8") == text
 
 
+@pytest.mark.parametrize(
+    "data,bar_line,edge",
+    [
+        # The writer's form of edgecolor='none': a hairline in the colour
+        # under the edge, the fill or a hatched bar's background.
+        ("d1=c1,c2", "bar d1 fill red color red lwidth 0", "none"),
+        (
+            "d1=c1,c2",
+            "bar d1 fill red pattern shade background tan color tan lwidth 0",
+            "none",
+        ),
+        (
+            "d1=c1,c2 d2=c1,c2",
+            "bar d1,d2 fill red,blue color red,blue lwidth 0",
+            "none",
+        ),
+        # An edge at the width in force, or a styled one, was meant to show.
+        ("d1=c1,c2", "bar d1 fill red color red", "red"),
+        ("d1=c1,c2", "bar d1 fill red color red lstyle 2 lwidth 0", "red"),
+        ("d1=c1,c2", "bar d1 fill red color blue lwidth 0", "blue"),
+        # The form written before: a hairline, and it is kept as one.
+        ("d1=c1,c2", "bar d1 fill red lwidth 0", None),
+    ],
+)
+def test_a_stroke_in_the_colour_under_it_is_no_edge(
+    tmp_path, monkeypatch, data, bar_line, edge
+):
+    monkeypatch.chdir(tmp_path)
+    body = f'begin graph\n   data "two.dat" {data}\n   {bar_line}\nend graph\n'
+    _write(tmp_path, "e.gle", body, {"two.dat": _TWO_DAT})
+    rec = parse_gle_figure("e.gle")
+
+    assert rec.figure.axes_list[0].bars[0].get("edgecolor") == edge
+    rec.figure.savefig_gle("out.gle")
+    assert f"   {bar_line}\n" in Path("out.gle").read_text(encoding="utf-8")
+
+
 def test_a_grouped_bar_shares_one_command(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     body = (
