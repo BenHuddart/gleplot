@@ -187,9 +187,9 @@ cumulatively (multiple ``xaxis`` lines merge); numbers may be expressions
 are case-insensitive; single-quoted strings and ``;``-joined statements are
 accepted; British ``GREY`` colors are accepted. Anything not recognized is
 preserved verbatim in the appropriate passthrough bucket (header / trailer /
-axes / axes geometry) so it re-emits unchanged. A blank (or comment-only) line
-separating two post-graph text clusters, or between ``end graph`` and the first
-cluster, is
+axes / axes geometry / between one axes and the next) so it re-emits
+unchanged. A blank (or comment-only) line separating two post-graph text
+clusters, or between ``end graph`` and the first cluster, is
 tolerated by :meth:`_Recognizer._try_one_text` (:meth:`_Recognizer._skip_blanks`)
 -- the writer itself never emits such a blank line, but a human editing the
 file for readability may add one; recognition proceeds exactly as if it were
@@ -2265,8 +2265,10 @@ class _Recognizer:
         """The graph blocks and the page-level statements between and after them.
 
         Returns the parsed info of each graph block, in order, the page
-        drawings and figure texts, and the trailer passthrough lines. A
-        figure legend is left on ``self._figure_legend``.
+        drawings and figure texts, and the trailer passthrough lines. Raw
+        GLE between two graph blocks goes on the info of the first, as its
+        ``trailing_passthrough``. A figure legend is left on
+        ``self._figure_legend``.
         """
         parsed_axes: List[dict] = []
         drawings: List[Dict[str, Any]] = []
@@ -2280,11 +2282,23 @@ class _Recognizer:
             default=-1,
         )
 
+        def raw_out() -> List[str]:
+            # Raw GLE between two graph blocks stays after the first: an
+            # xg()/yg() in it addresses that graph.
+            if parsed_axes and i < last_graph:
+                return parsed_axes[-1]["trailing_passthrough"]
+            return trailer
+
         i = start
         n = len(nodes)
         while i < n:
             node = nodes[i]
             if isinstance(node, GraphBlock):
+                if parsed_axes:
+                    # The writer separates the graphs with its own blank line.
+                    kept = parsed_axes[-1]["trailing_passthrough"]
+                    while kept and not kept[-1].strip():
+                        kept.pop()
                 axes_info, i = self._parse_placed_graph(
                     nodes, i, pending, marker_cfg, smooth_flags
                 )
@@ -2315,10 +2329,10 @@ class _Recognizer:
                 # amove overwrites GLE's "current point" too, so the first
                 # one can no longer be "the amove immediately before a graph
                 # block" either. It can never become a placement prefix now:
-                # flush it byte-verbatim into the trailer, in stream order,
-                # rather than silently overwriting and losing it.
+                # flush it byte-verbatim as raw GLE, in stream order, rather
+                # than silently overwriting and losing it.
                 if pending is not None:
-                    trailer.append(pending.raw)
+                    raw_out().append(pending.raw)
                 pending = _PendingAmove(
                     position=amove,
                     raw=self._stmt_text(node),
@@ -2327,19 +2341,42 @@ class _Recognizer:
                 i += 1
                 continue
 
+            if isinstance(node, BlankOrComment):
+                blank = not self._stmt_text(node.statement).strip()
+                # A comment between an amove and its graph leaves the amove
+                # placing the graph; a blank line inside raw GLE between
+                # graphs stays in it.
+                out = raw_out()
+                if not blank and pending is not None and i < last_graph:
+                    if out is trailer:
+                        self._note(
+                            ImportCategory.STRUCTURE,
+                            "comment between the first graph's 'amove' and "
+                            "'begin graph' is not written back on save",
+                            self._stmt_span(node.statement),
+                        )
+                    else:
+                        out.extend(self._raw_lines(node))
+                    i += 1
+                    continue
+                if blank and pending is None and out is not trailer and out:
+                    out.extend(self._raw_lines(node))
+                    i += 1
+                    continue
+
             if self._is_regenerated_page_node(nodes, i):
                 i += 1
                 continue
 
-            # Anything else after the graphs -> trailer passthrough. A
+            # Anything else between or after the graphs is raw GLE. A
             # pending amove can no longer become a placement prefix once a
             # real statement sits between it and the next graph block (if
             # any) -- flush it ahead of this node, byte-verbatim, preserving
             # stream order.
             if pending is not None:
-                trailer.append(pending.raw)
+                raw_out().append(pending.raw)
                 pending = None
-            trailer.extend(self._raw_lines(node))
+            raw_out().extend(self._raw_lines(node))
             i += 1
 
         # End of document: a still-pending amove has no following graph
@@ -2612,8 +2649,12 @@ class _Recognizer:
         node = nodes[i]
         # Blank line directly separating subplots: skip silently only when
         # between graphs (writer emits a blank between subplots). Otherwise
-        # it is trailer content.
-        if isinstance(node, BlankOrComment) and self._more_graphs_after(nodes, i):
+        # it is trailer content, as a comment always is.
+        if (
+            isinstance(node, BlankOrComment)
+            and not self._stmt_text(node.statement).strip()
+            and self._more_graphs_after(nodes, i)
+        ):
             return True
 
         # A gleplot_<name> sub between graphs: a contourf's band sub goes
@@ -3015,6 +3056,7 @@ class _Recognizer:
         self._flush_hist_lets(info)
         self._restore_orphaned_data_stmts(pass1, info)
         self._bind_raw_readers(info)
+        self._note_raw_lets(info)
         self._discard_guide_markers(info)
         self._reconcile_places_names(info)
         self._reconcile_axis_styling(info)
@@ -3228,6 +3270,7 @@ class _Recognizer:
             # ``_key_suppress_datasets`` is.
             "_guide_key_datasets": set(),
             "passthrough": [],
+            "trailing_passthrough": [],
             "series_order": [],  # to preserve ordering info if needed
             # Dataset names (e.g. 'd1') consumed by a 'bar'/'fill' command.
             # The writer emits a standalone 'dN key ""' statement right after
@@ -3261,6 +3304,10 @@ class _Recognizer:
             # that cannot become a column). Their ``data`` statement is kept
             # too: nothing else writes it.
             "_raw_datasets": set(),
+            # Target of each ``let`` in the block -> the line of its first.
+            "_let_lines": {},
+            # Let targets kept raw that another note already explains.
+            "_explained_lets": set(),
             # ``let dK = (dJ-a)/(b-a)`` statements that map a per-point
             # colour's values (``_CDATA_LET_RE``), keyed by target, with the
             # source, the limits and the raw text. Consumed by the scatter
@@ -3336,8 +3383,11 @@ class _Recognizer:
             if not isinstance(child, Statement) or self._skip_meta_stmt(child):
                 continue
             kw = child.keyword
-            if kw == "let" and self._let_target(child) in redefined:
-                self._hold_dataset(self._let_target(child), pass1.datasets)
+            target = self._let_target(child) if kw == "let" else None
+            if target is not None:
+                info["_let_lines"].setdefault(target, child.line_no)
+            if target is not None and target in redefined:
+                self._hold_dataset(target, pass1.datasets)
                 continue
             if kw == "data":
                 names = self._parse_data_command(
@@ -6364,6 +6414,29 @@ class _Recognizer:
         elif kind == "errorbar":
             info["_errorbar_file_series"][raw] = entry
 
+    def _note_raw_lets(self, info) -> None:
+        """Note each ``let`` kept as raw GLE whose target raw GLE uses.
+
+        A let a held statement or a histogram note already explains gets no
+        second note.
+        """
+        defined, read, _bare = GLEWriter.raw_dataset_use(info["passthrough"])
+        for target, line_no in info["_let_lines"].items():
+            if (
+                target not in defined & read
+                or target in self._held_datasets
+                or target in info["_explained_lets"]
+            ):
+                continue
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"the let defining {target} is not modelled; it and the lines "
+                "that use it were kept as raw GLE and still draw, but are not "
+                "editable. To edit the curve, compute its values with numpy "
+                "and plot them with Axes.plot()",
+                (line_no, line_no),
+            )
+
     @staticmethod
     def _bind_raw_readers(info) -> None:
         """Mark each series whose dataset a raw line in the block reads.
@@ -6525,6 +6598,7 @@ class _Recognizer:
             del info["_hist_lets"][target]
             info["_hist_let_pending"].pop(target, None)
             info["_raw_datasets"].add(source)
+            info["_explained_lets"].add(target)
             line_no = record["line_no"]
             self._note(
                 ImportCategory.DATA,
@@ -11225,6 +11299,7 @@ class _Recognizer:
         ax.reflines = info["reflines"]
         ax.spans = info["spans"]
         ax.passthrough = info["passthrough"]
+        ax.trailing_passthrough = info["trailing_passthrough"]
 
         # A series whose sidecar had no real header row (hand-written .dat,
         # or a headerless import from an older gleplot version) has no

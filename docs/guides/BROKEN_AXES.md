@@ -200,9 +200,8 @@ leftmost segment's `y2axis` is off; label the rightmost segment instead,
   subplots, each keeping its own tick spacing (`dticks`); the axis options
   the recognizer cannot model (the per-side `off`) are preserved as per-axes
   passthrough *with warnings*, and
-  the seam decoration and shared titles are preserved as trailer passthrough,
-  after the last segment, where a re-save draws the seam marks at the outer
-  frame instead of at the seam.
+  the seam decoration and shared titles are kept as raw GLE where they were,
+  after the graph block they follow.
   Nothing is dropped, but the assembly's geometry is re-derived from the
   subplot grid on re-save, so a round-tripped file will not lay out
   identically. Keep the producing script as the source of truth.

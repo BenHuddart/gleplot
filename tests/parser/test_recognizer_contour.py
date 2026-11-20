@@ -1021,3 +1021,22 @@ def test_a_contour_line_with_no_color_or_width_stays_unset(tmp_path):
     again = tmp_path / "again.gle"
     rec.figure.savefig_gle(str(again))
     assert "    d1 line\n" in again.read_text("utf-8")
+
+
+def test_a_bar_kept_raw_between_graphs_keeps_the_palette_sub_it_calls(tmp_path):
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="g")
+    left.scatter([0, 1], [0, 1], c=[0, 1], cmap="magma")
+    fig.colorbar(ax=left)
+    right.plot([0, 1], [0, 1])
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace(
+        'palette "cmap_magma" width', 'palette "cmap_plasma" width'
+    )
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path).figure
+    assert "colorbar" not in rec.axes_list[0].scatters[0]
+    kept = rec.axes_list[0].trailing_passthrough
+    assert any("cmap_plasma" in line for line in kept)
+    again = rec._generate_gle_with_files()[0]
+    assert "sub cmap_plasma z" in again
+    assert _resave(tmp_path, again) == again
