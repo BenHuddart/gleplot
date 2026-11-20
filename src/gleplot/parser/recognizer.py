@@ -4529,6 +4529,42 @@ class _Recognizer:
         return marker
 
     @staticmethod
+    def _guide_extent_matches(
+        marker, info, start: float, end: float, joined: bool = True
+    ) -> bool:
+        """Whether re-saving a guide writes back the spanned ends it has.
+
+        The writer resolves the marker's extent against the spanned axis'
+        limits (:meth:`Axes.materialize_reflines`) and writes the ends as
+        one column, or as a band's two (``joined=False``). Re-saving does so
+        against the limits as read, so the text must come out the same:
+        otherwise someone edited one side, and re-saving would move the
+        guide. Without both limits stated before the guide there is nothing
+        to resolve against.
+        """
+        limits = [
+            bound
+            for axis in ("x", "y")
+            for bound in _oriented(
+                info[f"{axis}min"], info[f"{axis}max"], info[f"{axis}negate"]
+            )
+        ]
+        lo, hi = Axes.guide_spanned_bounds(marker, limits)
+        if lo is None or hi is None:
+            return False
+        frac_lo, frac_hi = marker["fields"]["extent"]
+        expected = Axes._fraction_to_data(frac_lo, frac_hi, lo, hi)
+        axis = "y" if marker["orient"] == "v" else "x"
+        tol = GLEWriter._axis_tolerance(lo, hi, info[f"{axis}log"], None)
+
+        def written(ends):
+            if joined:
+                return GLEWriter._format_column(ends, tol)
+            return [GLEWriter._format_column([v, v], tol)[0] for v in ends]
+
+        return written(list(expected)) == written([start, end])
+
+    @staticmethod
     def _guide_coord_matches(value: float, *found: float) -> bool:
         """Whether an emitted coordinate is the one the marker claims.
 
@@ -4551,7 +4587,8 @@ class _Recognizer:
 
         * the dataset is not the two rows a guide materializes into, or its
           constant coordinate is not the one the marker claims (someone moved
-          the guide by editing the ``.dat``);
+          the guide by editing the ``.dat``), or its ends are not the
+          marker's extent across the axis range (:meth:`_guide_extent_matches`);
         * the display command carries something no guide emission has: a
           marker, a ``y2axis`` binding, an offset ``let``, smoothing, a
           dataset qualifier (``mdist``, ``deresolve``, a data range);
@@ -4578,8 +4615,10 @@ class _Recognizer:
         if x.size != 2 or y.size != 2:
             return None
         (value,) = marker["fields"]["value"]
-        along = x if marker["orient"] == "v" else y
+        along, across = (x, y) if marker["orient"] == "v" else (y, x)
         if not self._guide_coord_matches(value, *along.tolist()):
+            return None
+        if not self._guide_extent_matches(marker, info, *across.tolist()):
             return None
         lo, hi = marker["fields"]["extent"]
         ref = RefLine(
@@ -4612,7 +4651,7 @@ class _Recognizer:
         :mod:`gleplot.guides` for why the marker deliberately does not carry
         it.
         """
-        if entry.get("offset"):
+        if entry.get("offset") or entry.get("_offset2"):
             return None
         x = np.asarray(entry["x"], dtype=float)
         upper = np.asarray(entry["y1"], dtype=float)
@@ -4626,14 +4665,14 @@ class _Recognizer:
                 and self._guide_coord_matches(end, x[1])
                 and self._guide_coord_matches(upper[0], upper[1])
                 and self._guide_coord_matches(lower[0], lower[1])
+                and self._guide_extent_matches(marker, info, lower[0], upper[0], False)
             )
         else:
-            # The x column is this band's fractional extent, already resolved
-            # against the axis range -- unrecoverable, and the marker's own
-            # business (gleplot.guides). Only the edges are cross-checkable.
-            ok = self._guide_coord_matches(
-                end, *upper.tolist()
-            ) and self._guide_coord_matches(start, *lower.tolist())
+            ok = (
+                self._guide_coord_matches(end, *upper.tolist())
+                and self._guide_coord_matches(start, *lower.tolist())
+                and self._guide_extent_matches(marker, info, x[0], x[1])
+            )
         if not ok:
             return None
         lo, hi = marker["fields"]["extent"]
@@ -7489,7 +7528,11 @@ class _Recognizer:
             offset=info["_dataset_offsets"].get(d_names[0], 0.0),
             data_file=f1,
         )
-        if target is not None:
+        if target is None:
+            offset2 = info["_dataset_offsets"].get(d_names[1], 0.0)
+            if offset2 != fill_fields["offset"]:
+                fill_fields["_offset2"] = offset2
+        else:
             fill_fields["target"] = target
         fill_fields.update(clips)
         column_names = self._recovered_column_names(
