@@ -741,6 +741,9 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``scatter_colorbars``) moved when ``color.gle`` started drawing colorbars;
     ``tripcolor_tricontour_combo`` moved again when a tripcolor's fitz range
     started reaching past its last node, as colormap places nodes (#376).
+    ``subplots_share_col_row`` was added with matplotlib's string sharing.
+    ``coordinates_beyond_six_figures`` gained a band narrower than float
+    noise beside its offset (#416).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():

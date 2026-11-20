@@ -410,6 +410,10 @@ def image_sub_name(path: str) -> Optional[str]:
 #: colorbar (:meth:`GLEWriter.add_colorbar`).
 COLOR_INCLUDE = "color.gle"
 
+#: The gleinc file whose ``contour_labels`` writes a contour's labels
+#: (:meth:`GLEWriter.add_contour_labels`).
+CONTOUR_INCLUDE = "contour.gle"
+
 #: What a colorbar's tick step is written scaled by, so that ``color.gle``'s
 #: floating-point stepping does not pass ``zmax`` before its last tick.
 COLORBAR_STEP_SCALE = "0.999999999"
@@ -6370,17 +6374,25 @@ class GLEWriter:
         self.add_contour_line(series)
 
     def add_contour_labels(self, series: Series):
-        """Emit the contour-label sub call after a contour's graph, if asked.
+        """Write a contour's labels after its graph, if asked.
 
         ``series`` is the resolved :class:`~gleplot.series.ContourSeries`.
-        With ``clabel`` set, the labels come from the ``-clabels.dat`` file
-        its contour block generates, formatted with ``clabel_fmt``; without
-        it nothing is written.
+        With ``clabel`` set, ``contour_labels`` from GLE's ``contour.gle``
+        writes them from the ``-clabels.dat`` file its contour block
+        generates, formatted with ``clabel_fmt``; without it nothing is
+        written. The routine sets its own height, justification and colour
+        (blue), so the call sits in ``gsave``/``grestore``.
         """
         if not series.get("clabel"):
             return
         clabels = _grid_z_file(series)[:-2] + "-clabels.dat"
-        self.add_clabel_call(clabels, series["clabel_fmt"])
+        self.lines_gle += [
+            "gsave",
+            f"contour_labels file {_quote_filename(clabels)} "
+            f'format "{series["clabel_fmt"]}"',
+            "grestore",
+        ]
+        self._includes.add(CONTOUR_INCLUDE)
 
     def add_colormap(
         self,
@@ -6437,14 +6449,6 @@ class GLEWriter:
         if lstyle is not None:
             cmd += f" lstyle {int(lstyle)}"
         self.lines_gle.append(cmd)
-
-    def add_clabel_call(self, clabels_file: str, fmt: str):
-        """Emit the post-graph contour-label sub call."""
-        self.lines_gle.append("amove 0 0")
-        self.lines_gle.append(
-            f"gleplot_contour_labels file {_quote_filename(clabels_file)} "
-            f'format "{fmt}"'
-        )
 
     @staticmethod
     def _color_clause(color: Optional[str]) -> str:
@@ -6605,10 +6609,11 @@ class GLEWriter:
         """
         edges = self._span_range(series["orient"], series["start"], series["end"])
         self.lines_gle.append("    " + self.guide_marker(series, True, ",".join(edges)))
-        # A vertical band's y columns are its extent, fractions of the y
-        # limits: written as those limits are, so a file read back rebuilds
-        # them. A horizontal band's are its edges, coordinates on y.
-        axes = {} if series["orient"] == "v" else {"y1": "y", "y2": "y"}
+        # A vertical band's edges are its x column, held to the x axis as its
+        # marker is; its y columns are its extent, fractions of the y limits,
+        # written as those limits are, so a file read back rebuilds them. A
+        # horizontal band's edges are its y columns, coordinates on y.
+        axes = {"x": "x"} if series["orient"] == "v" else {"y1": "y", "y2": "y"}
         self._write_fill(fill, None, axes)
 
     def add_guide_key(
@@ -6934,7 +6939,10 @@ class GLEWriter:
         ``axis_tolerance`` is that of the axis the numbers lie on
         (:meth:`_axis_tolerance`). It is the tolerance of a column whose
         values are all one number, which has no span of its own: a lone
-        coordinate, or a vertical line's x.
+        coordinate, or a vertical line's x. A column with no span beyond
+        float noise, such as a narrow band's edges far from zero, has no
+        neighbour to merge with either, so it is lost when it moves by more
+        than half of that or of its own tolerance, whichever is larger.
 
         The written numbers are iterated to a fixed point, so a file read
         back chooses the same precision and writes the same text.
@@ -6957,7 +6965,9 @@ class GLEWriter:
             np.asarray([values[i] for i in index], dtype=float), return_inverse=True
         )
         tol = cls._column_tolerance(ordered, axis_tolerance)
-        lone = axis_tolerance is not None and len(ordered) == 1
+        lone = None
+        if axis_tolerance is not None and cls._spanless(ordered):
+            lone = max(axis_tolerance, tol)
         texts = [cls._format_number(v) for v in ordered]
         precision = cls._column_precision(ordered, texts, tol, lone)
         while precision is not None:
@@ -6998,6 +7008,16 @@ class GLEWriter:
         if tol == 0 and axis_tolerance is not None:
             tol = axis_tolerance
         return float(max(tol, 1e-12 * size))
+
+    @staticmethod
+    def _spanless(ordered: np.ndarray) -> bool:
+        """Whether a millionth of sorted ``ordered``'s span is float noise.
+
+        True for one value, and for values so close, far from zero, that a
+        millionth of their span is below 1e-12 of their magnitude.
+        """
+        size = max(abs(ordered[0]), abs(ordered[-1]))
+        return bool(1e-6 * (ordered[-1] - ordered[0]) <= 1e-12 * size)
 
     @classmethod
     def _axis_tolerance(
@@ -7064,21 +7084,25 @@ class GLEWriter:
 
     @classmethod
     def _column_precision(
-        cls, ordered: np.ndarray, texts: List[str], tol: float, lone: bool = False
+        cls,
+        ordered: np.ndarray,
+        texts: List[str],
+        tol: float,
+        lone: Optional[float] = None,
     ) -> Optional[int]:
         """None when ``texts``, the sorted distinct ``ordered`` as
         :meth:`_format_number` writes them, keep the column within ``tol``;
         else the precision.
 
-        ``lone`` is a single value held to its axis's tolerance, which has no
-        neighbour to merge with: it is lost when it moves by more than half
-        of it.
+        ``lone`` is the tolerance a column with no span of its own is held
+        to (see :meth:`_format_column`): with no neighbour to merge with, it
+        is lost when it moves by more than half of it.
         """
         size = np.abs(ordered)
         if not (
             np.any((size < 1e-10) & (size > tol / 2))
             or any(
-                abs(float(t) - v) > tol / 2
+                abs(float(t) - v) > (lone or tol) / 2
                 for t, v, big in zip(texts, ordered, size > 1e10)
                 if big or lone
             )

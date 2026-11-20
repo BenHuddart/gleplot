@@ -1248,7 +1248,8 @@ class TestErrorBars:
         assert not recwarn.list
 
     def test_linestyle_overrides_fmt_but_not_fmt_none(self):
-        self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="--", linestyle=":")
+        with pytest.warns(UserWarning, match="the keyword wins"):
+            self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="--", linestyle=":")
         self.ax.errorbar([1, 2], [1, 2], yerr=0.1, fmt="none", ls="--")
         assert [s["linestyle"] for s in self.ax.errorbars] == [":", "none"]
 
@@ -1361,7 +1362,7 @@ class TestErrorBars:
         x = np.array([1, 2, 3])
         y = np.array([10, 20, 30])
         self.ax.errorbar(
-            x, y, yerr=([1, 2, 3], [3, 2, 1]), marker="s", fmt="none", color="red"
+            x, y, yerr=([1, 2, 3], [3, 2, 1]), marker="s", linestyle="none", color="red"
         )
 
         gle = self.fig._generate_gle()
@@ -1372,7 +1373,7 @@ class TestErrorBars:
         """Test GLE generation for horizontal error bars."""
         x = np.array([1, 2, 3])
         y = np.array([10, 20, 30])
-        self.ax.errorbar(x, y, xerr=0.3, marker="o", fmt="none")
+        self.ax.errorbar(x, y, xerr=0.3, marker="o", linestyle="none")
 
         gle = self.fig._generate_gle()
         assert "herr" in gle
@@ -1806,11 +1807,13 @@ class TestLineModes:
         with pytest.raises(ValueError):
             self.ax.plot([0, 1], [0, 1], drawstyle="steps-post", line_mode="hist")
 
-    def test_step_format_string_warns_and_is_not_applied(self):
-        with pytest.warns(UserWarning):
-            self.ax.step([0, 1], [0, 1], "r--")
+    def test_step_reads_a_format_string_as_plot_does(self):
+        self.ax.step([0, 1], [0, 1], "r--")
         assert self.ax.lines[0]["line_mode"] == "fsteps"
-        assert self.ax.lines[0]["color"] == "BLUE"
+        assert self.ax.lines[0]["color"] == "RED"
+        assert self.ax.lines[0]["linestyle"] == "--"
+        with pytest.warns(UserWarning, match="one format string"):
+            self.ax.step([0, 1], [0, 1], "r--", "b")
 
     def test_line_mode_with_no_line_warns_and_is_dropped(self):
         with pytest.warns(UserWarning):
@@ -3581,3 +3584,27 @@ def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
     _text, files = fig._generate_gle_with_files()
     glp.close()
     assert "1700000031 2" in "".join(files.values())
+
+
+@pytest.mark.parametrize("orient", ["v", "h"])
+def test_a_band_narrower_than_float_noise_is_written_where_it_is(tmp_path, orient):
+    """A band whose width is float noise beside its offset keeps its place.
+
+    A millionth of its span is below 1e-12 of 1.7e9, so its edges are held
+    to the axis's tolerance, as a lone coordinate is, in its marker and its
+    fill alike, and a reload reads the band back (#416).
+    """
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    edges = (1.7e9 + 2.8, 1.7e9 + 2.801)
+    if orient == "v":
+        ax.plot([1.7e9, 1.7e9 + 30], [0.0, 4.0])
+        ax.axvspan(*edges)
+    else:
+        ax.plot([0.0, 4.0], [1.7e9, 1.7e9 + 30])
+        ax.axhspan(*edges)
+    files = _saved(fig, tmp_path)
+    assert f"span {orient} range 1700000002.8,1700000002.801" in files["fig.gle"]
+    assert "1700000002.801" in "".join(files.values())
+    (span,) = glp.open_gle(str(tmp_path / "fig.gle")).axes_list[0].spans
+    assert (span["start"], span["end"]) == edges
