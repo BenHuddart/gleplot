@@ -13,6 +13,7 @@ identical to what it produced before sources existed.
 import decimal
 import hashlib
 import math
+import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -1491,6 +1492,9 @@ class GLEWriter:
         # column keys), so a second series naming the same file is merged
         # into it rather than overwriting it (see _write_inline_columns).
         self._inline_sidecars: Dict[str, _InlineSidecar] = {}
+        # The first spelling of each inline sidecar's name, by its normalised
+        # name: 'a.dat' and './a.dat' are one file, written once.
+        self._sidecar_names: Dict[str, str] = {}
         # Raw-content sidecars (heatmap/contour ``.z`` grids and scattered
         # ``points.dat`` triples). They are written like any data file but are
         # NOT columnar imports, so they are excluded from the ``import-data``
@@ -1548,6 +1552,8 @@ class GLEWriter:
         # The raw header lines a loaded file kept: an include already there
         # is not written again.
         self._header_lines: List[str] = []
+        # Where those raw header lines start in lines_gle.
+        self._header_at = 0
         # The palette sub each contourf heatmap written so far colours with,
         # by its data file: glp_contourf1, 2, ... in writing order.
         self._contourf_subs: Dict[str, str] = {}
@@ -1817,6 +1823,7 @@ class GLEWriter:
         )
         if passthrough_header:
             self._header_lines = list(passthrough_header)
+            self._header_at = len(self.lines_gle)
             self.lines_gle.extend(passthrough_header)
         if include_graph_begin:
             self.lines_gle.append("begin graph")
@@ -2949,6 +2956,9 @@ class GLEWriter:
                 f"column_names has {len(column_names)} entries but there are "
                 f"{len(named_columns)} columns for {data_file!r}"
             )
+        data_file = self._sidecar_names.setdefault(
+            os.path.normpath(data_file), data_file
+        )
         names = [
             column_names[i] if column_names else role
             for i, (role, _array) in enumerate(named_columns)
@@ -5751,12 +5761,56 @@ class GLEWriter:
         routine a sub calls when it reads the sub. ``graphutil.gle`` -- whose
         need is only known once the graph blocks have been written -- is
         spliced in there later with the others (:meth:`finalize_includes`).
+        They go after the raw header a loaded file kept, or before the first
+        sub there that calls one of them (:meth:`_raw_caller_mark`).
         """
         self._includes.update(includes)
-        self._sub_defs_mark = len(self.lines_gle)
+        at = self._raw_caller_mark(sub_texts)
+        self._sub_defs_mark = at
+        block: List[str] = []
         for text in sub_texts:
-            self.lines_gle.extend(text.split("\n"))
-            self.lines_gle.append("")
+            block.extend(text.split("\n"))
+            block.append("")
+        self.lines_gle[at:at] = block
+
+    def _raw_caller_mark(self, sub_texts: List[str]) -> int:
+        """Where in ``lines_gle`` the subs gleplot writes go.
+
+        GLE looks up a routine a sub calls when it reads the sub. So when a
+        sub in the raw header a loaded file kept (such as a renamed
+        per-point colour sub) calls one of gleplot's, they go ahead of it
+        and the comments right above it; but never ahead of the end of a
+        raw sub they call themselves (a palette sub of the file's own).
+        Otherwise they go after the raw header, as they always have.
+        """
+        end = len(self.lines_gle)
+        names = [text.split()[1] for text in sub_texts]
+        if not names:
+            return end
+        uses = re.compile(r"\b(?:%s)\b" % "|".join(map(re.escape, names)), re.I)
+        ours = "\n".join(sub_texts)
+        caller: Optional[int] = None
+        after_called = 0
+        start: Optional[int] = None
+        called = False
+        for k, line in enumerate(self._header_lines):
+            code = line.split("!")[0]
+            words = code.lower().split()
+            if words[:1] == ["sub"] and len(words) > 1:
+                start = k
+                name = re.escape(words[1])
+                called = re.search(rf"\b{name}\s*\(", ours, re.I) is not None
+            elif start is not None and words[:2] == ["end", "sub"]:
+                if called:
+                    after_called = k + 1
+                start = None
+            elif start is not None and caller is None and uses.search(code):
+                caller = start
+        if caller is None:
+            return end
+        while caller > 0 and self._header_lines[caller - 1].lstrip().startswith("!"):
+            caller -= 1
+        return self._header_at + max(caller, after_called)
 
     def finalize_includes(self) -> None:
         """Splice in an ``include`` for each gleinc file the write called.

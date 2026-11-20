@@ -47,8 +47,8 @@ Controls text and line rendering:
         font='texcmss',            # a GLE font name; see Available Fonts below
         fontsize=10,               # Points (default: 12)
         default_linewidth=1.0,     # Line width in points (default: 1.5)
-        default_color='BLUE',      # Default line color
-        default_marker_color='BLUE',  # Default marker color
+        default_color='BLUE',      # Uncoloured lines (default: None, the colour cycle)
+        default_marker_color='BLUE',  # Uncoloured markers (default: None, the cycle)
     )
     
     fig = glp.figure(style=style)

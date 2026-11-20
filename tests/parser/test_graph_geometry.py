@@ -292,6 +292,19 @@ def test_a_colorbar_reserves_its_width_in_the_placement_rect(tmp_path):
     assert [w for w in rec.warnings if w.startswith("layout:")] == []
 
 
+def test_a_raw_line_on_the_top_axis_keeps_its_room(tmp_path):
+    """#539: a raw ``dN ... x2axis`` line numbers the top axis, so the frame
+    of a graph laid out on save keeps the room a modelled x2 series has."""
+    (tmp_path / "a.dat").write_text("0 1\n1 2\n2 3\n", encoding="utf-8")
+    sizes = []
+    for body in ("d1 line x2axis", "d1 line\n   let d2 = d1*2\n   d2 line x2axis"):
+        src = f'begin graph\n   data "a.dat" d1=c1,c2\n   {body}\nend graph\n'
+        (tmp_path / "in.gle").write_text(src, encoding="utf-8")
+        out = _resave(parse_gle_figure(tmp_path / "in.gle").figure, tmp_path)
+        sizes += re.findall(r"^    size .*$", out, re.M)
+    assert sizes[0] == sizes[1]
+
+
 def test_a_hand_written_size_on_a_colorbar_figure_is_kept(tmp_path):
     """A bare ``size`` on a colorbar figure is preserved verbatim."""
     from tests.parser import _golden_battery as golden

@@ -2899,6 +2899,10 @@ class Axes:
 
         # Monotonic tie-breaker for equal ``zorder`` (call / insertion order).
         self._draw_seq_counter = 0
+        # How many colours each of matplotlib's cycles has handed out here,
+        # keyed by _cycle_key. A file does not record it: the recognizer
+        # derives it from the series (_sync_color_cycles).
+        self._color_cycles: Dict[str, int] = {}
 
     @staticmethod
     def _figure_shows_grid(figure) -> bool:
@@ -2925,22 +2929,115 @@ class Axes:
         return s if self._style().usetex else mathtext_to_gle(s)
 
     def _resolve_color(
-        self, color, marker_only: bool = False, arg: str = "color"
+        self,
+        color,
+        marker_only: bool = False,
+        arg: str = "color",
+        cycle: Optional[str] = "lines",
+        yaxis: str = "y",
+        xaxis: str = "x",
     ) -> str:
         """Resolve a series colour argument to a GLE colour.
 
         ``None`` means "use the figure style's default"
         (``default_marker_color`` for a marker-only series,
-        ``default_color`` otherwise -- both ``'BLUE'`` out of the box, the
-        colour these call sites used to hard-code). Anything else goes
-        through the :func:`gleplot.colors.rgb_to_gle` conversion as usual,
-        with an error naming ``arg``, the caller's argument; so does the
-        configured default, so it may be spelled the matplotlib way.
+        ``default_color`` otherwise) or, when that is None as it is out of
+        the box, the next colour of this axes' ``cycle`` (see
+        :meth:`_next_color`). Anything else goes through the
+        :func:`gleplot.colors.rgb_to_gle` conversion as usual, with an error
+        naming ``arg``, the caller's argument; so does the configured
+        default, so it may be spelled the matplotlib way.
         """
-        style = self._style()
         if color is None:
+            style = self._style()
             color = style.default_marker_color if marker_only else style.default_color
+        if color is None:
+            color = self._next_color(cycle, yaxis, xaxis)
         return _gle_color(color, arg)
+
+    @staticmethod
+    def _cycle_key(cycle: str, yaxis: str = "y", xaxis: str = "x") -> str:
+        """The counter of ``cycle`` for a series on ``yaxis``/``xaxis``.
+
+        A secondary axis is matplotlib's ``twinx``/``twiny``: a separate
+        axes there, with cycles of its own.
+        """
+        if yaxis == "y2":
+            return cycle + ":y2"
+        if xaxis == "x2":
+            return cycle + ":x2"
+        return cycle
+
+    def _next_color(
+        self,
+        cycle: Optional[str],
+        yaxis: str = "y",
+        xaxis: str = "x",
+        advance: bool = True,
+    ) -> str:
+        """The next of ``'C0'``..``'C9'`` in ``cycle``, which it advances.
+
+        matplotlib keeps two cycles per axes: ``'lines'`` (plot, errorbar,
+        hist, stackplot) and ``'patches'`` (scatter, bar, fill). None is a
+        call that draws in ``'C0'`` and advances neither (stem, hlines).
+        ``advance=False`` looks without taking, for a call that may still
+        raise.
+        """
+        if cycle is None:
+            return "C0"
+        key = self._cycle_key(cycle, yaxis, xaxis)
+        n = self._color_cycles.get(key, 0)
+        if advance:
+            self._color_cycles[key] = n + 1
+        return f"C{n % 10}"
+
+    #: The cycle a series of each kind takes its colour from, for
+    #: _sync_color_cycles. A marker-only plot is a scatter, and a stackplot
+    #: layer a fill, that took the line cycle; a file cannot tell them apart.
+    _CYCLE_BY_ATTR = {
+        "lines": "lines",
+        "errorbars": "lines",
+        "hists": "lines",
+        "functions": "lines",
+        "fits": "lines",
+        "derived_series": "lines",
+        "file_series": "lines",
+        "scatters": "patches",
+        "bars": "patches",
+        "fills": "patches",
+    }
+
+    def _sync_color_cycles(self) -> None:
+        """Set the colour cycles from the series of an axes read from a file.
+
+        A file holds its series in draw order, not call order, and not
+        whether a colour came from the cycle. So each cycle takes, while
+        one is left, a series of its kind in its next colour.
+        """
+        palette = [_gle_color(f"C{n}", "color") for n in range(10)]
+        pending: Dict[str, List[str]] = {}
+        for attr, cycle in self._CYCLE_BY_ATTR.items():
+            for series in getattr(self, attr):
+                if attr == "bars":
+                    # A hatched bar's face is its background.
+                    color = (
+                        series.get("background") or (series.get("colors") or [None])[0]
+                    )
+                else:
+                    color = series.get("color")
+                if color in palette:
+                    key = self._cycle_key(
+                        cycle, series.get("yaxis", "y"), series.get("xaxis", "x")
+                    )
+                    pending.setdefault(key, []).append(color)
+        self._color_cycles = {}
+        for key, colors in pending.items():
+            n = 0
+            while palette[n % 10] in colors:
+                colors.remove(palette[n % 10])
+                n += 1
+            if n:
+                self._color_cycles[key] = n
 
     def _register_series_draw_meta(
         self, entry: dict, kind: str, zorder: Optional[float] = None
@@ -2997,7 +3094,8 @@ class Axes:
             matplotlib's default, a solid line. A dash tuple or any other
             value warns and is drawn solid.
         color : str, optional
-            Color name or code ('b', 'red', etc.)
+            Color name or code ('b', 'red', etc.). Omitted: the next colour of the axes'
+            colour cycle (see :class:`~gleplot.GLEStyleConfig`).
         marker : str, optional
             Marker symbol ('o', 's', '^', etc.) - omit for line only
         markersize : float
@@ -3173,7 +3271,13 @@ class Axes:
         # series turns out to be, which is why it is resolved after
         # ``is_scatter``: a marker-only series is what ``scatter()`` produces
         # and takes ``default_marker_color``.
-        color = self._resolve_color(color, marker_only=is_scatter)
+        color = self._resolve_color(
+            color,
+            marker_only=is_scatter,
+            cycle={"scatter": "patches", "stem": None}.get(caller, "lines"),
+            yaxis=yaxis,
+            xaxis=xaxis,
+        )
 
         gle_marker = (
             get_gle_marker(marker, fill=marker_fill) if marker is not None else None
@@ -3593,7 +3697,7 @@ class Axes:
         ):
             one_color, color_alpha = _rgba_parts(one_color)
             series_alpha = color_alpha if one_alpha is None else one_alpha
-            ink = self._resolve_color(one_color)
+            ink = self._resolve_color(one_color, yaxis=draw_yaxis, xaxis=draw_xaxis)
             if series_alpha is not None:
                 ink = apply_alpha(ink, series_alpha)
             # The stroke is the fill unless the caller named an edge, so
@@ -3694,7 +3798,8 @@ class Axes:
             Distance between samples. Omitted, GLE takes 100 points. On a
             log x axis GLE reads ``step`` as the number of points.
         color : str, optional
-            Line colour; the style's default colour when omitted.
+            Line colour. Omitted: the next colour of the axes' colour cycle (see
+            :class:`~gleplot.GLEStyleConfig`).
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
@@ -3789,7 +3894,8 @@ class Axes:
             On a log x axis GLE reads ``step`` as the number of points. Not
             with ``model``: GLE always draws a model at 100 points.
         color : str, optional
-            Line colour; the style's default colour when omitted.
+            Line colour. Omitted: the next colour of the axes' colour cycle (see
+            :class:`~gleplot.GLEStyleConfig`).
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
@@ -3963,7 +4069,8 @@ class Axes:
             from the same lists as ``sources``. Omitted, every source's x
             values are used.
         color : str, optional
-            Line colour; the style's default colour when omitted.
+            Line colour. Omitted: the next colour of the axes' colour cycle (see
+            :class:`~gleplot.GLEStyleConfig`).
         linestyle : {'-', '--', ':', '-.'}
             Line style.
         linewidth : float
@@ -4438,7 +4545,8 @@ class Axes:
             says. ``color``, ``marker`` and ``linestyle`` keywords win over
             the format.
         color : str, optional
-            Color name or code
+            Color name or code. Omitted: the next colour of the axes' colour cycle (see
+            :class:`~gleplot.GLEStyleConfig`).
         marker : str, optional
             Marker symbol ('o', 's', '^', etc.)
         markersize : float
@@ -4544,7 +4652,7 @@ class Axes:
             parsed_linestyle = _line_style("errorbar", parsed_linestyle)
 
         # Handle color (see _resolve_color: None = the style default).
-        color = self._resolve_color(color)
+        color = self._resolve_color(color, yaxis=yaxis, xaxis=xaxis)
 
         # Determine GLE marker
         gle_marker = None
@@ -4660,7 +4768,7 @@ class Axes:
         markersize = _pop_line_alias(kwargs, caller, "ms", "markersize", markersize, 6)
         warn_unsupported_keywords(caller, kwargs)
         label = self._text(label)
-        gle_color = self._resolve_color(color)
+        gle_color = self._resolve_color(color, yaxis=yaxis, xaxis=xaxis)
 
         gle_marker = get_gle_marker(marker, fill=marker_fill) if marker else None
         gle_markersize = markersize_to_msize(
@@ -4734,7 +4842,7 @@ class Axes:
         read_options = _file_read_options(skiprows, comment, max_rows)
 
         label = self._text(label)
-        gle_color = self._resolve_color(color)
+        gle_color = self._resolve_color(color, yaxis=yaxis, xaxis=xaxis)
         linestyle = _line_style("line_from_file", linestyle)
         width = float(_line_width("line_from_file", linewidth))
         linestyle = _stroked(linestyle, width)
@@ -4823,8 +4931,9 @@ class Axes:
             one colour per point is drawn as one series per distinct colour.
             Cannot be combined with ``color``.
         color : str, optional
-            Point color. This and every parameter after ``c`` are
-            keyword-only, as in matplotlib.
+            Point color. Omitted: the next colour of the axes' colour cycle (see
+            :class:`~gleplot.GLEStyleConfig`). This and every parameter after
+            ``c`` are keyword-only, as in matplotlib.
         marker : str, optional
             Marker symbol. Omitted or ``None``, a circle (``'o'``), as in
             matplotlib.
@@ -5017,6 +5126,10 @@ class Axes:
             x = np.asarray(x)[keep]
             y = np.asarray(y)[keep]
             mapping["cdata"] = mapping["cdata"][keep]
+        if mapping is not None and color is None:
+            # The colour map replaces it below; as in matplotlib, a mapped
+            # scatter takes no colour from the cycle.
+            color = "C0"
         count = len(self.scatters)
         self.plot(
             x,
@@ -5169,7 +5282,9 @@ class Axes:
             Bar lengths. With ``bottom``, the top is ``bottom + height``.
         color : str or sequence, optional
             Face colour. A sequence must have one entry, or one per bar.
-            Default ``'red'``. ``facecolor`` / ``fc`` / ``c`` are aliases.
+            Omitted: the next colour of the axes' colour cycle (see
+            :class:`~gleplot.GLEStyleConfig`). ``facecolor`` / ``fc`` / ``c`` are
+            aliases.
         label : str, optional
             Legend label. Emitted as ``dN key`` after the bar; the bar fill
             is the swatch. On a per-bar colour split, only the first bar
@@ -5292,7 +5407,13 @@ class Axes:
         if n == 0:
             raise ValueError("bar() needs at least one bar")
 
-        faces = _bar_color_list(color, n, "RED", "color")
+        default_face = None
+        if color is None:
+            # Taken from the cycle below, once nothing can raise.
+            default_face = _gle_color(
+                self._next_color("patches", advance=False), "color"
+            )
+        faces = _bar_color_list(color, n, default_face, "color")
         edges = _bar_color_list(edgecolor, n, None, "edgecolor")
         # GLE's ``fill`` is the hatch ink and ``background`` the face, so a
         # hatched bar fills with its edge colour: matplotlib's hatch colour,
@@ -5327,6 +5448,9 @@ class Axes:
             err_colors = _bar_color_list(
                 "black" if ecolor is None else ecolor, n, "BLACK", "ecolor"
             )
+
+        if color is None:
+            self._next_color("patches")
 
         # One dataset, one face and one edge. Differing colours are separate
         # series so each bar is a ``bar dN`` at its own x. Uniform colours
@@ -5626,7 +5750,7 @@ class Axes:
             interpolate = False
 
         if color is None:
-            gle_color = "LIGHTBLUE"
+            gle_color = _gle_color(self._next_color("patches"), "color")
         else:
             # alpha= overrides an RGBA colour's own alpha, as in matplotlib.
             rgb = color if alpha == 1.0 else _rgba_parts(color)[0]
@@ -5796,6 +5920,9 @@ class Axes:
 
         vertex_x = np.concatenate([x1_arr, x2_arr[::-1]])
         vertex_y = np.concatenate([y_arr, y_arr[::-1]])
+        if color is None:
+            # One colour for every window: they are one matplotlib artist.
+            color = self._next_color("patches")
         for index, window in enumerate(windows):
             self.fill(
                 vertex_x,
@@ -5834,8 +5961,9 @@ class Axes:
         labels : sequence of str
             One legend label per layer. Layers past the end have none.
         colors : sequence of colors, optional
-            Cycled over the layers. Default: matplotlib's ``'C0'`` to
-            ``'C9'``, starting at ``'C0'`` on every call.
+            Cycled over the layers. Omitted: each layer takes the next
+            colour of the axes' colour cycle (see
+            :class:`~gleplot.GLEStyleConfig`).
         baseline : {'zero', 'sym', 'wiggle', 'weighted_wiggle'}
             The lower edge of the stack, computed as matplotlib does.
 
@@ -5914,7 +6042,9 @@ class Axes:
             face = kwargs.pop("color")
         if face is not None:
             colors = face
-        colors = _color_list("stackplot", colors, [f"C{i}" for i in range(10)])
+        # As in matplotlib, layers with no colour take the line cycle.
+        cycled = colors is None
+        colors = _color_list("stackplot", colors, ["C0"])
         if y.ndim != 2 or y.shape[1] != np.size(x):
             raise ValueError(
                 f"stackplot() each layer must have one value per x ({np.size(x)}), "
@@ -5933,7 +6063,7 @@ class Axes:
                 x,
                 stack[i, :],
                 bottom,
-                color=colors[i % len(colors)],
+                color=self._next_color("lines") if cycled else colors[i % len(colors)],
                 label=next(label_iter, None),
                 **kwargs,
             )
@@ -6014,7 +6144,7 @@ class Axes:
         if y_arr.size != x_arr.size:
             raise ValueError(f"fill() y has length {y_arr.size}, expected {x_arr.size}")
         if color is None:
-            gle_color = "LIGHTBLUE"
+            gle_color = _gle_color(self._next_color("patches"), "color")
         else:
             # alpha= overrides an RGBA colour's own alpha, as in matplotlib.
             rgb = color if alpha == 1.0 else _rgba_parts(color)[0]
@@ -10240,6 +10370,8 @@ class Axes:
             payload["aspect"] = self._aspect
         if self._facecolor is not None:
             payload["facecolor"] = self._facecolor
+        if self._color_cycles:
+            payload["color_cycles"] = dict(self._color_cycles)
         return payload
 
     @classmethod
@@ -10431,5 +10563,8 @@ class Axes:
                 if seq is not None:
                     max_seq = max(max_seq, int(seq))
         ax._draw_seq_counter = max_seq + 1 if max_seq >= 0 else 0
+        ax._color_cycles = {
+            str(k): int(v) for k, v in (d.get("color_cycles") or {}).items()
+        }
 
         return ax

@@ -76,6 +76,8 @@ def normalize(d: dict) -> dict:
         decided on.
       * aspect: dropped. ``set_aspect`` is resolved into that rect and is
         not recovered.
+      * color_cycles: dropped. Derived from the series colours, which do
+        not say whether a colour came from the cycle.
       * _draw_seq: dropped. The writer emits all line series before all
         marker series (ASYMMETRY docs / writer emission order), so the
         caller's interleave across kinds is not representable in the .gle;
@@ -153,7 +155,7 @@ def normalize(d: dict) -> dict:
 
     default_linewidth = style.get("default_linewidth", 1.5)
     for key in ("default_color", "default_marker_color"):
-        if key in style:
+        if style.get(key) is not None:
             style[key] = rgb_to_gle(style[key])
 
     def _snap_linewidth(v, verbatim=False):
@@ -252,6 +254,10 @@ def normalize(d: dict) -> dict:
         # set_aspect is resolved into that rect too, and is not recovered
         # (agreed for #85): the rect is its surviving form.
         ax.pop("aspect", None)
+        # The colour cycles are not in the file. The recognizer derives them
+        # from the series colours, which cannot tell a stem's or an hlines'
+        # C0, or a stackplot layer, from a series that took the cycle.
+        ax.pop("color_cycles", None)
 
         # axis limits snap to emitted precision.
         for lim in ("xmin", "xmax", "ymin", "ymax", "y2min", "y2max", "x2min", "x2max"):
@@ -731,6 +737,39 @@ def test_an_owned_file_a_raw_data_statement_reads_is_not_rewritten(tmp_path, bod
     assert (tmp_path / "f.dat").read_text(encoding="utf-8") == data
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "data f.dat d1=c1,c2 ignore 2\n   d1 line\n"
+        "   data ./f.dat d2=c1,c3\n   d2 line\n",
+        "data f.dat d1=c1,c2\n   let d3 = d1 + 1\n   d3 line\n"
+        "   data ./f.dat d2=c1,c3 ignore 2\n   d2 line\n",
+    ],
+    ids=["ignore", "offset-let"],
+)
+def test_a_file_read_with_ignore_is_not_loaded_under_another_spelling(tmp_path, body):
+    """#512: loading './f.dat' would rewrite the file 'ignore 2' reads."""
+    data = "x a b\n1 4 7\n2 5 8\n3 6 9\n"
+    src = _imported("f.dat") + f"begin graph\n   {body}end graph\n"
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, {"f.dat": data}))
+    rec.figure.savefig_gle(str(tmp_path / "s.gle"))
+    assert (tmp_path / "f.dat").read_text(encoding="utf-8") == data
+
+
+def test_two_series_on_one_file_under_two_spellings_keep_their_data(tmp_path):
+    """#537: 'f.dat' and './f.dat' are one sidecar, written once."""
+    src = _imported("f.dat") + (
+        "begin graph\n   data f.dat d1=c1,c2\n   d1 line\n"
+        "   data ./f.dat d2=c1,c3\n   d2 line\nend graph\n"
+    )
+    data = {"f.dat": "x a b\n1 4 7\n2 5 8\n"}
+    parse_gle_figure(_write(tmp_path, "s.gle", src, data)).figure.savefig_gle(
+        str(tmp_path / "s.gle")
+    )
+    lines = parse_gle_figure(tmp_path / "s.gle").figure.axes_list[0].lines
+    assert [list(s["y"]) for s in lines] == [[4, 5], [7, 8]]
+
+
 def test_an_owned_file_saved_back_unchanged_stays_owned(tmp_path):
     """#493: the raw statement still reads what it read."""
     src = _imported("f.dat") + (
@@ -882,7 +921,7 @@ def test_axis_clip_and_polygon_fills_round_trip(tmp_path):
     out = tmp_path / "again.gle"
     recognized.figure.savefig_gle(str(out))
     assert out.read_text(encoding="utf-8") == gle_path.read_text(encoding="utf-8")
-    assert "fill d5,x2 color LIGHTBLUE" in out.read_text(encoding="utf-8")
+    assert "fill d5,x2 color rgb255(255,127,14)" in out.read_text(encoding="utf-8")
 
 
 def test_unresolved_single_curve_fills_keep_their_form(tmp_path):
@@ -908,9 +947,9 @@ def test_unresolved_single_curve_fills_keep_their_form(tmp_path):
     out = tmp_path / "again.gle"
     recognized.figure.savefig_gle(str(out))
     text = out.read_text(encoding="utf-8")
-    assert "fill x1,d1 color LIGHTBLUE xmin 0.5" in text
-    assert "fill d2 color LIGHTBLUE" in text
-    assert "fill d3,x2 color LIGHTBLUE ymax 4" in text
+    assert "fill x1,d1 color rgb255(31,119,180) xmin 0.5" in text
+    assert "fill d2 color rgb255(255,127,14)" in text
+    assert "fill d3,x2 color rgb255(44,160,44) ymax 4" in text
     assert "d1,d2" not in text
 
 
@@ -1419,9 +1458,9 @@ def test_default_style_values_are_not_recorded(tmp_path):
         ("default_linewidth", "thick", 1.5),
         ("default_linewidth", "true", 1.5),
         ("default_linewidth", "inf", 1.5),
-        ("default_color", "notacolor", "BLUE"),
-        ("default_color", "0.3", "BLUE"),
-        ("default_marker_color", "true", "BLUE"),
+        ("default_color", "notacolor", None),
+        ("default_color", "0.3", None),
+        ("default_marker_color", "true", None),
         ("msize_scale", "big", 1.0),
         ("msize_scale", "nan", 1.0),
     ],
@@ -1958,6 +1997,54 @@ def test_a_colour_marker_with_an_unknown_colormap_is_kept_raw(tmp_path):
         "   let d3 = (d2-0)/(2-0)\n"
         "   d1 marker glp_cdata_fcircle_nope msize 0.4 mdata d3 color RED\n"
     ) in text
+
+
+def test_a_renamed_colour_sub_is_written_after_what_it_calls(tmp_path):
+    """The raw sub calls cmap_viridis, which calls palettes.gle's routine."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [1, 2, 3], c=[1, 2, 3])
+    path = tmp_path / "c.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text().replace("glp_cdata_fcircle_viridis", "mine")
+    path.write_text(text.replace("sub mine", "! my marker\nsub mine"))
+    again = parse_gle_figure(path).figure._generate_gle_with_files()[0]
+    order = [
+        again.index('include "palettes.gle"'),
+        again.index("sub cmap_viridis z"),
+        again.index("! my marker\nsub mine size data"),
+    ]
+    assert order == sorted(order)
+
+
+def test_a_palette_sub_of_the_files_own_stays_ahead_of_the_subs_calling_it(
+    tmp_path,
+):
+    src = (
+        "size 10 10\n"
+        'include "palettes.gle"\n'
+        "sub helper x\n"
+        "   return x\n"
+        "end sub\n"
+        "sub cmap_viridis z\n"
+        "   return rgb(z,0,0)\n"
+        "end sub\n"
+        "begin graph\n"
+        '   data "m.dat" d1=c1,c2 d2=c1,c3\n'
+        "   let d3 = (d2-1)/(3-1)\n"
+        "   d1 marker glp_cdata_fcircle_viridis msize 0.4 mdata d3\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "m.gle", src, {"m.dat": "1 1 1\n2 2 2\n3 3 3\n"})
+    again = parse_gle_figure(p).figure._generate_gle_with_files()[0]
+    # No raw sub calls gleplot's, so the header keeps its place ahead.
+    order = [
+        again.index("sub helper x"),
+        again.index("sub cmap_viridis z"),
+        again.index("sub glp_cdata_fcircle_viridis"),
+    ]
+    assert order == sorted(order)
 
 
 def test_a_scatter_colorbar_is_recovered_onto_its_scatter(tmp_path):

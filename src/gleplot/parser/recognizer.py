@@ -2236,25 +2236,26 @@ class _Recognizer:
         )
         return default
 
-    def _meta_color(self, meta: Dict[str, Any], key: str) -> str:
-        """The metadata's GLE colour ``key``, or its default when it is absent.
+    def _meta_color(self, meta: Dict[str, Any], key: str) -> Optional[str]:
+        """The metadata's GLE colour ``key``, or None (the colour cycle).
 
         A value that is not a colour token the writer records (a GLE colour
         name or an expression such as ``rgb255(...)``) is reported and
         ignored.
         """
-        default = str(_metadata.DEFAULTS[key])
-        value = meta.get(key, default)
+        value = meta.get(key)
+        if value is None:
+            return None
         if isinstance(value, str) and (
             value in _gle_color_names() or _COLOR_EXPR_RE.match(value)
         ):
             return value
         self._note(
             ImportCategory.METADATA,
-            f"{key} = {value!r} is not a GLE colour; using {default}",
+            f"{key} = {value!r} is not a GLE colour; using the colour cycle",
             None,
         )
-        return default
+        return None
 
     def _new_figure(self, meta: Dict[str, Any], pre_nodes) -> Figure:
         """The ``Figure`` described by the metadata and the preamble."""
@@ -6496,7 +6497,7 @@ class _Recognizer:
             if not all(
                 self._loads(*entry)
                 for entry in pass1.datasets.values()
-                if entry[0] == data_file
+                if data_file is not None and self._same_file(entry[0], data_file)
             ):
                 self._unregister_offset_let(target, pass1, info)
 
@@ -8574,7 +8575,7 @@ class _Recognizer:
                 else f"{kind} {ref} is read from '{datasets[ref][0]}'"
             )
             for kind, ref in err.items()
-            if ref not in datasets or datasets[ref][0] != data_file
+            if ref not in datasets or not self._same_file(datasets[ref][0], data_file)
         ]
         if unheld and orig_toks:
             what = (
@@ -8601,7 +8602,7 @@ class _Recognizer:
 
         def col_of(ref_name):
             ref = ref_name.lower()
-            if ref in datasets and datasets[ref][0] == data_file:
+            if ref in datasets and self._same_file(datasets[ref][0], data_file):
                 return datasets[ref][2]
             return None
 
@@ -10573,7 +10574,8 @@ class _Recognizer:
     def _not_loaded_reason(self, data_file) -> Optional[str]:
         """Why a resolved ``data_file`` is not loaded into arrays, or None."""
         if any(
-            self._datasets[name][0] == data_file for name in self._data_read_options
+            self._same_file(self._datasets[name][0], data_file)
+            for name in self._data_read_options
         ):
             # The loader reads the whole file, so arrays loaded from it would
             # hold rows GLE does not draw.
@@ -10608,6 +10610,10 @@ class _Recognizer:
     def _is_kept(self, data_file: str) -> bool:
         """Whether ``data_file`` is gleplot's own but read in place."""
         return str(self._data_path(data_file)) in self._kept_files
+
+    def _same_file(self, a: str, b: str) -> bool:
+        """Whether ``a`` and ``b`` name one file, such as ``f.dat``, ``./f.dat``."""
+        return self._data_path(a) == self._data_path(b)
 
     def _data_path(self, data_file: str) -> Path:
         """Where ``data_file`` is, read from the ``.gle`` file's folder.
@@ -11262,6 +11268,7 @@ class _Recognizer:
         for idx, info in enumerate(parsed_axes):
             ax = Axes(fig, positions[idx])
             self._populate_axes(ax, info)
+            ax._sync_color_cycles()
             fig._apply_shared_axes_flags(ax)
             # Restore explicit visibility flags recovered from GLE (override
             # the derived ones where the GLE said something different).
