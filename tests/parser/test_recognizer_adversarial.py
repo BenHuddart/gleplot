@@ -1252,7 +1252,11 @@ def test_an_error_dataset_read_through_a_let_stays_raw(tmp_path, lets, draw):
 
 @pytest.mark.parametrize(
     "draw",
-    ["d1 marker circle err d3", "d1 marker circle errup d3", "d1 marker circle herr d3"],
+    [
+        "d1 marker circle err d3",
+        "d1 marker circle errup d3",
+        "d1 marker circle herr d3",
+    ],
 )
 def test_an_error_dataset_from_another_file_stays_raw(tmp_path, draw):
     """#528: an error bar reads its errors from its own file, so b.dat's
