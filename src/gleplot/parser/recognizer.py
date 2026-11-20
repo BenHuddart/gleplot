@@ -126,12 +126,11 @@ for rendering, applied by the test-side ``normalize()`` helper)
       a lone plot exactly as for a subplot grid, which is what makes gleplot's
       own output a byte-identical fixed point with no exemptions.
     * No geometry at all, or exactly ``scale auto``, means AUTO placement
-      ("GLE decides"; ``placement`` stays ``None``). That is how gleplot wrote
-      single plots up to metadata v1, and how a hand-written file that says
-      nothing about geometry is read. Such a figure re-saves with the explicit
-      rect the layout computes for it -- a deliberate one-time geometry change,
-      see the migration policy in :mod:`gleplot.parser.metadata`. This parser
-      does not resolve auto against the range GLE would have chosen.
+      ("GLE decides"; ``placement`` stays ``None``). That is how a hand-written
+      file that says nothing about geometry is read. Such a figure re-saves
+      with the explicit rect the layout computes for it -- a deliberate
+      one-time geometry change. This parser does not resolve auto against the
+      range GLE would have chosen.
     * Anything else real -- ``fullsize``, ``scale h v`` with actual factors, a
       bare ``size`` with no ``scale 1 1``, several statements we do not model
       -- is kept VERBATIM in ``Axes.geometry_passthrough`` and re-emitted in
@@ -144,11 +143,7 @@ for rendering, applied by the test-side ``normalize()`` helper)
       ``amove`` positions are modelled (they are what the grid is inferred
       from), so re-emitting them would duplicate every subplot's position.
 
-    Two consequences worth naming. A metadata-v1 single-plot figure whose bare
-    ``size`` is exactly the colorbar reserved-width line that release derived
-    (``Figure._axes_colorbar_reserved_cm``) is recognized as such and loads as
-    auto placement, so it migrates to a v2 rect instead of freezing a legacy
-    line in passthrough. And a figure written with
+    One consequence worth naming: a figure written with
     ``GLEGraphConfig.scale_mode='fullsize'`` comes back with the geometry
     per-axes rather than as the config field (the config is a writer default,
     not per-axes state); the emitted GLE is identical either way.
@@ -321,8 +316,6 @@ from ..guides import (
 )
 from ..palettes import (
     PALETTES_INCLUDE,
-    SUPPORTED_CMAPS,
-    canonical_cmap,
     colorbar_cmap,
     is_native,
     palette_call_name,
@@ -414,7 +407,6 @@ from .units import (
     cm_to_inches,
     fontsize_cm_to_pt,
     fontsize_pt_to_cm,
-    inches_to_cm,
     linewidth_cm_to_pt,
 )
 
@@ -432,9 +424,9 @@ _CDATA_LET_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: ``define marker gleplot_X gleplot_X`` (lower-cased): the line that makes a
+#: ``define marker glp_X glp_X`` (lower-cased): the line that makes a
 #: generated per-point-size sub a marker (``writer.mdata_sub_text``).
-_GLEPLOT_DEFINE_MARKER_RE = re.compile(r"^define\s+marker\s+(gleplot_\w+)\s+\1$")
+_GLEPLOT_DEFINE_MARKER_RE = re.compile(r"^define\s+marker\s+(glp_\w+)\s+\1$")
 # The statement a contourf band sub starts with when it is also a colorbar's
 # palette (writer.GLEWriter.add_contourf_sub), lower-cased.
 _CONTOURF_RESCALE_RE = re.compile(r"^z = (\S+)\*\(1-z\)\+(\S+)\*z$")
@@ -757,43 +749,24 @@ def _words_and_values(stmt: Statement) -> List[Token]:
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
 
 
-#: Subs earlier gleplot versions wrote, for parts GLE's include library now
-#: draws or that gleplot no longer provides (pie, box plot). No longer
-#: written or read: a file that defines them keeps them as raw GLE,
-#: with the calls that use them.
-_LEGACY_SUBS = frozenset(
-    {
-        "gleplot_hline",
-        "gleplot_hspan",
-        "gleplot_vline",
-        "gleplot_vspan",
-        "gleplot_xrug",
-        "gleplot_yrug",
-        "gleplot_colorbar_v",
-        "gleplot_colorbar_h",
-        "gleplot_contour_labels",
-        "gleplot_wedge",
-        "gleplot_box",
-        "gleplot_box_flier",
-        "gleplot_box_mean",
-    }
-) | {
-    # gleplot 5's palette subs; colormaps now call GLE's (gleplot.palettes).
-    f"gleplot_{c}"
-    for base in {canonical_cmap(name) for name in SUPPORTED_CMAPS}
-    for c in (base, base + "_r")
-}
+#: The subs gleplot writes whose names do not depend on the figure.
+#: gleplot 5 named its subs ``gleplot_<name>``; those are no longer read, so a
+#: file that defines one keeps it as raw GLE, with the calls that use it.
+_FIXED_SUBS = frozenset(("glp_polar_grid", "glp_polar_labels", *IMAGE_SUBS))
+_CONTOURF_SUB_RE = re.compile(r"glp_contourf\d+")
 
 
-def _is_legacy_sub(name: str) -> bool:
-    """True if ``sub <name>`` is one gleplot no longer writes or reads.
+def _is_written_sub(name: str) -> bool:
+    """True if ``sub <name>`` (lower case) is one gleplot writes and reads.
 
-    A per-point colour sub is one when its colormap is not one GLE draws:
-    gleplot 5 wrote those for every map it had.
+    A per-point colour sub is one only when its colormap is one GLE draws.
     """
     if name.startswith(CDATA_SUB_PREFIX):
-        return not is_native(name[len(CDATA_SUB_PREFIX) :].partition("_")[2], True)
-    return name in _LEGACY_SUBS
+        marker, _, cmap = name[len(CDATA_SUB_PREFIX) :].partition("_")
+        return marker.upper() in MARKERS and is_native(cmap, True)
+    if name.startswith(MDATA_SUB_PREFIX):
+        return name[len(MDATA_SUB_PREFIX) :].upper() in MARKERS
+    return name in _FIXED_SUBS or _CONTOURF_SUB_RE.fullmatch(name) is not None
 
 
 def _guide_marker_text(node) -> Optional[str]:
@@ -1880,19 +1853,19 @@ class _Recognizer:
         # The degree mark that call ends with (GLE or LaTeX text).
         self._polar_degree = polar_degree_mark(False)
         # Contour/heatmap recognition state.
-        # Line numbers spanned by gleplot_<name> subroutine definitions
+        # Line numbers spanned by glp_<name> subroutine definitions
         # (palette / colorbar / contour-labels). Dropped everywhere, like the
         # metadata block, and regenerated canonically from the model on re-save.
         self._gleplot_sub_lines: set = set()
         # The ``cmap_<name>`` subs defined with a body other than gleplot's
         # wrapper: kept as raw GLE, and a colormap calling one with them.
         self._own_palette_subs: Set[str] = set()
-        # gleplot_contourf<k> sub name (lower case) -> its colouring comment
+        # glp_contourf<k> sub name (lower case) -> its colouring comment
         # line (writer.CONTOURF_MARKER), and -> the line numbers it spans,
         # read while those subs are scanned.
         self._contourf_subs: Dict[str, str] = {}
         self._contourf_sub_spans: Dict[str, set] = {}
-        # gleplot_contourf<k> sub name -> the (zmin, zmax) its first statement
+        # glp_contourf<k> sub name -> the (zmin, zmax) its first statement
         # maps the colormap's 0..1 back from, when it is a colorbar's palette.
         self._contourf_rescales: Dict[str, Tuple[float, float]] = {}
         # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
@@ -2075,7 +2048,7 @@ class _Recognizer:
 
     def _scan_document(self, doc) -> None:
         """Whole-file scans the per-node passes depend on, and their notes."""
-        # Line ranges of gleplot_<name> subs (palette/colorbar/clabel), dropped
+        # Line ranges of glp_<name> and cmap_<name> subs, dropped
         # like metadata and regenerated canonically from the model on re-save.
         self._gleplot_sub_lines = self._scan_gleplot_sub_lines()
 
@@ -2647,7 +2620,7 @@ class _Recognizer:
         ):
             self._note(
                 ImportCategory.STRUCTURE,
-                "the polar axes has no 'gleplot_polar_labels' call matching "
+                "the polar axes has no 'glp_polar_labels' call matching "
                 "its grid after 'end graph'; the tick labels are written "
                 "again on save",
                 None,
@@ -2676,7 +2649,7 @@ class _Recognizer:
         ):
             return True
 
-        # A gleplot_<name> sub between graphs: a contourf's band sub goes
+        # A glp_<name> sub between graphs: a contourf's band sub goes
         # right before the graph that calls it.
         first = node.begin if isinstance(node, OpaqueBlock) else node
         if isinstance(first, (Statement, BlankOrComment)) and (
@@ -2745,7 +2718,7 @@ class _Recognizer:
         for node in nodes:
             if not isinstance(node, Statement):
                 continue
-            # gleplot_<name> subroutine bodies use sub/if/return/else etc., but
+            # glp_<name> subroutine bodies use sub/if/return/else etc., but
             # are our own self-contained palettes/colorbar/labels -- not a
             # user-authored programmatic file. Don't flag them.
             if node.source_line is not None and node.line_no in self._gleplot_sub_lines:
@@ -2848,7 +2821,7 @@ class _Recognizer:
             for node in pre_nodes
         )
 
-        # Track which lines belong to the metadata block, or to a gleplot_<name>
+        # Track which lines belong to the metadata block, or to a glp_<name>
         # sub definition, so we drop them (both are regenerated canonically).
         meta_line_nos = self._meta_lines | self._gleplot_sub_lines
 
@@ -2860,7 +2833,7 @@ class _Recognizer:
 
         for node in pre_nodes:
             if isinstance(node, OpaqueBlock):
-                # begin box / begin rotate nested inside a gleplot_<name> sub
+                # begin box / begin rotate nested inside a glp_<name> sub
                 # body (e.g. the colorbar sub) -> drop with the sub.
                 if node.begin.line_no in self._gleplot_sub_lines:
                     continue
@@ -3260,8 +3233,8 @@ class _Recognizer:
             "file_series": [],
             "heatmaps": [],
             "contours": [],
-            # Placed images, from ``begin layer`` / ``draw gleplot_bitmap``
-            # (or ``gleplot_postscript``) blocks -- see _image_block.
+            # Placed images, from ``begin layer`` / ``draw glp_bitmap``
+            # (or ``glp_postscript``) blocks -- see _image_block.
             "images": [],
             # Guides recovered from a ``! gleplot:guide`` marker, over the
             # dataset they materialized into (G18-lite) or over their drawing
@@ -3555,7 +3528,7 @@ class _Recognizer:
         """Drop each recorded colour let that is not one scatter's ``mdata``.
 
         Kept: a target with no line of its own that exactly one dataset line
-        names as ``mdata`` with a ``gleplot_cdata_`` marker, so that line's
+        names as ``mdata`` with a ``glp_cdata_`` marker, so that line's
         builder either models the let or keeps it raw beside itself.
         """
         if not info["_colour_lets"]:
@@ -3888,7 +3861,7 @@ class _Recognizer:
 
         The grid is the ``begin layer`` block
         :meth:`gleplot.writer.GLEWriter.add_polar_frame` writes, matched
-        exactly: its layer, a lone ``draw gleplot_polar_grid rmax step``,
+        exactly: its layer, a lone ``draw glp_polar_grid rmax step``,
         and the ring step gleplot derives from ``rmax``. On a match the
         radial limit goes in ``info["polar_rmax"]``, every polar ``let`` in
         the block in ``info["_polar_aliases"]``, and the block's line number
@@ -3906,7 +3879,7 @@ class _Recognizer:
             if (
                 len(toks) < 2
                 or (stmt.keyword or "").lower() != "draw"
-                or toks[1].value.lower() != "gleplot_polar_grid"
+                or toks[1].value.lower() != "glp_polar_grid"
             ):
                 continue
             args = self._guide_call_args(toks, 2)
@@ -3920,7 +3893,7 @@ class _Recognizer:
             ):
                 self._note(
                     ImportCategory.STRUCTURE,
-                    "'draw gleplot_polar_grid' is not in the form gleplot "
+                    "'draw glp_polar_grid' is not in the form gleplot "
                     "writes; the block was left as raw GLE instead of being "
                     "read back as a polar axes",
                     (stmt.line_no, stmt.line_no),
@@ -4291,7 +4264,7 @@ class _Recognizer:
 
     @classmethod
     def _guide_call_args(cls, toks: List[Token], start: int) -> List[object]:
-        """The positional arguments of a ``draw gleplot_*`` call.
+        """The positional arguments of a ``draw glp_*`` call.
 
         Split positionally on whitespace (:meth:`_split_call_words`), not by
         :func:`_collect_value`'s maximal-expression scan -- see that method's
@@ -7965,10 +7938,10 @@ class _Recognizer:
     def _build_coloured_scatter(
         self, info, d_name, datasets, attrs, toks, line_no, raw_stmts
     ) -> None:
-        """A ``dN`` line with a ``gleplot_cdata_`` marker -> per-point colours.
+        """A ``dN`` line with a ``glp_cdata_`` marker -> per-point colours.
 
         Modelled only in the form :meth:`GLEWriter.add_scatter` writes: a
-        marker-only dataset whose marker is a ``gleplot_cdata_<marker>_<cmap>``
+        marker-only dataset whose marker is a ``glp_cdata_<marker>_<cmap>``
         sub and whose ``mdata`` is a recorded colour let of a column of the
         same imported file. Anything else stays raw GLE, the let with it, and
         gets a note.
@@ -8008,7 +7981,7 @@ class _Recognizer:
         """A ``dN`` line with ``mdata`` -> a scatter with per-point sizes.
 
         Modelled only in the form :meth:`GLEWriter.add_scatter` writes: a
-        marker-only dataset whose marker is a ``gleplot_mdata_<marker>`` sub
+        marker-only dataset whose marker is a ``glp_mdata_<marker>`` sub
         and whose sizes are a column of the same imported file. Anything else
         (a marker sub of the user's own, a built-in marker, which GLE draws
         at one size whatever ``mdata`` says, a line, error bars) stays raw
@@ -8804,8 +8777,8 @@ class _Recognizer:
     def _scan_gleplot_sub_lines(self) -> set:
         """1-based line numbers spanned by the subs gleplot writes.
 
-        Those are the ``sub gleplot_<name>`` definitions other than the ones
-        it no longer writes (:func:`_is_legacy_sub`), and the ``cmap_<name>``
+        Those are the ``sub glp_<name>`` definitions it writes
+        (:func:`_is_written_sub`), and the ``cmap_<name>``
         palette wrappers written exactly as :mod:`gleplot.palettes` writes
         them; a wrapper with another body is the file's own. Their bodies use
         ``sub``/``if``/``return`` etc.; they are dropped wherever they appear
@@ -8821,19 +8794,19 @@ class _Recognizer:
             low = line.strip().lower()
             if not in_sub:
                 words = low.split()
-                if low.startswith("sub gleplot_") and _is_legacy_sub(words[1]):
+                if low.startswith("sub gleplot_"):
                     self._note(
                         ImportCategory.STRUCTURE,
-                        f"'{words[1]}' is a sub an earlier gleplot "
-                        "wrote, which gleplot no longer reads; it was kept as "
-                        "raw GLE, with the calls that need it",
+                        f"'{words[1]}' is a sub gleplot 5 wrote, which gleplot "
+                        "no longer reads; it was kept as raw GLE, with the "
+                        "calls that need it",
                         (idx, idx),
                     )
-                elif low.startswith("sub gleplot_"):
+                elif low.startswith("sub ") and _is_written_sub(words[1]):
                     in_sub = True
                     sub_name = words[1]
                     nums.add(idx)
-                    if sub_name.startswith("gleplot_contourf"):
+                    if sub_name.startswith("glp_contourf"):
                         self._contourf_sub_spans[sub_name] = {idx}
                 elif low.startswith("sub cmap_"):
                     name = words[1][len("cmap_") :]
@@ -8844,15 +8817,13 @@ class _Recognizer:
                         nums.update(span)
                     else:
                         self._own_palette_subs.add(words[1])
-                elif _GLEPLOT_DEFINE_MARKER_RE.match(low) and not _is_legacy_sub(
-                    low.split()[2]
-                ):
+                elif _GLEPLOT_DEFINE_MARKER_RE.match(low) and _is_written_sub(words[2]):
                     # The ``define marker`` naming a per-point-size sub
                     # (writer.mdata_sub_text) is part of that sub.
                     nums.add(idx)
                 continue
             nums.add(idx)
-            if sub_name.startswith("gleplot_contourf"):
+            if sub_name.startswith("glp_contourf"):
                 self._contourf_sub_spans[sub_name].add(idx)
                 if low.startswith(CONTOURF_MARKER + " "):
                     self._contourf_subs[sub_name] = line.strip()
@@ -9684,7 +9655,7 @@ class _Recognizer:
     def _keep_contourf_sub_unless_readable(self, toks) -> None:
         """Keep a ``contourf`` band sub as raw GLE if its colormap will be.
 
-        A ``colormap`` naming a ``gleplot_contourf<k>`` palette that
+        A ``colormap`` naming a ``glp_contourf<k>`` palette that
         :meth:`_contourf_colormap_ok` rejects is kept as raw GLE (as an
         unknown palette), so the sub it calls must be kept too.
         """
@@ -10711,7 +10682,7 @@ class _Recognizer:
         if (
             stmt is not None
             and i == self._skip_blanks(nodes, start)
-            and (stmt.keyword or "").lower() == "gleplot_polar_labels"
+            and (stmt.keyword or "").lower() == "glp_polar_labels"
             and self._is_polar_labels_call(stmt)
         ):
             self._polar_labels_rmax = None
@@ -10878,7 +10849,7 @@ class _Recognizer:
     def _is_polar_labels_call(self, stmt) -> bool:
         """Whether ``stmt`` is the label call of the polar axes just parsed.
 
-        It must be ``gleplot_polar_labels rmax step dp deg$`` with the values
+        It must be ``glp_polar_labels rmax step dp deg$`` with the values
         :meth:`gleplot.writer.GLEWriter.add_polar_frame` writes for that
         axes' radial limit and the figure's ``usetex``.
         """
@@ -11170,22 +11141,14 @@ class _Recognizer:
             return
 
         if self._is_auto_geometry(stmts):
-            # Legacy (metadata v1) geometry, or a hand-written 'scale auto':
-            # placement stays None and the next save adopts the computed
-            # explicit rect. See the metadata module's migration policy.
+            # A hand-written 'scale auto', or no geometry: placement stays
+            # None and the next save adopts the computed explicit rect.
             pass
         elif triple is not None:
             # 'size w h' + 'scale 1 1' with no amove in front. The pair pins
             # the box but not its position, so it inverts to no rect; the grid
             # path (or the single-plot default) supplies the position and
             # re-emits an equivalent block.
-            pass
-        elif self._is_writer_derived_size(fig, ax, stmts):
-            # A metadata-v1 single-plot colorbar emission (a bare 'size'
-            # reserving room for the bar to the right of the graph). It was
-            # derived from the colorbar, so capturing it would only duplicate
-            # model state; on re-save the reservation becomes the layout's
-            # right-hand margin instead.
             pass
         else:
             ax.geometry_passthrough = [s.raw for s in stmts]
@@ -11238,38 +11201,6 @@ class _Recognizer:
             and stmts[0].keyword == "scale"
             and stmts[0].words == ["auto"]
         )
-
-    @staticmethod
-    def _is_writer_derived_size(fig, ax, stmts) -> bool:
-        """True iff ``stmts`` are the legacy (metadata v1) colorbar ``size`` line.
-
-        gleplot v1 output pinned a single-plot graph BOX -- a bare ``size W H``
-        with no ``scale`` and no ``amove`` -- when the axes had a colorbar, so
-        the bar and its labels were not clipped off the right of the page. That
-        line is a pure function of the recovered colorbar
-        (``Figure._axes_colorbar_reserved_cm``), so it carries no information
-        the model does not already hold: recognizing it here lets such a file
-        load as auto placement and re-save as a v2 rect whose right-hand margin
-        reserves the same width. Compared as emitted text, so a hand-written
-        bare ``size`` that does NOT match is captured verbatim instead of being
-        silently replaced.
-
-        Kept for backward compatibility only; the current writer never emits
-        this form.
-        """
-        if len(stmts) != 1 or stmts[0].keyword != "size":
-            return False
-        reserved, _below = fig._axes_colorbar_reserved_cm(ax)
-        if reserved <= 0:
-            return False
-        width_cm = inches_to_cm(fig.figsize[0])
-        height_cm = inches_to_cm(fig.figsize[1])
-        graph_w = max(width_cm - reserved, width_cm * 0.3)
-        expected = (
-            f"    size {GLEWriter._format_number(graph_w)} "
-            f"{GLEWriter._format_number(height_cm)}"
-        )
-        return stmts[0].raw == expected
 
     def _infer_positions(self, parsed_axes) -> List[Optional[tuple]]:
         """Infer (rows, cols, idx) per axes; ``None`` for an inset.

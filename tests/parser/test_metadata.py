@@ -215,41 +215,33 @@ class TestParseMetadata:
 class TestVersionMarkers:
     """The version marker records page geometry, never the line format.
 
-    Every supported version parses identically; an older-but-supported one
-    additionally reports the one-time geometry migration the next save
-    performs (see the metadata module docstring).
+    Only the current version is read; an older block is not, so its file
+    loads as hand-written GLE (see the metadata module docstring).
     """
 
     def test_current_version_is_two(self):
         assert md.VERSION == 2
         assert md.BEGIN_MARKER == "! gleplot-meta-begin v2"
 
-    def test_version_one_is_still_supported(self):
-        assert 1 in md.SUPPORTED_VERSIONS
-        assert md.VERSION in md.SUPPORTED_VERSIONS
-
-    @pytest.mark.parametrize("version", md.SUPPORTED_VERSIONS)
-    def test_every_supported_version_parses_identically(self, version):
+    def test_a_v1_block_is_not_read(self):
         lines = [
-            f"! gleplot-meta-begin v{version}",
+            "! gleplot-meta-begin v1",
             "! gleplot: dpi = 150",
-            "! gleplot: sharex = true",
             "! gleplot: import-data = a.dat",
             "! gleplot-meta-end",
         ]
-        data, _ = md.parse_metadata(lines)
-        assert data == {"dpi": 150, "sharex": True, "import-data": ["a.dat"]}
-
-    def test_v1_reports_the_geometry_migration(self):
-        lines = [
-            "! gleplot-meta-begin v1",
-            "! gleplot: dpi = 100",
-            "! gleplot-meta-end",
-        ]
-        _, warnings = md.parse_metadata(lines)
+        data, warnings = md.parse_metadata(lines)
+        assert data == {}
         assert len(warnings) == 1
         assert "v1" in warnings[0]
-        assert "geometry" in warnings[0]
+        assert "hand-written GLE" in warnings[0]
+
+    @pytest.mark.parametrize("marker", ["v²", "V1", "v3"])
+    def test_another_marker_is_read_with_a_warning(self, marker):
+        lines = [f"! gleplot-meta-begin {marker}", "! gleplot: dpi = 150"]
+        data, warnings = md.parse_metadata(lines)
+        assert data == {"dpi": 150}
+        assert "Unrecognized" in warnings[0]
 
     def test_current_version_is_silent(self):
         lines = [md.BEGIN_MARKER, "! gleplot: dpi = 100", "! gleplot-meta-end"]
