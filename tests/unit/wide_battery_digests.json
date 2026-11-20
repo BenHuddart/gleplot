@@ -138,5 +138,6 @@
  "golden:no_ticks": "03a33149516bf5ae44a6b9a54c8e70a41f74c8457cf1eb0d39012a27432784ef",
  "golden:no_ticks_styled": "b7a6f5c7dbc00f1a7cf6bc7ad352cebcc58a1dfb60ded9769ca5d179db786f18",
  "golden:no_ticks_twins": "dc0066f05741983fc454b5abc493ab6fe528fbd88eecc4f88627c9ba5a1f87b9",
- "golden:guides_after_graph": "c6012e0c7eb2a8e63458420570870f9c1c3a3c593b33f115f6b2bc475002159a"
+ "golden:guides_after_graph": "c6012e0c7eb2a8e63458420570870f9c1c3a3c593b33f115f6b2bc475002159a",
+ "golden:quoted_text": "ac639b79cbb14faa320d7784c16dc0008f2fd2cedc58283ba06474e6d48e9753"
 }

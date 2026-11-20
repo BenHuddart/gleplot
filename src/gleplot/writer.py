@@ -417,6 +417,9 @@ COLORBAR_STEP_SCALE = "0.999999999"
 #: The gap (cm) between a colorbar's tick numbers and its label.
 COLORBAR_LABEL_PAD = 0.2
 
+#: A double quote inside an ``xnames`` tick name, as GLE text markup.
+NAME_QUOTE = r"\char{34}"
+
 
 def colorbar_format(zmin: float, zstep: float) -> str:
     """The default ``fix N`` format of a colorbar's tick labels.
@@ -2229,7 +2232,7 @@ class GLEWriter:
         }
         if title:
             opts = self._text_options(title_size, title_color, title_dist, title_font)
-            self.lines_gle.append(f'    title "{title}"{opts}')
+            self.lines_gle.append(f"    title {self._quote_gle_text(title)}{opts}")
         # show_xlabel/show_ylabel control the axis title (e.g. "Time (s)"),
         # not the tick marks.
         if show_xlabel:
@@ -2308,7 +2311,9 @@ class GLEWriter:
             opts = self._text_options(
                 style.title_size, style.title_color, style.title_dist, style.title_font
             )
-            self.lines_gle.append(f'    {prefix}title "{label}"{opts}')
+            self.lines_gle.append(
+                f"    {prefix}title {self._quote_gle_text(label)}{opts}"
+            )
 
     def _add_primary_axis(
         self,
@@ -2373,9 +2378,12 @@ class GLEWriter:
                 + " ".join(self._format_coordinate(v, prefix) for v in places)
             )
         if names is not None:
+            # GLE's xnames strips a name's outer quotes and keeps the rest
+            # as is (do_names in graph.cpp), so a doubled quote would print
+            # twice: an embedded quote goes in as its character code.
             self.lines_gle.append(
                 f"    {prefix}names "
-                + " ".join(f'"{self._escape_gle_string(n)}"' for n in names)
+                + " ".join('"' + str(n).replace('"', NAME_QUOTE) + '"' for n in names)
             )
         if style.noticks is not None:
             self.lines_gle.append(
@@ -2599,7 +2607,7 @@ class GLEWriter:
         """
         out = ""
         if style.fmt is not None:
-            out += f' format "{self._escape_gle_string(style.fmt)}"'
+            out += f" format {self._quote_gle_text(style.fmt)}"
         if style.label_angle is not None:
             out += f" angle {self._format_number(float(style.label_angle))}"
         if style.grid is not None:
@@ -2890,7 +2898,7 @@ class GLEWriter:
         self.lines_gle.append("set color BLACK")
         self.lines_gle.append(f"amove {x_expr} {self._format_number(y_cm)}")
         self.lines_gle.append("begin rotate 90")
-        self.lines_gle.append(f'write "{self._escape_gle_string(text)}"')
+        self.lines_gle.append(f"write {self._gle_string_expr(text)}")
         self.lines_gle.append("end rotate")
         self.lines_gle.append("grestore")
 
@@ -2919,7 +2927,7 @@ class GLEWriter:
                 f"set hei {self._format_number(fontsize_pt_to_cm(float(fontsize)))}"
             )
         self.lines_gle.append(f"amove {self._format_number(x_cm)} {y_expr}")
-        self.lines_gle.append(f'write "{self._escape_gle_string(text)}"')
+        self.lines_gle.append(f"write {self._gle_string_expr(text)}")
         self.lines_gle.append("grestore")
 
     # -- free page drawing (Figure.circle ... Figure.tex) ---------------
@@ -3991,7 +3999,7 @@ class GLEWriter:
                 bar_cmd += f" width {self._format_number(bar_width)}"
             self.lines_gle.append(bar_cmd)
             if label:
-                quoted = self._quote_gle_key(label)
+                quoted = self._quote_gle_text(label)
                 self.lines_gle.append(f"    {target} key {quoted}")
                 self._finish_legend_entry(label)
             return
@@ -4546,7 +4554,7 @@ class GLEWriter:
     def _bar_key(self, d_name: str, label, swatch_color, has_header: bool) -> None:
         """Legend entry for one bar dataset, or the header auto-key mute."""
         if label:
-            quoted = self._quote_gle_key(label)
+            quoted = self._quote_gle_text(label)
             if swatch_color:
                 self.lines_gle.append(
                     f"    {d_name} keyfill {swatch_color} key {quoted}"
@@ -4933,7 +4941,7 @@ class GLEWriter:
         line_cmd += self._dataset_qualifier_clause(series, False)
 
         if label:
-            line_cmd += f" key {self._quote_gle_key(label)}"
+            line_cmd += f" key {self._quote_gle_text(label)}"
 
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
@@ -5001,7 +5009,7 @@ class GLEWriter:
         line_cmd += self._dataset_qualifier_clause(series, has_line and bool(marker))
 
         if label:
-            line_cmd += f" key {self._quote_gle_key(label)}"
+            line_cmd += f" key {self._quote_gle_text(label)}"
 
         self.lines_gle.append(line_cmd)
         self._finish_legend_entry(label)
@@ -5027,7 +5035,7 @@ class GLEWriter:
         )
         self.lines_gle.append(f"    bar {d_name} fill {color}")
         if label:
-            quoted = self._quote_gle_key(label)
+            quoted = self._quote_gle_text(label)
             if swatch_color:
                 self.lines_gle.append(
                     f"    {d_name} keyfill {swatch_color} key {quoted}"
@@ -5057,7 +5065,7 @@ class GLEWriter:
         if label:
             swatch = swatch_color or color_token
             self.lines_gle.append(
-                f"    {dataset} keyfill {swatch} key {self._quote_gle_key(label)}"
+                f"    {dataset} keyfill {swatch} key {self._quote_gle_text(label)}"
             )
             self._finish_legend_entry(label)
         elif has_header:
@@ -5268,7 +5276,7 @@ class GLEWriter:
             if name is not None:
                 head += f" name {name}"
             lines.append(head)
-        lines.append(f'write "{cls._escape_gle_string(series["text"])}"')
+        lines.append(f"write {cls._gle_string_expr(series['text'])}")
         if boxed:
             lines.append("end box")
         if angle is not None:
@@ -5425,14 +5433,14 @@ class GLEWriter:
             if hei_cm != self._text_state_hei_cm:
                 self._pending_graph_text_lines.append(f"set hei {hei_cm}")
                 self._text_state_hei_cm = hei_cm
-        label = self._escape_gle_string(series.get("label") or "")
-        autotext = self._escape_gle_string(series.get("autotext") or "")
+        label = self._gle_string_expr(series.get("label") or "")
+        autotext = self._gle_string_expr(series.get("autotext") or "")
         num = self._format_number
         self._pending_graph_text_lines.append(
             f"gleplot_wedge {num(series['x'])} {num(series['y'])} "
             f"{num(series['r'])} {num(series['theta1'])} {num(series['theta2'])} "
-            f'"{self._escape_gle_string(series["color"])}" "{label}" '
-            f'{num(series["labeldistance"])} "{autotext}" '
+            f'{self._gle_string_expr(series["color"])} {label} '
+            f'{num(series["labeldistance"])} {autotext} '
             f'{num(series["pctdistance"])}'
         )
         self._text_state_just = None
@@ -5772,7 +5780,7 @@ class GLEWriter:
         lines.extend(f"    {option}" for option in self._key_options(key))
         textcolor = f" textcolor {key.labelcolor}" if key.labelcolor else ""
         for i, (series, label, swatch) in enumerate(entries, start=1):
-            quoted = self._fit_keys.get(id(series)) or self._quote_gle_key(label)
+            quoted = self._fit_keys.get(id(series)) or self._quote_gle_text(label)
             if swatch:
                 lines.append(f"    text {quoted} {swatch}{textcolor}")
             else:
@@ -6302,7 +6310,7 @@ class GLEWriter:
         fmt = cls._format_number
         # Built from the printed sep and width, so a re-read writes it again.
         offset = f"{fmt(cb['sep'])}+{fmt(cb['width'])}*5/3+{COLORBAR_LABEL_PAD}"
-        text = f'write "{cls._escape_gle_string(label)}"'
+        text = f"write {cls._gle_string_expr(label)}"
         if cb.get("orientation") == "horizontal":
             return [
                 f"amove (xg(xgmin)+xg(xgmax))/2 " f'yg(ygmin)-({offset})-theight("0")',
@@ -6624,7 +6632,7 @@ class GLEWriter:
                 cmd += f" lstyle {self.style.line_style_dotted}"
             elif linestyle == "-.":
                 cmd += f" lstyle {self.style.line_style_dashdot}"
-        cmd += f" key {self._quote_gle_key(label)}"
+        cmd += f" key {self._quote_gle_text(label)}"
         self.lines_gle.append(cmd)
         self._finish_legend_entry(label)
         return d_name
@@ -6639,7 +6647,7 @@ class GLEWriter:
         """
         d_name = self._new_dataset()
         self.lines_gle.append(
-            f"    {d_name} keyfill {color} key {self._quote_gle_key(label)}"
+            f"    {d_name} keyfill {color} key {self._quote_gle_text(label)}"
         )
         self._finish_legend_entry(label)
         return d_name
@@ -6672,7 +6680,9 @@ class GLEWriter:
             edges = position or f"{fmt(series['start'])},{fmt(series['end'])}"
             args = ["range", edges, "extent", extent]
         if label and series.get("label"):
-            quoted = f'"{cls._escape_gle_string(series["label"])}"'
+            # A comment GLE never parses: the recognizer reads the label
+            # back with its own lexer, which takes a backslash-escaped quote.
+            quoted = '"' + str(series["label"]).replace('"', '\\"') + '"'
             args += [GUIDE_MARKER_LABEL, quoted]
         head = f"{GUIDE_MARKER_PREFIX} {series['type']} {series['orient']}"
         return head + " " + " ".join(args)
@@ -7090,20 +7100,40 @@ class GLEWriter:
         return bool(np.any(same & (np.diff(ordered) > tol)))
 
     @staticmethod
-    def _escape_gle_string(value: str) -> str:
-        """Escape string for inclusion in GLE quoted text."""
-        return str(value).replace('"', '\\"')
+    def _quote_gle_text(label: str) -> str:
+        """A double-quoted GLE string for a graph-block command.
 
-    @staticmethod
-    def _quote_gle_key(label: str) -> str:
-        """A double-quoted GLE string for a legend label.
-
-        GLE 4.3.10 ends a string on a quote that is not immediately
-        doubled (``Tokenizer.cpp``). A backslash does not keep the quote
-        inside the string, so an embedded quote is written as two quote
-        characters. A label with no quote is unchanged.
+        Serves legend labels, titles and format strings. GLE
+        4.3.10 ends a string on a quote that is not immediately doubled
+        (``Tokenizer.cpp``). A backslash does not keep the quote inside the
+        string, so an embedded quote is written as two quote characters.
+        Text with no quote is unchanged. Expressions (``write``, sub-call
+        arguments) reject the doubled form: see :meth:`_gle_string_expr`.
         """
         return '"' + str(label).replace('"', '""') + '"'
+
+    @staticmethod
+    def _gle_string_expr(text: str) -> str:
+        """A GLE string expression for ``write`` and sub-call arguments.
+
+        GLE 4.3.10's expression parser rejects both a backslash before a
+        quote and a doubled quote. Text holding a double quote and no single
+        quote is single-quoted; text holding both joins its pieces with
+        ``chr$(34)``, with no spaces round the ``+`` because a sub call
+        splits its arguments on whitespace.
+        """
+        text = str(text)
+        if '"' not in text:
+            return f'"{text}"'
+        if "'" not in text:
+            return f"'{text}'"
+        terms = []
+        for k, piece in enumerate(text.split('"')):
+            if k:
+                terms.append("chr$(34)")
+            if piece:
+                terms.append(f'"{piece}"')
+        return "+".join(terms)
 
     @staticmethod
     def _key_clause(label: Optional[str], has_header: bool) -> str:
@@ -7133,7 +7163,7 @@ class GLEWriter:
         entirely for an unlabeled series (empty string).
         """
         if label:
-            return f" key {GLEWriter._quote_gle_key(label)}"
+            return f" key {GLEWriter._quote_gle_text(label)}"
         if has_header:
             return ' key ""'
         return ""

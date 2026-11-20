@@ -140,3 +140,25 @@ def test_figure_text_lands_on_the_page_fraction(tmp_path):
     assert float(found.group(1)) == pytest.approx(0.25 * 8 * 2.54, abs=1e-3)
     assert float(found.group(2)) == pytest.approx(-0.1 * 4 * 2.54, abs=1e-3)
     assert (tmp_path / "probe.pdf").stat().st_size > 0
+
+
+def test_text_holding_double_quotes_compiles_cleanly(tmp_path):
+    """Each quoting form the writer uses is one GLE accepts.
+
+    GLE reads text three ways: graph commands take a doubled quote,
+    ``xnames`` takes the ``\\char{34}`` markup, and expressions (``write``,
+    sub-call arguments) take a single-quoted string or ``chr$(34)``.
+    """
+    from tests.parser._golden_battery import quoted_text
+
+    quoted_text().savefig_gle(str(tmp_path / "quoted.gle"))
+    proc = subprocess.run(
+        [str(find_gle()), "-d", "pdf", "quoted.gle"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+    )
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, output
+    assert "Error" not in output and "Unrecognised" not in output, output
+    assert (tmp_path / "quoted.pdf").stat().st_size > 0

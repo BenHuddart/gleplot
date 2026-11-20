@@ -996,6 +996,43 @@ def test_xplaces_xnames_yplaces_ynames_recognized(tmp_path):
     assert not ax.passthrough
 
 
+def test_text_holding_double_quotes_comes_back_unchanged(tmp_path):
+    """Each GLE quoting form the writer uses reads back to the same text."""
+    fig = golden.quoted_text()
+    path = tmp_path / "quoted.gle"
+    fig.savefig_gle(str(path))
+    rec = parse_gle_figure(path)
+    assert rec.warnings == []
+    want, got = fig.axes_list, rec.figure.axes_list
+    assert got[0].title_text == 'a "quoted" title'
+    assert got[0].xlabel_text == 'it\'s "x"'
+    assert got[0].xnames == ['"0"', "one", 'it\'s "2"']
+    assert [t["text"] for t in got[0].texts] == [t["text"] for t in want[0].texts]
+    assert got[0].heatmaps[0]["colorbar"]["label"] == 'z "units"'
+    assert [s["label"] for s in got[0].lines] == ['the "fit"']
+    assert [w["label"] for w in got[1].wedges] == ['a "b"', 'it\'s "c"']
+    assert [t["text"] for t in rec.figure.texts] == ['"figure" text']
+
+
+def test_hand_written_quotes_keep_what_gle_draws(tmp_path):
+    """GLE prints a doubled quote in ``xnames`` twice; a concatenation stays."""
+    src = (
+        "size 10 8\n"
+        "begin graph\n"
+        "   xaxis min 0 max 2\n"
+        "   xplaces 0 1\n"
+        '   xnames "5""" "b"\n'
+        "   yaxis min 0 max 1\n"
+        "end graph\n"
+        "amove 1 1\n"
+        'write "Total: "+"x"\n'
+    )
+    fig = parse_gle_figure(_write(tmp_path, "q.gle", src)).figure
+    assert fig.axes_list[0].xnames == ['5""', "b"]
+    assert fig.texts == []
+    assert 'write "Total: "+"x"' in fig.passthrough_trailer
+
+
 def test_xplaces_xnames_length_mismatch_falls_back_to_passthrough(tmp_path):
     # xnames has fewer entries than xplaces -- not representable on the model
     # (GLEWriter.add_axis_config would raise), so both lines must be kept as

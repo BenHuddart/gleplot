@@ -353,6 +353,7 @@ from ..writer import (
     IMAGE_LAYER,
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
+    NAME_QUOTE,
     NODES_MARKER,
     POLAR_GRID_LAYER,
     RUG_EDGES,
@@ -809,13 +810,8 @@ def _plain_write_string(stmt: Optional[Statement]) -> Optional[str]:
     if stmt is None:
         return None
     toks = _words_and_values(stmt)
-    if (
-        len(toks) == 2
-        and toks[0].type is TokenType.WORD
-        and toks[0].value.lower() == "write"
-        and toks[1].type is TokenType.STRING
-    ):
-        return _string_value(toks[1])
+    if toks and toks[0].type is TokenType.WORD and toks[0].value.lower() == "write":
+        return _string_expr_value(toks[1:])
     return None
 
 
@@ -977,6 +973,44 @@ def _string_value(tok: Token) -> str:
     elif q == "'":
         inner = inner.replace("''", "'")
     return inner
+
+
+def _string_expr_value(toks: List[Token]) -> Optional[str]:
+    """The text of a GLE string expression, or ``None`` if it is not one.
+
+    Reads one quoted string, or the ``"a"+chr$(34)+"b"`` form the writer
+    gives text holding both kinds of quote, since GLE's expression parser
+    rejects an escaped or doubled quote. Any other expression, including a
+    hand-written concatenation, is ``None``, so it stays as written.
+    """
+    if len(toks) == 1 and toks[0].type is TokenType.STRING:
+        return _string_value(toks[0])
+    if any(b.start != a.end for a, b in zip(toks, toks[1:])):
+        return None
+    parts: List[str] = []
+    i, n = 0, len(toks)
+    while True:
+        if i < n and toks[i].type is TokenType.STRING:
+            parts.append(_string_value(toks[i]))
+            i += 1
+        elif (
+            i + 3 < n
+            and toks[i].value.lower() == "chr$"
+            and toks[i + 1].value == "("
+            and toks[i + 2].value == "34"
+            and toks[i + 3].value == ")"
+        ):
+            parts.append('"')
+            i += 4
+        else:
+            return None
+        if i == n:
+            text = "".join(parts)
+            source = "".join(t.value for t in toks)
+            return text if GLEWriter._gle_string_expr(text) == source else None
+        if toks[i].type is not TokenType.OP or toks[i].value != "+":
+            return None
+        i += 1
 
 
 def _num(tok: Token) -> Optional[float]:
@@ -3954,17 +3988,18 @@ class _Recognizer:
 
         Split positionally on whitespace (:meth:`_split_call_words`), not by
         :func:`_collect_value`'s maximal-expression scan -- see that method's
-        docstring for why (G17.1). Each resulting word is either a single
-        quoted string (unwrapped the same way a real statement's string
-        arguments are, so an escaped quote survives) or a numeric expression
+        docstring for why (G17.1). Each resulting word is either a string
+        (read by :func:`_string_expr_value`, so an embedded quote survives)
+        or a numeric expression
         evaluated whole by :func:`eval_gle_number`. A word that is neither
         ends the scan, which makes the caller reject the call rather than
         half-read it.
         """
         out: List[object] = []
         for word in cls._split_call_words(toks, start):
-            if len(word) == 1 and word[0].type is TokenType.STRING:
-                out.append(_string_value(word[0]))
+            text = _string_expr_value(word)
+            if text is not None:
+                out.append(text)
                 continue
             value = eval_gle_number(word)
             if value is None:
@@ -5392,7 +5427,14 @@ class _Recognizer:
         m = len(toks)
         if is_names:
             while i < m and toks[i].type is TokenType.STRING:
-                values.append(_string_value(toks[i]))
+                # GLE strips a name's outer double quotes and nothing else
+                # (do_names in graph.cpp), so a doubled quote is two quotes.
+                raw = toks[i].value
+                if toks[i].quote == '"' and len(raw) >= 2 and raw.endswith('"'):
+                    name = raw[1:-1]
+                else:
+                    name = _string_value(toks[i])
+                values.append(name.replace(NAME_QUOTE, '"'))
                 i += 1
         else:
             while i < m:
