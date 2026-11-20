@@ -338,12 +338,20 @@ class TestBarCharts:
     def test_a_none_face_is_clear(self):
         """GLE rejects ``fill none``; CLEAR fills nothing (#527)."""
         self.ax.bar([1, 2], [3, 4], color="none", edgecolor="k")
-        with pytest.warns(UserWarning, match="drawn as a black outline"):
+        with pytest.warns(UserWarning, match="no edge as a black outline"):
             self.ax.bar([1, 2], [3, 4], color="none", edgecolor="none")
-        script = self.fig._generate_gle()
-        assert "bar d1 fill CLEAR color BLACK\n" in script
-        assert "bar d2 fill CLEAR color CLEAR lwidth 0\n" in script
-        assert "none" not in script.lower().replace("nobox", "")
+        with pytest.warns(UserWarning, match=r"barh\(\) draws .*color=\['none'"):
+            self.ax.barh([1, 2], [3, 4], color=["none"], edgecolor="r", ls="none")
+        bars = [
+            line.strip()
+            for line in self.fig._generate_gle().splitlines()
+            if line.strip().startswith("bar ")
+        ]
+        assert bars == [
+            "bar d1 fill CLEAR color BLACK",
+            "bar d2 fill CLEAR color CLEAR lwidth 0",
+            "bar d3 fill CLEAR color CLEAR lwidth 0 horiz",
+        ]
 
     def test_bar_hatch_under_a_none_edge_is_black(self):
         """matplotlib falls back to black when the edge it would use is 'none'.

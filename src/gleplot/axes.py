@@ -548,7 +548,8 @@ def _is_one_color(color) -> bool:
 
 
 def _gle_bar_color(color, arg: str) -> str:
-    """A bar colour as a GLE token. ``'none'`` stays ``none``."""
+    """A bar colour as a GLE token. ``'none'`` stays ``none``, the caller's
+    to read: no edge, or a CLEAR face."""
     if isinstance(color, str) and color.strip().lower() == "none":
         return "none"
     return _gle_color(color, arg)
@@ -5290,7 +5291,11 @@ class Axes:
         if n == 0:
             raise ValueError("bar() needs at least one bar")
 
-        faces = _bar_color_list(color, n, "RED", "color")
+        # GLE has no ``fill none``; CLEAR fills nothing.
+        faces = [
+            "CLEAR" if face == "none" else face
+            for face in _bar_color_list(color, n, "RED", "color")
+        ]
         edges = _bar_color_list(edgecolor, n, None, "edgecolor")
         # GLE's ``fill`` is the hatch ink and ``background`` the face, so a
         # hatched bar fills with its edge colour: matplotlib's hatch colour,
@@ -5298,27 +5303,29 @@ class Axes:
         fills: List[Optional[str]] = []
         patterns: List[Optional[str]] = []
         backgrounds: List[Optional[str]] = []
-        outlined_only = False
         for pattern, face, edge in zip(_bar_patterns(hatch, n), faces, edges):
             patterns.append(pattern)
             if pattern is None:
-                # GLE has no ``fill none``; CLEAR fills nothing.
-                fills.append("CLEAR" if face == "none" else face)
+                fills.append(face)
                 backgrounds.append(None)
-                outlined_only = outlined_only or (
-                    face == "none" and edge in (None, "none")
-                )
             else:
                 fills.append(edge if edge not in (None, "none") else "BLACK")
-                backgrounds.append("CLEAR" if face == "none" else face)
-        if outlined_only:
-            warn_external(
-                "bar(color='none') with no edge is drawn as a black outline: "
-                "GLE strokes every bar. Pass edgecolor= to choose the "
-                "outline's colour.",
-            )
+                backgrounds.append(face)
         baseline = _bar_baseline(bottom, n)
         style = _bar_edge_style(linewidth, linestyle)
+        if any(
+            pattern is None
+            and face == "CLEAR"
+            and (edge in (None, "none") or style.get("linestyle") == "none")
+            for pattern, face, edge in zip(patterns, faces, edges)
+        ):
+            caller = "barh" if horiz else "bar"
+            warn_external(
+                f"{caller}() draws a bar with color={color!r} and no edge as a "
+                "black outline: GLE strokes every bar. Pass edgecolor= to "
+                "choose the outline's colour, or leave the bar out to draw "
+                "nothing.",
+            )
         # Reject a bad error before any series is stored, so a raise leaves
         # the axes as they were.
         y_lo, y_hi = _bar_error_limits(yerr, n, "yerr")
