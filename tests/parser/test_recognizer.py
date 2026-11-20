@@ -3106,20 +3106,23 @@ def test_an_old_pie_or_box_sub_is_kept_as_raw_gle(tmp_path, sub, call):
 
 
 def test_a_comment_after_a_modelled_statement_is_reported(tmp_path):
-    """#382: the comment is named; one after a raw statement is kept."""
+    """#382: the comment is named; one after a raw statement is kept.
+
+    The check is by line: the same comment on a raw line does not hide it.
+    """
     body = [
-        '   xtitle "x" ! the x',
+        '   xtitle "x" ! a',
         '   data "d.dat" d1=c1,c2',
         "   d1 line color red ! main",
-        "   mystery 1 ! kept raw",
+        "   mystery 1 ! ab",
+        "   other 2; mystery 2 ! main",
     ]
     src = "size 10 8\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
     p = _write(tmp_path, "c.gle", src, {"d.dat": "0 1\n1 2\n"})
     rec = parse_gle_figure(p)
     notes = [n for n in rec.notes if "the comment" in n.message]
-    assert [(n.message.split("'")[1], n.source_span) for n in notes] == [
-        ("! the x", (3, 3)),
-        ("! main", (5, 5)),
-    ]
+    assert [n.source_span for n in notes] == [(3, 3), (5, 5)]
+    assert "'! a'" in notes[0].message and "'! main'" in notes[1].message
     rec.figure.savefig_gle(str(p))
-    assert "mystery 1 ! kept raw" in p.read_text(encoding="utf-8")
+    text = p.read_text(encoding="utf-8")
+    assert "mystery 1 ! ab" in text and "mystery 2 ! main" in text

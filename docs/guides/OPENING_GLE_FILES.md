@@ -49,8 +49,7 @@ GLE that gleplot does not model is kept as it was and written back in place
 when you save, so it still reaches GLE, but you cannot edit it through the
 Python API. A command gleplot models is rewritten from the figure, so a
 `! comment` at the end of its line is not written back; each such comment
-gets a `structure` note. A comment on a line of its own is kept, though it
-may move within its graph block.
+gets a `structure` note.
 
 A data file that gleplot did not write is never rewritten. Lines, error
 bars, fills and plain `bar dN fill COLOR` bars drawn from it become
