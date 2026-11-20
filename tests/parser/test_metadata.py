@@ -236,6 +236,13 @@ class TestVersionMarkers:
         assert "v1" in warnings[0]
         assert "hand-written GLE" in warnings[0]
 
+    @pytest.mark.parametrize("marker", ["v²", "V1", "v3"])
+    def test_another_marker_is_read_with_a_warning(self, marker):
+        lines = [f"! gleplot-meta-begin {marker}", "! gleplot: dpi = 150"]
+        data, warnings = md.parse_metadata(lines)
+        assert data == {"dpi": 150}
+        assert "Unrecognized" in warnings[0]
+
     def test_current_version_is_silent(self):
         lines = [md.BEGIN_MARKER, "! gleplot: dpi = 100", "! gleplot-meta-end"]
         _, warnings = md.parse_metadata(lines)

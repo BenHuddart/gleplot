@@ -48,6 +48,7 @@ anyway.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Tuple
 
 __all__ = [
@@ -241,8 +242,8 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
 
 def _older_version(marker: str) -> bool:
     """True if ``marker`` (after ``! gleplot-meta-begin``) is ``vN``, N < VERSION."""
-    digits = marker[1:]
-    return marker[:1] == "v" and digits.isdigit() and int(digits) < VERSION
+    match = re.fullmatch(r"v([0-9]+)", marker)
+    return match is not None and int(match.group(1)) < VERSION
 
 
 def _version_warnings(marker: str) -> List[str]:

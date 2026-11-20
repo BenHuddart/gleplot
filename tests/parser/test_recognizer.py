@@ -3244,3 +3244,21 @@ def test_a_gleplot_5_sub_stays_raw_with_its_calls(tmp_path, builder):
     gleplot_lines = [ln for ln in text.splitlines() if "gleplot_" in ln]
     assert [ln for ln in again.splitlines() if "gleplot_" in ln] == gleplot_lines
     assert "glp_" not in again
+
+
+def test_a_sub_of_ones_own_named_glp_stays_raw(tmp_path):
+    src = (
+        "size 10 10\n"
+        "sub glp_mine x\n"
+        "   amove x x\n"
+        "end sub\n"
+        "begin graph\n"
+        "   xaxis min 0 max 1\n"
+        "end graph\n"
+        "glp_mine 1\n"
+    )
+    path = tmp_path / "own.gle"
+    path.write_text(src, encoding="utf-8")
+    text = parse_gle_figure(path).figure._generate_gle_with_files()[0]
+    assert "sub glp_mine x\n   amove x x\nend sub\n" in text
+    assert "glp_mine 1" in text

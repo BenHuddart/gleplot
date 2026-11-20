@@ -170,7 +170,7 @@ def test_no_marker_means_no_sub():
     ax = _ax()
     ax.scatter(X, Y, c=[1, 2, 3], marker="None")
     text, _files = _script(ax)
-    assert "gleplot_cdata" not in text
+    assert "glp_cdata" not in text
 
 
 @pytest.mark.parametrize(
@@ -323,7 +323,7 @@ def test_plain_scatter_is_untouched():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         ax.scatter(X, Y, color="red")
-    assert "gleplot_cdata" not in _script(ax)[0]
+    assert "glp_cdata" not in _script(ax)[0]
 
 
 # --------------------------------------------------------------------------- #

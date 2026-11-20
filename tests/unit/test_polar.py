@@ -123,14 +123,14 @@ def test_a_cartesian_axes_beside_a_polar_one_is_unchanged():
     text, _files = fig._generate_gle_with_files()
     second = text.split("begin graph")[2]
     assert "cos(x)" not in second
-    assert "gleplot_polar" not in second
+    assert "glp_polar" not in second
 
 
 def test_a_figure_without_polar_axes_has_no_polar_subs():
     fig = glp.figure(data_prefix="pl")
     fig.add_subplot().plot([0, 1], [1, 2])
     text, _files = fig._generate_gle_with_files()
-    assert "gleplot_polar" not in text
+    assert "glp_polar" not in text
 
 
 def test_the_radial_limit_rounds_the_data_up_to_a_ring():

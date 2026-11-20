@@ -318,7 +318,7 @@ def test_no_marker_means_no_sub():
     ax = _ax()
     ax.scatter(X, Y, s=[10, 20, 30], marker="None")
     text, _files = ax.figure._generate_gle_with_files()
-    assert "gleplot_mdata" not in text
+    assert "glp_mdata" not in text
 
 
 def test_per_point_sizes_survive_to_dict():

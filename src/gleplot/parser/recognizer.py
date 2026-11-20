@@ -749,10 +749,11 @@ def _words_and_values(stmt: Statement) -> List[Token]:
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
 
 
-#: The prefix of every sub gleplot writes. gleplot 5 named its subs
-#: ``gleplot_<name>``; those are no longer read, so a file that defines one
-#: keeps it as raw GLE, with the calls that use it.
-SUB_PREFIX = "glp_"
+#: The subs gleplot writes whose names do not depend on the figure.
+#: gleplot 5 named its subs ``gleplot_<name>``; those are no longer read, so a
+#: file that defines one keeps it as raw GLE, with the calls that use it.
+_FIXED_SUBS = frozenset(("glp_polar_grid", "glp_polar_labels", *IMAGE_SUBS))
+_CONTOURF_SUB_RE = re.compile(r"glp_contourf\d+")
 
 
 def _is_written_sub(name: str) -> bool:
@@ -761,8 +762,11 @@ def _is_written_sub(name: str) -> bool:
     A per-point colour sub is one only when its colormap is one GLE draws.
     """
     if name.startswith(CDATA_SUB_PREFIX):
-        return is_native(name[len(CDATA_SUB_PREFIX) :].partition("_")[2], True)
-    return name.startswith(SUB_PREFIX)
+        marker, _, cmap = name[len(CDATA_SUB_PREFIX) :].partition("_")
+        return marker.upper() in MARKERS and is_native(cmap, True)
+    if name.startswith(MDATA_SUB_PREFIX):
+        return name[len(MDATA_SUB_PREFIX) :].upper() in MARKERS
+    return name in _FIXED_SUBS or _CONTOURF_SUB_RE.fullmatch(name) is not None
 
 
 def _guide_marker_text(node) -> Optional[str]:
