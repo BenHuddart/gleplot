@@ -1999,6 +1999,7 @@ class TestLineModes:
             ({"comment": '"'}, ValueError, "comment must be"),
             ({"x_col": -1}, ValueError, "x_col must be >= 0"),
             ({"y_col": 0}, ValueError, "y_col must be >= 1, got 0"),
+            ({"data_file": 'a "b".csv'}, ValueError, "data_file=.*double quote"),
         ],
     )
     def test_from_file_rejects_bad_reading_arguments(self, kwargs, error, match):
@@ -3710,9 +3711,25 @@ def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
     ax = fig.add_subplot(111)
     ax.plot(stamps, _ONES)
     ax.scatter(_ONES, _ONES, c=np.ma.masked_array(["r", "g", "b"], mask=[0, 1, 0]))
-    _text, files = fig._generate_gle_with_files()
+    text, files = fig._generate_gle_with_files()
     glp.close()
     assert "1700000031 2" in "".join(files.values())
+    # As in matplotlib, the point under a masked colour is left out.
+    assert "RED" in text and "BLUE" in text and "GREEN" not in text
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"s": [10, 20, 30]}, {"c": [1, np.nan, 3]}, {"c": ["r", "g", "b"]}],
+    ids=["plain", "sizes", "nan-colour", "colour-names"],
+)
+def test_scatter_x_and_y_of_different_sizes_are_rejected_at_the_call(kwargs):
+    """As in matplotlib, not a numpy error later at save (#458)."""
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=r"x and y must be the same size, got 3 x"):
+        ax.scatter([1, 2, 3], [1, 2], **kwargs)
+    assert not ax.scatters
+    glp.close()
 
 
 def test_guides_drawn_after_the_graph_keep_their_figures(tmp_path):

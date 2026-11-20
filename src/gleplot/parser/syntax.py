@@ -376,9 +376,6 @@ def split_statements(text: str) -> List[Tuple[str, int]]:
             i += 1
             continue
         if in_string is not None:
-            if c == "\\" and i + 1 < n:
-                i += 2
-                continue
             # A doubled quote is GLE's embedded quote, not the closer.
             if c == in_string and i + 1 < n and text[i + 1] == in_string:
                 i += 2

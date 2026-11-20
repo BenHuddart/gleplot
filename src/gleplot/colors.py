@@ -66,6 +66,8 @@ MATPLOTLIB_TO_GLE_COLORS = {
     "darkred": "DARKRED",
     "darkgray": "DARKGRAY",
     "darkgrey": "DARKGRAY",
+    # The one CSS4 name GLE does not define.
+    "rebeccapurple": "rgb255(102,51,153)",
 }
 
 # Extended GLE color palette
@@ -142,6 +144,19 @@ def _gle_color_names() -> frozenset:
     return _GLE_COLOR_NAMES
 
 
+_ALPHA_NOT_APPLIED = (
+    "An RGBA colour's alpha (its fourth value) is not applied here. Pass an "
+    "RGB colour, and give the transparency with the alpha= keyword where the "
+    "function has one (fill_between, fill, axhspan, axvspan, hist)."
+)
+
+_ACCEPTED_COLOURS = (
+    "expected a GLE or matplotlib colour name ('red', 'k', 'C0', "
+    "'tab:blue'), a hex string ('#1f77b4'), a grey level string such as "
+    "'0.3', or a sequence of 3 or 4 numbers in [0, 1]."
+)
+
+
 def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
     """
     Convert a matplotlib color specification to a GLE color token.
@@ -163,6 +178,14 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
     -------
     str
         A GLE colour token: an uppercase GLE colour name, or ``rgb255(r,g,b)``.
+
+    Raises
+    ------
+    ValueError
+        For a string that is none of the forms above, a grey level outside
+        [0, 1], or a sequence of fewer than 3 numbers.
+    TypeError
+        For a value that is neither a string nor a sequence of numbers.
 
     Examples
     --------
@@ -192,20 +215,17 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
             except (TypeError, ValueError):
                 opaque = False
             if not opaque:
-                # No colour in the text, so a per-point colour list warns once.
-                warn_external(
-                    "An RGBA colour's alpha (its fourth value) is not applied "
-                    "here. Pass an RGB colour, and give the transparency with "
-                    "the alpha= keyword where the function has one "
-                    "(fill_between, fill, axhspan, axvspan, hist).",
-                )
+                warn_external(_ALPHA_NOT_APPLIED)
         elif len(color) > 4:
             warn_external(
                 f"Colour {color!r} has {len(color)} values; a colour sequence "
                 f"has 3 (RGB) or 4 (RGBA). Using the first three.",
             )
         if len(color) >= 3:
-            return _rgb01_to_gle(color[0], color[1], color[2])
+            try:
+                return _rgb01_to_gle(color[0], color[1], color[2])
+            except (TypeError, ValueError):
+                pass
 
     # Handle string colors
     if isinstance(color, str):
@@ -229,9 +249,7 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
         # gle_color_rgb already treats GREY as an
         # alias for GRAY when reading a ``.gle`` file; this mirrors that
         # convention on the writing side so a name that round-trips one way
-        # round-trips the other too. Without this, e.g. ``rgb_to_gle('grey40')``
-        # matched nothing above and fell all the way through to the
-        # unrecognized-name fallback, silently turning a mid-grey into BLACK.
+        # round-trips the other too.
         if "GREY" in color_upper:
             gray_variant = color_upper.replace("GREY", "GRAY")
             if gray_variant in _gle_color_names():
@@ -242,6 +260,10 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
             return MATPLOTLIB_TO_GLE_COLORS[color_lower]
 
         # matplotlib default property cycle: 'C0'..'C9' / 'tab:blue' / ...
+        # 'C10' and beyond wrap round the ten, as in matplotlib.
+        cycle = re.fullmatch(r"c(\d+)", color_lower)
+        if cycle:
+            color_lower = f"c{int(cycle.group(1)) % 10}"
         if color_lower in MATPLOTLIB_CYCLE_HEX:
             return _hex_to_gle(MATPLOTLIB_CYCLE_HEX[color_lower])
 
@@ -257,32 +279,30 @@ def rgb_to_gle(color: Union[str, Sequence[float], np.ndarray]) -> str:
         else:
             if 0 <= level <= 1:
                 return _rgb01_to_gle(level, level, level)
-            warn_external(
+            raise ValueError(
                 f"Invalid grey level {color!r}: a colour given as a number "
-                f"string must be within 0-1 (e.g. '0.3'). Falling back to "
-                f"BLACK.",
+                f"string must be within 0-1 (e.g. '0.3')."
+            )
+        # matplotlib colours with no GLE counterpart here.
+        if color_lower == "none" or color_lower.startswith("xkcd:"):
+            warn_external(
+                f"Colour {color!r} cannot be drawn here and is drawn in BLACK: "
+                + (
+                    "GLE has no transparent colour for this element. Leave it "
+                    "out to draw nothing."
+                    if color_lower == "none"
+                    else "gleplot has no table of xkcd colours. Pass the "
+                    "colour's hex value instead."
+                )
             )
             return "BLACK"
-
-        # Unrecognized name: neither a GLE colour, a matplotlib code/cycle
-        # reference, nor a hex string. gleplot's house rule is "no silent
-        # drops" (nothing unexpressible is dropped without at least a
-        # warning) -- see markers.matplotlib_to_gle_marker for the
-        # established pattern this follows. The BLACK fallback is
-        # deliberately kept (existing callers/tests depend on it), but it no
-        # longer happens silently.
-        warn_external(
-            f"Unrecognized colour {color!r}: it is neither a GLE colour "
-            f"name, a matplotlib colour code, nor a hex string. Falling "
-            f"back to BLACK.",
-        )
-    else:
-        warn_external(
-            f"Unrecognized colour {color!r}: expected a colour name, a hex "
-            f"string, a grey level string such as '0.3', or a sequence of 3 "
-            f"or 4 numbers in [0, 1]. Falling back to BLACK.",
-        )
-    return "BLACK"
+        raise ValueError(f"Unrecognized colour {color!r}: {_ACCEPTED_COLOURS}")
+    if isinstance(color, (tuple, list, np.ndarray)):
+        raise ValueError(f"Unrecognized colour {color!r}: {_ACCEPTED_COLOURS}")
+    raise TypeError(
+        f"Unrecognized colour {color!r} of type {type(color).__name__}: "
+        f"{_ACCEPTED_COLOURS}"
+    )
 
 
 def _stored_color(color: Any) -> Any:
@@ -405,30 +425,30 @@ def _rgb01_to_gle(r: float, g: float, b: float) -> str:
 
 
 def _hex_to_gle(hex_color: str) -> str:
-    """Convert a ``#RRGGBB`` or ``#RGB`` hex string to ``rgb255(...)``."""
+    """Convert a ``#RRGGBB`` or ``#RGB`` hex string to ``rgb255(...)``.
+
+    An alpha (``#RRGGBBAA`` or ``#RGBA``) below opaque warns that it is not
+    applied, as an RGBA sequence does.
+    """
     digits = hex_color.lstrip("#").strip()
 
-    if len(digits) == 3:
+    if len(digits) in (3, 4):
         digits = "".join(ch * 2 for ch in digits)
 
-    if len(digits) == 6:
+    if len(digits) in (6, 8):
         try:
-            r = int(digits[0:2], 16)
-            g = int(digits[2:4], 16)
-            b = int(digits[4:6], 16)
+            r, g, b = (int(digits[i : i + 2], 16) for i in (0, 2, 4))
+            alpha = int(digits[6:8] or "ff", 16)
         except ValueError:
-            warn_external(
-                f"Unrecognized colour {hex_color!r}: not a valid hex string. "
-                f"Falling back to BLACK.",
-            )
-            return "BLACK"
-        return rgb255_expr(r, g, b)
-
-    warn_external(
+            pass
+        else:
+            if alpha < 255:
+                warn_external(_ALPHA_NOT_APPLIED)
+            return rgb255_expr(r, g, b)
+    raise ValueError(
         f"Unrecognized colour {hex_color!r}: not a valid hex string "
-        f"(expected #RGB or #RRGGBB). Falling back to BLACK.",
+        f"(expected #RGB, #RGBA, #RRGGBB or #RRGGBBAA)."
     )
-    return "BLACK"
 
 
 def get_color_palette(name: str = "default") -> list:

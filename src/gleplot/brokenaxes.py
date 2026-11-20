@@ -50,7 +50,7 @@ from typing import Any, List, Optional, Sequence, Tuple, cast
 
 from ._warn import warn_external
 from .axes import Axes, _finite_float
-from .colors import _stored_color
+from .colors import _rgba_parts, _stored_color, rgb_to_gle
 
 #: Accepted ``divider`` styles.
 DIVIDER_STYLES = ("none", "line", "slash")
@@ -1014,6 +1014,7 @@ class BrokenAxes:
 
     @divider_color.setter
     def divider_color(self, value: Any) -> None:
+        rgb_to_gle(_rgba_parts(value)[0])  # raises for an unknown colour
         self._divider_color = _stored_color(value)
 
     # -- serialization ---------------------------------------------------
