@@ -1312,10 +1312,10 @@ def test_a_gleplot_5_project_cmap_gle_lacks_is_drawn_with_the_closest():
     ax.imshow(np.zeros((2, 2)), cmap="viridis")
     ax.scatter([0, 1], [0, 1], c=[0, 1], cmap="viridis")
     d = fig.to_dict()
-    d["figure"]["axes"][0]["heatmaps"][0]["cmap"] = "rdbu_r"
+    d["figure"]["axes"][0]["heatmaps"][0]["cmap"] = "rainbow_r"
     d["figure"]["axes"][0]["scatters"][0]["cmap"] = "rainbow"
     with pytest.warns(UserWarning, match="closest map GLE has") as record:
         back = Figure.from_dict(d).axes_list[0]
     assert len(record) == 2
-    assert back.heatmaps[0]["cmap"] == "coolwarm"
+    assert back.heatmaps[0]["cmap"] == "rainbow"
     assert back.scatters[0]["cmap"] == "viridis"

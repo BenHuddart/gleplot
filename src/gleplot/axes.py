@@ -27,7 +27,13 @@ from .colors import _gle_color, _rgba_parts, apply_alpha, hatch_to_gle
 from .config import LINE_CAPS, LINE_JOINS, GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
-from .palettes import NATIVE_CMAPS, canonical_cmap, native_cmap
+from .palettes import (
+    BREWER_INCLUDE,
+    NATIVE_CMAPS,
+    canonical_cmap,
+    native_cmap,
+    palette_include,
+)
 from .parser.tables import (
     FIT_MODEL_TO_ROUTINE,
     FIT_PLACEHOLDER_RE,
@@ -7166,12 +7172,16 @@ class Axes:
             given = f"{caller}() with GLEGraphConfig(default_cmap={cmap!r})"
         native = native_cmap(cmap, sub)
         if native != canonical_cmap(cmap):
-            names = [c for c in NATIVE_CMAPS if not (sub and c == "rainbow")]
+            names = [
+                c
+                for c in NATIVE_CMAPS
+                if not (sub and c == "rainbow") and palette_include(c) != BREWER_INCLUDE
+            ]
             warn_external(
                 f"{given} is drawn with cmap={native!r}, the closest map GLE "
                 f"has{' for it' if sub else ''}. Pass one of {', '.join(names)} "
-                f"(each also with '_r'{'' if sub else ', except rainbow'}) to "
-                "choose the map."
+                f"(each also with '_r'{'' if sub else ', except rainbow'}), or a "
+                "ColorBrewer name such as 'RdBu', to choose the map."
             )
         return native
 

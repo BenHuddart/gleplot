@@ -925,16 +925,16 @@ def test_a_gleplot_5_coloured_scatter_in_a_map_gle_lacks_stays_raw(tmp_path):
     fig = glp.figure(data_prefix="g")
     fig.add_subplot(111).scatter([0, 1], [0, 1], c=[0, 1], cmap="plasma")
     path = _save(fig, tmp_path)
-    _as_gleplot_5(path, "plasma", "rdbu")
+    _as_gleplot_5(path, "plasma", "rainbow")
     rec = parse_gle_figure(path)
     assert not rec.figure.axes_list[0].scatters
     text = rec.figure._generate_gle_with_files()[0]
     for kept in (
-        "sub gleplot_rdbu z",
-        "sub gleplot_cdata_fcircle_rdbu size data",
-        "set color gleplot_rdbu(data)",
-        "define marker gleplot_cdata_fcircle_rdbu gleplot_cdata_fcircle_rdbu",
-        "marker gleplot_cdata_fcircle_rdbu msize",
+        "sub gleplot_rainbow z",
+        "sub gleplot_cdata_fcircle_rainbow size data",
+        "set color gleplot_rainbow(data)",
+        "define marker gleplot_cdata_fcircle_rainbow gleplot_cdata_fcircle_rainbow",
+        "marker gleplot_cdata_fcircle_rainbow msize",
     ):
         assert kept in text
     assert "cmap_" not in text

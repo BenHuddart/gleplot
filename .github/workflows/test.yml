@@ -295,7 +295,7 @@ jobs:
           top=$(gle -info | sed -n 's/^GLE_TOP: *//p' | tr -d '\r')
           if [ "$RUNNER_OS" = "Windows" ]; then top=$(cygpath -u "$top"); fi
           missing=0
-          for f in palettes.gle color.gle contour.gle rugs.gle piesub.gle polarplot.gle graphutil.gle; do
+          for f in palettes.gle brewer.gle color.gle contour.gle rugs.gle piesub.gle polarplot.gle graphutil.gle; do
             if [ ! -f "$top/gleinc/$f" ]; then
               echo "::error::$top/gleinc/$f is missing"
               missing=1

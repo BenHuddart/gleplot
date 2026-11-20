@@ -168,17 +168,15 @@ Each of these except `rainbow` also has a reversed form with `_r` appended, as i
 
 Per-point scatter colours and `contourf` bands call a palette sub for each value, which GLE's built-in rainbow is not: there, `rainbow` and `jet` are drawn as `viridis`, with a warning.
 
-matplotlib's ColorBrewer names are accepted too, but GLE has no routine that draws them, so the call warns and draws the closest map above:
+matplotlib's ColorBrewer names are drawn by GLE's `brewer.gle`, with the palette of the most colours it has for each name:
 
-| `cmap` name | Drawn as |
+| `cmap` name | Drawn by |
 |---|---|
-| `Blues`, `BuGn`, `BuPu`, `GnBu`, `Greens`, `Oranges`, `OrRd`, `PuBu`, `PuBuGn`, `PuRd`, `Purples`, `RdPu`, `Reds`, `YlGn`, `YlGnBu`, `YlOrBr`, `YlOrRd` | `viridis_r`, light to dark as they are. |
-| `Greys` | `gray_r`. |
-| `BrBG`, `PiYG`, `PuOr`, `RdBu`, `RdGy`, `RdYlBu`, `RdYlGn`, `Spectral` | `coolwarm_r`, warm end first as they are. |
-| `PRGn` | `coolwarm`. |
-| `Accent`, `Dark2`, `Paired`, `Pastel1`, `Pastel2`, `Set1`, `Set2`, `Set3` | `rainbow`. |
+| `Accent`, `Dark2`, `Paired`, `Pastel1`, `Pastel2`, `Set1`, `Set2`, `Set3` | `AccentQual8`, `Dark2Qual8`, `PairedQual12`, `Pastel1Qual9`, `Pastel2Qual8`, `Set1Qual9`, `Set2Qual8`, `Set3Qual12`: the same colours in the same classes as matplotlib. |
+| `Blues`, `BuGn`, `BuPu`, `GnBu`, `Greens`, `Greys`, `Oranges`, `OrRd`, `PuBu`, `PuBuGn`, `PuRd`, `Purples`, `RdPu`, `Reds`, `YlGn`, `YlGnBu`, `YlOrBr`, `YlOrRd` | `<name>Seq9`: 9 colours. |
+| `BrBG`, `PiYG`, `PRGn`, `PuOr`, `RdBu`, `RdGy`, `RdYlBu`, `RdYlGn`, `Spectral` | `<name>Div11`: 11 colours. |
 
-Their `_r` forms take the reversed map (`RdBu_r` is `coolwarm`), and `rainbow_r` and `jet_r` are drawn as `rainbow`. Names are matched case-insensitively. Unknown names raise `ValueError` listing the supported set.
+matplotlib blends a sequential or diverging map's colours continuously; GLE draws each value in the nearest of them, so these maps show 9 or 11 bands where matplotlib shows a smooth ramp. Each also has its `_r` form. `rainbow_r` and `jet_r` warn and are drawn as `rainbow`. Names are matched case-insensitively. Unknown names raise `ValueError` listing the supported set.
 
 ## One Heatmap Per Axes
 
