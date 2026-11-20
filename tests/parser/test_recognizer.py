@@ -741,9 +741,7 @@ def test_an_owned_file_a_raw_data_statement_reads_is_not_rewritten(tmp_path, bod
     ],
     ids=["ignore", "offset-let"],
 )
-def test_a_file_read_with_ignore_is_not_loaded_under_another_spelling(
-    tmp_path, body
-):
+def test_a_file_read_with_ignore_is_not_loaded_under_another_spelling(tmp_path, body):
     """#512: loading './f.dat' would rewrite the file 'ignore 2' reads."""
     data = "x a b\n1 4 7\n2 5 8\n3 6 9\n"
     src = _imported("f.dat") + f"begin graph\n   {body}end graph\n"
