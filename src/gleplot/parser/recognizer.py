@@ -10226,15 +10226,36 @@ class _Recognizer:
     def _try_one_post_call(self, nodes, i, axes_info) -> Optional[int]:
         colorbar = self._colorbar_group(nodes, i)
         if colorbar is not None:
-            end, call, amove_sep, label = colorbar
-            if amove_sep is None:
+            end, call, amove_sep, label, problem, labelled = colorbar
+            span = self._stmt_span(call)
+            if (
+                problem == "gap"
+                and not labelled
+                and self._draws_contourf(call, axes_info)
+            ):
+                # Kept raw, the bar would lose the band sub's rescale it
+                # draws through, so it is read with the default gap.
                 self._note(
                     ImportCategory.STRUCTURE,
-                    f"a {call.keyword} call was kept as raw GLE: its 'amove' "
-                    "is not the form gleplot writes (xg(xgmax)+S yg(ygmin) "
-                    "for a vertical bar, xg(xgmin) yg(ygmin)-S for a "
-                    "horizontal one), so the bar's gap could not be read",
-                    self._stmt_span(call),
+                    f"the gap of the colorbar drawn by this {call.keyword} "
+                    "call could not be read; it is written back at the "
+                    "default gap: pass sep= to fig.colorbar() to set it",
+                    span,
+                )
+                amove_sep = 0.3
+            elif problem is not None:
+                what = (
+                    "the 'amove' to the bar is"
+                    if problem == "gap"
+                    else "the label's lines are"
+                )
+                self._note(
+                    ImportCategory.STRUCTURE,
+                    f"a {call.keyword} call was kept as raw GLE: {what} not "
+                    "what fig.colorbar() writes, so it is not read "
+                    "as a colorbar; to edit it, delete its gsave .. grestore "
+                    "group and call fig.colorbar()",
+                    span,
                 )
                 return None
             if self._apply_colorbar_call(call, amove_sep, label, axes_info):
@@ -10243,8 +10264,25 @@ class _Recognizer:
         clabel = self._clabel_group(nodes, i)
         if clabel is None:
             return None
-        toks = _words_and_values(clabel)
-        return i + 3 if self._apply_clabel_call(toks, axes_info) else None
+        if self._apply_clabel_call(_words_and_values(clabel), axes_info):
+            return i + 3
+        self._note(
+            ImportCategory.STRUCTURE,
+            "a contour_labels call was kept as raw GLE: it does not read "
+            "the labels file of an unlabelled contour of its graph; to edit "
+            "it, delete its gsave .. grestore group and pass clabel=True to "
+            "contour()",
+            self._stmt_span(clabel),
+        )
+        return None
+
+    def _draws_contourf(self, call: Statement, axes_info) -> bool:
+        """Whether a colorbar call draws its axes' contourf band palette."""
+        own = axes_info.get("_contourf_palette")
+        toks = _words_and_values(call)
+        horizontal = toks[0].value.lower() == "color_range_horizontal"
+        args = self._named_args(toks[1:], expr_arg="width" if horizontal else "height")
+        return own is not None and str(args.get("palette") or "").lower() == own
 
     def _clabel_group(self, nodes, i) -> Optional[Statement]:
         """The ``contour_labels`` call of a contour-label group at ``i``.
@@ -10270,36 +10308,40 @@ class _Recognizer:
         group after raw GLE (such as a colorbar kept raw) stays raw too. The
         group at ``i`` itself was noted when it was read, if it is one.
         """
-        start = i
+        colorbar = self._colorbar_group(nodes, i)
+        i = colorbar[0] if colorbar else i + (3 if self._clabel_group(nodes, i) else 1)
         while i < len(nodes) and not isinstance(nodes[i], GraphBlock):
             colorbar = self._colorbar_group(nodes, i)
             call = colorbar[1] if colorbar else self._clabel_group(nodes, i)
-            if colorbar is not None:
-                end = colorbar[0]
-            else:
-                end = i + 3 if call is not None else i + 1
-            if call is not None and i > start:
-                self._note(
-                    ImportCategory.STRUCTURE,
-                    f"a {call.keyword} call was kept as raw GLE: it follows "
-                    "GLE after 'end graph' that is not read back, and "
-                    "colorbar and contour-label calls are read only in an "
-                    "unbroken run after the graph's text",
-                    self._stmt_span(call),
-                )
+            if call is None:
+                i += 1
+                continue
+            end = colorbar[0] if colorbar else i + 3
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"a {call.keyword} call was kept as raw GLE: raw GLE after "
+                "'end graph' comes before it, and gleplot reads colorbars and "
+                "contour labels only straight after the graph's text; to "
+                "edit it, move it ahead of that raw GLE",
+                self._stmt_span(call),
+            )
             i = end
 
     def _colorbar_group(
         self, nodes, i
-    ) -> Optional[Tuple[int, Statement, Optional[float], Optional[str]]]:
+    ) -> Optional[
+        Tuple[int, Statement, Optional[float], Optional[str], Optional[str], bool]
+    ]:
         """The ``gsave`` .. ``grestore`` group drawing one colorbar, at ``i``.
 
         ``gsave``, the ``amove`` to the bar (and, for a horizontal one, the
         ``rmove`` down by its thickness), the ``color_range_vertical`` or
         ``color_range_horizontal`` call, the label's lines if it has one,
         ``grestore``: what :meth:`gleplot.writer.GLEWriter.add_colorbar`
-        writes. Returns ``(next_index, call, sep, label)`` or ``None``;
-        ``sep`` is ``None`` when the ``amove`` is not one gleplot writes.
+        writes. Returns ``(next_index, call, sep, label, problem,
+        labelled)`` or ``None``. ``problem`` is ``"gap"`` when the
+        ``amove`` is not one gleplot writes (``sep`` is then ``None``),
+        ``"label"`` when the label's lines are not, else ``None``.
         """
         stmts: List[Statement] = []
         j = i
@@ -10337,14 +10379,18 @@ class _Recognizer:
                 break
             body.append(nodes[j])
             j += 1
-        if j == len(nodes) or self._as_statement(nodes[j]) is None:
+        closing = self._as_statement(nodes[j]) if j < len(nodes) else None
+        if closing is None or (closing.keyword or "").lower() != "grestore":
             return None
         label = None
-        if body and sep is not None:
+        problem = None
+        if sep is None:
+            problem = "gap"
+        elif body:
             label = self._colorbar_label(body, args, sep, horizontal)
             if label is None:
-                return None
-        return j + 1, stmts[-1], sep, label
+                problem = "label"
+        return j + 1, stmts[-1], sep, label, problem, bool(body)
 
     def _colorbar_label(self, body, args, sep, horizontal) -> Optional[str]:
         """The label a colorbar group's ``body`` writes, or ``None``.
@@ -10448,7 +10494,8 @@ class _Recognizer:
                 ImportCategory.STRUCTURE,
                 f"a {toks[0].value} call was kept as raw GLE: an earlier "
                 "colorbar after this graph shows the same series, and "
-                "gleplot models one colorbar per heatmap or scatter",
+                "gleplot models one colorbar per heatmap or scatter; it still "
+                "draws, but fig.colorbar() does not change it",
                 self._stmt_span(call),
             )
             return False

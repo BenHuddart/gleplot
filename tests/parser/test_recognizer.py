@@ -2060,8 +2060,18 @@ def test_a_colorbar_gap_that_cannot_be_read_stays_raw_and_is_noted(tmp_path):
     rec = parse_gle_figure(path)
     assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
     (note,) = rec.warnings
-    assert "gap could not be read" in note
+    assert "the 'amove' to the bar is not" in note
     assert edited in rec.figure._generate_gle_with_files()[0]
+
+
+def test_a_colorbar_with_an_edited_label_stays_raw_and_is_noted(tmp_path):
+    path, text, _bar = _heatmap_bar(tmp_path)
+    path.write_text(text.replace("set just tc", "set just bc"))
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    (note,) = rec.warnings
+    assert "the label's lines are not" in note
+    assert "set just bc" in rec.figure._generate_gle_with_files()[0]
 
 
 def test_a_second_colorbar_for_one_heatmap_stays_raw_and_is_noted(tmp_path):
@@ -2084,7 +2094,7 @@ def test_a_colorbar_after_one_kept_raw_is_noted(tmp_path):
     assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
     first, second = rec.warnings
     assert "'cmap_magma' to attach it to" in first
-    assert "it follows GLE after 'end graph' that is not read back" in second
+    assert "raw GLE after 'end graph' comes before it" in second
 
 
 def test_a_let_of_the_colour_shape_drawn_as_a_curve_is_not_a_colour(tmp_path):
