@@ -1824,6 +1824,28 @@ def trailer_amove_after_subplots():
     return fig
 
 
+def quoted_text():
+    """Text holding double quotes, alone and with an apostrophe, everywhere.
+
+    Each place GLE reads text one of its three ways: a graph command
+    (title, axis title, legend), ``xnames``, and an expression (``write``).
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 4], label='the "fit"')
+    ax.set_title('a "quoted" title')
+    ax.set_xlabel('it\'s "x"')
+    ax.set_xticks([0, 1, 2])
+    ax.set_xticklabels(['"0"', "one", 'it\'s "2"'])
+    ax.text(0.5, 2, 'say "hi"')
+    ax.text(1, 3, 'it\'s "both"', rotation=30)
+    ax.imshow(np.arange(4.0).reshape(2, 2), extent=(0, 2, 0, 4))
+    fig.colorbar(label='z "units"')
+    ax.legend()
+    fig.text(0.1, 0.95, '"figure" text')
+    return fig
+
+
 def line_cap_join_dashlen():
     """Page-level ``set cap``/``set join``/``set dashlen`` from the style."""
     style = glp.GLEStyleConfig(line_cap="round", line_join="bevel", dashlen=0.125)
@@ -2172,6 +2194,7 @@ BUILDERS = [
     polar_field_options,
     placed_images,
     data_beyond_six_figures,
+    quoted_text,
 ]
 
 BUILDER_IDS = [b.__name__ for b in BUILDERS]

@@ -1277,25 +1277,54 @@ class TestErrorBars:
         [
             (([1, 2, 3], [1, 2]), {}, r"shapes \(3,\) and \(2,\)"),
             (([1, 2], [[1, 2], [3, 4]]), {}, r"one column of y"),
-            (([1, 2, 3], [1, 2, 3]), {"yerr": [0.1, 0.2, 0.3, 0.4]}, r"yerr has"),
+            (
+                ([1, 2, 3], [1, 2, 3]),
+                {"yerr": [0.1, 0.2, 0.3, 0.4]},
+                r"yerr must be .*got shape \(4,\)",
+            ),
             (
                 ([1, 2, 3], [1, 2, 3]),
                 {"yerr": ([0.1, 0.2], [0.1, 0.2, 0.3])},
-                r"yerr has a side of shape \(2,\) for 3 points",
+                r"yerr must be a scalar, 3 values, or a \(2, 3\) array",
             ),
             (
                 ([1, 2, 3], [1, 2, 3]),
                 {"xerr": np.ones((3, 2))},
-                r"xerr has a side of shape \(3, 2\) for 3 points",
+                r"xerr must be .*got shape \(3, 2\)",
+            ),
+            (
+                ([1, 2, 3], [1, 2, 3]),
+                {"yerr": (0.1, 0.2)},
+                r"yerr must be .*got shape \(2,\)",
             ),
         ],
-        ids=["xy", "2d-y", "yerr-length", "yerr-pair", "xerr-2d-array"],
+        ids=[
+            "xy",
+            "2d-y",
+            "yerr-length",
+            "yerr-pair",
+            "xerr-2d-array",
+            "two-for-three",
+        ],
     )
     def test_mismatched_lengths_are_rejected_at_the_call(self, args, kwargs, match):
         """Not a numpy error at save (#458)."""
         with pytest.raises(ValueError, match=match):
             self.ax.errorbar(*args, **kwargs)
         assert not self.ax.errorbars
+
+    def test_two_errors_for_two_points_are_one_each(self):
+        """matplotlib reads a length-N sequence as per-point errors (#469)."""
+        self.ax.errorbar([1, 2], [1, 2], yerr=[0.1, 0.2])
+        self.ax.errorbar([1, 2], [1, 2], yerr=([0.1, 0.2], [0.3, 0.4]))
+        self.ax.errorbar([1, 2, 3], [1, 2, 3], yerr=(0.1, [0.2, 0.3, 0.4]))
+        symmetric, rows, mixed = self.ax.errorbars
+        np.testing.assert_array_equal(mixed["yerr_down"], [0.1, 0.1, 0.1])
+        np.testing.assert_array_equal(mixed["yerr_up"], [0.2, 0.3, 0.4])
+        np.testing.assert_array_equal(symmetric["yerr_down"], [0.1, 0.2])
+        np.testing.assert_array_equal(symmetric["yerr_up"], [0.1, 0.2])
+        np.testing.assert_array_equal(rows["yerr_down"], [0.1, 0.2])
+        np.testing.assert_array_equal(rows["yerr_up"], [0.3, 0.4])
 
     def test_error_forms_matplotlib_takes(self):
         """A numpy scalar, matplotlib's (2, N) rows, and a column (#458)."""
@@ -3684,6 +3713,20 @@ def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
     _text, files = fig._generate_gle_with_files()
     glp.close()
     assert "1700000031 2" in "".join(files.values())
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"s": [10, 20, 30]}, {"c": [1, np.nan, 3]}, {"c": ["r", "g", "b"]}],
+    ids=["plain", "sizes", "nan-colour", "colour-names"],
+)
+def test_scatter_x_and_y_of_different_sizes_are_rejected_at_the_call(kwargs):
+    """As in matplotlib, not a numpy error later at save (#458)."""
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=r"x and y must be the same size, got 3 x"):
+        ax.scatter([1, 2, 3], [1, 2], **kwargs)
+    assert not ax.scatters
+    glp.close()
 
 
 def test_guides_drawn_after_the_graph_keep_their_figures(tmp_path):
