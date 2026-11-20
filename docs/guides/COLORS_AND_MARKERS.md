@@ -231,8 +231,9 @@ the writer emits.
   gets a `gleplot_mdata_<marker>` sub that draws the built-in marker, and the
   sizes go into the series' data file as an extra column. The legend marker's
   area is halfway between the largest and smallest point's, as in
-  matplotlib's legend. Sizes must be finite and not negative, and cannot be
-  combined with `mdist` or `deresolve`.
+  matplotlib's legend. Sizes must not be negative or infinite, and cannot be
+  combined with `mdist` or `deresolve`; a NaN or masked size leaves that
+  point out, as in matplotlib.
 - Per-point colours work the same way: `ax.scatter(x, y, c=temperature,
   cmap='viridis', vmin=0, vmax=300)` gets a `gleplot_cdata_<marker>_<cmap>`
   sub, the values go into the data file, and a `let` maps them onto the

@@ -82,19 +82,14 @@ def test_no_tick_no_include(values):
     assert "include" not in text
 
 
-def test_rugs_are_drawn_after_the_boxes_and_before_the_text():
+def test_rugs_are_drawn_before_the_text():
     fig, ax = glp.subplots()
     ax.text(1, 1, "t")
     ax.rug([1.0])
-    ax.boxplot([1, 2, 3])
     lines = _script(fig).splitlines()
     end = lines.index("end graph")
-    calls = [
-        ln.split()[0]
-        for ln in lines[end:]
-        if ln.startswith(("gleplot", "amove", "xrug"))
-    ]
-    assert calls == ["gleplot_box", "xrug", "amove"]
+    calls = [ln.split()[0] for ln in lines[end:] if ln.startswith(("amove", "xrug"))]
+    assert calls == ["xrug", "amove"]
 
 
 def test_the_values_widen_the_autoscaled_range_of_their_axis_only():

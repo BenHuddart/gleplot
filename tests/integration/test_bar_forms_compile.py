@@ -65,3 +65,17 @@ def test_a_nan_height_leaves_its_bar_out(tmp_path):
     out = fig.savefig(str(tmp_path / "barmissing.eps"))
     drawing = out.read_text(encoding="latin-1").split("%%EndComments", 1)[1]
     assert "nan" not in drawing
+
+
+def test_a_nan_error_leaves_its_whisker_out(tmp_path):
+    """GLE skips a ``nan`` error, so the bar draws as if it had none (#442)."""
+    images = []
+    for name, yerr in (("none", None), ("nan", float("nan"))):
+        fig = glp.figure(data_prefix=name)
+        ax = fig.add_subplot(111)
+        ax.bar([1, 2, 3], [1, 2, 3], yerr=yerr, capsize=3)
+        ax.set_xlim(0, 4)
+        ax.set_ylim(0, 4)
+        images.append(fig.savefig(str(tmp_path / f"{name}.png")).read_bytes())
+        glp.close()
+    assert images[0] == images[1]
