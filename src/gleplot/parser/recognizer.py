@@ -8579,14 +8579,7 @@ class _Recognizer:
                 continue
             self._contour_blocks[zfile] = info
             self._mark_block_consumed(node)
-            for sl in info["dropped"]:
-                self._note(
-                    ImportCategory.DATA,
-                    f"{sl.text.strip()!r} in the begin contour block for "
-                    f"{zfile!r} is not modelled and is not written back on "
-                    "save; add it to the saved file by hand if you need it",
-                    (sl.line_no, sl.line_no),
-                )
+            self._note_dropped_block_lines(info["dropped"], "contour", zfile)
 
         # A fitz block is ours iff its generated .z feeds a recognized colormap
         # or a recognized contour block, AND its scattered points are readable.
@@ -8597,6 +8590,22 @@ class _Recognizer:
                 continue
             self._fitz_blocks[zfile] = info
             self._mark_block_consumed(node)
+            dropped = list(info["dropped"])
+            if zfile not in self._contour_blocks and info["ncontour_line"]:
+                # A colormap's grid: the writer writes no ncontour for it.
+                dropped.append(info["ncontour_line"])
+            self._note_dropped_block_lines(dropped, "fitz", zfile)
+
+    def _note_dropped_block_lines(self, lines, kind: str, zfile: str) -> None:
+        """Note each line of a recovered ``begin <kind>`` block not written back."""
+        for sl in sorted(lines, key=lambda sl: sl.line_no):
+            self._note(
+                ImportCategory.DATA,
+                f"{sl.text.strip()!r} in the begin {kind} block for "
+                f"{zfile!r} is not modelled and is not written back on "
+                "save; add it to the saved file by hand if you need it",
+                (sl.line_no, sl.line_no),
+            )
 
     def _mark_block_consumed(self, node: OpaqueBlock) -> None:
         if node.begin.source_line is not None:
@@ -8696,32 +8705,53 @@ class _Recognizer:
         ``marker`` the node-grid comment line a heatmap's block holds, from
         which :meth:`_fitz_heatmap_grid` reads a colormap's grid instead.
         ``zfile`` is the generated grid name (points base + ``.z``).
+        ``dropped`` lists the other non-blank lines, which are not rewritten,
+        and ``ncontour_line`` the ``ncontour`` line, which only a contour
+        writes back. A ``data``, ``x``, ``y`` or ``ncontour`` line it cannot
+        read whole, or a repeated one (a marker line too), keeps the block as
+        written.
         """
         data_file = None
         xr = yr = None
         ncontour = None
+        ncontour_line = None
         marker = None
+        dropped: List[SourceLine] = []
+        seen: Set[str] = set()
         for sl in node.inner_lines:
             if sl.text.strip().startswith(NODES_MARKER + " "):
+                if marker is not None:
+                    return None
                 marker = sl
                 continue
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
+                if sl.text.strip():
+                    dropped.append(sl)
                 continue
             kw = toks[0].value.lower()
-            if kw == "data" and len(toks) >= 2:
+            if kw not in ("data", "x", "y", "ncontour"):
+                dropped.append(sl)
+                continue
+            if kw in seen or len(toks) < 2:
+                return None
+            seen.add(kw)
+            if kw == "data":
                 data_file, _ = self._read_filename(toks, 1)
-            elif kw in ("x", "y") and len(toks) >= 6:
+            elif kw in ("x", "y"):
                 rng = self._parse_from_to_step(toks)
-                if rng is not None:
-                    if kw == "x":
-                        xr = rng
-                    else:
-                        yr = rng
-            elif kw == "ncontour" and len(toks) >= 2:
+                if rng is None:
+                    return None
+                if kw == "x":
+                    xr = rng
+                else:
+                    yr = rng
+            else:
                 n = _num(toks[1])
-                if n is not None:
-                    ncontour = int(n)
+                if len(toks) != 2 or n is None or n != int(n):
+                    return None
+                ncontour = int(n)
+                ncontour_line = sl
         if data_file is None or xr is None or yr is None:
             return None
         x0, x1, xstep = xr
@@ -8739,6 +8769,8 @@ class _Recognizer:
             "ncontour": ncontour,
             "ranges": (xr, yr),
             "marker": marker,
+            "dropped": dropped,
+            "ncontour_line": ncontour_line,
         }
 
     def _fitz_heatmap_grid(self, fitz: dict) -> Tuple[List[float], List[int]]:

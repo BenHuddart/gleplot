@@ -4789,7 +4789,8 @@ class Axes:
         Parameters
         ----------
         x, y : array-like
-            Data coordinates
+            Data coordinates, the same number of each; otherwise
+            ``ValueError``, as in matplotlib.
         s : float or array-like, optional
             Marker area in points**2 (matplotlib ``scatter`` convention).
             Default 20 when neither ``s`` nor ``markersize`` is given. An
@@ -4867,6 +4868,11 @@ class Axes:
         each first appears; only the first carries ``label``.
         """
         x, y, c = _unmasked(x), _unmasked(y), _unmasked(c)
+        if np.size(x) != np.size(y):
+            raise ValueError(
+                f"scatter() x and y must be the same size, got {np.size(x)} "
+                f"x values and {np.size(y)} y values. Pass one y per x."
+            )
         s, markersize = _unmasked(s), _unmasked(markersize)
         if marker is None:
             marker = "o"  # matplotlib's rcParams['scatter.marker']
