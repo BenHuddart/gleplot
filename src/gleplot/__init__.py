@@ -324,16 +324,6 @@ def errorbar(*args, **kwargs):
     return gca().errorbar(*args, **kwargs)
 
 
-def pie(*args, **kwargs):
-    """Pie chart on current axes."""
-    return gca().pie(*args, **kwargs)
-
-
-def boxplot(*args, **kwargs):
-    """Box plot on current axes."""
-    return gca().boxplot(*args, **kwargs)
-
-
 def text(*args, **kwargs):
     """Add text annotation on current axes."""
     return gca().text(*args, **kwargs)
@@ -738,8 +728,6 @@ __all__ = [
     "stackplot",
     "fill",
     "errorbar",
-    "pie",
-    "boxplot",
     "text",
     "annotate",
     "axvline",

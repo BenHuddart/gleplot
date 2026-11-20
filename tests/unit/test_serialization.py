@@ -526,8 +526,6 @@ _AXES_SERIALIZED_ATTRS = {
     "contours",
     "reflines",
     "spans",
-    "wedges",
-    "boxes",
     "rugs",
     "derived_series",
     "images",
@@ -740,8 +738,6 @@ def _figure_exercising_every_series_kind():
     # does not overhang them.
     ax3.tripcolor(pts_x, pts_y, pts_z, gridsize=(4, 4), extent=(0, 3, -1, 10))
     ax3.tricontour(pts_x, pts_y, pts_z, gridsize=(4, 4), ncontour=2)
-    ax3.pie([1.0, 2.0], labels=["p", "q"], autopct="%d%%", textprops={"size": 9})
-    ax3.boxplot([[1.0, 2.0, 3.0, 9.0], [2.0, 4.0]], showmeans=True)
     ax3.image("photo.png", extent=(0.5, 1.5, 0.5, 1.5))
     ax3.rug([1.0, 2.0], axis="y", position="right", color="C3")
     return fig

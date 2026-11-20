@@ -61,7 +61,7 @@ pip install -e ".[dev]"
 
 ## What it can plot
 
-- Lines, scatter, bars, [pie charts](https://benhuddart.github.io/gleplot/gallery.html#pie-chart), [box plots](https://benhuddart.github.io/gleplot/gallery.html#box-plot), steps, stems and histograms ([plot types](https://benhuddart.github.io/gleplot/guides/PLOT_TYPES.html))
+- Lines, scatter, bars, steps, stems and histograms ([plot types](https://benhuddart.github.io/gleplot/guides/PLOT_TYPES.html))
 - [Error bars](https://benhuddart.github.io/gleplot/gallery.html#combined-x-y-error-bars), symmetric or asymmetric, in x and y
 - [Fills between curves](https://benhuddart.github.io/gleplot/gallery.html#fill-between)
 - [Heatmaps](https://benhuddart.github.io/gleplot/gallery.html#heatmap-imshow) and [contours](https://benhuddart.github.io/gleplot/gallery.html#phase-diagram-tripcolor-tricontour) with colour bars
