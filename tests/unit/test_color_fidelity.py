@@ -172,21 +172,21 @@ def test_numpy_rgba_is_one_hist_colour(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "requested",
+    "requested, error",
     [
-        0.3,
-        (1, 0),
-        b"0.3",
-        None,
-        np.array([1.0, 0.0]),
-        np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
-        np.array(0.3),
+        (0.3, TypeError),
+        ((1, 0), ValueError),
+        (b"0.3", TypeError),
+        (None, TypeError),
+        (np.array([1.0, 0.0]), ValueError),
+        (np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]), ValueError),
+        (np.array(0.3), ValueError),
     ],
     ids=["float", "short-tuple", "bytes", "none", "short-array", "two-rows", "0-d"],
 )
-def test_unrecognized_non_string_colour_warns_while_falling_back(requested):
-    with pytest.warns(UserWarning, match="Unrecognized colour"):
-        assert rgb_to_gle(requested) == "BLACK"
+def test_unrecognized_non_string_colour_raises(requested, error):
+    with pytest.raises(error, match="(?s)Unrecognized colour .*expected"):
+        rgb_to_gle(requested)
 
 
 @pytest.mark.parametrize(
@@ -243,32 +243,57 @@ def test_rgba_arrays_in_a_hist_colour_list_keep_their_alpha(tmp_path):
     assert "rgba255(255,0,0,128)" in text and "rgba255(0,255,0,128)" in text
 
 
-def test_unresolvable_color_still_falls_back_to_black():
-    assert rgb_to_gle("definitely-not-a-colour") == "BLACK"
-    assert rgb_to_gle("#12345") == "BLACK"
-
-
 @pytest.mark.parametrize(
     "requested",
     ["definitely-not-a-colour", "#12345", "#zzzzzz"],
 )
-def test_unresolvable_color_warns_while_falling_back(requested):
-    """No silent drops: an unrecognized name/hex string at least warns.
-
-    ``rgb_to_gle`` used to swallow a typo'd or malformed colour into BLACK
-    with no indication anything had happened -- the same failure mode
-    ``markers.matplotlib_to_gle_marker`` already warns about for an
-    unrecognized marker symbol.
-    """
-    with pytest.warns(UserWarning, match=re.escape(requested)):
-        assert rgb_to_gle(requested) == "BLACK"
+def test_unresolvable_color_raises(requested):
+    with pytest.raises(ValueError, match=re.escape(repr(requested))):
+        rgb_to_gle(requested)
 
 
 @pytest.mark.parametrize("requested", ["1.5", "-0.1", "nan"])
-def test_out_of_range_grey_level_warns_while_falling_back(requested):
-    """matplotlib rejects a grey-level string outside [0, 1]; gleplot warns."""
-    with pytest.warns(UserWarning, match="within 0-1"):
-        assert rgb_to_gle(requested) == "BLACK"
+def test_out_of_range_grey_level_raises(requested):
+    """matplotlib rejects a grey-level string outside [0, 1]."""
+    with pytest.raises(ValueError, match="within 0-1"):
+        rgb_to_gle(requested)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda ax: ax.plot([0, 1], [0, 1], color="blu"),
+        lambda ax: ax.scatter([0, 1], [0, 1], c=["r", "blu"]),
+        lambda ax: ax.bar([0, 1], [1, 2], color="blu"),
+        lambda ax: ax.set_facecolor("blu"),
+        lambda ax: ax.grid(True, color="blu"),
+        lambda ax: ax.legend(facecolor="blu"),
+    ],
+    ids=["plot", "scatter", "bar", "set_facecolor", "grid", "legend"],
+)
+def test_an_unknown_colour_raises_at_the_call(call):
+    """A typo is reported where it is made, not drawn in black (#404)."""
+    with pytest.raises(ValueError, match="'blu'"):
+        call(glp.figure().add_subplot(111))
+
+
+def test_an_unknown_default_colour_raises_when_it_is_set():
+    style = glp.GLEStyleConfig()
+    with pytest.raises(ValueError, match="'blu'"):
+        style.default_color = "blu"
+    with pytest.raises(ValueError, match="'blu'"):
+        glp.GLEStyleConfig(default_marker_color="blu")
+
+
+def test_a_gle_colour_unknown_to_gleplot_still_loads(tmp_path):
+    """open_gle keeps a colour it cannot read, such as a script variable."""
+    (tmp_path / "d.dat").write_text("1 2\n2 3\n")
+    (tmp_path / "f.gle").write_text(
+        "size 10 8\nbegin graph\n    data d.dat d1=c1,c2\n"
+        "    d1 line color MYCOLOUR\nend graph\n"
+    )
+    fig = glp.open_gle(str(tmp_path / "f.gle"))
+    assert "d1 line color MYCOLOUR" in fig._generate_gle()
 
 
 def test_grey_level_string_reaches_the_script(tmp_path):
@@ -582,3 +607,50 @@ def test_round_trip_of_a_hand_written_rgb255_script(tmp_path):
     assert series["color"] == "rgb255(140,140,140)"
     # The qualifier after the colour is still read correctly (0.05 cm -> pt).
     assert series["linewidth"] == pytest.approx(1.417, abs=1e-2)
+
+
+@pytest.mark.parametrize(
+    "requested, token",
+    [
+        ("C10", "rgb255(31,119,180)"),
+        ("C15", "rgb255(140,86,75)"),
+        ("#ff0000ff", "rgb255(255,0,0)"),
+        ("rebeccapurple", "rgb255(102,51,153)"),
+    ],
+)
+def test_matplotlib_colours_beyond_the_tables_resolve(requested, token):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert rgb_to_gle(requested) == token
+
+
+@pytest.mark.parametrize("requested", ["#ff000080", "#f008"])
+def test_a_hex_alpha_is_not_applied_and_warns(requested):
+    with pytest.warns(UserWarning, match="alpha"):
+        assert rgb_to_gle(requested) == "rgb255(255,0,0)"
+
+
+@pytest.mark.parametrize(
+    "requested, reason",
+    [("none", "transparent"), ("xkcd:sky blue", "hex value")],
+)
+def test_a_matplotlib_colour_gle_cannot_draw_warns(requested, reason):
+    with pytest.warns(UserWarning, match=reason):
+        assert rgb_to_gle(requested) == "BLACK"
+
+
+def test_three_names_are_not_an_rgb_colour():
+    with pytest.raises(ValueError, match="Unrecognized colour"):
+        rgb_to_gle(["r", "g", "b"])
+
+
+@pytest.mark.parametrize("method", ["contour", "tricontour"])
+def test_contour_colours_per_level_use_the_first(method):
+    ax = glp.figure().add_subplot(111)
+    if method == "contour":
+        args = (np.arange(16.0).reshape(4, 4),)
+    else:
+        args = ([0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0], [0.0, 1.0, 2.0, 3.0])
+    with pytest.warns(UserWarning, match="one colour"):
+        ct = getattr(ax, method)(*args, levels=[1.5, 2.5], colors=["r", "g"])
+    assert ct["color"] == "RED"

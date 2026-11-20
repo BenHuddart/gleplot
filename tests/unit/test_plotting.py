@@ -3681,9 +3681,11 @@ def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
     ax = fig.add_subplot(111)
     ax.plot(stamps, _ONES)
     ax.scatter(_ONES, _ONES, c=np.ma.masked_array(["r", "g", "b"], mask=[0, 1, 0]))
-    _text, files = fig._generate_gle_with_files()
+    text, files = fig._generate_gle_with_files()
     glp.close()
     assert "1700000031 2" in "".join(files.values())
+    # As in matplotlib, the point under a masked colour is left out.
+    assert "RED" in text and "BLUE" in text and "GREEN" not in text
 
 
 def test_guides_drawn_after_the_graph_keep_their_figures(tmp_path):

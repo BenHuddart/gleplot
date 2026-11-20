@@ -120,7 +120,7 @@ _ENTRY_POINTS = {
     "stackplot": lambda m: m.stackplot(_X, _Y, hatch="//"),
     "hlines": lambda m: m.hlines(_Y, 0, 1, alpha=0.5),
     "vlines": lambda m: m.vlines(_X, 0, 1, linestyles=[(0, (5, 5))]),
-    "errorbar": lambda m: m.errorbar(_X, _Y, yerr=0.1, color="notacolor"),
+    "errorbar": lambda m: m.errorbar(_X, _Y, yerr=0.1, color=(1, 0, 0, 0.5)),
     "step": lambda m: m.step(_X, _Y, "rq"),
     "stem": lambda m: m.stem(_X, _Y, orientation="horizontal"),
     "text": lambda m: m.text(1.0, 1.0, "t", ha="justify"),
