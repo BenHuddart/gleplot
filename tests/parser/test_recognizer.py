@@ -3135,6 +3135,52 @@ def test_external_key_with_a_swatch_edited_by_hand_is_kept_as_written(
     assert out.read_text() == text
 
 
+def test_a_hand_edited_key_is_told_apart_from_another_graphs_same_key(tmp_path):
+    """#412: the edited key of the first graph reads like the second's."""
+    fig, (a1, a2) = gleplot.subplots(1, 2)
+    a1.plot([0, 1], [1, 0], label="a", color="red")
+    a2.plot([0, 1], [1, 0], label="a", color="blue")
+    for ax in (a1, a2):
+        ax.legend(loc="center", bbox_to_anchor=(0.5, 0.4))
+    path = tmp_path / "a.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text().replace('text "a" color RED', 'text "a" color BLUE')
+    path.write_text(text)
+
+    rec = parse_gle_figure(path)
+    assert [ax.legend_bbox_to_anchor for ax in rec.figure.axes_list] == [
+        None,
+        (0.5, 0.4),
+    ]
+    out = tmp_path / "b.gle"
+    rec.figure.savefig_gle(str(out))
+    assert out.read_text().count('text "a" color BLUE') == 2
+
+
+@pytest.mark.parametrize(
+    "written, spelled",
+    [
+        ('text "l"', "text 'l'"),
+        ("lwidth 0.05292", "lwidth 0.052920"),
+        ('text "l" color RED', 'TEXT "l" COLOR red'),
+    ],
+)
+def test_external_key_spelled_differently_still_comes_back(tmp_path, written, spelled):
+    """GLE reads these entries the same as the ones the writer writes."""
+    fig = gleplot.figure()
+    ax = fig.add_subplot()
+    ax.plot([0, 1], [1, 0], label="l", color="red")
+    ax.legend(loc="center", bbox_to_anchor=(0.5, 0.4))
+    path = tmp_path / "a.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text()
+    path.write_text(text.replace(written, spelled))
+
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].legend_bbox_to_anchor == (0.5, 0.4)
+    assert not rec.notes
+
+
 @pytest.mark.parametrize(
     "sub, call",
     [

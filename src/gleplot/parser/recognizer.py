@@ -1619,11 +1619,11 @@ def _collect_color(toks: List[Token], start: int) -> Tuple[Optional[str], int]:
 _KEY_SPACING_WORDS = frozenset(LEGEND_SPACING_TO_KEY.values())
 
 
-def _key_entries(block: OpaqueBlock) -> Tuple[Tuple[str, ...], ...]:
+def _key_entries(block: OpaqueBlock) -> Tuple[Tuple[Any, ...], ...]:
     """The ``text`` lines of a ``begin key`` block, label and swatch tokens.
 
-    GLE words are case-insensitive, so all but the quoted label are
-    compared lower-cased.
+    As GLE reads them: words in any case, a label in either quote, a
+    number in any spelling.
     """
     entries = []
     for sl in block.inner_lines:
@@ -1631,13 +1631,16 @@ def _key_entries(block: OpaqueBlock) -> Tuple[Tuple[str, ...], ...]:
             t for t in tokenize_line(sl.text.strip()) if t.type is not TokenType.COMMENT
         ]
         if toks and toks[0].type is TokenType.WORD and toks[0].value.lower() == "text":
-            entries.append(
-                tuple(
-                    t.value if t.type is TokenType.STRING else t.value.lower()
-                    for t in toks
-                )
-            )
+            entries.append(tuple(map(_key_token_value, toks)))
     return tuple(entries)
+
+
+def _key_token_value(tok: Token) -> Any:
+    if tok.type is TokenType.STRING:
+        return _string_value(tok)
+    if tok.type is TokenType.NUMBER:
+        return float(tok.value)
+    return tok.value.lower()
 
 
 def _key_entry_textcolor(toks: List[Token]) -> Optional[str]:
@@ -1879,12 +1882,11 @@ class _Recognizer:
         # reading the files kept as written.
         self._shared_imports: Set[str] = set()
         self._kept_imports: Set[str] = set()
-        # The 'begin key' blocks read into a legend, as (span, entries),
+        # The 'begin key' blocks read into a legend, as (span, number of
+        # graphs before it, entries),
         # and the spans of those kept as written because the next save would
         # not write their entries back (_stale_key_blocks).
-        self._consumed_keys: List[
-            Tuple[Tuple[int, int], Tuple[Tuple[str, ...], ...]]
-        ] = []
+        self._consumed_keys: List[Tuple[Tuple[int, int], int, Tuple[Any, ...]]] = []
         self._raw_keys: Set[Tuple[int, int]] = set()
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
@@ -1985,7 +1987,7 @@ class _Recognizer:
             self._note(
                 ImportCategory.LEGEND,
                 "saving would not write this 'begin key' block's entries back "
-                "as they are (a swatch edited by hand, or none), so the block "
+                "as they are (such as a swatch edited by hand), so the block "
                 "is kept as written and is not read as the legend: calling "
                 "legend() would draw a second key",
                 span,
@@ -2467,9 +2469,7 @@ class _Recognizer:
             legend = self._figure_legend_block(nodes[i], parsed_axes)
             if legend is not None:
                 self._figure_legend = legend
-                self._consumed_keys.append(
-                    (self._key_span(nodes[i]), _key_entries(nodes[i]))
-                )
+                self._record_key(nodes, i)
                 i += 1
         return drawings, texts, i
 
@@ -9948,8 +9948,15 @@ class _Recognizer:
         if not self._assign_legend_seq(info, parsed["labels"]):
             return start
         info["external_key"] = parsed
-        self._consumed_keys.append((self._key_span(block), _key_entries(block)))
+        self._record_key(nodes, start)
         return start + 1
+
+    def _record_key(self, nodes, i: int) -> None:
+        """Note that the ``begin key`` at ``nodes[i]`` was read as a legend."""
+        graphs = sum(isinstance(node, GraphBlock) for node in nodes[:i])
+        self._consumed_keys.append(
+            (self._key_span(nodes[i]), graphs, _key_entries(nodes[i]))
+        )
 
     @staticmethod
     def _key_span(block: OpaqueBlock) -> Tuple[int, int]:
@@ -9963,23 +9970,29 @@ class _Recognizer:
         A legend's options and labels are read into the model, but its
         swatches are rebuilt from the series on save; a swatch edited by
         hand would be lost. Each block read into a legend is looked for
-        among the ones ``fig`` writes, entry for entry.
+        among the ones a copy of ``fig`` writes after the same graph.
         """
         if not self._consumed_keys:
             return set()
-        state = (fig._source_warnings, fig._preview_decimation_report)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            written = collections.Counter(
-                _key_entries(node)
-                for node in parse_gle_source(fig._generate_gle()).nodes
-                if isinstance(node, OpaqueBlock) and node.block_type == "key"
-            )
-        fig._source_warnings, fig._preview_decimation_report = state
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                nodes = parse_gle_source(copy.deepcopy(fig)._generate_gle()).nodes
+        except Exception:
+            # A figure the writer rejects fails at savefig, with its own
+            # error; that is no reason to refuse to open the file.
+            return set()
+        written: collections.Counter = collections.Counter()
+        graphs = 0
+        for node in nodes:
+            if isinstance(node, GraphBlock):
+                graphs += 1
+            elif isinstance(node, OpaqueBlock) and node.block_type == "key":
+                written[graphs, _key_entries(node)] += 1
         stale = set()
-        for span, entries in self._consumed_keys:
-            if written[entries]:
-                written[entries] -= 1
+        for span, graphs, entries in self._consumed_keys:
+            if written[graphs, entries]:
+                written[graphs, entries] -= 1
             else:
                 stale.add(span)
         return stale
