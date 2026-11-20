@@ -1225,6 +1225,32 @@ def test_a_percentage_error_on_an_offset_is_of_the_shifted_value(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "lets, draw",
+    [
+        (["let d4 = d3+0.5"], "d1 marker circle err d4"),
+        (["let d4 = d1+1", "let d5 = d3+0.5"], "d4 marker circle err d5"),
+        (["let d4 = d3-0.5"], "d1 marker circle errup d3 errdown d4"),
+        (["let d4 = d3+0.5"], "d1 marker circle herr d4"),
+        (["let d4 = d3*2"], "d1 marker circle errup d3 errdown d4"),
+    ],
+    ids=["err", "both-shifted", "errdown", "herr", "errdown-let"],
+)
+def test_an_error_dataset_read_through_a_let_stays_raw(tmp_path, lets, draw):
+    """#513: an error bar has no offset for its error magnitudes, and no
+    field for errors a let computes."""
+    body = ['   data "s.dat" d1=c1,c2 d3=c1,c3'] + [f"   {s}" for s in lets + [draw]]
+    src = _meta("s.dat") + (
+        "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    )
+    p = _write(tmp_path, "err.gle", src, {"s.dat": "0 1 0.1\n1 2 0.2\n2 3 0.3\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].errorbars == []
+    assert rec.warnings
+    rec.figure.savefig_gle(str(p))
+    assert "\n".join(body) in p.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
     "let, draw",
     [
         ("let d2 = d1*2", "d2 line"),
