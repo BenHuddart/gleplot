@@ -2175,11 +2175,49 @@ def test_a_let_redefined_by_a_later_let_stays_raw(tmp_path, first, redefine_last
     ax = rec.figure.axes_list[0]
     assert ax.passthrough == body
     assert any(
-        w.startswith("structure: d2 is defined by more than one let")
-        for w in rec.warnings
+        w.startswith("data: d2 is defined by more than one let") for w in rec.warnings
     )
     rec.figure.savefig_gle(str(p))
     assert "\n".join(body) in p.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        [
+            '   data "d.dat" d1=c1,c2 d3=c1,c3',
+            "   let d4 = d3+1",
+            "   d4 line",
+            "   let d2 = d1+1",
+            "   let d2 = d2*2",
+            "   d2 line",
+        ],
+        [
+            '   data "d.dat" d1=c1,c2 d2=c1,c3',
+            "   let d2 = d2+1",
+            "   let d2 = d2*2",
+            "   d1 line",
+            "   d2 line",
+        ],
+    ],
+    ids=["shared-statement", "data-defined-target"],
+)
+def test_a_redefined_let_keeps_the_data_it_reads(tmp_path, body):
+    """#379: the statement the lets read stays as written, with its readers.
+
+    Modelling another dataset of it would rewrite the file the raw lets read.
+    """
+    meta = (
+        "! gleplot-meta-begin v2\n! gleplot: dpi = 100\n"
+        "! gleplot: import-data = d.dat\n! gleplot-meta-end\n"
+    )
+    src = meta + "size 10 8\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    p = _write(tmp_path, "r.gle", src, {"d.dat": "0 1 5\n1 2 6\n2 2 7\n"})
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].passthrough == body
+    rec.figure.savefig_gle(str(p))
+    assert "\n".join(body) in p.read_text(encoding="utf-8")
+    assert (tmp_path / "d.dat").read_text(encoding="utf-8") == "0 1 5\n1 2 6\n2 2 7\n"
 
 
 def test_a_string_naming_a_hist_source_does_not_keep_it_raw(tmp_path):
