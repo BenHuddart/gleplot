@@ -706,6 +706,75 @@ def test_a_raw_data_statement_redefining_a_dataset_is_reported(tmp_path):
     ]
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "data f.dat d1=c1,c2\n   d1 line\n   data f.dat d2=c1,c3 bogus\n   d2 line\n",
+        "data f.dat d2=c1,c3 bogus\n   d2 line\n   data ./f.dat d1=c1,c2\n   d1 line\n",
+        # A graph read before the raw statement is found.
+        "data f.dat d1=c1,c2\n   d1 line\nend graph\nbegin graph\n"
+        "   data f.dat d2=c1,c3 bogus\n   d2 line\n",
+        # A statement restored with the bar that reads it.
+        "data f.dat d2=c1,c2 d3=c1,c3\n   bar d2,d3 bogus 3\n"
+        "   data f.dat d1=c1,c2\n   d1 line\n",
+    ],
+)
+def test_an_owned_file_a_raw_data_statement_reads_is_not_rewritten(tmp_path, body):
+    """#493: rewriting it with d1's columns would leave c3 missing."""
+    data = "x a b\n1 4 7\n2 5 8\n"
+    src = _imported("f.dat") + f"begin graph\n   {body}end graph\n"
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, {"f.dat": data}))
+    (series,) = [s for ax in rec.figure.axes_list for s in ax.file_series]
+    assert Path(series["data_file"]).name == "f.dat"
+    assert any("reads 'f.dat', a data file gleplot wrote" in w for w in rec.warnings)
+    rec.figure.savefig_gle(str(tmp_path / "s.gle"))
+    assert (tmp_path / "f.dat").read_text(encoding="utf-8") == data
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "data f.dat d1=c1,c2 ignore 2\n   d1 line\n"
+        "   data ./f.dat d2=c1,c3\n   d2 line\n",
+        "data f.dat d1=c1,c2\n   let d3 = d1 + 1\n   d3 line\n"
+        "   data ./f.dat d2=c1,c3 ignore 2\n   d2 line\n",
+    ],
+    ids=["ignore", "offset-let"],
+)
+def test_a_file_read_with_ignore_is_not_loaded_under_another_spelling(tmp_path, body):
+    """#512: loading './f.dat' would rewrite the file 'ignore 2' reads."""
+    data = "x a b\n1 4 7\n2 5 8\n3 6 9\n"
+    src = _imported("f.dat") + f"begin graph\n   {body}end graph\n"
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, {"f.dat": data}))
+    rec.figure.savefig_gle(str(tmp_path / "s.gle"))
+    assert (tmp_path / "f.dat").read_text(encoding="utf-8") == data
+
+
+def test_two_series_on_one_file_under_two_spellings_keep_their_data(tmp_path):
+    """#537: 'f.dat' and './f.dat' are one sidecar, written once."""
+    src = _imported("f.dat") + (
+        "begin graph\n   data f.dat d1=c1,c2\n   d1 line\n"
+        "   data ./f.dat d2=c1,c3\n   d2 line\nend graph\n"
+    )
+    data = {"f.dat": "x a b\n1 4 7\n2 5 8\n"}
+    parse_gle_figure(_write(tmp_path, "s.gle", src, data)).figure.savefig_gle(
+        str(tmp_path / "s.gle")
+    )
+    lines = parse_gle_figure(tmp_path / "s.gle").figure.axes_list[0].lines
+    assert [list(s["y"]) for s in lines] == [[4, 5], [7, 8]]
+
+
+def test_an_owned_file_saved_back_unchanged_stays_owned(tmp_path):
+    """#493: the raw statement still reads what it read."""
+    src = _imported("f.dat") + (
+        "begin graph\n   data f.dat d1=c1,c2\n   d1 line\n"
+        "   data f.dat d2=c1,c2 bogus\n   d2 line\nend graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "s.gle", src, {"f.dat": "x y\n1 4\n2 5\n"}))
+    assert len(rec.figure.axes_list[0].lines) == 1
+    assert not any("a data file gleplot wrote" in w for w in rec.warnings)
+
+
 def test_broken_bar_becomes_file_series_with_error(tmp_path):
     """``bar dN fill COLOR`` against a missing data file -> FileSeries('bar')."""
     _gleplot_axes._global_data_file_counter = 0
@@ -1918,6 +1987,54 @@ def test_a_colour_marker_with_an_unknown_colormap_is_kept_raw(tmp_path):
         "   let d3 = (d2-0)/(2-0)\n"
         "   d1 marker glp_cdata_fcircle_nope msize 0.4 mdata d3 color RED\n"
     ) in text
+
+
+def test_a_renamed_colour_sub_is_written_after_what_it_calls(tmp_path):
+    """The raw sub calls cmap_viridis, which calls palettes.gle's routine."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter([0, 1, 2], [1, 2, 3], c=[1, 2, 3])
+    path = tmp_path / "c.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text().replace("glp_cdata_fcircle_viridis", "mine")
+    path.write_text(text.replace("sub mine", "! my marker\nsub mine"))
+    again = parse_gle_figure(path).figure._generate_gle_with_files()[0]
+    order = [
+        again.index('include "palettes.gle"'),
+        again.index("sub cmap_viridis z"),
+        again.index("! my marker\nsub mine size data"),
+    ]
+    assert order == sorted(order)
+
+
+def test_a_palette_sub_of_the_files_own_stays_ahead_of_the_subs_calling_it(
+    tmp_path,
+):
+    src = (
+        "size 10 10\n"
+        'include "palettes.gle"\n'
+        "sub helper x\n"
+        "   return x\n"
+        "end sub\n"
+        "sub cmap_viridis z\n"
+        "   return rgb(z,0,0)\n"
+        "end sub\n"
+        "begin graph\n"
+        '   data "m.dat" d1=c1,c2 d2=c1,c3\n'
+        "   let d3 = (d2-1)/(3-1)\n"
+        "   d1 marker glp_cdata_fcircle_viridis msize 0.4 mdata d3\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "m.gle", src, {"m.dat": "1 1 1\n2 2 2\n3 3 3\n"})
+    again = parse_gle_figure(p).figure._generate_gle_with_files()[0]
+    # No raw sub calls gleplot's, so the header keeps its place ahead.
+    order = [
+        again.index("sub helper x"),
+        again.index("sub cmap_viridis z"),
+        again.index("sub glp_cdata_fcircle_viridis"),
+    ]
+    assert order == sorted(order)
 
 
 def test_a_scatter_colorbar_is_recovered_onto_its_scatter(tmp_path):

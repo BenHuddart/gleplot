@@ -1251,6 +1251,64 @@ def test_an_error_dataset_read_through_a_let_stays_raw(tmp_path, lets, draw):
 
 
 @pytest.mark.parametrize(
+    "draw",
+    [
+        "d1 marker circle err d3",
+        "d1 marker circle errup d3",
+        "d1 marker circle herr d3",
+    ],
+)
+def test_an_error_dataset_from_another_file_stays_raw(tmp_path, draw):
+    """#528: an error bar reads its errors from its own file, so b.dat's
+    column is not one of the series' columns."""
+    body = ['   data "a.dat" d1=c1,c2', '   data "b.dat" d3=c1,c2', f"   {draw}"]
+    src = _meta("a.dat", "b.dat") + (
+        "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    )
+    dats = {"a.dat": "0 1\n1 2\n2 3\n", "b.dat": "0 0.1\n1 0.2\n2 0.3\n"}
+    p = _write(tmp_path, "err.gle", src, dats)
+    rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].errorbars == []
+    assert any("d3 is read from 'b.dat'" in w for w in rec.warnings)
+    rec.figure.savefig_gle(str(p))
+    assert "\n".join(body) in p.read_text(encoding="utf-8")
+    assert {f: (tmp_path / f).read_text(encoding="utf-8") for f in dats} == dats
+
+
+def test_an_error_dataset_from_the_same_file_spelled_otherwise_loads(tmp_path):
+    """#512: './a.dat' is the series' own file, so its errors load."""
+    body = [
+        '   data "a.dat" d1=c1,c2',
+        '   data "./a.dat" d3=c1,c3',
+        "   d1 marker circle err d3",
+    ]
+    src = _meta("a.dat") + (
+        "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    )
+    p = _write(tmp_path, "err.gle", src, {"a.dat": "0 1 0.1\n1 2 0.2\n2 3 0.3\n"})
+    (bar,) = parse_gle_figure(p).figure.axes_list[0].errorbars
+    assert list(bar["yerr_up"]) == pytest.approx([0.1, 0.2, 0.3])
+
+
+def test_an_error_from_another_file_on_a_y2_series_is_dropped_with_a_note(tmp_path):
+    """#528: the y2 axis needs the series modelled; b.dat's errors are not
+    read from a.dat's columns."""
+    body = [
+        '   data "a.dat" d1=c1,c2',
+        '   data "b.dat" d3=c1,c2',
+        "   d1 marker circle err d3 y2axis",
+    ]
+    src = _meta("a.dat", "b.dat") + (
+        "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
+    )
+    dats = {"a.dat": "0 1\n1 2\n2 3\n", "b.dat": "0 0.1\n1 0.2\n2 0.3\n"}
+    rec = parse_gle_figure(_write(tmp_path, "err.gle", src, dats))
+    (bar,) = rec.figure.axes_list[0].errorbars
+    assert bar.get("yerr_up") is None
+    assert any("dropped on re-save" in w for w in rec.warnings)
+
+
+@pytest.mark.parametrize(
     "let, draw",
     [
         ("let d2 = d1*2", "d2 line"),
@@ -3371,6 +3429,24 @@ def test_raw_reader_keeps_its_data_beside_a_modelled_sibling(tmp_path, reader):
     out2 = tmp_path / "out2.gle"
     parse_gle_figure(out1).figure.savefig_gle(str(out2))
     assert out2.read_text(encoding="utf-8") == text1
+
+
+def test_a_file_kept_for_raw_readers_is_kept_under_every_spelling(tmp_path):
+    """#512: './a.dat' is the file kept for the raw bar's 'a.dat'."""
+    src = _meta("a.dat") + (
+        "size 10 8\n"
+        "begin graph\n"
+        '   data "a.dat" d3=c1,c2 d6=c1,c4\n'
+        "   bar d3 fill red\n"
+        "   d6 line color green\n"
+        "   fill d3,d6 color gray foo\n"
+        "   data ./a.dat d1=c1,c3\n"
+        "   d1 line color blue\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "in.gle", src, {"a.dat": _FOUR_COL_DAT})
+    parse_gle_figure(p).figure.savefig_gle(str(tmp_path / "out.gle"))
+    assert (tmp_path / "a.dat").read_text(encoding="utf-8") == _FOUR_COL_DAT
 
 
 # --------------------------------------------------------------------------- #
