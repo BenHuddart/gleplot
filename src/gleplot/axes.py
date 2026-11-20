@@ -4830,7 +4830,7 @@ class Axes:
         if np.size(x) != np.size(y):
             raise ValueError(
                 f"scatter() x and y must be the same size, got {np.size(x)} "
-                f"x values and {np.size(y)} y values."
+                f"x values and {np.size(y)} y values. Pass one y per x."
             )
         if marker is None:
             marker = "o"  # matplotlib's rcParams['scatter.marker']
