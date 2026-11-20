@@ -1483,6 +1483,21 @@ def test_raw_reads_of_a_file_reference_follow_it(tmp_path, command, reads):
     assert f"let d20 = {_shift_datasets(reads, -4)}" in block
 
 
+def test_a_raw_line_reading_an_error_dataset_follows_it(tmp_path):
+    """#455: a raw ``err d6`` names the error bar's renumbered dataset."""
+    src = (
+        "size 12 9\nbegin graph\n"
+        '   data "a.dat" d5=c1,c2 d6=c1,c3\n'
+        "   d5 marker circle err d6\n"
+        '   data "a.dat" d20=c1,c2\n'
+        "   d20 line color gray foo err d6\nend graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "g.gle", src, _TWO_COLUMNS))
+    (block,) = _graph_lines(rec.figure._generate_gle_with_files()[0])
+    assert "d1 marker circle msize 0.15 err d2" in block
+    assert "d20 line color gray foo err d2" in block
+
+
 # --------------------------------------------------------------------------- #
 # Finding 12 -- duplicate data command redefining a dataset
 # --------------------------------------------------------------------------- #
