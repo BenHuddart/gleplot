@@ -963,9 +963,8 @@ def _as_float(value, default: float) -> float:
 def _string_value(tok: Token) -> str:
     """Unwrap a STRING token's value.
 
-    Strips the surrounding quotes, then undoes both escapes the lexer
-    keeps intact: a backslash before a quote (older gleplot scripts) and
-    a doubled quote (what GLE 4.3.10 actually tokenizes).
+    Strips the surrounding quotes, then undoes the doubled quote GLE 4.3.10
+    embeds a quote with. A backslash is text, as it is to GLE.
     """
     v = tok.value
     q = tok.quote
@@ -973,12 +972,14 @@ def _string_value(tok: Token) -> str:
         inner = v[1:-1] if v.endswith(q) else v[1:]
     else:
         inner = v
-    inner = inner.replace('\\"', '"').replace("\\'", "'")
-    if q == '"':
-        inner = inner.replace('""', '"')
-    elif q == "'":
-        inner = inner.replace("''", "'")
+    if q:
+        inner = inner.replace(q + q, q)
     return inner
+
+
+#: A quoted string in a ``! gleplot:guide`` marker, where a backslash
+#: escapes the character after it (:meth:`GLEWriter.guide_marker`).
+_MARKER_STRING_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
 def _string_expr_value(toks: List[Token]) -> Optional[str]:
@@ -3227,10 +3228,6 @@ class _Recognizer:
             # line, or a group whose x columns do not match. Filled at the
             # end of pass 1. See ``_mark_bars_that_stay_raw``.
             "_bar_hold_raw": set(),
-            # How many bar commands have already claimed each source file.
-            # The first keeps the name; a later independent series gets
-            # ``stem_2.dat`` so the two writes do not clobber one file.
-            "_claimed_bar_files": {},
             "_bar_group_next": 1,
         }
         # This graph block's own (begin, end) line span -- the fallback
@@ -3329,6 +3326,7 @@ class _Recognizer:
                     pass1.merged_attr_raw[kw] = []
                 pass1.merged_attr_toks[kw].extend(_words_and_values(child)[1:])
                 pass1.merged_attr_raw[kw].append(self._stmt_text(child))
+        self._keep_unloaded_offset_lets(pass1, info)
         # Histogram and colour lets are filtered first: a function let stays
         # modelled beside the ones still recorded.
         self._keep_owned_hist_lets(block, pass1, info)
@@ -4275,18 +4273,21 @@ class _Recognizer:
     def _parse_guide_marker(self, text: str) -> Optional[dict]:
         """One ``! gleplot:guide`` comment -> its fields, or ``None``.
 
-        Lexed with GLE's own tokenizer, so a negative coordinate and an
-        escaped quote need no bespoke handling. Every required field of the
+        Lexed with GLE's own tokenizer, so a negative coordinate needs no
+        bespoke handling; the label's escaped quote is restated first. Every
+        required field of the
         kind must be present exactly once (in any order); an unknown keyword,
         a repeat, a missing field or a stray token rejects the whole marker
         rather than half-reading it -- a marker that cannot be read in full
         describes nothing that could be rebuilt from it.
         """
-        toks = [
-            t
-            for t in tokenize_line(text[len(GUIDE_MARKER_PREFIX) :])
-            if t.type is not TokenType.COMMENT
-        ]
+        # The label escapes a quote with a backslash, which the lexer, like
+        # GLE, does not read: restate each string with the quote doubled.
+        body = _MARKER_STRING_RE.sub(
+            lambda m: '"' + m.group(1).replace('\\"', '""') + '"',
+            text[len(GUIDE_MARKER_PREFIX) :],
+        )
+        toks = [t for t in tokenize_line(body) if t.type is not TokenType.COMMENT]
         if len(toks) < 2:
             return None
         kind = toks[0].value.lower()
@@ -5570,8 +5571,7 @@ class _Recognizer:
         if tok.type is TokenType.STRING:
             q = tok.quote or '"'
             inner = _string_value(tok)
-            esc = inner.replace(q, "\\" + q)
-            return f"{q}{esc}{q}"
+            return q + inner.replace(q, q + q) + q
         return tok.value
 
     # -- explicit tick places/names ---------------------------------------
@@ -6225,6 +6225,23 @@ class _Recognizer:
                 or not _plain_function_line(attr_toks)
             ):
                 del info["_derived_lets"][target]
+
+    def _keep_unloaded_offset_lets(self, pass1: _GraphDatasets, info) -> None:
+        """Leave raw each offset let on a file whose datasets do not all load.
+
+        Unloaded, a series is a reference to the file, which has no offset:
+        the let stays as written, with the lines that draw its target. Every
+        ``data`` statement of the block is known here, with its options.
+        """
+        for target in list(info["_offset_let_datasets"]):
+            source = info["_offset_let_sources"][target]
+            data_file = pass1.datasets.get(source, (None,))[0]
+            if not all(
+                self._loads(*entry)
+                for entry in pass1.datasets.values()
+                if entry[0] == data_file
+            ):
+                self._unregister_offset_let(target, pass1, info)
 
     @staticmethod
     def _unregister_offset_let(target, pass1: _GraphDatasets, info) -> None:
@@ -6890,22 +6907,6 @@ class _Recognizer:
                 return False
         return True
 
-    @staticmethod
-    def _claim_bar_file(info, name: str) -> str:
-        """The sidecar name for this bar command.
-
-        The first command to use a source file keeps that name. A later
-        independent command gets ``stem_2.dat``, because the writer
-        rewrites a series' file in place and two series must not share one.
-        """
-        claimed = info["_claimed_bar_files"]
-        count = claimed.get(name, 0)
-        claimed[name] = count + 1
-        if count == 0:
-            return name
-        path = Path(name)
-        return str(path.with_name(f"{path.stem}_{count + 1}{path.suffix}"))
-
     def _keep_bar_raw(self, scanned, info, stmt, toks, user_file=None) -> None:
         """Passthrough for a ``bar`` command, with the note that says why.
 
@@ -7047,8 +7048,7 @@ class _Recognizer:
             self._keep_bar_raw(scanned, info, stmt, toks)
             return
 
-        source_file = datasets[names[0]][0]
-        data_file = self._claim_bar_file(info, source_file)
+        data_file = datasets[names[0]][0]
         group_id = None
         if len(names) > 1:
             group_id = info["_bar_group_next"]
@@ -8304,6 +8304,12 @@ class _Recognizer:
         def col_arr(c):
             return loaded.get(f"c{c}") if c is not None else None
 
+        offset = (
+            info["_dataset_offsets"].get(orig_toks[0].value.lower(), 0.0)
+            if orig_toks
+            else 0.0
+        )
+
         yerr_up = col_arr(yerr_up_col)
         yerr_down = col_arr(yerr_down_col)
         xerr_left = col_arr(xerr_left_col)
@@ -8319,7 +8325,8 @@ class _Recognizer:
                 "constant error expression converted to a data column on save",
                 span,
             )
-            y_arr = loaded["y"]
+            # A percentage is of the value GLE draws: an offset's y is shifted.
+            y_arr = loaded["y"] + offset
             x_arr = loaded["x"]
 
             def const_arr(value, is_percent, horizontal):
@@ -8366,11 +8373,7 @@ class _Recognizer:
             capsize=stored_capsize,
             gle_capsize=gle_capsize,
             **_dn_fields(attrs),
-            offset=(
-                info["_dataset_offsets"].get(orig_toks[0].value.lower(), 0.0)
-                if orig_toks
-                else 0.0
-            ),
+            offset=offset,
             data_file=data_file,
         )
         entry.update(attrs["qualifiers"])
@@ -10065,18 +10068,7 @@ class _Recognizer:
         if resolved.error is not None or resolved.table is None:
             self._note(ImportCategory.DATA, str(resolved.error), span)
             return {"error": resolved.error}
-        if any(
-            self._datasets[name][0] == data_file for name in self._data_read_options
-        ):
-            # The loader reads the whole file, so arrays loaded from it would
-            # hold rows GLE does not draw.
-            reason = "is read with 'ignore', 'comment' or 'numrows'"
-        elif self._first_column_is_labels(data_file):
-            # GLE names the x axis from that column; a sidecar written from
-            # loaded arrays would drop it.
-            reason = "has text in its first column, which GLE draws as x labels"
-        else:
-            reason = None
+        reason = self._not_loaded_reason(data_file)
         if reason is not None:
             error = f"'{data_file}' {reason}; gleplot does not load it"
             if data_file not in self._noted_unloaded:
@@ -10094,6 +10086,35 @@ class _Recognizer:
             self._note(ImportCategory.DATA, str(exc), span)
             return {"error": str(exc)}
         return cols
+
+    def _not_loaded_reason(self, data_file) -> Optional[str]:
+        """Why a resolved ``data_file`` is not loaded into arrays, or None."""
+        if any(
+            self._datasets[name][0] == data_file for name in self._data_read_options
+        ):
+            # The loader reads the whole file, so arrays loaded from it would
+            # hold rows GLE does not draw.
+            return "is read with 'ignore', 'comment' or 'numrows'"
+        if self._first_column_is_labels(data_file):
+            # GLE names the x axis from that column; a sidecar written from
+            # loaded arrays would drop it.
+            return "has text in its first column, which GLE draws as x labels"
+        return None
+
+    def _loads(self, data_file, xcol, ycol) -> bool:
+        """Whether :meth:`_load_series` would load these columns, unnoted."""
+        resolved = self._resolve_table(data_file)
+        if (
+            resolved.error is not None
+            or resolved.table is None
+            or self._not_loaded_reason(data_file)
+        ):
+            return False
+        try:
+            extract_columns(resolved.table, xcol, ycol, [])
+        except ColumnExtractionError:
+            return False
+        return True
 
     def _is_import(self, data_file) -> bool:
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
