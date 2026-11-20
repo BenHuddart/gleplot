@@ -5772,6 +5772,10 @@ class _Recognizer:
         # reference, which has no offset to carry the shift.
         if source not in datasets or not self._is_import(datasets[source][0]):
             return
+        # Unloaded, the series is a reference to the file, which has no
+        # offset either.
+        if not self._loads(*datasets[source]):
+            return
         magnitude = eval_gle_number(toks[5:])
         if magnitude is None:
             return
@@ -8203,6 +8207,12 @@ class _Recognizer:
         def col_arr(c):
             return loaded.get(f"c{c}") if c is not None else None
 
+        offset = (
+            info["_dataset_offsets"].get(orig_toks[0].value.lower(), 0.0)
+            if orig_toks
+            else 0.0
+        )
+
         yerr_up = col_arr(yerr_up_col)
         yerr_down = col_arr(yerr_down_col)
         xerr_left = col_arr(xerr_left_col)
@@ -8218,7 +8228,8 @@ class _Recognizer:
                 "constant error expression converted to a data column on save",
                 span,
             )
-            y_arr = loaded["y"]
+            # A percentage is of the value GLE draws: an offset's y is shifted.
+            y_arr = loaded["y"] + offset
             x_arr = loaded["x"]
 
             def const_arr(value, is_percent, horizontal):
@@ -8265,11 +8276,7 @@ class _Recognizer:
             capsize=stored_capsize,
             gle_capsize=gle_capsize,
             **_dn_fields(attrs),
-            offset=(
-                info["_dataset_offsets"].get(orig_toks[0].value.lower(), 0.0)
-                if orig_toks
-                else 0.0
-            ),
+            offset=offset,
             data_file=data_file,
         )
         entry.update(attrs["qualifiers"])
@@ -9932,18 +9939,7 @@ class _Recognizer:
         if resolved.error is not None or resolved.table is None:
             self._note(ImportCategory.DATA, str(resolved.error), span)
             return {"error": resolved.error}
-        if any(
-            self._datasets[name][0] == data_file for name in self._data_read_options
-        ):
-            # The loader reads the whole file, so arrays loaded from it would
-            # hold rows GLE does not draw.
-            reason = "is read with 'ignore', 'comment' or 'numrows'"
-        elif self._first_column_is_labels(data_file):
-            # GLE names the x axis from that column; a sidecar written from
-            # loaded arrays would drop it.
-            reason = "has text in its first column, which GLE draws as x labels"
-        else:
-            reason = None
+        reason = self._not_loaded_reason(data_file)
         if reason is not None:
             error = f"'{data_file}' {reason}; gleplot does not load it"
             if data_file not in self._noted_unloaded:
@@ -9961,6 +9957,31 @@ class _Recognizer:
             self._note(ImportCategory.DATA, str(exc), span)
             return {"error": str(exc)}
         return cols
+
+    def _not_loaded_reason(self, data_file) -> Optional[str]:
+        """Why a resolved ``data_file`` is not loaded into arrays, or None."""
+        if any(
+            self._datasets[name][0] == data_file for name in self._data_read_options
+        ):
+            # The loader reads the whole file, so arrays loaded from it would
+            # hold rows GLE does not draw.
+            return "is read with 'ignore', 'comment' or 'numrows'"
+        if self._first_column_is_labels(data_file):
+            # GLE names the x axis from that column; a sidecar written from
+            # loaded arrays would drop it.
+            return "has text in its first column, which GLE draws as x labels"
+        return None
+
+    def _loads(self, data_file, xcol, ycol) -> bool:
+        """Whether :meth:`_load_series` would load these columns, unnoted."""
+        resolved = self._resolve_table(data_file)
+        if resolved.table is None or self._not_loaded_reason(data_file):
+            return False
+        try:
+            extract_columns(resolved.table, xcol, ycol, [])
+        except ColumnExtractionError:
+            return False
+        return True
 
     def _is_import(self, data_file) -> bool:
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
