@@ -4651,7 +4651,7 @@ class _Recognizer:
         :mod:`gleplot.guides` for why the marker deliberately does not carry
         it.
         """
-        if entry.get("offset"):
+        if entry.get("offset") or entry.get("_offset2"):
             return None
         x = np.asarray(entry["x"], dtype=float)
         upper = np.asarray(entry["y1"], dtype=float)
@@ -7528,7 +7528,11 @@ class _Recognizer:
             offset=info["_dataset_offsets"].get(d_names[0], 0.0),
             data_file=f1,
         )
-        if target is not None:
+        if target is None:
+            offset2 = info["_dataset_offsets"].get(d_names[1], 0.0)
+            if offset2 != fill_fields["offset"]:
+                fill_fields["_offset2"] = offset2
+        else:
             fill_fields["target"] = target
         fill_fields.update(clips)
         column_names = self._recovered_column_names(

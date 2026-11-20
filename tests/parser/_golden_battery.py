@@ -264,6 +264,17 @@ def fill_between():
     return fig
 
 
+def fill_curve_offsets():
+    """Fills whose two curves a file's ``let`` lines shift differently."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.fill_between([1, 2, 3], [0, 0, 0], [1, 2, 1], offset=2)
+    ax.fill_between([1, 2, 3], [0, 1, 0], [2, 2, 2], color="gray")
+    ax.fills[0]["_offset2"] = -1.0
+    ax.fills[1]["_offset2"] = 3.0
+    return fig
+
+
 def raw_lines_reading_modelled_datasets():
     """Raw lines in a second panel that read its modelled datasets.
 
@@ -2148,6 +2159,7 @@ BUILDERS = [
     errorbar_field_options,
     errorbar_data_range,
     fill_between,
+    fill_curve_offsets,
     raw_lines_reading_modelled_datasets,
     raw_lines_reading_every_kind_of_dataset,
     text_annotations,

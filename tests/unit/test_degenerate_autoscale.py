@@ -740,6 +740,8 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``default_series_colors`` was added for the default colours it records
     too (#345). ``axis_range_of_float_noise`` was added when an axis range
     whose span is float noise beside its offset kept its ends apart (#468).
+    ``fill_curve_offsets`` was added when each curve of a fill kept its own
+    offset (#491).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
