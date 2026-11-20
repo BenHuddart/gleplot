@@ -49,7 +49,7 @@ fig.savefig('gaussian.pdf')
 - An `int` `n` — resolved **at call time** into `n` explicit level values evenly spaced strictly between the data's min and max, and emitted as an explicit `values v1 v2 ...` list (not GLE's `values from a to b step s` form). This keeps the stored model self-contained and round-trip-safe, but means the levels are fixed to the data range at the moment you call `contour`/`tricontour`, not re-derived later.
 - An explicit sequence, e.g. `levels=[0.2, 0.5, 0.8]` — stored verbatim.
 
-Add `clabel=True` to draw inline value labels at each contour crossing (formatted with `clabel_fmt`, a GLE `format$` string such as `'fix 1'` or `'fix 2'`):
+Add `clabel=True` to draw inline value labels at each contour crossing (formatted with `clabel_fmt`, a GLE `format$` string such as `'fix 1'` or `'fix 2'`). They are written by `contour_labels` from GLE's include library (`contour.gle`), in blue in a white box:
 
 ```python
 ax.contour(x, y, Z, levels=[0.2, 0.5, 0.8], colors='black', clabel=True, clabel_fmt='fix 2')
@@ -240,7 +240,7 @@ A colorbar over a **constant** field (`zmax == zmin`) is drawn over one unit fro
 
 At **GLE compile time** (not written by gleplot), GLE itself generates further files next to your `.gle` script:
 
-- `begin fitz` grids a points sidecar into `<points-base>.z`.
+- `begin fitz` grids a points sidecar into `<points-base>.z`, with `gridsize` nodes from the extent's first edge to its last. For a `tricontour` the header's range is the extent. For a `tripcolor` it reaches just short of one node spacing past the last node, as an `imshow` header does, so the heatmap lines up with a `tricontour` of the same points; a `! gleplot: nodes ...` line in the `begin fitz` block holds the extent. Axis limits beyond the extent show that extra spacing, and saving warns.
 - `begin contour` on a `.z` file produces `<z-base>-cdata.dat` (the drawn polylines), and, when `clabel=True`, `<z-base>-clabels.dat` (label positions/values) and `<z-base>-cvalues.dat`.
 
 These generated files only exist after compilation; `savefig()` (or the GLE binary itself) tolerates their absence beforehand, and you never need to create or manage them yourself.

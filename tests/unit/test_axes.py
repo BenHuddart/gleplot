@@ -110,6 +110,12 @@ class TestAxisProperties:
         assert self.ax.get_xlim() == (None, None)
         assert self.ax.get_ylim() == (None, None)
 
+    def test_get_limits_reject_a_bad_axis(self):
+        with pytest.raises(ValueError, match=r"get_xlim\(axis='y'\)"):
+            self.ax.get_xlim("y")
+        with pytest.raises(ValueError, match=r"get_ylim\(axis='x2'\)"):
+            self.ax.get_ylim("x2")
+
     def test_axis_limits_warn_on_emit_and_auto(self):
         with pytest.warns(UserWarning, match="ignores unsupported keyword.*auto"):
             self.ax.set_xlim(0, 1, auto=True)
@@ -254,6 +260,51 @@ class TestSubplots:
         assert list(fig.width_ratios) == [1, 2, 3]
         assert list(fig.height_ratios) == [4, 5]
 
+    @pytest.mark.parametrize(
+        "value, stored",
+        [
+            (True, True),
+            (False, False),
+            ("all", True),
+            ("none", False),
+            ("row", "row"),
+            ("col", "col"),
+        ],
+    )
+    def test_subplots_share_takes_matplotlib_strings(self, value, stored):
+        fig, _ = glp.subplots(2, 2, sharex=value, sharey=value)
+        assert (fig.sharex, fig.sharey) == (stored, stored)
+        assert Figure.from_dict(fig.to_dict()).sharex == stored
+
+    @pytest.mark.parametrize("value", [1, "yes", None])
+    def test_subplots_share_rejects_other_values(self, value):
+        with pytest.raises(ValueError, match="sharex="):
+            glp.subplots(2, 2, sharex=value)
+        fig = glp.figure()
+        fig.sharex = "all"
+        assert fig.sharex is True
+        with pytest.raises(ValueError, match="sharex="):
+            fig.sharex = value
+
+    def test_a_panel_spanning_columns_keeps_its_x_labels_with_sharex_col(self):
+        fig = Figure(sharex="col")
+        top = fig.add_subplot(2, 2, (1, 2))
+        left = fig.add_subplot(2, 2, 3)
+        fig.add_subplot(2, 2, 4)
+        assert top._show_xticks and left._show_xticks
+        assert not Figure(sharex="col").add_subplot(2, 2, 1)._show_xticks
+
+    def test_subplots_sharex_row_keeps_labels_and_shares_each_row(self):
+        fig, axes = glp.subplots(2, 2, sharex="row")
+        axes[0, 0].plot([0, 1], [0, 1])
+        axes[0, 1].plot([5, 9], [0, 1])
+        axes[1, 0].plot([20, 30], [0, 1])
+        axes[1, 1].plot([20, 21], [0, 1])
+        gle = fig._generate_gle()
+        assert "xlabels off" not in gle
+        assert gle.count("xaxis min 0 max 9") == 2
+        assert gle.count("xaxis min 20 max 30") == 2
+
     def test_subplots_passes_matplotlib_subplot_and_gridspec_keywords(self):
         fig, axes = glp.subplots(
             1,
@@ -276,7 +327,10 @@ class TestSubplots:
         (message,) = [str(w.message) for w in record]
         for name in ("num", "layout", "gridspec_kw['figure']"):
             assert name in message
-        with pytest.warns(UserWarning, match=r"add_subplot\(\) ignores alpha"):
+        with pytest.warns(
+            UserWarning,
+            match=r"add_subplot\(\) ignores unsupported keyword\(s\): alpha",
+        ):
             glp.subplots(subplot_kw={"alpha": 0.5, "facecolor": "red"})
 
     def test_subplots_checks_its_keywords_before_replacing_the_figure(self):
@@ -635,7 +689,9 @@ class TestSubplots:
             fig._generate_gle()
 
     def test_add_axes_axes_properties_warn(self):
-        with pytest.warns(UserWarning, match="ignores alpha"):
+        with pytest.warns(
+            UserWarning, match=r"ignores unsupported keyword\(s\): alpha"
+        ):
             glp.figure().add_axes([0.1, 0.1, 0.5, 0.5], alpha=0.5)
 
     def test_add_axes_facecolor_fills_the_inset_frame(self, recwarn):

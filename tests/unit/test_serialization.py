@@ -592,8 +592,8 @@ _FIGURE_RUNTIME_ONLY_ATTRS = {
 _FIGURE_SERIALIZED_ATTRS = {
     "figsize",
     "dpi",
-    "sharex",
-    "sharey",
+    "_sharex",  # through the sharex property
+    "_sharey",  # through the sharey property
     "data_prefix",
     "_local_data_counter",
     "_used_data_files",
@@ -736,7 +736,9 @@ def _figure_exercising_every_series_kind():
     pts_x = [0.0, 1.0, 2.0, 3.0]
     pts_y = [0.0, 1.0, 0.0, 1.0]
     pts_z = [1.0, 2.0, 3.0, 4.0]
-    ax3.tripcolor(pts_x, pts_y, pts_z, gridsize=(4, 4))
+    # An extent covering the limits the other series set, so the grid
+    # does not overhang them.
+    ax3.tripcolor(pts_x, pts_y, pts_z, gridsize=(4, 4), extent=(0, 3, -1, 10))
     ax3.tricontour(pts_x, pts_y, pts_z, gridsize=(4, 4), ncontour=2)
     ax3.pie([1.0, 2.0], labels=["p", "q"], autopct="%d%%", textprops={"size": 9})
     ax3.boxplot([[1.0, 2.0, 3.0, 9.0], [2.0, 4.0]], showmeans=True)

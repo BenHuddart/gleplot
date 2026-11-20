@@ -703,9 +703,18 @@ class BrokenAxes:
         A broken x-axis draws it centred under the whole assembly, in the
         figure's font, so text keywords warn and are ignored there; it has
         no ``x2`` title. A broken y-axis gives it to the bottom segment,
-        which takes the arguments of :meth:`Axes.set_xlabel`.
+        which takes the arguments of :meth:`Axes.set_xlabel`; an ``x2``
+        title warns and is not drawn there.
         """
         if self.axis == "y":
+            if axis == "x2":
+                # The bottom segment is written with 'x2axis off'.
+                warn_external(
+                    "set_xlabel(axis='x2') is not supported on a broken y-axis "
+                    "and was ignored: its x2 axis is not drawn. Label the top "
+                    "segment, bax[-1].set_xlabel(label, axis='x2')."
+                )
+                return self
             self.segments[0].set_xlabel(label, axis, **kwargs)
             return self
         if axis != "x":
@@ -734,12 +743,21 @@ class BrokenAxes:
         """Set the shared y title.
 
         A broken x-axis draws it on the leftmost segment, which takes the
-        keywords of :meth:`Axes.set_ylabel`. A broken y-axis draws it
+        keywords of :meth:`Axes.set_ylabel`; a ``y2`` title warns and is not
+        drawn there. A broken y-axis draws it
         centred beside the whole assembly, ``ylabel_dist`` from the frame,
         in the figure's font, so text keywords warn and are ignored there;
         it has no ``y2`` title.
         """
         if self.axis == "x":
+            if axis == "y2":
+                # The leftmost segment is written with 'y2axis off'.
+                warn_external(
+                    "set_ylabel(axis='y2') is not supported on a broken x-axis "
+                    "and was ignored: its y2 axis is not drawn. Label the "
+                    "rightmost segment, bax[-1].set_ylabel(label, axis='y2')."
+                )
+                return self
             self.segments[0].set_ylabel(label, axis=axis, **kwargs)
             return self
         if axis != "y":

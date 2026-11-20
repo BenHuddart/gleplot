@@ -137,6 +137,24 @@ def test_tricontour_recovered_with_clabel(tmp_path):
     assert ct["clabel_fmt"] == "fix 0"
 
 
+def test_contour_labels_on_another_file_stay_raw(tmp_path):
+    """Only the labels of a contour read back are taken; others stay as written."""
+    fig = glp.figure(data_prefix="g")
+    fig.add_subplot(111).contour(
+        np.arange(9.0).reshape(3, 3), levels=[4.0], clabel=True
+    )
+    path = _save(fig, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert "-clabels.dat" in text
+    path.write_text(text.replace('-clabels.dat"', '-other.dat"'), encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    assert not rec.figure.axes_list[0].contours[0]["clabel"]
+    out = rec.figure._generate_gle_with_files()[0]
+    assert '-other.dat" format "fix 1"' in out
+    assert out.count('include "contour.gle"') == 1
+
+
 def test_generated_files_absent_are_tolerated(tmp_path):
     """The GLE-generated ``-cdata.dat``/``.z`` (fitz) files never exist at save
     time; recovery must not treat their references as broken series."""
@@ -536,6 +554,78 @@ def test_fitz_feeding_foreign_colormap_preserved(tmp_path):
     assert 'colormap "scatter.z" 300 300 palette mypal' in text2
 
 
+def _fitz_colormap_file(tmp_path, block):
+    (tmp_path / "pts.dat").write_text("0 0 0\n1 1 1\n2 0 2\n", encoding="utf-8")
+    p = tmp_path / "f.gle"
+    p.write_text(
+        "size 12 9\n"
+        "begin fitz\n"
+        '   data "pts.dat"\n'
+        f"{block}"
+        "end fitz\n"
+        "begin graph\n"
+        '   colormap "pts.z" 200 200 color\n'
+        "end graph\n",
+        encoding="utf-8",
+    )
+    return parse_gle_figure(p)
+
+
+def test_tripcolor_grid_is_read_from_its_marker(tmp_path):
+    """#376: the marker gives the extent, GLE's node count the gridsize."""
+    rec = _fitz_colormap_file(
+        tmp_path,
+        "   ! gleplot: nodes xmin 0 xmax 2 ymin 0 ymax 1\n"
+        "   x from 0 to 2.4995 step 0.5\n"
+        "   y from 0 to 1.4995 step 0.5\n",
+    )
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert hm["extent"] == [0.0, 2.0, 0.0, 1.0]
+    assert hm["gridsize"] == [5, 3]
+    assert not rec.warnings
+
+
+def test_tripcolor_grid_without_its_marker_is_read_where_gle_draws_it(tmp_path):
+    """A hand-written or older block: the colormap's last node is one header
+    spacing short of ``to``, and re-saving draws it there."""
+    rec = _fitz_colormap_file(
+        tmp_path, "   x from 0 to 2 step 0.5\n   y from 0 to 1 step 0.5\n"
+    )
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert hm["extent"] == pytest.approx([0.0, 1.6, 0.0, 2 / 3])
+    assert hm["gridsize"] == [5, 3]
+    text = rec.figure._generate_gle_with_files()[0]
+    assert "   x from 0 to 1.9996 step 0.4" in text
+
+
+@pytest.mark.parametrize(
+    "marker", ["xmin 0 xmax 3 ymin 0 ymax 1", "xmin 0 xmax 2 ymin 0 ymax"]
+)
+def test_tripcolor_marker_off_its_ranges_is_noted(tmp_path, marker):
+    rec = _fitz_colormap_file(
+        tmp_path,
+        f"   ! gleplot: nodes {marker}\n"
+        "   x from 0 to 2.4995 step 0.5\n"
+        "   y from 0 to 1.4995 step 0.5\n",
+    )
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert hm["extent"][1] == pytest.approx(2.4995 * 4 / 5)
+    assert any("does not match its ranges" in w for w in rec.warnings)
+
+
+@pytest.mark.filterwarnings("ignore:The x limits reach")
+@pytest.mark.parametrize("x_range", ["0 to 2 step 0", "2 to 0 step -0.5"])
+def test_tripcolor_grid_with_a_range_gleplot_does_not_write_loads(tmp_path, x_range):
+    """GLE refuses these ranges; the file loads over them as written, and saves."""
+    rec = _fitz_colormap_file(
+        tmp_path, f"   x from {x_range}\n   y from 0 to 1 step 0.5\n"
+    )
+    hm = rec.figure.axes_list[0].heatmaps[0]
+    assert hm["extent"][:2] == [float(v) for v in x_range.split()[::2][:2]]
+    text = rec.figure._generate_gle_with_files()[0]
+    assert f"   x from {x_range.split()[0]} to " in text
+
+
 @pytest.mark.parametrize(
     "clauses",
     ["zmin lo zmax 1", "zmin -pi zmax pi", "interpolate bilinear"],
@@ -724,3 +814,21 @@ def test_structural_roundtrip_of_contour_file_unchanged(tmp_path):
     fig.colorbar(label="v")
     text = fig._generate_gle_with_files()[0]
     assert emit(parse_gle_source(text)) == text
+
+
+def test_a_gleplot_5_contour_label_sub_is_kept_as_raw_gle(tmp_path):
+    path = tmp_path / "old.gle"
+    path.write_text(
+        "size 10 10\n"
+        "sub gleplot_contour_labels file$ format$\n"
+        "   write format$\n"
+        "end sub\n"
+        "begin graph\n    xaxis min 0 max 3\nend graph\n"
+        "amove 0 0\n"
+        'gleplot_contour_labels file "g_contour1-clabels.dat" format "fix 2"\n'
+    )
+    rec = parse_gle_figure(path)
+    assert any("gleplot_contour_labels" in w for w in rec.warnings)
+    text = rec.figure._generate_gle_with_files()[0]
+    assert "sub gleplot_contour_labels file$ format$" in text
+    assert 'gleplot_contour_labels file "g_contour1-clabels.dat" format "fix 2"' in text

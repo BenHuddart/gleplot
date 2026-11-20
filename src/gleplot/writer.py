@@ -10,6 +10,7 @@ sidecar machinery below is unchanged for inline figures and byte-for-byte
 identical to what it produced before sources existed.
 """
 
+import decimal
 import hashlib
 import math
 import re
@@ -408,6 +409,10 @@ def image_sub_name(path: str) -> Optional[str]:
 #: The gleinc file whose ``color_range_vertical``/``_horizontal`` draw a
 #: colorbar (:meth:`GLEWriter.add_colorbar`).
 COLOR_INCLUDE = "color.gle"
+
+#: The gleinc file whose ``contour_labels`` writes a contour's labels
+#: (:meth:`GLEWriter.add_contour_labels`).
+CONTOUR_INCLUDE = "contour.gle"
 
 #: What a colorbar's tick step is written scaled by, so that ``color.gle``'s
 #: floating-point stepping does not pass ``zmax`` before its last tick.
@@ -2357,6 +2362,12 @@ class GLEWriter:
             # hidden frame writes its own 'xticks off' (see add_axes).
             if not frame_off:
                 self.lines_gle.append(f"    {prefix}ticks off")
+                # matplotlib keeps a log axis' minor ticks (and any it was
+                # asked for); GLE's 'xsubticks on' brings them back after
+                # 'xticks off'. On a gridded axis they would be grid lines.
+                minor = style.minorticks or (log and style.minorticks is None)
+                if minor and style.grid is None:
+                    self.lines_gle.append(f"    {prefix}subticks on")
             self.lines_gle.append(f"    {prefix}labels off")
             self._add_axis_line_style(prefix, style)
             return
@@ -5910,29 +5921,63 @@ class GLEWriter:
             lines = [f'include "{name}"' for name in sorted(self._includes)]
             self.lines_gle[at:at] = lines + [""]
 
-    def add_fitz_block(self, points_file: str, extent, gridsize, ncontour):
-        """Emit a ``begin fitz`` .. ``end fitz`` block (before ``begin graph``).
+    def add_fitz_block(self, series: Series):
+        """Emit a scattered series' ``begin fitz`` block (before ``begin graph``).
 
-        ``step = (hi - lo) / (n - 1)`` for each axis so the grid spans the
-        extent inclusively at ``gridsize`` nodes.
+        ``series`` is a ``'points'`` heatmap or contour. The block grids its
+        points sidecar at ``gridsize`` nodes, the first on the ``extent``'s
+        lower edge and the last on its upper one, with a contour's
+        ``ncontour`` when set.
+
+        GLE's ``fitz`` makes ``floor((to - from) / step + 1)`` nodes from
+        ``from`` in steps of ``step``, and writes ``to`` as the ``.z``
+        header's ``xmax``/``ymax``. ``begin contour`` puts the last node
+        there, so a contour's range ends on the extent. ``colormap`` puts it
+        one spacing short (see :meth:`add_nodes_sidecar`), so a heatmap's
+        range ends a thousandth of a spacing short of one spacing past the
+        extent: the node count stays ``gridsize`` and the colormap draws
+        each node where the fitz put it. A heatmap's block also holds a
+        comment line, which GLE skips, giving the extent as written, for the
+        recognizer to read back.
         """
-        x0, x1, y0, y1 = extent
-        nx, ny = gridsize
-        xstep = (x1 - x0) / (nx - 1)
-        ystep = (y1 - y0) / (ny - 1)
+        fmt = self._format_number
+        edges = self._format_extent(series["extent"])
+        x0, x1, y0, y1 = series["extent"]
+        nx, ny = series["gridsize"]
+        heatmap = series["type"] == "heatmap"
         self.lines_gle.append("begin fitz")
-        self.lines_gle.append(f"   data {_quote_filename(points_file)}")
-        self.lines_gle.append(
-            f"   x from {self._format_number(x0)} to {self._format_number(x1)} "
-            f"step {self._format_number(xstep)}"
-        )
-        self.lines_gle.append(
-            f"   y from {self._format_number(y0)} to {self._format_number(y1)} "
-            f"step {self._format_number(ystep)}"
-        )
-        if ncontour is not None:
-            self.lines_gle.append(f"   ncontour {int(ncontour)}")
+        self.lines_gle.append(f"   data {_quote_filename(series['data_file'])}")
+        if heatmap:
+            self.lines_gle.append(
+                "   {} xmin {} xmax {} ymin {} ymax {}".format(NODES_MARKER, *edges)
+            )
+        for axis, lo, hi, n, (lo_text, hi_text) in (
+            ("x", x0, x1, nx, edges[:2]),
+            ("y", y0, y1, ny, edges[2:]),
+        ):
+            step = self._fitz_step(lo_text, hi_text, (hi - lo) / (n - 1), n)
+            if heatmap:
+                hi_text = fmt(float(lo_text) + (n - 1e-3) * float(step), 12)
+            self.lines_gle.append(f"   {axis} from {lo_text} to {hi_text} step {step}")
+        if series.get("ncontour") is not None:
+            self.lines_gle.append(f"   ncontour {int(series['ncontour'])}")
         self.lines_gle.append("end fitz")
+
+    @classmethod
+    def _fitz_step(cls, lo: str, hi: str, step: float, n: int) -> str:
+        """``step`` as a fitz range from ``lo`` to ``hi`` writes it for ``n`` nodes.
+
+        Written to six digits, a step rounded up, or one that divides the
+        range to just under ``n - 1``, makes GLE's ``fitz`` one node short.
+        The next lower six-digit value is then at least half a unit in the
+        sixth digit below the true step, which gives the ``n`` nodes.
+        """
+        text = cls._format_number(step)
+        span = float(hi) - float(lo)
+        if 0 < float(text) and 0 < span and math.floor(span / float(text) + 1) < n:
+            lower = decimal.Context(prec=6).next_minus(decimal.Decimal(text))
+            text = cls._format_number(float(lower))
+        return text
 
     def add_contour_block(self, z_file: str, levels):
         """Emit a ``begin contour`` .. ``end contour`` block.
@@ -5955,8 +6000,9 @@ class GLEWriter:
         ``'grid'`` heatmap writes its ``z`` array, at ``extent`` and in
         ``origin`` row order, as a ``.z`` sidecar. A ``'points'`` heatmap
         writes its ``x``/``y``/``zpts`` samples and a ``begin fitz`` block
-        that grids them at ``gridsize`` over ``extent``; ``ncontour`` is
-        omitted, so GLE's default applies. A ``'function'`` heatmap has no
+        that grids them at ``gridsize`` over ``extent``
+        (:meth:`add_fitz_block`); ``ncontour`` is omitted, so GLE's default
+        applies. A ``'function'`` heatmap has no
         data, so it writes nothing.
         """
         if series["source"] == "function":
@@ -5964,7 +6010,7 @@ class GLEWriter:
         data_file = series["data_file"]
         if series["source"] == "points":
             self.add_points_sidecar(data_file, series["x"], series["y"], series["zpts"])
-            self.add_fitz_block(data_file, series["extent"], series["gridsize"], None)
+            self.add_fitz_block(series)
         elif series.get("cells"):
             self.add_cells_sidecar(series)
         elif "levels" in series:
@@ -6305,9 +6351,7 @@ class GLEWriter:
         data_file = series["data_file"]
         if series["source"] == "points":
             self.add_points_sidecar(data_file, series["x"], series["y"], series["zpts"])
-            self.add_fitz_block(
-                data_file, series["extent"], series["gridsize"], series["ncontour"]
-            )
+            self.add_fitz_block(series)
         else:
             self.add_z_sidecar(data_file, series["z"], series["extent"], "lower")
         self.add_contour_block(_grid_z_file(series), series["levels"])
@@ -6322,17 +6366,25 @@ class GLEWriter:
         self.add_contour_line(series)
 
     def add_contour_labels(self, series: Series):
-        """Emit the contour-label sub call after a contour's graph, if asked.
+        """Write a contour's labels after its graph, if asked.
 
         ``series`` is the resolved :class:`~gleplot.series.ContourSeries`.
-        With ``clabel`` set, the labels come from the ``-clabels.dat`` file
-        its contour block generates, formatted with ``clabel_fmt``; without
-        it nothing is written.
+        With ``clabel`` set, ``contour_labels`` from GLE's ``contour.gle``
+        writes them from the ``-clabels.dat`` file its contour block
+        generates, formatted with ``clabel_fmt``; without it nothing is
+        written. The routine sets its own height, justification and colour
+        (blue), so the call sits in ``gsave``/``grestore``.
         """
         if not series.get("clabel"):
             return
         clabels = _grid_z_file(series)[:-2] + "-clabels.dat"
-        self.add_clabel_call(clabels, series["clabel_fmt"])
+        self.lines_gle += [
+            "gsave",
+            f"contour_labels file {_quote_filename(clabels)} "
+            f'format "{series["clabel_fmt"]}"',
+            "grestore",
+        ]
+        self._includes.add(CONTOUR_INCLUDE)
 
     def add_colormap(
         self,
@@ -6389,14 +6441,6 @@ class GLEWriter:
         if lstyle is not None:
             cmd += f" lstyle {int(lstyle)}"
         self.lines_gle.append(cmd)
-
-    def add_clabel_call(self, clabels_file: str, fmt: str):
-        """Emit the post-graph contour-label sub call."""
-        self.lines_gle.append("amove 0 0")
-        self.lines_gle.append(
-            f"gleplot_contour_labels file {_quote_filename(clabels_file)} "
-            f'format "{fmt}"'
-        )
 
     @staticmethod
     def _color_clause(color: Optional[str]) -> str:

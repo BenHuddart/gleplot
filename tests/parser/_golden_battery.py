@@ -517,6 +517,16 @@ def subplots_grid_mixed():
     return fig
 
 
+def subplots_share_col_row():
+    """matplotlib's sharex='col' and sharey='row': a range per column and row."""
+    fig, axes = glp.subplots(2, 2, sharex="col", sharey="row", data_prefix="golden")
+    axes[0, 0].plot([0, 1], [0, 1])
+    axes[0, 1].plot([10, 20], [0, 5])
+    axes[1, 0].plot([0, 3], [100, 200])
+    axes[1, 1].plot([10, 15], [150, 300])
+    return fig
+
+
 def subplots_spanning():
     """Cells spanning columns, rows, and a whole row, with shared x."""
     fig = glp.Figure(data_prefix="golden", sharex=True)
@@ -630,6 +640,21 @@ def file_series_without_a_line():
     ax.line_from_file("external.dat", 1, 3, linestyle="none", linewidth=2)
     ax.file_series[-1].update(marker="CIRCLE", markersize=0.2)
     ax.derived("2*d1", ax.file_series[0], label="twice")
+    return fig
+
+
+def log_axis_without_major_ticks():
+    """``set_xticks([])`` on a log axis keeps the minor ticks, as matplotlib,
+    unless ``minorticks_off`` took them away."""
+    fig = glp.figure(data_prefix="golden")
+    for index, minor in ((1, None), (2, False), (3, True)):
+        ax = fig.add_subplot(1, 3, index)
+        ax.plot([1, 10, 100], [1, 2, 3])
+        if index < 3:
+            ax.set_xscale("log")
+        ax.set_xticks([])
+        if minor is not None:
+            ax.xminorticks = minor
     return fig
 
 
@@ -2101,6 +2126,7 @@ BUILDERS = [
     subplots_sharex,
     subplots_sharex_with_colored_text,
     subplots_grid_mixed,
+    subplots_share_col_row,
     subplots_spanning,
     inset_axes,
     inset_facecolor,
@@ -2111,6 +2137,7 @@ BUILDERS = [
     file_series_data_range,
     errorbar_thinned_from_a_file,
     file_series_without_a_line,
+    log_axis_without_major_ticks,
     line_with_nan_gaps,
     file_series_field_options,
     file_series_read_options,

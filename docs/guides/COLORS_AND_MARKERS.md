@@ -141,9 +141,9 @@ spellings are accepted by `plot`, `scatter`, `errorbar` and
 `errorbar_from_file`:
 
 ```python
-ax.errorbar(t, a1, yerr=e1, marker='o', fmt='none', label='2 K')                   # filled
-ax.errorbar(t, a2, yerr=e2, marker='o', fmt='none', fillstyle='none', label='20 K')  # open
-ax.errorbar(t, a3, yerr=e3, marker='o', fmt='none', mfc='none')                     # same thing
+ax.errorbar(t, a1, yerr=e1, marker='o', linestyle='none', label='2 K')                   # filled
+ax.errorbar(t, a2, yerr=e2, marker='o', linestyle='none', fillstyle='none', label='20 K')  # open
+ax.errorbar(t, a3, yerr=e3, marker='o', linestyle='none', mfc='none')                     # same thing
 ax.scatter(x, y, marker='s', markerfacecolor='white')                               # white-filled
 ```
 
@@ -237,8 +237,8 @@ the writer emits.
   cmap='viridis', vmin=0, vmax=300)` gets a `gleplot_cdata_<marker>_<cmap>`
   sub, the values go into the data file, and a `let` maps them onto the
   colormap. `c` may also be one colour, or one colour per point, which draws
-  one series per colour. Per-point colours cannot be combined with per-point
-  sizes. `fig.colorbar(ax=ax)` shows the colour scale; see "Colorbars" in
+  one series per colour. With per-point sizes as well, the colours are drawn
+  at one size, with a warning. `fig.colorbar(ax=ax)` shows the colour scale; see "Colorbars" in
   [Contour Plots and Heatmaps](CONTOUR_AND_HEATMAPS.md). See "Scatter colours" in the
   [Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md) for how they differ
   from matplotlib.

@@ -314,7 +314,7 @@ def test_x_and_title_distances_are_overridable():
 
 def test_a_series_declared_once_appears_in_every_segment():
     fig, bax = _fig()
-    bax.errorbar(T, A, yerr=0.05, fmt="none", marker="o")
+    bax.errorbar(T, A, yerr=0.05, linestyle="none", marker="o")
     assert len(bax[0].errorbars) == 1
     assert len(bax[1].errorbars) == 1
 
@@ -556,7 +556,7 @@ def test_round_trip_through_to_dict():
 
 def test_regenerated_gle_is_byte_identical_after_a_round_trip():
     fig, bax = _fig(divider="slash")
-    bax.errorbar(T, A, yerr=0.05, fmt="none", marker="o", label="data")
+    bax.errorbar(T, A, yerr=0.05, linestyle="none", marker="o", label="data")
     bax.set_xlabel("t")
     restored = glp.Figure.from_dict(fig.to_dict())
     assert restored._generate_gle_with_files()[0] == fig._generate_gle_with_files()[0]
@@ -901,3 +901,18 @@ def test_figure_legend_lists_a_guide_routed_to_an_upper_segment():
     assert key.count('text "n"') == 1
     assert key.count('text "high"') == 1
     assert key.count('text "band"') == 1
+
+
+def test_broken_x_y2_title_warns_and_is_not_drawn():
+    fig, bax = _fig()
+    with pytest.warns(UserWarning, match=r"set_ylabel\(axis='y2'\) is not supported"):
+        bax.set_ylabel("R", axis="y2")
+    assert [seg.y2label_text for seg in bax] == ["", ""]
+
+
+def test_broken_y_x2_title_warns_and_is_not_drawn():
+    fig = glp.figure(data_prefix="by")
+    bax = fig.add_broken_yaxes(ylims=[(0, 1), (2, 3)])
+    with pytest.warns(UserWarning, match=r"set_xlabel\(axis='x2'\) is not supported"):
+        bax.set_xlabel("T", axis="x2")
+    assert [seg.x2label_text for seg in bax] == ["", ""]

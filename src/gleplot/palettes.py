@@ -69,8 +69,6 @@ __all__ = [
     "palette_sub_name",
     "palette_call_name",
     "palette_sub_text",
-    "contour_labels_sub_name",
-    "contour_labels_sub_text",
 ]
 
 
@@ -536,46 +534,3 @@ def point_palette_sub_text(cmap: str) -> str:
         return text
     body = _GRAY_BODY if c == "gray" else _RAINBOW_BODY
     return f"sub gleplot_{c} z\n{body}"
-
-
-# ---------------------------------------------------------------------------
-# Colorbar subroutine (vertical colour range drawn after the graph)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Contour-label subroutine
-# ---------------------------------------------------------------------------
-
-
-def contour_labels_sub_name() -> str:
-    return "gleplot_contour_labels"
-
-
-def contour_labels_sub_text() -> str:
-    """Canonical ``sub gleplot_contour_labels file$ format$ ... end sub`` text.
-
-    Self-contained copy of gle-library ``include/contour.gle``
-    ``sub contour_labels`` (Modified BSD, (C) 2009 GLE): reads ``x y i v`` rows
-    from a ``-clabels.dat`` file and writes the formatted level value in a
-    white-filled box at each label position.
-    """
-    return "\n".join(
-        [
-            "sub gleplot_contour_labels file$ format$",
-            '   default format "fix 1"',
-            "   set just cc hei 0.25 color black",
-            "   fopen file$ f1 read",
-            "   until feof(f1)",
-            "      fread f1 x y i v",
-            "      amove xg(x) yg(y)",
-            "      s$ = format$(v,format$)",
-            "      begin box add 0.05 fill white",
-            "         write s$",
-            "      end box",
-            "      write s$",
-            "   next",
-            "   fclose f1",
-            "end sub",
-        ]
-    )

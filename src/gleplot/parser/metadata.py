@@ -187,7 +187,7 @@ def emit_metadata(data: Dict[str, Any]) -> List[str]:
     ----------
     data : dict
         Metadata values to persist. Recognized keys: ``dpi`` (int),
-        ``sharex`` / ``sharey`` (bool), ``msize_scale`` (float),
+        ``sharex`` / ``sharey`` (bool, or 'row'/'col'), ``msize_scale`` (float),
         ``import-data`` (list of str filenames), ``insets`` (list of int
         graph numbers, emitted only when present). Unknown keys are emitted
         verbatim (as strings) so callers can round-trip forward-compatible
