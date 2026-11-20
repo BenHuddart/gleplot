@@ -335,6 +335,16 @@ class TestBarCharts:
         assert "fill BLUE pattern RSHADE background RED color BLUE" in script
         assert "fill BLACK pattern GRID background CLEAR\n" in script
 
+    def test_a_none_face_is_clear(self):
+        """GLE rejects ``fill none``; CLEAR fills nothing (#527)."""
+        self.ax.bar([1, 2], [3, 4], color="none", edgecolor="k")
+        with pytest.warns(UserWarning, match="drawn as a black outline"):
+            self.ax.bar([1, 2], [3, 4], color="none", edgecolor="none")
+        script = self.fig._generate_gle()
+        assert "bar d1 fill CLEAR color BLACK\n" in script
+        assert "bar d2 fill CLEAR color CLEAR lwidth 0\n" in script
+        assert "none" not in script.lower().replace("nobox", "")
+
     def test_bar_hatch_under_a_none_edge_is_black(self):
         """matplotlib falls back to black when the edge it would use is 'none'.
 

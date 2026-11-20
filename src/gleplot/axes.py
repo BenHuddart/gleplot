@@ -5169,7 +5169,8 @@ class Axes:
             Bar lengths. With ``bottom``, the top is ``bottom + height``.
         color : str or sequence, optional
             Face colour. A sequence must have one entry, or one per bar.
-            Default ``'red'``. ``facecolor`` / ``fc`` / ``c`` are aliases.
+            Default ``'red'``. ``'none'`` is GLE's ``CLEAR`` fill.
+            ``facecolor`` / ``fc`` / ``c`` are aliases.
         label : str, optional
             Legend label. Emitted as ``dN key`` after the bar; the bar fill
             is the swatch. On a per-bar colour split, only the first bar
@@ -5297,14 +5298,25 @@ class Axes:
         fills: List[Optional[str]] = []
         patterns: List[Optional[str]] = []
         backgrounds: List[Optional[str]] = []
+        outlined_only = False
         for pattern, face, edge in zip(_bar_patterns(hatch, n), faces, edges):
             patterns.append(pattern)
             if pattern is None:
-                fills.append(face)
+                # GLE has no ``fill none``; CLEAR fills nothing.
+                fills.append("CLEAR" if face == "none" else face)
                 backgrounds.append(None)
+                outlined_only = outlined_only or (
+                    face == "none" and edge in (None, "none")
+                )
             else:
                 fills.append(edge if edge not in (None, "none") else "BLACK")
                 backgrounds.append("CLEAR" if face == "none" else face)
+        if outlined_only:
+            warn_external(
+                "bar(color='none') with no edge is drawn as a black outline: "
+                "GLE strokes every bar. Pass edgecolor= to choose the "
+                "outline's colour.",
+            )
         baseline = _bar_baseline(bottom, n)
         style = _bar_edge_style(linewidth, linestyle)
         # Reject a bad error before any series is stored, so a raise leaves
