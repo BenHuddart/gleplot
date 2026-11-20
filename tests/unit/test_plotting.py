@@ -331,12 +331,17 @@ class TestBarCharts:
         self.ax.bar([1, 2], [1, 1], hatch="\\", edgecolor="blue")
         self.ax.bar([1, 2], [2, 2], hatch="x", color="none")
         script = self.fig._generate_gle()
-        assert "bar d1 fill BLACK pattern SHADE2 background YELLOW\n" in script
+        assert (
+            "bar d1 fill BLACK pattern SHADE2 background YELLOW color YELLOW lwidth 0\n"
+            in script
+        )
         assert (
             "fill BLUE pattern RSHADE background rgb255(31,119,180) color BLUE"
             in script
         )
-        assert "fill BLACK pattern GRID background CLEAR\n" in script
+        assert (
+            "fill BLACK pattern GRID background CLEAR color BLACK lwidth 0\n" in script
+        )
 
     def test_bar_hatch_under_a_none_edge_is_black(self):
         """matplotlib falls back to black when the edge it would use is 'none'.
@@ -368,6 +373,28 @@ class TestBarCharts:
         assert "bar d5 from d4 fill BLUE color BLUE lwidth 0 width 0.5\n" in script
         assert script.count("lwidth") == 3
 
+    def test_a_bar_has_an_edge_only_when_one_is_asked_for(self):
+        """matplotlib's bars have no edge, and a zero-width edge is none."""
+        self.ax.bar([1, 2], [3, 4], color="y")
+        self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linewidth=0)
+        self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k")
+        self.ax.bar([1, 2], [3, 4], color="y", linewidth=2)
+        self.ax.bar([1, 2], [3, 4], color="y", linestyle="--")
+        bars = [
+            line.strip()
+            for line in self.fig._generate_gle().splitlines()
+            if line.strip().startswith("bar ")
+        ]
+        assert bars == [
+            "bar d1 fill YELLOW color YELLOW lwidth 0",
+            "bar d2 fill YELLOW color YELLOW lwidth 0",
+            "bar d3 fill YELLOW color BLACK",
+            "bar d4 fill YELLOW lwidth 0.07056",
+            "bar d5 fill YELLOW lstyle 3",
+        ]
+        assert [bar.get("edgecolor") for bar in self.ax.bars[:2]] == ["none"] * 2
+        assert "linewidth" not in self.ax.bars[1]
+
     def test_bar_hatch_sequence_splits_per_bar(self):
         self.ax.bar([1, 2, 3], [3, 4, 5], hatch=["/", "", "x"], label="mix")
         bars = self.ax.bars
@@ -387,7 +414,10 @@ class TestBarCharts:
 
     def test_barh_hatch(self):
         self.ax.barh([1, 2], [3, 4], hatch="xx", color="teal")
-        assert "pattern GRID2 background TEAL horiz" in self.fig._generate_gle()
+        assert (
+            "pattern GRID2 background TEAL color TEAL lwidth 0 horiz"
+            in self.fig._generate_gle()
+        )
 
     def test_bar_color_length_must_match(self):
         with pytest.raises(ValueError):

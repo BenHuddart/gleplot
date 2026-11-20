@@ -120,7 +120,9 @@ def test_a_measurable_bar_set_gains_the_width_it_was_given():
     ax.bar([1.0, 2.0], [5.0, 3.0], width=0.25)
 
     text, _files = _generate(fig)
-    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width 0.25"]
+    assert _bar_lines(text) == [
+        "bar d1 fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0 width 0.25"
+    ]
 
 
 def test_an_explicit_width_suppresses_the_derived_one():
@@ -139,7 +141,9 @@ def test_an_explicit_width_suppresses_the_derived_one():
         ax.bar(x, heights, width=0.3)
 
         text, _files = _generate(fig)
-        assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width 0.3"]
+        assert _bar_lines(text) == [
+            "bar d1 fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0 width 0.3"
+        ]
         assert GLEWriter.bar_width_gle_cannot_derive(np.asarray(x)) == 0.5
 
 
@@ -244,7 +248,9 @@ def test_a_negative_width_still_gets_a_frame_that_holds_it():
     ax.bar([1.0], [5.0], width=-0.4)
 
     text, _files = _generate(fig)
-    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width -0.4"]
+    assert _bar_lines(text) == [
+        "bar d1 fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0 width -0.4"
+    ]
     assert _axis_line(text, "x") == "xaxis min 0.6 max 1.4"
 
 
@@ -254,7 +260,9 @@ def test_a_descending_column_with_a_width_keeps_the_datas_range():
     ax.bar([3.0, 1.0], [5.0, 3.0], width=0.2)
 
     text, _files = _generate(fig)
-    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width 0.2"]
+    assert _bar_lines(text) == [
+        "bar d1 fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0 width 0.2"
+    ]
     assert _axis_line(text, "x") == "xaxis min 1 max 3"
 
 
@@ -265,7 +273,9 @@ def test_an_explicit_range_around_a_widened_bar_is_still_the_callers():
 
     text, _files = _generate(fig)
     assert _axis_line(text, "x") == "xaxis min -2 max 4"
-    assert _bar_lines(text) == ["bar d1 fill rgb255(31,119,180) width 0.3"]
+    assert _bar_lines(text) == [
+        "bar d1 fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0 width 0.3"
+    ]
 
 
 def test_a_hidden_bar_contributes_neither_its_width_nor_its_range():
