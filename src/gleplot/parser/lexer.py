@@ -13,9 +13,8 @@ Lexical contract (verified against GLE 4.3.10 ``token.cpp`` / ``pass.cpp``):
   double-quoted string. The comment text (including the ``!``) is preserved
   verbatim as a ``COMMENT`` token.
 * Strings are double-quoted. GLE 4.3.10 embeds a quote by doubling it
-  (a label 5" is written with the quote character twice); a backslash
-  before a quote is also kept as one string so scripts this writer used
-  to emit still lex. Single-quoted
+  (a label 5" is written with the quote character twice); a backslash is
+  an ordinary character, so ``"a\\"`` is a whole string. Single-quoted
   strings are tolerated on input (kept verbatim, quote char recorded) but this
   layer never rewrites them.
 * Whitespace is insignificant to structure but every token carries a span into
@@ -196,18 +195,15 @@ def tokenize_line(text: str) -> List[Token]:
 def _read_string(text: str, start: int, n: int, quote: str) -> Token:
     """Read a quoted string beginning at ``start`` (the opening quote).
 
-    ``\\`` escapes the following character (so ``\\"`` does not close the
-    string). A quote doubled in place is GLE's own embedded quote
-    (``Tokenizer.cpp``): both characters stay in the token and the string
-    continues. An unterminated string is tolerated: the token spans to end of
-    line and is flagged with ``error='unterminated-string'``.
+    As in GLE's ``Tokenizer::copy_string``, a backslash is an ordinary
+    character, and a quote doubled in place is the embedded quote: both
+    characters stay in the token and the string continues. An unterminated
+    string is tolerated: the token spans to end of line and is flagged with
+    ``error='unterminated-string'``.
     """
     i = start + 1
     while i < n:
         c = text[i]
-        if c == "\\" and i + 1 < n:
-            i += 2
-            continue
         if c == quote:
             if i + 1 < n and text[i + 1] == quote:
                 i += 2

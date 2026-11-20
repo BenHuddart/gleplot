@@ -963,9 +963,8 @@ def _as_float(value, default: float) -> float:
 def _string_value(tok: Token) -> str:
     """Unwrap a STRING token's value.
 
-    Strips the surrounding quotes, then undoes both escapes the lexer
-    keeps intact: a backslash before a quote (older gleplot scripts) and
-    a doubled quote (what GLE 4.3.10 actually tokenizes).
+    Strips the surrounding quotes, then undoes the doubled quote GLE 4.3.10
+    embeds a quote with. A backslash is text, as it is to GLE.
     """
     v = tok.value
     q = tok.quote
@@ -973,12 +972,14 @@ def _string_value(tok: Token) -> str:
         inner = v[1:-1] if v.endswith(q) else v[1:]
     else:
         inner = v
-    inner = inner.replace('\\"', '"').replace("\\'", "'")
-    if q == '"':
-        inner = inner.replace('""', '"')
-    elif q == "'":
-        inner = inner.replace("''", "'")
+    if q:
+        inner = inner.replace(q + q, q)
     return inner
+
+
+#: A quoted string in a ``! gleplot:guide`` marker, where a backslash
+#: escapes the character after it (:meth:`GLEWriter.guide_marker`).
+_MARKER_STRING_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
 def _string_expr_value(toks: List[Token]) -> Optional[str]:
@@ -4272,18 +4273,21 @@ class _Recognizer:
     def _parse_guide_marker(self, text: str) -> Optional[dict]:
         """One ``! gleplot:guide`` comment -> its fields, or ``None``.
 
-        Lexed with GLE's own tokenizer, so a negative coordinate and an
-        escaped quote need no bespoke handling. Every required field of the
+        Lexed with GLE's own tokenizer, so a negative coordinate needs no
+        bespoke handling; the label's escaped quote is restated first. Every
+        required field of the
         kind must be present exactly once (in any order); an unknown keyword,
         a repeat, a missing field or a stray token rejects the whole marker
         rather than half-reading it -- a marker that cannot be read in full
         describes nothing that could be rebuilt from it.
         """
-        toks = [
-            t
-            for t in tokenize_line(text[len(GUIDE_MARKER_PREFIX) :])
-            if t.type is not TokenType.COMMENT
-        ]
+        # The label escapes a quote with a backslash, which the lexer, like
+        # GLE, does not read: restate each string with the quote doubled.
+        body = _MARKER_STRING_RE.sub(
+            lambda m: '"' + m.group(1).replace('\\"', '""') + '"',
+            text[len(GUIDE_MARKER_PREFIX) :],
+        )
+        toks = [t for t in tokenize_line(body) if t.type is not TokenType.COMMENT]
         if len(toks) < 2:
             return None
         kind = toks[0].value.lower()
@@ -5567,8 +5571,7 @@ class _Recognizer:
         if tok.type is TokenType.STRING:
             q = tok.quote or '"'
             inner = _string_value(tok)
-            esc = inner.replace(q, "\\" + q)
-            return f"{q}{esc}{q}"
+            return q + inner.replace(q, q + q) + q
         return tok.value
 
     # -- explicit tick places/names ---------------------------------------
