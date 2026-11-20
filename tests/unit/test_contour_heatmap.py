@@ -953,8 +953,11 @@ def test_tripcolor_stores_points_and_fitz():
     text, files = _gle(fig)
     assert "begin fitz" in text
     assert '   data "t_points1.dat"' in text
-    assert "   x from 0 to 4 step 1" in text
-    assert "   y from 0 to 4 step 1" in text
+    # The range ends just short of one spacing past the last node, where
+    # colormap puts the end of a grid whose last node is at 4 (#376).
+    assert "   ! gleplot: nodes xmin 0 xmax 4 ymin 0 ymax 4" in text
+    assert "   x from 0 to 4.999 step 1" in text
+    assert "   y from 0 to 4.999 step 1" in text
     # points sidecar: raw triples, no header.
     pts = files["t_points1.dat"]
     assert pts.splitlines()[0] == "0 0 1"
@@ -981,6 +984,71 @@ def test_tricontour_stores_ncontour_and_emits_contour_on_fitz_z():
     assert "   ncontour 4" in text
     assert '   data "t_points1.z"' in text  # contour reads fitz output
     assert 'data "t_points1-cdata.dat"' in text
+
+
+def _fitz_ranges(text):
+    """Each fitz block's x range as ``(from, to, step)``, in order."""
+    return [
+        tuple(float(v) for v in line.split()[2::2])
+        for line in text.splitlines()
+        if line.startswith("   x from ")
+    ]
+
+
+@pytest.mark.parametrize("extent, n", [((0, 1), 50), ((0, 0.3), 4), ((-3, 7), 41)])
+def test_scattered_grids_have_gridsize_nodes_on_the_extent(extent, n):
+    """GLE's fitz makes ``floor((to - from) / step + 1)`` nodes (#376).
+
+    A step rounded up to six digits (1/49), or one dividing the range to just
+    under a whole number (0.1 into 0.3), would lose the last node. The
+    tripcolor's colormap and the tricontour's contour place the nodes where
+    the fitz puts them.
+    """
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    x = np.linspace(extent[0], extent[1], 5)
+    pts = (x, x[::-1], x)
+    ax.tripcolor(*pts, gridsize=(n, n), extent=(*extent, *extent))
+    ax.tricontour(*pts, gridsize=(n, n), extent=(*extent, *extent))
+    (lo, hi, step), (clo, chi, cstep) = _fitz_ranges(_gle(fig)[0])
+    assert np.floor((hi - lo) / step + 1) == n
+    assert np.floor((chi - clo) / cstep + 1) == n
+    # contour puts the last node on the header's xmax, colormap one header
+    # spacing short of it; both at the fitz's last node.
+    assert chi == pytest.approx(clo + (n - 1) * cstep, abs=(n - 1) * 1e-5 * cstep)
+    assert lo + (n - 1) * (hi - lo) / n == pytest.approx(
+        lo + (n - 1) * step, abs=1e-2 * step
+    )
+
+
+def test_tricontour_keeps_a_step_that_gives_its_nodes():
+    """A step that already gives ``gridsize`` nodes is written as before."""
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 4, 6)
+    ax.tricontour(x, x, x, gridsize=(5, 5), extent=(0, 4, 0, 4))
+    assert "   x from 0 to 4 step 1" in _gle(fig)[0]
+
+
+@pytest.mark.parametrize("kind", ["tripcolor", "tricontour"])
+def test_a_narrow_scattered_grid_far_from_zero_is_written(kind):
+    """The extent is written to the digits that keep its edges apart."""
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    x = [1e6 + 0.1, 1e6 + 0.2, 1e6 + 0.3]
+    getattr(ax, kind)(x, [0, 1, 0], [1, 2, 3], gridsize=(5, 5))
+    (lo, hi, step), *_ = _fitz_ranges(_gle(fig)[0])
+    assert lo < hi and step > 0
+
+
+def test_tripcolor_warns_when_the_limits_reach_past_its_last_node():
+    fig = glp.figure()
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 4, 6)
+    ax.tripcolor(x, x[::-1], x, gridsize=(5, 5), extent=(0, 4, 0, 4))
+    ax.set_xlim(-1, 5)
+    with pytest.warns(UserWarning, match=r"x limits reach 5, beyond the tripcolor"):
+        _gle(fig)
 
 
 # --------------------------------------------------------------------------- #
