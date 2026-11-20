@@ -5431,13 +5431,15 @@ class Axes:
                 backgrounds.append("CLEAR" if face == "none" else face)
         baseline = _bar_baseline(bottom, n)
         style = _bar_edge_style(linewidth, linestyle)
-        if (edgecolor is None and not style) or style.get("linewidth") == 0:
+        no_edge_asked = edgecolor is None and linewidth is None and linestyle is None
+        if no_edge_asked or style.get("linewidth") == 0:
             # As in matplotlib, a bar has no edge unless one is asked for,
             # and a zero-width edge is none. GLE strokes every bar, and
             # ``lwidth 0`` alone is a black hairline, so this is the
-            # writer's hidden stroke (see BarSeries.edgecolor).
-            style.pop("linewidth", None)
-            style.pop("linestyle", None)
+            # writer's hidden stroke (see BarSeries.edgecolor). The hatch
+            # ink above was taken from the edge colour first, as matplotlib
+            # draws it even under a zero-width edge.
+            style = {}
             edges = ["none"] * n
         # Reject a bad error before any series is stored, so a raise leaves
         # the axes as they were.

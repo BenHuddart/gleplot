@@ -380,6 +380,8 @@ class TestBarCharts:
         self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k")
         self.ax.bar([1, 2], [3, 4], color="y", linewidth=2)
         self.ax.bar([1, 2], [3, 4], color="y", linestyle="--")
+        with pytest.warns(UserWarning, match="the edge stays solid"):
+            self.ax.bar([1, 2], [3, 4], color="y", linestyle="steps")
         bars = [
             line.strip()
             for line in self.fig._generate_gle().splitlines()
@@ -391,6 +393,7 @@ class TestBarCharts:
             "bar d3 fill YELLOW color BLACK",
             "bar d4 fill YELLOW lwidth 0.07056",
             "bar d5 fill YELLOW lstyle 3",
+            "bar d6 fill YELLOW",
         ]
         assert [bar.get("edgecolor") for bar in self.ax.bars[:2]] == ["none"] * 2
         assert "linewidth" not in self.ax.bars[1]
