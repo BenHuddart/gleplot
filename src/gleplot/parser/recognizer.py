@@ -3350,6 +3350,9 @@ class _Recognizer:
             # that cannot become a column). Their ``data`` statement is kept
             # too: nothing else writes it.
             "_raw_datasets": set(),
+            # The band sub a contourf heatmap's colormap calls, which is the
+            # palette its colorbar draws.
+            "_contourf_palette": None,
             # Target of each ``let`` in the block -> the line of its first.
             "_let_lines": {},
             # Let targets kept raw that another note already explains.
@@ -9275,6 +9278,7 @@ class _Recognizer:
         if color:
             cmap = "rainbow"
         elif palette is not None and palette.lower() in self._contourf_subs:
+            built = len(info["heatmaps"])
             self._parse_contourf_colormap(
                 zfile,
                 [int(px), int(py)],
@@ -9282,6 +9286,8 @@ class _Recognizer:
                 info,
                 stmt,
             )
+            if built == 0 and info["heatmaps"]:
+                info["_contourf_palette"] = palette.lower()
             return
         elif palette is not None:
             cmap = self._palette_cmap(palette)
@@ -10306,37 +10312,34 @@ class _Recognizer:
         heatmaps = axes_info.get("heatmaps") or []
         palette = args.get("palette")
         zrange = (_as_float(args.get("zmin"), 0.0), _as_float(args.get("zmax"), 1.0))
-        # A bar in a colour-mapped scatter's palette is that scatter's (the
-        # last such one drawn, one with the bar's range first) unless the
-        # heatmap shares the palette. An inverted heatmap's bar draws the
-        # reversed palette (older files: the forward one); in that palette
-        # a scatter keeps only a bar with its range. Any other bar is the
-        # heatmap's.
+        # A bar is the heatmap's when it draws the palette the writer gives
+        # the heatmap's bar: the band sub for a contourf, else the image's
+        # palette, reversed for an inverted image. A colour-mapped scatter
+        # in that palette whose range is the bar's takes it from an inverted
+        # image. Any other bar is the last such scatter's (one with the
+        # bar's range first), or stays raw GLE.
+        palette = str(palette or "").lower()
         mapped = [
             sc
             for sc in axes_info.get("scatters") or []
             if "cdata" in sc and palette_call_name(sc["cmap"]) == palette
         ]
         in_range = [sc for sc in mapped if (sc["vmin"], sc["vmax"]) == zrange]
-        if heatmaps and (
-            not mapped
-            or palette_call_name(heatmaps[0]["cmap"]) == palette
-            or (
-                not in_range
-                and palette
-                == palette_call_name(
-                    colorbar_cmap(heatmaps[0]["cmap"], heatmaps[0].get("invert", False))
-                )
-            )
-        ):
-            holders = heatmaps[:1]
-        else:
-            holders = (in_range or mapped)[-1:]
+        holders = (in_range or mapped)[-1:]
+        if heatmaps:
+            hm = heatmaps[0]
+            invert = hm.get("invert", False)
+            if "levels" in hm:
+                own = axes_info.get("_contourf_palette")
+            else:
+                own = palette_call_name(colorbar_cmap(hm["cmap"], invert))
+            if palette == own and not (invert and in_range):
+                holders = [hm]
         if not holders:
             self._note(
                 ImportCategory.STRUCTURE,
                 f"a {toks[0].value} call was kept as raw GLE: its axes has no "
-                f"heatmap or colour-mapped scatter in palette "
+                f"heatmap or colour-mapped scatter whose colorbar draws palette "
                 f"{args.get('palette')!r} to attach it to",
                 None,
             )

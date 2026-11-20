@@ -1957,9 +1957,8 @@ def test_a_scatter_bar_beside_a_heatmap_stays_the_scatters(tmp_path, cmap):
         assert rec.figure.axes_list[0].scatters[0]["colorbar"]["zmin"] == 0.0
 
 
-@pytest.mark.parametrize("old_file", [False, True])
-def test_an_inverted_heatmaps_bar_stays_the_heatmaps(tmp_path, old_file):
-    """Its bar draws the reversed palette; older files wrote the forward one."""
+def test_an_inverted_heatmaps_bar_stays_the_heatmaps(tmp_path):
+    """Its bar draws the reversed palette."""
     _gleplot_axes._global_data_file_counter = 0
     fig = gleplot.figure()
     ax = fig.add_subplot(111)
@@ -1973,12 +1972,37 @@ def test_an_inverted_heatmaps_bar_stays_the_heatmaps(tmp_path, old_file):
     fig.savefig_gle(str(path))
     text = path.read_text(encoding="utf-8")
     assert 'palette "cmap_viridis_r"' in text
-    if old_file:
-        text = text.replace('palette "cmap_viridis_r"', 'palette "cmap_viridis"')
-        path.write_text(text, encoding="utf-8")
     rec = parse_gle_figure(path).figure.axes_list[0]
     assert rec.heatmaps[0]["colorbar"]["zmax"] == 3.0
     assert not any(sc.get("colorbar") for sc in rec.scatters)
+
+
+@pytest.mark.parametrize(
+    "invert, edited",
+    [(False, 'palette "cmap_plasma"'), (True, 'palette "cmap_magma"')],
+    ids=["another-map", "inverted-forward"],
+)
+def test_a_bar_in_another_palette_than_its_heatmaps_stays_raw(tmp_path, invert, edited):
+    """A bar that draws a palette its heatmap's bar does not is not its bar."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    ax = fig.add_subplot(111)
+    hm = ax.imshow([[0.0, 1.0], [2.0, 3.0]], cmap="magma", invert=invert)
+    fig.colorbar(hm, ax=ax)
+    path = tmp_path / "bar.gle"
+    fig.savefig_gle(str(path))
+    text = re.sub(r'palette "cmap_magma(_r)?"', edited, path.read_text("utf-8"))
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list[0].heatmaps[0]["colorbar"] is None
+    assert any(
+        "color_range_vertical call was kept as raw GLE" in w for w in rec.warnings
+    )
+    again = rec.figure._generate_gle_with_files()[0]
+    assert edited in again
+    # The palette the raw bar draws is still defined.
+    assert f"sub {edited.split()[1].strip(chr(34))} z\n" in again
 
 
 def test_a_scatter_bar_goes_to_the_scatter_with_its_range(tmp_path):
