@@ -1139,21 +1139,28 @@ def test_an_offset_let_on_a_users_file_stays_raw(tmp_path, draw):
     assert "\n".join(body) in p.read_text(encoding="utf-8")
 
 
-def test_an_offset_let_on_a_users_file_follows_its_drawn_source(tmp_path):
-    """#453: the raw shift reads the marker series under its new name."""
+@pytest.mark.parametrize("expression", ["d3+5", "d3*2"])
+def test_a_raw_let_on_a_users_file_follows_its_drawn_source(tmp_path, expression):
+    """#453: the raw let reads the marker series under its new name.
+
+    A marker-only file series is no derived curve's source, so ``d3*2``
+    stays raw too.
+    """
     body = [
         '   data "u.dat" d3=c1,c2',
-        "   let d6 = d3+5",
+        f"   let d6 = {expression}",
         "   d6 line color red err d3",
         "   d3 marker circle",
     ]
     src = "size 12 9\nbegin graph\n" + "\n".join(body) + "\nend graph\n"
     p = _write(tmp_path, "let.gle", src, {"u.dat": "1 2\n2 3\n"})
     rec = parse_gle_figure(p)
+    assert rec.figure.axes_list[0].derived_series == []
     rec.figure.savefig_gle(str(p))
     text = p.read_text(encoding="utf-8")
+    renamed = expression.replace("d3", "d1")
     assert "data u.dat d1=c1,c2\n    d1 marker circle" in text
-    assert "let d6 = d1+5\n   d6 line color red err d1" in text
+    assert f"let d6 = {renamed}\n   d6 line color red err d1" in text
 
 
 def test_a_raw_line_on_an_offset_let_keeps_the_data_it_reads(tmp_path):
