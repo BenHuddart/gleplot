@@ -3584,3 +3584,17 @@ def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
     _text, files = fig._generate_gle_with_files()
     glp.close()
     assert "1700000031 2" in "".join(files.values())
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"s": [10, 20, 30]}, {"c": [1, np.nan, 3]}, {"c": ["r", "g", "b"]}],
+    ids=["plain", "sizes", "nan-colour", "colour-names"],
+)
+def test_scatter_x_and_y_of_different_sizes_are_rejected_at_the_call(kwargs):
+    """As in matplotlib, not a numpy error later at save (#458)."""
+    ax = glp.figure().add_subplot(111)
+    with pytest.raises(ValueError, match=r"x and y must be the same size, got 3 x"):
+        ax.scatter([1, 2, 3], [1, 2], **kwargs)
+    assert not ax.scatters
+    glp.close()
