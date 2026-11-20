@@ -712,6 +712,24 @@ def test_a_line_gleplot_does_not_write_in_a_contour_block_is_reported(tmp_path, 
     assert note.source_span == (line_no, line_no)
 
 
+@pytest.mark.parametrize("extra", ["   smoothness 5", "   ! my note"])
+def test_a_line_gleplot_does_not_write_in_a_fitz_block_is_reported(tmp_path, extra):
+    """#380: the scattered contour is recovered and the dropped line is named."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    ax.tricontour([0.0, 1.0, 0.0, 1.0, 0.5], [0.0, 0.0, 1.0, 1.0, 0.5], [0, 1, 1, 2, 1])
+    path = _save(fig, tmp_path)
+    text = path.read_text("utf-8").replace("end fitz", f"{extra}\nend fitz")
+    path.write_text(text, encoding="utf-8")
+
+    rec = parse_gle_figure(path)
+    assert len(rec.figure.axes_list[0].contours) == 1
+    line_no = text.splitlines().index(extra) + 1
+    (note,) = rec.notes
+    assert extra.strip() in note.message and "begin fitz" in note.message
+    assert note.source_span == (line_no, line_no)
+
+
 @pytest.mark.parametrize(
     "extra, named",
     [

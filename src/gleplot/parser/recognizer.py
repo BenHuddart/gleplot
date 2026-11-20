@@ -8493,6 +8493,14 @@ class _Recognizer:
                 continue
             self._fitz_blocks[zfile] = info
             self._mark_block_consumed(node)
+            for sl in info["dropped"]:
+                self._note(
+                    ImportCategory.DATA,
+                    f"{sl.text.strip()!r} in the begin fitz block for "
+                    f"{zfile!r} is not modelled and is not written back on "
+                    "save; add it to the saved file by hand if you need it",
+                    (sl.line_no, sl.line_no),
+                )
 
     def _mark_block_consumed(self, node: OpaqueBlock) -> None:
         if node.begin.source_line is not None:
@@ -8592,20 +8600,26 @@ class _Recognizer:
         ``marker`` the node-grid comment line a heatmap's block holds, from
         which :meth:`_fitz_heatmap_grid` reads a colormap's grid instead.
         ``zfile`` is the generated grid name (points base + ``.z``).
+        ``dropped`` lists the other non-blank lines, which are not rewritten.
         """
         data_file = None
         xr = yr = None
         ncontour = None
         marker = None
+        dropped: List[SourceLine] = []
         for sl in node.inner_lines:
             if sl.text.strip().startswith(NODES_MARKER + " "):
                 marker = sl
                 continue
             toks = _words_and_values(_first_statement_of(sl))
             if not toks:
+                if sl.text.strip():
+                    dropped.append(sl)
                 continue
             kw = toks[0].value.lower()
-            if kw == "data" and len(toks) >= 2:
+            if kw not in ("data", "x", "y", "ncontour"):
+                dropped.append(sl)
+            elif kw == "data" and len(toks) >= 2:
                 data_file, _ = self._read_filename(toks, 1)
             elif kw in ("x", "y") and len(toks) >= 6:
                 rng = self._parse_from_to_step(toks)
@@ -8635,6 +8649,7 @@ class _Recognizer:
             "ncontour": ncontour,
             "ranges": (xr, yr),
             "marker": marker,
+            "dropped": dropped,
         }
 
     def _fitz_heatmap_grid(self, fitz: dict) -> Tuple[List[float], List[int]]:
