@@ -10194,7 +10194,7 @@ class _Recognizer:
         required = self._CALL_ARG_NAMES - {"file", length}
         if not required <= set(args) or args["pixels"] != 200:
             return None
-        sep = self._amove_colorbar_sep(_words_and_values(stmts[1]))
+        sep = self._amove_colorbar_sep(_words_and_values(stmts[1]), horizontal)
         # The label's lines, up to the closing grestore.
         body: List[object] = []
         while j < len(nodes) and len(body) < 5:
@@ -10244,24 +10244,26 @@ class _Recognizer:
         return label if read == written else None
 
     @staticmethod
-    def _amove_colorbar_sep(toks) -> Optional[float]:
+    def _amove_colorbar_sep(toks, horizontal: bool) -> Optional[float]:
         """Recover ``S`` from a colorbar's ``amove`` (else None).
 
-        ``xg(xgmax)+S yg(ygmin)`` places a vertical bar and
-        ``xg(xgmin) yg(ygmin)-S`` a horizontal one (``+|S|`` when ``S < 0``).
+        ``xg(xgmax)+S yg(ygmin)`` places a vertical bar (``+-|S|`` when
+        ``S < 0``) and ``xg(xgmin) yg(ygmin)-S`` a horizontal one (``+|S|``
+        when ``S < 0``).
         """
         text = " ".join(t.value for t in toks)
-        m = re.search(r"xgmax\s*\)\s*\+\s*([0-9.eE+-]+)", text)
-        sign = 1.0
+        number = r"((?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"
+        if horizontal:
+            pattern = r"xgmin\s*\)\s*yg\s*\(\s*ygmin\s*\)\s*([+-])\s*"
+            m = re.search(pattern + number + r"\s*$", text)
+            negative = m is not None and m.group(1) == "+"
+        else:
+            m = re.search(r"xgmax\s*\)\s*\+\s*(-?)\s*" + number + r"\s*yg\b", text)
+            negative = m is not None and m.group(1) == "-"
         if m is None:
-            m = re.search(r"ygmin\s*\)\s*([+-])\s*([0-9.eE+-]+)", text)
-            if m is None:
-                return None
-            sign = -1.0 if m.group(1) == "+" else 1.0
-        try:
-            return sign * float(m.group(m.lastindex or 1))
-        except ValueError:
             return None
+        value = float(m.group(2))
+        return -value if negative else value
 
     def _apply_colorbar_call(self, toks, sep, label, axes_info) -> bool:
         """Attach the bar to the series it shows; whether one was found."""
