@@ -119,7 +119,7 @@ def _format_scalar(value: Any) -> str:
     if isinstance(value, float):
         # Keep an explicit decimal point (e.g. "1.0" not "1") so re-parsing
         # infers float, not int, matching the documented example.
-        if value == int(value):
+        if value.is_integer():
             return f"{value:.1f}"
         return repr(value)
     if isinstance(value, int):

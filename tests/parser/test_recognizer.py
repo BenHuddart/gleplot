@@ -1303,6 +1303,38 @@ def test_default_colors_are_read_from_the_metadata(tmp_path):
     assert any(" marker " in line and "color RED" in line for line in lines)
 
 
+@pytest.mark.parametrize(
+    "style",
+    [
+        {"default_linewidth": 0},
+        {"msize_scale": 2},
+        {"default_linewidth": -1.0},
+        {"default_color": "rgba255(255,0,0,128)"},
+        {"default_marker_color": "rgb(0.2,0.4,0.6)"},
+    ],
+)
+def test_a_recorded_style_value_reloads_without_a_note(tmp_path, style):
+    """Whatever the writer records, open_gle reads back as it was."""
+    marker = gleplot.GLEMarkerConfig(msize_scale=style.pop("msize_scale", 1.0))
+    fig = gleplot.figure(style=gleplot.GLEStyleConfig(**style), marker=marker)
+    fig.add_subplot(111).plot([0, 1], [0, 1])
+    path = tmp_path / "s.gle"
+    fig.savefig_gle(str(path))
+
+    rec = parse_gle_figure(path)
+    assert not [w for w in rec.warnings if w.startswith("metadata:")]
+    again = tmp_path / "again.gle"
+    rec.figure.savefig_gle(str(again))
+    assert again.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
+
+
+def test_a_non_finite_default_linewidth_still_saves(tmp_path):
+    fig = gleplot.figure(style=gleplot.GLEStyleConfig(default_linewidth=float("nan")))
+    path = tmp_path / "n.gle"
+    fig.savefig_gle(str(path))
+    assert "! gleplot: default_linewidth = nan" in path.read_text(encoding="utf-8")
+
+
 def test_default_style_values_are_not_recorded(tmp_path):
     fig = gleplot.figure()
     fig.add_subplot(111).plot([0, 1], [0, 1])
@@ -1318,7 +1350,7 @@ def test_default_style_values_are_not_recorded(tmp_path):
     [
         ("default_linewidth", "thick", 1.5),
         ("default_linewidth", "true", 1.5),
-        ("default_linewidth", "-2", 1.5),
+        ("default_linewidth", "inf", 1.5),
         ("default_color", "notacolor", "BLUE"),
         ("default_color", "0.3", "BLUE"),
         ("default_marker_color", "true", "BLUE"),

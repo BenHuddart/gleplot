@@ -299,7 +299,7 @@ from ..axes import (
     _let_expression_problem,
     _resolve_data_file,
 )
-from ..colors import GLE_PATTERNS, gle_color_to_rgb255
+from ..colors import _COLOR_EXPR_RE, GLE_PATTERNS, _gle_color_names
 from ..config import GLEGraphConfig, GLEMarkerConfig, GLEStyleConfig
 from ..dataio import (
     ColumnExtractionError,
@@ -2015,38 +2015,39 @@ class _Recognizer:
             self._insets = set(meta.get("insets") or [])
         return meta
 
-    def _meta_number(
-        self, meta: Dict[str, Any], key: str, default: float, positive: bool
-    ) -> float:
-        """The metadata's number ``key``, or ``default`` when it is absent.
+    def _meta_number(self, meta: Dict[str, Any], key: str) -> Union[int, float]:
+        """The metadata's number ``key``, or its default when it is absent.
 
-        A value that is not a finite number (or, with ``positive``, not
-        above zero) is reported and ignored.
+        A value that is not a finite number is reported and ignored.
         """
+        default = float(_metadata.DEFAULTS[key])
         value = meta.get(key, default)
         if (
             isinstance(value, (int, float))
             and not isinstance(value, bool)
             and math.isfinite(value)
-            and (value > 0 or not positive)
         ):
-            return float(value)
-        kind = "positive number" if positive else "number"
+            # An int stays an int, so the next save writes it the same way.
+            return value
         self._note(
             ImportCategory.METADATA,
-            f"{key} = {value!r} is not a {kind}; using {default}",
+            f"{key} = {value!r} is not a number; using {default}",
             None,
         )
         return default
 
-    def _meta_color(self, meta: Dict[str, Any], key: str, default: str) -> str:
-        """The metadata's GLE colour ``key``, or ``default`` when it is absent.
+    def _meta_color(self, meta: Dict[str, Any], key: str) -> str:
+        """The metadata's GLE colour ``key``, or its default when it is absent.
 
-        A value that is not a GLE colour name or ``rgb255(...)`` is reported
-        and ignored.
+        A value that is not a colour token the writer records (a GLE colour
+        name or an expression such as ``rgb255(...)``) is reported and
+        ignored.
         """
+        default = str(_metadata.DEFAULTS[key])
         value = meta.get(key, default)
-        if isinstance(value, str) and gle_color_to_rgb255(value) is not None:
+        if isinstance(value, str) and (
+            value in _gle_color_names() or _COLOR_EXPR_RE.match(value)
+        ):
             return value
         self._note(
             ImportCategory.METADATA,
@@ -2060,7 +2061,7 @@ class _Recognizer:
         dpi = int(meta.get("dpi", 100))
         sharex = bool(meta.get("sharex", False))
         sharey = bool(meta.get("sharey", False))
-        msize_scale = self._meta_number(meta, "msize_scale", 1.0, positive=False)
+        msize_scale = self._meta_number(meta, "msize_scale")
         known = (
             "dpi",
             "sharex",
@@ -2087,11 +2088,9 @@ class _Recognizer:
         # Build style/graph/marker configs.
         style = GLEStyleConfig(
             **page_state,
-            default_linewidth=self._meta_number(
-                meta, "default_linewidth", 1.5, positive=True
-            ),
-            default_color=self._meta_color(meta, "default_color", "BLUE"),
-            default_marker_color=self._meta_color(meta, "default_marker_color", "BLUE"),
+            default_linewidth=self._meta_number(meta, "default_linewidth"),
+            default_color=self._meta_color(meta, "default_color"),
+            default_marker_color=self._meta_color(meta, "default_marker_color"),
         )
         self._polar_degree = polar_degree_mark(bool(style.usetex))
         style.font = font

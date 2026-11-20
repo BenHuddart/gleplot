@@ -3016,18 +3016,19 @@ class Figure:
             "sharey": self.sharey,
             "msize_scale": self.marker_config.msize_scale,
             # What a series plotted after open_gle with no width or colour
-            # gets, as it would have before the save. A colour is recorded as
-            # the GLE colour it draws.
+            # gets, as it would have before the save.
             "default_linewidth": self.style.default_linewidth,
-            "default_color": rgb_to_gle(_rgba_parts(self.style.default_color)[0]),
-            "default_marker_color": rgb_to_gle(
-                _rgba_parts(self.style.default_marker_color)[0]
-            ),
             # Raw-content sidecars (heatmap/contour ``.z`` grids, scattered
             # ``points.dat`` triples) are not columnar imports and must not be
             # vouched for as such -- excluded from ``import-data``.
             "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
+        # A default colour is recorded as the GLE colour it draws. One that
+        # does not resolve warned when a series used it; a save does not.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            for key in ("default_color", "default_marker_color"):
+                data[key] = rgb_to_gle(_rgba_parts(getattr(self.style, key))[0])
         # Which graphs are add_axes insets, so open_gle need not guess.
         insets = [i + 1 for i, ax in enumerate(self.axes_list) if ax.position is None]
         if insets:
