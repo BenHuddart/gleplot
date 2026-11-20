@@ -6448,12 +6448,7 @@ class _Recognizer:
         """
         offsets = info["_offset_let_datasets"]
         for name, toks in pass1.merged_attr_toks.items():
-            refs = [
-                ref.value.lower()
-                for word, ref in zip(toks, toks[1:])
-                if word.value.lower() in _ERR_WORDS
-                and _DATASET_RE.match(ref.value.lower())
-            ]
+            refs = list(self._scan_series_attrs(toks)["err_refs"].values())
             if not any(ref in offsets or ref not in pass1.datasets for ref in refs):
                 continue
             for target in refs + [name]:
@@ -8488,25 +8483,33 @@ class _Recognizer:
             )
             return
 
-        foreign = [
-            f"{kind} {ref}"
-            for kind, ref in err.items()
-            if datasets.get(ref, (None,))[0] != data_file
-        ]
-        if is_import and foreign and orig_toks:
-            self._passthrough_original_dn(info, orig_toks, raw_stmts)
-            info["_raw_datasets"].add(orig_toks[0].value.lower())
-            info["_raw_datasets"].update(err.values())
-            self._note(
-                ImportCategory.DATA,
-                f"{', '.join(foreign)} on error-bar dataset "
-                f"{orig_toks[0].value} is not a column of '{data_file}'; its "
-                "'dN ... err' line was kept as raw GLE and still draws, but is "
-                "not editable. To edit it, load the columns and plot them with "
-                "Axes.errorbar()",
-                span,
-            )
-            return
+        # Errors a let computes (_keep_error_offset_lets) are no column.
+        computed = [f"{kind} {ref}" for kind, ref in err.items() if ref not in datasets]
+        if computed and orig_toks:
+            what = ", ".join(computed)
+            if info["polar_rmax"] is not None or attrs["y2axis"] or attrs["x2axis"]:
+                # The graph's layout depends on this series being modelled.
+                self._note(
+                    ImportCategory.DATA,
+                    f"{what} on error-bar dataset {orig_toks[0].value} is "
+                    "computed by a let, which an error bar cannot hold, and "
+                    "was dropped on re-save",
+                    span,
+                )
+            else:
+                self._passthrough_original_dn(info, orig_toks, raw_stmts)
+                info["_raw_datasets"].add(orig_toks[0].value.lower())
+                info["_raw_datasets"].update(err.values())
+                self._note(
+                    ImportCategory.DATA,
+                    f"{what} on error-bar dataset {orig_toks[0].value} is "
+                    "computed by a let, which an error bar cannot hold; its "
+                    "'dN ... err' line was kept as raw GLE and still draws, "
+                    "but is not editable. To edit it, compute the errors with "
+                    "numpy and plot them with Axes.errorbar()",
+                    span,
+                )
+                return
 
         def col_of(ref_name):
             ref = ref_name.lower()
