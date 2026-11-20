@@ -53,6 +53,16 @@ def test_issue_46_bar_errors_compile(tmp_path):
     assert (tmp_path / "barerr.png").exists()
 
 
+def test_a_none_face_compiles(tmp_path):
+    """GLE rejected the ``fill none`` a ``color='none'`` bar wrote (#527)."""
+    fig = glp.figure(data_prefix="barnone")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, 3, 4], color="none", edgecolor="k")
+    ax.bar([5, 6], [1, 2], color=["none", "teal"], edgecolor="k")
+    fig.savefig(str(tmp_path / "barnone.png"))
+    assert (tmp_path / "barnone.png").exists()
+
+
 def test_a_nan_height_leaves_its_bar_out(tmp_path):
     """A ``nan`` row drew a ``-nan`` polygon, which Ghostscript rejects (#317).
 
