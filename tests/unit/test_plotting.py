@@ -2256,6 +2256,31 @@ class TestHistogram:
         assert "line hist" in self._script()
         assert "bar d" not in self._script()
 
+    def test_step_is_drawn_in_its_edgecolor_as_in_matplotlib(self):
+        self.ax.hist([0, 1], bins=4, range=(0, 1), histtype="step", edgecolor="r")
+        assert "d2 line hist color RED" in self._script()
+
+    def test_bar_histtype_warns_that_edgecolor_is_ignored(self):
+        with pytest.warns(UserWarning, match="ignores edgecolor"):
+            self.ax.hist([0, 1], bins=4, range=(0, 1), color="b", edgecolor="w")
+        assert "d2 line hist color BLUE" in self._script()
+
+    def test_step_edgecolor_face_is_its_color(self):
+        self.ax.hist([0, 1], histtype="step", color="g", edgecolor="face")
+        assert "d2 line hist color GREEN" in self._script()
+
+    def test_step_edgecolor_none_warns_and_keeps_its_color(self):
+        with pytest.warns(UserWarning, match="would draw nothing"):
+            self.ax.hist([0, 1], histtype="step", color="g", edgecolor="none")
+        assert "d2 line hist color GREEN" in self._script()
+
+    @pytest.mark.parametrize("histtype", ["bar", "step", "stepfilled"])
+    def test_a_bad_edgecolor_is_rejected_for_every_histtype(self, histtype):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            with pytest.raises(ValueError, match="for edgecolor"):
+                self.ax.hist([0, 1], histtype=histtype, edgecolor="notacolour")
+
     def test_density_align_and_orientation_warn(self):
         import warnings
 
