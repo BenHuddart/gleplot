@@ -4480,30 +4480,40 @@ class _Recognizer:
         return marker
 
     @staticmethod
-    def _guide_extent_matches(marker, info, start: float, end: float) -> bool:
-        """Whether a guide's spanned ends are its marker's extent, resolved.
+    def _guide_extent_matches(
+        marker, info, start: float, end: float, joined: bool = True
+    ) -> bool:
+        """Whether re-saving a guide writes back the spanned ends it has.
 
-        The writer resolves the extent against the spanned axis' limits
-        (:meth:`Axes.materialize_reflines`), and re-saving resolves it again,
-        so the rows must be what that gives now: otherwise someone edited
-        one side, and re-saving would move the guide. Without both limits
-        stated before the guide there is nothing to resolve against. The
-        tolerance covers the rounding of the written limits and rows.
+        The writer resolves the marker's extent against the spanned axis'
+        limits (:meth:`Axes.materialize_reflines`) and writes the ends as
+        one column, or as a band's two (``joined=False``). Re-saving does so
+        against the limits as read, so the text must come out the same:
+        otherwise someone edited one side, and re-saving would move the
+        guide. Without both limits stated before the guide there is nothing
+        to resolve against.
         """
-        axis = "y" if marker["orient"] == "v" else "x"
-        lo, hi = _oriented(
-            info[f"{axis}min"], info[f"{axis}max"], info[f"{axis}negate"]
-        )
+        limits = [
+            bound
+            for axis in ("x", "y")
+            for bound in _oriented(
+                info[f"{axis}min"], info[f"{axis}max"], info[f"{axis}negate"]
+            )
+        ]
+        lo, hi = Axes.guide_spanned_bounds(marker, limits)
         if lo is None or hi is None:
             return False
-        # Six significant digits each, so the error scales with the limits.
-        tol = 1e-5 * max(abs(lo), abs(hi))
         frac_lo, frac_hi = marker["fields"]["extent"]
         expected = Axes._fraction_to_data(frac_lo, frac_hi, lo, hi)
-        return all(
-            math.isclose(found, want, rel_tol=1e-5, abs_tol=tol)
-            for found, want in zip((start, end), expected)
-        )
+        axis = "y" if marker["orient"] == "v" else "x"
+        tol = GLEWriter._axis_tolerance(lo, hi, info[f"{axis}log"], None)
+
+        def written(ends):
+            if joined:
+                return GLEWriter._format_column(ends, tol)
+            return [GLEWriter._format_column([v, v], tol)[0] for v in ends]
+
+        return written(list(expected)) == written([start, end])
 
     @staticmethod
     def _guide_coord_matches(value: float, *found: float) -> bool:
@@ -4606,7 +4616,7 @@ class _Recognizer:
                 and self._guide_coord_matches(end, x[1])
                 and self._guide_coord_matches(upper[0], upper[1])
                 and self._guide_coord_matches(lower[0], lower[1])
-                and self._guide_extent_matches(marker, info, lower[0], upper[0])
+                and self._guide_extent_matches(marker, info, lower[0], upper[0], False)
             )
         else:
             ok = (
