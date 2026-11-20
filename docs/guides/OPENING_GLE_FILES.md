@@ -55,7 +55,10 @@ when you save, so it still reaches GLE, but you cannot edit it through the
 Python API. Raw GLE between two graph blocks stays after the first of them,
 so an `xg()` or `yg()` in it still addresses that graph. A command gleplot
 models is rewritten from the figure, so a `! comment` at the end of its line
-is not written back; each such comment gets a `structure` note.
+is not written back; each such comment gets a `structure` note. A
+`begin key` block is read as the legend only when saving would write its
+entries back as they are, swatches included: a swatch edited by hand keeps
+the block as raw GLE, with a `legend` note.
 
 A data file that gleplot did not write is never rewritten. Lines, error
 bars, fills and plain `bar dN fill COLOR` bars drawn from it become
@@ -76,7 +79,7 @@ is recorded as a recovery note. The notes are grouped by category:
 | `metadata` | the metadata header is old or unknown (see above) |
 | `structure` | a command or option gleplot reads but cannot model, kept as raw GLE, or a comment after a modelled command, which is not kept |
 | `data` | a data file or column could not be loaded, or a dataset was converted |
-| `legend` | a legend was assumed, or a `key` option could not be modelled |
+| `legend` | a legend was assumed, a `key` option could not be modelled, or a `begin key` block was kept as raw GLE |
 | `layout` | the subplot grid or shared axes were guessed, or graph geometry was kept as raw GLE |
 | `smooth` | smoothing differs between series in a way the figure cannot express |
 | `programmatic` | the file uses GLE programming (`sub`, `if`, `for`, `while`, ...); saving may restructure it |
