@@ -138,5 +138,6 @@
  "golden:quoted_text": "d1dae10349d82c6b7eede18865e8d84ff051f0a6ad69128e3787e87202234756",
  "golden:guides_after_graph_beyond_six_figures": "836f2e0011a533843fe21e61eee56eca1077b5cd0bd86ca7a5f11f9bdbfa6b5a",
  "golden:subplots_share_col_row": "77ef525c2ee6b7a516b79cb07aa85c8bc947d10ae9a4c142a540ec4a305a8630",
+ "golden:axis_range_of_float_noise": "c34e1ed5744bb97193ca374a315bf83af69cb1f2b19c313637cc209d0b40797e",
  "golden:heatmap_gle_palettes": "c6cd88ee7ae14a37a199236bc8d8ffa34897153b20dc440cb3ff8256a0d98d49"
 }

@@ -3120,8 +3120,9 @@ class Figure:
             # vouched for as such -- excluded from ``import-data``.
             "import-data": sorted(k for k in data_files.keys() if k not in raw),
         }
-        # A default colour is recorded as the GLE colour it draws. One that
-        # does not resolve warned when a series used it; a save does not.
+        # A default colour is recorded as the GLE colour it draws. Its
+        # warnings (extra values, 'none') were given when a series used it;
+        # a save does not repeat them.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             for key in ("default_color", "default_marker_color"):

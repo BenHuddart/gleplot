@@ -49,11 +49,12 @@ def test_double_quoted_string_includes_quotes():
     assert toks[1].quote == '"'
 
 
-def test_escaped_quote_does_not_terminate():
-    toks = tokenize_line(r'write "say \"hi\" now"')
+def test_a_backslash_is_an_ordinary_character():
+    """As in GLE, a backslash escapes nothing: a quote after it ends the string."""
+    toks = tokenize_line(r'title "a\" "b"')
     string_toks = [t for t in toks if t.type is TokenType.STRING]
-    assert len(string_toks) == 1
-    assert string_toks[0].value == r'"say \"hi\" now"'
+    assert [t.value for t in string_toks] == [r'"a\"', '"b"']
+    assert all(t.error is None for t in string_toks)
 
 
 def test_doubled_quote_is_one_string():

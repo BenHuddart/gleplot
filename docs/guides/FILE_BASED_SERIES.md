@@ -69,6 +69,8 @@ GLE also reads these files on its own terms, with no keyword needed:
 
 ## Notes
 
+- A file name holding a double quote raises `ValueError` at the call, as GLE
+  cannot load it. A name with spaces is fine.
 - Keep a clear column map in comments at the top of data files.
 - Use consistent units per column.
 - For mixed workflows, you can combine generated series (`plot`, `scatter`) and file-backed series in the same axes.

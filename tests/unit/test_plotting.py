@@ -1999,6 +1999,7 @@ class TestLineModes:
             ({"comment": '"'}, ValueError, "comment must be"),
             ({"x_col": -1}, ValueError, "x_col must be >= 0"),
             ({"y_col": 0}, ValueError, "y_col must be >= 1, got 0"),
+            ({"data_file": 'a "b".csv'}, ValueError, "data_file=.*double quote"),
         ],
     )
     def test_from_file_rejects_bad_reading_arguments(self, kwargs, error, match):
@@ -3710,9 +3711,11 @@ def test_an_unmasked_or_non_numeric_masked_array_is_left_as_it_is():
     ax = fig.add_subplot(111)
     ax.plot(stamps, _ONES)
     ax.scatter(_ONES, _ONES, c=np.ma.masked_array(["r", "g", "b"], mask=[0, 1, 0]))
-    _text, files = fig._generate_gle_with_files()
+    text, files = fig._generate_gle_with_files()
     glp.close()
     assert "1700000031 2" in "".join(files.values())
+    # As in matplotlib, the point under a masked colour is left out.
+    assert "RED" in text and "BLUE" in text and "GREEN" not in text
 
 
 @pytest.mark.parametrize(
@@ -3795,3 +3798,25 @@ def test_a_band_narrower_than_float_noise_is_written_where_it_is(tmp_path, orien
     assert "1700000002.801" in "".join(files.values())
     (span,) = glp.open_gle(str(tmp_path / "fig.gle")).axes_list[0].spans
     assert (span["start"], span["end"]) == edges
+
+
+@pytest.mark.parametrize("log", [False, True])
+def test_an_axis_range_of_float_noise_keeps_its_ends_apart(tmp_path, log):
+    """A range a millionth of whose span is float noise is still a range.
+
+    Written as six figures it would be ``min 1e+06 max 1e+06``, which GLE
+    refuses and a reload drops. The data on the axis is written inside it
+    (#468).
+    """
+    fig = glp.figure(data_prefix="p")
+    ax = fig.add_subplot(111)
+    limits = (1e6, 1e6 + 1e-7)
+    ax.plot([1.0, 2.0], limits)
+    if log:
+        ax.set_yscale("log")
+    ax.set_ylim(*limits)
+    files = _saved(fig, tmp_path)
+    assert "yaxis min 1000000.0 max 1000000.0000001" in files["fig.gle"]
+    rows = files["p_0.dat"].splitlines()[1:]
+    assert all(limits[0] <= float(row.split()[1]) <= limits[1] for row in rows)
+    assert glp.open_gle(str(tmp_path / "fig.gle")).axes_list[0].get_ylim() == limits
