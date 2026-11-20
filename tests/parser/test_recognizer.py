@@ -787,6 +787,10 @@ def test_broken_bar_becomes_file_series_with_error(tmp_path):
     fig = golden.bar()
     gle_path = tmp_path / "f.gle"
     fig.savefig_gle(str(gle_path))
+    # The hand-written form: gleplot's own bar hides GLE's black outline.
+    text = gle_path.read_text(encoding="utf-8")
+    assert "bar d1 fill ORANGE color ORANGE lwidth 0\n" in text
+    gle_path.write_text(text.replace(" color ORANGE lwidth 0", ""), encoding="utf-8")
 
     (tmp_path / "golden_0.dat").unlink()
 

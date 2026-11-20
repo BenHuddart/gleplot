@@ -395,8 +395,9 @@ def test_the_emitted_width_is_the_one_gle_picks_at_unit_spacing(tmp_path):
         tmp_path, _gleplot_script(_single_bar_figure(), tmp_path), "figure"
     )
     assert ours == pytest.approx(theirs, abs=RANGE_TOLERANCE)
-    assert "bar d1 fill rgb255(31,119,180) width 0.5" in _gleplot_script(
-        _single_bar_figure(), tmp_path
+    assert (
+        "bar d1 fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0 width 0.5"
+        in _gleplot_script(_single_bar_figure(), tmp_path)
     )
 
 
@@ -520,7 +521,10 @@ def test_a_lone_bar_of_any_width_still_owns_the_middle_half_of_its_frame(
 
     stem = f"g19_{str(width).replace('.', '_')}"
     text = _gleplot_script(fig, tmp_path, stem=stem)
-    assert f"    bar d1 fill rgb255(31,119,180) width {width:g}" in text
+    assert (
+        f"    bar d1 fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0 width {width:g}"
+        in text
+    )
 
     drawn = _drawn_bar_widths(tmp_path, text, stem)
     assert drawn == pytest.approx([width], abs=RANGE_TOLERANCE)

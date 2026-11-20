@@ -5307,13 +5307,16 @@ class Axes:
             GLE centers every bar on its x value. ``'edge'`` warns and is
             drawn centered.
         edgecolor : str or sequence, optional
-            Stroke colour (GLE ``color``). GLE strokes every bar, so
-            ``'none'`` (or ``linestyle='none'``) strokes it with a hairline
-            in the colour under the edge: the fill, or a hatched bar's
-            face. ``ec`` is an alias.
+            Stroke colour (GLE ``color``). Omitted along with ``linewidth``
+            and ``linestyle``, the bar has no edge, as in matplotlib. GLE
+            strokes every bar, so a bar with no edge (also ``'none'``,
+            ``linestyle='none'`` or ``linewidth=0``) is stroked with a
+            hairline in the colour under the edge: the fill, or a hatched
+            bar's face. ``ec`` is an alias.
         linewidth, linestyle : optional
             Edge width in points and matplotlib linestyle. ``lw`` / ``ls``
-            are aliases. Omitted, the command carries neither keyword.
+            are aliases. Either one without ``edgecolor`` draws an edge in
+            GLE's black, where matplotlib draws none.
         yerr, xerr : float or array-like, optional
             Vertical and horizontal errors at the bar tip. A scalar or a
             length-``n`` sequence is symmetric. Shape ``(2, n)`` is
@@ -5433,6 +5436,16 @@ class Axes:
                 backgrounds.append(face)
         baseline = _bar_baseline(bottom, n)
         style = _bar_edge_style(linewidth, linestyle)
+        no_edge_asked = edgecolor is None and linewidth is None and linestyle is None
+        if no_edge_asked or style.get("linewidth") == 0:
+            # As in matplotlib, a bar has no edge unless one is asked for,
+            # and a zero-width edge is none. GLE strokes every bar, and
+            # ``lwidth 0`` alone is a black hairline, so this is the
+            # writer's hidden stroke (see BarSeries.edgecolor). The hatch
+            # ink above was taken from the edge colour first, as matplotlib
+            # draws it even under a zero-width edge.
+            style = {}
+            edges = ["none"] * n
         if any(
             pattern is None
             and face == "CLEAR"
