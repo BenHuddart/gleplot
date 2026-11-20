@@ -86,14 +86,14 @@ def test_a_drawing_after_the_graph_is_recovered(tmp_path):
 def test_other_groups_stay_raw_and_resave_unchanged(after, tmp_path):
     recognized = parse_gle_figure(_GRAPH + after)
     assert _drawings(recognized.figure) == []
-    assert _resave(recognized, tmp_path).endswith(after.rstrip("\n"))
+    assert _resave(recognized, tmp_path).endswith(after)
 
 
 def test_a_raw_group_ends_the_drawings_and_keeps_its_place(tmp_path):
     raw = "gsave\namove 2 3\ncircle .4\ngrestore\n"
     recognized = parse_gle_figure(_GRAPH + _CIRCLE + raw + _CIRCLE)
     assert len(_drawings(recognized.figure)) == 1
-    assert _resave(recognized, tmp_path).endswith(_CIRCLE + raw + _CIRCLE.rstrip())
+    assert _resave(recognized, tmp_path).endswith(_CIRCLE + raw + _CIRCLE)
 
 
 def test_drawings_before_other_content_in_a_file_without_graphs_stay_raw(tmp_path):
@@ -107,5 +107,5 @@ def test_a_blank_line_after_the_last_graph_is_kept(tmp_path):
     """#216: a later ``amove`` with no graph after it is not a subplot gap."""
     after = "\namove 1 1\ncircle 0.4\n"
     recognized = parse_gle_figure(_GRAPH + after)
-    assert recognized.figure.passthrough_trailer == ["", "amove 1 1", "circle 0.4"]
-    assert _resave(recognized, tmp_path).endswith("end graph\n" + after.rstrip("\n"))
+    assert recognized.figure.passthrough_trailer == ["", "amove 1 1", "circle 0.4", ""]
+    assert _resave(recognized, tmp_path).endswith("end graph\n" + after)

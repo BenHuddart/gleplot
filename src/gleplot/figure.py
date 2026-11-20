@@ -3226,9 +3226,14 @@ class Figure:
 
                 writer.end_graph(passthrough=ax.passthrough)
                 self._emit_post_graph_calls(writer, ax, resolution)
-                writer.lines_gle.append("")  # Blank line between subplots
-                if ax is not self.axes_list[-1]:
-                    writer.lines_gle.extend(ax.trailing_passthrough)
+                trailing = (
+                    ax.trailing_passthrough if ax is not self.axes_list[-1] else []
+                )
+                # Raw GLE between the graphs that ends in a blank line
+                # carries its own: a loaded file's, written where it was.
+                if not trailing or trailing[-1].strip():
+                    writer.lines_gle.append("")  # Blank line between subplots
+                writer.lines_gle.extend(trailing)
 
             self._write_page_content(writer, resolution)
             writer.finalize(
