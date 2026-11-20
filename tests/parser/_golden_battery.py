@@ -155,6 +155,15 @@ def bar_no_edge():
     return fig
 
 
+def bar_none_face():
+    """``color='none'``: GLE's ``CLEAR`` fill, on one bar set and a split."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, 3, 1], color="none", edgecolor="k")
+    ax.bar([5, 6], [1, 2], color=["none", "teal"], edgecolor="red")
+    return fig
+
+
 def barh():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -2174,6 +2183,7 @@ BUILDERS = [
     bar_recovered_fields,
     bar_hatch,
     bar_no_edge,
+    bar_none_face,
     barh,
     bar_yerr,
     barh_xerr,

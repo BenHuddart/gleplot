@@ -548,7 +548,8 @@ def _is_one_color(color) -> bool:
 
 
 def _gle_bar_color(color, arg: str) -> str:
-    """A bar colour as a GLE token. ``'none'`` stays ``none``."""
+    """A bar colour as a GLE token. ``'none'`` stays ``none``, the caller's
+    to read: no edge, or a CLEAR face."""
     if isinstance(color, str) and color.strip().lower() == "none":
         return "none"
     return _gle_color(color, arg)
@@ -5283,8 +5284,8 @@ class Axes:
         color : str or sequence, optional
             Face colour. A sequence must have one entry, or one per bar.
             Omitted: the next colour of the axes' colour cycle (see
-            :class:`~gleplot.GLEStyleConfig`). ``facecolor`` / ``fc`` / ``c`` are
-            aliases.
+            :class:`~gleplot.GLEStyleConfig`). ``'none'`` is GLE's ``CLEAR``
+            fill. ``facecolor`` / ``fc`` / ``c`` are aliases.
         label : str, optional
             Legend label. Emitted as ``dN key`` after the bar; the bar fill
             is the swatch. On a per-bar colour split, only the first bar
@@ -5413,7 +5414,11 @@ class Axes:
             default_face = _gle_color(
                 self._next_color("patches", advance=False), "color"
             )
-        faces = _bar_color_list(color, n, default_face, "color")
+        # GLE has no ``fill none``; CLEAR fills nothing.
+        faces = [
+            "CLEAR" if face == "none" else face
+            for face in _bar_color_list(color, n, default_face, "color")
+        ]
         edges = _bar_color_list(edgecolor, n, None, "edgecolor")
         # GLE's ``fill`` is the hatch ink and ``background`` the face, so a
         # hatched bar fills with its edge colour: matplotlib's hatch colour,
@@ -5428,7 +5433,7 @@ class Axes:
                 backgrounds.append(None)
             else:
                 fills.append(edge if edge not in (None, "none") else "BLACK")
-                backgrounds.append("CLEAR" if face == "none" else face)
+                backgrounds.append(face)
         baseline = _bar_baseline(bottom, n)
         style = _bar_edge_style(linewidth, linestyle)
         no_edge_asked = edgecolor is None and linewidth is None and linestyle is None
@@ -5441,6 +5446,19 @@ class Axes:
             # draws it even under a zero-width edge.
             style = {}
             edges = ["none"] * n
+        if any(
+            pattern is None
+            and face == "CLEAR"
+            and (edge in (None, "none") or style.get("linestyle") == "none")
+            for pattern, face, edge in zip(patterns, faces, edges)
+        ):
+            caller = "barh" if horiz else "bar"
+            warn_external(
+                f"{caller}() draws a bar with color={color!r} and no edge as a "
+                "black outline: GLE strokes every bar. Pass edgecolor= to "
+                "choose the outline's colour, or leave the bar out to draw "
+                "nothing.",
+            )
         # Reject a bad error before any series is stored, so a raise leaves
         # the axes as they were.
         y_lo, y_hi = _bar_error_limits(yerr, n, "yerr")
