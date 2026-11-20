@@ -1,7 +1,7 @@
 """Placed images compile, and GLE reads them from the script's folder.
 
 The script text is asserted in ``tests/unit/test_image.py``. This checks that
-GLE accepts the ``gleplot_bitmap`` and ``gleplot_postscript`` draw calls,
+GLE accepts the ``glp_bitmap`` and ``glp_postscript`` draw calls,
 embeds both files in its PostScript output, finds a relative file next to the
 script whatever the working directory, and fails loudly on a missing file.
 Skipped when the binary is missing.

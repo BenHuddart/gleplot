@@ -91,9 +91,9 @@ def test_the_frame_is_hidden_and_the_grid_drawn_in_layer_200():
     for line in ("xside off", "yside off", "xticks off", "yticks off"):
         assert line in lines
     i = lines.index("begin layer 200")
-    assert lines[i + 1 : i + 3] == ["draw gleplot_polar_grid 2 0.5", "end layer"]
-    assert "sub gleplot_polar_grid rmax step" in text
-    assert "sub gleplot_polar_labels rmax step dp" in text
+    assert lines[i + 1 : i + 3] == ["draw glp_polar_grid 2 0.5", "end layer"]
+    assert "sub glp_polar_grid rmax step" in text
+    assert "sub glp_polar_labels rmax step dp" in text
 
 
 def test_the_labels_are_written_after_end_graph():
@@ -103,7 +103,7 @@ def test_the_labels_are_written_after_end_graph():
     after = text.split("end graph", 1)[1].splitlines()
     assert after[1:4] == [
         "gsave",
-        'gleplot_polar_labels 2 0.5 1 "^{\\circ}"',
+        'glp_polar_labels 2 0.5 1 "^{\\circ}"',
         "grestore",
     ]
 
@@ -113,7 +113,7 @@ def test_with_usetex_the_degree_mark_is_latex_math():
     fig = glp.figure(data_prefix="pl", style=style)
     fig.add_subplot(projection="polar").plot([0, 1], [1, 2])
     _lines, text = _graph_lines(fig)
-    assert 'gleplot_polar_labels 2 0.5 1 "$^{\\circ}$"' in text
+    assert 'glp_polar_labels 2 0.5 1 "$^{\\circ}$"' in text
 
 
 def test_a_cartesian_axes_beside_a_polar_one_is_unchanged():
@@ -137,7 +137,7 @@ def test_the_radial_limit_rounds_the_data_up_to_a_ring():
     fig, ax = _polar()
     ax.plot([0, 1, 2], [0.2, 1.37, -0.4])
     _lines, text = _graph_lines(fig)
-    assert "draw gleplot_polar_grid 1.5 0.5" in text
+    assert "draw glp_polar_grid 1.5 0.5" in text
     assert ax.get_ylim() == (0.0, 1.5)
 
 
@@ -146,15 +146,15 @@ def test_set_ylim_sets_the_radial_limit():
     ax.plot([0, 1], [1, 2])
     ax.set_ylim(0, 1.3)
     _lines, text = _graph_lines(fig)
-    assert "draw gleplot_polar_grid 1.3 0.5" in text
-    assert "gleplot_polar_labels 1.3 0.5 1" in text
+    assert "draw glp_polar_grid 1.3 0.5" in text
+    assert "glp_polar_labels 1.3 0.5 1" in text
 
 
 def test_function_curves_alone_get_a_radial_limit_of_one():
     fig, ax = _polar()
     ax.function("cos(x)")
     _lines, text = _graph_lines(fig)
-    assert "draw gleplot_polar_grid 1 0.2" in text
+    assert "draw glp_polar_grid 1 0.2" in text
 
 
 def test_the_window_gives_both_axes_the_same_scale():
@@ -267,7 +267,7 @@ def test_a_shared_y_axis_leaves_the_radial_limit_alone():
     fig.add_subplot(1, 2, 1).plot([0, 1], [-5, 10])
     fig.add_subplot(1, 2, 2, projection="polar").plot([0, 1], [1, 2])
     text, _files = fig._generate_gle_with_files()
-    assert "draw gleplot_polar_grid 2 0.5" in text
+    assert "draw glp_polar_grid 2 0.5" in text
     assert fig.axes_list[1].get_ylim() == (0.0, 2.0)
 
 
@@ -321,5 +321,5 @@ def test_a_scatter_with_per_point_sizes_takes_the_polar_let():
     lines, _text = _graph_lines(fig)
     i = lines.index("data pl_0.dat d1=c1,c2 d2=c1,c3")
     assert lines[i + 1] == "let d3 = d1*cos(x),d1*sin(x)"
-    assert lines[i + 2].startswith("d3 marker gleplot_mdata_fcircle ")
+    assert lines[i + 2].startswith("d3 marker glp_mdata_fcircle ")
     assert " mdata d2 " in lines[i + 2]

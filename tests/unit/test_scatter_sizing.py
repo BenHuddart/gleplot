@@ -172,7 +172,7 @@ def test_per_point_s_writes_mdata_through_a_marker_sub():
     text, files = ax.figure._generate_gle_with_files()
 
     assert (
-        "sub gleplot_mdata_fcircle size data\n"
+        "sub glp_mdata_fcircle size data\n"
         "   if data > 0 then\n"
         "      gsave\n"
         "      set hei size*data\n"
@@ -180,14 +180,14 @@ def test_per_point_s_writes_mdata_through_a_marker_sub():
         "      grestore\n"
         "   end if\n"
         "end sub\n"
-        "define marker gleplot_mdata_fcircle gleplot_mdata_fcircle\n"
+        "define marker glp_mdata_fcircle glp_mdata_fcircle\n"
     ) in text
     assert "data t_0.dat d1=c1,c2 d2=c1,c3\n" in text
     # The legend marker's area is halfway between the extremes (matplotlib).
     base = np.sqrt((100 + 900) / 2) * 1.2
     msize = markersize_to_msize(base)
     assert re.search(
-        rf"d1 marker gleplot_mdata_fcircle msize {msize:.6g} mdata d2 color RED "
+        rf"d1 marker glp_mdata_fcircle msize {msize:.6g} mdata d2 color RED "
         r'key "pop"\n',
         text,
     )
@@ -206,7 +206,7 @@ def test_per_point_markersize_is_a_diameter():
     assert series["markersize"] == pytest.approx(markersize_to_msize(base))
     assert series["mdata"] == pytest.approx(np.array([2, 4, 8]) / base)
     text, _files = ax.figure._generate_gle_with_files()
-    assert "sub gleplot_mdata_fsquare size data" in text
+    assert "sub glp_mdata_fsquare size data" in text
     assert "marker FSQUARE\n" in text
 
 
@@ -216,8 +216,8 @@ def test_one_sub_per_marker_shape():
     ax.scatter(X, Y, s=[4, 5, 6])
     ax.scatter(X, Y, s=[4, 5, 6], marker="^")
     text, _files = ax.figure._generate_gle_with_files()
-    assert text.count("sub gleplot_mdata_fcircle ") == 1
-    assert text.count("sub gleplot_mdata_ftriangle ") == 1
+    assert text.count("sub glp_mdata_fcircle ") == 1
+    assert text.count("sub glp_mdata_ftriangle ") == 1
 
 
 def test_all_zero_sizes_keep_a_drawable_legend_marker():

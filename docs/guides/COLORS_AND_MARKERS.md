@@ -239,14 +239,14 @@ the writer emits.
 - Per-point sizes make a bubble chart: pass one value per point for `s` or
   `markersize`, e.g. `ax.scatter(x, y, s=population / 1e6)`. GLE scales a
   marker per point (`mdata`) only when a subroutine draws it, so the script
-  gets a `gleplot_mdata_<marker>` sub that draws the built-in marker, and the
+  gets a `glp_mdata_<marker>` sub that draws the built-in marker, and the
   sizes go into the series' data file as an extra column. The legend marker's
   area is halfway between the largest and smallest point's, as in
   matplotlib's legend. Sizes must not be negative or infinite, and cannot be
   combined with `mdist` or `deresolve`; a NaN or masked size leaves that
   point out, as in matplotlib.
 - Per-point colours work the same way: `ax.scatter(x, y, c=temperature,
-  cmap='viridis', vmin=0, vmax=300)` gets a `gleplot_cdata_<marker>_<cmap>`
+  cmap='viridis', vmin=0, vmax=300)` gets a `glp_cdata_<marker>_<cmap>`
   sub, the values go into the data file, and a `let` maps them onto the
   colormap. `c` may also be one colour, or one colour per point, which draws
   one series per colour. With per-point sizes as well, the colours are drawn

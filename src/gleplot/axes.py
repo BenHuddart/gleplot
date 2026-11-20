@@ -4871,13 +4871,13 @@ class Axes:
         negative or infinite; a one-element array is a single size. A NaN or
         masked size leaves that point out, as in matplotlib. GLE's ``mdata``
         scales only a marker drawn by a subroutine, so the script gets a
-        ``gleplot_mdata_<marker>`` sub that draws the built-in marker at each
+        ``glp_mdata_<marker>`` sub that draws the built-in marker at each
         point's size. The legend marker's area is halfway between the largest
         and smallest point's, as in matplotlib's legend. Per-point sizes
         cannot be combined with ``mdist`` or ``deresolve``.
 
         Per-point colours (numeric ``c``) work the same way: the script gets
-        a ``gleplot_cdata_<marker>_<cmap>`` sub that draws the built-in
+        a ``glp_cdata_<marker>_<cmap>`` sub that draws the built-in
         marker in each point's colour. The values are written to the data
         file as given, and a ``let`` maps them onto the colormap. A point
         whose value is not finite is left out, as matplotlib leaves it out
@@ -7667,7 +7667,7 @@ class Axes:
         Notes
         -----
         GLE has no filled contour. A ``contourf`` is a heatmap whose palette
-        sub (``gleplot_contourf<k>``) colours each value by the band it falls
+        sub (``glp_contourf<k>``) colours each value by the band it falls
         in. GLE's colormap smooths the grid with a cubic B-spline first, so a
         band edge is drawn near its level, not on it. When some edge would
         land more than one bitmap pixel away (a coarse grid for the number
