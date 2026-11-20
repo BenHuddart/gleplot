@@ -204,7 +204,6 @@ def test_an_unknown_projection_raises():
         lambda ax: ax.derived("d", "2*d"),
         lambda ax: ax.tick_params(labelsize=8),
         lambda ax: ax.step([0, 1], [1, 1]),
-        lambda ax: ax.pie([1, 2]),
         lambda ax: ax.function2d("x*y", extent=(0, 1, 0, 1)),
         lambda ax: ax.image("a.png", extent=(0, 1, 0, 1)),
     ],

@@ -115,9 +115,8 @@ does, so a figure for a LaTeX document can share its fonts and math:
 The script gets GLE's `set texlabels 1`. Titles, axis labels, tick labels,
 legend entries, `text` and `annotate` strings reach LaTeX as written: `$...$`
 is LaTeX math rather than gleplot's mathtext translation, and text outside it
-must be valid LaTeX, so an underscore is `\_` and a percent sign `\%` (pie
-`autopct` percent signs are escaped for you, as in matplotlib). Set it when
-creating the figure: a label set before `usetex` was turned on keeps its GLE
+must be valid LaTeX, so an underscore is `\_` and a percent sign `\%`. Set
+it when creating the figure: a label set before `usetex` was turned on keeps its GLE
 markup. The `font` setting does not reach LaTeX labels, and their size is the
 standard LaTeX size nearest `fontsize`.
 
@@ -486,10 +485,11 @@ A lone number in data units is held to a millionth of its axis's range instead.
 This covers a text position, a reference line or span (drawn in the graph or
 after it), a tick position from `set_xticks` (including `ftick`), a rug tick, a
 column holding one value (a lone bar, say, or a histogram's samples), a
-histogram's bin window, and a single axis limit. On the axis above,
-`ax.axvline(1.7e9 + 30)` is written `1.70000003e+09` rather than `1.7e+09`. On
-a log axis these numbers keep 6 figures. So do the coordinates of box plots,
-placed images and pie wedges.
+histogram's bin window, and a single axis limit. Numbers whose spread is too
+small to count beside their size, such as the edges of a band `0.001` wide at
+`1.7e9`, are held the same way. On the axis above, `ax.axvline(1.7e9 + 30)` is
+written `1.70000003e+09` rather than `1.7e+09`. On a log axis these numbers
+keep 6 figures. So do the coordinates of placed images.
 
 ## Resetting to Defaults
 

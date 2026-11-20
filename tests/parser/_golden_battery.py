@@ -1811,40 +1811,6 @@ def trailer_amove_after_subplots():
     return fig
 
 
-def pie_chart():
-    """A titled pie with labels and percentages, then a text drawn after it."""
-    fig = glp.figure(data_prefix="golden")
-    ax = fig.add_subplot(111)
-    ax.pie(
-        [15, 30, 45, 10],
-        labels=["Frogs", "Hogs", "Dogs", "Logs"],
-        autopct="%1.1f%%",
-        startangle=90,
-    )
-    ax.set_title("pets")
-    ax.text(0, 1.2, "after", ha="center")
-    return fig
-
-
-def pie_field_options():
-    """Off-centre pies beside a line plot: colours, fontsize, no labels."""
-    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
-    left.plot([0, 1], [0, 1], color="blue")
-    right.text(2, 1, "centre", color="red")
-    right.pie(
-        [0.2, 0.3],
-        labels=["a", "b"],
-        colors=["red", "#00ff00"],
-        textprops={"fontsize": 14},
-        center=(2, 1),
-        radius=0.8,
-        counterclock=False,
-        normalize=False,
-    )
-    right.pie([1, 1, 2], labeldistance=None, center=(2, 1), radius=0.3)
-    return fig
-
-
 def line_cap_join_dashlen():
     """Page-level ``set cap``/``set join``/``set dashlen`` from the style."""
     style = glp.GLEStyleConfig(line_cap="round", line_join="bevel", dashlen=0.125)
@@ -1855,46 +1821,14 @@ def line_cap_join_dashlen():
     return fig
 
 
-def boxplot_chart():
-    """Labelled boxes with fliers and means, then a text drawn after them."""
-    fig = glp.figure(data_prefix="golden")
-    ax = fig.add_subplot(111)
-    ax.boxplot(
-        [[1.5, 2.25, 3, 3.5, 4, 9.75], [2, 3, 4], [-1, 0.5, 1, 1.25, 1.5, 6]],
-        tick_labels=["low", "mid", "$\\alpha$"],
-        showmeans=True,
-    )
-    ax.set_title("spread")
-    ax.text(2, 8, "after", ha="center")
-    return fig
-
-
-def boxplot_field_options():
-    """Boxes beside a line plot: positions, widths, no caps, percentiles."""
-    fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
-    left.plot([0, 1], [0, 1], color="blue")
-    right.plot([0, 10], [0, 4], color="red")
-    right.boxplot(
-        np.array([[0.5, 1.0], [1.0, 2.0], [2.0, 2.5], [3.0, 3.5]]),
-        positions=[2, 6],
-        widths=[1, 2],
-        whis=(10, 90),
-        showcaps=False,
-        usermedians=[None, 2.75],
-        manage_ticks=False,
-    )
-    right.boxplot([1, 1, 1, 1, 4], positions=[8], capwidths=0.5, autorange=True)
-    return fig
-
-
 def rug_field_options():
-    """Rugs on every edge beside a scatter and a box, in two subplots."""
+    """Rugs on every edge beside a scatter and a line, in two subplots."""
     fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
     left.scatter([1.25, 2, 3.5], [0.5, 2, 1.5], color="C0")
     left.rug([1.25, 2, 3.5], color="C0")
     left.rug([0.5, 2, 1.5], axis="y", position="right", length=-0.2)
     left.rug([4.75], position="top", color="red", linewidth=0.5)
-    right.boxplot([1, 2, 3, 9])
+    right.plot([1, 2], [1, 9])
     right.rug([1, 2, 3, 9], axis="y", position="both", linewidth=2)
     right.rug([0.5, 1.5], position="both", length=0.15)
     return fig
@@ -2095,6 +2029,8 @@ def coordinates_beyond_six_figures():
     left.plot([1.7e9, 1.7e9 + 120], [1.0, 3.0])
     left.axvline(1.7e9 + 30)
     left.axvspan(1.7e9 + 40, 1.7e9 + 40.5)
+    # A band whose width is float noise beside 1.7e9: held to the axis.
+    left.axvspan(1.7e9 + 50, 1.7e9 + 50.001)
     left.text(1.7e9 + 90, 2.0, "t")
     left.set_xticks([1.7e9 + 30])
     right.plot([1.0, 2.0], [1.7e9, 1.7e9 + 120], yaxis="y2")
@@ -2207,11 +2143,7 @@ BUILDERS = [
     contour_in_second_subplot,
     trailer_stray_amoves,
     trailer_amove_after_subplots,
-    pie_chart,
-    pie_field_options,
     line_cap_join_dashlen,
-    boxplot_chart,
-    boxplot_field_options,
     rug_field_options,
     usetex_labels,
     page_drawings,
