@@ -644,10 +644,14 @@ class _XYSeries(Series):
     data_source: Optional[DataSource]
     #: Display-command order within the axes; absent on pre-zorder projects.
     _draw_seq: int
-    #: Set by ``open_gle`` when a raw line kept in the block reads this
-    #: series' dataset: its name in the file, which the writer renames in
-    #: those lines to the name it writes the series under.
-    _gle_name: str
+    #: Set by ``open_gle`` when a raw line kept in the block reads one of
+    #: this series' datasets: role -> its name in the file, which the writer
+    #: renames in those lines to the name it writes that dataset under. The
+    #: roles are ``data`` (the series' own dataset; a histogram's samples),
+    #: ``offset`` (its ``let dK = dJ+off`` alias), ``hist`` (a histogram's
+    #: binned dataset), ``from`` (a stacked bar's baseline), ``second`` and
+    #: ``second_offset`` (a fill's second curve and its alias).
+    _gle_names: Dict[str, str]
     #: Only present when the caller asked for an explicit draw order.
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
@@ -821,6 +825,8 @@ class BarSeries(Series):
     #: series' own array fields). See :mod:`gleplot.sources`.
     data_source: Optional[DataSource]
     _draw_seq: int
+    #: See ``_XYSeries._gle_names``.
+    _gle_names: Dict[str, str]
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
@@ -887,6 +893,8 @@ class HistSeries(Series):
     column_names: Optional[List[str]]
     data_source: Optional[DataSource]
     _draw_seq: int
+    #: See ``_XYSeries._gle_names``.
+    _gle_names: Dict[str, str]
     zorder: float
     visible: bool
 
@@ -929,8 +937,8 @@ class FunctionSeries(Series):
     _lwidth_verbatim: bool
     label: Optional[str]
     _draw_seq: int
-    #: See ``_XYSeries._gle_name``.
-    _gle_name: str
+    #: See ``_XYSeries._gle_names``.
+    _gle_names: Dict[str, str]
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
@@ -980,8 +988,8 @@ class FitSeries(Series):
     label: Optional[str]
     data_file: Optional[str]
     _draw_seq: int
-    #: See ``_XYSeries._gle_name``.
-    _gle_name: str
+    #: See ``_XYSeries._gle_names``.
+    _gle_names: Dict[str, str]
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
@@ -1066,6 +1074,8 @@ class FillSeries(Series):
     #: Call order, for the legend. Fills are not z-ordered drawables, so this
     #: does not change ink. Absent on a series a script did not record it for.
     _draw_seq: int
+    #: See ``_XYSeries._gle_names``.
+    _gle_names: Dict[str, str]
     #: Legend swatch colour when it is not the fill colour. Absent means the
     #: swatch is ``apply_alpha(color, alpha)``.
     swatch_color: Optional[str]
@@ -1127,6 +1137,8 @@ class ErrorbarSeries(Series):
     #: series' own array fields). See :mod:`gleplot.sources`.
     data_source: Optional[DataSource]
     _draw_seq: int
+    #: See ``_XYSeries._gle_names``.
+    _gle_names: Dict[str, str]
     zorder: float
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
@@ -1204,8 +1216,8 @@ class FileSeries(Series):
     #: Present only on entries the recognizer degraded to a bare reference.
     data_error: str
     _draw_seq: int
-    #: See ``_XYSeries._gle_name``.
-    _gle_name: str
+    #: See ``_XYSeries._gle_names``.
+    _gle_names: Dict[str, str]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
     #: Legend swatch colour when a bar or fill ``keyfill`` is not ``color``.

@@ -267,7 +267,7 @@ def fill_between():
 def raw_lines_reading_modelled_datasets():
     """Raw lines in a second panel that read its modelled datasets.
 
-    ``_gle_name`` is what ``open_gle`` sets when a kept raw line reads a
+    ``_gle_names`` is what ``open_gle`` sets when a kept raw line reads a
     series' dataset: here the names the panel's series are written under.
     The ``let`` target and the comment are not reads.
     """
@@ -275,11 +275,39 @@ def raw_lines_reading_modelled_datasets():
     top.plot([1, 2, 3], [1, 2, 1])
     bottom.plot([1, 2, 3], [0, 1, 0], color="red")
     bottom.plot([1, 2, 3], [2, 3, 2], color="blue")
-    bottom.lines[0]["_gle_name"] = "d2"
-    bottom.lines[1]["_gle_name"] = "d3"
+    bottom.lines[0]["_gle_names"] = {"data": "d2"}
+    bottom.lines[1]["_gle_names"] = {"data": "d3"}
     bottom.passthrough = [
         "   fill d2,d3 color gray foo",
         '   let d9 = d3*2 ! "d2"',
+    ]
+    return fig
+
+
+def raw_lines_reading_every_kind_of_dataset():
+    """Raw lines that read a bar's, a fill's and an error bar's datasets.
+
+    The fill and the line are offset, so their ``let`` aliases are read too.
+    Each ``_gle_names`` is the name the writer gives that dataset.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.fill_between([1, 2, 3], [0, 0, 0], [1, 2, 1], offset=2)
+    ax.bar([1, 2, 3], [1, 1, 1], bottom=[1, 2, 3])
+    ax.plot([1, 2, 3], [1, 2, 3], offset=5)
+    ax.errorbar([1, 2, 3], [3, 2, 3], yerr=[0.1, 0.2, 0.1])
+    ax.fills[0]["_gle_names"] = {
+        "data": "d1",
+        "second": "d2",
+        "offset": "d3",
+        "second_offset": "d4",
+    }
+    ax.bars[0]["_gle_names"] = {"from": "d5", "data": "d6"}
+    ax.lines[0]["_gle_names"] = {"data": "d7", "offset": "d8"}
+    ax.errorbars[0]["_gle_names"] = {"data": "d9"}
+    ax.passthrough = [
+        "   let d20 = d1+d2+d3+d4",
+        "   let d21 = d5+d6+d7+d8+d9",
     ]
     return fig
 
@@ -2094,6 +2122,7 @@ BUILDERS = [
     errorbar_data_range,
     fill_between,
     raw_lines_reading_modelled_datasets,
+    raw_lines_reading_every_kind_of_dataset,
     text_annotations,
     axes_fraction_text,
     annotations_with_arrows,

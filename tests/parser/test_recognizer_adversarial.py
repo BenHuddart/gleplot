@@ -1313,6 +1313,81 @@ def test_raw_reads_are_renamed_at_once_and_only_in_code(tmp_path):
     ]
 
 
+def _grouped_bars(ax):
+    ax.bar([1, 2, 3], [1, 2, 3])
+    ax.bar([1, 2, 3], [2, 1, 2])
+    for bar in ax.bars:
+        bar["group"] = 1
+
+
+def _shift_datasets(text, by):
+    return re.sub(r"\bd(\d+)\b", lambda m: f"d{int(m.group(1)) + by}", text)
+
+
+@pytest.mark.parametrize(
+    "build, reads",
+    [
+        (lambda ax: ax.errorbar([1, 2, 3], [1, 2, 3], yerr=[0.1, 0.2, 0.1]), "d1"),
+        (lambda ax: ax.bar([1, 2, 3], [1, 2, 3]), "d1"),
+        (lambda ax: ax.bar([1, 2, 3], [1, 1, 1], bottom=[1, 2, 3]), "d1+d2"),
+        (_grouped_bars, "d1+d2"),
+        # A raw read of the samples keeps the histogram raw: only its bins.
+        (lambda ax: ax.hist([1, 2, 2, 3, 3, 3], bins=3, histtype="step"), "d2"),
+        (lambda ax: ax.fill_between([1, 2, 3], [0, 0, 0], [1, 2, 1]), "d1+d2"),
+        (
+            lambda ax: ax.fill_between([1, 2, 3], [0, 0, 0], [1, 2, 1], offset=2),
+            "d1+d2+d3+d4",
+        ),
+        (lambda ax: ax.plot([1, 2, 3], [1, 2, 3], offset=5), "d1+d2"),
+        (lambda ax: ax.scatter([1, 2, 3], [1, 2, 3], offset=5), "d1+d2"),
+    ],
+    ids=[
+        "errorbar",
+        "bar",
+        "stacked-bar",
+        "bar-group",
+        "hist",
+        "fill",
+        "fill-offset",
+        "line-offset",
+        "scatter-offset",
+    ],
+)
+def test_raw_reads_of_every_modelled_dataset_follow_it(tmp_path, build, reads):
+    """#455: the datasets of each kind, offset aliases included, are bound."""
+    fig = glp.figure(data_prefix="g")
+    build(fig.add_subplot(111))
+    path = tmp_path / "g.gle"
+    fig.savefig_gle(str(path))
+    text = _shift_datasets(path.read_text("utf-8"), 4).replace(
+        "end graph",
+        f"   let d20 = {_shift_datasets(reads, 4)}\n"
+        "   d20 line color gray foo\nend graph",
+    )
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path)
+    (block,) = _graph_lines(rec.figure._generate_gle_with_files()[0])
+    assert f"let d20 = {reads}" in block
+
+
+@pytest.mark.parametrize(
+    "command, reads",
+    [("bar d5 fill red", "d5"), ("fill d5,d6 color red", "d5+d6")],
+    ids=["bar", "fill"],
+)
+def test_raw_reads_of_a_file_reference_follow_it(tmp_path, command, reads):
+    """#455: a bar or fill on the caller's own file is bound too."""
+    src = (
+        "size 12 9\nbegin graph\n"
+        '   data "a.dat" d5=c1,c2 d6=c1,c3\n'
+        f"   {command}\n"
+        f"   let d20 = {reads}\n   d20 line color gray foo\nend graph\n"
+    )
+    rec = parse_gle_figure(_write(tmp_path, "g.gle", src, _TWO_COLUMNS))
+    (block,) = _graph_lines(rec.figure._generate_gle_with_files()[0])
+    assert f"let d20 = {_shift_datasets(reads, -4)}" in block
+
+
 # --------------------------------------------------------------------------- #
 # Finding 12 -- duplicate data command redefining a dataset
 # --------------------------------------------------------------------------- #
