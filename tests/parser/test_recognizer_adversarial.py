@@ -3165,6 +3165,48 @@ def test_finding20_stacked_bar_reproduction_renders_with_parity(tmp_path):
     )
 
 
+_FOUR_COL_DAT = "1 2 3 4\n2 3 4 5\n3 4 5 6\n"
+
+
+@pytest.mark.parametrize(
+    "reader",
+    [
+        "   bar d3 fill red\n",
+        "   let d4 = hist d3 bins 3\n   bar d4 fill red\n",
+    ],
+    ids=["bar", "hist-let"],
+)
+def test_raw_reader_keeps_its_data_beside_a_modelled_sibling(tmp_path, reader):
+    """A raw reader of d3 keeps its definition when d6 on the same statement
+    is modelled (#490).
+
+    Rewriting the imported file down to d6's columns would leave d3 undefined,
+    so the file is read as a reference and kept as written.
+    """
+    src = _meta("a.dat") + (
+        "size 10 8\n"
+        "begin graph\n"
+        '   data "a.dat" d3=c1,c2 d6=c1,c4\n' + reader + "   d6 line color green\n"
+        "   fill d3,d6 color gray foo\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "in.gle", src, {"a.dat": _FOUR_COL_DAT})
+    rec = parse_gle_figure(p)
+    assert any("'a.dat' is also read by raw GLE" in w for w in rec.warnings)
+    assert not any("mixes datasets" in w for w in rec.warnings)
+
+    out1 = tmp_path / "out1.gle"
+    rec.figure.savefig_gle(str(out1))
+    text1 = out1.read_text(encoding="utf-8")
+    assert "data a.dat d3=c1,c2" in text1
+    assert "data a.dat d1=c1,c4" in text1
+    assert (tmp_path / "a.dat").read_text(encoding="utf-8") == _FOUR_COL_DAT
+
+    out2 = tmp_path / "out2.gle"
+    parse_gle_figure(out1).figure.savefig_gle(str(out2))
+    assert out2.read_text(encoding="utf-8") == text1
+
+
 # --------------------------------------------------------------------------- #
 # Finding 21 -- a marker-less, line-less series re-emitted as literal
 # ``marker None`` (gate-review MAJOR/rendered-fidelity finding, GLEstudio S8

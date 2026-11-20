@@ -1815,6 +1815,9 @@ class _Recognizer:
         self._table_cache: Dict[str, object] = {}
         self._layout_cache: Dict[Tuple[Any, ...], Optional[GLEDataLayout]] = {}
         self._import_list: Optional[List[str]] = None
+        # Imported files raw GLE also reads, loaded as references instead
+        # (see _keep_files_raw_reads).
+        self._kept_imports: Set[str] = set()
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
         # by their frames.
@@ -2950,6 +2953,7 @@ class _Recognizer:
         self._claim_guide_bridges(block, info, pass1)
         self._claim_rug_datasets(pass1)
         self._mark_bars_that_stay_raw(block, pass1.datasets, info)
+        self._keep_files_raw_reads(block, pass1, info)
 
         for child in block.body:
             if isinstance(child, OpaqueBlock):
@@ -3712,15 +3716,15 @@ class _Recognizer:
                     continue
                 # Otherwise surface it instead of guessing.
                 #
-                # A bar that cannot be modeled (an unmodelled sub-command, or
-                # a dataset shared with a fill that stays raw) is held with
-                # every name on its data statement, so this branch is not
-                # how a stack is kept consistent. For an imported (owned)
-                # file there is no narrower fix: synthesizing a second 'data'
-                # clause for just the orphaned names would reference columns
-                # the modeled series' OWN regenerated sidecar no longer
-                # carries (GLEWriter always rewrites an owned series' data
-                # file with exactly the columns it uses -- see
+                # A raw bar or histogram let on an imported file has the file
+                # read as a reference (_keep_files_raw_reads), so this branch
+                # is not how those are kept consistent. For a line kept raw
+                # on an imported (owned) file there is no narrower fix:
+                # synthesizing a second 'data' clause for just the orphaned
+                # names would reference columns the modeled series' OWN
+                # regenerated sidecar no longer carries (GLEWriter always
+                # rewrites an owned series' data file with exactly the
+                # columns it uses -- see
                 # GLEWriter.add_bar/_write_columns), which would
                 # silently corrupt the file instead of fixing the reference.
                 self._note(
@@ -6900,6 +6904,44 @@ class _Recognizer:
                 seed.update(names)
         info["_bar_hold_raw"] = self._expand_bar_hold(info, seed)
 
+    def _keep_files_raw_reads(self, block, pass1: _GraphDatasets, info) -> None:
+        """Load an imported file as a reference when raw GLE also reads it.
+
+        The writer rewrites an imported file with just the columns its
+        series read, so a raw ``bar`` (:meth:`_mark_bars_that_stay_raw`) or
+        histogram ``let`` (:meth:`_keep_owned_hist_lets`) beside a modelled
+        series on the same file would read columns that are gone. Read as a
+        reference, the file is kept as written and the raw reader's ``data``
+        statement is restored (:meth:`_orphan_data_clause`).
+        """
+        raw = set(info["_raw_datasets"])
+        for child in block.body:
+            if isinstance(child, Statement) and child.keyword == "bar":
+                scanned = _scan_bar_command(_words_and_values(child))
+                names = list(scanned["datasets"]) + list(scanned["from_names"])
+                if any(name in info["_bar_hold_raw"] for name in names):
+                    raw.update(names)
+        for name in sorted(raw):
+            if name not in pass1.datasets:
+                continue
+            data_file = pass1.datasets[name][0]
+            if not self._is_import(data_file):
+                continue
+            if all(
+                other in raw
+                for other, (other_file, _x, _y) in pass1.datasets.items()
+                if other_file == data_file
+            ):
+                continue
+            self._kept_imports.add(data_file)
+            self._note(
+                ImportCategory.DATA,
+                f"'{data_file}' is also read by raw GLE ({name}), so it is "
+                "kept as written and not rewritten; the series that read it "
+                "are file references",
+                None,
+            )
+
     @staticmethod
     def _expand_bar_hold(info, names):
         """``names`` plus every sibling declared on the same data statement."""
@@ -7018,7 +7060,9 @@ class _Recognizer:
             user_files = [
                 datasets[name][0]
                 for name in involved
-                if name in datasets and not self._is_import(datasets[name][0])
+                if name in datasets
+                and datasets[name][0] not in self._kept_imports
+                and not self._is_import(datasets[name][0])
             ]
             self._keep_bar_raw(
                 scanned, info, stmt, toks, user_files[0] if user_files else None
@@ -10154,6 +10198,8 @@ class _Recognizer:
         return True
 
     def _is_import(self, data_file) -> bool:
+        if data_file in self._kept_imports:
+            return False
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
 
