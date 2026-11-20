@@ -1826,6 +1826,11 @@ class _Recognizer:
         self._table_cache: Dict[str, object] = {}
         self._layout_cache: Dict[Tuple[Any, ...], Optional[GLEDataLayout]] = {}
         self._import_list: Optional[List[str]] = None
+        # Imported files whose raw datasets lose their 'data' statement when
+        # a series rewrites the file; parse_gle_figure recognizes again,
+        # reading the files kept as written.
+        self._shared_imports: Set[str] = set()
+        self._kept_imports: Set[str] = set()
         # 1-based numbers of the graphs the metadata names as insets; None
         # in a file with no gleplot metadata, whose insets are recognized
         # by their frames.
@@ -3769,22 +3774,26 @@ class _Recognizer:
                 clause = self._orphan_data_clause(
                     [(n, defs[n]) for n in orphans], read_options, info
                 )
+                data_file = defs[orphans[0]][0]
                 if clause is not None:
                     restored.append(clause)
+                    if data_file in self._kept_imports:
+                        self._note(
+                            ImportCategory.DATA,
+                            f"'{data_file}' is read by raw GLE beside series "
+                            "gleplot models, so it is kept as written and "
+                            "read in place. To edit that data, load the file "
+                            "and plot it with ax.plot()",
+                            (data_line_no, data_line_no),
+                        )
+                    continue
+                if self._is_import(data_file):
+                    # The writer rewrites an imported file with just the
+                    # columns its series read, so no clause can define the
+                    # orphans until the file is read as a reference.
+                    self._shared_imports.add(data_file)
                     continue
                 # Otherwise surface it instead of guessing.
-                #
-                # A bar that cannot be modeled (an unmodelled sub-command, or
-                # a dataset shared with a fill that stays raw) is held with
-                # every name on its data statement, so this branch is not
-                # how a stack is kept consistent. For an imported (owned)
-                # file there is no narrower fix: synthesizing a second 'data'
-                # clause for just the orphaned names would reference columns
-                # the modeled series' OWN regenerated sidecar no longer
-                # carries (GLEWriter always rewrites an owned series' data
-                # file with exactly the columns it uses -- see
-                # GLEWriter.add_bar/_write_columns), which would
-                # silently corrupt the file instead of fixing the reference.
                 self._note(
                     ImportCategory.DATA,
                     "'"
@@ -7127,7 +7136,9 @@ class _Recognizer:
             user_files = [
                 datasets[name][0]
                 for name in involved
-                if name in datasets and not self._is_import(datasets[name][0])
+                if name in datasets
+                and datasets[name][0] not in self._kept_imports
+                and not self._is_import(datasets[name][0])
             ]
             self._keep_bar_raw(
                 scanned, info, stmt, toks, user_files[0] if user_files else None
@@ -10295,6 +10306,8 @@ class _Recognizer:
         return True
 
     def _is_import(self, data_file) -> bool:
+        if data_file in self._kept_imports:
+            return False
         cls = classify_data_file(self.gle_path, data_file, self._import_list)
         return cls == "import"
 
@@ -11959,7 +11972,15 @@ def parse_gle_figure(
     """
     text, gle_path = _resolve_input(path_or_text, base_dir)
     rec = _Recognizer(text, gle_path)
-    return rec.run()
+    result = rec.run()
+    while rec._shared_imports:
+        # Read as references, those files are kept as written. That changes
+        # how every reader of them loads, in every graph, so start again.
+        kept = rec._kept_imports | rec._shared_imports
+        rec = _Recognizer(text, gle_path)
+        rec._kept_imports = kept
+        result = rec.run()
+    return result
 
 
 def _resolve_input(path_or_text, base_dir) -> Tuple[str, Path]:
