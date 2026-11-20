@@ -1598,6 +1598,18 @@ def one_point_default_width():
     return fig
 
 
+def default_series_colors():
+    """Non-default style colours, which the metadata records (#345)."""
+    fig = glp.figure(
+        style=glp.GLEStyleConfig(default_color="C1", default_marker_color="red"),
+        data_prefix="golden",
+    )
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [1, 2, 1])
+    ax.scatter([0, 1, 2], [2, 1, 2])
+    return fig
+
+
 def guides_after_graph():
     """Guides on an axis gleplot cannot range, drawn after ``end graph``.
 
@@ -2168,6 +2180,7 @@ BUILDERS = [
     function_curves,
     function_curves_beside_modelled_lets,
     one_point_default_width,
+    default_series_colors,
     guides_after_graph,
     fit_curves,
     closed_form_fits,

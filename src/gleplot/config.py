@@ -39,8 +39,6 @@ class GLEStyleConfig:
     default_linewidth : float
         Default line width in points (unit: 1/72 inch).
         Default: 1.5 points ≈ 0.053 cm (increased for visibility in PDFs)
-        A value other than the default is recorded in the saved file's
-        metadata, so a figure opened with ``open_gle`` keeps it.
 
     default_color : str
         Colour used by :meth:`gleplot.Axes.plot`, :meth:`~gleplot.Axes.errorbar`,
@@ -99,6 +97,11 @@ class GLEStyleConfig:
 
     Notes
     -----
+    A ``default_linewidth``, ``default_color`` or ``default_marker_color``
+    other than its default is recorded in a saved file's metadata, so a
+    figure opened with :func:`gleplot.open_gle` gives new series the same
+    defaults. A colour is recorded as the GLE colour it draws.
+
     The ``line_style_*`` defaults are the GLE ``lstyle`` numbers that actually
     render as their names say, measured by compiling a ruler of ``set lstyle
     1..9`` strokes with GLE 4.3.10 and looking at the result:

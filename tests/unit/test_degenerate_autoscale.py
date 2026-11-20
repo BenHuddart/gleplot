@@ -742,7 +742,8 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``tripcolor_tricontour_combo`` moved again when a tripcolor's fitz range
     started reaching past its last node, as colormap places nodes (#376).
     ``one_point_default_width`` moved again when the metadata started
-    recording a ``default_linewidth`` that is not 1.5 (#345).
+    recording a ``default_linewidth`` that is not 1.5 (#345), when
+    ``default_series_colors`` was added.
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():

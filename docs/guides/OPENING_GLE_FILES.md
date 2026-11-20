@@ -33,8 +33,8 @@ automatic legend at that position.
 
 gleplot marks its own files with a metadata header (the
 `! gleplot-meta-begin` comment block), which also records settings GLE has
-no command for, such as shared axes, the style's `default_linewidth` and which
-graphs are `add_axes` insets. Files from older releases carry
+no command for, such as shared axes, the style's default line width and
+colours, and which graphs are `add_axes` insets. Files from older releases carry
 version `v1` of that header and still open. Their graph geometry was
 implicit, so the first save writes each axes' position explicitly and
 updates the header to `v2`, a one-time change in layout. A header version
