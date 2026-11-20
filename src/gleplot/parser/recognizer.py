@@ -10623,7 +10623,7 @@ class _Recognizer:
         matches, or the run isn't closed by a ``grestore``, nothing is
         consumed here at all (not even the ``gsave``) and it falls through to
         ordinary passthrough handling, same as any other content this
-        recognizer does not model (e.g. the broken-axis seam decoration).
+        recognizer does not model.
 
         Returns (texts, next_index).
         """

@@ -2620,7 +2620,7 @@ class Axes:
         self._show_yticks = True
         # Edge tick-label suppression for touching subplots. Normally written
         # by Figure._apply_shared_axes_flags, but initialized here so a
-        # directly-constructed Axes (e.g. a broken-axis segment) has them too.
+        # directly-constructed Axes has them too.
         self._remove_last_xtick = False
         self._remove_last_ytick = False
         self._remove_first_xtick = False
@@ -2814,8 +2814,6 @@ class Axes:
         self.math_mode: Optional[bool] = None
 
         # Frame sides switched off entirely -- axis line, ticks and labels.
-        # Used for the inner edges of a broken-axis assembly, where several
-        # graph blocks butt together and must read as one panel.
         self._xaxis_off = False
         self._yaxis_off = False
         self._x2axis_off = False
@@ -2825,13 +2823,6 @@ class Axes:
         # A polar axes (Figure.add_subplot(projection='polar')): x is theta
         # in radians, y is r, and ylim is (0, rmax).
         self._polar = False
-
-        # Broken-axis membership (see :mod:`gleplot.brokenaxes`). Both stay
-        # None on an ordinary axes; on a segment, ``_break_owner`` is the
-        # BrokenAxes back-reference and ``_break_index`` its 0-based position
-        # left-to-right.
-        self._break_owner: Any = None
-        self._break_index: Optional[int] = None
 
         # Plot data storage. One list per series kind, each holding the
         # matching :mod:`gleplot.series` class (which owns that kind's field
@@ -6251,9 +6242,7 @@ class Axes:
     #    than lines for the same reason.)
     #
     # GLE clips datasets to the graph's axis range, so a guide whose value
-    # falls outside the visible range simply does not appear -- which is what
-    # makes these compose correctly with broken axes, where each segment shows
-    # only the guides that land inside it.
+    # falls outside the visible range simply does not appear.
 
     @staticmethod
     def _check_axes_fraction(lo: float, hi: float, names: str) -> Tuple[float, float]:
@@ -8894,8 +8883,7 @@ class Axes:
         labels : sequence of str, optional
             Tick labels (GLE ``xnames``), one per entry of ``ticks``.
         dticks : float, optional
-            Major tick interval (GLE ``dticks``) -- the usual way to keep two
-            segments of a broken axis from colliding at the seam.
+            Major tick interval (GLE ``dticks``).
         dsubticks : float, optional
             Minor tick interval (GLE ``dsubticks``).
         nticks : int, optional
@@ -9191,7 +9179,7 @@ class Axes:
         TypeError
             If ``aspect`` is neither a string nor a number.
         NotImplementedError
-            On a polar axes or a broken-axis segment.
+            On a polar axes.
 
         Notes
         -----
@@ -9211,12 +9199,6 @@ class Axes:
         >>> fig, ax = glp.subplots()
         >>> ax.set_aspect("equal")
         """
-        if self._break_owner is not None:
-            raise NotImplementedError(
-                "set_aspect() is not supported on a broken-axis segment: the "
-                "segments share one height. Choose figsize and the limits "
-                "instead."
-            )
         if isinstance(aspect, str) and aspect in ("auto", "equal"):
             value: Optional[float] = None if aspect == "auto" else 1.0
         else:
@@ -10203,7 +10185,6 @@ class Axes:
             "x2axis_off": self._x2axis_off,
             "y2axis_off": self._y2axis_off,
             "frame_off": self._frame_off,
-            "break_index": self._break_index,
             # Explicit page geometry (see __init__): the frame rect, or the
             # verbatim geometry statements when no rect is invertible. Both
             # unset = auto placement.
@@ -10344,9 +10325,6 @@ class Axes:
         ax._polar = d.get("polar", False)
         ax._aspect = d.get("aspect")
         ax._facecolor = d.get("facecolor")
-        # ``_break_owner`` is a back-reference rebound by Figure.from_dict
-        # after every axes exists (see gleplot.brokenaxes.BrokenAxes).
-        ax._break_index = d.get("break_index")
 
         # Explicit page geometry. Missing keys = a pre-geometry payload, i.e.
         # auto placement -- exactly what those figures rendered as.

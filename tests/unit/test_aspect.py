@@ -123,12 +123,6 @@ def test_bad_anchor_raises():
         ax.set_aspect("equal", anchor="X")
 
 
-def test_broken_axis_segment_set_aspect_raises():
-    bax = glp.figure().add_broken_xaxes([(0, 1), (2, 3)])
-    with pytest.raises(NotImplementedError, match="broken"):
-        bax.segments[0].set_aspect("equal")
-
-
 def test_bad_adjustable_raises():
     _fig, ax = glp.subplots()
     with pytest.raises(ValueError, match="adjustable"):

@@ -3,8 +3,7 @@
 `axvline`, `axhline`, `axvspan` and `axhspan` draw guides that span the whole
 axes: a critical temperature, a zero level, a background band, an excluded
 region. They are available on `Axes`, on `Figure` (acting on the current
-axes), on the module (`glp.axvline(...)`), and on a broken axis
-(see [BROKEN_AXES.md](BROKEN_AXES.md)). For segments whose ends are data
+axes), and on the module (`glp.axvline(...)`). For segments whose ends are data
 coordinates, use `hlines` / `vlines` (see [Plot Types](PLOT_TYPES.md)).
 
 Before these existed the usual workaround was a two-point `plot()` call and a
