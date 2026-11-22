@@ -22,7 +22,7 @@ from .axes import (
     histogram_counts,
 )
 from .cairo_support import cairo_font_warning, figure_requires_cairo
-from .colors import _gle_color, _rgba_parts, apply_alpha, rgb_to_gle
+from .colors import _gle_color, _is_none_color, _rgba_parts, apply_alpha, rgb_to_gle
 from .compiler import (
     RASTER_COMPILE_FORMATS,
     SUFFIX_TO_COMPILE_FORMAT,
@@ -354,10 +354,6 @@ def _page_slope(name: str, value) -> List[float]:
     if len(slope) != 2:
         raise ValueError(f"{name} must be a (dx, dy) pair, got {value!r}")
     return slope
-
-
-def _is_none_color(color) -> bool:
-    return isinstance(color, str) and color.strip().lower() == "none"
 
 
 def _page_text(kind: str, s) -> str:

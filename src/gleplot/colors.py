@@ -344,6 +344,19 @@ def _rgba_parts(color: Any) -> Tuple[Any, Any]:
     return color, None
 
 
+def _is_none_color(color: Any) -> bool:
+    """``True`` for matplotlib's ``'none'`` and for an RGBA colour whose alpha
+    is zero: both draw nothing."""
+    if isinstance(color, str):
+        return color.strip().lower() == "none"
+    _, alpha = _rgba_parts(color)
+    return (
+        isinstance(alpha, (int, float, np.integer, np.floating))
+        and not isinstance(alpha, bool)
+        and alpha <= 0
+    )
+
+
 def rgb255_expr(r: int, g: int, b: int) -> str:
     """Format an exact GLE colour expression from 0-255 components."""
     return "rgb255({},{},{})".format(_clamp255(r), _clamp255(g), _clamp255(b))

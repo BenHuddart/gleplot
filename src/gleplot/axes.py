@@ -23,7 +23,13 @@ from typing import (
 import numpy as np
 
 from ._warn import warn_external, warn_unsupported_keywords
-from .colors import _gle_color, _rgba_parts, apply_alpha, hatch_to_gle
+from .colors import (
+    _gle_color,
+    _is_none_color,
+    _rgba_parts,
+    apply_alpha,
+    hatch_to_gle,
+)
 from .config import LINE_CAPS, LINE_JOINS, GlobalConfig
 from .markers import MATPLOTLIB_TO_GLE_MARKERS, get_gle_marker, resolve_marker_fill
 from .mathtext import mathtext_to_gle
@@ -548,9 +554,9 @@ def _is_one_color(color) -> bool:
 
 
 def _gle_bar_color(color, arg: str) -> str:
-    """A bar colour as a GLE token. ``'none'`` stays ``none``, the caller's
-    to read: no edge, or a CLEAR face."""
-    if isinstance(color, str) and color.strip().lower() == "none":
+    """A bar colour as a GLE token. ``'none'``, or an RGBA colour with zero
+    alpha, is ``none``, the caller's to read: no edge, or a CLEAR face."""
+    if _is_none_color(color):
         return "none"
     return _gle_color(color, arg)
 
@@ -1632,6 +1638,8 @@ def _pop_marker_fill(
     markerfacecolor = _pop_line_alias(
         kwargs, caller, "mfc", "markerfacecolor", markerfacecolor, None
     )
+    if _is_none_color(markerfacecolor):
+        markerfacecolor = "none"
     return resolve_marker_fill(fillstyle=fillstyle, markerfacecolor=markerfacecolor)
 
 
@@ -3556,7 +3564,9 @@ class Axes:
         warning. ``edgecolor`` is the line colour of a ``'step'`` histogram,
         as in matplotlib, and the bar stroke of a ``'stepfilled'`` one;
         ``'face'`` is ``color``, and so is a ``'stepfilled'`` ``'none'``,
-        since GLE strokes every bar. ``alpha=`` reaches an explicit edge
+        since GLE strokes every bar. A ``'stepfilled'`` ``color='none'`` is a
+        ``CLEAR`` fill; with no ``edgecolor`` its outline is black, with a
+        warning. An RGBA colour with zero alpha is ``'none'``. ``alpha=`` reaches an explicit edge
         colour; an RGBA ``color``'s own alpha does not. Bins are equal width.
         The window is always written into the ``let`` (data min/max when
         ``range`` is omitted, widened by half a unit when every sample is the
@@ -3696,18 +3706,35 @@ class Axes:
         for samples, one_color, one_label, one_edge, one_alpha, one_ls, one_lw in zip(
             finite_sets, colors, labels, edges, alphas, linestyles, linewidths
         ):
-            one_color, color_alpha = _rgba_parts(one_color)
-            series_alpha = color_alpha if one_alpha is None else one_alpha
-            ink = self._resolve_color(one_color, yaxis=draw_yaxis, xaxis=draw_xaxis)
-            if series_alpha is not None:
-                ink = apply_alpha(ink, series_alpha)
+            edge_name = one_edge.strip().lower() if isinstance(one_edge, str) else None
+            if _is_none_color(one_edge):
+                edge_name = "none"
+            named_edge = one_edge is not None and edge_name not in ("face", "none")
+            # A 'none' face is a CLEAR bar fill, and draws nothing under a
+            # step line in edgecolor. GLE has no invisible line, so a step
+            # outline drawn in color stays black, with a warning.
+            if _is_none_color(one_color) and (
+                style_name == "stepfilled" or (named_edge and not as_bars)
+            ):
+                ink = "CLEAR"
+                if style_name == "stepfilled" and not named_edge:
+                    warn(
+                        f"hist(color={one_color!r}) with no edge draws a black "
+                        "outline: GLE strokes every bar. Pass edgecolor= to "
+                        "choose the outline's colour."
+                    )
+            else:
+                one_color, color_alpha = _rgba_parts(one_color)
+                series_alpha = color_alpha if one_alpha is None else one_alpha
+                ink = self._resolve_color(one_color, yaxis=draw_yaxis, xaxis=draw_xaxis)
+                if series_alpha is not None:
+                    ink = apply_alpha(ink, series_alpha)
             # The stroke is the fill unless the caller named an edge, so
             # the shared boundary of two bins is not a second ink. 'face' is
             # the fill, and so is a stepfilled 'none': GLE strokes every bar
             # (lwidth 0 and CLEAR still draw a black hairline), and the
             # fill's ink is the stroke that shows least.
             stroke = ink
-            edge_name = one_edge.strip().lower() if isinstance(one_edge, str) else None
             if edge_name == "none" and style_name == "step" and not as_bars:
                 warn(
                     "hist(histtype='step', edgecolor='none') would draw "
@@ -5284,8 +5311,9 @@ class Axes:
         color : str or sequence, optional
             Face colour. A sequence must have one entry, or one per bar.
             Omitted: the next colour of the axes' colour cycle (see
-            :class:`~gleplot.GLEStyleConfig`). ``'none'`` is GLE's ``CLEAR``
-            fill. ``facecolor`` / ``fc`` / ``c`` are aliases.
+            :class:`~gleplot.GLEStyleConfig`). ``'none'``, or an RGBA colour
+            with zero alpha, is GLE's ``CLEAR`` fill, which has no legend
+            swatch. ``facecolor`` / ``fc`` / ``c`` are aliases.
         label : str, optional
             Legend label. Emitted as ``dN key`` after the bar; the bar fill
             is the swatch. On a per-bar colour split, only the first bar
@@ -5458,6 +5486,22 @@ class Axes:
                 "black outline: GLE strokes every bar. Pass edgecolor= to "
                 "choose the outline's colour, or leave the bar out to draw "
                 "nothing.",
+            )
+        if (
+            label
+            and patterns[0] is None
+            and faces[0] == "CLEAR"
+            and edges[0] not in (None, "none")
+            and style.get("linestyle") != "none"
+        ):
+            # The key draws a swatch only for an opaque fill, and strokes it
+            # in the key's colour, not the bar's edge.
+            caller = "barh" if horiz else "bar"
+            warn_external(
+                f"{caller}() with color={color!r} has an empty legend swatch: "
+                "GLE draws no swatch for a bar with no fill, where matplotlib "
+                "outlines it in edgecolor. Give the bar a face colour to "
+                "show a swatch.",
             )
         # Reject a bad error before any series is stored, so a raise leaves
         # the axes as they were.
@@ -9464,14 +9508,10 @@ class Axes:
                 "background fills the rectangular window, not the circle."
             )
             return
-        rgb, alpha = _rgba_parts(color)
-        if (
-            color is None
-            or (isinstance(color, str) and color.strip().lower() == "none")
-            or (isinstance(alpha, (int, float)) and alpha <= 0)
-        ):
+        if color is None or _is_none_color(color):
             self._facecolor = None
         else:
+            rgb, alpha = _rgba_parts(color)
             self._facecolor = apply_alpha(_gle_color(rgb, "color"), alpha)
 
     @_cartesian_only

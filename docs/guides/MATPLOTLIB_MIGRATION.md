@@ -95,6 +95,13 @@ line: `dN key "label"` for a bar (the bar fill is already the swatch) and
 `dN keyfill COLOR key "label"` for a fill. `axvspan` / `axhspan` use the same
 fill swatch.
 
+GLE outlines every fill swatch in the key's colour, so the swatch of a bar
+with no edge keeps a black border, and one with an edge is not outlined in
+that edge's colour. GLE's `boxcolor` sets that outline for the whole key, not
+for one entry. A bar with `color='none'` has no swatch at all: GLE draws a
+swatch only for a fill it can see. With an `edgecolor` and a `label`, where
+matplotlib would show the outline, that warns.
+
 | `legend()` kwarg | gleplot |
 |---|---|
 | `loc` | wired — all eleven matplotlib strings map onto GLE's nine key anchors (`key pos`). `'best'` is not computed; like matplotlib's own fallback it means top right. GLE short forms (`'tr'`, `'bl'`, …) are accepted too. An unrecognized value warns. |
@@ -391,7 +398,7 @@ caps and round joins.
 
 `ax.bar(x, height)` emits `bar dN fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0`: the first colour of the axes' patch cycle (see [Default colours](#default-colours)), and no edge (see below). One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. A single colour, including the same colour repeated, stays one command.
 
-`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. As in matplotlib, a bar has no edge unless one is asked for. GLE strokes every bar, and `lwidth 0` alone is a black hairline, so a bar with no edge is stroked with that hairline in the colour under the edge (`color C lwidth 0`): the fill, or the face of a hatched bar. That is a bar given none of the three, and one given `edgecolor='none'`, `linestyle='none'` or `linewidth=0`. Unlike matplotlib, `linewidth` or `linestyle` without `edgecolor` draws an edge, in GLE's black. A hatched bar with `color='none'` has no face to match, and its outline is drawn in the hatch ink. `color='none'` is GLE's `CLEAR` fill. With no edge it is drawn as a black outline, since GLE strokes every bar, and that warns. `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered.
+`edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. As in matplotlib, a bar has no edge unless one is asked for. GLE strokes every bar, and `lwidth 0` alone is a black hairline, so a bar with no edge is stroked with that hairline in the colour under the edge (`color C lwidth 0`): the fill, or the face of a hatched bar. That is a bar given none of the three, and one given `edgecolor='none'`, `linestyle='none'` or `linewidth=0`. Unlike matplotlib, `linewidth` or `linestyle` without `edgecolor` draws an edge, in GLE's black. A hatched bar with `color='none'` has no face to match, and its outline is drawn in the hatch ink. `color='none'` is GLE's `CLEAR` fill. With no edge it is drawn as a black outline, since GLE strokes every bar, and that warns. An RGBA colour with zero alpha, such as `(0, 0, 0, 0)`, is `'none'` here, as a face and as an edge. It is `'none'` too for `hist`, `markerfacecolor`, `set_facecolor` and the `fill` and `color` of a figure drawing such as `Figure.circle`. `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered.
 
 `hatch` is GLE's `pattern`. Every GLE pattern is diagonal, so only these hatches have one: `'/'` is `SHADE`, `'\\'` is `RSHADE` and `'x'` (or `'X'`) is `GRID`. Repeated (`'//'`, `'xx'`, ...) they are the `2` variants, at half the spacing; a longer run is no denser. `'|'`, `'-'`, `'+'`, `'o'`, `'O'`, `'.'`, `'*'` and any mix such as `'/\\'` warn, and those bars are drawn solid. A sequence gives one hatch per bar, like a colour sequence, and splits the call the same way. GLE's `fill` is the hatch ink and `background` the colour under it, so `ax.bar(x, h, color='yellow', hatch='//')` emits `fill BLACK pattern SHADE2 background YELLOW`. As in matplotlib, the ink is `edgecolor`, or black when `edgecolor` is not given or is `'none'`, and `color='none'` is a `CLEAR` background. The legend swatch is hatched too. In a legend gleplot writes as a `begin key` block, the swatch hatches on white: there, `background` would colour the whole key. GLE's hatch lines are thinner than matplotlib's, and their spacing is fixed in centimetres.
 
@@ -472,7 +479,7 @@ The figure-wide `GLEGraphConfig(smooth_curves=True)` does not apply to a polar a
 | `histtype` | GLE |
 |---|---|
 | `"step"` | `dK line hist`, with smoothing pinned off. The line is drawn in `edgecolor` when one is given, else in `color`, as in matplotlib. |
-| `"stepfilled"` | `bar dK fill C color C width W`, one bin wide, from zero. `fill x1,dK` would chord the centres and fill to the axis minimum. The stroke matches the fill so the shared edge of two bins is not a second ink, unless `edgecolor` is given. GLE strokes every bar, so `edgecolor='none'` also strokes in the fill. As in matplotlib, `alpha=` reaches an explicit `edgecolor` and the alpha of an RGBA `color` does not. |
+| `"stepfilled"` | `bar dK fill C color C width W`, one bin wide, from zero. `fill x1,dK` would chord the centres and fill to the axis minimum. The stroke matches the fill so the shared edge of two bins is not a second ink, unless `edgecolor` is given. GLE strokes every bar, so `edgecolor='none'` also strokes in the fill. `color='none'` is a `CLEAR` fill; with no `edgecolor` its outline is black, with a warning. As in matplotlib, `alpha=` reaches an explicit `edgecolor` and the alpha of an RGBA `color` does not. |
 | `"bar"`, `"barstacked"` | warn, and draw the step outline in `color`; an `edgecolor` warns and is ignored. Per-bar faces, edges, groups and stacks are `Axes.bar`. |
 
 | argument | gleplot |
@@ -589,7 +596,8 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     is drawn opaque and a warning says so: pass an RGB colour and use the
     `alpha=` keyword where the function has one (`fill_between`, `fill`,
     `axhspan`, `axvspan`). As in matplotlib, `alpha=` overrides the colour's
-    own alpha, and then nothing warns.
+    own alpha, and then nothing warns. Where `'none'` is accepted, a zero
+    alpha is `'none'`.
 13. A guide (`axhline`, `axvline`, `axhspan`, `axvspan`) on an axis gleplot
     cannot range, because the axes has no data and no limit for it or its
     data collapses to one value, is drawn after the graph against the range

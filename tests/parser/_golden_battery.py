@@ -1625,6 +1625,29 @@ def histogram():
     return fig
 
 
+def histogram_none_face():
+    """``color='none'`` (or a zero-alpha RGBA) on a filled histogram is a
+    ``CLEAR`` fill, and on a step histogram the line is the edge."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    samples = [0.1, 0.3, 0.5, 0.7]
+    ax.hist(
+        samples,
+        bins=4,
+        range=(0, 1),
+        histtype="stepfilled",
+        color="none",
+        edgecolor="red",
+        label="clear",
+    )
+    ax.hist(samples, bins=4, range=(0, 1), histtype="stepfilled", color=(0, 0, 0, 0))
+    ax.hist(
+        samples, bins=4, range=(0, 1), histtype="step", color="none", edgecolor="blue"
+    )
+    ax.legend()
+    return fig
+
+
 def function_curves():
     """Two GLE-sampled curves: one with a range, step, style and label, one bare."""
     fig = glp.figure(data_prefix="golden")
@@ -2261,6 +2284,7 @@ BUILDERS = [
     fill_orientations,
     segment_lines,
     histogram,
+    histogram_none_face,
     function_curves,
     function_curves_beside_modelled_lets,
     one_point_default_width,

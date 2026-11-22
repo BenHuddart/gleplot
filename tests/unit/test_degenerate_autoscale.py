@@ -742,7 +742,8 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     whose span is float noise beside its offset kept its ends apart (#468).
     ``fill_curve_offsets`` was added when each curve of a fill kept its own
     offset (#491). ``bar_no_edge`` was added when a bar with no edge started
-    stroking in the colour under it (#515).
+    stroking in the colour under it (#515). ``histogram_none_face`` was added
+    for a 'none' face on a histogram (#547).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
