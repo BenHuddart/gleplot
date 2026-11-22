@@ -180,10 +180,51 @@ def example_combined_errorbars():
     print("  ✓ Saved to example_combined_errorbars.gle")
 
 
+def example_errorbar_data_range():
+    """A format string sets an error-bar series' marker and colour, as in
+    matplotlib (``fmt='ko'``). ``ymin``/``ymax`` give a series its own data
+    range, GLE's ``dN ymin ... ymax``: the fraction below is drawn as if the
+    y axis ran from 0 to 1, so it shares the frame with the counts. The tick
+    labels belong to the axis, so the legend names the second scale.
+    """
+    print("Creating example: Error bars with a data range...")
+
+    fig = glp.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111)
+
+    T = np.arange(10, 101, 10)
+    counts = 900 * np.exp(-T / 40) + 50
+    fraction = 1 / (1 + np.exp(-(T - 55) / 10))
+
+    ax.errorbar(T, counts, yerr=np.sqrt(counts), fmt="ko", label="Counts")
+    # Drawn against 0..1, whatever the axis range is.
+    ax.errorbar(
+        T,
+        fraction,
+        yerr=0.03,
+        fmt="s--",
+        color="C3",
+        ymin=0,
+        ymax=1,
+        label="Ordered fraction (0 to 1)",
+    )
+
+    ax.set_xlim(0, 110)
+    ax.set_ylim(0, 1000)
+    ax.set_xlabel("Temperature (K)")
+    ax.set_ylabel("Counts")
+    ax.set_title("Error Bars with Their Own Data Range")
+    ax.legend(loc="center right")
+
+    fig.savefig("example_errorbar_data_range.gle")
+    print("  ✓ Saved to example_errorbar_data_range.gle")
+
+
 if __name__ == "__main__":
     example_symmetric_error_bars()
     example_asymmetric_error_bars()
     example_horizontal_error_bars()
     example_errorbar_with_line()
     example_combined_errorbars()
+    example_errorbar_data_range()
     print("\nAll error bar examples created.")

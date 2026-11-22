@@ -35,5 +35,44 @@ def example_bar_chart():
     print("  ✓ Saved to example_bar_chart.gle")
 
 
+def example_barh_and_stacked_bars():
+    """Horizontal bars with ``barh``, and bars stacked with ``bottom=``. Each bar
+    series is one GLE ``bar`` dataset; the tick labels name the categories.
+    """
+    print("Creating example: Horizontal and stacked bars...")
+
+    fig, (ax1, ax2) = glp.subplots(1, 2, figsize=(10, 4.5))
+
+    # Horizontal bars: y positions, then the bar lengths.
+    methods = ["XRD", "NMR", "SQUID", "muSR", "Raman"]
+    hours = np.array([12, 30, 8, 22, 5])
+    ypos = np.arange(1, len(methods) + 1)
+    ax1.barh(ypos, hours, height=0.6, color="steelblue")
+    ax1.set_yticks(ypos, methods)
+    ax1.set_xlim(0, 35)
+    ax1.set_ylim(0.4, len(methods) + 0.6)
+    ax1.set_xlabel("Beam time (hours)")
+    ax1.set_title("barh")
+
+    # Stacked bars: each layer starts where the one below it ends.
+    quarters = np.arange(1, 5)
+    a = np.array([5, 7, 6, 8])
+    b = np.array([3, 2, 4, 3])
+    c = np.array([2, 3, 2, 4])
+    ax2.bar(quarters, a, width=0.6, label="Group A")
+    ax2.bar(quarters, b, width=0.6, bottom=a, label="Group B")
+    ax2.bar(quarters, c, width=0.6, bottom=a + b, label="Group C")
+    ax2.set_xticks(quarters, ["Q1", "Q2", "Q3", "Q4"])
+    ax2.set_xlim(0.4, 4.6)
+    ax2.set_ylim(0, 20)
+    ax2.set_ylabel("Samples")
+    ax2.set_title("Stacked bar")
+    ax2.legend(loc="upper left")
+
+    fig.savefig("example_barh_stacked.gle")
+    print("  ✓ Saved to example_barh_stacked.gle")
+
+
 if __name__ == "__main__":
     example_bar_chart()
+    example_barh_and_stacked_bars()
