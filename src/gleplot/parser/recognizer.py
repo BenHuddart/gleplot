@@ -10632,7 +10632,11 @@ class _Recognizer:
         args = self._named_args(toks[1:], expr_arg=length)
         heatmaps = axes_info.get("heatmaps") or []
         palette = args.get("palette")
-        zrange = (_as_float(args.get("zmin"), 0.0), _as_float(args.get("zmax"), 1.0))
+        zstep = _as_float(args.get("zstep"), 0.0) / float(COLORBAR_STEP_SCALE)
+        zrange = self._colorbar_range(toks[1:], zstep) or (
+            _as_float(args.get("zmin"), 0.0),
+            _as_float(args.get("zmax"), 1.0),
+        )
         # A bar is the heatmap's when it draws the palette the writer gives
         # the heatmap's bar: the band sub for a contourf, else the image's
         # palette, reversed for an inverted image. A colour-mapped scatter
@@ -10681,16 +10685,40 @@ class _Recognizer:
             "format": args.get("format") or "fix 1",
             "width": _as_float(args.get(thickness), 0.5),
             "sep": sep,
-            "zmin": _as_float(args.get("zmin"), 0.0),
-            "zmax": _as_float(args.get("zmax"), 1.0),
+            "zmin": zrange[0],
+            "zmax": zrange[1],
             # Written scaled by COLORBAR_STEP_SCALE (see add_colorbar).
-            "zstep": _as_float(args.get("zstep"), 0.0) / float(COLORBAR_STEP_SCALE),
+            "zstep": zstep,
         }
         if horizontal:
             cb["orientation"] = "horizontal"
         hm["colorbar"] = cb
         hm.pop("_bar_range", None)
         return True
+
+    def _colorbar_range(self, toks, zstep: float) -> Optional[Tuple[float, float]]:
+        """The ``zmin``/``zmax`` of a bar written raised past a zero tick.
+
+        ``GLEWriter._colorbar_range`` writes both ``+c`` when a tick falls
+        on zero; only arguments that are exactly that form are read back
+        without it. None for any other call.
+        """
+        texts: Dict[str, str] = {}
+        for i, tok in enumerate(toks):
+            name = tok.value.lower()
+            if name in ("zmin", "zmax") and tok.type is TokenType.WORD:
+                j = i + 1
+                while j < len(toks) and toks[j].value.lower() not in (
+                    self._CALL_ARG_NAMES
+                ):
+                    j += 1
+                texts[name] = "".join(t.value for t in toks[i + 1 : j])
+        try:
+            zmin, zmax = (float(texts[n].rpartition("+")[0]) for n in ("zmin", "zmax"))
+        except (KeyError, ValueError):
+            return None
+        written = GLEWriter._colorbar_range(zmin, zmax, zstep)
+        return (zmin, zmax) if written == (texts["zmin"], texts["zmax"]) else None
 
     def _apply_clabel_call(self, toks, axes_info) -> bool:
         """Set ``clabel`` on the contour whose labels file the call reads.

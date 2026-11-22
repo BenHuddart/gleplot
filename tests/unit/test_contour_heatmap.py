@@ -1125,6 +1125,29 @@ def test_colorbar_attaches_to_heatmap_and_emits_call():
     ) in text
 
 
+def test_colorbar_ticks_reaching_zero_from_below_raise_the_range():
+    """The scaled step leaves the zero tick just below zero, drawn '-0.0'.
+
+    Raising zmin and zmax together lifts it above zero without moving the
+    bar (#558); a range without a zero tick is written as it was.
+    """
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.zeros((2, 2)), vmin=-0.6, vmax=1)
+    fig.colorbar(nticks=8)
+    text, _ = _gle(fig)
+    assert (
+        "color_range_vertical zmin -0.6+3.2e-09 zmax 1+3.2e-09 "
+        "zstep (1-(-0.6))/8*0.999999999 "
+    ) in text
+
+    fig = glp.figure(data_prefix="t")
+    ax = fig.add_subplot(111)
+    ax.imshow(np.zeros((2, 2)), vmin=-0.5, vmax=1)
+    fig.colorbar(nticks=5)
+    assert "zmin -0.5 zmax 1 zstep" in _gle(fig)[0]
+
+
 def test_colorbar_without_vmin_uses_data_range():
     fig = glp.figure(data_prefix="t")
     ax = fig.add_subplot(111)
