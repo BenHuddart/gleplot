@@ -356,21 +356,23 @@ from ..writer import (
     CONTOUR_INCLUDE,
     CONTOURF_EXTENDS,
     CONTOURF_MARKER,
+    FIXED_SUBS,
     IMAGE_LAYER,
     IMAGE_SUBS,
     MDATA_SUB_PREFIX,
     NAME_QUOTE,
     NODES_MARKER,
     POLAR_GRID_LAYER,
-    POLAR_SUB_NAMES,
     RUG_EDGES,
     RUGS_INCLUDE,
     GLEWriter,
     KeyOptions,
     _format_data_filename,
+    cdata_sub_text,
     image_sub_name,
     legend_column_breaks,
     legend_corner,
+    mdata_sub_text,
     polar_degree_mark,
     polar_label_decimals,
     polar_ring_step,
@@ -753,24 +755,29 @@ def _words_and_values(stmt: Statement) -> List[Token]:
     return [t for t in stmt.tokens if t.type is not TokenType.COMMENT]
 
 
-#: The subs gleplot writes whose names do not depend on the figure.
 #: gleplot 5 named its subs ``gleplot_<name>``; those are no longer read, so a
 #: file that defines one keeps it as raw GLE, with the calls that use it.
-_FIXED_SUBS = frozenset((*POLAR_SUB_NAMES, *IMAGE_SUBS))
 _CONTOURF_SUB_RE = re.compile(r"glp_contourf\d+")
 
 
-def _is_written_sub(name: str) -> bool:
-    """True if ``sub <name>`` (lower case) is one gleplot writes and reads.
+def _written_sub_text(name: str) -> Optional[str]:
+    """The text gleplot writes for ``sub <name>`` (lower case), if it is fixed.
 
-    A per-point colour sub is one only when its colormap is one GLE draws.
+    That is a polar or image sub (``FIXED_SUBS``), or a per-point size or
+    colour sub up to its ``end sub``; a per-point colour sub only when its
+    colormap is one GLE draws. ``None`` for any other name.
     """
     if name.startswith(CDATA_SUB_PREFIX):
         marker, _, cmap = name[len(CDATA_SUB_PREFIX) :].partition("_")
-        return marker.upper() in MARKERS and is_native(cmap, True)
+        if marker.upper() not in MARKERS or not is_native(cmap, True):
+            return None
+        return cdata_sub_text(marker, cmap).rsplit("\n", 1)[0]
     if name.startswith(MDATA_SUB_PREFIX):
-        return name[len(MDATA_SUB_PREFIX) :].upper() in MARKERS
-    return name in _FIXED_SUBS or _CONTOURF_SUB_RE.fullmatch(name) is not None
+        marker = name[len(MDATA_SUB_PREFIX) :]
+        if marker.upper() not in MARKERS:
+            return None
+        return mdata_sub_text(marker).rsplit("\n", 1)[0]
+    return FIXED_SUBS.get(name)
 
 
 def _guide_marker_text(node) -> Optional[str]:
@@ -8931,19 +8938,32 @@ class _Recognizer:
     def _scan_gleplot_sub_lines(self) -> set:
         """1-based line numbers spanned by the subs gleplot writes.
 
-        Those are the ``sub glp_<name>`` definitions it writes
-        (:func:`_is_written_sub`), and the ``cmap_<name>``
+        Those are the ``glp_contourf<k>`` band subs, the ``cmap_<name>``
         palette wrappers written exactly as :mod:`gleplot.palettes` writes
-        them; a wrapper with another body is the file's own. Their bodies use
+        them, and the other ``glp_<name>`` subs written exactly as
+        :func:`_written_sub_text` gives them; one with another body is the
+        file's own. Their bodies use
         ``sub``/``if``/``return`` etc.; they are dropped wherever they appear
         (like the metadata block) and regenerated canonically from the model
         on re-save, so they never leak into passthrough nor trip the
         programmatic-construct guard.
         """
         nums: set = set()
+        lines = self.text.splitlines()
+        # The subs gleplot writes the same way every time, defined here with
+        # another body.
+        own: Set[str] = set()
         in_sub = False
         sub_name = ""
-        lines = self.text.splitlines()
+
+        def written(idx: int, text: str) -> Optional[range]:
+            """The lines of the sub at ``idx`` if they are ``text`` exactly."""
+            span = range(idx, idx + text.count("\n") + 1)
+            body = lines[idx - 1 : span.stop - 1]
+            if text and "\n".join(ln.rstrip() for ln in body) == text:
+                return span
+            return None
+
         for idx, line in enumerate(lines, start=1):
             low = line.strip().lower()
             if not in_sub:
@@ -8956,24 +8976,41 @@ class _Recognizer:
                         "calls that need it",
                         (idx, idx),
                     )
-                elif low.startswith("sub ") and _is_written_sub(words[1]):
+                elif low.startswith("sub ") and _CONTOURF_SUB_RE.fullmatch(words[1]):
                     in_sub = True
                     sub_name = words[1]
                     nums.add(idx)
-                    if sub_name.startswith("glp_contourf"):
-                        self._contourf_sub_spans[sub_name] = {idx}
+                    self._contourf_sub_spans[sub_name] = {idx}
                 elif low.startswith("sub cmap_"):
                     name = words[1][len("cmap_") :]
                     text = palette_sub_text(name) if is_native(name, True) else ""
-                    span = range(idx, idx + text.count("\n") + 1)
-                    body = lines[idx - 1 : span.stop - 1]
-                    if text and "\n".join(ln.rstrip() for ln in body) == text:
+                    span = written(idx, text)
+                    if span:
                         nums.update(span)
                     else:
                         self._own_palette_subs.add(words[1])
-                elif _GLEPLOT_DEFINE_MARKER_RE.match(low) and _is_written_sub(words[2]):
-                    # The ``define marker`` naming a per-point-size sub
-                    # (writer.mdata_sub_text) is part of that sub.
+                elif low.startswith("sub ") and (
+                    text := _written_sub_text(words[1]) or ""
+                ):
+                    span = written(idx, text)
+                    if span:
+                        nums.update(span)
+                    else:
+                        own.add(words[1])
+                        self._note(
+                            ImportCategory.STRUCTURE,
+                            f"'{words[1]}' is not the sub gleplot writes (its "
+                            "body was edited), so it was kept as raw GLE and "
+                            "gleplot writes none of that name",
+                            (idx, idx),
+                        )
+                elif (
+                    _GLEPLOT_DEFINE_MARKER_RE.match(low)
+                    and _written_sub_text(words[2]) is not None
+                    and words[2] not in own
+                ):
+                    # The ``define marker`` naming a per-point size or colour
+                    # sub (writer.mdata_sub_text) is part of that sub.
                     nums.add(idx)
                 continue
             nums.add(idx)
@@ -9084,6 +9121,7 @@ class _Recognizer:
         """
         colormap_files: set = set()
         cdata_bases: set = set()
+        read_subs: Set[str] = set()
         for node in nodes:
             if not isinstance(node, GraphBlock):
                 continue
@@ -9093,7 +9131,9 @@ class _Recognizer:
                 kw = child.keyword
                 toks = _words_and_values(child)
                 if kw == "colormap":
-                    self._keep_contourf_sub_unless_readable(toks)
+                    band_sub = self._keep_contourf_sub_unless_readable(toks)
+                    if band_sub is not None:
+                        read_subs.add(band_sub)
                     zfile = self._colormap_recognizable_zfile(toks)
                     if zfile is not None:
                         colormap_files.add(zfile)
@@ -9101,6 +9141,10 @@ class _Recognizer:
                     fname, _ = self._read_filename(toks, 1)
                     if fname.endswith("-cdata.dat"):
                         cdata_bases.add(fname[: -len("-cdata.dat")])
+        # A band sub no graph's colormap is read with (such as one a graph
+        # kept raw inside 'begin translate' calls) cannot be written again.
+        for name in set(self._contourf_sub_spans) - read_subs:
+            self._drop_contourf_sub(name)
         return colormap_files, cdata_bases
 
     def _palette_cmap(self, palette: str) -> Optional[str]:
@@ -9408,6 +9452,12 @@ class _Recognizer:
                 info,
                 stmt,
             )
+            if len(info["heatmaps"]) > built:
+                # The range a colorbar draws the band sub with; dropped
+                # again when that colorbar is read (_apply_colorbar_call).
+                rescale = self._contourf_rescales.get(palette.lower())
+                if rescale is not None:
+                    info["heatmaps"][-1]["_bar_range"] = list(rescale)
             if built == 0 and info["heatmaps"]:
                 info["_contourf_palette"] = palette.lower()
             return
@@ -9809,20 +9859,29 @@ class _Recognizer:
             and self._read_z_grid(zfile) is not None
         )
 
-    def _keep_contourf_sub_unless_readable(self, toks) -> None:
+    def _keep_contourf_sub_unless_readable(self, toks) -> Optional[str]:
         """Keep a ``contourf`` band sub as raw GLE if its colormap will be.
 
         A ``colormap`` naming a ``glp_contourf<k>`` palette that
         :meth:`_contourf_colormap_ok` rejects is kept as raw GLE (as an
-        unknown palette), so the sub it calls must be kept too.
+        unknown palette), so the sub it calls must be kept too. Returns the
+        name of the band sub the colormap is read with, if it is.
         """
         words = [t.value.lower() for t in toks]
         if "palette" not in words[:-1]:
-            return
+            return None
         name = words[words.index("palette") + 1]
-        if name in self._contourf_subs and not self._contourf_colormap_ok(toks):
-            del self._contourf_subs[name]
-            self._gleplot_sub_lines -= self._contourf_sub_spans.pop(name, set())
+        if name not in self._contourf_subs:
+            return None
+        if self._contourf_colormap_ok(toks):
+            return name
+        self._drop_contourf_sub(name)
+        return None
+
+    def _drop_contourf_sub(self, name: str) -> None:
+        """Keep the band sub ``name`` as raw GLE: no contourf is read with it."""
+        self._contourf_subs.pop(name, None)
+        self._gleplot_sub_lines -= self._contourf_sub_spans.pop(name, set())
 
     def _parse_contourf_colormap(self, zfile, pixels, comment, info, stmt):
         """Rebuild a ``contourf`` heatmap from its colormap and band sub.
@@ -10587,6 +10646,7 @@ class _Recognizer:
         if horizontal:
             cb["orientation"] = "horizontal"
         hm["colorbar"] = cb
+        hm.pop("_bar_range", None)
         return True
 
     def _apply_clabel_call(self, toks, axes_info) -> bool:

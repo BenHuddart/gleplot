@@ -10,6 +10,7 @@ verbatim through passthrough, with a warning).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -1053,3 +1054,60 @@ def test_a_contourf_bar_whose_gap_cannot_be_read_keeps_its_colours(tmp_path):
     (note,) = rec.warnings
     assert "written back at the default gap" in note
     assert rec.figure._generate_gle_with_files()[0] == text
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        # The label's gap from the bar, edited by hand.
+        ("0.5*5/3+0.2)", "0.5*5/3+0.4)"),
+        # The label itself, written another way.
+        ('write "Z"', 'write "Z" ! the z axis'),
+    ],
+    ids=["label-gap", "label-line"],
+)
+def test_a_contourf_bar_kept_raw_keeps_the_rescale_it_draws_through(tmp_path, old, new):
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 1, 5)
+    cf = ax.contourf(x, x, np.add.outer(x, x), [0, 0.5, 1, 1.5, 2])
+    fig.colorbar(cf, label="Z")
+    path = _save(fig, tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert old in text
+    text = text.replace(old, new)
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path)
+    (hm,) = rec.figure.axes_list[0].heatmaps
+    assert hm["colorbar"] is None
+    assert any("color_range_vertical" in line for line in rec.figure._trailer_lines())
+    again = rec.figure._generate_gle_with_files()[0]
+    assert "   z = 0*(1-z)+2*z" in again
+    assert again == text
+
+
+def test_a_band_sub_kept_raw_keeps_its_name(tmp_path):
+    """#549: a graph kept raw inside 'begin translate' keeps the band sub it
+    calls, so the band sub of the graph that is read takes another name."""
+    fig, (left, right) = glp.subplots(1, 2, data_prefix="g")
+    x = np.linspace(0, 1, 30)
+    left.contourf(x, x, np.add.outer(x, x), [0, 0.3, 0.6, 1])
+    right.contourf(x, x, np.add.outer(x, x), [0, 0.5, 1, 2])
+    path = _save(fig, tmp_path)
+    text = re.sub(
+        r"amove [^\n]*\nbegin graph",
+        "begin translate 0 0\nbegin graph",
+        path.read_text(encoding="utf-8"),
+        count=1,
+    ).replace("end graph", "end graph\nend translate", 1)
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path).figure
+    assert len(rec.axes_list) == 1
+    again = rec._generate_gle_with_files()[0]
+    assert re.findall(r"^sub (glp_contourf\d+)", again, re.MULTILINE) == [
+        "glp_contourf1",
+        "glp_contourf2",
+    ]
+    assert again.count("palette glp_contourf1") == 1
+    assert again.count("palette glp_contourf2") == 1
+    assert _resave(tmp_path, again) == again

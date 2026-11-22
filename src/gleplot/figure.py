@@ -58,9 +58,8 @@ from .writer import (
     COLORBAR_LABEL_PAD,
     COLORBAR_NTICKS,
     DEFAULT_COLORBAR_NTICKS,
-    IMAGE_SUBS,
+    FIXED_SUBS,
     MDATA_SUB_PREFIX,
-    POLAR_SUB,
     POLAR_SUB_NAMES,
     AxisStyle,
     DecimationPolicy,
@@ -91,25 +90,27 @@ _CDATA_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: A palette wrapper sub (``cmap_<name>``) named in raw GLE, and one defined
-#: there; group 1 is the name.
+#: A palette wrapper sub (``cmap_<name>``) named in raw GLE; group 1 is the
+#: name.
 _PALETTE_REF_RE = re.compile(r"\bcmap_(\w+)", re.IGNORECASE)
-_PALETTE_DEF_RE = re.compile(r"^\s*sub\s+cmap_(\w+)", re.IGNORECASE | re.MULTILINE)
 
 
-#: A call of a polar or image sub (:data:`POLAR_SUB`, :data:`IMAGE_SUBS`)
-#: in raw GLE, a statement of its own or after ``draw``; group 1 is the
-#: sub's name. A name in a comment or a string is not a call.
+#: A call of a polar or image sub (:data:`gleplot.writer.FIXED_SUBS`) in raw
+#: GLE, a statement of its own or after ``draw``; group 1 is the sub's name.
+#: A name in a comment or a string is not a call.
 _FIXED_SUB_CALL_RE = re.compile(
-    r"^\s*(?:draw\s+)?(" + "|".join((*POLAR_SUB_NAMES, *IMAGE_SUBS)) + r")\b",
+    r"^\s*(?:draw\s+)?(" + "|".join(FIXED_SUBS) + r")\b",
     re.IGNORECASE | re.MULTILINE,
 )
+#: A sub definition in raw GLE; group 1 is the sub's name.
+_SUB_DEF_RE = re.compile(r"^\s*sub\s+(\w+)", re.IGNORECASE | re.MULTILINE)
 
 
 def _raw_gle(fig: "Figure") -> str:
     """The raw GLE kept from a loaded file, one line per source line."""
     return "\n".join(
         [
+            *fig.passthrough_before_hei,
             *fig.passthrough_header,
             *fig.passthrough_trailer,
             *(line for ax in fig.axes_list for line in ax.passthrough),
@@ -118,33 +119,44 @@ def _raw_gle(fig: "Figure") -> str:
     )
 
 
+def _raw_subs(fig: "Figure") -> Set[str]:
+    """The subs raw GLE kept from a loaded file defines, lower case.
+
+    The parser kept only the ones gleplot writes whose body was edited (or
+    that it does not read), so each is the file's own: gleplot writes none
+    of that name.
+    """
+    return {name.lower() for name in _SUB_DEF_RE.findall(_raw_gle(fig))}
+
+
 def _raw_palettes(fig: "Figure") -> Tuple[Set[str], Set[str]]:
     """The palette wrappers raw GLE kept from a loaded file calls, and defines.
 
     The parser dropped gleplot's wrapper subs, so the ones called are written
     again; one the raw text defines itself is the file's own and is not.
     """
-    raw = _raw_gle(fig)
-    called = {name.lower() for name in _PALETTE_REF_RE.findall(raw)}
-    own = {name.lower() for name in _PALETTE_DEF_RE.findall(raw)}
+    called = {name.lower() for name in _PALETTE_REF_RE.findall(_raw_gle(fig))}
+    own = {name[len("cmap_") :] for name in _raw_subs(fig) if name.startswith("cmap_")}
     return {c for c in called if _pal.is_native(c, sub=True)}, own
 
 
-def _coloured_markers(ax: Axes, resolution: SourceResolution) -> Set[Tuple[str, str]]:
-    """The ``(marker, cmap)`` of each per-point colour sub ``ax`` draws with.
+def _coloured_markers(
+    fig: "Figure", resolution: SourceResolution
+) -> Set[Tuple[str, str]]:
+    """The ``(marker, cmap)`` of each per-point colour sub ``fig`` draws with.
 
     A dataset line kept as raw GLE may name one too: the parser dropped its
     sub, so it is written again.
     """
     found = {
         (str(sc["marker"]).lower(), sc["cmap"])
+        for ax in fig.axes_list
         for sc in resolution.visible(ax.scatters)
         if "cdata" in sc
     }
-    for line in ax.passthrough:
-        for marker, cmap in _CDATA_MARKER_RE.findall(line):
-            if marker.upper() in MARKERS and _pal.is_native(cmap.lower(), sub=True):
-                found.add((marker.lower(), cmap.lower()))
+    for marker, cmap in _CDATA_MARKER_RE.findall(_raw_gle(fig)):
+        if marker.upper() in MARKERS and _pal.is_native(cmap.lower(), sub=True):
+            found.add((marker.lower(), cmap.lower()))
     return found
 
 
@@ -3076,6 +3088,8 @@ class Figure:
             preview_decimation=preview_decimation,
         )
 
+        writer.reserve_subs(_raw_subs(self))
+
         # Source resolution, before anything reads a series' numbers.
         resolution = resolve_figure(self, data_provider)
         self._source_warnings = list(resolution.warnings)
@@ -3110,6 +3124,8 @@ class Figure:
                 passthrough_before_hei=self.passthrough_before_hei,
                 page_box=self.page_box,
             )
+            # The raw GLE may call a sub the parser dropped.
+            writer.add_sub_defs(*sub_texts)
             self._write_page_content(writer, resolution)
             writer.finalize(
                 include_graph_end=False, passthrough_trailer=self.passthrough_trailer
@@ -3453,7 +3469,7 @@ class Figure:
                     bar_cmap = _pal.colorbar_cmap(hm["cmap"], True)
                     if _pal.cmap_needs_sub(bar_cmap):
                         used_cmaps.add(bar_cmap)
-            used_cmaps |= {cmap for _marker, cmap in _coloured_markers(ax, resolution)}
+        used_cmaps |= {cmap for _marker, cmap in _coloured_markers(self, resolution)}
         called, own = _raw_palettes(self)
         return (used_cmaps | called) - own
 
@@ -3469,7 +3485,8 @@ class Figure:
         colour sub per marker and colormap that a scatter with ``cdata`` uses,
         sorted, then the polar subs
         (if any polar axes), then the image subs (if any placed image),
-        each also when raw GLE kept from a loaded file calls it.
+        each also when raw GLE kept from a loaded file calls it, and none
+        that the raw GLE defines with its own body.
         Skipped (dangling) series contribute nothing, so a write that drops
         the only heatmap does not leave an unused palette sub behind.
 
@@ -3482,45 +3499,44 @@ class Figure:
         """
         resolution = resolution or SourceResolution()
         used_cmaps = self._palette_cmaps(resolution)
-        coloured: Set[Tuple[str, str]] = set()
-        for ax in self.axes_list:
-            coloured |= _coloured_markers(ax, resolution)
+        coloured = _coloured_markers(self, resolution)
 
         subs = [_pal.palette_sub_text(cmap) for cmap in sorted(used_cmaps)]
         includes = {
             name for name in map(_pal.palette_include, used_cmaps) if name is not None
         }
-        sized_markers: Set[str] = set()
-        for ax in self.axes_list:
-            sized_markers.update(
-                str(sc["marker"]).lower()
-                for sc in resolution.visible(ax.scatters)
-                if "mdata" in sc
-            )
-            # A dataset line kept as raw GLE may still name one of these
-            # markers; the parser dropped its sub, so it is written again.
-            for line in ax.passthrough:
-                sized_markers.update(
-                    name.lower()
-                    for name in _MDATA_MARKER_RE.findall(line)
-                    if name.upper() in MARKERS
-                )
+        sized_markers = {
+            str(sc["marker"]).lower()
+            for ax in self.axes_list
+            for sc in resolution.visible(ax.scatters)
+            if "mdata" in sc
+        }
+        # A dataset line kept as raw GLE may still name one of these
+        # markers; the parser dropped its sub, so it is written again.
+        raw = _raw_gle(self)
+        sized_markers.update(
+            name.lower()
+            for name in _MDATA_MARKER_RE.findall(raw)
+            if name.upper() in MARKERS
+        )
         subs.extend(mdata_sub_text(marker) for marker in sorted(sized_markers))
         subs.extend(cdata_sub_text(*pair) for pair in sorted(coloured))
         # Raw GLE kept from a loaded file (an edited grid or image draw) may
         # call a polar or image sub; the parser dropped it, so it is written
         # again.
-        raw_calls = {
-            name.lower() for name in _FIXED_SUB_CALL_RE.findall(_raw_gle(self))
-        }
-        if any(ax._polar for ax in self.axes_list) or raw_calls & set(POLAR_SUB_NAMES):
-            subs.append(POLAR_SUB)
-        used_images = (raw_calls & set(IMAGE_SUBS)) | {
+        used = {name.lower() for name in _FIXED_SUB_CALL_RE.findall(raw)}
+        if any(ax._polar for ax in self.axes_list):
+            used.update(POLAR_SUB_NAMES)
+        used.update(
             image_sub_name(image["file"])
             for ax in self.axes_list
             for image in resolution.visible(ax.images)
-        }
-        subs.extend(text for name, text in IMAGE_SUBS.items() if name in used_images)
+        )
+        subs.extend(text for name, text in FIXED_SUBS.items() if name in used)
+        # One the raw GLE defines itself (with a body edited) is the file's
+        # own and is not written.
+        own = _raw_subs(self)
+        subs = [text for text in subs if text.split()[1].lower() not in own]
         return subs, includes
 
     def _trailer_lines(self) -> List[str]:

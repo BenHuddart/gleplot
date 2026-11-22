@@ -97,6 +97,30 @@ def test_a_raw_grid_draw_is_saved_with_the_polar_subs(tmp_path):
     assert out.count("sub glp_polar_labels rmax step dp deg$") == 1
 
 
+def test_an_edited_polar_sub_body_is_kept_with_a_note(tmp_path):
+    path = _written(tmp_path)
+    edited = "   set color red lwidth 0.02822"
+    text = path.read_text().replace(
+        "   set color rgb255(176,176,176) lwidth 0.02822", edited
+    )
+    recognized = _recognize(path, text)
+    assert recognized.figure.axes_list[0]._polar
+    assert any(
+        "'glp_polar_grid' is not the sub gleplot writes" in w
+        for w in recognized.warnings
+    )
+    resaved = tmp_path / "resaved.gle"
+    recognized.figure.savefig(str(resaved))
+    out = resaved.read_text()
+    assert edited in out
+    # Its own body is the one definition; the labels sub is gleplot's.
+    assert out.count("sub glp_polar_grid rmax step") == 1
+    assert out.count("sub glp_polar_labels rmax step dp deg$") == 1
+    again = tmp_path / "again.gle"
+    _recognize(resaved).figure.savefig(str(again))
+    assert again.read_text().replace("again.gle", "resaved.gle") == out
+
+
 def test_a_missing_label_call_is_noted(tmp_path):
     path = _written(tmp_path)
     text = re.sub(r"glp_polar_labels .*\n", "", path.read_text())

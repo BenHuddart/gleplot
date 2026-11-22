@@ -12,6 +12,7 @@ identical to what it produced before sources existed.
 
 import decimal
 import hashlib
+import itertools
 import math
 import os
 import re
@@ -166,7 +167,8 @@ def cdata_sub_text(marker: str, cmap: str) -> str:
 #: Adapted from ``polar_grid`` in GLE's ``polarplot.gle``. The style is
 #: matplotlib's default: 0.8 pt grey grid lines, a black outer ring, labels
 #: every 45 degrees and one per ring along 22.5 degrees.
-POLAR_SUB = """sub glp_polar_grid rmax step
+POLAR_SUBS: Dict[str, str] = {
+    "glp_polar_grid": """sub glp_polar_grid rmax step
    ! Polar grid about (0, 0): a ring every step inside rmax, a spoke every
    ! 45 degrees, and the outer ring at rmax.
    gsave
@@ -183,9 +185,8 @@ POLAR_SUB = """sub glp_polar_grid rmax step
    amove xg(0) yg(0)
    circle xg(rmax)-xg(0)
    grestore
-end sub
-
-sub glp_polar_labels rmax step dp deg$
+end sub""",
+    "glp_polar_labels": """sub glp_polar_labels rmax step dp deg$
    ! Polar tick labels: the angle every 45 degrees outside the rmax ring,
    ! followed by deg$, and each ring's radius with dp decimals along 22.5
    ! degrees. Text uses the current hei and colour.
@@ -208,10 +209,11 @@ sub glp_polar_labels rmax step dp deg$
       write format$(k*step,"fix "+num$(dp))
    next k
    grestore
-end sub"""
+end sub""",
+}
 
-#: The names of the subs :data:`POLAR_SUB` defines.
-POLAR_SUB_NAMES = ("glp_polar_grid", "glp_polar_labels")
+#: The names of the subs :data:`POLAR_SUBS` defines.
+POLAR_SUB_NAMES = tuple(POLAR_SUBS)
 
 #: Layer of the polar grid draw: GLE's own grid layer, below the curves.
 POLAR_GRID_LAYER = 200
@@ -281,6 +283,11 @@ end sub""",
    postscript f$ xg(x1)-xg(x0) yg(y1)-yg(y0)
 end sub""",
 }
+
+#: The subs whose text does not depend on the figure, keyed by name. A
+#: loaded file that defines one with another body keeps its own, and the
+#: writer then writes none of that name.
+FIXED_SUBS: Dict[str, str] = {**POLAR_SUBS, **IMAGE_SUBS}
 
 #: Graph layer of a placed image: below GLE's grid (200), so the grid, the
 #: fills, the axes and the data are all drawn over it. A graph ``draw`` is
@@ -890,11 +897,15 @@ def _contourf_bar_range(series: Mapping[str, Any]) -> Optional[Tuple[Any, Any]]:
     """The ``(zmin, zmax)`` a ``contourf``'s colormap scales its values onto.
 
     Its colorbar's range, which the band sub maps back from (see
-    :meth:`GLEWriter.add_contourf_sub`); ``None`` without a colorbar, when
-    the values pass through unscaled.
+    :meth:`GLEWriter.add_contourf_sub`), or the range a colorbar kept as raw
+    GLE draws it with (``_bar_range``); ``None`` without either, when the
+    values pass through unscaled.
     """
     cb = series.get("colorbar")
-    return (cb["zmin"], cb["zmax"]) if cb else None
+    if cb:
+        return cb["zmin"], cb["zmax"]
+    bar = series.get("_bar_range")
+    return (bar[0], bar[1]) if bar else None
 
 
 def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
@@ -1549,14 +1560,16 @@ class GLEWriter:
         self._pending_guide_lines: List[str] = []
         self._includes: Set[str] = set()
         self._sub_defs_mark: int = 0
-        # The raw header lines a loaded file kept: an include already there
-        # is not written again.
-        self._header_lines: List[str] = []
-        # Where those raw header lines start in lines_gle.
-        self._header_at = 0
+        # The raw lines a loaded file kept ahead of the subs gleplot writes
+        # (before 'set hei', then the header), each with where it is in
+        # lines_gle: an include already there is not written again.
+        self._raw_head: List[Tuple[int, str]] = []
         # The palette sub each contourf heatmap written so far colours with,
         # by its data file: glp_contourf1, 2, ... in writing order.
         self._contourf_subs: Dict[str, str] = {}
+        # Sub names the raw GLE kept defines (reserve_subs); the band subs
+        # skip them.
+        self._reserved_subs: Set[str] = set()
         # Which axes of the graph being written are logarithmic, as the last
         # add_axes call set them (see _add_sized_scatter).
         self._log_axes: Dict[str, bool] = {}
@@ -1814,7 +1827,7 @@ class GLEWriter:
         if self.style.usetex:
             self.lines_gle.append("set texlabels 1")
         if passthrough_before_hei:
-            self.lines_gle.extend(passthrough_before_hei)
+            self._keep_raw_head(passthrough_before_hei)
         self.lines_gle.extend(
             [
                 f"set hei {self._format_number(fontsize_pt_to_cm(self.style.fontsize))}",
@@ -1822,11 +1835,15 @@ class GLEWriter:
             ]
         )
         if passthrough_header:
-            self._header_lines = list(passthrough_header)
-            self._header_at = len(self.lines_gle)
-            self.lines_gle.extend(passthrough_header)
+            self._keep_raw_head(passthrough_header)
         if include_graph_begin:
             self.lines_gle.append("begin graph")
+
+    def _keep_raw_head(self, lines: List[str]) -> None:
+        """Write raw preamble lines, recorded for :meth:`_raw_caller_mark`."""
+        at = len(self.lines_gle)
+        self._raw_head += [(at + k, line) for k, line in enumerate(lines)]
+        self.lines_gle.extend(lines)
 
     def begin_graph(self):
         """Open a new graph block.
@@ -3047,6 +3064,14 @@ class GLEWriter:
                 header = shared.header() if shared.named else None
                 self.add_data_file(filename, shared.columns, header, shared.tolerances)
         self._shared_sidecars.clear()
+
+    def reserve_subs(self, names: Iterable[str]) -> None:
+        """Keep the ``glp_contourf<k>`` band subs off *names* (lower case).
+
+        *names* are the subs raw GLE kept from a loaded file defines, such as
+        a band sub no colormap gleplot reads calls.
+        """
+        self._reserved_subs.update(names)
 
     def reserve_datasets(self, raw_lines: Sequence[str]) -> None:
         """Keep the next graph block's datasets off the ``dN`` names
@@ -5330,7 +5355,7 @@ class GLEWriter:
         """Make the open graph block a polar axes out to radius ``rmax``.
 
         ``rmax`` is as written to the script (see :meth:`_format_number`).
-        Draws the grid (:data:`POLAR_SUB`) in layer
+        Draws the grid (:data:`POLAR_SUBS`) in layer
         :data:`POLAR_GRID_LAYER` and queues the tick labels for after ``end
         graph``, ahead of the axes' other deferred text. Every dataset drawn
         after this goes through :meth:`_polar_dataset`. Call it after
@@ -5776,12 +5801,15 @@ class GLEWriter:
     def _raw_caller_mark(self, sub_texts: List[str]) -> int:
         """Where in ``lines_gle`` the subs gleplot writes go.
 
-        GLE looks up a routine a sub calls when it reads the sub. So when a
-        sub in the raw header a loaded file kept (such as a renamed
-        per-point colour sub) calls one of gleplot's, they go ahead of it
-        and the comments right above it; but never ahead of the end of a
-        raw sub they call themselves (a palette sub of the file's own).
-        Otherwise they go after the raw header, as they always have.
+        GLE looks up a routine a sub calls when it reads the sub, and one a
+        statement calls when it runs it. So when raw GLE a loaded file kept
+        ahead of them (before ``set hei`` or in the header) calls one of
+        gleplot's, they go ahead of it and the comments right above it: ahead
+        of the sub it is in (such as a renamed per-point colour sub), or of
+        the outermost ``begin`` block it is in (such as a graph kept raw
+        inside ``begin translate``); but never ahead of the end of a raw sub
+        they call themselves (a palette sub of the file's own). Otherwise
+        they go after the raw header, as they always have.
         """
         end = len(self.lines_gle)
         names = [text.split()[1] for text in sub_texts]
@@ -5789,12 +5817,16 @@ class GLEWriter:
             return end
         uses = re.compile(r"\b(?:%s)\b" % "|".join(map(re.escape, names)), re.I)
         ours = "\n".join(sub_texts)
+        raw = self._raw_head
         caller: Optional[int] = None
         after_called = 0
         start: Optional[int] = None
         called = False
-        for k, line in enumerate(self._header_lines):
-            code = line.split("!")[0]
+        # The outermost open ``begin`` block's line, and the blocks open.
+        block = 0
+        opened: List[str] = []
+        for k, (_at, line) in enumerate(raw):
+            code = re.sub(r'"[^"]*"', '""', line).split("!")[0]
             words = code.lower().split()
             if words[:1] == ["sub"] and len(words) > 1:
                 start = k
@@ -5804,13 +5836,27 @@ class GLEWriter:
                 if called:
                     after_called = k + 1
                 start = None
-            elif start is not None and caller is None and uses.search(code):
-                caller = start
+            elif start is not None:
+                if caller is None and uses.search(code):
+                    caller = start
+            else:
+                if words[:1] == ["begin"] and len(words) > 1:
+                    block = k if not opened else block
+                    opened.append(words[1])
+                elif opened and words[:2] == ["end", opened[-1]]:
+                    opened.pop()
+                if caller is None and uses.search(code):
+                    caller = block if opened else k
         if caller is None:
             return end
-        while caller > 0 and self._header_lines[caller - 1].lstrip().startswith("!"):
+        while (
+            caller > 0
+            and raw[caller - 1][1].lstrip().startswith("!")
+            and raw[caller - 1][0] == raw[caller][0] - 1
+        ):
             caller -= 1
-        return self._header_at + max(caller, after_called)
+        at = max(caller, after_called)
+        return raw[at][0] if at < len(raw) else end
 
     def finalize_includes(self) -> None:
         """Splice in an ``include`` for each gleinc file the write called.
@@ -5820,7 +5866,7 @@ class GLEWriter:
         unresolved when :meth:`add_sub_defs` runs, so the includes go in at
         that method's mark, in name order.
         """
-        kept = {line.strip().lower() for line in self._header_lines}
+        kept = {line.strip().lower() for _at, line in self._raw_head}
         lines = [f'include "{name}"' for name in sorted(self._includes)]
         lines = [line for line in lines if line.lower() not in kept]
         if lines:
@@ -6035,7 +6081,12 @@ class GLEWriter:
         before the graph that calls it: GLE finds a sub wherever it is.
         """
         fmt = self._format_number
-        name = f"glp_contourf{len(self._contourf_subs) + 1}"
+        taken = self._reserved_subs | set(self._contourf_subs.values())
+        name = next(
+            f"glp_contourf{k}"
+            for k in itertools.count(1)
+            if f"glp_contourf{k}" not in taken
+        )
         self._contourf_subs[series["data_file"]] = name
         cmap = series["cmap"]
         extend = series["extend"]

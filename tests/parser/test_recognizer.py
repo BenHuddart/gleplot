@@ -2018,6 +2018,61 @@ def test_a_renamed_colour_sub_is_written_after_what_it_calls(tmp_path):
     assert order == sorted(order)
 
 
+@pytest.mark.parametrize(
+    "kwargs, name",
+    [
+        ({"c": [1, 2, 3]}, "glp_cdata_fcircle_viridis"),
+        ({"s": [10, 20, 30]}, "glp_mdata_fcircle"),
+    ],
+    ids=["colour", "size"],
+)
+def test_an_edited_per_point_marker_sub_is_kept_with_a_note(tmp_path, kwargs, name):
+    """#549: dropped as regenerable, its edited body would be lost."""
+    fig = gleplot.figure(data_prefix="e")
+    fig.add_subplot(111).scatter([0, 1, 2], [1, 2, 3], **kwargs)
+    path = tmp_path / "e.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text().replace("marker FCIRCLE", "marker FSQUARE")
+    path.write_text(text)
+    rec = parse_gle_figure(path)
+    assert any(f"'{name}' is not the sub gleplot writes" in w for w in rec.warnings)
+    again = rec.figure._generate_gle_with_files()[0]
+    assert "marker FSQUARE" in again and "marker FCIRCLE" not in again
+    assert again.count(f"sub {name} size data") == 1
+    assert again.count(f"define marker {name} {name}") == 1
+    path.write_text(again)
+    assert parse_gle_figure(path).figure._generate_gle_with_files()[0] == again
+
+
+def test_a_renamed_colour_sub_before_set_hei_is_written_after_what_it_calls(
+    tmp_path,
+):
+    """#549: a raw sub between ``size`` and ``set hei`` is ordered too."""
+    _gleplot_axes._global_data_file_counter = 0
+    fig = gleplot.figure()
+    fig.add_subplot(111).scatter([0, 1, 2], [1, 2, 3], c=[1, 2, 3])
+    path = tmp_path / "c.gle"
+    fig.savefig_gle(str(path))
+    text = path.read_text().replace("glp_cdata_fcircle_viridis", "mine")
+    sub = re.search(r"sub mine .*?end sub\ndefine marker mine mine\n", text, re.S)
+    assert sub is not None
+    text = text.replace(sub.group(0), "")
+    text = re.sub(r"(size [\d.]+ [\d.]+\n)", r"\1" + sub.group(0), text, count=1)
+    path.write_text(text)
+    rec = parse_gle_figure(path)
+    assert "sub mine size data" in rec.figure.passthrough_before_hei
+    again = rec.figure._generate_gle_with_files()[0]
+    order = [
+        again.index('include "palettes.gle"'),
+        again.index("sub cmap_viridis z"),
+        again.index("sub mine size data"),
+        again.index("set hei"),
+    ]
+    assert order == sorted(order)
+    path.write_text(again)
+    assert parse_gle_figure(path).figure._generate_gle_with_files()[0] == again
+
+
 def test_a_palette_sub_of_the_files_own_stays_ahead_of_the_subs_calling_it(
     tmp_path,
 ):
