@@ -3566,7 +3566,8 @@ class Axes:
         ``'face'`` is ``color``, and so is a ``'stepfilled'`` ``'none'``,
         since GLE strokes every bar. A ``'stepfilled'`` ``color='none'`` is a
         ``CLEAR`` fill; with no ``edgecolor`` its outline is black, with a
-        warning. An RGBA colour with zero alpha is ``'none'``. ``alpha=`` reaches an explicit edge
+        warning. An RGBA colour with zero alpha is ``'none'`` unless
+        ``alpha=`` replaces that alpha. ``alpha=`` reaches an explicit edge
         colour; an RGBA ``color``'s own alpha does not. Bins are equal width.
         The window is always written into the ``let`` (data min/max when
         ``range`` is omitted, widened by half a unit when every sample is the
@@ -3706,14 +3707,23 @@ class Axes:
         for samples, one_color, one_label, one_edge, one_alpha, one_ls, one_lw in zip(
             finite_sets, colors, labels, edges, alphas, linestyles, linewidths
         ):
-            edge_name = one_edge.strip().lower() if isinstance(one_edge, str) else None
-            if _is_none_color(one_edge):
-                edge_name = "none"
+            # A zero-alpha colour is 'none' unless alpha= overrides its alpha.
+            def draws_nothing(value) -> bool:
+                return _is_none_color(value) and (
+                    isinstance(value, str) or one_alpha is None
+                )
+
+            if draws_nothing(one_edge):
+                edge_name: Optional[str] = "none"
+            elif isinstance(one_edge, str):
+                edge_name = one_edge.strip().lower()
+            else:
+                edge_name = None
             named_edge = one_edge is not None and edge_name not in ("face", "none")
             # A 'none' face is a CLEAR bar fill, and draws nothing under a
             # step line in edgecolor. GLE has no invisible line, so a step
             # outline drawn in color stays black, with a warning.
-            if _is_none_color(one_color) and (
+            if draws_nothing(one_color) and (
                 style_name == "stepfilled" or (named_edge and not as_bars)
             ):
                 ink = "CLEAR"
@@ -3722,6 +3732,13 @@ class Axes:
                         f"hist(color={one_color!r}) with no edge draws a black "
                         "outline: GLE strokes every bar. Pass edgecolor= to "
                         "choose the outline's colour."
+                    )
+                elif style_name == "stepfilled" and one_label is not None:
+                    warn(
+                        f"hist(color={one_color!r}) has an empty legend "
+                        "swatch: GLE draws no swatch for a bar with no fill, "
+                        "where matplotlib outlines it in edgecolor. Give the "
+                        "histogram a face colour to show a swatch."
                     )
             else:
                 one_color, color_alpha = _rgba_parts(one_color)
@@ -5462,7 +5479,9 @@ class Axes:
                 fills.append(edge if edge not in (None, "none") else "BLACK")
                 backgrounds.append(face)
         baseline = _bar_baseline(bottom, n)
-        style = _bar_edge_style(linewidth, linestyle)
+        # Without edgecolor there is no edge for linewidth and linestyle to
+        # style, as in matplotlib.
+        style = {} if edgecolor is None else _bar_edge_style(linewidth, linestyle)
         if edgecolor is None or style.get("linewidth") == 0:
             # As in matplotlib, a bar has no edge unless edgecolor is given,
             # even with a linewidth or linestyle, and a zero-width edge is

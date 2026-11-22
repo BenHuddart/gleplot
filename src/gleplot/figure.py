@@ -2312,13 +2312,14 @@ class Figure:
     def _add_drawing(self, drawing: dict, fill=None, color=None, linewidth=None):
         if fill is not None and not _is_none_color(fill):
             drawing["fill"] = _gle_color(fill, "fill")
-        if _is_none_color(color):
-            if drawing["kind"] not in ("circle", "ellipse", "polygon"):
-                raise ValueError(
-                    f"color='none' would leave the {drawing['kind']} invisible; "
-                    "pass a colour, or leave it out for black"
-                )
+        closed = drawing["kind"] in ("circle", "ellipse", "polygon")
+        if _is_none_color(color) and closed:
             drawing["color"] = "none"
+        elif isinstance(color, str) and color.strip().lower() == "none":
+            raise ValueError(
+                f"color='none' would leave the {drawing['kind']} invisible; "
+                "pass a colour, or leave it out for black"
+            )
         elif color is not None:
             drawing["color"] = _gle_color(color, "color")
         if linewidth is not None:

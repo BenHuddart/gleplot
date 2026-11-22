@@ -350,7 +350,7 @@ def _is_none_color(color: Any) -> bool:
     if isinstance(color, str):
         return color.strip().lower() == "none"
     _, alpha = _rgba_parts(color)
-    return (
+    return bool(
         isinstance(alpha, (int, float, np.integer, np.floating))
         and not isinstance(alpha, bool)
         and alpha <= 0

@@ -597,7 +597,7 @@ The right-hand scale is `yaxis="y2"` on a series or the `ax.twinx()` view, and `
     `alpha=` keyword where the function has one (`fill_between`, `fill`,
     `axhspan`, `axvspan`). As in matplotlib, `alpha=` overrides the colour's
     own alpha, and then nothing warns. Where `'none'` is accepted, a zero
-    alpha is `'none'`.
+    alpha is `'none'`, unless `alpha=` replaces it.
 13. A guide (`axhline`, `axvline`, `axhspan`, `axvspan`) on an axis gleplot
     cannot range, because the axes has no data and no limit for it or its
     data collapses to one value, is drawn after the graph against the range

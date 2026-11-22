@@ -448,6 +448,12 @@ class TestBarCharts:
         assert [bar.get("edgecolor") for bar in self.ax.bars[:2]] == ["none"] * 2
         assert "linewidth" not in self.ax.bars[1]
 
+    def test_an_edge_style_without_edgecolor_says_nothing_about_the_edge(self):
+        """There is no edge for an unusable linestyle to leave solid."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.bar([1, 2], [3, 4], linestyle="steps", linewidth=[1, 2])
+
     def test_bar_hatch_sequence_splits_per_bar(self):
         self.ax.bar([1, 2, 3], [3, 4, 5], hatch=["/", "", "x"], label="mix")
         bars = self.ax.bars
@@ -2403,6 +2409,24 @@ class TestHistogram:
         script = self._script()
         assert "bar d2 fill CLEAR color RED " in script
         assert "bar d4 fill CLEAR color CLEAR " in script
+
+    def test_a_labelled_stepfilled_none_face_warns_its_swatch_is_empty(self):
+        with pytest.warns(UserWarning, match="empty legend swatch"):
+            self.ax.hist(
+                [0, 1], histtype="stepfilled", color="none", edgecolor="r", label="a"
+            )
+
+    def test_alpha_overrides_a_zero_alpha_colour(self):
+        """As in matplotlib, alpha= replaces the colour's own alpha."""
+        self.ax.hist([0, 1], histtype="stepfilled", color=(0, 0, 1, 0), alpha=0.5)
+        self.ax.hist(
+            [0, 1], histtype="stepfilled", color="y", edgecolor=(1, 0, 0, 0), alpha=0.5
+        )
+        script = self._script()
+        assert "bar d2 fill rgba255(0,0,255,128) " in script
+        assert (
+            "bar d4 fill rgba255(255,255,0,128) color rgba255(255,0,0,128) " in script
+        )
 
     def test_step_none_face_is_drawn_in_its_edgecolor(self):
         with warnings.catch_warnings():

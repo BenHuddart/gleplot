@@ -130,7 +130,7 @@ _ENTRY_POINTS = {
     ),
     "legend": lambda m: m.legend(loc="nowhere"),
     "bar aliases": lambda m: m.bar(_X, _Y, color="r", facecolor="b"),
-    "bar edge": lambda m: m.bar(_X, _Y, linestyle="zigzag"),
+    "bar edge": lambda m: m.bar(_X, _Y, edgecolor="k", linestyle="zigzag"),
 }
 
 
