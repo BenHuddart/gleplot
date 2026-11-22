@@ -1136,7 +1136,7 @@ def heatmap_contourf_own_band_sub():
     ax = fig.add_subplot(111)
     x = np.linspace(0, 4, 41)
     cf = ax.contourf(x, x, np.add.outer(x, x), [0, 2, 4, 6, 8])
-    own = contourf_sub_text("glp_contourf1", cf)
+    own = contourf_sub_text("glp_contourf1", cf, True)
     fig.passthrough_header = own.replace("rgb(1, 1, 1)", "rgb(0, 0, 0)").split("\n")
     ax.passthrough = [
         'colormap "golden_heatmap1.z" 200 200 zmin 0 zmax 1 palette glp_contourf1'

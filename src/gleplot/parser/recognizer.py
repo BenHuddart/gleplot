@@ -1923,6 +1923,9 @@ class _Recognizer:
         # glp_contourf<k> sub name -> the (zmin, zmax) its first statement
         # maps the colormap's 0..1 back from, when it is a colorbar's palette.
         self._contourf_rescales: Dict[str, Tuple[float, float]] = {}
+        # glp_contourf<k> subs whose body was edited: kept as raw GLE, and
+        # the colormap calling one with them.
+        self._edited_contourf_subs: Set[str] = set()
         # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
         self._fitz_blocks: Dict[str, dict] = {}
         # contour ``.z`` file -> {levels}
@@ -9462,6 +9465,10 @@ class _Recognizer:
             if built == 0 and info["heatmaps"]:
                 info["_contourf_palette"] = palette.lower()
             return
+        elif palette is not None and palette.lower() in self._edited_contourf_subs:
+            # Noted with the sub (_keep_contourf_sub_unless_readable).
+            info["passthrough"].append(self._stmt_text(stmt))
+            return
         elif palette is not None:
             cmap = self._palette_cmap(palette)
             if cmap is None:
@@ -9877,8 +9884,9 @@ class _Recognizer:
         if name not in self._contourf_subs:
             return None
         if self._contourf_colormap_ok(toks):
-            if self._contourf_sub_as_written(name, toks):
+            if self._contourf_sub_as_written(name):
                 return name
+            self._edited_contourf_subs.add(name)
             span = self._contourf_sub_spans[name]
             self._note(
                 ImportCategory.STRUCTURE,
@@ -9890,32 +9898,25 @@ class _Recognizer:
         self._drop_contourf_sub(name)
         return None
 
-    def _contourf_sub_as_written(self, name: str, toks) -> bool:
+    def _contourf_sub_as_written(self, name: str) -> bool:
         """Whether the band sub ``name`` is the text gleplot writes for it.
 
-        That is :func:`gleplot.writer.contourf_sub_text` for the series the
-        ``colormap`` ``toks`` (passed by :meth:`_contourf_colormap_ok`) and
-        the sub's comment line read as.
+        That is :func:`gleplot.writer.contourf_sub_text` for the colouring
+        its comment line records (checked by :meth:`_contourf_colormap_ok`),
+        in either form: which one the writer picks follows from the grid and
+        the colormap's pixels, not from the sub.
         """
         fields = self._contourf_fields(self._contourf_subs[name])
-        zfile, idx = self._read_filename(toks, 1)
-        grid = self._read_z_grid(zfile)
-        if fields is None or grid is None:  # checked by _contourf_colormap_ok
+        if fields is None:  # checked by _contourf_colormap_ok
             return False
-        series: Dict[str, Any] = {
-            "vmin": None,
-            "vmax": None,
-            **fields,
-            "z": grid[0],
-            "pixels": [int(_num(t) or 0) for t in toks[idx : idx + 2]],
-        }
+        series: Dict[str, Any] = {"vmin": None, "vmax": None, **fields}
         rescale = self._contourf_rescales.get(name)
         if rescale is not None:
             series["_bar_range"] = list(rescale)
         span = self._contourf_sub_spans[name]
         body = self.text.splitlines()[min(span) - 1 : max(span)]
         text = "\n".join(line.rstrip() for line in body)
-        return text == contourf_sub_text(name, series)
+        return any(text == contourf_sub_text(name, series, b) for b in (True, False))
 
     def _drop_contourf_sub(self, name: str) -> None:
         """Keep the band sub ``name`` as raw GLE: no contourf is read with it."""
@@ -10005,6 +10006,9 @@ class _Recognizer:
         except ValueError:
             return None
         if len(options) % 2 or len(levels) < 2 or np.any(np.diff(levels) <= 0):
+            return None
+        # The band sub divides by this range; Axes.contourf rejects it too.
+        if not fields.get("vmin", levels[0]) < fields.get("vmax", levels[-1]):
             return None
         fields["levels"] = levels
         return fields

@@ -948,11 +948,13 @@ def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     return bool(np.all(near))
 
 
-def contourf_sub_text(name: str, series: Mapping[str, Any]) -> str:
+def contourf_sub_text(name: str, series: Mapping[str, Any], bands: bool) -> str:
     """The band sub ``name`` that colours the ``contourf`` heatmap ``series``.
 
-    See :meth:`GLEWriter.add_contourf_sub`; the recognizer reads a band sub
-    back only when it is this text exactly.
+    ``bands`` is :func:`contourf_bands_fit` for the series: the sub colours
+    whole bands, or maps the value straight onto the colormap. See
+    :meth:`GLEWriter.add_contourf_sub`; the recognizer reads a band sub back
+    only when it is this text exactly, in either form.
     """
     fmt = GLEWriter._format_number
     cmap = series["cmap"]
@@ -978,7 +980,7 @@ def contourf_sub_text(name: str, series: Mapping[str, Any]) -> str:
         f"   if z < {levels[0]} then return {under}",
         f"   if z > {levels[-1]} then return {over}",
     ]
-    if contourf_bands_fit(series):
+    if bands:
         tone = [
             fmt(min(max(((a + b) / 2 - lo) / (hi - lo), 0.0), 1.0))
             for a, b in zip(lv, lv[1:])
@@ -6132,7 +6134,8 @@ class GLEWriter:
             if f"glp_contourf{k}" not in taken
         )
         self._contourf_subs[series["data_file"]] = name
-        self.lines_gle.extend(contourf_sub_text(name, series).split("\n"))
+        text = contourf_sub_text(name, series, contourf_bands_fit(series))
+        self.lines_gle.extend(text.split("\n"))
         self.lines_gle.append("")
 
     def add_heatmap(self, series: Series):
