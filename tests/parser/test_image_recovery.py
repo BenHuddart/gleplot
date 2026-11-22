@@ -80,6 +80,30 @@ def test_an_edited_image_block_stays_raw_with_a_note(tmp_path, block):
     assert resaved.read_text().count(IMAGE_SUBS[call]) == 1
 
 
+def test_an_edited_image_sub_body_is_kept_with_a_note(tmp_path):
+    path = tmp_path / "image.gle"
+    text = (
+        "size 10 10\n\n"
+        + IMAGE_SUBS["glp_bitmap"].replace("amove xg(x0) yg(y0)", "amove xg(x0) yg(y1)")
+        + "\n\nbegin graph\n"
+        + "    xaxis min 0 max 10\n"
+        + "    yaxis min 0 max 5\n"
+        + _block('draw glp_bitmap "a.png" 0 10 0 5')
+        + "end graph\n"
+    )
+    path.write_text(text)
+    recognized = parse_gle_figure(path)
+    assert len(recognized.figure.axes_list[0].images) == 1
+    assert any(
+        "'glp_bitmap' is not the sub gleplot writes" in w for w in recognized.warnings
+    )
+    resaved = tmp_path / "resaved.gle"
+    recognized.figure.savefig(str(resaved))
+    out = resaved.read_text()
+    assert "   amove xg(x0) yg(y1)" in out
+    assert out.count("sub glp_bitmap") == 1
+
+
 def test_a_hand_written_bitmap_draw_stays_raw_and_silent(tmp_path):
     block = _block('draw mypicture "a.png" 0 1 0 1')
     recognized = _parse(tmp_path, block + "    ! was: draw glp_bitmap a.png\n")

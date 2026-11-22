@@ -60,6 +60,15 @@ is not written back; each such comment gets a `structure` note. A
 entries back as they are, swatches included: a swatch edited by hand keeps
 the block as raw GLE, with a `legend` note.
 
+The subroutines gleplot writes (`glp_<name>` and the `cmap_<name>` palette
+wrappers) are written again from the figure on save, including one that
+only raw GLE still calls, such as a graph kept raw inside
+`begin translate`; they go ahead of the raw GLE that calls them. A polar,
+image or per-point marker subroutine whose body was edited is kept as raw
+GLE, with a `structure` note, and so is a palette wrapper; gleplot then
+writes none of that name. A colorbar kept as raw GLE still draws a
+`contourf`'s bands: its band sub keeps the range the bar maps back from.
+
 A data file that gleplot did not write is never rewritten. Lines, error
 bars, fills and plain `bar dN fill COLOR` bars drawn from it become
 [file-based series](FILE_BASED_SERIES.md) that read the file in place. A

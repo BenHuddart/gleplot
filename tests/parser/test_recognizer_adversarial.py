@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import gleplot as glp
@@ -588,6 +589,62 @@ def test_finding6_graph_in_translate_no_fabricated_graph(tmp_path):
     assert text.count("begin graph") == 1
     assert "begin translate 2 2" in text
     assert "end translate" in text
+
+
+def _polar_figure():
+    fig = glp.figure(data_prefix="w")
+    fig.add_subplot(projection="polar").plot([0, 1, 2], [1, 2, 1.5])
+    return fig
+
+
+def _contourf_figure():
+    fig = glp.figure(data_prefix="w")
+    x = np.linspace(0, 1, 30)
+    fig.add_subplot(111).contourf(x, x, np.add.outer(x, x), [0, 0.5, 1, 1.5, 2])
+    return fig
+
+
+def _scatter_figure():
+    fig = glp.figure(data_prefix="w")
+    ax = fig.add_subplot(111)
+    ax.scatter([1, 2, 3], [1, 2, 3], c=[1, 2, 3])
+    ax.scatter([1, 2, 3], [2, 3, 4], s=[10, 20, 30])
+    return fig
+
+
+def _image_figure():
+    fig = glp.figure(data_prefix="w")
+    fig.add_subplot(111).image("a.png", extent=(0, 1, 0, 1))
+    return fig
+
+
+@pytest.mark.parametrize(
+    "build",
+    [_polar_figure, _contourf_figure, _scatter_figure, _image_figure],
+    ids=["polar", "contourf", "scatter", "image"],
+)
+def test_finding6_a_graph_in_translate_keeps_the_subs_it_calls(tmp_path, build):
+    """With no axes read, the subs the raw graph calls are still written."""
+    path = tmp_path / "w.gle"
+    build().savefig_gle(str(path))
+    text = re.sub(
+        r"amove [^\n]*\nbegin graph",
+        # An 'end if' does not end the wrapper.
+        "begin translate 1 1\nif 1 > 0 then\n   amove 0 0\nend if\nbegin graph",
+        path.read_text(),
+    ).replace("end graph", "end graph\nend translate")
+    path.write_text(text)
+    rec = parse_gle_figure(path)
+    assert rec.figure.axes_list == []
+    out = rec.figure._generate_gle_with_files()[0]
+    subs = re.findall(r"^sub (\w+)", text, re.MULTILINE)
+    assert subs
+    for name in subs:
+        # Once, and ahead of the wrapper that calls it.
+        assert out.count(f"sub {name} ") == 1
+        assert out.index(f"sub {name} ") < out.index("begin translate")
+    path.write_text(out)
+    assert parse_gle_figure(path).figure._generate_gle_with_files()[0] == out
 
 
 def test_finding6_empty_figure_keeps_default_graph():

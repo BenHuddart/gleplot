@@ -1369,6 +1369,11 @@ class HeatmapSeries(_GridSeries):
     #: below the axes; absent means vertical. See
     #: :meth:`gleplot.Figure.colorbar`.
     colorbar: Optional[Dict[str, Any]]
+    #: Set by ``open_gle`` on a ``contourf`` with no ``colorbar`` whose band
+    #: sub maps its values back from this ``[zmin, zmax]``: a colorbar kept
+    #: as raw GLE draws through the sub, so the writer keeps the mapping.
+    #: Absent means the values pass through unscaled.
+    _bar_range: List[float]
     #: Drawn at all; absent (the default) means yes. See :func:`is_visible`.
     visible: bool
 

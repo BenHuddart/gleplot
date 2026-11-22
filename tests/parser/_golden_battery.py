@@ -15,6 +15,7 @@ import numpy as np
 
 import gleplot as glp
 from gleplot.series import FileSeries
+from gleplot.writer import POLAR_SUBS
 
 
 def single_line():
@@ -1101,6 +1102,30 @@ def heatmap_contourf_colorbar():
     return fig
 
 
+def heatmap_contourf_raw_colorbar():
+    """A contourf whose bar is raw GLE drawing through its band sub.
+
+    ``_bar_range`` is what ``open_gle`` sets when the bar is kept raw (here
+    its label is moved): the band sub keeps mapping the bar's 0..1 back.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 4, 41)
+    ax.contourf(x, x, np.add.outer(x, x), [0, 2, 4, 6, 8])
+    ax.heatmaps[0]["_bar_range"] = [0.0, 8.0]
+    fig.passthrough_header = ['include "color.gle"']
+    fig.passthrough_trailer = [
+        "gsave",
+        "amove xg(xgmax)+0.3 yg(ygmin)",
+        'color_range_vertical zmin 0 zmax 8 zstep 2 palette "glp_contourf1" '
+        'width 0.5 height yg(ygmax)-yg(ygmin) format "fix 0" pixels 200',
+        "amove xg(xgmax)+1.5 yg(ygmax)",
+        'write "z"',
+        "grestore",
+    ]
+    return fig
+
+
 def heatmap_function():
     """An expression heatmap with a colorbar."""
     fig = glp.figure(figsize=(7, 6), data_prefix="golden")
@@ -2144,6 +2169,20 @@ def polar_field_options():
     return fig
 
 
+def polar_own_grid_sub():
+    """A polar axes whose grid sub is the file's own, edited, kept raw.
+
+    ``open_gle`` keeps a polar or image sub with an edited body in the
+    header, and gleplot then writes none of that name.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(projection="polar")
+    ax.plot([0, 1, 2], [1, 2, 1.5], color="red")
+    grid = POLAR_SUBS["glp_polar_grid"].replace("rgb255(176,176,176)", "blue")
+    fig.passthrough_header = grid.split("\n")
+    return fig
+
+
 def placed_images():
     """A bitmap and an EPS under a line, a bitmap alone on a log axes."""
     fig, (left, right) = glp.subplots(1, 2, data_prefix="golden")
@@ -2275,6 +2314,7 @@ BUILDERS = [
     heatmap_contourf,
     heatmap_contourf_smooth,
     heatmap_contourf_colorbar,
+    heatmap_contourf_raw_colorbar,
     heatmap_function,
     heatmap_function_field_options,
     contour_grid_levels_clabel,
@@ -2333,6 +2373,7 @@ BUILDERS = [
     figure_legend_options,
     polar_plot,
     polar_field_options,
+    polar_own_grid_sub,
     placed_images,
     data_beyond_six_figures,
     quoted_text,
