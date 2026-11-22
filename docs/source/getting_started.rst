@@ -17,11 +17,19 @@ Requirements
 Install gleplot
 ~~~~~~~~~~~~~~~
 
-Install it from GitHub:
+Install it from PyPI:
+
+.. code-block:: bash
+
+   pip install gleplot
+
+For the latest development version, install from GitHub instead:
 
 .. code-block:: bash
 
    pip install git+https://github.com/BenHuddart/gleplot.git
+
+Upgrading from gleplot 5? :doc:`guides/MIGRATING_TO_6` lists what changed.
 
 To work on gleplot itself, make an editable install with the development
 tools:
