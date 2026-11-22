@@ -53,7 +53,7 @@ If you touched a docstring, a page under `docs/`, or an example, also run the do
 - `guides.py` — the guide provenance marker and the after-graph form (`graph_hline`/`graph_vline` from `graphutil.gle`, a `box` for a band) used when gleplot cannot range the spanned axis (`Axes.guide_needs_engine_range`); no extra model field for engine-range guides.
 - `mathtext.py` — matplotlib `$...$` mathtext → GLE text markup.
 - `palettes.py` — colormap stop tables and the self-contained palette subs emitted for heatmaps/contours.
-- `cairo_support.py` — decides when a figure needs GLE's `-cairo` device and warns about fonts it rejects.
+- `cairo_support.py` — decides when a figure needs GLE's `-cairo` device and warns about fonts it rejects and about characters the `texcm*` fonts draw as other glyphs.
 - `_warn.py` — `warn_external`: a warning attributed to the first frame outside gleplot. A leaf module.
 
 ### Parser (`src/gleplot/parser/`)

@@ -383,6 +383,45 @@ class TestSavefigCairoWiring:
             warnings.simplefilter("error")
             fig.savefig(str(tmp_path / "out.pdf"))
 
+    @staticmethod
+    def _glyph_warnings(fig, path):
+        fig.compiler = mock.Mock()
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            fig.savefig(str(path))
+        return [str(w.message) for w in rec if "as other glyphs" in str(w.message)]
+
+    def test_text_texcmr_misdraws_under_cairo_warns_with_the_escapes(self, tmp_path):
+        # #557: GLE draws the default font as texcmr under -cairo, where
+        # '<', '_' and '≥' draw as other glyphs.
+        fig = self._figure_with_alpha()
+        fig.axes_list[0].set_title("data_prefix: a < b, x ≥ 0")
+        (message,) = self._glyph_warnings(fig, tmp_path / "out.png")
+        assert "Font 'texcmr'" in message
+        assert r"< as {\setfont{texmi}<}" in message
+        assert r"_ as {\setfont{texcmtt}\_}" in message
+        assert r"≥ as \geq{}" in message
+        assert ">" not in message.split("Write")[1].split(" in the text")[0]
+
+    def test_text_written_with_the_escapes_does_not_warn(self, tmp_path):
+        fig = self._figure_with_alpha()
+        fig.axes_list[0].set_title(
+            r"data{\setfont{texcmtt}\_}prefix: a {\setfont{texmi}<} b, x \geq{} 0"
+        )
+        assert self._glyph_warnings(fig, tmp_path / "out.png") == []
+
+    def test_text_in_the_default_font_without_cairo_does_not_warn(self, tmp_path):
+        fig = self._plain_figure()
+        fig.axes_list[0].set_title("data_prefix: a < b, x ≥ 0")
+        assert self._glyph_warnings(fig, tmp_path / "out.png") == []
+
+    def test_text_in_an_explicit_ot1_font_warns_without_cairo(self, tmp_path):
+        fig = self._plain_figure()
+        fig.style.font = "texcmss"
+        fig.axes_list[0].set_title("a < b")
+        (message,) = self._glyph_warnings(fig, tmp_path / "out.png")
+        assert "Font 'texcmss'" in message
+
     def test_unsafe_font_does_not_warn_when_cairo_is_not_needed(self, tmp_path):
         # The font-safety warning is specifically a Cairo consequence: an
         # opaque figure with a PostScript font is completely ordinary and
