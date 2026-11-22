@@ -59,13 +59,19 @@ from advanced import (
 from basic import (
     example_asymmetric_error_bars,
     example_bar_chart,
+    example_barh_and_stacked_bars,
     example_basic_line_plot,
     example_combined_errorbars,
+    example_distributions,
+    example_errorbar_data_range,
     example_errorbar_with_line,
+    example_format_strings_and_gaps,
+    example_gridded_maps,
     example_heatmap_imshow,
     example_horizontal_error_bars,
     example_placed_image,
     example_polar_plot,
+    example_scatter_colormap,
     example_scatter_plot,
     example_symmetric_error_bars,
 )
@@ -74,8 +80,24 @@ from basic import (
 # The docs gallery is generated from this list and shows each one's PNG.
 EXAMPLES = [
     ("Basic Line Plot", example_basic_line_plot, ["example_basic_line_plot"]),
+    (
+        "Format Strings and NaN Gaps",
+        example_format_strings_and_gaps,
+        ["example_format_strings"],
+    ),
     ("Scatter Plot", example_scatter_plot, ["example_scatter_plot"]),
+    ("Colour-mapped Scatter", example_scatter_colormap, ["example_scatter_colormap"]),
     ("Bar Chart", example_bar_chart, ["example_bar_chart"]),
+    (
+        "Horizontal and Stacked Bars",
+        example_barh_and_stacked_bars,
+        ["example_barh_stacked"],
+    ),
+    (
+        "Histogram, Step, Stem and Rug",
+        example_distributions,
+        ["example_distributions"],
+    ),
     ("Polar Plot", example_polar_plot, ["example_polar_plot"]),
     (
         "Symmetric Error Bars",
@@ -98,7 +120,17 @@ EXAMPLES = [
         example_combined_errorbars,
         ["example_combined_errorbars"],
     ),
+    (
+        "Error Bars With a Data Range",
+        example_errorbar_data_range,
+        ["example_errorbar_data_range"],
+    ),
     ("Heatmap (imshow)", example_heatmap_imshow, ["example_heatmap_imshow"]),
+    (
+        "Gridded Maps (pcolormesh, contourf, function2d)",
+        example_gridded_maps,
+        ["example_gridded_maps"],
+    ),
     ("Placed Image", example_placed_image, ["example_placed_image"]),
     ("Fill Between", example_fill_between, ["example_fill_between"]),
     (
