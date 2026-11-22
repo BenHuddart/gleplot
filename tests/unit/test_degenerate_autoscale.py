@@ -742,9 +742,11 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     whose span is float noise beside its offset kept its ends apart (#468).
     ``fill_curve_offsets`` was added when each curve of a fill kept its own
     offset (#491). ``bar_no_edge`` was added when a bar with no edge started
-    stroking in the colour under it (#515). ``heatmap_contourf_raw_colorbar``
-    and ``polar_own_grid_sub`` were added when a band sub kept its rescale
-    for a raw bar and an edited polar sub was kept (#549).
+    stroking in the colour under it (#515). ``bar_edge_needs_edgecolor`` and
+    ``histogram_none_face`` were added for edges, 'none' faces and
+    zero-alpha colours (#547). ``heatmap_contourf_raw_colorbar`` and
+    ``polar_own_grid_sub`` were added when a band sub kept its rescale for a
+    raw bar and an edited polar sub was kept (#549).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():
