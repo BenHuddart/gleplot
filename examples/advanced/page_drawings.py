@@ -14,8 +14,9 @@ import gleplot as glp
 def example_page_drawings():
     """GLE's drawing commands, placed on the page in centimetres from its
     bottom-left corner, outside any axes: a sketch of the experiment beside
-    its data. ``polygon``, ``circle``, ``ellipse``, ``arc``, ``bezier`` and
-    ``curve`` write GLE's own shapes, and ``table`` lines up columns of text.
+    its data. ``circle``, ``ellipse``, ``arc``, ``bezier`` and ``curve``
+    write GLE's commands of those names, ``polygon`` a closed GLE path, and
+    ``table`` lines up columns of text.
     """
     print("Creating example: Page drawings...")
 

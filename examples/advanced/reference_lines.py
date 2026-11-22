@@ -25,9 +25,10 @@ def example_reference_lines_and_spans():
     t = np.linspace(0, 10, 400)
     signal = np.exp(-t / 4) * np.sin(2 * t) + 0.05 * t
 
-    # Shaded bands go first, so the data is drawn over them.
-    ax.axvspan(2.0, 3.5, color="gold", alpha=0.4, label="pulse on")
+    # Shaded bands go first, so the data is drawn over them. The see-through
+    # band is drawn after the grey one, which shows through it.
     ax.axhspan(-0.1, 0.1, color="lightgray", label="noise floor")
+    ax.axvspan(2.0, 3.5, color="gold", alpha=0.4, label="pulse on")
 
     ax.plot(t, signal, color="black", label="signal")
 

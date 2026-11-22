@@ -19,7 +19,7 @@ def example_open_gle():
     """
     print("Creating example: open_gle...")
 
-    # A hand-written GLE script: a curve GLE computes, and a dashed line.
+    # A hand-written GLE script: a curve GLE computes, and a dotted zero line.
     Path("example_handwritten.gle").write_text("""size 16 13
 set hei 0.45
 amove 1.5 1.2

@@ -238,7 +238,7 @@ def example_inset_axes():
     inset = fig.add_axes([0.55, 0.62, 0.3, 0.22], facecolor="white")
     inset.plot(x, y, color="C0")
     inset.set_xlim(1.8, 2.4)
-    inset.set_ylim(-0.4, 0.8)
+    inset.set_ylim(-0.7, 0.8)
     inset.set_title("1.8 to 2.4 s")
 
     fig.savefig("example_inset_axes.gle")

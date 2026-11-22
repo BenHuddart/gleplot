@@ -13,8 +13,10 @@ import gleplot as glp
 
 def example_fits_and_functions():
     """Curves computed by GLE rather than in Python. On the left, ``fit`` has
-    GLE fit the data: ``model='exp'`` with its fitted values shown in the
-    legend, and a free ``expression`` fitted by least squares. On the right,
+    GLE fit the data: ``model='exp'``, ``a*exp(b*x)`` with no constant term,
+    so it misses the data's offset, with its fitted values shown in the
+    legend; and a free ``expression`` with an offset, fitted by least
+    squares. On the right,
     ``function`` samples expressions in ``x`` and ``derived`` draws a curve
     computed from other series, here the difference of the two functions.
     """

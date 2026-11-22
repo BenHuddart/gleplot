@@ -70,10 +70,19 @@ def example_figure_text_and_legend():
     x = np.linspace(0, 4 * np.pi, 200)
     for ax, damping in ((ax1, 0.1), (ax2, 0.3)):
         # Label one axes only: fig.legend lists every labelled series.
-        labels = ("position", "velocity", "rest") if ax is ax1 else ("", "", "")
-        ax.plot(x, np.exp(-damping * x) * np.cos(x), label=labels[0])
-        ax.plot(x, -np.exp(-damping * x) * np.sin(x), "--", label=labels[1])
-        ax.axhline(0, color="gray", linewidth=0.5, label=labels[2])
+        first = ax is ax1
+        ax.plot(
+            x,
+            np.exp(-damping * x) * np.cos(x),
+            label="position" if first else None,
+        )
+        ax.plot(
+            x,
+            -np.exp(-damping * x) * np.sin(x),
+            "--",
+            label="velocity" if first else None,
+        )
+        ax.axhline(0, color="gray", linewidth=0.5, label="rest" if first else None)
         ax.set_xlim(0, 4 * np.pi)
         ax.set_ylim(-1.1, 1.1)
         ax.set_xlabel("Time (s)")
