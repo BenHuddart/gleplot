@@ -95,6 +95,10 @@ To draw every uncoloured line, histogram and function curve in one colour, and e
 onto a `key` option are honoured; every other matplotlib legend kwarg raises
 a `UserWarning` instead of being silently dropped.
 
+An axes with a labelled series draws a legend even if `ax.legend()` is never
+called; matplotlib draws none until it is. Leave `label=` off a series to keep
+it out of the legend.
+
 `label=` on `bar` and `fill_between` is a real legend entry. GLE's `bar` and
 `fill` commands have no `key` qualifier, so the swatch is a following dataset
 line: `dN key "label"` for a bar (the bar fill is already the swatch) and
