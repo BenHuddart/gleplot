@@ -75,21 +75,17 @@ This is expected: shared axes label only the outer panels, as described in
 [Figures and Subplots](FIGURES_AND_SUBPLOTS.md). Disable sharing if each panel
 must show all tick labels.
 
-## Lines Look More Angular Than They Used To
+## Lines Look Angular
 
 Symptoms:
 
-- A figure regenerated with gleplot 1.9.0 or later has visibly kinked lines
-  where the old one had flowing curves, and peaks no longer overshoot
+- A line has visible kinks between sparse points, where a smoothed curve
+  would flow through them
 
-This is the fix, not a regression. Before 1.9.0, `GLEGraphConfig.smooth_curves`
-defaulted to `True`, so every line series was emitted with GLE's `smooth`
-qualifier and rendered as a spline fitted *near* the data instead of a
-polyline *through* it. The new default draws the data. Any jaggedness you now
-see is in your points and was previously being smoothed away.
-
-If the smoothed look is what you want (a guide to the eye, a densely sampled
-model curve), ask for it explicitly:
+A line is drawn as a polyline *through* your points, as in matplotlib. GLE's
+`smooth` qualifier draws a spline fitted *near* the points instead, which
+can overshoot peaks. If the smoothed look is what you want (a guide to the
+eye, a densely sampled model curve), ask for it explicitly:
 
 ```python
 fig = glp.figure(graph=glp.GLEGraphConfig(smooth_curves=True))
@@ -97,7 +93,7 @@ fig = glp.figure(graph=glp.GLEGraphConfig(smooth_curves=True))
 glp.GlobalConfig.graph.smooth_curves = True
 ```
 
-See the Curve Smoothing section of `CONFIGURATION.md`.
+See "Curve Smoothing" in [Configuration](CONFIGURATION.md).
 
 ## Grid Call Has No Visual Effect
 
@@ -109,3 +105,10 @@ matplotlib would:
   expressible in GLE and is normalized to `which='both'` with a warning.
 - Grid style **is** tick style (`xticks lstyle/lwidth/color`), so
   `ax.grid(True, color='gray40')` recolours that axis' ticks as well.
+
+## A gleplot 5 Script Raises or Draws Differently
+
+gleplot 6 raises for an argument value it cannot use, removed the features
+GLE cannot draw natively, and changed some defaults, such as the colour of
+an uncoloured series and the outline of a bar. Each change, and what to use
+instead, is in [Migrating from gleplot 5 to 6](MIGRATING_TO_6.md).

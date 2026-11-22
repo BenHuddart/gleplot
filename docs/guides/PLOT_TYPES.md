@@ -43,7 +43,7 @@ For a guide across the whole axes, see
 ## Scatter
 
 ```python
-ax.scatter(x, y, s=50, color='red', marker='o', alpha=0.6)
+ax.scatter(x, y, s=50, color='red', marker='o')
 ```
 
 `s` is an area in points², as in matplotlib. Pass one value per point for a
@@ -65,6 +65,9 @@ ax.bar(x, y2, bottom=y)
 ax.bar(x, y, yerr=err, capsize=3)
 ax.barh(x, y, xerr=err)
 ```
+
+As in matplotlib, a bar has no edge unless `edgecolor` is given. How a bar
+is written is in the [migration guide](MATPLOTLIB_MIGRATION.md) ("Bars").
 
 ## Steps, stems and histograms
 

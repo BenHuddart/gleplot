@@ -13,13 +13,9 @@ No requested color is ever replaced by an approximation. `#8c8c8c` renders as
 `#8c8c8c`, and two series given two different colors always get two different
 colors in the script.
 
-> **Before 1.8.2** a hex string or RGB tuple was snapped onto whichever of about
-> eight named colors shared its dominant channel. That silently substituted a
-> different color: `#8c8c8c` and `#999999` both rendered MAGENTA, `#bbbbbb`
-> rendered WHITE (invisible on a white page), and `#9467bd` (matplotlib's tab
-> purple) rendered MAGENTA -- so distinct series could collide onto one color
-> with no warning. If you have a script or figure that relied on that behavior,
-> name the color you want explicitly.
+A series given no color takes the next color of its axes' cycle, `C0` to
+`C9`, as in matplotlib; see "Default colours" in the
+[Matplotlib Migration Guide](MATPLOTLIB_MIGRATION.md).
 
 ### Matplotlib single-letter colors
 
@@ -91,8 +87,8 @@ than gleplot already asked for.
 ## Marker Mapping
 
 gleplot accepts matplotlib marker symbols and maps them to GLE marker types.
-**Every code in matplotlib's standard string marker set is mapped** (as of
-1.9.0), so no valid matplotlib marker silently turns into a circle.
+**Every code in matplotlib's standard string marker set is mapped**, so no
+valid matplotlib marker silently turns into a circle.
 
 Marker codes are case-significant, exactly as in matplotlib. Where matplotlib
 distinguishes a pair by case, gleplot keeps them visually distinct by giving
@@ -208,19 +204,6 @@ string; the rest are available by overriding
 from those same fields, so reading a `.gle` file back in always agrees with what
 the writer emits.
 
-> **Changed in 1.9.0.** Earlier releases mapped `'--'` to `lstyle 2` and `':'`
-> to `lstyle 3` — GLE's dotted and dashed respectively — so dashed and dotted
-> lines rendered as each other. `'-.'` used `lstyle 4`, another dotted style,
-> rather than a true dash-dot. Any figure regenerated with 1.9.0 or later will
-> look different wherever `'--'`, `':'`, or `'-.'` is used; that difference is
-> the correction. To reproduce the old output deliberately:
->
-> ```python
-> style = glp.GLEStyleConfig(
->     line_style_dashed=2, line_style_dotted=3, line_style_dashdot=4
-> )
-> ```
-
 ## Practical Notes
 
 - Marker size in `plot` and `errorbar` uses `markersize` (matplotlib's `Line2D`
@@ -234,8 +217,7 @@ the writer emits.
     `plot` asking for the same `markersize` draw the same marker.
 
   Passing **both is ambiguous, and `markersize` wins**: it is a size rather
-  than an area, so honouring it needs no conversion. (Before 1.9.0 `markersize`
-  was swallowed by `**kwargs` and silently ignored, drawing the default size.)
+  than an area, so honouring it needs no conversion.
 - Per-point sizes make a bubble chart: pass one value per point for `s` or
   `markersize`, e.g. `ax.scatter(x, y, s=population / 1e6)`. GLE scales a
   marker per point (`mdata`) only when a subroutine draws it, so the script
@@ -265,9 +247,7 @@ the writer emits.
   `gleplot.parser.tables.nearest_gle_color(r, g, b)` and pass the name it
   returns.
 - An **unrecognized marker** (neither a matplotlib code nor a GLE marker name)
-  falls back to `FCIRCLE` *and emits a `UserWarning`*. It used to fall back
-  silently, which turned a typo into a wrong-shaped marker with no indication
-  anything had happened.
+  falls back to `FCIRCLE` *and emits a `UserWarning`*.
 - A few long-standing mappings point at outline shapes because GLE has no
   filled counterpart at all: `<`/`>` → `TRIANGLE` (GLE has no sideways
   triangle), `p` → `STARR`, `h` → `DIAMOND`. These are kept verbatim so
