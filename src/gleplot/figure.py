@@ -21,7 +21,12 @@ from .axes import (
     _validate_data_prefix,
     histogram_counts,
 )
-from .cairo_support import cairo_font_warning, figure_requires_cairo
+from .cairo_support import (
+    cairo_font_warning,
+    drawn_font,
+    figure_requires_cairo,
+    text_glyph_warning,
+)
 from .colors import _gle_color, _is_none_color, _rgba_parts, apply_alpha, rgb_to_gle
 from .compiler import (
     RASTER_COMPILE_FORMATS,
@@ -2932,6 +2937,12 @@ class Figure:
                     warning = cairo_font_warning(font)
                     if warning:
                         warn_external(f"{warning} ({why}).")
+            if not self.style.usetex:
+                warning = text_glyph_warning(
+                    drawn_font(self.style.font, effective_cairo), gle_content
+                )
+                if warning:
+                    warn_external(warning)
 
             output_dpi = dpi or self.dpi
             tex_cache = export_dir / ".gle"

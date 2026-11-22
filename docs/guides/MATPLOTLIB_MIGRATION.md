@@ -155,6 +155,11 @@ figure rather than in `rcParams`; see the
 [Configuration Guide](CONFIGURATION.md). There is no per-text `usetex=`
 keyword.
 
+GLE draws the text of a figure with a semi-transparent colour in its
+`texcmr` font, unless the figure sets another `texcm*` font. In `texcmr`, `<`, `>`, `_` and some Unicode characters draw as other glyphs. Saving
+warns; the [Configuration Guide](CONFIGURATION.md) lists the markup to write
+instead.
+
 ### Figure-level text and legend
 
 `fig.suptitle`, `fig.text` and `fig.legend` work on the whole page, as in
