@@ -111,6 +111,66 @@ def cairo_font_warning(font: Optional[str]) -> Optional[str]:
     )
 
 
+#: The TeX Computer Modern text fonts in OT1 encoding (verified against GLE
+#: 4.3.10): ``<``, ``>``, ``\_``, ``|``, ``\{`` and ``\}`` draw as other
+#: glyphs in them. ``texcmtt`` and ``texcmitt`` keep the ASCII layout.
+_OT1_FONTS = frozenset(
+    {"texcmr", "texcmb", "texcmti", "texcmss", "texcmssb", "texcmssi"}
+)
+
+#: What draws each misdrawn character in an OT1 font: the math italic for
+#: ``<``/``>``, the typewriter face for the rest.
+_OT1_ESCAPES = {
+    "<": r"{\setfont{texmi}<}",
+    ">": r"{\setfont{texmi}>}",
+    r"\_": r"{\setfont{texcmtt}\_}",
+    "|": r"{\setfont{texcmtt}|}",
+    r"\{": r"{\setfont{texcmtt}\{}",
+    r"\}": r"{\setfont{texcmtt}\}}",
+}
+
+#: Non-ASCII characters no ``texcm*`` font draws (GLE writes their code
+#: instead), with GLE's macro for each.
+_TEXCM_MACROS = {"≥": r"\geq{}", "≤": r"\leq{}"}
+
+#: The quoted strings of a GLE script: where gleplot writes all its text.
+_QUOTED_RE = re.compile(r"\"[^\"]*\"|'[^']*'")
+
+#: An escape from :data:`_OT1_ESCAPES` already written in the text.
+_ESCAPED_RE = re.compile(r"\{\\setfont\{(?:texmi|texcmtt)\}(?:[<>|]|\\[_{}])\}")
+
+
+def drawn_font(font: Optional[str], cairo: bool) -> str:
+    """The font GLE draws page text in: ``font``, or its Cairo substitute."""
+    if cairo and not is_cairo_safe_font(font):
+        return CAIRO_SAFE_FONT
+    return (font or "").strip().lower()
+
+
+def text_glyph_warning(font: str, script: str) -> Optional[str]:
+    """A warning when text in ``script`` has characters ``font`` misdraws.
+
+    ``font`` is the font the text is drawn in (:func:`drawn_font`). Every
+    string quoted in ``script`` is checked; None when nothing is misdrawn.
+    """
+    if not font.startswith("texcm"):
+        return None
+    fixes = dict(_TEXCM_MACROS)
+    if font in _OT1_FONTS:
+        fixes.update(_OT1_ESCAPES)
+    text = _ESCAPED_RE.sub("", "".join(_QUOTED_RE.findall(script)))
+    found = [char for char in fixes if char in text]
+    if not found:
+        return None
+    # The text holds gleplot's escapes; the user typed the bare character.
+    hints = ", ".join(f"{char.lstrip(chr(92))} as {fixes[char]}" for char in found)
+    return (
+        f"Font {font!r} draws some characters in this figure's text as other "
+        f"glyphs. Write {hints} in the text instead, or choose another font "
+        "with GLEStyleConfig(font=...)."
+    )
+
+
 #: Matches a GLE colour expression that already carries its own alpha --
 #: ``rgba(...)`` or ``rgba255(...)`` -- wherever it can appear as a string in
 #: the object model: a resolved colour token on a fill/span/line/marker/text

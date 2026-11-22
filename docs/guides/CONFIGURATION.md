@@ -67,6 +67,29 @@ too. gleplot compiles those figures with `-cairo`, so GLE draws such text in
 `texcmr` instead, and saving warns. Use the TeX Computer Modern (`texcm*`)
 fonts for figures drawn that way to choose the font yourself.
 
+The `texcm*` fonts lay out some characters differently from the PostScript
+fonts, so GLE draws them as other glyphs. In `texcmr`, `texcmb`, `texcmti`,
+`texcmss`, `texcmssb` and `texcmssi`, `<` draws as `¡`, `>` as `¿`, `_` as a
+dot accent, and `|`, `{` and `}` as other marks; in every `texcm*` font, a
+Unicode character the font has no glyph for, such as `≥`, draws as its
+character code. gleplot writes your text unchanged and warns when it compiles
+a figure whose text has one of these characters. Write GLE's own markup for
+them instead:
+
+| Character | Write |
+|---|---|
+| `<`, `>` | `{\setfont{texmi}<}`, `{\setfont{texmi}>}` |
+| `_`, `{`, `}` | `{\setfont{texcmtt}\_}`, `{\setfont{texcmtt}\{}`, `{\setfont{texcmtt}\}}` |
+| `≥`, `≤` | `\geq{}`, `\leq{}` |
+
+A vertical bar is the same: write it inside `{\setfont{texcmtt}...}`.
+
+    ax.set_title(r"data{\setfont{texcmtt}\_}prefix: a {\setfont{texmi}<} b")
+
+gleplot warns only for the characters in this table. Other Unicode
+characters, such as `°`, `–` and `’`, can draw as their code in a `texcm*`
+font too, without a warning: check the compiled output.
+
 ### Line Styles
 
 Customize how different line styles are rendered:
