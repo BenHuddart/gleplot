@@ -164,6 +164,19 @@ def bar_none_face():
     return fig
 
 
+def bar_edge_needs_edgecolor():
+    """``linewidth`` / ``linestyle`` with no ``edgecolor`` draw no edge, and
+    an RGBA colour with zero alpha is ``'none'``, as a face and an edge."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, 3, 1], color="yellow", linewidth=2, label="lw")
+    ax.barh([1, 2], [3, 4], color="teal", linestyle="--")
+    ax.bar([5, 6], [1, 2], color=(0, 0, 0, 0), edgecolor="k")
+    ax.bar([5, 6], [1, 1], bottom=[1, 2], color="red", edgecolor=(1, 0, 0, 0))
+    ax.legend()
+    return fig
+
+
 def barh():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -1625,6 +1638,29 @@ def histogram():
     return fig
 
 
+def histogram_none_face():
+    """``color='none'`` (or a zero-alpha RGBA) on a filled histogram is a
+    ``CLEAR`` fill, and on a step histogram the line is the edge."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    samples = [0.1, 0.3, 0.5, 0.7]
+    ax.hist(
+        samples,
+        bins=4,
+        range=(0, 1),
+        histtype="stepfilled",
+        color="none",
+        edgecolor="red",
+        label="clear",
+    )
+    ax.hist(samples, bins=4, range=(0, 1), histtype="stepfilled", color=(0, 0, 0, 0))
+    ax.hist(
+        samples, bins=4, range=(0, 1), histtype="step", color="none", edgecolor="blue"
+    )
+    ax.legend()
+    return fig
+
+
 def function_curves():
     """Two GLE-sampled curves: one with a range, step, style and label, one bare."""
     fig = glp.figure(data_prefix="golden")
@@ -2184,6 +2220,7 @@ BUILDERS = [
     bar_hatch,
     bar_no_edge,
     bar_none_face,
+    bar_edge_needs_edgecolor,
     barh,
     bar_yerr,
     barh_xerr,
@@ -2261,6 +2298,7 @@ BUILDERS = [
     fill_orientations,
     segment_lines,
     histogram,
+    histogram_none_face,
     function_curves,
     function_curves_beside_modelled_lets,
     one_point_default_width,

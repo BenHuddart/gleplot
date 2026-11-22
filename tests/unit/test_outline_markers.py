@@ -10,6 +10,8 @@ passthrough, and the warning that replaced the old silent fallback.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -159,6 +161,16 @@ def test_plot_markerfacecolor_none_matches_fillstyle_none():
     ax = fig.add_subplot(111)
     ax.plot(X, Y, marker="s", markerfacecolor="none")
     assert ax.lines[0]["marker"] == "SQUARE"
+
+
+def test_a_zero_alpha_markerfacecolor_is_none():
+    fig = glp.figure(data_prefix="om")
+    ax = fig.add_subplot(111)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ax.plot(X, Y, marker="s", markerfacecolor=(1, 0, 0, 0))
+        ax.plot(X, Y, marker="s", mfc=np.array([0.0, 0.0, 0.0, 0.0]))
+    assert [line["marker"] for line in ax.lines] == ["SQUARE"] * 2
 
 
 def test_plot_mfc_alias():

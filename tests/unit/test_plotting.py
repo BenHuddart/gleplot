@@ -361,6 +361,33 @@ class TestBarCharts:
             "bar d3 fill CLEAR color CLEAR lwidth 0 horiz",
         ]
 
+    def test_a_zero_alpha_colour_is_none(self):
+        """An RGBA colour with zero alpha draws nothing, as 'none' does."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.bar([1, 2], [3, 4], color=(0, 0, 0, 0), edgecolor="k")
+            self.ax.bar([1, 2], [3, 4], color="y", edgecolor=np.zeros(4))
+            self.ax.bar([1, 2], [3, 4], color=["none", (1, 0, 0, 0.0)], ec="b")
+        bars = [
+            line.strip()
+            for line in self.fig._generate_gle().splitlines()
+            if line.strip().startswith("bar ")
+        ]
+        assert bars == [
+            "bar d1 fill CLEAR color BLACK",
+            "bar d2 fill YELLOW color YELLOW lwidth 0",
+            "bar d3 fill CLEAR color BLUE",
+        ]
+
+    def test_a_labelled_none_face_with_an_edge_warns_its_swatch_is_empty(self):
+        """GLE's key draws a swatch only for a fill it can see."""
+        with pytest.warns(UserWarning, match="empty legend swatch"):
+            self.ax.bar([1, 2], [3, 4], color="none", edgecolor="k", label="a")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.bar([1, 2], [3, 4], color="none", edgecolor="k")
+            self.ax.bar([1, 2], [3, 4], color="none", hatch="/", label="b")
+
     def test_bar_hatch_under_a_none_edge_is_black(self):
         """matplotlib falls back to black when the edge it would use is 'none'.
 
@@ -392,14 +419,17 @@ class TestBarCharts:
         assert script.count("lwidth") == 3
 
     def test_a_bar_has_an_edge_only_when_one_is_asked_for(self):
-        """matplotlib's bars have no edge, and a zero-width edge is none."""
+        """matplotlib's bars have no edge unless edgecolor is given, whatever
+        linewidth and linestyle say, and a zero-width edge is none."""
         self.ax.bar([1, 2], [3, 4], color="y")
         self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linewidth=0)
         self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k")
         self.ax.bar([1, 2], [3, 4], color="y", linewidth=2)
         self.ax.bar([1, 2], [3, 4], color="y", linestyle="--")
+        self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linewidth=2)
+        self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linestyle="--")
         with pytest.warns(UserWarning, match="the edge stays solid"):
-            self.ax.bar([1, 2], [3, 4], color="y", linestyle="steps")
+            self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linestyle="steps")
         bars = [
             line.strip()
             for line in self.fig._generate_gle().splitlines()
@@ -409,12 +439,20 @@ class TestBarCharts:
             "bar d1 fill YELLOW color YELLOW lwidth 0",
             "bar d2 fill YELLOW color YELLOW lwidth 0",
             "bar d3 fill YELLOW color BLACK",
-            "bar d4 fill YELLOW lwidth 0.07056",
-            "bar d5 fill YELLOW lstyle 3",
-            "bar d6 fill YELLOW",
+            "bar d4 fill YELLOW color YELLOW lwidth 0",
+            "bar d5 fill YELLOW color YELLOW lwidth 0",
+            "bar d6 fill YELLOW color BLACK lwidth 0.07056",
+            "bar d7 fill YELLOW color BLACK lstyle 3",
+            "bar d8 fill YELLOW color BLACK",
         ]
         assert [bar.get("edgecolor") for bar in self.ax.bars[:2]] == ["none"] * 2
         assert "linewidth" not in self.ax.bars[1]
+
+    def test_an_edge_style_without_edgecolor_says_nothing_about_the_edge(self):
+        """There is no edge for an unusable linestyle to leave solid."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.bar([1, 2], [3, 4], linestyle="steps", linewidth=[1, 2])
 
     def test_bar_hatch_sequence_splits_per_bar(self):
         self.ax.bar([1, 2, 3], [3, 4, 5], hatch=["/", "", "x"], label="mix")
@@ -2360,6 +2398,49 @@ class TestHistogram:
             warnings.simplefilter("error")
             self.ax.hist([0, 1], histtype="stepfilled", color="y", edgecolor="none")
         assert "bar d2 fill YELLOW color YELLOW" in self._script()
+
+    @pytest.mark.parametrize("color", ["none", (0, 0, 1, 0)])
+    def test_stepfilled_none_face_is_clear(self, color):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.hist([0, 1], histtype="stepfilled", color=color, edgecolor="r")
+        with pytest.warns(UserWarning, match="no edge draws a black outline"):
+            self.ax.hist([0, 1], histtype="stepfilled", color=color)
+        script = self._script()
+        assert "bar d2 fill CLEAR color RED " in script
+        assert "bar d4 fill CLEAR color CLEAR " in script
+
+    def test_a_labelled_stepfilled_none_face_warns_its_swatch_is_empty(self):
+        with pytest.warns(UserWarning, match="empty legend swatch"):
+            self.ax.hist(
+                [0, 1], histtype="stepfilled", color="none", edgecolor="r", label="a"
+            )
+
+    def test_alpha_overrides_a_zero_alpha_colour(self):
+        """As in matplotlib, alpha= replaces the colour's own alpha."""
+        self.ax.hist([0, 1], histtype="stepfilled", color=(0, 0, 1, 0), alpha=0.5)
+        self.ax.hist(
+            [0, 1], histtype="stepfilled", color="y", edgecolor=(1, 0, 0, 0), alpha=0.5
+        )
+        script = self._script()
+        assert "bar d2 fill rgba255(0,0,255,128) " in script
+        assert (
+            "bar d4 fill rgba255(255,255,0,128) color rgba255(255,0,0,128) " in script
+        )
+
+    def test_step_none_face_is_drawn_in_its_edgecolor(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.hist([0, 1], histtype="step", color="none", edgecolor="r")
+        assert "d2 line hist color RED " in self._script()
+
+    def test_a_zero_alpha_edgecolor_is_none(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ax.hist(
+                [0, 1], histtype="stepfilled", color="y", edgecolor=(1, 0, 0, 0)
+            )
+        assert "bar d2 fill YELLOW color YELLOW " in self._script()
 
     @pytest.mark.parametrize("histtype", ["step", "stepfilled"])
     def test_an_rgba_colours_alpha_does_not_reach_the_edge(self, histtype):

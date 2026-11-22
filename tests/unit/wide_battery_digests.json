@@ -145,5 +145,7 @@
  "golden:subplots_raw_between_graphs": "468b6a8e008e5fe9518e2b205708de3f04f9dce79806cb9bec5d58240eb9e83a",
  "golden:heatmap_gle_palettes": "c6cd88ee7ae14a37a199236bc8d8ffa34897153b20dc440cb3ff8256a0d98d49",
  "golden:heatmap_colorbars_inside_frame": "38e6354df329f86e6ae611af71162ed43d53f2b7863af1f16e41180e83af4150",
- "golden:bar_none_face": "7d298d3b8ed99ea1ea9b067ea8aaf99815ba655ec1694715778698ab0ae3b9d5"
+ "golden:bar_none_face": "7d298d3b8ed99ea1ea9b067ea8aaf99815ba655ec1694715778698ab0ae3b9d5",
+ "golden:bar_edge_needs_edgecolor": "44a1fda54bdaa85f6e7a72052a9d8574d9595fbf6ad58a798aeb84c38731d3b9",
+ "golden:histogram_none_face": "6489e4306813d55acbad18a713feefe42d70bf321ae539de2d73b122ef6e4605"
 }

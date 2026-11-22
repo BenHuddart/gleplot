@@ -112,6 +112,23 @@ def test_color_none_drops_the_outline_and_fill_none_the_fill():
     assert not any(line.startswith("set color") for line in lines)
 
 
+def test_a_zero_alpha_colour_is_none():
+    fig = _plotted()
+    fig.circle(1, 1, 0.5, fill="red", color=(0, 0, 0, 0))
+    fig.ellipse(1, 1, 2, 1, fill=(1, 0, 0, 0))
+    lines = _after_graph(fig)
+    assert "circle 0.5 fill RED nostroke" in lines
+    assert "ellipse 1 0.5" in lines
+
+
+def test_a_zero_alpha_line_is_drawn_as_before():
+    """An open drawing cannot be 'none'; its colour is drawn opaque."""
+    fig = _plotted()
+    with pytest.warns(UserWarning, match="alpha"):
+        fig.arc(1, 1, 1, 0, 90, color=(1, 0, 0, 0))
+    assert "set color rgb255(255,0,0)" in _after_graph(fig)
+
+
 def test_curve_steps_land_on_the_written_points():
     fig = _plotted()
     fig.curve([0.1, 0.2, 0.3], [0, 0.7, 0.1], (1, 0), (1, 0))
