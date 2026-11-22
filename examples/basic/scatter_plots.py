@@ -44,8 +44,9 @@ def example_scatter_plot():
 
 def example_scatter_colormap():
     """Scatter with ``c=`` one number per point: each marker takes its colour
-    from the colormap, through GLE's per-point marker colour. The colorbar
-    beside it shows the scale, as for a heatmap.
+    from the colormap. Each point's value goes to GLE as marker data
+    (``mdata``), which a marker sub turns into a colour. The colorbar beside
+    it shows the scale, as for a heatmap.
     """
     print("Creating example: Colour-mapped scatter...")
 
