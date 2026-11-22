@@ -167,9 +167,89 @@ def example_1x3_comparison():
     print("  ✓ Saved to example_subplots_1x3.gle")
 
 
+def example_subplot_ratios():
+    """A scatter with its marginal distributions. ``width_ratios`` and
+    ``height_ratios`` size the grid's columns and rows; ``sharex='col'`` and
+    ``sharey='row'`` give each column one x range and each row one y range, so
+    the margins line up with the scatter. The corner axes is switched off.
+    """
+    print("Creating example: Subplot ratios...")
+
+    fig, axes = glp.subplots(
+        2,
+        2,
+        figsize=(7, 7),
+        sharex="col",
+        sharey="row",
+        width_ratios=[4, 1],
+        height_ratios=[1, 4],
+    )
+    top, corner = axes[0]
+    main, right = axes[1]
+
+    rng = np.random.default_rng(11)
+    x = rng.normal(0, 1, 400)
+    y = 0.6 * x + rng.normal(0, 0.8, 400)
+    edges = np.linspace(-4, 4, 25)
+
+    main.scatter(x, y, s=8, color="C0")
+    main.set_xlim(-4, 4)
+    main.set_ylim(-4, 4)
+    main.set_xlabel("x")
+    main.set_ylabel("y")
+
+    # x margin: a histogram over the shared x range.
+    top.hist(x, bins=24, range=(-4, 4), histtype="stepfilled", color="C0")
+
+    # y margin: GLE's histogram is vertical, so the counts are drawn as bars.
+    counts, _ = np.histogram(y, bins=edges)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    right.barh(centres, counts, height=edges[1] - edges[0], color="C0")
+
+    right.set_xticks(dticks=25)
+    top.set_yticks(dticks=25)
+    corner.set_axis_off()
+
+    fig.savefig("example_subplot_ratios.gle")
+    print("  ✓ Saved to example_subplot_ratios.gle")
+
+
+def example_inset_axes():
+    """An inset made with ``fig.add_axes``, placed in figure fractions, zooms
+    in on part of the main plot. ``set_facecolor`` fills an axes frame with
+    GLE's graph ``background``: the main axes is tinted, and the inset is
+    given a white background so the curves behind it do not show through.
+    """
+    print("Creating example: Inset axes...")
+
+    fig, ax = glp.subplots(figsize=(8, 6))
+    ax.set_facecolor("whitesmoke")
+
+    x = np.linspace(0, 10, 1000)
+    y = np.sin(3 * x) * np.exp(-x / 5) + 0.02 * np.sin(60 * x)
+    ax.plot(x, y, color="C0")
+    ax.axvspan(1.8, 2.4, color="lightgray")
+    ax.set_xlim(0, 10)
+    ax.set_ylim(-1.5, 1.5)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Signal")
+    ax.set_title("Inset Axes")
+
+    inset = fig.add_axes([0.55, 0.62, 0.3, 0.22], facecolor="white")
+    inset.plot(x, y, color="C0")
+    inset.set_xlim(1.8, 2.4)
+    inset.set_ylim(-0.4, 0.8)
+    inset.set_title("1.8 to 2.4 s")
+
+    fig.savefig("example_inset_axes.gle")
+    print("  ✓ Saved to example_inset_axes.gle")
+
+
 if __name__ == "__main__":
     example_side_by_side()
     example_stacked()
     example_2x2_grid()
     example_1x3_comparison()
+    example_subplot_ratios()
+    example_inset_axes()
     print("\nAll subplot examples created.")

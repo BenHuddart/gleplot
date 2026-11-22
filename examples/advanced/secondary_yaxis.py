@@ -81,11 +81,11 @@ def example_secondary_yaxis():
     ax2.plot(x, y1, color="green", linewidth=2, label="Quadratic: x²")
 
     # Plot exponential on right axis with log scale
-    ax2.plot(x, y2, color="purple", linewidth=2, label="Exponential: eˣ", yaxis="y2")
+    ax2.plot(x, y2, color="purple", linewidth=2, label="Exponential: $e^x$", yaxis="y2")
 
     ax2.set_xlabel("x")
     ax2.set_ylabel("x²", axis="y")
-    ax2.set_ylabel("eˣ", axis="y2")
+    ax2.set_ylabel("$e^x$", axis="y2")
     ax2.set_title("Comparing Growth Rates")
 
     # Set logarithmic scale for y2axis
@@ -192,5 +192,43 @@ def example_secondary_yaxis():
     print("- Use ax.set_yscale('log', axis='y2') to set right axis scale")
 
 
+def example_twin_axes():
+    """matplotlib's ``twinx`` and ``twiny``. ``twinx`` returns a view of the
+    same axes bound to GLE's right-hand ``y2axis``, and ``twiny`` one bound to
+    the top ``x2axis``; each has its own limits and label. Here the right axis
+    carries a second quantity and the top axis gives the temperature in
+    degrees Celsius.
+    """
+    print("Creating example: Twin axes...")
+
+    fig, ax = glp.subplots(figsize=(8, 6))
+
+    T = np.linspace(5, 300, 120)  # kelvin
+    resistivity = 2 + 0.05 * T + 40 / (1 + np.exp((T - 60) / 8))
+    susceptibility = 1 / (T + 15)
+
+    ax.plot(T, resistivity, color="C0", label="resistivity")
+    ax.set_xlim(0, 300)
+    ax.set_ylim(0, 60)
+    ax.set_xlabel("Temperature (K)")
+    ax.set_ylabel(r"Resistivity ($\mu\Omega$ cm)")
+
+    right = ax.twinx()
+    right.plot(T, 1000 * susceptibility, "--", color="C3", label="susceptibility")
+    right.set_ylim(0, 60)
+    right.set_ylabel(r"Susceptibility ($10^{-3}$ emu/mol)")
+
+    # The top axis is the same temperature in Celsius: a shifted copy.
+    top = ax.twiny()
+    top.set_xlim(-273.15, 300 - 273.15)
+    top.set_xlabel("Temperature (C)")
+
+    ax.legend(loc="upper right")
+
+    fig.savefig("example_twin_axes.gle")
+    print("  ✓ Saved to example_twin_axes.gle")
+
+
 if __name__ == "__main__":
     example_secondary_yaxis()
+    example_twin_axes()

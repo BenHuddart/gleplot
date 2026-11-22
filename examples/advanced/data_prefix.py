@@ -46,7 +46,7 @@ def example_data_prefix():
 
     ax.set_xlabel("Normalized input")
     ax.set_ylabel("Response")
-    ax.set_title("Custom data_prefix and data_name Output Files")
+    ax.set_title("Custom Data Prefix and Data Names")
     ax.legend(loc="top left")
 
     fig.savefig("example_data_prefix.gle")

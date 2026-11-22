@@ -27,6 +27,8 @@ import basic
 from advanced import (
     example_1x3_comparison,
     example_2x2_grid,
+    example_area_fills,
+    example_axis_and_ticks,
     example_batch_figures,
     example_both_shared,
     example_combined_plot,
@@ -34,19 +36,25 @@ from advanced import (
     example_data_prefix,
     example_dual_axis_from_file,
     example_errorbar_from_file,
+    example_figure_text_and_legend,
     example_fill_between,
     example_fill_between_conditional,
+    example_fits_and_functions,
     example_global_config,
+    example_inset_axes,
     example_line_from_file,
     example_line_overlay_from_file,
     example_line_styles,
     example_log_scale,
     example_marker_config,
     example_multiple_styles,
+    example_open_gle,
+    example_page_drawings,
     example_per_element_styling,
     example_per_figure_config,
     example_phase_diagram,
     example_prl_fig2a_style,
+    example_reference_lines_and_spans,
     example_residual_plot,
     example_secondary_yaxis,
     example_sharex_stacked,
@@ -54,7 +62,9 @@ from advanced import (
     example_side_by_side,
     example_smooth_curves,
     example_stacked,
+    example_subplot_ratios,
     example_text_annotations,
+    example_twin_axes,
 )
 from basic import (
     example_asymmetric_error_bars,
@@ -106,13 +116,30 @@ EXAMPLES = [
         example_fill_between_conditional,
         ["example_fill_between_conditional"],
     ),
+    (
+        "Area Fills (fill_betweenx, stackplot, fill)",
+        example_area_fills,
+        ["example_area_fills"],
+    ),
+    (
+        "Reference Lines and Spans",
+        example_reference_lines_and_spans,
+        ["example_reference_lines"],
+    ),
     ("Log Scale", example_log_scale, ["example_log_scale"]),
+    ("Axis, Ticks and Grid", example_axis_and_ticks, ["example_axis_ticks"]),
     ("Combined Plot", example_combined_plot, ["example_combined_plot"]),
     ("Multiple Styles", example_multiple_styles, ["example_multiple_styles"]),
     ("Side-by-Side Subplots", example_side_by_side, ["example_subplots_1x2"]),
     ("Stacked Subplots", example_stacked, ["example_subplots_2x1"]),
     ("2x2 Subplot Grid", example_2x2_grid, ["example_subplots_2x2"]),
     ("1x3 Comparison", example_1x3_comparison, ["example_subplots_1x3"]),
+    (
+        "Width and Height Ratios",
+        example_subplot_ratios,
+        ["example_subplot_ratios"],
+    ),
+    ("Inset Axes", example_inset_axes, ["example_inset_axes"]),
     ("Shared X-Axis (Stacked)", example_sharex_stacked, ["example_shared_x_axis"]),
     (
         "Shared Y-Axis (Side-by-side)",
@@ -140,6 +167,7 @@ EXAMPLES = [
             "secondary_yaxis_errorbar",
         ],
     ),
+    ("Twin Axes (twinx, twiny)", example_twin_axes, ["example_twin_axes"]),
     (
         "Error Bars From File",
         example_errorbar_from_file,
@@ -164,9 +192,20 @@ EXAMPLES = [
     ),
     ("Text Annotations", example_text_annotations, ["example_text_annotations"]),
     (
+        "Figure Title, Text and Legend",
+        example_figure_text_and_legend,
+        ["example_figure_text_legend"],
+    ),
+    ("Page Drawings", example_page_drawings, ["example_page_drawings"]),
+    (
         "Per-Element Styling",
         example_per_element_styling,
         ["example_per_element_styling"],
+    ),
+    (
+        "Fits, Functions and Derived Curves",
+        example_fits_and_functions,
+        ["example_fits_functions"],
     ),
     (
         "Phase Diagram (tripcolor + tricontour)",
@@ -187,6 +226,11 @@ EXAMPLES = [
         ["example_smooth", "example_sharp"],
     ),
     ("Custom Line Styles", example_line_styles, ["example_line_styles"]),
+    (
+        "Reading a GLE File (open_gle)",
+        example_open_gle,
+        ["example_handwritten", "example_open_gle"],
+    ),
 ]
 
 
