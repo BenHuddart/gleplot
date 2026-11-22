@@ -3862,6 +3862,26 @@ def test_finding22_second_set_font_preserved_not_collapsed(tmp_path):
     assert "set font pstr" in text
 
 
+@pytest.mark.parametrize(
+    "line", ["set font texcmr hei 0.45", "set hei 0.45 font texcmr"]
+)
+def test_font_and_hei_on_one_set_line_are_both_recovered(tmp_path, line):
+    """GLE takes several options on one 'set' line; the height is kept (#556)."""
+    p = _write(tmp_path, "onefonthei.gle", f"size 14 18\n{line}\namove 2 2\n")
+    fig = parse_gle_figure(p).figure
+    assert fig.style.font == "texcmr"
+    assert fig.style.fontsize == pytest.approx(fontsize_cm_to_pt(0.45))
+    assert fig.passthrough_header == ["amove 2 2"]
+
+
+def test_a_set_line_with_other_options_is_kept_whole(tmp_path):
+    """'set font X color red' is not split: the whole line stays raw."""
+    p = _write(tmp_path, "fontcolor.gle", "size 14 18\nset font texcmr color red\n")
+    fig = parse_gle_figure(p).figure
+    assert not fig.style.font
+    assert fig.passthrough_header == ["set font texcmr color red"]
+
+
 def test_finding22_no_hei_statement_at_all_is_unaffected(tmp_path):
     """Regression guard for the fix's own failure mode found while building
     it: a preamble with 'size' (or 'set font') but NO 'set hei' anywhere
