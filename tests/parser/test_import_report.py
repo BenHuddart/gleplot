@@ -195,6 +195,26 @@ def test_legend_category_key_line_span(tmp_path):
     assert _line(src, 5).strip().startswith("key")
 
 
+def test_a_shown_key_label_starting_with_an_underscore_is_noted(tmp_path):
+    """#566: GLE draws it; a save leaves it out of the legend, so say so."""
+    src = (
+        "size 20.32 15.24\n"
+        "begin graph\n"
+        "   data d.dat d1=c1,c2 d2=c1,c3\n"
+        '   d1 line color blue lwidth 0.05 key "\\_private"\n'
+        '   d2 line color red lwidth 0.05 key "public"\n'
+        "   key pos tl\n"
+        "end graph\n"
+    )
+    p = _write(tmp_path, "key.gle", src, {"d.dat": "0 0 1\n1 1 0\n"})
+    rec = parse_gle_figure(p)
+    notes = [n.message for n in rec.notes if n.category is ImportCategory.LEGEND]
+    assert any(
+        "_private" in message and "starts with an underscore" in message
+        for message in notes
+    )
+
+
 def test_layout_category_geometry_group_span(tmp_path):
     # 'fullsize' cannot be modeled as a placement rect; kept verbatim with a
     # layout: note spanning the geometry statement(s) that triggered it.

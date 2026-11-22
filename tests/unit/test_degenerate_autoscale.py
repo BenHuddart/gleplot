@@ -750,6 +750,8 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``heatmap_contourf_own_band_sub`` when an edited band sub was (#551).
     ``heatmap_contourf_colorbar`` and ``scatter_colorbars`` moved when a bar
     whose ticks reach zero from below stopped labelling it ``-0`` (#558).
+    ``legend_underscore_labels`` was added when a label starting with an
+    underscore stopped being a legend entry (#566).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():

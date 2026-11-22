@@ -704,3 +704,79 @@ def test_labelcolor_none_restores_the_text_colour(tmp_path):
     ax.legend(labelcolor="red")
     ax.legend(labelcolor=None)
     assert "textcolor" not in _generate_gle(fig, tmp_path)
+
+
+@pytest.mark.parametrize("label", ["_nolegend_", "_hidden"])
+def test_an_underscore_label_alone_draws_no_legend(tmp_path, label):
+    """#566: as in matplotlib, an underscore label is no legend entry.
+
+    GLE draws a key from any ``key "label"`` token, so ``key off`` hides it;
+    the token stays, so the label is kept.
+    """
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4], label=label)
+    ax.plot([0, 1, 2], [4, 1, 0])
+    gle = _generate_gle(fig, tmp_path)
+    assert "key off" in gle
+    assert "key pos" not in gle
+    assert "begin key" not in gle
+    assert f'key "\\{label[:-1]}' in gle
+
+
+def test_legend_with_only_underscore_labels_draws_none(tmp_path):
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4], label="_hidden")
+    ax.legend(loc="lower left")
+    gle = _generate_gle(fig, tmp_path)
+    assert "key off" in gle
+    assert "key pos" not in gle
+
+
+def test_an_underscore_label_is_left_out_of_a_shown_legend(tmp_path):
+    """The visible entries are a ``begin key`` block without the hidden one."""
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4], label="_hidden")
+    ax.plot([0, 1, 2], [4, 1, 0], label="shown")
+    gle = _generate_gle(fig, tmp_path)
+    assert 'key "\\_hidden"' in gle
+    assert "key off" in gle
+    block = gle[gle.index("begin key") : gle.index("end key")]
+    assert 'text "shown"' in block
+    assert "hidden" not in block
+
+
+def test_usetex_underscore_label_is_hidden_but_math_subscript_is_not(tmp_path):
+    fig = glp.figure(data_prefix="legtest")
+    fig.style.usetex = True
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4], label="_hidden")
+    ax.plot([0, 1, 2], [4, 1, 0], label="$_x$")
+    gle = _generate_gle(fig, tmp_path)
+    block = gle[gle.index("begin key") : gle.index("end key")]
+    assert "_x" in block
+    assert "hidden" not in block
+
+
+def test_a_math_subscript_label_is_still_an_entry(tmp_path):
+    """``'$_x$'`` is stored as ``_{x}``; only a leading literal ``_`` hides."""
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4], label="$_x$")
+    gle = _generate_gle(fig, tmp_path)
+    assert "key pos" in gle
+    assert "key off" not in gle
+
+
+def test_figure_legend_leaves_out_underscore_labels(tmp_path):
+    fig = glp.figure(data_prefix="legtest")
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot([0, 1, 2], [0, 1, 4], label="_hidden")
+    ax.plot([0, 1, 2], [4, 1, 0], label="shown")
+    fig.legend()
+    gle = _generate_gle(fig, tmp_path)
+    block = gle[gle.index("begin key") : gle.index("end key")]
+    assert 'text "shown"' in block
+    assert "hidden" not in block

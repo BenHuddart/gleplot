@@ -2125,6 +2125,18 @@ def figure_legend():
     return fig
 
 
+def legend_underscore_labels():
+    """#566: labels starting with an underscore are kept but are no entry:
+    alone they turn the key off, beside a shown label they need a block."""
+    fig, axes = glp.subplots(1, 2, figsize=(8, 4), data_prefix="golden")
+    axes[0].plot([0, 1], [0, 1], label="_hidden")
+    axes[0].bar([0.5], [0.5], width=0.2, label="_nolegend_")
+    axes[1].plot([0, 1], [1, 0], label="_hidden")
+    axes[1].plot([0, 1], [0, 1], label="shown")
+    axes[1].fill_between([0, 1], [0, 0.5], color="green", label="_fill")
+    return fig
+
+
 def legend_curves():
     """#236: a histogram and a function curve listed by ``begin key`` blocks,
     an axes legend with ``labelcolor`` and a figure legend."""
@@ -2388,6 +2400,7 @@ BUILDERS = [
     figure_text_and_suptitle,
     figure_text_only,
     figure_legend,
+    legend_underscore_labels,
     legend_curves,
     figure_legend_options,
     polar_plot,

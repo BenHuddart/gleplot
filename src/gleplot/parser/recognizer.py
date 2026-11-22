@@ -30,6 +30,9 @@ for rendering, applied by the test-side ``normalize()`` helper)
    auto case (``legend_on=None`` with labels present). It is impossible to tell
    them apart from the emitted GLE, so a recovered ``key pos P`` with any
    labeled series becomes ``legend_on=None`` (auto). Rendering is identical.
+   Likewise ``key off`` over labels that all start with an underscore (no
+   legend entry, as in matplotlib) is written for ``legend_on`` None and
+   False alike, and becomes None.
 2. **Scatter vs. line-with-linestyle-none.** ``ax.plot(..., marker=..., linestyle='none')``
    is stored as a *scatter* by the object model, and the writer emits the
    marker-only ``dN marker M msize S color C`` form. The recognizer classifies
@@ -294,6 +297,7 @@ from ..axes import (
     _GLE_FONT_NAME,
     Axes,
     _function_expression_problem,
+    _hides_label,
     _let_expression_problem,
     _resolve_data_file,
 )
@@ -1935,6 +1939,7 @@ class _Recognizer:
         self._polar_labels_rmax: Optional[float] = None
         # The degree mark that call ends with (GLE or LaTeX text).
         self._polar_degree = polar_degree_mark(False)
+        self._usetex = False
         # Contour/heatmap recognition state.
         # Line numbers spanned by glp_<name> subroutine definitions
         # (palette / colorbar / contour-labels). Dropped everywhere, like the
@@ -2361,6 +2366,7 @@ class _Recognizer:
             default_marker_color=self._meta_color(meta, "default_marker_color"),
         )
         self._polar_degree = polar_degree_mark(bool(style.usetex))
+        self._usetex = bool(style.usetex)
         style.font = font
         style.fontsize = fontsize
         graph_cfg = GLEGraphConfig()
@@ -10363,9 +10369,12 @@ class _Recognizer:
             "labels": labels,
         }
 
-    @staticmethod
-    def _legend_pool(info) -> List[Series]:
-        """The labelled series of a parsed graph a ``begin key`` may list."""
+    def _legend_pool(self, info) -> List[Series]:
+        """The labelled series of a parsed graph a ``begin key`` may list.
+
+        A label starting with an underscore is no entry: the writer leaves
+        it out of the block, as matplotlib leaves it out of the legend.
+        """
         pool = []
         for group in (
             "spans",
@@ -10382,12 +10391,12 @@ class _Recognizer:
             "derived_series",
         ):
             for series in info.get(group, []):
-                if series.get("label"):
+                label = series.get("label")
+                if label and not _hides_label(label, self._usetex):
                     pool.append(series)
         return pool
 
-    @staticmethod
-    def _assign_legend_seq(info, labels: List[str]) -> bool:
+    def _assign_legend_seq(self, info, labels: List[str]) -> bool:
         """Stamp ``legend_seq`` so the next save rebuilds this entry order.
 
         Returns False, and changes nothing, when ``labels`` is not exactly
@@ -10395,7 +10404,7 @@ class _Recognizer:
         series identity besides the label, so which of two same-label
         series an entry lists is unknown.
         """
-        pool = _Recognizer._legend_pool(info)
+        pool = self._legend_pool(info)
         by_label = {s["label"]: s for s in pool}
         if not len(labels) == len(set(labels)) == len(by_label) == len(pool):
             return False
@@ -11954,7 +11963,9 @@ class _Recognizer:
                         item["column_names"] = defaults
 
         # Legend tri-state recovery.
-        labels_present = self._labels_present(info)
+        labels = self._labels(info)
+        labels_present = bool(labels)
+        entries_present = bool(self._legend_pool(info))
         external = info.get("external_key")
         if external:
             # ``key off`` inside the graph only suppresses the draw-order
@@ -11978,7 +11989,9 @@ class _Recognizer:
                 external["spacing"], ax.legend_fontsize, ax.figure
             )
         elif info["key_off"]:
-            ax.legend_on = False
+            # Labels that all start with an underscore have no entry, and
+            # the writer turns their key off for an automatic legend too.
+            ax.legend_on = None if labels_present and not entries_present else False
         elif info["key_line"]:
             # A 'key' option line; without 'pos' GLE's key sits top right,
             # the model's default position.
@@ -12005,7 +12018,17 @@ class _Recognizer:
                 ax.legend_on = None
             else:
                 ax.legend_on = None
-        if self._figure_legend is not None and labels_present:
+        if not external and not info["key_off"]:
+            for label in labels:
+                if _hides_label(label, self._usetex):
+                    # Only a hand-written key lists such a label.
+                    self._note(
+                        ImportCategory.LEGEND,
+                        f"key label {label!r} starts with an underscore; as "
+                        "in matplotlib, a save leaves it out of the legend",
+                        info.get("_block_span"),
+                    )
+        if self._figure_legend is not None and entries_present:
             # With a figure legend an axes draws its own key only when asked
             # (Figure._prepare_legend): a key shown was asked for, and
             # 'key off' is the default.
@@ -12114,10 +12137,11 @@ class _Recognizer:
             )
             setattr(ax, f"{prefix}grid_color", ticks["color"])
 
-    def _labels_present(self, info) -> bool:
+    def _labels(self, info) -> List[str]:
         # Fills and spans count: a labelled one emits ``keyfill`` (on the
         # fill's first dataset, or on the data-free span bridge). Reflines
         # count for the same reason, via their line bridge.
+        labels = []
         for group in (
             "lines",
             "scatters",
@@ -12133,8 +12157,8 @@ class _Recognizer:
         ):
             for s in info[group]:
                 if s.get("label"):
-                    return True
-        return False
+                    labels.append(s["label"])
+        return labels
 
     def _restore_visibility_flags(self, ax, info):
         """Reproduce the writer's emission conditions for tick visibility.
