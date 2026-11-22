@@ -423,7 +423,7 @@ Two matplotlib calls with shifted x are two commands. GLE's side-by-side group `
 | `ax.barh(y, w, xerr=e)` | `bar dN horiz`, then `herr` at `(left + w, y)` |
 | `ax.barh(y, w)` | `bar dN horiz` |
 
-`width` stays a keyword. The third positional argument is `color`, as it has always been.
+`bar` and `barh` take matplotlib's positional order, `bar(x, height, width, bottom)` and `barh(y, width, height, left)`, and everything else is a keyword. A colour or a string in the third or fourth place raises `TypeError`; pass it as `color=` or `label=`. `width` (and `barh`'s `height`) is one number for every bar; a sequence raises `TypeError`.
 
 ## Not provided
 

@@ -102,6 +102,18 @@ keyword. A gleplot 5 call with a colour in the third place now raises:
 ax.scatter(x, y, 30, color='red')  # was scatter(x, y, 'red', 30)
 ```
 
+### `bar(x, height, width, bottom)`
+
+`bar` takes matplotlib's positional order: the third and fourth arguments
+are the bar `width` and the `bottom` baseline, and everything else, `align`
+included, is a keyword. `barh(y, width, height, left)` already had that
+order; its `align` is now a keyword too. A gleplot 5 call with a colour in
+the third place now raises:
+
+```python
+ax.bar(x, h, color='red')  # was bar(x, h, 'red')
+```
+
 ### `set_xlim` and `set_ylim` return the limits
 
 As in matplotlib, `set_xlim` and `set_ylim` return the `(low, high)` they
