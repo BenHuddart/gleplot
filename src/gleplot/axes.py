@@ -5286,12 +5286,13 @@ class Axes:
         self,
         x,
         height,
+        width: Optional[float] = None,
+        bottom=None,
+        *,
+        align: str = "center",
         color: Optional[Union[str, Sequence]] = None,
         label: Optional[str] = None,
         zorder: Optional[float] = None,
-        width: Optional[float] = None,
-        bottom=None,
-        align: str = "center",
         edgecolor=None,
         linewidth: Optional[float] = None,
         linestyle: Optional[str] = None,
@@ -5325,6 +5326,22 @@ class Axes:
             Bar positions.
         height : array-like
             Bar lengths. With ``bottom``, the top is ``bottom + height``.
+        width : float, optional
+            Bar thickness in DATA units (G19), GLE's ``bar dN ... width w``.
+            The default, ``None``, is the engine's own behaviour and
+            gleplot's historical one: GLE sizes the set from the data,
+            taking half the smallest gap between consecutive x values.
+            Deliberately *not* matplotlib's constant ``0.8`` default -- every
+            bar chart written before this parameter existed must keep
+            emitting the script it emits now. One number for every bar: a
+            string or sequence raises ``TypeError``, so pass a colour as
+            ``color=``.
+        bottom : float or array-like, optional
+            Baseline. ``0`` (matplotlib's default) draws from zero and is
+            not written. An array must have one value per bar.
+        align : {'center', 'edge'}, optional
+            GLE centers every bar on its x value. ``'edge'`` warns and is
+            drawn centered.
         color : str or sequence, optional
             Face colour. A sequence must have one entry, or one per bar.
             Omitted: the next colour of the axes' colour cycle (see
@@ -5335,22 +5352,6 @@ class Axes:
             Legend label. Emitted as ``dN key`` after the bar; the bar fill
             is the swatch. On a per-bar colour split, only the first bar
             carries it.
-        width : float, optional
-            Bar thickness in DATA units (G19), GLE's ``bar dN ... width w``.
-            The default, ``None``, is the engine's own behaviour and
-            gleplot's historical one: GLE sizes the set from the data,
-            taking half the smallest gap between consecutive x values.
-            Deliberately *not* matplotlib's constant ``0.8`` default -- every
-            bar chart written before this parameter existed must keep
-            emitting the script it emits now. Note also that ``width`` is a
-            keyword here where matplotlib's is positional: this method's
-            third positional parameter has always been ``color``.
-        bottom : float or array-like, optional
-            Baseline. ``0`` (matplotlib's default) draws from zero and is
-            not written. An array must have one value per bar.
-        align : {'center', 'edge'}, optional
-            GLE centers every bar on its x value. ``'edge'`` warns and is
-            drawn centered.
         edgecolor : str or sequence, optional
             Stroke colour (GLE ``color``). Omitted, the bar has no edge, as
             in matplotlib, whatever ``linewidth`` and ``linestyle`` say. GLE
@@ -5399,11 +5400,29 @@ class Axes:
         -------
         self
         """
+        horiz = bool(kwargs.pop("horiz", False))
+        caller, order, thickness, base = (
+            ("barh", "(y, width, height, left)", "height", "left")
+            if horiz
+            else ("bar", "(x, height, width, bottom)", "width", "bottom")
+        )
+        if width is not None and (isinstance(width, str) or np.ndim(width) != 0):
+            raise TypeError(
+                f"{caller}() {thickness} must be one number, the bar thickness "
+                f"in data units, got {width!r}. As in matplotlib, {caller}'s "
+                f"positional arguments are {order}; pass a colour as color= "
+                f"and the thickness as {thickness}=."
+            )
+        if isinstance(bottom, str):
+            raise TypeError(
+                f"{caller}() {base} must be a number or one per bar, got "
+                f"{bottom!r}. As in matplotlib, {caller}'s positional arguments "
+                f"are {order}; pass a legend label as label=."
+            )
         height = _unmasked(height)
         data_name = kwargs.pop("data_name", None)
         if zorder is None and "zorder" in kwargs:
             zorder = kwargs.pop("zorder")
-        horiz = bool(kwargs.pop("horiz", False))
         color, edgecolor, linewidth, linestyle = _bar_style_aliases(
             kwargs, color, edgecolor, linewidth, linestyle
         )
@@ -5498,7 +5517,6 @@ class Axes:
             and (edge in (None, "none") or style.get("linestyle") == "none")
             for pattern, face, edge in zip(patterns, faces, edges)
         ):
-            caller = "barh" if horiz else "bar"
             warn_external(
                 f"{caller}() draws a bar with color={color!r} and no edge as a "
                 "black outline: GLE strokes every bar. Pass edgecolor= to "
@@ -5514,7 +5532,6 @@ class Axes:
         ):
             # The key draws a swatch only for an opaque fill, and strokes it
             # in the key's colour, not the bar's edge.
-            caller = "barh" if horiz else "bar"
             warn_external(
                 f"{caller}() with color={color!r} has an empty legend swatch: "
                 "GLE draws no swatch for a bar with no fill, where matplotlib "
@@ -5599,6 +5616,7 @@ class Axes:
         width,
         height: Optional[float] = None,
         left=None,
+        *,
         align: str = "center",
         **kwargs,
     ):

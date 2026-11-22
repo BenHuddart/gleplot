@@ -286,7 +286,7 @@ def scatter(*args, **kwargs):
 
 
 def bar(*args, **kwargs):
-    """Bar chart on current axes."""
+    """Bar chart on the current axes. See :meth:`gleplot.Axes.bar`."""
     return gca().bar(*args, **kwargs)
 
 

@@ -1685,9 +1685,9 @@ class Figure:
         """Scatter on current axes. See :meth:`Axes.scatter`."""
         return self.gca().scatter(x, y, *args, **kwargs)
 
-    def bar(self, x, height, **kwargs):
-        """Bar chart on current axes."""
-        return self.gca().bar(x, height, **kwargs)
+    def bar(self, x, height, width=None, bottom=None, **kwargs):
+        """Bar chart on current axes. See :meth:`Axes.bar`."""
+        return self.gca().bar(x, height, width, bottom, **kwargs)
 
     def barh(self, y, width, height=None, left=None, **kwargs):
         """Horizontal bars on the current axes. See :meth:`Axes.barh`."""

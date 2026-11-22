@@ -91,6 +91,44 @@ def test_an_unset_width_stays_absent():
     assert "width" not in fig.to_dict()["figure"]["axes"][0]["bars"][0]
 
 
+def test_width_and_bottom_are_matplotlibs_positional_order():
+    """bar(x, height, width, bottom) writes what the keyword call writes."""
+    by_keyword, ax = _axes()
+    ax.bar([1.0, 2.0], [5.0, 3.0], width=0.5, bottom=1)
+    by_position, ax = _axes()
+    ax.bar([1.0, 2.0], [5.0, 3.0], 0.5, 1)
+    assert _generate(by_position) == _generate(by_keyword)
+    with pytest.raises(TypeError, match="positional argument"):
+        ax.bar([1.0], [5.0], 0.5, 1, "center")
+
+
+@pytest.mark.parametrize("colour", ["red", (1, 0, 0), ["red", "blue"]])
+def test_a_colour_in_the_width_place_names_the_new_order(colour):
+    fig, ax = _axes()
+    with pytest.raises(
+        TypeError, match=r"\(x, height, width, bottom\); pass a colour as color="
+    ):
+        ax.bar([1.0, 2.0], [5.0, 3.0], colour)
+    with pytest.raises(TypeError, match=r"barh\(\) height must be one number"):
+        ax.barh([1.0, 2.0], [5.0, 3.0], colour)
+    assert ax.bars == []
+
+
+def test_a_label_in_the_bottom_place_names_the_new_order():
+    fig, ax = _axes()
+    with pytest.raises(TypeError, match=r"bottom must be .* got 'counts'.*label="):
+        ax.bar([1.0, 2.0], [5.0, 3.0], None, "counts")
+
+
+def test_figure_and_module_bar_forward_width_and_bottom_positionally():
+    fig, ax = _axes()
+    fig.bar([1.0, 2.0], [5.0, 3.0], 0.5, 1)
+    glp.bar([1.0, 2.0], [5.0, 3.0], 0.25, 2)
+    first, second = ax.bars
+    assert (first["width"], second["width"]) == (0.5, 0.25)
+    assert (first["bottom"].tolist(), second["bottom"].tolist()) == ([1, 1], [2, 2])
+
+
 def test_an_explicit_width_is_stored_as_a_float():
     fig, ax = _axes()
     ax.bar([1.0, 2.0], [5.0, 3.0], width=1)
