@@ -3,7 +3,7 @@ gleplot Documentation
 
 A Python library to **write standard GLE (Graphics Layout Engine) from Python, with matplotlib-shaped names**, for publication-quality vector graphics. Where gleplot differs from matplotlib is listed in :doc:`guides/MATPLOTLIB_MIGRATION`.
 
-Start with :doc:`getting_started` for installation and your first plot, then the user guide (starting with :doc:`guides/FIGURES_AND_SUBPLOTS`) and the :doc:`gallery` for common patterns.
+Start with :doc:`getting_started` for installation and your first plot (coming from gleplot 5, see :doc:`guides/MIGRATING_TO_6`), then the user guide (starting with :doc:`guides/FIGURES_AND_SUBPLOTS`) and the :doc:`gallery` for common patterns.
 
 Live Documentation
 ------------------
@@ -23,6 +23,7 @@ https://benhuddart.github.io/gleplot/
    :caption: Getting started
 
    getting_started
+   guides/MIGRATING_TO_6
 
 .. toctree::
    :maxdepth: 1
@@ -81,12 +82,12 @@ https://benhuddart.github.io/gleplot/
 Features
 --------
 
-- **Matplotlib-compatible API** -- familiar function names and call patterns for plots you already write.
+- **matplotlib-shaped names** -- matplotlib's function names and arguments, writing what GLE draws natively.
 - **Direct GLE generation** -- compact ``.gle`` scripts (typically a few kilobytes) you can edit by hand.
-- **Vector output** -- PDF, PNG, EPS, SVG, and JPG when GLE is installed.
+- **Vector output** -- PDF, PNG, EPS, SVG, and JPG when GLE and its include library are installed.
 - **Plot types** -- lines, scatter, bars, fill-between, error bars, heatmaps, contours, and more.
 - **Publication-oriented defaults** -- styling aimed at journal figures.
-- **Lightweight core** -- pure Python with minimal dependencies (NumPy only for the library API).
+- **Lightweight** -- pure Python; numpy is the only dependency.
 
 Indices and tables
 ==================

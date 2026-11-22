@@ -4,7 +4,7 @@
 [![Docs](https://github.com/BenHuddart/gleplot/actions/workflows/publish_docs.yml/badge.svg)](https://benhuddart.github.io/gleplot/)
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-blue.svg)](https://github.com/BenHuddart/gleplot/blob/main/LICENSE)
 
-**gleplot** lets you write plotting code the way you would for matplotlib and get a [GLE](https://glx.sourceforge.io/) (Graphics Layout Engine) script out, which GLE compiles to publication-quality PDF, EPS, SVG, PNG or JPG.
+**gleplot** writes standard [GLE](https://glx.sourceforge.io/) (Graphics Layout Engine) scripts from Python, through matplotlib's names where they map cleanly. GLE compiles the script to publication-quality PDF, EPS, SVG, PNG or JPG.
 
 <img src="https://benhuddart.github.io/gleplot/_static/gallery/example_combined_errorbars.webp" alt="Measured points with horizontal and vertical error bars, and a dashed y = x² curve through them" width="560">
 
@@ -43,11 +43,13 @@ fig.savefig("fit.pdf")  # compiled by GLE
 
 ## Install
 
-gleplot needs Python 3.9 or later and numpy. Install it from GitHub:
+gleplot needs Python 3.9 or later and numpy. Install it from PyPI:
 
 ```bash
-pip install git+https://github.com/BenHuddart/gleplot.git
+pip install gleplot
 ```
+
+For the latest development version, install from GitHub with `pip install git+https://github.com/BenHuddart/gleplot.git`.
 
 To compile figures, install **GLE 4.3+** from the [GLE releases](https://github.com/vlabella/GLE/releases/latest) and check it with `gle -info`. GLE's include library (`gleinc`) is required too; the release packages ship it, and [GLE's include library](https://benhuddart.github.io/gleplot/getting_started.html#gle-s-include-library) covers a GLE built from source. The [getting started guide](https://benhuddart.github.io/gleplot/getting_started.html) covers Ghostscript, LaTeX and `gle -finddeps`.
 
@@ -74,7 +76,11 @@ The [gallery](https://benhuddart.github.io/gleplot/gallery.html) shows every exa
 
 ## Coming from matplotlib
 
-`figure`, `subplots`, `plot`, `scatter`, `errorbar`, `savefig` and the other matplotlib names take matplotlib's arguments. Where GLE cannot do what a keyword asks, gleplot accepts it and warns; the [matplotlib migration guide](https://benhuddart.github.io/gleplot/guides/MATPLOTLIB_MIGRATION.html) lists each difference.
+`figure`, `subplots`, `plot`, `scatter`, `errorbar`, `savefig` and the other matplotlib names take matplotlib's arguments. Where GLE cannot do what a keyword asks, gleplot accepts it and warns; the [matplotlib migration guide](https://benhuddart.github.io/gleplot/guides/MATPLOTLIB_MIGRATION.html) lists each difference. gleplot does not emulate what GLE cannot draw, so there is no pie chart, box plot or broken axis.
+
+## Upgrading from gleplot 5
+
+gleplot 6 removes those features, raises on a bad argument when the call is made, and draws with matplotlib's colour cycle and bars without an outline. [Migrating from gleplot 5 to 6](https://benhuddart.github.io/gleplot/guides/MIGRATING_TO_6.html) lists each change and what to use instead.
 
 ## Documentation
 
