@@ -97,7 +97,12 @@ a `UserWarning` instead of being silently dropped.
 
 An axes with a labelled series draws a legend even if `ax.legend()` is never
 called; matplotlib draws none until it is. Leave `label=` off a series to keep
-it out of the legend.
+it out of the legend, or, as in matplotlib, give it a label that starts with an
+underscore, such as `'_nolegend_'`. That series keeps its label and writes it
+as its `key`, so `open_gle` reads it back, but it is no legend entry: an axes
+whose only labels start with an underscore draws no legend (`key off`), and one
+with other labels too lists them in a `begin key` block after the graph,
+because GLE's own key lists every dataset with a `key`.
 
 `label=` on `bar` and `fill_between` is a real legend entry. GLE's `bar` and
 `fill` commands have no `key` qualifier, so the swatch is a following dataset

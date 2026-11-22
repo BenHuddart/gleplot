@@ -15,6 +15,7 @@ from ._warn import warn_external, warn_unsupported_keywords
 from .axes import (
     Axes,
     _finite_float,
+    _hides_label,
     _rename_text_aliases,
     _resolve_fontsize,
     _text_fields,
@@ -570,6 +571,8 @@ class _LegendLayout:
     ``addition`` their indices in matplotlib addition order. ``external``
     means the in-graph key is off and a ``begin key`` block lists the
     entries in addition order instead; it is only ever set with ``show``.
+    ``hidden`` says a drawn series has a label starting with an underscore,
+    which is not an entry but still writes its ``key "label"``.
     """
 
     entries: List[tuple]
@@ -577,6 +580,7 @@ class _LegendLayout:
     addition: List[int]
     external: bool
     ncol: int
+    hidden: bool
 
 
 #: The ``Axes`` tick-mark fields (``xtick_length``, ...) without the axis
@@ -3586,7 +3590,7 @@ class Figure:
         entries: List[tuple] = []
         for ax in self.axes_list:
             limits = (ax.xmin, ax.xmax, ax.ymin, ax.ymax)
-            found = self._legend_entries(writer, ax, resolution, limits)
+            found, _hidden = self._legend_entries(writer, ax, resolution, limits)
             entries.extend(
                 (resolution.data(series) or series, label, swatch)
                 for series, label, swatch in (
@@ -3596,7 +3600,8 @@ class Figure:
         if not entries:
             warn_external(
                 "Figure.legend(): no labelled series in any axes, so no legend "
-                "was drawn. Pass label= when you plot a series.",
+                "was drawn. Pass label= when you plot a series; a label that "
+                "starts with an underscore is left out, as in matplotlib.",
             )
             return
         key = KeyOptions(
@@ -3653,7 +3658,7 @@ class Figure:
 
     def _legend_entries(
         self, writer: GLEWriter, ax: Axes, resolution: SourceResolution, limits
-    ) -> List[tuple]:
+    ) -> Tuple[List[tuple], bool]:
         """Labelled series in emission order, each with its key swatch.
 
         The order is the one ``_write_axes_content`` draws: engine-range
@@ -3661,17 +3666,23 @@ class Figure:
         dataset-form reflines, z-ordered bars/lines/scatters/errorbars,
         then file series, then derived curves. Hidden and dangling series
         are already dropped.
-        An empty label is not an entry.
+        An empty label is not an entry, nor, as in matplotlib, one that
+        starts with an underscore; the flag returned with the entries says
+        whether there was such a label.
 
         The series object is the one that carries ``_draw_seq`` (call
         order) or ``legend_seq`` (recovered from a ``begin key``). A
         materialized guide is not that object: the declaration is.
         """
         entries: List[tuple] = []
+        hidden = False
 
         def add(series, swatch: str) -> None:
+            nonlocal hidden
             label = series.get("label")
-            if label:
+            if label and _hides_label(label, self.style.usetex):
+                hidden = True
+            elif label:
                 entries.append((series, label, swatch))
 
         for span in ax.engine_range_guides(ax.spans, limits):
@@ -3706,7 +3717,7 @@ class Figure:
         for series in resolution.visible(ax.derived_series):
             if self._derived_operands(ax, resolution, series) is not None:
                 add(series, self._drawable_legend_swatch(writer, "line", series))
-        return entries
+        return entries, hidden
 
     @staticmethod
     def _drawable_legend_swatch(writer: GLEWriter, kind: str, data) -> str:
@@ -4205,11 +4216,14 @@ class Figure:
         The breaks are set before any series is emitted, because GLE's
         in-graph ``key separator`` is written where the dataset stands.
         """
-        entries = self._legend_entries(writer, ax, resolution, limits)
+        entries, hidden = self._legend_entries(writer, ax, resolution, limits)
         n_legend = len(entries)
         # With a figure legend, an axes shows its own only if asked to.
         auto = n_legend > 0 and self._legend is None
-        show = ax.legend_on if ax.legend_on is not None else auto
+        # GLE's key would list the hidden labels, and there is nothing else.
+        show = (ax.legend_on if ax.legend_on is not None else auto) and not (
+            hidden and n_legend == 0
+        )
         # Addition order is matplotlib's legend order. GLE's in-graph
         # ``key separator`` is inserted where the statement stands, and a
         # dataset stays where it was first used, which is draw order. When
@@ -4220,9 +4234,11 @@ class Figure:
         # An anchor or a text colour exists only in a ``begin key`` block,
         # which is measured against the graph that has just ended.
         # So does a fit's result: GLE evaluates the in-graph key before it
-        # runs the fit.
+        # runs the fit. GLE's in-graph key lists every dataset with a key
+        # label, so leaving a hidden label out needs the block too.
         needs_block = n_legend > 0 and (
-            ax.legend_bbox_to_anchor is not None
+            hidden
+            or ax.legend_bbox_to_anchor is not None
             or ax.legend_labelcolor is not None
             or any(writer.fit_label_shows_results(entry[0]) for entry in entries)
         )
@@ -4234,7 +4250,7 @@ class Figure:
             writer.set_legend_breaks(legend_column_breaks(n_legend, ncol))
         else:
             writer.set_legend_breaks(set())
-        return _LegendLayout(entries, show, addition, external, ncol)
+        return _LegendLayout(entries, show, addition, external, ncol, hidden)
 
     @staticmethod
     def _write_spans(writer: GLEWriter, ax: Axes, limits) -> None:
@@ -4455,7 +4471,7 @@ class Figure:
             writer.queue_external_legend(ordered, breaks, key)
         elif legend.show:
             writer.add_legend(key)
-        elif n_legend > 0:
+        elif n_legend > 0 or legend.hidden:
             # GLE draws an implicit key from per-dataset key "label" tokens;
             # it must be switched off explicitly.
             writer.add_key_off()

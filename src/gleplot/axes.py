@@ -561,6 +561,18 @@ def _gle_bar_color(color, arg: str) -> str:
     return _gle_color(color, arg)
 
 
+def _hides_label(label: str, usetex: bool) -> bool:
+    """Whether a stored label starts with an underscore, so is no entry.
+
+    As in matplotlib, such a label (``'_nolegend_'``) is left out of the
+    legend; the series keeps it and writes it as its ``key``. Stored text
+    is GLE markup, where a leading underscore is ``\\_``. Under ``usetex``
+    the label is stored as given, so a bare ``_`` counts too; without it a
+    bare ``_`` is the start of a mathtext subscript (``'$_x$'``).
+    """
+    return label.startswith("\\_") or (usetex and label.startswith("_"))
+
+
 def _bar_color_list(
     color, n: int, default: Optional[str], arg: str
 ) -> List[Optional[str]]:
