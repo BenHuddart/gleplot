@@ -748,6 +748,7 @@ def test_the_wide_battery_hashes_to_its_pre_g15_emission(name, builder):
     ``polar_own_grid_sub`` were added when a band sub kept its rescale for a
     raw bar and an edited polar sub was kept (#549);
     ``heatmap_contourf_own_band_sub`` when an edited band sub was (#551).
+    ``bar_per_width`` was added when ``bar`` took one width per bar (#561).
     Every other entry is still the script captured before that.
     """
     with warnings.catch_warnings():

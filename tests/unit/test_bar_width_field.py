@@ -102,15 +102,61 @@ def test_width_and_bottom_are_matplotlibs_positional_order():
         ax.bar([1.0], [5.0], 0.5, 1, "center")
 
 
-@pytest.mark.parametrize("colour", ["red", (1, 0, 0), ["red", "blue"]])
+@pytest.mark.parametrize("colour", ["red", ["red", "blue"]])
 def test_a_colour_in_the_width_place_names_the_new_order(colour):
     fig, ax = _axes()
     with pytest.raises(
         TypeError, match=r"\(x, height, width, bottom\); pass a colour as color="
     ):
         ax.bar([1.0, 2.0], [5.0, 3.0], colour)
-    with pytest.raises(TypeError, match=r"barh\(\) height must be one number"):
+    with pytest.raises(TypeError, match=r"barh\(\) height must be a number or one"):
         ax.barh([1.0, 2.0], [5.0, 3.0], colour)
+    assert ax.bars == []
+
+
+def test_per_bar_widths_split_the_call_one_width_each():
+    """#561: matplotlib takes one width per bar; GLE one per dataset."""
+    fig, ax = _axes()
+    ax.bar([1.0, 2.0, 3.0], [5.0, 3.0, 4.0], [0.4, 0.6, 0.4], label="w")
+    ax.barh([5.0, 6.0], [1.0, 2.0], [0.3, 0.5])
+
+    text, _files = _generate(fig)
+    blue = "fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0"
+    orange = "fill rgb255(255,127,14) color rgb255(255,127,14) lwidth 0"
+    assert _bar_lines(text) == [
+        f"bar d1 {blue} width 0.4",
+        f"bar d2 {blue} width 0.6",
+        f"bar d3 {blue} width 0.4",
+        f"bar d4 {orange} width 0.3 horiz",
+        f"bar d5 {orange} width 0.5 horiz",
+    ]
+    assert [bar.get("label") for bar in ax.bars[:3]] == ["w", None, None]
+
+
+@pytest.mark.parametrize("widths", [[0.4], [0.4, 0.4], np.array([0.4, 0.4])])
+def test_a_uniform_width_sequence_writes_the_scalar_script(widths):
+    scalar, ax = _axes()
+    ax.bar([1.0, 2.0], [5.0, 3.0], 0.4)
+    expected = _generate(scalar)
+    glp.close()
+    sequence, ax = _axes()
+    ax.bar([1.0, 2.0], [5.0, 3.0], widths)
+    assert _generate(sequence) == expected
+    assert len(ax.bars) == 1
+
+
+def test_a_width_sequence_of_the_wrong_length_raises():
+    fig, ax = _axes()
+    with pytest.raises(
+        ValueError, match=r"bar\(\) width has 3 values for 2 bars.*color="
+    ):
+        ax.bar([1.0, 2.0], [5.0, 3.0], (1, 0, 0))
+    with pytest.raises(ValueError, match=r"width must be finite"):
+        ax.bar([1.0, 2.0], [5.0, 3.0], [0.4, float("nan")])
+    with pytest.raises(ValueError, match=r"barh\(\) height has 3 values for 2 bars"):
+        ax.barh([1.0, 2.0], [5.0, 3.0], [0.1, 0.2, 0.3])
+    with pytest.raises(TypeError, match=r"width must be a number or one per bar"):
+        ax.bar([1.0, 2.0], [5.0, 3.0], [[0.4, 0.6]])
     assert ax.bars == []
 
 
@@ -356,3 +402,12 @@ def test_an_explicit_width_is_a_writer_parse_writer_fixed_point(
     assert reparsed.axes_list[0].bars[0]["width"] == width
     reparsed.savefig_gle("second.gle")
     assert Path("second.gle").read_text(encoding="utf-8") == first
+
+
+def test_a_zero_among_per_bar_widths_takes_the_derived_width():
+    """GLE reads ``width 0`` as "not given"; that piece gets the set's width."""
+    fig, ax = _axes()
+    ax.bar([1.0, 1.2], [3.0, 4.0], [0, 0.05])
+    text, _files = _generate(fig)
+    blue = "fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0"
+    assert _bar_lines(text) == [f"bar d1 {blue} width 0.1", f"bar d2 {blue} width 0.05"]

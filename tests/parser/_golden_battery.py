@@ -91,6 +91,15 @@ def bar_per_color():
     return fig
 
 
+def bar_per_width():
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [4, 5, 6], [0.4, 0.8, 0.4], color="teal", label="widths")
+    ax.barh([5, 6], [1, 2], [0.3, 0.6], left=1)
+    ax.legend()
+    return fig
+
+
 def bar_stack():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -2271,6 +2280,7 @@ BUILDERS = [
     bar,
     bar_edge,
     bar_per_color,
+    bar_per_width,
     bar_stack,
     bar_missing,
     bar_recovered_fields,
