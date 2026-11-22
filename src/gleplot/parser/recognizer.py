@@ -369,6 +369,7 @@ from ..writer import (
     KeyOptions,
     _format_data_filename,
     cdata_sub_text,
+    contourf_sub_text,
     image_sub_name,
     legend_column_breaks,
     legend_corner,
@@ -1922,6 +1923,9 @@ class _Recognizer:
         # glp_contourf<k> sub name -> the (zmin, zmax) its first statement
         # maps the colormap's 0..1 back from, when it is a colorbar's palette.
         self._contourf_rescales: Dict[str, Tuple[float, float]] = {}
+        # glp_contourf<k> subs whose body was edited: kept as raw GLE, and
+        # the colormap calling one with them.
+        self._edited_contourf_subs: Set[str] = set()
         # fitz output ``.z`` file -> {points_file, extent, gridsize, ncontour}
         self._fitz_blocks: Dict[str, dict] = {}
         # contour ``.z`` file -> {levels}
@@ -9461,6 +9465,10 @@ class _Recognizer:
             if built == 0 and info["heatmaps"]:
                 info["_contourf_palette"] = palette.lower()
             return
+        elif palette is not None and palette.lower() in self._edited_contourf_subs:
+            # Noted with the sub (_keep_contourf_sub_unless_readable).
+            info["passthrough"].append(self._stmt_text(stmt))
+            return
         elif palette is not None:
             cmap = self._palette_cmap(palette)
             if cmap is None:
@@ -9864,8 +9872,10 @@ class _Recognizer:
 
         A ``colormap`` naming a ``glp_contourf<k>`` palette that
         :meth:`_contourf_colormap_ok` rejects is kept as raw GLE (as an
-        unknown palette), so the sub it calls must be kept too. Returns the
-        name of the band sub the colormap is read with, if it is.
+        unknown palette), so the sub it calls must be kept too, and so is one
+        whose sub is not the text gleplot writes for the series read (its
+        body was edited). Returns the name of the band sub the colormap is
+        read with, if it is.
         """
         words = [t.value.lower() for t in toks]
         if "palette" not in words[:-1]:
@@ -9874,9 +9884,39 @@ class _Recognizer:
         if name not in self._contourf_subs:
             return None
         if self._contourf_colormap_ok(toks):
-            return name
+            if self._contourf_sub_as_written(name):
+                return name
+            self._edited_contourf_subs.add(name)
+            span = self._contourf_sub_spans[name]
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"'{name}' is not the sub gleplot writes (its body was "
+                "edited), so it and the colormap that calls it were kept as "
+                "raw GLE",
+                (min(span), max(span)),
+            )
         self._drop_contourf_sub(name)
         return None
+
+    def _contourf_sub_as_written(self, name: str) -> bool:
+        """Whether the band sub ``name`` is the text gleplot writes for it.
+
+        That is :func:`gleplot.writer.contourf_sub_text` for the colouring
+        its comment line records (checked by :meth:`_contourf_colormap_ok`),
+        in either form: which one the writer picks follows from the grid and
+        the colormap's pixels, not from the sub.
+        """
+        fields = self._contourf_fields(self._contourf_subs[name])
+        if fields is None:  # checked by _contourf_colormap_ok
+            return False
+        series: Dict[str, Any] = {"vmin": None, "vmax": None, **fields}
+        rescale = self._contourf_rescales.get(name)
+        if rescale is not None:
+            series["_bar_range"] = list(rescale)
+        span = self._contourf_sub_spans[name]
+        body = self.text.splitlines()[min(span) - 1 : max(span)]
+        text = "\n".join(line.rstrip() for line in body)
+        return any(text == contourf_sub_text(name, series, b) for b in (True, False))
 
     def _drop_contourf_sub(self, name: str) -> None:
         """Keep the band sub ``name`` as raw GLE: no contourf is read with it."""
@@ -9966,6 +10006,9 @@ class _Recognizer:
         except ValueError:
             return None
         if len(options) % 2 or len(levels) < 2 or np.any(np.diff(levels) <= 0):
+            return None
+        # The band sub divides by this range; Axes.contourf rejects it too.
+        if not fields.get("vmin", levels[0]) < fields.get("vmax", levels[-1]):
             return None
         fields["levels"] = levels
         return fields

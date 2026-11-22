@@ -66,7 +66,9 @@ only raw GLE still calls, such as a graph kept raw inside
 `begin translate`; they go ahead of the raw GLE that calls them. A polar,
 image or per-point marker subroutine whose body was edited is kept as raw
 GLE, with a `structure` note, and so is a palette wrapper; gleplot then
-writes none of that name. A colorbar kept as raw GLE still draws a
+writes none of that name. An edited `contourf` band subroutine
+(`glp_contourf<k>`) is kept as raw GLE with the `colormap` that calls it,
+also with a `structure` note. A colorbar kept as raw GLE still draws a
 `contourf`'s bands: its band sub keeps the range the bar maps back from.
 
 A data file that gleplot did not write is never rewritten. Lines, error

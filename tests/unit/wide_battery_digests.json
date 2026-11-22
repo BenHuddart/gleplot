@@ -60,6 +60,7 @@
  "golden:heatmap_contourf_smooth": "ee085f34a091142e840891fa3d9da67b5fe9cf144cba4f40db249f5cc0db9a9d",
  "golden:heatmap_contourf_colorbar": "86caca9ec891b364c8eae2e928c0741627d96547cf865b6bd0ac99f7e8274297",
  "golden:heatmap_contourf_raw_colorbar": "bd33bc792f023062e168848d52735dabea70d09598042f50c58a9e9da0fa062d",
+ "golden:heatmap_contourf_own_band_sub": "33c4682e3469e7943c2b704829b38a2f46cf4eae26c02064a31a0984eab60ca9",
  "golden:heatmap_function": "3b0f2c70f0b46b336caf7385bfd78146c2f15eb1d2731445ed149d1b26cfdaed",
  "golden:heatmap_function_field_options": "3f6a3cbdac23f116d0d76b1867c00cafd76b8071f27cf84062e439b7e7984725",
  "golden:heatmap_imshow_colorbar": "d42adf3c09ff24c0fbb7fe9bab6c5bf4785a347c808b79b288d8d30fcd94470e",
