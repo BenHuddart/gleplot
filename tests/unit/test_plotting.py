@@ -419,14 +419,17 @@ class TestBarCharts:
         assert script.count("lwidth") == 3
 
     def test_a_bar_has_an_edge_only_when_one_is_asked_for(self):
-        """matplotlib's bars have no edge, and a zero-width edge is none."""
+        """matplotlib's bars have no edge unless edgecolor is given, whatever
+        linewidth and linestyle say, and a zero-width edge is none."""
         self.ax.bar([1, 2], [3, 4], color="y")
         self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linewidth=0)
         self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k")
         self.ax.bar([1, 2], [3, 4], color="y", linewidth=2)
         self.ax.bar([1, 2], [3, 4], color="y", linestyle="--")
+        self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linewidth=2)
+        self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linestyle="--")
         with pytest.warns(UserWarning, match="the edge stays solid"):
-            self.ax.bar([1, 2], [3, 4], color="y", linestyle="steps")
+            self.ax.bar([1, 2], [3, 4], color="y", edgecolor="k", linestyle="steps")
         bars = [
             line.strip()
             for line in self.fig._generate_gle().splitlines()
@@ -436,9 +439,11 @@ class TestBarCharts:
             "bar d1 fill YELLOW color YELLOW lwidth 0",
             "bar d2 fill YELLOW color YELLOW lwidth 0",
             "bar d3 fill YELLOW color BLACK",
-            "bar d4 fill YELLOW lwidth 0.07056",
-            "bar d5 fill YELLOW lstyle 3",
-            "bar d6 fill YELLOW",
+            "bar d4 fill YELLOW color YELLOW lwidth 0",
+            "bar d5 fill YELLOW color YELLOW lwidth 0",
+            "bar d6 fill YELLOW color BLACK lwidth 0.07056",
+            "bar d7 fill YELLOW color BLACK lstyle 3",
+            "bar d8 fill YELLOW color BLACK",
         ]
         assert [bar.get("edgecolor") for bar in self.ax.bars[:2]] == ["none"] * 2
         assert "linewidth" not in self.ax.bars[1]

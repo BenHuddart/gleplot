@@ -164,6 +164,19 @@ def bar_none_face():
     return fig
 
 
+def bar_edge_needs_edgecolor():
+    """``linewidth`` / ``linestyle`` with no ``edgecolor`` draw no edge, and
+    an RGBA colour with zero alpha is ``'none'``, as a face and an edge."""
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    ax.bar([1, 2, 3], [2, 3, 1], color="yellow", linewidth=2, label="lw")
+    ax.barh([1, 2], [3, 4], color="teal", linestyle="--")
+    ax.bar([5, 6], [1, 2], color=(0, 0, 0, 0), edgecolor="k")
+    ax.bar([5, 6], [1, 1], bottom=[1, 2], color="red", edgecolor=(1, 0, 0, 0))
+    ax.legend()
+    return fig
+
+
 def barh():
     fig = glp.figure(data_prefix="golden")
     ax = fig.add_subplot(111)
@@ -2207,6 +2220,7 @@ BUILDERS = [
     bar_hatch,
     bar_no_edge,
     bar_none_face,
+    bar_edge_needs_edgecolor,
     barh,
     bar_yerr,
     barh_xerr,
