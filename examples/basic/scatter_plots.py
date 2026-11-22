@@ -42,5 +42,36 @@ def example_scatter_plot():
     print("  ✓ Saved to example_scatter_plot.gle")
 
 
+def example_scatter_colormap():
+    """Scatter with ``c=`` one number per point: each marker takes its colour
+    from the colormap. Each point's value goes to GLE as marker data
+    (``mdata``), which a marker sub turns into a colour. The colorbar beside
+    it shows the scale, as for a heatmap.
+    """
+    print("Creating example: Colour-mapped scatter...")
+
+    fig = glp.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111)
+
+    rng = np.random.default_rng(7)
+    n = 80
+    x = rng.uniform(0, 10, n)
+    y = rng.uniform(0, 10, n)
+    distance = np.hypot(x - 5, y - 5)
+
+    ax.scatter(x, y, s=60, c=distance, cmap="plasma", vmin=0, vmax=7)
+    fig.colorbar(ax=ax, label="Distance from centre", nticks=7)
+
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 10)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title("Colour-mapped Scatter")
+
+    fig.savefig("example_scatter_colormap.gle")
+    print("  ✓ Saved to example_scatter_colormap.gle")
+
+
 if __name__ == "__main__":
     example_scatter_plot()
+    example_scatter_colormap()
