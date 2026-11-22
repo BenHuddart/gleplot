@@ -6208,7 +6208,11 @@ class GLEWriter:
         the range is therefore written as ``(zmax-(zmin))/n``, from the same
         printed numbers GLE reads as ``zmin`` and ``zmax``, and every step is
         scaled by :data:`COLORBAR_STEP_SCALE`, which keeps the last tick (the
-        shift is far below a printed digit). A collapsed range is widened to
+        shift is far below a printed digit). The scaled step leaves a tick at
+        zero a hair below it, which ``format$`` prints as ``-0.0``, so when
+        the ticks reach zero from below, ``zmin`` and ``zmax`` are both
+        raised by the same far smaller amount (:meth:`_colorbar_range`):
+        the bar and its tick positions stay put. A collapsed range is widened to
         one unit, as the routine divides by its span. 200 colour steps make
         the bar a smooth scale.
 
@@ -6244,8 +6248,9 @@ class GLEWriter:
         else:
             cmap = _pal.colorbar_cmap(series["cmap"], series.get("invert", False))
             palette = _pal.palette_call_name(cmap)
+        lo, hi = self._colorbar_range(zmin, zmax, zstep)
         lines.append(
-            f"{routine} zmin {fmt(zmin)} zmax {fmt(zmax)} "
+            f"{routine} zmin {lo} zmax {hi} "
             f"zstep {self._colorbar_step(zmin, zmax, zstep)} "
             f'palette "{palette}" {size} '
             f'format "{number_format}" pixels 200'
@@ -6292,6 +6297,24 @@ class GLEWriter:
             text,
             "end rotate",
         ]
+
+    @classmethod
+    def _colorbar_range(cls, zmin: float, zmax: float, zstep: float) -> Tuple[str, str]:
+        """A colorbar's ``zmin`` and ``zmax`` arguments (see :meth:`add_colorbar`).
+
+        When a tick falls on zero after a negative ``zmin``, both are written
+        ``+c`` with ``c`` twice the step's total shift: the zero tick then
+        lands above zero and the last tick stays below the raised ``zmax``.
+        """
+        fmt = cls._format_number
+        lo, hi = fmt(zmin), fmt(zmax)
+        if zstep <= 0 or not zmin < 0 <= zmax:
+            return lo, hi
+        zero = -zmin / zstep
+        if abs(zero - round(zero)) <= 1e-6 * max(zero, 1.0):
+            shift = 2 * (zmax - zmin) * (1 - float(COLORBAR_STEP_SCALE))
+            return f"{lo}+{shift:.2g}", f"{hi}+{shift:.2g}"
+        return lo, hi
 
     @classmethod
     def _colorbar_step(cls, zmin: float, zmax: float, zstep: float) -> str:
