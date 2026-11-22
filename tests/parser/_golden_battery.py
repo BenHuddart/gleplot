@@ -15,7 +15,7 @@ import numpy as np
 
 import gleplot as glp
 from gleplot.series import FileSeries
-from gleplot.writer import POLAR_SUBS
+from gleplot.writer import POLAR_SUBS, contourf_sub_text
 
 
 def single_line():
@@ -1122,6 +1122,24 @@ def heatmap_contourf_raw_colorbar():
         "amove xg(xgmax)+1.5 yg(ygmax)",
         'write "z"',
         "grestore",
+    ]
+    return fig
+
+
+def heatmap_contourf_own_band_sub():
+    """A contourf beside a colormap whose band sub's body was edited.
+
+    ``open_gle`` keeps an edited band sub and the colormap that calls it as
+    raw GLE; the contourf gleplot writes takes the next sub name.
+    """
+    fig = glp.figure(data_prefix="golden")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 4, 41)
+    cf = ax.contourf(x, x, np.add.outer(x, x), [0, 2, 4, 6, 8])
+    own = contourf_sub_text("glp_contourf1", cf)
+    fig.passthrough_header = own.replace("rgb(1, 1, 1)", "rgb(0, 0, 0)").split("\n")
+    ax.passthrough = [
+        'colormap "golden_heatmap1.z" 200 200 zmin 0 zmax 1 palette glp_contourf1'
     ]
     return fig
 
@@ -2315,6 +2333,7 @@ BUILDERS = [
     heatmap_contourf_smooth,
     heatmap_contourf_colorbar,
     heatmap_contourf_raw_colorbar,
+    heatmap_contourf_own_band_sub,
     heatmap_function,
     heatmap_function_field_options,
     contour_grid_levels_clabel,

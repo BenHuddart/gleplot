@@ -299,11 +299,18 @@ def _contourf_file(tmp_path, comment, marker, options=""):
 
 
 def test_contourf_without_its_marker_takes_its_edges_from_the_header(tmp_path):
-    rec = _contourf_file(
-        tmp_path, "! gleplot: contourf cmap viridis extend neither levels 0 1 2", ""
-    )
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 1, 31)
+    ax.contourf(x, x, np.add.outer(x, x), [0.2, 0.7, 1.3])
+    path = _save(fig, tmp_path)
+    grid = tmp_path / "g_heatmap1.z"
+    lines = grid.read_text(encoding="utf-8").splitlines(keepends=True)
+    assert lines[1].startswith("! gleplot: nodes ")
+    grid.write_text("".join(lines[:1] + lines[2:]), encoding="utf-8")
+    rec = parse_gle_figure(path)
     hm = rec.figure.axes_list[0].heatmaps[0]
-    assert hm["extent"] == [0.0, 1.0, 0.0, 1.0]
+    assert hm["extent"] == pytest.approx([0.0, 1.0, 0.0, 1.0])
     assert any("no marker line giving its edges" in w for w in rec.warnings)
 
 
@@ -1110,4 +1117,29 @@ def test_a_band_sub_kept_raw_keeps_its_name(tmp_path):
     ]
     assert again.count("palette glp_contourf1") == 1
     assert again.count("palette glp_contourf2") == 1
+    assert _resave(tmp_path, again) == again
+
+
+def test_an_edited_band_sub_is_kept_with_its_colormap(tmp_path):
+    """#551: a band sub whose body was edited is not regenerated over."""
+    fig = glp.figure(data_prefix="g")
+    ax = fig.add_subplot(111)
+    x = np.linspace(0, 1, 31)
+    ax.contourf(x, x, np.add.outer(x, x), [0.2, 0.7, 1.3])
+    path = _save(fig, tmp_path)
+    old = "   if z < 0.2 then return rgb(1, 1, 1)"
+    text = path.read_text(encoding="utf-8")
+    assert old in text.splitlines()
+    text = text.replace(old, "   if z < 0.2 then return rgb(0, 0, 0)")
+    path.write_text(text, encoding="utf-8")
+    rec = parse_gle_figure(path)
+    ax = rec.figure.axes_list[0]
+    assert not ax.heatmaps
+    assert any("palette glp_contourf1" in line for line in ax.passthrough)
+    assert any(
+        "'glp_contourf1' is not the sub gleplot writes" in w for w in rec.warnings
+    )
+    again = rec.figure._generate_gle_with_files()[0]
+    assert "   if z < 0.2 then return rgb(0, 0, 0)" in again.splitlines()
+    assert again.count("sub glp_contourf1 z") == 1
     assert _resave(tmp_path, again) == again

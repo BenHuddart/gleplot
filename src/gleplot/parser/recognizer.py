@@ -369,6 +369,7 @@ from ..writer import (
     KeyOptions,
     _format_data_filename,
     cdata_sub_text,
+    contourf_sub_text,
     image_sub_name,
     legend_column_breaks,
     legend_corner,
@@ -9864,8 +9865,10 @@ class _Recognizer:
 
         A ``colormap`` naming a ``glp_contourf<k>`` palette that
         :meth:`_contourf_colormap_ok` rejects is kept as raw GLE (as an
-        unknown palette), so the sub it calls must be kept too. Returns the
-        name of the band sub the colormap is read with, if it is.
+        unknown palette), so the sub it calls must be kept too, and so is one
+        whose sub is not the text gleplot writes for the series read (its
+        body was edited). Returns the name of the band sub the colormap is
+        read with, if it is.
         """
         words = [t.value.lower() for t in toks]
         if "palette" not in words[:-1]:
@@ -9874,9 +9877,45 @@ class _Recognizer:
         if name not in self._contourf_subs:
             return None
         if self._contourf_colormap_ok(toks):
-            return name
+            if self._contourf_sub_as_written(name, toks):
+                return name
+            span = self._contourf_sub_spans[name]
+            self._note(
+                ImportCategory.STRUCTURE,
+                f"'{name}' is not the sub gleplot writes (its body was "
+                "edited), so it and the colormap that calls it were kept as "
+                "raw GLE",
+                (min(span), max(span)),
+            )
         self._drop_contourf_sub(name)
         return None
+
+    def _contourf_sub_as_written(self, name: str, toks) -> bool:
+        """Whether the band sub ``name`` is the text gleplot writes for it.
+
+        That is :func:`gleplot.writer.contourf_sub_text` for the series the
+        ``colormap`` ``toks`` (passed by :meth:`_contourf_colormap_ok`) and
+        the sub's comment line read as.
+        """
+        fields = self._contourf_fields(self._contourf_subs[name])
+        zfile, idx = self._read_filename(toks, 1)
+        grid = self._read_z_grid(zfile)
+        if fields is None or grid is None:  # checked by _contourf_colormap_ok
+            return False
+        series: Dict[str, Any] = {
+            "vmin": None,
+            "vmax": None,
+            **fields,
+            "z": grid[0],
+            "pixels": [int(_num(t) or 0) for t in toks[idx : idx + 2]],
+        }
+        rescale = self._contourf_rescales.get(name)
+        if rescale is not None:
+            series["_bar_range"] = list(rescale)
+        span = self._contourf_sub_spans[name]
+        body = self.text.splitlines()[min(span) - 1 : max(span)]
+        text = "\n".join(line.rstrip() for line in body)
+        return text == contourf_sub_text(name, series)
 
     def _drop_contourf_sub(self, name: str) -> None:
         """Keep the band sub ``name`` as raw GLE: no contourf is read with it."""

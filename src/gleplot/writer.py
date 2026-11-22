@@ -948,6 +948,51 @@ def contourf_bands_fit(series: Mapping[str, Any]) -> bool:
     return bool(np.all(near))
 
 
+def contourf_sub_text(name: str, series: Mapping[str, Any]) -> str:
+    """The band sub ``name`` that colours the ``contourf`` heatmap ``series``.
+
+    See :meth:`GLEWriter.add_contourf_sub`; the recognizer reads a band sub
+    back only when it is this text exactly.
+    """
+    fmt = GLEWriter._format_number
+    cmap = series["cmap"]
+    extend = series["extend"]
+    levels = [fmt(v) for v in series["levels"]]
+    head = f"{CONTOURF_MARKER} cmap {cmap} extend {extend}"
+    for key in ("vmin", "vmax"):
+        if series[key] is not None:
+            head += f" {key} {fmt(series[key])}"
+    head += " levels " + " ".join(levels)
+    lv = [float(v) for v in levels]
+    lo = lv[0] if series["vmin"] is None else float(fmt(series["vmin"]))
+    hi = lv[-1] if series["vmax"] is None else float(fmt(series["vmax"]))
+    call = _pal.palette_sub_name(cmap)
+    white = "rgb(1, 1, 1)"
+    under = f"{call}(0)" if extend in ("min", "both") else white
+    over = f"{call}(1)" if extend in ("max", "both") else white
+    lines = [f"sub {name} z", f"   {head}"]
+    bar = _contourf_bar_range(series)
+    if bar:
+        lines.append(f"   z = {fmt(bar[0])}*(1-z)+{fmt(bar[1])}*z")
+    lines += [
+        f"   if z < {levels[0]} then return {under}",
+        f"   if z > {levels[-1]} then return {over}",
+    ]
+    if contourf_bands_fit(series):
+        tone = [
+            fmt(min(max(((a + b) / 2 - lo) / (hi - lo), 0.0), 1.0))
+            for a, b in zip(lv, lv[1:])
+        ]
+        lines.append(f"   local t = {tone[0]}")
+        for level, t in zip(levels[1:-1], tone[1:]):
+            lines.append(f"   if z > {level} then t = {t}")
+        lines.append(f"   return {call}(t)")
+    else:
+        lines.append(f"   return {call}((z-({fmt(lo)}))/{fmt(hi - lo)})")
+    lines.append("end sub")
+    return "\n".join(lines)
+
+
 def auto_extent(series: Mapping[str, Any]) -> Optional[List[float]]:
     """The ``(xmin, xmax, ymin, ymax)`` a resolved grid series' arrays imply.
 
@@ -6080,7 +6125,6 @@ class GLEWriter:
         as written, which is what the recognizer reads back. The sub goes
         before the graph that calls it: GLE finds a sub wherever it is.
         """
-        fmt = self._format_number
         taken = self._reserved_subs | set(self._contourf_subs.values())
         name = next(
             f"glp_contourf{k}"
@@ -6088,42 +6132,7 @@ class GLEWriter:
             if f"glp_contourf{k}" not in taken
         )
         self._contourf_subs[series["data_file"]] = name
-        cmap = series["cmap"]
-        extend = series["extend"]
-        levels = [fmt(v) for v in series["levels"]]
-        head = f"{CONTOURF_MARKER} cmap {cmap} extend {extend}"
-        for key in ("vmin", "vmax"):
-            if series[key] is not None:
-                head += f" {key} {fmt(series[key])}"
-        head += " levels " + " ".join(levels)
-        lv = [float(v) for v in levels]
-        lo = lv[0] if series["vmin"] is None else float(fmt(series["vmin"]))
-        hi = lv[-1] if series["vmax"] is None else float(fmt(series["vmax"]))
-        call = _pal.palette_sub_name(cmap)
-        white = "rgb(1, 1, 1)"
-        under = f"{call}(0)" if extend in ("min", "both") else white
-        over = f"{call}(1)" if extend in ("max", "both") else white
-        lines = [f"sub {name} z", f"   {head}"]
-        bar = _contourf_bar_range(series)
-        if bar:
-            lines.append(f"   z = {fmt(bar[0])}*(1-z)+{fmt(bar[1])}*z")
-        lines += [
-            f"   if z < {levels[0]} then return {under}",
-            f"   if z > {levels[-1]} then return {over}",
-        ]
-        if contourf_bands_fit(series):
-            tone = [
-                fmt(min(max(((a + b) / 2 - lo) / (hi - lo), 0.0), 1.0))
-                for a, b in zip(lv, lv[1:])
-            ]
-            lines.append(f"   local t = {tone[0]}")
-            for level, t in zip(levels[1:-1], tone[1:]):
-                lines.append(f"   if z > {level} then t = {t}")
-            lines.append(f"   return {call}(t)")
-        else:
-            lines.append(f"   return {call}((z-({fmt(lo)}))/{fmt(hi - lo)})")
-        lines.append("end sub")
-        self.lines_gle.extend(lines)
+        self.lines_gle.extend(contourf_sub_text(name, series).split("\n"))
         self.lines_gle.append("")
 
     def add_heatmap(self, series: Series):
