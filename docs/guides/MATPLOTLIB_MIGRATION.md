@@ -414,7 +414,7 @@ caps and round joins.
 
 ## Bars
 
-`ax.bar(x, height)` emits `bar dN fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0`: the first colour of the axes' patch cycle (see [Default colours](#default-colours)), and no edge (see below). One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. A single colour, including the same colour repeated, stays one command.
+`ax.bar(x, height)` emits `bar dN fill rgb255(31,119,180) color rgb255(31,119,180) lwidth 0`: the first colour of the axes' patch cycle (see [Default colours](#default-colours)), and no edge (see below). One GLE dataset has one face and one edge. A colour sequence therefore becomes one `bar` command per bar, and each of those carries an explicit width, because a one-point dataset has no gap for GLE to measure. GLE's `width` is one per dataset too, so a `width` sequence with differing values splits the call the same way. A single colour or width, including the same one repeated, stays one command.
 
 `edgecolor`, `linewidth` and `linestyle` are the stroke: `color`, `lwidth` and `lstyle`. As in matplotlib, a bar has no edge unless `edgecolor` is given: `linewidth` and `linestyle` style that edge and draw none of their own. GLE strokes every bar, and `lwidth 0` alone is a black hairline, so a bar with no edge is stroked with that hairline in the colour under the edge (`color C lwidth 0`): the fill, or the face of a hatched bar. That is a bar given no `edgecolor`, and one given `edgecolor='none'`, `linestyle='none'` or `linewidth=0`. A hatched bar with `color='none'` has no face to match, and its outline is drawn in the hatch ink. `color='none'` is GLE's `CLEAR` fill. With no edge it is drawn as a black outline, since GLE strokes every bar, and that warns. An RGBA colour with zero alpha, such as `(0, 0, 0, 0)`, is `'none'` here, as a face and as an edge. It is `'none'` too for `hist`, `markerfacecolor`, `set_facecolor` and the `fill` and `color` of a figure drawing such as `Figure.circle`. `bottom` stacks the bar from that baseline to `bottom + height`, written `bar dTo from dFrom`. A zero baseline is not written. `ax.barh(y, width)` emits `horiz`. Its thickness is `height` and defaults to GLE's own derivation, not matplotlib's `0.8`. `align='edge'` warns and is drawn centered.
 
@@ -432,12 +432,13 @@ Two matplotlib calls with shifted x are two commands. GLE's side-by-side group `
 |---|---|
 | `ax.bar(x, h, color='green', edgecolor='k')` | `bar dN fill GREEN color BLACK` |
 | `ax.bar(x, h, color=['red', 'blue'])` | one `bar` per bar, explicit `width` |
+| `ax.bar(x, h, [0.4, 0.8])` | one `bar` per bar, `width 0.4`, `width 0.8` |
 | `ax.bar(x, h2, bottom=h1)` | `bar dTo from dFrom` |
 | `ax.bar(x, h, yerr=e, capsize=3)` | `bar dN`, then `dM color BLACK err dE errwidth …` at the tip |
 | `ax.barh(y, w, xerr=e)` | `bar dN horiz`, then `herr` at `(left + w, y)` |
 | `ax.barh(y, w)` | `bar dN horiz` |
 
-`bar` and `barh` take matplotlib's positional order, `bar(x, height, width, bottom)` and `barh(y, width, height, left)`, and everything else is a keyword. A colour or a string in the third or fourth place raises `TypeError`; pass it as `color=` or `label=`. `width` (and `barh`'s `height`) is one number for every bar; a sequence raises `TypeError`.
+`bar` and `barh` take matplotlib's positional order, `bar(x, height, width, bottom)` and `barh(y, width, height, left)`, and everything else is a keyword. A colour or a string in the third or fourth place raises `TypeError`; pass it as `color=` or `label=`. `width` (and `barh`'s `height`) is one number, or one per bar; as in matplotlib, a sequence of one broadcasts and any other length that does not match the bars raises `ValueError`.
 
 ## Not provided
 
