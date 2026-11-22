@@ -1147,6 +1147,34 @@ def _page_state_value(field: str, tok: Token) -> Any:
     return value
 
 
+def _font_hei_options(toks: List[Token]) -> Optional[Dict[str, Any]]:
+    """Read a ``set`` line made only of ``font NAME`` and ``hei VALUE``.
+
+    GLE accepts several options on one ``set`` line (``set font texcmr hei
+    0.45``). Returns ``{"font": name, "hei": value}`` (either may be absent),
+    or None when the line sets anything else, repeats an option, or has a
+    value that is not a plain number: such a line is kept raw, whole.
+    """
+    out: Dict[str, Any] = {}
+    i = 1
+    while i < len(toks):
+        sub = toks[i].value.lower()
+        if sub in out or i + 1 >= len(toks):
+            return None
+        if sub == "font":
+            out["font"] = toks[i + 1].value
+            i += 2
+        elif sub == "hei":
+            hei, nxt = _collect_value(toks, i + 1)
+            if hei is None:
+                return None
+            out["hei"] = hei
+            i = nxt
+        else:
+            return None
+    return out or None
+
+
 def _collect_values(toks: List[Token], start: int) -> List[float]:
     """Collect every numeric value from ``start`` to the end of ``toks``.
 
@@ -2946,9 +2974,7 @@ class _Recognizer:
         will_see_hei = any(
             isinstance(node, Statement)
             and node.keyword == "set"
-            and len(_words_and_values(node)) >= 3
-            and _words_and_values(node)[1].value.lower() == "hei"
-            and _collect_value(_words_and_values(node), 2)[0] is not None
+            and "hei" in (_font_hei_options(_words_and_values(node)) or {})
             for node in pre_nodes
         )
 
@@ -3039,18 +3065,20 @@ class _Recognizer:
                         continue
                 if kw == "set" and len(toks) >= 2:
                     sub = toks[1].value.lower()
-                    if sub == "font" and len(toks) >= 3 and not font_seen:
-                        font = toks[2].value
-                        started = True
-                        font_seen = True
-                        continue
-                    if sub == "hei" and len(toks) >= 3 and not hei_seen:
-                        hei, _ = _collect_value(toks, 2)
-                        if hei is not None:
-                            fontsize = fontsize_cm_to_pt(hei)
-                            started = True
+                    opts = _font_hei_options(toks)
+                    if (
+                        opts is not None
+                        and not (font_seen and "font" in opts)
+                        and not (hei_seen and "hei" in opts)
+                    ):
+                        if "font" in opts:
+                            font = opts["font"]
+                            font_seen = True
+                        if "hei" in opts:
+                            fontsize = fontsize_cm_to_pt(opts["hei"])
                             hei_seen = True
-                            continue
+                        started = True
+                        continue
                     field = _PAGE_STATE_FIELDS.get(sub)
                     # Exactly three tokens: a trailing comment would be lost.
                     if (
